@@ -1,0 +1,12 @@
+{
+  "license": "MIT",
+  "scripts": {
+    "prettier": "prettier --write '{src,test,script}/**/*.sol'",
+    "dotfiles": "git ls-tree -r HEAD | grep 120000 || { echo \"none\"; } || awk '{print $4}' | xargs ls -l",
+    "dotfiles:bad": "yarn dotfiles | grep ' -> /'"
+  },
+  "dependencies": {
+    "prettier": "^3.3.3",
+    "prettier-plugin-solidity": "^1.4.1"
+  }
+}

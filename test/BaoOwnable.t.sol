@@ -5,16 +5,19 @@ import { Test } from "forge-std/Test.sol";
 import { console2 } from "forge-std/console2.sol";
 import { Vm } from "forge-std/Vm.sol";
 
+// import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+
 import { BaoOwnableRoles } from "src/BaoOwnableRoles.sol";
 
-contract MockBaoOwnableRoles is BaoOwnableRoles  {
+contract MockBaoOwnableRoles is BaoOwnableRoles, Initializable {
     // TODO: make these pure virtual functions
     uint256 public constant ANOTHER_ROLE = _ROLE_0;
     uint256 public constant ANOTHER_ROLE_ADMIN_ROLE = _ROLE_1;
     uint256 public constant ANOTHER_ROLE2 = _ROLE_2;
 
     function initialize(address owner) external initializer {
-        _initializeOwnert(owner);
+        _initializeOwner(owner);
         //__UUPSUpgradeable_init();
         //__ERC165_init();
     }
@@ -38,3 +41,5 @@ contract MockBaoOwnableRoles is BaoOwnableRoles  {
     function grantForMulti() public {}
 */
 }
+
+contract TestOwnable is Test {}
