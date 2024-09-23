@@ -7,3 +7,6 @@
 [submodule "lib/solady"]
 	path = lib/solady
 	url = https://github.com/vectorized/solady
+[submodule "lib/dotfiles"]
+	path = lib/dotfiles
+	url = https://github.com/baofinance/dotfiles
