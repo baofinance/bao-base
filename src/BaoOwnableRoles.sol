@@ -1,20 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-// TODO: incorporate OZ UUPSUpgradeable
-
 import { Ownable, OwnableRoles } from "@solady/auth/OwnableRoles.sol";
-import { BaoOwnable } from "src/BaoOwnable.sol";
+import { OwnableOverrides } from "./OwnableOverrides.sol";
 
-/// @dev this is a thin layer over Ownable changing some defaults
-abstract contract BaoOwnableRoles is BaoOwnable, OwnableRoles {
-    /// @dev extra check for zero address
-    function _initializeOwner(address newOwner) internal override(BaoOwnable, Ownable) {
-        BaoOwnable._initializeOwner(newOwner);
+/// @dev this is a thin layer over OwnableRoles changing some defaults
+/// The function overrides should be identicle to BaoOwnable
+abstract contract BaoOwnableRoles is OwnableRoles, OwnableOverrides {
+    /// @inheritdoc OwnableOverrides
+    function _initializeOwner(address newOwner) internal virtual override(Ownable, OwnableOverrides) {
+        OwnableOverrides._initializeOwner(newOwner);
     }
 
     /// @notice prevent solady's Ownable re-initializing
-    function _guardInitializeOwner() internal pure override(BaoOwnable, Ownable) returns (bool guard) {
-        guard = BaoOwnable._guardInitializeOwner();
+    function _guardInitializeOwner() internal pure virtual override(Ownable, OwnableOverrides) returns (bool guard) {
+        return OwnableOverrides._guardInitializeOwner();
     }
 }
