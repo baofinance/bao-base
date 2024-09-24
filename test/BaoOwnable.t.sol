@@ -5,22 +5,18 @@ import { Test } from "forge-std/Test.sol";
 import { console2 } from "forge-std/console2.sol";
 import { Vm } from "forge-std/Vm.sol";
 
-// import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import { BaoOwnableRoles } from "src/BaoOwnableRoles.sol";
+import { BaoOwnable, Ownable } from "src/BaoOwnable.sol";
 
-contract MockBaoOwnableRoles is BaoOwnableRoles, Initializable {
-    // TODO: make these pure virtual functions
-    uint256 public constant ANOTHER_ROLE = _ROLE_0;
-    uint256 public constant ANOTHER_ROLE_ADMIN_ROLE = _ROLE_1;
-    uint256 public constant ANOTHER_ROLE2 = _ROLE_2;
-
+contract MockBaoOwnable is BaoOwnable, Initializable {
     function initialize(address owner) external initializer {
         _initializeOwner(owner);
         //__UUPSUpgradeable_init();
         //__ERC165_init();
     }
+
+    function onlyOwnerFunction() public onlyOwner {}
 
     /*
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
@@ -28,18 +24,44 @@ contract MockBaoOwnableRoles is BaoOwnableRoles, Initializable {
     constructor() {
         _disableInitializers();
     }
-
-    /// @notice The check that allow this contract to be upgraded:
-    /// only DEFAULT_ADMIN_ROLE grantees, of which there can only be one, can upgrade this contract.
-    function _authorizeUpgrade(address) internal virtual override onlyRole(DEFAULT_ADMIN_ROLE) {}
-    */
-    /*
-    function onlyDefault() public {}
-
-    function onlyRole() public {}
-
-    function grantForMulti() public {}
 */
 }
 
-contract TestOwnable is Test {}
+contract TestOwnable is Test {
+    MockBaoOwnable ownable;
+
+    function setUp() public {
+        ownable = new MockBaoOwnable();
+    }
+
+    function testUninitialised() public {
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        ownable.onlyOwnerFunction();
+    }
+
+    function testBadInitialise() public {
+        vm.expectRevert(Ownable.NewOwnerIsZeroAddress.selector);
+        ownable.initialize(address(0));
+    }
+
+    function testInitialised() public {
+        Vm.Wallet memory owner = vm.createWallet("owner");
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        ownable.onlyOwnerFunction();
+
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        vm.prank(owner.addr);
+        ownable.onlyOwnerFunction();
+
+        assertEq(ownable.owner(), address(0), "owner unset until initialisation");
+
+        ownable.initialize(owner.addr);
+        assertEq(ownable.owner(), owner.addr, "owner set on initialisation");
+        vm.prank(owner.addr);
+        ownable.onlyOwnerFunction();
+
+        Vm.Wallet memory owner2 = vm.createWallet("owner2");
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        ownable.initialize(owner2.addr);
+    }
+}

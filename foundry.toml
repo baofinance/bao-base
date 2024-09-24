@@ -2,5 +2,8 @@
 src = "src"
 out = "out"
 libs = ["lib"]
+solc_version = "0.8.26"
+auto_detect_remappings = false # remappings seem to cause problems
+evm_version = "Cancun"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

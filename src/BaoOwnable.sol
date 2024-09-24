@@ -3,9 +3,6 @@ pragma solidity 0.8.26;
 
 // TODO: incorporate OZ UUPSUpgradeable
 
-import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-
 import { Ownable } from "@solady/auth/Ownable.sol";
 
 /// @dev this is a thin layer over Ownable changing some defaults

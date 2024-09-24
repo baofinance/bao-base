@@ -1,11 +1,17 @@
 {
+  "name": "baobase",
   "license": "MIT",
   "scripts": {
-    "prettier": "prettier --write '{src,test,script}/**/*.sol'",
-    "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'"
+    "fmt": "prettier --log-level warn --ignore-path .gitignore '{src,test,script}/**/*.sol' --write",
+    "lint": "solhint 'src/**/*.sol' --disc",
+    "test": "forge test -vvv",
+    "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'",
+    "pre-checkin": "yarn fmt && yarn lint; yarn test"
   },
   "dependencies": {
     "prettier": "^3.3.3",
-    "prettier-plugin-solidity": "^1.4.1"
-  }
+    "prettier-plugin-solidity": "^1.4.1",
+    "solhint": "^5.0.3"
+  },
+  "packageManager": "yarn@4.5.0"
 }
