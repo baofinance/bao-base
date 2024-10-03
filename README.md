@@ -10,6 +10,11 @@ Install this project using
 $ forge install baofinance\baobase
 ```
 
+add this to `remappings.txt`
+
+    @bao/=lib/baobase/src/
+
+
 # Development
 
 ## Foundry
@@ -29,52 +34,20 @@ https://book.getfoundry.sh/
 
 ## Usage
 
-### Build
-
 ```shell
-$ forge build
+$ yarn build
 ```
 
-### Test
-
 ```shell
-$ forge test
+$ yarn test
 ```
 
-### Format
-
 ```shell
-$ forge fmt
+$ yarn fmt
 ```
 
-### Gas Snapshots
-
 ```shell
-$ forge snapshot
+$ yarn gas
 ```
 
-### Anvil
-
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
 ```
