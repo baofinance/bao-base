@@ -5,7 +5,7 @@ pragma solidity 0.8.26;
 import { IERC5313 } from "@openzeppelin/contracts/interfaces/IERC5313.sol";
 
 /// @notice Simple single owner authorization mixin.
-/// @author Solady (https://github.com/vectorized/solady/blob/main/src/auth/Ownable.sol)
+/// @author interface from Solady (https://github.com/vectorized/solady/blob/main/src/auth/Ownable.sol)
 ///
 /// @dev Note:
 /// This implementation does NOT auto-initialize the owner to `msg.sender`.
