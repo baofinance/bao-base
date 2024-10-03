@@ -15,11 +15,11 @@ import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
 
-import { IOwnable } from "src/interfaces/IOwnableRoles.sol";
+import { IOwnable } from "@bao/interfaces/IOwnableRoles.sol";
 import { Token } from "@bao/Token.sol";
 import { TokenHolder } from "@bao/TokenHolder.sol";
 
-import { deployed } from "test/deployed.sol";
+import { deployed } from "@bao/deployed.sol";
 
 contract DerivedTokenHolder is Initializable, TokenHolder {
     function initialize(address owner) public initializer {
