@@ -8,6 +8,7 @@ remappings = [ # "remappings.txt"
    "@solady/=lib/solady/src/",
    "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
    "solidity-stringutils/=lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils/",
+   "@bao/=src/",
    "src/=src/",
    "test/=test/",
 ]

@@ -2,8 +2,8 @@
   "name": "baobase",
   "license": "MIT",
   "scripts": {
-    "fmt": "prettier --log-level warn --ignore-path .gitignore '{src,test,script}/**/*.sol' --write",
-    "lint": "solhint 'src/**/*.sol' --disc",
+    "fmt": "prettier --log-level warn --ignore-path .gitignore '{src,test,interfaces,script}/**/*.sol' --write",
+    "lint": "solhint '{src,interfaces,test}/**/*.sol' --disc",
     "test": "forge test -vvv",
     "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'",
     "pre-checkin": "yarn fmt && yarn lint; yarn test"
