@@ -10,3 +10,6 @@
 [submodule "lib/dotfiles"]
 	path = lib/dotfiles
 	url = https://github.com/baofinance/dotfiles
+[submodule "lib/openzeppelin-foundry-upgrades"]
+	path = lib/openzeppelin-foundry-upgrades
+	url = https://github.com/OpenZeppelin/openzeppelin-foundry-upgrades
