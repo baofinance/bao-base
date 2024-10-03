@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-library deployed {
+// solhint-disable const-name-snakecase
+
+library Deployed {
     address internal constant BAOMULTISIG = 0xFC69e0a5823E2AfCBEb8a35d33588360F1496a00;
 
     address public constant wstETH = 0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0;
@@ -10,7 +12,7 @@ library deployed {
 
     address public constant PriceOracle_wstETHUSD = 0x97541208c6C8ecfbe57B8A44ba86f2A88bA783e2;
 }
-
+/*
 library deployedSepolia {
     // block number that all the below work for
     uint256 public constant blockNumber = 6561420;
@@ -41,3 +43,4 @@ library deployedSepolia {
     address public constant MAGIC = 0x013Cb2854daAD8203C6686682f5d876e5D3de4a2;
     address public constant USDC = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
 }
+*/

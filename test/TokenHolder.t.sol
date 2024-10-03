@@ -19,7 +19,7 @@ import { IOwnable } from "@bao/interfaces/IOwnableRoles.sol";
 import { Token } from "@bao/Token.sol";
 import { TokenHolder } from "@bao/TokenHolder.sol";
 
-import { deployed } from "@bao/deployed.sol";
+import { Deployed } from "@bao/Deployed.sol";
 
 contract DerivedTokenHolder is Initializable, TokenHolder {
     function initialize(address owner) public initializer {
@@ -29,8 +29,8 @@ contract DerivedTokenHolder is Initializable, TokenHolder {
 
 contract Test_TokenHolder is Test {
     using SafeERC20 for IERC20;
-    address token1 = deployed.BaoUSD;
-    address token2 = deployed.wstETH;
+    address token1 = Deployed.BaoUSD;
+    address token2 = Deployed.wstETH;
     address tokenNotERC20 = vm.createWallet("tokenNotERC20").addr; // not an ERC20 token
 
     address bonusReceiver;
@@ -81,7 +81,7 @@ contract Test_TokenHolder is Test {
 
             // when none
             // BaoUSD is one minimalist token!
-            if (tokens[i] == deployed.BaoUSD) vm.expectRevert("SafeMath: subtraction underflow");
+            if (tokens[i] == Deployed.BaoUSD) vm.expectRevert("SafeMath: subtraction underflow");
             else vm.expectRevert("ERC20: transfer amount exceeds balance");
             vm.prank(owner);
             tokenOwner.sweep(tokens[i], 1 ether, bonusReceiver);
@@ -103,7 +103,7 @@ contract Test_TokenHolder is Test {
             assertEq(_balanceOf(tokens[i], address(tokenOwner)), 2 ether);
 
             // request more than some
-            if (tokens[i] == deployed.BaoUSD) vm.expectRevert("SafeMath: subtraction underflow");
+            if (tokens[i] == Deployed.BaoUSD) vm.expectRevert("SafeMath: subtraction underflow");
             else vm.expectRevert("ERC20: transfer amount exceeds balance");
             vm.prank(owner);
             tokenOwner.sweep(tokens[i], 3 ether, bonusReceiver);
