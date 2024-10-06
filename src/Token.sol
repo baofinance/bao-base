@@ -68,4 +68,78 @@ library Token {
         (bool success, ) = contract_.staticcall(data);
         return success;
     }
+
+    /**
+     * @notice Checks if a contract contains a function corresponding to a given function selector.
+     * @dev Performs a low-level `call` to check if the target contract responds to the given selector. It is safe even if the function is not view.
+     * @param target The address of the contract to check.
+     * @param selector The 4-byte function selector (first 4 bytes of the Keccak-256 hash of the function signature).
+     * @return hasFunction_ Boolean indicating whether the contract contains the function.
+     */
+    function hasFunction(address target, bytes4 selector) external returns (bool hasFunction_) {
+        ensureContract(target);
+
+        assembly {
+            // Allocate memory for the call data (4 bytes for selector)
+            let data := mload(0x40)
+            mstore(data, selector)
+
+            // Perform low-level call with no value and only the selector as input data
+            let success := call(
+                gas(),            // Provide all available gas
+                target,           // Address of the target contract
+                0,                // Send 0 ether to the target contract
+                data,             // Pointer to the start of the input (4 bytes function selector)
+                0x04,             // Size of the input (4 bytes for the selector)
+                0x00,             // We don't need the return data
+                0x00              // Return data size is 0, as we just care about success/failure
+            )
+
+            // Assign result to hasFunction, true if success, false otherwise
+            hasFunction_ := success
+        }
+
+    }
+
+    /**
+     * @notice Checks if a contract contains a function corresponding to a given function selector and then calls it.
+     * @dev First performs a low-level `call` to check if the target contract responds to the given selector. If it exists, performs a second `call` to invoke it.
+     * @param target The address of the contract to check and call.
+     * @param selector The 4-byte function selector (first 4 bytes of the Keccak-256 hash of the function signature).
+     * @param calldataParams The encoded calldata to pass when calling the function (excluding the selector).
+     * @return success Boolean indicating whether the function call succeeded.
+     * @return returnData The data returned from the function call.
+     */
+
+     function callFunction(
+        address target,
+        bytes4 selector,
+        bytes memory calldataParams
+    ) internal returns (bool success, bytes memory returnData) {
+        // Construct the complete calldata (function selector + function arguments)
+        bytes memory callData = abi.encodePacked(selector, calldataParams);
+
+        assembly {
+            // Perform the low-level call to the target contract
+            let result := call(
+                gas(),           // Provide all available gas
+                target,          // Address of the target contract
+                0,               // No ether value sent
+                add(callData, 0x20),  // Pointer to calldata (offset by 32 bytes due to ABI encoding)
+                mload(callData),      // Size of the calldata
+                0x00,            // No need to preallocate memory for return data
+                0x00             // Return data size unknown, will be handled later
+            )
+
+            // Set the success variable
+            success := result
+
+            // Handle return data
+            let returnDataSize := returndatasize()
+            returnData := mload(0x40) // Allocate memory for return data
+            mstore(0x40, add(returnData, add(returnDataSize, 0x20))) // Adjust free memory pointer
+            mstore(returnData, returnDataSize) // Store the size of return data
+            returndatacopy(add(returnData, 0x20), 0, returnDataSize) // Copy the return data
+        }
+    }
 }
