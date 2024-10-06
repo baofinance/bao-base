@@ -3,11 +3,11 @@ pragma solidity 0.8.26;
 
 interface IBurnableFrom {
     /*//////////////////////////////////////////////////////////////
-                        PUBLIC UPDATE FUNCTIONS
+                       PROTECTED UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Burn some token from someone.
-    /// @param from The address of holder to burn.
-    /// @param amount The amount of token to burn.
+    /// @notice Burns an `amount` of a token held by `from`
+    /// @param from The address of the owner of the tokens being burned.
+    /// @param amount The amount of tokens burned. At least this amount must be held `from`.
     function burnFrom(address from, uint256 amount) external;
 }
