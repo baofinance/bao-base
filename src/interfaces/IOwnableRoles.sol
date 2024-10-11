@@ -2,8 +2,6 @@
 
 pragma solidity 0.8.26;
 
-import { IOwnable } from "./IOwnable.sol";
-
 /// @notice Simple single owner and multiroles authorization mixin.
 /// @author Solady (https://github.com/vectorized/solady/blob/main/src/auth/OwnableRoles.sol)
 ///
@@ -15,9 +13,9 @@ import { IOwnable } from "./IOwnable.sol";
 /// [EIP-173](https://eips.ethereum.org/EIPS/eip-173) for compatibility,
 /// the nomenclature for the 2-step ownership handover may be unique to this codebase.
 
-interface IOwnableRoles is IOwnable {
+interface IOwnableRoles {
     /*//////////////////////////////////////////////////////////////
-                                 EVENTS                           
+                                 EVENTS
     //////////////////////////////////////////////////////////////*/
 
     /// @dev The `user`'s roles is updated to `roles`.
@@ -25,7 +23,7 @@ interface IOwnableRoles is IOwnable {
     event RolesUpdated(address indexed user, uint256 indexed roles);
 
     /*//////////////////////////////////////////////////////////////
-                        PUBLIC UPDATE FUNCTIONS                   
+                        PUBLIC UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
     /// @dev Allows the owner to grant `user` `roles`.
