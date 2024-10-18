@@ -10,6 +10,8 @@ import { Ownable } from "@solady/auth/Ownable.sol";
 import { Token } from "./Token.sol";
 import { ITokenHolder } from "./interfaces/ITokenHolder.sol";
 
+// TODO: this should be split into different contracts - need a BaoContract for ERC165, ReentrancyGuardTransientUpgradeable, Ownable
+
 abstract contract TokenHolder is ITokenHolder, Ownable, ERC165Upgradeable, ReentrancyGuardTransientUpgradeable {
     using SafeERC20 for IERC20;
 

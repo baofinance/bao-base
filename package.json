@@ -4,13 +4,16 @@
   "scripts": {
     "fmt": "prettier --log-level warn --ignore-path .gitignore '{src,test,interfaces,script}/**/*.sol' --write",
     "lint": "solhint '{src,interfaces}/**/*.sol' --disc",
+    "slither": "slither . --exclude incorrect-versions-of-solidity,assembly-usage,different-pragma-directives-are-used,naming-convention --filter-paths \"lib/openzeppelin.*|lib/forge-std.*|lib/solady.*\"",
     "test": "forge test -vvv",
+    "coverage": "forge coverage --report summary --report lcov ",
     "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'",
-    "pre-checkin": "yarn fmt && yarn lint; yarn test"
+    "pre-checkin": "yarn fmt && yarn lint && yarn slither && yarn test && yarn coverage"
   },
   "dependencies": {
     "prettier": "^3.3.3",
     "prettier-plugin-solidity": "^1.4.1",
+    "slither": "^0.2.2",
     "solhint": "^5.0.3"
   },
   "packageManager": "yarn@4.5.0"

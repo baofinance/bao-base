@@ -15,7 +15,7 @@ import { Strings } from "@openzeppelin/contracts/utils/Strings.sol";
 import { IERC1967 } from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
 
-import { IOwnable } from "@bao/interfaces/IOwnableRoles.sol";
+import { IOwnable } from "@bao/interfaces/IOwnable.sol";
 import { Token } from "@bao/Token.sol";
 import { TokenHolder } from "@bao/TokenHolder.sol";
 
@@ -27,7 +27,7 @@ contract DerivedTokenHolder is Initializable, TokenHolder {
     }
 }
 
-contract Test_TokenHolder is Test {
+contract TestTokenHolder is Test {
     using SafeERC20 for IERC20;
     address token1 = Deployed.BaoUSD;
     address token2 = Deployed.wstETH;

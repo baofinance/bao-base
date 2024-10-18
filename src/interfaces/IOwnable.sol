@@ -28,6 +28,9 @@ interface IOwnable is IERC5313 {
     /// @dev The `pendingOwner` does not have a valid handover request.
     error NoHandoverRequest();
 
+    /// @dev Cannot double-initialize.
+    error AlreadyInitialized();
+
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/

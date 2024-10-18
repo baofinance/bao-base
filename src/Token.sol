@@ -78,7 +78,7 @@ library Token {
      */
     function hasFunction(address target, bytes4 selector) external returns (bool hasFunction_) {
         ensureContract(target);
-
+        // solhint-disable-next-line no-inline-assembly
         assembly {
             // Allocate memory for the call data (4 bytes for selector)
             let data := mload(0x40)
@@ -86,19 +86,18 @@ library Token {
 
             // Perform low-level call with no value and only the selector as input data
             let success := call(
-                gas(),            // Provide all available gas
-                target,           // Address of the target contract
-                0,                // Send 0 ether to the target contract
-                data,             // Pointer to the start of the input (4 bytes function selector)
-                0x04,             // Size of the input (4 bytes for the selector)
-                0x00,             // We don't need the return data
-                0x00              // Return data size is 0, as we just care about success/failure
+                gas(), // Provide all available gas
+                target, // Address of the target contract
+                0, // Send 0 ether to the target contract
+                data, // Pointer to the start of the input (4 bytes function selector)
+                0x04, // Size of the input (4 bytes for the selector)
+                0x00, // We don't need the return data
+                0x00 // Return data size is 0, as we just care about success/failure
             )
 
             // Assign result to hasFunction, true if success, false otherwise
             hasFunction_ := success
         }
-
     }
 
     /**
@@ -111,24 +110,24 @@ library Token {
      * @return returnData The data returned from the function call.
      */
 
-     function callFunction(
+    function callFunction(
         address target,
         bytes4 selector,
         bytes memory calldataParams
     ) internal returns (bool success, bytes memory returnData) {
         // Construct the complete calldata (function selector + function arguments)
         bytes memory callData = abi.encodePacked(selector, calldataParams);
-
+        // solhint-disable-next-line no-inline-assembly
         assembly {
             // Perform the low-level call to the target contract
             let result := call(
-                gas(),           // Provide all available gas
-                target,          // Address of the target contract
-                0,               // No ether value sent
-                add(callData, 0x20),  // Pointer to calldata (offset by 32 bytes due to ABI encoding)
-                mload(callData),      // Size of the calldata
-                0x00,            // No need to preallocate memory for return data
-                0x00             // Return data size unknown, will be handled later
+                gas(), // Provide all available gas
+                target, // Address of the target contract
+                0, // No ether value sent
+                add(callData, 0x20), // Pointer to calldata (offset by 32 bytes due to ABI encoding)
+                mload(callData), // Size of the calldata
+                0x00, // No need to preallocate memory for return data
+                0x00 // Return data size unknown, will be handled later
             )
 
             // Set the success variable
