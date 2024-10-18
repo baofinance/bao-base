@@ -20,7 +20,7 @@ contract TestBaoOwnable is Test {
     address owner;
     address user;
 
-    function setUp() public {
+    function setUp() public virtual {
         owner = vm.createWallet("owner").addr;
         user = vm.createWallet("user").addr;
 

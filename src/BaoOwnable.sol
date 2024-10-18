@@ -38,12 +38,12 @@ abstract contract BaoOwnable is
 
     /// @dev Override to return true to make `_initializeOwner` prevent double-initialization.
     /// This could happen, for example, in normal function call and not just in the initializer
-    function _guardInitializeOwner() internal pure override(Ownable) returns (bool guard) {
+    function _guardInitializeOwner() internal pure virtual override(Ownable) returns (bool guard) {
         guard = true;
     }
 
     /// @notice initialise the UUPS proxy
-    function _initializeOwner(address owner) internal override(Ownable) {
+    function _initializeOwner(address owner) internal virtual override(Ownable) {
         if (owner == address(0)) revert Ownable.NewOwnerIsZeroAddress();
         if (_msgSender() == owner) {
             // record the deployer to let them have a one-off ownership transfer from them
@@ -55,16 +55,16 @@ abstract contract BaoOwnable is
         // __ERC165_init_unchained();
     }
 
-    /// @inheritdoc IERC165
-    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IOwnable).interfaceId || super.supportsInterface(interfaceId);
-    }
-
-    function transferOwnership(address newOwner) public payable override(Ownable) {
+    function transferOwnership(address newOwner) public payable virtual override(Ownable) {
         BaoOwnableStorage storage $ = _getBaoOwnableStorage();
         if (_msgSender() != $.deployer) {
             revert Unauthorized();
         }
         Ownable.transferOwnership(newOwner);
+    }
+
+    /// @inheritdoc IERC165
+    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
+        return interfaceId == type(IOwnable).interfaceId || super.supportsInterface(interfaceId);
     }
 }
