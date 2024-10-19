@@ -23,7 +23,7 @@ interface IOwnableRoles {
     event RolesUpdated(address indexed user, uint256 indexed roles);
 
     /*//////////////////////////////////////////////////////////////
-                        PUBLIC UPDATE FUNCTIONS
+                       PROTECTED UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
     /// @dev Allows the owner to grant `user` `roles`.

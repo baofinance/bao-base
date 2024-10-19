@@ -68,6 +68,7 @@ contract TestBaoOwnable is Test {
         vm.expectRevert(IOwnable.Unauthorized.selector);
         vm.prank(owner);
         IOwnable(baoOwnable).transferOwnership(user);
+        assertEq(IOwnable(baoOwnable).owner(), owner);
     }
 
     function test_deployWithTransfer() public {
@@ -87,5 +88,29 @@ contract TestBaoOwnable is Test {
         vm.expectRevert(IOwnable.Unauthorized.selector);
         IOwnable(baoOwnable).transferOwnership(user);
         assertEq(IOwnable(baoOwnable).owner(), owner);
+
+        // owner can't use one-step transfer
+        vm.expectRevert(IOwnable.Unauthorized.selector);
+        vm.prank(owner);
+        IOwnable(baoOwnable).transferOwnership(user);
+        assertEq(IOwnable(baoOwnable).owner(), owner);
+    }
+
+    function test_oneStepDisabled() public {
+        // owner is initially set to the deployer
+        DerivedBaoOwnable(baoOwnable).initialize(address(this));
+        IOwnable(baoOwnable).transferOwnership(owner);
+
+        // transfer two-step back to deployer
+        IOwnable(baoOwnable).requestOwnershipHandover();
+        assertEq(IOwnable(baoOwnable).owner(), owner);
+        vm.prank(owner);
+        IOwnable(baoOwnable).completeOwnershipHandover(address(this));
+        assertEq(IOwnable(baoOwnable).owner(), address(this));
+
+        // now the deployer can't one-step transfer
+        vm.expectRevert(IOwnable.Unauthorized.selector);
+        IOwnable(baoOwnable).transferOwnership(user);
+        assertEq(IOwnable(baoOwnable).owner(), address(this));
     }
 }

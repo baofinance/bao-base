@@ -48,7 +48,7 @@ interface IOwnable is IERC5313 {
     event OwnershipHandoverCanceled(address indexed pendingOwner);
 
     /*//////////////////////////////////////////////////////////////
-                        PUBLIC UPDATE FUNCTIONS
+                       PROTECTED UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
     /// @dev Allows the owner to transfer the ownership to `newOwner`.
