@@ -1,0 +1,4 @@
+{
+  "detectors_to_exclude": "incorrect-versions-of-solidity,assembly-usage,different-pragma-directives-are-used,naming-convention",
+  "filter_paths": "openzeppelin|forge-std|solady"
+}
