@@ -6,6 +6,7 @@ import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol
 import { Test } from "forge-std/Test.sol";
 import { console2 } from "forge-std/console2.sol";
 
+import { IOwnable } from "@bao/interfaces/IOwnable.sol";
 import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
 import { BaoOwnable } from "@bao/BaoOwnable.sol";
 
@@ -56,7 +57,48 @@ contract TestBaoOwnable is Test {
 
         // introspection
         assertTrue(IERC165(ownable).supportsInterface(type(IERC165).interfaceId));
+        assertTrue(IERC165(ownable).supportsInterface(type(IOwnable).interfaceId));
         assertTrue(IERC165(ownable).supportsInterface(type(IBaoOwnable).interfaceId));
+    }
+
+    function test_reinitAfterTransfer() public {
+        vm.expectEmit();
+        emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
+        DerivedBaoOwnable(ownable).initialize(address(this));
+        assertEq(IBaoOwnable(ownable).owner(), address(this));
+
+        vm.expectEmit();
+        emit IBaoOwnable.OwnershipTransferred(address(this), owner);
+        IBaoOwnable(ownable).transferOwnership(owner);
+        assertEq(IBaoOwnable(ownable).owner(), owner);
+
+        // can't initialise again after a transfer
+        vm.expectRevert(IBaoOwnable.AlreadyInitialized.selector);
+        DerivedBaoOwnable(ownable).initialize(address(this));
+        assertEq(IBaoOwnable(ownable).owner(), owner);
+    }
+
+    function test_reinitAfterRenounce() public {
+        vm.expectEmit();
+        emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
+        DerivedBaoOwnable(ownable).initialize(address(this));
+        assertEq(IBaoOwnable(ownable).owner(), address(this));
+
+        vm.expectEmit();
+        emit IBaoOwnable.OwnershipTransferred(address(this), address(0));
+        IBaoOwnable(ownable).renounceOwnership();
+        assertEq(IBaoOwnable(ownable).owner(), address(0));
+
+        // can't initialise again after a transfer
+        vm.expectRevert(IBaoOwnable.AlreadyInitialized.selector);
+        DerivedBaoOwnable(ownable).initialize(address(this));
+        assertEq(IBaoOwnable(ownable).owner(), address(0));
+    }
+
+    function test_transfer1step() public {
+        DerivedBaoOwnable(ownable).initialize(address(this));
+        vm.expectRevert(IBaoOwnable.NewOwnerIsZeroAddress.selector);
+        IBaoOwnable(ownable).transferOwnership(address(0));
     }
 
     function test_deployNoTransfer() public {

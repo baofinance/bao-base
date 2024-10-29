@@ -1,6 +1,3 @@
-Compiling 84 files with Solc 0.8.26
-Solc 0.8.26 finished in 2.35s
-Compiler run successful!
 | Contract                    | Size (B) | Margin (B) |
 |-----------------------------|----------|------------|
 | Address                     |       85 |     24,491 |
@@ -9,8 +6,8 @@ Compiler run successful!
 | Defender                    |       85 |     24,491 |
 | DefenderDeploy              |       85 |     24,491 |
 | Deployed                    |      270 |     24,306 |
-| DerivedBaoOwnable           |    1,637 |     22,939 |
-| DerivedBaoOwnableRoles      |    2,372 |     22,204 |
+| DerivedBaoOwnable           |    1,655 |     22,921 |
+| DerivedBaoOwnableRoles      |    2,390 |     22,186 |
 | DerivedOwnable              |      877 |     23,699 |
 | DerivedTokenHolder          |    1,888 |     22,688 |
 | ERC1967Proxy                |      163 |     24,413 |
@@ -32,4 +29,3 @@ Compiler run successful!
 | Utils                       |       85 |     24,491 |
 | Versions                    |       85 |     24,491 |
 | strings                     |       85 |     24,491 |
-

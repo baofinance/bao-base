@@ -73,6 +73,13 @@ abstract contract BaoOwnable is Ownable, ERC165Upgradeable {
     /// @param newOwner The address of the new owner.
     function transferOwnership(address newOwner) public payable virtual override(Ownable) onlyDeployerOnce {
         // note: the below allow a zero address, because it is can only called in deployment
+        assembly ("memory-safe") {
+            // don't allow handover to address(0), use the renunciation process
+            if iszero(newOwner) {
+                mstore(0x00, 0x7448fbae) // `NewOwnerIsZeroAddress()`.
+                revert(0x1c, 0x04)
+            }
+        }
         _setOwner(newOwner);
     }
 

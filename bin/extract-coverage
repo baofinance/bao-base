@@ -1,0 +1,9 @@
+#! /bin/sh
+# extracts the coverage report from
+# $ forge coverage --report lcov
+# and reformats it to contain minimal information
+# The output should be stored in git - that's your job :-)
+
+# echo $0 "run on" `date`
+
+grep '^|\(-\| \(src/\|File \)\).*|$'
