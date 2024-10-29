@@ -19,6 +19,10 @@ contract DerivedBaoOwnableRoles is BaoOwnableRoles {
         _initializeOwner(owner);
     }
 
+    function ownershipHandoverValidFor() public view returns (uint64) {
+        return _ownershipHandoverValidFor();
+    }
+
     function protected() public view onlyRoles(MY_ROLE) {}
 }
 
@@ -26,31 +30,31 @@ contract TestBaoOwnableRoles is TestBaoOwnable {
     function setUp() public override {
         super.setUp();
 
-        baoOwnable = address(new DerivedBaoOwnableRoles());
+        ownable = address(new DerivedBaoOwnableRoles());
     }
 
     function test_roles() public {
-        DerivedBaoOwnableRoles(baoOwnable).initialize(owner);
+        DerivedBaoOwnableRoles(ownable).initialize(owner);
 
         // check basic owner & role based protections, to ensure thos functions are there
         vm.expectRevert(IOwnable.Unauthorized.selector);
-        DerivedBaoOwnableRoles(baoOwnable).protected();
+        DerivedBaoOwnableRoles(ownable).protected();
 
-        uint256 myRole = DerivedBaoOwnableRoles(baoOwnable).MY_ROLE();
+        uint256 myRole = DerivedBaoOwnableRoles(ownable).MY_ROLE();
 
         vm.expectRevert(IOwnable.Unauthorized.selector);
-        IOwnableRoles(baoOwnable).grantRoles(user, myRole);
-        assertFalse(IOwnableRoles(baoOwnable).hasAnyRole(user, myRole));
+        IOwnableRoles(ownable).grantRoles(user, myRole);
+        assertFalse(IOwnableRoles(ownable).hasAnyRole(user, myRole));
 
         vm.prank(owner);
-        IOwnableRoles(baoOwnable).grantRoles(user, myRole);
-        assertTrue(IOwnableRoles(baoOwnable).hasAnyRole(user, myRole));
-        assertTrue(IOwnableRoles(baoOwnable).hasAllRoles(user, myRole));
+        IOwnableRoles(ownable).grantRoles(user, myRole);
+        assertTrue(IOwnableRoles(ownable).hasAnyRole(user, myRole));
+        assertTrue(IOwnableRoles(ownable).hasAllRoles(user, myRole));
 
         vm.expectRevert(IOwnable.Unauthorized.selector);
-        DerivedBaoOwnableRoles(baoOwnable).protected();
+        DerivedBaoOwnableRoles(ownable).protected();
 
         vm.prank(user);
-        DerivedBaoOwnableRoles(baoOwnable).protected();
+        DerivedBaoOwnableRoles(ownable).protected();
     }
 }

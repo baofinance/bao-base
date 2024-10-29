@@ -41,12 +41,33 @@ abstract contract BaoOwnableRoles is OwnableRoles, BaoOwnable {
         BaoOwnable.transferOwnership(newOwner);
     }
 
+    function requestOwnershipHandover() public payable virtual override(Ownable, BaoOwnable) {
+        BaoOwnable.requestOwnershipHandover();
+    }
+
+    function completeOwnershipHandover(address pendingOwner) public payable virtual override(Ownable, BaoOwnable) {
+        BaoOwnable.completeOwnershipHandover(pendingOwner);
+    }
+
+    function renounceOwnership() public payable virtual override(Ownable, BaoOwnable) {
+        BaoOwnable.renounceOwnership();
+    }
     /*//////////////////////////////////////////////////////////////////////////
                                   INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc BaoOwnable
-    function _guardInitializeOwner() internal pure virtual override(Ownable, BaoOwnable) returns (bool guard) {
-        return BaoOwnable._guardInitializeOwner();
+    function _setOwner(address newOwner) internal virtual override(Ownable, BaoOwnable) {
+        BaoOwnable._setOwner(newOwner);
+    }
+
+    /// @inheritdoc BaoOwnable
+    function _checkOwner() internal view virtual override(Ownable, BaoOwnable) {
+        BaoOwnable._checkOwner();
+    }
+
+    /// @inheritdoc BaoOwnable
+    function _ownershipHandoverValidFor() internal view virtual override(Ownable, BaoOwnable) returns (uint64) {
+        return BaoOwnable._ownershipHandoverValidFor();
     }
 }

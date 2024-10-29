@@ -2,11 +2,13 @@
   "name": "baobase",
   "license": "MIT",
   "scripts": {
+    "gas": "forge test --isolate --gas-report | bin/extract-gas | tee gas.txt",
+    "sizes": "forge clean; forge build --sizes | tee sizes.txt",
     "fmt": "prettier --log-level warn --ignore-path .gitignore '{src,test,interfaces,script}/**/*.sol' --write",
     "lint": "solhint '{src,interfaces}/**/*.sol' --disc",
     "slither": "which slither && slither --version && slither .",
     "test": "forge test -vvv",
-    "coverage": "forge coverage --report summary --report lcov ",
+    "coverage": "forge coverage --report summary --report lcov | tee coverage.txt",
     "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'",
     "pre-checkin": "yarn fmt && yarn lint && yarn test && yarn coverage"
   },
