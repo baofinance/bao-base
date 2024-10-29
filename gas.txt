@@ -12,35 +12,10 @@
 │ ownershipHandoverExpiresAt                             │      885 │    2,885 │
 │ ownershipHandoverValidFor                              │      439 │      439 │
 │ renounceOwnership                                      │   23,426 │   28,010 │
-│ requestOwnershipHandover                               │   46,733 │   46,733 │
+│ requestOwnershipHandover                               │   46,888 │   46,888 │
 │ requestOwnershipRenunciation                           │   46,755 │   46,755 │
-│ supportsInterface                                      │      693 │      764 │
+│ supportsInterface                                      │      661 │      676 │
 │ transferOwnership                                      │   24,031 │   28,635 │
-╰────────────────────────────────────────────────────────┴──────────┴──────────╯
-
-╭──────────────────────────────────────────────────────────────────────────────╮
-│ test/BaoOwnableRoles.t.sol:DerivedBaoOwnableRoles contract                   │
-╞════════════════════════════════════════════════════════╤══════════╤══════════╡
-│ Function Name                                          │ median   │ max      │
-├────────────────────────────────────────────────────────┼──────────┼──────────┤
-│ MY_ROLE                                                │    2,470 │    2,470 │
-│ cancelOwnershipHandover                                │   24,601 │   24,601 │
-│ cancelOwnershipRenunciation                            │   25,800 │   26,800 │
-│ completeOwnershipHandover                              │   27,779 │   29,359 │
-│ completeOwnershipRenunciation                          │   25,707 │   28,473 │
-│ grantRoles                                             │   36,323 │   48,230 │
-│ hasAllRoles                                            │    1,140 │    1,140 │
-│ hasAnyRole                                             │    2,142 │    3,142 │
-│ initialize                                             │   45,653 │   45,653 │
-│ owner                                                  │      591 │    2,591 │
-│ ownershipHandoverExpiresAt                             │      929 │    2,929 │
-│ ownershipHandoverValidFor                              │      450 │      450 │
-│ protected                                              │    2,534 │    4,534 │
-│ renounceOwnership                                      │   23,397 │   28,019 │
-│ requestOwnershipHandover                               │   46,791 │   46,791 │
-│ requestOwnershipRenunciation                           │   46,857 │   46,857 │
-│ supportsInterface                                      │      804 │      875 │
-│ transferOwnership                                      │   24,093 │   28,737 │
 ╰────────────────────────────────────────────────────────┴──────────┴──────────╯
 
 ╭──────────────────────────────────────────────────────────────────────────────╮

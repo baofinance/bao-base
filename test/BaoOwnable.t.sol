@@ -6,7 +6,6 @@ import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol
 import { Test } from "forge-std/Test.sol";
 import { console2 } from "forge-std/console2.sol";
 
-import { IOwnable } from "@bao/interfaces/IOwnable.sol";
 import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
 import { BaoOwnable } from "@bao/BaoOwnable.sol";
 
@@ -15,12 +14,12 @@ contract DerivedBaoOwnable is BaoOwnable {
         _initializeOwner(owner);
     }
 
-    function ownershipHandoverValidFor() public view returns (uint64) {
+    function ownershipHandoverValidFor() public pure returns (uint64) {
         return _ownershipHandoverValidFor();
     }
 }
 
-contract TestBaoOwnable is Test {
+contract TestBaoOwnableOnly is Test {
     address ownable;
     address owner;
     address user;
@@ -57,7 +56,6 @@ contract TestBaoOwnable is Test {
 
         // introspection
         assertTrue(IERC165(ownable).supportsInterface(type(IERC165).interfaceId));
-        assertTrue(IERC165(ownable).supportsInterface(type(IOwnable).interfaceId));
         assertTrue(IERC165(ownable).supportsInterface(type(IBaoOwnable).interfaceId));
     }
 
