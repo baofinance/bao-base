@@ -41,7 +41,6 @@ contract TestOwnable is Test {
         IOwnable(ownable).transferOwnership(owner);
 
         // can initialise to 0
-        // TODO: add to baoOwnable
         vm.expectEmit();
         emit IOwnable.OwnershipTransferred(address(0), address(0));
         DerivedOwnable(ownable).initialize(address(0));
@@ -83,6 +82,8 @@ contract TestOwnable is Test {
         IOwnable(ownable).transferOwnership(user);
 
         // deployer can transfer ownership
+        vm.expectEmit();
+        emit IOwnable.OwnershipTransferred(address(this), owner);
         IOwnable(ownable).transferOwnership(owner);
         assertEq(IOwnable(ownable).owner(), owner);
 
@@ -92,6 +93,8 @@ contract TestOwnable is Test {
         assertEq(IOwnable(ownable).owner(), owner);
 
         // owner can use one-step transfer!
+        vm.expectEmit();
+        emit IOwnable.OwnershipTransferred(owner, user);
         vm.prank(owner);
         IOwnable(ownable).transferOwnership(user);
         assertEq(IOwnable(ownable).owner(), user);
@@ -110,6 +113,8 @@ contract TestOwnable is Test {
         assertEq(IOwnable(ownable).owner(), address(this));
 
         // now the deployer can one-step transfer
+        vm.expectEmit();
+        emit IOwnable.OwnershipTransferred(address(this), user);
         IOwnable(ownable).transferOwnership(user);
         assertEq(IOwnable(ownable).owner(), user);
     }
