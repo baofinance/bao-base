@@ -6,7 +6,7 @@
 | Defender                    |       85 |     24,491 |
 | DefenderDeploy              |       85 |     24,491 |
 | Deployed                    |      270 |     24,306 |
-| DerivedBaoOwnable           |    1,648 |     22,928 |
+| DerivedBaoOwnable           |    1,661 |     22,915 |
 | DerivedOwnable              |      877 |     23,699 |
 | DerivedTokenHolder          |    1,888 |     22,688 |
 | ERC1967Proxy                |      163 |     24,413 |
