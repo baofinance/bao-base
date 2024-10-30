@@ -12,11 +12,11 @@
 │ ownershipHandoverExpiresAt                             │      885 │    2,885 │
 │ ownershipHandoverValidFor                              │      405 │      405 │
 │ protected                                              │   23,464 │   23,469 │
-│ renounceOwnership                                      │   23,392 │   27,881 │
+│ renounceOwnership                                      │   23,410 │   27,903 │
 │ requestOwnershipHandover                               │   46,694 │   46,694 │
 │ requestOwnershipRenunciation                           │   46,753 │   46,753 │
 │ supportsInterface                                      │      684 │      699 │
-│ transferOwnership                                      │   24,052 │   28,557 │
+│ transferOwnership                                      │   24,058 │   28,590 │
 ╰────────────────────────────────────────────────────────┴──────────┴──────────╯
 
 ╭──────────────────────────────────────────────────────────────────────────────╮

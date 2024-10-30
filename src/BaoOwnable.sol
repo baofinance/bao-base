@@ -82,31 +82,28 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
     /// Can only be called once and then only by the deployer, who is also the (temporary) owner
     /// @param toOwner The address of the new owner.
     function transferOwnership(address toOwner) public payable virtual {
-        bytes32 oldOwner;
+        bytes32 oldOwner = _checkTransferOwnership();
         bytes32 newOwner;
         assembly ("memory-safe") {
-            oldOwner := sload(_OWNER_SLOT)
             newOwner := toOwner
-            // if the caller is not the deployer and the current owner at the same time, revert
-            if iszero(eq(or(caller(), _MASK_DEPLOYER), oldOwner)) {
-                mstore(0x00, 0x82b42900) // `Unauthorized()`.
-                revert(0x1c, 0x04)
-            }
             // don't allow handover to address(0), use the renunciation process
             if iszero(newOwner) {
                 mstore(0x00, 0x7448fbae) // `NewOwnerIsZeroAddress()`.
                 revert(0x1c, 0x04)
             }
-            // clean oldOwner address (i.e. if it was zero)
-            oldOwner := shr(96, shl(96, oldOwner))
         }
         _setOwner(oldOwner, newOwner);
     }
 
-    /// @notice renouces the ownership in a one-step procedure
+    /// @notice renounces the ownership in a one-step procedure
     /// Can only be called once and then only by the deployer, who is also the (temporary) owner
     function renounceOwnership() public payable virtual {
-        bytes32 oldOwner;
+        _setOwner(_checkTransferOwnership(), _INITIALIZED_ZERO_ADDRESS);
+    }
+
+    /// @notice transfers the ownership in a one-step procedure
+    /// Can only be called once and then only by the deployer, who is also the (temporary) owner
+    function _checkTransferOwnership() private view returns (bytes32 oldOwner) {
         assembly ("memory-safe") {
             oldOwner := sload(_OWNER_SLOT)
             // if the caller is not the deployer and the current owner at the same time, revert
@@ -117,7 +114,6 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
             // clean oldOwner address (i.e. if it was zero)
             oldOwner := shr(96, shl(96, oldOwner))
         }
-        _setOwner(oldOwner, _INITIALIZED_ZERO_ADDRESS);
     }
 
     /// @dev Request a two-step ownership handover to the caller, who cannot be the current owner
