@@ -15,7 +15,7 @@ contract DerivedBaoOwnable is BaoOwnable {
     }
 
     function ownershipHandoverValidFor() public pure returns (uint64) {
-        return _ownershipHandoverValidFor();
+        return 4 days;
     }
 
     function protected() public onlyOwner {}

@@ -121,29 +121,26 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
     /// @dev Request a two-step ownership handover to the caller, who cannot be the current owner
     /// The request will automatically expire in 4 days by default.
     function requestOwnershipHandover() public payable virtual {
-        unchecked {
-            uint256 expires = block.timestamp + _ownershipHandoverValidFor();
-            assembly ("memory-safe") {
-                // If the current owner is zero then this cannot be completed
-                let owner_ := shr(96, shl(96, sload(_OWNER_SLOT)))
-                if iszero(owner_) {
-                    mstore(0x00, 0x82b42900) // `Unauthorized()`.
-                    revert(0x1c, 0x04)
-                }
-                // If the caller is the stored owner, then it's a null operation
-                let caller_ := caller()
-                if eq(caller_, owner_) {
-                    mstore(0x00, 0x82b42900) // `Unauthorized()`.
-                    revert(0x1c, 0x04)
-                }
-
-                // Compute and set the handover slot to `expires`.
-                mstore(0x0c, _HANDOVER_SLOT_SEED)
-                mstore(0x00, caller_)
-                sstore(keccak256(0x0c, 0x20), expires)
-                // Emit the {OwnershipHandoverRequested} event.
-                log2(0, 0, _OWNERSHIP_HANDOVER_REQUESTED_EVENT_SIGNATURE, caller())
+        assembly ("memory-safe") {
+            // If the current owner is zero then this cannot be completed
+            let owner_ := shr(96, shl(96, sload(_OWNER_SLOT)))
+            if iszero(owner_) {
+                mstore(0x00, 0x82b42900) // `Unauthorized()`.
+                revert(0x1c, 0x04)
             }
+            // If the caller is the stored owner, then it's a null operation
+            let caller_ := caller()
+            if eq(caller_, owner_) {
+                mstore(0x00, 0x82b42900) // `Unauthorized()`.
+                revert(0x1c, 0x04)
+            }
+
+            // Compute and set the handover slot to `expires`.
+            mstore(0x0c, _HANDOVER_SLOT_SEED)
+            mstore(0x00, caller_)
+            sstore(keccak256(0x0c, 0x20), add(timestamp(), _TRANSFER_EXPIRY_PERIOD))
+            // Emit the {OwnershipHandoverRequested} event.
+            log2(0, 0, _OWNERSHIP_HANDOVER_REQUESTED_EVENT_SIGNATURE, caller())
         }
     }
 
@@ -163,7 +160,6 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
     /// @notice add a period (half the timeout) in which this function cannot be called
     function completeOwnershipHandover(address pendingOwner) public payable virtual {
         unchecked {
-            uint256 period = _ownershipHandoverValidFor();
             bytes32 oldOwner;
             bytes32 newOwner;
             assembly ("memory-safe") {
@@ -191,7 +187,7 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
                     mstore(0x00, 0x6f5e8818) // `NoHandoverRequest()`.
                     revert(0x1c, 0x04)
                 }
-                if lt(now_, sub(expiry, shr(1, period))) {
+                if lt(now_, sub(expiry, shr(1, _TRANSFER_EXPIRY_PERIOD))) {
                     mstore(0x00, 0x2cb8b3dc) // CannotCompleteYet()
                     revert(0x1c, 0x04)
                 }
@@ -204,21 +200,18 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
 
     function requestOwnershipRenunciation() public payable virtual {
         // similar to requestOwnershipHandover
-        unchecked {
-            uint256 expires = block.timestamp + _ownershipHandoverValidFor();
-            assembly ("memory-safe") {
-                // onlyOwner
-                if iszero(eq(caller(), shr(96, shl(96, sload(_OWNER_SLOT))))) {
-                    mstore(0x00, 0x82b42900) // `Unauthorized()`.
-                    revert(0x1c, 0x04)
-                }
-                // Compute and set the handover slot to `expires`.
-                mstore(0x0c, _HANDOVER_SLOT_SEED)
-                mstore(0x00, 0)
-                sstore(keccak256(0x0c, 0x20), expires)
-                // Emit the {OwnershipHandoverRequested} event.
-                log2(0, 0, _OWNERSHIP_HANDOVER_REQUESTED_EVENT_SIGNATURE, 0)
+        assembly ("memory-safe") {
+            // onlyOwner
+            if iszero(eq(caller(), shr(96, shl(96, sload(_OWNER_SLOT))))) {
+                mstore(0x00, 0x82b42900) // `Unauthorized()`.
+                revert(0x1c, 0x04)
             }
+            // Compute and set the handover slot to `expires`.
+            mstore(0x0c, _HANDOVER_SLOT_SEED)
+            mstore(0x00, 0)
+            sstore(keccak256(0x0c, 0x20), add(timestamp(), _TRANSFER_EXPIRY_PERIOD))
+            // Emit the {OwnershipHandoverRequested} event.
+            log2(0, 0, _OWNERSHIP_HANDOVER_REQUESTED_EVENT_SIGNATURE, 0)
         }
     }
 
@@ -240,7 +233,6 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
 
     function completeOwnershipRenunciation() public payable {
         unchecked {
-            uint256 period = _ownershipHandoverValidFor();
             bytes32 oldOwner;
             assembly ("memory-safe") {
                 // onlyOwner
@@ -260,7 +252,7 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
                     mstore(0x00, 0x6f5e8818) // `NoHandoverRequest()`.
                     revert(0x1c, 0x04)
                 }
-                if lt(now_, sub(expiry, shr(1, period))) {
+                if lt(now_, sub(expiry, shr(1, _TRANSFER_EXPIRY_PERIOD))) {
                     mstore(0x00, 0x2cb8b3dc) // CannotCompleteYet()
                     revert(0x1c, 0x04)
                 }
@@ -302,15 +294,13 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
     bytes32 private constant _INITIALIZED_ZERO_ADDRESS =
         0x8000000000000000000000000000000000000000000000000000000000000000;
 
+    uint64 private constant _TRANSFER_EXPIRY_PERIOD = 4 days;
+
     /*//////////////////////////////////////////////////////////////////////////
                                   INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
-    // TODO: make a private constant
-    function _ownershipHandoverValidFor() internal pure returns (uint64) {
-        return 4 days;
-    }
-
+    // TODO: make private
     /// @dev Sets the owner directly
     /// @param oldOwner, The old owner about to be replaced. This is a clean address (i.e. top bits are zero)
     /// @param newOwner, The new owner about to replace `oldOwner`. This is not a clean address (i.e. top bits may not be zero)
