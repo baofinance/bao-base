@@ -4,19 +4,19 @@
 │ Function Name                                          │ median   │ max      │
 ├────────────────────────────────────────────────────────┼──────────┼──────────┤
 │ cancelOwnershipHandover                                │   24,601 │   24,601 │
-│ cancelOwnershipRenunciation                            │   25,799 │   26,799 │
-│ completeOwnershipHandover                              │   26,089 │   28,705 │
-│ completeOwnershipRenunciation                          │   25,625 │   28,243 │
-│ initialize                                             │   45,509 │   45,521 │
-│ owner                                                  │      326 │    2,326 │
-│ ownershipHandoverExpiresAt                             │      572 │    2,572 │
-│ ownershipHandoverValidFor                              │      243 │      243 │
-│ protected                                              │   23,466 │   23,471 │
-│ renounceOwnership                                      │   23,394 │   27,886 │
-│ requestOwnershipHandover                               │   46,701 │   46,701 │
-│ requestOwnershipRenunciation                           │   46,726 │   46,726 │
-│ supportsInterface                                      │      428 │      447 │
-│ transferOwnership                                      │   23,864 │   28,380 │
+│ cancelOwnershipRenunciation                            │   25,797 │   26,797 │
+│ completeOwnershipHandover                              │   26,276 │   28,893 │
+│ completeOwnershipRenunciation                          │   25,623 │   28,241 │
+│ initialize                                             │   45,697 │   45,711 │
+│ owner                                                  │      515 │    2,515 │
+│ ownershipHandoverExpiresAt                             │      885 │    2,885 │
+│ ownershipHandoverValidFor                              │      405 │      405 │
+│ protected                                              │   23,464 │   23,469 │
+│ renounceOwnership                                      │   23,392 │   27,881 │
+│ requestOwnershipHandover                               │   46,664 │   46,664 │
+│ requestOwnershipRenunciation                           │   46,724 │   46,724 │
+│ supportsInterface                                      │      684 │      699 │
+│ transferOwnership                                      │   24,052 │   28,557 │
 ╰────────────────────────────────────────────────────────┴──────────┴──────────╯
 
 ╭──────────────────────────────────────────────────────────────────────────────╮
@@ -25,14 +25,14 @@
 │ Function Name                                          │ median   │ max      │
 ├────────────────────────────────────────────────────────┼──────────┼──────────┤
 │ cancelOwnershipHandover                                │   22,601 │   22,601 │
-│ completeOwnershipHandover                              │   28,734 │   28,734 │
-│ initialize                                             │   45,372 │   45,372 │
-│ owner                                                  │      381 │    2,381 │
-│ ownershipHandoverExpiresAt                             │    1,572 │    2,572 │
-│ ownershipHandoverValidFor                              │      198 │      198 │
-│ renounceOwnership                                      │   23,372 │   23,372 │
-│ requestOwnershipHandover                               │   44,503 │   44,503 │
-│ transferOwnership                                      │   28,490 │   28,490 │
+│ completeOwnershipHandover                              │   28,959 │   28,959 │
+│ initialize                                             │   45,596 │   45,596 │
+│ owner                                                  │      569 │    2,569 │
+│ ownershipHandoverExpiresAt                             │    1,885 │    2,885 │
+│ ownershipHandoverValidFor                              │      394 │      394 │
+│ renounceOwnership                                      │   23,369 │   23,369 │
+│ requestOwnershipHandover                               │   44,537 │   44,537 │
+│ transferOwnership                                      │   28,713 │   28,713 │
 ╰────────────────────────────────────────────────────────┴──────────┴──────────╯
 
 ╭──────────────────────────────────────────────────────────────────────────────╮
@@ -40,6 +40,6 @@
 ╞════════════════════════════════════════════════════════╤══════════╤══════════╡
 │ Function Name                                          │ median   │ max      │
 ├────────────────────────────────────────────────────────┼──────────┼──────────┤
-│ initialize                                             │   69,353 │   69,353 │
-│ sweep                                                  │   32,606 │   59,487 │
+│ initialize                                             │   70,310 │   70,310 │
+│ sweep                                                  │   33,622 │   60,509 │
 ╰────────────────────────────────────────────────────────┴──────────┴──────────╯

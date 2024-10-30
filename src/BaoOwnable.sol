@@ -115,7 +115,6 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
                 revert(0x1c, 0x04)
             }
             // clean oldOwner address (i.e. if it was zero)
-            // TODO: for all the cleaning places, remove them and add a test that fails as a consequence
             oldOwner := shr(96, shl(96, oldOwner))
         }
         _setOwner(oldOwner, _INITIALIZED_ZERO_ADDRESS);
@@ -126,22 +125,14 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
     function requestOwnershipHandover() public payable virtual {
         assembly ("memory-safe") {
             // If the current owner is zero then this cannot be completed
-            // TODO: for all the cleaning places, remove them and add a test that fails as a consequence
             let owner_ := shr(96, shl(96, sload(_OWNER_SLOT)))
             if iszero(owner_) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.
                 revert(0x1c, 0x04)
             }
-            // If the caller is the stored owner, then it's a null operation
-            let caller_ := caller()
-            if eq(caller_, owner_) {
-                mstore(0x00, 0x82b42900) // `Unauthorized()`.
-                revert(0x1c, 0x04)
-            }
-
-            // Compute and set the handover slot to `expires`.
+            // set the handover slot to the expiry time.
             mstore(0x0c, _HANDOVER_SLOT_SEED)
-            mstore(0x00, caller_)
+            mstore(0x00, caller())
             sstore(keccak256(0x0c, 0x20), add(timestamp(), _TRANSFER_EXPIRY_PERIOD))
             // Emit the {OwnershipHandoverRequested} event.
             log2(0, 0, _OWNERSHIP_HANDOVER_REQUESTED_EVENT_SIGNATURE, caller())
@@ -293,7 +284,6 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
     /// @param newOwner, The new owner about to replace `oldOwner`. This is not a clean address (i.e. top bits may not be zero)
     function _setOwner(bytes32 oldOwner, bytes32 newOwner) private {
         assembly ("memory-safe") {
-            // TODO: for all the cleaning places, remove them and add a test that fails as a consequence
             // Emit the {OwnershipTransferred} event with cleaned addresses
             log3(0, 0, _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE, oldOwner, shr(96, shl(96, newOwner)))
             // Store the new value. with top bit set if zero, to prevent multiple initialisations
@@ -307,7 +297,6 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
     function _checkOwner() internal view virtual returns (bytes32 owner_) {
         assembly ("memory-safe") {
             // If the caller is not the stored owner, revert.
-            // TODO: for all the cleaning places, remove them and add a test that fails as a consequence
             owner_ := shr(96, shl(96, sload(_OWNER_SLOT)))
             if iszero(eq(caller(), owner_)) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.

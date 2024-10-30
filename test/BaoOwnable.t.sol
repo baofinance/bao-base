@@ -68,10 +68,18 @@ contract TestBaoOwnableOnly is Test {
         DerivedBaoOwnable(ownable).initialize(address(this));
         assertEq(IBaoOwnable(ownable).owner(), address(this));
 
+        // call a function that fails unless done by an owner
+        vm.expectRevert(IBaoOwnable.NoHandoverRequest.selector);
+        IBaoOwnable(ownable).completeOwnershipHandover(user);
+
         vm.expectEmit();
         emit IBaoOwnable.OwnershipTransferred(address(this), owner);
         IBaoOwnable(ownable).transferOwnership(owner);
         assertEq(IBaoOwnable(ownable).owner(), owner);
+
+        vm.expectRevert(IBaoOwnable.NoHandoverRequest.selector);
+        vm.prank(owner);
+        IBaoOwnable(ownable).completeOwnershipHandover(user);
     }
 
     function test_onlyOwner() public {
@@ -284,8 +292,9 @@ contract TestBaoOwnableOnly is Test {
         IBaoOwnable(ownable).completeOwnershipHandover(user);
         assertEq(IBaoOwnable(ownable).owner(), owner);
 
-        // can't request to yourself
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        // can request to yourself
+        vm.expectEmit();
+        emit IBaoOwnable.OwnershipHandoverRequested(owner);
         vm.prank(owner);
         IBaoOwnable(ownable).requestOwnershipHandover();
 
@@ -347,6 +356,14 @@ contract TestBaoOwnableOnly is Test {
         IBaoOwnable(ownable).completeOwnershipHandover(user);
         assertEq(IBaoOwnable(ownable).ownershipHandoverExpiresAt(user), 0);
         assertEq(IBaoOwnable(ownable).owner(), user);
+
+        // owner's request is still there, so complete it
+        vm.expectEmit();
+        emit IBaoOwnable.OwnershipTransferred(user, owner);
+        vm.prank(user); // the current owner
+        IBaoOwnable(ownable).completeOwnershipHandover(owner);
+        assertEq(IBaoOwnable(ownable).ownershipHandoverExpiresAt(owner), 0);
+        assertEq(IBaoOwnable(ownable).owner(), owner);
     }
 
     enum WhatHappened {
