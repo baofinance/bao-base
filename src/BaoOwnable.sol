@@ -124,19 +124,15 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
     /// The request will automatically expire in 4 days by default.
     function requestOwnershipHandover() public payable virtual {
         assembly ("memory-safe") {
+            // TODO: can we remove this check?
             // If the current owner is zero then this cannot be completed
             let owner_ := shr(96, shl(96, sload(_OWNER_SLOT)))
             if iszero(owner_) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.
                 revert(0x1c, 0x04)
             }
-            // set the handover slot to the expiry time.
-            mstore(0x0c, _HANDOVER_SLOT_SEED)
-            mstore(0x00, caller())
-            sstore(keccak256(0x0c, 0x20), add(timestamp(), _TRANSFER_EXPIRY_PERIOD))
-            // Emit the {OwnershipHandoverRequested} event.
-            log2(0, 0, _OWNERSHIP_HANDOVER_REQUESTED_EVENT_SIGNATURE, caller())
         }
+        _setTransferRequest(msg.sender);
     }
 
     /// @dev Cancels the two-step ownership handover to the caller, if any.
@@ -164,47 +160,20 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
                     mstore(0x00, 0x7448fbae) // `NewOwnerIsZeroAddress()`.
                     revert(0x1c, 0x04)
                 }
-
-                // get the expiry for pendingOwner
-                mstore(0x0c, _HANDOVER_SLOT_SEED)
-                mstore(0x00, newOwner)
-                let handoverSlot := keccak256(0x0c, 0x20)
-                // If the handover does not exist, or has expired.
-                let now_ := timestamp()
-                let expiry := sload(handoverSlot)
-                if gt(now_, expiry) {
-                    mstore(0x00, 0x6f5e8818) // `NoHandoverRequest()`.
-                    revert(0x1c, 0x04)
-                }
-                if lt(now_, sub(expiry, shr(1, _TRANSFER_EXPIRY_PERIOD))) {
-                    mstore(0x00, 0x2cb8b3dc) // CannotCompleteYet()
-                    revert(0x1c, 0x04)
-                }
-                // set the handover slot to 0.
-                sstore(handoverSlot, 0)
             }
+            _checkCompletionWindow(pendingOwner);
             _setOwner(oldOwner, newOwner);
         }
     }
 
     function requestOwnershipRenunciation() public payable virtual {
-        // similar to requestOwnershipHandover
-        unchecked {
-            _checkOwner();
-            assembly ("memory-safe") {
-                // Compute and set the handover slot to `expires`.
-                mstore(0x0c, _HANDOVER_SLOT_SEED)
-                mstore(0x00, 0)
-                sstore(keccak256(0x0c, 0x20), add(timestamp(), _TRANSFER_EXPIRY_PERIOD))
-                // Emit the {OwnershipHandoverRequested} event.
-                log2(0, 0, _OWNERSHIP_HANDOVER_REQUESTED_EVENT_SIGNATURE, 0)
-            }
-        }
+        _checkOwner(); // wake-disable-line unchecked-return-value
+        _setTransferRequest(address(0));
     }
 
     function cancelOwnershipRenunciation() public payable virtual {
         unchecked {
-            _checkOwner();
+            _checkOwner(); // wake-disable-line unchecked-return-value
             assembly ("memory-safe") {
                 // Compute and set the handover slot to 0.
                 mstore(0x0c, _HANDOVER_SLOT_SEED)
@@ -219,25 +188,7 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
     function completeOwnershipRenunciation() public payable {
         unchecked {
             bytes32 oldOwner = _checkOwner();
-            assembly ("memory-safe") {
-                // get the expiry for address 0
-                mstore(0x0c, _HANDOVER_SLOT_SEED)
-                mstore(0x00, 0)
-                let handoverSlot := keccak256(0x0c, 0x20)
-                // If the handover does not exist, or has expired.
-                let now_ := timestamp()
-                let expiry := sload(handoverSlot)
-                if gt(now_, expiry) {
-                    mstore(0x00, 0x6f5e8818) // `NoHandoverRequest()`.
-                    revert(0x1c, 0x04)
-                }
-                if lt(now_, sub(expiry, shr(1, _TRANSFER_EXPIRY_PERIOD))) {
-                    mstore(0x00, 0x2cb8b3dc) // CannotCompleteYet()
-                    revert(0x1c, 0x04)
-                }
-                // set the handover slot to 0.
-                sstore(handoverSlot, 0)
-            }
+            _checkCompletionWindow(address(0));
             _setOwner(oldOwner, _INITIALIZED_ZERO_ADDRESS);
         }
     }
@@ -290,6 +241,39 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
             // i.e. an initialisation after a ownership transfer
             // also clears the deployer bit so it only works once
             sstore(_OWNER_SLOT, newOwner)
+        }
+    }
+
+    function _setTransferRequest(address toOwner) private {
+        assembly ("memory-safe") {
+            // Compute and set the handover slot to `expires`.
+            mstore(0x0c, _HANDOVER_SLOT_SEED)
+            mstore(0x00, toOwner)
+            sstore(keccak256(0x0c, 0x20), add(timestamp(), _TRANSFER_EXPIRY_PERIOD))
+            // Emit the {OwnershipHandoverRequested} event.
+            log2(0, 0, _OWNERSHIP_HANDOVER_REQUESTED_EVENT_SIGNATURE, toOwner)
+        }
+    }
+
+    function _checkCompletionWindow(address requestor) private {
+        assembly ("memory-safe") {
+            // get the expiry for pendingOwner
+            mstore(0x0c, _HANDOVER_SLOT_SEED)
+            mstore(0x00, requestor)
+            let handoverSlot := keccak256(0x0c, 0x20)
+            // If the handover does not exist, or has expired.
+            let now_ := timestamp()
+            let expiry := sload(handoverSlot)
+            if gt(now_, expiry) {
+                mstore(0x00, 0x6f5e8818) // `NoHandoverRequest()`.
+                revert(0x1c, 0x04)
+            }
+            if lt(now_, sub(expiry, shr(1, _TRANSFER_EXPIRY_PERIOD))) {
+                mstore(0x00, 0x2cb8b3dc) // CannotCompleteYet()
+                revert(0x1c, 0x04)
+            }
+            // set the handover slot to 0.
+            sstore(handoverSlot, 0)
         }
     }
 

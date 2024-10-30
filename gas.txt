@@ -5,16 +5,16 @@
 ├────────────────────────────────────────────────────────┼──────────┼──────────┤
 │ cancelOwnershipHandover                                │   24,601 │   24,601 │
 │ cancelOwnershipRenunciation                            │   25,797 │   26,797 │
-│ completeOwnershipHandover                              │   26,276 │   28,893 │
-│ completeOwnershipRenunciation                          │   25,623 │   28,241 │
+│ completeOwnershipHandover                              │   26,294 │   28,922 │
+│ completeOwnershipRenunciation                          │   25,640 │   28,269 │
 │ initialize                                             │   45,697 │   45,711 │
 │ owner                                                  │      515 │    2,515 │
 │ ownershipHandoverExpiresAt                             │      885 │    2,885 │
 │ ownershipHandoverValidFor                              │      405 │      405 │
 │ protected                                              │   23,464 │   23,469 │
 │ renounceOwnership                                      │   23,392 │   27,881 │
-│ requestOwnershipHandover                               │   46,664 │   46,664 │
-│ requestOwnershipRenunciation                           │   46,724 │   46,724 │
+│ requestOwnershipHandover                               │   46,694 │   46,694 │
+│ requestOwnershipRenunciation                           │   46,753 │   46,753 │
 │ supportsInterface                                      │      684 │      699 │
 │ transferOwnership                                      │   24,052 │   28,557 │
 ╰────────────────────────────────────────────────────────┴──────────┴──────────╯
