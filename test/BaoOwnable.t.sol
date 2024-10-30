@@ -17,6 +17,8 @@ contract DerivedBaoOwnable is BaoOwnable {
     function ownershipHandoverValidFor() public pure returns (uint64) {
         return _ownershipHandoverValidFor();
     }
+
+    function protected() public onlyOwner {}
 }
 
 contract TestBaoOwnableOnly is Test {
@@ -57,6 +59,16 @@ contract TestBaoOwnableOnly is Test {
         // introspection
         assertTrue(IERC165(ownable).supportsInterface(type(IERC165).interfaceId));
         assertTrue(IERC165(ownable).supportsInterface(type(IBaoOwnable).interfaceId));
+    }
+
+    function test_onlyOwner() public {
+        DerivedBaoOwnable(ownable).initialize(owner);
+
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        DerivedBaoOwnable(ownable).protected();
+
+        vm.prank(owner);
+        DerivedBaoOwnable(ownable).protected();
     }
 
     function test_reinitAfterTransfer() public {

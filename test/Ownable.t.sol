@@ -18,6 +18,8 @@ contract DerivedOwnable is Ownable {
     function ownershipHandoverValidFor() public view returns (uint64) {
         return _ownershipHandoverValidFor();
     }
+
+    function protected() public onlyOwner {}
 }
 
 contract TestOwnable is Test {

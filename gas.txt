@@ -3,19 +3,20 @@
 ╞════════════════════════════════════════════════════════╤══════════╤══════════╡
 │ Function Name                                          │ median   │ max      │
 ├────────────────────────────────────────────────────────┼──────────┼──────────┤
-│ cancelOwnershipHandover                                │   24,645 │   24,645 │
-│ cancelOwnershipRenunciation                            │   25,826 │   26,826 │
-│ completeOwnershipHandover                              │   27,665 │   29,217 │
-│ completeOwnershipRenunciation                          │   25,633 │   28,382 │
-│ initialize                                             │   45,653 │   45,653 │
+│ cancelOwnershipHandover                                │   24,601 │   24,601 │
+│ cancelOwnershipRenunciation                            │   25,758 │   26,758 │
+│ completeOwnershipHandover                              │   26,293 │   28,912 │
+│ completeOwnershipRenunciation                          │   25,639 │   28,259 │
+│ initialize                                             │   45,697 │   45,711 │
 │ owner                                                  │      503 │    2,503 │
 │ ownershipHandoverExpiresAt                             │      885 │    2,885 │
 │ ownershipHandoverValidFor                              │      439 │      439 │
-│ renounceOwnership                                      │   23,426 │   28,022 │
-│ requestOwnershipHandover                               │   46,894 │   46,894 │
-│ requestOwnershipRenunciation                           │   46,761 │   46,761 │
-│ supportsInterface                                      │      661 │      676 │
-│ transferOwnership                                      │   24,031 │   28,647 │
+│ protected                                              │   23,451 │   23,454 │
+│ renounceOwnership                                      │   23,392 │   27,881 │
+│ requestOwnershipHandover                               │   46,744 │   46,744 │
+│ requestOwnershipRenunciation                           │   46,737 │   46,737 │
+│ supportsInterface                                      │      684 │      699 │
+│ transferOwnership                                      │   24,052 │   28,557 │
 ╰────────────────────────────────────────────────────────┴──────────┴──────────╯
 
 ╭──────────────────────────────────────────────────────────────────────────────╮
@@ -26,7 +27,7 @@
 │ cancelOwnershipHandover                                │   22,601 │   22,601 │
 │ completeOwnershipHandover                              │   28,959 │   28,959 │
 │ initialize                                             │   45,596 │   45,596 │
-│ owner                                                  │      547 │    2,547 │
+│ owner                                                  │      569 │    2,569 │
 │ ownershipHandoverExpiresAt                             │    1,885 │    2,885 │
 │ ownershipHandoverValidFor                              │      394 │      394 │
 │ renounceOwnership                                      │   23,369 │   23,369 │
