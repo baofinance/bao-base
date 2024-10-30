@@ -61,6 +61,19 @@ contract TestBaoOwnableOnly is Test {
         assertTrue(IERC165(ownable).supportsInterface(type(IBaoOwnable).interfaceId));
     }
 
+    function test_owner() public {
+        // can initialise to an owner, who is deployer
+        vm.expectEmit();
+        emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
+        DerivedBaoOwnable(ownable).initialize(address(this));
+        assertEq(IBaoOwnable(ownable).owner(), address(this));
+
+        vm.expectEmit();
+        emit IBaoOwnable.OwnershipTransferred(address(this), owner);
+        IBaoOwnable(ownable).transferOwnership(owner);
+        assertEq(IBaoOwnable(ownable).owner(), owner);
+    }
+
     function test_onlyOwner() public {
         DerivedBaoOwnable(ownable).initialize(owner);
 

@@ -54,9 +54,12 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
 
     /// @dev Returns the owner of the contract.
     function owner() public view virtual returns (address result) {
-        /// @solidity memory-safe-assembly
-        assembly {
-            result := shr(96, shl(96, sload(_OWNER_SLOT)))
+        unchecked {
+            /// @solidity memory-safe-assembly
+            assembly {
+                // TODO: this cleaning seems to have no effect - is it because address returns are always clean
+                result := shr(96, shl(96, sload(_OWNER_SLOT)))
+            }
         }
     }
 
@@ -94,7 +97,6 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
                 mstore(0x00, 0x7448fbae) // `NewOwnerIsZeroAddress()`.
                 revert(0x1c, 0x04)
             }
-            // TODO: for all the cleaning places, remove them and add a test that fails as a consequence
             // clean oldOwner address (i.e. if it was zero)
             oldOwner := shr(96, shl(96, oldOwner))
         }
@@ -113,6 +115,7 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
                 revert(0x1c, 0x04)
             }
             // clean oldOwner address (i.e. if it was zero)
+            // TODO: for all the cleaning places, remove them and add a test that fails as a consequence
             oldOwner := shr(96, shl(96, oldOwner))
         }
         _setOwner(oldOwner, _INITIALIZED_ZERO_ADDRESS);
@@ -123,6 +126,7 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
     function requestOwnershipHandover() public payable virtual {
         assembly ("memory-safe") {
             // If the current owner is zero then this cannot be completed
+            // TODO: for all the cleaning places, remove them and add a test that fails as a consequence
             let owner_ := shr(96, shl(96, sload(_OWNER_SLOT)))
             if iszero(owner_) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.
@@ -289,6 +293,7 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
     /// @param newOwner, The new owner about to replace `oldOwner`. This is not a clean address (i.e. top bits may not be zero)
     function _setOwner(bytes32 oldOwner, bytes32 newOwner) private {
         assembly ("memory-safe") {
+            // TODO: for all the cleaning places, remove them and add a test that fails as a consequence
             // Emit the {OwnershipTransferred} event with cleaned addresses
             log3(0, 0, _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE, oldOwner, shr(96, shl(96, newOwner)))
             // Store the new value. with top bit set if zero, to prevent multiple initialisations
@@ -302,6 +307,7 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
     function _checkOwner() internal view virtual returns (bytes32 owner_) {
         assembly ("memory-safe") {
             // If the caller is not the stored owner, revert.
+            // TODO: for all the cleaning places, remove them and add a test that fails as a consequence
             owner_ := shr(96, shl(96, sload(_OWNER_SLOT)))
             if iszero(eq(caller(), owner_)) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.
@@ -316,7 +322,7 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
 
     /// @dev Marks a function as only callable by the owner.
     modifier onlyOwner() virtual {
-        _checkOwner();
+        _checkOwner(); // wake-disable-line unchecked-return-value
         _;
     }
 }
