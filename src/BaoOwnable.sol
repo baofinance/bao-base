@@ -24,7 +24,7 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
     function _initializeOwner(address initialOwner) internal virtual {
         assembly ("memory-safe") {
             // Clean the upper 96 bits.
-            initialOwner := and(initialOwner, _MASK_ADDRESS)
+            initialOwner := shr(96, shl(96, initialOwner))
             // if (owner == address(0)) revert Ownable.NewOwnerIsZeroAddress();
             if iszero(initialOwner) {
                 mstore(0x00, 0x7448fbae) // `NewOwnerIsZeroAddress()`.
@@ -104,7 +104,7 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
 
         assembly ("memory-safe") {
             // If the current owner then this cannot be completed
-            let owner_ := and(sload(_OWNER_SLOT), _MASK_ADDRESS)
+            let owner_ := shr(96, shl(96, sload(_OWNER_SLOT)))
             if iszero(owner_) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.
                 revert(0x1c, 0x04)
@@ -212,8 +212,6 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
     uint256 private constant _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE =
         0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0;
 
-    /// @dev AND a slot with MASK_ADDRESS to clean top 96 bits of the address
-    bytes32 private constant _MASK_ADDRESS = 0x000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
     /// @dev AND a slot with MASK_DEPLOYER to reveal the bit that says the owner is the deployer
     bytes32 private constant _MASK_DEPLOYER = 0x4000000000000000000000000000000000000000000000000000000000000000;
 
@@ -231,9 +229,9 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
         assembly ("memory-safe") {
             let ownerSlot := _OWNER_SLOT
             // Clean the upper 96 bits.
-            newOwner := and(newOwner, _MASK_ADDRESS)
+            newOwner := shr(96, shl(96, newOwner))
             // Emit the {OwnershipTransferred} event.
-            log3(0, 0, _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE, and(sload(ownerSlot), _MASK_ADDRESS), newOwner)
+            log3(0, 0, _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE, shr(96, shl(96, sload(ownerSlot))), newOwner)
             // Store the new value. with top bit set if zero, to prevent multiple initialisations
             // i.e. an initialisation after a ownership transfer
             // also clears the deployer bit so it only works once
@@ -245,7 +243,7 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
     function _checkOwner() internal view virtual {
         assembly ("memory-safe") {
             // If the caller is not the stored owner, revert.
-            if iszero(eq(caller(), and(sload(_OWNER_SLOT), _MASK_ADDRESS))) {
+            if iszero(eq(caller(), shr(96, shl(96, sload(_OWNER_SLOT))))) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.
                 revert(0x1c, 0x04)
             }

@@ -4,18 +4,18 @@
 │ Function Name                                          │ median   │ max      │
 ├────────────────────────────────────────────────────────┼──────────┼──────────┤
 │ cancelOwnershipHandover                                │   24,645 │   24,645 │
-│ cancelOwnershipRenunciation                            │   25,820 │   26,820 │
-│ completeOwnershipHandover                              │   26,296 │   29,204 │
-│ completeOwnershipRenunciation                          │   25,627 │   28,364 │
-│ initialize                                             │   45,652 │   45,652 │
+│ cancelOwnershipRenunciation                            │   25,826 │   26,826 │
+│ completeOwnershipHandover                              │   27,665 │   29,217 │
+│ completeOwnershipRenunciation                          │   25,633 │   28,382 │
+│ initialize                                             │   45,653 │   45,653 │
 │ owner                                                  │      503 │    2,503 │
 │ ownershipHandoverExpiresAt                             │      885 │    2,885 │
 │ ownershipHandoverValidFor                              │      439 │      439 │
-│ renounceOwnership                                      │   23,426 │   28,010 │
-│ requestOwnershipHandover                               │   46,888 │   46,888 │
-│ requestOwnershipRenunciation                           │   46,755 │   46,755 │
+│ renounceOwnership                                      │   23,426 │   28,022 │
+│ requestOwnershipHandover                               │   46,894 │   46,894 │
+│ requestOwnershipRenunciation                           │   46,761 │   46,761 │
 │ supportsInterface                                      │      661 │      676 │
-│ transferOwnership                                      │   24,051 │   28,640 │
+│ transferOwnership                                      │   24,031 │   28,647 │
 ╰────────────────────────────────────────────────────────┴──────────┴──────────╯
 
 ╭──────────────────────────────────────────────────────────────────────────────╮
