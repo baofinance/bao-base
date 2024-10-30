@@ -10,7 +10,7 @@ import { IOwnable } from "@bao/interfaces/IOwnable.sol";
 import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
 import { BaoOwnableRoles } from "@bao/BaoOwnableRoles.sol";
 
-import { TestBaoOwnable } from "./BaoOwnable.t.sol";
+import { TestBaoOwnableOnly } from "./BaoOwnable.t.sol";
 
 contract DerivedBaoOwnableRoles is BaoOwnableRoles {
     uint256 public MY_ROLE = _ROLE_1;
@@ -26,7 +26,7 @@ contract DerivedBaoOwnableRoles is BaoOwnableRoles {
     function protected() public view onlyRoles(MY_ROLE) {}
 }
 
-contract TestBaoOwnableRoles is TestBaoOwnable {
+contract TestBaoOwnableRoles is TestBaoOwnableOnly {
     function setUp() public override {
         super.setUp();
 

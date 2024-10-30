@@ -70,4 +70,9 @@ abstract contract BaoOwnableRoles is OwnableRoles, BaoOwnable {
     function _ownershipHandoverValidFor() internal view virtual override(Ownable, BaoOwnable) returns (uint64) {
         return BaoOwnable._ownershipHandoverValidFor();
     }
+
+    modifier onlyOwner() override(Ownable, BaoOwnable) {
+        BaoOwnable._checkOwner();
+        _;
+    }
 }
