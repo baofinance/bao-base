@@ -56,7 +56,7 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
     function owner() public view virtual returns (address result) {
         /// @solidity memory-safe-assembly
         assembly {
-            result := sload(_OWNER_SLOT)
+            result := shr(96, shl(96, sload(_OWNER_SLOT)))
         }
     }
 
@@ -160,15 +160,9 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
     /// @notice add a period (half the timeout) in which this function cannot be called
     function completeOwnershipHandover(address pendingOwner) public payable virtual {
         unchecked {
-            bytes32 oldOwner;
+            bytes32 oldOwner = _checkOwner();
             bytes32 newOwner;
             assembly ("memory-safe") {
-                // onlyOwner
-                oldOwner := shr(96, shl(96, sload(_OWNER_SLOT)))
-                if iszero(eq(caller(), oldOwner)) {
-                    mstore(0x00, 0x82b42900) // `Unauthorized()`.
-                    revert(0x1c, 0x04)
-                }
                 newOwner := pendingOwner
                 // don't allow handover to address(0), use the renunciation process
                 if iszero(newOwner) {
@@ -200,47 +194,37 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
 
     function requestOwnershipRenunciation() public payable virtual {
         // similar to requestOwnershipHandover
-        assembly ("memory-safe") {
-            // onlyOwner
-            if iszero(eq(caller(), shr(96, shl(96, sload(_OWNER_SLOT))))) {
-                mstore(0x00, 0x82b42900) // `Unauthorized()`.
-                revert(0x1c, 0x04)
+        unchecked {
+            _checkOwner();
+            assembly ("memory-safe") {
+                // Compute and set the handover slot to `expires`.
+                mstore(0x0c, _HANDOVER_SLOT_SEED)
+                mstore(0x00, 0)
+                sstore(keccak256(0x0c, 0x20), add(timestamp(), _TRANSFER_EXPIRY_PERIOD))
+                // Emit the {OwnershipHandoverRequested} event.
+                log2(0, 0, _OWNERSHIP_HANDOVER_REQUESTED_EVENT_SIGNATURE, 0)
             }
-            // Compute and set the handover slot to `expires`.
-            mstore(0x0c, _HANDOVER_SLOT_SEED)
-            mstore(0x00, 0)
-            sstore(keccak256(0x0c, 0x20), add(timestamp(), _TRANSFER_EXPIRY_PERIOD))
-            // Emit the {OwnershipHandoverRequested} event.
-            log2(0, 0, _OWNERSHIP_HANDOVER_REQUESTED_EVENT_SIGNATURE, 0)
         }
     }
 
     function cancelOwnershipRenunciation() public payable virtual {
-        assembly ("memory-safe") {
-            // onlyOwner
-            if iszero(eq(caller(), shr(96, shl(96, sload(_OWNER_SLOT))))) {
-                mstore(0x00, 0x82b42900) // `Unauthorized()`.
-                revert(0x1c, 0x04)
+        unchecked {
+            _checkOwner();
+            assembly ("memory-safe") {
+                // Compute and set the handover slot to 0.
+                mstore(0x0c, _HANDOVER_SLOT_SEED)
+                mstore(0x00, 0)
+                sstore(keccak256(0x0c, 0x20), 0)
+                // Emit the {OwnershipHandoverCanceled} event.
+                log2(0, 0, _OWNERSHIP_HANDOVER_CANCELED_EVENT_SIGNATURE, 0)
             }
-            // Compute and set the handover slot to 0.
-            mstore(0x0c, _HANDOVER_SLOT_SEED)
-            mstore(0x00, 0)
-            sstore(keccak256(0x0c, 0x20), 0)
-            // Emit the {OwnershipHandoverCanceled} event.
-            log2(0, 0, _OWNERSHIP_HANDOVER_CANCELED_EVENT_SIGNATURE, 0)
         }
     }
 
     function completeOwnershipRenunciation() public payable {
         unchecked {
-            bytes32 oldOwner;
+            bytes32 oldOwner = _checkOwner();
             assembly ("memory-safe") {
-                // onlyOwner
-                oldOwner := shr(96, shl(96, sload(_OWNER_SLOT)))
-                if iszero(eq(caller(), oldOwner)) {
-                    mstore(0x00, 0x82b42900) // `Unauthorized()`.
-                    revert(0x1c, 0x04)
-                }
                 // get the expiry for address 0
                 mstore(0x0c, _HANDOVER_SLOT_SEED)
                 mstore(0x00, 0)
@@ -300,11 +284,10 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
                                   INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
-    // TODO: make private
     /// @dev Sets the owner directly
     /// @param oldOwner, The old owner about to be replaced. This is a clean address (i.e. top bits are zero)
     /// @param newOwner, The new owner about to replace `oldOwner`. This is not a clean address (i.e. top bits may not be zero)
-    function _setOwner(bytes32 oldOwner, bytes32 newOwner) internal virtual {
+    function _setOwner(bytes32 oldOwner, bytes32 newOwner) private {
         assembly ("memory-safe") {
             // Emit the {OwnershipTransferred} event with cleaned addresses
             log3(0, 0, _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE, oldOwner, shr(96, shl(96, newOwner)))
@@ -316,10 +299,11 @@ abstract contract BaoOwnable is IERC165, IBaoOwnable {
     }
 
     /// @dev Throws if the sender is not the owner.
-    function _checkOwner() internal view virtual {
+    function _checkOwner() internal view virtual returns (bytes32 owner_) {
         assembly ("memory-safe") {
             // If the caller is not the stored owner, revert.
-            if iszero(eq(caller(), shr(96, shl(96, sload(_OWNER_SLOT))))) {
+            owner_ := shr(96, shl(96, sload(_OWNER_SLOT)))
+            if iszero(eq(caller(), owner_)) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.
                 revert(0x1c, 0x04)
             }
