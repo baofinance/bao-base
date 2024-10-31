@@ -1,5 +1,5 @@
 #! /bin/sh
-# calculates a storage has for a contract
+# calculates an event signature encoding
 # uses chisel (installed as part of the foundry ethereum dev environment)
 # see https://book.getfoundry.sh/getting-started/installation
 

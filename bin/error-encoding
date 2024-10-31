@@ -1,0 +1,15 @@
+#! /bin/sh
+# calculates an error encoding
+# uses cast (installed as part of the foundry ethereum dev environment)
+# see https://book.getfoundry.sh/getting-started/installation
+
+if [ -z "$1" ]; then
+  echo "Usage: $0 '<Error signature, e.g. Unauthorized(address)>' [<parameters>...]"
+  exit 1
+fi
+
+KEY=$1
+
+echo using KEY=$KEY
+echo cast calldata "'"$KEY"'"
+cast calldata $KEY
