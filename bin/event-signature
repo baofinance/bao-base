@@ -1,0 +1,15 @@
+#! /bin/sh
+# calculates a storage has for a contract
+# uses chisel (installed as part of the foundry ethereum dev environment)
+# see https://book.getfoundry.sh/getting-started/installation
+
+if [ -z "$1" ]; then
+  echo "Usage: $0 '<Event signature, e.g. Transferred(address,address)>'"
+  exit 1
+fi
+
+KEY=$1
+
+echo using KEY=$KEY
+echo chisel eval "'"'keccak256(bytes("'$KEY'"))'"'"
+chisel eval 'keccak256(bytes("'$KEY'"))' | sed -n '2p' | awk '{print $3}'
