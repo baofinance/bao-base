@@ -200,6 +200,18 @@ contract TestBaoOwnableOnly is Test {
         assertEq(IBaoOwnable(ownable).owner(), owner);
     }
 
+    function test_transferOwnership() public {
+        // owner is initially set to the deployer
+        vm.expectEmit();
+        emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
+        DerivedBaoOwnable(ownable).initialize(address(this));
+
+        // cannot transfer after an hour
+        skip(1 hours + 1 seconds);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        IBaoOwnable(ownable).transferOwnership(user);
+    }
+
     function test_deployWithRenounce() public {
         // owner is initially set to the deployer
         vm.expectEmit();

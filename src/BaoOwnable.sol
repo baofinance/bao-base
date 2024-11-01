@@ -34,8 +34,20 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
                     mstore(0x00, 0x0dc149f0) // `AlreadyInitialized()`.
                     revert(0x1c, 0x04)
                 }
+                // Emit the {OwnershipTransferred} event with cleaned addresses
+                log3(0, 0, _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE, 0, initialOwner)
+                // Store the new value. with initialised bit set, to prevent multiple initialisations
+                // i.e. an initialisation after a ownership transfer
+                // also conditionally clears the deployer bit so it only works once
+                //stored := or(newOwner, shl(_BIT_DEPLOYER_IS_OWNER, or(0x2, deployerIsOwner)))
+                sstore(
+                    _INITIALIZED_SLOT,
+                    or(
+                        shl(192, timestamp()),
+                        or(initialOwner, shl(_BIT_DEPLOYER_IS_OWNER, or(0x2, eq(caller(), initialOwner))))
+                    )
+                )
             }
-            _setOwner(address(0), initialOwner, initialOwner == msg.sender);
         }
     }
 
@@ -75,14 +87,22 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
         address oldOwner;
         assembly ("memory-safe") {
             oldOwner := sload(_INITIALIZED_SLOT)
+            let initialisedAt := shr(192, oldOwner)
+            // 95 includes the deployer is owner flag
+            oldOwner := shr(95, shl(95, oldOwner))
             // check for caller + initialized and deployer is owner bits set to be equal to _INITIALIZED_SLOT
-            if iszero(eq(or(caller(), shl(_BIT_DEPLOYER_IS_OWNER, 0x3)), oldOwner)) {
+            // check for expiry
+            if or(
+                iszero(eq(or(caller(), shl(_BIT_DEPLOYER_IS_OWNER, 0x1)), oldOwner)),
+                gt(timestamp(), add(initialisedAt, 3600))
+            ) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.
                 revert(0x1c, 0x04)
             }
+            // remove the deployer is owner flag
             oldOwner := shr(96, shl(96, oldOwner))
         }
-        _setOwner(oldOwner, toOwner, false);
+        _setOwner(oldOwner, toOwner);
     }
 
     /// @notice initiates handover to a new owner or renunciation of ownership (i.e. handover to address(0))
@@ -170,7 +190,7 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
                 revert(0x1c, 0x04)
             }
         }
-        _setOwner(oldOwner, confirmOwner, false);
+        _setOwner(oldOwner, confirmOwner);
     }
 
     // TODO: add this
@@ -226,8 +246,7 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
     /// @dev Sets the owner directly
     /// @param oldOwner, The old owner about to be replaced. This is a clean address (i.e. top bits are zero)
     /// @param newOwner, The new owner about to replace `oldOwner`. This is not a clean address (i.e. top bits may not be zero)
-    /// @param deployerIsOwner, The new content of intializedSlot
-    function _setOwner(address oldOwner, address newOwner, bool deployerIsOwner) internal {
+    function _setOwner(address oldOwner, address newOwner) internal {
         //bytes32 stored;
         assembly ("memory-safe") {
             // Emit the {OwnershipTransferred} event with cleaned addresses
@@ -236,7 +255,7 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
             // i.e. an initialisation after a ownership transfer
             // also conditionally clears the deployer bit so it only works once
             //stored := or(newOwner, shl(_BIT_DEPLOYER_IS_OWNER, or(0x2, deployerIsOwner)))
-            sstore(_INITIALIZED_SLOT, or(newOwner, shl(_BIT_DEPLOYER_IS_OWNER, or(0x2, deployerIsOwner))))
+            sstore(_INITIALIZED_SLOT, or(newOwner, shl(_BIT_DEPLOYER_IS_OWNER, 0x1)))
         }
         //console2.logBytes32(stored);
     }
