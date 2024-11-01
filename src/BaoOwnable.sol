@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+import { console2 } from "forge-std/console2.sol";
+
 import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
@@ -23,21 +25,18 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
     /// @notice initialise the UUPS proxy
     /// @param initialOwner sets the owner, a privileged address, of the contract. Cannot be address(0)
     function _initializeOwner(address initialOwner) internal virtual {
-        assembly ("memory-safe") {
-            // this is an unprotected function so only let the deployer call it, and then only once
-            // use transferOwner, for deployers to call to finalise the owner, and then
-            // also only once and if they set the owner to themselves here
-            if sload(_IS_INITIALIZED_SLOT) {
-                mstore(0x00, 0x0dc149f0) // `AlreadyInitialized()`.
-                revert(0x1c, 0x04)
+        unchecked {
+            assembly ("memory-safe") {
+                // this is an unprotected function so only let the deployer call it, and then only once
+                // use transferOwner for deployers to call to finalise the owner, and then
+                // also only once and if they set the owner to themselves here
+                if sload(_INITIALIZED_SLOT) {
+                    mstore(0x00, 0x0dc149f0) // `AlreadyInitialized()`.
+                    revert(0x1c, 0x04)
+                }
             }
-            let isInitialized := 1
-            if eq(caller(), initialOwner) {
-                isInitialized := caller()
-            }
-            sstore(_IS_INITIALIZED_SLOT, isInitialized)
+            _setOwner(address(0), initialOwner, initialOwner == msg.sender);
         }
-        _setOwner(address(0), initialOwner);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -52,7 +51,7 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
     /// @dev Returns the owner of the contract.
     function owner() public view virtual returns (address result) {
         assembly ("memory-safe") {
-            result := sload(_OWNER_SLOT)
+            result := sload(_INITIALIZED_SLOT)
         }
     }
 
@@ -61,8 +60,6 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
             pendingOwner := sload(_PENDING_SLOT)
             // extract the 64 bits that hold the start time
             started := shr(192, pendingOwner)
-            // extract the 160 address bits TODO: I think this may be done for us by solidity
-            pendingOwner := shr(96, shl(96, pendingOwner))
         }
     }
 
@@ -73,17 +70,19 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
     /// @notice transfers the ownership to a 'newOwner' in a one-step procedure
     /// Can only be called once and then only by the deployer, who is also the (temporary) owner
     /// @param toOwner The address of the new owner.
+    // TODO: need a timeout on access to this - say 1 hour
     function transferOwnership(address toOwner) public payable virtual {
         address oldOwner;
         assembly ("memory-safe") {
-            if iszero(eq(caller(), sload(_IS_INITIALIZED_SLOT))) {
+            oldOwner := sload(_INITIALIZED_SLOT)
+            // check for caller + initialized and deployer is owner bits set to be equal to _INITIALIZED_SLOT
+            if iszero(eq(or(caller(), shl(_BIT_DEPLOYER_IS_OWNER, 0x3)), oldOwner)) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.
                 revert(0x1c, 0x04)
             }
-            oldOwner := sload(_OWNER_SLOT)
-            sstore(_IS_INITIALIZED_SLOT, shl(254, 1))
+            oldOwner := shr(96, shl(96, oldOwner))
         }
-        _setOwner(oldOwner, toOwner);
+        _setOwner(oldOwner, toOwner, false);
     }
 
     /// @notice initiates handover to a new owner or renunciation of ownership (i.e. handover to address(0))
@@ -93,7 +92,7 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
     function initiateOwnershipHandover(address toAddress) public payable virtual {
         assembly ("memory-safe") {
             // onlyOwner and not if owner == toAddress
-            let owner_ := sload(_OWNER_SLOT)
+            let owner_ := shr(96, shl(96, sload(_INITIALIZED_SLOT)))
             if or(iszero(eq(caller(), owner_)), eq(toAddress, owner_)) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.
                 revert(0x1c, 0x04)
@@ -112,7 +111,7 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
             // only pending or owner
             let caller_ := caller()
             let pendingOwner := shr(96, shl(96, sload(_PENDING_SLOT)))
-            let owner_ := sload(_OWNER_SLOT)
+            let owner_ := shr(96, shl(96, sload(_INITIALIZED_SLOT)))
             if iszero(or(eq(caller_, pendingOwner), eq(caller_, owner_))) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.
                 revert(0x1c, 0x04)
@@ -153,7 +152,6 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
     /// @notice add a period (half the timeout) in which this function cannot be called
     function completeOwnershipHandover(address confirmOwner) public payable virtual {
         address oldOwner = _checkOwner();
-        address newOwner;
         assembly ("memory-safe") {
             let pending_ := sload(_PENDING_SLOT)
             let start := shr(192, pending_)
@@ -171,9 +169,8 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
                 mstore(0x00, 0x0144fff5) // `CannotRenounceYet()`.
                 revert(0x1c, 0x04)
             }
-            newOwner := shr(96, shl(96, pending_))
         }
-        _setOwner(oldOwner, newOwner);
+        _setOwner(oldOwner, confirmOwner, false);
     }
 
     // TODO: add this
@@ -191,16 +188,19 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
     /// `keccak256(abi.encode(uint256(keccak256("bao.storage.BaoOwnable.owner")) - 1)) & ~bytes32(uint256(0xff))`.
     /// The choice of manual storage layout is to enable compatibility
     /// with both regular and upgradeable contracts.
-    bytes32 private constant _OWNER_SLOT = 0x61e0b85c03e2cf9c545bde2fb12d0bf5dd6eaae0af8b6909bd36e40f78a60500;
+    bytes32 private constant _INITIALIZED_SLOT = 0x61e0b85c03e2cf9c545bde2fb12d0bf5dd6eaae0af8b6909bd36e40f78a60500;
+    // | 255, 1 bit - intialized | 160, 1 bit - deployer is powner | 159, 160 bits - owner address |
+    uint8 private constant _BIT_DEPLOYER_IS_OWNER = 160;
+    uint8 private constant _BIT_INITIALIZED = 161; // needs to be the next bit up
 
     /// @dev The pending owner slot is given by:
     /// `keccak256(abi.encode(uint256(keccak256("bao.storage.BaoOwnable.pending")) - 1)) & ~bytes32(uint256(0xff))`.
     bytes32 private constant _PENDING_SLOT = 0x9839bd1b7d13bef2e7a66ce106fd5e418f9f8fee5da4e55d26c2c33ef0bf4800;
-    // | 255, 64 bits - start timestamp | 191, 31 bits - spare | 160, 1 bit - accepted | 159, 160 bits - owner address |
+    // | 255, 64 bits - start timestamp | 191, 31 bits - spare | 160, 1 bit - accepted | 159, 160 bits - pending owner address |
     uint8 private constant _BIT_ACCEPTED = 160;
 
     /// `keccak256(abi.encode(uint256(keccak256("bao.storage.BaoOwnable.isInitialized")) - 1)) & ~bytes32(uint256(0xff))`.
-    bytes32 private constant _IS_INITIALIZED_SLOT = 0xf62b6656174671598fb5a8f20c699816e60e61b09b105786e842a4b16193e900;
+    //bytes32 private constant _IS_INITIALIZED_SLOT = 0xf62b6656174671598fb5a8f20c699816e60e61b09b105786e842a4b16193e900;
     /// @dev OR an address to get the address stored in owner, if they were also the deployer
 
     /// @dev `keccak256(bytes("OwnershipHandoverInitiated(address)"))`.
@@ -226,21 +226,25 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
     /// @dev Sets the owner directly
     /// @param oldOwner, The old owner about to be replaced. This is a clean address (i.e. top bits are zero)
     /// @param newOwner, The new owner about to replace `oldOwner`. This is not a clean address (i.e. top bits may not be zero)
-    function _setOwner(address oldOwner, address newOwner) internal {
+    /// @param deployerIsOwner, The new content of intializedSlot
+    function _setOwner(address oldOwner, address newOwner, bool deployerIsOwner) internal {
+        //bytes32 stored;
         assembly ("memory-safe") {
             // Emit the {OwnershipTransferred} event with cleaned addresses
             log3(0, 0, _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE, oldOwner, newOwner)
-            // Store the new value. with tinitialised bit set if zero, to prevent multiple initialisations
+            // Store the new value. with initialised bit set, to prevent multiple initialisations
             // i.e. an initialisation after a ownership transfer
-            // also clears the deployer bit so it only works once
-            sstore(_OWNER_SLOT, newOwner)
+            // also conditionally clears the deployer bit so it only works once
+            //stored := or(newOwner, shl(_BIT_DEPLOYER_IS_OWNER, or(0x2, deployerIsOwner)))
+            sstore(_INITIALIZED_SLOT, or(newOwner, shl(_BIT_DEPLOYER_IS_OWNER, or(0x2, deployerIsOwner))))
         }
+        //console2.logBytes32(stored);
     }
 
     /// @dev Throws if the sender is not the owner.
     function _checkOwner() internal view virtual returns (address owner_) {
         assembly ("memory-safe") {
-            owner_ := sload(_OWNER_SLOT)
+            owner_ := shr(96, shl(96, sload(_INITIALIZED_SLOT)))
             // If the caller is not the stored owner, revert.
             if iszero(eq(caller(), owner_)) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.

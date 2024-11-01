@@ -202,6 +202,8 @@ contract TestBaoOwnableOnly is Test {
 
     function test_deployWithRenounce() public {
         // owner is initially set to the deployer
+        vm.expectEmit();
+        emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
         DerivedBaoOwnable(ownable).initialize(address(this));
 
         // owner can't renounce ownership (one-step)
