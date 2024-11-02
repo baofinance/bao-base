@@ -93,5 +93,6 @@ interface IBaoOwnable is IERC5313 {
     /// both returned values will be zero if there is no current handover.
     /// @param pendingOwner The new owner if the handover process completes successfully
     /// @param started The timestamp when the handover was initiated.
-    function pending() external view returns (address pendingOwner, uint64 started);
+    /// @param accepted Whether the handover has been accepted by the 'pendingOwner'
+    function pending() external view returns (address pendingOwner, uint64 started, bool accepted);
 }

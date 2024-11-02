@@ -25,30 +25,33 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
     /// @notice initialise the UUPS proxy
     /// @param initialOwner sets the owner, a privileged address, of the contract. Cannot be address(0)
     function _initializeOwner(address initialOwner) internal virtual {
-        unchecked {
-            assembly ("memory-safe") {
-                // this is an unprotected function so only let the deployer call it, and then only once
-                // use transferOwner for deployers to call to finalise the owner, and then
-                // also only once and if they set the owner to themselves here
-                if sload(_INITIALIZED_SLOT) {
-                    mstore(0x00, 0x0dc149f0) // `AlreadyInitialized()`.
-                    revert(0x1c, 0x04)
-                }
-                // Emit the {OwnershipTransferred} event with cleaned addresses
-                log3(0, 0, _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE, 0, initialOwner)
-                // Store the new value. with initialised bit set, to prevent multiple initialisations
-                // i.e. an initialisation after a ownership transfer
-                // also conditionally clears the deployer bit so it only works once
-                //stored := or(newOwner, shl(_BIT_DEPLOYER_IS_OWNER, or(0x2, deployerIsOwner)))
-                sstore(
-                    _INITIALIZED_SLOT,
-                    or(
-                        shl(192, timestamp()),
-                        or(initialOwner, shl(_BIT_DEPLOYER_IS_OWNER, or(0x2, eq(caller(), initialOwner))))
-                    )
-                )
+        // bytes32 stored;
+        assembly ("memory-safe") {
+            // this is an unprotected function so only let the deployer call it, and then only once
+            // use transferOwner for deployers to call to finalise the owner, and then
+            // also only once and if they set the owner to themselves here
+            if sload(_INITIALIZED_SLOT) {
+                mstore(0x00, 0x0dc149f0) // `AlreadyInitialized()`.
+                revert(0x1c, 0x04)
             }
+            // Emit the {OwnershipTransferred} event with cleaned addresses
+            log3(0, 0, _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE, 0, initialOwner)
+            // Store the new value. with initialised bit set, to prevent multiple initialisations
+            // i.e. an initialisation after a ownership transfer
+            // also sets the deployer-is-owner bit so it only works once
+            // stored := or(
+            //     shl(192, timestamp()),
+            //     or(initialOwner, shl(_BIT_DEPLOYER_IS_OWNER, or(0x2, eq(caller(), initialOwner))))
+            // )
+            sstore(
+                _INITIALIZED_SLOT,
+                or(
+                    shl(192, timestamp()),
+                    or(initialOwner, shl(_BIT_DEPLOYER_IS_OWNER, or(0x2, eq(caller(), initialOwner))))
+                )
+            )
         }
+        // console2.logBytes32(stored);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -67,12 +70,18 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
         }
     }
 
-    function pending() public view virtual returns (address pendingOwner, uint64 started) {
+    /// @inheritdoc IBaoOwnable
+    function pending() public view virtual returns (address pendingOwner, uint64 started, bool accepted) {
+        // bytes32 accepted32;
         assembly ("memory-safe") {
             pendingOwner := sload(_PENDING_SLOT)
             // extract the 64 bits that hold the start time
             started := shr(192, pendingOwner)
+            //accepted32 := byte(11, pendingOwner)
+            accepted := byte(11, pendingOwner)
         }
+        // console2.log("accepted:");
+        // console2.logBytes32(accepted32);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -84,23 +93,21 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
     /// @param toOwner The address of the new owner.
     // TODO: need a timeout on access to this - say 1 hour
     function transferOwnership(address toOwner) public payable virtual {
+        // TODO: this is the same layout as pending, so factor out the logic
         address oldOwner;
         assembly ("memory-safe") {
-            oldOwner := sload(_INITIALIZED_SLOT)
-            let initialisedAt := shr(192, oldOwner)
-            // 95 includes the deployer is owner flag
-            oldOwner := shr(95, shl(95, oldOwner))
-            // check for caller + initialized and deployer is owner bits set to be equal to _INITIALIZED_SLOT
-            // check for expiry
+            let initialisedSlot := sload(_INITIALIZED_SLOT)
+            oldOwner := shr(96, shl(96, initialisedSlot))
             if or(
-                iszero(eq(or(caller(), shl(_BIT_DEPLOYER_IS_OWNER, 0x1)), oldOwner)),
-                gt(timestamp(), add(initialisedAt, 3600))
+                or(
+                    iszero(eq(caller(), oldOwner)), // caller is not owner
+                    iszero(shl(255, shr(_BIT_DEPLOYER_IS_OWNER, initialisedSlot))) // deployer-is-owner is not set
+                ),
+                gt(timestamp(), add(shr(192, initialisedSlot), 3600)) // you get 1 hour
             ) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.
                 revert(0x1c, 0x04)
             }
-            // remove the deployer is owner flag
-            oldOwner := shr(96, shl(96, oldOwner))
         }
         _setOwner(oldOwner, toOwner);
     }
@@ -110,6 +117,7 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
     /// during that period up to the expiry, the handover can be cancelled or accepted
     /// The request will automatically expire in 4 days.
     function initiateOwnershipHandover(address toAddress) public payable virtual {
+        // bytes32 stored;
         assembly ("memory-safe") {
             // onlyOwner and not if owner == toAddress
             let owner_ := shr(96, shl(96, sload(_INITIALIZED_SLOT)))
@@ -119,10 +127,12 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
             }
             // blindly overwrites any existing pending data - address and start time
             // if the address is zero then there is no accept ownership handover phase, just a pause
+            // stored := or(or(toAddress, shl(_BIT_ACCEPTED, iszero(toAddress))), shl(192, timestamp()))
             sstore(_PENDING_SLOT, or(or(toAddress, shl(_BIT_ACCEPTED, iszero(toAddress))), shl(192, timestamp())))
             // Emit the {OwnershipHandoverInitiated} event.
             log2(0, 0, _OWNERSHIP_HANDOVER_INITIATED_EVENT_SIGNATURE, toAddress)
         }
+        // console2.logBytes32(stored);
     }
 
     /// @dev Cancels the two-step ownership handover to the caller, if any.
@@ -141,55 +151,71 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
             // Emit the {OwnershipHandoverCanceled} event.
             log2(0, 0, _OWNERSHIP_HANDOVER_CANCELED_EVENT_SIGNATURE, pendingOwner)
         }
+        // console2.logBytes32(0);
     }
 
     /// @notice any handover to a non-zero address needs to be accepted
     /// to ensure that the handover address is a working address
     /// if it is a renunciation then this function is not called
     function acceptOwnershipHandover() public payable virtual {
+        // bytes32 stored;
         assembly ("memory-safe") {
             let pending_ := sload(_PENDING_SLOT)
-            // // onlyPendingOwner can call this, but only once - if accepted already then it's a mistake
+            // onlyPendingOwner can call this, but only once - if accepted already then it's a mistake
             // // 95 represents the bits above the address and accepted bit
-            let pendingOwner := shr(95, shl(95, pending_))
-            if iszero(eq(caller(), pendingOwner)) {
+            let pendingOwner := shr(95, shl(95, pending_)) // owner address + accepted bit => accepting twice is disallowed
+            if or(
+                // onlyPendingOwner can call this, but only once - if accepted already then it's a mistake
+                iszero(eq(caller(), pendingOwner)),
+                // only before half expiry
+                gt(timestamp(), add(shr(192, pending_), _HANDOVER_HALF_EXPIRY_PERIOD))
+            ) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.
                 revert(0x1c, 0x04)
             }
-            // if we get here pendingOwner is the address
-            // only before half expiry
-            if gt(timestamp(), add(shr(192, pending_), _HANDOVER_HALF_EXPIRY_PERIOD)) {
-                mstore(0x00, 0xb1841476) // 'HandoverExpired()'
-                revert(0x1c, 0x04)
-            }
             // set the accepted  bit to indicate it has been accepted
-            sstore(_PENDING_SLOT, or(pending_, shl(_BIT_ACCEPTED, 1)))
+            // stored := or(pending_, shl(_BIT_ACCEPTED, 0x1))
+            sstore(_PENDING_SLOT, or(pending_, shl(_BIT_ACCEPTED, 0x1)))
             // Emit the {OwnershipHandoverInitiated} event.
             log2(0, 0, _OWNERSHIP_HANDOVER_ACCEPTED_EVENT_SIGNATURE, pendingOwner)
         }
+        // console2.logBytes32(stored);
     }
 
+    // TODO: merge completeOwnershipTransfer and transferOwnership
     /// @notice add a period (half the timeout) in which this function cannot be called
     function completeOwnershipHandover(address confirmOwner) public payable virtual {
-        address oldOwner = _checkOwner();
+        address oldOwner; // = _checkOwner();
         assembly ("memory-safe") {
+            let initialized := sload(_INITIALIZED_SLOT)
             let pending_ := sload(_PENDING_SLOT)
             let start := shr(192, pending_)
             let now_ := timestamp()
             // only if the pending address has been accepted and matches the stored address
             // and we haven't past expiry
+            oldOwner := shr(96, shl(96, initialized))
             if or(
-                iszero(eq(or(confirmOwner, shl(_BIT_ACCEPTED, 1)), shr(95, shl(95, pending_)))),
-                gt(now_, add(start, _HANDOVER_EXPIRY_PERIOD))
+                or(
+                    iszero(eq(caller(), oldOwner)), // it is the owner, or an accepting pending
+                    iszero(eq(or(confirmOwner, shl(_BIT_ACCEPTED, 0x1)), shr(95, shl(95, pending_))))
+                ),
+                or(
+                    // within the timescales allowed
+                    gt(now_, add(start, _HANDOVER_EXPIRY_PERIOD)),
+                    gt(add(start, _HANDOVER_HALF_EXPIRY_PERIOD), now_)
+                )
             ) {
-                mstore(0x00, 0xc80a10b4) // `NoHandoverInitiated()`.
+                mstore(0x00, 0x82b42900) // `Unauthorized()`.
+                // mstore(0x00, 0xc80a10b4) // `NoHandoverInitiated()`.
                 revert(0x1c, 0x04)
             }
-            if and(iszero(confirmOwner), gt(add(start, _HANDOVER_HALF_EXPIRY_PERIOD), now_)) {
-                mstore(0x00, 0x0144fff5) // `CannotRenounceYet()`.
-                revert(0x1c, 0x04)
-            }
+            // if and(iszero(confirmOwner), ) {
+            //     mstore(0x00, 0x0144fff5) // `CannotRenounceYet()`.
+            //     revert(0x1c, 0x04)
+            // }
+            sstore(_PENDING_SLOT, 0)
         }
+        // console2.logBytes32(0);
         _setOwner(oldOwner, confirmOwner);
     }
 
@@ -247,25 +273,24 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
     /// @param oldOwner, The old owner about to be replaced. This is a clean address (i.e. top bits are zero)
     /// @param newOwner, The new owner about to replace `oldOwner`. This is not a clean address (i.e. top bits may not be zero)
     function _setOwner(address oldOwner, address newOwner) internal {
-        //bytes32 stored;
+        // bytes32 stored;
         assembly ("memory-safe") {
             // Emit the {OwnershipTransferred} event with cleaned addresses
             log3(0, 0, _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE, oldOwner, newOwner)
             // Store the new value. with initialised bit set, to prevent multiple initialisations
             // i.e. an initialisation after a ownership transfer
             // also conditionally clears the deployer bit so it only works once
-            //stored := or(newOwner, shl(_BIT_DEPLOYER_IS_OWNER, or(0x2, deployerIsOwner)))
-            sstore(_INITIALIZED_SLOT, or(newOwner, shl(_BIT_DEPLOYER_IS_OWNER, 0x1)))
+            // stored := or(newOwner, shl(_BIT_INITIALIZED, 0x1))
+            sstore(_INITIALIZED_SLOT, or(newOwner, shl(_BIT_INITIALIZED, 0x1)))
         }
-        //console2.logBytes32(stored);
+        // console2.logBytes32(stored);
     }
 
     /// @dev Throws if the sender is not the owner.
-    function _checkOwner() internal view virtual returns (address owner_) {
+    function _checkOwner() internal view virtual {
         assembly ("memory-safe") {
-            owner_ := shr(96, shl(96, sload(_INITIALIZED_SLOT)))
             // If the caller is not the stored owner, revert.
-            if iszero(eq(caller(), owner_)) {
+            if iszero(eq(caller(), shr(96, shl(96, sload(_INITIALIZED_SLOT))))) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.
                 revert(0x1c, 0x04)
             }
@@ -278,7 +303,7 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
 
     /// @dev Marks a function as only callable by the owner.
     modifier onlyOwner() virtual {
-        _checkOwner(); // wake-disable-line unchecked-return-value
+        _checkOwner();
         _;
     }
 }
