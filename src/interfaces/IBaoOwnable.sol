@@ -31,6 +31,7 @@ interface IBaoOwnable is IERC5313 {
                              CUSTOM ERRORS
     //////////////////////////////////////////////////////////////*/
 
+    // TODO: check which errors are actually thrown
     /// @dev The caller is not authorized to call the function.
     error Unauthorized();
 
@@ -43,8 +44,8 @@ interface IBaoOwnable is IERC5313 {
     /// @dev The expiry period for one of the handover steps has expired.
     error HandoverExpired();
 
-    /// @dev Can only carry out actions within a window of time.
-    error CannotRenounceYet();
+    /// @dev Can only carry out actions within a window of time and if the new ower has accepted.
+    error CannotCompleteHandover();
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
@@ -69,9 +70,6 @@ interface IBaoOwnable is IERC5313 {
                        PROTECTED UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev Allows the owner to transfer the ownership to `newOwner`.
-    function transferOwnership(address newOwner) external payable;
-
     /// @dev Request a two-step ownership handover to the caller.
     /// The request will automatically expire in 48 hours (172800 seconds) by default.
     function initiateOwnershipHandover(address toOwner) external payable;
@@ -92,7 +90,11 @@ interface IBaoOwnable is IERC5313 {
     /// @dev Returns the pending owner and the expiry timestamp for the current two/three-step ownership handover.
     /// both returned values will be zero if there is no current handover.
     /// @param pendingOwner The new owner if the handover process completes successfully
-    /// @param started The timestamp when the handover was initiated.
+    /// @param acceptExpiryOrCompletePause The expiry timestamp for accepting a handover or when the pause ends if address is 0
     /// @param accepted Whether the handover has been accepted by the 'pendingOwner'
-    function pending() external view returns (address pendingOwner, uint64 started, bool accepted);
+    /// @param handoverExpiry The timestamp when the handover will expire.
+    function pending()
+        external
+        view
+        returns (address pendingOwner, uint64 acceptExpiryOrCompletePause, bool accepted, uint64 handoverExpiry);
 }

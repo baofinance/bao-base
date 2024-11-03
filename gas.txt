@@ -3,20 +3,16 @@
 ╞════════════════════════════════════════════════════════╤══════════╤══════════╡
 │ Function Name                                          │ median   │ max      │
 ├────────────────────────────────────────────────────────┼──────────┼──────────┤
-│ cancelOwnershipHandover                                │   24,601 │   24,601 │
-│ cancelOwnershipRenunciation                            │   25,797 │   26,797 │
-│ completeOwnershipHandover                              │   26,294 │   28,922 │
-│ completeOwnershipRenunciation                          │   25,640 │   28,269 │
-│ initialize                                             │   45,697 │   45,711 │
-│ owner                                                  │      515 │    2,515 │
-│ ownershipHandoverExpiresAt                             │      885 │    2,885 │
-│ ownershipHandoverValidFor                              │      405 │      405 │
-│ protected                                              │   23,464 │   23,469 │
-│ renounceOwnership                                      │   23,410 │   27,903 │
-│ requestOwnershipHandover                               │   46,694 │   46,694 │
-│ requestOwnershipRenunciation                           │   46,753 │   46,753 │
-│ supportsInterface                                      │      684 │      699 │
-│ transferOwnership                                      │   24,058 │   28,590 │
+│ acceptOwnershipHandover                                │   27,427 │   27,427 │
+│ cancelOwnershipHandover                                │   24,774 │   25,529 │
+│ completeOwnershipHandover                              │   28,662 │   28,902 │
+│ initialize                                             │   24,043 │   68,945 │
+│ initiateOwnershipHandover                              │   47,407 │   47,407 │
+│ owner                                                  │      480 │    2,480 │
+│ ownershipHandoverValidFor                              │      382 │      382 │
+│ pending                                                │      932 │      932 │
+│ protected                                              │   23,452 │   23,457 │
+│ supportsInterface                                      │      693 │      722 │
 ╰────────────────────────────────────────────────────────┴──────────┴──────────╯
 
 ╭──────────────────────────────────────────────────────────────────────────────╮
