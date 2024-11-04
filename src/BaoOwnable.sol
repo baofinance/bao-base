@@ -36,7 +36,7 @@ import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
 /// it also adds IRC165 interface query support
 /// @author rootminus0x1
 /// @dev Uses erc7201 storage
-abstract contract BaoOwnable is IBaoOwnable, IERC165 {
+/* TODO: abstract */ contract BaoOwnable is IBaoOwnable, IERC165 {
     /*//////////////////////////////////////////////////////////////////////////
                                CONSTRUCTOR/INITIALIZER
     //////////////////////////////////////////////////////////////////////////*/
@@ -121,10 +121,10 @@ abstract contract BaoOwnable is IBaoOwnable, IERC165 {
     function cancelOwnershipHandover() public payable virtual {
         assembly ("memory-safe") {
             let pending_ := sload(_PENDING_SLOT)
-            if iszero(pending_) {
-                mstore(0x00, 0xc80a10b4) // `NoHandoverInitiated()`.
-                revert(0x1c, 0x04)
-            }
+            // if iszero(pending_) {
+            //     mstore(0x00, 0xc80a10b4) // `NoHandoverInitiated()`.
+            //     revert(0x1c, 0x04)
+            // }
             // only pending or owner
             let owner_ := sload(_INITIALIZED_SLOT)
             let pendingOwner := shr(96, shl(96, pending_))
@@ -264,7 +264,6 @@ abstract contract BaoOwnable is IBaoOwnable, IERC165 {
             log3(0, 0, _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE, oldOwner, newOwner)
             // Store the new value. with initialised bit set, to prevent multiple initialisations
             // i.e. an initialisation after a ownership transfer
-            // also conditionally clears the deployer bit so it only works once
             // stored := or(newOwner, shl(_BIT_INITIALIZED, 0x1))
             sstore(_INITIALIZED_SLOT, or(newOwner, shl(_BIT_INITIALIZED, iszero(newOwner))))
         }

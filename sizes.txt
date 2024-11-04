@@ -6,8 +6,8 @@
 | Defender                    |       85 |     24,491 |
 | DefenderDeploy              |       85 |     24,491 |
 | Deployed                    |      270 |     24,306 |
-| DerivedBaoOwnable           |    1,404 |     23,172 |
-| DerivedBaoOwnableRoles      |    2,084 |     22,492 |
+| DerivedBaoOwnable           |    1,386 |     23,190 |
+| DerivedBaoOwnableRoles      |    2,066 |     22,510 |
 | DerivedOwnable              |      894 |     23,682 |
 | DerivedOwnableRoles         |    1,506 |     23,070 |
 | DerivedTokenHolder          |    1,861 |     22,715 |
