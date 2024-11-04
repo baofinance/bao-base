@@ -120,14 +120,9 @@ import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
     /// @dev Cancels the two-step ownership handover to the caller, if any.
     function cancelOwnershipHandover() public payable virtual {
         assembly ("memory-safe") {
-            let pending_ := sload(_PENDING_SLOT)
-            // if iszero(pending_) {
-            //     mstore(0x00, 0xc80a10b4) // `NoHandoverInitiated()`.
-            //     revert(0x1c, 0x04)
-            // }
             // only pending or owner
             let owner_ := sload(_INITIALIZED_SLOT)
-            let pendingOwner := shr(96, shl(96, pending_))
+            let pendingOwner := shr(96, shl(96, sload(_PENDING_SLOT)))
             let caller_ := caller()
             if iszero(or(eq(caller_, pendingOwner), eq(caller_, owner_))) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.

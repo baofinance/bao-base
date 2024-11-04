@@ -495,7 +495,7 @@ contract TestBaoOwnableOnly is Test {
         assertTrue(canceller == user || canceller == IBaoOwnable(ownable).owner(), "canceller owner or pending");
 
         // then only if there's an in-flight handover
-        vm.expectRevert(IBaoOwnable.NoHandoverInitiated.selector);
+        if (canceller != owner) vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         vm.prank(canceller);
         IBaoOwnable(ownable).cancelOwnershipHandover();
 
@@ -536,7 +536,7 @@ contract TestBaoOwnableOnly is Test {
         );
 
         // without in-flight - don't know if it's authorized
-        vm.expectRevert(IBaoOwnable.NoHandoverInitiated.selector);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IBaoOwnable(ownable).cancelOwnershipHandover();
 
         // with in-flight
@@ -660,7 +660,7 @@ contract TestBaoOwnableOnly is Test {
 
         // can't renounce unless there's a request
         assertEq(_pendingExpiry(), 0);
-        vm.expectRevert(IBaoOwnable.NoHandoverInitiated.selector);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         vm.prank(owner);
         IBaoOwnable(ownable).transferOwnership(address(0));
         assertEq(IBaoOwnable(ownable).owner(), owner);

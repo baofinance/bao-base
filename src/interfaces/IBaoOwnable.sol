@@ -15,14 +15,8 @@ interface IBaoOwnable {
     /// @dev The caller is not authorized to call the function.
     error Unauthorized();
 
-    /// @dev The `pendingOwner` does not have a valid handover request.
-    error NoHandoverInitiated();
-
     /// @dev Cannot double-initialize.
     error AlreadyInitialized();
-
-    /// @dev The expiry period for one of the handover steps has expired.
-    error HandoverExpired();
 
     /// @dev Can only carry out actions within a window of time and if the new ower has accepted.
     error CannotCompleteHandover();
