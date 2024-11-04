@@ -18,21 +18,21 @@ interface IBaoOwnable {
     /// @dev Cannot double-initialize.
     error AlreadyInitialized();
 
-    /// @dev Can only carry out actions within a window of time and if the new ower has accepted.
-    error CannotCompleteHandover();
+    /// @dev Can only carry out actions within a window of time and if the new ower has validated.
+    error CannotCompleteTransfer();
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev An ownership handover to `pendingOwner` has been initiated.
-    event OwnershipHandoverInitiated(address indexed pendingOwner);
+    /// @dev An ownership transfer to `pendingOwner` has been initiated.
+    event OwnershipTransferInitiated(address indexed pendingOwner);
 
-    /// @dev The ownership handover to `pendingOwner` has been canceled.
-    event OwnershipHandoverCanceled(address indexed pendingOwner);
+    /// @dev The ownership transfer to `pendingOwner` has been canceled.
+    event OwnershipTransferCanceled(address indexed pendingOwner);
 
-    /// @dev The ownership handover to `pendingOwner` has been accepted by `pendingOwner`.
-    event OwnershipHandoverAccepted(address indexed pendingOwner);
+    /// @dev The ownership transfer to `pendingOwner` has been validated by `pendingOwner`.
+    event OwnershipTransferValidated(address indexed pendingOwner);
 
     /// @dev The ownership is transferred from `previousOwner` to `newOwner`.
     /// This event is intentionally kept the same as OpenZeppelin's Ownable to be
@@ -44,22 +44,22 @@ interface IBaoOwnable {
                        PROTECTED UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev Request a two-step ownership handover to the caller.
+    /// @dev Request a two-step ownership transfer to the caller.
     /// The request will automatically expire in 48 hours (172800 seconds) by default.
-    function initiateOwnershipHandover(address toOwner) external payable;
+    function initiateOwnershipTransfer(address toOwner) external payable;
 
-    /// @dev Cancels the two-step ownership handover to the caller, if any.
-    function cancelOwnershipHandover() external payable;
+    /// @dev Cancels the two-step ownership transfer to the caller, if any.
+    function cancelOwnershipTransfer() external payable;
 
-    function acceptOwnershipHandover() external payable;
+    function validateOwnershipTransfer() external payable;
 
     // TODO: @inheritdoc IERC173
     /// @notice Set the address of the new owner of the contract
     /// This is the final step in the 3-step-with-timeouts transfer approach
     /// @dev Set confirmOwner to address(0) to renounce any ownership.
     /// @param confirmOwner The address of the new owner of the contract.
-    /// @dev Allows the owner to complete the two-step ownership handover to `pendingOwner`.
-    /// Reverts if there is no existing ownership handover requested by `pendingOwner`.
+    /// @dev Allows the owner to complete the two-step ownership transfer to `pendingOwner`.
+    /// Reverts if there is no existing ownership transfer requested by `pendingOwner`.
     function transferOwnership(address confirmOwner) external payable;
 
     /*//////////////////////////////////////////////////////////////
@@ -70,14 +70,14 @@ interface IBaoOwnable {
     /// @return The address of the owner.
     function owner() external view returns (address);
 
-    /// @dev Returns the pending owner and the expiry timestamp for the current two/three-step ownership handover.
-    /// both returned values will be zero if there is no current handover.
-    /// @param pendingOwner The new owner if the handover process completes successfully
-    /// @param acceptExpiryOrCompletePause The expiry timestamp for accepting a handover or when the pause ends if address is 0
-    /// @param accepted Whether the handover has been accepted by the 'pendingOwner'
-    /// @param handoverExpiry The timestamp when the handover will expire.
+    /// @dev Returns the pending owner and the expiry timestamp for the current two/three-step ownership transfer.
+    /// both returned values will be zero if there is no current transfer.
+    /// @param pendingOwner The new owner if the transfer process completes successfully
+    /// @param acceptExpiryOrCompletePause The expiry timestamp for accepting a transfer or when the pause ends if address is 0
+    /// @param validated Whether the transfer has been validated by the 'pendingOwner'
+    /// @param transferExpiry The timestamp when the transfer will expire.
     function pending()
         external
         view
-        returns (address pendingOwner, uint64 acceptExpiryOrCompletePause, bool accepted, uint64 handoverExpiry);
+        returns (address pendingOwner, uint64 acceptExpiryOrCompletePause, bool validated, uint64 transferExpiry);
 }

@@ -87,66 +87,64 @@ import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
         public
         view
         virtual
-        returns (address pendingOwner, uint64 acceptExpiryOrCompletePause, bool accepted, uint64 handoverExpiry)
+        returns (address pendingOwner, uint64 acceptExpiryOrCompletePause, bool validated, uint64 transferExpiry)
     {
-        // bytes32 accepted32;
         assembly ("memory-safe") {
             pendingOwner := sload(_PENDING_SLOT)
             // extract the 64 bits that hold the first expiry
             acceptExpiryOrCompletePause := shr(192, pendingOwner)
-            handoverExpiry := add(acceptExpiryOrCompletePause, shr(232, shl(64, pendingOwner)))
-            //accepted32 := byte(11, pendingOwner)
-            accepted := byte(11, pendingOwner)
+            // add the timeout offset 24 bits just below the above
+            transferExpiry := add(acceptExpiryOrCompletePause, shr(232, shl(64, pendingOwner)))
+            // extract the validate flag at position 161 (from right), i.e. bottom bit of byte 11 (from left)
+            validated := byte(11, pendingOwner)
         }
-        // console2.log("accepted:");
-        // console2.logBytes32(accepted32);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
                                   PROTECTED FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @notice initiates handover to a new owner or renunciation of ownership (i.e. handover to address(0))
+    /// @notice initiates transfer to a new owner or renunciation of ownership (i.e. transfer to address(0))
     /// starts an expiry for the target owner to accept, or in the case of renunciation, for a pause
-    /// during that period up to the expiry, the handover can be cancelled or accepted
+    /// during that period up to the expiry, the transfer can be cancelled or validated
     /// The request will automatically expire in 4 days.
-    function initiateOwnershipHandover(address toAddress) public payable virtual {
+    function initiateOwnershipTransfer(address toAddress) public payable virtual {
         unchecked {
             _checkOwner(); // wake-disable-line unchecked-return-value
             _setPending(toAddress, 2 days, toAddress == address(0), 2 days);
         }
     }
 
-    /// @dev Cancels the two-step ownership handover to the caller, if any.
-    function cancelOwnershipHandover() public payable virtual {
+    /// @dev Cancels the two-step ownership transfer to the caller, if any.
+    function cancelOwnershipTransfer() public payable virtual {
         assembly ("memory-safe") {
             // only pending or owner
             let owner_ := sload(_INITIALIZED_SLOT)
-            let pendingOwner := shr(96, shl(96, sload(_PENDING_SLOT)))
-            let caller_ := caller()
-            if iszero(or(eq(caller_, pendingOwner), eq(caller_, owner_))) {
+            //let pendingOwner := shr(96, shl(96, sload(_PENDING_SLOT)))
+            let pendingOwner := and(sload(_PENDING_SLOT), 0xffffffffffffffffffffffffffffffffffffffff)
+            if iszero(or(eq(caller(), pendingOwner), eq(caller(), owner_))) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.
                 revert(0x1c, 0x04)
             }
             // clear the pending slot
             sstore(_PENDING_SLOT, 0)
-            // Emit the {OwnershipHandoverCanceled} event.
-            log2(0, 0, _OWNERSHIP_HANDOVER_CANCELED_EVENT_SIGNATURE, pendingOwner)
+            // Emit the {OwnershipTransferCanceled} event.
+            log2(0, 0, _OWNERSHIP_TRANSFER_CANCELED_EVENT_SIGNATURE, pendingOwner)
         }
     }
 
-    /// @notice any handover to a non-zero address needs to be accepted
-    /// to ensure that the handover address is a working address
+    /// @notice any transfer to a non-zero address needs to be validated
+    /// to ensure that the transfer address is a working address
     /// if it is a renunciation then this function is not called
-    function acceptOwnershipHandover() public payable virtual {
-        // bytes32 stored;
+    function validateOwnershipTransfer() public payable virtual {
         assembly ("memory-safe") {
             let pending_ := sload(_PENDING_SLOT)
-            // onlyPendingOwner can call this, but only once - if accepted already then it's a mistake
-            // // 95 represents the bits above the address and accepted bit
-            let pendingOwner := shr(95, shl(95, pending_)) // owner address + accepted bit => accepting twice is disallowed
+            // onlyPendingOwner can call this, but only once - if validated already then it's a mistake
+            // 95 represents the clearing of all the bits above the address excluding the validated bit
+            // combining these checks in one reduces contract size and gas
+            let pendingOwner := shr(95, shl(95, pending_)) // owner address + validated bit => accepting twice is disallowed
             if or(
-                // onlyPendingOwner can call this, but only once - if accepted already then it's a mistake
+                // onlyPendingOwner can call this, but only once - if validated already then it's a mistake
                 iszero(eq(caller(), pendingOwner)),
                 // only before half expiry
                 gt(timestamp(), shr(192, pending_))
@@ -154,13 +152,12 @@ import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.
                 revert(0x1c, 0x04)
             }
-            // set the accepted  bit to indicate it has been accepted
-            // stored := or(pending_, shl(_BIT_ACCEPTED, 0x1))
-            sstore(_PENDING_SLOT, or(pending_, shl(_BIT_ACCEPTED, 0x1)))
-            // Emit the {OwnershipHandoverInitiated} event.
-            log2(0, 0, _OWNERSHIP_HANDOVER_ACCEPTED_EVENT_SIGNATURE, pendingOwner)
+            // set the validated  bit to indicate it has been validated
+            sstore(_PENDING_SLOT, or(pending_, shl(_BIT_VALIDATED, 0x1)))
+            // Emit the {OwnershipTransferInitiated} event.
+            // although we left the validated bit in place above (via the shl 95) it isn't set if we got here
+            log2(0, 0, _OWNERSHIP_TRANSFER_VALIDATED_EVENT_SIGNATURE, pendingOwner)
         }
-        // console2.logBytes32(stored);
     }
 
     /// @notice Set the address of the new owner of the contract
@@ -171,18 +168,17 @@ import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
         assembly ("memory-safe") {
             let pending_ := sload(_PENDING_SLOT)
             let pause := shr(192, pending_)
-            let now_ := timestamp()
-            // only if the pending address has been accepted and matches the stored address
+            // only if the pending address has been validated and matches the stored address
             // and we haven't past expiry
             if or(
-                iszero(eq(or(confirmOwner, shl(_BIT_ACCEPTED, 0x1)), shr(95, shl(95, pending_)))),
+                iszero(eq(or(confirmOwner, shl(_BIT_VALIDATED, 0x1)), shr(95, shl(95, pending_)))),
                 or(
                     // within the timescales allowed
-                    gt(now_, add(pause, shr(232, shl(64, pending_)))),
-                    gt(pause, now_)
+                    gt(timestamp(), add(pause, shr(232, shl(64, pending_)))),
+                    gt(pause, timestamp())
                 )
             ) {
-                mstore(0x00, 0xb7b14e20) // `CannotCompleteHandover()`.
+                mstore(0x00, 0x8cd65fff) // `CannotCompleteTransfer()`.
                 revert(0x1c, 0x04)
             }
             sstore(_PENDING_SLOT, 0)
@@ -212,16 +208,16 @@ import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
     /// @dev The pending owner slot is given by:
     /// `keccak256(abi.encode(uint256(keccak256("bao.storage.BaoOwnable.pending")) - 1)) & ~bytes32(uint256(0xff))`.
     bytes32 private constant _PENDING_SLOT = 0x9839bd1b7d13bef2e7a66ce106fd5e418f9f8fee5da4e55d26c2c33ef0bf4800;
-    // | 255, 64 bits - accept expiry/end of pause timestamp | 191, 24 bits - completion delta | 160, 1 bit - accepted | 159, 160 bits - pending owner address |
+    // | 255, 64 bits - accept expiry/end of pause timestamp | 191, 24 bits - completion delta | 160, 1 bit - validated | 159, 160 bits - pending owner address |
     // initialisation:
-    //      accept expiry = now, completion delta = 1 hour, accepted = true
+    //      accept expiry = now, completion delta = 1 hour, validated = true
     // transfer:
-    //      accept expiry = now + 2 days, completion delta = 2 days, accepted = false
-    //      accepted = true
+    //      accept expiry = now + 2 days, completion delta = 2 days, validated = false
+    //      validated = true
     // renounce:
-    //      accept expiry = now + 2 days, completion delta = 2 days, accepted = true
+    //      accept expiry = now + 2 days, completion delta = 2 days, validated = true
 
-    uint8 private constant _BIT_ACCEPTED = 160;
+    uint8 private constant _BIT_VALIDATED = 160;
 
     /// `keccak256(abi.encode(uint256(keccak256("bao.storage.BaoOwnable.isInitialized")) - 1)) & ~bytes32(uint256(0xff))`.
     //bytes32 private constant _IS_INITIALIZED_SLOT = 0xf62b6656174671598fb5a8f20c699816e60e61b09b105786e842a4b16193e900;
@@ -229,21 +225,21 @@ import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
 
     // TODO: change events to be closer to OZ
     // TODO: change function names to be closer to OZ
-    /// @dev `keccak256(bytes("OwnershipHandoverInitiated(address)"))`.
-    uint256 private constant _OWNERSHIP_HANDOVER_INITIATED_EVENT_SIGNATURE =
-        0x7e08cd8a10d06b3112fb4a0df51a5a33057486f1e11def7aec1da5eb5550a0b5;
-    /// @dev `keccak256(bytes("OwnershipHandoverCanceled(address)"))`.
-    uint256 private constant _OWNERSHIP_HANDOVER_CANCELED_EVENT_SIGNATURE =
-        0xfa7b8eab7da67f412cc9575ed43464468f9bfbae89d1675917346ca6d8fe3c92;
-    /// @dev `keccak256(bytes("OwnershipHandoverAccepted(address)"))`.
-    uint256 private constant _OWNERSHIP_HANDOVER_ACCEPTED_EVENT_SIGNATURE =
-        0x76eeb3c9d0f79b85282cbba0fa9820f6cd6bc3acf1858a48d7cad4ec4064c862;
+    /// @dev `keccak256(bytes("OwnershipTransferInitiated(address)"))`.
+    uint256 private constant _OWNERSHIP_TRANSFER_INITIATED_EVENT_SIGNATURE =
+        0x20f5afdf40bf7b43c89031a5d4369a30b159e512d164aa46124bcb706b4a1caf;
+    /// @dev `keccak256(bytes("OwnershipTransferCanceled(address)"))`.
+    uint256 private constant _OWNERSHIP_TRANSFER_CANCELED_EVENT_SIGNATURE =
+        0x6ecd4842251bedd053b09547c0fabaab9ec98506ebf24469e8dd5560412ed37f;
+    /// @dev `keccak256(bytes("OwnershipTransferValidated(address)"))`.
+    uint256 private constant _OWNERSHIP_TRANSFER_VALIDATED_EVENT_SIGNATURE =
+        0x5e45c45222c097812bf35207ea5f05aad99b929c4bb5654f9ac3217b6b7f9d98;
     /// @dev `keccak256(bytes("OwnershipTransferred(address,address)"))`.
     uint256 private constant _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE =
         0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0;
 
-    uint64 private constant _HANDOVER_EXPIRY_PERIOD = 4 days;
-    uint64 private constant _HANDOVER_HALF_EXPIRY_PERIOD = 2 days; // needn't be half, just somewhere inbetween
+    uint64 private constant _TRANSFER_EXPIRY_PERIOD = 4 days;
+    uint64 private constant _TRANSFER_HALF_EXPIRY_PERIOD = 2 days; // needn't be half, just somewhere inbetween
 
     /*//////////////////////////////////////////////////////////////////////////
                                   INTERNAL FUNCTIONS
@@ -268,26 +264,20 @@ import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
     function _setPending(
         address pendingOwner,
         uint64 step2ExpiryDelta,
-        bool accepted,
+        bool validated,
         uint24 step3ExpiryDelta
     ) internal {
-        // bytes32 stored;
         assembly ("memory-safe") {
-            // stored := or(
-            //     or(or(pendingOwner, shl(_BIT_ACCEPTED, accepted)), shl(192, add(timestamp(), step2ExpiryDelta))),
-            //     shl(168, step3ExpiryDelta)
-            // )
             sstore(
                 _PENDING_SLOT,
                 or(
-                    or(or(pendingOwner, shl(_BIT_ACCEPTED, accepted)), shl(192, add(timestamp(), step2ExpiryDelta))),
+                    or(or(pendingOwner, shl(_BIT_VALIDATED, validated)), shl(192, add(timestamp(), step2ExpiryDelta))),
                     shl(168, step3ExpiryDelta)
                 )
             )
-            // Emit the {OwnershipHandoverInitiated} event.
-            log2(0, 0, _OWNERSHIP_HANDOVER_INITIATED_EVENT_SIGNATURE, pendingOwner)
+            // Emit the {OwnershipTransferInitiated} event.
+            log2(0, 0, _OWNERSHIP_TRANSFER_INITIATED_EVENT_SIGNATURE, pendingOwner)
         }
-        // console2.logBytes32(stored);
     }
 
     /// @dev Throws if the sender is not the owner.

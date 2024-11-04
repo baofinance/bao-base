@@ -1,14 +1,14 @@
 | Contract                    | Size (B) | Margin (B) |
 |-----------------------------|----------|------------|
 | Address                     |       85 |     24,491 |
-| BaoOwnable                  |    1,195 |     23,381 |
+| BaoOwnable                  |    1,183 |     23,393 |
 | BeaconProxy                 |      283 |     24,293 |
 | Core                        |       85 |     24,491 |
 | Defender                    |       85 |     24,491 |
 | DefenderDeploy              |       85 |     24,491 |
 | Deployed                    |      270 |     24,306 |
-| DerivedBaoOwnable           |    1,383 |     23,193 |
-| DerivedBaoOwnableRoles      |    2,063 |     22,513 |
+| DerivedBaoOwnable           |    1,371 |     23,205 |
+| DerivedBaoOwnableRoles      |    2,051 |     22,525 |
 | DerivedOwnable              |      894 |     23,682 |
 | DerivedOwnableRoles         |    1,506 |     23,070 |
 | DerivedTokenHolder          |    1,861 |     22,715 |

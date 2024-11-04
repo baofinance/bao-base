@@ -19,7 +19,7 @@ contract DerivedBaoOwnableRoles is BaoOwnableRoles {
         _initializeOwner(owner);
     }
 
-    function ownershipHandoverValidFor() public pure returns (uint64) {
+    function ownershipTransferValidFor() public pure returns (uint64) {
         return 4 days;
     }
 
