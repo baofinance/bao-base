@@ -119,10 +119,9 @@ import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
     function cancelOwnershipTransfer() public payable virtual {
         assembly ("memory-safe") {
             // only pending or owner
-            let owner_ := sload(_INITIALIZED_SLOT)
             //let pendingOwner := shr(96, shl(96, sload(_PENDING_SLOT)))
             let pendingOwner := and(sload(_PENDING_SLOT), 0xffffffffffffffffffffffffffffffffffffffff)
-            if iszero(or(eq(caller(), pendingOwner), eq(caller(), owner_))) {
+            if iszero(or(eq(caller(), pendingOwner), eq(caller(), sload(_INITIALIZED_SLOT)))) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.
                 revert(0x1c, 0x04)
             }
@@ -142,7 +141,8 @@ import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
             // onlyPendingOwner can call this, but only once - if validated already then it's a mistake
             // 95 represents the clearing of all the bits above the address excluding the validated bit
             // combining these checks in one reduces contract size and gas
-            let pendingOwner := shr(95, shl(95, pending_)) // owner address + validated bit => accepting twice is disallowed
+            let pendingOwner := and(pending_, 0x1ffffffffffffffffffffffffffffffffffffffff)
+            // let pendingOwner := shr(95, shl(95, pending_)) // owner address + validated bit => accepting twice is disallowed
             if or(
                 // onlyPendingOwner can call this, but only once - if validated already then it's a mistake
                 iszero(eq(caller(), pendingOwner)),
@@ -249,16 +249,13 @@ import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
     /// @param oldOwner, The old owner about to be replaced. This is a clean address (i.e. top bits are zero)
     /// @param newOwner, The new owner about to replace `oldOwner`. This is not a clean address (i.e. top bits may not be zero)
     function _setOwner(address oldOwner, address newOwner) internal {
-        // bytes32 stored;
         assembly ("memory-safe") {
             // Emit the {OwnershipTransferred} event with cleaned addresses
             log3(0, 0, _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE, oldOwner, newOwner)
             // Store the new value. with initialised bit set, to prevent multiple initialisations
             // i.e. an initialisation after a ownership transfer
-            // stored := or(newOwner, shl(_BIT_INITIALIZED, 0x1))
             sstore(_INITIALIZED_SLOT, or(newOwner, shl(_BIT_INITIALIZED, iszero(newOwner))))
         }
-        // console2.logBytes32(stored);
     }
 
     function _setPending(
