@@ -13,6 +13,12 @@ contract DerivedBaoOwnable is BaoOwnable {
     function initialize(address owner) public {
         _initializeOwner(owner);
     }
+
+    function ownershipHandoverValidFor() public pure returns (uint64) {
+        return 4 days;
+    }
+
+    function protected() public onlyOwner {}
 }
 
 contract TestBaoOwnable is Test {

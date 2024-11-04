@@ -19,6 +19,12 @@ contract DerivedBaoOwnableRoles is BaoOwnableRoles {
         _initializeOwner(owner);
     }
 
+    function ownershipHandoverValidFor() public pure returns (uint64) {
+        return 4 days;
+    }
+
+    function protectedO() public onlyOwner {}
+
     function protected() public view onlyRoles(MY_ROLE) {}
 }
 
