@@ -4,27 +4,45 @@ pragma solidity 0.8.26;
 // import { console2 } from "forge-std/console2.sol";
 
 import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import { IERC5313 } from "@openzeppelin/contracts/interfaces/IERC5313.sol";
 
 import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
 
 /// @title Bao Ownable
-/// @notice A thin layer over Solady's Ownable that constrains the use of one-step ownership transfers:
-/// Only the deployer of the contract can perform a one-step ownership transfer and then
-///   * only once and
-///   * only if they have been set as owner on initialisation
+/// @dev Note:
+/// This implementation does NOT auto-initialize the owner to `msg.sender`.
+/// You MUST call the `_initializeOwner` in the constructor / initializer of the deriving contract.
+/// This initialization sets the owner to `msg.sender`, not to the passed 'finalOwner' parameter.
+///
+/// This contract follows [EIP-173](https://eips.ethereum.org/EIPS/eip-173) for compatibility,
+/// the nomenclature for the 3-step ownership transfer may be unique to this codebase.
+/// the unique nomencalture has been extended to a three step transfer and a two step renunciation.
+/// The three/two steps are:
+/// * initiateOwnershipTransfer (passing address(0) here is a renunciation). This starts the transfer sequence.
+///   This step starts a timer for the next two steps.
+/// * validateOwnershipTransfer. This must be called by the address passed in the initiate step and within 2 days of
+///   initiation. For renunciations (transfer to address(0)), this call cannot be made so is not needed - it is assumed
+//    that address(0) is intended. For renunciation there is still a 2 day pause.
+/// * transferOwnership. This completes the transfer and must be completed between 2 and 4 days after initiation.
+///
+/// Initialisation sets the owner to the caller, and also performs the first two steps of the above transfer to the passed
+/// parameter. This allows the deployer to act as owner then transfer ownership with a single transferOwnership call.
+///
+/// No one step-transfers are allowed except in the unique one-shot transferOwnership after initializeOwnership.
 /// This simplifies deploy scripts that must do owner type set-up but then can transfer to the real owner once done
+///
+/// Multiple initialisations are not allowed, to ensure this we make a separate check for a previously set owner including
+/// including to address(0). This ensure that the initializeOwner, an otherwise unprotected function, cannot be called twice.
+///
 /// it also adds IRC165 interface query support
 /// @author rootminus0x1
 /// @dev Uses erc7201 storage
-// TODO: make abstract
-contract BaoOwnable is IBaoOwnable, IERC165 {
+abstract contract BaoOwnable is IBaoOwnable, IERC165 {
     /*//////////////////////////////////////////////////////////////////////////
                                CONSTRUCTOR/INITIALIZER
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @notice initialise the UUPS proxy
-    /// @param finalOwner sets the owner, a privileged address, of the contract to be set when 'completeOwnershipHandover' is called
+    /// @param finalOwner sets the owner, a privileged address, of the contract to be set when 'transferOwnership' is called
     function _initializeOwner(address finalOwner) internal virtual {
         assembly ("memory-safe") {
             // this is an unprotected function so only let the deployer call it, and then only once
@@ -37,7 +55,7 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
         }
         unchecked {
             _setOwner(address(0), msg.sender);
-            // set up a completeOwnershipHandover to finalOwner
+            // set up a transferOwnership to finalOwner
             _setPending(
                 finalOwner,
                 0, // no pause for completion
@@ -53,17 +71,14 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
 
     /// @inheritdoc IERC165
     function supportsInterface(bytes4 interfaceId) public view virtual returns (bool) {
-        return
-            interfaceId == type(IBaoOwnable).interfaceId ||
-            interfaceId == type(IERC5313).interfaceId ||
-            interfaceId == type(IERC165).interfaceId;
+        return interfaceId == type(IBaoOwnable).interfaceId || interfaceId == type(IERC165).interfaceId;
     }
 
-    /// @inheritdoc IERC5313
-    /// @dev Returns the owner of the contract.
-    function owner() public view virtual returns (address result) {
+    /// @notice Get the address of the owner
+    /// @return owner_ The address of the owner.
+    function owner() public view virtual returns (address owner_) {
         assembly ("memory-safe") {
-            result := sload(_INITIALIZED_SLOT)
+            owner_ := sload(_INITIALIZED_SLOT)
         }
     }
 
@@ -153,9 +168,10 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
         // console2.logBytes32(stored);
     }
 
-    // TODO: merge completeOwnershipTransfer and transferOwnership
-    /// @notice add a period (half the timeout) in which this function cannot be called
-    function completeOwnershipHandover(address confirmOwner) public payable virtual {
+    /// @notice Set the address of the new owner of the contract
+    /// @dev Set confirmOwner to address(0) to renounce any ownership.
+    /// @param confirmOwner The address of the new owner of the contract
+    function transferOwnership(address confirmOwner) public payable virtual {
         address oldOwner = _checkOwner();
         assembly ("memory-safe") {
             let pending_ := sload(_PENDING_SLOT)
@@ -283,7 +299,6 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
     /// @dev Throws if the sender is not the owner.
     function _checkOwner() internal view virtual returns (address owner_) {
         assembly ("memory-safe") {
-            // TODO: see if we can reduce the stack for this
             owner_ := sload(_INITIALIZED_SLOT)
             // If the caller is not the stored owner, revert.
             if iszero(eq(caller(), owner_)) {
@@ -299,7 +314,7 @@ contract BaoOwnable is IBaoOwnable, IERC165 {
 
     /// @dev Marks a function as only callable by the owner.
     modifier onlyOwner() virtual {
-        _checkOwner(); // wake-disable-line unchecked-return value
+        _checkOwner(); // wake-disable-line unchecked-return-value
         _;
     }
 }

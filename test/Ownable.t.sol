@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import { Ownable } from "@solady/auth/Ownable.sol";
+import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
 
 import { Test } from "forge-std/Test.sol";
 import { console2 } from "forge-std/console2.sol";
@@ -20,6 +21,19 @@ contract DerivedOwnable is Ownable {
     }
 
     function protected() public onlyOwner {}
+}
+
+contract DerivedOwnableRoles is OwnableRoles {
+    function initialize(address owner) public {
+        _initializeOwner(owner);
+    }
+
+    function ownershipHandoverValidFor() public view returns (uint64) {
+        return _ownershipHandoverValidFor();
+    }
+
+    function protected() public onlyOwner {}
+    function protectedRoles() public onlyRoles(_ROLE_0) {}
 }
 
 contract TestOwnable is Test {
@@ -229,5 +243,12 @@ contract TestOwnable is Test {
         vm.expectRevert(IOwnable.Unauthorized.selector);
         vm.prank(owner);
         IOwnable(ownable).renounceOwnership();
+    }
+}
+
+contract TestOwnableRoles is TestOwnable {
+    function setUp() public virtual override {
+        TestOwnable.setUp();
+        ownable = address(new DerivedOwnableRoles());
     }
 }

@@ -6,8 +6,8 @@ import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol
 import { Test } from "forge-std/Test.sol";
 import { console2 } from "forge-std/console2.sol";
 
-import { IOwnable } from "@bao/interfaces/IOwnable.sol";
-import { IOwnableRoles } from "@bao/interfaces/IOwnableRoles.sol";
+import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
+import { IBaoOwnableRoles } from "@bao/interfaces/IBaoOwnableRoles.sol";
 import { BaoOwnableRoles } from "@bao/BaoOwnableRoles.sol";
 
 import { TestBaoOwnableOnly } from "./BaoOwnable.t.sol";
@@ -19,11 +19,13 @@ contract DerivedBaoOwnableRoles is BaoOwnableRoles {
         _initializeOwner(owner);
     }
 
-    function ownershipHandoverValidFor() public view returns (uint64) {
-        return _ownershipHandoverValidFor();
+    function ownershipHandoverValidFor() public pure returns (uint64) {
+        return 4 days;
     }
 
-    function protected() public view onlyRoles(MY_ROLE) {}
+    function protected() public view onlyOwner {}
+
+    function protectedRoles() public view onlyRoles(MY_ROLE) {}
 }
 
 contract TestBaoOwnableRoles is TestBaoOwnableOnly {
@@ -34,27 +36,27 @@ contract TestBaoOwnableRoles is TestBaoOwnableOnly {
     }
 
     function test_roles() public {
-        DerivedBaoOwnableRoles(ownable).initialize(owner);
+        _initialize(owner);
 
-        // check basic owner & role based protections, to ensure thos functions are there
-        vm.expectRevert(IOwnable.Unauthorized.selector);
-        DerivedBaoOwnableRoles(ownable).protected();
+        // check basic owner & role based protections, to ensure those functions are there
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        DerivedBaoOwnableRoles(ownable).protectedRoles();
 
         uint256 myRole = DerivedBaoOwnableRoles(ownable).MY_ROLE();
 
-        vm.expectRevert(IOwnable.Unauthorized.selector);
-        IOwnableRoles(ownable).grantRoles(user, myRole);
-        assertFalse(IOwnableRoles(ownable).hasAnyRole(user, myRole));
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        IBaoOwnableRoles(ownable).grantRoles(user, myRole);
+        assertFalse(IBaoOwnableRoles(ownable).hasAnyRole(user, myRole));
 
         vm.prank(owner);
-        IOwnableRoles(ownable).grantRoles(user, myRole);
-        assertTrue(IOwnableRoles(ownable).hasAnyRole(user, myRole));
-        assertTrue(IOwnableRoles(ownable).hasAllRoles(user, myRole));
+        IBaoOwnableRoles(ownable).grantRoles(user, myRole);
+        assertTrue(IBaoOwnableRoles(ownable).hasAnyRole(user, myRole));
+        assertTrue(IBaoOwnableRoles(ownable).hasAllRoles(user, myRole));
 
-        vm.expectRevert(IOwnable.Unauthorized.selector);
-        DerivedBaoOwnableRoles(ownable).protected();
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        DerivedBaoOwnableRoles(ownable).protectedRoles();
 
         vm.prank(user);
-        DerivedBaoOwnableRoles(ownable).protected();
+        DerivedBaoOwnableRoles(ownable).protectedRoles();
     }
 }
