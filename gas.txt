@@ -3,16 +3,11 @@
 ╞════════════════════════════════════════════════════════╤══════════╤══════════╡
 │ Function Name                                          │ median   │ max      │
 ├────────────────────────────────────────────────────────┼──────────┼──────────┤
-│ cancelOwnershipTransfer                                │   24,713 │   26,713 │
-│ initialize                                             │   24,065 │   68,967 │
-│ initiateOwnershipTransfer                              │   47,384 │   47,384 │
-│ owner                                                  │      480 │    2,480 │
-│ ownershipTransferValidFor                              │      361 │      361 │
-│ pending                                                │      932 │      932 │
-│ protected                                              │   23,452 │   23,457 │
-│ supportsInterface                                      │      661 │      676 │
-│ transferOwnership                                      │   28,656 │   28,896 │
-│ validateOwnershipTransfer                              │   27,465 │   27,465 │
+│ initialize                                             │   24,065 │   67,764 │
+│ owner                                                  │      502 │    2,502 │
+│ protected                                              │   23,350 │   23,353 │
+│ supportsInterface                                      │      638 │      653 │
+│ transferOwnership                                      │   26,218 │   28,794 │
 ╰────────────────────────────────────────────────────────┴──────────┴──────────╯
 
 ╭──────────────────────────────────────────────────────────────────────────────╮
@@ -20,21 +15,70 @@
 ╞════════════════════════════════════════════════════════╤══════════╤══════════╡
 │ Function Name                                          │ median   │ max      │
 ├────────────────────────────────────────────────────────┼──────────┼──────────┤
-│ MY_ROLE                                                │    2,492 │    2,492 │
-│ cancelOwnershipTransfer                                │   24,735 │   26,735 │
-│ grantRoles                                             │   36,243 │   48,148 │
-│ hasAllRoles                                            │    1,073 │    1,073 │
-│ hasAnyRole                                             │    2,076 │    3,076 │
-│ initialize                                             │   24,087 │   68,989 │
-│ initiateOwnershipTransfer                              │   47,406 │   47,406 │
-│ owner                                                  │      502 │    2,502 │
-│ ownershipTransferValidFor                              │      384 │      384 │
-│ pending                                                │      954 │      954 │
-│ protected                                              │   23,452 │   23,457 │
-│ protectedRoles                                         │    2,468 │    4,468 │
-│ supportsInterface                                      │      772 │      787 │
-│ transferOwnership                                      │   28,678 │   28,918 │
-│ validateOwnershipTransfer                              │   27,465 │   27,465 │
+│ MY_ROLE                                                │    2,447 │    2,447 │
+│ grantRoles                                             │   36,274 │   48,177 │
+│ hasAllRoles                                            │    1,117 │    1,117 │
+│ hasAnyRole                                             │    2,098 │    3,098 │
+│ initialize                                             │   24,087 │   67,786 │
+│ owner                                                  │      524 │    2,524 │
+│ protected                                              │   23,372 │   23,375 │
+│ protectedRoles                                         │    2,490 │    4,490 │
+│ supportsInterface                                      │      720 │      735 │
+│ transferOwnership                                      │   26,240 │   28,816 │
+╰────────────────────────────────────────────────────────┴──────────┴──────────╯
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ test/BaoOwnableTransferrable.t.sol:DerivedBaoOwnableTransferrable contract   │
+╞════════════════════════════════════════════════════════╤══════════╤══════════╡
+│ Function Name                                          │ median   │ max      │
+├────────────────────────────────────────────────────────┼──────────┼──────────┤
+│ cancelOwnershipTransfer                                │   24,691 │   26,691 │
+│ initialize                                             │   24,065 │   68,962 │
+│ initiateOwnershipTransfer                              │   47,369 │   47,369 │
+│ owner                                                  │      591 │    2,591 │
+│ pendingExpiry                                          │      660 │      660 │
+│ pendingOwner                                           │      671 │      671 │
+│ pendingValidateExpiryOrPause                           │      633 │      633 │
+│ pendingValidated                                       │      569 │      569 │
+│ protected                                              │   23,439 │   23,442 │
+│ supportsInterface                                      │      661 │      676 │
+│ transferOwnership                                      │   28,644 │   28,884 │
+│ validateOwnershipTransfer                              │   27,443 │   27,443 │
+╰────────────────────────────────────────────────────────┴──────────┴──────────╯
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ test/BaoOwnableTransferrableRoles.t.sol:DerivedBaoOwnableTransferrableRoles contract │
+╞════════════════════════════════════════════════════════╤══════════╤══════════╡
+│ Function Name                                          │ median   │ max      │
+├────────────────────────────────────────────────────────┼──────────┼──────────┤
+│ MY_ROLE                                                │    2,470 │    2,470 │
+│ cancelOwnershipTransfer                                │   24,691 │   26,691 │
+│ grantRoles                                             │   36,297 │   48,200 │
+│ hasAllRoles                                            │    1,140 │    1,140 │
+│ hasAnyRole                                             │    2,142 │    3,142 │
+│ initialize                                             │   24,065 │   68,962 │
+│ initiateOwnershipTransfer                              │   47,369 │   47,369 │
+│ owner                                                  │      569 │    2,569 │
+│ pendingExpiry                                          │      660 │      660 │
+│ pendingOwner                                           │      671 │      671 │
+│ pendingValidateExpiryOrPause                           │      611 │      611 │
+│ pendingValidated                                       │      680 │      680 │
+│ protected                                              │   23,417 │   23,420 │
+│ protectedRoles                                         │    2,534 │    4,534 │
+│ supportsInterface                                      │      743 │      758 │
+│ transferOwnership                                      │   28,644 │   28,884 │
+│ validateOwnershipTransfer                              │   27,421 │   27,421 │
+╰────────────────────────────────────────────────────────┴──────────┴──────────╯
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ test/BaoRoles.t.sol:DerivedBaoRoles contract                                 │
+╞════════════════════════════════════════════════════════╤══════════╤══════════╡
+│ Function Name                                          │ median   │ max      │
+├────────────────────────────────────────────────────────┼──────────┼──────────┤
+│ MY_ROLE                                                │    2,447 │    2,447 │
+│ grantRoles                                             │   24,372 │   24,372 │
+│ hasAnyRole                                             │    3,119 │    3,119 │
+│ protectedRoles                                         │    4,511 │    4,511 │
 ╰────────────────────────────────────────────────────────┴──────────┴──────────╯
 
 ╭──────────────────────────────────────────────────────────────────────────────╮

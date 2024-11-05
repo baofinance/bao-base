@@ -6,7 +6,7 @@ pragma solidity ^0.8.26;
 /// @author rootminus0x1 a barefaced copy of Solady (https://github.com/vectorized/solady/blob/main/src/auth/OwnableRoles.sol)
 /// Made into an interface and a implementation
 
-interface IBaoOwnableRoles {
+interface IBaoRoles {
     /*//////////////////////////////////////////////////////////////////////////
                                        EVENTS
     //////////////////////////////////////////////////////////////////////////*/

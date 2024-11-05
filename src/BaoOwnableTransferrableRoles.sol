@@ -5,9 +5,9 @@ pragma solidity 0.8.26;
 
 import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
-import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
+import { IBaoOwnableTransferrable } from "@bao/interfaces/IBaoOwnableTransferrable.sol";
 import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
-import { BaoOwnable } from "@bao/BaoOwnable.sol";
+import { BaoOwnableTransferrable } from "@bao/BaoOwnableTransferrable.sol";
 import { BaoRoles } from "@bao/internal/BaoRoles.sol";
 
 /// @title Bao Ownable
@@ -25,8 +25,10 @@ import { BaoRoles } from "@bao/internal/BaoRoles.sol";
 /// it also adds IRC165 interface query support
 /// @author rootminus0x1
 /// @dev Uses erc7201 storage
-/* TODO: abstract */ contract BaoOwnableRoles is BaoOwnable, BaoRoles {
-    function supportsInterface(bytes4 interfaceId) public view virtual override(BaoOwnable, BaoRoles) returns (bool) {
-        return BaoOwnable.supportsInterface(interfaceId) || BaoRoles.supportsInterface(interfaceId);
+/* TODO: abstract */ contract BaoOwnableTransferrableRoles is BaoOwnableTransferrable, BaoRoles {
+    function supportsInterface(
+        bytes4 interfaceId
+    ) public view virtual override(BaoOwnableTransferrable, BaoRoles) returns (bool) {
+        return BaoOwnableTransferrable.supportsInterface(interfaceId) || BaoRoles.supportsInterface(interfaceId);
     }
 }
