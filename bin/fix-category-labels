@@ -1,0 +1,75 @@
+#! /bin/sh
+
+# takes a list of file globs and processes each file in turn
+# if --write is specified then the processed file is overwritten otherwise it is checked
+# processing files involves finding category labels in the file and rewriting them in a standard way
+
+# Check for the --write option
+write_mode=false
+if [ "$1" = "--write" ]; then
+  write_mode=true
+  shift  # Remove --write from the arguments list
+fi
+
+# Track if any differences were found
+differences_found=false
+
+# Iterate over all files provided as arguments, handling globs
+for file in "$@"; do
+  if [ -f "$file" ]; then
+    # Inline AWK command to process the file and output to a temporary file
+    awk '
+    BEGIN {
+        max_column = 80
+        tab_width = 4
+        centre_mode = 0
+    }
+    $0 ~ /^\s+[/][*][/]+$/ {
+        print "    /*//////////////////////////////////////////////////////////////////////////"
+        centre_mode = 1
+        next
+    }
+    $0 ~ /^\s+[/]+[*][/]$/ {
+        print "    //////////////////////////////////////////////////////////////////////////*/"
+        centre_mode = 0
+        next
+    }
+    centre_mode {
+        sub(/^\s+|\s+$/, "", $0)
+        padding = int((max_column - tab_width - length($0)) / 2)
+        if (padding < 0) padding=0
+        # Print the formatted block
+        print sprintf("%*s%s", padding + tab_width, "", $0)
+        next
+    }
+    { print }
+    ' "$file" > "$file.tmp"
+
+    # Handle the --write flag
+    if [ "$write_mode" = true ]; then
+      # Overwrite the original file with the processed content
+      mv "$file.tmp" "$file"
+    else
+      # Compare the temporary file with the original
+      if ! cmp -s "$file" "$file.tmp"; then
+        if [ "$differences_found" = false ]; then
+          echo "Differences found:" >&2
+        fi
+        echo "$file" >&2
+        differences_found=true
+      fi
+      rm "$file.tmp"  # Clean up the temporary file
+    fi
+  else
+    echo "Skipping $file (not a regular file)"
+  fi
+done
+
+# Exit with an error code if any differences were found
+if [ "$write_mode" = false ]; then
+  if [ "$differences_found" = true ]; then
+    exit 1
+  else
+    echo "No differences found"
+  fi
+fi

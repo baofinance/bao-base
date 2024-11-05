@@ -7,9 +7,9 @@ pragma solidity 0.8.26;
 ///
 
 interface IBaoOwnable {
-    /*//////////////////////////////////////////////////////////////
-                             CUSTOM ERRORS
-    //////////////////////////////////////////////////////////////*/
+    /*//////////////////////////////////////////////////////////////////////////
+                                   CUSTOM ERRORS
+    //////////////////////////////////////////////////////////////////////////*/
 
     // TODO: check which errors are actually thrown
     /// @dev The caller is not authorized to call the function.
@@ -21,9 +21,9 @@ interface IBaoOwnable {
     /// @dev Can only carry out actions within a window of time and if the new ower has validated.
     error CannotCompleteTransfer();
 
-    /*//////////////////////////////////////////////////////////////
-                                 EVENTS
-    //////////////////////////////////////////////////////////////*/
+    /*//////////////////////////////////////////////////////////////////////////
+                                       EVENTS
+    //////////////////////////////////////////////////////////////////////////*/
 
     /// @dev An ownership transfer to `pendingOwner` has been initiated.
     event OwnershipTransferInitiated(address indexed pendingOwner);
@@ -40,9 +40,9 @@ interface IBaoOwnable {
     /// despite it not being as lightweight as a single argument event.
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
-    /*//////////////////////////////////////////////////////////////
-                       PROTECTED UPDATE FUNCTIONS
-    //////////////////////////////////////////////////////////////*/
+    /*//////////////////////////////////////////////////////////////////////////
+                             PROTECTED UPDATE FUNCTIONS
+    //////////////////////////////////////////////////////////////////////////*/
 
     /// @dev Request a two-step ownership transfer to the caller.
     /// The request will automatically expire in 48 hours (172800 seconds) by default.
@@ -62,9 +62,9 @@ interface IBaoOwnable {
     /// Reverts if there is no existing ownership transfer requested by `pendingOwner`.
     function transferOwnership(address confirmOwner) external payable;
 
-    /*//////////////////////////////////////////////////////////////
-                         PUBLIC READ FUNCTIONS
-    //////////////////////////////////////////////////////////////*/
+    /*//////////////////////////////////////////////////////////////////////////
+                               PUBLIC READ FUNCTIONS
+    //////////////////////////////////////////////////////////////////////////*/
 
     /// @notice Get the address of the owner
     /// @return The address of the owner.
