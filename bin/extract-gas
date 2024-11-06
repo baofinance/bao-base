@@ -6,7 +6,7 @@
 
 # echo $0 "run on" `date`
 
-awk  -v cols=2 -v width=10 -v total_width=80 '
+awk  -v cols=2 -v width=10 -v total_width=100 '
 BEGIN {
   FS="|"
   # Define the format string with variable widths
@@ -23,7 +23,7 @@ BEGIN {
     printf "╰%s┴%s┴%s╯\n", str_repeat("─", name_width + 2), str_repeat("─", value_width + 2), str_repeat("─", value_width + 2)
     printf "\n"
   }
-  gsub(/^ +| +$/, "", $2)
+  gsub(/^ +| contract +$/, "", $2)
   printf "╭%s╮\n", str_repeat("─", total_width - 2)
   printf "│ %-" total_width - 4 "s │\n", $2
   printf "╞%s╤%s╤%s╡\n", str_repeat("═", name_width + 2), str_repeat("═", value_width + 2), str_repeat("═", value_width + 2)
