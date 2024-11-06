@@ -320,7 +320,6 @@ contract TestBaoOwnableTransferrableOnly is Test {
     }
 
     function _checkSuccessful_initiateOwnershipTransfer(address by, address to, bool takeOver) private {
-        // TODO: add test cases for address(0)
         // valid initiate - check events and updated values
         assertEq(by, IBaoOwnableTransferrable(ownable).owner());
 
@@ -373,7 +372,6 @@ contract TestBaoOwnableTransferrableOnly is Test {
     }
 
     function test_validateTransfer() public {
-        // TODO: check for a renounce
         // owner is initially set to the owner
         _initialize(owner);
 
@@ -421,9 +419,6 @@ contract TestBaoOwnableTransferrableOnly is Test {
         vm.prank(owner);
         IBaoOwnableTransferrable(ownable).validateOwnershipTransfer();
     }
-
-    // TODO: check there is no difference for a two step deployment
-    // TODO: check a two-step deployment times out after 1 hour
 
     function _checkSuccessful_transferOwnership(address by, address to) private {
         assertEq(by, IBaoOwnableTransferrable(ownable).owner());

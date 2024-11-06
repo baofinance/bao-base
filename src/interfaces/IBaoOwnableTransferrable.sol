@@ -4,9 +4,21 @@ pragma solidity ^0.8.26;
 
 import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
 
-/// @notice Simple single owner authorization mixin layered on solady's Ownable.
+/// @notice Simple single owner authorization mixin layered on solady's Ownable but with a 3-step transfer
 /// @author rootminus0x1 based one interface from Solady (https://github.com/vectorized/solady/blob/main/src/auth/Ownable.sol)
-///
+/// It has 1-step ownership transfer support for deployer to final owner
+/// No other 1-step ownership transfers are supported.
+/// 3-step transfers are supported:
+/// 1) initiateTransfer(address pendingOwner), called by the currentOwner
+/// 2) validateTransfer(), called by the pending Owner to validate the address
+/// 3) transferOwnership(address confirmPendingOwner), called by the currentOwner
+/// The above sequence must happen in order
+/// In addition there are timing constraints:
+/// * step 2 (validate) must be called within 2 days of step 1 (initiate)
+/// * step 3 (transfer) must be called between 2 and 4 days from step 1 (initiate)
+/// Renunciation, which is simply a transfer to the zero address, is the same - sequence and timing - except
+/// that there is no step 2 (validate) as the zero address cannot be validated in this way.
+/// It cannot be initialised more than once.
 
 interface IBaoOwnableTransferrable is IBaoOwnable {
     /*//////////////////////////////////////////////////////////////////////////

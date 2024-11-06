@@ -2,16 +2,17 @@
 
 pragma solidity ^0.8.26;
 
-/// @notice Simple single owner authorization mixin layered on solady's Ownable.
-/// @author rootminus0x1 based one interface from Solady (https://github.com/vectorized/solady/blob/main/src/auth/Ownable.sol)
-///
+/// @notice Simple single owner authorization mixin based on Solady's Ownable
+/// @author rootminus0x1 based on Solady's (https://github.com/vectorized/solady/blob/main/src/auth/Ownable.sol)
+/// It has ownership transfer support for deployer to final owner
+/// No other ownership transfers are supported.
+/// It cannot be initialised more than once.
 
 interface IBaoOwnable {
     /*//////////////////////////////////////////////////////////////////////////
                                    CUSTOM ERRORS
     //////////////////////////////////////////////////////////////////////////*/
 
-    // TODO: check which errors are actually thrown
     /// @dev The caller is not authorized to call the function.
     error Unauthorized();
 
