@@ -3,13 +3,13 @@
 ╞════════════════════════════════════════════════════════╤══════════╤══════════╡
 │ Function Name                                          │ median   │ max      │
 ├────────────────────────────────────────────────────────┼──────────┼──────────┤
-│ initialize                                             │   24,036 │   67,744 │
-│ owner                                                  │      525 │    2,525 │
-│ pendingExpiry                                          │      488 │      488 │
-│ pendingOwner                                           │      502 │    2,502 │
-│ protected                                              │   23,373 │   23,376 │
-│ supportsInterface                                      │      661 │      676 │
-│ transferOwnership                                      │   26,218 │   28,794 │
+│ initialize                                             │   23,930 │   67,686 │
+│ owner                                                  │      355 │    2,355 │
+│ pendingExpiry                                          │      411 │      411 │
+│ pendingOwner                                           │      410 │    2,410 │
+│ protected                                              │   23,382 │   23,385 │
+│ supportsInterface                                      │      382 │      401 │
+│ transferOwnership                                      │   26,146 │   28,781 │
 ╰────────────────────────────────────────────────────────┴──────────┴──────────╯
 
 ╭──────────────────────────────────────────────────────────────────────────────╮
@@ -18,22 +18,22 @@
 │ Function Name                                          │ median   │ max      │
 ├────────────────────────────────────────────────────────┼──────────┼──────────┤
 │ ANOTHER_ROLE                                           │    2,492 │    2,492 │
-│ MY_ROLE                                                │    2,470 │    2,470 │
-│ YET_ANOTHER_ROLE                                       │    2,470 │    2,470 │
-│ grantRoles                                             │   39,650 │   48,200 │
-│ hasAllRoles                                            │    1,051 │    1,051 │
-│ hasAnyRole                                             │    1,076 │    1,076 │
-│ initialize                                             │   24,080 │   67,788 │
-│ owner                                                  │      502 │    2,502 │
-│ pendingExpiry                                          │      532 │      532 │
-│ pendingOwner                                           │      546 │    2,546 │
-│ protected                                              │   23,439 │   23,442 │
-│ protectedRoles                                         │    2,468 │    4,468 │
-│ renounceRoles                                          │   28,363 │   28,363 │
-│ revokeRoles                                            │   27,756 │   31,118 │
-│ rolesOf                                                │      864 │    2,864 │
-│ supportsInterface                                      │      758 │      829 │
-│ transferOwnership                                      │   26,262 │   28,838 │
+│ MY_ROLE                                                │    2,293 │    2,293 │
+│ YET_ANOTHER_ROLE                                       │    2,382 │    2,382 │
+│ grantRoles                                             │   39,341 │   47,891 │
+│ hasAllRoles                                            │      666 │      666 │
+│ hasAnyRole                                             │      776 │      776 │
+│ initialize                                             │   24,185 │   67,941 │
+│ owner                                                  │      575 │    2,575 │
+│ pendingExpiry                                          │      631 │      631 │
+│ pendingOwner                                           │      630 │    2,630 │
+│ protected                                              │   23,602 │   23,605 │
+│ protectedRoles                                         │    2,599 │    4,599 │
+│ renounceRoles                                          │   28,134 │   28,134 │
+│ revokeRoles                                            │   27,534 │   30,895 │
+│ rolesOf                                                │      641 │    2,641 │
+│ supportsInterface                                      │      456 │      494 │
+│ transferOwnership                                      │   26,401 │   29,036 │
 ╰────────────────────────────────────────────────────────┴──────────┴──────────╯
 
 ╭──────────────────────────────────────────────────────────────────────────────╮
@@ -41,18 +41,18 @@
 ╞════════════════════════════════════════════════════════╤══════════╤══════════╡
 │ Function Name                                          │ median   │ max      │
 ├────────────────────────────────────────────────────────┼──────────┼──────────┤
-│ cancelOwnershipTransfer                                │   24,691 │   26,691 │
-│ initialize                                             │   24,080 │   68,986 │
-│ initiateOwnershipTransfer                              │   47,375 │   47,375 │
-│ owner                                                  │      591 │    2,591 │
-│ pendingExpiry                                          │      660 │      660 │
-│ pendingOwner                                           │      671 │      671 │
-│ pendingValidateExpiryOrPause                           │      633 │      633 │
-│ pendingValidated                                       │      569 │      569 │
-│ protected                                              │   23,439 │   23,442 │
-│ supportsInterface                                      │      705 │      764 │
-│ transferOwnership                                      │   28,644 │   28,884 │
-│ validateOwnershipTransfer                              │   27,443 │   27,443 │
+│ cancelOwnershipTransfer                                │   24,776 │   26,776 │
+│ initialize                                             │   24,040 │   69,005 │
+│ initiateOwnershipTransfer                              │   47,371 │   47,371 │
+│ owner                                                  │      421 │    2,421 │
+│ pendingExpiry                                          │      654 │      654 │
+│ pendingOwner                                           │      635 │      635 │
+│ pendingValidateExpiryOrPause                           │      503 │      503 │
+│ pendingValidated                                       │      540 │      540 │
+│ protected                                              │   23,448 │   23,451 │
+│ supportsInterface                                      │      428 │      493 │
+│ transferOwnership                                      │   28,688 │   28,928 │
+│ validateOwnershipTransfer                              │   27,496 │   27,496 │
 ╰────────────────────────────────────────────────────────┴──────────┴──────────╯
 
 ╭──────────────────────────────────────────────────────────────────────────────╮
@@ -60,23 +60,23 @@
 ╞════════════════════════════════════════════════════════╤══════════╤══════════╡
 │ Function Name                                          │ median   │ max      │
 ├────────────────────────────────────────────────────────┼──────────┼──────────┤
-│ MY_ROLE                                                │    2,494 │    2,494 │
-│ cancelOwnershipTransfer                                │   24,758 │   26,758 │
-│ grantRoles                                             │   36,320 │   48,223 │
-│ hasAllRoles                                            │    1,074 │    1,074 │
-│ hasAnyRole                                             │    2,120 │    3,120 │
-│ initialize                                             │   24,147 │   69,053 │
-│ initiateOwnershipTransfer                              │   47,442 │   47,442 │
-│ owner                                                  │      525 │    2,525 │
-│ pendingExpiry                                          │      660 │      660 │
-│ pendingOwner                                           │      671 │      671 │
-│ pendingValidateExpiryOrPause                           │      634 │      634 │
-│ pendingValidated                                       │      658 │      658 │
-│ protected                                              │   23,440 │   23,443 │
-│ protectedRoles                                         │    2,513 │    4,513 │
-│ supportsInterface                                      │      869 │      940 │
-│ transferOwnership                                      │   28,644 │   28,884 │
-│ validateOwnershipTransfer                              │   27,531 │   27,531 │
+│ MY_ROLE                                                │    2,294 │    2,294 │
+│ cancelOwnershipTransfer                                │   24,886 │   26,886 │
+│ grantRoles                                             │   35,988 │   47,891 │
+│ hasAllRoles                                            │      666 │      666 │
+│ hasAnyRole                                             │    1,886 │    2,886 │
+│ initialize                                             │   24,515 │   69,480 │
+│ initiateOwnershipTransfer                              │   47,846 │   47,846 │
+│ owner                                                  │      773 │    2,773 │
+│ pendingExpiry                                          │    1,116 │    1,116 │
+│ pendingOwner                                           │    1,097 │    1,097 │
+│ pendingValidateExpiryOrPause                           │      833 │      833 │
+│ pendingValidated                                       │      914 │      914 │
+│ protected                                              │   23,778 │   23,781 │
+│ protectedRoles                                         │    2,710 │    4,710 │
+│ supportsInterface                                      │      549 │      587 │
+│ transferOwnership                                      │   29,185 │   29,425 │
+│ validateOwnershipTransfer                              │   27,804 │   27,804 │
 ╰────────────────────────────────────────────────────────┴──────────┴──────────╯
 
 ╭──────────────────────────────────────────────────────────────────────────────╮
@@ -84,15 +84,15 @@
 ╞════════════════════════════════════════════════════════╤══════════╤══════════╡
 │ Function Name                                          │ median   │ max      │
 ├────────────────────────────────────────────────────────┼──────────┼──────────┤
-│ cancelOwnershipHandover                                │   22,601 │   22,601 │
-│ completeOwnershipHandover                              │   28,959 │   28,959 │
-│ initialize                                             │   45,596 │   45,596 │
-│ owner                                                  │      569 │    2,569 │
-│ ownershipHandoverExpiresAt                             │    1,885 │    2,885 │
-│ ownershipHandoverValidFor                              │      394 │      394 │
-│ renounceOwnership                                      │   23,369 │   23,369 │
-│ requestOwnershipHandover                               │   44,537 │   44,537 │
-│ transferOwnership                                      │   28,713 │   28,713 │
+│ cancelOwnershipHandover                                │   22,578 │   22,578 │
+│ completeOwnershipHandover                              │   28,854 │   28,854 │
+│ initialize                                             │   45,492 │   45,492 │
+│ owner                                                  │      358 │    2,358 │
+│ ownershipHandoverExpiresAt                             │    1,660 │    2,660 │
+│ ownershipHandoverValidFor                              │      286 │      286 │
+│ renounceOwnership                                      │   23,349 │   23,349 │
+│ requestOwnershipHandover                               │   44,492 │   44,492 │
+│ transferOwnership                                      │   28,610 │   28,610 │
 ╰────────────────────────────────────────────────────────┴──────────┴──────────╯
 
 ╭──────────────────────────────────────────────────────────────────────────────╮
@@ -100,15 +100,15 @@
 ╞════════════════════════════════════════════════════════╤══════════╤══════════╡
 │ Function Name                                          │ median   │ max      │
 ├────────────────────────────────────────────────────────┼──────────┼──────────┤
-│ cancelOwnershipHandover                                │   22,601 │   22,601 │
-│ completeOwnershipHandover                              │   28,981 │   28,981 │
-│ initialize                                             │   45,618 │   45,618 │
-│ owner                                                  │      569 │    2,569 │
-│ ownershipHandoverExpiresAt                             │    1,907 │    2,907 │
-│ ownershipHandoverValidFor                              │      416 │      416 │
-│ renounceOwnership                                      │   23,369 │   23,369 │
-│ requestOwnershipHandover                               │   44,626 │   44,626 │
-│ transferOwnership                                      │   28,735 │   28,735 │
+│ cancelOwnershipHandover                                │   22,732 │   22,732 │
+│ completeOwnershipHandover                              │   29,043 │   29,043 │
+│ initialize                                             │   45,681 │   45,681 │
+│ owner                                                  │      523 │    2,523 │
+│ ownershipHandoverExpiresAt                             │    1,849 │    2,849 │
+│ ownershipHandoverValidFor                              │      440 │      440 │
+│ renounceOwnership                                      │   23,503 │   23,503 │
+│ requestOwnershipHandover                               │   44,558 │   44,558 │
+│ transferOwnership                                      │   28,799 │   28,799 │
 ╰────────────────────────────────────────────────────────┴──────────┴──────────╯
 
 ╭──────────────────────────────────────────────────────────────────────────────╮
@@ -116,6 +116,6 @@
 ╞════════════════════════════════════════════════════════╤══════════╤══════════╡
 │ Function Name                                          │ median   │ max      │
 ├────────────────────────────────────────────────────────┼──────────┼──────────┤
-│ initialize                                             │   70,310 │   70,310 │
-│ sweep                                                  │   33,622 │   60,509 │
+│ initialize                                             │   69,509 │   69,509 │
+│ sweep                                                  │   32,694 │   59,575 │
 ╰────────────────────────────────────────────────────────┴──────────┴──────────╯

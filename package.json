@@ -2,7 +2,7 @@
   "name": "baobase",
   "license": "MIT",
   "scripts": {
-    "gas": "forge test --isolate --gas-report | bin/extract-gas | tee gas.txt",
+    "gas": "forge clean; forge test --isolate --gas-report | bin/extract-gas | tee gas.txt",
     "sizes": "forge clean; forge build --sizes | bin/extract-sizes | tee sizes.txt",
     "fmt": "prettier --log-level warn --ignore-path .gitignore '{src,test,interfaces,script}/**/*.sol' --write",
     "lint": "solhint '{src,interfaces}/**/*.sol' --disc",
