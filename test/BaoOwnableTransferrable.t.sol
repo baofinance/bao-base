@@ -345,6 +345,8 @@ contract TestBaoOwnableTransferrableOnly is Test {
         // initiating transfers just overwrites any previous one
         // to someone
         _checkSuccessful_initiateOwnershipTransfer(owner, user, true);
+        // to no-one
+        _checkSuccessful_initiateOwnershipTransfer(owner, address(0), true);
         // even to the owner
         _checkSuccessful_initiateOwnershipTransfer(owner, owner, true);
         // before validate
@@ -406,6 +408,16 @@ contract TestBaoOwnableTransferrableOnly is Test {
         vm.expectRevert(IBaoOwnableTransferrable.Unauthorized.selector);
         vm.prank(user);
         IBaoOwnableTransferrable(ownable).validateOwnershipTransfer();
+
+        // can't validate address(0)
+        _checkSuccessful_initiateOwnershipTransfer(owner, address(0), true);
+        vm.expectRevert(IBaoOwnableTransferrable.Unauthorized.selector);
+        vm.prank(user);
+        IBaoOwnableTransferrable(ownable).validateOwnershipTransfer();
+        // not even the owner
+        vm.expectRevert(IBaoOwnableTransferrable.Unauthorized.selector);
+        vm.prank(owner);
+        IBaoOwnableTransferrable(ownable).validateOwnershipTransfer();
     }
 
     // TODO: check there is no difference for a two step deployment
@@ -452,7 +464,7 @@ contract TestBaoOwnableTransferrableOnly is Test {
 
         _checkSuccessful_transferOwnership(owner, user);
 
-        // need to check an validate is needed
+        // need to check a validate is needed
         _checkSuccessful_initiateOwnershipTransfer(user, owner, false);
         // cannot complete unless the pause period has passed
         vm.expectRevert(IBaoOwnableTransferrable.CannotCompleteTransfer.selector);
@@ -460,47 +472,86 @@ contract TestBaoOwnableTransferrableOnly is Test {
         IBaoOwnableTransferrable(ownable).transferOwnership(owner);
     }
 
-    function _cancelTransfer(address canceller) private {
+    function test_renounceTransfer() public {
+        // owner is initially set to the owner
         _initialize(owner);
 
-        // only owner or recipient can cancel
-        // if it's not in-flight then
+        // successful initiate
+        _checkSuccessful_initiateOwnershipTransfer(owner, address(0), false);
+        // cannot complete unless the pause period has passed
+        vm.expectRevert(IBaoOwnableTransferrable.CannotCompleteTransfer.selector);
+        vm.prank(owner);
+        IBaoOwnableTransferrable(ownable).transferOwnership(user);
+
+        // cannot complete unless the pause period has passed
+        skip(4 days / 2);
+        vm.expectRevert(IBaoOwnableTransferrable.CannotCompleteTransfer.selector);
+        vm.prank(owner);
+        IBaoOwnableTransferrable(ownable).transferOwnership(user);
+
+        // can complete when pause has passed
+        skip(1);
+
+        // need owner to complete
+        vm.expectRevert(IBaoOwnableTransferrable.Unauthorized.selector);
+        IBaoOwnableTransferrable(ownable).transferOwnership(user);
+
+        _checkSuccessful_transferOwnership(owner, address(0));
+    }
+
+    function _cancelTransfer(address canceller, address pending) private {
+        _initialize(owner);
+
+        // only owner or recipient can cancel - testing the test
         assertTrue(
-            canceller == user || canceller == IBaoOwnableTransferrable(ownable).owner(),
+            canceller == pending || canceller == IBaoOwnableTransferrable(ownable).owner(),
             "canceller owner or pending"
         );
 
         // then only if there's an in-flight transfer
-        if (canceller != owner) vm.expectRevert(IBaoOwnableTransferrable.Unauthorized.selector);
+        if (canceller != IBaoOwnableTransferrable(ownable).owner())
+            vm.expectRevert(IBaoOwnableTransferrable.Unauthorized.selector);
         vm.prank(canceller);
         IBaoOwnableTransferrable(ownable).cancelOwnershipTransfer();
 
         // start an actual transfer then cancel immediately
-        _checkSuccessful_initiateOwnershipTransfer(owner, user, false);
+        _checkSuccessful_initiateOwnershipTransfer(owner, pending, false);
         vm.prank(canceller);
         IBaoOwnableTransferrable(ownable).cancelOwnershipTransfer();
 
         // start another - cancel after validate but before pause
-        _checkSuccessful_initiateOwnershipTransfer(owner, user, false);
-        _checkSuccessful_validateOwnershipTransfer(user);
+        _checkSuccessful_initiateOwnershipTransfer(owner, pending, false);
+        if (pending != address(0)) _checkSuccessful_validateOwnershipTransfer(pending);
         vm.prank(canceller);
         IBaoOwnableTransferrable(ownable).cancelOwnershipTransfer();
 
         // start another - cancel after pause but before validate
-        _checkSuccessful_initiateOwnershipTransfer(owner, user, false);
+        _checkSuccessful_initiateOwnershipTransfer(owner, pending, false);
         skip(4 days / 2 + 1);
         vm.prank(canceller);
         IBaoOwnableTransferrable(ownable).cancelOwnershipTransfer();
 
         // start another - cancel after validate and after pause
-        _checkSuccessful_initiateOwnershipTransfer(owner, user, false);
-        _checkSuccessful_validateOwnershipTransfer(user);
+        _checkSuccessful_initiateOwnershipTransfer(owner, pending, false);
+        if (pending != address(0)) _checkSuccessful_validateOwnershipTransfer(pending);
         skip(4 days / 2 + 1);
         vm.prank(canceller);
         IBaoOwnableTransferrable(ownable).cancelOwnershipTransfer();
 
         // start another just to make sure the last cancel succeeded
-        _checkSuccessful_initiateOwnershipTransfer(owner, user, false);
+        _checkSuccessful_initiateOwnershipTransfer(owner, pending, false);
+    }
+
+    function test_cancelTransferByOwner() public {
+        _cancelTransfer(owner, user);
+    }
+
+    function test_cancelTransferByRecipient() public {
+        _cancelTransfer(user, user);
+    }
+
+    function test_cancelTransfer0ByOwner() public {
+        _cancelTransfer(owner, address(0));
     }
 
     function test_cancelTransferByOther() public {
@@ -520,14 +571,6 @@ contract TestBaoOwnableTransferrableOnly is Test {
         _checkSuccessful_initiateOwnershipTransfer(owner, user, false);
         vm.expectRevert(IBaoOwnableTransferrable.Unauthorized.selector);
         IBaoOwnableTransferrable(ownable).cancelOwnershipTransfer();
-    }
-
-    function test_cancelTransferByOwner() public {
-        _cancelTransfer(owner);
-    }
-
-    function test_cancelTransferByRecipient() public {
-        _cancelTransfer(user);
     }
 
     function _twoStepTransferTimingCancel1st(address toAddress) private {
@@ -622,71 +665,5 @@ contract TestBaoOwnableTransferrableOnly is Test {
 
     function test_twoStepTransferTimingComplete0() public {
         _twoStepTransferTimingComplete(address(0));
-    }
-
-    function test_twoStepRenounceSimple() public {
-        vm.skip(true);
-        // owner is initially set to the owner
-        _initialize(owner);
-        assertEq(IBaoOwnableTransferrable(ownable).owner(), owner);
-
-        // only owner can complete
-        vm.expectRevert(IBaoOwnableTransferrable.Unauthorized.selector);
-        IBaoOwnableTransferrable(ownable).transferOwnership(address(0));
-        assertEq(IBaoOwnableTransferrable(ownable).owner(), owner);
-
-        // can't renounce unless there's a request
-        assertEq(IBaoOwnableTransferrable(ownable).pendingExpiry(), 0);
-        vm.expectRevert(IBaoOwnableTransferrable.Unauthorized.selector);
-        vm.prank(owner);
-        IBaoOwnableTransferrable(ownable).transferOwnership(address(0));
-        assertEq(IBaoOwnableTransferrable(ownable).owner(), owner);
-
-        // only owner can renounce
-        vm.expectRevert(IBaoOwnableTransferrable.Unauthorized.selector);
-        IBaoOwnableTransferrable(ownable).initiateOwnershipTransfer(address(0));
-        assertEq(IBaoOwnableTransferrable(ownable).owner(), owner);
-        assertEq(IBaoOwnableTransferrable(ownable).pendingExpiry(), 0);
-
-        // renounce two-step
-        vm.expectEmit();
-        emit IBaoOwnableTransferrable.OwnershipTransferInitiated(address(0));
-        vm.prank(owner);
-        IBaoOwnableTransferrable(ownable).initiateOwnershipTransfer(address(0));
-        uint256 expiry = IBaoOwnableTransferrable(ownable).pendingExpiry();
-        assertNotEq(expiry, 0, "non-zero expiry");
-        assertEq(IBaoOwnableTransferrable(ownable).owner(), owner, "requesting doesn't do the transfer");
-
-        // multiple requests are allowed
-        skip(1 hours);
-        vm.expectEmit();
-        emit IBaoOwnableTransferrable.OwnershipTransferInitiated(address(0));
-        vm.prank(owner);
-        IBaoOwnableTransferrable(ownable).initiateOwnershipTransfer(address(0));
-        assertEq(expiry + 1 hours, IBaoOwnableTransferrable(ownable).pendingExpiry());
-
-        // can't complete requester yet
-        vm.expectRevert(IBaoOwnableTransferrable.CannotCompleteTransfer.selector);
-        vm.prank(owner);
-        IBaoOwnableTransferrable(ownable).transferOwnership(address(0));
-        assertNotEq(IBaoOwnableTransferrable(ownable).pendingExpiry(), 0);
-        assertEq(IBaoOwnableTransferrable(ownable).owner(), owner);
-
-        // can complete, now, by rolling forward half the time
-        skip(4 days / 2 + 1);
-
-        // and only if you're the owner
-        vm.expectRevert(IBaoOwnableTransferrable.Unauthorized.selector);
-        IBaoOwnableTransferrable(ownable).transferOwnership(address(0));
-        assertNotEq(IBaoOwnableTransferrable(ownable).pendingExpiry(), 0);
-        assertEq(IBaoOwnableTransferrable(ownable).owner(), owner);
-
-        // actually complete it!
-        vm.expectEmit();
-        emit IBaoOwnableTransferrable.OwnershipTransferred(owner, address(0));
-        vm.prank(owner);
-        IBaoOwnableTransferrable(ownable).transferOwnership(address(0));
-        assertEq(IBaoOwnableTransferrable(ownable).pendingExpiry(), 0);
-        assertEq(IBaoOwnableTransferrable(ownable).owner(), address(0));
     }
 }
