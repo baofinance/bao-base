@@ -1,49 +1,51 @@
-| Contract                       | Size (B) | Margin (B) |
-|--------------------------------|----------|------------|
-| Address                        |       85 |     24,491 |
-| BaoOwnable                     |      617 |     23,959 |
-| BaoOwnableRoles                |    1,226 |     23,350 |
-| BaoOwnableTransferrable        |    1,389 |     23,187 |
-| BaoOwnableTransferrableRoles   |    1,954 |     22,622 |
-| BeaconProxy                    |      283 |     24,293 |
-| Core                           |       85 |     24,491 |
-| Defender                       |       85 |     24,491 |
-| DefenderDeploy                 |       85 |     24,491 |
-| Deployed                       |      270 |     24,306 |
-| DerivedBaoOwnable              |      919 |     23,657 |
-| DerivedBaoOwnableRoles         |    1,662 |     22,914 |
-| DerivedBaoOwnableTransferrable |    1,545 |     23,031 |
-| DerivedOwnable                 |      894 |     23,682 |
-| DerivedOwnableRoles            |    1,506 |     23,070 |
-| DerivedTokenHolder             |    1,861 |     22,715 |
-| ERC1967Proxy                   |      163 |     24,413 |
-| ERC1967Utils                   |       85 |     24,491 |
-| Errors                         |       85 |     24,491 |
-| Math                           |       85 |     24,491 |
-| Panic                          |       85 |     24,491 |
-| ProxyAdmin                     |    1,058 |     23,518 |
-| SafeCast                       |       85 |     24,491 |
-| SafeERC20                      |       85 |     24,491 |
-| SignedMath                     |       85 |     24,491 |
-| StorageSlot                    |       85 |     24,491 |
-| Strings                        |       85 |     24,491 |
-| Token                          |      380 |     24,196 |
-| TransparentUpgradeableProxy    |    1,112 |     23,464 |
-| UnsafeUpgrades                 |       85 |     24,491 |
-| UpgradeableBeacon              |      665 |     23,911 |
-| Upgrades                       |       85 |     24,491 |
-| Utils                          |       85 |     24,491 |
-| Versions                       |       85 |     24,491 |
-| _BaoOwnable                    |      745 |     23,831 |
-| _BaoOwnableRoles               |    1,349 |     23,227 |
-| _BaoOwnableTransferrable       |    1,506 |     23,070 |
-| _BaoOwnableTransferrableRoles  |    2,071 |     22,505 |
-| _Initializable_UUPSUpGradeable |    1,915 |     22,661 |
-| _OZAccessControl               |    1,203 |     23,373 |
-| _OZDefaultAdminRules           |    3,741 |     20,835 |
-| _OZOwnable                     |      673 |     23,903 |
-| _OZOwnable2Step                |      880 |     23,696 |
-| _SoladyOwnable                 |      815 |     23,761 |
-| _SoladyOwnableRoles            |    1,349 |     23,227 |
-| _UUPSUpgradeable               |    1,654 |     22,922 |
-| strings                        |       85 |     24,491 |
+╭───────────────────────────────────────────────┬──────────╮
+│ contract                                      │ bytes    │
+├───────────────────────────────────────────────┼──────────┤
+│  Address                                      │       85 │
+│  BaoOwnable                                   │      617 │
+│  BaoOwnableRoles                              │    1,226 │
+│  BaoOwnableTransferrable                      │    1,389 │
+│  BaoOwnableTransferrableRoles                 │    1,954 │
+│  BeaconProxy                                  │      283 │
+│  Core                                         │       85 │
+│  Defender                                     │       85 │
+│  DefenderDeploy                               │       85 │
+│  Deployed                                     │      270 │
+│  DerivedBaoOwnable                            │      919 │
+│  DerivedBaoOwnableRoles                       │    1,662 │
+│  DerivedBaoOwnableTransferrable               │    1,545 │
+│  DerivedOwnable                               │      894 │
+│  DerivedOwnableRoles                          │    1,506 │
+│  DerivedTokenHolder                           │    1,861 │
+│  ERC1967Proxy                                 │      163 │
+│  ERC1967Utils                                 │       85 │
+│  Errors                                       │       85 │
+│  Math                                         │       85 │
+│  Panic                                        │       85 │
+│  ProxyAdmin                                   │    1,058 │
+│  SafeCast                                     │       85 │
+│  SafeERC20                                    │       85 │
+│  SignedMath                                   │       85 │
+│  StorageSlot                                  │       85 │
+│  Strings                                      │       85 │
+│  Token                                        │      380 │
+│  TransparentUpgradeableProxy                  │    1,112 │
+│  UnsafeUpgrades                               │       85 │
+│  UpgradeableBeacon                            │      665 │
+│  Upgrades                                     │       85 │
+│  Utils                                        │       85 │
+│  Versions                                     │       85 │
+│  _BaoOwnable                                  │      745 │
+│  _BaoOwnableRoles                             │    1,349 │
+│  _BaoOwnableTransferrable                     │    1,506 │
+│  _BaoOwnableTransferrableRoles                │    2,071 │
+│  _Initializable_UUPSUpGradeable               │    1,915 │
+│  _OZAccessControl                             │    1,203 │
+│  _OZDefaultAdminRules                         │    3,741 │
+│  _OZOwnable                                   │      673 │
+│  _OZOwnable2Step                              │      880 │
+│  _SoladyOwnable                               │      815 │
+│  _SoladyOwnableRoles                          │    1,349 │
+│  _UUPSUpgradeable                             │    1,654 │
+│  strings                                      │       85 │
+╰───────────────────────────────────────────────┴──────────╯
