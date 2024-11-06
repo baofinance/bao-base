@@ -12,11 +12,7 @@ import { BaoRoles } from "@bao/internal/BaoRoles.sol";
 import { BaoOwnableRoles } from "@bao/BaoOwnableRoles.sol";
 
 import { TestBaoOwnableOnly } from "./BaoOwnable.t.sol";
-
-contract DerivedBaoRoles is BaoRoles {
-    uint256 public MY_ROLE = _ROLE_1;
-    function protectedRoles() public view onlyRoles(MY_ROLE) {}
-}
+import { TestBaoRoles } from "./BaoRoles.t.sol";
 
 contract DerivedBaoOwnableRoles is BaoOwnableRoles {
     uint256 public MY_ROLE = _ROLE_1;
@@ -30,35 +26,21 @@ contract DerivedBaoOwnableRoles is BaoOwnableRoles {
     function protectedRoles() public view onlyRoles(MY_ROLE) {}
 }
 
-contract TestBaoOwnableRoles is TestBaoOwnableOnly {
+contract TestBaoOwnableRoles is TestBaoOwnableOnly, TestBaoRoles {
     function setUp() public override {
         super.setUp();
 
         ownable = address(new DerivedBaoOwnableRoles());
     }
 
+    function test_introspection() public view override {
+        super.test_introspection();
+        TestBaoRoles._introspection(ownable);
+    }
+
     function test_roles() public {
         _initialize(owner);
 
-        // check basic owner & role based protections, to ensure those functions are there
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        DerivedBaoOwnableRoles(ownable).protectedRoles();
-
-        uint256 myRole = DerivedBaoOwnableRoles(ownable).MY_ROLE();
-
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        IBaoRoles(ownable).grantRoles(user, myRole);
-        assertFalse(IBaoRoles(ownable).hasAnyRole(user, myRole));
-
-        vm.prank(owner);
-        IBaoRoles(ownable).grantRoles(user, myRole);
-        assertTrue(IBaoRoles(ownable).hasAnyRole(user, myRole));
-        assertTrue(IBaoRoles(ownable).hasAllRoles(user, myRole));
-
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        DerivedBaoOwnableRoles(ownable).protectedRoles();
-
-        vm.prank(user);
-        DerivedBaoOwnableRoles(ownable).protectedRoles();
+        TestBaoRoles._roles(ownable, owner, user);
     }
 }

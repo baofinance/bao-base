@@ -63,8 +63,9 @@ contract TestBaoOwnableOnly is Test {
         // can't initialise again
         vm.expectRevert(IBaoOwnable.AlreadyInitialized.selector);
         DerivedBaoOwnable(ownable).initialize(user);
+    }
 
-        // introspection
+    function test_introspection() public view virtual {
         assertTrue(IERC165(ownable).supportsInterface(type(IERC165).interfaceId));
         assertTrue(IERC165(ownable).supportsInterface(type(IBaoOwnable).interfaceId));
     }

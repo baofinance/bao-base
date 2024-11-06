@@ -23,7 +23,7 @@
 │ owner                                                  │      524 │    2,524 │
 │ protected                                              │   23,372 │   23,375 │
 │ protectedRoles                                         │    2,490 │    4,490 │
-│ supportsInterface                                      │      720 │      735 │
+│ supportsInterface                                      │      735 │      806 │
 │ transferOwnership                                      │   26,240 │   28,816 │
 ╰────────────────────────────────────────────────────────┴──────────┴──────────╯
 
@@ -51,34 +51,23 @@
 ╞════════════════════════════════════════════════════════╤══════════╤══════════╡
 │ Function Name                                          │ median   │ max      │
 ├────────────────────────────────────────────────────────┼──────────┼──────────┤
-│ MY_ROLE                                                │    2,470 │    2,470 │
-│ cancelOwnershipTransfer                                │   24,691 │   26,691 │
-│ grantRoles                                             │   36,297 │   48,200 │
-│ hasAllRoles                                            │    1,140 │    1,140 │
-│ hasAnyRole                                             │    2,142 │    3,142 │
-│ initialize                                             │   24,065 │   68,962 │
-│ initiateOwnershipTransfer                              │   47,369 │   47,369 │
-│ owner                                                  │      569 │    2,569 │
-│ pendingExpiry                                          │      660 │      660 │
-│ pendingOwner                                           │      671 │      671 │
-│ pendingValidateExpiryOrPause                           │      611 │      611 │
-│ pendingValidated                                       │      680 │      680 │
-│ protected                                              │   23,417 │   23,420 │
-│ protectedRoles                                         │    2,534 │    4,534 │
-│ supportsInterface                                      │      743 │      758 │
-│ transferOwnership                                      │   28,644 │   28,884 │
-│ validateOwnershipTransfer                              │   27,421 │   27,421 │
-╰────────────────────────────────────────────────────────┴──────────┴──────────╯
-
-╭──────────────────────────────────────────────────────────────────────────────╮
-│ test/BaoRoles.t.sol:DerivedBaoRoles contract                                 │
-╞════════════════════════════════════════════════════════╤══════════╤══════════╡
-│ Function Name                                          │ median   │ max      │
-├────────────────────────────────────────────────────────┼──────────┼──────────┤
-│ MY_ROLE                                                │    2,447 │    2,447 │
-│ grantRoles                                             │   24,372 │   24,372 │
-│ hasAnyRole                                             │    3,119 │    3,119 │
-│ protectedRoles                                         │    4,511 │    4,511 │
+│ MY_ROLE                                                │    2,494 │    2,494 │
+│ cancelOwnershipTransfer                                │   24,758 │   26,758 │
+│ grantRoles                                             │   36,320 │   48,223 │
+│ hasAllRoles                                            │    1,074 │    1,074 │
+│ hasAnyRole                                             │    2,098 │    3,098 │
+│ initialize                                             │   24,110 │   69,007 │
+│ initiateOwnershipTransfer                              │   47,414 │   47,414 │
+│ owner                                                  │      592 │    2,592 │
+│ pendingExpiry                                          │      638 │      638 │
+│ pendingOwner                                           │      649 │      649 │
+│ pendingValidateExpiryOrPause                           │      612 │      612 │
+│ pendingValidated                                       │      636 │      636 │
+│ protected                                              │   23,418 │   23,421 │
+│ protectedRoles                                         │    2,491 │    4,491 │
+│ supportsInterface                                      │      781 │      852 │
+│ transferOwnership                                      │   28,622 │   28,862 │
+│ validateOwnershipTransfer                              │   27,487 │   27,487 │
 ╰────────────────────────────────────────────────────────┴──────────┴──────────╯
 
 ╭──────────────────────────────────────────────────────────────────────────────╮

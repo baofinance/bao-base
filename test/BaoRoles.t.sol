@@ -13,21 +13,18 @@ import { BaoOwnable } from "@bao/BaoOwnable.sol";
 
 import { TestBaoOwnableOnly } from "./BaoOwnable.t.sol";
 
-contract DerivedBaoRoles is BaoRoles {
+abstract contract DerivedBaoRoles is BaoRoles {
     uint256 public MY_ROLE = _ROLE_1;
     function protectedRoles() public view onlyRoles(MY_ROLE) {}
 }
 
-contract TestBaoRoles is Test {
-    address roles;
-    address user;
-
-    function setUp() public {
-        roles = address(new DerivedBaoRoles());
-        user = vm.createWallet("user").addr;
+abstract contract TestBaoRoles is Test {
+    function _introspection(address roles) internal view {
+        assertTrue(IERC165(roles).supportsInterface(type(IERC165).interfaceId));
+        assertTrue(IERC165(roles).supportsInterface(type(IBaoRoles).interfaceId));
     }
 
-    function test_roles() public {
+    function _roles(address roles, address owner, address user) internal {
         // check basic owner & role based protections, to ensure those functions are there
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         DerivedBaoRoles(roles).protectedRoles();
@@ -38,7 +35,6 @@ contract TestBaoRoles is Test {
         IBaoRoles(roles).grantRoles(user, myRole);
         assertFalse(IBaoRoles(roles).hasAnyRole(user, myRole));
 
-        /* TODO: should BaoRoles be unprotected in their native form?
         vm.prank(owner);
         IBaoRoles(roles).grantRoles(user, myRole);
         assertTrue(IBaoRoles(roles).hasAnyRole(user, myRole));
@@ -49,6 +45,5 @@ contract TestBaoRoles is Test {
 
         vm.prank(user);
         DerivedBaoRoles(roles).protectedRoles();
-        */
     }
 }

@@ -11,8 +11,9 @@ import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
 import { BaoOwnableTransferrableRoles } from "@bao/BaoOwnableTransferrableRoles.sol";
 
 import { TestBaoOwnableTransferrableOnly } from "./BaoOwnableTransferrable.t.sol";
+import { TestBaoRoles } from "./BaoRoles.t.sol";
 
-contract DerivedBaoOwnableTransferrableRoles is BaoOwnableTransferrableRoles {
+contract DerivedBaoOwnableTransferrableRoles is BaoOwnableTransferrableRoles, TestBaoRoles {
     uint256 public MY_ROLE = _ROLE_1;
 
     function initialize(address owner) public {
@@ -24,11 +25,16 @@ contract DerivedBaoOwnableTransferrableRoles is BaoOwnableTransferrableRoles {
     function protectedRoles() public view onlyRoles(MY_ROLE) {}
 }
 
-contract TestBaoOwnableTransferrableRoles is TestBaoOwnableTransferrableOnly {
+contract TestBaoOwnableTransferrableRoles is TestBaoOwnableTransferrableOnly, TestBaoRoles {
     function setUp() public override {
         super.setUp();
 
         ownable = address(new DerivedBaoOwnableTransferrableRoles());
+    }
+
+    function test_introspection() public view override {
+        super.test_introspection();
+        TestBaoRoles._introspection(ownable);
     }
 
     function test_roles() public {
