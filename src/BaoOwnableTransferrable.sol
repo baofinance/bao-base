@@ -10,7 +10,7 @@ import { IBaoOwnableTransferrable } from "@bao/interfaces/IBaoOwnableTransferrab
 
 /// @title Bao Ownable
 /// @dev Note:
-/// This implementation does NOT auto-initialize the owner to `msg.sender`.
+/// This implementation auto-initialises the owner to `msg.sender`.
 /// You MUST call the `_initializeOwner` in the constructor / initializer of the deriving contract.
 /// This initialization sets the owner to `msg.sender`, not to the passed 'finalOwner' parameter.
 ///
@@ -37,7 +37,7 @@ import { IBaoOwnableTransferrable } from "@bao/interfaces/IBaoOwnableTransferrab
 /// it also adds IRC165 interface query support
 /// @author rootminus0x1
 /// @dev Uses erc7201 storage
-/* TODO: abstract */ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoCheckOwner, IERC165 {
+contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoCheckOwner, IERC165 {
     /*//////////////////////////////////////////////////////////////////////////
                                CONSTRUCTOR/INITIALIZER
     //////////////////////////////////////////////////////////////////////////*/
@@ -196,23 +196,12 @@ import { IBaoOwnableTransferrable } from "@bao/interfaces/IBaoOwnableTransferrab
         }
     }
 
-    // TODO: add this
-    // function recoverOwnership(address fromAddress) public payable {
-    // only previous owner, not the one who deployed it, though
-    // i.e. set up in complete ownership transfer
-    // can only recover if it is executed within an expiry period - e.g. 1 or 2 weeks
-    // }
-
     /*//////////////////////////////////////////////////////////////////////////
                                   PRIVATE DATA
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @dev The owner slot is given by:
-    /// `keccak256(abi.encode(uint256(keccak256("bao.storage.BaoOwnable.owner")) - 1)) & ~bytes32(uint256(0xff))`.
-    /// The choice of manual storage layout is to enable compatibility
-    /// with both regular and upgradeable contracts.
-    // bytes32 private constant _INITIALIZED_SLOT = 0x61e0b85c03e2cf9c545bde2fb12d0bf5dd6eaae0af8b6909bd36e40f78a60500;
-    // | 255, 1 bit - intialized and zero | 159, 160 bits - owner address |
+    /// @dev The owner address storage slot is defined in BaoCheckOwner
+    /// We utilise an extra bit in that slot, to prevent re-initialisations (only needed for address(0))
     uint8 private constant _BIT_INITIALIZED = 255;
 
     /// @dev The pending owner slot is given by:
@@ -226,15 +215,8 @@ import { IBaoOwnableTransferrable } from "@bao/interfaces/IBaoOwnableTransferrab
     //      validated = true
     // renounce:
     //      validate expiry = now + 2 days, completion delta = 2 days, validated = true
-
     uint8 private constant _BIT_VALIDATED = 160;
 
-    /// `keccak256(abi.encode(uint256(keccak256("bao.storage.BaoOwnable.isInitialized")) - 1)) & ~bytes32(uint256(0xff))`.
-    //bytes32 private constant _IS_INITIALIZED_SLOT = 0xf62b6656174671598fb5a8f20c699816e60e61b09b105786e842a4b16193e900;
-    /// @dev OR an address to get the address stored in owner, if they were also the deployer
-
-    // TODO: change events to be closer to OZ
-    // TODO: change function names to be closer to OZ
     /// @dev `keccak256(bytes("OwnershipTransferInitiated(address)"))`.
     uint256 private constant _OWNERSHIP_TRANSFER_INITIATED_EVENT_SIGNATURE =
         0x20f5afdf40bf7b43c89031a5d4369a30b159e512d164aa46124bcb706b4a1caf;

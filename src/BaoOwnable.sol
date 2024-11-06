@@ -23,7 +23,7 @@ import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
 /// it also adds IRC165 interface query support
 /// @author rootminus0x1
 /// @dev Uses erc7201 storage
-/* TODO: abstract */ contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
+contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
     /*//////////////////////////////////////////////////////////////////////////
                                CONSTRUCTOR/INITIALIZER
     //////////////////////////////////////////////////////////////////////////*/
@@ -99,12 +99,8 @@ import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
                                   PRIVATE DATA
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @dev The owner slot is given by:
-    /// `keccak256(abi.encode(uint256(keccak256("bao.storage.BaoOwnable.owner")) - 1)) & ~bytes32(uint256(0xff))`.
-    /// The choice of manual storage layout is to enable compatibility
-    /// with both regular and upgradeable contracts.
-    // bytes32 internal constant _INITIALIZED_SLOT from CheckOwner
-    // | 255, 1 bit - intialized and zero | 159, 160 bits - owner address |
+    /// @dev The owner address storage slot is defined in BaoCheckOwner
+    /// We utilise an extra bit in that slot, to prevent re-initialisations (only needed for address(0))
     uint8 internal constant _BIT_INITIALIZED = 255;
 
     /// @dev The pending owner slot is given by:

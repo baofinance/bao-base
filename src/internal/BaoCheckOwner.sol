@@ -1,24 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-// import { console2 } from "forge-std/console2.sol";
-
-import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-
 /// @title Bao Check Owner
 /// @dev Note:
-/// provides a virtual function that you can put behind an onlyOwner function
-/// @author rootminus0x1
+/// provides a modifier that throws if the caller is not the owner
+/// @author rootminus0x1 taken from Solady's Ownable contract (https://github.com/vectorized/solady/blob/main/src/auth/Ownable.sol)
 /// @dev Uses erc7201 storage
 abstract contract BaoCheckOwner {
+    /*//////////////////////////////////////////////////////////////////////////
+                                   INTERNAL DATA
+    //////////////////////////////////////////////////////////////////////////*/
+
     /// @dev The owner slot is given by:
     /// `keccak256(abi.encode(uint256(keccak256("bao.storage.BaoOwnable.owner")) - 1)) & ~bytes32(uint256(0xff))`.
-    /// The choice of manual storage layout is to enable compatibility
-    /// with both regular and upgradeable contracts.
+    /// The choice of manual storage layout is to enable compatibility with both regular and upgradeable contracts.
     bytes32 internal constant _INITIALIZED_SLOT = 0x61e0b85c03e2cf9c545bde2fb12d0bf5dd6eaae0af8b6909bd36e40f78a60500;
 
     /*//////////////////////////////////////////////////////////////////////////
-                                  INTERNAL FUNCTIONS
+                                 INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @dev Throws if the sender is not the owner.
@@ -33,7 +32,7 @@ abstract contract BaoCheckOwner {
     }
 
     /*//////////////////////////////////////////////////////////////////////////
-                                    MODIFIERS
+                                     MODIFIERS
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @dev Marks a function as only callable by the owner.

@@ -25,7 +25,7 @@ import { BaoRoles } from "@bao/internal/BaoRoles.sol";
 /// it also adds IRC165 interface query support
 /// @author rootminus0x1
 /// @dev Uses erc7201 storage
-/* TODO: abstract */ contract BaoOwnableRoles is BaoOwnable, BaoRoles {
+contract BaoOwnableRoles is BaoOwnable, BaoRoles {
     function supportsInterface(bytes4 interfaceId) public view virtual override(BaoOwnable, BaoRoles) returns (bool) {
         return BaoOwnable.supportsInterface(interfaceId) || BaoRoles.supportsInterface(interfaceId);
     }

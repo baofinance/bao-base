@@ -7,9 +7,13 @@ import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
 import { BaoCheckOwner } from "@bao/internal/BaoCheckOwner.sol";
 
 /// @title Bao Ownable
-/// @author rootminus0x1 a barefaced copy of Solady (https://github.com/vectorized/solady/blob/main/src/auth/OwnableRoles.sol)
-/// @notice But we took out the Ownable part (even though solady's mechanism is sleek). This allows it to be mixed in with
-/// the BaoOwnable or BaoOwnableTransferrable contracts as needed
+/// @author rootminus0x1 a barefaced copy of Solady's OwnableRoles contract
+/// (https://github.com/vectorized/solady/blob/main/src/auth/OwnableRoles.sol)
+/// @notice It is a copy of Solady's 'OwnableRoles' with the necessary 'Ownable' part
+/// moved into a base contract 'BaoCheckOwner'. We retain solady's sleek mechanism of
+/// utilising the same seed slot for ownability and user roles.
+/// This change allows it to be mixed in with the 'BaoOwnable' or 'BaoOwnableTransferrable'
+/// contracts to create Roles enabled versions of those contracts
 /// it also adds IRC165 interface query support
 abstract contract BaoRoles is BaoCheckOwner, IBaoRoles, IERC165 {
     /// @dev `keccak256(bytes("RolesUpdated(address,uint256)"))`.
@@ -61,7 +65,7 @@ abstract contract BaoRoles is BaoCheckOwner, IBaoRoles, IERC165 {
     }
 
     /*//////////////////////////////////////////////////////////////////////////
-                                  PROTECTED FUNCTIONS
+                                PROTECTED FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @dev Allows the owner to grant `user` `roles`.
@@ -77,7 +81,7 @@ abstract contract BaoRoles is BaoCheckOwner, IBaoRoles, IERC165 {
     }
 
     /*//////////////////////////////////////////////////////////////////////////
-                                  INTERNAL FUNCTIONS
+                                 INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @dev Overwrite the roles directly without authorization guard.
