@@ -1,12 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-// import { console2 } from "forge-std/console2.sol";
-
-import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-
-import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
-import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
 import { BaoOwnable } from "@bao/BaoOwnable.sol";
 import { BaoRoles } from "@bao/internal/BaoRoles.sol";
 

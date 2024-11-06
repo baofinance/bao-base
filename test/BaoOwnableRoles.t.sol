@@ -16,9 +16,23 @@ import { TestBaoRoles } from "./BaoRoles.t.sol";
 
 contract DerivedBaoOwnableRoles is BaoOwnableRoles {
     uint256 public MY_ROLE = _ROLE_1;
+    uint256 public ANOTHER_ROLE = _ROLE_2;
+    uint256 public YET_ANOTHER_ROLE = _ROLE_3;
 
     function initialize(address owner) public {
         _initializeOwner(owner);
+    }
+
+    function pendingOwner() public view returns (address pendingOwner_) {
+        assembly ("memory-safe") {
+            pendingOwner_ := sload(_PENDING_SLOT)
+        }
+    }
+
+    function pendingExpiry() public view returns (uint64 expiry) {
+        assembly ("memory-safe") {
+            expiry := shr(192, sload(_PENDING_SLOT))
+        }
     }
 
     function protected() public view onlyOwner {}

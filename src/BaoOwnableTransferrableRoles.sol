@@ -1,12 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-// import { console2 } from "forge-std/console2.sol";
-
-import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-
-import { IBaoOwnableTransferrable } from "@bao/interfaces/IBaoOwnableTransferrable.sol";
-import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
 import { BaoOwnableTransferrable } from "@bao/BaoOwnableTransferrable.sol";
 import { BaoRoles } from "@bao/internal/BaoRoles.sol";
 
@@ -25,7 +19,7 @@ import { BaoRoles } from "@bao/internal/BaoRoles.sol";
 /// it also adds IRC165 interface query support
 /// @author rootminus0x1
 /// @dev Uses erc7201 storage
-/* TODO: abstract */ contract BaoOwnableTransferrableRoles is BaoOwnableTransferrable, BaoRoles {
+contract BaoOwnableTransferrableRoles is BaoOwnableTransferrable, BaoRoles {
     function supportsInterface(
         bytes4 interfaceId
     ) public view virtual override(BaoOwnableTransferrable, BaoRoles) returns (bool) {

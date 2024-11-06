@@ -7,6 +7,7 @@ import { Test } from "forge-std/Test.sol";
 import { console2 } from "forge-std/console2.sol";
 
 import { IBaoOwnableTransferrable } from "@bao/interfaces/IBaoOwnableTransferrable.sol";
+import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
 import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
 import { BaoOwnableTransferrableRoles } from "@bao/BaoOwnableTransferrableRoles.sol";
 
@@ -15,6 +16,8 @@ import { TestBaoRoles } from "./BaoRoles.t.sol";
 
 contract DerivedBaoOwnableTransferrableRoles is BaoOwnableTransferrableRoles, TestBaoRoles {
     uint256 public MY_ROLE = _ROLE_1;
+    uint256 public ANOTHER_ROLE = _ROLE_2;
+    uint256 public YET_ANOTHER_ROLE = _ROLE_3;
 
     function initialize(address owner) public {
         _initializeOwner(owner);
@@ -41,12 +44,12 @@ contract TestBaoOwnableTransferrableRoles is TestBaoOwnableTransferrableOnly, Te
         _initialize(owner);
 
         // check basic owner & role based protections, to ensure those functions are there
-        vm.expectRevert(IBaoOwnableTransferrable.Unauthorized.selector);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         DerivedBaoOwnableTransferrableRoles(ownable).protectedRoles();
 
         uint256 myRole = DerivedBaoOwnableTransferrableRoles(ownable).MY_ROLE();
 
-        vm.expectRevert(IBaoOwnableTransferrable.Unauthorized.selector);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IBaoRoles(ownable).grantRoles(user, myRole);
         assertFalse(IBaoRoles(ownable).hasAnyRole(user, myRole));
 
@@ -55,7 +58,7 @@ contract TestBaoOwnableTransferrableRoles is TestBaoOwnableTransferrableOnly, Te
         assertTrue(IBaoRoles(ownable).hasAnyRole(user, myRole));
         assertTrue(IBaoRoles(ownable).hasAllRoles(user, myRole));
 
-        vm.expectRevert(IBaoOwnableTransferrable.Unauthorized.selector);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         DerivedBaoOwnableTransferrableRoles(ownable).protectedRoles();
 
         vm.prank(user);

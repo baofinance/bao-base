@@ -22,6 +22,7 @@ abstract contract BaoCheckOwner {
 
     /// @dev Throws if the sender is not the owner.
     function _checkOwner() internal view virtual {
+        // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
             // If the caller is not the stored owner, revert.
             if iszero(eq(caller(), sload(_INITIALIZED_SLOT))) {

@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.26;
+pragma solidity ^0.8.26;
 
 // import { console2 } from "forge-std/console2.sol";
 
 import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
-import { BaoCheckOwner } from "@bao/internal/BaoCheckOwner.sol";
+import { BaoOwnable } from "@bao/BaoOwnable.sol";
+import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
 import { IBaoOwnableTransferrable } from "@bao/interfaces/IBaoOwnableTransferrable.sol";
 
 /// @title Bao Ownable
@@ -37,24 +38,15 @@ import { IBaoOwnableTransferrable } from "@bao/interfaces/IBaoOwnableTransferrab
 /// it also adds IRC165 interface query support
 /// @author rootminus0x1
 /// @dev Uses erc7201 storage
-contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoCheckOwner, IERC165 {
+contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnable {
     /*//////////////////////////////////////////////////////////////////////////
                                CONSTRUCTOR/INITIALIZER
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @notice initialise the UUPS proxy
-    /// @param finalOwner sets the owner, a privileged address, of the contract to be set when 'transferOwnership' is called
-    function _initializeOwner(address finalOwner) internal virtual {
-        assembly ("memory-safe") {
-            // this is an unprotected function so only let the deployer call it, and then only once
-            // use transferOwner for deployers to call to finalise the owner, and then
-            // also only once and if they set the owner to themselves here
-            if sload(_INITIALIZED_SLOT) {
-                mstore(0x00, 0x0dc149f0) // `AlreadyInitialized()`.
-                revert(0x1c, 0x04)
-            }
-        }
+    /// @inheritdoc BaoOwnable
+    function _initializeOwner(address finalOwner) internal override(BaoOwnable) {
         unchecked {
+            _checkNotInitialized();
             _setOwner(address(0), msg.sender);
             // set up a transferOwnership to finalOwner
             _setPending(
@@ -71,16 +63,8 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoCheckOwner, IER
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IERC165
-    function supportsInterface(bytes4 interfaceId) public view virtual returns (bool) {
-        return interfaceId == type(IBaoOwnableTransferrable).interfaceId || interfaceId == type(IERC165).interfaceId;
-    }
-
-    /// @notice Get the address of the owner
-    /// @return owner_ The address of the owner.
-    function owner() public view virtual returns (address owner_) {
-        assembly ("memory-safe") {
-            owner_ := sload(_INITIALIZED_SLOT)
-        }
+    function supportsInterface(bytes4 interfaceId) public view virtual override(BaoOwnable) returns (bool) {
+        return interfaceId == type(IBaoOwnableTransferrable).interfaceId || BaoOwnable.supportsInterface(interfaceId);
     }
 
     /// @inheritdoc IBaoOwnableTransferrable
@@ -113,13 +97,19 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoCheckOwner, IER
     /// The request will automatically expire in 4 days.
     function initiateOwnershipTransfer(address toAddress) public payable virtual {
         unchecked {
-            _checkOwner(); // wake-disable-line unchecked-return-value
-            _setPending(toAddress, uint64(block.timestamp + 2 days), toAddress == address(0), 2 days);
+            _checkOwner();
+            _setPending(
+                toAddress,
+                uint64(block.timestamp + _VALIDATE_EXPIRY_OR_PAUSE_PERIOD),
+                toAddress == address(0),
+                _EXPIRY_AFTER_PAUSE_PERIOD
+            );
         }
     }
 
     /// @dev Cancels the two-step ownership transfer to the caller, if any.
     function cancelOwnershipTransfer() public payable virtual {
+        // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
             // only pending or owner
             //let pendingOwner := shr(96, shl(96, sload(_PENDING_SLOT)))
@@ -139,6 +129,7 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoCheckOwner, IER
     /// to ensure that the transfer address is a working address
     /// if it is a renunciation then this function is not called
     function validateOwnershipTransfer() public payable virtual {
+        // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
             let pending_ := sload(_PENDING_SLOT)
             // onlyPendingOwner can call this, but only once - if validated already then it's a mistake
@@ -166,9 +157,10 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoCheckOwner, IER
     /// @notice Set the address of the new owner of the contract
     /// @dev Set confirmOwner to address(0) to renounce any ownership.
     /// @param confirmOwner The address of the new owner of the contract
-    function transferOwnership(address confirmOwner) public payable virtual {
+    function transferOwnership(address confirmOwner) public payable virtual override(BaoOwnable, IBaoOwnable) {
         unchecked {
             address oldOwner;
+            // solhint-disable-next-line no-inline-assembly
             assembly ("memory-safe") {
                 oldOwner := sload(_INITIALIZED_SLOT)
                 if iszero(eq(caller(), oldOwner)) {
@@ -200,13 +192,14 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoCheckOwner, IER
                                   PRIVATE DATA
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @dev The owner address storage slot is defined in BaoCheckOwner
-    /// We utilise an extra bit in that slot, to prevent re-initialisations (only needed for address(0))
-    uint8 private constant _BIT_INITIALIZED = 255;
-
-    /// @dev The pending owner slot is given by:
-    /// `keccak256(abi.encode(uint256(keccak256("bao.storage.BaoOwnable.pending")) - 1)) & ~bytes32(uint256(0xff))`.
-    bytes32 private constant _PENDING_SLOT = 0x9839bd1b7d13bef2e7a66ce106fd5e418f9f8fee5da4e55d26c2c33ef0bf4800;
+    /// @dev The pending owner slot is defined in BaoOwnable,
+    /// where the bottom 160 bits are for the pending address and,
+    /// the top 64 bits are for the expiry of the transfer (that gives half a trillion years)
+    /// as we have two expiry periods in this implementation we reassign
+    /// the first expiry period to the top 64 bits (renaming the old single expiry) and
+    /// the next top 24 bits for a second expiry period delta (nearly 200 days).
+    /// i.e. you add the first period expiry to the delta to get the second period expiry
+    /// We also add an additional bit to indicate whether the validate function has been called.
     // | 255, 64 bits - validate expiry/end of pause timestamp | 191, 24 bits - completion delta | 160, 1 bit - validated | 159, 160 bits - pending owner address |
     // initialisation:
     //      validate expiry = now, completion delta = 1 hour, validated = true
@@ -216,6 +209,8 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoCheckOwner, IER
     // renounce:
     //      validate expiry = now + 2 days, completion delta = 2 days, validated = true
     uint8 private constant _BIT_VALIDATED = 160;
+    uint64 private constant _VALIDATE_EXPIRY_OR_PAUSE_PERIOD = 2 days;
+    uint24 private constant _EXPIRY_AFTER_PAUSE_PERIOD = 2 days;
 
     /// @dev `keccak256(bytes("OwnershipTransferInitiated(address)"))`.
     uint256 private constant _OWNERSHIP_TRANSFER_INITIATED_EVENT_SIGNATURE =
@@ -227,28 +222,10 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoCheckOwner, IER
     uint256 private constant _OWNERSHIP_TRANSFER_VALIDATED_EVENT_SIGNATURE =
         0x5e45c45222c097812bf35207ea5f05aad99b929c4bb5654f9ac3217b6b7f9d98;
     /// @dev `keccak256(bytes("OwnershipTransferred(address,address)"))`.
-    uint256 private constant _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE =
-        0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0;
-
-    uint64 private constant _TRANSFER_EXPIRY_PERIOD = 4 days;
-    uint64 private constant _TRANSFER_HALF_EXPIRY_PERIOD = 2 days; // needn't be half, just somewhere inbetween
 
     /*//////////////////////////////////////////////////////////////////////////
                                   INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
-
-    /// @dev Sets the owner directly
-    /// @param oldOwner, The old owner about to be replaced. This is a clean address (i.e. top bits are zero)
-    /// @param newOwner, The new owner about to replace `oldOwner`. This is not a clean address (i.e. top bits may not be zero)
-    function _setOwner(address oldOwner, address newOwner) internal {
-        assembly ("memory-safe") {
-            // Emit the {OwnershipTransferred} event with cleaned addresses
-            log3(0, 0, _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE, oldOwner, newOwner)
-            // Store the new value. with initialised bit set, to prevent multiple initialisations
-            // i.e. an initialisation after a ownership transfer
-            sstore(_INITIALIZED_SLOT, or(newOwner, shl(_BIT_INITIALIZED, iszero(newOwner))))
-        }
-    }
 
     function _pending()
         internal
@@ -256,6 +233,7 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoCheckOwner, IER
         virtual
         returns (address pendingOwner_, uint64 validateExpiryOrPause, bool validated, uint64 transferExpiry)
     {
+        // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
             pendingOwner_ := sload(_PENDING_SLOT)
             // extract the 64 bits that hold the first expiry
@@ -268,6 +246,7 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoCheckOwner, IER
     }
 
     function _setPending(address pendingOwner_, uint64 step2Expiry, bool validated, uint24 step3ExpiryDelta) internal {
+        // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
             sstore(
                 _PENDING_SLOT,

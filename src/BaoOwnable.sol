@@ -28,20 +28,20 @@ contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
                                CONSTRUCTOR/INITIALIZER
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @notice initialise the UUPS proxy
+    /// @notice Initialises the ownership
+    /// This is an unprotected function designed to let a derive contract's initializer to call it
+    /// This function can only be called once.
+    /// The caller of the initializer function will be the deployer of the contract. The deployer (msg.sender)
+    /// becomes the owner, allowing them to do owner-type set up, then ownership is transferred to the 'finalOwner'
+    /// when 'transferOwnership' is called. 'transferOwnership' must be called within an hour.
     /// @param finalOwner sets the owner, a privileged address, of the contract to be set when 'transferOwnership' is called
     function _initializeOwner(address finalOwner) internal virtual {
-        assembly ("memory-safe") {
-            // this is an unprotected function so only let the deployer call it, and then only once
-            // use transferOwner for deployers to call to finalise the owner, and then
-            // also only once and if they set the owner to themselves here
-            if sload(_INITIALIZED_SLOT) {
-                mstore(0x00, 0x0dc149f0) // `AlreadyInitialized()`.
-                revert(0x1c, 0x04)
-            }
-            sstore(_PENDING_SLOT, or(finalOwner, shl(192, add(timestamp(), 3600))))
-        }
         unchecked {
+            _checkNotInitialized();
+            // solhint-disable-next-line no-inline-assembly
+            assembly ("memory-safe") {
+                sstore(_PENDING_SLOT, or(finalOwner, shl(192, add(timestamp(), 3600))))
+            }
             _setOwner(address(0), msg.sender);
         }
     }
@@ -58,6 +58,7 @@ contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
     /// @notice Get the address of the owner
     /// @return owner_ The address of the owner.
     function owner() public view virtual returns (address owner_) {
+        // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
             owner_ := sload(_INITIALIZED_SLOT)
         }
@@ -73,6 +74,7 @@ contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
     function transferOwnership(address confirmOwner) public payable virtual {
         unchecked {
             address oldOwner;
+            // solhint-disable-next-line no-inline-assembly
             assembly ("memory-safe") {
                 oldOwner := sload(_INITIALIZED_SLOT)
                 if iszero(eq(caller(), oldOwner)) {
@@ -108,8 +110,6 @@ contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
     bytes32 internal constant _PENDING_SLOT = 0x9839bd1b7d13bef2e7a66ce106fd5e418f9f8fee5da4e55d26c2c33ef0bf4800;
     // | 255, 64 bits - expiry | 191, 32 bits - spare | 159, 160 bits - pending owner address |
 
-    uint8 private constant _BIT_VALIDATED = 160;
-
     /// `keccak256(abi.encode(uint256(keccak256("bao.storage.BaoOwnable.isInitialized")) - 1)) & ~bytes32(uint256(0xff))`.
     //bytes32 private constant _IS_INITIALIZED_SLOT = 0xf62b6656174671598fb5a8f20c699816e60e61b09b105786e842a4b16193e900;
     /// @dev OR an address to get the address stored in owner, if they were also the deployer
@@ -126,12 +126,26 @@ contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
     /// @param oldOwner, The old owner about to be replaced. This is a clean address (i.e. top bits are zero)
     /// @param newOwner, The new owner about to replace `oldOwner`. This is not a clean address (i.e. top bits may not be zero)
     function _setOwner(address oldOwner, address newOwner) internal {
+        // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
             // Emit the {OwnershipTransferred} event with cleaned addresses
             log3(0, 0, _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE, oldOwner, newOwner)
             // Store the new value. with initialised bit set, to prevent multiple initialisations
             // i.e. an initialisation after a ownership transfer
             sstore(_INITIALIZED_SLOT, or(newOwner, shl(_BIT_INITIALIZED, iszero(newOwner))))
+        }
+    }
+
+    function _checkNotInitialized() internal view {
+        // solhint-disable-next-line no-inline-assembly
+        assembly ("memory-safe") {
+            // throw if we are already initialized
+            // this works even if it's initialised to zero because
+            // _setOwner sets the _BITINITIALIZED bit if the address is 0
+            if sload(_INITIALIZED_SLOT) {
+                mstore(0x00, 0x0dc149f0) // `AlreadyInitialized()`.
+                revert(0x1c, 0x04)
+            }
         }
     }
 }

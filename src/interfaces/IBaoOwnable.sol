@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity 0.8.26;
+pragma solidity ^0.8.26;
 
 /// @notice Simple single owner authorization mixin layered on solady's Ownable.
 /// @author rootminus0x1 based one interface from Solady (https://github.com/vectorized/solady/blob/main/src/auth/Ownable.sol)
@@ -35,7 +35,6 @@ interface IBaoOwnable {
                              PROTECTED UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
-    // TODO: @inheritdoc IERC173
     /// @notice Set the address of the new owner of the contract
     /// This is the final step in the 3-step-with-timeouts transfer approach
     /// @dev Set confirmOwner to address(0) to renounce any ownership.

@@ -29,8 +29,8 @@ abstract contract BaoRoles is BaoCheckOwner, IBaoRoles, IERC165 {
 
     /// @dev Returns the roles of `user`.
     function rolesOf(address user) public view virtual returns (uint256 roles) {
-        /// @solidity memory-safe-assembly
-        assembly {
+        // solhint-disable-next-line no-inline-assembly
+        assembly ("memory-safe") {
             // Compute the role slot.
             mstore(0x0c, _ROLE_SLOT_SEED)
             mstore(0x00, user)
@@ -84,25 +84,12 @@ abstract contract BaoRoles is BaoCheckOwner, IBaoRoles, IERC165 {
                                  INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @dev Overwrite the roles directly without authorization guard.
-    function _setRoles(address user, uint256 roles) internal virtual {
-        /// @solidity memory-safe-assembly
-        assembly {
-            mstore(0x0c, _ROLE_SLOT_SEED)
-            mstore(0x00, user)
-            // Store the new value.
-            sstore(keccak256(0x0c, 0x20), roles)
-            // Emit the {RolesUpdated} event.
-            log3(0, 0, _ROLES_UPDATED_EVENT_SIGNATURE, shr(96, mload(0x0c)), roles)
-        }
-    }
-
     /// @dev Updates the roles directly without authorization guard.
     /// If `on` is true, each set bit of `roles` will be turned on,
     /// otherwise, each set bit of `roles` will be turned off.
     function _updateRoles(address user, uint256 roles, bool on) internal virtual {
-        /// @solidity memory-safe-assembly
-        assembly {
+        // solhint-disable-next-line no-inline-assembly
+        assembly ("memory-safe") {
             mstore(0x0c, _ROLE_SLOT_SEED)
             mstore(0x00, user)
             let roleSlot := keccak256(0x0c, 0x20)
@@ -137,8 +124,8 @@ abstract contract BaoRoles is BaoCheckOwner, IBaoRoles, IERC165 {
 
     /// @dev Throws if the sender does not have any of the `roles`.
     function _checkRoles(uint256 roles) internal view virtual {
-        /// @solidity memory-safe-assembly
-        assembly {
+        // solhint-disable-next-line no-inline-assembly
+        assembly ("memory-safe") {
             // Compute the role slot.
             mstore(0x0c, _ROLE_SLOT_SEED)
             mstore(0x00, caller())

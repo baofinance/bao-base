@@ -15,6 +15,18 @@ contract DerivedBaoOwnable is BaoOwnable {
         _initializeOwner(owner);
     }
 
+    function pendingOwner() public view returns (address pendingOwner_) {
+        assembly ("memory-safe") {
+            pendingOwner_ := sload(_PENDING_SLOT)
+        }
+    }
+
+    function pendingExpiry() public view returns (uint64 expiry) {
+        assembly ("memory-safe") {
+            expiry := shr(192, sload(_PENDING_SLOT))
+        }
+    }
+
     function protected() public onlyOwner {}
 }
 
@@ -31,15 +43,23 @@ contract TestBaoOwnableOnly is Test {
     }
 
     function _initialize(address owner_) internal {
+        assertEq(IBaoOwnable(ownable).owner(), address(0));
+        assertEq(DerivedBaoOwnable(ownable).pendingOwner(), address(0));
+        assertEq(DerivedBaoOwnable(ownable).pendingExpiry(), 0);
+
         vm.expectEmit();
         emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
         DerivedBaoOwnable(ownable).initialize(owner_);
         assertEq(IBaoOwnable(ownable).owner(), address(this));
+        assertEq(DerivedBaoOwnable(ownable).pendingOwner(), owner_);
+        assertEq(DerivedBaoOwnable(ownable).pendingExpiry(), block.timestamp + 3600);
 
         vm.expectEmit();
         emit IBaoOwnable.OwnershipTransferred(address(this), owner_);
         IBaoOwnable(ownable).transferOwnership(owner_);
         assertEq(IBaoOwnable(ownable).owner(), owner_);
+        assertEq(DerivedBaoOwnable(ownable).pendingOwner(), address(0));
+        assertEq(DerivedBaoOwnable(ownable).pendingExpiry(), 0);
     }
 
     function test_initialize(uint64 start) public {
@@ -52,6 +72,10 @@ contract TestBaoOwnableOnly is Test {
         // can't transfer ownership, there's no owner or deployer yet
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         IBaoOwnable(ownable).transferOwnership(owner);
+
+        // pending is all zeros
+        assertEq(DerivedBaoOwnable(ownable).pendingOwner(), address(0));
+        assertEq(DerivedBaoOwnable(ownable).pendingExpiry(), 0);
 
         // can initialise to an owner
         _initialize(owner);
