@@ -10,7 +10,7 @@ import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
 /// No other 1-step ownership transfers are supported.
 /// 3-step transfers are supported:
 /// 1) initiateTransfer(address pendingOwner), called by the currentOwner
-/// 2) validateTransfer(), called by the pending Owner to validate the address
+/// 2) validateTransfer(), called by the pending owner to validate the address
 /// 3) transferOwnership(address confirmPendingOwner), called by the currentOwner
 /// The above sequence must happen in order
 /// In addition there are timing constraints:
@@ -18,7 +18,6 @@ import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
 /// * step 3 (transfer) must be called between 2 and 4 days from step 1 (initiate)
 /// Renunciation, which is simply a transfer to the zero address, is the same - sequence and timing - except
 /// that there is no step 2 (validate) as the zero address cannot be validated in this way.
-/// It cannot be initialised more than once.
 
 interface IBaoOwnableTransferrable is IBaoOwnable {
     /*//////////////////////////////////////////////////////////////////////////
@@ -38,13 +37,18 @@ interface IBaoOwnableTransferrable is IBaoOwnable {
                              PROTECTED UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @dev Request a two-step ownership transfer to the caller.
-    /// The request will automatically expire in 48 hours (172800 seconds) by default.
+    /// @notice initiates transfer to a new owner or renunciation of ownership (i.e. transfer to address(0))
+    /// starts an expiry for the target owner to validate, or in the case of renunciation, for a pause
+    /// during that period up to the expiry, the transfer can be cancelled or validated
+    /// The request will automatically expire in 4 days.
     function initiateOwnershipTransfer(address toOwner) external payable;
 
-    /// @dev Cancels the two-step ownership transfer to the caller, if any.
+    /// @dev Cancels the initiated ownership transfer to the caller, if any.
     function cancelOwnershipTransfer() external payable;
 
+    /// @dev Validates the initiated ownership transfer to the caller, if any.
+    /// Validation for non-zero addresses is required in order for the ownership transfer to be completed.
+    /// Validation ensures that the transfer address is a working address.
     function validateOwnershipTransfer() external payable;
 
     /*//////////////////////////////////////////////////////////////////////////

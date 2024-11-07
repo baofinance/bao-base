@@ -1,33 +1,33 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-// import { console2 } from "forge-std/console2.sol";
-
 import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import { BaoOwnable } from "@bao/BaoOwnable.sol";
 import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
 import { IBaoOwnableTransferrable } from "@bao/interfaces/IBaoOwnableTransferrable.sol";
 
-/// @title Bao Ownable
+/// @title Bao Ownable Transferrable
 /// @dev Note:
 /// This implementation auto-initialises the owner to `msg.sender`.
 /// You MUST call the `_initializeOwner` in the constructor / initializer of the deriving contract.
 /// This initialization sets the owner to `msg.sender`, not to the passed 'finalOwner' parameter.
+/// The contract deployer can now act as owner then 'transferOwnership' once complete.
 ///
 /// This contract follows [EIP-173](https://eips.ethereum.org/EIPS/eip-173) for compatibility,
 /// the nomenclature for the 3-step ownership transfer may be unique to this codebase.
-/// the unique nomencalture has been extended to a three step transfer and a two step renunciation.
-/// The three/two steps are:
-/// * initiateOwnershipTransfer (passing address(0) here is a renunciation). This starts the transfer sequence.
-///   This step starts a timer for the next two steps.
-/// * validateOwnershipTransfer. This must be called by the address passed in the initiate step and within 2 days of
-///   initiation. For renunciations (transfer to address(0)), this call cannot be made so is not needed - it is assumed
-//    that address(0) is intended. For renunciation there is still a 2 day pause.
-/// * transferOwnership. This completes the transfer and must be completed between 2 and 4 days after initiation.
+/// the nomencalture has been extended to a three step transfer:
+/// 1) initiateTransfer(address pendingOwner), called by the currentOwner
+/// 2) validateTransfer(), called by the pending owner to validate the address
+/// 3) transferOwnership(address confirmPendingOwner), called by the currentOwner
 ///
-/// Initialisation sets the owner to the caller, and also performs the first two steps of the above transfer to the passed
-/// parameter. This allows the deployer to act as owner then transfer ownership with a single transferOwnership call.
+/// The above sequence must happen in order
+/// In addition there are timing constraints:
+/// * step 2 (validate) must be called within 2 days of step 1 (initiate)
+/// * step 3 (transfer) must be called between 2 and 4 days from step 1 (initiate)
+///
+/// Renunciation, which is simply a transfer to the zero address, is the same - sequence and timing - except
+/// that there is no step 2 (validate) as the zero address cannot be validated in this way.
 ///
 /// No one step-transfers are allowed except in the unique one-shot transferOwnership after initializeOwnership.
 /// This simplifies deploy scripts that must do owner type set-up but then can transfer to the real owner once done
@@ -91,10 +91,7 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnable {
                                   PROTECTED FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @notice initiates transfer to a new owner or renunciation of ownership (i.e. transfer to address(0))
-    /// starts an expiry for the target owner to validate, or in the case of renunciation, for a pause
-    /// during that period up to the expiry, the transfer can be cancelled or validated
-    /// The request will automatically expire in 4 days.
+    /// @inheritdoc IBaoOwnableTransferrable
     function initiateOwnershipTransfer(address toAddress) public payable virtual {
         unchecked {
             _checkOwner();
@@ -107,7 +104,7 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnable {
         }
     }
 
-    /// @dev Cancels the two-step ownership transfer to the caller, if any.
+    /// @inheritdoc IBaoOwnableTransferrable
     function cancelOwnershipTransfer() public payable virtual {
         // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
@@ -125,9 +122,7 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnable {
         }
     }
 
-    /// @notice any transfer to a non-zero address needs to be validated
-    /// to ensure that the transfer address is a working address
-    /// if it is a renunciation then this function is not called
+    /// @inheritdoc IBaoOwnableTransferrable
     function validateOwnershipTransfer() public payable virtual {
         // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
@@ -154,9 +149,7 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnable {
         }
     }
 
-    /// @notice Set the address of the new owner of the contract
-    /// @dev Set confirmOwner to address(0) to renounce any ownership.
-    /// @param confirmOwner The address of the new owner of the contract
+    /// @inheritdoc IBaoOwnable
     function transferOwnership(address confirmOwner) public payable virtual override(BaoOwnable, IBaoOwnable) {
         unchecked {
             address oldOwner;
@@ -227,6 +220,7 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnable {
                                   INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
+    /// @dev Extracts the pending owner transfer information from the memory slot.
     function _pending()
         internal
         view
@@ -245,6 +239,7 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnable {
         }
     }
 
+    /// @dev Sets the pending owner transfer information in the memory slot.
     function _setPending(address pendingOwner_, uint64 step2Expiry, bool validated, uint24 step3ExpiryDelta) internal {
         // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {

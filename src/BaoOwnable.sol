@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-// import { console2 } from "forge-std/console2.sol";
-
 import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import { BaoCheckOwner } from "@bao/internal/BaoCheckOwner.sol";
@@ -10,12 +8,14 @@ import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
 
 /// @title Bao Ownable
 /// @dev Note:
+/// This implementation auto-initialises the owner to `msg.sender`.
 /// You MUST call the `_initializeOwner` in the constructor / initializer of the deriving contract.
-/// This initialization sets the owner to `msg.sender`, and not to the passed 'finalOwner' parameter.
+/// This initialization sets the owner to `msg.sender`, not to the passed 'finalOwner' parameter.
+/// The contract deployer can now act as owner then 'transferOwnership' once complete.
 ///
 /// This contract follows [EIP-173](https://eips.ethereum.org/EIPS/eip-173) for compatibility,
-/// however the transferOwnership function can only be called once and then, only by the cller that calls
-/// initializeOwnershi, and then only within 1 hour
+/// however the transferOwnership function can only be called once and then, only by the caller that calls
+/// initializeOwner, and then only within 1 hour
 ///
 /// Multiple initialisations are not allowed, to ensure this we make a separate check for a previously set owner including
 /// including to address(0). This ensure that the initializeOwner, an otherwise unprotected function, cannot be called twice.
@@ -55,8 +55,7 @@ contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
         return interfaceId == type(IBaoOwnable).interfaceId || interfaceId == type(IERC165).interfaceId;
     }
 
-    /// @notice Get the address of the owner
-    /// @return owner_ The address of the owner.
+    /// @inheritdoc IBaoOwnable
     function owner() public view virtual returns (address owner_) {
         // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
@@ -68,9 +67,9 @@ contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
                                   PROTECTED FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @notice Set the address of the new owner of the contract
-    /// @dev Set confirmOwner to address(0) to renounce any ownership.
-    /// @param confirmOwner The address of the new owner of the contract
+    /// @inheritdoc IBaoOwnable
+    /// @dev Allows the owner to complete the ownership transfer to `pendingOwner`.
+    /// Reverts if there is no existing ownership transfer requested by `pendingOwner`.
     function transferOwnership(address confirmOwner) public payable virtual {
         unchecked {
             address oldOwner;
@@ -136,6 +135,8 @@ contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
         }
     }
 
+    // @dev performs a check to determine if the contract has been initialised (via '_initializeOwnership)
+    // Reverts if it has been initialised.
     function _checkNotInitialized() internal view {
         // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {

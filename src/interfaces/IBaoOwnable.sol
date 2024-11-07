@@ -6,7 +6,6 @@ pragma solidity ^0.8.26;
 /// @author rootminus0x1 based on Solady's (https://github.com/vectorized/solady/blob/main/src/auth/Ownable.sol)
 /// It has ownership transfer support for deployer to final owner
 /// No other ownership transfers are supported.
-/// It cannot be initialised more than once.
 
 interface IBaoOwnable {
     /*//////////////////////////////////////////////////////////////////////////
@@ -38,10 +37,8 @@ interface IBaoOwnable {
 
     /// @notice Set the address of the new owner of the contract
     /// This is the final step in the 3-step-with-timeouts transfer approach
-    /// @dev Set confirmOwner to address(0) to renounce any ownership.
+    /// @dev Set confirmOwner to the zero address to renounce any ownership.
     /// @param confirmOwner The address of the new owner of the contract.
-    /// @dev Allows the owner to complete the two-step ownership transfer to `pendingOwner`.
-    /// Reverts if there is no existing ownership transfer requested by `pendingOwner`.
     function transferOwnership(address confirmOwner) external payable;
 
     /*//////////////////////////////////////////////////////////////////////////
