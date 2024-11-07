@@ -4,7 +4,8 @@
   "scripts": {
     "gas": "forge clean; forge test --isolate --gas-report | bin/extract-gas | tee gas.txt",
     "sizes": "forge clean; forge build --sizes | bin/extract-sizes | tee sizes.txt",
-    "fmt": "prettier --log-level warn --ignore-path .gitignore '{src,test,interfaces,script}/**/*.sol' --write",
+    "fmt": "yarn fmt:check --write",
+    "fmt:check": "prettier --log-level warn --ignore-path .gitignore '{src,test,interfaces,script}/**/*.sol'",
     "lint": "solhint --max-warnings 0 '{src,interfaces}/**/*.sol' --disc",
     "slither": "which slither && slither --version && slither .",
     "test": "forge test -vvv",

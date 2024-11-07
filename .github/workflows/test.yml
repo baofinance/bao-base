@@ -29,9 +29,13 @@ jobs:
         run: |
           forge --version
 
-      - name: Run Forge fmt
+      - name: Install yarn dependencies
         run: |
-          forge fmt --check
+          yarn
+
+      - name: Run Prettier
+        run: |
+          yarn fmt:check
         id: fmt
 
       - name: Run Forge build
