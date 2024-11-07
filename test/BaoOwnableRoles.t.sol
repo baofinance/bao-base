@@ -36,8 +36,9 @@ contract DerivedBaoOwnableRoles is BaoOwnableRoles {
     }
 
     function protected() public view onlyOwner {}
-
     function protectedRoles() public view onlyRoles(MY_ROLE) {}
+    function protectedOwnerOrRoles() public view onlyOwnerOrRoles(MY_ROLE) {}
+    function protectedRolesOrOwner() public view onlyRolesOrOwner(MY_ROLE) {}
 }
 
 contract TestBaoOwnableRoles is TestBaoOwnableOnly, TestBaoRoles {

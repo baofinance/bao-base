@@ -20,7 +20,6 @@ abstract contract BaoRoles is BaoCheckOwner, IBaoRoles, IERC165 {
     uint256 private constant _ROLES_UPDATED_EVENT_SIGNATURE =
         0x715ad5ce61fc9595c7b415289d59cf203f23a94fa06f04af7e489a0a76e1fe26;
 
-    /// @dev Note: This is equivalent to `uint32(bytes4(keccak256("_OWNER_SLOT_NOT")))`.
     uint256 private constant _ROLE_SLOT_SEED = 0x8b78c6d8;
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -138,6 +137,50 @@ abstract contract BaoRoles is BaoCheckOwner, IBaoRoles, IERC165 {
         }
     }
 
+    /// @dev Throws if the sender is not the owner,
+    /// and does not have any of the `roles`.
+    /// Checks for ownership first, then lazily checks for roles.
+    function _checkOwnerOrRoles(uint256 roles) internal view virtual {
+        // solhint-disable-next-line no-inline-assembly
+        assembly ("memory-safe") {
+            // If the caller is not the stored owner.
+            // Note: `_ROLE_SLOT_SEED` is equal to `_OWNER_SLOT_NOT`.
+            if iszero(eq(caller(), sload(_INITIALIZED_SLOT))) {
+                // Compute the role slot.
+                mstore(0x0c, _ROLE_SLOT_SEED)
+                mstore(0x00, caller())
+                // Load the stored value, and if the `and` intersection
+                // of the value and `roles` is zero, revert.
+                if iszero(and(sload(keccak256(0x0c, 0x20)), roles)) {
+                    mstore(0x00, 0x82b42900) // `Unauthorized()`.
+                    revert(0x1c, 0x04)
+                }
+            }
+        }
+    }
+
+    /// @dev Throws if the sender does not have any of the `roles`,
+    /// and is not the owner.
+    /// Checks for roles first, then lazily checks for ownership.
+    function _checkRolesOrOwner(uint256 roles) internal view virtual {
+        // solhint-disable-next-line no-inline-assembly
+        assembly ("memory-safe") {
+            // Compute the role slot.
+            mstore(0x0c, _ROLE_SLOT_SEED)
+            mstore(0x00, caller())
+            // Load the stored value, and if the `and` intersection
+            // of the value and `roles` is zero, revert.
+            if iszero(and(sload(keccak256(0x0c, 0x20)), roles)) {
+                // If the caller is not the stored owner.
+                // Note: `_ROLE_SLOT_SEED` is equal to `_OWNER_SLOT_NOT`.
+                if iszero(eq(caller(), sload(_INITIALIZED_SLOT))) {
+                    mstore(0x00, 0x82b42900) // `Unauthorized()`.
+                    revert(0x1c, 0x04)
+                }
+            }
+        }
+    }
+
     /*//////////////////////////////////////////////////////////////////////////
                                      MODIFIERS
     //////////////////////////////////////////////////////////////////////////*/
@@ -145,6 +188,20 @@ abstract contract BaoRoles is BaoCheckOwner, IBaoRoles, IERC165 {
     /// @dev Marks a function as only callable by an account with `roles`.
     modifier onlyRoles(uint256 roles) virtual {
         _checkRoles(roles);
+        _;
+    }
+
+    /// @dev Marks a function as only callable by the owner or by an account
+    /// with `roles`. Checks for ownership first, then lazily checks for roles.
+    modifier onlyOwnerOrRoles(uint256 roles) virtual {
+        _checkOwnerOrRoles(roles);
+        _;
+    }
+
+    /// @dev Marks a function as only callable by an account with `roles`
+    /// or the owner. Checks for roles first, then lazily checks for ownership.
+    modifier onlyRolesOrOwner(uint256 roles) virtual {
+        _checkRolesOrOwner(roles);
         _;
     }
 

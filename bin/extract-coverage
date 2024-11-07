@@ -23,7 +23,7 @@ BEGIN {
 }
 
 # Data line
-/^\| src\/[0-9a-zA-Z_$]+\.sol +\|/ {
+/^\| src\/.+\.sol +\|/ {
     gsub(/^ +| +$/, "", $2)
     printf "│ %-" name "s │ %" value-1 ".1f% │ %" value-1 ".1f% │ %" value-1 ".1f% │ %" value-1 ".1f% │\n", $2, round($3), round($4), round($5), round($6)
 }

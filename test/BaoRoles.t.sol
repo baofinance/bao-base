@@ -18,6 +18,8 @@ abstract contract DerivedBaoRoles is BaoRoles {
     uint256 public ANOTHER_ROLE = _ROLE_2;
     uint256 public YET_ANOTHER_ROLE = _ROLE_3;
     function protectedRoles() public view onlyRoles(MY_ROLE) {}
+    function protectedOwnerOrRoles() public view onlyOwnerOrRoles(MY_ROLE) {}
+    function protectedRolesOrOwner() public view onlyRolesOrOwner(MY_ROLE) {}
 }
 
 abstract contract TestBaoRoles is Test {
@@ -59,10 +61,24 @@ abstract contract TestBaoRoles is Test {
         // do roles prevent?
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         DerivedBaoRoles(roles).protectedRoles();
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        DerivedBaoRoles(roles).protectedOwnerOrRoles();
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        DerivedBaoRoles(roles).protectedRolesOrOwner();
 
         // do roles allow
         vm.prank(user);
         DerivedBaoRoles(roles).protectedRoles();
+        vm.prank(user);
+        DerivedBaoRoles(roles).protectedOwnerOrRoles();
+        vm.prank(user);
+        DerivedBaoRoles(roles).protectedRolesOrOwner();
+
+        // do ownerOr allow
+        vm.prank(owner);
+        DerivedBaoRoles(roles).protectedOwnerOrRoles();
+        vm.prank(owner);
+        DerivedBaoRoles(roles).protectedRolesOrOwner();
 
         // grant 2 new
         vm.prank(owner);

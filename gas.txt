@@ -23,17 +23,19 @@
 │ grantRoles                                                                 │   39,341 │   47,891 │
 │ hasAllRoles                                                                │      666 │      666 │
 │ hasAnyRole                                                                 │      776 │      776 │
-│ initialize                                                                 │   24,185 │   67,941 │
-│ owner                                                                      │      575 │    2,575 │
-│ pendingExpiry                                                              │      631 │      631 │
-│ pendingOwner                                                               │      630 │    2,630 │
-│ protected                                                                  │   23,602 │   23,605 │
+│ initialize                                                                 │   24,229 │   67,985 │
+│ owner                                                                      │      597 │    2,597 │
+│ pendingExpiry                                                              │      675 │      675 │
+│ pendingOwner                                                               │      674 │    2,674 │
+│ protected                                                                  │   23,624 │   23,627 │
+│ protectedOwnerOrRoles                                                      │      893 │    2,884 │
 │ protectedRoles                                                             │    2,599 │    4,599 │
+│ protectedRolesOrOwner                                                      │    2,818 │    2,827 │
 │ renounceRoles                                                              │   28,134 │   28,134 │
 │ revokeRoles                                                                │   27,534 │   30,895 │
 │ rolesOf                                                                    │      641 │    2,641 │
 │ supportsInterface                                                          │      456 │      494 │
-│ transferOwnership                                                          │   26,401 │   29,036 │
+│ transferOwnership                                                          │   26,445 │   29,080 │
 ╰────────────────────────────────────────────────────────────────────────────┴──────────┴──────────╯
 
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
@@ -65,17 +67,17 @@
 │ grantRoles                                                                 │   35,988 │   47,891 │
 │ hasAllRoles                                                                │      666 │      666 │
 │ hasAnyRole                                                                 │    1,886 │    2,886 │
-│ initialize                                                                 │   24,515 │   69,480 │
-│ initiateOwnershipTransfer                                                  │   47,846 │   47,846 │
-│ owner                                                                      │      773 │    2,773 │
-│ pendingExpiry                                                              │    1,116 │    1,116 │
-│ pendingOwner                                                               │    1,097 │    1,097 │
-│ pendingValidateExpiryOrPause                                               │      833 │      833 │
-│ pendingValidated                                                           │      914 │      914 │
-│ protected                                                                  │   23,778 │   23,781 │
+│ initialize                                                                 │   24,559 │   69,524 │
+│ initiateOwnershipTransfer                                                  │   47,868 │   47,868 │
+│ owner                                                                      │      795 │    2,795 │
+│ pendingExpiry                                                              │    1,160 │    1,160 │
+│ pendingOwner                                                               │    1,141 │    1,141 │
+│ pendingValidateExpiryOrPause                                               │      855 │      855 │
+│ pendingValidated                                                           │      936 │      936 │
+│ protected                                                                  │   23,800 │   23,803 │
 │ protectedRoles                                                             │    2,710 │    4,710 │
 │ supportsInterface                                                          │      549 │      587 │
-│ transferOwnership                                                          │   29,185 │   29,425 │
+│ transferOwnership                                                          │   29,229 │   29,469 │
 │ validateOwnershipTransfer                                                  │   27,804 │   27,804 │
 ╰────────────────────────────────────────────────────────────────────────────┴──────────┴──────────╯
 

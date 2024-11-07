@@ -27,17 +27,17 @@ UUPSUpgradeable
 ////////////////////////////////////*/
 
 contract _UUPSUpgradeable is UUPSUpgradeable {
-    function initialize() external {
-        __UUPSUpgradeable_init();
-    }
+    // function initialize() external {
+    //     __UUPSUpgradeable_init();
+    // }
     function _authorizeUpgrade(address newImplementation) internal virtual override {}
 }
 
 // UUPSUpgradeable with the inevitable intializable
 contract _Initializable_UUPSUpGradeable is Initializable, UUPSUpgradeable {
-    function initialize() external initializer {
-        __UUPSUpgradeable_init();
-    }
+    // function initialize() external initializer {
+    //     __UUPSUpgradeable_init();
+    // }
     function _authorizeUpgrade(address newImplementation) internal virtual override {}
 }
 
@@ -45,43 +45,43 @@ contract _Initializable_UUPSUpGradeable is Initializable, UUPSUpgradeable {
 Solady auth
 ////////////////////////////////////*/
 contract _SoladyOwnable is Ownable {
-    function initialize(address owner) external {
-        _initializeOwner(owner);
-    }
+    // function initialize(address owner) external {
+    //     _initializeOwner(owner);
+    // }
 }
 
 contract _SoladyOwnableRoles is OwnableRoles {
-    function initialize(address owner) external {
-        _initializeOwner(owner);
-    }
+    // function initialize(address owner) external {
+    //     _initializeOwner(owner);
+    // }
 }
 
 /*/////
 Bao Ownable + Roles
 ////////////////////////////////////*/
 
-contract _BaoOwnable is BaoOwnable {
-    function initialize(address owner) external {
-        _initializeOwner(owner);
-    }
+contract _BaoOwnable_ is BaoOwnable {
+    // function initialize(address owner) external {
+    //     _initializeOwner(owner);
+    // }
 }
 
-contract _BaoOwnableRoles is BaoOwnableRoles {
-    function initialize(address owner) external {
-        _initializeOwner(owner);
-    }
+contract _BaoOwnableRoles_ is BaoOwnableRoles {
+    // function initialize(address owner) external {
+    //     _initializeOwner(owner);
+    // }
 }
 
-contract _BaoOwnableTransferrable is BaoOwnableTransferrable {
-    function initialize(address owner) external {
-        _initializeOwner(owner);
-    }
+contract _BaoOwnableTransferrable_ is BaoOwnableTransferrable {
+    // function initialize(address owner) external {
+    //     _initializeOwner(owner);
+    // }
 }
 
-contract _BaoOwnableTransferrableRoles is BaoOwnableTransferrableRoles {
-    function initialize(address owner) external {
-        _initializeOwner(owner);
-    }
+contract _BaoOwnableTransferrableRoles_ is BaoOwnableTransferrableRoles {
+    // function initialize(address owner) external {
+    //     _initializeOwner(owner);
+    // }
 }
 
 /*/////
@@ -89,25 +89,25 @@ OZ Ownable + Access control
 ////////////////////////////////////*/
 
 contract _OZOwnable is OwnableUpgradeable {
-    function initialize(address owner) external {
-        __Ownable_init(owner);
-    }
+    // function initialize(address owner) external {
+    //     __Ownable_init(owner);
+    // }
 }
 
 contract _OZOwnable2Step is Ownable2StepUpgradeable {
-    function initialize() external {
-        __Ownable2Step_init();
-    }
+    // function initialize() external {
+    //     __Ownable2Step_init();
+    // }
 }
 
 contract _OZAccessControl is AccessControlUpgradeable {
-    function initialize() external {
-        __AccessControl_init();
-    }
+    // function initialize() external {
+    //     __AccessControl_init();
+    // }
 }
 
 contract _OZDefaultAdminRules is AccessControlDefaultAdminRulesUpgradeable {
-    function initialize(uint48 delay, address owner) external {
-        __AccessControlDefaultAdminRules_init(delay, owner);
-    }
+    // function initialize(uint48 delay, address owner) external {
+    //     __AccessControlDefaultAdminRules_init(delay, owner);
+    // }
 }
