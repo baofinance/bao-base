@@ -506,8 +506,20 @@ contract TestBaoOwnableTransferrableOnly is Test {
         );
 
         // then only if there's an in-flight transfer
-        if (canceller != IBaoOwnableTransferrable(ownable).owner()) vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         vm.prank(canceller);
+        IBaoOwnableTransferrable(ownable).cancelOwnershipTransfer();
+
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        vm.prank(pending);
+        IBaoOwnableTransferrable(ownable).cancelOwnershipTransfer();
+
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        vm.prank(user);
+        IBaoOwnableTransferrable(ownable).cancelOwnershipTransfer();
+
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        vm.prank(owner);
         IBaoOwnableTransferrable(ownable).cancelOwnershipTransfer();
 
         // start an actual transfer then cancel immediately

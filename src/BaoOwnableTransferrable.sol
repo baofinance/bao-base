@@ -109,9 +109,12 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnable {
         // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
             // only pending or owner
-            //let pendingOwner := shr(96, shl(96, sload(_PENDING_SLOT)))
+            let pending_ := sload(_PENDING_SLOT)
             let pendingOwner_ := and(sload(_PENDING_SLOT), 0xffffffffffffffffffffffffffffffffffffffff)
-            if iszero(or(eq(caller(), pendingOwner_), eq(caller(), sload(_INITIALIZED_SLOT)))) {
+            if or(
+                iszero(or(eq(caller(), pendingOwner_), eq(caller(), sload(_INITIALIZED_SLOT)))),
+                iszero(shr(192, pending_))
+            ) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.
                 revert(0x1c, 0x04)
             }
