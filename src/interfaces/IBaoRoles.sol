@@ -21,15 +21,15 @@ interface IBaoRoles {
 
     /// @dev Allows the owner to grant `user` `roles`.
     /// If the `user` already has a role, then it will be an no-op for the role.
-    function grantRoles(address user, uint256 roles) external payable;
+    function grantRoles(address user, uint256 roles) external;
 
     /// @dev Allows the owner to remove `user` `roles`.
     /// If the `user` does not have a role, then it will be an no-op for the role.
-    function revokeRoles(address user, uint256 roles) external payable;
+    function revokeRoles(address user, uint256 roles) external;
 
     /// @dev Allow the caller to remove their own roles.
     /// If the caller does not have a role, then it will be an no-op for the role.
-    function renounceRoles(uint256 roles) external payable;
+    function renounceRoles(uint256 roles) external;
 
     /*//////////////////////////////////////////////////////////////////////////
                                PUBLIC READ FUNCTIONS

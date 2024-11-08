@@ -39,7 +39,7 @@ interface IBaoOwnable {
     /// This is the final step in the 3-step-with-timeouts transfer approach
     /// @dev Set confirmOwner to the zero address to renounce any ownership.
     /// @param confirmOwner The address of the new owner of the contract.
-    function transferOwnership(address confirmOwner) external payable;
+    function transferOwnership(address confirmOwner) external;
 
     /*//////////////////////////////////////////////////////////////////////////
                                PUBLIC READ FUNCTIONS

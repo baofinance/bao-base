@@ -59,7 +59,7 @@ abstract contract BaoRoles is BaoCheckOwner, IBaoRoles, IERC165 {
 
     /// @dev Allow the caller to remove their own roles.
     /// If the caller does not have a role, then it will be an no-op for the role.
-    function renounceRoles(uint256 roles) public payable virtual {
+    function renounceRoles(uint256 roles) public virtual {
         _removeRoles(msg.sender, roles);
     }
 
@@ -69,13 +69,13 @@ abstract contract BaoRoles is BaoCheckOwner, IBaoRoles, IERC165 {
 
     /// @dev Allows the owner to grant `user` `roles`.
     /// If the `user` already has a role, then it will be an no-op for the role.
-    function grantRoles(address user, uint256 roles) public payable virtual onlyOwner {
+    function grantRoles(address user, uint256 roles) public virtual onlyOwner {
         _grantRoles(user, roles);
     }
 
     /// @dev Allows the owner to remove `user` `roles`.
     /// If the `user` does not have a role, then it will be an no-op for the role.
-    function revokeRoles(address user, uint256 roles) public payable virtual onlyOwner {
+    function revokeRoles(address user, uint256 roles) public virtual onlyOwner {
         _removeRoles(user, roles);
     }
 
