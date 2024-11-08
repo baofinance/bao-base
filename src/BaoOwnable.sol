@@ -23,7 +23,7 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 /// it also adds IRC165 interface query support
 /// @author rootminus0x1
 /// @dev Uses erc7201 storage
-contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
+abstract contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
     /*//////////////////////////////////////////////////////////////////////////
                                CONSTRUCTOR/INITIALIZER
     //////////////////////////////////////////////////////////////////////////*/
@@ -70,7 +70,7 @@ contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
     /// @inheritdoc IBaoOwnable
     /// @dev Allows the owner to complete the ownership transfer to `pendingOwner`.
     /// Reverts if there is no existing ownership transfer requested by `pendingOwner`.
-    function transferOwnership(address confirmOwner) public payable virtual {
+    function transferOwnership(address confirmOwner) public virtual {
         unchecked {
             address oldOwner;
             // solhint-disable-next-line no-inline-assembly

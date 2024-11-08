@@ -38,9 +38,9 @@ jobs:
           yarn fmt:check
         id: fmt
 
-      - name: Run Prettier
+      - name: Run Lint
         run: |
-          yarn lint:check
+          yarn lint
         id: lint
 
       - name: Run Forge build

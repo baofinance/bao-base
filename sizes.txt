@@ -2,18 +2,14 @@
 │ contract                                      │ bytes    │
 ├───────────────────────────────────────────────┼──────────┤
 │ Address                                       │       85 │
-│ BaoOwnable                                    │      617 │
-│ BaoOwnableRoles                               │    1,226 │
-│ BaoOwnableTransferrable                       │    1,426 │
-│ BaoOwnableTransferrableRoles                  │    1,991 │
 │ BeaconProxy                                   │      283 │
 │ Core                                          │       85 │
 │ Defender                                      │       85 │
 │ DefenderDeploy                                │       85 │
 │ Deployed                                      │      270 │
-│ DerivedBaoOwnable                             │      919 │
-│ DerivedBaoOwnableRoles                        │    1,860 │
-│ DerivedBaoOwnableTransferrable                │    1,582 │
+│ DerivedBaoOwnable                             │      859 │
+│ DerivedBaoOwnableRoles                        │    1,692 │
+│ DerivedBaoOwnableTransferrable                │    1,498 │
 │ DerivedOwnable                                │      894 │
 │ DerivedOwnableRoles                           │    1,506 │
 │ DerivedTokenHolder                            │    1,861 │
@@ -36,10 +32,10 @@
 │ Upgrades                                      │       85 │
 │ Utils                                         │       85 │
 │ Versions                                      │       85 │
-│ _BaoOwnableRoles_                             │    1,226 │
-│ _BaoOwnableTransferrableRoles_                │    1,991 │
-│ _BaoOwnableTransferrable_                     │    1,426 │
-│ _BaoOwnable_                                  │      617 │
+│ _BaoOwnableRoles_                             │    1,178 │
+│ _BaoOwnableTransferrableRoles_                │    1,895 │
+│ _BaoOwnableTransferrable_                     │    1,366 │
+│ _BaoOwnable_                                  │      605 │
 │ _Initializable_UUPSUpGradeable                │    1,534 │
 │ _OZAccessControl                              │    1,093 │
 │ _OZDefaultAdminRules                          │    3,453 │

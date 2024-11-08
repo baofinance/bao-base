@@ -38,7 +38,7 @@ import {IBaoOwnableTransferrable} from "@bao/interfaces/IBaoOwnableTransferrable
 /// it also adds IRC165 interface query support
 /// @author rootminus0x1
 /// @dev Uses erc7201 storage
-contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnable {
+abstract contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnable {
     /*//////////////////////////////////////////////////////////////////////////
                                CONSTRUCTOR/INITIALIZER
     //////////////////////////////////////////////////////////////////////////*/
@@ -92,7 +92,7 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnable {
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IBaoOwnableTransferrable
-    function initiateOwnershipTransfer(address toAddress) public payable virtual {
+    function initiateOwnershipTransfer(address toAddress) public virtual {
         unchecked {
             _checkOwner();
             _setPending(
@@ -105,7 +105,7 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnable {
     }
 
     /// @inheritdoc IBaoOwnableTransferrable
-    function cancelOwnershipTransfer() public payable virtual {
+    function cancelOwnershipTransfer() public virtual {
         // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
             // only pending or owner
@@ -128,7 +128,7 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnable {
     }
 
     /// @inheritdoc IBaoOwnableTransferrable
-    function validateOwnershipTransfer() public payable virtual {
+    function validateOwnershipTransfer() public virtual {
         // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
             let pending_ := sload(_PENDING_SLOT)
@@ -147,7 +147,8 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnable {
                 revert(0x1c, 0x04)
             }
             // set the validated  bit to indicate it has been validated
-            sstore(_PENDING_SLOT, or(pending_, shl(_BIT_VALIDATED, 0x1)))
+            //sstore(_PENDING_SLOT, or(pending_, shl(_BIT_VALIDATED, 0x1)))---------------
+            sstore(_PENDING_SLOT, or(pending_, 0x10000000000000000000000000000000000000000))
             // Emit the {OwnershipTransferInitiated} event.
             // although we left the validated bit in place above (via the shl 95) it isn't set if we got here
             log2(0, 0, _OWNERSHIP_TRANSFER_VALIDATED_EVENT_SIGNATURE, pendingOwner_)
@@ -155,7 +156,7 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnable {
     }
 
     /// @inheritdoc IBaoOwnable
-    function transferOwnership(address confirmOwner) public payable virtual override(BaoOwnable, IBaoOwnable) {
+    function transferOwnership(address confirmOwner) public virtual override(BaoOwnable, IBaoOwnable) {
         unchecked {
             address oldOwner;
             // solhint-disable-next-line no-inline-assembly
