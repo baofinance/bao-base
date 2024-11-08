@@ -38,7 +38,7 @@ import {IBaoOwnableTransferrable} from "@bao/interfaces/IBaoOwnableTransferrable
 /// it also adds IRC165 interface query support
 /// @author rootminus0x1
 /// @dev Uses erc7201 storage
-contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnable {
+contract BaoOwnableTransferrable is IBaoOwnableTransferrable, IERC165, BaoOwnable {
     /*//////////////////////////////////////////////////////////////////////////
                                CONSTRUCTOR/INITIALIZER
     //////////////////////////////////////////////////////////////////////////*/
@@ -63,7 +63,7 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnable {
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IERC165
-    function supportsInterface(bytes4 interfaceId) public view virtual override(BaoOwnable) returns (bool) {
+    function supportsInterface(bytes4 interfaceId) public view virtual override(IERC165, BaoOwnable) returns (bool) {
         return interfaceId == type(IBaoOwnableTransferrable).interfaceId || BaoOwnable.supportsInterface(interfaceId);
     }
 
