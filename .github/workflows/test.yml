@@ -25,12 +25,9 @@ jobs:
         with:
           version: nightly
 
-      - name: Show Forge version
-        run: |
-          forge --version
-
       - name: Install yarn dependencies
         run: |
+          forge --version
           yarn
 
       - name: Run Prettier
@@ -38,10 +35,15 @@ jobs:
           yarn fmt:check
         id: fmt
 
-      - name: Run Prettier
+      - name: Run Lint
         run: |
-          yarn lint:check
+          yarn lint
         id: lint
+
+      - name: Run Slither
+        run: |
+          yarn slither
+        id: slither
 
       - name: Run Forge build
         run: |
