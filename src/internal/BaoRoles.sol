@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
-import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
-import { BaoCheckOwner } from "@bao/internal/BaoCheckOwner.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {BaoCheckOwner} from "@bao/internal/BaoCheckOwner.sol";
 
 /// @title Bao Ownable
 /// @author rootminus0x1 a barefaced copy of Solady's OwnableRoles contract

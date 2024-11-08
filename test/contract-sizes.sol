@@ -4,23 +4,23 @@
 // They also serve to list the code needed to implement the facility
 pragma solidity 0.8.26;
 
-import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import { AccessControlUpgradeable } from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import { Ownable2StepUpgradeable } from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
-import { AccessControlDefaultAdminRulesUpgradeable } from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
+import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {AccessControlDefaultAdminRulesUpgradeable} from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
 
-import { Ownable } from "@solady/auth/Ownable.sol";
-import { OwnableRoles } from "@solady/auth/OwnableRoles.sol";
+import {Ownable} from "@solady/auth/Ownable.sol";
+import {OwnableRoles} from "@solady/auth/OwnableRoles.sol";
 
-import { BaoOwnable } from "@bao/BaoOwnable.sol";
-import { BaoOwnableTransferrable } from "@bao/BaoOwnableTransferrable.sol";
-import { BaoOwnableRoles } from "@bao/BaoOwnableRoles.sol";
-import { BaoOwnableTransferrableRoles } from "@bao/BaoOwnableTransferrableRoles.sol";
+import {BaoOwnable} from "@bao/BaoOwnable.sol";
+import {BaoOwnableTransferrable} from "@bao/BaoOwnableTransferrable.sol";
+import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
+import {BaoOwnableTransferrableRoles} from "@bao/BaoOwnableTransferrableRoles.sol";
 
-import { TokenHolder } from "@bao/TokenHolder.sol";
+import {TokenHolder} from "@bao/TokenHolder.sol";
 
 /*/////
 UUPSUpgradeable

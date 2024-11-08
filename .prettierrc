@@ -1,45 +1,50 @@
 {
   "printWidth": 120,
-  "singleQuote": false,
-  "bracketSpacing": true,
   "useTabs": false,
-  "tabWidth": 2,
   "overrides": [
     {
-      "files": ".prettierrc"
+      "files": ".prettierrc",
+      "options": {
+        "tabWidth": 2
+      }
     },
     {
       "files": "*.sol",
       "options": {
-        "singleQuote": false,
-        "tabWidth": 4,
         "semi": true,
+        "singleQuote": false,
         "trailingComma": "all"
       }
     },
     {
       "files": "*.json",
       "options": {
-        "singleQuote": false,
         "tabWidth": 2
       }
     },
     {
-      "files": ["*.ts", "*.tsx"],
+      "files": [
+        "*.ts",
+        "*.tsx"
+      ],
       "options": {
-        "tabWidth": 4,
-        "singleQuote": true,
+        "arrowParens": "avoid",
         "explicitTypes": "preserve",
         "semi": true,
+        "singleQuote": true,
         "trailingComma": "all"
       }
     },
     {
-      "files": ["*.yml"],
+      "files": [
+        "*.yml"
+      ],
       "options": {
         "parser": "yaml"
       }
     }
   ],
-  "plugins": ["prettier-plugin-solidity"]
+  "plugins": [
+    "prettier-plugin-solidity"
+  ]
 }

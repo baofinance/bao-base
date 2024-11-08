@@ -38,6 +38,11 @@ jobs:
           yarn fmt:check
         id: fmt
 
+      - name: Run Prettier
+        run: |
+          yarn lint:check
+        id: lint
+
       - name: Run Forge build
         run: |
           forge build --sizes

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import { BaoOwnableTransferrable } from "@bao/BaoOwnableTransferrable.sol";
-import { BaoRoles } from "@bao/internal/BaoRoles.sol";
+import {BaoOwnableTransferrable} from "@bao/BaoOwnableTransferrable.sol";
+import {BaoRoles} from "@bao/internal/BaoRoles.sol";
 
 /// @title Bao Ownable Transferrable Roles
 /// see BaoOwnableTransferrable and BaoRoles for more information

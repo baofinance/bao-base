@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
-import { Test } from "forge-std/Test.sol";
-import { console2 } from "forge-std/console2.sol";
+import {Test} from "forge-std/Test.sol";
+import {console2} from "forge-std/console2.sol";
 
-import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
-import { IBaoRoles } from "@bao/interfaces/IBaoRoles.sol";
-import { BaoRoles } from "@bao/internal/BaoRoles.sol";
-import { BaoOwnableRoles } from "@bao/BaoOwnableRoles.sol";
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {BaoRoles} from "@bao/internal/BaoRoles.sol";
+import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 
-import { TestBaoOwnableOnly } from "./BaoOwnable.t.sol";
-import { TestBaoRoles } from "./BaoRoles.t.sol";
+import {TestBaoOwnableOnly} from "./BaoOwnable.t.sol";
+import {TestBaoRoles} from "./BaoRoles.t.sol";
 
 contract DerivedBaoOwnableRoles is BaoOwnableRoles {
     uint256 public MY_ROLE = _ROLE_1;

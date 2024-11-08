@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.26;
 
-import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
 /// @notice Simple single owner authorization mixin layered on solady's Ownable but with a 3-step transfer
 /// @author rootminus0x1 based one interface from Solady (https://github.com/vectorized/solady/blob/main/src/auth/Ownable.sol)

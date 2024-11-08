@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
-import { BaoCheckOwner } from "@bao/internal/BaoCheckOwner.sol";
-import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
+import {BaoCheckOwner} from "@bao/internal/BaoCheckOwner.sol";
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
 /// @title Bao Ownable
 /// @dev Note:

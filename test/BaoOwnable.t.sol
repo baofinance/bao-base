@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import { IERC5313 } from "@openzeppelin/contracts/interfaces/IERC5313.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {IERC5313} from "@openzeppelin/contracts/interfaces/IERC5313.sol";
 
-import { Test } from "forge-std/Test.sol";
-import { console2 } from "forge-std/console2.sol";
+import {Test} from "forge-std/Test.sol";
+import {console2} from "forge-std/console2.sol";
 
-import { IBaoOwnable } from "@bao/interfaces/IBaoOwnable.sol";
-import { BaoOwnable } from "@bao/BaoOwnable.sol";
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {BaoOwnable} from "@bao/BaoOwnable.sol";
 
 contract DerivedBaoOwnable is BaoOwnable {
     function initialize(address owner) public {
