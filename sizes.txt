@@ -4,8 +4,8 @@
 │ Address                                       │       85 │
 │ BaoOwnable                                    │      617 │
 │ BaoOwnableRoles                               │    1,226 │
-│ BaoOwnableTransferrable                       │    1,413 │
-│ BaoOwnableTransferrableRoles                  │    1,978 │
+│ BaoOwnableTransferrable                       │    1,426 │
+│ BaoOwnableTransferrableRoles                  │    1,991 │
 │ BeaconProxy                                   │      283 │
 │ Core                                          │       85 │
 │ Defender                                      │       85 │
@@ -13,7 +13,7 @@
 │ Deployed                                      │      270 │
 │ DerivedBaoOwnable                             │      919 │
 │ DerivedBaoOwnableRoles                        │    1,860 │
-│ DerivedBaoOwnableTransferrable                │    1,569 │
+│ DerivedBaoOwnableTransferrable                │    1,582 │
 │ DerivedOwnable                                │      894 │
 │ DerivedOwnableRoles                           │    1,506 │
 │ DerivedTokenHolder                            │    1,861 │
@@ -36,8 +36,8 @@
 │ Utils                                         │       85 │
 │ Versions                                      │       85 │
 │ _BaoOwnableRoles_                             │    1,226 │
-│ _BaoOwnableTransferrableRoles_                │    1,978 │
-│ _BaoOwnableTransferrable_                     │    1,413 │
+│ _BaoOwnableTransferrableRoles_                │    1,991 │
+│ _BaoOwnableTransferrable_                     │    1,426 │
 │ _BaoOwnable_                                  │      617 │
 │ _Initializable_UUPSUpGradeable                │    1,534 │
 │ _OZAccessControl                              │    1,093 │

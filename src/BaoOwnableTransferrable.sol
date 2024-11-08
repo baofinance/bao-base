@@ -111,11 +111,13 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnable {
             // only pending or owner
             let pending_ := sload(_PENDING_SLOT)
             let pendingOwner_ := and(sload(_PENDING_SLOT), 0xffffffffffffffffffffffffffffffffffffffff)
-            if or(
-                iszero(or(eq(caller(), pendingOwner_), eq(caller(), sload(_INITIALIZED_SLOT)))),
-                iszero(shr(192, pending_))
-            ) {
+            if iszero(or(eq(caller(), pendingOwner_), eq(caller(), sload(_INITIALIZED_SLOT)))) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.
+                revert(0x1c, 0x04)
+            }
+            // only if there is a transfer in-flight
+            if iszero(shr(192, pending_)) {
+                mstore(0x00, 0x33c2b1c3) // `NoTransferToCancel()`.
                 revert(0x1c, 0x04)
             }
             // clear the pending slot

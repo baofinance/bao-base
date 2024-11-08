@@ -506,19 +506,28 @@ contract TestBaoOwnableTransferrableOnly is Test {
         );
 
         // then only if there's an in-flight transfer
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        if (canceller == owner) {
+            vm.expectRevert(IBaoOwnableTransferrable.NoTransferToCancel.selector);
+        } else {
+            vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        }
         vm.prank(canceller);
         IBaoOwnableTransferrable(ownable).cancelOwnershipTransfer();
 
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        vm.prank(pending);
-        IBaoOwnableTransferrable(ownable).cancelOwnershipTransfer();
-
+        if (pending != address(0)) {
+            if (pending == owner) {
+                vm.expectRevert(IBaoOwnableTransferrable.NoTransferToCancel.selector);
+            } else {
+                vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+            }
+            vm.prank(pending);
+            IBaoOwnableTransferrable(ownable).cancelOwnershipTransfer();
+        }
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         vm.prank(user);
         IBaoOwnableTransferrable(ownable).cancelOwnershipTransfer();
 
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        vm.expectRevert(IBaoOwnableTransferrable.NoTransferToCancel.selector);
         vm.prank(owner);
         IBaoOwnableTransferrable(ownable).cancelOwnershipTransfer();
 
