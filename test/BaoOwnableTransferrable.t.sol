@@ -422,8 +422,8 @@ contract TestBaoOwnableTransferrableOnly is Test {
 
     function _checkSuccessful_transferOwnership(address by, address to) private {
         assertEq(by, IBaoOwnableTransferrable(ownable).owner());
-        assertGt(block.timestamp, IBaoOwnableTransferrable(ownable).pendingValidateExpiryOrPause());
-        assertLt(block.timestamp, IBaoOwnableTransferrable(ownable).pendingExpiry());
+        assertGe(block.timestamp, IBaoOwnableTransferrable(ownable).pendingValidateExpiryOrPause());
+        assertLe(block.timestamp, IBaoOwnableTransferrable(ownable).pendingExpiry());
 
         assertEq(IBaoOwnableTransferrable(ownable).pendingOwner(), to);
         assertEq(IBaoOwnableTransferrable(ownable).pendingValidated(), true);
@@ -434,39 +434,111 @@ contract TestBaoOwnableTransferrableOnly is Test {
         _checkPending(address(0), 0, false, 0);
     }
 
-    function test_completeTransfer() public {
+    function _checkUnsuccessful_transferOwnership(address by, address to) private {
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        IBaoOwnableTransferrable(ownable).transferOwnership(user);
+
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        vm.prank(to);
+        IBaoOwnableTransferrable(ownable).transferOwnership(user);
+
+        vm.expectRevert(IBaoOwnable.CannotCompleteTransfer.selector);
+        vm.prank(by);
+        IBaoOwnableTransferrable(ownable).transferOwnership(user);
+    }
+
+    function test_completeTransferValidateThenWindowLower() public {
         // owner is initially set to the owner
         _initialize(owner);
+        // 1
+        assertEq(IBaoOwnableTransferrable(ownable).owner(), owner);
+
+        // cannot complete unless you are the owner
+        // 2, 3, 4
+        _checkUnsuccessful_transferOwnership(owner, user);
+
+        // successful initiate
+        _checkSuccessful_initiateOwnershipTransfer(owner, user, false);
+        uint256 initiatedAt = block.timestamp;
+        // 5, 6, 7
+        _checkUnsuccessful_transferOwnership(owner, user);
+
+        // need a validate
+        vm.prank(user);
+        IBaoOwnableTransferrable(ownable).validateOwnershipTransfer();
+        // 8, 9, 10
+        _checkUnsuccessful_transferOwnership(owner, user);
+
+        // need a time period
+        vm.warp(initiatedAt + 2 days - 1 seconds); // not enough
+        // 11, 12, 13
+        _checkUnsuccessful_transferOwnership(owner, user);
+
+        vm.warp(initiatedAt + 4 days + 1 seconds); // to much
+        _checkUnsuccessful_transferOwnership(owner, user);
+
+        vm.warp(initiatedAt + 2 days + 1 seconds); // just enough
+        _checkSuccessful_transferOwnership(owner, user);
+    }
+
+    function test_completeTransferValidateThenWindowUpper() public {
+        // owner is initially set to the owner
+        _initialize(owner);
+        // 1
+        assertEq(IBaoOwnableTransferrable(ownable).owner(), owner);
+
+        // cannot complete unless you are the owner
+        // 2, 3, 4
+        _checkUnsuccessful_transferOwnership(owner, user);
+
+        // successful initiate
+        _checkSuccessful_initiateOwnershipTransfer(owner, user, false);
+        uint256 initiatedAt = block.timestamp;
+        // 5, 6, 7
+        _checkUnsuccessful_transferOwnership(owner, user);
+
+        // need a validate
+        vm.prank(user);
+        IBaoOwnableTransferrable(ownable).validateOwnershipTransfer();
+        // 8, 9, 10
+        _checkUnsuccessful_transferOwnership(owner, user);
+
+        // need a time period
+        vm.warp(initiatedAt + 2 days - 1 seconds); // not enough
+        // 11, 12, 13
+        _checkUnsuccessful_transferOwnership(owner, user);
+
+        vm.warp(initiatedAt + 4 days + 1 seconds); // to much
+        _checkUnsuccessful_transferOwnership(owner, user);
+
+        vm.warp(initiatedAt + 4 days); // just within
+        _checkSuccessful_transferOwnership(owner, user);
+    }
+
+    // TODO: check upper and lower limits of time windows
+    function test_completeTransferWindowThenValidate() public {
+        // owner is initially set to the owner
+        _initialize(owner);
+        // 1
         assertEq(IBaoOwnableTransferrable(ownable).owner(), owner);
 
         // successful initiate
         _checkSuccessful_initiateOwnershipTransfer(owner, user, false);
-        // cannot complete unless there has been an validate
-        vm.expectRevert(IBaoOwnable.CannotCompleteTransfer.selector);
-        vm.prank(owner);
-        IBaoOwnableTransferrable(ownable).transferOwnership(user);
+        uint256 initiatedAt = block.timestamp;
+        // 2, 3, 4
+        _checkUnsuccessful_transferOwnership(owner, user);
 
-        // cannot complete unless the pause period has passed too
-        _checkSuccessful_validateOwnershipTransfer(user);
-        vm.expectRevert(IBaoOwnable.CannotCompleteTransfer.selector);
-        vm.prank(owner);
-        IBaoOwnableTransferrable(ownable).transferOwnership(user);
+        // need a time period
+        vm.warp(initiatedAt + 3 days - 1 seconds); // not enough
+        // 5, 6, 7
+        _checkUnsuccessful_transferOwnership(owner, user);
 
-        // can complete when both have passed
-        skip(4 days / 2 + 1);
-
-        // need owner to complete
-        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        IBaoOwnableTransferrable(ownable).transferOwnership(user);
+        // need a validate
+        vm.warp(initiatedAt + 2 days); // just within
+        vm.prank(user);
+        IBaoOwnableTransferrable(ownable).validateOwnershipTransfer();
 
         _checkSuccessful_transferOwnership(owner, user);
-
-        // need to check a validate is needed
-        _checkSuccessful_initiateOwnershipTransfer(user, owner, false);
-        // cannot complete unless the pause period has passed
-        vm.expectRevert(IBaoOwnable.CannotCompleteTransfer.selector);
-        vm.prank(user);
-        IBaoOwnableTransferrable(ownable).transferOwnership(owner);
     }
 
     function test_renounceTransfer() public {

@@ -53,7 +53,7 @@
 │ pendingValidated                                                           │      540 │      540 │
 │ protected                                                                  │   23,448 │   23,451 │
 │ supportsInterface                                                          │      428 │      493 │
-│ transferOwnership                                                          │   28,688 │   28,928 │
+│ transferOwnership                                                          │   26,291 │   28,928 │
 │ validateOwnershipTransfer                                                  │   27,496 │   27,496 │
 ╰────────────────────────────────────────────────────────────────────────────┴──────────┴──────────╯
 
@@ -77,7 +77,7 @@
 │ protected                                                                  │   23,800 │   23,803 │
 │ protectedRoles                                                             │    2,710 │    4,710 │
 │ supportsInterface                                                          │      549 │      587 │
-│ transferOwnership                                                          │   29,229 │   29,469 │
+│ transferOwnership                                                          │   26,832 │   29,469 │
 │ validateOwnershipTransfer                                                  │   27,804 │   27,804 │
 ╰────────────────────────────────────────────────────────────────────────────┴──────────┴──────────╯
 

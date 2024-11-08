@@ -174,7 +174,7 @@ contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnable {
                     or(
                         // within the timescales allowed
                         gt(timestamp(), add(pause, shr(232, shl(64, pending_)))),
-                        gt(pause, timestamp())
+                        lt(timestamp(), pause)
                     )
                 ) {
                     mstore(0x00, 0x8cd65fff) // `CannotCompleteTransfer()`.
