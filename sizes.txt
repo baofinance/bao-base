@@ -19,6 +19,7 @@
 │ DerivedTokenHolder                            │    1,861 │
 │ ERC1967Proxy                                  │      163 │
 │ ERC1967Utils                                  │       85 │
+│ ERC20Mock                                     │    1,938 │
 │ Errors                                        │       85 │
 │ Math                                          │       85 │
 │ Panic                                         │       85 │
