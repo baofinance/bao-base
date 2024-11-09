@@ -2,6 +2,8 @@ name: CI
 
 on:
   push:
+    paths:
+      - "**.sol"
   pull_request:
   workflow_dispatch:
 
@@ -9,7 +11,7 @@ env:
   FOUNDRY_PROFILE: ci
 
 jobs:
-  check:
+  solidity_code_check:
     strategy:
       fail-fast: true
 
@@ -25,17 +27,18 @@ jobs:
         with:
           version: nightly
 
-      - name: Install yarn dependencies
+      - name: Install dependencies
         run: |
           forge --version
           yarn
+          yarn install:slither
 
       - name: Run Prettier
         run: |
           yarn fmt:check
         id: fmt
 
-      - name: Run Lint
+      - name: Run code checks
         run: |
           yarn lint
         id: lint
