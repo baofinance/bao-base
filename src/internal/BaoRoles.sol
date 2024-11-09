@@ -59,7 +59,7 @@ abstract contract BaoRoles is BaoCheckOwner, IBaoRoles, IERC165 {
 
     /// @dev Allow the caller to remove their own roles.
     /// If the caller does not have a role, then it will be an no-op for the role.
-    function renounceRoles(uint256 roles) public payable virtual {
+    function renounceRoles(uint256 roles) public virtual {
         _removeRoles(msg.sender, roles);
     }
 
@@ -69,13 +69,13 @@ abstract contract BaoRoles is BaoCheckOwner, IBaoRoles, IERC165 {
 
     /// @dev Allows the owner to grant `user` `roles`.
     /// If the `user` already has a role, then it will be an no-op for the role.
-    function grantRoles(address user, uint256 roles) public payable virtual onlyOwner {
+    function grantRoles(address user, uint256 roles) public virtual onlyOwner {
         _grantRoles(user, roles);
     }
 
     /// @dev Allows the owner to remove `user` `roles`.
     /// If the `user` does not have a role, then it will be an no-op for the role.
-    function revokeRoles(address user, uint256 roles) public payable virtual onlyOwner {
+    function revokeRoles(address user, uint256 roles) public virtual onlyOwner {
         _removeRoles(user, roles);
     }
 
@@ -122,6 +122,7 @@ abstract contract BaoRoles is BaoCheckOwner, IBaoRoles, IERC165 {
     }
 
     /// @dev Throws if the sender does not have any of the `roles`.
+    // slither-disable-next-line dead-code
     function _checkRoles(uint256 roles) internal view virtual {
         // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
@@ -140,6 +141,7 @@ abstract contract BaoRoles is BaoCheckOwner, IBaoRoles, IERC165 {
     /// @dev Throws if the sender is not the owner,
     /// and does not have any of the `roles`.
     /// Checks for ownership first, then lazily checks for roles.
+    // slither-disable-next-line dead-code
     function _checkOwnerOrRoles(uint256 roles) internal view virtual {
         // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
@@ -162,6 +164,7 @@ abstract contract BaoRoles is BaoCheckOwner, IBaoRoles, IERC165 {
     /// @dev Throws if the sender does not have any of the `roles`,
     /// and is not the owner.
     /// Checks for roles first, then lazily checks for ownership.
+    // slither-disable-next-line dead-code
     function _checkRolesOrOwner(uint256 roles) internal view virtual {
         // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {

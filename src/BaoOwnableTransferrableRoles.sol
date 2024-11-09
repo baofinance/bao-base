@@ -6,7 +6,7 @@ import {BaoRoles} from "@bao/internal/BaoRoles.sol";
 
 /// @title Bao Ownable Transferrable Roles
 /// see BaoOwnableTransferrable and BaoRoles for more information
-contract BaoOwnableTransferrableRoles is BaoOwnableTransferrable, BaoRoles {
+abstract contract BaoOwnableTransferrableRoles is BaoOwnableTransferrable, BaoRoles {
     function supportsInterface(
         bytes4 interfaceId
     ) public view virtual override(BaoOwnableTransferrable, BaoRoles) returns (bool) {

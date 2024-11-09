@@ -23,7 +23,7 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 /// it also adds IRC165 interface query support
 /// @author rootminus0x1
 /// @dev Uses erc7201 storage
-contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
+abstract contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
     /*//////////////////////////////////////////////////////////////////////////
                                CONSTRUCTOR/INITIALIZER
     //////////////////////////////////////////////////////////////////////////*/
@@ -35,6 +35,7 @@ contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
     /// becomes the owner, allowing them to do owner-type set up, then ownership is transferred to the 'finalOwner'
     /// when 'transferOwnership' is called. 'transferOwnership' must be called within an hour.
     /// @param finalOwner sets the owner, a privileged address, of the contract to be set when 'transferOwnership' is called
+    // slither-disable-next-line dead-code
     function _initializeOwner(address finalOwner) internal virtual {
         unchecked {
             _checkNotInitialized();
@@ -70,7 +71,7 @@ contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
     /// @inheritdoc IBaoOwnable
     /// @dev Allows the owner to complete the ownership transfer to `pendingOwner`.
     /// Reverts if there is no existing ownership transfer requested by `pendingOwner`.
-    function transferOwnership(address confirmOwner) public payable virtual {
+    function transferOwnership(address confirmOwner) public virtual {
         unchecked {
             address oldOwner;
             // solhint-disable-next-line no-inline-assembly
@@ -137,6 +138,7 @@ contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
 
     // @dev performs a check to determine if the contract has been initialised (via '_initializeOwnership)
     // Reverts if it has been initialised.
+    // slither-disable-next-line dead-code
     function _checkNotInitialized() internal view {
         // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {

@@ -47,15 +47,15 @@ interface IBaoOwnableTransferrable is IBaoOwnable {
     /// starts an expiry for the target owner to validate, or in the case of renunciation, for a pause
     /// during that period up to the expiry, the transfer can be cancelled or validated
     /// The request will automatically expire in 4 days.
-    function initiateOwnershipTransfer(address toOwner) external payable;
+    function initiateOwnershipTransfer(address toOwner) external;
 
     /// @dev Cancels the initiated ownership transfer to the caller, if any.
-    function cancelOwnershipTransfer() external payable;
+    function cancelOwnershipTransfer() external;
 
     /// @dev Validates the initiated ownership transfer to the caller, if any.
     /// Validation for non-zero addresses is required in order for the ownership transfer to be completed.
     /// Validation ensures that the transfer address is a working address.
-    function validateOwnershipTransfer() external payable;
+    function validateOwnershipTransfer() external;
 
     /*//////////////////////////////////////////////////////////////////////////
                                PUBLIC READ FUNCTIONS
