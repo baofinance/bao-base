@@ -7,29 +7,28 @@ import {Test} from "forge-std/Test.sol";
 import {console2 as console} from "forge-std/console2.sol";
 import {Vm} from "forge-std/Vm.sol";
 
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 
-import {IOwnable} from "@bao/interfaces/IOwnable.sol";
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {BaoOwnable} from "@bao/BaoOwnable.sol";
 import {Token} from "@bao/Token.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
 
 // import { Deployed } from "@bao/Deployed.sol";
 
-contract DerivedTokenHolder is Initializable, TokenHolder {
+contract DerivedTokenHolder is TokenHolder, BaoOwnable {
     function initialize(address owner) public initializer {
         _initializeOwner(owner);
+        transferOwnership(owner);
     }
 }
 
 contract TestTokenHolder is Test {
-    using SafeERC20 for IERC20;
     address tokenBaoUSD;
     address tokenWstETH;
     address tokenNotERC20 = vm.createWallet("tokenNotERC20").addr; // not an ERC20 token
@@ -70,7 +69,7 @@ contract TestTokenHolder is Test {
 
     function test_access() public {
         // not anyone can withdraw funds
-        vm.expectRevert(IOwnable.Unauthorized.selector);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
         tokenOwner.sweep(tokenBaoUSD, 1 ether, bonusReceiver);
     }
 

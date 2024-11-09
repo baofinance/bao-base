@@ -12,10 +12,10 @@
 │ DerivedBaoOwnableTransferrable                │    1,498 │
 │ DerivedOwnable                                │      894 │
 │ DerivedOwnableRoles                           │    1,506 │
-│ DerivedTokenHolder                            │    1,861 │
+│ DerivedTokenHolder                            │    1,840 │
 │ ERC1967Proxy                                  │      163 │
 │ ERC1967Utils                                  │       85 │
-│ ERC20Mock                                     │    1,938 │
+│ ERC20Mock                                     │    1,939 │
 │ Errors                                        │       85 │
 │ Math                                          │       85 │
 │ Panic                                         │       85 │
@@ -26,6 +26,7 @@
 │ StorageSlot                                   │       85 │
 │ Strings                                       │       85 │
 │ Token                                         │      380 │
+│ TransientSlot                                 │       85 │
 │ TransparentUpgradeableProxy                   │    1,112 │
 │ UnsafeUpgrades                                │       85 │
 │ UpgradeableBeacon                             │      665 │

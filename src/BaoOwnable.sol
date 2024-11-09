@@ -35,6 +35,7 @@ abstract contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
     /// becomes the owner, allowing them to do owner-type set up, then ownership is transferred to the 'finalOwner'
     /// when 'transferOwnership' is called. 'transferOwnership' must be called within an hour.
     /// @param finalOwner sets the owner, a privileged address, of the contract to be set when 'transferOwnership' is called
+    // slither-disable-next-line dead-code
     function _initializeOwner(address finalOwner) internal virtual {
         unchecked {
             _checkNotInitialized();
@@ -137,6 +138,7 @@ abstract contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
 
     // @dev performs a check to determine if the contract has been initialised (via '_initializeOwnership)
     // Reverts if it has been initialised.
+    // slither-disable-next-line dead-code
     function _checkNotInitialized() internal view {
         // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {

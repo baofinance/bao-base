@@ -49,6 +49,7 @@ library Token {
         if (addr.code.length == 0) revert NotContractAddress(addr);
     }
 
+    // slither-disable-next-line dead-code
     function ensureERC20Token(address addr) internal view {
         ensureContract(addr);
         if (
@@ -64,7 +65,9 @@ library Token {
         }
     }
 
+    // slither-disable-next-line dead-code
     function _hasFunction(address contract_, bytes memory data) internal view returns (bool) {
+        // slither-disable-next-line low-level-calls
         (bool success, ) = contract_.staticcall(data);
         return success;
     }
@@ -110,6 +113,7 @@ library Token {
      * @return returnData The data returned from the function call.
      */
 
+    // slither-disable-next-line dead-code
     function callFunction(
         address target,
         bytes4 selector,
