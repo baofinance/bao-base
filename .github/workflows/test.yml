@@ -2,8 +2,6 @@ name: CI
 
 on:
   push:
-    paths:
-      - "**.sol"
   pull_request:
   workflow_dispatch:
 
