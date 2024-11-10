@@ -25,6 +25,7 @@ contract DerivedBaoOwnable is BaoOwnable {
         assembly ("memory-safe") {
             expiry := shr(192, sload(_PENDING_SLOT))
         }
+
     }
 
     function protected() public onlyOwner {}
