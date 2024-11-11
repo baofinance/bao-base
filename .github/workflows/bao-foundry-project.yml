@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-          token: ${{ secrets.GITHUB_TOKEN }} # Use GitHub Actions' token to authenticate
+          token: ${{ secrets.BAO_BASE_ACCESS}}
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
