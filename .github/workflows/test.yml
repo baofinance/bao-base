@@ -5,53 +5,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-env:
-  FOUNDRY_PROFILE: ci
-
 jobs:
-  solidity_code_check:
-    strategy:
-      fail-fast: true
-
-    name: Bao Foundry project
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: nightly
-
-      - name: Install dependencies
-        run: |
-          forge --version
-          yarn
-          yarn install:slither
-
-      - name: Run Prettier
-        run: |
-          yarn fmt:check
-        id: fmt
-
-      - name: Run code checks
-        run: |
-          yarn lint
-        id: lint
-
-      - name: Run Slither
-        run: |
-          yarn slither
-        id: slither
-
-      - name: Run Forge build
-        run: |
-          forge build --sizes
-        id: build
-
-      - name: Run Forge tests
-        run: |
-          forge test -vvv
-        id: test
+  call_bao-foundry-project:
+    uses: baofinance/baobase/.github/workflows/bao-foundry-project.yml@three-step
