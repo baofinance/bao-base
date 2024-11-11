@@ -1,5 +1,7 @@
 # Dotenv file
 .env
+# put your personal stuff in your personal vscode settings file
+.vscode/settings.json
 
 # libraries
 node_modules
@@ -24,7 +26,6 @@ lcov.info
 # generated resulyts
 results/*.svg
 results/*.png
-
 
 # Ignores development broadcast logs
 !/broadcast

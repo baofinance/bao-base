@@ -1,0 +1,25 @@
+#! /bin/sh
+
+if [ -z "$1" ]; then
+  echo "Usage: $0 '<text>'"
+  exit 1
+fi
+
+# Concatenate all positional parameters with spaces
+input_text="$*"
+
+# Calculate total width and the width for centering
+total_width=80
+start_column=4
+centered_width=$(( total_width - start_column ))
+
+# Calculate padding for centering
+text_length=${#input_text}
+padding=$(( (centered_width - text_length) / 2 ))
+if [ "$padding" -lt 0 ]; then padding=0; fi
+
+# Generate the output
+echo "    /*//////////////////////////////////////////////////////////////////////////"
+printf "%${start_column}s" ""
+printf "%${padding}s%s\n" "" "$input_text"
+echo "    //////////////////////////////////////////////////////////////////////////*/"

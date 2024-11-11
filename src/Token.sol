@@ -3,8 +3,8 @@ pragma solidity ^0.8.26;
 
 // TODO: check OZ address class
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 /*
 function totalSupply() external view returns (uint256);
@@ -49,6 +49,7 @@ library Token {
         if (addr.code.length == 0) revert NotContractAddress(addr);
     }
 
+    // slither-disable-next-line dead-code
     function ensureERC20Token(address addr) internal view {
         ensureContract(addr);
         if (
@@ -64,7 +65,9 @@ library Token {
         }
     }
 
+    // slither-disable-next-line dead-code
     function _hasFunction(address contract_, bytes memory data) internal view returns (bool) {
+        // slither-disable-next-line low-level-calls
         (bool success, ) = contract_.staticcall(data);
         return success;
     }
@@ -110,6 +113,7 @@ library Token {
      * @return returnData The data returned from the function call.
      */
 
+    // slither-disable-next-line dead-code
     function callFunction(
         address target,
         bytes4 selector,

@@ -1,0 +1,48 @@
+#! /bin/sh
+# extracts the coverage report from
+# $ forge coverage --report lcov
+# and reformats it to contain minimal information
+# The output should be stored in git - that's your job :-)
+
+# echo $0 "run on" `date`
+
+# grep '^|\(-\| \(src/\|File \)\).*|$'
+awk  -v cols=4 -v width=12 -v total_width=100 '
+BEGIN {
+  FS="|"
+  # Define the format string with variable widths
+  name = total_width - (cols * (width + 1)) - 4
+  value = width - 2 # 2 spaces either size
+}
+
+# Header
+/^\| File +\|/ {
+  printf "╭%s┬%s┬%s┬%s┬%s╮\n", chars("─", name + 2), chars("─", value + 2), chars("─", value + 2), chars("─", value + 2), chars("─", value + 2)
+  printf "│ %-" name "s │ %-" value "s │ %-" value "s │ %-" value "s │ %-" value "s │\n", "file", "lines", "statements", "branches", "functions"
+  printf "├%s┼%s┼%s┼%s┼%s┤\n", chars("─", name + 2), chars("─", value + 2), chars("─", value + 2), chars("─", value + 2), chars("─", value + 2)
+}
+
+# Data line
+/^\| src\/.+\.sol +\|/ {
+    gsub(/^ +| +$/, "", $2)
+    printf "│ %-" name "s │ %" value-1 ".1f% │ %" value-1 ".1f% │ %" value-1 ".1f% │ %" value-1 ".1f% │\n", $2, round($3), round($4), round($5), round($6)
+}
+
+END {
+  printf "╰%s┴%s┴%s┴%s┴%s╯\n", chars("─", name + 2), chars("─", value + 2), chars("─", value + 2), chars("─", value + 2), chars("─", value + 2)
+}
+
+# round a percentage
+function round(n) {
+    gsub(/^ +|% \([0-9]+\/[0-9]+\) +$/, "", n)
+    return int((n*100 + 5) /10)/10
+}
+
+# Function to repeat a character n times
+function chars(char, count) {
+    result = ""
+    for (i = 0; i < count; i++) {
+        result = result char
+    }
+    return result
+}'
