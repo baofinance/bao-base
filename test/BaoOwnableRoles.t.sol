@@ -49,7 +49,7 @@ contract TestBaoOwnableRoles is TestBaoOwnableOnly, TestBaoRoles {
     }
 
     function test_introspection() public view override {
-        super.test_introspection();
+        TestBaoOwnableOnly.test_introspection();
         TestBaoRoles._introspection(ownable);
     }
 

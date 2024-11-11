@@ -8,8 +8,8 @@
 │ DefenderDeploy                                │       85 │
 │ Deployed                                      │      270 │
 │ DerivedBaoOwnable                             │      859 │
-│ DerivedBaoOwnableRoles                        │    1,692 │
-│ DerivedBaoOwnableTransferrable                │    1,498 │
+│ DerivedBaoOwnableRoles                        │    1,715 │
+│ DerivedBaoOwnableTransferrable                │    1,497 │
 │ DerivedOwnable                                │      894 │
 │ DerivedOwnableRoles                           │    1,506 │
 │ DerivedTokenHolder                            │    1,840 │
@@ -33,9 +33,9 @@
 │ Upgrades                                      │       85 │
 │ Utils                                         │       85 │
 │ Versions                                      │       85 │
-│ _BaoOwnableRoles_                             │    1,178 │
-│ _BaoOwnableTransferrableRoles_                │    1,895 │
-│ _BaoOwnableTransferrable_                     │    1,366 │
+│ _BaoOwnableRoles_                             │    1,201 │
+│ _BaoOwnableTransferrableRoles_                │    1,918 │
+│ _BaoOwnableTransferrable_                     │    1,365 │
 │ _BaoOwnable_                                  │      605 │
 │ _Initializable_UUPSUpGradeable                │    1,534 │
 │ _OZAccessControl                              │    1,093 │

@@ -34,7 +34,7 @@
 │ renounceRoles                                                              │   28,158 │   28,158 │
 │ revokeRoles                                                                │   27,558 │   30,919 │
 │ rolesOf                                                                    │      641 │    2,641 │
-│ supportsInterface                                                          │      456 │      494 │
+│ supportsInterface                                                          │      468 │      561 │
 │ transferOwnership                                                          │   26,469 │   29,104 │
 ╰────────────────────────────────────────────────────────────────────────────┴──────────┴──────────╯
 
@@ -52,7 +52,7 @@
 │ pendingValidateExpiryOrPause                                               │      503 │      503 │
 │ pendingValidated                                                           │      540 │      540 │
 │ protected                                                                  │   23,448 │   23,451 │
-│ supportsInterface                                                          │      428 │      493 │
+│ supportsInterface                                                          │      434 │      505 │
 │ transferOwnership                                                          │   26,315 │   28,952 │
 │ validateOwnershipTransfer                                                  │   27,520 │   27,520 │
 ╰────────────────────────────────────────────────────────────────────────────┴──────────┴──────────╯
@@ -76,7 +76,7 @@
 │ pendingValidated                                                           │      936 │      936 │
 │ protected                                                                  │   23,800 │   23,803 │
 │ protectedRoles                                                             │    2,710 │    4,710 │
-│ supportsInterface                                                          │      549 │      587 │
+│ supportsInterface                                                          │      561 │      654 │
 │ transferOwnership                                                          │   26,856 │   29,493 │
 │ validateOwnershipTransfer                                                  │   27,828 │   27,828 │
 ╰────────────────────────────────────────────────────────────────────────────┴──────────┴──────────╯

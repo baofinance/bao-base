@@ -37,7 +37,7 @@ contract TestBaoOwnableTransferrableRoles is TestBaoOwnableTransferrableOnly, Te
     }
 
     function test_introspection() public view override {
-        super.test_introspection();
+        TestBaoOwnableTransferrableOnly.test_introspection();
         TestBaoRoles._introspection(ownable);
     }
 

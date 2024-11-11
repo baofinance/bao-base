@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.26;
+pragma solidity ^0.8.26;
 
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
+import {ERC165} from "@bao/ERC165.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {BaoCheckOwner} from "@bao/internal/BaoCheckOwner.sol";
 
@@ -15,7 +16,7 @@ import {BaoCheckOwner} from "@bao/internal/BaoCheckOwner.sol";
 /// This change allows it to be mixed in with the 'BaoOwnable' or 'BaoOwnableTransferrable'
 /// contracts to create Roles enabled versions of those contracts
 /// it also adds IRC165 interface query support
-abstract contract BaoRoles is BaoCheckOwner, IBaoRoles, IERC165 {
+abstract contract BaoRoles is BaoCheckOwner, IBaoRoles, ERC165 {
     /// @dev `keccak256(bytes("RolesUpdated(address,uint256)"))`.
     uint256 private constant _ROLES_UPDATED_EVENT_SIGNATURE =
         0x715ad5ce61fc9595c7b415289d59cf203f23a94fa06f04af7e489a0a76e1fe26;
@@ -50,7 +51,7 @@ abstract contract BaoRoles is BaoCheckOwner, IBaoRoles, IERC165 {
 
     /// @inheritdoc IERC165
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IBaoRoles).interfaceId;
+        return interfaceId == type(IBaoRoles).interfaceId || super.supportsInterface(interfaceId);
     }
 
     /*//////////////////////////////////////////////////////////////////////////

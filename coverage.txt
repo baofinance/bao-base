@@ -5,8 +5,9 @@
 │ src/BaoOwnableRoles.sol                      │     100.0% │     100.0% │     100.0% │     100.0% │
 │ src/BaoOwnableTransferrable.sol              │     100.0% │     100.0% │     100.0% │     100.0% │
 │ src/BaoOwnableTransferrableRoles.sol         │     100.0% │     100.0% │     100.0% │     100.0% │
+│ src/ERC165.sol                               │     100.0% │     100.0% │     100.0% │     100.0% │
 │ src/Token.sol                                │      18.8% │      17.5% │      66.7% │      28.6% │
 │ src/TokenHolder.sol                          │     100.0% │     100.0% │     100.0% │     100.0% │
 │ src/internal/BaoCheckOwner.sol               │     100.0% │     100.0% │     100.0% │     100.0% │
-│ src/internal/BaoRoles.sol                    │     100.0% │     100.0% │     100.0% │     100.0% │
+│ src/internal/BaoRoles.sol                    │     100.0% │      98.0% │     100.0% │     100.0% │
 ╰──────────────────────────────────────────────┴────────────┴────────────┴────────────┴────────────╯

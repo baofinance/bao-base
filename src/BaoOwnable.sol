@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.26;
+pragma solidity ^0.8.26;
 
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import {BaoCheckOwner} from "@bao/internal/BaoCheckOwner.sol";
+import {ERC165} from "@bao/ERC165.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
 /// @title Bao Ownable
@@ -23,7 +24,7 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 /// it also adds IRC165 interface query support
 /// @author rootminus0x1
 /// @dev Uses erc7201 storage
-abstract contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
+abstract contract BaoOwnable is IBaoOwnable, BaoCheckOwner, ERC165 {
     /*//////////////////////////////////////////////////////////////////////////
                                CONSTRUCTOR/INITIALIZER
     //////////////////////////////////////////////////////////////////////////*/
@@ -52,8 +53,8 @@ abstract contract BaoOwnable is IBaoOwnable, BaoCheckOwner, IERC165 {
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IERC165
-    function supportsInterface(bytes4 interfaceId) public view virtual returns (bool) {
-        return interfaceId == type(IBaoOwnable).interfaceId || interfaceId == type(IERC165).interfaceId;
+    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
+        return interfaceId == type(IBaoOwnable).interfaceId || super.supportsInterface(interfaceId);
     }
 
     /// @inheritdoc IBaoOwnable
