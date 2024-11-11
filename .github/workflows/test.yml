@@ -8,5 +8,3 @@ on:
 jobs:
   call_bao-foundry-project:
     uses: baofinance/bao-base/.github/workflows/bao-foundry-project.yml@three-step
-    secrets:
-      token: ${{ secrets.GH_PAT }} # Use the PAT stored in GitHub Secrets
