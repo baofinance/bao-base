@@ -7,4 +7,4 @@ on:
 
 jobs:
   call_bao-foundry-project:
-    uses: baofinance/dotfiles/.github/workflows/bao-foundry-project.yml
+    uses: baofinance/dotfiles/.github/workflows/bao-foundry-project.yml@main
