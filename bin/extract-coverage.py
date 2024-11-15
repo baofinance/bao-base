@@ -20,6 +20,7 @@ def parse_log(input_data):
     rows = [
         [col.strip() for col in line.split("|")[1:-1]]
         for line in matched.group(2).split("\n")
+        if line.split("|")[1].strip().startswith("src/")
     ]
 
     df = pd.DataFrame(rows, columns=header)
