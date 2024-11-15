@@ -34,7 +34,7 @@ jobs:
           yarn fmt:check
         id: fmt
 
-      - name: Run code checks
+      - name: Run Solhint
         run: |
           yarn lint
         id: lint
