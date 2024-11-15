@@ -20,6 +20,10 @@ lcov.info
 !.yarn/sdks
 !.yarn/versions
 
+# python generated files
+__pycache__/
+*.pyc
+
 # wake
 .wake/build/
 
