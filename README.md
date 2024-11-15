@@ -1,4 +1,4 @@
-# Baobase
+# Bao-base
 
 This is a project that can/should be used in all Bao contracts
 
@@ -7,12 +7,12 @@ This is a project that can/should be used in all Bao contracts
 Install this project using
 
 ```shell
-$ forge install baofinance\baobase
+$ forge install baofinance/bao-base
 ```
 
 add this to `remappings.txt`
 
-    @bao/=lib/baobase/src/
+    @bao/=lib/bao-base/src/
 
 
 # Development

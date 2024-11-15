@@ -1,5 +1,5 @@
 {
-    "name": "baobase",
+    "name": "bao-base",
     "license": "MIT",
     "scripts": {
         "install:slither": "pip3 install slither-analyzer --upgrade",
