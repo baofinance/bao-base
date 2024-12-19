@@ -1,0 +1,48 @@
+#!/bin/bash
+
+# run a script having installed all dependencies
+
+# Get project directory and input arguments
+PROJECT_DIR=$(dirname ${BASH_SOURCE[0]})
+
+SCRIPT="$1"
+shift
+
+BIN_DIR="$PROJECT_DIR/bin"
+
+# Handle dependencies and execution based on script type
+case "${SCRIPT##*.}" in
+    "py")
+        # here we use poery to create a virtual envs filled with the correct dependencies
+        # normally dependencies are the same for all scripts, however they can be overridden
+        # for each script.
+        # we do it this way so that dependencies are installed once for all scripts and invocations
+        # unless there are specific and incompatible dependencies
+        poetry config virtualenvs.in-project true
+        SCRIPT_DEPS="$BIN_DIR/$SCRIPT-dependencies"
+        if [ -f $SCRIPT_DEPS ]; then
+            cd "$SCRIPT_DEPS"
+            SCRIPT="../$SCRIPT"
+        else
+            cd "$BIN_DIR"
+        fi
+        if [ ! -d ".venv" ]; then
+            poetry install --no-root
+        fi
+        poetry run python "$SCRIPT" "$@"
+        ;;
+    "js")
+        cd "$PROJECT_DIR"
+        if [ ! -d "$PROJECT_DIR/node_modules" ]; then
+            yarn install
+        fi
+        node "$SCRIPT_PATH" "$@"
+        ;;
+    "sh")
+        bash "$SCRIPT_PATH" "$@"
+        ;;
+    *)
+        echo "Error: Unsupported script type '$SCRIPT_TYPE'."
+        exit 1
+        ;;
+esac

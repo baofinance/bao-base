@@ -9,21 +9,21 @@ def parse_log(input_data):
     """
     Parse the table from the input data.
     """
-    # Extract table portion using regex
-    table_regex = r"\n(\| File .*\|)\n\|[-|]+\|\n(\|[\s\S]+)\n\| Total .*\|\n"
-    matched = re.search(table_regex, input_data)
-    if not matched:
-        raise ValueError("Table section not found in the input.")
+    # Extract the header line
+    header_line = re.search(r"^\| File\s+\|.+\|$", input_data, re.MULTILINE).group(0)
+    header = [col.strip() for col in re.split(r"\s+\|\s+", header_line.strip('| '))]
 
-    # Split into rows and columns
-    header = [col.replace("%", "").strip() for col in matched.group(1).split("|")[1:-1]]  # Remove surrounding '|'
-    rows = [
-        [col.strip() for col in line.split("|")[1:-1]]
-        for line in matched.group(2).split("\n")
-        if line.split("|")[1].strip().startswith("src/")
-    ]
+    # Extract rows containing 'src/' and clean them
+    row_lines = re.findall(r"^\| src/.+\|$", input_data, re.MULTILINE)
 
-    df = pd.DataFrame(rows, columns=header)
+    data = []
+    for row_line in row_lines:
+        # Split by '|' separator and strip whitespace from each cell
+        columns = [col.strip() for col in re.split(r"\s+\|\s+", row_line.strip('| '))]
+        data.append(columns)
+
+    # Create the DataFrame using the cleaned and validated data
+    df = pd.DataFrame(data, columns=header)
 
     # format the data to show xxx% (nn/mm), with asterisk and padding for <100%
     df.iloc[:, 1:5] = df.iloc[:, 1:5].map(lambda x: (parts := x.split(' ')) and (percent := f"{float(parts[0].rstrip('%')):2.0f}") and (

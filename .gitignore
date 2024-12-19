@@ -5,6 +5,7 @@
 
 # libraries
 node_modules
+venv
 
 # Compiler files
 cache/

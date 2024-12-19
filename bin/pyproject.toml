@@ -1,0 +1,11 @@
+[tool.poetry]
+name = "bao-base-scripts"
+version = "0.1.0"
+description = "Fallback dependencies for scripts"
+authors = ["rootminus0x1"]
+license = "MIT"
+
+[tool.poetry.dependencies]
+python = ">=3.9"
+pandas = "^2.2.3"
+tabulate = "^0.9.0"
