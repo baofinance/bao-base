@@ -27,8 +27,8 @@ def parse_log(input_data) -> tuple[str, str, pd.DataFrame]:
 
     # Create the DataFrame using the cleaned and validated data
     df = pd.DataFrame(data, columns=header).drop(columns=["Min", "Avg", "# Calls"])
-    columns_to_format = ["Median", "Max"]
-    df[columns_to_format] = df[columns_to_format].applymap(lambda x: f"{int(x):>8}")
+    # columns_to_format = ["Median", "Max"]
+    # df[columns_to_format] = df[columns_to_format].map(lambda x: f"{int(x):>8}")
 
     return (file, contract, df)
 
