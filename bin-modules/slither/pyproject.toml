@@ -1,11 +1,11 @@
 [tool.poetry]
-name = "bao-base-scripts"
+name = "bao-base-bin-modules-slither"
 version = "0.1.0"
 description = "Fallback dependencies for scripts"
 authors = ["rootminus0x1"]
 license = "MIT"
 
 [tool.poetry.dependencies]
-python = ">=3.9"
-pandas = "^2.2.3"
-tabulate = "^0.9.0"
+python = "3.11.11"
+solc-select = "^1.0.4"
+slither-analyzer = "^0.10.4"

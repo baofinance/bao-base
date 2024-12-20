@@ -1,0 +1,36 @@
+#!/bin/bash
+set -e
+
+# Set the path to the Poetry project and the target script
+SCRIPT="$1"
+shift
+
+# Step 1: Install dependencies using Poetry
+DEPENDENCIES_DIR="$BAO_BASE_LIB_DIR/$SCRIPT"
+if [ ! -d "$DEPENDENCIES_DIR" ]; then
+    DEPENDENCIES_DIR="$BAO_BASE_LIB_DIR"
+fi
+
+# Ensure Poetry is installed
+if ! command -v poetry &> /dev/null; then
+    echo "Poetry is not installed. Please install Poetry and try again."
+    exit 1
+fi
+
+# set up the poetry config
+export POETRY_VIRTUALENVS_IN_PROJECT=true
+export POETRY_VIRTUALENVS_OPTIONS_NO_PIP=true
+export POETRY_NO_INTERACTION=1
+
+# install the dependencies directing the output to stderr
+# this output is nice to see, but not nice if we are running a filter
+# stdbuf -eL sets the buffering of stderr to line-by-line, so you see the install before the output
+poetry install --directory $DEPENDENCIES_DIR --no-root >&2
+
+# Step 2: Run the target Python script in the caller's directory
+source "$DEPENDENCIES_DIR/.venv/bin/activate"
+if [[ "$SCRIPT" == *.py ]]; then
+    $DEPENDENCIES_DIR/.venv/bin/python $DEPENDENCIES_DIR/$SCRIPT $@
+else
+    $DEPENDENCIES_DIR/.venv/bin/$SCRIPT $@
+fi

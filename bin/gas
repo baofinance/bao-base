@@ -1,0 +1,5 @@
+#!/bin/bash
+set -e
+
+mkdir -p ./regression
+forge clean; forge test --isolate --gas-report | bin/extract-gas | tee regression/gas.txt

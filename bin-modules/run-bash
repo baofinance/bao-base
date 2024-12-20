@@ -1,0 +1,7 @@
+#!/bin/bash
+set -e
+
+SCRIPT="$1"
+shift
+
+bash -e $BAO_BASE_BIN_DIR/$SCRIPT $@

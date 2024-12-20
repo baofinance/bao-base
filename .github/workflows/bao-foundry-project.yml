@@ -31,7 +31,6 @@ jobs:
         run: |
           forge --version
           yarn
-          yarn install:slither
 
       - name: Run Prettier
         run: |

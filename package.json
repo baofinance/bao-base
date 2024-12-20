@@ -1,26 +1,24 @@
 {
-    "name": "bao-base",
-    "license": "MIT",
-    "scripts": {
-        "install:slither": "pip3 install slither-analyzer --upgrade",
-        "gas": "forge clean; forge test --isolate --gas-report | bin/extract-gas | tee gas.txt",
-        "sizes": "forge clean; forge build --sizes | bin/extract-sizes | tee sizes.txt",
-        "prettier": "prettier --log-level warn --ignore-path .gitignore '{src,test,interfaces,script}/**/*.sol'",
-        "fmt": "yarn prettier --write",
-        "fmt:check": "yarn prettier --check",
-        "lint": "solhint --max-warnings 0 '{src,interfaces}/**/*.sol' --disc",
-        "slither": "echo $(which slither) version=$(slither --version) && slither . --exclude-dependencies --fail-pedantic",
-        "test": "forge test -vvv",
-        "coverage": "forge coverage --report summary --report lcov | bin/extract-coverage | tee coverage.txt",
-        "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'",
-        "pre-checkin": "yarn fmt && yarn slither && yarn lint && yarn test && yarn coverage && yarn gas && yarn sizes && echo \"ready for checkin\"",
-        "pre-push": "gh act -P ubuntu-latest=-self-hosted",
-        "install:act": "gh extension install https://github.com/nektos/gh-act"
-    },
-    "dependencies": {
-        "prettier": "3.3.3",
-        "prettier-plugin-solidity": "1.4.1",
-        "solhint": "^5.0.3"
-    },
-    "packageManager": "yarn@4.5.0"
+  "name": "bao-base",
+  "license": "MIT",
+  "scripts": {
+    "gas": "./run gas",
+    "sizes": "forge clean; forge build --sizes | bin/extract-sizes | tee sizes.txt",
+    "prettier": "prettier --log-level warn --ignore-path .gitignore '{src,test,interfaces,script}/**/*.sol'",
+    "fmt": "yarn prettier --write",
+    "fmt:check": "yarn prettier --check",
+    "lint": "solhint --max-warnings 0 '{src,interfaces}/**/*.sol' --disc",
+    "slither": "./run slither .",
+    "test": "forge test -vvv",
+    "coverage": "./run coverage",
+    "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'",
+    "pre-checkin": "yarn fmt && yarn slither && yarn lint && yarn test && yarn coverage && yarn gas && yarn sizes && echo \"ready for checkin\"",
+    "pre-push": "gh act -P ubuntu-latest=-self-hosted"
+  },
+  "dependencies": {
+    "prettier": "3.3.3",
+    "prettier-plugin-solidity": "1.4.1",
+    "solhint": "^5.0.3"
+  },
+  "packageManager": "yarn@4.5.0"
 }

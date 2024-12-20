@@ -1,0 +1,5 @@
+#!/bin/bash
+
+set -e
+
+gh act -P ubuntu-latest=-self-hosted

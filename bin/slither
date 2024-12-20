@@ -1,0 +1,5 @@
+#!/bin/bash
+
+set -e
+
+$BAO_BASE_LIB_DIR/run-python $@ --config $BAO_BASE_DIR/slither.config.json --exclude-dependencies --fail-pedantic
