@@ -22,9 +22,12 @@ def parse_log(input_data):
         data.append(columns)
 
     # Create the DataFrame using the cleaned and validated data
-    df = pd.DataFrame(data, columns=header)
+    df = pd.DataFrame(data, columns=header).drop(columns=["Initcode Size (B)", "Runtime Margin (B)", "Initcode Margin (B)"])
 
-    return df.drop(columns=["Initcode Size (B)", "Runtime Margin (B)", "Initcode Margin (B)"])
+    columns_to_format = ["Runtime Size (B)"]
+    df[columns_to_format] = df[columns_to_format].applymap(lambda x: f"{x:>8}")
+
+    return df
 
 
 def main():
