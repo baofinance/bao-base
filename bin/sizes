@@ -2,4 +2,4 @@
 set -e
 
 mkdir -p ./regression
-forge clean; forge build --sizes | $BAO_BASE_LIB_DIR/extract-sizes | tee regression/sizes.txt"
+forge clean && forge build --sizes | $BAO_BASE_LIB_DIR/run-python extract-sizes.py | tee regression/sizes.txt

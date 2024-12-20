@@ -3,7 +3,7 @@
   "license": "MIT",
   "scripts": {
     "gas": "./run gas",
-    "sizes": "forge clean; forge build --sizes | bin/extract-sizes | tee sizes.txt",
+    "sizes": "./run sizes",
     "prettier": "prettier --log-level warn --ignore-path .gitignore '{src,test,interfaces,script}/**/*.sol'",
     "fmt": "yarn prettier --write",
     "fmt:check": "yarn prettier --check",
