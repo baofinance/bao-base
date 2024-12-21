@@ -23,9 +23,9 @@ export POETRY_VIRTUALENVS_OPTIONS_NO_PIP=true
 export POETRY_NO_INTERACTION=1
 
 # install the dependencies directing the output to stderr
-# this output is nice to see, but not nice if we are running a filter
-# stdbuf -eL sets the buffering of stderr to line-by-line, so you see the install before the output
-poetry install --directory $DEPENDENCIES_DIR --no-root | grep -v -E "Installing dependencies from lock file|No dependencies to install or update|^$" >&2
+# this output is nice to see, but not nice if we are running a filter.
+# we do grep || true because we don't want a grep error code to fail the install
+poetry install --directory $DEPENDENCIES_DIR --no-root | grep -i " - Installing" || true >&2
 
 # Step 2: Run the target Python script in the caller's directory
 source "$DEPENDENCIES_DIR/.venv/bin/activate"
