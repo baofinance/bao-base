@@ -37,8 +37,6 @@ jobs:
           sudo apt install -y python3.11
           python3 --version
           curl -sSL https://install.python-poetry.org | python3 -
-          echo $PATH
-          export PATH="$HOME/.local/bin:$PATH"
           poetry --version
 
       - name: Install project dependencies
@@ -58,9 +56,6 @@ jobs:
 
       - name: Run Slither
         run: |
-          python3 --version
-          poetry --version
-          poetry --help
           yarn slither
         id: slither
 
