@@ -56,6 +56,9 @@ jobs:
 
       - name: Run Slither
         run: |
+          python3 --version
+          poetry --version
+          poetry --help
           yarn slither
         id: slither
 
