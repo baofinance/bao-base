@@ -36,7 +36,9 @@ jobs:
           sudo apt update
           sudo apt install -y python3.11
           python3 --version
-          sudo apt install -y python3-poetry
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo $PATH
+          export PATH="$HOME/.local/bin:$PATH"
           poetry --version
 
       - name: Install project dependencies
