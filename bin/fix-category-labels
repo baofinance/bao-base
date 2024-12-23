@@ -1,4 +1,6 @@
 #! /bin/sh
+set -e
+set -o pipefail
 
 # takes a list of file globs and processes each file in turn
 # if --write is specified then the processed file is overwritten otherwise it is checked

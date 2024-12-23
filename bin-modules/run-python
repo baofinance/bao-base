@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+set -o pipefail
 
 # Set the path to the Poetry project and the target script
 SCRIPT="$1"

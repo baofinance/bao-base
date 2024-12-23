@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+set -o pipefail
 
 mkdir -p ./regression
 forge clean && forge test --isolate --gas-report | $BAO_BASE_LIB_DIR/run-python extract-gas.py | tee regression/gas.txt

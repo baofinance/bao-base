@@ -1,4 +1,7 @@
 #! /bin/sh
+set -e
+set -o pipefail
+
 # calculates a storage has for a contract
 # uses chisel (installed as part of the foundry ethereum dev environment)
 # see https://book.getfoundry.sh/getting-started/installation

@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+set -o pipefail
 
 mkdir -p ./regression
 forge clean && forge build --sizes | $BAO_BASE_LIB_DIR/run-python extract-sizes.py | tee regression/sizes.txt

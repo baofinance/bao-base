@@ -1,5 +1,5 @@
 #!/bin/bash
-
 set -e
+set -o pipefail
 
 gh act -P ubuntu-latest=-self-hosted
