@@ -1,0 +1,9 @@
+#!/bin/bash
+set -e
+set -o pipefail
+
+# clean up the toos cache
+rm -rf /home/tfras/.cache/pypoetry/virtualenvs/bao-base-bin-modules*
+
+# clean the build artifacts
+forge clean

@@ -25,7 +25,10 @@ export POETRY_NO_INTERACTION=1
 # install the dependencies directing the output to stderr
 # this output is nice to see, but not nice if we are running a filter.
 # we do grep || true because we don't want a grep error code to fail the install
-poetry install --no-root --directory $DEPENDENCIES_DIR | grep -i " - Installing" || true >&2
+# we use a third file descriptor to preserve poetry's stderr
+{
+  poetry install --no-root --directory $DEPENDENCIES_DIR 2>&3 | grep -i " - Installing" >&2 || true
+} 3>&2
 
 # Step 2: Run the target Python script in the caller's directory
 if [[ "$SCRIPT" == *.py ]]; then
