@@ -11,13 +11,13 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str]:
     header_match = re.search(r"^\| Contract\s+\|.+\|$", input_data, re.MULTILINE).group(0)
     if not header_match:
         raise ValueError("Input data does not contain a valid table header.")
-    header = [col.strip() for col in re.split(r"\s+\|\s+", header_match.strip('| '))]
+    header = [col.strip() for col in re.split(r"\s*\|\s*", header_match.strip('| '))]
 
     # Extract rows containing 'src/' and clean them
     rows_match = re.findall(r"^\|\s*[A-Za-z0-9$_]+\s*\|\s*[0-9]+.+\|$", input_data, re.MULTILINE)
     if not rows_match:
         raise ValueError("Input data does not contain valid table rows.")
-    
+
     data = []
     for row_line in rows_match:
         # Split by '|' separator and strip whitespace from each cell

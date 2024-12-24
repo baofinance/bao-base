@@ -14,7 +14,6 @@ truncate -s 0 $REGRESSION_FILE # empty the existing file
 # generate the output
 # do this to keep the colour on the console:
 # tee >(sed 's/\x1b\[[0-9;]*m//g' > logfile.log)
-# cat $REGRESSION_LOG
 $BAO_BASE_DIR/run $REGRESSION_TYPE $@ | tee $REGRESSION_LOG
 
 # process it using the filter
