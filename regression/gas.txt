@@ -1,13 +1,13 @@
-lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/mocks/token/ERC20Mock.sol : ERC20Mock
+lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/mocks/token/ERC20Mock.sol:ERC20Mock
 ╒═════════════════╤══════════╤═══════╕
-│ Function Name   │   Median │   Max │
+│ function name   │   median │   max │
 ╞═════════════════╪══════════╪═══════╡
 │ balanceOf       │      647 │  2647 │
 ╘═════════════════╧══════════╧═══════╛
 
-test/BaoOwnable.t.sol : DerivedBaoOwnable
+test/BaoOwnable.t.sol:DerivedBaoOwnable
 ╒═══════════════════╤══════════╤═══════╕
-│ Function Name     │   Median │   Max │
+│ function name     │   median │   max │
 ╞═══════════════════╪══════════╪═══════╡
 │ initialize        │    23930 │ 67686 │
 ├───────────────────┼──────────┼───────┤
@@ -24,9 +24,9 @@ test/BaoOwnable.t.sol : DerivedBaoOwnable
 │ transferOwnership │    26170 │ 28805 │
 ╘═══════════════════╧══════════╧═══════╛
 
-test/BaoOwnableRoles.t.sol : DerivedBaoOwnableRoles
+test/BaoOwnableRoles.t.sol:DerivedBaoOwnableRoles
 ╒═══════════════════════╤══════════╤═══════╕
-│ Function Name         │   Median │   Max │
+│ function name         │   median │   max │
 ╞═══════════════════════╪══════════╪═══════╡
 │ ANOTHER_ROLE          │     2492 │  2492 │
 ├───────────────────────┼──────────┼───────┤
@@ -67,9 +67,9 @@ test/BaoOwnableRoles.t.sol : DerivedBaoOwnableRoles
 │ transferOwnership     │    26469 │ 29104 │
 ╘═══════════════════════╧══════════╧═══════╛
 
-test/BaoOwnableTransferrable.t.sol : DerivedBaoOwnableTransferrable
+test/BaoOwnableTransferrable.t.sol:DerivedBaoOwnableTransferrable
 ╒══════════════════════════════╤══════════╤═══════╕
-│ Function Name                │   Median │   Max │
+│ function name                │   median │   max │
 ╞══════════════════════════════╪══════════╪═══════╡
 │ cancelOwnershipTransfer      │    24960 │ 25687 │
 ├──────────────────────────────┼──────────┼───────┤
@@ -96,9 +96,9 @@ test/BaoOwnableTransferrable.t.sol : DerivedBaoOwnableTransferrable
 │ validateOwnershipTransfer    │    27520 │ 27520 │
 ╘══════════════════════════════╧══════════╧═══════╛
 
-test/BaoOwnableTransferrableRoles.t.sol : DerivedBaoOwnableTransferrableRoles
+test/BaoOwnableTransferrableRoles.t.sol:DerivedBaoOwnableTransferrableRoles
 ╒══════════════════════════════╤══════════╤═══════╕
-│ Function Name                │   Median │   Max │
+│ function name                │   median │   max │
 ╞══════════════════════════════╪══════════╪═══════╡
 │ MY_ROLE                      │     2294 │  2294 │
 ├──────────────────────────────┼──────────┼───────┤
@@ -135,9 +135,9 @@ test/BaoOwnableTransferrableRoles.t.sol : DerivedBaoOwnableTransferrableRoles
 │ validateOwnershipTransfer    │    27828 │ 27828 │
 ╘══════════════════════════════╧══════════╧═══════╛
 
-test/Ownable.t.sol : DerivedOwnable
+test/Ownable.t.sol:DerivedOwnable
 ╒════════════════════════════╤══════════╤═══════╕
-│ Function Name              │   Median │   Max │
+│ function name              │   median │   max │
 ╞════════════════════════════╪══════════╪═══════╡
 │ cancelOwnershipHandover    │    22578 │ 22578 │
 ├────────────────────────────┼──────────┼───────┤
@@ -158,9 +158,9 @@ test/Ownable.t.sol : DerivedOwnable
 │ transferOwnership          │    28610 │ 28610 │
 ╘════════════════════════════╧══════════╧═══════╛
 
-test/Ownable.t.sol : DerivedOwnableRoles
+test/Ownable.t.sol:DerivedOwnableRoles
 ╒════════════════════════════╤══════════╤═══════╕
-│ Function Name              │   Median │   Max │
+│ function name              │   median │   max │
 ╞════════════════════════════╪══════════╪═══════╡
 │ cancelOwnershipHandover    │    22732 │ 22732 │
 ├────────────────────────────┼──────────┼───────┤
@@ -181,9 +181,9 @@ test/Ownable.t.sol : DerivedOwnableRoles
 │ transferOwnership          │    28799 │ 28799 │
 ╘════════════════════════════╧══════════╧═══════╛
 
-test/TokenHolder.t.sol : DerivedTokenHolder
+test/TokenHolder.t.sol:DerivedTokenHolder
 ╒═════════════════╤══════════╤═══════╕
-│ Function Name   │   Median │   Max │
+│ function name   │   median │   max │
 ╞═════════════════╪══════════╪═══════╡
 │ initialize      │    75134 │ 75134 │
 ├─────────────────┼──────────┼───────┤

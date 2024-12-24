@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
 set -o pipefail
-
-forge test -vvv --nmp script/**/*.t.sol --summary
+shift # first parameter is "test"
+echo forge test -vvv --nmp script/**/*.t.sol --summary $@
+forge test -vvv --nmp script/**/*.t.sol --summary $@
