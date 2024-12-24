@@ -4,7 +4,6 @@
 # not quite sure if we neeed ever to deal with symlinks but if we do this is it:
 # BAO_BASE_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
-export BAO_BASE_CALLER_DIR="$(pwd)"
 export BAO_BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export BAO_BASE_BIN_DIR="$BAO_BASE_DIR/bin"
 export BAO_BASE_LIB_DIR="$BAO_BASE_DIR/bin-modules"

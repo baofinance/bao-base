@@ -2,5 +2,4 @@
 set -e
 set -o pipefail
 
-mkdir -p ./regression
-forge coverage --report summary --report lcov --nmp script/**/*.t.sol | $BAO_BASE_LIB_DIR/run-python extract-coverage.py | tee regression/coverage.txt
+forge coverage --nmp script/**/*.t.sol --report summary --report lcov
