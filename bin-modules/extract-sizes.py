@@ -14,7 +14,7 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str]:
     header = [col.strip() for col in re.split(r"\s+\|\s+", header_match.strip('| '))]
 
     # Extract rows containing 'src/' and clean them
-    rows_match = re.findall(r"^\| [A-Za-z0-9$_]+\s*\|\s*[0-9]+.+\|$", input_data, re.MULTILINE)
+    rows_match = re.findall(r"^\|\s*[A-Za-z0-9$_]+\s*\|\s*[0-9]+.+\|$", input_data, re.MULTILINE)
     if not rows_match:
         raise ValueError("Input data does not contain valid table rows.")
     
