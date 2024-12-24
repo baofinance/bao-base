@@ -2,6 +2,7 @@
   "name": "bao-base",
   "license": "MIT",
   "scripts": {
+    "clean": "./run clean",
     "gas": "./run regression-of gas",
     "sizes": "./run regression-of sizes",
     "prettier": "prettier --log-level warn --ignore-path .gitignore '{src,test,interfaces,script}/**/*.sol'",
@@ -16,8 +17,8 @@
     "pre-push": "gh act -P ubuntu-latest=-self-hosted"
   },
   "dependencies": {
-    "prettier": "3.3.3",
-    "prettier-plugin-solidity": "1.4.1",
+    "prettier": "^3.4.2",
+    "prettier-plugin-solidity": "^1.4.1",
     "solhint": "^5.0.3"
   },
   "packageManager": "yarn@4.5.0"
