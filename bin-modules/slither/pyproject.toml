@@ -6,6 +6,6 @@ authors = ["rootminus0x1"]
 license = "MIT"
 
 [tool.poetry.dependencies]
-python = "3.11.11"
+python = "^3.13"
 solc-select = "^1.0.4"
 slither-analyzer = "^0.10.4"
