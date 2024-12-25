@@ -14,7 +14,8 @@ jobs:
   solidity_code_check:
     strategy:
       matrix:
-        os: [ubuntu-24.04, ubuntu-22.04]
+        os: [ubuntu-24.04, ubuntu-22.04, macos-13, windows-2022]
+      fail-fast: false # ensure all jobs run even if one fails
 
     name: Bao Foundry project
     runs-on: ${{ matrix.os }}
