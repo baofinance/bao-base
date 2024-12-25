@@ -15,6 +15,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, ubuntu-22.04, macos-13, windows-2022]
+        foundry: [v0.3.0, nightly-233bff2f8ef1f958e1676048c85a2bc37efa2241] #
       fail-fast: false # ensure all jobs run even if one fails
 
     name: Bao Foundry project
@@ -25,25 +26,36 @@ jobs:
           echo "runner.os=${{ runner.os }}"
           python3 -c "import platform; info = f'{platform.system()} {platform.release()} {platform.version()} {platform.machine()}'; print('-' * len(info)); print(info); print('-' * len(info))"
 
-      - uses: actions/checkout@v4
+      - name: Install recent python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.13"
+
+      - name: Install Poetry (python package manager)
+        uses: snok/install-poetry@v1
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: nightly
+          version: ${{ matrix.foundry }}
 
-      - name: Install system tools
-        run: |
-          python3 --version
-          curl -sSL https://install.python-poetry.org | python3 -
-          poetry --version
-          which poetry
+      # - name: Install system tools
+      #   run: |
+      #     python3 --version
+      #     curl -sSL https://install.python-poetry.org | python3 -
+      #     poetry --version
+      #     which poetry
 
       - name: Install project dependencies
         run: |
           forge --version
+          python3 --version
+          poetry --version
           yarn
 
       - name: Run Prettier
