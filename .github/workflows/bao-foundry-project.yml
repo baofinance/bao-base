@@ -14,7 +14,7 @@ jobs:
   solidity_code_check:
     strategy:
       matrix:
-        os: [ubuntu-24.04, ubuntu-22.04, ubuntu-20.04, macos-13, macos-12, windows-2022]
+        os: [ubuntu-24.04, ubuntu-22.04, ubuntu-20.04, macos-latest, windows-latest]
       fail-fast: true
 
     name: Bao Foundry project
@@ -22,12 +22,8 @@ jobs:
     steps:
       - name: Check Environment
         run: |
-          output=$(uname -a)
-          line=$(printf '%*s' "${#output}" '' | tr ' ' '-')
-          echo "$line"
-          echo "uname -a"
-          echo "$output"
-          echo "$line"
+          echo "runner.os=${{ runner.os }}"
+          python3 -c "import platform; info = f'{platform.system()} {platform.release()} {platform.version()} {platform.machine()}'; print('-' * len(info)); print(info); print('-' * len(info))"
 
       - uses: actions/checkout@v4
         with:
