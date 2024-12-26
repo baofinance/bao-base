@@ -11,7 +11,7 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str]:
     path_match = re.search(r"(\S+)\s*:\s*(\S+)", input_data)
     if not path_match:
         raise ValueError("Input data does not contain the expected 'file:contract' pattern.")
-    
+
     file = path_match.group(1)
     contract = path_match.group(2)
 
@@ -24,7 +24,7 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str]:
     rows_match = re.findall(r"^\| [A-Za-z$_][A-Za-z$_]+\s+\|.+\|$", input_data, re.MULTILINE)
     if not rows_match:
         raise ValueError("Input data does not contain valid table rows.")
-    
+
     data = []
     for row_line in rows_match:
         # Split by '|' separator and strip whitespace from each cell

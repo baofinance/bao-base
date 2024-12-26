@@ -17,7 +17,7 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str]:
     rows_match = re.findall(r"^\| src/.+\|$", input_data, re.MULTILINE)
     if not rows_match:
         raise ValueError("Input data does not contain valid table rows.")
-    
+
     data = []
     for row_line in rows_match:
         # Split by '|' separator and strip whitespace from each cell

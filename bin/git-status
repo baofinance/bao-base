@@ -1,0 +1,9 @@
+#!/bin/bash
+set -e
+set -o pipefail
+
+if [[ -n $(git status --porcelain) ]]; then
+    echo "Changes:"
+    git status --porcelain
+    exit 1
+fi

@@ -14,6 +14,7 @@
     "coverage": "./run regression-of coverage",
     "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'",
     "pre-checkin": "yarn fmt && yarn slither && yarn lint && yarn test && yarn coverage && yarn gas && yarn sizes && echo \"ready for checkin\"",
+    "git-status": "./run git-status",
     "pre-push": "gh act -P ubuntu-latest=-self-hosted"
   },
   "dependencies": {
