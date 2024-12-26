@@ -1,4 +1,5 @@
 import sys
+import io
 import re
 import pandas as pd
 from tabulate import tabulate
@@ -31,6 +32,7 @@ def toStr(df: pd.DataFrame) -> str:
     return tabulate(df, headers="keys", showindex=False, tablefmt="fancy_grid")
 
 def process(toNamedDataFrame: Callable[[str], tuple[pd.DataFrame, str]]):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     first = True
     for table in extract(sys.stdin.read()):
         # Parse the table
