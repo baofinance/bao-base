@@ -14,7 +14,7 @@ jobs:
   solidity_code_check:
     strategy:
       matrix:
-        os: [windows-latest] # ubuntu-latest, ubuntu-22.04, macos-13, windows-2022]
+        os: [ubuntu-latest, ubuntu-22.04, macos-latest, macos-13, windows-2025, windows-latest]
         foundry: [v0.3.0] #, nightly, nightly-233bff2f8ef1f958e1676048c85a2bc37efa2241]
       fail-fast: false # ensure all jobs run even if one fails
 
