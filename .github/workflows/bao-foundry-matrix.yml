@@ -29,6 +29,9 @@ jobs:
     name: Bao Foundry project
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
       - name: Run project
         uses: ./.github/workflows/bao-foundry-project.yml
         with:
