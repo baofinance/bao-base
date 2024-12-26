@@ -35,15 +35,12 @@ jobs:
 
       - name: Install Poetry (python package manager)
         uses: snok/install-poetry@v1
-      - if: ${{ runner.os == 'Windows' }}
-        run: echo "C:\Users\runneradmin\.local\bin" >> $GITHUB_PATH
+      - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Verify PATH Update
         run: |
           echo "Updated PATH:"
           echo $env:PATH
-          where poetry
-        shell: pwsh
 
       - if: ${{ runner.os == 'Windows' }}
         run: |
