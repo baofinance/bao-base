@@ -2,6 +2,12 @@
 set -e
 set -o pipefail
 
+# poetry is installed here
+NEW_PATH="$HOME/.local/bin"
+if [[ ":$PATH:" != *":$NEW_PATH:"* ]]; then
+  export PATH="$PATH:$NEW_PATH"
+fi
+
 # Set the path to the Poetry project and the target script
 SCRIPT="$1"
 shift
