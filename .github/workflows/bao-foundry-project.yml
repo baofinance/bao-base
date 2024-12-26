@@ -92,8 +92,4 @@ jobs:
 
       - name: Check for changed repo files
         run: |
-          if [[ -n $(git status --porcelain) ]]; then
-            echo "Uncommitted changes detected:"
-            git status --porcelain
-            exit 1
-          fi
+          yarn git-changes
