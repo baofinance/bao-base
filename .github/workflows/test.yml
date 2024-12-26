@@ -6,5 +6,5 @@ on:
   workflow_dispatch:
 
 jobs:
-  call_bao-foundry-project:
-    uses: ./.github/workflows/bao-foundry-project.yml
+  call_bao-foundry-matrix:
+    uses: ./.github/workflows/bao-foundry-matrix.yml

@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      os:
+        description: "Operating system to test"
+        required: true
+        type: string
+      foundry:
+        description: "Foundry version to test"
+        required: true
+        type: string
+
+jobs:
+  call_bao-foundry-project:
+    uses: ./.github/workflows/bao-foundry-project.yml
+    with:
+      os: ${{ inputs.os }}
+      foundry: ${{ inputs.foundry }}

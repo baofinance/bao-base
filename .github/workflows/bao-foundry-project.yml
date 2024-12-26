@@ -6,35 +6,23 @@ on:
       API_KEY:
         description: "API key for accessing service"
         required: false
+    inputs:
+      os:
+        description: "Operating system to test"
+        required: true
+        type: string
+      foundry:
+        description: "Foundry version to test"
+        required: true
+        type: string
 
 env:
   FOUNDRY_PROFILE: ci
 
 jobs:
-  solidity_code_check:
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            foundry: nightly
-          - os: ubuntu-22.04
-            foundry: v0.3.0
-          - os: ubuntu-22.04
-            foundry: nightly-233bff2f8ef1f958e1676048c85a2bc37efa2241
-
-          - os: macos-latest
-            foundry: nightly
-          - os: macos-14
-            foundry: v0.3.0
-
-          - os: windows-latest
-            foundry: nightly
-          - os: windows-2022
-            foundry: v0.3.0
-      fail-fast: false # ensure all jobs run even if one fails
-
+  test_foundry_project:
     name: Bao Foundry project
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ inputs.OS }}
     steps:
       - name: Check Environment
         run: |
@@ -59,7 +47,7 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: ${{ matrix.foundry }}
+          version: ${{ inputs.FOUNDRY }}
       - run: |
           forge --version
 
