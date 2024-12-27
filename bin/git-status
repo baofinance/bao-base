@@ -2,11 +2,19 @@
 set -e
 set -o pipefail
 
-if [[ -n $(git status --porcelain) ]]; then
-    echo "Changes:"
-    git status --porcelain
-    exit 1
-else
-    echo "No changes"
+# Get the list of files from `git status --porcelain`
+files=$(git status --porcelain | awk '{print $2}')
+
+# Check if there are any files to diff
+if [ -z "$files" ]; then
+    echo "No changes."
     exit 0
 fi
+
+# Loop through each file and show the diff
+for file in $files; do
+    echo "Changes:"
+    echo
+    echo "==== Diff for: $file ===="
+    git diff --word-diff=color --minimal "$file"
+done
