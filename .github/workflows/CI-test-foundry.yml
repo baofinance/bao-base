@@ -5,6 +5,10 @@ on:
   pull_request:
   workflow_dispatch:
   workflow_call:
+    secrets:
+      ALCHEMY_KEY:
+        description: "API KEY for accessing the ALchemy blockchain service"
+        required: false
 
 jobs:
   test_foundry_matrix:
