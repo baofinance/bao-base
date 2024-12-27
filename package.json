@@ -15,8 +15,7 @@
     "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'",
     "pre-checkin": "yarn fmt && yarn slither && yarn lint && yarn test && yarn coverage && yarn gas && yarn sizes && echo \"ready for checkin\"",
     "git-status": "./run git-status",
-    "CI:ubuntu:latest": "gh act -P ubuntu-latest=-self-hosted -W .github/workflows/local.yml -e .github/ubuntu_workflow_dispatch_latest.json",
-    "CI:ubuntu": "gh act -P ubuntu-latest=-self-hosted -W .github/workflows/local.yml -e .github/ubuntu_workflow_dispatch_current.json",
+    "CI:latest": "gh act -P ubuntu-latest=-self-hosted -W .github/workflows/local.yml -e .github/ubuntu_workflow_dispatch_latest.json",
     "CI": "gh act -P ubuntu-latest=-self-hosted -W .github/workflows/CI.yml -e .github/workflow_dispatch.json"
   },
   "dependencies": {
