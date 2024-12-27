@@ -79,8 +79,12 @@ jobs:
 
       - name: Run Forge tests
         env:
+          ALCHEMY_API_URL: ${{ secrets.ALCHEMY_API_URL }}
           MAINNET_RPC_URL: ${{ env.MAINNET_RPC_URL || secrets.ALCHEMY_API_URL }}
         run: |
+          echo "ALCHEMY_API_URL length is ${#ALCHEMY_API_URL}"
+          echo mainnet URL: $ALCHEMY_API_URL
+          echo "MAINNET_RPC_URL length is ${#MAINNET_RPC_URL}"
           echo mainnet URL: $MAINNET_RPC_URL
           yarn test
           yarn coverage
