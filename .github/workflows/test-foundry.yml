@@ -2,6 +2,10 @@ name: Test Foundry (callable)
 
 on:
   workflow_call:
+    secrets:
+      DEFAULT_MAINNET_RPC_URL:
+        description: "default API URL for accessing blockchain service"
+        required: false
     inputs:
       os:
         description: "Operating system to test"
@@ -80,7 +84,7 @@ jobs:
 
       - name: Run Forge tests
         env:
-          MAINNET_RPC_URL: ${{ env.MAINNET_RPC_URL || env.DEFAULT_MAINNET_RPC_URL }}
+          MAINNET_RPC_URL: ${{ env.MAINNET_RPC_URL || secrets.DEFAULT_MAINNET_RPC_URL }}
         run: |
           echo MAINNET_RPC_URL: $MAINNET_RPC_URL
           echo DEFAULT_MAINNET_RPC_URL: $DEFAULT_MAINNET_RPC_URL
