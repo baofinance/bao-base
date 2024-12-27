@@ -3,11 +3,6 @@ name: Test Foundry (callable)
 on:
   workflow_call:
     inputs:
-      rpc_url:
-        description: "The RPC URL used to access a blockchain"
-        required: true
-        type: string
-        default: env.MAINNET_RPC_URL
       os:
         description: "Operating system to test"
         required: true
