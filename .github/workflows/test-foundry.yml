@@ -1,4 +1,4 @@
-name: CI
+name: Test Foundry (callable)
 
 on:
   workflow_call:

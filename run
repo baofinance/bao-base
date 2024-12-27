@@ -1,4 +1,6 @@
 #!/bin/bash
+set -e
+set -o pipefail
 
 # set up where everything is
 # not quite sure if we neeed ever to deal with symlinks but if we do this is it:

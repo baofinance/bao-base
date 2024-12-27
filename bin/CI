@@ -2,15 +2,16 @@
 set -e
 set -o pipefail
 
+DEP_DIR=$BAO_BASE_LIB_DIR/$1
 shift
 
 if [[ "$1" == "all" ]]; then
     shift
     WORKFLOW=.github/workflows/CI-test-foundry.yml
-    EVENT=.github/workflow_dispatch.json
+    EVENT=$DEP_DIR/workflow_dispatch.json
 else
-    WORKFLOW=.github/workflows/local-test-foundry.yml
-    EVENT=.github/ubuntu_workflow_dispatch_latest.json
+    WORKFLOW=$DEP_DIR/local-test-foundry.yml
+    EVENT=$DEP_DIR/ubuntu_workflow_dispatch_latest.json
 fi
 
 echo gh act --directory $BAO_BASE_DIR -P ubuntu-latest=-self-hosted -W $WORKFLOW -e $EVENT $@
