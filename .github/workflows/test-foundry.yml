@@ -3,6 +3,11 @@ name: Test Foundry (callable)
 on:
   workflow_call:
     inputs:
+      rpc_url:
+        description: "The RPC URL used to access a blockchain"
+        required: true
+        type: string
+        default: env.MAINNET_RPC_URL
       os:
         description: "Operating system to test"
         required: true
@@ -19,6 +24,7 @@ jobs:
   test_foundry_project:
     name: Foundry project
     runs-on: ${{ inputs.OS }}
+
     steps:
       - name: Check Environment
         run: |
@@ -79,16 +85,10 @@ jobs:
 
       - name: Run Forge tests
         env:
-          ALCHEMY_KEY: ${{ secrets.ALCHEMY_KEY }}
-          ALCHEMY_RPC_URL: https://eth-mainnet.g.alchemy.com/v2/${{ secrets.ALCHEMY_KEY }}
-          MAINNET_RPC_URL: ${{ env.MAINNET_RPC_URL || env.ALCHEMY_RPC_URL }}
+          MAINNET_RPC_URL: ${{ env.MAINNET_RPC_URL || env.DEFAULT_MAINNET_RPC_URL }}
         run: |
-          echo "ALCHEMY_KEY length is ${#ALCHEMY_KEY}"
-          echo mainnet URL: $ALCHEMY_KEY
-          echo "ALCHEMY_RPC_URL length is ${#ALCHEMY_RPC_URL}"
-          echo ALCHEMY URL: $ALCHEMY_RPC_URL
-          echo "MAINNET_RPC_URL length is ${#MAINNET_RPC_URL}"
-          echo mainnet URL: $MAINNET_RPC_URL
+          echo MAINNET_RPC_URL: $MAINNET_RPC_URL
+          echo DEFAULT_MAINNET_RPC_URL: $DEFAULT_MAINNET_RPC_URL
           yarn test
           yarn coverage
           yarn gas
