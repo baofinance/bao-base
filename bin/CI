@@ -3,16 +3,15 @@ set -e
 set -o pipefail
 
 shift
-echo "CI $@"
 
 if [[ "$1" == "all" ]]; then
     shift
-    WORKFLOW=$BAO_BASE_GITHUB_DIR/workflows/CI-test-foundry.yml
-    EVENT=$BAO_BASE_GITHUB_DIR/workflow_dispatch.json
+    WORKFLOW=.github/workflows/CI-test-foundry.yml
+    EVENT=.github/workflow_dispatch.json
 else
-    WORKFLOW=$BAO_BASE_GITHUB_DIR/workflows/local-test-foundry.yml
-    EVENT=$BAO_BASE_GITHUB_DIR/ubuntu_workflow_dispatch_latest.json
+    WORKFLOW=.github/workflows/local-test-foundry.yml
+    EVENT=.github/ubuntu_workflow_dispatch_latest.json
 fi
 
-echo gh act -P ubuntu-latest=-self-hosted -W $WORKFLOW -e $EVENT $@
-gh act -P ubuntu-latest=-self-hosted -W $WORKFLOW -e $EVENT $@
+echo gh act --directory $BAO_BASE_DIR -P ubuntu-latest=-self-hosted -W $WORKFLOW -e $EVENT $@
+gh act --directory $BAO_BASE_DIR -P ubuntu-latest=-self-hosted -W $WORKFLOW -e $EVENT $@
