@@ -2,10 +2,6 @@ name: Test Foundry (callable)
 
 on:
   workflow_call:
-    secrets:
-      API_KEY:
-        description: "API key for accessing service"
-        required: false
     inputs:
       os:
         description: "Operating system to test"
