@@ -13,8 +13,8 @@ on:
         type: string
 
 jobs:
-  call_bao-foundry-project:
-    uses: ./.github/workflows/bao-foundry-project.yml
+  test_foundry:
+    uses: ./.github/workflows/test-foundry.yml
     with:
       os: ${{ inputs.os }}
       foundry: ${{ inputs.foundry }}

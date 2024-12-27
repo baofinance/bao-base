@@ -21,7 +21,7 @@ env:
 
 jobs:
   test_foundry_project:
-    name: Bao Foundry project
+    name: Foundry project
     runs-on: ${{ inputs.OS }}
     steps:
       - name: Check Environment

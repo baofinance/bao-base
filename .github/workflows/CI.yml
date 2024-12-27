@@ -1,7 +1,9 @@
 name: CI
 
 on:
-  workflow_call:
+  push:
+  pull_request:
+  workflow_dispatch:
 
 jobs:
   test_foundry_matrix:
@@ -26,14 +28,7 @@ jobs:
             foundry: v0.3.0
       fail-fast: false # ensure all jobs run even if one fails
 
-    name: Bao Foundry project
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Run project
-        uses: ./.github/workflows/bao-foundry-project.yml
-        with:
-          foundry: ${{ matrix.foundry }}
-          os: ${{ matrix.os }}
+    uses: ./.github/workflows/test-foundry.yml
+    with:
+      os: ${{ matrix.os }}
+      foundry: ${{ matrix.foundry }}
