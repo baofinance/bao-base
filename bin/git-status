@@ -2,19 +2,45 @@
 set -e
 set -o pipefail
 
-# Get the list of files from `git status --porcelain`
-files=$(git status --porcelain | awk '{print $2}')
-
-# Check if there are any files to diff
-if [ -z "$files" ]; then
-    echo "No changes."
-    exit 0
-fi
+# how many changes
+changes=0
 
 # Loop through each file and show the diff
-for file in $files; do
-    echo "Changes:"
-    echo
-    echo "==== Diff for: $file ===="
-    git diff --word-diff=color --minimal "$file"
+git status --porcelain=v1 | while read -r change; do
+    if [ "$changes" == "0" ]; then
+        echo "Changes:"
+    else
+        echo ""
+    fi
+    changes=$((changes + 1))
+
+    type=${change:0:1}
+
+    case "$type" in
+    M)
+        file=${change:2}
+        echo -e "\e[1m==== modified file: ${file} ====\e[0m"
+
+        # GIT_PAGER=cat git diff --minimal --word-diff=plain --ignore-submodules --ignore-space-change --ignore-blank-lines --color-moved=no --color-moved-ws=ignore-all-space $file
+        logfile=${file//\//\__}.diff.log
+        git diff --output=$logfile --color=always --unified=0 --word-diff=plain --ignore-space-change --ignore-blank-lines --color-moved-ws=ignore-all-space $file
+        if [ -f "$file" ]; then
+            head -n 3 $file | sed 's/^/    /'
+        fi
+        sed 's/^/    /' $logfile | sed '0,/@@\x1b\[m$/d' | sed '/@@ [-0-9,]\+ [+0-9,]\+ @@/d'
+        ;;
+    ?)
+        file=${change:3}
+        echo -e "==== \e[1mnew file: ${file} ====\e[0m"
+        ;;
+    D)
+        file=${change:2}
+        echo -e "==== \e[1mdeleted file: ${file} ====\e[0m"
+        ;;
+    *)
+        echo -e "==== \e[1munhandled change type: $change ====\e[0m"
+        ;;
+    esac
 done
+
+exit $changes
