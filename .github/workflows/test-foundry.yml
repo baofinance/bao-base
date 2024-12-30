@@ -95,4 +95,4 @@ jobs:
 
       - name: Check for changed repo files
         run: |
-          yarn git-status
+          yarn git-diffs
