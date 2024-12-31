@@ -1,5 +1,8 @@
 name: Local CI
 
+env:
+  FOUNDRY_PROFILE: ci
+
 on:
   workflow_dispatch:
     inputs:
@@ -14,7 +17,14 @@ on:
 
 jobs:
   test_foundry:
-    uses: ./.github/workflows/test-foundry.yml
-    with:
-      os: ${{ inputs.os }}
-      foundry: ${{ inputs.foundry }}
+    runs-on: ${{ inputs.os }}
+    steps:
+      - name: Checkout repository with submodules
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Run Bao-base CI actions
+        uses: ./.github/actions/test-foundry
+        with:
+          foundry: ${{ inputs.foundry }}

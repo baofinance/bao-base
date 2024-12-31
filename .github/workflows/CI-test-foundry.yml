@@ -10,6 +10,9 @@ on:
         description: "API KEY for accessing the ALchemy blockchain service"
         required: false
 
+env:
+  MAINNET_RPC_URL: https://eth-mainnet.g.alchemy.com/v2/${{ secrets.ALCHEMY_KEY }}
+
 jobs:
   test_foundry_matrix:
     strategy:
@@ -33,9 +36,14 @@ jobs:
             foundry: v0.3.0
       fail-fast: false # ensure all jobs run even if one fails
 
-    uses: ./.github/workflows/test-foundry.yml
-    secrets:
-      DEFAULT_MAINNET_RPC_URL: https://eth-mainnet.g.alchemy.com/v2/${{ secrets.ALCHEMY_KEY }}
-    with:
-      os: ${{ matrix.os }}
-      foundry: ${{ matrix.foundry }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository with submodules
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Run Bao-base CI actions
+        uses: ./.github/actions/test-foundry
+        with:
+          foundry: ${{ matrix.foundry }}

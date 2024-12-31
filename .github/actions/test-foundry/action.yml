@@ -1,0 +1,98 @@
+name: Test Foundry
+description: "runs all the tests for a Foundry solidity project"
+
+# secrets:
+#   DEFAULT_MAINNET_RPC_URL:
+#     description: "default API URL for accessing blockchain service"
+#     required: false
+inputs:
+  # os:
+  #   description: "Operating system to test"
+  #   required: true
+  #   type: string
+  foundry:
+    description: "Foundry version to test"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Check Environment
+      shell: bash
+      run: |
+        echo "runner.os=${{ runner.os }}"
+        python3 -c "import platform; info = f'{platform.system()} {platform.release()} {platform.version()} {platform.machine()}'; print('-' * len(info)); print(info); print('-' * len(info))"
+
+    - name: Install recent python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.13"
+    - shell: bash
+      run: |
+        python3 --version
+
+    - name: Install Poetry (python package manager)
+      uses: snok/install-poetry@v1
+
+    # - name: Checkout repo
+    #   uses: actions/checkout@v4
+    #   with:
+    #     submodules: recursive
+
+    - name: Install Foundry
+      uses: foundry-rs/foundry-toolchain@v1
+      with:
+        version: ${{ inputs.FOUNDRY }}
+    - shell: bash
+      run: |
+        forge --version
+
+    - name: Install project dependencies
+      shell: bash
+      run: |
+        yarn
+
+    - name: Run Prettier
+      # TODO: doesn't run on windows
+      if: ${{ runner.os != 'Windows' }}
+      shell: bash
+      run: |
+        yarn fmt:check
+      id: fmt
+
+    - name: Run Solhint
+      # TODO: doesn't run on windows
+      if: ${{ runner.os != 'Windows' }}
+      shell: bash
+      run: |
+        yarn lint
+      id: lint
+
+    - name: Run Slither
+      # TODO: doesn't run on windows
+      if: ${{ runner.os != 'Windows' }}
+      shell: bash
+      run: |
+        yarn slither
+      id: slither
+
+    - name: Run Forge build
+      shell: bash
+      run: |
+        yarn sizes
+      id: build
+
+    - name: Run Forge tests
+      shell: bash
+      run: |
+        echo MAINNET_RPC_URL: $MAINNET_RPC_URL
+        echo DEFAULT_MAINNET_RPC_URL: $DEFAULT_MAINNET_RPC_URL
+        yarn test
+        yarn coverage
+        yarn gas
+      id: test
+
+    - name: Check for changed repo files
+      shell: bash
+      run: |
+        yarn git-diffs
