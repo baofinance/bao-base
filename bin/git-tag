@@ -49,3 +49,7 @@ git tag -f "$LATEST_TAG" "$TAG"
 git push origin -f "$LATEST_TAG"
 
 echo "created tag $TAG and updated $LATEST_TAG to point to it"
+
+git ls-remote --tags origin | grep -oE '[a-f0-9]{40}\srefs/tags/[^"]+' | awk '{print $1, $2}' | sed 's|refs/tags/||' | sort -t ' ' -k 2 -V | tail -n 3 | while read -r hash tag; do
+    echo "$hash $tag"
+done
