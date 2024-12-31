@@ -15,6 +15,7 @@
     "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'",
     "pre-checkin": "yarn fmt && yarn slither && yarn lint && yarn test && yarn coverage && yarn gas && yarn sizes && echo \"ready for checkin\"",
     "git-diffs": "./run git-diffs",
+    "git-tag": "./run git-tag",
     "CI": "./run CI",
     "CI:all": "./run CI all"
   },

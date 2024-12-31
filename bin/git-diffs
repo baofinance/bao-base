@@ -16,7 +16,7 @@ while IFS="" read -r change; do
 
     X=${change:0:1}
     Y=${change:1:1}
-    file=${change:2}
+    file=${change:3}
 
     case "$X" in
     ' ')
@@ -24,13 +24,14 @@ while IFS="" read -r change; do
         M)
             echo -e "\e[1m==== modified file: ${file} ====\e[0m"
 
-            # GIT_PAGER=cat git diff --minimal --word-diff=plain --ignore-submodules --ignore-space-change --ignore-blank-lines --color-moved=no --color-moved-ws=ignore-all-space $file
             logfile=${file//\//\__}.diff.log
             git diff --output=$logfile --color=always --minimal --unified=0 --word-diff=plain --ignore-space-change --ignore-blank-lines --color-moved-ws=ignore-all-space $file
-            if [ -f "$file" ]; then
+            if [[ -f "$file" && "$file" == "*.txt" ]]; then
                 head -n 3 $file | sed 's/^/    /'
+                sed 's/^/    /' $logfile | sed '0,/@@\x1b\[m$/d' | sed '/@@ [-0-9,]\+ [+0-9,]\+ @@/d'
+            else
+                sed 's/^/    /' $logfile
             fi
-            sed 's/^/    /' $logfile | sed '0,/@@\x1b\[m$/d' | sed '/@@ [-0-9,]\+ [+0-9,]\+ @@/d'
             ;;
         A)
             echo -e "==== \e[1madded file: ${file} ====\e[0m"
