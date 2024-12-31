@@ -6,7 +6,11 @@ DEP_DIR=$BAO_BASE_LIB_DIR/$1
 shift
 
 EVENT=$DEP_DIR/ubuntu_workflow_dispatch_latest.json
-WORKFLOW=$DEP_DIR/local-test-foundry.yml
+WORKFLOW_FILE=local-test-foundry.yml
+WORKFLOW_DIR=./cache
 
-echo gh act -P ubuntu-latest=-self-hosted -W $WORKFLOW -e $EVENT $@
-gh act -P ubuntu-latest=-self-hosted -W $WORKFLOW -e $EVENT $@
+mkdir -p $WORKFLOW_DIR
+sed "s|\$BAO_BASE|$BAO_BASE|g" $DEP_DIR/$WORKFLOW_FILE > $WORKFLOW_DIR/$WORKFLOW_FILE
+
+echo gh act -P ubuntu-latest=-self-hosted -W $WORKFLOW_DIR/$WORKFLOW_FILE -e $EVENT $@
+gh act -P ubuntu-latest=-self-hosted -W $WORKFLOW_DIR/$WORKFLOW_FILE -e $EVENT $@
