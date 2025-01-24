@@ -6,7 +6,15 @@ import re
 from packaging import version
 from packaging.specifiers import SpecifierSet
 
+import logging
+
+# Configure logging (do this once, usually at the start of your script)
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s: %(message)s')
+
+
 def to_pep440(loose_constraint):
+    logging.debug(f"to_pep440({loose_constraint})")
+
     match = re.match(r"\^(\d+)(?:\.(\d+))?(?:\.(\d+))?", loose_constraint)
     if not match:
         return loose_constraint
@@ -29,14 +37,15 @@ def to_pep440(loose_constraint):
         return f">={major}.{minor}.{patch},<{int(major) + 1}.0.0"
 
 def get_constraint(pyproject_path):
+    logging.debug(f"get_constraint({pyproject_path}")
     try:
         with open(pyproject_path, "r") as f:
             pyproject = toml.load(f)
     except FileNotFoundError:
-        print(f"Error: pyproject.toml not found at {pyproject_path}")
+        logging.error(f"pyproject.toml not found at {pyproject_path}")
         exit(1)
     except toml.TomlDecodeError as e:
-        print(f"Error: Invalid pyproject.toml: {e}")
+        logging.error(f"Invalid pyproject.toml: {e}")
         exit(1)
 
     dependencies = pyproject["tool"]["poetry"]["dependencies"]
@@ -46,10 +55,11 @@ def get_constraint(pyproject_path):
         return None
     # except KeyError as e:
     #     if not (e.args[0] == "dependencies" and "tool" in pyproject and "poetry" in pyproject["tool"]):
-    #         print(f"Error: Invalid pyproject.toml: Missing key {e}")
+    #         logging.error(f"Invalid pyproject.toml: Missing key {e}")
     #         exit(1)
 
 def find_matching(constraint):
+    logging.debug(f"find_matching({constraint})")
     VERSION_REGEX = re.compile(
         r"python(" + version.VERSION_PATTERN + r")", re.VERBOSE | re.IGNORECASE
     )
@@ -64,10 +74,10 @@ def find_matching(constraint):
                 except version.InvalidVersion:
                     pass
     except FileNotFoundError:
-        print("Warning: /usr/bin not found")
+        logging.warning("/usr/bin not found")
         return None
     except PermissionError:
-        print("Warning: Permission denied accessing /usr/bin")
+        logging.warning("Permission denied accessing /usr/bin")
         return None
 
     spec = SpecifierSet(constraint)
@@ -82,9 +92,11 @@ def find_matching(constraint):
 
 
 def main():
+    logging.debug("matching-python.py")
     parser = argparse.ArgumentParser(description="Find a matching Python interpreter.")
     parser.add_argument('--directory', type=str, default=".", help="The directory containing pyproject.toml (defaults to current directory).")
     args = parser.parse_args()
+    logging.debug(f"with args {args}")
 
     constraint = get_constraint(os.path.join(args.directory, "pyproject.toml"))
     if constraint:
@@ -94,7 +106,7 @@ def main():
             print(matching)
             exit(0)
         else:
-            print(f"No matching Python version found for: {constraint}, interpreted as {pep440_constraint}")
+            logging.error(f"No matching Python version found for: {constraint}, interpreted as {pep440_constraint}")
             exit(1)
     else:
         exit(0)

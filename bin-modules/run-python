@@ -2,6 +2,9 @@
 set -e
 set -o pipefail
 
+source $BAO_BASE_LIB_DIR/logging
+logging_config "DEBUG"
+
 # poetry is installed here
 NEW_PATH="$HOME/.local/bin"
 if [[ ":$PATH:" != *":$NEW_PATH:"* ]]; then
@@ -19,7 +22,7 @@ fi
 
 # Ensure Poetry is installed
 if ! command -v poetry &> /dev/null; then
-    echo "Poetry is not installed. Please install Poetry and try again."
+    logging error "Poetry is not installed. Please install Poetry and try again."
     exit 1
 fi
 
@@ -28,32 +31,32 @@ export POETRY_VIRTUALENVS_OPTIONS_NO_PIP=true
 export POETRY_NO_INTERACTION=1
 
 # get round any python version constraints
-echo poetry install --no-root --directory $BAO_BASE_LIB_DIR
+logging debug poetry install --no-root --directory $BAO_BASE_LIB_DIR
 {
     poetry install --no-root --directory $BAO_BASE_LIB_DIR 2>&3 | grep -i " - Installing" >&2 || true
 } 3>&2
-echo poetry run --directory $BAO_BASE_LIB_DIR python $BAO_BASE_LIB_DIR/matching-python.py --directory=$DEPENDENCIES_DIR
+logging debug poetry run --directory $BAO_BASE_LIB_DIR python $BAO_BASE_LIB_DIR/matching-python.py --directory=$DEPENDENCIES_DIR
 pyversion=$(poetry run --directory $BAO_BASE_LIB_DIR python $BAO_BASE_LIB_DIR/matching-python.py --directory=$DEPENDENCIES_DIR)
-echo "python =" $pyversion
+logging debug "python to use is '$pyversion'"
 
 if [[ -n "$pyversion" ]]; then
-    echo poetry --directory $DEPENDENCIES_DIR env use "$pyversion" > /dev/null
+    logging debug poetry --directory $DEPENDENCIES_DIR env use "$pyversion"
     poetry --directory $DEPENDENCIES_DIR env use "$pyversion" > /dev/null
 fi
 # install the dependencies directing the output to stderr
 # this output is nice to see, but not nice if we are running a filter.
 # we do grep || true because we don't want a grep error code to fail the install
 # we use a third file descriptor to preserve poetry's stderr
-echo poetry install --no-root --directory $DEPENDENCIES_DIR
+logging debug poetry install --no-root --directory $DEPENDENCIES_DIR
 {
     poetry install --no-root --directory $DEPENDENCIES_DIR 2>&3 | grep -i " - Installing" >&2 || true
 } 3>&2
 
 # Step 2: Run the target Python script in the caller's directory
 if [ -f $DEPENDENCIES_DIR/$SCRIPT.py ]; then
-    echo poetry run --directory $DEPENDENCIES_DIR python $DEPENDENCIES_DIR/$SCRIPT.py $@
+    logging debug poetry run --directory $DEPENDENCIES_DIR python $DEPENDENCIES_DIR/$SCRIPT.py $@
     poetry run --directory $DEPENDENCIES_DIR python $DEPENDENCIES_DIR/$SCRIPT.py $@
 else
-    echo poetry run --directory $DEPENDENCIES_DIR $SCRIPT $@
+    logging debug poetry run --directory $DEPENDENCIES_DIR $SCRIPT $@
     poetry run --directory $DEPENDENCIES_DIR $SCRIPT $@
 fi

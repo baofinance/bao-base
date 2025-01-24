@@ -1,0 +1,31 @@
+#!/bin/bash
+set -e
+set -o pipefail
+
+LOGGING_LEVEL=${LOGGING_LEVEL:-3} #Set default value of LOGGING_LEVEL to ERROR if not set
+logging_config() {
+    LOGGING_LEVEL=$(_to_value "$1")
+}
+
+ logging() {
+    local level_str=${1^^}
+    local level=$(_to_value "$1")
+    shift
+    local message="$*"
+    if [[ "LOGGING_LEVEL" -ge "$level" ]]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S,%3N') - $level_str: $message"
+    fi
+}
+
+_to_value() {
+    local level=0
+    case "${1,,}" in
+        "debug") level=0;;
+        "info") level=1;;
+        "warning") level=2;;
+        "error") level=3;;
+        "critical") level=4;;
+        *) level = 5;;
+    esac
+    return $level
+}
