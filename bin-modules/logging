@@ -8,7 +8,7 @@ logging_config() {
 }
 
  logging() {
-    local level_str=${1^^}
+    local level_str=$(echo "$1" | tr '[:lower:]' '[:upper:]')
     local level=$(_to_value "$1")
     shift
     local message="$*"
@@ -19,7 +19,7 @@ logging_config() {
 
 _to_value() {
     local level=0
-    case "${1,,}" in
+    case "$(echo "$1" | tr '[:upper:]' '[:lower:]')" in
         "debug") level=0;;
         "info") level=1;;
         "warning") level=2;;
