@@ -2,6 +2,7 @@ import toml
 import argparse
 import os
 import re
+import sys
 # https://pypi.org/project/packaging/
 from packaging import version
 from packaging.specifiers import SpecifierSet
@@ -60,31 +61,37 @@ def get_constraint(pyproject_path):
 
 def find_matching(constraint):
     logging.debug(f"find_matching({constraint})")
-    VERSION_REGEX = re.compile(
+    FILE_VERSION_REGEX = re.compile(
         r"python(" + version.VERSION_PATTERN + r")", re.VERBOSE | re.IGNORECASE
     )
-    available_versions = []
+    VERSION_REGEX = re.compile(
+        version.VERSION_PATTERN, re.VERBOSE | re.IGNORECASE
+    )
+
+    # check for the current running python first
+    spec = SpecifierSet(constraint)
+    logging.debug(f"current python={sys.version}")
+    match = VERSION_REGEX.search(sys.version)
+    if match:
+        ver = version.parse(match.group(0))
+        if ver in spec:
+            return match.group(0)
+
+    # current one no good, so scan known places for one
+    matching_versions = []
     try:
         for filename in os.listdir("/usr/bin"):
-            match = VERSION_REGEX.search(filename)
+            match = FILE_VERSION_REGEX.search(filename)
             if match:
-                try:
-                    ver = version.parse(match.group(1))
-                    available_versions.append((ver, match.group(0)))
-                except version.InvalidVersion:
-                    pass
+                ver = version.parse(match.group(1))
+                if ver in spec:
+                    matching_versions.append((ver, match.group(0)))
     except FileNotFoundError:
         logging.warning("/usr/bin not found")
         return None
     except PermissionError:
         logging.warning("Permission denied accessing /usr/bin")
         return None
-
-    spec = SpecifierSet(constraint)
-    matching_versions = []
-    for ver, ver_str in available_versions:
-        if ver in spec:
-            matching_versions.append((ver, ver_str))
 
     if matching_versions:
         highest_version, highest_version_str = max(matching_versions, key=lambda item: item[0])
@@ -103,6 +110,7 @@ def main():
         pep440_constraint = to_pep440(constraint)
         matching = find_matching(pep440_constraint)
         if matching:
+            logging.debug(f"-> {matching}")
             print(matching)
             exit(0)
         else:

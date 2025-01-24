@@ -12,7 +12,7 @@ logging_config() {
     local level=$(_to_value "$1")
     shift
     local message="$*"
-    if [[ "LOGGING_LEVEL" -ge "$level" ]]; then
+    if [[ "$level" -ge "$LOGGING_LEVEL" ]]; then
         echo "$(date '+%Y-%m-%d %H:%M:%S,%3N') - $level_str: $message"
     fi
 }

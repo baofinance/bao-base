@@ -13,6 +13,7 @@ fi
 
 # Set the path to the Poetry project and the target script
 SCRIPT="$1"; shift
+logging debug "in $SCRIPT"
 
 # Step 1: Install dependencies using Poetry
 DEPENDENCIES_DIR="$BAO_BASE_LIB_DIR/$SCRIPT"
