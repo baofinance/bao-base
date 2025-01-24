@@ -9,8 +9,7 @@ if [[ ":$PATH:" != *":$NEW_PATH:"* ]]; then
 fi
 
 # Set the path to the Poetry project and the target script
-SCRIPT="$1"
-shift
+SCRIPT="$1"; shift
 
 # Step 1: Install dependencies using Poetry
 DEPENDENCIES_DIR="$BAO_BASE_LIB_DIR/$SCRIPT"
@@ -28,17 +27,25 @@ fi
 export POETRY_VIRTUALENVS_OPTIONS_NO_PIP=true
 export POETRY_NO_INTERACTION=1
 
+# get round any python version constraints
+{
+    poetry install --no-root --directory $BAO_BASE_LIB_DIR 2>&3 | grep -i " - Installing" >&2 || true
+} 3>&2
+pyversion=$(poetry run --directory $BAO_BASE_LIB_DIR python $BAO_BASE_LIB_DIR/matching-python.py --directory=$DEPENDENCIES_DIR)
+if [[ -n "$pyversion" ]]; then
+    poetry --directory $DEPENDENCIES_DIR env use "$pyversion" > /dev/null
+fi
 # install the dependencies directing the output to stderr
 # this output is nice to see, but not nice if we are running a filter.
 # we do grep || true because we don't want a grep error code to fail the install
 # we use a third file descriptor to preserve poetry's stderr
 {
-  poetry install --no-root --directory $DEPENDENCIES_DIR 2>&3 | grep -i " - Installing" >&2 || true
+    poetry install --no-root --directory $DEPENDENCIES_DIR 2>&3 | grep -i " - Installing" >&2 || true
 } 3>&2
 
 # Step 2: Run the target Python script in the caller's directory
-if [[ "$SCRIPT" == *.py ]]; then
-    poetry run --directory $DEPENDENCIES_DIR python $DEPENDENCIES_DIR/$SCRIPT $@
+if [ -f $DEPENDENCIES_DIR/$SCRIPT.py ]; then
+    poetry run --directory $DEPENDENCIES_DIR python $DEPENDENCIES_DIR/$SCRIPT.py $@
 else
     poetry run --directory $DEPENDENCIES_DIR $SCRIPT $@
 fi

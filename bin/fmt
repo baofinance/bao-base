@@ -1,0 +1,5 @@
+#!/bin/bash
+set -e
+set -o pipefail
+
+prettier --log-level warn '{src,test,script}/**/*.sol' "$@"

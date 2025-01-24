@@ -14,8 +14,6 @@ export BAO_BASE_LIB_DIR="$BAO_BASE_DIR/bin-modules"
 # we don't support calling python/node/etc. scripts here because we don't know
 # what version of python/node/etc. the script requires. That is the job of the
 # script we are about to call, passing all the given parameters
-if [ ! -f "$BAO_BASE_BIN_DIR/$1" ]; then
-    $@
-else
-    $BAO_BASE_BIN_DIR/$1 $@
-fi
+SCRIPT="$BAO_BASE_BIN_DIR/$1"
+shift
+"$SCRIPT" "$@"
