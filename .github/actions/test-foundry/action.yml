@@ -29,6 +29,7 @@ runs:
         python-version: "3.13"
     - shell: bash
       run: |
+        which python3
         python3 --version
 
     - name: Install Poetry (python package manager)
@@ -37,6 +38,7 @@ runs:
         version: 1.8.5
     - shell: bash
       run: |
+        which poetry
         poetry --version
 
     # - name: Checkout repo
