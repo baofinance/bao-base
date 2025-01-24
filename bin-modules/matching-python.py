@@ -58,23 +58,24 @@ def get_constraint(pyproject_path):
     #         logging.error(f"Invalid pyproject.toml: Missing key {e}")
     #         exit(1)
 
-def find_matching(constraint):
-    logging.debug(f"find_matching({constraint})")
-    FILE_VERSION_REGEX = re.compile(
-        r"python(" + version.VERSION_PATTERN + r")", re.VERBOSE | re.IGNORECASE
-    )
+def current_is_good(constraint_spec):
+        # check for the current running python
     VERSION_REGEX = re.compile(
         version.VERSION_PATTERN, re.VERBOSE | re.IGNORECASE
     )
-
-    # check for the current running python first
-    spec = SpecifierSet(constraint)
     logging.debug(f"current python={sys.version}")
     match = VERSION_REGEX.search(sys.version)
     if match:
         ver = version.parse(match.group(0))
-        if ver in spec:
+        if ver in constraint_spec:
             return match.group(0)
+
+
+def find_matching(constraint_spec):
+    logging.debug(f"find_matching({constraint_spec})")
+    FILE_VERSION_REGEX = re.compile(
+        r"python(" + version.VERSION_PATTERN + r")", re.VERBOSE | re.IGNORECASE
+    )
 
     # current one no good, so scan known places for one
     matching_versions = []
@@ -83,7 +84,7 @@ def find_matching(constraint):
             match = FILE_VERSION_REGEX.search(filename)
             if match:
                 ver = version.parse(match.group(1))
-                if ver in spec:
+                if ver in constraint_spec:
                     matching_versions.append((ver, match.group(0)))
     except FileNotFoundError:
         logging.warning("/usr/bin not found")
@@ -104,10 +105,19 @@ def main():
     args = parser.parse_args()
     logging.debug(f"with args {args}")
 
+    # get the constraint, if any
     constraint = get_constraint(os.path.join(args.directory, "pyproject.toml"))
     if constraint:
+        # convert the constraint into something that can be compared
         pep440_constraint = to_pep440(constraint)
-        matching = find_matching(pep440_constraint)
+        constraint_spec = SpecifierSet(pep440_constraint)
+
+        # use the system one first, if it matches
+        if (current_is_good(constraint_spec)):
+            exit(0)
+
+        # system one is no good so search for one
+        matching = find_matching(constraint_spec)
         if matching:
             logging.debug(f"-> {matching}")
             print(matching)
