@@ -2,8 +2,8 @@
 set -e
 set -o pipefail
 
-DEP_DIR=$BAO_BASE_LIB_DIR/$1
-shift
+THIS=$(basename "$0" | cut -d. -f1)
+DEP_DIR="$BAO_BASE_LIB_DIR/$THIS"
 
 EVENT=$DEP_DIR/ubuntu_workflow_dispatch_latest.json
 WORKFLOW_FILE=local-test-foundry.yml

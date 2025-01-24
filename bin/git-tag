@@ -2,8 +2,6 @@
 set -e
 set -o pipefail
 
-shift
-
 TAG="$1"
 this=$(basename $0)
 error="error:"

@@ -2,8 +2,6 @@
 set -e
 set -o pipefail
 
-shift # first parameter is the name of this script
-
 mkdir -p ./regression
 REGRESSION_TYPE=$1
 REGRESSION_FILE=regression/$REGRESSION_TYPE.txt
@@ -17,4 +15,4 @@ truncate -s 0 $REGRESSION_FILE # empty the existing file
 $BAO_BASE_DIR/run $REGRESSION_TYPE $@ | tee $REGRESSION_LOG
 
 # process it using the filter
-cat $REGRESSION_LOG | $BAO_BASE_LIB_DIR/run-python extract-$REGRESSION_TYPE.py > $REGRESSION_FILE
+cat $REGRESSION_LOG | $BAO_BASE_LIB_DIR/run-python extract-$REGRESSION_TYPE > $REGRESSION_FILE

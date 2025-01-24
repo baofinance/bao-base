@@ -2,4 +2,6 @@
 set -e
 set -o pipefail
 
-$BAO_BASE_LIB_DIR/run-python $@ --config $BAO_BASE_DIR/slither.config.json --exclude-dependencies --fail-pedantic
+THIS=$(basename "$0" | cut -d. -f1)
+
+$BAO_BASE_LIB_DIR/run-python "$THIS" "$@" --config "$BAO_BASE_DIR/slither.config.json" --exclude-dependencies --fail-pedantic
