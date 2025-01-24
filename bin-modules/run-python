@@ -3,7 +3,8 @@ set -e
 set -o pipefail
 
 source $BAO_BASE_LIB_DIR/logging
-logging_config "DEBUG"
+# uncomment to get debug loggin
+# logging_config "DEBUG"
 
 # poetry is installed here
 NEW_PATH="$HOME/.local/bin"

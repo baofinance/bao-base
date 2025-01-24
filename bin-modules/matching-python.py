@@ -8,9 +8,8 @@ from packaging import version
 from packaging.specifiers import SpecifierSet
 
 import logging
-
-# Configure logging (do this once, usually at the start of your script)
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s: %(message)s')
+# uncomment to get debug
+# logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s: %(message)s')
 
 
 def to_pep440(loose_constraint):
