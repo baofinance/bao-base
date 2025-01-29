@@ -1,0 +1,201 @@
+#!/bin/bash
+set -e
+set -o pipefail
+
+export _deploying_config=""
+deploying_config() {
+    logging debug "deploying_config $*"
+
+    # convert the input to yaml, if not already
+    # local yaml_arg=""
+    # for arg in "$@"; do
+    #     if ! echo "$arg" | yq eval 'tag == "!!map"' | grep -q true; then
+    #         yaml_arg=$(echo "$arg" | sed -E 's/--([a-zA-Z0-9-]+) ([^ ]+)/\1: "\2"/g')
+    #         logging debug "converted $arg to YAML: $yaml_arg"
+    #     else
+    #         yaml_arg="$arg"
+    #         logging debug "already YAML: $arg"
+    #     fi
+    #     #_deploying_config=$(echo -e "$_deploying_config\n---\n$yaml_arg" | yq 'reduce .[] as $item ({}; . * $item)')
+    #     _deploying_config=$(echo -e "$_deploying_config\n---\n$yaml_arg" | yq eval-all '. as $item ireduce ({}; . * $item)')
+
+    # done
+    _deploying_config=$(_deploying_convert_args_to_yaml "$@")
+    logging debug "$_deploying_config"
+
+    local rpc_url=$(echo "$_deploying_config" | yq ".rpc-url // \"\"")
+    if [[ -z "$rpc-url" ]]; then
+        logging info "rpc-url not given, we do not default this value as it is dangerous"
+        logging info "pass rpc-url into deploying_config, either as command line arg or YAML, e.g."
+        logging info "   --rpc-url <RPC-URL>"
+        logging info "   \"rpc_url:<RPC-URL>\""
+        logging info "where RPC-URL can be:"
+        logging info "    a foundry.toml \[rpc_endpoint\] e.g. \"mainnet\""
+        logging info "or \"http://...\""
+        logging fail "no rpc-url passed into deploying_config"
+    else
+        logging info "rpc-url = $rpc_url"
+    fi
+
+    _deploying_config=$(_deploying_default_from_env "$_deploying_config" "private-key" "PRIVATE_KEY")
+    logging debug "_deploying_config=$_deploying_config"
+    _deploying_config=$(_deploying_default_from_env "$_deploying_config" "etherscan-api-key" "ETHERSCAN_API_KEY")
+    logging debug "_deploying_config=$_deploying_config"
+
+    logging debug "deploying_config -> $_deploying_config"
+}
+
+deploy_contract() {
+    logging debug "deploy_contract($*)"
+    # merge with the _deploying_config, allowing $1 to override config
+    #local args=$(echo -e "$_deploying_config\n---\n$1" | yq 'reduce .[] as $item ({}; . * $item)')
+    local args=$(echo -e "$_deploying_config\n---\n$1" | yq eval-all '. as $item ireduce ({}; . * $item)')
+
+    logging debug "deploy_contract($args)"
+    local rpc_url=$(echo "$args" | yq ".rpc-url // \"\"")
+    local private_key=$(echo "$args" | yq ".private-key // \"\"")
+    local etherscan_api_key=$(echo "$args" | yq ".etherscan-api-key // \"\"")
+    local source_file=$(echo "$args" | yq ".source-file // \"\"")
+    local contract_type=$(echo "$args" | yq ".contract-type // \"\"")
+    local contract_name=$(echo "$args" | yq ".contract-name // \"\"")
+    local purpose=$(echo "$args" | yq ".purpose // \"\"")
+    local constructor_args=$(echo "$args" | yq ".constructor-args // \"\"")
+    constructor_args="${constructor_args:+--constructor-args $constructor_args}"
+    logging debug "constructor_args=$constructor_args"
+    logging debug "purpose=$purpose"
+    local contract_tag=$contract_name$([[ "$contract_name" == "" ]] && echo " $contract_type" || echo " ($contract_type)")${purpose:+ $purpose}
+
+    logging info "Deploying the $contract_tag contact..."
+    local response=$(forge create --rpc-url $rpc_url \
+        --private-key $private_key \
+        --etherscan-api-key $etherscan_api_key \
+        "$source_file:$contract_type" \
+        --broadcast \
+        $constructor_args \
+        )
+    logging debug "$response"
+    local deployer=$(echo "$response" | awk '/Deployer:/ {print $2}')
+    local address=$(echo "$response" | awk '/Deployed to:/ {print $3}')
+    local transaction=$(echo "$response" | awk '/Transaction hash:/ {print $3}')
+
+    if [ -z "$address" ]; then
+        #TODO manage spaces like constructor_args above
+        logging error "Failed to deploy the $contract_tag contract."
+        exit 1
+    fi
+    # return the result
+    echo $address
+
+    logging info "Deployed the $contract_tag contact at $address."
+    log_field "$name" "$address"
+}
+
+deploy_upgradeable_contract() {
+    local args="$1"
+    local contract_name=$(echo "$args" | yq ".contract-type // \"\"")
+
+    # verify implementation
+
+    # deploy implementation
+    local implementation_args=$(echo "$args" | yq '. + {"purpose": "implementation"}')
+    logging debug "implementation_args=$implementation_args"
+    local implementation_address=$(deploy_contract "$implementation_args")
+    # save deployed data
+
+    # deploy proxy
+    local proxy_args=$(echo "$args" | yq ". + {\"purpose\": \"UUPS proxy\",
+        \"source-file\": \"lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol\",
+        \"contract-name\": \"$contract_name\",
+        \"contract-type\": \"ERC1967Proxy\",
+        \"constructor-args\": \"$implementation_address 0x\"}")
+    local proxy_address=$(deploy_contract "$proxy_args")
+
+    echo $proxy
+}
+
+#####################################################################################
+# private functions
+_deploying_default_from_env() {
+    local config="$1"
+    local field_name="$2"
+    local env_name="$3"
+
+    # check it's not already in the config
+    local value=$(echo "$config" | yq ".$field_name // \"\"")
+    logging debug "   passed in $field_name = $value"
+    if [[ -z "$value" ]]; then
+        # look up the environment
+        value="${!env_name}"
+        logging debug "   environment $env_name = $value"
+        if [[ -n "$value" ]]; then
+            logging info "$field_name taken from the envronment variable $env_name"
+        else
+            # look up the .env file if it exists
+            if [[ -f .env ]]; then
+                source .env
+                value="${!env_name}"
+                logging debug "   .env $env_name = $value"
+                if [[ -n "$value" ]]; then
+                    logging info "$field_name taken from the .env file variable $env_name"
+                fi
+            fi
+        fi
+    fi
+    if [[ -z "$value" ]]; then
+        logging fail "no $field_name passed into deploying_config and no environment or .env $env_name variable"
+    fi
+    # append/override if empty the field in the config and return it
+    config=$(echo "$config" | yq ". + {\"$field_name\": \"$value\"}")
+    logging debug "config = $config"
+    echo $config
+}
+
+_deploying_convert_args_to_yaml() {
+    yaml="{}"  # Start with an empty YAML object
+
+    while [[ $# -gt 0 ]]; do
+        arg="$1"
+
+        # Detect valid YAML/JSON, including "key:value"
+        if echo "$arg" | yq eval '.' 2>/dev/null | grep -q -E '^(\{|\[|[a-zA-Z0-9_-]+: )'; then
+            yaml=$(echo -e "$yaml\n---\n$arg" | yq eval-all '. as $item ireduce ({}; . * $item)')
+
+        # Handle --key=value, --key value, -s=value, and -s value
+        elif [[ "$arg" =~ ^-+([a-zA-Z0-9_-]+)(=([^ ]+))?$ ]]; then
+            key="${BASH_REMATCH[1]}"
+            value="${BASH_REMATCH[3]}"
+
+            # If value is empty, check if the next argument is available
+            if [[ -z "$value" ]]; then
+                if [[ -z "$2" || "$2" =~ ^- ]]; then
+                    yaml=$(echo "$yaml" | yq eval ". + {\"$key\": true}")  # Standalone flag
+                else
+                    shift
+                    value="$1"
+                fi
+            fi
+
+            # Ensure value is treated as YAML/JSON object if possible
+            if echo "$value" | yq eval '.' 2>/dev/null | grep -q -E '^(\{|\[|[a-zA-Z0-9_-]+: )'; then
+                yaml=$(echo "$yaml" | yq eval ". + {\"$key\": $value}")
+            else
+                yaml=$(echo "$yaml" | yq eval ". + {\"$key\": \"$value\"}")
+            fi
+
+        # Handle key:value (without space) properly
+        elif [[ "$arg" =~ ^([^:]+):(.+)$ ]]; then
+            key="${BASH_REMATCH[1]}"
+            value="${BASH_REMATCH[2]}"
+            yaml=$(echo "$yaml" | yq eval ". + {\"$key\": \"$value\"}")
+
+        # Unrecognized input
+        else
+            echo "Warning: Unrecognized argument '$arg' ignored." >&2
+        fi
+
+        shift
+    done
+
+    # Output final YAML
+    echo "$yaml"
+}

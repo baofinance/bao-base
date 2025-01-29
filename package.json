@@ -11,6 +11,7 @@
     "lint": "solhint --max-warnings 0 '{src,interfaces}/**/*.sol' --disc",
     "slither": "./run slither .",
     "test": "./run test",
+    "test:bats": "./node_modules/bats/bin/bats script/*.bats",
     "coverage": "./run regression-of coverage",
     "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'",
     "pre-checkin": "yarn fmt && yarn slither && yarn lint && yarn test && yarn coverage && yarn gas && yarn sizes && echo \"ready for checkin\"",
@@ -20,9 +21,10 @@
     "CI:all": "./run CI all"
   },
   "dependencies": {
+    "bats": "^1.11.1",
     "prettier": "^3.4.2",
     "prettier-plugin-solidity": "^1.4.1",
     "solhint": "^5.0.3"
   },
-  "packageManager": "yarn@4.5.0"
+  "packageManager": "yarn@4.6.0"
 }
