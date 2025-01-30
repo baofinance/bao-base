@@ -151,59 +151,101 @@ _deploying_default_from_env() {
 }
 
 _deploying_convert_args_to_yaml() {
-    yaml="{}"  # Start with an empty YAML object
+    # we don't use getop here because it either
+    # A) processes the known optionals first, leaving the unknowns to be processsed in your own code,
+    #    which is no good because 1) we have to write the code below anyway and 2) the args are out of
+    #    order which means overrides won't work (maybe it should be an error is there is an override,
+    #    but we may want to create an array with multiple entries?)
+    # B) processes them in order but fails on the first unknown (i.e. with POSIXLY_CORRECT=1), which
+    #    means we can't have dynamic parameters
+    # note that you neeed --unknown=x (or -u=x) to pass a value for an unknown option otherwise it's ambiguous
 
+    # Define known options with expected argument count
+    declare -A options=(
+        # "-" is no args, ":" is exactly one value, "-:" or ":-" optional value
+        # test if a value:
+        #   is allowed: == *:*
+        #   is required == ":"
+        #   can be missing = *-*
+        #   is not allowed = "-"
+        ["rpc-url"]=":"
+        ["verify"]="-"
+        ["logging"]="-:"
+        ["h"]="-"
+        ["help"]="-"
+    )
+
+    # un-listed arguments
+    #    must have a = to have a value
+    #    are treated as having no value otherwise
+
+    local yaml="{}"
+    local arg=""
+    local leader="--"
+    local name=""
+    local value=""
     while [[ $# -gt 0 ]]; do
         arg="$1"
+        logging debug "   arg=$arg"
+        shift
+        if [[ "$arg" == -* ]]; then
+            arg="${arg#-}"  # Remove leading '-'
+            leader="-"
+            # Remove extra '-' for long options
+            if [[ "$arg" == -* ]]; then
+                arg="${arg#-}"
+                leader="--"
+            fi
+            # note that hereafter long and short options are treated identically
 
-        # ✅ Detect valid YAML/JSON, including quoted values
-        if echo "$arg" | yq eval '.' 2>/dev/null | grep -q -E '^(\{|\[|[a-zA-Z0-9_-]+: )'; then
-            yaml=$(echo -e "$yaml\n---\n$arg" | yq eval-all '. as $item ireduce ({}; . * $item)')
-
-        # ✅ Handle --key=value, --key value, -s=value, -s value
-        elif [[ "$arg" =~ ^-+([a-zA-Z0-9_-]+)(=(.*))?$ ]]; then
-            key="${BASH_REMATCH[1]}"
-            value="${BASH_REMATCH[3]}"  # May be empty if no `=value`
-
-            # If value is empty, check if the next argument is available
-            if [[ -z "$value" ]]; then
-                if [[ -z "$2" || "$2" =~ ^- ]]; then
-                    value="true"  # ✅ Fix: Standalone flag → `true`
+            if [[ "$arg" == *=* ]]; then
+                # Handle unambiguous args, i.e. --option=value or -o=value
+                name="${arg%%=*}"  # Extract option name
+                value="${arg#*=}"  # Extract value
+                # un-listed arg or listed and value is either required or optional
+                if [[ "${options[$name]}" == "-" ]]; then
+                    logging fail "Option '${leader}${name}' used with a value ('$value')."
+                fi
+            else
+                name="$arg"
+                if [[ -z "$1" || "$1" == -* ]]; then
+                    # no value given
+                    if [[ "${options[$name]}" == ":" ]]; then
+                        logging fail "Option '$leader$name' requires an argument, but none was provided."
+                    else
+                        value=""
+                    fi
                 else
-                    shift
-                    value="$1"
+                    if [[ ${options[$name]} == *:* ]]; then
+                        # value is allowed
+                        value="$1"
+                        shift
+                    else
+                        # no argument - unlisted or listed and valueless " "
+                        value=""
+                    # else
+                    #     logging fail "Unlisted option '$leader$name' followed by ambiguous argument '$1'."
+                    fi
                 fi
             fi
-
-            # ✅ Handle correct YAML formatting:
-            # - If the value is already quoted, keep it as-is
-            # - If it's numeric or boolean, pass it directly
-            # - Otherwise, wrap it in quotes to ensure proper YAML
-            if [[ "$value" =~ ^\".*\"$ || "$value" =~ ^[0-9]+$ || "$value" =~ ^(true|false)$ ]]; then
-                yaml=$(echo "$yaml" | yq eval ". + {\"$key\": $value}")
-            else
-                yaml=$(echo "$yaml" | yq eval ". + {\"$key\": \"$value\"}")
+            # short form needs to have a single letter
+            if [[ $leader == "-" && ${#name} -ne 1 ]]; then
+                logging fail "Short form option '$name' can only have a single letter."
             fi
 
-        # ✅ Handle key:value format (without space, e.g., `key:value`)
-        elif [[ "$arg" =~ ^([^:]+):\s*(\"[^\"]+\"|[^ ]+)$ ]]; then
-            key="${BASH_REMATCH[1]}"
-            value="${BASH_REMATCH[2]}"
-
             if [[ "$value" =~ ^\".*\"$ || "$value" =~ ^[0-9]+$ || "$value" =~ ^(true|false)$ ]]; then
-                yaml=$(echo "$yaml" | yq eval ". + {\"$key\": $value}")
+                yaml=$(echo "$yaml" | yq eval ". + {\"$name\": $value}")
             else
-                yaml=$(echo "$yaml" | yq eval ". + {\"$key\": \"$value\"}")
+                yaml=$(echo "$yaml" | yq eval ". + {\"$name\": \"$value\"}")
             fi
-
-        # Unrecognized input
         else
-            echo "Warning: Unrecognized argument '$arg' ignored." >&2
+            logging debug "   yaml segment: $arg"
+            yaml=$(echo -e "$yaml\n---\n$arg" | yq eval-all '. as $item ireduce ({}; . * $item)')
+            if [[ $? -ne 0 ]]; then logging fail "positional argument '$arg' is not valid YAML"; fi
+
         fi
-
-        shift
+        logging debug "   yaml="
+        logging debug "$yaml"
     done
-
-    # Output final YAML
     echo "$yaml"
 }
