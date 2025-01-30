@@ -1,0 +1,38 @@
+#!/bin/bash
+set -e
+set -o pipefail
+
+json_logging_file=''
+
+# setup the file to log to
+log_to() {
+    json_logging_file=deploy/local-BaoUSD.log
+    echo '{}' > $json_logging_file
+}
+
+
+# Add a numeric field to the JSON file
+log_field_numeric() {
+    local key="$1"
+    local value="$2"
+    _add_json_to_file "{\"$key\": $value}"
+}
+
+# Add a string/address field to the JSON file
+log_field() {
+    local key="$1"
+    local value="$2"
+    _add_json_to_file "{\"$key\": \"$value\"}"
+}
+
+###################################################################
+# private functions
+
+_add_json_to_file() {
+    if [[ -z "$json_logging_file" ]]; then
+        echo "Error: call to_log(filename) before logging"
+    else
+        local temp=$(mktemp)
+        jq ". + $1" "$json_logging_file" > "$temp" && mv "$temp" "$json_logging_file"
+    fi
+}
