@@ -156,37 +156,45 @@ _deploying_convert_args_to_yaml() {
     while [[ $# -gt 0 ]]; do
         arg="$1"
 
-        # Detect valid YAML/JSON, including "key:value"
+        # ✅ Detect valid YAML/JSON, including quoted values
         if echo "$arg" | yq eval '.' 2>/dev/null | grep -q -E '^(\{|\[|[a-zA-Z0-9_-]+: )'; then
             yaml=$(echo -e "$yaml\n---\n$arg" | yq eval-all '. as $item ireduce ({}; . * $item)')
 
-        # Handle --key=value, --key value, -s=value, and -s value
-        elif [[ "$arg" =~ ^-+([a-zA-Z0-9_-]+)(=([^ ]+))?$ ]]; then
+        # ✅ Handle --key=value, --key value, -s=value, -s value
+        elif [[ "$arg" =~ ^-+([a-zA-Z0-9_-]+)(=(.*))?$ ]]; then
             key="${BASH_REMATCH[1]}"
-            value="${BASH_REMATCH[3]}"
+            value="${BASH_REMATCH[3]}"  # May be empty if no `=value`
 
             # If value is empty, check if the next argument is available
             if [[ -z "$value" ]]; then
                 if [[ -z "$2" || "$2" =~ ^- ]]; then
-                    yaml=$(echo "$yaml" | yq eval ". + {\"$key\": true}")  # Standalone flag
+                    value="true"  # ✅ Fix: Standalone flag → `true`
                 else
                     shift
                     value="$1"
                 fi
             fi
 
-            # Ensure value is treated as YAML/JSON object if possible
-            if echo "$value" | yq eval '.' 2>/dev/null | grep -q -E '^(\{|\[|[a-zA-Z0-9_-]+: )'; then
+            # ✅ Handle correct YAML formatting:
+            # - If the value is already quoted, keep it as-is
+            # - If it's numeric or boolean, pass it directly
+            # - Otherwise, wrap it in quotes to ensure proper YAML
+            if [[ "$value" =~ ^\".*\"$ || "$value" =~ ^[0-9]+$ || "$value" =~ ^(true|false)$ ]]; then
                 yaml=$(echo "$yaml" | yq eval ". + {\"$key\": $value}")
             else
                 yaml=$(echo "$yaml" | yq eval ". + {\"$key\": \"$value\"}")
             fi
 
-        # Handle key:value (without space) properly
-        elif [[ "$arg" =~ ^([^:]+):(.+)$ ]]; then
+        # ✅ Handle key:value format (without space, e.g., `key:value`)
+        elif [[ "$arg" =~ ^([^:]+):\s*(\"[^\"]+\"|[^ ]+)$ ]]; then
             key="${BASH_REMATCH[1]}"
             value="${BASH_REMATCH[2]}"
-            yaml=$(echo "$yaml" | yq eval ". + {\"$key\": \"$value\"}")
+
+            if [[ "$value" =~ ^\".*\"$ || "$value" =~ ^[0-9]+$ || "$value" =~ ^(true|false)$ ]]; then
+                yaml=$(echo "$yaml" | yq eval ". + {\"$key\": $value}")
+            else
+                yaml=$(echo "$yaml" | yq eval ". + {\"$key\": \"$value\"}")
+            fi
 
         # Unrecognized input
         else
