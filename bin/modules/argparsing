@@ -1,0 +1,131 @@
+#!/bin/bash
+
+if [[ -n "${GUARD_SOURCING_ARGPARSING:-}" ]]; then return; fi; export GUARD_SOURCING_ARGPARSING=1
+
+source lib/bao-base/bin/modules/logging
+
+## $PROG 1.0 - sends transactions to an rpc node using foundry tools
+# Version: DATE=__GIT_DATE__ GIT_COMMIT=__GIT_COMMIT__
+## Compatible with bash and dash/POSIX
+##
+## Usage: $PROG [OPTION...] [COMMAND]...
+## Options:
+##   --verify               Verify the source (needs --etherscan-api-key)
+##   --rpc-url RPC-URL      Set the URL of the RPC node to send transactions to
+##   -l, --log MESSAGE      Log a message
+## Commands:
+##   -h, --help             Displays this help and exists
+##   -v, --version          Displays output version and exists
+##   $PROG -l yep -q -l nop -i -l yes
+
+extract_options_and_values() {
+    local line="$1"
+    local count=0
+
+    # Define regex patterns
+    local regex_option="-[[:alnum:]_-]+"
+    local regex_options="(^[[:space:]]*$regex_option([[:space:]]*,[[:space:]]*$regex_option)*)"
+    # parse the options as a comma separated list
+    if [[ ! "$line" =~ $regex_options ]]; then
+        logging fail "Failed to extract options from: '$line'"
+    fi
+
+    local options_match=${BASH_REMATCH[1]} # match the comma separated list
+    local values_match="${line:${#options_match}}" # everything after
+    # logging debug "options_match=$options_match"
+    # logging debug "values_match=$values_match"
+
+    # n n - v1 v2 v3
+    # n 8 - v1 v2...
+    # 2 5 - v1 v2 [v3 v4 v5]
+    # 2 8 - v2 v2 [v1 v2...]
+    # min is just the word count of everything up to [
+    local min_args=$(echo "${values_match%%[*}" | wc -w)
+
+    # max is the word count of all words (ignoring [ and ]) unless there is a ..., when it is infinite
+    local max_args=-1
+    if [[ ! $values_match == *"..."* ]]; then
+        max_args=$(echo "${values_match//[\[\].]/}" | wc -w)
+    fi
+
+    IFS=',' read -ra options <<< "$options_match"
+
+    for option in "${options[@]}"; do
+        option="${option#"${option%%[![:space:]]*}"}"  # Trim leading spaces
+        option="${option%"${option##*[![:space:]]}"}"  # Trim trailing spaces
+        echo "$option $min_args $max_args"
+        logging debug "$option $min_args $max_args"
+    done
+}
+
+
+parse_spec_file() {
+    local spec_file="$1"
+
+    while IFS= read -r line; do
+        # Only process lines that start with '##', have spaces, then a '-'
+        [[ ! "$line" =~ ^##[[:space:]]+- ]] && continue
+        # Ensure the line contains at least two spaces, separating the documentation
+        if [[ "$line" =~ [[:space:]]{2,} ]]; then
+            # Remove the leading `##` and extract only the option spec
+            clean_line=$(sed -E 's/^##[[:space:]]+//; s/[[:space:]]{2,}.*//g' <<< "$line")
+            extract_options_and_values "$clean_line"
+        else
+            logging fail "Invalid format or missing documentation in line: '$line'"
+        fi
+    done < "$spec_file"
+}
+
+
+# Parse command-line arguments
+parse_args_to_json() {
+    logging debug "$FUNCNAME($@)..."
+
+    # Load valid options into an associative array whose value is min_values, max_values
+    declare -A valid_options
+    local name=""
+    while IFS= read -r line; do
+        name=$(cut -d ' ' -f1 <<< "$line")
+        min_value=$(cut -d ' ' -f2 <<< "$line")
+        max_value=$(cut -d ' ' -f3 <<< "$line")
+        valid_options["$name"]="$min_value $max_value"
+    done < <(parse_spec_file "${ARGPARSING_SPEC_FILE:-${BASH_SOURCE[1]}}") # default to calling script
+
+    # Process user-supplied arguments
+    local json="{}"
+
+    while [[ $# -gt 0 ]]; do
+        local arg="$1"
+        shift
+        # TODO: handle arg=x,y,z
+        local name="$arg"
+
+        # Check if it's a valid option
+        if [[ -v valid_options["$name"] ]]; then
+            logging debug "name=$name"
+            min_args=$(cut -d ' ' -f1 <<< "${valid_options[$name]}")
+            max_args=$(cut -d ' ' -f2 <<< "${valid_options[$name]}")
+
+            json=$(echo "$json" | jq -c ". + {\"$name\": []}")
+            local arg_count=0
+            # Collect arguments based on min/max requirements
+            for ((i = 0; i < max_args || max_args == -1; i++)); do
+                [[ $# -gt 0 && ! "$1" =~ ^- ]] || break
+                ((arg_count++))
+                # TODO: handle numerics?
+                json=$(echo "$json" | jq -c ".[\"$name\"] += [\"$1\"]")
+                shift
+            done
+
+            # Validate collected arguments against min/max constraints
+            if (( $arg_count < min_args )); then
+                logging fail "Option '$arg' requires at least $min_args arguments, but got ${#values[@]}."
+            fi
+
+        # else
+        #     logging fail "Unknown option '$arg'"
+        fi
+    done
+
+    echo "$json"
+}
