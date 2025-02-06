@@ -22,7 +22,7 @@ setup() {
             extra_output=""
         fi
         # no args
-        run $cmd "" ""
+        run $cmd
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
@@ -32,7 +32,7 @@ setup() {
             [ "$output" == "" ]
         fi
         # no known args
-        run $cmd "" "" $extra_options
+        run $cmd -- $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
@@ -40,28 +40,28 @@ setup() {
 
         ############
         # one short switch without
-        run $cmd "a" "" $extra_options
+        run $cmd -o a -- $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == "$extra_output" ]
 
             # one short switch with
-        run $cmd "a" "" $extra_options -a
+        run $cmd -o a -- $extra_options -a
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == " -a$extra_output" ]
 
         # one short switch with
-        run $cmd "a" "" -a $extra_options
+        run $cmd -o a -- -a $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == " -a$extra_output" ]
 
         # one short option with, value
-        run $cmd "a" "" -aa $extra_options
+        run $cmd -o a -- -aa $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
@@ -69,42 +69,42 @@ setup() {
 
 
         # one short option without
-        run $cmd "a:" "" $extra_options
+        run $cmd -o a: -- $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == "$extra_output" ]
 
         # one short option with, no value
-        run $cmd "a:" "" -a -x $extra_options
+        run $cmd -o a: -- -a -x $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == " -a '-x'$extra_output" ] # takes value even though it's an option itself!
 
         # one short option with, value
-        run $cmd "a:" "" -a value $extra_options
+        run $cmd -o a: -- -a value $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == " -a 'value'$extra_output" ]
 
         # one short option with, value
-        run $cmd "a:" "" -a=value $extra_options
+        run $cmd -o a: -- -a=value $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == " -a '=value'$extra_output" ]
 
         # one short option with, value
-        run $cmd "a:" "" -avalue $extra_options
+        run $cmd -o a: -- -avalue $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == " -a 'value'$extra_output" ]
 
         # one short option with, value
-        run $cmd "a:" "" -aa $extra_options
+        run $cmd -o a: -- -aa $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
@@ -112,21 +112,21 @@ setup() {
 
         #################
         # one long switch without
-        run $cmd "" "switch" $extra_options
+        run $cmd -l switch -- $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == "$extra_output" ]
 
         # one long switch with
-        run $cmd "" "switch" --switch $extra_options
+        run $cmd -l switch -- --switch $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == " --switch$extra_output" ]
 
         # one long option with, duplicate
-        run $cmd "" "switch" --switch --switch $extra_options
+        run $cmd -l switch -- --switch --switch $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
@@ -134,77 +134,77 @@ setup() {
 
 
         # one long option without
-        run $cmd "" "option:" $extra_options
+        run $cmd -l option: -- $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == "$extra_output" ]
 
         # one long option with, no value
-        run $cmd "" "option:" --option -x $extra_options
+        run $cmd -l option: -- --option -x $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == " --option '-x'$extra_output" ] # takes value even though it's an option itself!
 
         # one long option with, value
-        run $cmd "" "option:" --option value $extra_options
+        run $cmd -l option: -- --option value $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == " --option 'value'$extra_output" ]
 
         # one long option with, value
-        run $cmd "" "option:" --option=value $extra_options
+        run $cmd -l option: -- --option=value $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == " --option 'value'$extra_output" ]
 
         # one long option with, value
-        run $cmd "" "option:" --optionvalue $extra_options
+        run $cmd -l option: -- --optionvalue $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == "$extra_output" ]
 
         # one long option with, value
-        run $cmd "" "option:" --option= value $extra_options
+        run $cmd -l option: -- --option= value $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == " --option ''${extra_output/ -- / -- ${quote}value${quote} }" ]
 
         # one long option with, value
-        run $cmd "" "option:" --option =value $extra_options
+        run $cmd -l option: -- --option =value $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == " --option '=value'$extra_output" ]
 
         # one long option with, value
-        run $cmd "" "option:" --option --option $extra_options
+        run $cmd -l option: -- --option --option $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == " --option '--option'$extra_output" ]
 
         # one long option with, multiple values
-        run $cmd "" "option:" --option value1,value2 $extra_options
+        run $cmd -l option: -- --option value1,value2 $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == " --option 'value1,value2'$extra_output" ]
 
         # one long option with, multiple values
-        run $cmd "" "option:" --option=value1,value2 $extra_options
+        run $cmd -l option: -- --option=value1,value2 $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == " --option 'value1,value2'$extra_output" ]
 
         # one long option with, multiple values
-        run $cmd "" "option:" --option=value1 value2 $extra_options
+        run $cmd -l option: -- --option=value1 value2 $extra_options
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
@@ -225,37 +225,37 @@ setup() {
             extra_output=""
         fi
 
-        run $cmd o: option: -o ovalue --option optionvalue
+        run $cmd -o o: -l option: -- -o ovalue --option optionvalue
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == " -o 'ovalue' --option 'optionvalue'$extra_output" ]
 
-        run $cmd o: option: -o 'ovalue' --option 'optionvalue'
+        run $cmd -o o: -l option: -- -o 'ovalue' --option 'optionvalue'
         echo "status=$status"
         echo "output=\"$output\""
         [ "$status" -eq 0 ]
         [ "$output" == " -o 'ovalue' --option 'optionvalue'$extra_output" ]
 
-        run $cmd o: option: -o 'o value' --option 'option value'
+        run $cmd -o o: -l option: -- -o 'o value' --option 'option value'
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == " -o 'o value' --option 'option value'$extra_output" ]
 
-        run $cmd o: option: -o o\ value --option option\ value
+        run $cmd -o o: -l option: -- -o o\ value --option option\ value
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == " -o 'o value' --option 'option value'$extra_output" ]
 
-        run $cmd o: option: -o "ovalue" --option "optionvalue"
+        run $cmd -o o: -l option: -- -o "ovalue" --option "optionvalue"
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
         [ "$output" == " -o 'ovalue' --option 'optionvalue'$extra_output" ]
 
-        run $cmd o: option: -o "ovalue" --option "optionvalue"
+        run $cmd -o o: -l option: -- -o "ovalue" --option "optionvalue"
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]
@@ -263,7 +263,7 @@ setup() {
 
         # nasty one to fool any regex about the end of the line
         # getopt doesn't work for the following (value with embedded " -- ")
-        run $cmd o: option: -o 'o -- value' --option "option -- value"
+        run $cmd -o o: -l option: -- -o 'o -- value' --option "option -- value"
         echo "status=$status"
         echo "output='$output'"
         [ "$status" -eq 0 ]

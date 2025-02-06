@@ -9,8 +9,31 @@ argparsing_getopt() {
         logging error "argparse_getopt needs two arguments, even if they are empty, e.g. ''"
     fi
     # getopt -o and -l parameters, always have a -o defaulting to '' if none
-    local spec="-o ${1:-''} ${2:+-l $2}"
-    shift 2
+    local this_args=$(getopt -o o:l: -l options:,longoptions: -- "$@")
+    eval set -- "$this_args"
+    local long=
+    local short=
+    while true; do
+        case "$1" in
+        -o | --options)
+            short+="$2"
+            shift 2
+            ;;
+        -l | --longoptions)
+            long="${long:+$long,}$2"
+            shift 2
+            ;;
+        --)
+            shift
+            break;
+            ;;
+        *)
+            logging fail "unexpected argument in $FUNCNAME: $1"
+            ;;
+        esac
+    done
+
+    local spec="-o ${short:-''} ${long:+-l $long}"
     logging debug "spec='$spec'"
     logging debug "options='$@'"
     # -q because we're not interested in unknown options
