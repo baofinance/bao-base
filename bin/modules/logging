@@ -1,6 +1,6 @@
 #!/bin/bash
 
-if [[ -n "${GUARD_SOURCING_LOGGING:-}" ]]; then return; fi; export GUARD_SOURCING_LOGGING=1
+if [[ -n "${GUARD_SOURCING_LOGGING:-}" ]]; then return; fi; GUARD_SOURCING_LOGGING=1
 
 # set the default logging level to warn (and above)
 export LOGGING_LEVEL=${LOGGING_LEVEL:-2}
@@ -44,7 +44,7 @@ _logging_to_value() {
 }
 
 # use file descriptor 8 (3-9 are available) for logging output, fail if it is already in use
-# TODO: make this number configurable, or search for the first free one
+# TODO: make this number configurable (somehow?), or search for the first free one
 # as it is just sent to stdout, without buffering
 # as we're only opening it once, there is no need to close it
 

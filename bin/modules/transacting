@@ -1,0 +1,303 @@
+#!/bin/bash
+
+if [[ -n "${GUARD_SOURCING_TRANSACTING:-}" ]]; then return; fi; GUARD_SOURCING_TRANSACTING=1
+
+source lib/bao-base/bin/modules/logging
+source lib/bao-base/bin/modules/argparsing
+
+export _transacting_default_options=""
+
+## Options:
+##   --verify                   Verify the source (needs --etherscan-api-key)
+##   --rpc-url RPC-URL          Set the URL of the RPC node to send transactions to
+##   --private-key KEY          Private key for transaction signing
+##   --etherscan-api-key KEY    Private key for transaction signing
+    ##   -h, --help             Displays this help and exists
+    ##   -v, --version          Displays output version and exists
+    ##   $PROG -l yep -q -l nop -i -l yes
+
+transacting_config() {
+    logging debug "transacting_config $*"
+
+    _transacting_default_options=$(argparsing_getopt "$@")
+    logging debug "defaults for all transactions '$_transacting_defaults'"
+
+    # local rpc_url=$(echo "$_transacting_config" | yq ".rpc-url // \"\"")
+    # if [[ -z "$rpc-url" ]]; then
+    #     logging info "rpc-url not given, we do not default this value as it is dangerous"
+    #     logging info "pass rpc-url into transacting_config, either as command line arg or YAML, e.g."
+    #     logging info "   --rpc-url=<RPC-URL>"
+    #     logging info "   --rpc-url <RPC-URL>"
+    #     logging info "   \"rpc_url: <RPC-URL>\""
+    #     logging info "where RPC-URL can be:"
+    #     logging info "    a foundry.toml \[rpc_endpoint\] e.g. \"mainnet\""
+    #     logging info "or \"http://...\""
+    #     logging fail "no rpc-url passed into transacting_config"
+    # else
+    #     logging info "rpc-url=$rpc_url"
+    # fi
+
+    # _transacting_default_from_env "private-key" "PRIVATE_KEY"
+    # _transacting_default_from_env "etherscan-api-key" "ETHERSCAN_API_KEY"
+
+    # logging debug "transacting_config -> $_transacting_config"
+}
+
+transacting_deploy() {
+    logging debug "deploy_contract($*)"
+    # merge with the _transacting_config, allowing $1 to override config
+    #local args=$(echo -e "$_transacting_config\n---\n$1" | yq 'reduce .[] as $item ({}; . * $item)')
+    local args=$(echo -e "$_transacting_config\n---\n$1" | yq eval-all '. as $item ireduce ({}; . * $item)')
+
+    logging debug "deploy_contract($args)"
+    local rpc_url=$(echo "$args" | yq ".rpc-url // \"\"")
+    local private_key=$(echo "$args" | yq ".private-key // \"\"")
+    local etherscan_api_key=$(echo "$args" | yq ".etherscan-api-key // \"\"")
+    local source_file=$(echo "$args" | yq ".source-file // \"\"")
+    local contract_type=$(echo "$args" | yq ".contract-type // \"\"")
+    local contract_name=$(echo "$args" | yq ".contract-name // \"\"")
+    local purpose=$(echo "$args" | yq ".purpose // \"\"")
+    local constructor_args=$(echo "$args" | yq ".constructor-args // \"\"")
+    constructor_args="${constructor_args:+--constructor-args $constructor_args}"
+    logging debug "constructor_args=$constructor_args"
+    logging debug "purpose=$purpose"
+    local contract_tag=$contract_name$([[ "$contract_name" == "" ]] && echo " $contract_type" || echo " ($contract_type)")${purpose:+ $purpose}
+
+    logging info "transacting the $contract_tag contact..."
+    local response=$(forge create --rpc-url $rpc_url \
+        --private-key $private_key \
+        --etherscan-api-key $etherscan_api_key \
+        "$source_file:$contract_type" \
+        --broadcast \
+        $constructor_args \
+        )
+    logging debug "$response"
+    local deployer=$(echo "$response" | awk '/Deployer:/ {print $2}')
+    local address=$(echo "$response" | awk '/Deployed to:/ {print $3}')
+    local transaction=$(echo "$response" | awk '/Transaction hash:/ {print $3}')
+
+    if [ -z "$address" ]; then
+        #TODO manage spaces like constructor_args above
+        logging fail "Failed to deploy the $contract_tag contract."
+    fi
+    # return the result
+    echo $address
+
+    logging info "Deployed the $contract_tag contact at $address"
+    logging info "   by $deployer tx: $transaction"
+    log_field "$name" "$address"
+}
+
+# transacting_deploy_upgradeable() {
+#     local args="$1"
+#     local contract_name=$(echo "$args" | yq ".contract-type // \"\"")
+
+#     # verify implementation
+
+#     # deploy implementation
+#     local implementation_args=$(echo "$args" | yq '. + {"purpose": "implementation"}')
+#     logging debug "implementation_args=$implementation_args"
+#     local implementation_address=$(transacting_deploy "$implementation_args")
+#     # save deployed data
+
+#     # deploy proxy
+#     local proxy_args=$(echo "$args" | yq ". + {\"purpose\": \"UUPS proxy\",
+#         \"source-file\": \"lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol\",
+#         \"contract-name\": \"$contract_name\",
+#         \"contract-type\": \"ERC1967Proxy\",
+#         \"constructor-args\": \"$implementation_address 0x\"}")
+#     local proxy_address=$(transacting_deploy "$proxy_args")
+
+#     echo $proxy
+# }
+
+#####################################################################################
+# private functions
+
+# update the _transacting_config global from env, if not already there
+_transacting_default_from_env() {
+    local field_name="$1"
+    local env_name="$2"
+    logging debug "config=$_transacting_config"
+    logging debug "field_name=$field_name, env_name=$env_name"
+
+    # check it's not already in the config
+    local value=$(echo "$_transacting_config" | yq ".$field_name // \"\"")
+    logging debug "   passed in $field_name=$value"
+    if [[ -z "$value" ]]; then
+        # look up the environment
+        value="${!env_name}"
+        logging debug "   environment $env_name=$value"
+        if [[ -n "$value" ]]; then
+            logging info "$field_name taken from the envronment variable $env_name"
+        else
+            # look up the .env file if it exists
+            if [[ -f .env ]]; then
+                source .env
+                value="${!env_name}"
+                logging debug "   .env $env_name=$value"
+                if [[ -n "$value" ]]; then
+                    logging info "$field_name taken from the .env file variable $env_name"
+                fi
+            fi
+        fi
+    fi
+    if [[ -z "$value" ]]; then
+        logging fail "no $field_name passed into transacting_config and no environment or .env $env_name variable"
+    fi
+    # append/override if empty the field in the config and return it
+    _transacting_config=$(echo "$_transacting_config" | yq ". + {\"$field_name\": \"$value\"}")
+    logging debug "config after update=$_transacting_config"
+}
+
+# _transacting_getopt() {}
+#     # POSIXLY_CORRECT=1 # parse args in order and fail on first mismatch
+#     local parsed=$(getopt -o "" --long "rpc-url:,private-key:,etherscan-api-key:,verify" -- "$@")
+#     if [[ $? -ne 0 ]]; then
+#         logging fail "Invalid options provided"
+#     fi
+#     eval set -- "$parsed"
+
+#     local json='{}'
+#     local name
+#     local value
+#     while [[ $# -gt 0 ]]; do
+#         case "$1" in
+#             --) # End of options
+#                 shift
+#                 break
+#                 ;;
+#             -*)  # Any option (short or long)
+#                 # local opt="${1#--}"   # Remove '--' for long options
+#                 # local type=unknown
+#                 # opt="${opt#-}"  # Remove '-' for short options
+#                 if [[ "$1" == *=* ]]; then  # Handle --option=value
+#                     name="${1%%=*}"  # Extract option name
+#                     value="${1#*=}"  # Extract value
+#                 elif [[ "$2" && "$2" != -* ]]; then  # Handle separate value case
+#                     name="$1"
+#                     value="$2"
+#                     shift
+#                 else  # Handle flags (no values)
+#                     name="$1"
+#                     value=""
+#                 fi
+#                 shift
+
+#                 # # Check if it's a valid JSON number (integer or float)
+#                 # if [[ "$type" == "unknown" ]]; then
+#                 #     if ! [[ "$value" =~ ^-?[0-9]+$ || "$value" =~ ^-?[0-9]+\.[0-9]+$ || "$value" =~ ^-?[0-9]+e[+-]?[0-9]+$ ]]; then
+#                 #         value="\"$value\""  # quotes needed non-numerics
+#                 #     fi
+#                 # fi
+
+#                 # Use jq to dynamically build the JSON
+#                 json=$(echo "$json" | jq -c ". + {\"$name\": \"$value\"}")
+#                 ;;
+#             *)
+#                 # positional arguments
+#                 json=$(echo "$json" | jq -c ". + {parameter: [$1]")
+#                 ;;
+#         esac
+#         logging debug "json=$json"
+#     done
+
+#     echo "$json"
+# }
+
+
+#     # we don't use getop here because it either
+#     # A) processes the known optionals first, leaving the unknowns to be processsed in your own code,
+#     #    which is no good because 1) we have to write the code below anyway and 2) the args are out of
+#     #    order which means overrides won't work (maybe it should be an error is there is an override,
+#     #    but we may want to create an array with multiple entries?)
+#     # B) processes them in order but fails on the first unknown (i.e. with POSIXLY_CORRECT=1), which
+#     #    means we can't have dynamic parameters
+#     # note that you neeed --unknown=x (or -u=x) to pass a value for an unknown option otherwise it's ambiguous
+
+#     # Define known options with expected argument count
+#     declare -A options=(
+#         # "-" is no args, ":" is exactly one value, "-:" or ":-" optional value
+#         # test if a value:
+#         #   is allowed: == *:*
+#         #   is required == ":"
+#         #   can be missing = *-*
+#         #   is not allowed = "-"
+#         ["rpc-url"]=":"
+#         ["verify"]="-"
+#         ["logging"]="-:"
+#         ["h"]="-"
+#         ["help"]="-"
+#     )
+
+#     # un-listed arguments
+#     #    must have a = to have a value
+#     #    are treated as having no value otherwise
+
+#     local yaml="{}"
+#     local arg=""
+#     local leader="--"
+#     local name=""
+#     local value=""
+#     while [[ $# -gt 0 ]]; do
+#         arg="$1"
+#         logging debug "   arg=$arg"
+#         shift
+#         if [[ "$arg" == -* ]]; then
+#             arg="${arg#-}"  # Remove leading '-'
+#             leader="-"
+#             # Remove extra '-' for long options
+#             if [[ "$arg" == -* ]]; then
+#                 arg="${arg#-}"
+#                 leader="--"
+#             fi
+#             # note that hereafter long and short options are treated identically
+
+#             if [[ "$arg" == *=* ]]; then
+#                 # Handle unambiguous args, i.e. --option=value or -o=value
+#                 name="${arg%%=*}"  # Extract option name
+#                 value="${arg#*=}"  # Extract value
+#                 # un-listed arg or listed and value is either required or optional
+#                 if [[ "${options[$name]}" == "-" ]]; then
+#                     logging fail "Option '${leader}${name}' used with a value ('$value')."
+#                 fi
+#             else
+#                 name="$arg"
+#                 if [[ -z "$1" || "$1" == -* ]]; then
+#                     # no value given
+#                     if [[ "${options[$name]}" == ":" ]]; then
+#                         logging fail "Option '$leader$name' requires an argument, but none was provided."
+#                     else
+#                         value=""
+#                     fi
+#                 else
+#                     if [[ "${options[$name]}" == *:* ]]; then
+#                         # value is allowed
+#                         value="$1"
+#                         shift
+#                     else
+#                         # no argument - unlisted or listed and allowed to be valueless " " or " :"
+#                         value=""
+#                     fi
+#                 fi
+#             fi
+#             # short form needs to have a single letter
+#             if [[ $leader == "-" && ${#name} -ne 1 ]]; then
+#                 logging fail "Short form option '$name' can only have a single letter."
+#             fi
+#             logging debug "   name=$name, value=$value"
+#             if [[ "$value" =~ ^\".*\"$ || "$value" =~ ^[0-9]+$ || "$value" =~ ^(true|false)$ ]]; then
+#                 yaml=$(echo "$yaml" | yq ". + {\"$name\": $value}")
+#             else
+#                 yaml=$(echo "$yaml" | yq ". + {\"$name\": \"$value\"}")
+#             fi
+#         else
+#             logging debug "   yaml segment: $arg"
+#             yaml=$(echo -e "$yaml\n---\n$arg" | yq eval-all '. as $item ireduce ({}; . * $item)')
+#             if [[ $? -ne 0 ]]; then logging fail "positional argument '$arg' is not valid YAML"; fi
+
+#         fi
+#         logging debug "   yaml=$yaml"
+#     done
+#     echo "$yaml"
+# }
