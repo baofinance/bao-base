@@ -5,9 +5,6 @@ if [[ -n "${GUARD_SOURCING_ARGPARSING:-}" ]]; then return; fi; GUARD_SOURCING_AR
 source lib/bao-base/bin/modules/logging
 
 argparsing_getopt() {
-    if [[ $# -lt 2 ]]; then
-        logging error "argparse_getopt needs two arguments, even if they are empty, e.g. ''"
-    fi
     # getopt -o and -l parameters, always have a -o defaulting to '' if none
     local this_args=$(getopt -o o:l: -l options:,longoptions: -- "$@")
     eval set -- "$this_args"
@@ -40,12 +37,14 @@ argparsing_getopt() {
     logging debug "getopt -q $spec -- $@"
     getopt -q $spec -- "$@"
     local exit_code=$?
+    logging debug "getopt->$exit_code"
     # ignore exit code of 1 as that happens when some args are unknown and that's ok in this context
     (( exit_code > 1 )) && logging fail "getopt returned exit code $exit_code"
     return 0
 }
 
 argparsing_remove_unknowns() {
+    logging debug "$FUNCNAME($*)..."
     # get getopt to normalise then strip everything after the separating --
     # finding the ssparator is complex because,
     # although it is typically a straight-forward " -- " i.e. -- with spaces surrounding it,
@@ -55,7 +54,103 @@ argparsing_remove_unknowns() {
     # in the middle of the getopt result!
     # we now have to use a look-back regex to find a separator that is not enclosed in a quote
     # luckily getopt canonicalises all values by single quoting them
+    set -e
     argparsing_getopt "$@" | perl -pe "s/\s+--(?:\s|$)(?=(?:[^']*'[^']*')*[^']*$).*$//"
+}
+
+argparsing_has() {
+    # usage argparsing_has 'option-name' -- args...
+    # assumes args has been passed through argparsing_getopt in order for, e.g. -vvv to return 3
+    local option="$1"
+    [[ "$2" == "--" && -n "$option" ]] || logging fail "$FUNCNAME OPTION -- ARGS: $*"
+    shift 2
+    local count=0
+    while [[ "$#" -gt "0" ]]; do
+        case "$1" in
+        -*) if [[ "$1" == "$option" ]]; then
+                (( count++ ))
+            fi
+            ;;
+        esac
+        shift
+    done
+    echo "$count"
+}
+
+argparsing_default() {
+    local this_args=$(getopt -o o:d:a: -l option:,default:,alias:,aliases: -- "$@")
+    eval set -- "$this_args"
+    local name=
+    local value=
+    local all_names=
+    while true; do
+        case "$1" in
+        -o )
+            [[ $name ]] && logging fail "only specify the option once via -o or --option"
+            name="-$2"
+            all_names="${all_names:+$all_names,}$name"
+            shift 2
+            ;;
+        --option )
+            [[ $name ]] && logging fail "only specify the option once via -o or --option"
+            name="--$2"
+            all_names="${all_names:+$all_names,}$name"
+            shift 2
+            ;;
+        -a )
+            all_names="${all_names:+$all_names,}-$2"
+            shift 2
+            ;;
+        --alias | --aliases)
+            all_names="${all_names:+$all_names,}--$2"
+            shift 2
+            ;;
+        -d | --default)
+            [[ $value ]] && logging fail "only specify the default once via -d or --default"
+            value=$2
+            shift 2
+            ;;
+        --)
+            shift
+            break;
+            ;;
+        *)
+            logging fail "unexpected argument in $FUNCNAME: $1"
+            ;;
+        esac
+    done
+
+    logging debug "name='$name'; value='$value'; all_names='$all_names'"
+    logging debug "args=$@"
+
+    [[ $name ]] || logging fail "an option must be provided via --option"
+    [[ $value ]] || logging fail "a default must be provided via --default"
+
+    # create a lookup for all the names
+    declare -A lookup
+    IFS=',' read -r -a names <<< "$all_names"
+    for n in "${names[@]}"; do
+        logging debug "   lookup n=$n"
+        lookup["$n"]=1
+    done
+
+    local args=
+    local found=
+    while [[ "$#" -gt "0" ]]; do
+        case "$1" in
+        -*) [[ ${lookup["$1"]} ]] && found=1
+            logging debug "alias='$1'; found='$found'"
+            args+=" $1"
+            ;;
+        *)  args+=" '$1'"
+            ;;
+        esac
+        shift
+    done
+    logging debug "args before=$args"
+    [[ -z $found ]] && args+=" $name '$value'" # not there so default it
+    logging debug "args after =$args"
+    echo "$args"
 }
 
 argparsing_extract_getopt_spec_from_hashhash() {

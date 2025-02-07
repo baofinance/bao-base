@@ -5,7 +5,7 @@ if [[ -n "${GUARD_SOURCING_TRANSACTING:-}" ]]; then return; fi; GUARD_SOURCING_T
 source lib/bao-base/bin/modules/logging
 source lib/bao-base/bin/modules/argparsing
 
-export _transacting_default_options=""
+_transacting_default_options=""
 
 ## Options:
 ##   --verify                   Verify the source (needs --etherscan-api-key)
@@ -16,31 +16,45 @@ export _transacting_default_options=""
     ##   -v, --version          Displays output version and exists
     ##   $PROG -l yep -q -l nop -i -l yes
 
+transacting_default_options() {
+    logging debug "_transacting_default_options='$_transacting_default_options'"
+    echo "$_transacting_default_options"
+}
+
 transacting_config() {
-    logging debug "transacting_config $*"
+    logging debug "$FUNCNAME($*)..."
 
-    _transacting_default_options=$(argparsing_getopt "$@")
-    logging debug "defaults for all transactions '$_transacting_defaults'"
+    _transacting_default_options=$(argparsing_remove_unknowns -l rpc-url:,private-key:,etherscan-api-key: -- "$@") || logging fail "error in arguments: $@"
+    local getopt_status=$?
+    [ "$getopt_status" -eq 0 ] || logging fail "invalid argument: $*"
+    logging debug "argparsing_getopt->$getopt_status"
+    logging info "defaults for all transactions '$_transacting_default_options'"
 
-    # local rpc_url=$(echo "$_transacting_config" | yq ".rpc-url // \"\"")
-    # if [[ -z "$rpc-url" ]]; then
-    #     logging info "rpc-url not given, we do not default this value as it is dangerous"
-    #     logging info "pass rpc-url into transacting_config, either as command line arg or YAML, e.g."
-    #     logging info "   --rpc-url=<RPC-URL>"
-    #     logging info "   --rpc-url <RPC-URL>"
-    #     logging info "   \"rpc_url: <RPC-URL>\""
+    # if [[ -z $(argparsing_has --option rpc-url -- "$_transacting_default_options") ]]; then
+    #     logging info "--rpc-url not given and it is never defaulted as it is dangerous"
+    #     logging info "pass --rpc-url RPC-URL into transacting_config"
     #     logging info "where RPC-URL can be:"
     #     logging info "    a foundry.toml \[rpc_endpoint\] e.g. \"mainnet\""
-    #     logging info "or \"http://...\""
+    #     logging info " or \"http://...\""
     #     logging fail "no rpc-url passed into transacting_config"
     # else
     #     logging info "rpc-url=$rpc_url"
     # fi
 
-    # _transacting_default_from_env "private-key" "PRIVATE_KEY"
-    # _transacting_default_from_env "etherscan-api-key" "ETHERSCAN_API_KEY"
+    # local env_value=$(_transacting_lookup_env PRIVATE_KEY)
+    # env_value && argparsing_default --private-key -d env_value
 
-    # logging debug "transacting_config -> $_transacting_config"
+    if [[ -z $(argparsing_has --option private-key -- "$_transacting_default_options") ]]; then
+        local env_value=$(_transacting_lookup_env PRIVATE_KEY)
+        [[ -n "$env_value" ]] && _transacting_default_options+=" --private-key '$env_value'"
+    fi
+
+    if [[ -z $(argparsing_has --option etherscan-api-key -- "$_transacting_default_options") ]]; then
+        local env_value=$(_transacting_lookup_env ETHERSCAN_API_KEY)
+        [[ -n "$env_value" ]] && _transacting_default_options+=" --etherscan-api-key '$env_value'"
+    fi
+
+    logging info "defaults updated from environment: $_transacting_default_options"
 }
 
 transacting_deploy() {
@@ -114,11 +128,34 @@ transacting_deploy() {
 #####################################################################################
 # private functions
 
+_transacting_lookup_env() {
+    local env_name="$1"
+    # look up the environment
+    local value="${!env_name}"
+    logging debug "   environment $env_name=$value"
+    if [[ -n "$value" ]]; then
+        logging info "$field_name taken from the envronment variable $env_name"
+    else
+        # look up the .env file if it exists
+        if [[ -f .env ]]; then
+            source .env
+            value="${!env_name}"
+            logging debug "   .env $env_name=$value"
+            if [[ -n "$value" ]]; then
+                logging info "$field_name taken from the .env file variable $env_name"
+            fi
+        fi
+    fi
+    echo "$value"
+}
+
 # update the _transacting_config global from env, if not already there
 _transacting_default_from_env() {
     local field_name="$1"
     local env_name="$2"
-    logging debug "config=$_transacting_config"
+
+    [[ -n $(argparsing_has --option private-key -- "$_transacting_default_options") ]]
+    logging debug "config=$_transacting_default_options"
     logging debug "field_name=$field_name, env_name=$env_name"
 
     # check it's not already in the config
@@ -142,12 +179,8 @@ _transacting_default_from_env() {
             fi
         fi
     fi
-    if [[ -z "$value" ]]; then
-        logging fail "no $field_name passed into transacting_config and no environment or .env $env_name variable"
-    fi
-    # append/override if empty the field in the config and return it
-    _transacting_config=$(echo "$_transacting_config" | yq ". + {\"$field_name\": \"$value\"}")
-    logging debug "config after update=$_transacting_config"
+    _transacting_default_options+="$field_name '$value'"
+    logging debug "config after update=$_transacting_default_options"
 }
 
 # _transacting_getopt() {}

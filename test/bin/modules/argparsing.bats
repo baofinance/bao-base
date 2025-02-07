@@ -7,6 +7,97 @@ setup() {
     logging_config debug
 }
 
+@test "has can count" {
+    run argparsing_has --private-key --
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    [ "$output" == "0" ]
+
+    run argparsing_has --private-key -- --unknown
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    [ "$output" == "0" ]
+
+    run argparsing_has --private-key -- --private-key 'not eek'
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    [ "$output" == "1" ]
+
+    run argparsing_has --p -- -p -p 'not eek'
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    [ "$output" == "0" ]
+
+    run argparsing_has -p -- -p -p 'not eek'
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    [ "$output" == "2" ]
+
+}
+
+
+@test "default can default" {
+    run argparsing_default --option private-key -d eek
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    [ "$output" == " --private-key 'eek'" ]
+
+    run argparsing_default --option private-key -d eek --
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    [ "$output" == " --private-key 'eek'" ]
+
+    run argparsing_default --option private-key -d eek -- --unknown
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    [ "$output" == " --unknown --private-key 'eek'" ]
+
+    run argparsing_default --option private-key -d eek -- --private-key 'not eek'
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    [ "$output" == " --private-key 'not eek'" ]
+
+    run argparsing_default --option private-key --default eek --alias p -- -p 'not eek'
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    [ "$output" == " -p 'not eek' --private-key 'eek'" ]
+
+    run argparsing_default --option private-key --default eek --alias p -- --p 'not eek'
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    [ "$output" == " --p 'not eek'" ]
+
+    run argparsing_default -o p --default eek -a p -- -p 'not eek'
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    [ "$output" == " -p 'not eek'" ]
+
+    run argparsing_default --option private-key -d eek -a p --alias key -- --key 'not eek'
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    [ "$output" == " --key 'not eek'" ]
+
+    run argparsing_default --option private-key -d eek -a p --alias key -- -p 'not eek'
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    [ "$output" == " -p 'not eek'" ]
+
+}
+
 @test "getopt / remove_unknowns can parse args" {
 
     quote="'"
@@ -35,6 +126,8 @@ setup() {
         run $cmd -- $extra_options
         echo "status=$status"
         echo "output='$output'"
+        # TODO: replace getopt with a python parsed calliningto arg parse
+        # this gives a more robust and portable solution.
         [ "$status" -eq 0 ]
         [ "$output" == "$extra_output" ]
 

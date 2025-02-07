@@ -3,9 +3,9 @@
 if [[ -n "${GUARD_SOURCING_LOGGING:-}" ]]; then return; fi; GUARD_SOURCING_LOGGING=1
 
 # set the default logging level to warn (and above)
-export LOGGING_LEVEL=${LOGGING_LEVEL:-2}
+LOGGING_LEVEL=${LOGGING_LEVEL:-2}
 # set the default output FD, this is changed to 8 below so logging doesn't clog things up
-export _logging_file_descriptor=2
+_logging_file_descriptor=2
 
 logging_config() {
     LOGGING_LEVEL=$(_logging_to_value "$1")
