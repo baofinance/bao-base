@@ -6,6 +6,8 @@ source lib/bao-base/bin/modules/logging
 source lib/bao-base/bin/modules/argparsing
 
 _transacting_default_options=""
+_transacting_default_options_long_spec="rpc-url:,private-key:,etherscan-api-key:"
+_transacting_default_options_short_spec=""
 
 ## Options:
 ##   --verify                   Verify the source (needs --etherscan-api-key)
@@ -24,7 +26,7 @@ transacting_default_options() {
 transacting_config() {
     logging debug "$FUNCNAME($*)..."
 
-    _transacting_default_options=$(argparsing_remove_unknowns -l rpc-url:,private-key:,etherscan-api-key: -- "$@") || logging fail "error in arguments: $@"
+    _transacting_default_options=$(argparsing_remove_unknowns -o "$_transacting_default_options_short_spec" -l "$_transacting_default_options_long_spec" -- "$@") || logging fail "error in arguments: $@"
     local getopt_status=$?
     [ "$getopt_status" -eq 0 ] || logging fail "invalid argument: $*"
     logging debug "argparsing_getopt->$getopt_status"
@@ -59,22 +61,41 @@ transacting_config() {
 
 transacting_deploy() {
     logging debug "deploy_contract($*)"
-    # merge with the _transacting_config, allowing $1 to override config
-    #local args=$(echo -e "$_transacting_config\n---\n$1" | yq 'reduce .[] as $item ({}; . * $item)')
-    local args=$(echo -e "$_transacting_config\n---\n$1" | yq eval-all '. as $item ireduce ({}; . * $item)')
+    local args="$@"
 
-    logging debug "deploy_contract($args)"
-    local rpc_url=$(echo "$args" | yq ".rpc-url // \"\"")
-    local private_key=$(echo "$args" | yq ".private-key // \"\"")
-    local etherscan_api_key=$(echo "$args" | yq ".etherscan-api-key // \"\"")
-    local source_file=$(echo "$args" | yq ".source-file // \"\"")
-    local contract_type=$(echo "$args" | yq ".contract-type // \"\"")
-    local contract_name=$(echo "$args" | yq ".contract-name // \"\"")
-    local purpose=$(echo "$args" | yq ".purpose // \"\"")
-    local constructor_args=$(echo "$args" | yq ".constructor-args // \"\"")
-    constructor_args="${constructor_args:+--constructor-args $constructor_args}"
-    logging debug "constructor_args=$constructor_args"
-    logging debug "purpose=$purpose"
+    # add the defaults
+    eval set -- "$_transacting_default_options"
+    while [[ "$#" -gt "0" ]]; do
+        case "$1" in
+        --)
+            local opt_name="${1#--}"
+            if [[ -z $(argparsing_has --option "$opt_name" -- "$args") ]]; then
+                $args+=" $1"
+                # TODO: this doesn't tell us if the option has is zero-or-one values or one value
+                # we need a richer data structure to use internally, suggest JSON as jq is a powerful and portable JSON manipulator
+                if [[ "$_transacting_default_options_long_spec" =~ (^|,)"$opt_name": ]]; then
+                    $args+=" $2"
+                    shift
+                fi
+            fi
+            ;;
+        -)
+            local opt_name="${1#-}"
+            if [[ -z $(argparsing_has --option "$opt_name" -- "$args") ]]; then
+                $args+=" $1"
+                if [[ "$_transacting_default_options_short_spec" =~ (^|,)"$opt_name": ]]; then
+                    $args+=" $2"
+                    shift
+                fi
+            ;;
+        esac
+        shift
+    done
+    logging debug "args=$args"
+
+    # TODO: handle contract_name and --proxy
+    # need a getopt for that
+
     local contract_tag=$contract_name$([[ "$contract_name" == "" ]] && echo " $contract_type" || echo " ($contract_type)")${purpose:+ $purpose}
 
     logging info "transacting the $contract_tag contact..."
