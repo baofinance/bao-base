@@ -1,6 +1,8 @@
 #!/bin/bash
 
+#if [[ -n "${GUARD_SOURCING_$(echo "$(basename "$0")" | tr -c '[:alnum:]' '_'):-}" ]]; then return; fi; GUARD_SOURCING_GUARD_SOURCING_$(echo "$(basename "$0")" | tr -c '[:alnum:]' '_')=1
 if [[ -n "${GUARD_SOURCING_LOGGING:-}" ]]; then return; fi; GUARD_SOURCING_LOGGING=1
+echo "loading 'logging' from ${BASH_SOURCE[1]}"
 
 # set the default logging level to warn (and above)
 LOGGING_LEVEL=${LOGGING_LEVEL:-2}
@@ -51,6 +53,8 @@ _logging_to_value() {
 if lsof -p $$ 2>/dev/null | awk '{print $4}' | grep -q '^8'; then
     logging fail "File descriptor 8 is in use"
 else
-    exec 8> >(stdbuf -o0 cat)
     _logging_file_descriptor=8
+    #exec 8> >(stdbuf -o0 cat)
+    exec 8>&1
+
 fi

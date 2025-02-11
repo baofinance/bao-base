@@ -1,98 +1,280 @@
 #!/usr/bin/env bats
 
 setup() {
-    source bin/modules/argparsing
-
     source bin/modules/logging
     logging_config debug
 }
 
-quote_args() {
-    local words=()
-    local leader=""
-    for word in $@; do
-        # If the word is a negative number (integer or floating point, optionally with exponent)
-        # if [[ "$word" =~ ^-[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
-        #     words+=("'$word'")
-        # # Otherwise, if it starts with a dash (an option) leave it unquoted
-        # elif [[ "$word" == -* ]]; then
-        if [[ "$word" == -* ]]; then
-            words+=("$word")
-        else
-            words+=("'$word'")
-        fi
-        leader=" "
-    done
-    # Join the array elements with a space.
-    IFS=" "
-    echo "${leader}${words[*]}"
-    unset IFS
-}
+@test "wargparse can parse arguments" {
+    extra_options="--hello world --long-option -o short-option -s"
+    extra_output='"unknown": ["--hello", "world", "--long-option", "-o", "short-option", "-s"]'
 
-roundtrip() {
-    set -eo pipefail
-    local spec="$1"
-    local expect_known="${2:+ $2}"
-    local expect_unknown="${3:+ $3}"
+    # prints help if nothing supplied
+    run ./bin/modules/wargparse.py
+    echo "status=$status"
+    [ "$status" -eq 1 ]
 
-    echo "roundtrip("
-    echo "   spec='$spec'"
-    echo "   expect_known='$expect_known'"
-    echo "   expect_unknown='$expect_unknown'"
-    echo ")..."
-
-    run ./bin/modules/wargparse.py "$spec" $expect_known $expect_unknown
-    [ "$status" -eq 0 ]
-    input="$output"
-
-    expect_known=$(quote_args "$expect_known")
-    expect_unknown=$(quote_args "$expect_unknown")
-
-    echo "input='$input'"
-    run argparsing_args "$input" known
+    # no args
+    run ./bin/modules/wargparse.py '{}'
     echo "status=$status"
     echo "output='$output'"
     [ "$status" -eq 0 ]
-    echo "expect_known='$expect_known'"
-    [ "$output" == "$expect_known" ]
+    [ "$output" == '{}' ]
 
-    run argparsing_args "$input" unknown
+    # no known args
+    run ./bin/modules/wargparse.py '{}' $extra_options
     echo "status=$status"
     echo "output='$output'"
     [ "$status" -eq 0 ]
-    echo "expect_unknown='$expect_unknown'"
-    [ "$output" == "$expect_unknown" ]
-
-    run argparsing_args "$input"
-    echo "status=$status"
-    echo "output='$output'"
-    [ "$status" -eq 0 ]
-    expect="$expect_known$expect_unknown"
-    echo "expect both='$expect'"
+    expect='{'$extra_output'}'
+    echo "expect='$expect'"
     [ "$output" == "$expect" ]
+
+    ############
+    # one short switch without
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["-a"], "action": "store_true"}]}' $extra_options
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect='{"known": {"a": {"value": false, "origin": null}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["-a", "--alpha"], "action": "store_true"}]}' $extra_options
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect='{"known": {"alpha": {"value": false, "origin": null}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    # one short switch with
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["-a"], "action": "store_true"}]}'  $extra_options -a
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect='{"known": {"a": {"value": true, "origin": "-a"}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    # one short switch with
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["-a", "--alpha"], "action": "store_true"}]}'  $extra_options -a
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect='{"known": {"alpha": {"value": true, "origin": "-a"}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    # one short switch with, value
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["-a"]}]}'  $extra_options -aa
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect='{"known": {"a": {"value": "a", "origin": "-a"}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    # one short count without, i.e. 0
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["-c"], "action": "count"}]}'  $extra_options
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect='{"known": {"c": {"value": null, "origin": null}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    # one short count without, i.e. 1
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["-c"], "action": "count"}]}'  $extra_options \
+        -c
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect='{"known": {"c": {"value": 1, "origin": "-c"}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    # one short count without, i.e. 1
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["-c"], "action": "count"}]}'  $extra_options \
+        -cc
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect='{"known": {"c": {"value": 2, "origin": "-c -c"}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    # one short count without, i.e. 1
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["-c"], "action": "count"}]}'  $extra_options \
+        -c -c
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect='{"known": {"c": {"value": 2, "origin": "-c -c"}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    # # one short option without
+    # run ./bin/modules/wargparse.py -o a: -- $extra_opt    # one short count without, i.e. 1
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["-c", "--count"], "action": "count"}]}'  $extra_options \
+        -c --count
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect='{"known": {"count": {"value": 2, "origin": "-c --count"}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    # one short option with, no value
+    # run ./bin/modules/wargparse.py '{"arguments":[{"names":["-a"]}]}' -a -x $extra_options
+    # echo "status=$status"
+    # echo "output='$output'"
+    # expect='{"known": {"a": {"value": "-x", "origin": "-a"}}, '"$extra_output"'}'
+    # echo "expect='$expect'"
+    # [ "$output" == "$expect" ]  # takes value even though it's an option itself!
+
+    # one short option with,
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["-a"]}]}' $extra_options
+    echo "status=$status"
+    echo "output='$output'"
+    expect='{"known": {"a": {"value": null, "origin": null}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]  # takes value even though it looks like an option itself!
+
+    # one short option with, no value
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["-a"]}]}' -a -1 $extra_options
+    echo "status=$status"
+    echo "output='$output'"
+    expect='{"known": {"a": {"value": "-1", "origin": "-a"}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]  # takes value even though it looks like an option itself!
+
+    # one short option with, value
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["-a"]}]}' -a value $extra_options
+    echo "status=$status"
+    echo "output='$output'"
+    expect='{"known": {"a": {"value": "value", "origin": "-a"}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    # one short option with, =value
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["-a"]}]}' -a=value $extra_options
+    echo "status=$status"
+    echo "output='$output'"
+    expect='{"known": {"a": {"value": "value", "origin": "-a"}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    # one short option with, =value
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["-a"]}]}' -avalue $extra_options
+    echo "status=$status"
+    echo "output='$output'"
+    expect='{"known": {"a": {"value": "value", "origin": "-a"}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    # one short option with, value
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["-a"]}]}' -avalue $extra_options
+    echo "status=$status"
+    echo "output='$output'"
+    expect='{"known": {"a": {"value": "value", "origin": "-a"}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+
+    # #################
+    # # one long switch without
+    # run ./bin/modules/wargparse.py -l switch -- $extra_options
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["--switch"], "action": "store_true"}]}'  $extra_options
+    echo "status=$status"
+    echo "output='$output'"
+    expect='{"known": {"switch": {"value": false, "origin": null}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    # # one long switch with
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["--switch"], "action": "store_true"}]}' --switch $extra_options
+    echo "status=$status"
+    echo "output='$output'"
+    expect='{"known": {"switch": {"value": true, "origin": "--switch"}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    # # one long option with, duplicate
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["--switch"], "action": "store_true"}]}' --switch --switch $extra_options
+    echo "status=$status"
+    echo "output='$output'"
+    expect='{"known": {"switch": {"value": true, "origin": "--switch"}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+
+    # # one long option without
+    # run ./bin/modules/wargparse.py -l option: -- $extra_options
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["--option"]}]}' $extra_options
+    echo "status=$status"
+    echo "output='$output'"
+    expect='{"known": {"option": {"value": null, "origin": null}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    # # one long option with, no value
+    # run ./bin/modules/wargparse.py -l option: -- --option -x $extra_options
+    # echo "status=$status"
+    # echo "output='$output'"
+    # [ "$status" -eq 0 ]
+    # [ "$output" == " --option '-x'$extra_output" ] # takes value even though it's an option itself!
+
+    # # one long option with, value
+    # run ./bin/modules/wargparse.py -l option: -- --option value $extra_options
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["--option"]}]}' --option value $extra_options
+    echo "status=$status"
+    echo "output='$output'"
+    expect='{"known": {"option": {"value": "value", "origin": "--option"}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    # # one long option with, value
+    # run ./bin/modules/wargparse.py -l option: -- --option=value $extra_options
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["--option"]}]}' --option=value $extra_options
+    echo "status=$status"
+    echo "output='$output'"
+    expect='{"known": {"option": {"value": "value", "origin": "--option"}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+
+    # # one long option with, value
+    # run ./bin/modules/wargparse.py -l option: -- --option =value $extra_options
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["--option"]}]}' --option =value $extra_options
+    echo "status=$status"
+    echo "output='$output'"
+    expect='{"known": {"option": {"value": "=value", "origin": "--option"}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    # # one long option with, multiple values
+    # run ./bin/modules/wargparse.py -l option: -- --option value1,value2 $extra_options
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["--option"]}]}' --option value1,value2 $extra_options
+    echo "status=$status"
+    echo "output='$output'"
+    expect='{"known": {"option": {"value": "value1,value2", "origin": "--option"}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    # # one long option with, multiple values
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["--option"]}]}' --option=value1,value2 $extra_options
+    echo "status=$status"
+    echo "output='$output'"
+    expect='{"known": {"option": {"value": "value1,value2", "origin": "--option"}}, '"$extra_output"'}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    # # one long option with, multiple values
+    # run ./bin/modules/wargparse.py -l option: -- --option=value1 value2 $extra_options
+
 }
 
-
-@test "argparsing can round-trip" {
-    # roundtrip '{}' ''
-    # run ./bin/modules/wargparse.py --help
-
-    roundtrip '{}' '' ''
-
-    roundtrip '{}' '' '--hello world'
-
-    roundtrip '{}' '' '--hello --how-many'
-
-    roundtrip '{}' '' '--hello --how-many -1'
-
-    roundtrip '{}' '' '-a --hello -b --how-many -1 -c'
-
-    roundtrip '{"arguments":[{"names":["--how-many"]}, {"names":["--too-many"]}]}' \
-        '--how-many 1 --too-many 100' '--hello'
-
-    roundtrip '{"arguments":[{"names":["--how-many"]}]}' '--how-many 1' '--hello'
-
-}
 
 # @test "has can count" {
 #     run argparsing_has --private-key --
@@ -525,6 +707,6 @@ roundtrip() {
 #     [ "$output" == '{"--random":[]}' ]
 # }
 
-# TODO: check other test args, e.g. [VALUE...] ones
-# TODO: check what happens to unrecognised args
-# TODO: check what happens when incorrect argument counts are applied
+# # TODO: check other test args, e.g. [VALUE...] ones
+# # TODO: check what happens to unrecognised args
+# # TODO: check what happens when incorrect argument counts are applied
