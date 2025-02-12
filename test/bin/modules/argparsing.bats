@@ -9,7 +9,6 @@ setup() {
 
 quote_args() {
     local words=()
-    local leader=""
     for word in $@; do
         # If the word is a negative number (integer or floating point, optionally with exponent)
         # if [[ "$word" =~ ^-[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
@@ -21,32 +20,35 @@ quote_args() {
         else
             words+=("'$word'")
         fi
-        leader=" "
     done
     # Join the array elements with a space.
     IFS=" "
-    echo "${leader}${words[*]}"
+    echo "${words[*]}"
     unset IFS
 }
 
 roundtrip() {
     set -eo pipefail
     local spec="$1"
-    local expect_known="${2:+ $2}"
-    local expect_unknown="${3:+ $3}"
+    local known="$2"
+    local unknown="$3"
+    # override the expected output?
+    local expect_known="${4:-$(quote_args $known)}"
+    local expect_unknown="${5:-$(quote_args $unknown)}"
+    # add a leading space if any content
+    expect_known=${expect_known:+ $expect_known}
+    expect_unknown=${expect_unknown:+ $expect_unknown}
 
     echo "roundtrip("
     echo "   spec='$spec'"
-    echo "   expect_known='$expect_known'"
-    echo "   expect_unknown='$expect_unknown'"
+    echo "   known='$known', expect='$expect_known'"
+    echo "   unknown='$unknown', expect='$expect_unknown'"
     echo ")..."
 
-    run ./bin/modules/wargparse.py "$spec" $expect_known $expect_unknown
+    run ./bin/modules/wargparse.py "$spec" $known $unknown
     [ "$status" -eq 0 ]
+    logging debug "wargparse->$output"
     input="$output"
-
-    expect_known=$(quote_args "$expect_known")
-    expect_unknown=$(quote_args "$expect_unknown")
 
     echo "input='$input'"
     run argparsing_args "$input" known
@@ -90,9 +92,191 @@ roundtrip() {
     roundtrip '{"arguments":[{"names":["--how-many"]}, {"names":["--too-many"]}]}' \
         '--how-many 1 --too-many 100' '--hello'
 
-    roundtrip '{"arguments":[{"names":["--how-many"]}]}' '--how-many 1' '--hello'
+    roundtrip '{"arguments":[{"names":["--how-many"]}]}' '--how-many -1' '--hello' "--how-many '-1'"
+
+    # handle nulls
+    roundtrip '{"arguments":[{"names":["--how-many"]}]}' '' '--hello'
+
+    roundtrip '{"arguments":[{"names":["--how-many"]}]}' '--how-many 1' ''
+}
+
+@test "argpasing can remove" {
+
+    run argparsing_argparse '{"arguments":[{"names":["--how-many"]}, {"names":["--too-many"]}]}' \
+        --how-many 1 --too-many 100 --hello
+    input="$output"
+    [ "$status" -eq 0 ]
+
+    # run argparsing_ "$input" known
+    # echo "status=$status"
+    # echo "output='$output'"
+    # [ "$status" -eq 0 ]
+    # expect='{"known":[],"unknown":["--hello"]}'
+    # echo "expect='$expect'"
+    # [ "$output" == "$expect" ]
+
+    run argparsing_remove_unknown "$input"
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect='{"known":{"how_many":{"value":"1","origin":"--how-many"},"too_many":{"value":"100","origin":"--too-many"}},"unknown":[]}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
 
 }
+
+@test "argpasing can test" {
+
+    run argparsing_argparse '{"arguments":[{"names":["--how-many"]}, {"names":["--too-many"]}]}' \
+        --how-many 1 --too-many 100 --hello
+    input="$output"
+
+    run argparsing_has "$input" how_many
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect=''
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    run argparsing_has "$input" '--hello'
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 1 ]
+    expect=''
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    argparsing_has "$input" how_many
+    argparsing_has "$input" hello || true
+    # $(argparsing_has hello ) && true # should fail - it's just to test that the above two tests work
+
+    argparsing_has "$input" how_many
+    ! argparsing_has "$input" hello
+}
+
+@test "argpasing can merge" {
+
+    run argparsing_argparse '{"arguments":[{"names":["--how-many"]}, {"names":["--too-many"]}]}' \
+        --how-many 1 --too-many 100 --hello
+    input1="$output"
+    [ "$status" -eq 0 ]
+
+    run argparsing_argparse '{"arguments":[{"names":["--how-many"]}, {"names":["--too-many"]}, {"names":["--too-little"]}]}' \
+        --how-many 2 --too-little 0 --hello --goodbye
+    input2="$output"
+    [ "$status" -eq 0 ]
+
+    run argparsing_merge "$input1" "$input2"
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect='{"known":{"how_many":{"value":"2","origin":"--how-many"},"too_many":{"value":"100","origin":"--too-many"},"too_little":{"value":"0","origin":"--too-little"}},"unknown":["--hello","--goodbye"]}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    run argparsing_merge '{"known": [], "unknown": ["a"]}' '{"known": [], "unknown": []}'
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect='{"known":[],"unknown":[]}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    run argparsing_merge '{}' '{}'
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect='{"known":[],"unknown":[]}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+}
+
+@test "argpasing can detect overlaps" {
+
+    run argparsing_argparse '{"arguments":[{"names":["--how-many"]}, {"names":["--too-many"]}]}' \
+        --how-many 1 --too-many 100 --hello
+    input1="$output"
+    [ "$status" -eq 0 ]
+
+    run argparsing_argparse '{"arguments":[{"names":["--how-many"]}, {"names":["--too-many"]}, {"names":["--too-little"]}]}' \
+        --how-many 2 --too-little 0 --hello --goodbye
+    input2="$output"
+    [ "$status" -eq 0 ]
+
+    # output=$(argparsing_intersection "$input1" "$input2")
+    run argparsing_intersection "$input1" "$input2"
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect='{"known":{"how_many":{"value":"1","origin":"--how-many"}},"unknown":["--hello"]}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    run argparsing_intersection "$input1" "$input2"
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect='{"known":{"how_many":{"value":"1","origin":"--how-many"}},"unknown":["--hello"]}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    run argparsing_intersection "$input2" "$input1"
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect='{"known":{"how_many":{"value":"2","origin":"--how-many"}},"unknown":["--hello"]}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    run argparsing_intersection "$input1" "$input1"
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect="$input1"
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    run argparsing_intersection "$input2" "$input2"
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect="$input2"
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    # run argparsing_merge '{"known": [], "unknown": ["a"]}' '{"known": [], "unknown": []}'
+    # echo "status=$status"
+    # echo "output='$output'"
+    # [ "$status" -eq 0 ]
+    # expect='{"known":[],"unknown":[]}'
+    # echo "expect='$expect'"
+    # [ "$output" == "$expect" ]
+
+    # run argparsing_merge '{}' '{}'
+    # echo "status=$status"
+    # echo "output='$output'"
+    # [ "$status" -eq 0 ]
+    # expect='{"known":[],"unknown":[]}'
+    # echo "expect='$expect'"
+    # [ "$output" == "$expect" ]
+
+}
+
+
+# @test "argpasing can keep" {
+#     run argparsing_argparse '{"arguments":[{"names":["--how-many"]}, {"names":["--too-many"]}]}' \
+#         '--how-many 1 --too-many 100' '--hello'
+#     input="$output"
+#     run argparsing_keep "$input" known
+#     echo "status=$status"
+#     echo "output='$output'"
+#     [ "$status" -eq 0 ]
+#     expect='{"known":{"how_many":{"value":null,"origin":null},"too_many":{"value":null,"origin":null}}}'
+#     echo "expect='$expect'"
+#     [ "$output" == "$expect" ]
+# }
 
 # @test "has can count" {
 #     run argparsing_has --private-key --

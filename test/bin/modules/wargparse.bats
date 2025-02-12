@@ -19,14 +19,14 @@ setup() {
     echo "status=$status"
     echo "output='$output'"
     [ "$status" -eq 0 ]
-    [ "$output" == '{}' ]
+    [ "$output" == '{"known": {}, "unknown": []}' ]
 
     # no known args
     run ./bin/modules/wargparse.py '{}' $extra_options
     echo "status=$status"
     echo "output='$output'"
     [ "$status" -eq 0 ]
-    expect='{'$extra_output'}'
+    expect='{"known": {}, '$extra_output'}'
     echo "expect='$expect'"
     [ "$output" == "$expect" ]
 
