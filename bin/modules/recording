@@ -5,21 +5,23 @@ set -o pipefail
 json_logging_file=''
 
 # setup the file to log to
-log_to() {
-    json_logging_file=deploy/local-BaoUSD.log
+recording_to() {
+    local network="$1"
+    local name="$2"
+    json_logging_file="./deploy/$network-$name-$(date '+%Y-%m-%d_%H:%M:%S').log"
     echo '{}' > $json_logging_file
 }
 
 
 # Add a numeric field to the JSON file
-log_field_numeric() {
+recording_field_numeric() {
     local key="$1"
     local value="$2"
     _add_json_to_file "{\"$key\": $value}"
 }
 
 # Add a string/address field to the JSON file
-log_field() {
+recording_field() {
     local key="$1"
     local value="$2"
     _add_json_to_file "{\"$key\": \"$value\"}"

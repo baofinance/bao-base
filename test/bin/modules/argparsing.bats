@@ -1,5 +1,7 @@
 #!/usr/bin/env bats
 
+source test/bin/modules/bats-utils # for run_and_check
+
 setup() {
     source bin/modules/argparsing
 
@@ -8,23 +10,18 @@ setup() {
 }
 
 quote_args() {
-    local words=()
-    for word in $@; do
-        # If the word is a negative number (integer or floating point, optionally with exponent)
-        # if [[ "$word" =~ ^-[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
-        #     words+=("'$word'")
-        # # Otherwise, if it starts with a dash (an option) leave it unquoted
-        # elif [[ "$word" == -* ]]; then
+    local input="$1"
+    # Use eval to have the shell break the input into words
+    eval "local args=( $input )"
+    local result=""
+    for word in "${args[@]}"; do
         if [[ "$word" == -* ]]; then
-            words+=("$word")
+            result+=" $word"
         else
-            words+=("'$word'")
+            result+=" '$word'"
         fi
     done
-    # Join the array elements with a space.
-    IFS=" "
-    echo "${words[*]}"
-    unset IFS
+    echo "${result# }" # remove the extra leading space, if any
 }
 
 roundtrip() {
@@ -33,21 +30,22 @@ roundtrip() {
     local known="$2"
     local unknown="$3"
     # override the expected output?
-    local expect_known="${4:-$(quote_args $known)}"
-    local expect_unknown="${5:-$(quote_args $unknown)}"
+    local expect_known=${4:-$(quote_args "$known")}
+    local expect_unknown=${5:-$(quote_args "$unknown")}
     # add a leading space if any content
     expect_known=${expect_known:+ $expect_known}
     expect_unknown=${expect_unknown:+ $expect_unknown}
 
     echo "roundtrip("
-    echo "   spec='$spec'"
-    echo "   known='$known', expect='$expect_known'"
-    echo "   unknown='$unknown', expect='$expect_unknown'"
+    echo "   spec=$spec."
+    echo "   known=$known, expect=$expect_known."
+    echo "   unknown=$unknown, expect=$expect_unknown."
     echo ")..."
 
-    run ./bin/modules/wargparse.py "$spec" $known $unknown
-    [ "$status" -eq 0 ]
+    eval "set -- $known $unknown"
+    run ./bin/modules/wargparse.py "$spec" "$@"
     logging debug "wargparse->$output"
+    [ "$status" -eq 0 ]
     input="$output"
 
     echo "input='$input'"
@@ -55,14 +53,14 @@ roundtrip() {
     echo "status=$status"
     echo "output='$output'"
     [ "$status" -eq 0 ]
-    echo "expect_known='$expect_known'"
+    echo "expect='$expect_known'"
     [ "$output" == "$expect_known" ]
 
     run argparsing_args "$input" unknown
     echo "status=$status"
     echo "output='$output'"
     [ "$status" -eq 0 ]
-    echo "expect_unknown='$expect_unknown'"
+    echo "expect='$expect_unknown'"
     [ "$output" == "$expect_unknown" ]
 
     run argparsing_args "$input"
@@ -70,9 +68,11 @@ roundtrip() {
     echo "output='$output'"
     [ "$status" -eq 0 ]
     expect="$expect_known$expect_unknown"
-    echo "expect both='$expect'"
+    echo "expect='$expect'"
     [ "$output" == "$expect" ]
 }
+
+
 
 
 @test "argparsing can round-trip" {
@@ -100,7 +100,50 @@ roundtrip() {
     roundtrip '{"arguments":[{"names":["--how-many"]}]}' '--how-many 1' ''
 }
 
-@test "argpasing can remove" {
+@test "argparsing can round-trip positionals" {
+    # positional
+    roundtrip '{"arguments":[{"names":["positional"]}, {"names":["--optional"]}]}' \
+        "'positional argument'" ''
+
+    roundtrip '{"arguments":[{"names":["positional"]}, {"names":["--optional"]}]}' \
+        "'positional argument' --optional 1 " '--hello world'
+
+    roundtrip '{"arguments":[{"names":["positional"]}, {"names":["--optional"]}]}' \
+        "--optional 1 'positional argument'" '--hello world' "'positional argument' --optional '1'"
+
+   # empty, everything
+    # roundtrip ''
+}
+
+# @test "argparsing can round-trip store_booleans" {
+    # # store_boolean
+    # run_and_check ./bin/modules/wargparse.py 0 \
+    #     '{"known": {"aa": {"value": null, "origin": null}}, "unknown": []}' \
+    #     '{"arguments":[{"names":["--aa","--no-aa"], "action": "store_boolean"}]}' \
+
+    # # present
+    # run_and_check ./bin/modules/wargparse.py 0 \
+    #     '{"known": {"aa": {"value": true, "origin": "--aa"}}, "unknown": []}' \
+    #     '{"arguments":[{"names":["--aa","--no-aa"], "action": "store_boolean"}]}' \
+    #     --aa
+
+    # # no-present
+    # run_and_check ./bin/modules/wargparse.py 0 \
+    #     '{"known": {"aa": {"value": false, "origin": "--no-aa"}}, "unknown": []}' \
+    #     '{"arguments":[{"names":["--aa","--no-aa"], "action": "store_boolean"}]}' \
+    #     --no-aa
+# }
+
+@test "argparsing can do positional args" {
+    run_and_check 'argparsing_argparse' 0 \
+        '{"known":{"positional":{"value":"positional argument","origin":null},"optional":{"value":"1","origin":"--optional"}},"unknown":["--hello","world"]}' \
+        '{"arguments":[{"names":["positional"]}, {"names":["--optional"]}]}' \
+        --optional 1 'positional argument' --hello world
+
+    # all positionals are required so you can't miss them
+}
+
+@test "argpasing can remove_unknown" {
 
     run argparsing_argparse '{"arguments":[{"names":["--how-many"]}, {"names":["--too-many"]}]}' \
         --how-many 1 --too-many 100 --hello
@@ -136,6 +179,14 @@ roundtrip() {
     echo "output='$output'"
     [ "$status" -eq 0 ]
     expect=''
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+    run argparsing_option "$input" how_many
+    echo "status=$status"
+    echo "output='$output'"
+    [ "$status" -eq 0 ]
+    expect='1'
     echo "expect='$expect'"
     [ "$output" == "$expect" ]
 

@@ -18,7 +18,7 @@ def get_debug_stream():
 # Set up a logging handler that writes to the debug stream.
 debug_stream = get_debug_stream()
 debug_handler = logging.StreamHandler(debug_stream)
-debug_handler.setLevel(logging.DEBUG)
+# debug_handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 debug_handler.setFormatter(formatter)
 
@@ -43,10 +43,7 @@ class StoreWithOriginAction(argparse._StoreAction):
 
     def __call__(self, parser, namespace, values, option_string=None):
         # logging.debug(f"StoreWithOriginAction.__call__(...{values}, {option_string})")
-        setattr(namespace, self.dest, {
-            'value': values,
-            'origin': f"{option_string}"
-        })
+        setattr(namespace, self.dest, {'value': values, 'origin': option_string})
 
 
 class StoreConstWithOriginAction(argparse._StoreConstAction):
@@ -70,7 +67,7 @@ class StoreConstWithOriginAction(argparse._StoreConstAction):
 
     def __call__(self, parser, namespace, values, option_string=None):
         # logging.debug(f"StoreConstWithOriginAction.__call__(...{values}, {option_string})")
-        setattr(namespace, self.dest, {'value': self.const, 'origin': f"{option_string}"})
+        setattr(namespace, self.dest, {'value': self.const, 'origin': option_string})
 
 
 class StoreTrueWithOriginAction(StoreConstWithOriginAction):
@@ -105,6 +102,37 @@ class StoreFalseWithOriginAction(StoreConstWithOriginAction):
             default=default,
             required=required,
             help=help)
+
+class BooleanOptionalWithOriginAction(argparse.BooleanOptionalAction):
+    def __init__(self,
+                 option_strings,
+                 dest,
+                 default={'value': None, 'origin': None},
+                 type=None,
+                 choices=None,
+                 required=None,
+                 help=None,
+                 metavar=None):
+        logger.debug(f"BooleanOptionalWithOriginAction.__init__()...")
+        logger.debug(f"default={default}")
+        super(argparse.BooleanOptionalAction, self).__init__(
+            option_strings=option_strings,
+            dest=dest,
+            nargs='*',
+            default=default,
+            type=type,
+            choices=choices,
+            required=required,
+            help=help,
+            metavar=metavar)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        logger.debug(f"BooleanOptionalWithOriginAction.__call__()...")
+        logger.debug(f"values={values}")
+        logger.debug(f"option_string={option_string}")
+        if option_string in self.option_strings:
+            setattr(namespace, self.dest, {'value': not option_string.startswith('--no-'), 'origin': option_string})
+
 
 # class AppendWithOriginAction(argparse._AppendAction):
 # class AppendConstWithOriginAction...
@@ -157,6 +185,7 @@ class RichArgumentParser:
         self.parser.register('action', 'store', StoreWithOriginAction)
         self.parser.register('action', 'store_true', StoreTrueWithOriginAction)
         self.parser.register('action', 'store_false', StoreFalseWithOriginAction)
+        self.parser.register('action', 'store_boolean', BooleanOptionalWithOriginAction)
         self.parser.register('action', 'count', CountWithOriginAction)
 
         for arg_spec in spec_obj.get('arguments', []):
@@ -177,19 +206,14 @@ class RichArgumentParser:
         except Exception as e:
             print(json.dumps({"error": str(e)}))
             sys.exit(1)
-        logger.debug(f"  known={parsed}")
-        logger.debug(f"unknown={unknown}")
+        logger.debug(f"known='{parsed}'")
+        logger.debug(f"unknown='{unknown}'")
 
-        result = {}
-        if len(vars(parsed)):
-            result['known'] = vars(parsed)
-        if len(unknown):
-            result['unknown'] = unknown
-        return result
+        return {"known": vars(parsed), "unknown": unknown}
 
 def main():
     logger.debug(f"wargparse({sys.argv[1:]})...")
-    if len(sys.argv) < 2 or sys.argv[1] in ['-h', '--help']:
+    if sys.argv[1] in ['-h', '--help']:
         example = {
             "prog": "the program",
             "usage": "my usage",
@@ -221,23 +245,14 @@ def main():
                 }
             ]
         }
-
-        output = {
-            "error": "Insufficient arguments",
-            "usage": "script.py 'JSON_SPEC' arg1 arg2 ...\n       script.py -h for detailed help",
-            "example_spec": example,
-        }
-
-        print(json.dumps(output, indent=2))
-        sys.exit(1)
-
-    spec = sys.argv[1]
-    args_to_parse = sys.argv[2:]
-
-    parser = RichArgumentParser(spec)
-    result = parser.parse_args(args_to_parse)
-    logger.debug(f"wargparse()->{result}")
-    print(json.dumps(result))
+        print(json.dumps(
+            {"usage": "wargparse.py 'JSON_SPEC' arg1 arg2 ...\n",
+             "example_spec": example}, indent=2))
+    else:
+        parser = RichArgumentParser(sys.argv[1] if len(sys.argv) > 1 else '{}')
+        result = parser.parse_args(sys.argv[2:] if len(sys.argv) > 2 else [])
+        logger.debug(f"wargparse()->{result}")
+        print(json.dumps(result))
 
 if __name__ == '__main__':
     main()

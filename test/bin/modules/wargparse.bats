@@ -1,8 +1,45 @@
 #!/usr/bin/env bats
 
+source test/bin/modules/bats-utils # for run_and_check
+
 setup() {
     source bin/modules/logging
     logging_config debug
+}
+
+@test "wargparse supports --no- for boolean options" {
+
+    # - doesn't work for short form options
+
+    # run_and_check ./bin/modules/wargparse.py 0 \
+    #     '{"known": {"a": {"value": null, "origin": null}}, "unknown": ["some"]}' \
+    #     '{"arguments":[{"names":["-a"], "action": "store_boolean"}]}' \
+    #     some
+
+    # run_and_check ./bin/modules/wargparse.py 0 \
+    #     '{"known": {"a": {"value": true, "origin": "-a"}}, "unknown": []}' \
+    #     '{"arguments":[{"names":["-a"], "action": "store_boolean"}]}' \
+    #     -a
+
+    # -- long form must be at least 2 chars!
+
+    # missing
+    run_and_check ./bin/modules/wargparse.py 0 \
+        '{"known": {"aa": {"value": null, "origin": null}}, "unknown": ["some"]}' \
+        '{"arguments":[{"names":["--aa","--no-aa"], "action": "store_boolean"}]}' \
+        some
+
+    # present
+    run_and_check ./bin/modules/wargparse.py 0 \
+        '{"known": {"aa": {"value": true, "origin": "--aa"}}, "unknown": []}' \
+        '{"arguments":[{"names":["--aa","--no-aa"], "action": "store_boolean"}]}' \
+        --aa
+
+    # no-present
+    run_and_check ./bin/modules/wargparse.py 0 \
+        '{"known": {"aa": {"value": false, "origin": "--no-aa"}}, "unknown": []}' \
+        '{"arguments":[{"names":["--aa","--no-aa"], "action": "store_boolean"}]}' \
+        --no-aa
 }
 
 @test "wargparse can parse arguments" {

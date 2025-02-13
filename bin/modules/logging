@@ -20,7 +20,8 @@ logging() {
     local message="$*"
     # TODO: automatic indentation via $#BASH_SOURCE
     if [[ "$level" -ge "$LOGGING_LEVEL" ]]; then
-        echo "$(date '+%Y-%m-%d %H:%M:%S,%3N') - $(printf "%-5s" "$level_str") - ${BASH_SOURCE[1]}:${BASH_LINENO[0]} ${FUNCNAME[1]}(): $message" >&$_logging_file_descriptor
+        # echo "$(date '+%Y-%m-%d %H:%M:%S,%3N') - $(printf "%-5s" "$level_str") - ${BASH_SOURCE[1]}:${BASH_LINENO[0]} ${FUNCNAME[1]}(): $message" >&$_logging_file_descriptor
+        echo "$(printf "%6s" "$level_str:") ${BASH_SOURCE[1]}:${BASH_LINENO[0]} ${FUNCNAME[1]}(): $message" >&$_logging_file_descriptor
     fi
     if [[ "$level" -ge "4" ]]; then
         exit 1

@@ -2,7 +2,7 @@
 
 if [[ -n "${GUARD_SOURCING_ARGPARSING:-}" ]]; then return; fi; GUARD_SOURCING_ARGPARSING=1
 
-source lib/bao-base/bin/modules/logging
+source $(dirname "${BASH_SOURCE[0]}")/logging
 
 ######################################
 # JSON args / command line conversion
@@ -15,7 +15,7 @@ argparsing_argparse() {
     # remove the null values. need to pass it through jq -c anyway
     local output=$($(dirname "${BASH_SOURCE[0]}")/wargparse.py "$@")
     logging debug "wargparse.py->'$output'"
-    output=$(echo "$output" | jq -rc '.known |= with_entries(select(.value.origin != null))')
+    output=$(echo "$output" | jq -rc '.known |= with_entries(select(.value.value != null))')
     logging debug "$FUNCNAME->'$output'"
     echo "$output"
 }
@@ -44,8 +44,8 @@ argparsing_args() {
                     if .known then
                         .known
                         | to_entries
-                        | map(select(.value.origin != null))
-                        | map(.value.origin + " '\''" + .value.value + "'\''")
+                        | map(select(.value.value != null))
+                        | map((if .value.origin != null then (.value.origin + " ") else "" end) + "'\''" + .value.value + "'\''")
                         | join(" ")
                     else
                         ""
@@ -89,6 +89,16 @@ argparsing_args() {
 # JSON args processing
 #######################
 
+
+# delete the complete set of unknown args
+argparsing_remove_unknown() {
+    logging debug "$FUNCNAME($*)..."
+    local json_args="$1"
+    local output=$(jq -rc '.unknown |= []' <<< "$json_args")
+    logging debug "$FUNCNAME->'$output'"
+    echo "$output"
+}
+
 # does a field exist - give a known field name (e.g. something with names:[--rpc-url] is rpc_url)
 argparsing_has() {
     logging debug "$FUNCNAME($*)..."
@@ -100,13 +110,22 @@ argparsing_has() {
     return 1
 }
 
-# delete the complete set of unknown args
-argparsing_remove_unknown() {
+argparsing_option() {
     logging debug "$FUNCNAME($*)..."
     local json_args="$1"
-    local output=$(jq -rc '.unknown |= []' <<< "$json_args")
-    logging debug "$FUNCNAME->'$output'"
-    echo "$output"
+    local dest="$2"
+    local value=$(jq -rc ".known.$dest.value // \"\"" <<< "$json_args")
+    logging debug "$FUNCNAME->'$value'"
+    echo "$value"
+}
+
+argparsing_positional() {
+    logging debug "$FUNCNAME($*)..."
+    local json_args="$1"
+    local pos="$2"
+    local value=$(jq -rc ".unknown[$pos] // \"\"" <<< "$json_args")
+    logging debug "$FUNCNAME->'$value'"
+    echo "$value"
 }
 
 argparsing_add() {
@@ -119,17 +138,6 @@ argparsing_add() {
     logging debug "$FUNCNAME->'$output'"
     echo "$output"
 }
-
-# the below doesn't work - it just extracts the value of the field
-# argparsing_keep() {
-#     logging debug "$FUNCNAME($*)..."
-#     local json_args="$1"
-#     logging debug "json_args=$json_args"
-#     local to_keep="$2"
-#     logging debug "to_keep=$to_keep"
-#     jq -rc ".$to_keep" <<< "$json_args"
-#     # jq -rc --arg keep $to_keep '.["$keep"]' <<< "$json_args"
-# }
 
 # takes two JSON args and merges them prioritising the second argument
 argparsing_merge() {

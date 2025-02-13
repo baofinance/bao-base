@@ -35,7 +35,7 @@
     expect=" --etherscan-api-key 'etherscankey'"
     echo "expect='$expect'"
     [ "$output" == "$expect" ]
-    ETHERSCAN_API_KEY=
+    unset ETHERSCAN_API_KEY
     echo "----"
 
     # missing value
