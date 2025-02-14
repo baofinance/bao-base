@@ -19,11 +19,11 @@ logging() {
     shift
     local message="$*"
     # TODO: automatic indentation via $#BASH_SOURCE
-    if [[ "$level" -ge "$LOGGING_LEVEL" ]]; then
+    if [[ "$level" -le "$LOGGING_LEVEL" ]]; then
         # echo "$(date '+%Y-%m-%d %H:%M:%S,%3N') - $(printf "%-5s" "$level_str") - ${BASH_SOURCE[1]}:${BASH_LINENO[0]} ${FUNCNAME[1]}(): $message" >&$_logging_file_descriptor
-        echo "$(printf "%6s" "$level_str:") ${BASH_SOURCE[1]}:${BASH_LINENO[0]} ${FUNCNAME[1]}(): $message" >&$_logging_file_descriptor
+        echo "$_logging_file_descriptor $(printf "%6s" "$level_str:") ${BASH_SOURCE[1]}:${BASH_LINENO[0]} ${FUNCNAME[1]}(): $message" >&$_logging_file_descriptor
     fi
-    if [[ "$level" -ge "4" ]]; then
+    if [[ "$level" -lt "0" ]]; then
         exit 1
     fi
  }
@@ -31,16 +31,18 @@ logging() {
 _logging_to_value() {
     local level=0
     case $(echo "$1" | tr '[:upper:]' '[:lower:]') in
-        debug ) level=0
+        debug | 3) level=3
                 ;;
-        info  ) level=1
+        info  | 2) level=2
                 ;;
-        warn  ) level=2
+        warn  | 1) level=1
                 ;;
-        error ) level=3
+        error | 0) level=0
                 ;;
-        fail  ) level=4
+        fail  | -1) level=-1
                 ;;
+        *)  logging fail "unrecognised logging level: $1"
+
     esac
     echo $level
 }
@@ -59,4 +61,4 @@ else
 
 fi
 
-logging info "loading 'logging' from ${BASH_SOURCE[1]}"
+# logging info "loading 'logging' from ${BASH_SOURCE[1]}"
