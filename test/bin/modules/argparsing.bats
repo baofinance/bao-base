@@ -111,28 +111,28 @@ roundtrip() {
     roundtrip '{"arguments":[{"names":["positional"]}, {"names":["--optional"]}]}' \
         "--optional 1 'positional argument'" '--hello world' "'positional argument' --optional '1'"
 
-   # empty, everything
-    # roundtrip ''
+    # empty, everything
+    roundtrip ''
 }
 
-# @test "argparsing can round-trip store_booleans" {
-    # # store_boolean
-    # run_and_check ./bin/modules/wargparse.py 0 \
-    #     '{"known": {"aa": {"value": null, "origin": null}}, "unknown": []}' \
-    #     '{"arguments":[{"names":["--aa","--no-aa"], "action": "store_boolean"}]}' \
+@test "argparsing can round-trip store_booleans" {
+    # store_boolean
+    run_and_check ./bin/modules/wargparse.py 0 \
+        '{"known": {"aa": {"value": null, "origin": null}}, "unknown": []}' \
+        '{"arguments":[{"names":["--aa","--no-aa"], "action": "store_boolean"}]}' \
 
-    # # present
-    # run_and_check ./bin/modules/wargparse.py 0 \
-    #     '{"known": {"aa": {"value": true, "origin": "--aa"}}, "unknown": []}' \
-    #     '{"arguments":[{"names":["--aa","--no-aa"], "action": "store_boolean"}]}' \
-    #     --aa
+    # present
+    run_and_check ./bin/modules/wargparse.py 0 \
+        '{"known": {"aa": {"value": true, "origin": "--aa"}}, "unknown": []}' \
+        '{"arguments":[{"names":["--aa","--no-aa"], "action": "store_boolean"}]}' \
+        --aa
 
-    # # no-present
-    # run_and_check ./bin/modules/wargparse.py 0 \
-    #     '{"known": {"aa": {"value": false, "origin": "--no-aa"}}, "unknown": []}' \
-    #     '{"arguments":[{"names":["--aa","--no-aa"], "action": "store_boolean"}]}' \
-    #     --no-aa
-# }
+    # no-present
+    run_and_check ./bin/modules/wargparse.py 0 \
+        '{"known": {"aa": {"value": false, "origin": "--no-aa"}}, "unknown": []}' \
+        '{"arguments":[{"names":["--aa","--no-aa"], "action": "store_boolean"}]}' \
+        --no-aa
+}
 
 @test "argparsing can do positional args" {
     run_and_check 'argparsing_argparse' 0 \
@@ -154,7 +154,7 @@ roundtrip() {
     # echo "status=$status"
     # echo "output='$output'"
     # [ "$status" -eq 0 ]
-    # expect='{"known":[],"unknown":["--hello"]}'
+    # expect='{"known":{},"unknown":["--hello"]}'
     # echo "expect='$expect'"
     # [ "$output" == "$expect" ]
 
@@ -168,35 +168,36 @@ roundtrip() {
 
 }
 
-@test "argpasing can test" {
+@test "argpasing can test and extract" {
 
-    run argparsing_argparse '{"arguments":[{"names":["--how-many"]}, {"names":["--too-many"]}]}' \
-        --how-many 1 --too-many 100 --hello
+    run argparsing_argparse '{"arguments":[
+        {"names": ["--how-many"]}, {"names": ["--too-many"]},
+        {"names": ["positional"]},
+        {"names": ["optionalpositional"], "nargs": "?"},
+        {"names": ["missingoptionalpositional"], "nargs": "?"}
+        ]}' \
+        --how-many ask --too-many 100 "positional argument" optpos --hello
     input="$output"
 
-    run argparsing_has "$input" how_many
-    echo "status=$status"
-    echo "output='$output'"
-    [ "$status" -eq 0 ]
-    expect=''
-    echo "expect='$expect'"
-    [ "$output" == "$expect" ]
+    run_and_check argparsing_has 0 '' "$input" how_many
+    run_and_check argparsing_value 0 ask "$input" how_many
 
-    run argparsing_option "$input" how_many
-    echo "status=$status"
-    echo "output='$output'"
-    [ "$status" -eq 0 ]
-    expect='1'
-    echo "expect='$expect'"
-    [ "$output" == "$expect" ]
+    run_and_check argparsing_has 0 '' "$input" too_many
+    run_and_check argparsing_value 0 100 "$input" too_many
 
-    run argparsing_has "$input" '--hello'
-    echo "status=$status"
-    echo "output='$output'"
-    [ "$status" -eq 1 ]
-    expect=''
-    echo "expect='$expect'"
-    [ "$output" == "$expect" ]
+    run_and_check argparsing_has 0 '' "$input" positional
+    run_and_check argparsing_value 0 'positional argument' "$input" positional
+
+    run_and_check argparsing_has 0 '' "$input" optionalpositional
+    run_and_check argparsing_value 0 'optpos' "$input" optionalpositional
+
+    run_and_check argparsing_has 1 '' "$input" missingoptionalpositional
+    run_and_check argparsing_value 0 '' "$input" missingoptioalpositional
+
+
+    # has doeesn't find unknowns
+    run_and_check argparsing_has 1 '' "$input" hello
+    run_and_check argparsing_has 1 '' "$input" '--hello'
 
     argparsing_has "$input" how_many
     argparsing_has "$input" hello || true
@@ -208,6 +209,13 @@ roundtrip() {
 
 @test "argpasing can merge" {
 
+    # only merges known, unknown is overwritten
+    run_and_check argparsing_merge 0 '{"known":{},"unknown":[]}' '{"known": {}, "unknown": ["a"]}' '{"known": {}, "unknown": []}'
+
+    run_and_check argparsing_merge 0 '{"known":{},"unknown":["a"]}' '{"known": {}, "unknown": [""]}' '{"known": {}, "unknown": ["a"]}'
+
+    run_and_check argparsing_merge 0 '{"known":{},"unknown":["b"]}' '{"known": {}, "unknown": ["a"]}' '{"known": {}, "unknown": ["b"]}'
+
     run argparsing_argparse '{"arguments":[{"names":["--how-many"]}, {"names":["--too-many"]}]}' \
         --how-many 1 --too-many 100 --hello
     input1="$output"
@@ -218,30 +226,10 @@ roundtrip() {
     input2="$output"
     [ "$status" -eq 0 ]
 
-    run argparsing_merge "$input1" "$input2"
-    echo "status=$status"
-    echo "output='$output'"
-    [ "$status" -eq 0 ]
-    expect='{"known":{"how_many":{"value":"2","origin":"--how-many"},"too_many":{"value":"100","origin":"--too-many"},"too_little":{"value":"0","origin":"--too-little"}},"unknown":["--hello","--goodbye"]}'
-    echo "expect='$expect'"
-    [ "$output" == "$expect" ]
+    run_and_check argparsing_merge 0 '{"known":{"how_many":{"value":"2","origin":"--how-many"},"too_many":{"value":"100","origin":"--too-many"},"too_little":{"value":"0","origin":"--too-little"}},"unknown":["--hello","--goodbye"]}' "$input1" "$input2"
 
-    run argparsing_merge '{"known": [], "unknown": ["a"]}' '{"known": [], "unknown": []}'
-    echo "status=$status"
-    echo "output='$output'"
-    [ "$status" -eq 0 ]
-    expect='{"known":[],"unknown":[]}'
-    echo "expect='$expect'"
-    [ "$output" == "$expect" ]
-
-    run argparsing_merge '{}' '{}'
-    echo "status=$status"
-    echo "output='$output'"
-    [ "$status" -eq 0 ]
-    expect='{"known":[],"unknown":[]}'
-    echo "expect='$expect'"
-    [ "$output" == "$expect" ]
-
+    # not technically needed but checks for robustness - or maybe it shoud fail
+    run_and_check argparsing_merge 0 '{"known":{},"unknown":[]}' '{}' '{}'
 }
 
 @test "argpasing can detect overlaps" {
@@ -296,71 +284,50 @@ roundtrip() {
     expect="$input2"
     echo "expect='$expect'"
     [ "$output" == "$expect" ]
-
-    # run argparsing_merge '{"known": [], "unknown": ["a"]}' '{"known": [], "unknown": []}'
-    # echo "status=$status"
-    # echo "output='$output'"
-    # [ "$status" -eq 0 ]
-    # expect='{"known":[],"unknown":[]}'
-    # echo "expect='$expect'"
-    # [ "$output" == "$expect" ]
-
-    # run argparsing_merge '{}' '{}'
-    # echo "status=$status"
-    # echo "output='$output'"
-    # [ "$status" -eq 0 ]
-    # expect='{"known":[],"unknown":[]}'
-    # echo "expect='$expect'"
-    # [ "$output" == "$expect" ]
-
 }
 
 
-# @test "argpasing can keep" {
-#     run argparsing_argparse '{"arguments":[{"names":["--how-many"]}, {"names":["--too-many"]}]}' \
-#         '--how-many 1 --too-many 100' '--hello'
-#     input="$output"
-#     run argparsing_keep "$input" known
-#     echo "status=$status"
-#     echo "output='$output'"
-#     [ "$status" -eq 0 ]
-#     expect='{"known":{"how_many":{"value":null,"origin":null},"too_many":{"value":null,"origin":null}}}'
-#     echo "expect='$expect'"
-#     [ "$output" == "$expect" ]
-# }
+@test "argparsing can count" {
+    # zero
+    run_and_check argparsing_argparse 0 '{"known":{},"unknown":[]}' '{"arguments":[{"names":["-v","--verbose"], "action": "store_count"}]}'
 
-# @test "has can count" {
-#     run argparsing_has --private-key --
-#     echo "status=$status"
-#     echo "output='$output'"
-#     [ "$status" -eq 0 ]
-#     [ "$output" == "0" ]
+    # one
+    run_and_check argparsing_argparse 0 '{"known":{"verbose":{"value":1,"origin":"--verbose"}},"unknown":[]}' '{"arguments":[{"names":["-v","--verbose"], "action": "store_count"}]}' \
+        --verbose
 
-#     run argparsing_has --private-key -- --unknown
-#     echo "status=$status"
-#     echo "output='$output'"
-#     [ "$status" -eq 0 ]
-#     [ "$output" == "0" ]
+    run_and_check argparsing_argparse 0 '{"known":{"verbose":{"value":1,"origin":"-v"}},"unknown":[]}' '{"arguments":[{"names":["-v","--verbose"], "action": "store_count"}]}' \
+        -v
 
-#     run argparsing_has --private-key -- --private-key 'not eek'
-#     echo "status=$status"
-#     echo "output='$output'"
-#     [ "$status" -eq 0 ]
-#     [ "$output" == "1" ]
+    # two
+    run_and_check argparsing_argparse 0 '{"known":{"verbose":{"value":2,"origin":"--verbose --verbose"}},"unknown":[]}' '{"arguments":[{"names":["-v","--verbose"], "action": "store_count"}]}' \
+        --verbose --verbose
 
-#     run argparsing_has --p -- -p -p 'not eek'
-#     echo "status=$status"
-#     echo "output='$output'"
-#     [ "$status" -eq 0 ]
-#     [ "$output" == "0" ]
+    run_and_check argparsing_argparse 0 '{"known":{"verbose":{"value":2,"origin":"-v -v"}},"unknown":[]}' '{"arguments":[{"names":["-v","--verbose"], "action": "store_count"}]}' \
+        -vv
 
-#     run argparsing_has -p -- -p -p 'not eek'
-#     echo "status=$status"
-#     echo "output='$output'"
-#     [ "$status" -eq 0 ]
-#     [ "$output" == "2" ]
+    run_and_check argparsing_argparse 0 '{"known":{"verbose":{"value":2,"origin":"-v -v"}},"unknown":[]}' '{"arguments":[{"names":["-v","--verbose"], "action": "store_count"}]}' \
+        -v -v
 
-# }
+    # three
+    run_and_check argparsing_argparse 0 '{"known":{"verbose":{"value":3,"origin":"-v -v -v"}},"unknown":[]}' '{"arguments":[{"names":["-v","--verbose"], "action": "store_count"}]}' \
+        -vvv
+
+    run_and_check argparsing_argparse 0 '{"known":{"verbose":{"value":3,"origin":"-v -v --verbose"}},"unknown":[]}' '{"arguments":[{"names":["-v","--verbose"], "action": "store_count"}]}' \
+        -vv --verbose
+
+    run_and_check argparsing_argparse 0 '{"known":{"verbose":{"value":3,"origin":"-v -v --verbose"}},"unknown":[]}' '{"arguments":[{"names":["-v","--verbose"], "action": "store_count"}]}' \
+        -v -v --verbose
+
+    # four
+    run_and_check argparsing_argparse 0 '{"known":{"verbose":{"value":4,"origin":"-v -v -v -v"}},"unknown":[]}' '{"arguments":[{"names":["-v","--verbose"], "action": "store_count"}]}' \
+        -vvvv
+
+    run_and_check argparsing_argparse 0 '{"known":{"verbose":{"value":4,"origin":"-v -v --verbose --verbose"}},"unknown":[]}' '{"arguments":[{"names":["-v","--verbose"], "action": "store_count"}]}' \
+        -vv --verbose --verbose
+
+    run_and_check argparsing_argparse 0 '{"known":{"verbose":{"value":4,"origin":"--verbose -v -v --verbose"}},"unknown":[]}' '{"arguments":[{"names":["-v","--verbose"], "action": "store_count"}]}' \
+        --verbose -v -v --verbose
+}
 
 
 # @test "default can default" {
@@ -420,272 +387,6 @@ roundtrip() {
 
 # }
 
-# @test "getopt / remove_unknowns can parse args" {
-
-#     quote="'"
-#     extra_options="--hello world --long-option -o short-option -s"
-
-#     for cmd in "argparsing_getopt" "argparsing_remove_unknowns"; do
-#         logging debug "running $cmd..."
-
-#         if [[ "$cmd" == "argparsing_getopt" ]]; then
-#             # extra_output=" -- '' '--hello' 'world' '--long-option' '-o' 'short-option' '-s'"
-#             extra_output=" -- 'world' 'short-option'"
-#         else
-#             extra_output=""
-#         fi
-#         # no args
-#         run $cmd
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         if [[ "$cmd" == "argparsing_getopt" ]]; then
-#             [ "$output" == " --" ] # everything is treated as an unknown
-#         else
-#             [ "$output" == "" ]
-#         fi
-#         # no known args
-#         run $cmd -- $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         # TODO: replace getopt with a python parsed calliningto arg parse
-#         # this gives a more robust and portable solution.
-#         [ "$status" -eq 0 ]
-#         [ "$output" == "$extra_output" ]
-
-#         ############
-#         # one short switch without
-#         run $cmd -o a -- $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == "$extra_output" ]
-
-#             # one short switch with
-#         run $cmd -o a -- $extra_options -a
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " -a$extra_output" ]
-
-#         # one short switch with
-#         run $cmd -o a -- -a $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " -a$extra_output" ]
-
-#         # one short option with, value
-#         run $cmd -o a -- -aa $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " -a -a$extra_output" ]
-
-
-#         # one short option without
-#         run $cmd -o a: -- $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == "$extra_output" ]
-
-#         # one short option with, no value
-#         run $cmd -o a: -- -a -x $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " -a '-x'$extra_output" ] # takes value even though it's an option itself!
-
-#         # one short option with, value
-#         run $cmd -o a: -- -a value $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " -a 'value'$extra_output" ]
-
-#         # one short option with, value
-#         run $cmd -o a: -- -a=value $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " -a '=value'$extra_output" ]
-
-#         # one short option with, value
-#         run $cmd -o a: -- -avalue $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " -a 'value'$extra_output" ]
-
-#         # one short option with, value
-#         run $cmd -o a: -- -aa $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " -a 'a'$extra_output" ]
-
-#         #################
-#         # one long switch without
-#         run $cmd -l switch -- $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == "$extra_output" ]
-
-#         # one long switch with
-#         run $cmd -l switch -- --switch $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " --switch$extra_output" ]
-
-#         # one long option with, duplicate
-#         run $cmd -l switch -- --switch --switch $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " --switch --switch$extra_output" ]
-
-
-#         # one long option without
-#         run $cmd -l option: -- $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == "$extra_output" ]
-
-#         # one long option with, no value
-#         run $cmd -l option: -- --option -x $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " --option '-x'$extra_output" ] # takes value even though it's an option itself!
-
-#         # one long option with, value
-#         run $cmd -l option: -- --option value $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " --option 'value'$extra_output" ]
-
-#         # one long option with, value
-#         run $cmd -l option: -- --option=value $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " --option 'value'$extra_output" ]
-
-#         # one long option with, value
-#         run $cmd -l option: -- --optionvalue $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == "$extra_output" ]
-
-#         # one long option with, value
-#         run $cmd -l option: -- --option= value $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " --option ''${extra_output/ -- / -- ${quote}value${quote} }" ]
-
-#         # one long option with, value
-#         run $cmd -l option: -- --option =value $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " --option '=value'$extra_output" ]
-
-#         # one long option with, value
-#         run $cmd -l option: -- --option --option $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " --option '--option'$extra_output" ]
-
-#         # one long option with, multiple values
-#         run $cmd -l option: -- --option value1,value2 $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " --option 'value1,value2'$extra_output" ]
-
-#         # one long option with, multiple values
-#         run $cmd -l option: -- --option=value1,value2 $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " --option 'value1,value2'$extra_output" ]
-
-#         # one long option with, multiple values
-#         run $cmd -l option: -- --option=value1 value2 $extra_options
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " --option 'value1'${extra_output/ -- / -- ${quote}value2${quote} }" ]
-
-#     done
-# }
-
-# @test "getopt / remove_unknowns handles quoting of values" {
-#     quote="'"
-
-#     for cmd in "argparsing_getopt" "argparsing_remove_unknowns"; do
-#         logging debug "running $cmd..."
-
-#         if [[ "$cmd" == "argparsing_getopt" ]]; then
-#             extra_output=" --"
-#         else
-#             extra_output=""
-#         fi
-
-#         run $cmd -o o: -l option: -- -o ovalue --option optionvalue
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " -o 'ovalue' --option 'optionvalue'$extra_output" ]
-
-#         run $cmd -o o: -l option: -- -o 'ovalue' --option 'optionvalue'
-#         echo "status=$status"
-#         echo "output=\"$output\""
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " -o 'ovalue' --option 'optionvalue'$extra_output" ]
-
-#         run $cmd -o o: -l option: -- -o 'o value' --option 'option value'
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " -o 'o value' --option 'option value'$extra_output" ]
-
-#         run $cmd -o o: -l option: -- -o o\ value --option option\ value
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " -o 'o value' --option 'option value'$extra_output" ]
-
-#         run $cmd -o o: -l option: -- -o "ovalue" --option "optionvalue"
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " -o 'ovalue' --option 'optionvalue'$extra_output" ]
-
-#         run $cmd -o o: -l option: -- -o "ovalue" --option "optionvalue"
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " -o 'ovalue' --option 'optionvalue'$extra_output" ]
-
-#         # nasty one to fool any regex about the end of the line
-#         # getopt doesn't work for the following (value with embedded " -- ")
-#         run $cmd -o o: -l option: -- -o 'o -- value' --option "option -- value"
-#         echo "status=$status"
-#         echo "output='$output'"
-#         [ "$status" -eq 0 ]
-#         [ "$output" == " -o 'o -- value' --option 'option -- value'$extra_output" ]
-
-#     done
-# }
 
 # @test "extract_getopt_spec_from_hashhash can extract arg specs" {
 #     run argparsing_extract_getopt_spec_from_hashhash lib/bao-base/test/bin/modules/argparsing.spec
@@ -696,70 +397,5 @@ roundtrip() {
 # }
 
 
-# @test "parse_to_json can convert straight forward args to json" {
-#     skip
-#     # single valueless arg
-#     run argparsing_parse_to_json -s
-#     [ "$status" -eq 0 ]
-#     echo "output='$output'"
-#     [ "$output" == '{"-s":[]}' ]
-
-#     run argparsing_parse_to_json --switch
-#     [ "$status" -eq 0 ]
-#     echo "output='$output'"
-#     [ "$output" == '{"--switch":[]}' ]
-
-#     run argparsing_parse_to_json -z
-#     [ "$status" -eq 0 ]
-#     echo "output='$output'"
-#     [ "$output" == '{"-z":[]}' ]
-
-#     run argparsing_parse_to_json --zwitch
-#     [ "$status" -eq 0 ]
-#     echo "output='$output'"
-#     [ "$output" == '{"--zwitch":[]}' ]
-
-#     run argparsing_parse_to_json -o xxx
-#     [ "$status" -eq 0 ]
-#     echo "output='$output'"
-#     [ "$output" == '{"-o":["xxx"]}' ]
-
-#     run argparsing_parse_to_json --option yyy
-#     [ "$status" -eq 0 ]
-#     echo "output='$output'"
-#     [ "$output" == '{"--option":["yyy"]}' ]
-
-#     run argparsing_parse_to_json -p zzz
-#     [ "$status" -eq 0 ]
-#     echo "output='$output'"
-#     [ "$output" == '{"-p":["zzz"]}' ]
-
-#     run argparsing_parse_to_json -m a bb ccc
-#     [ "$status" -eq 0 ]
-#     echo "output='$output'"
-#     [ "$output" == '{"-m":["a","bb","ccc"]}' ]
-
-#     run argparsing_parse_to_json -M "a" "b b" ccc
-#     [ "$status" -eq 0 ]
-#     echo "output='$output'"
-#     [ "$output" == '{"-M":["a","b b","ccc"]}' ]
-
-#     run argparsing_parse_to_json --many "a" "b b" ccc
-#     [ "$status" -eq 0 ]
-#     echo "output='$output'"
-#     [ "$output" == '{"--many":["a","b b","ccc"]}' ]
-
-#     run argparsing_parse_to_json --random some
-#     [ "$status" -eq 0 ]
-#     echo "output='$output'"
-#     [ "$output" == '{"--random":["some"]}' ]
-
-#     run argparsing_parse_to_json --random
-#     [ "$status" -eq 0 ]
-#     echo "output='$output'"
-#     [ "$output" == '{"--random":[]}' ]
-# }
-
 # TODO: check other test args, e.g. [VALUE...] ones
-# TODO: check what happens to unrecognised args
 # TODO: check what happens when incorrect argument counts are applied

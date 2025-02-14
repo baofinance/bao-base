@@ -79,7 +79,6 @@
 }
 
 
-
 # @test "_transacting_getopt can read the standard args for transacting" {
 #     # single valueless arg
 #     run _getopt_to_json --log

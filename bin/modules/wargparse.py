@@ -4,29 +4,13 @@ import argparse
 import json
 
 import os
-import logging
-
-def get_debug_stream():
-    try:
-        # Attempt to open file descriptor 8.
-        # On some systems you might also try '/dev/fd/8'
-        return os.fdopen(8, 'w')
-    except OSError:
-        # If FD 8 isn’t available, fall back to stderr (or sys.__stdout__ if appropriate)
-        return sys.stderr
 
 # Set up a logging handler that writes to the debug stream.
-debug_stream = get_debug_stream()
-debug_handler = logging.StreamHandler(debug_stream)
-# debug_handler.setLevel(logging.DEBUG)
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-debug_handler.setFormatter(formatter)
-
-# Configure the logger (for example, the root logger)
-logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
-logger.addHandler(debug_handler)
-
+import logging
+logging.basicConfig(
+                    level=logging.DEBUG,
+                    format='%(asctime)s - %(levelname)s - %(message)s',
+                    handlers=[logging.StreamHandler(os.fdopen(8, 'w'))])
 
 class StoreWithOriginAction(argparse._StoreAction):
     def __init__(self,
@@ -42,9 +26,11 @@ class StoreWithOriginAction(argparse._StoreAction):
             **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
-        # logging.debug(f"StoreWithOriginAction.__call__(...{values}, {option_string})")
-        setattr(namespace, self.dest, {'value': values, 'origin': option_string})
-
+        logging.debug(f"StoreWithOriginAction.__call__({self.dest}, {values}, {option_string})")
+        if values == self.default:
+            setattr(namespace, self.dest, self.default)
+        else:
+            setattr(namespace, self.dest, {'value': values, 'origin': option_string})
 
 class StoreConstWithOriginAction(argparse._StoreConstAction):
     def __init__(self,
@@ -95,7 +81,7 @@ class StoreFalseWithOriginAction(StoreConstWithOriginAction):
                  default=True,
                  required=False,
                  help=None):
-        super(StoreTrueWithOriginAction, self).__init__(
+        super(StoreConstWithOriginAction, self).__init__(
             option_strings=option_strings,
             dest=dest,
             const=False,
@@ -113,8 +99,8 @@ class BooleanOptionalWithOriginAction(argparse.BooleanOptionalAction):
                  required=None,
                  help=None,
                  metavar=None):
-        logger.debug(f"BooleanOptionalWithOriginAction.__init__()...")
-        logger.debug(f"default={default}")
+        logging.debug(f"BooleanOptionalWithOriginAction.__init__()...")
+        logging.debug(f"default={default}")
         super(argparse.BooleanOptionalAction, self).__init__(
             option_strings=option_strings,
             dest=dest,
@@ -127,9 +113,9 @@ class BooleanOptionalWithOriginAction(argparse.BooleanOptionalAction):
             metavar=metavar)
 
     def __call__(self, parser, namespace, values, option_string=None):
-        logger.debug(f"BooleanOptionalWithOriginAction.__call__()...")
-        logger.debug(f"values={values}")
-        logger.debug(f"option_string={option_string}")
+        logging.debug(f"BooleanOptionalWithOriginAction.__call__()...")
+        logging.debug(f"values={values}")
+        logging.debug(f"option_string={option_string}")
         if option_string in self.option_strings:
             setattr(namespace, self.dest, {'value': not option_string.startswith('--no-'), 'origin': option_string})
 
@@ -154,10 +140,11 @@ class CountWithOriginAction(argparse._CountAction):
             help=help)
 
     def __call__(self, parser, namespace, values, option_string=None):
+        logging.debug(f"CountWithOriginAction.__call__({self.dest},{values},{option_string})...")
         current = getattr(namespace, self.dest, {})
         current_value = current.get('value') or 0
         current_origin = current.get('origin') or ''
-        # logging.debug(f"current value={current_value}, origin={current_origin}")
+        logging.debug(f"current value={current_value}, origin={current_origin}")
         setattr(namespace, self.dest, {
             'value': current_value + 1,
             'origin': option_string if not current_origin else f"{current_origin} {option_string}"
@@ -186,6 +173,8 @@ class RichArgumentParser:
         self.parser.register('action', 'store_true', StoreTrueWithOriginAction)
         self.parser.register('action', 'store_false', StoreFalseWithOriginAction)
         self.parser.register('action', 'store_boolean', BooleanOptionalWithOriginAction)
+        self.parser.register('action', 'boolean_optional', BooleanOptionalWithOriginAction)
+        self.parser.register('action', 'store_count', CountWithOriginAction)
         self.parser.register('action', 'count', CountWithOriginAction)
 
         for arg_spec in spec_obj.get('arguments', []):
@@ -206,13 +195,13 @@ class RichArgumentParser:
         except Exception as e:
             print(json.dumps({"error": str(e)}))
             sys.exit(1)
-        logger.debug(f"known='{parsed}'")
-        logger.debug(f"unknown='{unknown}'")
+        logging.debug(f"known='{parsed}'")
+        logging.debug(f"unknown='{unknown}'")
 
         return {"known": vars(parsed), "unknown": unknown}
 
 def main():
-    logger.debug(f"wargparse({sys.argv[1:]})...")
+    logging.debug(f"wargparse({sys.argv[1:]})...")
     if sys.argv[1] in ['-h', '--help']:
         example = {
             "prog": "the program",
@@ -249,9 +238,9 @@ def main():
             {"usage": "wargparse.py 'JSON_SPEC' arg1 arg2 ...\n",
              "example_spec": example}, indent=2))
     else:
-        parser = RichArgumentParser(sys.argv[1] if len(sys.argv) > 1 else '{}')
+        parser = RichArgumentParser(sys.argv[1] if len(sys.argv) and len(sys.argv[1]) > 1 else '{}')
         result = parser.parse_args(sys.argv[2:] if len(sys.argv) > 2 else [])
-        logger.debug(f"wargparse()->{result}")
+        logging.debug(f"wargparse()->{result}")
         print(json.dumps(result))
 
 if __name__ == '__main__':

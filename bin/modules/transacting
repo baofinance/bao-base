@@ -45,9 +45,7 @@ transacting_config_value() {
 transacting_config() {
     logging debug "$FUNCNAME($*)..."
     _transacting_default_options_json=$(argparsing_argparse "$_transacting_default_options_spec" "$@")
-    logging debug "default option=$_transacting_default_options_json"
     _transacting_default_options_json=$(argparsing_remove_unknown "$_transacting_default_options_json")
-    logging info "defaults for all transactions$(transacting_default_options)"
 
     # if [[ -z $(argparsing_has --option rpc-url -- "$_transacting_default_options_json") ]]; then
     #     logging info "--rpc-url not given and it is never defaulted as it is dangerous"
@@ -63,7 +61,7 @@ transacting_config() {
     _transacting_default_from_env "--private-key" "PRIVATE_KEY"
     _transacting_default_from_env "--etherscan-api-key" "ETHERSCAN_API_KEY"
 
-    logging info "defaults updated from environment:$(transacting_default_options)"
+    logging info "defaults for all transactions$(transacting_default_options)"
 }
 
 transacting_deploy() {

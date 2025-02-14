@@ -104,13 +104,13 @@ argparsing_has() {
     logging debug "$FUNCNAME($*)..."
     local json_args="$1"
     local dest="$2"
-    local value=$(jq -rc "getpath([\"known\", \"$dest\"]) != null" <<< "$json_args")
+    local value=$(jq -rc 'getpath(["known", "'"$dest"'", "value"]) != null' <<< "$json_args")
     logging debug "$FUNCNAME->'$value'"
     [[ "$value" == "true" ]] && return 0
     return 1
 }
 
-argparsing_option() {
+argparsing_value() {
     logging debug "$FUNCNAME($*)..."
     local json_args="$1"
     local dest="$2"
@@ -119,14 +119,24 @@ argparsing_option() {
     echo "$value"
 }
 
-argparsing_positional() {
-    logging debug "$FUNCNAME($*)..."
-    local json_args="$1"
-    local pos="$2"
-    local value=$(jq -rc ".unknown[$pos] // \"\"" <<< "$json_args")
-    logging debug "$FUNCNAME->'$value'"
-    echo "$value"
-}
+# argparsing_has() {
+#     logging debug "$FUNCNAME($*)..."
+#     local json_args="$1"
+#     local dest="$2"
+#     local value=$(jq -rc "getpath([\"known\", \"$dest\"]) != null" <<< "$json_args")
+#     logging debug "$FUNCNAME->'$value'"
+#     [[ "$value" == "true" ]] && return 0
+#     return 1
+# }
+
+# argparsing_value_unknown() {
+#     logging debug "$FUNCNAME($*)..."
+#     local json_args="$1"
+#     local pos="$2"
+#     local value=$(jq -rc ".unknown[$pos] // \"\"" <<< "$json_args")
+#     logging debug "$FUNCNAME->'$value'"
+#     echo "$value"
+# }
 
 argparsing_add() {
     logging debug "$FUNCNAME($*)..."
@@ -149,7 +159,7 @@ argparsing_merge() {
     # merge knowns overriding from the right
     # unknowns take from the right, even if it's empty
     local output=$(jq -cs '{
-        known: ((.[0].known + .[1].known) // []),
+        known: ((.[0].known + .[1].known) // {}),
         unknown: (.[1].unknown // [])
         }' <(echo "$defaults") <(echo "$overrides"))
     logging debug "$FUNCNAME->'$output'"
