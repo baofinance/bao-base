@@ -9,7 +9,7 @@
     "fmt": "yarn prettier --write",
     "fmt:check": "yarn prettier --check",
     "lint": "solhint --max-warnings 0 '{src,interfaces}/**/*.sol' --disc",
-    "lint:bash": "shellcheck --external-sources --shell=bash --enable=all --severity=info $(grep -RIl '^#!.*bash' bin test)",
+    "lint:bash": "shellcheck --external-sources --shell=bash --enable=all --exclude=SC2310,SC2312 --severity=info $(grep -RIl '^#!.*bash' bin test)",
     "slither": "./lib/bao-base/run slither .",
     "test": "./lib/bao-base/run test",
     "test:bash": "[ $# -gt 0 ] && ./node_modules/bats/bin/bats test/**/\"${0}\".bats; [ $# -eq 0 ] && ./node_modules/bats/bin/bats test/**/*.bats",

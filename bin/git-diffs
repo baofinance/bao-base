@@ -26,6 +26,7 @@ while IFS="" read -r change; do
 
             logfile=${file//\//\__}.diff.log
             git diff --output="$logfile" --color=always --minimal --unified=0 --word-diff=plain --ignore-space-change --ignore-blank-lines --color-moved-ws=ignore-all-space "$file"
+            if [[ -f "$file" && "$file" == "*.txt" ]]; then
                 head -n 3 "$file" | sed 's/^/    /'
                 sed 's/^/    /' "$logfile" | sed '0,/@@\x1b\[m$/d' | sed '/@@ [-0-9,]\+ [+0-9,]\+ @@/d'
             else
