@@ -1,6 +1,5 @@
 #!/bin/bash
-set -e
-set -o pipefail
+set -e -o pipefail
 
 # clean the build artifacts
 forge clean
@@ -28,5 +27,6 @@ clean_directory() {
 export -f clean_directory
 
 # Recursively find all directories and process them
+# shellcheck disable=SC2154 # we don't need to check if the variable is set
 find "$BAO_BASE_LIB_DIR" -type d -exec bash -c 'clean_directory "$0"' {} \;
 echo "cleaned tools dependencies"

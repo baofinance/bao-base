@@ -1,6 +1,5 @@
 #!/bin/bash
-set -e
-set -o pipefail
+set -e -o pipefail
 
 TAG="$1"
 this=$(basename $0)
@@ -51,7 +50,7 @@ git push origin -f "$LATEST_TAG"
 echo "created tag $TAG and updated $LATEST_TAG to point to it"
 
 REMOTE_TAGS=$(git ls-remote --tags origin | sed 's|\s*refs/tags/| |')
-echo $(git rev-parse main) "main (local)"
-echo $(git rev-parse origin/main) "origin/main"
+echo "$(git rev-parse main)" "main (local)"
+echo "$(git rev-parse origin/main)" "origin/main"
 echo "$REMOTE_TAGS" | grep '\-latest'
 echo "$REMOTE_TAGS" | grep -v '\-latest' | sed -n '1!G;h;$p' | head -n 2

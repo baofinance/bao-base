@@ -11,8 +11,9 @@ if [ -z "$1" ]; then
   exit 1
 fi
 
-KEY=$1
+KEY="$1"
+shift
 
-echo using KEY=$KEY
-echo cast calldata "'"$KEY"'"
-cast calldata $KEY
+echo using KEY="$KEY"
+echo cast calldata "$KEY" "$@"
+cast calldata "$KEY" "$@"

@@ -1,64 +1,129 @@
 #!/bin/bash
+set -e -o pipefail
 
-#if [[ -n "${GUARD_SOURCING_$(echo "$(basename "$0")" | tr -c '[:alnum:]' '_'):-}" ]]; then return; fi; GUARD_SOURCING_GUARD_SOURCING_$(echo "$(basename "$0")" | tr -c '[:alnum:]' '_')=1
 if [[ -n "${GUARD_SOURCING_LOGGING:-}" ]]; then return; fi; GUARD_SOURCING_LOGGING=1
+[[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]}..."
 
 # set the default logging level to warn (and above)
 LOGGING_LEVEL=${LOGGING_LEVEL:-2}
 # set the default output FD, this is changed to 8 below so logging doesn't clog things up
-_logging_file_descriptor=2
+_logging_file_descriptor=1
+declare -A _logging_hidden_text
 
 logging_config() {
     LOGGING_LEVEL=$(_logging_to_value "$1")
-    logging $1 "logging level is now $1"
+    logging info "logging level is now $LOGGING_LEVEL"
+}
+
+logging_hide() {
+    logging trace "${FUNCNAME[0]}($*)..."
+    _logging_hidden_text["$1"]="${2:-***hidden***}"
 }
 
 logging() {
-    local level_str=$(echo "$1" | tr '[:lower:]' '[:upper:]')
-    local level=$(_logging_to_value "$1")
+    local level_str
+    level_str=$(echo "$1" | tr '[:lower:]' '[:upper:]') || exit $?
+    local level
+    level=$(_logging_to_value "$1")
     shift
     local message="$*"
+    # remove hidden text
+    for key in "${!_logging_hidden_text[@]}"; do
+        local value="${_logging_hidden_text[$key]}"
+        # Replace all occurrences of key with value in the log message
+        message="${message//$key/$value}"
+    done
     # TODO: automatic indentation via $#BASH_SOURCE
     if [[ "$level" -le "$LOGGING_LEVEL" ]]; then
-        # echo "$(date '+%Y-%m-%d %H:%M:%S,%3N') - $(printf "%-5s" "$level_str") - ${BASH_SOURCE[1]}:${BASH_LINENO[0]} ${FUNCNAME[1]}(): $message" >&$_logging_file_descriptor
-        echo "$_logging_file_descriptor $(printf "%6s" "$level_str:") ${BASH_SOURCE[1]}:${BASH_LINENO[0]} ${FUNCNAME[1]}(): $message" >&$_logging_file_descriptor
+        local indentation=5
+        local indent=$(printf "%${indentation}s  ")
+        message=${message//$'\n'/$'\n'"$indent"}
+        local format
+        format=$(printf "%-${indentation}s:" "$level_str") || exit $?
+        if [[ "$LOGGING_LEVEL" -ge "3" ]]; then
+            format+=" ${BASH_SOURCE[1]}:${BASH_LINENO[0]}" || exit $?
+            if [[ "$LOGGING_LEVEL" -ge "4" ]]; then
+                format+=" ${FUNCNAME[1]}()"
+            fi
+            format+=":"
+        fi
+        # echo "$(date '+%Y-%m-%d %H:%M:%S,%3N') - $format
+        echo "$format $message" >&"$_logging_file_descriptor"
     fi
     if [[ "$level" -lt "0" ]]; then
         exit 1
     fi
  }
 
-_logging_to_value() {
-    local level=0
-    case $(echo "$1" | tr '[:upper:]' '[:lower:]') in
-        debug | 3) level=3
-                ;;
-        info  | 2) level=2
-                ;;
-        warn  | 1) level=1
-                ;;
-        error | 0) level=0
-                ;;
-        fail  | -1) level=-1
-                ;;
-        *)  logging fail "unrecognised logging level: $1"
+# Define the mapping array: each element is "level:number"
+_LOGGING_LEVELS=( ":2" "debug:4" "trace:3" "info:2" "warn:1" "error:0" "fail:-1" "fatal:-1" )
 
-    esac
-    echo $level
+# Lookup: given a level name, return its number.
+_logging_to_value() {
+    local name
+    # convert name to lowercase to ensure case-insensitive matching
+    name=$(echo "$1" | tr '[:upper:]' '[:lower:]')  || exit $?
+    for pair in "${_LOGGING_LEVELS[@]}"; do
+        IFS=":" read -r key value <<< "$pair"
+        if [[ "$key" == "$name" || "$value" == "$name" ]]; then
+            echo "$value"
+            return 0
+        fi
+    done
+    echo "unknown logging level: $1." >&2
+    return 1
 }
+
+# Lookup: given a level number, return the corresponding name.
+_logging_to_name() {
+    local level="$1"
+    for pair in "${_LOGGING_LEVELS[@]}"; do
+        IFS=":" read -r key value <<< "$pair"
+        if [[ "$value" -eq "$level" ]]; then
+            echo "$key"
+            return 0
+        fi
+    done
+    echo "unknown logging level name: $1." >&2
+    return 1
+}
+
+
+# _logging_to_value() {
+#     local new_level=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+#     local level=2
+#     case $new_level in
+#         "")
+#                 ;;
+#         debug | 4) level=4
+#                 ;;
+#         trace | 3) level=3
+#                 ;;
+#         info  | 2) level=2
+#                 ;;
+#         warn  | 1) level=1
+#                 ;;
+#         error | 0) level=0
+#                 ;;
+#         fail | fatal | -1) level=-1
+#                 ;;
+#         *)  logging fail "unrecognised logging level: $1"
+
+#     esac
+#     echo $level
+# }
 
 # use file descriptor 8 (3-9 are available) for logging output, fail if it is already in use
 # TODO: make this number configurable (somehow?), or search for the first free one
 # as it is just sent to stdout, without buffering
 # as we're only opening it once, there is no need to close it
-
+# shellcheck disable=SC2312 # no need to check individual commands as we have set -o pipefail
 if lsof -p $$ 2>/dev/null | awk '{print $4}' | grep -q '^8'; then
     logging fail "File descriptor 8 is in use"
 else
     _logging_file_descriptor=8
     #exec 8> >(stdbuf -o0 cat)
     exec 8>&1
-
 fi
 
 # logging info "loading 'logging' from ${BASH_SOURCE[1]}"

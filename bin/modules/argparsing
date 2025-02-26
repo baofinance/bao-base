@@ -1,8 +1,11 @@
 #!/bin/bash
+set -e -o pipefail
 
 if [[ -n "${GUARD_SOURCING_ARGPARSING:-}" ]]; then return; fi; GUARD_SOURCING_ARGPARSING=1
+[[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]}..."
 
-source $(dirname "${BASH_SOURCE[0]}")/logging
+
+source "$(dirname ${BASH_SOURCE[0]})/logging"
 
 ######################################
 # JSON args / command line conversion
@@ -10,20 +13,20 @@ source $(dirname "${BASH_SOURCE[0]}")/logging
 
 # convert a command line to JSON args
 argparsing_argparse() {
-    logging debug "$FUNCNAME($*)..."
+    logging trace "${FUNCNAME[0]}($*)..."
     # run the python argparse wrapper from the same directory
-    # remove the null values. need to pass it through jq -c anyway
-    local output=$($(dirname "${BASH_SOURCE[0]}")/wargparse.py "$@")
-    logging debug "wargparse.py->'$output'"
-    output=$(echo "$output" | jq -rc '.known |= with_entries(select(.value.value != null))')
-    logging debug "$FUNCNAME->'$output'"
+    local output
+    output=$("$(dirname ${BASH_SOURCE[0]})/wargparse.py" "$@") || exit $?
+    [[ ! "$output" == "" ]] || logging fail "parsing error"
+    logging debug "wargparse.py->$output."
+    output=$(echo "$output" | jq -rc '.known |= with_entries(select(.value.value != null))') || exit $?
+    logging trace "${FUNCNAME[0]}->${output}."
     echo "$output"
 }
 
-
 # convert a JSON args to a command line
 argparsing_args() {
-    logging debug "$FUNCNAME($*)..."
+    logging trace "${FUNCNAME[0]}($*)..."
     local json_args="$1"
     shift
     local args=("$@")
@@ -39,18 +42,38 @@ argparsing_args() {
         known)
             if [ $known -eq 0 ]; then
                 known=1
-                # logging debug "processing knowns..."
                 this_output=$(jq -r '
                     if .known then
                         .known
                         | to_entries
                         | map(select(.value.value != null))
-                        | map((if .value.origin != null then (.value.origin + " ") else "" end) + "'\''" + .value.value + "'\''")
+                        | map(
+                            if (.value.value | type) == "boolean" and .value.value == false then
+                                ""  # Omit entirely if the boolean is false
+                            else
+                                (if .value.origin != null then
+                                    (.value.origin + " ")
+                                elif .value.default_origin != null then
+                                    (.value.default_origin + " ")
+                                else
+                                    ""  # positional; no origin
+                                end)
+                                +
+                                (if (.value.value | type) == "boolean" then
+                                    ""  # For boolean true, output nothing for the value
+                                elif (.value.value | type) == "array" then
+                                    "'\''" + (.value.value | join("'\'' '\''")) + "'\''"
+                                else
+                                    "'\''" + (.value.value | tostring) + "'\''"
+                                end)
+                            end
+                        )
+                        | map(select(length > 0))
                         | join(" ")
                     else
                         ""
                     end
-                ' <<< "$json_args" )
+                    ' <<< "$json_args") || exit $?
             fi
             ;;
         unknown)
@@ -68,7 +91,7 @@ argparsing_args() {
                     else
                         ""
                     end
-                ' <<< "$json_args")
+                ' <<< "$json_args") || exit $?
             fi
             ;;
         *)
@@ -81,7 +104,7 @@ argparsing_args() {
             output="$output $this_output"
         fi
     done
-    logging debug "$FUNCNAME->'$output'"
+    logging trace "${FUNCNAME[0]}->$output."
     echo -n "$output"
 }
 
@@ -92,87 +115,116 @@ argparsing_args() {
 
 # delete the complete set of unknown args
 argparsing_remove_unknown() {
-    logging debug "$FUNCNAME($*)..."
     local json_args="$1"
-    local output=$(jq -rc '.unknown |= []' <<< "$json_args")
-    logging debug "$FUNCNAME->'$output'"
-    echo "$output"
+    jq -rc '.unknown |= []' <<< "$json_args"
 }
 
 # does a field exist - give a known field name (e.g. something with names:[--rpc-url] is rpc_url)
 argparsing_has() {
-    logging debug "$FUNCNAME($*)..."
-    local json_args="$1"
-    local dest="$2"
-    local value=$(jq -rc 'getpath(["known", "'"$dest"'", "value"]) != null' <<< "$json_args")
-    logging debug "$FUNCNAME->'$value'"
+    logging trace "${FUNCNAME[0]}($*)..."
+    local dest="$1"
+    local json_args="$2"
+    local value
+    value=$(jq -rc 'getpath(["known", "'"$dest"'", "value"]) != null' <<< "$json_args") || exit $?
+    logging trace "${FUNCNAME[0]}->$value."
     [[ "$value" == "true" ]] && return 0
     return 1
 }
 
 argparsing_value() {
-    logging debug "$FUNCNAME($*)..."
-    local json_args="$1"
-    local dest="$2"
-    local value=$(jq -rc ".known.$dest.value // \"\"" <<< "$json_args")
-    logging debug "$FUNCNAME->'$value'"
+    logging trace "${FUNCNAME[0]}($*)..."
+    local dest="$1"
+    local json_args="$2"
+    local value
+    value=$(jq -rc ".known.$dest.value // \"\"" <<< "$json_args") || exit $?
+    logging trace "${FUNCNAME[0]}->$value."
     echo "$value"
 }
 
-# argparsing_has() {
-#     logging debug "$FUNCNAME($*)..."
-#     local json_args="$1"
-#     local dest="$2"
-#     local value=$(jq -rc "getpath([\"known\", \"$dest\"]) != null" <<< "$json_args")
-#     logging debug "$FUNCNAME->'$value'"
-#     [[ "$value" == "true" ]] && return 0
-#     return 1
-# }
-
-# argparsing_value_unknown() {
-#     logging debug "$FUNCNAME($*)..."
-#     local json_args="$1"
-#     local pos="$2"
-#     local value=$(jq -rc ".unknown[$pos] // \"\"" <<< "$json_args")
-#     logging debug "$FUNCNAME->'$value'"
-#     echo "$value"
-# }
+# combine argparsing_argparse with argparsing_value
+argparsing_argparse_value() {
+    local dest="$1"
+    shift 1
+    local json_args
+    json_args=$(argparsing_argparse "$@") || exit $?
+    argparsing_value "$dest" "$json_args"
+}
 
 argparsing_add() {
-    logging debug "$FUNCNAME($*)..."
-    local json_args="$1"
-    local key="$2"
+    logging trace "${FUNCNAME[0]}($*)..."
+    local key="$1"
+    local json_args="$2"
     local value="$3"
     local origin="$4"
-    local output=$(jq -rc ".known.$key = {value: \"$value\", origin: \"$origin\"}" <<< "$json_args")
-    logging debug "$FUNCNAME->'$output'"
+    local output
+    output=$(jq -rc ".known.$key = {value: \"$value\", origin: \"$origin\"}" <<< "$json_args") || exit $?
+    logging trace "${FUNCNAME[0]}->$output."
     echo "$output"
 }
 
-# takes two JSON args and merges them prioritising the second argument
+argparsing_hide() {
+    logging trace "${FUNCNAME[0]}($*)..."
+    local key="$1"
+    local json_args="$2"
+    local output
+    output=$(jq -rc ".known.$key.value = \"***\"" <<< "$json_args") || exit $?
+    logging trace "${FUNCNAME[0]}->$output."
+    echo "$output"
+}
+
+argparsing_remove() {
+    logging trace "${FUNCNAME[0]}($*)..."
+    local key="$1"
+    local json_args="$2"
+    local output
+    output=$(jq -c --arg key "$key" 'del(.known[$key])' <<< "$json_args") || exit $?
+    logging trace "${FUNCNAME[0]}->$output."
+    echo "$output"
+}
+
+# keep only the known fields that are in the spec
+argparsing_keep() {
+    logging trace "${FUNCNAME[0]}($*)..."
+    local spec_json="$1"
+    local json_args="$2"
+    local output
+    output=$(jq -c --argjson spec "$spec_json" '
+        # Build the allowed keys array:
+        ($spec.arguments // []
+        | map((.names // []) | .[] | ltrimstr("--") | gsub("-"; "_"))
+        ) as $allowed
+        # Default .known to {} if null, then filter it:
+        | .known = (.known // {}
+            | with_entries(select(.key as $k | ($allowed | index($k)) != null))
+        )
+        | .
+    ' <<< "$json_args") || exit $?
+    logging trace "${FUNCNAME[0]}->$output."
+    echo "$output"
+}
+
+
+# takes many JSON args and merges them prioritising from the last to the first
 argparsing_merge() {
-    logging debug "$FUNCNAME($*)..."
-    local defaults="$1"
-    local overrides="$2"
-    logging debug "default='$defaults'"
-    logging debug "overrides='$overrides'"
-    # merge knowns overriding from the right
-    # unknowns take from the right, even if it's empty
-    local output=$(jq -cs '{
-        known: ((.[0].known + .[1].known) // {}),
-        unknown: (.[1].unknown // [])
-        }' <(echo "$defaults") <(echo "$overrides"))
-    logging debug "$FUNCNAME->'$output'"
+    logging trace "${FUNCNAME[0]}($*)..."
+    local output
+    output=$(jq -cs '
+        reduce .[] as $item (
+            { known: {}, unknown: [] };
+            .known += ($item.known // {}) | .unknown += ($item.unknown // []) )
+        ' < <(for json in "$@"; do echo "$json"; done)) || exit $?
+    logging trace "${FUNCNAME[0]}->$output."
     echo "$output"
 }
 
 # takes two JSON args and returns those fields in both, order defined by the first argument
 argparsing_intersection() {
-    logging debug "$FUNCNAME($*)..."
+    logging trace "${FUNCNAME[0]}($*)..."
     local a="$1"
     local b="$2"
 
-    local output=$(jq -sc '.[0] as $a | .[1] as $b |
+    local output
+    output=$(jq -sc '.[0] as $a | .[1] as $b |
         {
             known: (
             $a.known
@@ -184,8 +236,8 @@ argparsing_intersection() {
             $a.unknown
             | map(select(. as $item | $b.unknown | index($item) != null))
             )
-        }' <(echo "$a") <(echo "$b"))
-    logging debug "$FUNCNAME->'$output'"
+        }' <(echo "$a") <(echo "$b")) || exit $?
+    logging trace "${FUNCNAME[0]}->$output."
     echo "$output"
 }
 

@@ -2,5 +2,5 @@
 set -e
 set -o pipefail
 
-echo forge test -vvv --nmp script/**/*.t.sol --summary $@
-forge test -vvv --nmp script/**/*.t.sol --summary $@
+echo forge test -vvv --nmp script/**/*.t.sol --summary "$@"
+forge test -vvv --nmp script/**/*.t.sol --summary "$@"

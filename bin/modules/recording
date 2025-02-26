@@ -1,6 +1,9 @@
 #!/bin/bash
-set -e
-set -o pipefail
+set -e -o pipefail
+
+if [[ -n "${GUARD_SOURCING_RECORDING:-}" ]]; then return; fi; GUARD_SOURCING_RECORDING=1
+[[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]}..."
+
 
 json_logging_file=''
 
@@ -8,7 +11,8 @@ json_logging_file=''
 recording_to() {
     local network="$1"
     local name="$2"
-    json_logging_file="./deploy/$network-$name-$(date '+%Y-%m-%d_%H:%M:%S').log"
+    mkdir -p ./deploy
+    json_logging_file="./deploy/$network-$name-$(date '+%Y-%m-%d_%H:%M:%S').log" || exit $?
     echo '{}' > $json_logging_file
 }
 
@@ -34,7 +38,8 @@ _add_json_to_file() {
     if [[ -z "$json_logging_file" ]]; then
         echo "Error: call to_log(filename) before logging"
     else
-        local temp=$(mktemp)
+        local temp
+        temp=$(mktemp) || exit $?
         jq ". + $1" "$json_logging_file" > "$temp" && mv "$temp" "$json_logging_file"
     fi
 }

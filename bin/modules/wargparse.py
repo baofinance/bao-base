@@ -2,13 +2,13 @@
 import sys
 import argparse
 import json
-
+import traceback
 import os
 
 # Set up a logging handler that writes to the debug stream.
 import logging
 logging.basicConfig(
-                    level=logging.DEBUG,
+                    # level=logging.DEBUG,
                     format='%(asctime)s - %(levelname)s - %(message)s',
                     handlers=[logging.StreamHandler(os.fdopen(8, 'w'))])
 
@@ -19,10 +19,11 @@ class StoreWithOriginAction(argparse._StoreAction):
                  default=None,
                  **kwargs):
         # logging.debug(f"StoreWithOrigin.__init__({option_strings}, {dest}, {default}")
+        default_origin = kwargs.pop('names')[0]
         super(argparse._StoreAction, self).__init__(
             option_strings=option_strings,
             dest=dest,
-            default={'value': default, 'origin': None},
+            default={'value': default, 'origin': None, 'default_origin': default_origin},
             **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
@@ -40,14 +41,15 @@ class StoreConstWithOriginAction(argparse._StoreConstAction):
                  default=None,
                  required=False,
                  help=None,
-                 metavar=None):
+                 metavar=None,
+                 **kwargs):
         # logging.debug(f"StoreConstWithOrigin.__init__({option_strings}, {dest}, {const}, {default}")
         super(argparse._StoreConstAction, self).__init__(
             option_strings=option_strings,
             dest=dest,
             nargs=0,
             const=const,
-            default={'value': default, 'origin': None},
+            default={'value': default, 'origin': None, 'default_origin': kwargs['names'][0]},
             required=required,
             help=help)
 
@@ -63,14 +65,16 @@ class StoreTrueWithOriginAction(StoreConstWithOriginAction):
                  dest,
                  default=False,
                  required=False,
-                 help=None):
+                 help=None,
+                 **kwargs):
         super(StoreTrueWithOriginAction, self).__init__(
             option_strings=option_strings,
             dest=dest,
             const=True,
             default=default,
             required=required,
-            help=help)
+            help=help,
+            **kwargs)
 
 
 class StoreFalseWithOriginAction(StoreConstWithOriginAction):
@@ -80,32 +84,35 @@ class StoreFalseWithOriginAction(StoreConstWithOriginAction):
                  dest,
                  default=True,
                  required=False,
-                 help=None):
+                 help=None,
+                 **kwargs):
         super(StoreConstWithOriginAction, self).__init__(
             option_strings=option_strings,
             dest=dest,
             const=False,
             default=default,
             required=required,
-            help=help)
+            help=help,
+            **kwargs)
 
 class BooleanOptionalWithOriginAction(argparse.BooleanOptionalAction):
     def __init__(self,
                  option_strings,
                  dest,
-                 default={'value': None, 'origin': None},
+                 default=None,
                  type=None,
                  choices=None,
                  required=None,
                  help=None,
-                 metavar=None):
+                 metavar=None,
+                 **kwargs):
         logging.debug(f"BooleanOptionalWithOriginAction.__init__()...")
         logging.debug(f"default={default}")
         super(argparse.BooleanOptionalAction, self).__init__(
             option_strings=option_strings,
             dest=dest,
-            nargs='*',
-            default=default,
+            nargs=0,
+            default={'value': default, 'origin': None, 'default_origin': kwargs["names"][0]},
             type=type,
             choices=choices,
             required=required,
@@ -130,12 +137,13 @@ class CountWithOriginAction(argparse._CountAction):
                  dest,
                  default=None,
                  required=False,
-                 help=None):
+                 help=None,
+                 **kwargs):
         super(argparse._CountAction, self).__init__(
             option_strings=option_strings,
             dest=dest,
             nargs=0,
-            default={'value': default, 'origin': None},
+            default={'value': default, 'origin': None, 'default_origin': kwargs['names'][0]},
             required=required,
             help=help)
 
@@ -154,7 +162,7 @@ class CountWithOriginAction(argparse._CountAction):
 class RichArgumentParser:
     def __init__(self, spec):
         """Initialize parser with a JSON specification"""
-        # logging.debug(f"spec={spec}")
+        logging.debug(f"spec={spec}")
         # try:
         spec_obj = json.loads(spec) if isinstance(spec, str) else spec
         # except json.JSONDecodeError:
@@ -178,7 +186,8 @@ class RichArgumentParser:
         self.parser.register('action', 'count', CountWithOriginAction)
 
         for arg_spec in spec_obj.get('arguments', []):
-            self.parser.add_argument(*arg_spec.pop('names'), **arg_spec)
+            logging.debug(f"arg_spec={arg_spec}.")
+            self.parser.add_argument(*arg_spec['names'], **arg_spec) # leave names in for default values
 
 
     def parse_args(self, args):
@@ -244,4 +253,8 @@ def main():
         print(json.dumps(result))
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except Exception:
+        traceback.print_exc()  # Print the full traceback to stderr
+        sys.exit(1)

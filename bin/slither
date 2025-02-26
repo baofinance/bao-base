@@ -1,7 +1,6 @@
 #!/bin/bash
-set -e
-set -o pipefail
+set -e -o pipefail
 
 THIS=$(basename "$0" | cut -d. -f1)
-
+# shellcheck disable=SC2154 # we don't need to check if the variable is set
 $BAO_BASE_LIB_DIR/run-python "$THIS" "$@" --config "$BAO_BASE_DIR/slither.config.json" --exclude-dependencies --fail-pedantic

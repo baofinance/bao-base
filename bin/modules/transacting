@@ -1,142 +1,224 @@
 #!/bin/bash
+set -e -o pipefail
 
 if [[ -n "${GUARD_SOURCING_TRANSACTING:-}" ]]; then return; fi; GUARD_SOURCING_TRANSACTING=1
+[[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]}..."
 
-source $(dirname "${BASH_SOURCE[0]}")/logging
-source $(dirname "${BASH_SOURCE[0]}")/argparsing
+# shellcheck disable=SC1091
+source "$(dirname "${BASH_SOURCE[0]}")/logging"
+# shellcheck disable=SC1091
+source "$(dirname "${BASH_SOURCE[0]}")/argparsing"
 
-_transacting_default_options_json=""
-_transacting_default_options_spec='{"arguments": [
-        {"names": ["--rpc-url"]},
-        {"names": ["--private-key"]},
-        {"names": ["--etherscan-api-key"]}
-    ]}'
+_transacting_spec_json=""
+_transacting_fargs=(\
+    '["--rpc-url"], "default": "local"' \
+    '["--private-key"]')
 
-_transacting_deploy_arguments_spec='{"arguments": [
-        {"names": ["--constructur-args"], "nargs":"*"},
-        {"names": ["--verify", "--no-verify"], "action": "store_boolean"},
-        {"names": ["--etherscan-api-key"]}
-    ]}'
+_transacting_deploy_spec_json=""
+_transacting_deploy_fargs=(\
+    '["file_contract"], "nargs": "?"' \
+    '["--constructor-args"], "nargs":"+"' \
+    '["--broadcast", "--no-broadcast"], "action": "store_boolean", "default": true' \
+    '["--etherscan-api-key"]' \
+    '["--verify", "--no-verify"], "action": "store_boolean"')
 
+_transacting_deploy_extra_spec_json=""
+_transacting_deploy_extra_fargs=( \
+    '["--contract-name"]' \
+    '["--purpose"]')
 
-## Options:
-##   --verify                   Verify the source (needs --etherscan-api-key)
-##   --rpc-url RPC-URL          Set the URL of the RPC node to send transactions to
-##   --private-key KEY          Private key for transaction signing
-##   --etherscan-api-key KEY    Private key for transaction signing
-    ##   -h, --help             Displays this help and exists
-    ##   -v, --version          Displays output version and exists
-    ##   $PROG -l yep -q -l nop -i -l yes
-
-transacting_default_options() {
-    logging debug "_transacting_default_options_json='$_transacting_default_options_json'"
-    # return the args processed
-    argparsing_args "$_transacting_default_options_json"
+_make_spec() {
+    local combined_output
+    combined_output=$(for arr_name in "$@"; do
+        eval 'printf "%s\n" "${'"${arr_name}"'[@]}"'
+    done) || exit $?
+    local result
+    result=$(echo "$combined_output" | jq -Rsc '
+        split("\n")
+        | map(select(length > 0))
+        | map("{\"names\":" + . + "}")
+        | map(fromjson)
+        | {arguments: .}
+    ') || exit $?
+    echo "$result"
 }
 
+_transacting_all_spec=$(_make_spec _transacting_fargs _transacting_deploy_fargs _transacting_deploy_extra_fargs)
+_transacting_spec=$(_make_spec _transacting_fargs)
+_transacting_deploy_spec=$(_make_spec _transacting_deploy_fargs)
+_transacting_deploy_extra_spec=$(_make_spec _transacting_deploy_extra_fargs)
+
+forge=$(command -v forge)
+logging info "using forge at $forge."
+
+
 transacting_config_value() {
-    logging debug "$FUNCNAME($*)..."
     local field="$1"
-    local output=$(argparsing_option "$_transacting_default_options_json" "$field")
-    logging debug "$FUNCNAME()->'$output'"
-    echo "$output"
+    argparsing_value "$field" "$_transacting_spec_json"
+    argparsing_value "$field" "$_transacting_deploy_spec_json"
+    argparsing_value "$field" "$_transacting_deploy_extra_spec_json"
 }
 
 transacting_config() {
-    logging debug "$FUNCNAME($*)..."
-    _transacting_default_options_json=$(argparsing_argparse "$_transacting_default_options_spec" "$@")
-    _transacting_default_options_json=$(argparsing_remove_unknown "$_transacting_default_options_json")
+    logging trace "${FUNCNAME[0]}($*)..."
+    local json
+    json=$(argparsing_argparse "$_transacting_all_spec" "$@")
+    json=$(argparsing_remove_unknown "$json")
+    _transacting_hide_sensitive_data_in_logs "$json"
+    logging debug "json=$json."
 
-    # if [[ -z $(argparsing_has --option rpc-url -- "$_transacting_default_options_json") ]]; then
-    #     logging info "--rpc-url not given and it is never defaulted as it is dangerous"
-    #     logging info "pass --rpc-url RPC-URL into transacting_config"
-    #     logging info "where RPC-URL can be:"
-    #     logging info "    a foundry.toml \[rpc_endpoint\] e.g. \"mainnet\""
-    #     logging info " or \"http://...\""
-    #     logging fail "no rpc-url passed into transacting_config"
-    # else
-    #     logging info "rpc-url=$rpc_url"
-    # fi
+    _transacting_spec_json=$(argparsing_keep "$_transacting_spec" "$json")
+    logging trace "_transacting_spec_json=$_transacting_spec_json."
+    _transacting_deploy_spec_json=$(argparsing_keep "$_transacting_deploy_spec" "$json")
+    logging trace "_transacting_deploy_spec_json=$_transacting_deploy_spec_json."
+    _transacting_deploy_extra_spec_json=$(argparsing_keep "$_transacting_deploy_extra_spec" "$json")
+    logging trace "_transacting_deploy_extra_spec_json=$_transacting_deploy_extra_spec_json."
 
-    _transacting_default_from_env "--private-key" "PRIVATE_KEY"
-    _transacting_default_from_env "--etherscan-api-key" "ETHERSCAN_API_KEY"
+    # read environment variables or .env file, in that order of precedence
+    _transacting_spec_json=$(_transacting_default_from_env "--private-key" "PRIVATE_KEY" "$_transacting_spec_json")
+    _transacting_deploy_spec_json=$(_transacting_default_from_env "--etherscan-api-key" "ETHERSCAN_API_KEY" "$_transacting_deploy_spec_json")
+    _transacting_hide_sensitive_data_in_logs "$_transacting_spec_json" "$_transacting_deploy_spec_json"
 
-    logging info "defaults for all transactions$(transacting_default_options)"
+    # tell the user what the defaults are
+    local defaults
+    defaults=$(argparsing_args "$_transacting_spec_json") || exit $?
+    defaults+=$(argparsing_args "$_transacting_deploy_spec_json")  || exit $?
+    defaults+=$(argparsing_args "$_transacting_deploy_extra_spec_json") || exit $?
+    logging info "transaction defaults:$defaults"
 }
 
-transacting_deploy() {
-    logging debug "deploy_contract($*)"
-    local overrides_json=argparsing_argparse "$@"
+
+_transacting_deploy_contract() {
+    logging trace "${FUNCNAME[0]}($*)..."
+    local args_json="$1"
 
     # merge the given args with the defaults
-    local args=$(argparsing_merge "$_transacting_default_options_json" "$overrides_json")
+    args_json=$(argparsing_merge "$_transacting_spec_json" "$_transacting_deploy_spec_json" "$_transacting_deploy_extra_spec_json" "$args_json")
+    logging trace "args_json=$args_json."
 
+    # get the contract to deploy
+    local file_contract
+    file_contract=$(argparsing_value "file_contract" "$args_json")
+    logging debug "deploying $file_contract."
 
+    local contract_type="${file_contract#*:}"
+    logging debug "contract_type=$contract_type."
+    local contract_name
+    contract_name=$(argparsing_value "contract_name" "$args_json")
+    logging debug "contract_name=$contract_name."
 
-    local contract_tag=$contract_name$([[ "$contract_name" == "" ]] && echo " $contract_type" || echo " ($contract_type)")${purpose:+ $purpose}
+    local purpose
+    purpose=$(argparsing_value "purpose" "$args_json")
 
-    logging info "transacting the $contract_tag contact..."
-    local cmd "forge create --rpc-url $rpc_url \
-        --private-key $private_key \
-        --etherscan-api-key $etherscan_api_key \
-        "$source_file:$contract_type" \
-        --broadcast \
-        $constructor_args \
-        "
-    logging info "$cmd"
+    local contract_tag
+    contract_tag=${contract_name}$([[ "$contract_name" == "" ]] && echo "$contract_type" || echo " ($contract_type)")${purpose:+ $purpose}
 
-    # local response=$(forge create --rpc-url $rpc_url \
-    #     --private-key $private_key \
-    #     --etherscan-api-key $etherscan_api_key \
-    #     "$source_file:$contract_type" \
-    #     --broadcast \
-    #     $constructor_args \
-    #     )
-    # logging debug "$response"
-    # local deployer=$(echo "$response" | awk '/Deployer:/ {print $2}')
-    # local address=$(echo "$response" | awk '/Deployed to:/ {print $3}')
-    # local transaction=$(echo "$response" | awk '/Transaction hash:/ {print $3}')
+    logging info "deploying the $contract_tag contract..."
+    args_json=$(argparsing_remove "purpose" "$args_json")
+    args_json=$(argparsing_remove "contract_name" "$args_json")
+    args=$(argparsing_args "$args_json" known)
+    logging debug "args=$args."
 
-    # if [ -z "$address" ]; then
-    #     #TODO manage spaces like constructor_args above
-    #     logging fail "Failed to deploy the $contract_tag contract."
-    # fi
-    # # return the result
-    # echo $address
+    # local cmd="$forge create $args"
+    # logging info "$cmd"
 
-    # logging info "Deployed the $contract_tag contact at $address"
-    # logging info "   by $deployer tx: $transaction"
-    # log_field "$name" "$address"
+    local args_array
+    eval "args_array=($args)"
+    # eval "response=\$($cmd)" || exit $?
+    logging trace "$forge" create "${args_array[@]}"
+    local response
+    response=$("$forge" create "${args_array[@]}") || exit $?
+    logging trace "forge create->${response}."
+
+    local deployer
+    deployer=$(echo "$response" | awk '/Deployer:/ {print $2}')
+    local address
+    address=$(echo "$response" | awk '/Deployed to:/ {print $3}')
+    local transaction
+    transaction=$(echo "$response" | awk '/Transaction hash:/ {print $3}')
+
+    if [ -z "$address" ]; then
+        logging fail "Failed to deploy the $contract_tag contract."
+        return 1
+    fi
+    # return the result
+    echo "$address"
+
+    logging info "Deployed the $contract_tag contact at $address"
+    logging info "   by $deployer tx: $transaction"
 }
 
-# transacting_deploy_upgradeable() {
-#     local args="$1"
-#     local contract_name=$(echo "$args" | yq ".contract-type // \"\"")
+transacting_deploy_contract() {
+    logging trace "${FUNCNAME[0]}($*)..."
+    local args_json
+    args_json=$(argparsing_argparse "$_transacting_all_spec" "$@") || exit $?
+    _transacting_hide_sensitive_data_in_logs "$args_json"
+    logging debug "args_json=$args_json."
+    _transacting_deploy_contract "$args_json"
+}
 
-#     # verify implementation
+transacting_deploy_upgradeable_contract() {
+    logging debug "deploy_upgreadable_contract($*)"
+    local args_json
+    args_json=$(argparsing_argparse "$_transacting_deploy_spec" "$@")
+    _transacting_hide_sensitive_data_in_logs "$args_json"
+    local file_contract
+    file_contract=$(argparsing_value "file_contract" "$args_json")
+    local file="${file_contract%%:*}"
+    logging debug "file=$file."
 
-#     # deploy implementation
-#     local implementation_args=$(echo "$args" | yq '. + {"purpose": "implementation"}')
-#     logging debug "implementation_args=$implementation_args"
-#     local implementation_address=$(transacting_deploy "$implementation_args")
-#     # save deployed data
+    # validate implementation
 
-#     # deploy proxy
-#     local proxy_args=$(echo "$args" | yq ". + {\"purpose\": \"UUPS proxy\",
-#         \"source-file\": \"lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol\",
-#         \"contract-name\": \"$contract_name\",
-#         \"contract-type\": \"ERC1967Proxy\",
-#         \"constructor-args\": \"$implementation_address 0x\"}")
-#     local proxy_address=$(transacting_deploy "$proxy_args")
+    # deploy implementation
+    local implementation_args
+    implementation_args=$(argparsing_add purpose "$args_json" implementation)
+    logging debug "implementation_args=$implementation_args."
+    local implementation_address
+    implementation_address=$(_transacting_deploy_contract "$implementation_args")
+    # save deployed data, for later validation
 
-#     echo $proxy
-# }
+    # deploy proxy
+    local proxy_args
+    proxy_args=$(argparsing_argparse "$_transacting_all_spec" \
+        --purpose 'UUPS proxy' \
+        'lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy' \
+        --constructor-args "$implementation_address" '0x')
+
+    local proxy_address
+    proxy_address=$(_transacting_deploy_contract "$proxy_args")
+
+    echo "$proxy_address"
+}
+
+function get_public_from_private() {
+    local private_key="$1"
+    cast wallet address --private-key "$private_key"
+}
 
 #####################################################################################
 # private functions
 
+_transacting_hide_sensitive_data_in_logs() {
+    for args_json in "$@"; do
+        for field in "private_key" "etherscan_api_key"; do
+            local value
+            value=$(argparsing_value $field "$args_json")
+            if [ -n "$value" ]; then
+                # add a user friendly replacement, e.g. public key for a private key
+                if [[ "$value" =~ ^0x[0-9a-fA-F]{64}$ ]]; then
+                    logging info "found private key"
+                    local public_key
+                    public_key=$(get_public_from_private "$value")
+                    [ -n "$public_key" ] && replacement="***${field} [public key:$public_key]***"
+                fi
+                logging_hide "$value" "$replacement"
+            fi
+        done
+    done
+}
+
 _transacting_lookup_env() {
-    logging debug "$FUNCNAME($*)..."
+    logging trace "${FUNCNAME[0]}($*)..."
     local env_name="$1"
     # look up the environment
     local value="${!env_name}"
@@ -146,6 +228,7 @@ _transacting_lookup_env() {
     else
         # look up the .env file if it exists
         if [[ -f .env ]]; then
+            # shellcheck disable=SC1091 # file exists check above
             source .env
             value="${!env_name}"
             logging debug "   .env $env_name=$value"
@@ -154,21 +237,25 @@ _transacting_lookup_env() {
             fi
         fi
     fi
-    logging debug "$FUNCNAME()->'$value'"
+    logging trace "${FUNCNAME[0]}->$value."
     echo "$value"
 }
 
 # update the _transacting_config global from env, if not already there
 _transacting_default_from_env() {
-    logging debug "$FUNCNAME($*)..."
+    logging trace "${FUNCNAME[0]}($*)..."
     local origin="$1" # this is the longest arg in the list (preferring long form)
     local env_name="$2" # the environment variable name
-    local field_name=$(echo "$origin" | sed -E 's/^-+//; s/-/_/g')
+    local existing_json="$3" # the existing json to update
+    local field_name
+    field_name=$(echo "$origin" | sed -E 's/^-+//; s/-/_/g') || exit $?
 
-    if ! argparsing_has "$_transacting_default_options_json" "$field_name"; then
-        local value=$(_transacting_lookup_env "$env_name")
+    if ! argparsing_has "$field_name" "$existing_json"; then
+        local value
+        value=$(_transacting_lookup_env "$env_name")
         if [ -n "$value" ]; then
-            _transacting_default_options_json=$(argparsing_add "$_transacting_default_options_json" "$field_name" "$value" "$origin")
+            existing_json=$(argparsing_add "$field_name" "$existing_json" "$value" "$origin")
         fi
     fi
+    echo "$existing_json"
 }

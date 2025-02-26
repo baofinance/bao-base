@@ -98,6 +98,29 @@ roundtrip() {
     roundtrip '{"arguments":[{"names":["--how-many"]}]}' '' '--hello'
 
     roundtrip '{"arguments":[{"names":["--how-many"]}]}' '--how-many 1' ''
+
+    # handle defaults
+    roundtrip '{"arguments":[{"names":["--how-many"], "default": "99"}, {"names":["--too-many"]}]}' \
+        '--how-many 99 --too-many 100' '--hello'
+
+    roundtrip '{"arguments":[{"names":["--how-many", "-m"], "default": "99"}, {"names":["--too-many"]}]}' \
+        '--how-many 99 --too-many 100' '--hello'
+
+    roundtrip '{"arguments":[{"names":["-m", "--how-many"], "default": "99"}, {"names":["--too-many"]}]}' \
+        '-m 99 --too-many 100' '--hello'
+
+    # positional args
+    roundtrip '{"arguments": [{"names": ["file_contract"], "nargs":"*"}]}' \
+        '' ''
+
+    roundtrip '{"arguments": [{"names": ["file_contract"], "nargs":1}]}' \
+        'a:b' ''
+
+    # two givem
+    roundtrip '{"arguments": [{"names": ["file_contract"], "nargs":2}]}' \
+        'a:b c:d'
+
+
 }
 
 @test "argparsing can round-trip positionals" {
@@ -118,7 +141,7 @@ roundtrip() {
 @test "argparsing can round-trip store_booleans" {
     # store_boolean
     run_and_check ./bin/modules/wargparse.py 0 \
-        '{"known": {"aa": {"value": null, "origin": null}}, "unknown": []}' \
+        '{"known": {"aa": {"value": null, "origin": null, "default_origin": "--aa"}}, "unknown": []}' \
         '{"arguments":[{"names":["--aa","--no-aa"], "action": "store_boolean"}]}' \
 
     # present
@@ -179,42 +202,42 @@ roundtrip() {
         --how-many ask --too-many 100 "positional argument" optpos --hello
     input="$output"
 
-    run_and_check argparsing_has 0 '' "$input" how_many
-    run_and_check argparsing_value 0 ask "$input" how_many
+    run_and_check argparsing_has 0 '' how_many "$input"
+    run_and_check argparsing_value 0 ask how_many "$input"
 
-    run_and_check argparsing_has 0 '' "$input" too_many
-    run_and_check argparsing_value 0 100 "$input" too_many
+    run_and_check argparsing_has 0 '' too_many "$input"
+    run_and_check argparsing_value 0 100 too_many "$input"
 
-    run_and_check argparsing_has 0 '' "$input" positional
-    run_and_check argparsing_value 0 'positional argument' "$input" positional
+    run_and_check argparsing_has 0 '' positional "$input"
+    run_and_check argparsing_value 0 'positional argument' positional "$input"
 
-    run_and_check argparsing_has 0 '' "$input" optionalpositional
-    run_and_check argparsing_value 0 'optpos' "$input" optionalpositional
+    run_and_check argparsing_has 0 '' optionalpositional "$input"
+    run_and_check argparsing_value 0 'optpos' optionalpositional "$input"
 
-    run_and_check argparsing_has 1 '' "$input" missingoptionalpositional
-    run_and_check argparsing_value 0 '' "$input" missingoptioalpositional
+    run_and_check argparsing_has 1 '' missingoptionalpositional "$input"
+    run_and_check argparsing_value 0 '' missingoptioalpositional "$input"
 
 
     # has doeesn't find unknowns
-    run_and_check argparsing_has 1 '' "$input" hello
-    run_and_check argparsing_has 1 '' "$input" '--hello'
+    run_and_check argparsing_has 1 '' hello "$input"
+    run_and_check argparsing_has 1 '' '--hello' "$input"
 
-    argparsing_has "$input" how_many
-    argparsing_has "$input" hello || true
+    argparsing_has how_many "$input"
+    argparsing_has hello "$input" || true
     # $(argparsing_has hello ) && true # should fail - it's just to test that the above two tests work
 
-    argparsing_has "$input" how_many
-    ! argparsing_has "$input" hello
+    argparsing_has how_many "$input"
+    ! argparsing_has hello "$input"
 }
 
 @test "argpasing can merge" {
 
-    # only merges known, unknown is overwritten
-    run_and_check argparsing_merge 0 '{"known":{},"unknown":[]}' '{"known": {}, "unknown": ["a"]}' '{"known": {}, "unknown": []}'
+    # merges known by key, unknown is concatenated
+    run_and_check argparsing_merge 0 '{"known":{},"unknown":["a"]}' '{"known": {}, "unknown": ["a"]}' '{"known": {}, "unknown": []}'
 
-    run_and_check argparsing_merge 0 '{"known":{},"unknown":["a"]}' '{"known": {}, "unknown": [""]}' '{"known": {}, "unknown": ["a"]}'
+    run_and_check argparsing_merge 0 '{"known":{},"unknown":["a"]}' '{"known": {}, "unknown": []}' '{"known": {}, "unknown": ["a"]}'
 
-    run_and_check argparsing_merge 0 '{"known":{},"unknown":["b"]}' '{"known": {}, "unknown": ["a"]}' '{"known": {}, "unknown": ["b"]}'
+    run_and_check argparsing_merge 0 '{"known":{},"unknown":["a","b"]}' '{"known": {}, "unknown": ["a"]}' '{"known": {}, "unknown": ["b"]}'
 
     run argparsing_argparse '{"arguments":[{"names":["--how-many"]}, {"names":["--too-many"]}]}' \
         --how-many 1 --too-many 100 --hello
@@ -226,7 +249,7 @@ roundtrip() {
     input2="$output"
     [ "$status" -eq 0 ]
 
-    run_and_check argparsing_merge 0 '{"known":{"how_many":{"value":"2","origin":"--how-many"},"too_many":{"value":"100","origin":"--too-many"},"too_little":{"value":"0","origin":"--too-little"}},"unknown":["--hello","--goodbye"]}' "$input1" "$input2"
+    run_and_check argparsing_merge 0 '{"known":{"how_many":{"value":"2","origin":"--how-many"},"too_many":{"value":"100","origin":"--too-many"},"too_little":{"value":"0","origin":"--too-little"}},"unknown":["--hello","--hello","--goodbye"]}' "$input1" "$input2"
 
     # not technically needed but checks for robustness - or maybe it shoud fail
     run_and_check argparsing_merge 0 '{"known":{},"unknown":[]}' '{}' '{}'

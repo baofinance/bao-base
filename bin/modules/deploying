@@ -1,0 +1,53 @@
+#!/bin/bash
+set -e -o pipefail
+
+[[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]}..."
+
+# parse the arguments for setting up the logging
+source "$(dirname ${BASH_SOURCE[0]})/argparsing"
+_deploying_logging_arguments=$(argparsing_argparse_value "v" '{"arguments": [{"names": ["-v"], "action": "store_count"}]}' "$@") || exit $?
+
+source "$(dirname ${BASH_SOURCE[0]})/logging"
+logging_config "$_deploying_logging_arguments"
+
+# parse the arguments for setting up the transaction defaults
+source "$(dirname ${BASH_SOURCE[0]})/transacting"
+transacting_config "$@"
+
+# set up recording of essential information for running tests against the deployed contracts
+source "$(dirname "${BASH_SOURCE[0]}")/recording"
+
+rpc_url=$(transacting_config_value "rpc_url")
+calling_script_name=$(basename "${BASH_SOURCE[1]}" | cut -d. -f1)
+recording_to "$rpc_url" "$calling_script_name"
+recording_field "network" "$rpc_url"
+
+function record() {
+    local field="$1"
+    local value="$2"
+    recording_field "$field" "$value"
+}
+
+function record_numeric() {
+    local field="$1"
+    local value="$2"
+    recording_field_numeric "$field" "$value"
+}
+
+function get_deployer_address() {
+    local private_key
+    private_key=$(transacting_config_value private_key)
+    cast wallet address --private-key "$private_key"
+}
+
+function send() {
+    transaction_send "$@"
+}
+
+function deploy() {
+    transacting_deploy_contract "$@"
+}
+
+function deploy_upgradeable() {
+    transacting_deploy_upgradeable_contract "$@"
+}
