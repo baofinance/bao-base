@@ -13,7 +13,7 @@ recording_to() {
     local name="$2"
     mkdir -p ./deploy
     json_logging_file="./deploy/$network-$name-$(date '+%Y-%m-%d_%H:%M:%S').log" || exit $?
-    echo '{}' > $json_logging_file
+    echo "{}" > "$json_logging_file"
 }
 
 

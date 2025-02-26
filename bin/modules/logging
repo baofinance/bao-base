@@ -36,7 +36,8 @@ logging() {
     # TODO: automatic indentation via $#BASH_SOURCE
     if [[ "$level" -le "$LOGGING_LEVEL" ]]; then
         local indentation=5
-        local indent=$(printf "%${indentation}s  ")
+        local indent
+        indent=$(printf "%${indentation}s  ")
         message=${message//$'\n'/$'\n'"$indent"}
         local format
         format=$(printf "%-${indentation}s:" "$level_str") || exit $?

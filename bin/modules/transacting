@@ -124,10 +124,16 @@ _transacting_deploy_contract() {
 
     local args_array
     eval "args_array=($args)"
-    # eval "response=\$($cmd)" || exit $?
     logging trace "$forge" create "${args_array[@]}"
     local response
-    response=$("$forge" create "${args_array[@]}") || exit $?
+    if ! response=$("$forge" create "${args_array[@]}"); then logging fatal "forge create failed for the $contract_tag contract."; fi
+
+    # response=$("$forge" create "${args_array[@]}")
+    # local exit_code=$?
+    # logging trace "forge create->$exit_code."
+    # if [[ $exit_code -ne 0 ]]; then
+    #     logging fatal "forge create->$exit_code."
+    # fi
     logging trace "forge create->${response}."
 
     local deployer
@@ -174,7 +180,7 @@ transacting_deploy_upgradeable_contract() {
     implementation_args=$(argparsing_add purpose "$args_json" implementation)
     logging debug "implementation_args=$implementation_args."
     local implementation_address
-    implementation_address=$(_transacting_deploy_contract "$implementation_args")
+    implementation_address=$(_transacting_deploy_contract "$implementation_args") || logging FATAL "failed to deploy $file_contract implementation contract."
     # save deployed data, for later validation
 
     # deploy proxy
@@ -185,7 +191,7 @@ transacting_deploy_upgradeable_contract() {
         --constructor-args "$implementation_address" '0x')
 
     local proxy_address
-    proxy_address=$(_transacting_deploy_contract "$proxy_args")
+    proxy_address=$(_transacting_deploy_contract "$proxy_args") || logging FATAL "failed to deploy $file_contract proxy contract."
 
     echo "$proxy_address"
 }
@@ -201,12 +207,14 @@ function get_public_from_private() {
 _transacting_hide_sensitive_data_in_logs() {
     for args_json in "$@"; do
         for field in "private_key" "etherscan_api_key"; do
+            logging trace "hiding $field in logs"
             local value
             value=$(argparsing_value $field "$args_json")
             if [ -n "$value" ]; then
+                local replacement="***${field}***"
                 # add a user friendly replacement, e.g. public key for a private key
                 if [[ "$value" =~ ^0x[0-9a-fA-F]{64}$ ]]; then
-                    logging info "found private key"
+                    logging trace "found private key"
                     local public_key
                     public_key=$(get_public_from_private "$value")
                     [ -n "$public_key" ] && replacement="***${field} [public key:$public_key]***"
@@ -220,17 +228,32 @@ _transacting_hide_sensitive_data_in_logs() {
 _transacting_lookup_env() {
     logging trace "${FUNCNAME[0]}($*)..."
     local env_name="$1"
+    local field_name="$2"
     # look up the environment
-    local value="${!env_name}"
+    local value=""
+
+    # Check if the variable exists before trying to access it
+    if declare -p "$env_name" &>/dev/null; then
+        eval "value=\${$env_name}"
+    fi
+
     logging debug "   environment $env_name=$value"
     if [[ -n "$value" ]]; then
-        logging info "$field_name taken from the envronment variable $env_name"
+        logging info "$field_name taken from the environment variable $env_name"
     else
         # look up the .env file if it exists
         if [[ -f .env ]]; then
-            # shellcheck disable=SC1091 # file exists check above
-            source .env
-            value="${!env_name}"
+            # Use a subshell to source .env without polluting the parent environment
+            value=$(
+                # shellcheck disable=SC1091 # file exists check above
+                source .env
+                if declare -p "$env_name" &>/dev/null; then
+                    eval "echo \${$env_name}"
+                else
+                    echo ""
+                fi
+            )
+
             logging debug "   .env $env_name=$value"
             if [[ -n "$value" ]]; then
                 logging info "$field_name taken from the .env file variable $env_name"
@@ -248,11 +271,12 @@ _transacting_default_from_env() {
     local env_name="$2" # the environment variable name
     local existing_json="$3" # the existing json to update
     local field_name
+    # make the field name out of the origin but de-hyphenating it
     field_name=$(echo "$origin" | sed -E 's/^-+//; s/-/_/g') || exit $?
 
     if ! argparsing_has "$field_name" "$existing_json"; then
         local value
-        value=$(_transacting_lookup_env "$env_name")
+        value=$(_transacting_lookup_env "$env_name" "$field_name")
         if [ -n "$value" ]; then
             existing_json=$(argparsing_add "$field_name" "$existing_json" "$value" "$origin")
         fi

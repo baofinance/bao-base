@@ -4,8 +4,8 @@ set -e -o pipefail
 if [[ -n "${GUARD_SOURCING_ARGPARSING:-}" ]]; then return; fi; GUARD_SOURCING_ARGPARSING=1
 [[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]}..."
 
-
-source "$(dirname ${BASH_SOURCE[0]})/logging"
+# shellcheck disable=SC1091 # no dir check
+source "$(dirname "${BASH_SOURCE[0]}")/logging"
 
 ######################################
 # JSON args / command line conversion
@@ -16,7 +16,7 @@ argparsing_argparse() {
     logging trace "${FUNCNAME[0]}($*)..."
     # run the python argparse wrapper from the same directory
     local output
-    output=$("$(dirname ${BASH_SOURCE[0]})/wargparse.py" "$@") || exit $?
+    output=$("$(dirname "${BASH_SOURCE[0]}")/wargparse.py" "$@") || exit $?
     [[ ! "$output" == "" ]] || logging fail "parsing error"
     logging debug "wargparse.py->$output."
     output=$(echo "$output" | jq -rc '.known |= with_entries(select(.value.value != null))') || exit $?
@@ -155,7 +155,7 @@ argparsing_add() {
     local key="$1"
     local json_args="$2"
     local value="$3"
-    local origin="$4"
+    local origin="${4:-null}"
     local output
     output=$(jq -rc ".known.$key = {value: \"$value\", origin: \"$origin\"}" <<< "$json_args") || exit $?
     logging trace "${FUNCNAME[0]}->$output."

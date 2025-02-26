@@ -18,7 +18,7 @@ case $KEY in
   (*) KEY="bao.storage.$KEY";;
 esac
 
-echo using KEY=$KEY
-echo chisel eval "'"'keccak256(abi.encode(uint256(keccak256("'$KEY'")) - 1)) & ~bytes32(uint256(0xff))'"'"
+echo using KEY="$KEY"
+echo chisel eval "'"'keccak256(abi.encode(uint256(keccak256("'"$KEY"'")) - 1)) & ~bytes32(uint256(0xff))'"'"
 # run the chisel command, extract the 3rd word on the second line, remove the colour sequences and pad to 64 hex characters
-chisel eval 'keccak256(abi.encode(uint256(keccak256("'$KEY'")) - 1)) & ~bytes32(uint256(0xff))' | sed -n '2p' | awk '{ match($3,/0x([0-9a-fA-F]+)/,m); l=length(m[1]); hash="0x" (l<64? "0"*(64-l):"") m[1]; print hash}'
+chisel eval 'keccak256(abi.encode(uint256(keccak256("'"$KEY"'")) - 1)) & ~bytes32(uint256(0xff))' | sed -n '2p' | awk '{ match($3,/0x([0-9a-fA-F]+)/,m); l=length(m[1]); hash="0x" (l<64? "0"*(64-l):"") m[1]; print hash}'

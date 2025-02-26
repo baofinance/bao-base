@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e -o pipefail
 
-# shellcheck disable=SC2154 # we don't need to check if the variable is set
+# shellcheck disable=SC2154,SC1091 # we don't need to check if the variable is set
 source "${BAO_BASE_LIB_DIR}/logging"
 # uncomment to get debug loggin
 # logging_config "DEBUG"
@@ -55,7 +55,7 @@ logging debug poetry install --no-root --directory "$DEPENDENCIES_DIR"
 } 3>&2
 
 # Step 2: Run the target Python script in the caller's directory
-if [ -f $DEPENDENCIES_DIR/$SCRIPT.py ]; then
+if [ -f "$DEPENDENCIES_DIR"/"$SCRIPT".py ]; then
     logging debug poetry run --directory "$DEPENDENCIES_DIR" python "$DEPENDENCIES_DIR/$SCRIPT.py" "$@"
     poetry run --directory "$DEPENDENCIES_DIR" python "$DEPENDENCIES_DIR/$SCRIPT.py" "$@"
 else

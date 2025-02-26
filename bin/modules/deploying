@@ -1,20 +1,25 @@
 #!/bin/bash
-set -e -o pipefail
+set -euo pipefail
+trap 'echo "Error on line $LINENO"; exit 1' ERR
 
 [[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]}..."
 
 # parse the arguments for setting up the logging
-source "$(dirname ${BASH_SOURCE[0]})/argparsing"
+# shellcheck disable=SC1091 # no dir check
+source "$(dirname "${BASH_SOURCE[0]}")/argparsing"
 _deploying_logging_arguments=$(argparsing_argparse_value "v" '{"arguments": [{"names": ["-v"], "action": "store_count"}]}' "$@") || exit $?
 
-source "$(dirname ${BASH_SOURCE[0]})/logging"
+# shellcheck disable=SC1091 # no dir check
+source "$(dirname "${BASH_SOURCE[0]}")/logging"
 logging_config "$_deploying_logging_arguments"
 
 # parse the arguments for setting up the transaction defaults
-source "$(dirname ${BASH_SOURCE[0]})/transacting"
+# shellcheck disable=SC1091 # no dir check
+source "$(dirname "${BASH_SOURCE[0]}")/transacting"
 transacting_config "$@"
 
 # set up recording of essential information for running tests against the deployed contracts
+# shellcheck disable=SC1091 # no dir check
 source "$(dirname "${BASH_SOURCE[0]}")/recording"
 
 rpc_url=$(transacting_config_value "rpc_url")

@@ -25,12 +25,11 @@ while IFS="" read -r change; do
             echo -e "\e[1m==== modified file: ${file} ====\e[0m"
 
             logfile=${file//\//\__}.diff.log
-            git diff --output=$logfile --color=always --minimal --unified=0 --word-diff=plain --ignore-space-change --ignore-blank-lines --color-moved-ws=ignore-all-space $file
-            if [[ -f "$file" && "$file" == "*.txt" ]]; then
-                head -n 3 $file | sed 's/^/    /'
-                sed 's/^/    /' $logfile | sed '0,/@@\x1b\[m$/d' | sed '/@@ [-0-9,]\+ [+0-9,]\+ @@/d'
+            git diff --output="$logfile" --color=always --minimal --unified=0 --word-diff=plain --ignore-space-change --ignore-blank-lines --color-moved-ws=ignore-all-space "$file"
+                head -n 3 "$file" | sed 's/^/    /'
+                sed 's/^/    /' "$logfile" | sed '0,/@@\x1b\[m$/d' | sed '/@@ [-0-9,]\+ [+0-9,]\+ @@/d'
             else
-                sed 's/^/    /' $logfile
+                sed 's/^/    /' "$logfile"
             fi
             ;;
         A)
@@ -38,6 +37,8 @@ while IFS="" read -r change; do
             ;;
         D)
             echo -e "==== \e[1mdeleted file: ${file} ====\e[0m"
+            ;;
+        *)  exit 1
             ;;
         esac
         ;;

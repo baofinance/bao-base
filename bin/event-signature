@@ -13,6 +13,6 @@ fi
 
 KEY=$1
 
-echo using KEY=$KEY
-echo chisel eval "'"'keccak256(bytes("'$KEY'"))'"'"
-chisel eval 'keccak256(bytes("'$KEY'"))' | sed -n '2p' | awk '{print $3}'
+echo using KEY="$KEY"
+echo chisel eval "'"'keccak256(bytes("'"$KEY"'"))'"'"
+chisel eval 'keccak256(bytes("'"$KEY"'"))' | sed -n '2p' | awk '{print $3}'
