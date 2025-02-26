@@ -1,0 +1,22 @@
+#!/bin/bash
+
+import() {
+    local file="$1"
+
+    # Convert file path to a safe variable name
+    local guard_var="IMPORTED_$(basename "$file" .sh | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9' '_')"
+
+    # Check if file has already been imported
+    if [[ -n "${!guard_var:-}" ]]; then
+        return 0  # Already imported, do nothing
+    fi
+
+    # Source the file and mark it as imported
+    if [[ -f "$file" ]]; then
+        source "$file"
+        export "$guard_var"=1
+    else
+        echo "Error: Cannot import '$file' (file not found)" >&2
+        return 1
+    fi
+}
