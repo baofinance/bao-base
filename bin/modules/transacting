@@ -9,21 +9,23 @@ source "$(dirname "${BASH_SOURCE[0]}")/logging"
 # shellcheck disable=SC1091
 source "$(dirname "${BASH_SOURCE[0]}")/argparsing"
 
-_transacting_spec_json=""
-_transacting_fargs=(\
-    '["--rpc-url"], "default": "local"' \
-    '["--private-key"]')
+_transacting_network_args_json=""
+_transacting_network_arg_spec=('["--rpc-url"], "default": "local"')
 
-_transacting_deploy_spec_json=""
-_transacting_deploy_fargs=(\
+_transacting_tx_args_json=""
+_transacting_tx_arg_spec=('["--private-key"]')
+
+# todo: make no-broadcast and no-verify actually result in the argument being removed
+_transacting_deploy_args_json=""
+_transacting_deploy_arg_spec=(\
     '["file_contract"], "nargs": "?"' \
     '["--constructor-args"], "nargs":"+"' \
     '["--broadcast", "--no-broadcast"], "action": "store_boolean", "default": true' \
     '["--etherscan-api-key"]' \
     '["--verify", "--no-verify"], "action": "store_boolean"')
-
-_transacting_deploy_extra_spec_json=""
-_transacting_deploy_extra_fargs=( \
+# TODO: remove these args and pass them as parameters to _deploy_contract
+_transacting_deploy_extra_args_json=""
+_transacting_deploy_extra_arg_spec=( \
     '["--contract-name"]' \
     '["--purpose"]')
 
@@ -43,10 +45,11 @@ _make_spec() {
     echo "$result"
 }
 
-_transacting_all_spec=$(_make_spec _transacting_fargs _transacting_deploy_fargs _transacting_deploy_extra_fargs)
-_transacting_spec=$(_make_spec _transacting_fargs)
-_transacting_deploy_spec=$(_make_spec _transacting_deploy_fargs)
-_transacting_deploy_extra_spec=$(_make_spec _transacting_deploy_extra_fargs)
+_transacting_all_spec=$(_make_spec _transacting_network_arg_spec _transacting_tx_arg_spec _transacting_deploy_arg_spec _transacting_deploy_extra_arg_spec)
+_transacting_network_spec=$(_make_spec _transacting_network_arg_spec)
+_transacting_tx_spec=$(_make_spec _transacting_tx_arg_spec)
+_transacting_deploy_spec=$(_make_spec _transacting_deploy_arg_spec)
+_transacting_deploy_extra_spec=$(_make_spec _transacting_deploy_extra_arg_spec)
 
 forge=$(command -v forge)
 logging info "using forge at $forge."
@@ -54,36 +57,41 @@ logging info "using forge at $forge."
 
 transacting_config_value() {
     local field="$1"
-    argparsing_value "$field" "$_transacting_spec_json"
-    argparsing_value "$field" "$_transacting_deploy_spec_json"
-    argparsing_value "$field" "$_transacting_deploy_extra_spec_json"
+    argparsing_value "$field" "$_transacting_network_args_json" \
+    || argparsing_value "$field" "$_transacting_tx_args_json" \
+    || argparsing_value "$field" "$_transacting_deploy_args_json" \
+    || argparsing_value "$field" "$_transacting_deploy_extra_args_json"
 }
 
 transacting_config() {
     logging trace "${FUNCNAME[0]}($*)..."
-    local json
-    json=$(argparsing_argparse "$_transacting_all_spec" "$@")
-    json=$(argparsing_remove_unknown "$json")
-    _transacting_hide_sensitive_data_in_logs "$json"
-    logging debug "json=$json."
+    local args_json
+    args_json=$(argparsing_argparse "$_transacting_all_spec" "$@")
+    args_json=$(argparsing_remove_unknown "$args_json")
+    _transacting_hide_sensitive_data_in_logs "$args_json"
+    logging debug "args_json=$args_json."
 
-    _transacting_spec_json=$(argparsing_keep "$_transacting_spec" "$json")
-    logging trace "_transacting_spec_json=$_transacting_spec_json."
-    _transacting_deploy_spec_json=$(argparsing_keep "$_transacting_deploy_spec" "$json")
-    logging trace "_transacting_deploy_spec_json=$_transacting_deploy_spec_json."
-    _transacting_deploy_extra_spec_json=$(argparsing_keep "$_transacting_deploy_extra_spec" "$json")
-    logging trace "_transacting_deploy_extra_spec_json=$_transacting_deploy_extra_spec_json."
+    # extract the default for each level of interaction
+    _transacting_network_args_json=$(argparsing_keep "$_transacting_network_spec" "$args_json")
+    logging trace "_transacting_network_args_json=$_transacting_network_args_json."
+    _transacting_tx_args_json=$(argparsing_keep "$_transacting_tx_spec" "$args_json")
+    logging trace "_transacting_tx_args_json=$_transacting_tx_args_json."
+    _transacting_deploy_args_json=$(argparsing_keep "$_transacting_deploy_spec" "$args_json")
+    logging trace "_transacting_deploy_args_json=$_transacting_deploy_args_json."
+    _transacting_deploy_extra_args_json=$(argparsing_keep "$_transacting_deploy_extra_spec" "$args_json")
+    logging trace "_transacting_deploy_extra_args_json=$_transacting_deploy_extra_args_json."
 
     # read environment variables or .env file, in that order of precedence
-    _transacting_spec_json=$(_transacting_default_from_env "--private-key" "PRIVATE_KEY" "$_transacting_spec_json")
-    _transacting_deploy_spec_json=$(_transacting_default_from_env "--etherscan-api-key" "ETHERSCAN_API_KEY" "$_transacting_deploy_spec_json")
-    _transacting_hide_sensitive_data_in_logs "$_transacting_spec_json" "$_transacting_deploy_spec_json"
+    _transacting_tx_args_json=$(_transacting_default_from_env "--private-key" "PRIVATE_KEY" "$_transacting_tx_args_json")
+    _transacting_deploy_args_json=$(_transacting_default_from_env "--etherscan-api-key" "ETHERSCAN_API_KEY" "$_transacting_deploy_args_json")
+    _transacting_hide_sensitive_data_in_logs "$_transacting_tx_args_json" "$_transacting_deploy_args_json"
 
     # tell the user what the defaults are
     local defaults
-    defaults=$(argparsing_args "$_transacting_spec_json") || exit $?
-    defaults+=$(argparsing_args "$_transacting_deploy_spec_json")  || exit $?
-    defaults+=$(argparsing_args "$_transacting_deploy_extra_spec_json") || exit $?
+    defaults=$(argparsing_args "$_transacting_network_args_json") || exit $?
+    defaults+=$(argparsing_args "$_transacting_tx_args_json") || exit $?
+    defaults+=$(argparsing_args "$_transacting_deploy_args_json")  || exit $?
+    defaults+=$(argparsing_args "$_transacting_deploy_extra_args_json") || exit $?
     logging info "transaction defaults:$defaults"
 }
 
@@ -92,8 +100,8 @@ _transacting_deploy_contract() {
     logging trace "${FUNCNAME[0]}($*)..."
     local args_json="$1"
 
-    # merge the given args with the defaults
-    args_json=$(argparsing_merge "$_transacting_spec_json" "$_transacting_deploy_spec_json" "$_transacting_deploy_extra_spec_json" "$args_json")
+    # merge the given args with the defaults, given args override
+    args_json=$(argparsing_merge "$_transacting_network_args_json" "$_transacting_tx_args_json" "$_transacting_deploy_args_json" "$_transacting_deploy_extra_args_json" "$args_json")
     logging trace "args_json=$args_json."
 
     # get the contract to deploy
@@ -119,21 +127,12 @@ _transacting_deploy_contract() {
     args=$(argparsing_args "$args_json" known)
     logging debug "args=$args."
 
-    # local cmd="$forge create $args"
-    # logging info "$cmd"
-
+    # todo: remove the args_array?
     local args_array
     eval "args_array=($args)"
     logging trace "$forge" create "${args_array[@]}"
     local response
     if ! response=$("$forge" create "${args_array[@]}"); then logging fatal "forge create failed for the $contract_tag contract."; fi
-
-    # response=$("$forge" create "${args_array[@]}")
-    # local exit_code=$?
-    # logging trace "forge create->$exit_code."
-    # if [[ $exit_code -ne 0 ]]; then
-    #     logging fatal "forge create->$exit_code."
-    # fi
     logging trace "forge create->${response}."
 
     local deployer
@@ -147,11 +146,12 @@ _transacting_deploy_contract() {
         logging fail "Failed to deploy the $contract_tag contract."
         return 1
     fi
-    # return the result
-    echo "$address"
 
     logging info "Deployed the $contract_tag contact at $address"
     logging info "   by $deployer tx: $transaction"
+
+    # return the result
+    echo "$address"
 }
 
 transacting_deploy_contract() {
@@ -196,10 +196,23 @@ transacting_deploy_upgradeable_contract() {
     echo "$proxy_address"
 }
 
+function transacting_send () {
+    local command="$1"
+    shift
+    cast send "$@"
+}
+
+function transacting_call () {
+    local command="$1"
+    shift
+    cast call "$@"
+}
+
 function get_public_from_private() {
     local private_key="$1"
     cast wallet address --private-key "$private_key"
 }
+
 
 #####################################################################################
 # private functions
@@ -269,7 +282,7 @@ _transacting_default_from_env() {
     logging trace "${FUNCNAME[0]}($*)..."
     local origin="$1" # this is the longest arg in the list (preferring long form)
     local env_name="$2" # the environment variable name
-    local existing_json="$3" # the existing json to update
+    local existing_json="$3" # the existing args_json to update
     local field_name
     # make the field name out of the origin but de-hyphenating it
     field_name=$(echo "$origin" | sed -E 's/^-+//; s/-/_/g') || exit $?

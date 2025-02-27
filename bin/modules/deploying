@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
-trap 'echo "Error on line $LINENO"; exit 1' ERR
+# trap 'echo "Error: $0:$LINENO: exit code: $?"; exit 1' ERR
+trap 'logging fatal $0:$LINENO: exit code: $?' ERR
 
 [[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]}..."
 
@@ -45,8 +46,12 @@ function get_deployer_address() {
     cast wallet address --private-key "$private_key"
 }
 
-function send() {
-    transaction_send "$@"
+function tell() {
+    transacting send "$@"
+}
+
+function ask() {
+    transacting call "$@"
 }
 
 function deploy() {
