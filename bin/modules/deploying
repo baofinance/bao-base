@@ -16,17 +16,15 @@ logging_config "$_deploying_logging_arguments"
 
 # parse the arguments for setting up the transaction defaults
 # shellcheck disable=SC1091 # no dir check
-source "$(dirname "${BASH_SOURCE[0]}")/transacting"
-transacting_config "$@"
+source "$(dirname "${BASH_SOURCE[0]}")/transacting" "$@"
 
 # set up recording of essential information for running tests against the deployed contracts
 # shellcheck disable=SC1091 # no dir check
 source "$(dirname "${BASH_SOURCE[0]}")/recording"
 
-rpc_url=$(transacting_config_value "rpc_url")
 calling_script_name=$(basename "${BASH_SOURCE[1]}" | cut -d. -f1)
-recording_to "$rpc_url" "$calling_script_name"
-recording_field "network" "$rpc_url"
+recording_to "$default_rpc_url" "$calling_script_name"
+recording_field "network" "$default_rpc_url"
 
 function record() {
     local field="$1"
@@ -41,9 +39,8 @@ function record_numeric() {
 }
 
 function get_deployer_address() {
-    local private_key
-    private_key=$(transacting_config_value private_key)
-    cast wallet address --private-key "$private_key"
+    local private_key="${1:-$default_private_key}"
+    transacting_get_public_from_private "$default_private_key"
 }
 
 function tell() {

@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e -o pipefail
+set -euo pipefail
 
 if [[ -n "${GUARD_SOURCING_ARGPARSING:-}" ]]; then return; fi; GUARD_SOURCING_ARGPARSING=1
 [[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]}..."
@@ -136,10 +136,33 @@ argparsing_value() {
     local dest="$1"
     local args_json="$2"
     local value
-    value=$(jq -rc ".known.$dest.value // \"\"" <<< "$args_json") || exit $?
+    value=$(jq -r --arg dest "$dest" '
+        .known[$dest].value |
+        if type == "array" then
+            map(tostring) | join(" ")
+        elif . != null then
+            tostring
+        else
+            ""
+        end
+    ' <<< "$args_json")
+
     logging trace "${FUNCNAME[0]}->$value."
     echo "$value"
 }
+
+
+# argparsing_value_index() {
+#     logging trace "${FUNCNAME[0]}($*)..."
+#     local dest="$1"
+#     local index="$2"
+#     local args_json="$3"
+#     local value
+#     value=$(jq -rc ".known.$dest.value[$index] // \"\"" <<< "$args_json") || exit $?
+#     logging trace "${FUNCNAME[0]}->$value."
+#     echo "$value"
+# }
+
 
 # combine argparsing_argparse with argparsing_value
 argparsing_argparse_value() {
