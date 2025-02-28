@@ -9,15 +9,6 @@ source "$(dirname "${BASH_SOURCE[0]}")/logging"
 # shellcheck disable=SC1091
 source "$(dirname "${BASH_SOURCE[0]}")/argparsing"
 
-_transacting_get_contract_name() {
-    local args="$1"
-    local args_json
-    local args_json=$(argsparsing_argparse '{"arguments":[
-
-        ]}' "$args")
-    argparsing_value 'contract_name' "$args_json"
-}
-
 _transacting_deploy_contract() {
     logging trace "${FUNCNAME[0]}($*)..."
     local purpose="$1"
@@ -68,9 +59,9 @@ _transacting_deploy_contract() {
     [ -n "$constructor_args" ] && create_args+=" --constructor-args $constructor_args"
 
 
-    logging info "$forge" create "$create_args"
+    logging info "$forge_exe" create "$create_args"
     local response
-    if ! response=$("$forge" create $create_args); then logging fatal "forge create failed for the $contract_tag contract."; fi
+    if ! response=$("$forge_exe" create $create_args); then logging fatal "forge create failed for the $contract_tag contract."; fi
     logging trace "forge create->${response}."
 
     local deployer
@@ -117,16 +108,14 @@ transacting_deploy_upgradeable_contract() {
     echo "$proxy_address"
 }
 
+# TODO: override defaults
 function transacting_send () {
-    local command="$1"
-    shift
-    cast send "$@"
+    "$cast_exe" send "$@" --rpc-url "$default_rpc_url" --private-key "$default_private_key"
 }
 
+# TODO: override defaults
 function transacting_call () {
-    local command="$1"
-    shift
-    cast call "$@"
+    "$cast_exe" call "$@" --rpc-url "$default_rpc_url"
 }
 
 function transacting_get_public_from_private() {
@@ -225,8 +214,10 @@ _transacting_arg_spec='{"arguments":[
 {"names": ["--verify", "--no-verify"], "action": "store_boolean"}
 ]}'
 
-forge=$(command -v forge)
-logging info "using forge at $forge."
+forge_exe=$(command -v forge)
+logging info "using forge at $forge_exe."
+cast_exe=$(command -v cast)
+logging info "using cast at $cast_exe."
 
 args_json=$(argparsing_argparse "$_transacting_arg_spec" "$@")
 

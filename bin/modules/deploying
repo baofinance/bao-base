@@ -43,12 +43,12 @@ function get_deployer_address() {
     transacting_get_public_from_private "$default_private_key"
 }
 
-function tell() {
-    transacting send "$@"
+function send() {
+    transacting_send "$@"
 }
 
-function ask() {
-    transacting call "$@"
+function call() {
+    transacting_call "$@"
 }
 
 function deploy() {
