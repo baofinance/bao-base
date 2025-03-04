@@ -13,6 +13,7 @@
     "slither": "./lib/bao-base/run slither .",
     "test": "./lib/bao-base/run test",
     "test:bash": "[ $# -gt 0 ] && ./node_modules/bats/bin/bats test/**/\"${0}\".bats; [ $# -eq 0 ] && ./node_modules/bats/bin/bats test/**/*.bats",
+    "test:addresses": "./lib/bao-base/bin/check_addresses.sh ./lib/bao-base/script/addresses.mainnet.json ./lib/bao-base/script/addresses.arbitrum.json",
     "coverage": "./lib/bao-base/run regression-of coverage",
     "dotfiles": "git ls-tree -r HEAD | grep 120000 | awk '{print $4}'",
     "pre-checkin": "yarn fmt && yarn slither && yarn lint && yarn test && yarn coverage && yarn gas && yarn sizes && echo \"ready for checkin\"",
