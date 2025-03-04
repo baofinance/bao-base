@@ -2,18 +2,23 @@
 set -e -o pipefail
 
 if [[ -n "${GUARD_SOURCING_LOGGING:-}" ]]; then return; fi; GUARD_SOURCING_LOGGING=1
-[[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]}..."
+[[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]} $@..."
 
 # set the default logging level to warn (and above)
 LOGGING_LEVEL=${LOGGING_LEVEL:-2}
-# set the default output FD, this is changed to 8 below so logging doesn't clog things up
-_logging_file_descriptor=1
-declare -A _logging_hidden_text
 
 logging_config() {
-    LOGGING_LEVEL=$(_logging_to_value "$1")
-    logging info "logging level is now $LOGGING_LEVEL"
+    if [[ -n "$1" ]]; then
+        LOGGING_LEVEL=$(_logging_to_value "$1")
+        logging info "logging level is now $LOGGING_LEVEL"
+    fi
 }
+
+# set the default output FD, this is changed to 8 below so logging doesn't clog things up
+_logging_file_descriptor=1
+
+# hidden text in log messages
+declare -A _logging_hidden_text
 
 logging_hide() {
     logging trace "${FUNCNAME[0]}($*)..."
@@ -126,5 +131,3 @@ else
     #exec 8> >(stdbuf -o0 cat)
     exec 8>&1
 fi
-
-# logging info "loading 'logging' from ${BASH_SOURCE[1]}"

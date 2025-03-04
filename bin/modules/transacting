@@ -42,9 +42,9 @@ _transacting_deploy_contract() {
 
     # TODO: allow the defaults to be owverridden
     local create_args="$file_contract"
-    create_args+=" --rpc-url $default_rpc_url"
+    create_args+=" --rpc-url $RPC_URL"
     create_args+=" --private-key $default_private_key"
-    create_args+=" --etherscan-api-key $default_etherscan_api_key"
+    create_args+=" --etherscan-api-key $ETHERSCAN_API_KEY"
     local broadcast
     broadcast=$(argparsing_value "broadcast" "$args_json")
     [[ "$broadcast" != "false" ]] && create_args+=" --broadcast"
@@ -68,19 +68,24 @@ _transacting_deploy_contract() {
     deployer=$(echo "$response" | awk '/Deployer:/ {print $2}')
     local address
     address=$(echo "$response" | awk '/Deployed to:/ {print $3}')
-    local transaction
-    transaction=$(echo "$response" | awk '/Transaction hash:/ {print $3}')
+    local tx_hash
+    tx_hash=$(echo "$response" | awk '/Transaction hash:/ {print $3}')
 
     if [ -z "$address" ]; then
         logging fail "Failed to deploy the $contract_tag contract."
         return 1
     fi
 
+    local block_number
+    block_number=$(cast tx $tx_hash --rpc-url $RPC_URL | awk '/blockNumber/ {print $2}')
+
     logging info "Deployed the $contract_tag contact at $address"
-    logging info "   by $deployer tx: $transaction"
+    logging info "   by $deployer tx: $tx_hash in block $block_number."
 
     # return the result
-    echo "$address"
+    jq -nc --arg address "$address" --arg tx_hash "$tx_hash" --arg block_number "$block_number" '{
+        address:$address, tx_hash:$tx_hash, block_number:$block_number}'
+    # extract using jq '.address', jq '.tx_hash or jq '.block_number'
 }
 
 transacting_deploy_contract() {
@@ -95,27 +100,33 @@ transacting_deploy_upgradeable_contract() {
     # validate implementation
 
     # deploy implementation
-    local implementation_address
-    implementation_address=$(_transacting_deploy_contract "implementation" "$args")
+    local impl
+    impl=$(_transacting_deploy_contract "implementation" "$args")
+    local impl_address
+    impl_address=$(jq -r '.address' <<< "$impl")
     # save deployed data, for later validation
 
     # deploy proxy
-    local proxy_address
-    proxy_address=$(_transacting_deploy_contract 'UUPS proxy' \
+    local proxy
+    proxy=$(_transacting_deploy_contract 'UUPS proxy' \
         'lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy' \
-        --constructor-args "$implementation_address" '0x')
+        --constructor-args "$impl_address" '0x')
 
-    echo "$proxy_address"
+    # logging info "impl=$impl"
+    # logging info "proxy=$proxy"
+    jq -n --argjson proxy "$proxy" --argjson impl "$impl" '$proxy + {"implementation": $impl}'
 }
 
 # TODO: override defaults
 function transacting_send () {
-    "$cast_exe" send "$@" --rpc-url "$default_rpc_url" --private-key "$default_private_key"
+    logging trace "${FUNCNAME[0]}($*)..."
+    "$cast_exe" send "$@" --rpc-url "$RPC_URL" --private-key "$default_private_key"
 }
 
 # TODO: override defaults
 function transacting_call () {
-    "$cast_exe" call "$@" --rpc-url "$default_rpc_url"
+    logging trace "${FUNCNAME[0]}($*)..."
+    "$cast_exe" call "$@" --rpc-url "$RPC_URL"
 }
 
 function transacting_get_public_from_private() {
@@ -227,19 +238,74 @@ args_json=$(_transacting_default_from_env "--etherscan-api-key" "ETHERSCAN_API_K
 _transacting_hide_sensitive_data_in_logs "$args_json"
 
 # set the global variables to be used in subsequent functions
-default_rpc_url=$(argparsing_value "rpc_url" "$args_json")
+export RPC_URL=$(argparsing_value "rpc_url" "$args_json")
+##############
+export LOCAL=""
+###### -----
+if [[ "$RPC_URL" == "local" || "$RPC_URL" == *"localhost"* ]]; then
+    LOCAL="local"
+    ###### -----
+fi
+# Get the chain id from cast and convert it to decimal
+chainid_hex=$(cast chain-id --rpc-url $RPC_URL)
+export CHAIN_ID=$((16#${chainid_hex#0x}))
+###### --------
+# common chain names
+declare -A networks=(
+    [1]="mainnet"
+    [3]="ropsten"
+    [4]="rinkeby"
+    [5]="goerli"
+    [42]="kovan"
+    [11155111]="sepolia"
+    [17000]="holesky"
+    [61]="classic"
+    [6]="classicKotti"
+    [42161]="arbitrum"
+    [421613]="arbitrum-goerli"
+    [421614]="arbitrum-sepolia"
+    [8453]="base"
+    [84531]="base-goerli"
+    [84532]="base-sepolia"
+    [56]="bnb"
+    [97]="bnbt"
+    [59144]="linea"
+    [59140]="linea-goerli"
+    [59141]="linea-sepolia"
+    [137]="matic"
+    [80002]="matic-amoy"
+    [80001]="matic-mumbai"
+    [10]="optimism"
+    [420]="optimism-goerli"
+    [11155420]="optimism-sepolia"
+    [100]="xdai"
+)
+export CHAIN_NAME=${networks[$CHAIN_ID]:-$CHAIN_ID}
+###### ----------
 default_private_key=$(argparsing_value "private_key" "$args_json")
-default_etherscan_api_key=$(argparsing_value "etherscan_api_key" "$args_json")
+export ETHERSCAN_API_KEY=$(argparsing_value "etherscan_api_key" "$args_json")
+###### -----------------
 # get the default verify - if not specified, then use the default for the rpc_url
 default_verify=$(argparsing_value "verify" "$args_json")
 if [[ "$default_verify" == "" ]]; then
     # nothing specified, default depending on the network
-    if [[ "$default_rpc_url" == "local" ]]; then
+    if [[ "$LOCAL" == "local" ]]; then
         default_verify="false"
     else
         default_verify="true"
     fi
 fi
 
+# # Fetch the chain list JSON from chainid.network and filter for your chain id
+# chain_info=$(curl -s https://chainid.network/chains.json | jq --argjson id "$CHAIN_ID" '.[] | select(.chainId == $id)')
+
+# if [ -n "$chain_info" ]; then
+#     echo "Chain info for Chain ID $CHAIN_ID:"
+#     echo "$chain_info" | jq .
+# else
+#     echo "No matching chain info found for Chain ID $CHAIN_ID"
+# fi
+
 # tell the user what the defaults are
+logging info "transacting on${LOCAL:+ $LOCAL} chain $CHAIN_ID${CHAIN_NAME:+ ($CHAIN_NAME)}"
 logging info "transaction defaults:$(argparsing_args $args_json)"

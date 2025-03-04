@@ -3,16 +3,15 @@ set -euo pipefail
 # trap 'echo "Error: $0:$LINENO: exit code: $?"; exit 1' ERR
 trap 'logging fatal $0:$LINENO: exit code: $?' ERR
 
-[[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]}..."
+[[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]} $@..."
 
 # parse the arguments for setting up the logging
 # shellcheck disable=SC1091 # no dir check
 source "$(dirname "${BASH_SOURCE[0]}")/argparsing"
-_deploying_logging_arguments=$(argparsing_argparse_value "v" '{"arguments": [{"names": ["-v"], "action": "store_count"}]}' "$@") || exit $?
 
 # shellcheck disable=SC1091 # no dir check
 source "$(dirname "${BASH_SOURCE[0]}")/logging"
-logging_config "$_deploying_logging_arguments"
+logging_config "$(argparsing_argparse_value "v" '{"arguments": [{"names": ["-v"], "action": "store_count"}]}' "$@")"
 
 # parse the arguments for setting up the transaction defaults
 # shellcheck disable=SC1091 # no dir check
@@ -20,11 +19,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/transacting" "$@"
 
 # set up recording of essential information for running tests against the deployed contracts
 # shellcheck disable=SC1091 # no dir check
-source "$(dirname "${BASH_SOURCE[0]}")/recording"
-
-calling_script_name=$(basename "${BASH_SOURCE[1]}" | cut -d. -f1)
-recording_to "$default_rpc_url" "$calling_script_name"
-recording_field "network" "$default_rpc_url"
+source "$(dirname "${BASH_SOURCE[0]}")/recording" $CHAIN_ID $CHAIN_NAME
 
 function record() {
     local field="$1"
@@ -57,4 +52,16 @@ function deploy() {
 
 function deploy_upgradeable() {
     transacting_deploy_upgradeable_contract "$@"
+}
+
+function networkdata() {
+    logging trace "${FUNCNAME[0]}($*)..."
+    local id="$1"
+    local field="${2:-address}"
+    local result
+    result=$(jq -rc --arg id "$id" --arg field "$field" '
+        .[$id][$field]
+        ' < "./lib/bao-base/script/addresses.${CHAIN_NAME}.json")
+    logging trace "${FUNCNAME[0]}->$result."
+    echo "$result"
 }

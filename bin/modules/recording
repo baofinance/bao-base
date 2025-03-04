@@ -4,18 +4,28 @@ set -e -o pipefail
 if [[ -n "${GUARD_SOURCING_RECORDING:-}" ]]; then return; fi; GUARD_SOURCING_RECORDING=1
 [[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]}..."
 
+# shellcheck disable=SC1091
+source "$(dirname "${BASH_SOURCE[0]}")/logging"
 
-json_logging_file=''
+json_recording_directory='./deploy'
+json_recording_timestamp=$(date '+%Y-%m-%d_%H:%M:%S')
+json_recording_file=''
+json_recording_latest_file=''
 
 # setup the file to log to
 recording_to() {
-    local network="$1"
-    local name="$2"
-    mkdir -p ./deploy
-    json_logging_file="./deploy/$network-$name-$(date '+%Y-%m-%d_%H:%M:%S').log" || exit $?
-    echo "{}" > "$json_logging_file"
-}
+    logging trace "${FUNCNAME[0]}($*)..."
+    local name="$1" # if you are recording to more than one file, one after the other you need to give a name
+    local calling_script_name=$(basename "${BASH_SOURCE[1]}" | cut -d. -f1)
 
+    mkdir -p "${json_recording_directory}"
+    local base_file_name="${json_recording_directory}/${LOCAL:+$LOCAL-}${CHAIN_NAME}-${calling_script_name}${name:+-$name}"
+
+    json_recording_file="${base_file_name}_${json_recording_timestamp}.log"
+    json_recording_latest_file="${base_file_name}_latest.log"
+
+    logging info "Recording to ${json_recording_file}"
+}
 
 # Add a numeric field to the JSON file
 recording_field_numeric() {
@@ -35,11 +45,17 @@ recording_field() {
 # private functions
 
 _add_json_to_file() {
-    if [[ -z "$json_logging_file" ]]; then
-        echo "Error: call to_log(filename) before logging"
+    logging trace "${FUNCNAME[0]}($*)..."
+    if [[ -z "$json_recording_file" ]]; then
+        echo "Error: call recording_to [extra field] before logging"
     else
+        # create the file if it doesn't exist
+        if [[ ! -f "$json_recording_file" ]]; then
+            echo "{}" > "$json_recording_file"
+        fi
         local temp
-        temp=$(mktemp) || exit $?
-        jq ". + $1" "$json_logging_file" > "$temp" && mv "$temp" "$json_logging_file"
+        temp=$(mktemp)
+        jq ". + $1" "$json_recording_file" > "$temp" && mv "$temp" "$json_recording_file"
+        cp "$json_recording_file" "$json_recording_latest_file"
     fi
 }
