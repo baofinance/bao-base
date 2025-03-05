@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e -o pipefail
+set -euo pipefail
 
 # shellcheck disable=SC2154,SC1091 # we don't need to check if the variable is set
 source "${BAO_BASE_LIB_DIR}/logging"
@@ -14,7 +14,7 @@ fi
 
 # Set the path to the Poetry project and the target script
 SCRIPT="$1"; shift
-logging debug "in $SCRIPT"
+logging debug "about to run $SCRIPT"
 
 # Step 1: Install dependencies using Poetry
 DEPENDENCIES_DIR="$BAO_BASE_LIB_DIR/$SCRIPT"
@@ -55,7 +55,7 @@ logging debug poetry install --no-root --directory "$DEPENDENCIES_DIR"
 } 3>&2
 
 # Step 2: Run the target Python script in the caller's directory
-if [ -f "$DEPENDENCIES_DIR"/"$SCRIPT".py ]; then
+if [ -f "$DEPENDENCIES_DIR/$SCRIPT.py" ]; then
     logging debug poetry run --directory "$DEPENDENCIES_DIR" python "$DEPENDENCIES_DIR/$SCRIPT.py" "$@"
     poetry run --directory "$DEPENDENCIES_DIR" python "$DEPENDENCIES_DIR/$SCRIPT.py" "$@"
 else

@@ -9,7 +9,7 @@ set -o pipefail
 export BAO_BASE="$(dirname "$0")"
 export BAO_BASE_DIR="$(cd ${BAO_BASE} && pwd)"
 export BAO_BASE_BIN_DIR="$BAO_BASE_DIR/bin"
-export BAO_BASE_LIB_DIR="$BAO_BASE_DIR/bin-modules"
+export BAO_BASE_LIB_DIR="$BAO_BASE_BIN_DIR/modules"
 
 # then call the script
 # we don't support calling python/node/etc. scripts here because we don't know
@@ -17,4 +17,5 @@ export BAO_BASE_LIB_DIR="$BAO_BASE_DIR/bin-modules"
 # script we are about to call, passing all the given parameters
 SCRIPT="$BAO_BASE_BIN_DIR/$1"
 shift
+echo "Running $SCRIPT $@"
 "$SCRIPT" "$@"
