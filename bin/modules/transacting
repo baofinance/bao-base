@@ -8,6 +8,8 @@ if [[ -n "${GUARD_SOURCING_TRANSACTING:-}" ]]; then return; fi; GUARD_SOURCING_T
 source "$(dirname "${BASH_SOURCE[0]}")/logging"
 # shellcheck disable=SC1091
 source "$(dirname "${BASH_SOURCE[0]}")/argparsing"
+# shellcheck disable=SC1091
+source "$(dirname "${BASH_SOURCE[0]}")/validating"
 
 _transacting_deploy_contract() {
     logging trace "${FUNCNAME[0]}($*)..."
@@ -30,6 +32,11 @@ _transacting_deploy_contract() {
     # get the contract to deploy
     local file_contract
     file_contract=$(argparsing_value "file_contract" "$args_json")
+
+    # check the files in the out directory are correct
+    # we could just build but that assumes we know exactly how it was built, which we dont'
+    if [ ! validating_foundry_build "$file_contract" ]; then logging fatal "invalid build files while deploying
+
     logging debug "Deploying $file_contract."
     local contract_type="${file_contract#*:}"
     logging debug "contract_type=$contract_type."
@@ -83,8 +90,11 @@ _transacting_deploy_contract() {
     logging info "   by $deployer tx: $tx_hash in block $block_number."
 
     # return the result
-    jq -nc --arg address "$address" --arg tx_hash "$tx_hash" --arg block_number "$block_number" '{
-        address:$address, tx_hash:$tx_hash, block_number:$block_number}'
+    local result
+    result=$(jq -nc --arg address "$address" --arg tx_hash "$tx_hash" --arg block_number "$block_number" '{
+        address:$address, tx_hash:$tx_hash, block_number:$block_number}')
+    logging trace "${FUNCNAME[0]}->$result."
+    echo "$result"
     # extract using jq '.address', jq '.tx_hash or jq '.block_number'
 }
 
@@ -102,19 +112,26 @@ transacting_deploy_upgradeable_contract() {
     # deploy implementation
     local impl
     impl=$(_transacting_deploy_contract "implementation" "$args")
+    logging trace "impl=$impl."
     local impl_address
     impl_address=$(jq -r '.address' <<< "$impl")
+    logging debug "impl_address=$impl_address."
+
     # save deployed data, for later validation
 
     # deploy proxy
     local proxy
     proxy=$(_transacting_deploy_contract 'UUPS proxy' \
         'lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy' \
-        --constructor-args "$impl_address" '0x')
+        --constructor-args "$impl_address" '0x') || exit $?
+    logging trace "proxy=$proxy."
 
     # logging info "impl=$impl"
     # logging info "proxy=$proxy"
-    jq -n --argjson proxy "$proxy" --argjson impl "$impl" '$proxy + {"implementation": $impl}'
+    local result
+    result=$(jq -n --argjson proxy "$proxy" --argjson impl "$impl" '$proxy + {"implementation": $impl}')
+    logging trace "${FUNCNAME[0]}->$result."
+    echo "$result"
 }
 
 # TODO: override defaults

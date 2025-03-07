@@ -8,9 +8,9 @@ import os
 # Set up a logging handler that writes to the debug stream.
 import logging
 logging.basicConfig(
-                    # level=logging.DEBUG,
+                    level=50-int(os.environ.get('LOGGING_LEVEL'))*10 or None,
                     format='%(asctime)s - %(levelname)s - %(message)s',
-                    handlers=[logging.StreamHandler(os.fdopen(8, 'w'))])
+                    handlers=[logging.StreamHandler(os.fdopen(int(os.environ.get('LOGGING_FILE_DESCRIPTOR')) or 1, 'w'))])
 
 class StoreWithOriginAction(argparse._StoreAction):
     def __init__(self,

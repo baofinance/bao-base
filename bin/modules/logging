@@ -5,7 +5,7 @@ if [[ -n "${GUARD_SOURCING_LOGGING:-}" ]]; then return; fi; GUARD_SOURCING_LOGGI
 [[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]} $@..."
 
 # set the default logging level to warn (and above)
-LOGGING_LEVEL=${LOGGING_LEVEL:-2}
+export LOGGING_LEVEL=${LOGGING_LEVEL:-2}
 
 logging_config() {
     if [[ -n "$1" ]]; then
@@ -15,7 +15,7 @@ logging_config() {
 }
 
 # set the default output FD, this is changed to 8 below so logging doesn't clog things up
-_logging_file_descriptor=1
+export LOGGING_FILE_DESCRIPTOR=2
 
 # hidden text in log messages
 declare -A _logging_hidden_text
@@ -45,16 +45,16 @@ logging() {
         indent=$(printf "%${indentation}s  ")
         message=${message//$'\n'/$'\n'"$indent"}
         local format
-        format=$(printf "%-${indentation}s:" "$level_str") || exit $?
-        if [[ "$LOGGING_LEVEL" -ge "3" ]]; then
-            format+=" ${BASH_SOURCE[1]}:${BASH_LINENO[0]}" || exit $?
-            if [[ "$LOGGING_LEVEL" -ge "4" ]]; then
-                format+=" ${FUNCNAME[1]}()"
-            fi
+        format=$(printf "%-${indentation}s:" "$level_str")
+        if [[ "$LOGGING_LEVEL" -ge "3" || "$level" -le "0" ]]; then
+            format+=" ${BASH_SOURCE[1]}:${BASH_LINENO[0]}"
+            # if [[ "$LOGGING_LEVEL" -ge "4" ]]; then
+            #     format+=" ${FUNCNAME[1]}()"
+            # fi
             format+=":"
         fi
         # echo "$(date '+%Y-%m-%d %H:%M:%S,%3N') - $format
-        echo "$format $message" >&"$_logging_file_descriptor"
+        echo "$format $message" >&"$LOGGING_FILE_DESCRIPTOR"
     fi
     if [[ "$level" -lt "0" ]]; then
         exit 1
@@ -62,7 +62,16 @@ logging() {
  }
 
 # Define the mapping array: each element is "level:number"
-_LOGGING_LEVELS=( ":2" "debug:4" "trace:3" "info:2" "warn:1" "error:0" "fail:-1" "fatal:-1" )
+_LOGGING_LEVELS=(
+    :2  # default to level 2
+    debug:4
+    trace:3
+    info:2
+    warn:1
+    error:0
+    fail:-1
+    fatal:-1
+ )
 
 # Lookup: given a level name, return its number.
 _logging_to_value() {
@@ -124,10 +133,35 @@ _logging_to_name() {
 # as it is just sent to stdout, without buffering
 # as we're only opening it once, there is no need to close it
 # shellcheck disable=SC2312 # no need to check individual commands as we have set -o pipefail
-if lsof -p $$ 2>/dev/null | awk '{print $4}' | grep -q '^8'; then
-    logging fail "File descriptor 8 is in use"
-else
-    _logging_file_descriptor=8
-    #exec 8> >(stdbuf -o0 cat)
-    exec 8>&1
-fi
+
+# first_free_fd() {
+#     local current_fds=$(lsof -p $$ | awk '$4 ~ /^([0-9]+)[urw]*$/ {print +$4}' | sort -n)
+#     prev=2
+#     for fd in $(echo "$current_fds"); do
+#         if [ $((fd)) -gt $((prev + 1)) ]; then
+#             echo $((prev + 1))
+#             return
+#         fi
+#         prev=$fd
+#     done
+#     echo $((prev + 1))
+# }
+
+# LOGGING_FILE_DESCRIPTOR=$(first_free_fd)
+# # exec 8> >(stdbuf -o0 cat)
+# case "$LOGGING_FILE_DESCRIPTOR" in
+#     3 ) exec 3>&1
+#         ;;
+#     4 ) exec 4>&1
+#         ;;
+#     5 ) exec 5>&1
+#         ;;
+#     6 ) exec 6>&1
+#         ;;
+#     7 ) exec 7>&1
+#         ;;
+#     8 ) exec 8>&1
+#         ;;
+#     9 ) exec 9>&1
+#         ;;
+# esac
