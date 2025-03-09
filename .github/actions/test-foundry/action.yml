@@ -24,11 +24,13 @@ runs:
         python3 -c "import platform; info = f'{platform.system()} {platform.release()} {platform.version()} {platform.machine()}'; print('-' * len(info)); print(info); print('-' * len(info))"
         bash --version
 
-    - name: Setup Bash
+    - name: Install later Bash
       uses: mfinelli/setup-bash@v1
       with:
         bashver: "5.2"
+    - shell: bash
       run: |
+        which bash
         bash --version
 
     - name: Install recent python
