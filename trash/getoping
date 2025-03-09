@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 if [[ -n "${GUARD_SOURCING_ARGPARSING:-}" ]]; then return; fi; GUARD_SOURCING_ARGPARSING=1
 
@@ -422,7 +422,7 @@ argparsing_parse_to_json_with_spec() {
 
 
 ##################################
-# #!/bin/bash
+# #!/usr/bin/env bash
 # set -e
 
 # # --- Configuration: known defaults spec ---

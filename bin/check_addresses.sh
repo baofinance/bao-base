@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Usage: ./compare-all-contracts.sh network1.json network2.json [network3.json ...]
 # Example: ./compare-all-contracts.sh mainnet.json goerli.json polygon.json

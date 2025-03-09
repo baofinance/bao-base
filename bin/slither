@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e -o pipefail
 
 THIS=$(basename "$0" | cut -d. -f1)

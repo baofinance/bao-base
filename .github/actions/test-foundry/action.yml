@@ -24,11 +24,10 @@ runs:
         python3 -c "import platform; info = f'{platform.system()} {platform.release()} {platform.version()} {platform.machine()}'; print('-' * len(info)); print(info); print('-' * len(info))"
         bash --version
 
-    - name: Install Bash 4
-      uses: shogo82148/actions-setup-bash@v1
+    - name: Setup Bash
+      uses: mfinelli/setup-bash@v1
       with:
-        bash-version: "4.x"
-    - shell: bash
+        bashver: "5.2"
       run: |
         bash --version
 

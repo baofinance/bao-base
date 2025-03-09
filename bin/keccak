@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 "$BAO_BASE_LIB_DIR"/run-python keccak "$@"

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 import() {
     local file="$1"

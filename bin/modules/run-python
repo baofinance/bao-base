@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # shellcheck disable=SC2154,SC1091 # we don't need to check if the variable is set

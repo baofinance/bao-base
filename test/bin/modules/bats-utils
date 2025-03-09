@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 ##!/usr/bin/env bats
 
 run_and_check() {

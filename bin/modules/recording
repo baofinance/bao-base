@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e -o pipefail
 
 if [[ -n "${GUARD_SOURCING_RECORDING:-}" ]]; then return; fi; GUARD_SOURCING_RECORDING=1

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 if [[ -n "${GUARD_SOURCING_ARGPARSING:-}" ]]; then return; fi; GUARD_SOURCING_ARGPARSING=1

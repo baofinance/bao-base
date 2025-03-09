@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # --ignore this line
 ## $PROG test data file
 ## Usage: [OPTION...] [ARGUMENT...]
