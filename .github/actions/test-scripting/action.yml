@@ -55,6 +55,12 @@ runs:
       run: |
         yarn
 
+    - name: Run Bash Script Linting
+      shell: bash
+      run: |
+        yarn lint:bash
+      id: bats
+
     - name: Run Bash Tests
       shell: bash
       run: |

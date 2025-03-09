@@ -16,4 +16,4 @@ truncate -s 0 "$REGRESSION_FILE" # empty the existing file
 
 # process it using the filter
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
-cat "$REGRESSION_LOG" | "$BAO_BASE_LIB_DIR/run-python extract-$REGRESSION_TYPE" > "$REGRESSION_FILE"
+cat "$REGRESSION_LOG" | "$BAO_BASE_LIB_DIR/run-python" "extract-$REGRESSION_TYPE" > "$REGRESSION_FILE"
