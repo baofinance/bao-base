@@ -27,8 +27,8 @@ quote_args() {
 roundtrip() {
     set -eo pipefail
     local spec="$1"
-    local known="$2"
-    local unknown="$3"
+    local known="${2:-}"
+    local unknown="${3:-}"
     # override the expected output?
     local expect_known=${4:-$(quote_args "$known")}
     local expect_unknown=${5:-$(quote_args "$unknown")}
@@ -116,9 +116,9 @@ roundtrip() {
     roundtrip '{"arguments": [{"names": ["file_contract"], "nargs":1}]}' \
         'a:b' ''
 
-    # two givem
+    # two given
     roundtrip '{"arguments": [{"names": ["file_contract"], "nargs":2}]}' \
-        'a:b c:d'
+        'a:b c:d' ''
 
 
 }

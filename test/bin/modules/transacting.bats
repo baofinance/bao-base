@@ -8,74 +8,94 @@
     source lib/bao-base/bin/modules/transacting
     logging_config debug
 
-    transacting_config
-    run transacting_default_options
-    echo "output='$output'"
-    [ "$status" -eq 0 ]
-    expect=""
-    echo "expect='$expect'"
-    [ "$output" == "$expect" ]
-    echo "----"
+    # (
+    #     # remove env and .env
+    #     unset PRIVATE_KEY
+    #     unset ETHERSCAN_API_KEY
+    #     cd test
+    #     transacting_config
+    #     run transacting_default_options
+    #     echo "output='$output'"
+    #     [ "$status" -eq 0 ]
+    #     expect=""
+    #     echo "expect='$expect'"
+    #     [ "$output" == "$expect" ]
+    #     echo "----"
+    # )
 
-    transacting_config --private-key eek
-    run transacting_default_options
-    echo "output='$output'"
-    [ "$status" -eq 0 ]
-    expect=" --private-key 'eek'"
-    echo "expect='$expect'"
-    [ "$output" == "$expect" ]
-    echo "----"
+    # removed the function to get the default options
+    # transacting_config --rpc-url mainnet --private-key eek --etherscan-api-key es
+    # run transacting_default_options
+    # echo "output='$output'"
+    # [ "$status" -eq 0 ]
+    # expect=" --rpc-url 'mainnet' --private-key 'eek' --etherscan-api-key 'es' --verify"
+    # echo "expect='$expect'"
+    # [ "$output" == "$expect" ]
+    # echo "----"
 
-    # test defaulting from env
-    export ETHERSCAN_API_KEY="etherscankey"
-    transacting_config
-    run transacting_default_options
-    echo "output='$output'"
-    [ "$status" -eq 0 ]
-    expect=" --etherscan-api-key 'etherscankey'"
-    echo "expect='$expect'"
-    [ "$output" == "$expect" ]
-    unset ETHERSCAN_API_KEY
-    echo "----"
+    # # test defaulting from env
+    # export ETHERSCAN_API_KEY="etherscankey"
+    # transacting_config
+    # run transacting_default_options
+    # echo "output='$output'"
+    # [ "$status" -eq 0 ]
+    # expect=" --etherscan-api-key 'etherscankey'"
+    # echo "expect='$expect'"
+    # [ "$output" == "$expect" ]
+    # unset ETHERSCAN_API_KEY
+    # echo "----"
+    # unset LOGGING_SENSITIVE_TEXT
 
-    # missing value
-    transacting_config --rpc-url
-    status=$?
-    [ "$status" -eq 0 ] # TODO: this should generate an error
-    run transacting_default_options
-    echo "output='$output'"
-    [ "$status" -eq 0 ]
-    expect=""
-    echo "expect='$expect'"
-    [ "$output" == "$expect" ]
-    echo "----"
+    # # test defaulting from env
+    # export ETHERSCAN_API_KEY="etherscankey"
+    # transacting_config
+    # run transacting_default_options
+    # echo "output='$output'"
+    # [ "$status" -eq 0 ]
+    # expect=" --etherscan-api-key 'etherscankey'"
+    # echo "expect='$expect'"
+    # [ "$output" == "$expect" ]
+    # unset ETHERSCAN_API_KEY
+    # echo "----"
 
-    transacting_config --rpc-url xyz
-    run transacting_default_options
-    echo "output='$output'"
-    [ "$status" -eq 0 ]
-    expect=" --rpc-url 'xyz'"
-    echo "expect='$expect'"
-    [ "$output" == "$expect" ]
-    echo "----"
+    # # missing value
+    # transacting_config --rpc-url
+    # status=$?
+    # [ "$status" -eq 0 ] # TODO: this should generate an error
+    # run transacting_default_options
+    # echo "output='$output'"
+    # [ "$status" -eq 0 ]
+    # expect=""
+    # echo "expect='$expect'"
+    # [ "$output" == "$expect" ]
+    # echo "----"
 
-    transacting_config --etherscan-api-key xyz
-    run transacting_default_options
-    echo "output='$output'"
-    [ "$status" -eq 0 ]
-    expect=" --etherscan-api-key 'xyz'"
-    echo "expect='$expect'"
-    [ "$output" == "$expect" ]
-    echo "----"
+    # transacting_config --rpc-url xyz
+    # run transacting_default_options
+    # echo "output='$output'"
+    # [ "$status" -eq 0 ]
+    # expect=" --rpc-url 'xyz'"
+    # echo "expect='$expect'"
+    # [ "$output" == "$expect" ]
+    # echo "----"
 
-    transacting_config --log
-    run transacting_default_options
-    echo "output='$output'"
-    [ "$status" -eq 0 ]
-    expect=""
-    echo "expect='$expect'"
-    [ "$output" == "$expect" ]
-    echo "----"
+    # transacting_config --etherscan-api-key xyz
+    # run transacting_default_options
+    # echo "output='$output'"
+    # [ "$status" -eq 0 ]
+    # expect=" --etherscan-api-key 'xyz'"
+    # echo "expect='$expect'"
+    # [ "$output" == "$expect" ]
+    # echo "----"
+
+    # transacting_config --log
+    # run transacting_default_options
+    # echo "output='$output'"
+    # [ "$status" -eq 0 ]
+    # expect=""
+    # echo "expect='$expect'"
+    # [ "$output" == "$expect" ]
+    # echo "----"
 }
 
 

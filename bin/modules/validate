@@ -1,0 +1,41 @@
+#!/bin/bash
+set -euo pipefail
+
+npx @openzeppelin/upgrades-core validate
+
+    # # Construct the output path.
+    # local json_file="out/$(basename "$source_file")/${contract_type}.json"
+    # [[ -f "$json_file" ]] || logging fatal "No json file '$json_file' found for $file_contract"
+
+    # # clean up and build the contract OR check that the src keccak matches that in the out file
+    # # forge clean
+    # # forge build
+
+    # # check for storage layout, even if it's empty
+    # logging trace "Checking being build with extra_output=["storageLayout"] for $file_contract..."
+    # local storage_layout
+    # storage_layout=$(jq -r '.storageLayout' "$json_file")
+    # if [[ "$storage_layout" == "null" ]]; then logging fatal "contract $file_contract has been buillt without extra_output=["storageLayout",...] in foundry.toml"; fi
+
+
+    # logging trace "Checking sources (main and imported) for $file_contract..."
+    # # check the sources are correct for this build
+    # local files
+    # files=$(jq -r '.metadata.sources | keys[]' "$json_file")
+    # echo "$files" | while read -r file; do
+    #     logging debug "Checking source $file..."
+    #     if [ ! -f "$file" ]; then
+    #         logging fatal "File '$file' not found in $json_file."
+    #     fi
+
+    #     logging debug "jq -r --arg file $file '.metadata.sources[\"$file\"].keccak256' $json_file"
+    #     local build_log_kk
+    #     build_log_kk=$(jq -r --arg file "$file" '.metadata.sources[$file].keccak256' "$json_file")
+
+    #     local computed_kk
+    #     computed_kk=$("$cast_exe" keccak < "$file")
+
+    #     if [[ "$computed_kk" != "$build_log_kk" || "$build_log_kk" != "" ]]; then
+    #         logging fatal "keccak256 mismatch for $file referenced in $json_file: $build_log_kk, computed=$computed_kk."
+    #     fi
+    # done

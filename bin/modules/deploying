@@ -15,7 +15,8 @@ logging_config "$(argparsing_argparse_value "v" '{"arguments": [{"names": ["-v"]
 
 # parse the arguments for setting up the transaction defaults
 # shellcheck disable=SC1091 # no dir check
-source "$(dirname "${BASH_SOURCE[0]}")/transacting" "$@"
+source "$(dirname "${BASH_SOURCE[0]}")/transacting"
+transacting_config "$@"
 
 # set up recording of essential information for running tests against the deployed contracts
 # shellcheck disable=SC1091 # no dir check

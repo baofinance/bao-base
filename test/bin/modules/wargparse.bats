@@ -336,6 +336,27 @@ setup() {
     echo "expect='$expect'"
     [ "$output" == "$expect" ]
 
+    run ./bin/modules/wargparse.py '{"arguments":[{"names":["--private-key"]}]}' --private-key eek
+    echo "status=$status"
+    echo "output='$output'"
+    expect='{"known": {"private_key": {"value": "eek", "origin": "--private-key"}}, "unknown": []}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
+
+    _transacting_arg_spec='{"arguments":[
+    {"names":["--rpc-url"], "default": "local"},
+    {"names":["--private-key"]},
+    {"names":["--etherscan-api-key"]},
+    {"names": ["--verify", "--no-verify"], "action": "store_boolean"}
+    ]}'
+    run ./bin/modules/wargparse.py "$_transacting_arg_spec" --private-key eek
+    echo "status=$status"
+    echo "output='$output'"
+    expect='{"known": {"rpc_url": {"value": "local", "origin": null, "default_origin": "--rpc-url"}, "private_key": {"value": "eek", "origin": "--private-key"}, "etherscan_api_key": {"value": null, "origin": null, "default_origin": "--etherscan-api-key"}, "verify": {"value": null, "origin": null, "default_origin": "--verify"}}, "unknown": []}'
+    echo "expect='$expect'"
+    [ "$output" == "$expect" ]
+
     # # one long option with, multiple values
     # run ./bin/modules/wargparse.py -l option: -- --option=value1 value2 $extra_options
 

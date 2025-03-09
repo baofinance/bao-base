@@ -1,5 +1,6 @@
 {
   "name": "bao-base",
+  "description": "A base package for Bao Finance projects. You can copy-paste many of the script lines below into your package.json",
   "license": "MIT",
   "scripts": {
     "clean": "./lib/bao-base/run clean",
@@ -8,6 +9,7 @@
     "prettier": "prettier --log-level warn --ignore-path .gitignore '{src,test,interfaces,script}/**/*.sol'",
     "fmt": "yarn prettier --write",
     "fmt:check": "yarn prettier --check",
+    "validate": "./lib/bao-base/run validate",
     "lint": "solhint --max-warnings 0 '{src,interfaces}/**/*.sol' --disc",
     "lint:bash": "shellcheck --external-sources --shell=bash --enable=all --exclude=SC2310,SC2312 --severity=info $(grep -RIl '^#!.*bash' bin test)",
     "slither": "./lib/bao-base/run slither .",

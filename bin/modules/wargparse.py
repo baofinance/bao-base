@@ -8,7 +8,7 @@ import os
 # Set up a logging handler that writes to the debug stream.
 import logging
 logging.basicConfig(
-                    level=50-int(os.environ.get('LOGGING_LEVEL'))*10 or None,
+                    # level=50-int(os.environ.get('LOGGING_LEVEL'))*10 or None,
                     format='%(asctime)s - %(levelname)s - %(message)s',
                     handlers=[logging.StreamHandler(os.fdopen(int(os.environ.get('LOGGING_FILE_DESCRIPTOR')) or 1, 'w'))])
 
@@ -18,7 +18,7 @@ class StoreWithOriginAction(argparse._StoreAction):
                  dest,
                  default=None,
                  **kwargs):
-        # logging.debug(f"StoreWithOrigin.__init__({option_strings}, {dest}, {default}")
+        logging.debug(f"StoreWithOrigin.__init__({option_strings}, {dest}, {default}")
         default_origin = kwargs.pop('names')[0]
         super(argparse._StoreAction, self).__init__(
             option_strings=option_strings,
@@ -43,7 +43,7 @@ class StoreConstWithOriginAction(argparse._StoreConstAction):
                  help=None,
                  metavar=None,
                  **kwargs):
-        # logging.debug(f"StoreConstWithOrigin.__init__({option_strings}, {dest}, {const}, {default}")
+        logging.debug(f"StoreConstWithOrigin.__init__({option_strings}, {dest}, {const}, {default}")
         super(argparse._StoreConstAction, self).__init__(
             option_strings=option_strings,
             dest=dest,
@@ -54,7 +54,7 @@ class StoreConstWithOriginAction(argparse._StoreConstAction):
             help=help)
 
     def __call__(self, parser, namespace, values, option_string=None):
-        # logging.debug(f"StoreConstWithOriginAction.__call__(...{values}, {option_string})")
+        logging.debug(f"StoreConstWithOriginAction.__call__(...{values}, {option_string})")
         setattr(namespace, self.dest, {'value': self.const, 'origin': option_string})
 
 
@@ -107,7 +107,6 @@ class BooleanOptionalWithOriginAction(argparse.BooleanOptionalAction):
                  metavar=None,
                  **kwargs):
         logging.debug(f"BooleanOptionalWithOriginAction.__init__()...")
-        logging.debug(f"default={default}")
         super(argparse.BooleanOptionalAction, self).__init__(
             option_strings=option_strings,
             dest=dest,
@@ -139,6 +138,7 @@ class CountWithOriginAction(argparse._CountAction):
                  required=False,
                  help=None,
                  **kwargs):
+        logging.debug(f"CountWithOriginAction.__init__()...")
         super(argparse._CountAction, self).__init__(
             option_strings=option_strings,
             dest=dest,
@@ -198,7 +198,7 @@ class RichArgumentParser:
             args: List of command line arguments to parse
             return_dict: If True, returns Python dict instead of formatted string
         """
-        # logging.debug(f"parse_args({args})...")
+        logging.debug(f"parse_args({args})...")
         try:
             parsed, unknown = self.parser.parse_known_args(args)
         except Exception as e:

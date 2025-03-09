@@ -8,8 +8,6 @@ if [[ -n "${GUARD_SOURCING_TRANSACTING:-}" ]]; then return; fi; GUARD_SOURCING_T
 source "$(dirname "${BASH_SOURCE[0]}")/logging"
 # shellcheck disable=SC1091
 source "$(dirname "${BASH_SOURCE[0]}")/argparsing"
-# shellcheck disable=SC1091
-source "$(dirname "${BASH_SOURCE[0]}")/validating"
 
 _transacting_deploy_contract() {
     logging trace "${FUNCNAME[0]}($*)..."
@@ -33,10 +31,6 @@ _transacting_deploy_contract() {
     local file_contract
     file_contract=$(argparsing_value "file_contract" "$args_json")
 
-    # check the files in the out directory are correct
-    # we could just build but that assumes we know exactly how it was built, which we dont'
-    if [ ! validating_foundry_build "$file_contract" ]; then logging fatal "invalid build files while deploying
-
     logging debug "Deploying $file_contract."
     local contract_type="${file_contract#*:}"
     logging debug "contract_type=$contract_type."
@@ -47,7 +41,7 @@ _transacting_deploy_contract() {
 
     logging info "Deploying the $contract_tag contract..."
 
-    # TODO: allow the defaults to be owverridden
+    # TODO: allow the defaults to be owverridden for e.g. multi-chain
     local create_args="$file_contract"
     create_args+=" --rpc-url $RPC_URL"
     create_args+=" --private-key $default_private_key"
@@ -247,26 +241,6 @@ logging info "using forge at $forge_exe."
 cast_exe=$(command -v cast)
 logging info "using cast at $cast_exe."
 
-args_json=$(argparsing_argparse "$_transacting_arg_spec" "$@")
-
-# read environment variables or .env file, in that order of precedence
-args_json=$(_transacting_default_from_env "--private-key" "PRIVATE_KEY" "$args_json")
-args_json=$(_transacting_default_from_env "--etherscan-api-key" "ETHERSCAN_API_KEY" "$args_json")
-_transacting_hide_sensitive_data_in_logs "$args_json"
-
-# set the global variables to be used in subsequent functions
-export RPC_URL=$(argparsing_value "rpc_url" "$args_json")
-##############
-export LOCAL=""
-###### -----
-if [[ "$RPC_URL" == "local" || "$RPC_URL" == *"localhost"* ]]; then
-    LOCAL="local"
-    ###### -----
-fi
-# Get the chain id from cast and convert it to decimal
-chainid_hex=$(cast chain-id --rpc-url $RPC_URL)
-export CHAIN_ID=$((16#${chainid_hex#0x}))
-###### --------
 # common chain names
 declare -A networks=(
     [1]="mainnet"
@@ -297,32 +271,68 @@ declare -A networks=(
     [11155420]="optimism-sepolia"
     [100]="xdai"
 )
-export CHAIN_NAME=${networks[$CHAIN_ID]:-$CHAIN_ID}
-###### ----------
-default_private_key=$(argparsing_value "private_key" "$args_json")
-export ETHERSCAN_API_KEY=$(argparsing_value "etherscan_api_key" "$args_json")
-###### -----------------
-# get the default verify - if not specified, then use the default for the rpc_url
-default_verify=$(argparsing_value "verify" "$args_json")
-if [[ "$default_verify" == "" ]]; then
-    # nothing specified, default depending on the network
-    if [[ "$LOCAL" == "local" ]]; then
-        default_verify="false"
-    else
-        default_verify="true"
+
+transacting_config() {
+    logging trace "${FUNCNAME[0]}($*)..."
+    local args_json
+    args_json=$(argparsing_argparse "$_transacting_arg_spec" $@)
+
+    # read environment variables or .env file, in that order of precedence
+    args_json=$(_transacting_default_from_env "private_key" "PRIVATE_KEY" "$args_json")
+    args_json=$(_transacting_default_from_env "etherscan_api_key" "ETHERSCAN_API_KEY" "$args_json")
+    _transacting_hide_sensitive_data_in_logs "$args_json"
+
+    # set the global variables to be used in subsequent functions
+    export RPC_URL=$(argparsing_value "rpc_url" "$args_json")
+    ##############
+    export LOCAL=""
+    ###### -----
+    if [[ "$RPC_URL" == "local" || "$RPC_URL" == *"localhost"* ]]; then
+        LOCAL="local"
+        ###### -----
     fi
-fi
+    # Get the chain id from cast and convert it to decimal
+    chainid_hex=$(cast chain-id --rpc-url $RPC_URL)
+    export CHAIN_ID=$((16#${chainid_hex#0x}))
+    ###### --------
+    export CHAIN_NAME=${networks[$CHAIN_ID]:-$CHAIN_ID}
+    ###### ----------
+    default_private_key=$(argparsing_value "private_key" "$args_json")
+    export ETHERSCAN_API_KEY=$(argparsing_value "etherscan_api_key" "$args_json")
+    ###### -----------------
+    # get the default verify - if not specified, then use the default for the rpc_url
+    default_verify=$(argparsing_value "verify" "$args_json")
+    if [[ "$default_verify" == "" ]]; then
+        # nothing specified, default depending on the network
+        if [[ "$LOCAL" == "local" ]]; then
+            default_verify="false"
+        else
+            default_verify="true"
+        fi
+    fi
+    ###### -----------------
 
-# # Fetch the chain list JSON from chainid.network and filter for your chain id
-# chain_info=$(curl -s https://chainid.network/chains.json | jq --argjson id "$CHAIN_ID" '.[] | select(.chainId == $id)')
+    # # Fetch the chain list JSON from chainid.network and filter for your chain id
+    # chain_info=$(curl -s https://chainid.network/chains.json | jq --argjson id "$CHAIN_ID" '.[] | select(.chainId == $id)')
 
-# if [ -n "$chain_info" ]; then
-#     echo "Chain info for Chain ID $CHAIN_ID:"
-#     echo "$chain_info" | jq .
-# else
-#     echo "No matching chain info found for Chain ID $CHAIN_ID"
-# fi
+    # if [ -n "$chain_info" ]; then
+    #     echo "Chain info for Chain ID $CHAIN_ID:"
+    #     echo "$chain_info" | jq .
+    # else
+    #     echo "No matching chain info found for Chain ID $CHAIN_ID"
+    # fi
 
-# tell the user what the defaults are
-logging info "transacting on${LOCAL:+ $LOCAL} chain $CHAIN_ID${CHAIN_NAME:+ ($CHAIN_NAME)}"
-logging info "transaction defaults:$(argparsing_args $args_json)"
+    # tell the user what the defaults are
+    logging info "transacting on${LOCAL:+ $LOCAL} chain $CHAIN_ID${CHAIN_NAME:+ ($CHAIN_NAME)}"
+    logging info "transaction defaults:$(argparsing_args $args_json)"
+}
+
+# transacting_default_options() {
+#     local args=""
+#     args+=" --rpc-url '$RPC_URL'"
+#     args+=" --private-key '$default_private_key'"
+#     args+=" --etherscan-api-key '$ETHERSCAN_API_KEY'"
+#     # [[ "$default_broadcast" != "false" ]] && args+=" --broadcast"
+#     [[ "$default_verify" != "false" ]] && args+=" --verify"
+#     echo "$args"
+# }

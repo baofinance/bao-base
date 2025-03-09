@@ -10,12 +10,13 @@ export LOGGING_LEVEL=${LOGGING_LEVEL:-2}
 logging_config() {
     if [[ -n "$1" ]]; then
         LOGGING_LEVEL=$(_logging_to_value "$1")
-        logging info "logging level is now $LOGGING_LEVEL"
+        logging info "logging level is now $(_logging_to_name $LOGGING_LEVEL) ($LOGGING_LEVEL)"
     fi
 }
 
-# set the default output FD, this is changed to 8 below so logging doesn't clog things up
+# set the default output FD, this is changed to the first free below so logging doesn't clog things up
 export LOGGING_FILE_DESCRIPTOR=2
+export LOGGING_SENSITIVE_TEXT=${LOGGING_SENSITIVE_TEXT:-"hide"}
 
 # hidden text in log messages
 declare -A _logging_hidden_text
@@ -36,7 +37,7 @@ logging() {
     for key in "${!_logging_hidden_text[@]}"; do
         local value="${_logging_hidden_text[$key]}"
         # Replace all occurrences of key with value in the log message
-        message="${message//$key/$value}"
+        [[ "$LOGGING_SENSITIVE_TEXT" == "show" ]] && message="${message//$key/$value}"
     done
     # TODO: automatic indentation via $#BASH_SOURCE
     if [[ "$level" -le "$LOGGING_LEVEL" ]]; then
@@ -104,64 +105,40 @@ _logging_to_name() {
 }
 
 
-# _logging_to_value() {
-#     local new_level=$(echo "$1" | tr '[:upper:]' '[:lower:]')
-#     local level=2
-#     case $new_level in
-#         "")
-#                 ;;
-#         debug | 4) level=4
-#                 ;;
-#         trace | 3) level=3
-#                 ;;
-#         info  | 2) level=2
-#                 ;;
-#         warn  | 1) level=1
-#                 ;;
-#         error | 0) level=0
-#                 ;;
-#         fail | fatal | -1) level=-1
-#                 ;;
-#         *)  logging fail "unrecognised logging level: $1"
-
-#     esac
-#     echo $level
-# }
-
 # use file descriptor 8 (3-9 are available) for logging output, fail if it is already in use
 # TODO: make this number configurable (somehow?), or search for the first free one
 # as it is just sent to stdout, without buffering
 # as we're only opening it once, there is no need to close it
 # shellcheck disable=SC2312 # no need to check individual commands as we have set -o pipefail
 
-# first_free_fd() {
-#     local current_fds=$(lsof -p $$ | awk '$4 ~ /^([0-9]+)[urw]*$/ {print +$4}' | sort -n)
-#     prev=2
-#     for fd in $(echo "$current_fds"); do
-#         if [ $((fd)) -gt $((prev + 1)) ]; then
-#             echo $((prev + 1))
-#             return
-#         fi
-#         prev=$fd
-#     done
-#     echo $((prev + 1))
-# }
+first_free_fd() {
+    local current_fds=$(lsof -p $$ | awk '$4 ~ /^([0-9]+)[urw]*$/ {print +$4}' | sort -n)
+    prev=2
+    for fd in $(echo "$current_fds"); do
+        if [ $((fd)) -gt $((prev + 1)) ]; then
+            echo $((prev + 1))
+            return
+        fi
+        prev=$fd
+    done
+    echo $((prev + 1))
+}
 
-# LOGGING_FILE_DESCRIPTOR=$(first_free_fd)
-# # exec 8> >(stdbuf -o0 cat)
-# case "$LOGGING_FILE_DESCRIPTOR" in
-#     3 ) exec 3>&1
-#         ;;
-#     4 ) exec 4>&1
-#         ;;
-#     5 ) exec 5>&1
-#         ;;
-#     6 ) exec 6>&1
-#         ;;
-#     7 ) exec 7>&1
-#         ;;
-#     8 ) exec 8>&1
-#         ;;
-#     9 ) exec 9>&1
-#         ;;
-# esac
+LOGGING_FILE_DESCRIPTOR=$(first_free_fd)
+# exec 8> >(stdbuf -o0 cat)
+case "$LOGGING_FILE_DESCRIPTOR" in
+    3 ) exec 3>&1
+        ;;
+    4 ) exec 4>&1
+        ;;
+    5 ) exec 5>&1
+        ;;
+    6 ) exec 6>&1
+        ;;
+    7 ) exec 7>&1
+        ;;
+    8 ) exec 8>&1
+        ;;
+    9 ) exec 9>&1
+        ;;
+esac
