@@ -22,6 +22,15 @@ runs:
       run: |
         echo "runner.os=${{ runner.os }}"
         python3 -c "import platform; info = f'{platform.system()} {platform.release()} {platform.version()} {platform.machine()}'; print('-' * len(info)); print(info); print('-' * len(info))"
+        bash --version
+
+    - name: Install Bash 4
+      uses: shogo82148/actions-setup-bash@v1
+      with:
+        bash-version: "4.x"
+    - shell: bash
+      run: |
+        bash --version
 
     - name: Install recent python
       uses: actions/setup-python@v4
