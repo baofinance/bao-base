@@ -23,6 +23,23 @@ runs:
         echo "runner.os=${{ runner.os }}"
         python3 -c "import platform; info = f'{platform.system()} {platform.release()} {platform.version()} {platform.machine()}'; print('-' * len(info)); print(info); print('-' * len(info))"
 
+    - name: Install Bash 5.2
+      shell: bash
+      run: |
+        if [[ "${{ runner.os }}" == "Linux" ]]; then
+          sudo apt-get update
+          sudo apt-get install -y bash
+          echo "Bash updated to version:"
+          bash --version
+        elif [[ "${{ runner.os }}" == "macOS" ]]; then
+          brew install bash
+          echo "Bash updated to version:"
+          bash --version
+        else
+          echo "Windows not supported for Bash upgrade, using default Bash"
+          bash --version
+        fi
+
     - name: Install recent python
       uses: actions/setup-python@v4
       with:
@@ -40,6 +57,21 @@ runs:
       run: |
         which poetry
         poetry --version
+
+    - name: Install ShellCheck
+      shell: bash
+      run: |
+        if [[ "${{ runner.os }}" == "Linux" ]]; then
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+        elif [[ "${{ runner.os }}" == "macOS" ]]; then
+          brew install shellcheck
+        else
+          echo "Windows not fully supported for ShellCheck - skipping"
+        fi
+        if command -v shellcheck &>/dev/null; then
+          shellcheck --version
+        fi
 
     # we install foundry because some scripts check for it's existence
     - name: Install Foundry
@@ -59,13 +91,25 @@ runs:
       shell: bash
       run: |
         yarn lint:bash
-      id: bats
+      id: lint
 
     - name: Run Bash Tests
       shell: bash
       run: |
         yarn test:bash
       id: bats
+
+    # no python tests yet
+    # - name: Run Python unit tests
+    #   shell: bash
+    #   run: |
+    #     if [ -f "pyproject.toml" ]; then
+    #       poetry install
+    #       poetry run pytest
+    #     else
+    #       python -m pytest
+    #     fi
+    #   id: pytest
 
     - name: Check for changed repo files
       shell: bash
