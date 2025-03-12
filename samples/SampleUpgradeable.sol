@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { UUPSUpgradeable } from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import { ERC165Upgradeable } from "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {ERC165Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
 
-import { Ownable } from "@solady/auth/Ownable.sol";
+import {Ownable} from "@solady/auth/Ownable.sol";
 
 contract SampleUpgradeable is Initializable, Ownable, UUPSUpgradeable {
-
     //------------------------------------------------------------------------------------
     // Storage
     //------------------------------------------------------------------------------------
@@ -20,7 +19,7 @@ contract SampleUpgradeable is Initializable, Ownable, UUPSUpgradeable {
     /// @custom:storage-location erc7201:_SAMPLE_UPGRADEABLE
     struct SampleUpgradeableStorage {
         // put your state storage here, just like you would in a normal contract, e.g.
-        // uint256 myValue;
+        uint256 myValue;
     }
 
     // use this to access the state storage
@@ -57,5 +56,4 @@ contract SampleUpgradeable is Initializable, Ownable, UUPSUpgradeable {
     /// In UUPS proxies the implementation is responsible for upgrading itself
     /// only owners can upgrade this contract.
     function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
-
 }
