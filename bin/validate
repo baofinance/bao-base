@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+forge clean
+forge build
 npx @openzeppelin/upgrades-core validate
 
     # # Construct the output path.
