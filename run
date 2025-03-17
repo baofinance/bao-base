@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
-set -e
-set -o pipefail
+set -euo pipefail
 
 # set up where everything is, including backing out symlinks
-# export BAO_BASE="$(dirname "$0")"
 export ABS_BAO_BASE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 export BAO_BASE="$(python3 -c "import os.path; print(os.path.relpath('$ABS_BAO_BASE', '$(pwd)'))")"
 export BAO_BASE_DIR="$(cd ${BAO_BASE} && pwd)"
 export BAO_BASE_BIN_DIR="$BAO_BASE_DIR/bin"
 export BAO_BASE_LIB_DIR="$BAO_BASE_BIN_DIR/modules"
+export BAO_BASE_SCRIPT_DIR="$BAO_BASE_DIR/script"
 
 # then call the script
 # we don't support calling python/node/etc. scripts here because we don't know
