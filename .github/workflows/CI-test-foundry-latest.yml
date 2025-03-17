@@ -1,4 +1,4 @@
-name: test-foundry
+name: test-foundry-latest
 
 on:
   push:

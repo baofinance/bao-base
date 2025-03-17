@@ -13,18 +13,12 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
-            foundry: nightly
           - os: ubuntu-22.04
             foundry: v0.3.0
 
-          - os: macos-latest
-            foundry: nightly
           - os: macos-14
             foundry: v0.3.0
 
-          - os: windows-latest
-            foundry: nightly
           - os: windows-2022
             foundry: v0.3.0
       fail-fast: false # ensure all jobs run even if one fails
