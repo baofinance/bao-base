@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+// THIS FILE IS DEPRECATED
+
 // solhint-disable const-name-snakecase
 
 library Deployed {

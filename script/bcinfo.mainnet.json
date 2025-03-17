@@ -1,7 +1,11 @@
 {
+  "baomultisig": {
+    "address": "0xFC69e0a5823E2AfCBEb8a35d33588360F1496a00",
+    "description": "Bao Multi-sig"
+  },
   "safe_gov": {
     "address": "0x3dFc49e5112005179Da613BdE5973229082dAc35",
-    "description": "Bao Multi-sig"
+    "description": "Bao Multi-sig?"
   },
   "safe_chair": {
     "address": "0x2F1567c4A651ED93dB0FC6D9Df1EA9196054f63e",
