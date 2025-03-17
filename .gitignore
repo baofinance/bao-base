@@ -3,6 +3,9 @@
 # put your personal stuff in your personal vscode settings file
 .vscode/settings.json
 
+# wake
+.wake/
+
 # libraries
 node_modules
 venv

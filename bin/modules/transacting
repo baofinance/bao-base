@@ -283,7 +283,8 @@ transacting_config() {
     _transacting_hide_sensitive_data_in_logs "$args_json"
 
     # set the global variables to be used in subsequent functions
-    export RPC_URL=$(argparsing_value "rpc_url" "$args_json")
+    export RPC_URL
+    RPC_URL=$(argparsing_value "rpc_url" "$args_json")
     ##############
     export LOCAL=""
     ###### -----
@@ -298,7 +299,8 @@ transacting_config() {
     export CHAIN_NAME=${networks[$CHAIN_ID]:-$CHAIN_ID}
     ###### ----------
     default_private_key=$(argparsing_value "private_key" "$args_json")
-    export ETHERSCAN_API_KEY=$(argparsing_value "etherscan_api_key" "$args_json")
+    ETHERSCAN_API_KEY=$(argparsing_value "etherscan_api_key" "$args_json")
+    export ETHERSCAN_API_KEY
     ###### -----------------
     # get the default verify - if not specified, then use the default for the rpc_url
     default_verify=$(argparsing_value "verify" "$args_json")
@@ -324,7 +326,7 @@ transacting_config() {
 
     # tell the user what the defaults are
     logging info "transacting on${LOCAL:+ $LOCAL} chain $CHAIN_ID${CHAIN_NAME:+ ($CHAIN_NAME)}"
-    logging info "transaction defaults:$(argparsing_args $args_json)"
+    logging info "transaction defaults:$(argparsing_args "$args_json")"
 }
 
 # transacting_default_options() {

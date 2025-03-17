@@ -3,7 +3,7 @@ set -euo pipefail
 # trap 'echo "Error: $0:$LINENO: exit code: $?"; exit 1' ERR
 trap 'logging fatal $0:$LINENO: exit code: $?' ERR
 
-[[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]} $@..."
+[[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]} $*..."
 
 # parse the arguments for setting up the logging
 # shellcheck disable=SC1091 # no dir check
