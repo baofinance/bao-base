@@ -1,7 +1,7 @@
 {
   "action": "workflow_dispatch",
   "inputs": {
-    "os": "ubuntu-24.04",
+    "os": "ubuntu-latest",
     "foundry": "v0.3.0"
   }
 }
