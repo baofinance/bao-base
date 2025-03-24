@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e -o pipefail
+set -euo pipefail
 
 THIS=$(basename "$0" | cut -d. -f1)
 # shellcheck disable=SC2154 # we don't need to check if the variable is set

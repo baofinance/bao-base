@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e -o pipefail
+set -euo pipefail
 
 mkdir -p ./regression
 REGRESSION_TYPE="$1"

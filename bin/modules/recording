@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e -o pipefail
+set -euo pipefail
 
 if [[ -n "${GUARD_SOURCING_RECORDING:-}" ]]; then return; fi; GUARD_SOURCING_RECORDING=1
 [[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]}..."

@@ -9,17 +9,183 @@ export BAO_BASE_BIN_DIR="$BAO_BASE_DIR/bin"
 export BAO_BASE_LIB_DIR="$BAO_BASE_BIN_DIR/modules"
 export BAO_BASE_SCRIPT_DIR="$BAO_BASE_DIR/script"
 
-# then call the script
-# we don't support calling python/node/etc. scripts here because we don't know
-# what version of python/node/etc. the script requires. That is the job of the
-# script we are about to call, passing all the given parameters
+# Debug function - automatically detects script name and prints messages only if the script is in the DEBUG list
+debug() {
+    # Automatically determine script name from the calling script
+    local script_path="${BASH_SOURCE[1]:-${BASH_SOURCE[0]}}"
+    local script_name=$(basename "$script_path" | sed 's/\..*$//')
+
+    # For run-* scripts, extract the name after "run-"
+    if [[ "$script_name" == run-* ]]; then
+        script_name="${script_name#run-}"
+    fi
+
+    # Check if DEBUG is set and if script_name is in the comma-separated list
+    if [[ -n "${DEBUG:-}" ]]; then
+        # Convert DEBUG to array for easier matching
+        IFS=',' read -ra DEBUG_SCRIPTS <<< "$DEBUG"
+
+        for debug_script in "${DEBUG_SCRIPTS[@]}"; do
+            if [[ "$debug_script" == "$script_name" ]]; then
+                echo "DEBUG[$script_name]: $*"
+                return 0
+            fi
+        done
+    fi
+
+    # Not debugging this script
+    return 0
+}
+
+# Export the debug function so it's available to child scripts
+export -f debug
+
+debug "Starting run script"
+debug "BAO_BASE_DIR=$BAO_BASE_DIR"
+debug "BAO_BASE_BIN_DIR=$BAO_BASE_BIN_DIR"
+debug "BAO_BASE_LIB_DIR=$BAO_BASE_LIB_DIR"
+
+# Detect if running in quiet mode
+QUIET_MODE=0
 if [[ "$1" == "-q" ]]; then
+    QUIET_MODE=1
     shift
-    SCRIPT="$BAO_BASE_BIN_DIR/$1"
-    shift
-else
-    SCRIPT="$BAO_BASE_BIN_DIR/$1"
-    shift
-    echo "Running $SCRIPT $@"
+    debug "Quiet mode enabled"
 fi
-"$SCRIPT" "$@"
+
+SCRIPT_NAME="$1"
+shift
+SCRIPT_PATH="$BAO_BASE_BIN_DIR/$SCRIPT_NAME"
+
+debug "SCRIPT_NAME=$SCRIPT_NAME"
+debug "SCRIPT_PATH=$SCRIPT_PATH"
+debug "Remaining args: $*"
+
+# Auto-detect script type
+detect_script_type() {
+    local script="$1"
+    local script_name="$2"
+
+    debug "Detecting script type for $script_name"
+
+    # First check if we have a wrapper script that provides execution instructions
+    if [[ -x "$script" ]]; then
+        # Check shebang to determine type
+        local shebang=$(head -n 1 "$script")
+        debug "Found executable script with shebang: $shebang"
+
+        if [[ "$shebang" == *"python"* ]]; then
+            debug "Detected as Python script (executable)"
+            echo "python"
+        elif [[ "$shebang" == *"node"* ]]; then
+            debug "Detected as Node.js script (executable)"
+            echo "node"
+        else
+            debug "Detected as Bash script (executable)"
+            echo "bash"
+        fi
+        return
+    fi
+
+    # Check for module files directly
+    if [[ -f "$BAO_BASE_LIB_DIR/$script_name.py" ]]; then
+        debug "Found Python module file"
+        echo "python"
+    elif [[ -f "$BAO_BASE_LIB_DIR/$script_name.js" ]]; then
+        debug "Found Node.js module file"
+        echo "node"
+    elif [[ -f "$BAO_BASE_LIB_DIR/$script_name.sh" ]]; then
+        debug "Found Bash module file"
+        echo "bash"
+    elif [[ -d "$BAO_BASE_LIB_DIR/$script_name" ]]; then
+        debug "Found directory: $BAO_BASE_LIB_DIR/$script_name"
+        # Directory-based script (like slither)
+        # Check if it has a pyproject.toml to determine if it's Python
+        if [[ -f "$BAO_BASE_LIB_DIR/$script_name/pyproject.toml" ]]; then
+            debug "Directory contains pyproject.toml"
+            echo "python-dir"
+        elif [[ -f "$BAO_BASE_LIB_DIR/$script_name/package.json" ]]; then
+            debug "Directory contains package.json"
+            echo "node-dir"
+        else
+            debug "Directory has unknown structure"
+            echo "unknown-dir"
+        fi
+    else
+        debug "No module file found, checking if it's a system command"
+        # Check if it's a known command that uses the global module directory
+        if command -v "$script_name" &> /dev/null; then
+            debug "Command '$script_name' exists in system path"
+            # Check if we have a poetry config for this command
+            if [[ -f "$BAO_BASE_LIB_DIR/pyproject.toml" ]]; then
+                debug "Global pyproject.toml found, treating as Python command"
+                echo "python-command"
+            else
+                debug "No global pyproject.toml, treating as system command"
+                echo "system-command"
+            fi
+        else
+            debug "Command not found in path, script type is unknown"
+            echo "unknown"
+        fi
+    fi
+}
+
+# Execute the appropriate runner based on script type
+run_script() {
+    local script_path="$1"
+    local script_name="$2"
+    shift 2
+
+    local script_type=$(detect_script_type "$script_path" "$script_name")
+    debug "Detected script type: $script_type"
+
+    if [[ $QUIET_MODE -eq 0 ]]; then
+        echo "Running $script_path ($script_type) $*"
+    fi
+
+    case "$script_type" in
+        python)
+            debug "Executing via run-python"
+            "$BAO_BASE_LIB_DIR/run-python" "$script_name" "$@"
+            ;;
+        python-dir|python-command)
+            debug "Executing via run-python (dir/command variant)"
+            "$BAO_BASE_LIB_DIR/run-python" "$script_name" "$@"
+            ;;
+        node)
+            debug "Executing via run-node"
+            "$BAO_BASE_LIB_DIR/run-node" "$script_name" "$@"
+            ;;
+        node-dir)
+            debug "Executing via run-node (dir variant)"
+            "$BAO_BASE_LIB_DIR/run-node" "$script_name" "$@"
+            ;;
+        bash)
+            debug "Executing via run-bash"
+            "$BAO_BASE_LIB_DIR/run-bash" "$script_name" "$@"
+            ;;
+        system-command)
+            debug "Executing system command directly"
+            command "$script_name" "$@"
+            ;;
+        *)
+            # Try to execute it directly if it's unknown
+            if [[ -x "$script_path" ]]; then
+                debug "Unknown type but executable, executing directly"
+                "$script_path" "$@"
+            else
+                echo "Error: Unknown script type for $script_path"
+                debug "Script is not executable and type could not be determined"
+                exit 1
+            fi
+            ;;
+    esac
+
+    local exit_code=$?
+    debug "Script execution completed with exit code: $exit_code"
+    return $exit_code
+}
+
+# Run the script with auto-detection
+run_script "$SCRIPT_PATH" "$SCRIPT_NAME" "$@"

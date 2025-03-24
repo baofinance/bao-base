@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT="$1"
-shift
+THIS=$(basename "$0" | cut -d. -f1)
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
-bash -e "${BAO_BASE_BIN_DIR}/${SCRIPT}" "$@"
+"$BAO_BASE_LIB_DIR"/run-python "$THIS" "$@"

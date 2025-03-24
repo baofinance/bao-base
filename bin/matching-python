@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e -o pipefail
+set -euo pipefail
 
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
 echo "$BAO_BASE_LIB_DIR/run-python" "$@"
