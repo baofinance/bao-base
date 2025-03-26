@@ -3,7 +3,7 @@ set -euo pipefail
 
 THIS=$(basename "$0" | cut -d. -f1)
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
-DEP_DIR="$BAO_BASE_LIB_DIR/$THIS"
+DEP_DIR="$BAO_BASE_BIN_DIR/CI"
 
 EVENT=$DEP_DIR/ubuntu_workflow_dispatch_current.json
 WORKFLOW_FILE=local-test-foundry.yml
