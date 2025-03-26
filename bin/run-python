@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# If the debug function doesn't exist, create a no-op version
-if [[ "$(type -t debug)" != "function" ]]; then
-    debug() { return 0; }
-fi
-
 # poetry is installed here
 NEW_PATH="$HOME/.local/bin"
 if [[ ":$PATH:" != *":$NEW_PATH:"* ]]; then
@@ -19,10 +14,10 @@ debug "Script to run: $SCRIPT"
 debug "Arguments: $*"
 
 # Step 1: Install dependencies using Poetry
-DEPENDENCIES_DIR="$BAO_BASE_LIB_DIR/$SCRIPT"
+DEPENDENCIES_DIR="$BAO_BASE_BIN_DIR/$SCRIPT"
 if [ ! -d "$DEPENDENCIES_DIR" ]; then
     debug "No dedicated directory for $SCRIPT, using global dependencies directory"
-    DEPENDENCIES_DIR="$BAO_BASE_LIB_DIR"
+    DEPENDENCIES_DIR="$BAO_BASE_BIN_DIR"
 fi
 
 debug "Dependencies directory: $DEPENDENCIES_DIR"
@@ -41,11 +36,11 @@ debug "Poetry environment variables set"
 # get round any python version constraints
 debug "Installing global dependencies"
 {
-    poetry install --no-root --directory "$BAO_BASE_LIB_DIR" 2>&3 | grep -i " - Installing" >&2 || true
+    poetry install --no-root --directory "$BAO_BASE_BIN_DIR" 2>&3 | grep -i " - Installing" >&2 || true
 } 3>&2
 
 debug "Determining Python version for $DEPENDENCIES_DIR"
-pyversion=$(poetry run --directory "$BAO_BASE_LIB_DIR" python "$BAO_BASE_LIB_DIR/matching-python.py" --directory="$DEPENDENCIES_DIR") || exit $?
+pyversion=$(poetry run --directory "$BAO_BASE_BIN_DIR" python "$BAO_BASE_BIN_DIR/matching-python.py" --directory="$DEPENDENCIES_DIR") || exit $?
 debug "Selected Python version: $pyversion"
 
 if [[ -n "$pyversion" ]]; then

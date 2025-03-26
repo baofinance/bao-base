@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "bao-base-bin-modules"
+name = "bao-base-bin"
 version = "0.1.0"
 description = "Fallback dependencies for scripts"
 authors = ["rootminus0x1"]
@@ -13,3 +13,4 @@ toml = "^0.10.2"
 packaging = "^24.2"
 # safe-pysha3 = "^1.0.4"
 dotenv = "^0.9.9"
+psutil = "^7.0.0"
