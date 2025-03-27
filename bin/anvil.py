@@ -617,7 +617,7 @@ def grab_erc20(network, wallet, eth_amount, token):
         print(f"*** Warning: Could only find {eth_amount_transferred} of requested {eth_amount} tokens")
         print(f"*** Missing {remaining_eth} tokens. Try checking more blocks or a different token.")
 
-def start(network):
+def start(network, chain_id=None):
     # Store the anvil process so we can terminate it properly
     anvil_process = None
 
@@ -657,6 +657,11 @@ def start(network):
         # Use subprocess.Popen instead of run_command for direct process control
         # Don't pipe stdout/stderr to avoid buffer issues that might block termination
         cmd = ["anvil", "-f", network]
+
+        # Add chain-id if specified
+        if chain_id:
+            cmd.extend(["--chain-id", str(chain_id)])
+
         logger.info(f">>> {' '.join(cmd)}")
         anvil_process = subprocess.Popen(cmd)
 
@@ -762,6 +767,7 @@ def main():
         epilog="""
 Examples:
   anvil.py start -f mainnet                             # Start anvil forked from mainnet
+  anvil.py start -f mainnet --chain-id 1                # Start anvil with specific chain ID
   anvil.py steal --to me --amount 100                   # Add 100 ETH to your account
   anvil.py steal --to me --amount 1 --erc20 wsteth      # Add 1 wstETH to your account
   anvil.py grant --role MINTER_ROLE --on token --to me  # Grant role on contract
@@ -779,6 +785,7 @@ Examples:
 
     # Start command
     start_parser = subparsers.add_parser("start", help="Start anvil instance")
+    start_parser.add_argument("--chain-id", type=int, help="Specify chain ID for the anvil instance")
 
     # Steal command and aliases
     steal_aliases = ["pinch", "nick", "grab", "pilfer", "embezzle", "rob", "swipe", "thieve",
@@ -924,7 +931,7 @@ Examples:
             print(f"Result: {formatted_result}")
 
     elif args.command == "start":
-        start(args.network)
+        start(args.network, args.chain_id)
 
     elif args.command == "sig":
         # Parse the signature format using the same parser as call/send
