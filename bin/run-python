@@ -33,19 +33,46 @@ export POETRY_VIRTUALENVS_OPTIONS_NO_PIP=true
 export POETRY_NO_INTERACTION=1
 debug "Poetry environment variables set"
 
-# get round any python version constraints
-debug "Installing global dependencies"
-{
-    poetry install --no-root --directory "$BAO_BASE_BIN_DIR" 2>&3 | grep -i " - Installing" >&2 || true
-} 3>&2
+# Determine the path to the pyproject.toml file
+PYPROJECT_PATH="$DEPENDENCIES_DIR/pyproject.toml"
+if [ ! -f "$PYPROJECT_PATH" ]; then
+    error "No pyproject.toml for $SCRIPT found in $DEPENDENCIES_DIR"
+fi
 
-debug "Determining Python version for $DEPENDENCIES_DIR"
-pyversion=$(poetry run --directory "$BAO_BASE_BIN_DIR" python "$BAO_BASE_BIN_DIR/matching-python.py" --directory="$DEPENDENCIES_DIR") || exit $?
-debug "Selected Python version: $pyversion"
+debug "Using pyproject.toml: $PYPROJECT_PATH"
+
+debug "Determining Python version using matching-python"
+# Use matching-python to find/install the appropriate Python version
+pyversion=$(bash "$BAO_BASE_BIN_DIR/matching-python" --pyproject="$PYPROJECT_PATH") || true
 
 if [[ -n "$pyversion" ]]; then
-    debug "Setting Python version for Poetry environment"
-    poetry --directory "$DEPENDENCIES_DIR" env use "$pyversion" > /dev/null
+    debug "Setting Python version for Poetry environment: $pyversion"
+
+    # If a Poetry environment already exists, delete it to ensure a clean start with correct Python
+    if poetry env list --directory "$DEPENDENCIES_DIR" 2>/dev/null | grep -q '\(Activated\)'; then
+        debug "Removing existing Poetry environment to ensure clean setup with correct Python version"
+        poetry env remove --all --directory "$DEPENDENCIES_DIR" > /dev/null 2>&1 || true
+    fi
+
+    # The pyversion might be a full path to a now installed Python
+    if ! poetry --directory "$DEPENDENCIES_DIR" env use "$pyversion"; then
+        # If Poetry still fails to use the Python version, try with explicit --python flag
+        debug "First attempt failed, trying with explicit Python path"
+        if [[ "$pyversion" == python* && ! -f "$pyversion" ]]; then
+            if command -v "$pyversion" &> /dev/null; then
+                pyversion=$(command -v "$pyversion")
+            elif [[ -x "/usr/bin/$pyversion" ]]; then
+                pyversion="/usr/bin/$pyversion"
+            fi
+        fi
+
+        if ! poetry --directory "$DEPENDENCIES_DIR" env use "$pyversion"; then
+            echo "Failed to set Python version for Poetry environment. This is a critical error."
+            exit 1
+        fi
+    fi
+
+    debug "Successfully set Poetry to use Python version: $pyversion"
 fi
 
 # install the dependencies directing the output to stderr
@@ -54,6 +81,10 @@ debug "Installing script-specific dependencies"
 {
     poetry install --no-root --directory "$DEPENDENCIES_DIR" 2>&3 | grep -i " - Installing" >&2 || true
 } 3>&2
+
+# Verify Poetry is using the correct Python version
+python_in_use=$(poetry run --directory "$DEPENDENCIES_DIR" python -c "import sys; print(sys.version)" 2>/dev/null) || true
+debug "Poetry is using Python: $python_in_use"
 
 # Step 2: Run the target Python script in the caller's directory
 if [ -f "$DEPENDENCIES_DIR/$SCRIPT.py" ]; then

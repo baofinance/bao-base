@@ -3,13 +3,13 @@ import argparse
 import os
 import re
 import sys
-# https://pypi.org/project/packaging/
+import subprocess
 from packaging import version
 from packaging.specifiers import SpecifierSet
 
 import logging
 # uncomment to get debug
-# logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s: %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s: %(message)s')
 
 
 def to_pep440(loose_constraint):
@@ -59,7 +59,7 @@ def get_constraint(pyproject_path):
     #         exit(1)
 
 def current_is_good(constraint_spec):
-        # check for the current running python
+    # check for the current running python
     VERSION_REGEX = re.compile(
         version.VERSION_PATTERN, re.VERBOSE | re.IGNORECASE
     )
@@ -69,7 +69,106 @@ def current_is_good(constraint_spec):
         ver = version.parse(match.group(0))
         if ver in constraint_spec:
             return match.group(0)
+    return None
 
+def ensure_pyenv_installed():
+    """Ensure pyenv is installed and return the path to the executable"""
+    # Check if pyenv is in PATH first
+    if check_command_exists("pyenv"):
+        logging.debug("Using system pyenv at " + subprocess.check_output(["which", "pyenv"]).decode().strip())
+        return "pyenv"
+
+    # Check if pyenv exists at the default location
+    pyenv_bin = os.path.expanduser("~/.pyenv/bin/pyenv")
+    if os.path.isfile(pyenv_bin) and os.access(pyenv_bin, os.X_OK):
+        logging.debug(f"Found pyenv at {pyenv_bin}")
+        return pyenv_bin
+
+    # Install pyenv
+    logging.debug("Installing pyenv...")
+    try:
+        subprocess.run("curl -s https://pyenv.run | bash", shell=True, check=True)
+
+        # Verify installation succeeded
+        pyenv_bin = os.path.expanduser("~/.pyenv/bin/pyenv")
+        if os.path.isfile(pyenv_bin) and os.access(pyenv_bin, os.X_OK):
+            logging.debug(f"Successfully installed pyenv at {pyenv_bin}")
+            return pyenv_bin
+        else:
+            logging.error("pyenv installation failed")
+            return None
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Failed to install pyenv: {e}")
+        return None
+
+def check_command_exists(cmd):
+    """Check if a command exists and is executable"""
+    return subprocess.run(f"command -v {cmd}", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode == 0
+
+def get_available_python_versions(pyenv_bin):
+    """Get list of Python versions available for installation through pyenv"""
+    logging.debug("Getting list of available Python versions from pyenv")
+    try:
+        output = subprocess.check_output([pyenv_bin, "install", "--list"], text=True)
+        versions = []
+
+        # Parse output and extract version numbers
+        for line in output.splitlines():
+            line = line.strip()
+            # Look for standard versions like 3.8.0, 3.9.1, etc.
+            match = re.match(r'^(\d+\.\d+\.\d+)$', line)
+            if match:
+                versions.append(match.group(1))
+
+        logging.debug(f"Found {len(versions)} available Python versions")
+        return versions
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Failed to get available Python versions: {e}")
+        return []
+
+def find_best_version_match(constraint_spec, available_versions):
+    """Find the best matching Python version from available versions"""
+    logging.debug(f"Finding best match for {constraint_spec} from {len(available_versions)} versions")
+
+    # Check for exact version constraints first
+    exact_version = None
+    for spec in constraint_spec:
+        if spec.operator == "==":
+            exact_version = str(spec.version)
+            logging.debug(f"Found exact version constraint: {exact_version}")
+            break
+
+    # If we have an exact constraint, look for that specific version
+    if exact_version:
+        if exact_version in available_versions:
+            logging.debug(f"Found exact match for {exact_version}")
+            return exact_version
+
+    # Otherwise, find all compatible versions
+    compatible_versions = []
+    for ver_str in available_versions:
+        try:
+            ver = version.parse(ver_str)
+            if ver in constraint_spec:
+                compatible_versions.append((ver, ver_str))
+        except:
+            continue
+
+    if compatible_versions:
+        # Sort by version, get the highest compatible version
+        compatible_versions.sort(key=lambda v: v[0], reverse=True)
+        highest_version = compatible_versions[0][1]
+        logging.debug(f"Highest compatible version: {highest_version}")
+        return highest_version
+
+    # If we found no compatible versions but have an exact constraint,
+    # return that so it can be attempted to install
+    if exact_version:
+        logging.debug(f"No compatible versions found, but returning exact constraint: {exact_version}")
+        return exact_version
+
+    logging.debug("No compatible versions found")
+    return None
 
 def find_matching(constraint_spec):
     logging.debug(f"find_matching({constraint_spec})")
@@ -77,7 +176,7 @@ def find_matching(constraint_spec):
         r"python(" + version.VERSION_PATTERN + r")", re.VERBOSE | re.IGNORECASE
     )
 
-    # current one no good, so scan known places for one
+    # Try to find matching local Python versions first
     matching_versions = []
     try:
         for filename in os.listdir("/usr/bin"):
@@ -86,40 +185,71 @@ def find_matching(constraint_spec):
                 ver = version.parse(match.group(1))
                 if ver in constraint_spec:
                     matching_versions.append((ver, match.group(0)))
-    except FileNotFoundError:
-        logging.warning("/usr/bin not found")
-        return None
-    except PermissionError:
-        logging.warning("Permission denied accessing /usr/bin")
-        return None
+    except (FileNotFoundError, PermissionError) as e:
+        logging.warning(f"Error accessing /usr/bin: {e}")
 
     if matching_versions:
         highest_version, highest_version_str = max(matching_versions, key=lambda item: item[0])
+        logging.debug(f"Found locally installed version: {highest_version}")
         return f"/usr/bin/{highest_version_str}"
 
+    # No matching local versions, try pyenv
+    # First ensure pyenv is installed
+    pyenv_bin = ensure_pyenv_installed()
+    if not pyenv_bin:
+        logging.error("Failed to install or locate pyenv")
+        return None
+
+    # Get available versions and find best match
+    available_versions = get_available_python_versions(pyenv_bin)
+    best_match = find_best_version_match(constraint_spec, available_versions)
+
+    if best_match:
+        # Install the version
+        logging.debug(f"Installing Python {best_match} using pyenv")
+        try:
+            subprocess.run([pyenv_bin, "install", "-s", best_match], check=True)
+
+            # Get the full path to the Python executable
+            python_path = subprocess.check_output(
+                [pyenv_bin, "prefix", best_match], text=True
+            ).strip() + "/bin/python"
+
+            logging.debug(f"Successfully installed Python at {python_path}")
+            return python_path
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Failed to install Python {best_match}: {e}")
+
+    # No matching version found
+    return None
 
 def main():
     logging.debug("matching-python.py")
     parser = argparse.ArgumentParser(description="Find a matching Python interpreter.")
-    parser.add_argument('--directory', type=str, default=".", help="The directory containing pyproject.toml (defaults to current directory).")
+    parser.add_argument('--pyproject', type=str, required=True, help="Path to the pyproject.toml file.")
     args = parser.parse_args()
     logging.debug(f"with args {args}")
 
     # get the constraint, if any
-    constraint = get_constraint(os.path.join(args.directory, "pyproject.toml"))
+    constraint = get_constraint(args.pyproject)
     if constraint:
         # convert the constraint into something that can be compared
         pep440_constraint = to_pep440(constraint)
         constraint_spec = SpecifierSet(pep440_constraint)
 
         # use the system one first, if it matches
-        if (current_is_good(constraint_spec)):
+        current_version = current_is_good(constraint_spec)
+        if current_version:
+            logging.debug("current version is good")
+            # Return just the version number for poetry to use
+            print(f"python{current_version}")
             exit(0)
 
-        # system one is no good so search for one
+        # system one is no good so search for one or install with pyenv
         matching = find_matching(constraint_spec)
         if matching:
             logging.debug(f"-> {matching}")
+            # Return the full path to the Python executable
             print(matching)
             exit(0)
         else:

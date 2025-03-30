@@ -14,11 +14,6 @@ debug() {
     local script_path="${BASH_SOURCE[1]:-${BASH_SOURCE[0]}}"
     local script_name=$(basename "$script_path" | sed 's/\..*$//')
 
-    # For run-* scripts, extract the name after "run-"
-    if [[ "$script_name" == run-* ]]; then
-        script_name="${script_name#run-}"
-    fi
-
     # Check if DEBUG is set and if script_name is in the comma-separated list
     if [[ -n "${DEBUG:-}" ]]; then
         # Convert DEBUG to array for easier matching
