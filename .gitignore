@@ -3,6 +3,9 @@
 # put your personal stuff in your personal vscode settings file
 .vscode/settings.json
 
+# local bin dependencies
+.tools/
+
 # wake
 .wake/
 

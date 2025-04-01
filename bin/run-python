@@ -1,96 +1,200 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# poetry is installed here
-NEW_PATH="$HOME/.local/bin"
-if [[ ":$PATH:" != *":$NEW_PATH:"* ]]; then
-  export PATH="$PATH:$NEW_PATH"
-  debug "Added $NEW_PATH to PATH"
-fi
-
-# Set the path to the Poetry project and the target script
+# Set the path to the script
 SCRIPT="$1"; shift
 debug "Script to run: $SCRIPT"
 debug "Arguments: $*"
 
-# Step 1: Install dependencies using Poetry
+# Set up directories
 DEPENDENCIES_DIR="$BAO_BASE_BIN_DIR/$SCRIPT"
 if [ ! -d "$DEPENDENCIES_DIR" ]; then
-    debug "No dedicated directory for $SCRIPT, using global dependencies directory"
     DEPENDENCIES_DIR="$BAO_BASE_BIN_DIR"
 fi
-
 debug "Dependencies directory: $DEPENDENCIES_DIR"
 
-# Ensure Poetry is installed
-if ! command -v poetry &> /dev/null; then
-    echo "error: Poetry is not installed. Please install Poetry and try again."
+# Local directories for tools and environments
+TOOLS_DIR="$BAO_BASE_DIR/.tools"
+UV_DIR="$TOOLS_DIR/uv"
+PYTHON_DIR="$TOOLS_DIR/python"
+VENV_DIR="$DEPENDENCIES_DIR/.venv"
+
+mkdir -p "$TOOLS_DIR" "$UV_DIR" "$PYTHON_DIR"
+
+# Set environment variables to control UV installation paths
+export UV_CACHE_DIR="$TOOLS_DIR/uv-cache"
+export UV_PYTHON_PATH="$PYTHON_DIR"
+mkdir -p "$UV_CACHE_DIR"
+
+
+# Install uv locally
+# Check if uv is already installed
+UV_BIN="$UV_DIR/uv"
+if [[ ! -x "$UV_BIN" ]]; then
+    debug "Installing uv to $UV_DIR"
+    temp_script=$(mktemp)
+    curl -fsSL https://astral.sh/uv/install.sh -o "$temp_script"
+    chmod +x "$temp_script"
+
+    # Install uv to a temporary directory
+    temp_install_dir=$(mktemp -d)
+    CARGO_HOME="$temp_install_dir/cargo" RUSTUP_HOME="$temp_install_dir/rustup" \
+    UV_INSTALL_DIR="$temp_install_dir/bin" NO_MODIFY_PATH=1 "$temp_script"
+    mv "$temp_install_dir/bin/uv" "$UV_DIR/"
+    # mv "$temp_install_dir/bin/uvx" "$UV_DIR/"
+    rm -rf "$temp_install_dir" "$temp_script"
+fi
+
+debug "Using uv at: $UV_BIN"
+
+# Check for python-requirements.in
+PYTHON_REQUIREMENTS_IN="$DEPENDENCIES_DIR/python-requirements.in"
+if [[ ! -f "$PYTHON_REQUIREMENTS_IN" ]]; then
+    error "No python-requirements.in found at $PYTHON_REQUIREMENTS_IN"
+    echo "Please create a python-requirements.in file with Python version constraints and dependencies."
+    echo "Example:"
+    echo "python>=3.9,<3.10 # Python (yes indeedy) version constraint"
+    echo "pandas~=2.2.3"
+    echo "tabulate~=0.9.0"
     exit 1
 fi
 
-# set up the poetry config
-export POETRY_VIRTUALENVS_OPTIONS_NO_PIP=true
-export POETRY_NO_INTERACTION=1
-debug "Poetry environment variables set"
+debug "Found python-requirements.in file at $PYTHON_REQUIREMENTS_IN"
+# Generate hash for python-requirements.in
+PYTHON_REQUIREMENTS_IN_HASH=$(sha256sum "$PYTHON_REQUIREMENTS_IN" | cut -d' ' -f1)
+debug "Generated hash for python-requirements.in: $PYTHON_REQUIREMENTS_IN_HASH"
 
-# Determine the path to the pyproject.toml file
-PYPROJECT_PATH="$DEPENDENCIES_DIR/pyproject.toml"
-if [ ! -f "$PYPROJECT_PATH" ]; then
-    error "No pyproject.toml for $SCRIPT found in $DEPENDENCIES_DIR"
-fi
+# Check for existing .python-version and requirements.txt
+PYTHON_VERSION_LOCK="$DEPENDENCIES_DIR/.python-version"
+REQUIREMENTS_LOCK="$DEPENDENCIES_DIR/requirements.txt"
 
-debug "Using pyproject.toml: $PYPROJECT_PATH"
+# Function to check if files exist and have valid hashes
+validate_lock() {
+    local lock_file="$1"
 
-debug "Determining Python version using matching-python"
-# Use matching-python to find/install the appropriate Python version
-pyversion=$(bash "$BAO_BASE_BIN_DIR/matching-python" --pyproject="$PYPROJECT_PATH") || true
-
-if [[ -n "$pyversion" ]]; then
-    debug "Setting Python version for Poetry environment: $pyversion"
-
-    # If a Poetry environment already exists, delete it to ensure a clean start with correct Python
-    if poetry env list --directory "$DEPENDENCIES_DIR" 2>/dev/null | grep -q '\(Activated\)'; then
-        debug "Removing existing Poetry environment to ensure clean setup with correct Python version"
-        poetry env remove --all --directory "$DEPENDENCIES_DIR" > /dev/null 2>&1 || true
+    # Check if both files exist
+    if [[ ! -f "$lock_file" ]]; then
+        debug "$lock_file does not exist"
+        return 1
     fi
 
-    # The pyversion might be a full path to a now installed Python
-    if ! poetry --directory "$DEPENDENCIES_DIR" env use "$pyversion"; then
-        # If Poetry still fails to use the Python version, try with explicit --python flag
-        debug "First attempt failed, trying with explicit Python path"
-        if [[ "$pyversion" == python* && ! -f "$pyversion" ]]; then
-            if command -v "$pyversion" &> /dev/null; then
-                pyversion=$(command -v "$pyversion")
-            elif [[ -x "/usr/bin/$pyversion" ]]; then
-                pyversion="/usr/bin/$pyversion"
-            fi
-        fi
-
-        if ! poetry --directory "$DEPENDENCIES_DIR" env use "$pyversion"; then
-            echo "Failed to set Python version for Poetry environment. This is a critical error."
-            exit 1
-        fi
+    local lock_hash=$(grep -E "^# HASH:[a-f0-9]{64}$" "$lock_file" | head -1 | cut -d':' -f2)
+    if [[ -z "$lock_hash" ]]; then
+        debug "No hash found in $lock_file"
+        return 1
     fi
 
-    debug "Successfully set Poetry to use Python version: $pyversion"
+    # Check if hashes match
+    if [[ "$lock_hash" != "$PYTHON_REQUIREMENTS_IN_HASH" ]]; then
+        debug "Hash mismatch:"
+        debug "$PYTHON_REQUIREMENTS_IN: $PYTHON_REQUIREMENTS_IN_HASH"
+        debug "Verslock_file: $lock_hash"
+        return 1
+    fi
+
+    debug "Lock files exist with matching hashes"
+    return 0
+}
+
+# Check if both files exist and have matching hashes
+# first the python version
+# as a side-effect we create the env, with the right version
+if ! validate_lock "$PYTHON_VERSION_LOCK"; then
+    debug "Need to regenerate lock file $PYTHON_VERSION_LOCK"
+
+    # Extract Python version constraint from requirements file
+    PYTHON_CONSTRAINT=$(grep -E "^python[>=<~!]" "$PYTHON_REQUIREMENTS_IN" | head -1)
+    if [[ -z "$PYTHON_CONSTRAINT" ]]; then
+        debug "No Python version constraint found in $PYTHON_REQUIREMENTS_IN, using '3'"
+        PYTHON_CONSTRAINT="3"
+    fi
+    debug "Found Python constraint: $PYTHON_CONSTRAINT"
+
+    # Clean up old files if they exist
+    [[ -f "$PYTHON_VERSION_LOCK" ]] && rm "$PYTHON_VERSION_LOCK"
+    [[ -f "$REQUIREMENTS_LOCK" ]] && rm "$REQUIREMENTS_LOCK"
+
+    # Create virtual environment with specified Python version using uv env
+    debug "Creating environment with Python constraint: $PYTHON_CONSTRAINT"
+    "$UV_BIN" venv --managed-python --python "${PYTHON_CONSTRAINT}" "$VENV_DIR" || {
+        error "Failed to create virtual environment with Python constraint $PYTHON_CONSTRAINT"
+        exit 1
+    }
+
+    # Get the actual Python version that was installed and use it to create .python-version
+    # Extract the actual Python version from the venv
+    ACTUAL_PYTHON_VERSION=$("$VENV_DIR/bin/python" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')")
+    debug "Installed Python $ACTUAL_PYTHON_VERSION, creating .python-version file"
+
+    # Create .python-version file with the actual version and hash
+    {
+        echo "# This file was auto-generated by run-python from constraint: $PYTHON_CONSTRAINT"
+        echo "# HASH:$PYTHON_REQUIREMENTS_IN_HASH"
+        echo "$ACTUAL_PYTHON_VERSION"
+    } > "$PYTHON_VERSION_LOCK"
+    debug "Created .python-version file with version $ACTUAL_PYTHON_VERSION and hash"
+else
+    debug "Using existing lock files with matching hash"
+
+    # Get Python version from the .python-version file (skip comments)
+    PYTHON_VERSION=$(grep -v '^#' "$PYTHON_VERSION_LOCK" | head -1 | tr -d '[:space:]')
+    debug "Using Python $PYTHON_VERSION from .python-version"
+
+    # Create a virtual environment with specified Python version using uv env
+    debug "Creating environment with Python $PYTHON_VERSION"
+    "$UV_BIN" venv --managed-python --python "$PYTHON_VERSION" "$VENV_DIR" || {
+        error "Failed to create virtual environment with Python $PYTHON_VERSION"
+        exit 1
+    }
 fi
 
-# install the dependencies directing the output to stderr
-# this output is nice to see, but not nice if we are running a filter.
-debug "Installing script-specific dependencies"
-{
-    poetry install --no-root --directory "$DEPENDENCIES_DIR" 2>&3 | grep -i " - Installing" >&2 || true
-} 3>&2
+if ! validate_lock "$REQUIREMENTS_LOCK"; then
+    debug "Need to regenerate lock file $REQUIREMENTS_LOCK"
+    # Generate requirements.txt
+     > "$REQUIREMENTS_LOCK"
+    debug "Generating $REQUIREMENTS_LOCK from $PYTHON_REQUIREMENTS_IN"
+    ( # do a subprocess to avoid full path comments in the generated file
+        cd "$DEPENDENCIES_DIR" || exit 1
+        grep -v -E "^python[>=<~!]" "$PYTHON_REQUIREMENTS_IN" | "$UV_BIN" -q pip compile - -o "requirements.txt"
+    )
+    echo "# HASH:$PYTHON_REQUIREMENTS_IN_HASH" >> "$REQUIREMENTS_LOCK"
+    debug "Generated $REQUIREMENTS_LOCK with hash"
+fi
 
-# Verify Poetry is using the correct Python version
-python_in_use=$(poetry run --directory "$DEPENDENCIES_DIR" python -c "import sys; print(sys.version)" 2>/dev/null) || true
-debug "Poetry is using Python: $python_in_use"
+# Verify the Python interpreter in the venv
+PYTHON_PATH="$VENV_DIR/bin/python"
+if [[ ! -x "$PYTHON_PATH" ]]; then
+    error "Python executable not found in virtual environment"
+    exit 1
+fi
 
-# Step 2: Run the target Python script in the caller's directory
-if [ -f "$DEPENDENCIES_DIR/$SCRIPT.py" ]; then
+# Install dependencies using our local uv
+debug "Installing dependencies from generated requirements.txt"
+
+# Activate the virtual environment
+source "$VENV_DIR/bin/activate" || {
+    error "Failed to activate virtual environment"
+    exit 1
+}
+
+# Install from the generated requirements.txt
+"$UV_BIN" pip sync --directory "$DEPENDENCIES_DIR" "$REQUIREMENTS_LOCK" || {
+    error "Failed to sync dependencies from requirements.txt"
+    deactivate 2>/dev/null || true
+    exit 1
+}
+
+debug "Dependencies installed successfully"
+
+# Run the target Python script or command
+if [[ -f "$DEPENDENCIES_DIR/$SCRIPT.py" ]]; then
     debug "Running Python script: $DEPENDENCIES_DIR/$SCRIPT.py"
-    poetry run --directory "$DEPENDENCIES_DIR" python "$DEPENDENCIES_DIR/$SCRIPT.py" "$@"
+    python "$DEPENDENCIES_DIR/$SCRIPT.py" "$@"
 else
     debug "Running Python command: $SCRIPT"
-    poetry run --directory "$DEPENDENCIES_DIR" "$SCRIPT" "$@"
+    # Run the command
+    "$SCRIPT" "$@"
 fi
+
+# Deactivate the virtual environment
+deactivate 2>/dev/null || true
