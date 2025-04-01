@@ -41,23 +41,24 @@ runs:
           bash --version
         fi
 
-    - name: Install recent python
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.13"
-    - shell: bash
-      run: |
-        which python3
-        python3 --version
+    # we no longer need poetry nor modern python pre-installed as uv installs it all for us
+    # - name: Install recent python
+    #   uses: actions/setup-python@v4
+    #   with:
+    #     python-version: "3.13"
+    # - shell: bash
+    #   run: |
+    #     which python3
+    #     python3 --version
 
-    - name: Install Poetry (python package manager)
-      uses: snok/install-poetry@v1
-      with:
-        version: 1.8.5
-    - shell: bash
-      run: |
-        which poetry
-        poetry --version
+    # - name: Install Poetry (python package manager)
+    #   uses: snok/install-poetry@v1
+    #   with:
+    #     version: 1.8.5
+    # - shell: bash
+    #   run: |
+    #     which poetry
+    #     poetry --version
 
     # - name: Checkout repo
     #   uses: actions/checkout@v4
