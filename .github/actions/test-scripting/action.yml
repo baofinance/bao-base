@@ -87,6 +87,13 @@ runs:
       run: |
         yarn
 
+    - name: Run run script debug info
+      shell: bash
+      run: |
+        DEBUG=run,nothing ./run nothing
+        DEBUG=run-python ./run nothing-python
+      id: nothing
+
     - name: Run Bash Script Linting
       shell: bash
       run: |
