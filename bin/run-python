@@ -27,33 +27,66 @@ export UV_PYTHON_PATH="$PYTHON_DIR"
 mkdir -p "$UV_CACHE_DIR"
 
 # Define virtual environment paths based on OS
-if [[ "$BAO_BASE_OS" == Windows* ]]; then
+if [[ "$BAO_BASE_OS" == "windows" ]]; then
     debug "Detected Windows environment"
     VENV_PYTHON_PATH="$VENV_DIR/Scripts/python.exe"
     VENV_ACTIVATE_PATH="$VENV_DIR/Scripts/activate"
+    # Set UV binary name for Windows
+    UV_BIN="$UV_DIR/uv.exe"
 else
     VENV_PYTHON_PATH="$VENV_DIR/bin/python"
     VENV_ACTIVATE_PATH="$VENV_DIR/bin/activate"
+    UV_BIN="$UV_DIR/uv"
 fi
 debug "Virtual environment Python path: $VENV_PYTHON_PATH"
 debug "Virtual environment activation script: $VENV_ACTIVATE_PATH"
 
 # Install uv locally
 # Check if uv is already installed
-UV_BIN="$UV_DIR/uv"
 if [[ ! -x "$UV_BIN" ]]; then
     debug "Installing uv to $UV_DIR"
-    temp_script=$(mktemp)
-    curl -fsSL https://astral.sh/uv/install.sh -o "$temp_script"
+
+    # Create temp directory safely across platforms
+    if [[ "$BAO_BASE_OS" == "windows" ]]; then
+        temp_script=$(mktemp -t uvinstall.XXXXXXXX)
+        # Windows-specific temp directory handling
+        temp_install_dir=$(mktemp -d -t uvinstalldir.XXXXXXXX)
+        debug "Created temp dir: $temp_install_dir"
+    else
+        temp_script=$(mktemp)
+        temp_install_dir=$(mktemp -d)
+    fi
+
+    debug "Created temp script: $temp_script"
+    curl -fsSL https://astral.sh/uv/install.sh -o "$temp_script" || {
+        error "Failed to download uv install script"
+        exit 1
+    }
     chmod +x "$temp_script"
 
     # Install uv to a temporary directory
-    temp_install_dir=$(mktemp -d)
+    debug "Installing uv to temp directory: $temp_install_dir"
     CARGO_HOME="$temp_install_dir/cargo" RUSTUP_HOME="$temp_install_dir/rustup" \
-    UV_INSTALL_DIR="$temp_install_dir/bin" NO_MODIFY_PATH=1 "$temp_script"
-    mv "$temp_install_dir/bin/uv" "$UV_DIR/"
-    # mv "$temp_install_dir/bin/uvx" "$UV_DIR/"
+    UV_INSTALL_DIR="$temp_install_dir/bin" NO_MODIFY_PATH=1 "$temp_script" || {
+        error "Failed to run uv install script"
+        exit 1
+    }
+
+    # Copy UV to final location with proper name based on OS
+    if [[ "$BAO_BASE_OS" == "windows" ]]; then
+        if [[ -f "$temp_install_dir/bin/uv.exe" ]]; then
+            cp "$temp_install_dir/bin/uv.exe" "$UV_DIR/"
+        else
+            error "Failed to find uv.exe in temporary installation directory"
+            ls -la "$temp_install_dir/bin" || true
+            exit 1
+        fi
+    else
+        cp "$temp_install_dir/bin/uv" "$UV_DIR/"
+    fi
+
     rm -rf "$temp_install_dir" "$temp_script"
+    debug "uv installed successfully to: $UV_BIN"
 fi
 
 debug "Using uv at: $UV_BIN"
@@ -76,30 +109,32 @@ calculate_hash() {
     local file="$1"
     local hash=""
 
-    # Only normalize line endings on Windows
+    # Handle different OS hashing methods
     if [[ "$BAO_BASE_OS" == "windows" ]]; then
-        # use PowerShell on Windows if available
+        # Create a temporary file with normalized line endings
+        debug "Running on Windows, converting CRLF to LF for consistent hashing"
+        local temp_file=$(mktemp -t hash.XXXXXXXX)
+        sed 's/\r$//' "$file" > "$temp_file"
+
+        # Try PowerShell first for better hash reliability
         if command -v powershell.exe >/dev/null 2>&1; then
-            # Convert CRLF to LF (not just removing CRs)
-            debug "Running on Windows, converting CRLF to LF for consistent hashing"
-            local temp_file=$(mktemp)
-            sed 's/\r$//' "$file" > "$temp_file"
             hash=$(powershell.exe -Command "Get-FileHash -Algorithm SHA256 -Path '$temp_file' | Select-Object -ExpandProperty Hash" | tr '[:upper:]' '[:lower:]')
-            rm -f "$temp_file"
         else
-            error "No hash command found (sha256sum, shasum, or PowerShell)"
-            exit 1
+            # Fallback to certUtil if available
+            hash=$(certUtil -hashfile "$temp_file" SHA256 | grep -v "hash" | head -1 | tr -d " \t\r\n")
         fi
+        rm -f "$temp_file"
     elif [[ "$BAO_BASE_OS" == "macos" ]]; then
         hash=$(shasum -a 256 "$file" | cut -d' ' -f1)
     elif [[ "$BAO_BASE_OS" == "linux" ]]; then
         hash=$(sha256sum "$file" | cut -d' ' -f1)
     else
-        TODO: just run without a has and regenerate each time?
-        error "Unknown OS and so no hash generated"
-        exit 1
+        # Fallback with no hash - just return a timestamp to force regeneration
+        debug "Unknown OS, using timestamp as hash"
+        hash=$(date +%s)
     fi
 
+    debug "Generated hash: $hash for file: $file"
     echo "$hash"
 }
 
@@ -157,6 +192,12 @@ if ! validate_lock "$PYTHON_VERSION_LOCK"; then
     [[ -f "$PYTHON_VERSION_LOCK" ]] && rm "$PYTHON_VERSION_LOCK"
     [[ -f "$REQUIREMENTS_LOCK" ]] && rm "$REQUIREMENTS_LOCK"
 
+    # Make sure any previous virtual environment is removed first
+    if [[ -d "$VENV_DIR" ]]; then
+        debug "Removing existing virtual environment at $VENV_DIR"
+        rm -rf "$VENV_DIR"
+    fi
+
     # Create virtual environment with specified Python version using uv env
     debug "Creating environment with Python constraint: $PYTHON_CONSTRAINT"
     "$UV_BIN" venv --managed-python --python "${PYTHON_CONSTRAINT}" "$VENV_DIR" || {
@@ -167,6 +208,7 @@ if ! validate_lock "$PYTHON_VERSION_LOCK"; then
     # Get the actual Python version that was installed and use it to create .python-version
     if [[ -f "$VENV_PYTHON_PATH" ]]; then
         # Extract the actual Python version from the venv
+        debug "Checking Python version in virtual environment"
         ACTUAL_PYTHON_VERSION=$("$VENV_PYTHON_PATH" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')")
         debug "Installed Python $ACTUAL_PYTHON_VERSION, creating .python-version file"
 
@@ -179,6 +221,15 @@ if ! validate_lock "$PYTHON_VERSION_LOCK"; then
         debug "Created .python-version file with version $ACTUAL_PYTHON_VERSION and hash"
     else
         error "Failed to find Python at $VENV_PYTHON_PATH in virtual environment"
+        if [[ "$BAO_BASE_OS" == "windows" ]]; then
+            debug "Windows virtual environment directory structure:"
+            ls -la "$VENV_DIR" || true
+            ls -la "$VENV_DIR/Scripts" 2>/dev/null || true
+        else
+            debug "Virtual environment directory structure:"
+            ls -la "$VENV_DIR" || true
+            ls -la "$VENV_DIR/bin" 2>/dev/null || true
+        fi
         exit 1
     fi
 else
@@ -187,6 +238,12 @@ else
     # Get Python version from the .python-version file (skip comments)
     PYTHON_VERSION=$(grep -v '^#' "$PYTHON_VERSION_LOCK" | head -1 | tr -d '[:space:]')
     debug "Using Python $PYTHON_VERSION from .python-version"
+
+    # Remove existing venv if it exists to ensure clean state
+    if [[ -d "$VENV_DIR" ]]; then
+        debug "Removing existing virtual environment at $VENV_DIR"
+        rm -rf "$VENV_DIR"
+    fi
 
     # Create a virtual environment with specified Python version using uv env
     debug "Creating environment with Python $PYTHON_VERSION"
@@ -210,38 +267,79 @@ if ! validate_lock "$REQUIREMENTS_LOCK"; then
 fi
 
 # Verify the Python interpreter in the venv
-if [[ ! -x "$VENV_PYTHON_PATH" ]]; then
+if [[ ! -f "$VENV_PYTHON_PATH" ]]; then
     error "Python executable not found at $VENV_PYTHON_PATH in virtual environment"
+    if [[ "$BAO_BASE_OS" == "windows" ]]; then
+        debug "Windows virtual environment directory structure:"
+        ls -la "$VENV_DIR" || true
+        ls -la "$VENV_DIR/Scripts" 2>/dev/null || true
+    else
+        debug "Virtual environment directory structure:"
+        ls -la "$VENV_DIR" || true
+        ls -la "$VENV_DIR/bin" 2>/dev/null || true
+    fi
     exit 1
+fi
+
+# Make sure Python executable is executable
+if [[ ! -x "$VENV_PYTHON_PATH" && "$BAO_BASE_OS" != "windows" ]]; then
+    chmod +x "$VENV_PYTHON_PATH" || {
+        error "Failed to make Python executable: $VENV_PYTHON_PATH"
+        exit 1
+    }
 fi
 
 # Install dependencies using our local uv
 debug "Installing dependencies from generated requirements.txt"
 
-# Activate the virtual environment
-source "$VENV_ACTIVATE_PATH" || {
-    error "Failed to activate virtual environment at $VENV_ACTIVATE_PATH"
-    exit 1
-}
+# Activate the virtual environment - handle Windows differently
+if [[ "$BAO_BASE_OS" == "windows" ]]; then
+    # On Windows, we directly call the venv's python since activate can be tricky in bash
+    debug "Running on Windows - directly using Python from venv without activation"
+    PYTHON_CMD="$VENV_PYTHON_PATH"
 
-# Install from the generated requirements.txt
-"$UV_BIN" pip sync --directory "$DEPENDENCIES_DIR" "$REQUIREMENTS_LOCK" || {
-    error "Failed to sync dependencies from requirements.txt"
-    deactivate 2>/dev/null || true
-    exit 1
-}
+    # Install dependencies directly with UV
+    debug "Installing dependencies using UV directly on Windows"
+    "$UV_BIN" pip sync --directory "$DEPENDENCIES_DIR" "$REQUIREMENTS_LOCK" || {
+        error "Failed to sync dependencies from requirements.txt"
+        exit 1
+    }
+else
+    # On Unix systems, use the traditional activation approach
+    source "$VENV_ACTIVATE_PATH" || {
+        error "Failed to activate virtual environment at $VENV_ACTIVATE_PATH"
+        exit 1
+    }
+
+    "$UV_BIN" pip sync --directory "$DEPENDENCIES_DIR" "$REQUIREMENTS_LOCK" || {
+        error "Failed to sync dependencies from requirements.txt"
+        deactivate 2>/dev/null || true
+        exit 1
+    }
+    PYTHON_CMD="python"
+fi
 
 debug "Dependencies installed successfully"
 
 # Run the target Python script or command
 if [[ -f "$DEPENDENCIES_DIR/$SCRIPT.py" ]]; then
     debug "Running Python script: $DEPENDENCIES_DIR/$SCRIPT.py"
-    python "$DEPENDENCIES_DIR/$SCRIPT.py" "$@"
+    if [[ "$BAO_BASE_OS" == "windows" ]]; then
+        "$VENV_PYTHON_PATH" "$DEPENDENCIES_DIR/$SCRIPT.py" "$@"
+    else
+        $PYTHON_CMD "$DEPENDENCIES_DIR/$SCRIPT.py" "$@"
+    fi
 else
     debug "Running Python command: $SCRIPT"
     # Run the command
-    "$SCRIPT" "$@"
+    if [[ "$BAO_BASE_OS" == "windows" ]]; then
+        "$SCRIPT" "$@"
+    else
+        "$SCRIPT" "$@"
+    fi
 fi
 
-# Deactivate the virtual environment
-deactivate 2>/dev/null || true
+# Deactivate the virtual environment (not needed on Windows when we didn't activate)
+if [[ "$BAO_BASE_OS" != "windows" ]]; then
+    deactivate 2>/dev/null || true
+fi
