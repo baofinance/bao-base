@@ -71,23 +71,39 @@ if [[ ! -f "$PYTHON_REQUIREMENTS_IN" ]]; then
 fi
 
 debug "Found python-requirements.in file at $PYTHON_REQUIREMENTS_IN"
-# Generate hash for python-requirements.in
-# TODO: make this work on windows with it's line-endings (maybe just remove al CR and LFs)
+# Generate hash for python-requirements.in, normalising line endings if needed
 calculate_hash() {
     local file="$1"
-    if command -v sha256sum >/dev/null 2>&1; then
-        # Linux
-        sha256sum "$file" | cut -d' ' -f1
-    elif command -v shasum >/dev/null 2>&1; then
-        # macOS
-        shasum -a 256 "$file" | cut -d' ' -f1
+    local hash=""
+
+    # Only normalize line endings on Windows
+    if [[ "$BAO_BASE_OS" == "windows" ]]; then
+        # use PowerShell on Windows if available
+        if command -v powershell.exe >/dev/null 2>&1; then
+            # Convert CRLF to LF (not just removing CRs)
+            debug "Running on Windows, converting CRLF to LF for consistent hashing"
+            local temp_file=$(mktemp)
+            sed 's/\r$//' "$file" > "$temp_file"
+            hash=$(powershell.exe -Command "Get-FileHash -Algorithm SHA256 -Path '$temp_file' | Select-Object -ExpandProperty Hash" | tr '[:upper:]' '[:lower:]')
+            rm -f "$temp_file"
+        else
+            error "No hash command found (sha256sum, shasum, or PowerShell)"
+            exit 1
+        fi
+    elif [[ "$BAO_BASE_OS" == "macos" ]]; then
+        hash=$(shasum -a 256 "$file" | cut -d' ' -f1)
+    elif [[ "$BAO_BASE_OS" == "linux" ]]; then
+        hash=$(sha256sum "$file" | cut -d' ' -f1)
     else
-        # Fallback
-        error "No hash command found (sha256sum or shasum)"
+        TODO: just run without a has and regenerate each time?
+        error "Unknown OS and so no hash generated"
         exit 1
     fi
+
+    echo "$hash"
 }
-PYTHON_REQUIREMENTS_IN_HASH=$(calculate_hash "$PYTHON_REQUIREMENTS_IN" | cut -d' ' -f1)
+
+PYTHON_REQUIREMENTS_IN_HASH=$(calculate_hash "$PYTHON_REQUIREMENTS_IN")
 debug "Generated hash for python-requirements.in: $PYTHON_REQUIREMENTS_IN_HASH"
 
 # Check for existing .python-version and requirements.txt
