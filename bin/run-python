@@ -27,7 +27,7 @@ export UV_PYTHON_PATH="$PYTHON_DIR"
 mkdir -p "$UV_CACHE_DIR"
 
 # Define virtual environment paths based on OS
-if [[ "$(uname)" == "MINGW"* || "$(uname)" == "MSYS"* || "$OSTYPE" == "cygwin" || "$OSTYPE" == "msys" ]]; then
+if [[ "$BAO_BASE_OS" == Windows* ]]; then
     debug "Detected Windows environment"
     VENV_PYTHON_PATH="$VENV_DIR/Scripts/python.exe"
     VENV_ACTIVATE_PATH="$VENV_DIR/Scripts/activate"
@@ -72,6 +72,7 @@ fi
 
 debug "Found python-requirements.in file at $PYTHON_REQUIREMENTS_IN"
 # Generate hash for python-requirements.in
+# TODO: make this work on windows with it's line-endings (maybe just remove al CR and LFs)
 calculate_hash() {
     local file="$1"
     if command -v sha256sum >/dev/null 2>&1; then
@@ -99,18 +100,19 @@ validate_lock() {
 
     # Check if both files exist
     if [[ ! -f "$lock_file" ]]; then
-        debug "$lock_file does not exist"
+        echo "$lock_file does not exist, generating from python-requirements.in..."
         return 1
     fi
 
     local lock_hash=$(grep -E "^# HASH:[a-f0-9]{64}$" "$lock_file" | head -1 | cut -d':' -f2)
     if [[ -z "$lock_hash" ]]; then
-        debug "No hash found in $lock_file"
+        echo "No hash found in $lock_file, regenerating from python-requirements.in..."
         return 1
     fi
 
     # Check if hashes match
     if [[ "$lock_hash" != "$PYTHON_REQUIREMENTS_IN_HASH" ]]; then
+        echo "$lock_file out of date (hash mismatched), regenerating from python-requirements.in..."
         debug "Hash mismatch:"
         debug "$PYTHON_REQUIREMENTS_IN: $PYTHON_REQUIREMENTS_IN_HASH"
         debug "Verslock_file: $lock_hash"

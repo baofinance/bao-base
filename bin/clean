@@ -11,15 +11,10 @@ clean_directory() {
     local dir="$1"
 
     # Check if the directory contains a poetry project
-    if [[ -f "$dir/pyproject.toml" ]]; then
-        # Get the virtual environment path
-        VENV_PATH=$(cd "$dir" && poetry env info --path 2>/dev/null)
-
-        if [[ $? -eq 0 && -d "$VENV_PATH" ]]; then
-            # Delete the virtual environment
-            rm -rf "$VENV_PATH"
-            echo "for $dir, cleaned: $VENV_PATH"
-        fi
+    local venv_path="$dir/.venv"
+    if [[ -d "$venv_path" ]]; then
+        rm -rf "$venv_path"
+        echo "for $dir, cleaned: $venv_path"
     fi
 }
 

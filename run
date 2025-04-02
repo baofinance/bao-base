@@ -7,6 +7,15 @@ export BAO_BASE="$(python3 -c "import os.path; print(os.path.relpath('$ABS_BAO_B
 export BAO_BASE_DIR="$(cd ${BAO_BASE} && pwd)"
 export BAO_BASE_BIN_DIR="$BAO_BASE_DIR/bin"
 export BAO_BASE_SCRIPT_DIR="$BAO_BASE_DIR/script"
+# OS detection so that scripts can just use the BAO_OS environment variable
+# BAO_OS can be Linux, MacOS or Windows
+export BAO_BASE_OS="unknown"
+if [[ "$(uname)" == "MINGW"* || "$(uname)" == "MSYS"* || "$OSTYPE" == "cygwin" || "$OSTYPE" == "msys" ]]; then
+    BAO_BASE_OS="Windows"
+else
+    BAO_BASE_OS="$OSTYPE"
+fi
+
 
 # Debug function - automatically detects script name and prints messages only if the script is in the DEBUG list
 debug() {
@@ -37,7 +46,6 @@ error() {
     echo "ERROR: $*" >&2
     exit 1
 }
-
 # Export the debug function so it's available to child scripts
 export -f debug
 export -f error
