@@ -18,11 +18,11 @@ if [[ "$(uname)" == "MINGW"* || "$(uname)" == "MSYS"* || "$OSTYPE" == "cygwin" |
     BAO_BASE_OS="windows"
     # Get Windows version
     if command -v powershell.exe &> /dev/null; then
+        BAO_BASE_OS_SUBTYPE="powershell"
         BAO_BASE_OS_VERSION=$(powershell.exe -Command "[System.Environment]::OSVersion.Version.ToString()" | tr -d '\r')
-        BAO_BASE_OS_SUBTYPE=$(powershell.exe -Command "(Get-CimInstance -ClassName Win32_OperatingSystem).Caption" | tr -d '\r' | sed 's/Microsoft //')
     elif command -v systeminfo &> /dev/null; then
+        BAO_BASE_OS_SUBTYPE="cmd"
         BAO_BASE_OS_VERSION=$(systeminfo | grep "OS Version:" | sed 's/.*: *//;s/\r//')
-        BAO_BASE_OS_SUBTYPE="Windows"
     fi
 # macOS detection
 elif [[ "$(uname)" == "Darwin" ]]; then

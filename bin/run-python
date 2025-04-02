@@ -110,18 +110,22 @@ calculate_hash() {
     local hash=""
 
     # Handle different OS hashing methods
-    if [[ "$BAO_BASE_OS" == "windows" ]]; then
+    if [[ "${BAO_BASE_OS}" == "windows" ]]; then
         # Create a temporary file with normalized line endings
         debug "Running on Windows, converting CRLF to LF for consistent hashing"
         local temp_file=$(mktemp -t hash.XXXXXXXX)
-        sed 's/\r$//' "$file" > "$temp_file"
+        # Convert CRLF to LF
+        if [[ "${BAO_BASE_OS_SUBTYPE}" == "powershell" ]]; then
+            # Using single quotes for the PowerShell command to avoid backtick escaping issues
+            powershell -Command '(Get-Content "'$file'") -replace "\r\n", "\n" | Set-Content "'$temp_file'"'
 
-        # Try PowerShell first for better hash reliability
-        if command -v powershell.exe >/dev/null 2>&1; then
+            # Generate the hash
             hash=$(powershell.exe -Command "Get-FileHash -Algorithm SHA256 -Path '$temp_file' | Select-Object -ExpandProperty Hash" | tr '[:upper:]' '[:lower:]')
         else
-            # Fallback to certUtil if available
-            hash=$(certUtil -hashfile "$temp_file" SHA256 | grep -v "hash" | head -1 | tr -d " \t\r\n")
+            # Fallback to simpler method for other Windows environments
+            sed 's/\r$//' "$file" > "$temp_file"
+            # Use certUtil if available
+            hash=$(certUtil -hashfile "$temp_file" SHA256 2>/dev/null | grep -v "hash" | head -1 | tr -d " \t\r\n" || echo "$(date +%s)")
         fi
         rm -f "$temp_file"
     elif [[ "$BAO_BASE_OS" == "macos" ]]; then
@@ -166,7 +170,7 @@ validate_lock() {
         echo "$lock_file out of date (hash mismatched), regenerating from python-requirements.in..."
         debug "Hash mismatch:"
         debug "$PYTHON_REQUIREMENTS_IN: $PYTHON_REQUIREMENTS_IN_HASH"
-        debug "Verslock_file: $lock_hash"
+        debug "Lock file: $lock_hash"
         return 1
     fi
 
@@ -322,20 +326,23 @@ fi
 debug "Dependencies installed successfully"
 
 # Run the target Python script or command
-if [[ -f "$DEPENDENCIES_DIR/$SCRIPT.py" ]]; then
-    debug "Running Python script: $DEPENDENCIES_DIR/$SCRIPT.py"
+SCRIPT_PY="$DEPENDENCIES_DIR/$SCRIPT.py"
+if [[ -f "$SCRIPT_PY" ]]; then
+    debug "Running Python script: $SCRIPT_PY"
     if [[ "$BAO_BASE_OS" == "windows" ]]; then
-        "$VENV_PYTHON_PATH" "$DEPENDENCIES_DIR/$SCRIPT.py" "$@"
+        "$VENV_PYTHON_PATH" "$SCRIPT_PY" "$@"
     else
-        $PYTHON_CMD "$DEPENDENCIES_DIR/$SCRIPT.py" "$@"
+        $PYTHON_CMD "$SCRIPT_PY" "$@"
     fi
 else
-    debug "Running Python command: $SCRIPT"
-    # Run the command
-    if [[ "$BAO_BASE_OS" == "windows" ]]; then
+    # Check if the script exists as a system command
+    if command -v "$SCRIPT" &> /dev/null; then
+        debug "Running Python command: $SCRIPT"
+        # Run the command
         "$SCRIPT" "$@"
     else
-        "$SCRIPT" "$@"
+        error "Python script '$SCRIPT_PY' not found and command '$SCRIPT' not found in PATH"
+        exit 1
     fi
 fi
 
