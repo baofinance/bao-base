@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Ensure platform utilities are loaded
+if ! command -v get_python_paths &>/dev/null; then
+    if [[ -f "$BAO_BASE_BIN_DIR/platform-utils.sh" ]]; then
+        source "$BAO_BASE_BIN_DIR/platform-utils.sh"
+    else
+        echo "ERROR: platform-utils.sh not found" >&2
+        exit 1
+    fi
+fi
+
 # Set the path to the script
 SCRIPT="$1"; shift
 debug "Script to run: $SCRIPT"
@@ -27,17 +37,17 @@ export UV_PYTHON_PATH="$PYTHON_DIR"
 mkdir -p "$UV_CACHE_DIR"
 
 # Define virtual environment paths based on OS
+python_paths=($(get_python_paths "$VENV_DIR" | tr ':' '\n'))
+VENV_PYTHON_PATH="${python_paths[0]}"
+VENV_ACTIVATE_PATH="${python_paths[1]}"
+
+# Set UV binary name based on OS
 if [[ "$BAO_BASE_OS" == "windows" ]]; then
-    debug "Detected Windows environment"
-    VENV_PYTHON_PATH="$VENV_DIR/Scripts/python.exe"
-    VENV_ACTIVATE_PATH="$VENV_DIR/Scripts/activate"
-    # Set UV binary name for Windows
     UV_BIN="$UV_DIR/uv.exe"
 else
-    VENV_PYTHON_PATH="$VENV_DIR/bin/python"
-    VENV_ACTIVATE_PATH="$VENV_DIR/bin/activate"
     UV_BIN="$UV_DIR/uv"
 fi
+
 debug "Virtual environment Python path: $VENV_PYTHON_PATH"
 debug "Virtual environment activation script: $VENV_ACTIVATE_PATH"
 
@@ -47,45 +57,23 @@ if [[ ! -x "$UV_BIN" ]]; then
     debug "Installing uv to $UV_DIR"
 
     # Create temp directory safely across platforms
-    if [[ "$BAO_BASE_OS" == "windows" ]]; then
-        temp_script=$(mktemp -t uvinstall.XXXXXXXX)
-        # Windows-specific temp directory handling
-        temp_install_dir=$(mktemp -d -t uvinstalldir.XXXXXXXX)
-        debug "Created temp dir: $temp_install_dir"
-    else
-        temp_script=$(mktemp)
-        temp_install_dir=$(mktemp -d)
-    fi
+    temp_script=$(create_temp_file "uvinstall")
+    temp_install_dir=$(create_temp_dir "uvinstalldir")
+    debug "Created temp dir: $temp_install_dir"
 
     debug "Created temp script: $temp_script"
     curl -fsSL https://astral.sh/uv/install.sh -o "$temp_script" || {
         error "Failed to download uv install script"
         exit 1
     }
-    chmod +x "$temp_script"
+    make_executable "$temp_script"
 
     # Install uv to a temporary directory - redirect output on Windows
     debug "Installing uv to temp directory: $temp_install_dir"
-    if [[ "$BAO_BASE_OS" == "windows" ]]; then
-        # On Windows, redirect all output to a temp file to avoid it being captured
-        temp_output=$(mktemp -t uvoutput.XXXXXXXX)
-        CARGO_HOME="$temp_install_dir/cargo" RUSTUP_HOME="$temp_install_dir/rustup" \
-        UV_INSTALL_DIR="$temp_install_dir/bin" NO_MODIFY_PATH=1 "$temp_script" > "$temp_output" 2>&1 || {
-            # Show output only if there's an error
-            cat "$temp_output" >&2
-            rm -f "$temp_output"
-            error "Failed to run uv install script"
-            exit 1
-        }
-        rm -f "$temp_output"
-    else
-        # On Unix systems, use normal redirection
-        CARGO_HOME="$temp_install_dir/cargo" RUSTUP_HOME="$temp_install_dir/rustup" \
-        UV_INSTALL_DIR="$temp_install_dir/bin" NO_MODIFY_PATH=1 "$temp_script" || {
-            error "Failed to run uv install script"
-            exit 1
-        }
-    fi
+    capture_output "CARGO_HOME='$temp_install_dir/cargo' RUSTUP_HOME='$temp_install_dir/rustup' UV_INSTALL_DIR='$temp_install_dir/bin' NO_MODIFY_PATH=1 '$temp_script'" true || {
+        error "Failed to run uv install script"
+        exit 1
+    }
 
     # Copy UV to final location with proper name based on OS
     if [[ "$BAO_BASE_OS" == "windows" ]]; then
@@ -119,58 +107,8 @@ if [[ ! -f "$PYTHON_REQUIREMENTS_IN" ]]; then
 fi
 
 debug "Found python-requirements.in file at $PYTHON_REQUIREMENTS_IN"
-# Generate hash for python-requirements.in, normalising line endings if needed
-calculate_hash() {
-    local file="$1"
-    local hash=""
 
-    # Handle different OS hashing methods
-    if [[ "${BAO_BASE_OS}" == "windows" ]]; then
-        # Create a temporary file with normalized line endings
-        debug "Running on Windows, converting CRLF to LF for consistent hashing"
-        local temp_file=$(mktemp -t hash.XXXXXXXX)
-
-        # Convert CRLF to LF - simplified approach for Windows
-        sed 's/\r$//' "$file" > "$temp_file" 2>/dev/null
-
-        # Generate hash - silence output on Windows to prevent capture
-        if command -v certUtil &>/dev/null; then
-            # Using certUtil if available
-            temp_output=$(mktemp -t hashoutput.XXXXXXXX)
-            certUtil -hashfile "$temp_file" SHA256 > "$temp_output" 2>/dev/null
-            hash=$(grep -v "hash" "$temp_output" | head -1 | tr -d " \t\r\n" || echo "")
-            rm -f "$temp_output"
-        elif command -v powershell.exe &>/dev/null; then
-            # Try PowerShell as alternative
-            temp_output=$(mktemp -t hashoutput.XXXXXXXX)
-            powershell.exe -Command "Get-FileHash -Algorithm SHA256 -Path '$temp_file' | Select-Object -ExpandProperty Hash" > "$temp_output" 2>/dev/null
-            hash=$(cat "$temp_output" | tr -d '\r\n ' | tr '[:upper:]' '[:lower:]' || echo "")
-            rm -f "$temp_output"
-        else
-            # Fallback to timestamp for Windows without proper hash tool
-            hash=$(date +%s)
-        fi
-        rm -f "$temp_file"
-    elif [[ "$BAO_BASE_OS" == "macos" ]]; then
-        hash=$(shasum -a 256 "$file" | cut -d' ' -f1)
-    elif [[ "$BAO_BASE_OS" == "linux" ]]; then
-        hash=$(sha256sum "$file" | cut -d' ' -f1)
-    else
-        # Fallback with no hash - just return a timestamp to force regeneration
-        debug "Unknown OS, using timestamp as hash"
-        hash=$(date +%s)
-    fi
-
-    # Validate the hash format - should be 64 hex chars
-    if ! [[ $hash =~ ^[0-9a-f]{64}$ ]]; then
-        debug "Invalid hash format generated: '$hash', using timestamp instead"
-        hash=$(date +%s)
-    fi
-
-    debug "Generated hash: $hash for file: $file"
-    echo "$hash"
-}
-
+# Generate hash for python-requirements.in
 PYTHON_REQUIREMENTS_IN_HASH=$(calculate_hash "$PYTHON_REQUIREMENTS_IN")
 debug "Generated hash for python-requirements.in: $PYTHON_REQUIREMENTS_IN_HASH"
 
@@ -292,25 +230,11 @@ if ! validate_lock "$REQUIREMENTS_LOCK"; then
     > "$REQUIREMENTS_LOCK"
     debug "Generating $REQUIREMENTS_LOCK from $PYTHON_REQUIREMENTS_IN"
 
-    # Redirect output for Windows to prevent it showing up in files
-    if [[ "$BAO_BASE_OS" == "windows" ]]; then
-        temp_output=$(mktemp -t compileoutput.XXXXXXXX)
-        (
-            cd "$DEPENDENCIES_DIR" || exit 1
-            grep -v -E "^python[>=<~!]" "$PYTHON_REQUIREMENTS_IN" | "$UV_BIN" -q pip compile - -o "requirements.txt" > "$temp_output" 2>&1
-        ) || {
-            cat "$temp_output" >&2
-            rm -f "$temp_output"
-            error "Failed to compile requirements"
-            exit 1
-        }
-        rm -f "$temp_output"
-    else
-        (
-            cd "$DEPENDENCIES_DIR" || exit 1
-            grep -v -E "^python[>=<~!]" "$PYTHON_REQUIREMENTS_IN" | "$UV_BIN" -q pip compile - -o "requirements.txt"
-        )
-    fi
+    # Use capture_output to prevent output from appearing in files
+    capture_output "(cd '$DEPENDENCIES_DIR' && grep -v -E '^python[>=<~!]' '$PYTHON_REQUIREMENTS_IN' | '$UV_BIN' -q pip compile - -o 'requirements.txt')" true || {
+        error "Failed to compile requirements"
+        exit 1
+    }
 
     echo "# HASH:$PYTHON_REQUIREMENTS_IN_HASH" >> "$REQUIREMENTS_LOCK"
     debug "Generated $REQUIREMENTS_LOCK with hash"
@@ -331,13 +255,11 @@ if [[ ! -f "$VENV_PYTHON_PATH" ]]; then
     exit 1
 fi
 
-# Make sure Python executable is executable
-if [[ ! -x "$VENV_PYTHON_PATH" && "$BAO_BASE_OS" != "windows" ]]; then
-    chmod +x "$VENV_PYTHON_PATH" || {
-        error "Failed to make Python executable: $VENV_PYTHON_PATH"
-        exit 1
-    }
-fi
+# Make Python executable is executable
+make_executable "$VENV_PYTHON_PATH" || {
+    error "Failed to make Python executable: $VENV_PYTHON_PATH"
+    exit 1
+}
 
 # Install dependencies using our local uv
 debug "Installing dependencies from generated requirements.txt"
@@ -348,16 +270,12 @@ if [[ "$BAO_BASE_OS" == "windows" ]]; then
     debug "Running on Windows - directly using Python from venv without activation"
     PYTHON_CMD="$VENV_PYTHON_PATH"
 
-    # Install dependencies directly with UV - redirect output on Windows
+    # Install dependencies directly with UV
     debug "Installing dependencies using UV directly on Windows"
-    temp_output=$(mktemp -t syncoutput.XXXXXXXX)
-    "$UV_BIN" pip sync --directory "$DEPENDENCIES_DIR" "$REQUIREMENTS_LOCK" > "$temp_output" 2>&1 || {
-        cat "$temp_output" >&2
-        rm -f "$temp_output"
+    capture_output "'$UV_BIN' pip sync --directory '$DEPENDENCIES_DIR' '$REQUIREMENTS_LOCK'" true || {
         error "Failed to sync dependencies from requirements.txt"
         exit 1
     }
-    rm -f "$temp_output"
 else
     # On Unix systems, use the traditional activation approach
     source "$VENV_ACTIVATE_PATH" || {
