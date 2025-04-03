@@ -2,4 +2,4 @@
 #
 # A simple run script for testing purposes
 
-echo "$# arguments: $@"
+echo "$# arguments: $*"

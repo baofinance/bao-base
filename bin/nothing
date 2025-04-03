@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 debug "nothing!"
-echo "$# arguments: $@"
+echo "$# arguments: $*"

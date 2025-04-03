@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-load "../bats_helpers"
+load "bats_helpers.sh"
 
 # Setup function runs before each test
 # setup() {

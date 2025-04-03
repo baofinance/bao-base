@@ -5,4 +5,5 @@ network="$1"
 key="$2"
 field="$3"
 
+# shellcheck disable=SC2154
 jq -r ".${key}.${field} // \"\"" "$BAO_BASE_SCRIPT_DIR"/bcinfo."$network".json

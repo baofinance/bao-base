@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Ensure platform utilities are loaded
-if ! command -v get_python_paths &>/dev/null; then
-    if [[ -f "$BAO_BASE_BIN_DIR/platform-utils.sh" ]]; then
-        source "$BAO_BASE_BIN_DIR/platform-utils.sh"
-    else
-        echo "ERROR: platform-utils.sh not found" >&2
-        exit 1
-    fi
-fi
+# assumed environment variabkes - also keeps shellcheck happy``
+BAO_BASE_BIN_DIR=$BAO_BASE_BIN_DIR
+BAO_BASE_DIR=$BAO_BASE_DIR
+BAO_BASE_OS=$BAO_BASE_OS
+
+source "$BAO_BASE_BIN_DIR/platform-utils.sh"
 
 # Set the path to the script
 SCRIPT="$1"; shift
@@ -37,7 +34,7 @@ export UV_PYTHON_PATH="$PYTHON_DIR"
 mkdir -p "$UV_CACHE_DIR"
 
 # Define virtual environment paths based on OS
-python_paths=($(get_python_paths "$VENV_DIR" | tr ':' '\n'))
+mapfile -t python_paths < <(get_python_paths "$VENV_DIR" | tr ':' '\n')
 VENV_PYTHON_PATH="${python_paths[0]}"
 VENV_ACTIVATE_PATH="${python_paths[1]}"
 
@@ -126,7 +123,8 @@ validate_lock() {
         return 1
     fi
 
-    local lock_hash=$(grep -E "^# HASH:[a-f0-9]{64}$" "$lock_file" | head -1 | cut -d':' -f2)
+    local lock_hash
+    lock_hash=$(grep -E "^# HASH:[a-f0-9]{64}$" "$lock_file" | head -1 | cut -d':' -f2)
     if [[ -z "$lock_hash" ]]; then
         echo "No hash found in $lock_file, regenerating from python-requirements.in..."
         return 1
@@ -225,9 +223,6 @@ else
 fi
 
 if ! validate_lock "$REQUIREMENTS_LOCK"; then
-    debug "Need to regenerate lock file $REQUIREMENTS_LOCK"
-    # Generate requirements.txt
-    > "$REQUIREMENTS_LOCK"
     debug "Generating $REQUIREMENTS_LOCK from $PYTHON_REQUIREMENTS_IN"
 
     # Use capture_output to prevent output from appearing in files

@@ -42,9 +42,6 @@ error() {
 export -f debug
 export -f error
 
-# Source platform utilities
-source "$BAO_BASE_BIN_DIR/platform-utils.sh"
-
 # Detect OS and set environment variables
 detect_platform
 

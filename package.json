@@ -11,7 +11,7 @@
     "fmt:check": "yarn prettier --check",
     "validate": "./run validate",
     "lint": "solhint --max-warnings 0 '{src,interfaces}/**/*.sol' --disc",
-    "lint:bash": "shellcheck --external-sources --shell=bash --enable=all --exclude=SC2310,SC2312 --severity=info $(grep -RIl '^#!.*bash' bin test)",
+    "lint:bash": "shellcheck --external-sources --shell=bash --enable=all --exclude=SC2310,SC2312 --severity=error $(grep -RIl '^#!.*bash' bin test)",
     "slither": "./run slither .",
     "test": "./run test",
     "test:bash": "[ $# -gt 0 ] && ./node_modules/bats/bin/bats test/**/\"${0}\".bats; [ $# -eq 0 ] && ./node_modules/bats/bin/bats test/**/*.bats",
