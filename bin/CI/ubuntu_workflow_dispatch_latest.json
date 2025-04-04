@@ -1,7 +1,0 @@
-{
-  "action": "workflow_dispatch",
-  "inputs": {
-    "os": "ubuntu-latest",
-    "foundry": "nightly"
-  }
-}

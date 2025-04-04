@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # set up where everything is, including backing out symlinks
-export ABS_BAO_BASE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
-export BAO_BASE_REL_DIR="$(python3 -c "import os.path; print(os.path.relpath('$ABS_BAO_BASE', '$(pwd)'))")"
-export BAO_BASE_DIR="$(cd ${BAO_BASE_REL_DIR} && pwd)"
+bao_base_dir_abs="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+export BAO_BASE_DIR_REL="$(python3 -c "import os.path; print(os.path.relpath('$bao_base_dir_abs', '$(pwd)'))")"
+export BAO_BASE_DIR=$(cd "$BAO_BASE_DIR_REL" && pwd)
 export BAO_BASE_BIN_DIR="$BAO_BASE_DIR/bin"
 export BAO_BASE_SCRIPT_DIR="$BAO_BASE_DIR/script"
 
@@ -43,6 +43,7 @@ export -f debug
 export -f error
 
 # Detect OS and set environment variables
+source "./bin/platform-utils.sh"
 detect_platform
 
 debug "Starting run script"
@@ -75,7 +76,7 @@ debug "Detecting script type for $SCRIPT_NAME"
 # First check if it's a directory
 if [[ -d "$SCRIPT_PATH" && -x "$SCRIPT_PATH/run.sh" ]]; then
     if [[ $QUIET_MODE -eq 0 ]]; then
-        echo "Running: $BAO_BASE_REL_DIR/bin/$SCRIPT_NAME/run.sh${*:+ $*}"
+        echo "Running: $BAO_BASE_DIR_REL/bin/$SCRIPT_NAME/run.sh${*:+ $*}"
     fi
     debug "Directory has an executable run.sh script"
     "$SCRIPT_PATH/run.sh" "$@" || { exit_code=$?; error "Directory run script execution failed with code $exit_code"; }
@@ -128,7 +129,7 @@ else
     fi
 
     if [[ $QUIET_MODE -eq 0 ]]; then
-        echo "Running as $script_type: $BAO_BASE_REL_DIR/bin/$SCRIPT_NAME$file_type${*:+ $*}"
+        echo "Running as $script_type: $BAO_BASE_DIR_REL/bin/$SCRIPT_NAME$file_type${*:+ $*}"
     fi
 
     case "$script_type" in
