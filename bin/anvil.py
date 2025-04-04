@@ -677,7 +677,7 @@ def start(network, chain_id=None):
             except OSError:
                 pass
 
-def format_call_result(stdout, sig_input=None, network=None):
+def format_call_result(stdout, sig_input, network=None):
     """
     Format call result based on the output content and expected return type from ABI
 
@@ -725,8 +725,18 @@ def format_call_result(stdout, sig_input=None, network=None):
 
         # Address type
         elif output_type == 'address':
-            # Just return the address as is
-            return result
+            # For addresses, always return the hex format
+            if result.startswith('0x'):
+                return result
+            else:
+                # If it's somehow not in hex format already, try to convert it
+                try:
+                    # Try to convert decimal to hex if needed
+                    decimal_value = int(result)
+                    return f"0x{decimal_value:040x}"
+                except ValueError:
+                    pass
+                return result
 
         # Bytes and string types
         elif output_type.startswith(('bytes', 'string')):
@@ -740,17 +750,6 @@ def format_call_result(stdout, sig_input=None, network=None):
                         return f"{result} (decoded: \"{string_value}\")"
                 except (ValueError, UnicodeDecodeError):
                     pass
-
-    # Default formatting based on the output content
-    if result.startswith('0x'):
-        try:
-            # Convert hex to decimal if it's a hex number
-            decimal_value = int(result, 16)
-            # Return both hex and decimal representation
-            return f"{decimal_value}"
-        except ValueError:
-            # If not a valid hex number, just return as is
-            return result
 
     # For array or structured output (multi-line)
     if '\n' in result:

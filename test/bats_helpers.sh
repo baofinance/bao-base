@@ -13,6 +13,9 @@ expect() {
     # Parse arguments
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --status)
+                expected_status="$2"
+                shift 2 ;;
             --head)
                 selected_output=$(echo "$selected_output" | head -n 1)
                 shift ;;
@@ -36,6 +39,9 @@ expect() {
         expected="$1"
     fi
 
+    echo "BATS \$output=
+$output
+."
     echo "status=$status, expected=$expected_status"
     echo "output=$selected_output."
     echo "expect=$expected."
@@ -59,4 +65,10 @@ expect() {
 # Usage: debug "message"
 debug() {
   echo "# $*" >&3
+}
+
+run_python() {
+  local python_code="$1"
+  local bin_dir=$(echo "$BATS_TEST_DIRNAME" | sed 's#\(.*\)/test/#\1/#') # take out the test dir
+  run bash -c "cd $bin_dir/.. && python3 -c \"$python_code\""
 }

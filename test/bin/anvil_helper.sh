@@ -6,11 +6,6 @@ maul() {
       run ./run -q anvil "$@"
 }
 
-run_anvil_silent_python_code() {
-  local python_code="$1"
-  run bash -c "cd $BATS_TEST_DIRNAME/.. && python3 -c \"$python_code\""
-}
-
 # Creates a mock ABI structure for testing anvil.py functions
 create_mock_abi() {
   local contract_name="$1"
