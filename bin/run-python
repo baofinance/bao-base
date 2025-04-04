@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# assumed environment variabkes - also keeps shellcheck happy``
+# assumed environment variables - also keeps shellcheck happy
 BAO_BASE_BIN_DIR=$BAO_BASE_BIN_DIR
 BAO_BASE_DIR=$BAO_BASE_DIR
 BAO_BASE_OS=$BAO_BASE_OS
+BAO_BASE_VERBOSITY=$BAO_BASE_VERBOSITY
 
 source "$BAO_BASE_BIN_DIR/platform-utils.sh"
 
@@ -12,6 +13,7 @@ source "$BAO_BASE_BIN_DIR/platform-utils.sh"
 SCRIPT="$1"; shift
 debug "Script to run: $SCRIPT"
 debug "Arguments: $*"
+debug "Verbosity level: $BAO_BASE_VERBOSITY"
 
 # Set up directories
 DEPENDENCIES_DIR="$BAO_BASE_BIN_DIR/$SCRIPT"
@@ -47,6 +49,19 @@ fi
 
 debug "Virtual environment Python path: $VENV_PYTHON_PATH"
 debug "Virtual environment activation script: $VENV_ACTIVATE_PATH"
+
+# get appropriate verbosity flags for UV based on BAO_BASE_VERBOSITY
+if [[ $BAO_BASE_VERBOSITY -lt 0 ]]; then
+    UV_FLAGS="-qq --no-progress"  # Quiet mode
+else
+    case "$BAO_BASE_VERBOSITY" in
+        0)  UV_FLAGS="-qq";;
+        1)  UV_FLAGS="-q";;
+        2)  UV_FLAGS="";;
+        *)  UV_FLAGS="--verbose";;
+    esac
+fi
+debug "Using UV flags: $UV_FLAGS"
 
 # Install uv locally
 # Check if uv is already installed
@@ -119,20 +134,20 @@ validate_lock() {
 
     # Check if both files exist
     if [[ ! -f "$lock_file" ]]; then
-        echo "$lock_file does not exist, generating from python-requirements.in..."
+        info 0 "$lock_file does not exist, generating from python-requirements.in..."
         return 1
     fi
 
     local lock_hash
     lock_hash=$(grep -E "^# HASH:[a-f0-9]{64}$" "$lock_file" | head -1 | cut -d':' -f2)
     if [[ -z "$lock_hash" ]]; then
-        echo "No hash found in $lock_file, regenerating from python-requirements.in..."
+        info 0 "No hash found in $lock_file, regenerating from python-requirements.in..."
         return 1
     fi
 
     # Check if hashes match
     if [[ "$lock_hash" != "$PYTHON_REQUIREMENTS_IN_HASH" ]]; then
-        echo "$lock_file out of date (hash mismatched), regenerating from python-requirements.in..."
+        info 0 "$lock_file out of date (hash mismatched), regenerating from python-requirements.in..."
         debug "Hash mismatch:"
         debug "$PYTHON_REQUIREMENTS_IN: $PYTHON_REQUIREMENTS_IN_HASH"
         debug "Lock file: $lock_hash"
@@ -169,7 +184,7 @@ if ! validate_lock "$PYTHON_VERSION_LOCK"; then
 
     # Create virtual environment with specified Python version using uv env
     debug "Creating environment with Python constraint: $PYTHON_CONSTRAINT"
-    "$UV_BIN" venv --managed-python --python "${PYTHON_CONSTRAINT}" "$VENV_DIR" || {
+    "$UV_BIN" $UV_FLAGS venv --managed-python --python "${PYTHON_CONSTRAINT}" "$VENV_DIR" || {
         error "Failed to create virtual environment with Python constraint $PYTHON_CONSTRAINT"
         exit 1
     }
@@ -215,8 +230,9 @@ else
     fi
 
     # Create a virtual environment with specified Python version using uv env
+    info 1 "Creating virtual environment at: $VENV_DIR"
     debug "Creating environment with Python $PYTHON_VERSION"
-    "$UV_BIN" venv --managed-python --python "$PYTHON_VERSION" "$VENV_DIR" || {
+    "$UV_BIN" $UV_FLAGS venv --managed-python --python "$PYTHON_VERSION" "$VENV_DIR" || {
         error "Failed to create virtual environment with Python $PYTHON_VERSION"
         exit 1
     }
@@ -225,8 +241,8 @@ fi
 if ! validate_lock "$REQUIREMENTS_LOCK"; then
     debug "Generating $REQUIREMENTS_LOCK from $PYTHON_REQUIREMENTS_IN"
 
-    # Use capture_output to prevent output from appearing in files
-    capture_output "(cd '$DEPENDENCIES_DIR' && grep -v -E '^python[>=<~!]' '$PYTHON_REQUIREMENTS_IN' | '$UV_BIN' -q pip compile - -o 'requirements.txt')" true || {
+    # Use capture_output to prevent output from appearing in files (Windows support)
+    capture_output "(cd '$DEPENDENCIES_DIR' && grep -v -E '^python[>=<~!]' '$PYTHON_REQUIREMENTS_IN' | '$UV_BIN' $UV_FLAGS pip compile - -o 'requirements.txt')" true || {
         error "Failed to compile requirements"
         exit 1
     }
@@ -256,6 +272,11 @@ make_executable "$VENV_PYTHON_PATH" || {
     exit 1
 }
 
+# Print Python version information based on verbosity level
+PYTHON_VERSION=$("$VENV_PYTHON_PATH" -c "import sys; print(f'Using {sys.implementation.name} {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')")
+info 1 "$PYTHON_VERSION"
+info 2 "Activate with: source $VENV_ACTIVATE_PATH"
+
 # Install dependencies using our local uv
 debug "Installing dependencies from generated requirements.txt"
 
@@ -267,7 +288,7 @@ if [[ "$BAO_BASE_OS" == "windows" ]]; then
 
     # Install dependencies directly with UV
     debug "Installing dependencies using UV directly on Windows"
-    capture_output "'$UV_BIN' pip sync --directory '$DEPENDENCIES_DIR' '$REQUIREMENTS_LOCK'" true || {
+    capture_output "'$UV_BIN' $UV_FLAGS pip sync --directory '$DEPENDENCIES_DIR' '$REQUIREMENTS_LOCK'" true || {
         error "Failed to sync dependencies from requirements.txt"
         exit 1
     }
@@ -278,7 +299,7 @@ else
         exit 1
     }
 
-    "$UV_BIN" pip sync --directory "$DEPENDENCIES_DIR" "$REQUIREMENTS_LOCK" || {
+    "$UV_BIN" $UV_FLAGS pip sync --directory "$DEPENDENCIES_DIR" "$REQUIREMENTS_LOCK" || {
         error "Failed to sync dependencies from requirements.txt"
         deactivate 2>/dev/null || true
         exit 1

@@ -781,7 +781,7 @@ Examples:
 
     # Create subparsers for commands
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
-    subparsers.required = False  # Make subcommand optional, default to "start"
+    # subparsers.required = False  # Make subcommand optional, default to "start"
 
     # Start command
     start_parser = subparsers.add_parser("start", help="Start anvil instance")
@@ -826,9 +826,9 @@ Examples:
     # Parse arguments
     args = parser.parse_args()
 
-    # Set the default command if none provided
-    if not args.command:
-        args.command = "start"
+    # # Set the default command if none provided
+    # if not args.command:
+    #     args.command = "start"
 
     # Set up logging based on verbosity level
     set_verbosity(args.v)
@@ -961,6 +961,10 @@ Examples:
         else:
             print(f"*** error: When using a raw function signature, you must use the Contract.function format")
             sys.exit(1)
+    else:
+      print(f"*** error: Unknown command '{args.command}'")
+      parser.print_help()
+      sys.exit(1)
 
 if __name__ == "__main__":
     main()

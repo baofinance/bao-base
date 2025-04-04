@@ -7,6 +7,24 @@ export BAO_BASE_DIR_REL="$(python3 -c "import os.path; print(os.path.relpath('$b
 export BAO_BASE_DIR=$(cd "$BAO_BASE_DIR_REL" && pwd)
 export BAO_BASE_BIN_DIR="$BAO_BASE_DIR/bin"
 export BAO_BASE_SCRIPT_DIR="$BAO_BASE_DIR/script"
+export BAO_BASE_VERBOSITY=0
+# Process flags for quiet mode and verbosity
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -q|--quiet) BAO_BASE_VERBOSITY=-1000
+            shift;;
+        -v) BAO_BASE_VERBOSITY=$(( BAO_BASE_VERBOSITY + 1 ))
+            shift;;
+        -vv) BAO_BASE_VERBOSITY=$(( BAO_BASE_VERBOSITY + 2 ))
+            shift;;
+        -vvv) BAO_BASE_VERBOSITY=$(( BAO_BASE_VERBOSITY + 3 ))
+            shift;;
+        -vvvv) BAO_BASE_VERBOSITY=$(( BAO_BASE_VERBOSITY + 5 ))
+            shift;;
+        *)  # Not a flag we process here
+            break;;
+    esac
+done
 
 # Debug function - automatically detects script name and prints messages only if the script is in the DEBUG list
 debug() {
@@ -38,28 +56,44 @@ error() {
     echo "ERROR: $*" >&2
     exit 1
 }
-# Export the debug function so it's available to child scripts
+
+# Information function based on verbosity level
+# Usage: info <level> <message>
+info() {
+    local required_level=$1
+    local message=$2
+
+    if [[ ${BAO_BASE_VERBOSITY:-0} -ge $required_level ]]; then
+        echo "$message"
+    fi
+}
+
+# Export the functions so they're available to child scripts
 export -f debug
 export -f error
+export -f info
 
 # Detect OS and set environment variables
 source "./bin/platform-utils.sh"
 detect_platform
 
 debug "Starting run script"
+debug "BAO_BASE_VERBOSITY=$BAO_BASE_VERBOSITY"
 debug "BAO_BASE_DIR=$BAO_BASE_DIR"
+debug "BAO_BASE_DIR_REL=$BAO_BASE_DIR_REL"
 debug "BAO_BASE_BIN_DIR=$BAO_BASE_BIN_DIR"
+debug "BAO_BASE_SCRIPT_DIR=$BAO_BASE_SCRIPT_DIR"
 debug "BAO_BASE_OS=$BAO_BASE_OS"
 debug "BAO_BASE_OS_SUBTYPE=$BAO_BASE_OS_SUBTYPE"
 debug "BAO_BASE_OS_VERSION=$BAO_BASE_OS_VERSION"
 
-# Detect if running in quiet mode
-QUIET_MODE=0
-if [[ "$1" == "-q" ]]; then
-    QUIET_MODE=1
-    shift
-    debug "Quiet mode enabled"
+# Check if we have any arguments left
+if [[ $# -lt 1 ]]; then
+    error "No script specified"
+    exit 1
 fi
+
+debug "Verbosity level set to: $BAO_BASE_VERBOSITY"
 
 SCRIPT_NAME="$1"
 shift
@@ -72,12 +106,9 @@ debug "Remaining args: $*"
 # Auto-detect script type
 debug "Detecting script type for $SCRIPT_NAME"
 
-
 # First check if it's a directory
 if [[ -d "$SCRIPT_PATH" && -x "$SCRIPT_PATH/run.sh" ]]; then
-    if [[ $QUIET_MODE -eq 0 ]]; then
-        echo "Running: $BAO_BASE_DIR_REL/bin/$SCRIPT_NAME/run.sh${*:+ $*}"
-    fi
+    info 0 "Running: $BAO_BASE_DIR_REL/bin/$SCRIPT_NAME/run.sh${*:+ $*}"
     debug "Directory has an executable run.sh script"
     "$SCRIPT_PATH/run.sh" "$@" || { exit_code=$?; error "Directory run script execution failed with code $exit_code"; }
 
@@ -128,9 +159,7 @@ else
         fi
     fi
 
-    if [[ $QUIET_MODE -eq 0 ]]; then
-        echo "Running as $script_type: $BAO_BASE_DIR_REL/bin/$SCRIPT_NAME$file_type${*:+ $*}"
-    fi
+    info 0 "Running as $script_type: $BAO_BASE_DIR_REL/bin/$SCRIPT_NAME$file_type${*:+ $*}"
 
     case "$script_type" in
     python)
