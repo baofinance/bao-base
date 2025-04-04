@@ -76,17 +76,23 @@ runs:
         DEBUG=run-python ./run nothing-python
       id: nothing
 
+    - name: Run Python (pytest) Tests
+      shell: bash
+      run: |
+        yarn test:python
+      id: bats
+
+    - name: Run Bash (BATS) Tests
+      shell: bash
+      run: |
+        yarn test:bash
+      id: bats
+
     - name: Run Bash Script Linting
       shell: bash
       run: |
         yarn lint:bash
       id: lint
-
-    - name: Run Bash Tests
-      shell: bash
-      run: |
-        yarn test:bash
-      id: bats
 
     # no python tests yet
     # - name: Run Python unit tests

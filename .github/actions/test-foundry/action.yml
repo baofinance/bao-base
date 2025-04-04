@@ -54,15 +54,7 @@ runs:
       run: |
         yarn
 
-    - name: Run Prettier
-      # TODO: doesn't run on windows
-      if: ${{ runner.os != 'Windows' }}
-      shell: bash
-      run: |
-        yarn fmt:check
-      id: fmt
-
-    - name: Run Solhint
+    - name: Run Prettier & Solhint
       # TODO: doesn't run on windows
       if: ${{ runner.os != 'Windows' }}
       shell: bash
