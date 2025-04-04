@@ -19,8 +19,10 @@ load_dotenv()  # Load .env file once
 deploy_log = "./log/deploy-local.log"
 ABI_DIR = os.getenv("ABI_DIR", "./out")
 
+bao_base_dir = os.getenv("BAO_BASE_DIR", "")
+
 # Configure logging
-logger = logging.getLogger("anvil")
+logger = logging.getLogger("maul")
 console_handler = logging.StreamHandler()
 formatter = logging.Formatter("%(levelname)s: %(message)s")
 console_handler.setFormatter(formatter)
@@ -366,7 +368,7 @@ def with_impersonation(
 def bcinfo(network, name, field="address"):
     # Use quiet version since bcinfo might legitimately fail
     result = quiet_run_command(
-        ["lib/bao-base/run", "-q", "bcinfo", network, name, field]
+        [f"{bao_base_dir}/run", "-q", "bcinfo", network, name, field]
     )
     return result.stdout.strip()
 
@@ -887,16 +889,16 @@ def format_call_result(stdout, sig_input, network=None):
 def main():
     # Create the top-level parser with better help
     parser = argparse.ArgumentParser(
-        description="Anvil script for interacting with Ethereum contracts",
+        description="maul script for interacting with Ethereum contracts on anvil or blockchains",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  anvil.py start -f mainnet                             # Start anvil forked from mainnet
-  anvil.py start -f mainnet --chain-id 1                # Start anvil with specific chain ID
-  anvil.py steal --to me --amount 100                   # Add 100 ETH to your account
-  anvil.py steal --to me --amount 1 --erc20 wsteth      # Add 1 wstETH to your account
-  anvil.py grant --role MINTER_ROLE --on token --to me  # Grant role on contract
-  anvil.py sig ERC20.transfer                           # Show function signature
+  maul.py start -f mainnet                             # Start anvil forked from mainnet
+  maul.py start -f mainnet --chain-id 1                # Start anvil with specific chain ID
+  maul.py steal --to me --amount 100                   # Add 100 ETH to your account
+  maul.py steal --to me --amount 1 --erc20 wsteth      # Add 1 wstETH to your account
+  maul.py grant --role MINTER_ROLE --on token --to me  # Grant role on contract
+  maul.py sig ERC20.transfer                           # Show function signature
         """,
     )
 

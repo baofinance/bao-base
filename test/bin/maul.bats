@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 
 load '../bats_helpers.sh'
-load 'anvil_helper.sh'
+load 'maul_helper.sh'
 
 setup() {
     # Create temp dir for test outputs
@@ -14,12 +14,12 @@ teardown() {
   rm -rf "$BATS_TEST_TMPDIR/out"
 }
 
-@test "anvil.py shows help information" {
+@test "maul.py shows help information" {
   maul --help
-  expect --head "usage: anvil.py [-h] [-f NETWORK] [-v]"
+  expect --head "usage: maul.py [-h] [-f NETWORK] [-v]"
 }
 
-@test "anvil.py sig command shows function signature" {
+@test "maul.py sig command shows function signature" {
   # Create mock ABI file for testing
   mkdir -p "$BATS_TEST_TMPDIR/out"
   cat > "$BATS_TEST_TMPDIR/out/ERC20.json" <<EOF
@@ -54,7 +54,7 @@ Return Values:
 EOF
 }
 
-@test "anvil.py address_of resolves 'baomultisig' to an address" {
+@test "maul.py address_of resolves 'baomultisig' to an address" {
   # Override the PRIVATE_KEY environment variable
   export PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" # Sample private key (not a real one)
 
@@ -72,16 +72,16 @@ sys.modules['dotenv'] = MockDotenv()
 
 # Save original sys.argv and replace it temporarily
 original_argv = sys.argv
-sys.argv = ['anvil.py']  # Minimal argv to prevent parse_args() errors
+sys.argv = ['maul.py']  # Minimal argv to prevent parse_args() errors
 
 try:
     # Load module directly without executing __main__
-    spec = importlib.util.spec_from_file_location('anvil', './bin/anvil.py')
-    anvil = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(anvil)
+    spec = importlib.util.spec_from_file_location('maul', './bin/maul.py')
+    maul = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(maul)
 
     # Now call the address_of function
-    print(anvil.address_of('mainnet', 'baomultisig'))
+    print(maul.address_of('mainnet', 'baomultisig'))
 finally:
     # Restore original argv
     sys.argv = original_argv
@@ -90,7 +90,7 @@ finally:
   expect --regexp "0x[a-fA-F0-9]{40}"
 }
 
-@test "anvil.py decode_custom_error decodes known error" {
+@test "maul.py decode_custom_error decodes known error" {
   # Create mock ABI file for testing
   mkdir -p "$BATS_TEST_TMPDIR/out"
   cat > "$BATS_TEST_TMPDIR/out/TestContract.json" <<EOF
@@ -126,13 +126,13 @@ sys.modules['dotenv'] = MockDotenv()
 
 # Save original sys.argv and replace it temporarily
 original_argv = sys.argv
-sys.argv = ['anvil.py']  # Minimal argv to prevent parse_args() errors
+sys.argv = ['maul.py']  # Minimal argv to prevent parse_args() errors
 
 try:
     # Load module directly without executing __main__
-    spec = importlib.util.spec_from_file_location('anvil', './bin/anvil.py')
-    anvil = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(anvil)
+    spec = importlib.util.spec_from_file_location('maul', './bin/maul.py')
+    maul = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(maul)
 
     # Now trace the execution steps to debug the issue
     print('Error data:', '$error_data')
@@ -145,7 +145,7 @@ try:
     print('Parameter value (manually decoded):', param_value)
 
     # Call the function
-    decoded, raw = anvil.decode_custom_error('$error_data')
+    decoded, raw = maul.decode_custom_error('$error_data')
     print(decoded)
     print('Raw data:', raw)
 finally:
@@ -160,7 +160,7 @@ finally:
   expect --partial "Parameter value (manually decoded): 42"
 }
 
-@test "anvil.py parse_sig handles both signature formats" {
+@test "maul.py parse_sig handles both signature formats" {
   # Create mock ABI file
   mkdir -p "$BATS_TEST_TMPDIR/out"
   cat > "$BATS_TEST_TMPDIR/out/Token.json" <<EOF
@@ -196,16 +196,16 @@ sys.modules['dotenv'] = MockDotenv()
 
 # Save original sys.argv and replace it temporarily
 original_argv = sys.argv
-sys.argv = ['anvil.py']  # Minimal argv to prevent parse_args() errors
+sys.argv = ['maul.py']  # Minimal argv to prevent parse_args() errors
 
 try:
     # Load module directly without executing __main__
-    spec = importlib.util.spec_from_file_location('anvil', './bin/anvil.py')
-    anvil = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(anvil)
+    spec = importlib.util.spec_from_file_location('maul', './bin/maul.py')
+    maul = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(maul)
 
     # Now call the function
-    sig, param_types = anvil.parse_sig('mainnet', 'transfer(address,uint256)')
+    sig, param_types = maul.parse_sig('mainnet', 'transfer(address,uint256)')
     print(f'Signature: {sig}')
     print(f'Param types: {param_types}')
 finally:
@@ -231,16 +231,16 @@ sys.modules['dotenv'] = MockDotenv()
 
 # Save original sys.argv and replace it temporarily
 original_argv = sys.argv
-sys.argv = ['anvil.py']  # Minimal argv to prevent parse_args() errors
+sys.argv = ['maul.py']  # Minimal argv to prevent parse_args() errors
 
 try:
     # Load module directly without executing __main__
-    spec = importlib.util.spec_from_file_location('anvil', './bin/anvil.py')
-    anvil = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(anvil)
+    spec = importlib.util.spec_from_file_location('maul', './bin/maul.py')
+    maul = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(maul)
 
     # Now call the function
-    sig, param_types = anvil.parse_sig('mainnet', 'Token.approve')
+    sig, param_types = maul.parse_sig('mainnet', 'Token.approve')
     print(f'Signature: {sig}')
     print(f'Param types: {param_types}')
 finally:
@@ -253,7 +253,7 @@ finally:
 
 }
 
-@test "anvil.py set_verbosity correctly sets log levels" {
+@test "maul.py set_verbosity correctly sets log levels" {
   run_python "
 import sys
 import os
@@ -269,32 +269,32 @@ sys.modules['dotenv'] = MockDotenv()
 
 # Save original sys.argv and replace it temporarily
 original_argv = sys.argv
-sys.argv = ['anvil.py']  # Minimal argv to prevent parse_args() errors
+sys.argv = ['maul.py']  # Minimal argv to prevent parse_args() errors
 
 try:
     # Load module directly without executing __main__
-    spec = importlib.util.spec_from_file_location('anvil', './bin/anvil.py')
-    anvil = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(anvil)
+    spec = importlib.util.spec_from_file_location('maul', './bin/maul.py')
+    maul = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(maul)
 
     # Get references to the module's components
-    logger = anvil.logger
+    logger = maul.logger
 
     # Test different verbosity levels
     print('Testing level 0:')
-    anvil.set_verbosity(0)
+    maul.set_verbosity(0)
     print(f'Logger level: {logger.level}')
     print(f'Is WARNING enabled: {logger.isEnabledFor(logging.WARNING)}')
     print(f'Is INFO enabled: {logger.isEnabledFor(logging.INFO)}')
 
     print('\\nTesting level 1:')
-    anvil.set_verbosity(1)
+    maul.set_verbosity(1)
     print(f'Logger level: {logger.level}')
     print(f'Is INFO enabled: {logger.isEnabledFor(logging.INFO)}')
     print(f'Is DEBUG enabled: {logger.isEnabledFor(logging.DEBUG)}')
 
     print('\\nTesting level 2:')
-    anvil.set_verbosity(2)
+    maul.set_verbosity(2)
     print(f'Logger level: {logger.level}')
     print(f'Is DEBUG enabled: {logger.isEnabledFor(logging.DEBUG)}')
 finally:
@@ -317,7 +317,7 @@ finally:
   expect --partial "Is DEBUG enabled: True"
 }
 
-@test "anvil.py format_call_result formats different output types correctly" {
+@test "maul.py format_call_result formats different output types correctly" {
   # Create mock ABI files for the test
   mkdir -p "$BATS_TEST_TMPDIR/out"
   cat > "$BATS_TEST_TMPDIR/out/MyContract.json" <<EOF
@@ -373,26 +373,26 @@ sys.modules['dotenv'] = MockDotenv()
 
 # Save original sys.argv and replace it temporarily
 original_argv = sys.argv
-sys.argv = ['anvil.py']  # Minimal argv to prevent parse_args() errors
+sys.argv = ['maul.py']  # Minimal argv to prevent parse_args() errors
 
 try:
     # Load module directly without executing __main__
-    spec = importlib.util.spec_from_file_location('anvil', './bin/anvil.py')
-    anvil = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(anvil)
+    spec = importlib.util.spec_from_file_location('maul', './bin/maul.py')
+    maul = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(maul)
 
     # Test integer result
     print('Integer result:')
-    print(anvil.format_call_result('0x000000000000000000000000000000000000000000000000000000000000002a', 'MyContract.getNumber'))
+    print(maul.format_call_result('0x000000000000000000000000000000000000000000000000000000000000002a', 'MyContract.getNumber'))
 
     # Test boolean result
     print('\\nBoolean results:')
-    print(anvil.format_call_result('0x0', 'MyContract.isSomething'))
-    print(anvil.format_call_result('0x1', 'MyContract.isSomethingElse'))
+    print(maul.format_call_result('0x0', 'MyContract.isSomething'))
+    print(maul.format_call_result('0x1', 'MyContract.isSomethingElse'))
 
     # Test address result
     print('\\nAddress result:')
-    print(anvil.format_call_result('0x5FbDB2315678afecb367f032d93F642f64180aa3', 'MyContract.getAddress'))
+    print(maul.format_call_result('0x5FbDB2315678afecb367f032d93F642f64180aa3', 'MyContract.getAddress'))
 finally:
     # Restore original argv
     sys.argv = original_argv

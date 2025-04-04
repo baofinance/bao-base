@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-# Helper functions for testing anvil.py
+# Helper functions for testing maul.py
 
 maul() {
-    run ./run -q anvil "$@"
+    run ./run -q maul "$@"
 }
 
-# Creates a mock ABI structure for testing anvil.py functions
+# Creates a mock ABI structure for testing maul.py functions
 create_mock_abi() {
     local contract_name="$1"
     local content="$2"

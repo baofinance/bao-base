@@ -1,7 +1,7 @@
 """
-Pytest tests for the anvil.py script.
+Pytest tests for the maul.py script.
 
-These tests correspond to the BATS tests in test/bin/anvil.bats
+These tests correspond to the BATS tests in test/bin/maul.bats
 but use proper Python testing approaches.
 """
 
@@ -13,22 +13,22 @@ import pytest
 # Import utility functions
 from utils import create_mock_abi
 
-# Import the anvil module directly
-from bin import anvil
+# Import the maul module directly
+from bin import maul
 
 
 def test_help_info(capsys):
-    """Test that anvil.py shows help information."""
+    """Test that maul.py shows help information."""
     # Capture the output
     with pytest.raises(SystemExit):
-        with patch.object(sys, "argv", ["anvil.py", "--help"]):
-            anvil.main()
+        with patch.object(sys, "argv", ["maul.py", "--help"]):
+            maul.main()
 
     # Get captured output
     captured = capsys.readouterr()
 
     # Verify expectations
-    assert "usage: anvil.py" in captured.out
+    assert "usage: maul.py" in captured.out
 
 
 def test_sig_command(mock_quiet_run_command, mock_run_command, test_output_dir):
@@ -68,8 +68,8 @@ def test_sig_command(mock_quiet_run_command, mock_run_command, test_output_dir):
 
     # Instead of running main(), directly test the get_function_info function
     # to verify signature extraction
-    with patch("bin.anvil.run_command", mock_run_command):
-        func_info = anvil.get_function_info("ERC20", "transfer")
+    with patch("bin.maul.run_command", mock_run_command):
+        func_info = maul.get_function_info("ERC20", "transfer")
 
         # Verify function info was extracted correctly
         assert func_info["signature"] == "transfer(address,uint256)"
@@ -91,7 +91,7 @@ def test_address_of_resolves_baomultisig(mock_run_command, mock_private_key):
     mock_run_command.return_value.stdout = mock_address
 
     # Call the function under test
-    result = anvil.address_of("mainnet", "baomultisig")
+    result = maul.address_of("mainnet", "baomultisig")
 
     # Check that address_of returns an Ethereum address
     assert result.startswith("0x")
@@ -143,7 +143,7 @@ def test_decode_custom_error(test_output_dir, mock_quiet_run_command):
     mock_quiet_run_command.side_effect = mock_command
 
     # Call the function under test
-    decoded, raw = anvil.decode_custom_error(error_data)
+    decoded, raw = maul.decode_custom_error(error_data)
 
     # Verify the error is properly decoded
     assert "Error: InvalidValue" in decoded
@@ -184,13 +184,13 @@ def test_parse_sig_handles_signatures(
     mock_run_command.side_effect = mock_command
 
     # Test with full function signature
-    with patch("bin.anvil.run_command", mock_run_command):
-        sig, param_types = anvil.parse_sig("mainnet", "transfer(address,uint256)")
+    with patch("bin.maul.run_command", mock_run_command):
+        sig, param_types = maul.parse_sig("mainnet", "transfer(address,uint256)")
         assert sig == "transfer(address,uint256)"
         assert param_types == ["address", "uint256"]
 
         # Test with Contract.function format
-        sig, param_types = anvil.parse_sig("mainnet", "Token.approve")
+        sig, param_types = maul.parse_sig("mainnet", "Token.approve")
         assert sig == "approve(address,uint256)"
         assert param_types == ["address", "uint256"]
 
@@ -198,21 +198,21 @@ def test_parse_sig_handles_signatures(
 def test_set_verbosity():
     """Test that set_verbosity correctly sets log levels."""
     # Test level 0 (WARNING)
-    anvil.set_verbosity(0)
-    assert anvil.logger.level == anvil.logging.WARNING
-    assert anvil.logger.isEnabledFor(anvil.logging.WARNING)
-    assert not anvil.logger.isEnabledFor(anvil.logging.INFO)
+    maul.set_verbosity(0)
+    assert maul.logger.level == maul.logging.WARNING
+    assert maul.logger.isEnabledFor(maul.logging.WARNING)
+    assert not maul.logger.isEnabledFor(maul.logging.INFO)
 
     # Test level 1 (INFO)
-    anvil.set_verbosity(1)
-    assert anvil.logger.level == anvil.logging.INFO
-    assert anvil.logger.isEnabledFor(anvil.logging.INFO)
-    assert not anvil.logger.isEnabledFor(anvil.logging.DEBUG)
+    maul.set_verbosity(1)
+    assert maul.logger.level == maul.logging.INFO
+    assert maul.logger.isEnabledFor(maul.logging.INFO)
+    assert not maul.logger.isEnabledFor(maul.logging.DEBUG)
 
     # Test level 2 (DEBUG)
-    anvil.set_verbosity(2)
-    assert anvil.logger.level == anvil.logging.DEBUG
-    assert anvil.logger.isEnabledFor(anvil.logging.DEBUG)
+    maul.set_verbosity(2)
+    assert maul.logger.level == maul.logging.DEBUG
+    assert maul.logger.isEnabledFor(maul.logging.DEBUG)
 
 
 def test_format_call_result(test_output_dir, mock_quiet_run_command, mock_run_command):
@@ -266,21 +266,21 @@ def test_format_call_result(test_output_dir, mock_quiet_run_command, mock_run_co
     mock_quiet_run_command.side_effect = mock_command
     mock_run_command.side_effect = mock_command
 
-    with patch("bin.anvil.run_command", mock_run_command):
+    with patch("bin.maul.run_command", mock_run_command):
         # Test integer result
-        result = anvil.format_call_result(
+        result = maul.format_call_result(
             "0x000000000000000000000000000000000000000000000000000000000000002a",
             "MyContract.getNumber",
         )
         assert result == "42"
 
         # Test boolean results
-        result = anvil.format_call_result("0x0", "MyContract.isSomething")
+        result = maul.format_call_result("0x0", "MyContract.isSomething")
         assert result == "false"
-        result = anvil.format_call_result("0x1", "MyContract.isSomethingElse")
+        result = maul.format_call_result("0x1", "MyContract.isSomethingElse")
         assert result == "true"
 
         # Test address result
         address = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
-        result = anvil.format_call_result(address, "MyContract.getAddress")
+        result = maul.format_call_result(address, "MyContract.getAddress")
         assert result == address

@@ -7,6 +7,7 @@ import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pathlib import Path
 
 # Add the project root to the Python path to allow importing local modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -25,7 +26,7 @@ def mock_dotenv():
 @pytest.fixture
 def mock_quiet_run_command():
     """Fixture to mock the quiet_run_command function."""
-    with patch("bin.anvil.quiet_run_command") as mock:
+    with patch("bin.maul.quiet_run_command") as mock:
         # Set up a reasonable default return value
         mock.return_value = MagicMock(returncode=0, stdout="", stderr="")
         yield mock
@@ -34,11 +35,18 @@ def mock_quiet_run_command():
 @pytest.fixture
 def mock_run_command():
     """Fixture to mock the run_command function."""
-    with patch("bin.anvil.run_command") as mock:
+    with patch("bin.maul.run_command") as mock:
         # Set up a reasonable default return value
         mock.return_value = MagicMock(returncode=0, stdout="", stderr="")
         yield mock
 
+@pytest.fixture(scope="session", autouse=True)
+def set_bao_base_dir():
+    """Automatically set BAO_BASE_DIR for all tests."""
+    # Find the project root (directory containing bin, test, etc.)
+    project_root = Path(__file__).parent.parent.parent
+    os.environ["BAO_BASE_DIR"] = str(project_root.absolute())
+    return os.environ["BAO_BASE_DIR"]
 
 @pytest.fixture
 def test_output_dir(tmp_path):
