@@ -14,7 +14,7 @@
     "fmt:python": "./run fmt-python bin test",
     "validate": "./run validate",
     "lint": "yarn prettier --check && solhint --max-warnings 0 '{src,interfaces}/**/*.sol' --disc",
-    "lint:bash": "yarn prettier:bash && shellcheck --external-sources --shell=bash --enable=all --exclude=SC2310,SC2312 --severity=error $(grep -RIl '^#!.*bash' bin test)",
+    "lint:bash": "yarn prettier:bash --check && shellcheck --external-sources --shell=bash --enable=all --exclude=SC2310,SC2312 --severity=error $(grep -RIl '^#!.*bash' bin test)",
     "lint:python": "[ $# -gt 0 ] && ./run lint-python ${0} bin test; [ $# -eq 0 ] && ./run lint-python bin test",
     "slither": "./run slither .",
     "test": "./run test",
