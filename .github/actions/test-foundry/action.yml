@@ -24,22 +24,12 @@ runs:
         python3 -c "import platform; info = f'{platform.system()} {platform.release()} {platform.version()} {platform.machine()}'; print('-' * len(info)); print(info); print('-' * len(info))"
         bash --version
 
-    - name: Install Bash 5.2
+    - name: Install Bash 5.2 (on macOS)
+      if: runner.os == 'macOS'
       shell: bash
       run: |
-        if [[ "${{ runner.os }}" == "Linux" ]]; then
-          sudo apt-get update
-          sudo apt-get install -y bash
-          echo "Bash updated to version:"
-          bash --version
-        elif [[ "${{ runner.os }}" == "macOS" ]]; then
-          brew install bash
-          echo "Bash updated to version:"
-          bash --version
-        else
-          echo "Windows not supported for Bash upgrade, using default Bash"
-          bash --version
-        fi
+        brew install bash
+        bash --version
 
     - name: Install Foundry
       uses: foundry-rs/foundry-toolchain@v1
@@ -55,16 +45,12 @@ runs:
         yarn
 
     - name: Run Prettier & Solhint
-      # TODO: doesn't run on windows
-      if: ${{ runner.os != 'Windows' }}
       shell: bash
       run: |
         yarn lint
       id: lint
 
     - name: Run Slither
-      # TODO: doesn't run on windows
-      if: ${{ runner.os != 'Windows' }}
       shell: bash
       run: |
         yarn slither
