@@ -1,4 +1,3 @@
-
 import sys
 
 # Print all arguments as a list

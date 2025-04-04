@@ -1,5 +1,6 @@
 import os
 
+
 def shorten(path, max_length):
     """
     Shorten a file path by progressively removing parts of the path and truncating the filename,
@@ -19,7 +20,7 @@ def shorten(path, max_length):
     filename = os.path.basename(path)
 
     if len(filename) > max_length:
-        return filename[:max_length - 3] + "..."
+        return filename[: max_length - 3] + "..."
 
     directory_parts = directory.split(os.sep)
     while len(directory_parts) > 0:
@@ -30,6 +31,6 @@ def shorten(path, max_length):
         directory_parts.pop()
 
     if len(filename) > max_length:
-        return filename[:max_length - 3] + "..."
+        return filename[: max_length - 3] + "..."
 
     return filename

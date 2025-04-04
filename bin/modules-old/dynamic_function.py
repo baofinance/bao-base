@@ -2,6 +2,7 @@ import importlib.util
 import os
 from typing import Callable
 
+
 def dynamic_function(file_path: str, function_name: str) -> Callable:
     """
     Dynamically loads a Python module from a file and retrieves a specific function.
@@ -27,6 +28,8 @@ def dynamic_function(file_path: str, function_name: str) -> Callable:
 
     # Retrieve the specified function from the loaded module
     if not hasattr(module, function_name):
-        raise AttributeError(f"The module '{module_name}' does not have a function named '{function_name}'")
+        raise AttributeError(
+            f"The module '{module_name}' does not have a function named '{function_name}'"
+        )
 
     return getattr(module, function_name)

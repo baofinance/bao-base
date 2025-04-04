@@ -1,9 +1,11 @@
 """
 Utility functions for tests.
 """
+
 import json
 import os
 from pathlib import Path
+
 
 def create_mock_abi(output_dir, contract_name, abi_content):
     """
@@ -25,10 +27,11 @@ def create_mock_abi(output_dir, contract_name, abi_content):
     else:
         content = abi_content
 
-    with open(file_path, 'w') as f:
+    with open(file_path, "w") as f:
         json.dump(content, f, indent=2)
 
     return file_path
+
 
 def calculate_error_selector(error_signature):
     """
@@ -43,9 +46,7 @@ def calculate_error_selector(error_signature):
     import subprocess
 
     result = subprocess.run(
-        ["cast", "keccak", error_signature],
-        capture_output=True,
-        text=True
+        ["cast", "keccak", error_signature], capture_output=True, text=True
     )
 
     if result.returncode != 0:

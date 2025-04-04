@@ -3,26 +3,26 @@
 # This script is a command-line utility for interacting with Ethereum smart contracts with an emphasis on Minter contracts
 
 import argparse
-import os
-import subprocess
-import signal
-import sys
 import json
+import logging
+import os
+import signal
+import subprocess
+import sys
 import threading
 import time
-import logging
-
 
 from dotenv import load_dotenv
+
 load_dotenv()  # Load .env file once
 
 deploy_log = "./log/deploy-local.log"
-ABI_DIR = os.getenv('ABI_DIR', './out')
+ABI_DIR = os.getenv("ABI_DIR", "./out")
 
 # Configure logging
-logger = logging.getLogger('anvil')
+logger = logging.getLogger("anvil")
 console_handler = logging.StreamHandler()
-formatter = logging.Formatter('%(levelname)s: %(message)s')
+formatter = logging.Formatter("%(levelname)s: %(message)s")
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
@@ -33,19 +33,23 @@ logger.addHandler(console_handler)
 # -vvvv -> TRACE_DETAIL (1) - custom level with much more detail
 logging.TRACE = 5
 logging.TRACE_DETAIL = 1
-logging.addLevelName(logging.TRACE, 'TRACE')
-logging.addLevelName(logging.TRACE_DETAIL, 'TRACE_DETAIL')
+logging.addLevelName(logging.TRACE, "TRACE")
+logging.addLevelName(logging.TRACE_DETAIL, "TRACE_DETAIL")
+
 
 def trace(self, message, *args, **kwargs):
     if self.isEnabledFor(logging.TRACE):
         self._log(logging.TRACE, message, args, **kwargs)
 
+
 def trace_detail(self, message, *args, **kwargs):
     if self.isEnabledFor(logging.TRACE_DETAIL):
         self._log(logging.TRACE_DETAIL, message, args, **kwargs)
 
+
 logging.Logger.trace = trace
 logging.Logger.trace_detail = trace_detail
+
 
 def set_verbosity(level):
     """
@@ -67,6 +71,7 @@ def set_verbosity(level):
     else:  # level >= 4
         logger.setLevel(logging.TRACE_DETAIL)
 
+
 def quiet_run_command(command):
     """
     Run command and return result without checking exit code
@@ -75,7 +80,7 @@ def quiet_run_command(command):
     logger.debug(f"Running command: {cmd_str}")
 
     # Only print command at INFO level and above if we're executing cast/anvil operations
-    if command[0] in ['cast', 'anvil']:
+    if command[0] in ["cast", "anvil"]:
         logger.info(f">>> {cmd_str}")
 
     result = subprocess.run(command, capture_output=True, text=True)
@@ -84,7 +89,9 @@ def quiet_run_command(command):
     if result.stdout:
         logger.trace(f"Command stdout: {result.stdout.strip()}")
         # At TRACE_DETAIL level, we add details about environment and command execution
-        logger.trace_detail(f"Full command details:\n  Command: {cmd_str}\n  Exit code: {result.returncode}\n  Full stdout: \n{result.stdout}")
+        logger.trace_detail(
+            f"Full command details:\n  Command: {cmd_str}\n  Exit code: {result.returncode}\n  Full stdout: \n{result.stdout}"
+        )
 
     if result.stderr:
         # Always show stderr at regular TRACE level
@@ -94,6 +101,7 @@ def quiet_run_command(command):
     logger.debug(f"Command returned: {result.returncode}")
 
     return result
+
 
 def decode_custom_error(error_data, contract_name=None, sig_input=None):
     """
@@ -116,8 +124,8 @@ def decode_custom_error(error_data, contract_name=None, sig_input=None):
     logger.debug(f"Looking up error selector: {error_id}")
 
     # Extract contract name from the signature input if available
-    if sig_input and '.' in sig_input and not contract_name:
-        contract_name = sig_input.split('.', 1)[0]
+    if sig_input and "." in sig_input and not contract_name:
+        contract_name = sig_input.split(".", 1)[0]
         logger.debug(f"Extracted contract name {contract_name} from signature")
 
     # Try to get error signature using cast 4byte-decode first
@@ -139,23 +147,25 @@ def decode_custom_error(error_data, contract_name=None, sig_input=None):
         # First search in the specific contract's ABI
         if contract_name:
             # Find the contract ABI file
-            find_result = quiet_run_command([
-                "find", ABI_DIR, "-name", f"{contract_name}.json", "-print", "-quit"
-            ])
+            find_result = quiet_run_command(
+                ["find", ABI_DIR, "-name", f"{contract_name}.json", "-print", "-quit"]
+            )
 
             if find_result.returncode == 0 and find_result.stdout.strip():
-                found_error = search_abi_for_error(find_result.stdout.strip(), error_id, error_data)
+                found_error = search_abi_for_error(
+                    find_result.stdout.strip(), error_id, error_data
+                )
                 if found_error:
                     return found_error
 
         # Then search all contract ABIs
         logger.debug("Searching all contract ABIs for the error selector")
-        find_all_result = quiet_run_command([
-            "find", ABI_DIR, "-name", "*.json", "-type", "f"
-        ])
+        find_all_result = quiet_run_command(
+            ["find", ABI_DIR, "-name", "*.json", "-type", "f"]
+        )
 
         if find_all_result.returncode == 0 and find_all_result.stdout.strip():
-            for abi_path in find_all_result.stdout.strip().split('\n'):
+            for abi_path in find_all_result.stdout.strip().split("\n"):
                 # Skip already checked contract
                 if contract_name and abi_path.endswith(f"/{contract_name}.json"):
                     continue
@@ -166,6 +176,7 @@ def decode_custom_error(error_data, contract_name=None, sig_input=None):
 
     # If all attempts fail, return the original error data
     return f"Custom error: {error_id}", error_data
+
 
 def search_abi_for_error(abi_path, error_id, error_data):
     """
@@ -182,28 +193,28 @@ def search_abi_for_error(abi_path, error_id, error_data):
     logger.debug(f"Checking ABI file: {abi_path}")
 
     # Extract the contract name from the path for better error messages
-    contract_name = os.path.basename(abi_path).split('.')[0]
+    contract_name = os.path.basename(abi_path).split(".")[0]
 
     # Extract errors using type filter
-    error_result = quiet_run_command([
-        "jq", '-c',
-        '.abi[] | select(.type == "error")',
-        abi_path
-    ])
+    error_result = quiet_run_command(
+        ["jq", "-c", '.abi[] | select(.type == "error")', abi_path]
+    )
 
     if error_result.returncode == 0 and error_result.stdout.strip():
         logger.debug(f"Found errors in {contract_name}")
 
         # Process each error definition
-        for error_json in error_result.stdout.strip().split('\n'):
+        for error_json in error_result.stdout.strip().split("\n"):
             try:
                 error = json.loads(error_json)
-                name = error.get('name', '')
-                inputs = error.get('inputs', [])
+                name = error.get("name", "")
+                inputs = error.get("inputs", [])
 
                 if name:
                     # Create the error signature for calldata decoding
-                    param_types = [input_param.get('type', '') for input_param in inputs]
+                    param_types = [
+                        input_param.get("type", "") for input_param in inputs
+                    ]
                     sig = f"{name}({','.join(param_types)})"
 
                     # Calculate the selector to check for a match
@@ -214,25 +225,34 @@ def search_abi_for_error(abi_path, error_id, error_data):
                         logger.debug(f"Error {name} has selector {selector}")
 
                         if selector == error_id:
-                            logger.debug(f"Found matching error in {contract_name}: {sig}")
+                            logger.debug(
+                                f"Found matching error in {contract_name}: {sig}"
+                            )
 
                             # Try to decode the full error data with parameters
                             decoded_params = ""
 
                             if len(error_data) > 10 and inputs:  # Contains parameters
-                                calldata_result = quiet_run_command([
-                                    "cast", "calldata", sig, error_data
-                                ])
-                                if calldata_result.returncode == 0 and calldata_result.stdout.strip():
+                                calldata_result = quiet_run_command(
+                                    ["cast", "calldata", sig, error_data]
+                                )
+                                if (
+                                    calldata_result.returncode == 0
+                                    and calldata_result.stdout.strip()
+                                ):
                                     # Format parameter names if available
                                     param_info = []
-                                    decoded_values = calldata_result.stdout.strip().split('\n')
+                                    decoded_values = (
+                                        calldata_result.stdout.strip().split("\n")
+                                    )
 
                                     for i, param in enumerate(inputs):
                                         if i < len(decoded_values):
-                                            param_name = param.get('name', f'param{i}')
+                                            param_name = param.get("name", f"param{i}")
                                             param_value = decoded_values[i].strip()
-                                            param_info.append(f"{param_name}={param_value}")
+                                            param_info.append(
+                                                f"{param_name}={param_value}"
+                                            )
 
                                     decoded_params = ", ".join(param_info)
 
@@ -250,6 +270,7 @@ def search_abi_for_error(abi_path, error_id, error_data):
                 logger.debug(f"Error processing error definition: {e}")
 
     return None
+
 
 def run_command(command):
     """
@@ -277,15 +298,24 @@ def run_command(command):
             custom_error_match = None
             if "custom error" in error_msg:
                 import re
+
                 # Extract the custom error data
-                custom_error_match = re.search(r'custom error ([^,\s]+)(?:, data: "([^"]+)")?', error_msg)
+                custom_error_match = re.search(
+                    r'custom error ([^,\s]+)(?:, data: "([^"]+)")?', error_msg
+                )
 
             if custom_error_match:
                 error_selector = custom_error_match.group(1)
-                error_data = custom_error_match.group(2) if custom_error_match.group(2) else error_selector
+                error_data = (
+                    custom_error_match.group(2)
+                    if custom_error_match.group(2)
+                    else error_selector
+                )
 
                 # Try to decode the error with context from the command
-                decoded_error, raw_data = decode_custom_error(error_data, sig_input=sig_input)
+                decoded_error, raw_data = decode_custom_error(
+                    error_data, sig_input=sig_input
+                )
 
                 # Print both decoded error and raw data
                 print(f"*** {decoded_error}")
@@ -301,7 +331,10 @@ def run_command(command):
 
     return result
 
-def with_impersonation(network, identity, callback_func, *callback_args, **callback_kwargs):
+
+def with_impersonation(
+    network, identity, callback_func, *callback_args, **callback_kwargs
+):
     """
     Execute a function with optional impersonation
 
@@ -317,18 +350,26 @@ def with_impersonation(network, identity, callback_func, *callback_args, **callb
         run_command(["cast", "rpc", "anvil_impersonateAccount", impersonation_address])
         try:
             # Execute the callback with the impersonation address
-            return callback_func(impersonation_address, *callback_args, **callback_kwargs)
+            return callback_func(
+                impersonation_address, *callback_args, **callback_kwargs
+            )
         finally:
             # Clean up impersonation
-            run_command(["cast", "rpc", "anvil_stopImpersonatingAccount", impersonation_address])
+            run_command(
+                ["cast", "rpc", "anvil_stopImpersonatingAccount", impersonation_address]
+            )
     else:
         # No impersonation needed, just run the function without an impersonation address
         return callback_func(None, *callback_args, **callback_kwargs)
 
+
 def bcinfo(network, name, field="address"):
     # Use quiet version since bcinfo might legitimately fail
-    result = quiet_run_command(["lib/bao-base/run", "-q", "bcinfo", network, name, field])
+    result = quiet_run_command(
+        ["lib/bao-base/run", "-q", "bcinfo", network, name, field]
+    )
     return result.stdout.strip()
+
 
 def address_of(network, wallet):
     if wallet.startswith("0x"):
@@ -352,6 +393,7 @@ def address_of(network, wallet):
             address = wallet
         return address
 
+
 def role_number_of(network, role, on):
     if role.startswith("0x") or role.isdigit():
         return role
@@ -361,6 +403,7 @@ def role_number_of(network, role, on):
     if not output:
         raise ValueError(f"Role {role} not found on {on}")
     return output[0]
+
 
 def get_function_info(contract, func_name):
     """
@@ -379,20 +422,22 @@ def get_function_info(contract, func_name):
             'abi_path': Path to the contract ABI file
     """
     # Find the contract ABI file
-    result = run_command([
-        "find", ABI_DIR, "-name", f"{contract}.json", "-print", "-quit"
-    ])
+    result = run_command(
+        ["find", ABI_DIR, "-name", f"{contract}.json", "-print", "-quit"]
+    )
     abi_path = result.stdout.strip()
     if not abi_path:
         print(f"error: Contract ABI file not found for {contract}")
         sys.exit(1)
 
     # Get detailed function information including inputs and outputs
-    result = run_command([
-        "jq",
-        f'.abi[] | select(.name == "{func_name}" and .type == "function")',
-        abi_path
-    ])
+    result = run_command(
+        [
+            "jq",
+            f'.abi[] | select(.name == "{func_name}" and .type == "function")',
+            abi_path,
+        ]
+    )
 
     if result.returncode != 0 or not result.stdout.strip():
         print(f"error: Function {func_name} not found in contract {contract}")
@@ -402,19 +447,22 @@ def get_function_info(contract, func_name):
         func_data = json.loads(result.stdout.strip())
 
         # Extract parameter types for the signature
-        param_types = [input_param.get('type', '') for input_param in func_data.get('inputs', [])]
-        param_str = ','.join(param_types)
+        param_types = [
+            input_param.get("type", "") for input_param in func_data.get("inputs", [])
+        ]
+        param_str = ",".join(param_types)
 
         return {
-            'signature': f"{func_name}({param_str})",
-            'param_types': param_types,
-            'inputs': func_data.get('inputs', []),
-            'outputs': func_data.get('outputs', []),
-            'abi_path': abi_path
+            "signature": f"{func_name}({param_str})",
+            "param_types": param_types,
+            "inputs": func_data.get("inputs", []),
+            "outputs": func_data.get("outputs", []),
+            "abi_path": abi_path,
         }
     except json.JSONDecodeError:
         print(f"error: Invalid JSON in ABI for {contract}.{func_name}")
         sys.exit(1)
+
 
 def lookup_env(env_name):
     value = os.getenv(env_name, "")
@@ -426,6 +474,7 @@ def lookup_env(env_name):
                     break
     return value
 
+
 def parse_sig(network, sig_input):
     """
     Parse a signature input which can be either:
@@ -435,29 +484,41 @@ def parse_sig(network, sig_input):
     Returns:
         tuple: (signature_string, param_types)
     """
-    if '(' in sig_input:
+    if "(" in sig_input:
         # Case 1: It's already a function signature
-        func_name = sig_input[:sig_input.find('(')]
-        param_str = sig_input[sig_input.find('(')+1:sig_input.find(')')]
-        param_types = param_str.split(',') if param_str else []
+        func_name = sig_input[: sig_input.find("(")]
+        param_str = sig_input[sig_input.find("(") + 1 : sig_input.find(")")]
+        param_types = param_str.split(",") if param_str else []
         return sig_input, param_types
-    elif '.' in sig_input:
+    elif "." in sig_input:
         # Case 2: It's in contract.function format
-        contract, func_name = sig_input.split('.', 1)
+        contract, func_name = sig_input.split(".", 1)
         func_info = get_function_info(contract, func_name)
-        return func_info['signature'], func_info['param_types']
+        return func_info["signature"], func_info["param_types"]
     else:
         print(f"*** Error: Invalid signature format '{sig_input}'")
-        print("*** Signature must be either 'function(type1,type2)' or 'Contract.function'")
+        print(
+            "*** Signature must be either 'function(type1,type2)' or 'Contract.function'"
+        )
         sys.exit(1)
+
 
 def grab(network, wallet, eth_amount):
     address = address_of(network, wallet)
     wei_amount = run_command(["cast", "to-wei", eth_amount]).stdout.strip()
-    run_command(["cast", "rpc", "anvil_setBalance", address, run_command(["cast", "to-hex", wei_amount]).stdout.strip()])
+    run_command(
+        [
+            "cast",
+            "rpc",
+            "anvil_setBalance",
+            address,
+            run_command(["cast", "to-hex", wei_amount]).stdout.strip(),
+        ]
+    )
     wei_balance = run_command(["cast", "balance", address]).stdout.strip()
     eth_balance = run_command(["cast", "from-wei", wei_balance]).stdout.strip()
     print(f"*** {wallet} balance is now {eth_balance}")
+
 
 def grab_erc20(network, wallet, eth_amount, token):
     """
@@ -468,7 +529,19 @@ def grab_erc20(network, wallet, eth_amount, token):
     token_address = address_of(network, token)
 
     # Check current balance
-    wei_balance = run_command(["cast", "call", token_address, "balanceOf(address)(uint256)", wallet_address]).stdout.strip().split()[0]
+    wei_balance = (
+        run_command(
+            [
+                "cast",
+                "call",
+                token_address,
+                "balanceOf(address)(uint256)",
+                wallet_address,
+            ]
+        )
+        .stdout.strip()
+        .split()[0]
+    )
     eth_balance = run_command(["cast", "from-wei", wei_balance]).stdout.strip()
     print(f"*** giving {wallet} {eth_amount} erc20 {token} (current: {eth_balance})...")
 
@@ -480,7 +553,9 @@ def grab_erc20(network, wallet, eth_amount, token):
     done = [wallet_address.lower()]  # Use lowercase for consistent comparison
 
     # Start with recent blocks
-    latest_block = int(run_command(["cast", "block", "latest", "-f", "number"]).stdout.strip())
+    latest_block = int(
+        run_command(["cast", "block", "latest", "-f", "number"]).stdout.strip()
+    )
     block_window = 2000
     blocks_to_check = [(latest_block - block_window, latest_block)]
 
@@ -492,14 +567,20 @@ def grab_erc20(network, wallet, eth_amount, token):
 
         # Get Transfer events using JSON output for easier parsing
         logger.debug(f"Checking blocks {start_block} to {end_block}")
-        events = quiet_run_command([
-            "cast", "logs",
-            "--from-block", str(start_block),
-            "--to-block", str(end_block),
-            "--address", token_address,
-            "Transfer(address,address,uint256)",
-            "--json"  # Request JSON output format
-        ])
+        events = quiet_run_command(
+            [
+                "cast",
+                "logs",
+                "--from-block",
+                str(start_block),
+                "--to-block",
+                str(end_block),
+                "--address",
+                token_address,
+                "Transfer(address,address,uint256)",
+                "--json",  # Request JSON output format
+            ]
+        )
 
         # Skip if error or no events
         if events.returncode != 0 or not events.stdout.strip():
@@ -513,6 +594,7 @@ def grab_erc20(network, wallet, eth_amount, token):
         # Parse JSON events
         try:
             import json
+
             logs = json.loads(events.stdout)
             logger.debug(f"Found {len(logs)} Transfer events")
 
@@ -524,7 +606,7 @@ def grab_erc20(network, wallet, eth_amount, token):
                 # topics[1]: From address (indexed)
                 # topics[2]: To address (indexed)
                 # data: Amount (not indexed)
-                topics = log.get('topics', [])
+                topics = log.get("topics", [])
                 if len(topics) >= 3:
                     # Extract 'to' address from topics[2]
                     # Topic values are 32 bytes (64 hex chars + 0x), but addresses are 20 bytes (40 hex chars)
@@ -546,7 +628,10 @@ def grab_erc20(network, wallet, eth_amount, token):
         # Process each unique recipient
         for to_address in set(recipients):
             # Skip already processed or zero address
-            if to_address in done or to_address == "0x0000000000000000000000000000000000000000":
+            if (
+                to_address in done
+                or to_address == "0x0000000000000000000000000000000000000000"
+            ):
                 continue
 
             done.append(to_address)
@@ -554,11 +639,15 @@ def grab_erc20(network, wallet, eth_amount, token):
 
             try:
                 # Get token balance of this address
-                balance_result = quiet_run_command([
-                    "cast", "call", token_address,
-                    "balanceOf(address)(uint256)",
-                    to_address
-                ])
+                balance_result = quiet_run_command(
+                    [
+                        "cast",
+                        "call",
+                        token_address,
+                        "balanceOf(address)(uint256)",
+                        to_address,
+                    ]
+                )
 
                 if balance_result.returncode != 0 or not balance_result.stdout.strip():
                     continue
@@ -566,36 +655,62 @@ def grab_erc20(network, wallet, eth_amount, token):
                 wei_pawn_holding = int(balance_result.stdout.strip().split()[0])
 
                 # Only process addresses with meaningful balances
-                if wei_pawn_holding > 1000000:  # Small threshold to catch more token holders
+                if (
+                    wei_pawn_holding > 1000000
+                ):  # Small threshold to catch more token holders
                     # Calculate how much to take (90% of their balance, capped at what we still need)
-                    wei_to_steal = min(wei_pawn_holding * 9 // 10, wei_amount - wei_amount_transferred)
-                    eth_to_steal = run_command(["cast", "from-wei", str(wei_to_steal)]).stdout.strip()
+                    wei_to_steal = min(
+                        wei_pawn_holding * 9 // 10, wei_amount - wei_amount_transferred
+                    )
+                    eth_to_steal = run_command(
+                        ["cast", "from-wei", str(wei_to_steal)]
+                    ).stdout.strip()
 
-                    print(f"*** stealing {eth_to_steal} of {token} from {to_address}...")
+                    print(
+                        f"*** stealing {eth_to_steal} of {token} from {to_address}..."
+                    )
 
                     # Use the with_impersonation helper
                     def transfer_tokens(impersonated_address):
                         # Give the address some ETH to pay for gas
-                        run_command(["cast", "rpc", "anvil_setBalance",
-                                    to_address,
-                                    run_command(["cast", "to-hex", "27542757796200000000"]).stdout.strip()])
+                        run_command(
+                            [
+                                "cast",
+                                "rpc",
+                                "anvil_setBalance",
+                                to_address,
+                                run_command(
+                                    ["cast", "to-hex", "27542757796200000000"]
+                                ).stdout.strip(),
+                            ]
+                        )
 
                         # Transfer tokens
-                        run_command(["cast", "send",
-                                    token_address,
-                                    "transfer(address,uint256)",
-                                    wallet_address,
-                                    str(wei_to_steal),
-                                    "--from", impersonated_address,
-                                    "--unlocked"])
+                        run_command(
+                            [
+                                "cast",
+                                "send",
+                                token_address,
+                                "transfer(address,uint256)",
+                                wallet_address,
+                                str(wei_to_steal),
+                                "--from",
+                                impersonated_address,
+                                "--unlocked",
+                            ]
+                        )
 
                     # Execute the transfer with impersonation
                     with_impersonation(network, to_address, transfer_tokens)
 
                     # Update tracking variables
                     wei_amount_transferred += wei_to_steal
-                    eth_amount_transferred = run_command(["cast", "from-wei", str(wei_amount_transferred)]).stdout.strip()
-                    print(f"*** total amount stolen so far: {eth_amount_transferred} of {eth_amount}")
+                    eth_amount_transferred = run_command(
+                        ["cast", "from-wei", str(wei_amount_transferred)]
+                    ).stdout.strip()
+                    print(
+                        f"*** total amount stolen so far: {eth_amount_transferred} of {eth_amount}"
+                    )
 
                     # Exit if we have enough
                     if wei_amount_transferred >= wei_amount:
@@ -614,8 +729,13 @@ def grab_erc20(network, wallet, eth_amount, token):
     if wei_amount_transferred < wei_amount:
         remaining = wei_amount - wei_amount_transferred
         remaining_eth = run_command(["cast", "from-wei", str(remaining)]).stdout.strip()
-        print(f"*** Warning: Could only find {eth_amount_transferred} of requested {eth_amount} tokens")
-        print(f"*** Missing {remaining_eth} tokens. Try checking more blocks or a different token.")
+        print(
+            f"*** Warning: Could only find {eth_amount_transferred} of requested {eth_amount} tokens"
+        )
+        print(
+            f"*** Missing {remaining_eth} tokens. Try checking more blocks or a different token."
+        )
+
 
 def start(network, chain_id=None):
     # Store the anvil process so we can terminate it properly
@@ -625,7 +745,9 @@ def start(network, chain_id=None):
         while quiet_run_command(["nc", "-z", "localhost", "8545"]).returncode != 0:
             time.sleep(1)
         print("*** allowing baomultisig to be impersonated...")
-        run_command(["cast", "rpc", "anvil_impersonateAccount", bcinfo(network, "baomultisig")])
+        run_command(
+            ["cast", "rpc", "anvil_impersonateAccount", bcinfo(network, "baomultisig")]
+        )
         grab(network, "baomultisig", "1")
 
     def signal_handler(sig, frame):
@@ -651,7 +773,9 @@ def start(network, chain_id=None):
 
     try:
         anvil_thread = threading.Thread(target=wait_for_anvil)
-        anvil_thread.daemon = True  # Make thread a daemon so it exits when main thread exits
+        anvil_thread.daemon = (
+            True  # Make thread a daemon so it exits when main thread exits
+        )
         anvil_thread.start()
 
         # Use subprocess.Popen instead of run_command for direct process control
@@ -677,6 +801,7 @@ def start(network, chain_id=None):
             except OSError:
                 pass
 
+
 def format_call_result(stdout, sig_input, network=None):
     """
     Format call result based on the output content and expected return type from ABI
@@ -694,12 +819,12 @@ def format_call_result(stdout, sig_input, network=None):
 
     # Try to get ABI information about return type
     output_type = None
-    if sig_input and '.' in sig_input:
+    if sig_input and "." in sig_input:
         try:
-            contract, func_name = sig_input.split('.', 1)
+            contract, func_name = sig_input.split(".", 1)
             func_info = get_function_info(contract, func_name)
-            if func_info and func_info['outputs'] and len(func_info['outputs']) > 0:
-                output_type = func_info['outputs'][0].get('type')
+            if func_info and func_info["outputs"] and len(func_info["outputs"]) > 0:
+                output_type = func_info["outputs"][0].get("type")
         except Exception as e:
             logger.debug(f"Error getting output type from ABI: {e}")
 
@@ -708,8 +833,8 @@ def format_call_result(stdout, sig_input, network=None):
         logger.debug(f"Function returns type: {output_type}")
 
         # Integer types (uint*, int*)
-        if output_type.startswith(('uint', 'int')):
-            if result.startswith('0x'):
+        if output_type.startswith(("uint", "int")):
+            if result.startswith("0x"):
                 try:
                     decimal_value = int(result, 16)
                     return f"{decimal_value}"  # Just show decimal for ints
@@ -717,16 +842,16 @@ def format_call_result(stdout, sig_input, network=None):
                     pass
 
         # Boolean type
-        elif output_type == 'bool':
-            if result == '0x0' or result == '0':
+        elif output_type == "bool":
+            if result == "0x0" or result == "0":
                 return "false"
-            elif result == '0x1' or result == '1':
+            elif result == "0x1" or result == "1":
                 return "true"
 
         # Address type
-        elif output_type == 'address':
+        elif output_type == "address":
             # For addresses, always return the hex format
-            if result.startswith('0x'):
+            if result.startswith("0x"):
                 return result
             else:
                 # If it's somehow not in hex format already, try to convert it
@@ -739,24 +864,25 @@ def format_call_result(stdout, sig_input, network=None):
                 return result
 
         # Bytes and string types
-        elif output_type.startswith(('bytes', 'string')):
+        elif output_type.startswith(("bytes", "string")):
             # Try to decode if it looks like hex
-            if result.startswith('0x'):
+            if result.startswith("0x"):
                 try:
                     # Try to decode as string if it's UTF-8 encodable
                     bytes_value = bytes.fromhex(result[2:])
-                    string_value = bytes_value.decode('utf-8', errors='replace')
+                    string_value = bytes_value.decode("utf-8", errors="replace")
                     if all(c.isprintable() or c.isspace() for c in string_value):
-                        return f"{result} (decoded: \"{string_value}\")"
+                        return f'{result} (decoded: "{string_value}")'
                 except (ValueError, UnicodeDecodeError):
                     pass
 
     # For array or structured output (multi-line)
-    if '\n' in result:
+    if "\n" in result:
         return f"\n{result}"
 
     # Default case
     return result
+
 
 def main():
     # Create the top-level parser with better help
@@ -771,12 +897,20 @@ Examples:
   anvil.py steal --to me --amount 1 --erc20 wsteth      # Add 1 wstETH to your account
   anvil.py grant --role MINTER_ROLE --on token --to me  # Grant role on contract
   anvil.py sig ERC20.transfer                           # Show function signature
-        """
+        """,
     )
 
     # Add global arguments
-    parser.add_argument("-f", "--rpc-url", dest="network", default="mainnet", help="Network to fork from")
-    parser.add_argument("-v", action="count", default=0, help="Increase verbosity level")
+    parser.add_argument(
+        "-f",
+        "--rpc-url",
+        dest="network",
+        default="mainnet",
+        help="Network to fork from",
+    )
+    parser.add_argument(
+        "-v", action="count", default=0, help="Increase verbosity level"
+    )
 
     # Create subparsers for commands
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
@@ -784,43 +918,88 @@ Examples:
 
     # Start command
     start_parser = subparsers.add_parser("start", help="Start anvil instance")
-    start_parser.add_argument("--chain-id", type=int, help="Specify chain ID for the anvil instance")
+    start_parser.add_argument(
+        "--chain-id", type=int, help="Specify chain ID for the anvil instance"
+    )
 
     # Steal command and aliases
-    steal_aliases = ["pinch", "nick", "grab", "pilfer", "embezzle", "rob", "swipe", "thieve",
-                     "filch", "purloin", "lift", "pillage", "plunder", "loot", "snatch"]
-    steal_parser = subparsers.add_parser("steal", help="Add tokens to an address", aliases=steal_aliases)
-    steal_parser.add_argument("--erc20", help="ERC20 token address or name (if omitted, steals ETH)")
+    steal_aliases = [
+        "pinch",
+        "nick",
+        "grab",
+        "pilfer",
+        "embezzle",
+        "rob",
+        "swipe",
+        "thieve",
+        "filch",
+        "purloin",
+        "lift",
+        "pillage",
+        "plunder",
+        "loot",
+        "snatch",
+    ]
+    steal_parser = subparsers.add_parser(
+        "steal", help="Add tokens to an address", aliases=steal_aliases
+    )
+    steal_parser.add_argument(
+        "--erc20", help="ERC20 token address or name (if omitted, steals ETH)"
+    )
     steal_parser.add_argument("--to", required=True, help="Recipient address")
-    steal_parser.add_argument("--amount", required=True, help="Amount of tokens to transfee")
+    steal_parser.add_argument(
+        "--amount", required=True, help="Amount of tokens to transfee"
+    )
 
     # Grant command
     grant_parser = subparsers.add_parser("grant", help="Grant a role on a contract")
     grant_parser.add_argument("--role", required=True, help="Role identifier/name")
-    grant_parser.add_argument("--on", required=True, help="Contract address with role system")
+    grant_parser.add_argument(
+        "--on", required=True, help="Contract address with role system"
+    )
     grant_parser.add_argument("--to", required=True, help="Address to receive the role")
-    grant_parser.add_argument("--as", dest="as_", help="Address to impersonate when granting")
+    grant_parser.add_argument(
+        "--as", dest="as_", help="Address to impersonate when granting"
+    )
 
     # Call command
     call_parser = subparsers.add_parser("call", help="Read-only call to contract")
     call_parser.add_argument("--to", required=True, help="Contract address")
-    call_parser.add_argument("--sig", required=True,
-                           help="Either a function signature (e.g., 'transfer(address,uint256)') or Contract.function (e.g., 'ERC20.transfer')")
-    call_parser.add_argument("--as", dest="as_", help="Address to impersonate for the call")
-    call_parser.add_argument("args", nargs=argparse.REMAINDER, help="Arguments to pass to function")
+    call_parser.add_argument(
+        "--sig",
+        required=True,
+        help="Either a function signature (e.g., 'transfer(address,uint256)') or Contract.function (e.g., 'ERC20.transfer')",
+    )
+    call_parser.add_argument(
+        "--as", dest="as_", help="Address to impersonate for the call"
+    )
+    call_parser.add_argument(
+        "args", nargs=argparse.REMAINDER, help="Arguments to pass to function"
+    )
 
     # Send command
-    send_parser = subparsers.add_parser("send", help="State-changing transaction to contract")
+    send_parser = subparsers.add_parser(
+        "send", help="State-changing transaction to contract"
+    )
     send_parser.add_argument("--to", required=True, help="Contract address")
-    send_parser.add_argument("--sig", required=True,
-                           help="Either a function signature (e.g., 'transfer(address,uint256)') or Contract.function (e.g., 'ERC20.transfer')")
-    send_parser.add_argument("--as", dest="as_", help="Address to impersonate for the transaction")
-    send_parser.add_argument("args", nargs=argparse.REMAINDER, help="Arguments to pass to function")
+    send_parser.add_argument(
+        "--sig",
+        required=True,
+        help="Either a function signature (e.g., 'transfer(address,uint256)') or Contract.function (e.g., 'ERC20.transfer')",
+    )
+    send_parser.add_argument(
+        "--as", dest="as_", help="Address to impersonate for the transaction"
+    )
+    send_parser.add_argument(
+        "args", nargs=argparse.REMAINDER, help="Arguments to pass to function"
+    )
 
     # Sig command
     sig_parser = subparsers.add_parser("sig", help="Look up function signature")
-    sig_parser.add_argument("signature",
-                           help="Either a function signature (e.g., 'transfer(address,uint256)') or Contract.function (e.g., 'ERC20.transfer')")
+    sig_parser.add_argument(
+        "signature",
+        help="Either a function signature (e.g., 'transfer(address,uint256)') or Contract.function (e.g., 'ERC20.transfer')",
+    )
 
     # Parse arguments
     args = parser.parse_args()
@@ -869,15 +1048,28 @@ Examples:
                 auth_flags = ["--from", default_addr, "--unlocked"]
 
         # Run the grantRoles transaction directly with authentication
-        run_command(["cast", "send", on_address, "grantRoles(address,uint256)",
-                    to_address, role_number] + auth_flags)
+        run_command(
+            [
+                "cast",
+                "send",
+                on_address,
+                "grantRoles(address,uint256)",
+                to_address,
+                role_number,
+            ]
+            + auth_flags
+        )
 
     elif args.command in ["call", "send"]:
         to_address = address_of(args.network, args.to)
         to = f"{args.to} ({to_address})" if to_address != args.to else args.to
         if args.as_:
             as_address = address_of(args.network, args.as_)
-            as_ = " as " + args.as_  + " (" + as_address + ")" if as_address !=  args.as_ else ""
+            as_ = (
+                " as " + args.as_ + " (" + as_address + ")"
+                if as_address != args.as_
+                else ""
+            )
         else:
             as_address = None
             as_ = ""
@@ -888,7 +1080,7 @@ Examples:
         processed_args = []
         for i, arg in enumerate(args.args):
             # Check if this parameter is an address type
-            is_address = (i < len(param_types) and 'address' in param_types[i])
+            is_address = i < len(param_types) and "address" in param_types[i]
 
             if is_address:
                 # Convert the argument to an address
@@ -918,11 +1110,18 @@ Examples:
                     auth_flags = ["--from", default_addr, "--unlocked"]
 
         # Execute the command and capture result
-        result = with_impersonation(args.network, args.as_, lambda as_address: (
-            run_command(["cast", args.command, to_address, sig] + processed_args +
-                          (auth_flags if args.command == "send" else []) +
-                          ([verbosity] if verbosity else []))
-        ))
+        result = with_impersonation(
+            args.network,
+            args.as_,
+            lambda as_address: (
+                run_command(
+                    ["cast", args.command, to_address, sig]
+                    + processed_args
+                    + (auth_flags if args.command == "send" else [])
+                    + ([verbosity] if verbosity else [])
+                )
+            ),
+        )
 
         # For 'call' operations, show the result
         if args.command == "call" and result.stdout:
@@ -934,36 +1133,39 @@ Examples:
 
     elif args.command == "sig":
         # Parse the signature format using the same parser as call/send
-        if '.' in args.signature:
-            contract, func_name = args.signature.split('.', 1)
+        if "." in args.signature:
+            contract, func_name = args.signature.split(".", 1)
             func_info = get_function_info(contract, func_name)
 
             output = f"*** signature for {contract}.{func_name} is \"{func_info['signature']}\""
 
             # Display input parameters if available
-            if func_info['inputs']:
+            if func_info["inputs"]:
                 output += "\nInput Parameters:"
-                for i, param in enumerate(func_info['inputs']):
-                    name = param.get('name', 'unnamed')
-                    type_name = param.get('type', '')
+                for i, param in enumerate(func_info["inputs"]):
+                    name = param.get("name", "unnamed")
+                    type_name = param.get("type", "")
                     output += f"\n  {i+1}. {name}: {type_name}"
 
             # Display return parameters if available
-            if func_info['outputs']:
+            if func_info["outputs"]:
                 output += "\nReturn Values:"
-                for i, param in enumerate(func_info['outputs']):
-                    name = param.get('name', f'return_{i}')
-                    type_name = param.get('type', '')
+                for i, param in enumerate(func_info["outputs"]):
+                    name = param.get("name", f"return_{i}")
+                    type_name = param.get("type", "")
                     output += f"\n  {i+1}. {name}: {type_name}"
 
             print(output)
         else:
-            print(f"*** error: When using a raw function signature, you must use the Contract.function format")
+            print(
+                f"*** error: When using a raw function signature, you must use the Contract.function format"
+            )
             sys.exit(1)
     else:
-      print(f"*** error: Unknown command '{args.command}'")
-      parser.print_help()
-      sys.exit(1)
+        print(f"*** error: Unknown command '{args.command}'")
+        parser.print_help()
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
