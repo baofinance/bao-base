@@ -15,20 +15,25 @@ expect() {
         case "$1" in
             --status)
                 expected_status="$2"
-                shift 2 ;;
+                shift 2
+                ;;
             --head)
                 selected_output=$(echo "$selected_output" | head -n 1)
-                shift ;;
+                shift
+                ;;
             --tail)
                 selected_output=$(echo "$selected_output" | tail -n 1)
-                shift ;;
+                shift
+                ;;
             --partial)
                 mode="partial"
-                shift ;;
+                shift
+                ;;
             --regexp)
                 mode="regexp"
-                shift ;;
-            *)  break ;;
+                shift
+                ;;
+            *) break ;;
         esac
     done
 
@@ -64,11 +69,11 @@ $output
 # Debug helper to print information during test execution
 # Usage: debug "message"
 debug() {
-  echo "# $*" >&3
+    echo "# $*" >&3
 }
 
 run_python() {
-  local python_code="$1"
-  local bin_dir=$(echo "$BATS_TEST_DIRNAME" | sed 's#\(.*\)/test/#\1/#') # take out the test dir
-  run bash -c "cd $bin_dir/.. && python3 -c \"$python_code\""
+    local python_code="$1"
+    local bin_dir=$(echo "$BATS_TEST_DIRNAME" | sed 's#\(.*\)/test/#\1/#') # take out the test dir
+    run bash -c "cd $bin_dir/.. && python3 -c \"$python_code\""
 }

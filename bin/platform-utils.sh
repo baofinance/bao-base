@@ -27,7 +27,7 @@ detect_platform() {
         BAO_BASE_OS="macos"
         if command -v sw_vers &> /dev/null; then
             BAO_BASE_OS_SUBTYPE="darwin"
-            BAO_BASE_OS_VERSION=$(sw_vers -productVersion)  # e.g. "10.15.7"
+            BAO_BASE_OS_VERSION=$(sw_vers -productVersion) # e.g. "10.15.7"
         fi
     # Linux detection
     elif [[ "$(uname)" == "Linux" ]]; then
@@ -35,26 +35,26 @@ detect_platform() {
         # Try to get distribution info
         if [[ -f /etc/os-release ]]; then
             BAO_BASE_OS_SUBTYPE=$(
-                source /etc/os-release >/dev/null 2>&1
+                source /etc/os-release > /dev/null 2>&1
                 echo "${ID,,}"
             ) # e.g. "ubuntu" "debian", "centos", "fedora"
             BAO_BASE_OS_VERSION=$(
-                source /etc/os-release >/dev/null 2>&1
+                source /etc/os-release > /dev/null 2>&1
                 echo "${VERSION_ID}"
             ) # e.g. "20.04", "11", "8"
         # Fallbacks if os-release isn't available
         elif command -v lsb_release &> /dev/null; then
             BAO_BASE_OS_SUBTYPE=$(lsb_release -si | tr '[:upper:]' '[:lower:]') # e.g. "ubuntu", "debian"
-            BAO_BASE_OS_VERSION=$(lsb_release -sr)  # e.g. "20.04", "11"
+            BAO_BASE_OS_VERSION=$(lsb_release -sr)                              # e.g. "20.04", "11"
         elif [[ -f /etc/lsb-release ]]; then
             source /etc/lsb-release
-            BAO_BASE_OS_SUBTYPE="${DISTRIB_ID,,}" # e.g. "ubuntu", "debian"
+            BAO_BASE_OS_SUBTYPE="${DISTRIB_ID,,}"    # e.g. "ubuntu", "debian"
             BAO_BASE_OS_VERSION="${DISTRIB_RELEASE}" # e.g. "20.04", "11"
         elif [[ -f /etc/debian_version ]]; then
             BAO_BASE_OS_SUBTYPE="debian"
         elif [[ -f /etc/redhat-release ]]; then
             BAO_BASE_OS_SUBTYPE=$(cat /etc/redhat-release | cut -d ' ' -f 1 | tr '[:upper:]' '[:lower:]') # e.g. "centos", "fedora"
-            BAO_BASE_OS_VERSION=$(cat /etc/redhat-release | grep -oP '[0-9]+\.[0-9]+' | head -n 1)  # e.g. "8", "11"
+            BAO_BASE_OS_VERSION=$(cat /etc/redhat-release | grep -oP '[0-9]+\.[0-9]+' | head -n 1)        # e.g. "8", "11"
         fi
     else
         BAO_BASE_OS="unknown"
@@ -94,21 +94,21 @@ calculate_hash() {
         temp_file=$(create_temp_file "hash")
 
         # Convert CRLF to LF
-        sed 's/\r$//' "$file" > "$temp_file" 2>/dev/null
+        sed 's/\r$//' "$file" > "$temp_file" 2> /dev/null
 
         # Generate hash
-        if command -v certUtil &>/dev/null; then
+        if command -v certUtil &> /dev/null; then
             # Using certUtil if available
             local temp_output
             temp_output=$(create_temp_file "hashoutput")
-            certUtil -hashfile "$temp_file" SHA256 > "$temp_output" 2>/dev/null
+            certUtil -hashfile "$temp_file" SHA256 > "$temp_output" 2> /dev/null
             hash=$(grep -v "hash" "$temp_output" | head -1 | tr -d " \t\r\n" || echo "")
             rm -f "$temp_output"
-        elif command -v powershell.exe &>/dev/null; then
+        elif command -v powershell.exe &> /dev/null; then
             # Try PowerShell as alternative
             local temp_output
             temp_output=$(create_temp_file "hashoutput")
-            powershell.exe -Command "Get-FileHash -Algorithm SHA256 -Path '$temp_file' | Select-Object -ExpandProperty Hash" > "$temp_output" 2>/dev/null
+            powershell.exe -Command "Get-FileHash -Algorithm SHA256 -Path '$temp_file' | Select-Object -ExpandProperty Hash" > "$temp_output" 2> /dev/null
             hash=$(cat "$temp_output" | tr -d '\r\n ' | tr '[:upper:]' '[:lower:]' || echo "")
             rm -f "$temp_output"
         else
