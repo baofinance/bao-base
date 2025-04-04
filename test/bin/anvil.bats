@@ -9,13 +9,13 @@ setup() {
 }
 
 teardown() {
-  teardown_test
+  # Clean up temp directory
+  rm -rf "$BATS_TEST_TMPDIR/out"
 }
 
 @test "anvil.py shows help information" {
-  run_anvil --help
-  expect --head "usage: anvil.py"
-
+  maul --help
+  expect --head "usage: anvil.py [-h] [-f NETWORK] [-v]"
 }
 
 @test "anvil.py sig command shows function signature" {
@@ -40,21 +40,18 @@ teardown() {
 EOF
 
   # Run the sig command using our mock directory
-  ORIG_DIR=$(pwd)
-  cd "$BATS_TEST_TMPDIR"
-  export abi_dir="./out"
-  run_anvil sig ERC20.transfer
+  export ABI_DIR="$BATS_TEST_TMPDIR/out"
+  maul sig ERC20.transfer
 
   # Verify output contains correct signature
-  assert_output --partial "signature for ERC20.transfer is \"transfer(address,uint256)\""
-  assert_output --partial "Input Parameters:"
-  assert_output --partial "recipient: address"
-  assert_output --partial "amount: uint256"
-  assert_output --partial "Return Values:"
-  assert_output --partial "success: bool"
-
-  cd "$ORIG_DIR"
-  assert_success
+  expect <<EOF
+*** signature for ERC20.transfer is "transfer(address,uint256)"
+Input Parameters:
+  1. recipient: address
+  2. amount: uint256
+Return Values:
+  1. success: bool
+EOF
 }
 
 @test "anvil.py address_of resolves 'me' to an address" {
@@ -68,8 +65,7 @@ from anvil import address_of
 print(address_of('mainnet', 'me'))
 "
   # Check that the output is a valid Ethereum address
-  assert_output --regexp "0x[a-fA-F0-9]{40}"
-  assert_success
+  expect --regexp "0x[a-fA-F0-9]{40}"
 }
 
 @test "anvil.py decode_custom_error decodes known error" {

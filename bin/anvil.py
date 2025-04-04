@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 load_dotenv()  # Load .env file once
 
 deploy_log = "./log/deploy-local.log"
-abi_dir = "./out"
+ABI_DIR = os.getenv('ABI_DIR', './out')
 
 # Configure logging
 logger = logging.getLogger('anvil')
@@ -140,7 +140,7 @@ def decode_custom_error(error_data, contract_name=None, sig_input=None):
         if contract_name:
             # Find the contract ABI file
             find_result = quiet_run_command([
-                "find", abi_dir, "-name", f"{contract_name}.json", "-print", "-quit"
+                "find", ABI_DIR, "-name", f"{contract_name}.json", "-print", "-quit"
             ])
 
             if find_result.returncode == 0 and find_result.stdout.strip():
@@ -151,7 +151,7 @@ def decode_custom_error(error_data, contract_name=None, sig_input=None):
         # Then search all contract ABIs
         logger.debug("Searching all contract ABIs for the error selector")
         find_all_result = quiet_run_command([
-            "find", abi_dir, "-name", "*.json", "-type", "f"
+            "find", ABI_DIR, "-name", "*.json", "-type", "f"
         ])
 
         if find_all_result.returncode == 0 and find_all_result.stdout.strip():
@@ -380,7 +380,7 @@ def get_function_info(contract, func_name):
     """
     # Find the contract ABI file
     result = run_command([
-        "find", abi_dir, "-name", f"{contract}.json", "-print", "-quit"
+        "find", ABI_DIR, "-name", f"{contract}.json", "-print", "-quit"
     ])
     abi_path = result.stdout.strip()
     if not abi_path:

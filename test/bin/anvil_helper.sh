@@ -2,12 +2,8 @@
 
 # Helper functions for testing anvil.py
 
-run_anvil() {
-  run "$BATS_TEST_DIRNAME/../run" anvil "$@"
-}
-
-run_anvil_silent() {
-  run bash -c "$BATS_TEST_DIRNAME/../run anvil $* > /dev/null 2>&1"
+maul() {
+      run ./run -q anvil "$@"
 }
 
 run_anvil_silent_python_code() {
