@@ -6,7 +6,7 @@
     "clean": "./run clean",
     "gas": "./run regression-of gas",
     "sizes": "./run regression-of sizes",
-    "prettier": "prettier --log-level warn --ignore-path .gitignore '{src,test,interfaces,script}/**/*.sol'",
+    "prettier": "prettier --log-level warn --ignore-path .gitignore \"{src,test,interfaces,script}/**/*.sol\"",
     "prettier:bash": "prettier --log-level warn --ignore-path .gitignore '{bin,test}/**/*.{sh,bash}'",
     "prettier:python": "prettier --log-level warn --ignore-path .gitignore '{bin,test}/**/*.py'",
     "fmt": "yarn prettier --write",
