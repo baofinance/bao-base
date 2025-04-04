@@ -25,8 +25,13 @@ trap cleanup EXIT INT TERM
 
 foundry_version="stable"
 os_version="ubuntu-latest" # TODO: read this from the BAO_BASE_OS_* variables
+workflow="foundry"
 while [ "$#" -gt 0 ]; do
     case "$1" in
+        --workflow)
+            workflow=$2
+            shift 2
+            ;;
         --foundry)
             foundry_version=$2
             shift 2
@@ -44,8 +49,8 @@ echo "Running CI for $foundry_version foundry on $os_version"
 temp_dir=$(create_temp_dir)
 echo "Created temporary directory: $temp_dir"
 
-workflow_template_file="$dep_dir/local_test_foundry.yml"
-workflow_file="$temp_dir/local_test_foundry_${os_version}_${foundry_version}.yml"
+workflow_template_file="$dep_dir/local_test_${workflow}.yml"
+workflow_file="$temp_dir/local_test_${workflow}_${os_version}_${foundry_version}.yml"
 event_template_file="$dep_dir/workflow_dispatch.json"
 event_file="$temp_dir/workflow_dispatch_${os_version}_${foundry_version}.json"
 
