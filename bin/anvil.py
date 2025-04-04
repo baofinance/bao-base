@@ -289,7 +289,7 @@ def run_command(command):
             # For call/send, the signature is the 3rd arg
             sig_input = command[3] if len(command) > 3 else None
             # Also extract the contract we're calling
-            contract_addr = command[2] if len(command) > 2 else None
+            # contract_addr = command[2] if len(command) > 2 else None
 
         if result.stderr:
             error_msg = result.stderr.strip()
@@ -1158,7 +1158,7 @@ Examples:
             print(output)
         else:
             print(
-                f"*** error: When using a raw function signature, you must use the Contract.function format"
+                "*** error: When using a raw function signature, you must use the Contract.function format"
             )
             sys.exit(1)
     else:

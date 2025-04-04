@@ -124,7 +124,7 @@ class BooleanOptionalWithOriginAction(argparse.BooleanOptionalAction):
         metavar=None,
         **kwargs,
     ):
-        logging.debug(f"BooleanOptionalWithOriginAction.__init__()...")
+        logging.debug("BooleanOptionalWithOriginAction.__init__()...")
         super(argparse.BooleanOptionalAction, self).__init__(
             option_strings=option_strings,
             dest=dest,
@@ -142,7 +142,7 @@ class BooleanOptionalWithOriginAction(argparse.BooleanOptionalAction):
         )
 
     def __call__(self, parser, namespace, values, option_string=None):
-        logging.debug(f"BooleanOptionalWithOriginAction.__call__()...")
+        logging.debug("BooleanOptionalWithOriginAction.__call__()...")
         logging.debug(f"values={values}")
         logging.debug(f"option_string={option_string}")
         if option_string in self.option_strings:
@@ -165,7 +165,7 @@ class CountWithOriginAction(argparse._CountAction):
     def __init__(
         self, option_strings, dest, default=None, required=False, help=None, **kwargs
     ):
-        logging.debug(f"CountWithOriginAction.__init__()...")
+        logging.debug("CountWithOriginAction.__init__()...")
         super(argparse._CountAction, self).__init__(
             option_strings=option_strings,
             dest=dest,

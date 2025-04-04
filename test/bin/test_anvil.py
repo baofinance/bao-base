@@ -6,13 +6,12 @@ but use proper Python testing approaches.
 """
 
 import json
-import os
 import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 # Import utility functions
-from utils import calculate_error_selector, create_mock_abi
+from utils import create_mock_abi
 
 # Import the anvil module directly
 from bin import anvil
