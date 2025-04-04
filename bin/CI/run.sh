@@ -57,5 +57,21 @@ echo "replacing \$BAO_BASE_DIR_REL with './$BAO_BASE_DIR_REL' in $workflow_file"
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
 sed "s|\$BAO_BASE_DIR_REL|./$BAO_BASE_DIR_REL|g" "$workflow_template_file" > "$workflow_file"
 
+if [[ ! -x "$BAO_BASE_TOOLS_DIR/act/act" ]]; then
+    info 0 "installing act..."
+    mkdir -p "$BAO_BASE_TOOLS_DIR/act"
+    if [[ "$BAO_BASE_OS" == "linux" ]]; then
+        curl https://raw.githubusercontent.com/nektos/act/master/install.sh | bash -s -- -b "$BAO_BASE_TOOLS_DIR/act"
+        if [[ ! -x "$BAO_BASE_TOOLS_DIR/act/act" ]]; then
+            echo "act installation failed"
+            exit 1
+        fi
+    elif [[ "$BAO_BASE_OS" == "macos" ]]; then
+        brew install act
+    else
+        echo "operating system not supported yet"
+    fi
+fi
+
 echo act -P ubuntu-latest=-self-hosted -W "$workflow_file" -e "$event_file" "$@"
-$BAO_BASE_BIN_DIR/act -P ubuntu-latest=-self-hosted -W "$workflow_file" -e "$event_file" "$@"
+$BAO_BASE_TOOLS_DIR/act/act -P ubuntu-latest=-self-hosted -W "$workflow_file" -e "$event_file" "$@"

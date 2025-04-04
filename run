@@ -7,7 +7,8 @@ export BAO_BASE_DIR_REL="$(python3 -c "import os.path; print(os.path.relpath('$b
 export BAO_BASE_DIR=$(cd "$BAO_BASE_DIR_REL" && pwd)
 export BAO_BASE_BIN_DIR="$BAO_BASE_DIR/bin"
 export BAO_BASE_SCRIPT_DIR="$BAO_BASE_DIR/script"
-export BAO_BASE_VERBOSITY=0
+export BAO_BASE_TOOLS_DIR="$BAO_BASE_DIR/.tools"
+export BAO_BASE_VERBOSITY=${BAO_BASE_VERBOSITY:-0} # allow ths to be passed in as an env var
 # Process flags for quiet mode and verbosity
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -83,6 +84,7 @@ debug "BAO_BASE_DIR=$BAO_BASE_DIR"
 debug "BAO_BASE_DIR_REL=$BAO_BASE_DIR_REL"
 debug "BAO_BASE_BIN_DIR=$BAO_BASE_BIN_DIR"
 debug "BAO_BASE_SCRIPT_DIR=$BAO_BASE_SCRIPT_DIR"
+debug "BAO_BASE_TOOLS_DIR=$BAO_BASE_TOOLS_DIR"
 debug "BAO_BASE_OS=$BAO_BASE_OS"
 debug "BAO_BASE_OS_SUBTYPE=$BAO_BASE_OS_SUBTYPE"
 debug "BAO_BASE_OS_VERSION=$BAO_BASE_OS_VERSION"

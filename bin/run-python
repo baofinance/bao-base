@@ -23,15 +23,14 @@ fi
 debug "Dependencies directory: $DEPENDENCIES_DIR"
 
 # Local directories for tools and environments
-TOOLS_DIR="$BAO_BASE_DIR/.tools"
-UV_DIR="$TOOLS_DIR/uv"
-PYTHON_DIR="$TOOLS_DIR/python"
+UV_DIR="$BAO_BASE_TOOLS_DIR/uv"
+PYTHON_DIR="$BAO_BASE_TOOLS_DIR/python"
 VENV_DIR="$DEPENDENCIES_DIR/.venv"
 
-mkdir -p "$TOOLS_DIR" "$UV_DIR" "$PYTHON_DIR"
+mkdir -p "$BAO_BASE_TOOLS_DIR" "$UV_DIR" "$PYTHON_DIR"
 
 # Set environment variables to control UV installation paths
-export UV_CACHE_DIR="$TOOLS_DIR/uv-cache"
+export UV_CACHE_DIR="$BAO_BASE_TOOLS_DIR/uv-cache"
 export UV_PYTHON_PATH="$PYTHON_DIR"
 mkdir -p "$UV_CACHE_DIR"
 
