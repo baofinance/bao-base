@@ -10,7 +10,8 @@ BAO_BASE_VERBOSITY=$BAO_BASE_VERBOSITY
 source "$BAO_BASE_BIN_DIR/platform-utils.sh"
 
 # Set the path to the script
-SCRIPT="$1"; shift
+SCRIPT="$1"
+shift
 debug "Script to run: $SCRIPT"
 debug "Arguments: $*"
 debug "Verbosity level: $BAO_BASE_VERBOSITY"
@@ -51,13 +52,13 @@ debug "Virtual environment activation script: $VENV_ACTIVATE_PATH"
 
 # get appropriate verbosity flags for UV based on BAO_BASE_VERBOSITY
 if [[ $BAO_BASE_VERBOSITY -lt 0 ]]; then
-    UV_FLAGS="-qq --no-progress"  # Quiet mode
+    UV_FLAGS="-qq --no-progress" # Quiet mode
 else
     case "$BAO_BASE_VERBOSITY" in
-        0)  UV_FLAGS="-qq";;
-        1)  UV_FLAGS="-q";;
-        2)  UV_FLAGS="";;
-        *)  UV_FLAGS="--verbose";;
+        0) UV_FLAGS="-qq" ;;
+        1) UV_FLAGS="-q" ;;
+        2) UV_FLAGS="" ;;
+        *) UV_FLAGS="--verbose" ;;
     esac
 fi
 debug "Using UV flags: $UV_FLAGS"
@@ -207,11 +208,11 @@ if ! validate_lock "$PYTHON_VERSION_LOCK"; then
         if [[ "$BAO_BASE_OS" == "windows" ]]; then
             debug "Windows virtual environment directory structure:"
             ls -la "$VENV_DIR" || true
-            ls -la "$VENV_DIR/Scripts" 2>/dev/null || true
+            ls -la "$VENV_DIR/Scripts" 2> /dev/null || true
         else
             debug "Virtual environment directory structure:"
             ls -la "$VENV_DIR" || true
-            ls -la "$VENV_DIR/bin" 2>/dev/null || true
+            ls -la "$VENV_DIR/bin" 2> /dev/null || true
         fi
         exit 1
     fi
@@ -256,11 +257,11 @@ if [[ ! -f "$VENV_PYTHON_PATH" ]]; then
     if [[ "$BAO_BASE_OS" == "windows" ]]; then
         debug "Windows virtual environment directory structure:"
         ls -la "$VENV_DIR" || true
-        ls -la "$VENV_DIR/Scripts" 2>/dev/null || true
+        ls -la "$VENV_DIR/Scripts" 2> /dev/null || true
     else
         debug "Virtual environment directory structure:"
         ls -la "$VENV_DIR" || true
-        ls -la "$VENV_DIR/bin" 2>/dev/null || true
+        ls -la "$VENV_DIR/bin" 2> /dev/null || true
     fi
     exit 1
 fi
@@ -287,7 +288,7 @@ if [[ "$BAO_BASE_OS" == "windows" ]]; then
 
     # Install dependencies directly with UV
     debug "Installing dependencies using UV directly on Windows"
-    capture_output "'$UV_BIN' $UV_FLAGS pip sync --directory '$DEPENDENCIES_DIR' '$REQUIREMENTS_LOCK'" true || {
+    capture_output "'$UV_BIN' $UV_FLAGS pip sync --no-build --directory '$DEPENDENCIES_DIR' '$REQUIREMENTS_LOCK'" true || {
         error "Failed to sync dependencies from requirements.txt"
         exit 1
     }
@@ -298,9 +299,9 @@ else
         exit 1
     }
 
-    "$UV_BIN" $UV_FLAGS pip sync --directory "$DEPENDENCIES_DIR" "$REQUIREMENTS_LOCK" || {
+    "$UV_BIN" $UV_FLAGS pip sync --no-build --directory "$DEPENDENCIES_DIR" "$REQUIREMENTS_LOCK" || {
         error "Failed to sync dependencies from requirements.txt"
-        deactivate 2>/dev/null || true
+        deactivate 2> /dev/null || true
         exit 1
     }
     PYTHON_CMD="python"
@@ -331,5 +332,5 @@ fi
 
 # Deactivate the virtual environment (not needed on Windows when we didn't activate)
 if [[ "$BAO_BASE_OS" != "windows" ]]; then
-    deactivate 2>/dev/null || true
+    deactivate 2> /dev/null || true
 fi
