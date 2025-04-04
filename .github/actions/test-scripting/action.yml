@@ -80,7 +80,7 @@ runs:
       shell: bash
       run: |
         yarn test:python
-      id: bats
+      id: pytest
 
     - name: Run Bash (BATS) Tests
       shell: bash
