@@ -8,75 +8,42 @@ export BAO_BASE_DIR=$(cd "$BAO_BASE_DIR_REL" && pwd)
 export BAO_BASE_BIN_DIR="$BAO_BASE_DIR/bin"
 export BAO_BASE_SCRIPT_DIR="$BAO_BASE_DIR/script"
 export BAO_BASE_TOOLS_DIR="$BAO_BASE_DIR/.tools"
-export BAO_BASE_VERBOSITY=${BAO_BASE_VERBOSITY:-0} # allow ths to be passed in as an env var
+export BAO_BASE_VERBOSITY=${VERBOSITY:-0} # allow ths to be passed in as an env var
+
 # Process flags for quiet mode and verbosity
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        -q|--quiet) BAO_BASE_VERBOSITY=-1000
-            shift;;
-        -v) BAO_BASE_VERBOSITY=$(( BAO_BASE_VERBOSITY + 1 ))
-            shift;;
-        -vv) BAO_BASE_VERBOSITY=$(( BAO_BASE_VERBOSITY + 2 ))
-            shift;;
-        -vvv) BAO_BASE_VERBOSITY=$(( BAO_BASE_VERBOSITY + 3 ))
-            shift;;
-        -vvvv) BAO_BASE_VERBOSITY=$(( BAO_BASE_VERBOSITY + 5 ))
-            shift;;
-        *)  # Not a flag we process here
-            break;;
-    esac
-done
-
-# Debug function - automatically detects script name and prints messages only if the script is in the DEBUG list
-debug() {
-    # Automatically determine script name from the calling script
-    local script_path="${BASH_SOURCE[1]:-${BASH_SOURCE[0]}}"
-    local script_name=$(basename "$script_path" | sed 's/\..*$//')
-
-    # Check if DEBUG is set and if script_name is in the comma-separated list
-    if [[ -n "${DEBUG:-}" ]]; then
-        # Convert DEBUG to array for easier matching
-        IFS=',' read -ra DEBUG_SCRIPTS <<< "$DEBUG"
-
-        for debug_script in "${DEBUG_SCRIPTS[@]}"; do
-            if [[ "$debug_script" == "$script_name" ]]; then
-                # Send debug output to stderr to avoid affecting function return values
-                exec 3>&1
-                echo "DEBUG[$script_name]: $*" >&3
-                return 0
-            fi
-        done
-    fi
-
-    # Not debugging this script
-    return 0
+_process_opts() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -q | --quiet)
+                BAO_BASE_VERBOSITY=-1000
+                shift
+                ;;
+            -v)
+                BAO_BASE_VERBOSITY=1
+                shift
+                ;;
+            -vv)
+                BAO_BASE_VERBOSITY=2
+                shift
+                ;;
+            -vvv)
+                BAO_BASE_VERBOSITY=3
+                shift
+                ;;
+            -vvvv)
+                BAO_BASE_VERBOSITY=4
+                shift
+                ;;
+            *) # Not a flag we process here
+                break ;;
+        esac
+    done
+    echo "$@"
 }
+set -- $(_process_opts "$@")
 
-# Error handling function
-error() {
-    echo "ERROR: $*" >&2
-    exit 1
-}
-
-# Information function based on verbosity level
-# Usage: info <level> <message>
-info() {
-    local required_level=$1
-    local message=$2
-
-    if [[ ${BAO_BASE_VERBOSITY:-0} -ge $required_level ]]; then
-        echo "$message"
-    fi
-}
-
-# Export the functions so they're available to child scripts
-export -f debug
-export -f error
-export -f info
-
-# Detect OS and set environment variables
-source "./bin/platform-utils.sh"
-detect_platform
+source "$BAO_BASE_BIN_DIR/run/logging"
+_process_opts $(debug_opts)
 
 debug "Starting run script"
 debug "BAO_BASE_VERBOSITY=$BAO_BASE_VERBOSITY"
@@ -85,6 +52,10 @@ debug "BAO_BASE_DIR_REL=$BAO_BASE_DIR_REL"
 debug "BAO_BASE_BIN_DIR=$BAO_BASE_BIN_DIR"
 debug "BAO_BASE_SCRIPT_DIR=$BAO_BASE_SCRIPT_DIR"
 debug "BAO_BASE_TOOLS_DIR=$BAO_BASE_TOOLS_DIR"
+
+# Detect OS and set environment variables
+source "./bin/platform-utils.sh"
+detect_platform
 debug "BAO_BASE_OS=$BAO_BASE_OS"
 debug "BAO_BASE_OS_SUBTYPE=$BAO_BASE_OS_SUBTYPE"
 debug "BAO_BASE_OS_VERSION=$BAO_BASE_OS_VERSION"
@@ -112,7 +83,10 @@ debug "Detecting script type for $SCRIPT_NAME"
 if [[ -d "$SCRIPT_PATH" && -x "$SCRIPT_PATH/run.sh" ]]; then
     info 0 "Running: $BAO_BASE_DIR_REL/bin/$SCRIPT_NAME/run.sh${*:+ $*}"
     debug "Directory has an executable run.sh script"
-    "$SCRIPT_PATH/run.sh" "$@" || { exit_code=$?; error "Directory run script execution failed with code $exit_code"; }
+    "$SCRIPT_PATH/run.sh" "$@" || {
+        exit_code=$?
+        error "Directory run script execution failed with code $exit_code"
+    }
 
 # Check if we have a wrapper script that provides execution instructions
 else
@@ -121,7 +95,7 @@ else
         file_type=""
         shebang=""
         if [[ -s "$SCRIPT_PATH" ]]; then
-            shebang=$(head -n 1 "$SCRIPT_PATH" 2>/dev/null || echo "")
+            shebang=$(head -n 1 "$SCRIPT_PATH" 2> /dev/null || echo "")
             debug "Found executable script with shebang: $shebang"
         else
             error "Script file exists but is empty or unreadable"
@@ -164,18 +138,27 @@ else
     info 0 "Running as $script_type: $BAO_BASE_DIR_REL/bin/$SCRIPT_NAME$file_type${*:+ $*}"
 
     case "$script_type" in
-    python)
-        debug "Executing via run-python"
-        "$BAO_BASE_BIN_DIR/run-python" "$SCRIPT_NAME" "$@" || { exit_code=$?; error "Python script execution failed with code $exit_code"; }
-        ;;
-    node)
-        debug "Executing via run-node"
-        "$BAO_BASE_BIN_DIR/run-node" "$SCRIPT_NAME" "$@" || { exit_code=$?; error "Node.js script execution failed with code $exit_code"; }
-        ;;
-    bash)
-        debug "Executing via run-bash"
-        "$BAO_BASE_BIN_DIR/run-bash" "$SCRIPT_NAME" "$@" || { exit_code=$?; error "Bash script execution failed with code $exit_code"; }
-        ;;
+        python)
+            debug "Executing via run-python"
+            "$BAO_BASE_BIN_DIR/run-python" "$SCRIPT_NAME" "$@" || {
+                exit_code=$?
+                error "Python script execution failed with code $exit_code"
+            }
+            ;;
+        node)
+            debug "Executing via run-node"
+            "$BAO_BASE_BIN_DIR/run-node" "$SCRIPT_NAME" "$@" || {
+                exit_code=$?
+                error "Node.js script execution failed with code $exit_code"
+            }
+            ;;
+        bash)
+            debug "Executing via run-bash"
+            "$BAO_BASE_BIN_DIR/run-bash" "$SCRIPT_NAME" "$@" || {
+                exit_code=$?
+                error "Bash script execution failed with code $exit_code"
+            }
+            ;;
     esac
 
 fi

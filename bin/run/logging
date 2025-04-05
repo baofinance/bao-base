@@ -1,0 +1,94 @@
+# logging
+# logging takes three forms
+# 1. error messages - these are always printed. The process should terminate.
+# 2. info messages - these are printed according to a verbosity level.
+# 3. debug messages - these are printed if and only if the script name is in the DEBUG list.
+
+export LOGGING_FILE_DESCRIPTOR=${LOGGING_FILE_DESCRIPTOR:-8}
+exec 8>&1
+
+# hidden text in log messages
+declare -A _logging_hidden_text
+
+debug_opts() {
+    # extract options from DEBUG variable
+    local debug_options=""
+    local IFS=','
+    for item in ${DEBUG:-}; do
+        # If item starts with dash, add it to debug_options
+        if [[ "$item" == -* ]]; then
+            debug_options+=" $item"
+        fi
+    done
+    echo "$debug_options"
+}
+
+sensitive() {
+    _logging_hidden_text["$1"]="${2:-***hidden***}"
+}
+
+# Output function - prints messages to the output stream
+_output() {
+    local type="$1"
+    shift
+    local message="$*"
+    # remove hidden text
+    for key in "${!_logging_hidden_text[@]}"; do
+        local value="${_logging_hidden_text[$key]}"
+        # Replace all occurrences of key with value in the log message
+        [[ "$LOGGING_SENSITIVE_TEXT" == "show" ]] || message="${message//$key/$value}"
+    done
+
+    local format
+    format=$(printf "%-6s" "$type")
+    if [[ -v DEBUG ]]; then
+        # if DEBUG is defined at all, we print script info
+        format+=" ${BASH_SOURCE[2]}:${BASH_LINENO[1]}"
+        # if [[ "$LOGGING_LEVEL" -ge "4" ]]; then
+        #     format+=" ${FUNCNAME[1]}()"
+        # fi
+        format+=":"
+    fi
+    local indent
+    indent=$(printf "%${#format}s")
+    message=${message//$'\n'/$'\n'"$indent"}
+    # echo "$(date '+%Y-%m-%d %H:%M:%S,%3N') - $format
+    echo "$format $message" >&"$LOGGING_FILE_DESCRIPTOR"
+}
+
+# Debug function - automatically detects script name and prints messages only if the script is in the DEBUG list
+debug() {
+    # determine script name from the calling script
+    local script_path="${BASH_SOURCE[1]:-${BASH_SOURCE[0]}}"
+    local script_name=$(basename "$script_path" | sed 's/\..*$//')
+    # Convert DEBUG to array for easier matching
+    if [[ ",${DEBUG:-}," == *,"$script_name",* ]]; then
+        _output "DEBUG" "$*"
+    fi
+ }
+
+# Error handling function
+error() {
+    _output "ERROR" "$*"
+    exit 1
+}
+
+# Information function based on verbosity level
+# Usage: info <level> <message>
+info() {
+    local required_level=$1
+    local message=$2
+
+    if [[ ${BAO_BASE_VERBOSITY:-0} -ge $required_level ]]; then
+        _output "INFO $required_level" "$message"
+    fi
+}
+
+# Export the functions so they're available to child scripts
+# this avoids namespace polution with helper functions
+# having them there for all subscripts means that clashes are detected early
+export -f _output
+export -f debug
+export -f error
+export -f info
+export -f sensitive

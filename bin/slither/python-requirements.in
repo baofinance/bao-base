@@ -1,3 +1,0 @@
-python>=3.13,<3.14
-slither-analyzer==0.10.4
-solc-select>=1.0.4

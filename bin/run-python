@@ -106,27 +106,30 @@ fi
 
 debug "Using uv at: $UV_BIN"
 
-# Check for python-requirements.in
-PYTHON_REQUIREMENTS_IN="$DEPENDENCIES_DIR/python-requirements.in"
-if [[ ! -f "$PYTHON_REQUIREMENTS_IN" ]]; then
-    error "No python-requirements.in found at $PYTHON_REQUIREMENTS_IN"
-    echo "Please create a python-requirements.in file with Python version constraints and dependencies."
+# Check for pyproject.toml
+PYPROJECT_TOML="$DEPENDENCIES_DIR/pyproject.toml"
+if [[ ! -f "$PYPROJECT_TOML" ]]; then
+    error "No pyproject.toml found at $PYPROJECT_TOML"
+    echo "Please create a pyproject.toml file with Python version constraints and dependencies."
     echo "Example:"
-    echo "python>=3.9,<3.10 # Python (yes indeedy) version constraint"
-    echo "pandas~=2.2.3"
-    echo "tabulate~=0.9.0"
+    echo "[project]"
+    echo "requires-python = \">=3.9,<3.14\""
+    echo ""
+    echo "[project.dependencies]"
+    echo "pandas = \"~=2.2.3\""
+    echo "tabulate = \"~=0.9.0\""
     exit 1
 fi
 
-debug "Found python-requirements.in file at $PYTHON_REQUIREMENTS_IN"
+debug "Found pyproject.toml file at $PYPROJECT_TOML"
 
-# Generate hash for python-requirements.in
-PYTHON_REQUIREMENTS_IN_HASH=$(calculate_hash "$PYTHON_REQUIREMENTS_IN")
-debug "Generated hash for python-requirements.in: $PYTHON_REQUIREMENTS_IN_HASH"
+# Generate hash for pyproject.toml
+PYPROJECT_TOML_HASH=$(calculate_hash "$PYPROJECT_TOML")
+debug "Generated hash for pyproject.toml: $PYPROJECT_TOML_HASH"
 
-# Check for existing .python-version and requirements.txt
+# Check for existing .python-version and uv.lock
 PYTHON_VERSION_LOCK="$DEPENDENCIES_DIR/.python-version"
-REQUIREMENTS_LOCK="$DEPENDENCIES_DIR/requirements.txt"
+UV_LOCK="$DEPENDENCIES_DIR/uv.lock"
 
 # Function to check if files exist and have valid hashes
 validate_lock() {
@@ -134,22 +137,22 @@ validate_lock() {
 
     # Check if both files exist
     if [[ ! -f "$lock_file" ]]; then
-        info 0 "$lock_file does not exist, generating from python-requirements.in..."
+        info 0 "$lock_file does not exist."
         return 1
     fi
 
     local lock_hash
     lock_hash=$(grep -E "^# HASH:[a-f0-9]{64}$" "$lock_file" | head -1 | cut -d':' -f2)
     if [[ -z "$lock_hash" ]]; then
-        info 0 "No hash found in $lock_file, regenerating from python-requirements.in..."
+        info 0 "No hash found in $lock_file."
         return 1
     fi
 
     # Check if hashes match
-    if [[ "$lock_hash" != "$PYTHON_REQUIREMENTS_IN_HASH" ]]; then
-        info 0 "$lock_file out of date (hash mismatched), regenerating from python-requirements.in..."
+    if [[ "$lock_hash" != "$PYPROJECT_TOML_HASH" ]]; then
+        info 0 "$lock_file out of date (hash mismatched)."
         debug "Hash mismatch:"
-        debug "$PYTHON_REQUIREMENTS_IN: $PYTHON_REQUIREMENTS_IN_HASH"
+        debug "$PYPROJECT_TOML: $PYPROJECT_TOML_HASH"
         debug "Lock file: $lock_hash"
         return 1
     fi
@@ -164,17 +167,18 @@ validate_lock() {
 if ! validate_lock "$PYTHON_VERSION_LOCK"; then
     debug "Need to regenerate lock file $PYTHON_VERSION_LOCK"
 
-    # Extract Python version constraint from requirements file
-    PYTHON_CONSTRAINT=$(grep -E "^python[>=<~!]" "$PYTHON_REQUIREMENTS_IN" | head -1)
+    # Extract requires-python value from pyproject.toml using a simple grep pattern
+    # This works for basic cases, but might need improvement for complex formatting
+    PYTHON_CONSTRAINT=$(grep -E 'requires-python\s*=\s*"[^"]+"' "$PYPROJECT_TOML" | sed 's/.*"\(.*\)".*/\1/')
     if [[ -z "$PYTHON_CONSTRAINT" ]]; then
-        debug "No Python version constraint found in $PYTHON_REQUIREMENTS_IN, using '3'"
+        debug "No requires-python constraint found in $PYPROJECT_TOML, using '3' (i.e. the latest version)"
         PYTHON_CONSTRAINT="3"
     fi
-    debug "Found Python constraint: $PYTHON_CONSTRAINT"
+    debug "Using Python constraint: $PYTHON_CONSTRAINT"
 
     # Clean up old files if they exist
     [[ -f "$PYTHON_VERSION_LOCK" ]] && rm "$PYTHON_VERSION_LOCK"
-    [[ -f "$REQUIREMENTS_LOCK" ]] && rm "$REQUIREMENTS_LOCK"
+    [[ -f "$UV_LOCK" ]] && rm "$UV_LOCK"
 
     # Make sure any previous virtual environment is removed first
     if [[ -d "$VENV_DIR" ]]; then
@@ -190,32 +194,24 @@ if ! validate_lock "$PYTHON_VERSION_LOCK"; then
     }
 
     # Get the actual Python version that was installed and use it to create .python-version
-    if [[ -f "$VENV_PYTHON_PATH" ]]; then
-        # Extract the actual Python version from the venv
-        debug "Checking Python version in virtual environment"
-        ACTUAL_PYTHON_VERSION=$("$VENV_PYTHON_PATH" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')")
-        debug "Installed Python $ACTUAL_PYTHON_VERSION, creating .python-version file"
+    [[ -f "$VENV_PYTHON_PATH" ]] || error "Failed to find Python at $VENV_PYTHON_PATH in virtual environment
+$BAO_BASE_OS virtual environment directory structure:
+$(ls -la "$VENV_DIR" || true)
+$(ls -la "$VENV_DIR/Scripts" 2> /dev/null || true)
+$(ls -la "$VENV_DIR/bin" 2> /dev/null || true)"
 
-        # Create .python-version file with the actual version and hash
-        {
-            echo "# This file was auto-generated by run-python from constraint: $PYTHON_CONSTRAINT"
-            echo "# HASH:$PYTHON_REQUIREMENTS_IN_HASH"
-            echo "$ACTUAL_PYTHON_VERSION"
-        } > "$PYTHON_VERSION_LOCK"
-        debug "Created .python-version file with version $ACTUAL_PYTHON_VERSION and hash"
-    else
-        error "Failed to find Python at $VENV_PYTHON_PATH in virtual environment"
-        if [[ "$BAO_BASE_OS" == "windows" ]]; then
-            debug "Windows virtual environment directory structure:"
-            ls -la "$VENV_DIR" || true
-            ls -la "$VENV_DIR/Scripts" 2> /dev/null || true
-        else
-            debug "Virtual environment directory structure:"
-            ls -la "$VENV_DIR" || true
-            ls -la "$VENV_DIR/bin" 2> /dev/null || true
-        fi
-        exit 1
-    fi
+    # Extract the actual Python version from the venv
+    debug "Checking Python version in virtual environment"
+    ACTUAL_PYTHON_VERSION=$("$VENV_PYTHON_PATH" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')")
+    debug "Installed Python $ACTUAL_PYTHON_VERSION, creating .python-version file"
+
+    # Create .python-version file with the actual version and hash
+    {
+        echo "# This file was auto-generated by run-python from constraint: $PYTHON_CONSTRAINT"
+        echo "# HASH:PYPROJECT_TOML_HASH"
+        echo "$ACTUAL_PYTHON_VERSION"
+    } > "$PYTHON_VERSION_LOCK"
+    debug "Created .python-version file with version $ACTUAL_PYTHON_VERSION and hash"
 else
     debug "Using existing lock files with matching hash"
 
@@ -238,17 +234,18 @@ else
     }
 fi
 
-if ! validate_lock "$REQUIREMENTS_LOCK"; then
-    debug "Generating $REQUIREMENTS_LOCK from $PYTHON_REQUIREMENTS_IN"
+if ! validate_lock "$UV_LOCK"; then
+    debug "Generating $UV_LOCK from $PYPROJECT_TOML"
 
     # Use capture_output to prevent output from appearing in files (Windows support)
-    capture_output "(cd '$DEPENDENCIES_DIR' && grep -v -E '^python[>=<~!]' '$PYTHON_REQUIREMENTS_IN' | '$UV_BIN' $UV_FLAGS pip compile - -o 'requirements.txt')" true || {
-        error "Failed to compile requirements"
+    capture_output "'$UV_BIN' $UV_FLAGS lock --directory '$DEPENDENCIES_DIR'" true || {
+        error "Failed to lock dependencies"
         exit 1
     }
 
-    echo "# HASH:$PYTHON_REQUIREMENTS_IN_HASH" >> "$REQUIREMENTS_LOCK"
-    debug "Generated $REQUIREMENTS_LOCK with hash"
+    # Add our hash to the uv.lock file
+    echo "# HASH:$PYPROJECT_TOML_HASH" >> "$UV_LOCK"
+    debug "Generated $UV_LOCK with hash"
 fi
 
 # Verify the Python interpreter in the venv
@@ -278,7 +275,7 @@ info 1 "$PYTHON_VERSION"
 info 2 "Activate with: source $VENV_ACTIVATE_PATH"
 
 # Install dependencies using our local uv
-debug "Installing dependencies from generated requirements.txt"
+debug "Installing dependencies from generated uv.lock"
 
 # Activate the virtual environment - handle Windows differently
 if [[ "$BAO_BASE_OS" == "windows" ]]; then
@@ -288,8 +285,8 @@ if [[ "$BAO_BASE_OS" == "windows" ]]; then
 
     # Install dependencies directly with UV
     debug "Installing dependencies using UV directly on Windows"
-    capture_output "'$UV_BIN' $UV_FLAGS pip sync --no-build --directory '$DEPENDENCIES_DIR' '$REQUIREMENTS_LOCK'" true || {
-        error "Failed to sync dependencies from requirements.txt"
+    capture_output "'$UV_BIN' $UV_FLAGS sync --directory '$DEPENDENCIES_DIR'" true || {
+        error "Failed to sync dependencies from uv.lock"
         exit 1
     }
 else
@@ -299,8 +296,8 @@ else
         exit 1
     }
 
-    "$UV_BIN" $UV_FLAGS pip sync --no-build --directory "$DEPENDENCIES_DIR" "$REQUIREMENTS_LOCK" || {
-        error "Failed to sync dependencies from requirements.txt"
+    "$UV_BIN" $UV_FLAGS sync --directory "$DEPENDENCIES_DIR" || {
+        error "Failed to sync dependencies from uv.lock"
         deactivate 2> /dev/null || true
         exit 1
     }
