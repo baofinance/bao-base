@@ -5,17 +5,45 @@ bbrun() {
     run ./run -q "$@"
 }
 
+# usage:
+# expect [--success|--failure] [--head|--tail] [--partial|--regexp|--regex] [--not] <expected>
 expect() {
-    local expected_status=0
+    local status_result
     local mode="exact"
     local selected_output="$output"
-
+    local success=0
+    local fail=1
+    local logic=""
     # Parse arguments
+    set -- "--success" "$@" # default to success
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --status)
-                expected_status="$2"
+                if [[ "$status" -eq "$2" ]]; then
+                    status_result=1
+                else
+                    status_result=0
+                fi
+                expected_status=" = $2"
                 shift 2
+                ;;
+            --failure)
+                if [[ "$status" -eq 0 ]]; then
+                    status_result=1
+                else
+                    status_result=0
+                fi
+                expected_status=" ! =0"
+                shift
+                ;;
+            --success)
+                if [ "$status" -eq 0 ]; then
+                    status_result=0
+                else
+                    status_result=1
+                fi
+                expected_status="=0"
+                shift
                 ;;
             --head)
                 selected_output=$(echo "$selected_output" | head -n 1)
@@ -29,8 +57,14 @@ expect() {
                 mode="partial"
                 shift
                 ;;
-            --regexp)
+            --regexp | --regex)
                 mode="regexp"
+                shift
+                ;;
+            --not)
+                logic="not "
+                success=1
+                fail=0
                 shift
                 ;;
             *) break ;;
@@ -44,33 +78,45 @@ expect() {
         expected="$1"
     fi
 
-    echo "BATS \$output=
+    echo "BATS \$output:
 $output
-."
-    echo "status=$status, expected=$expected_status"
+:"
+    echo "status=$status expect$expected_status"
+    echo "status_result=$status_result."
+    echo "comparison=$logic$mode"
     echo "output=$selected_output."
     echo "expect=$expected."
+    echo "---"
 
-    [ "$status" -eq "$expected_status" ] || return 1
+    [ "$status_result" -eq 0 ] || return 1
+
     case "$mode" in
         exact)
-            [[ "$selected_output" == "$expected" ]] || return 1
+            [[ "$selected_output" == "$expected" ]] || return $fail
             ;;
         partial)
-            [[ "$selected_output" =~ "$expected" ]] || return 1
+            [[ "$selected_output" =~ "$expected" ]] || return $fail
             ;;
         regexp)
-            [[ "$selected_output" =~ $expected ]] || return 1
+            [[ "$selected_output" =~ $expected ]] || return $fail
             ;;
     esac
-    return 0
+    return $success
 }
 
-# Debug helper to print information during test execution
-# Usage: debug "message"
-debug() {
-    echo "# $*" >&3
+expect_success() {
+    expect_output --status 0 "$@"
 }
+
+expect_failure() {
+    expect_output --status 1 "$@"
+}
+
+# # Debug helper to print information during test execution
+# # Usage: debug "message"
+# debug() {
+#     echo "# $*" >&3
+# }
 
 run_python() {
     local python_code="$1"
