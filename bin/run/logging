@@ -84,7 +84,8 @@ _output() {
     fi
     # format the message
     local format
-    format=$(printf "%-6s" "$type")
+    format=$(printf "%-6s " "$type")
+    # indentation is   ^ ^ always have a separating space
     if [[ -v DEBUG ]]; then
         # if DEBUG is defined at all, we print script info
         format+=" ${BASH_SOURCE[2]}:${BASH_LINENO[1]}"

@@ -889,7 +889,12 @@ def format_call_result(stdout, sig_input, network=None):
 def main():
     # Create the top-level parser with better help
     parser = argparse.ArgumentParser(
-        description="maul script for interacting with Ethereum contracts on anvil or blockchains",
+        description="""maul script for deoloying on, and interacting with, blockchains or anvil.
+
+A maul is a large hammer typically used against an anvil to forge something useful.
+This maul has many uses, like it's namesake, from cracking a nut to knocking something into shape
+to bludeoning some <insert your pet hate here>. It can also make a mess so be wary of what you ask of it.
+It is particularly useful for reading files with addresses in it for ease of use.""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -922,35 +927,6 @@ Examples:
     start_parser = subparsers.add_parser("start", help="Start anvil instance")
     start_parser.add_argument(
         "--chain-id", type=int, help="Specify chain ID for the anvil instance"
-    )
-
-    # Steal command and aliases
-    steal_aliases = [
-        "pinch",
-        "nick",
-        "grab",
-        "pilfer",
-        "embezzle",
-        "rob",
-        "swipe",
-        "thieve",
-        "filch",
-        "purloin",
-        "lift",
-        "pillage",
-        "plunder",
-        "loot",
-        "snatch",
-    ]
-    steal_parser = subparsers.add_parser(
-        "steal", help="Add tokens to an address", aliases=steal_aliases
-    )
-    steal_parser.add_argument(
-        "--erc20", help="ERC20 token address or name (if omitted, steals ETH)"
-    )
-    steal_parser.add_argument("--to", required=True, help="Recipient address")
-    steal_parser.add_argument(
-        "--amount", required=True, help="Amount of tokens to transfee"
     )
 
     # Grant command
@@ -1001,6 +977,35 @@ Examples:
     sig_parser.add_argument(
         "signature",
         help="Either a function signature (e.g., 'transfer(address,uint256)') or Contract.function (e.g., 'ERC20.transfer')",
+    )
+
+    # Steal command and aliases
+    steal_aliases = [
+        "pinch",
+        "nick",
+        "grab",
+        "pilfer",
+        "embezzle",
+        "rob",
+        "swipe",
+        "thieve",
+        "filch",
+        "purloin",
+        "lift",
+        "pillage",
+        "plunder",
+        "loot",
+        "snatch",
+    ]
+    steal_parser = subparsers.add_parser(
+        "steal", help="Add tokens to an address", aliases=steal_aliases
+    )
+    steal_parser.add_argument(
+        "--erc20", help="ERC20 token address or name (if omitted, steals ETH)"
+    )
+    steal_parser.add_argument("--to", required=True, help="Recipient address")
+    steal_parser.add_argument(
+        "--amount", required=True, help="Amount of tokens to transfee"
     )
 
     # Parse arguments

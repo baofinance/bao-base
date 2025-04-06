@@ -147,3 +147,23 @@ Third line"
     run debug_opts
     expect " -v -verbose"
 }
+
+@test "INFO multiline messages should be properly formatted" {
+    # Create a message with actual newlines
+    run info 0 "First line
+Second line
+Third line"
+
+    # First line should contain the label
+    expect --head --partial "INFO 0 "
+    expect --head --partial "First line"
+    expect --tail --partial "Third line"
+
+    # second and third lines should be correctly indented
+    local first_pos=$(echo "$output" | grep -b -o "First" | head -n 1 | cut -d: -f1)
+    local expected_padding=$(printf "%${first_pos}s" "")
+
+    readarray -t lines <<< "$output"
+    [[ "${lines[1]}" == "${expected_padding}Second line" ]]
+    [[ "${lines[2]}" == "${expected_padding}Third line" ]]
+}
