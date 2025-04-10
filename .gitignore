@@ -11,7 +11,8 @@
 
 # libraries
 node_modules
-venv
+venv/
+.venv/
 
 # Compiler files
 cache/
