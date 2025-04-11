@@ -38,5 +38,5 @@
     "prettier-plugin-solidity": "^1.4.2",
     "solhint": "^5.0.5"
   },
-  "packageManager": "yarn@4.8.1"
+  "packageManager": "yarn@4.9.1"
 }

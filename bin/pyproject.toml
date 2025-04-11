@@ -2,7 +2,7 @@
 name = "bao-base"
 version = "0.1.0"
 description = "Bao Finance base utilities"
-requires-python = ">=3.9,<3.14"
+requires-python = ">=3.9,<3.13"
 
 dependencies =[
   # Core data utilities
@@ -31,6 +31,3 @@ dependencies =[
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
-
-[tool.uv.workspace]
-members = ["slither"]
