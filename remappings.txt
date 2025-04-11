@@ -8,3 +8,7 @@ solidity-stringutils/=lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils
 @bao/=src/
 src/=src/
 test/=test/
+@layerzerolabs/=node_modules/@layerzerolabs/
+@layerzerolabs/oapp-evm/=node_modules/@layerzerolabs/oapp-evm/
+@layerzerolabs/oapp-evm-upgradeable/=node_modules/@layerzerolabs/oapp-evm-upgradeable/
+@layerzerolabs/oft-evm-upgradeable/=node_modules/@layerzerolabs/oft-evm-upgradeable/
