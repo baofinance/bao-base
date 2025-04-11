@@ -3,18 +3,22 @@
   "description": "A base package for Bao Finance projects. You can copy-paste many of the script lines below into your package.json, correcting the path to the run script",
   "license": "MIT",
   "scripts": {
+    "upgrade:yarn": "yarn set version stable",
+    "upgrade": "[ $# -gt 0 ] && yarn up \"${0}\"; [ $# -eq 0 ] && yarn up \"*\"",
+    "anvil": "./run maul anvil",
+    "maul": "./run maul",
     "clean": "./run clean",
     "gas": "./run regression-of gas",
     "sizes": "./run regression-of sizes",
     "prettier": "prettier --log-level warn --ignore-path .gitignore \"{src,test,interfaces,script}/**/*.sol\"",
-    "prettier:bash": "prettier --log-level warn --ignore-path .gitignore '{bin,test}/**/*.{sh,bash}'",
-    "prettier:python": "prettier --log-level warn --ignore-path .gitignore '{bin,test}/**/*.py'",
+    "prettier:bash": "./run fmt-bash {bin,test}/**/*.{sh,bash,bats}",
+    "prettier:python": "./run fmt-python {bin,test}/**/*.py",
     "fmt": "yarn prettier --write",
     "fmt:bash": "yarn prettier:bash --write",
-    "fmt:python": "./run fmt-python bin test",
+    "fmt:python": "yarn prettier:python --write",
     "validate": "./run validate",
     "lint": "yarn prettier --check && solhint --max-warnings 0 '{src,interfaces}/**/*.sol' --disc",
-    "lint:bash": "yarn prettier:bash --check && shellcheck --external-sources --shell=bash --enable=all --exclude=SC2310,SC2312 --severity=error $(grep -RIl '^#!.*bash' bin test)",
+    "lint:bash": "yarn prettier:bash --check && ./run lint-bash $(grep -RIl '^#!.*bash' bin test)",
     "lint:python": "[ $# -gt 0 ] && ./run lint-python ${0} bin test; [ $# -eq 0 ] && ./run lint-python bin test",
     "slither": "./run slither .",
     "test": "./run test",
@@ -30,10 +34,9 @@
   },
   "dependencies": {
     "bats": "^1.11.1",
-    "prettier": "^3.4.2",
-    "prettier-plugin-sh": "^0.16.0",
-    "prettier-plugin-solidity": "^1.4.1",
-    "solhint": "^5.0.3"
+    "prettier": "^3.5.3",
+    "prettier-plugin-solidity": "^1.4.2",
+    "solhint": "^5.0.5"
   },
-  "packageManager": "yarn@4.6.0"
+  "packageManager": "yarn@4.8.1"
 }

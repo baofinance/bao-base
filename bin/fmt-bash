@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# filepath: /home/tfras/github/baofinance/bao-base/bin/fmt-bash
+set -euo pipefail
+
+SHFMT_BIN="$HOME/.local/bin/shfmt"
+if [[ ! -x "$SHFMT_BIN" ]]; then
+  curl -sS https://webi.sh/shfmt | sh
+fi
+info 1 "shfmt version:" $("$SHFMT_BIN" --version)
+
+# Create a new array starting with style options
+args=("--indent=2" "--case-indent")
+
+mode=""
+for arg in "$@"; do
+  case "$arg" in
+    --write)
+      # If --list is found, set mode to --list
+      mode="--write"
+      ;;
+    --check)
+      # If --diff is found, set needs_diff to 1
+      mode="--list"
+      ;;
+    *)
+      # If the argument is not recognized, add it to the args array
+      args+=("$arg")
+      ;;
+  esac
+done
+
+shopt -s globstar nullglob
+info 1 "$SHFMT_BIN" "$mode" "${args[@]}"
+
+case $mode in
+  --list)
+    "$SHFMT_BIN" "$mode" "${args[@]}"
+    ;;
+  --write)
+    "$SHFMT_BIN" "$mode" "${args[@]}"
+    ;;
+  *)
+    # If neither --list nor --write is found, set needs_diff to 0
+    error "${BASH_SOURCE[0]}: need to specify --check or --write"
+    ;;
+esac

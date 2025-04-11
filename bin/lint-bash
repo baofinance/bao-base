@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# filepath: /home/tfras/github/baofinance/bao-base/bin/fmt-bash
+set -euo pipefail
+
+shellcheck --external-sources --shell=bash --enable=all --exclude=SC2310,SC2312 --severity=error "$@"

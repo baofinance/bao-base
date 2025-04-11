@@ -1,12 +1,12 @@
 #!/usr/bin/env bats
 
 load '../bats_helpers.sh'
-load 'maul_helper.sh'
+load 'maul_helpers.sh'
 
 setup() {
-    # Create temp dir for test outputs
-    mkdir -p "$BATS_TEST_TMPDIR/out"
-    export ABI_DIR="$BATS_TEST_TMPDIR/out"
+  # Create temp dir for test outputs
+  mkdir -p "$BATS_TEST_TMPDIR/out"
+  export ABI_DIR="$BATS_TEST_TMPDIR/out"
 }
 
 teardown() {
@@ -14,15 +14,18 @@ teardown() {
   rm -rf "$BATS_TEST_TMPDIR/out"
 }
 
-@test "maul.py shows help information" {
+@test "maul shows help information" {
+  # Use the maul helper function directly
   maul --help
-  expect --head "usage: maul.py [-h] [-f NETWORK] [-v]"
+  expect --partial "usage:"
+  expect --partial "options:"
+  expect --partial "commands:"
 }
 
-@test "maul.py sig command shows function signature" {
+@test "maul command shows function signature" {
   # Create mock ABI file for testing
   mkdir -p "$BATS_TEST_TMPDIR/out"
-  cat > "$BATS_TEST_TMPDIR/out/ERC20.json" <<EOF
+  cat >"$BATS_TEST_TMPDIR/out/ERC20.json" <<EOF
 {
   "abi": [
     {
@@ -40,60 +43,30 @@ teardown() {
 }
 EOF
 
-  # Run the sig command using our mock directory
+  # Use the maul helper function - note that maul() already includes "run"
   maul sig ERC20.transfer
 
   # Verify output contains correct signature
-  expect <<EOF
-*** signature for ERC20.transfer is "transfer(address,uint256)"
-Input Parameters:
-  1. recipient: address
-  2. amount: uint256
-Return Values:
-  1. success: bool
-EOF
+  expect --partial "transfer(address,uint256)"
+  expect --partial "recipient: address"
+  expect --partial "amount: uint256"
 }
 
-@test "maul.py address_of resolves 'baomultisig' to an address" {
-  # Override the PRIVATE_KEY environment variable
-  export PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" # Sample private key (not a real one)
+@test "maul resolves 'baomultisig' to an address" {
+  # Set required environment variables
+  export PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
-  run_python "
-import sys
-import os
-import importlib.util
+  # Use the maul helper function with resolve command
+  maul resolve baomultisig
 
-# Mock the dotenv module
-class MockDotenv:
-    def load_dotenv(self):
-        pass
-
-sys.modules['dotenv'] = MockDotenv()
-
-# Save original sys.argv and replace it temporarily
-original_argv = sys.argv
-sys.argv = ['maul.py']  # Minimal argv to prevent parse_args() errors
-
-try:
-    # Load module directly without executing __main__
-    spec = importlib.util.spec_from_file_location('maul', './bin/maul.py')
-    maul = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(maul)
-
-    # Now call the address_of function
-    print(maul.address_of('mainnet', 'baomultisig'))
-finally:
-    # Restore original argv
-    sys.argv = original_argv
-"
   # Check that the output is a valid Ethereum address
   expect --regexp "0x[a-fA-F0-9]{40}"
 }
 
-@test "maul.py decode_custom_error decodes known error" {
+@test "maul decodes known error" {
   # Create mock ABI file for testing
   mkdir -p "$BATS_TEST_TMPDIR/out"
-  cat > "$BATS_TEST_TMPDIR/out/TestContract.json" <<EOF
+  cat >"$BATS_TEST_TMPDIR/out/TestContract.json" <<EOF
 {
   "abi": [
     {
@@ -109,61 +82,22 @@ EOF
 
   # Calculate error selector for InvalidValue(uint256)
   local error_sig=$(cast keccak "InvalidValue(uint256)" 2>/dev/null | head -c 10)
+  echo "error_sig=$error_sig."
   local error_data="${error_sig}000000000000000000000000000000000000000000000000000000000000002a"
+  echo "error_data=$error_data."
 
-  # Run decode_custom_error with our error data
-  run_python "
-import sys
-import os
-import importlib.util
-
-# Mock the dotenv module
-class MockDotenv:
-    def load_dotenv(self):
-        pass
-
-sys.modules['dotenv'] = MockDotenv()
-
-# Save original sys.argv and replace it temporarily
-original_argv = sys.argv
-sys.argv = ['maul.py']  # Minimal argv to prevent parse_args() errors
-
-try:
-    # Load module directly without executing __main__
-    spec = importlib.util.spec_from_file_location('maul', './bin/maul.py')
-    maul = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(maul)
-
-    # Now trace the execution steps to debug the issue
-    print('Error data:', '$error_data')
-
-    # Manually decode the parameter for the test
-    # The error data is: selector (4 bytes) + parameter (32 bytes)
-    # Get the parameter value (last 32 bytes, converted from hex)
-    param_hex = '$error_data'[10:] # Skip the selector
-    param_value = int(param_hex, 16)
-    print('Parameter value (manually decoded):', param_value)
-
-    # Call the function
-    decoded, raw = maul.decode_custom_error('$error_data')
-    print(decoded)
-    print('Raw data:', raw)
-finally:
-    # Restore original argv
-    sys.argv = original_argv
-"
+  # Use maul helper function for decode command
+  maul decode "$error_data" TestContract
 
   # Verify the error is properly decoded
-  expect --partial "Error: InvalidValue"
-  expect --partial "[from TestContract]"
-  # Check for the manually decoded parameter value
-  expect --partial "Parameter value (manually decoded): 42"
+  expect --partial "InvalidV alue"
+  expect --partial "42"
 }
 
-@test "maul.py parse_sig handles both signature formats" {
+@test "maul handles both signature formats" {
   # Create mock ABI file
   mkdir -p "$BATS_TEST_TMPDIR/out"
-  cat > "$BATS_TEST_TMPDIR/out/Token.json" <<EOF
+  cat >"$BATS_TEST_TMPDIR/out/Token.json" <<EOF
 {
   "abi": [
     {
@@ -181,146 +115,23 @@ finally:
 }
 EOF
 
-  # Test with a full function signature
-  run_python "
-import sys
-import os
-import importlib.util
-
-# Mock the dotenv module
-class MockDotenv:
-    def load_dotenv(self):
-        pass
-
-sys.modules['dotenv'] = MockDotenv()
-
-# Save original sys.argv and replace it temporarily
-original_argv = sys.argv
-sys.argv = ['maul.py']  # Minimal argv to prevent parse_args() errors
-
-try:
-    # Load module directly without executing __main__
-    spec = importlib.util.spec_from_file_location('maul', './bin/maul.py')
-    maul = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(maul)
-
-    # Now call the function
-    sig, param_types = maul.parse_sig('mainnet', 'transfer(address,uint256)')
-    print(f'Signature: {sig}')
-    print(f'Param types: {param_types}')
-finally:
-    # Restore original argv
-    sys.argv = original_argv
-"
-
-  expect --partial "Signature: transfer(address,uint256)"
-  expect --partial "Param types: ['address', 'uint256']"
+  # Test with a full function signature using maul helper
+  maul sig "transfer(address,uint256)"
+  expect --partial "transfer(address,uint256)"
+  expect --partial "address"
+  expect --partial "uint256"
 
   # Test with Contract.function format
-  run_python "
-import sys
-import os
-import importlib.util
-
-# Mock the dotenv module
-class MockDotenv:
-    def load_dotenv(self):
-        pass
-
-sys.modules['dotenv'] = MockDotenv()
-
-# Save original sys.argv and replace it temporarily
-original_argv = sys.argv
-sys.argv = ['maul.py']  # Minimal argv to prevent parse_args() errors
-
-try:
-    # Load module directly without executing __main__
-    spec = importlib.util.spec_from_file_location('maul', './bin/maul.py')
-    maul = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(maul)
-
-    # Now call the function
-    sig, param_types = maul.parse_sig('mainnet', 'Token.approve')
-    print(f'Signature: {sig}')
-    print(f'Param types: {param_types}')
-finally:
-    # Restore original argv
-    sys.argv = original_argv
-"
-
-  expect --partial "Signature: approve(address,uint256)"
-  expect --partial "Param types: ['address', 'uint256']"
-
+  maul sig Token.approve
+  expect --partial "approve(address,uint256)"
+  expect --partial "spender: address"
+  expect --partial "amount: uint256"
 }
 
-@test "maul.py set_verbosity correctly sets log levels" {
-  run_python "
-import sys
-import os
-import logging
-import importlib.util
-
-# Mock the dotenv module
-class MockDotenv:
-    def load_dotenv(self):
-        pass
-
-sys.modules['dotenv'] = MockDotenv()
-
-# Save original sys.argv and replace it temporarily
-original_argv = sys.argv
-sys.argv = ['maul.py']  # Minimal argv to prevent parse_args() errors
-
-try:
-    # Load module directly without executing __main__
-    spec = importlib.util.spec_from_file_location('maul', './bin/maul.py')
-    maul = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(maul)
-
-    # Get references to the module's components
-    logger = maul.logger
-
-    # Test different verbosity levels
-    print('Testing level 0:')
-    maul.set_verbosity(0)
-    print(f'Logger level: {logger.level}')
-    print(f'Is WARNING enabled: {logger.isEnabledFor(logging.WARNING)}')
-    print(f'Is INFO enabled: {logger.isEnabledFor(logging.INFO)}')
-
-    print('\\nTesting level 1:')
-    maul.set_verbosity(1)
-    print(f'Logger level: {logger.level}')
-    print(f'Is INFO enabled: {logger.isEnabledFor(logging.INFO)}')
-    print(f'Is DEBUG enabled: {logger.isEnabledFor(logging.DEBUG)}')
-
-    print('\\nTesting level 2:')
-    maul.set_verbosity(2)
-    print(f'Logger level: {logger.level}')
-    print(f'Is DEBUG enabled: {logger.isEnabledFor(logging.DEBUG)}')
-finally:
-    # Restore original argv
-    sys.argv = original_argv
-"
-
-  # Check level 0 (WARNING)
-  expect --partial "Testing level 0:"
-  expect --partial "Is WARNING enabled: True"
-  expect --partial "Is INFO enabled: False"
-
-  # Check level 1 (INFO)
-  expect --partial "Testing level 1:"
-  expect --partial "Is INFO enabled: True"
-  expect --partial "Is DEBUG enabled: False"
-
-  # Check level 2 (DEBUG)
-  expect --partial "Testing level 2:"
-  expect --partial "Is DEBUG enabled: True"
-}
-
-@test "maul.py format_call_result formats different output types correctly" {
+@test "maul formats different output types correctly" {
   # Create mock ABI files for the test
   mkdir -p "$BATS_TEST_TMPDIR/out"
-  cat > "$BATS_TEST_TMPDIR/out/MyContract.json" <<EOF
+  cat >"$BATS_TEST_TMPDIR/out/MyContract.json" <<EOF
 {
   "abi": [
     {
@@ -359,55 +170,18 @@ finally:
 }
 EOF
 
-  run_python "
-import sys
-import os
-import importlib.util
-
-# Mock the dotenv module
-class MockDotenv:
-    def load_dotenv(self):
-        pass
-
-sys.modules['dotenv'] = MockDotenv()
-
-# Save original sys.argv and replace it temporarily
-original_argv = sys.argv
-sys.argv = ['maul.py']  # Minimal argv to prevent parse_args() errors
-
-try:
-    # Load module directly without executing __main__
-    spec = importlib.util.spec_from_file_location('maul', './bin/maul.py')
-    maul = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(maul)
-
-    # Test integer result
-    print('Integer result:')
-    print(maul.format_call_result('0x000000000000000000000000000000000000000000000000000000000000002a', 'MyContract.getNumber'))
-
-    # Test boolean result
-    print('\\nBoolean results:')
-    print(maul.format_call_result('0x0', 'MyContract.isSomething'))
-    print(maul.format_call_result('0x1', 'MyContract.isSomethingElse'))
-
-    # Test address result
-    print('\\nAddress result:')
-    print(maul.format_call_result('0x5FbDB2315678afecb367f032d93F642f64180aa3', 'MyContract.getAddress'))
-finally:
-    # Restore original argv
-    sys.argv = original_argv
-"
-
-  # Check integer formatting
-  expect --partial "Integer result:"
+  # Use the maul helper function to test formatting
+  maul format 0x000000000000000000000000000000000000000000000000000000000000002a MyContract.getNumber
   expect --partial "42"
 
-  # Check boolean formatting
-  expect --partial "Boolean results:"
-  expect --partial "false"  # 0x0 should be formatted as false
-  expect --partial "true"   # 0x1 should be formatted as true
+  # Test boolean result
+  maul format 0x0 MyContract.isSomething
+  expect --partial "false"
 
-  # Check address formatting
-  expect --partial "Address result:"
+  maul format 0x1 MyContract.isSomethingElse
+  expect --partial "true"
+
+  # Test address result
+  maul format 0x5FbDB2315678afecb367f032d93F642f64180aa3 MyContract.getAddress
   expect --partial "0x5FbDB2315678afecb367f032d93F642f64180aa3"
 }

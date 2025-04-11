@@ -307,7 +307,27 @@ fi
 debug "Dependencies installed successfully"
 
 # Run the target Python script or command
-SCRIPT_PY="$DEPENDENCIES_DIR/$SCRIPT.py"
+# Handle absolute paths and paths that already have .py extension
+if [[ "$SCRIPT" == *.py ]]; then
+    # Script already has a .py extension - use as-is
+    if [[ "$SCRIPT" == /* ]]; then
+        # Absolute path
+        SCRIPT_PY="$SCRIPT"
+    else
+        # Relative path with .py extension
+        SCRIPT_PY="$DEPENDENCIES_DIR/$SCRIPT"
+    fi
+    debug "Using script with existing .py extension: $SCRIPT_PY"
+elif [[ "$SCRIPT" == /* ]]; then
+    # Absolute path without .py extension
+    SCRIPT_PY="${SCRIPT}.py"
+    debug "Using absolute path with added .py extension: $SCRIPT_PY"
+else
+    # Relative path without .py extension
+    SCRIPT_PY="$DEPENDENCIES_DIR/$SCRIPT.py"
+    debug "Using relative path with added .py extension: $SCRIPT_PY"
+fi
+
 if [[ -f "$SCRIPT_PY" ]]; then
     debug "Running Python script: $SCRIPT_PY"
     if [[ "$BAO_BASE_OS" == "windows" ]]; then
@@ -323,6 +343,10 @@ else
         "$SCRIPT" "$@"
     else
         error "Python script '$SCRIPT_PY' not found and command '$SCRIPT' not found in PATH"
+        # Additional error information for debugging
+        debug "Script: $SCRIPT"
+        debug "Script path attempted: $SCRIPT_PY"
+        debug "Dependencies directory: $DEPENDENCIES_DIR"
         exit 1
     fi
 fi

@@ -17,15 +17,15 @@ load "bats_helpers.sh"
 
 # Test running the nothing script
 @test "run should execute nothing script correctly" {
-    run ./run nothing
-    expect --head "Running as bash: ./bin/nothing"
-    expect --tail "0 arguments: "
+  run ./run nothing
+  expect --head "Running as bash: ./bin/nothing"
+  expect --tail "0 arguments: "
 }
 
 @test "run should execute nothing script with parameters correctly" {
-    run ./run nothing hello world
-    expect --head "Running as bash: ./bin/nothing hello world"
-    expect --tail "2 arguments: hello world"
+  run ./run nothing hello world
+  expect --head "Running as bash: ./bin/nothing hello world"
+  expect --tail "2 arguments: hello world"
 }
 
 # Test running the nothing-python script

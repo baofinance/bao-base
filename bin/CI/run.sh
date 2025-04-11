@@ -5,19 +5,19 @@ dep_dir=$(dirname "$0")
 
 # Cleanup function for temporary files
 cleanup() {
-    local exit_code=$?
-    # Check if temp_dir exists and is not empty
-    if [[ -n "${temp_dir:-}" && -d "$temp_dir" ]]; then
-        echo "Cleaning up temporary directory: $temp_dir"
-        rm -rf "$temp_dir"
-    fi
+  local exit_code=$?
+  # Check if temp_dir exists and is not empty
+  if [[ -n "${temp_dir:-}" && -d "$temp_dir" ]]; then
+    echo "Cleaning up temporary directory: $temp_dir"
+    rm -rf "$temp_dir"
+  fi
 
-    # Output error message if script failed
-    if [[ $exit_code -ne 0 ]]; then
-        echo "Error: Script exited with status $exit_code" >&2
-    fi
+  # Output error message if script failed
+  if [[ $exit_code -ne 0 ]]; then
+    echo "Error: Script exited with status $exit_code" >&2
+  fi
 
-    exit $exit_code
+  exit $exit_code
 }
 
 # Trap signals for cleanup
@@ -27,21 +27,21 @@ foundry_version="stable"
 os_version="ubuntu-latest" # TODO: read this from the BAO_BASE_OS_* variables
 workflow="foundry"
 while [ "$#" -gt 0 ]; do
-    case "$1" in
-        --workflow)
-            workflow=$2
-            shift 2
-            ;;
-        --foundry)
-            foundry_version=$2
-            shift 2
-            ;;
-        --os)
-            os_version=$2
-            shift 2
-            ;;
-        *) break ;;
-    esac
+  case "$1" in
+    --workflow)
+      workflow=$2
+      shift 2
+      ;;
+    --foundry)
+      foundry_version=$2
+      shift 2
+      ;;
+    --os)
+      os_version=$2
+      shift 2
+      ;;
+    *) break ;;
+  esac
 done
 
 echo "Running CI for $foundry_version foundry on $os_version"
@@ -56,26 +56,26 @@ event_file="$temp_dir/workflow_dispatch_${os_version}_${foundry_version}.json"
 
 echo "replacing \$OS_VERSION with '$os_version' and \$FOUNDY_VERSION with '$foundry_version' in $event_template_file"
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
-sed "s|\$OS_VERSION|$os_version|g" "$event_template_file" | sed "s|\$FOUNDRY_VERSION|$foundry_version|g" > "$event_file"
+sed "s|\$OS_VERSION|$os_version|g" "$event_template_file" | sed "s|\$FOUNDRY_VERSION|$foundry_version|g" >"$event_file"
 
 echo "replacing \$BAO_BASE_DIR_REL with './$BAO_BASE_DIR_REL' in $workflow_file"
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
-sed "s|\$BAO_BASE_DIR_REL|./$BAO_BASE_DIR_REL|g" "$workflow_template_file" > "$workflow_file"
+sed "s|\$BAO_BASE_DIR_REL|./$BAO_BASE_DIR_REL|g" "$workflow_template_file" >"$workflow_file"
 
 if [[ ! -x "$BAO_BASE_TOOLS_DIR/act/act" ]]; then
-    info 0 "installing act..."
-    mkdir -p "$BAO_BASE_TOOLS_DIR/act"
-    if [[ "$BAO_BASE_OS" == "linux" ]]; then
-        curl https://raw.githubusercontent.com/nektos/act/master/install.sh | bash -s -- -b "$BAO_BASE_TOOLS_DIR/act"
-        if [[ ! -x "$BAO_BASE_TOOLS_DIR/act/act" ]]; then
-            echo "act installation failed"
-            exit 1
-        fi
-    elif [[ "$BAO_BASE_OS" == "macos" ]]; then
-        brew install act
-    else
-        echo "operating system not supported yet"
+  info 0 "installing act..."
+  mkdir -p "$BAO_BASE_TOOLS_DIR/act"
+  if [[ "$BAO_BASE_OS" == "linux" ]]; then
+    curl https://raw.githubusercontent.com/nektos/act/master/install.sh | bash -s -- -b "$BAO_BASE_TOOLS_DIR/act"
+    if [[ ! -x "$BAO_BASE_TOOLS_DIR/act/act" ]]; then
+      echo "act installation failed"
+      exit 1
     fi
+  elif [[ "$BAO_BASE_OS" == "macos" ]]; then
+    brew install act
+  else
+    echo "operating system not supported yet"
+  fi
 fi
 
 echo act -P ubuntu-latest=-self-hosted -W "$workflow_file" -e "$event_file" "$@"

@@ -30,7 +30,8 @@ def main():
         help="Exclude specific rule codes (comma-separated)",
     )
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         help="Increase verbosity",
     )

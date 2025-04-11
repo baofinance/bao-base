@@ -11,8 +11,9 @@
 
 # libraries
 node_modules
-venv/
-.venv/
+# python virtual environments
+venv
+.venv
 
 # Compiler files
 cache/

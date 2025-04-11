@@ -1,0 +1,12 @@
+# Maul configuration file
+
+# Directories to search for commands
+# These can be absolute or relative to the BAO_BASE_DIR
+command_dirs = [
+    "maul/commands",  # Project-specific commands first
+]
+
+# Default network to use when not specified
+default_network = "mainnet"
+
+# Additional configuration options can be added here
