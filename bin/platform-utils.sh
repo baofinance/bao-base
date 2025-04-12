@@ -164,21 +164,28 @@ capture_output() {
   return 0
 }
 
-# Get Python paths based on platform
-get_python_paths() {
-  local venv_dir="$1"
-  local python_path=""
-  local activate_path=""
-
+uv_exe_name() {
   if [[ "$BAO_BASE_OS" == "windows" ]]; then
-    python_path="$venv_dir/Scripts/python.exe"
-    activate_path="$venv_dir/Scripts/activate"
+    echo "uv.exe"
   else
-    python_path="$venv_dir/bin/python"
-    activate_path="$venv_dir/bin/activate"
+    echo "uv"
   fi
+}
 
-  echo "$python_path:$activate_path"
+python_exe_in_env() {
+  if [[ "$BAO_BASE_OS" == "windows" ]]; then
+    echo "Scripts/python.exe"
+  else
+    echo "bin/python"
+  fi
+}
+
+activate_script_in_env() {
+  if [[ "$BAO_BASE_OS" == "windows" ]]; then
+    echo "Scripts/activate"
+  else
+    echo "bin/activate"
+  fi
 }
 
 # Make a file executable if needed and possible
@@ -198,5 +205,7 @@ export -f create_temp_file
 export -f create_temp_dir
 export -f calculate_hash
 export -f capture_output
-export -f get_python_paths
 export -f make_executable
+export -f uv_exe_name
+export -f python_exe_in_env
+export -f activate_script_in_env

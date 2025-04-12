@@ -48,6 +48,9 @@ args=($(debug_opts))
 _process_args
 args=("${temp_args[@]}")
 
+# load locking functions (double checked locking pattern)
+source "$BAO_BASE_BIN_DIR/run/mutexing"
+
 debug "Starting run script"
 debug "BAO_BASE_VERBOSITY=$BAO_BASE_VERBOSITY"
 debug "BAO_BASE_DIR=$BAO_BASE_DIR"
@@ -259,7 +262,7 @@ else
     # Detect script type from the matched file
     script_type=$(detect_script_type "$matched_file")
     if [[ "$script_type" == "unknown" ]]; then
-      error "Could not determine script type for $matched_file"
+      error "Could not determine script type for $SCRIPT_NAME"
       exit 1
     fi
 

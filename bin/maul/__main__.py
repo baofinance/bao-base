@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Main entry point for maul when executed as a module."""
 
-import os
 import sys
 from .run import main
 
