@@ -456,7 +456,8 @@ def parse_sig(network, sig_input):
         sys.exit(1)
 
 
-def _grab(address, wei_amount):
+def _grab(rpc_url, address, wei_amount):
+    logger.info2(f"Setting balance of {address} to {wei_amount} wei")
     # cast to hex to avoid issues with large numbers
     wei_amount_hex = run_command(["cast", "to-hex", str(wei_amount)]).stdout.strip()
 
@@ -464,6 +465,8 @@ def _grab(address, wei_amount):
         [
             "cast",
             "rpc",
+            "--rpc-url",
+            rpc_url,
             "anvil_setBalance",
             address,
             wei_amount_hex,
@@ -471,28 +474,34 @@ def _grab(address, wei_amount):
     )
 
 
-def grab(network, wallet, eth_amount):
+def grab(network, rpc_url, wallet, eth_amount):
     address = address_of(network, wallet)
     wei_amount = run_command(["cast", "to-wei", eth_amount]).stdout.strip()
-    wei_balance = run_command(["cast", "balance", address]).stdout.strip()
+    wei_balance = run_command(
+        ["cast", "balance", "--rpc-url", rpc_url, address]
+    ).stdout.strip()
 
-    _grab(address, int(wei_amount) + int(wei_balance))
+    _grab(rpc_url, address, int(wei_amount) + int(wei_balance))
 
-    eth_balance = run_command(["cast", "from-wei", wei_balance]).stdout.strip()
+    new_wei_balance = run_command(
+        ["cast", "balance", "--rpc-url", rpc_url, address]
+    ).stdout.strip()
+    eth_balance = run_command(["cast", "from-wei", new_wei_balance]).stdout.strip()
     logging.info(f"{wallet} balance is now {eth_balance}")
 
 
-def grab_upto(network, wallet, eth_amount):
+def grab_upto(network, rpc_url, wallet, eth_amount):
     address = address_of(network, wallet)
     wei_amount = run_command(["cast", "to-wei", eth_amount]).stdout.strip()
 
-    _grab(address, wei_amount)
+    _grab(rpc_url, address, wei_amount)
 
-    eth_balance = run_command(["cast", "from-wei", wei_amount]).stdout.strip()
+    wei_balance = run_command(["cast", "balance", address]).stdout.strip()
+    eth_balance = run_command(["cast", "from-wei", wei_balance]).stdout.strip()
     print(f"*** {wallet} balance is now {eth_balance}")
 
 
-def grab_erc20(network, wallet, eth_amount, token):
+def grab_erc20(network, rpc_url, wallet, eth_amount, token):
     """
     Get ERC20 tokens for a wallet by impersonating holders from the event logs
     using JSON format for easier parsing
@@ -506,6 +515,8 @@ def grab_erc20(network, wallet, eth_amount, token):
             [
                 "cast",
                 "call",
+                "--rpc-url",
+                rpc_url,
                 token_address,
                 "balanceOf(address)(uint256)",
                 wallet_address,
@@ -543,6 +554,8 @@ def grab_erc20(network, wallet, eth_amount, token):
             [
                 "cast",
                 "logs",
+                "--rpc-url",
+                rpc_url,
                 "--from-block",
                 str(start_block),
                 "--to-block",
@@ -615,6 +628,8 @@ def grab_erc20(network, wallet, eth_amount, token):
                     [
                         "cast",
                         "call",
+                        "--rpc-url",
+                        rpc_url,
                         token_address,
                         "balanceOf(address)(uint256)",
                         to_address,
@@ -709,7 +724,7 @@ def grab_erc20(network, wallet, eth_amount, token):
         )
 
 
-def start(network, chain_id=None, port=8545):
+def start(network, chain_id, port, rpc_url):
     # Store the anvil process so we can terminate it properly
     anvil_process = None
 
@@ -718,7 +733,6 @@ def start(network, chain_id=None, port=8545):
             time.sleep(1)
         print("*** allowing baomultisig to be impersonated...")
         # Also use RPC URL with port specified to ensure commands target the correct anvil instance
-        rpc_url = f"http://localhost:{port}"
         run_command(
             [
                 "cast",
@@ -762,13 +776,11 @@ def start(network, chain_id=None, port=8545):
 
         # Use subprocess.Popen instead of run_command for direct process control
         cmd = ["anvil", "-f", network]
-
-        # Add chain-id if specified
+        # Add optional parameters
         if chain_id:
             cmd.extend(["--chain-id", str(chain_id)])
-
-        # Add port if specified
-        cmd.extend(["--port", str(port)])
+        if port:
+            cmd.extend(["--port", str(port)])
 
         logger.info(f">>> {' '.join(cmd)}")
         anvil_process = subprocess.Popen(cmd)
@@ -900,14 +912,32 @@ Examples:
         """,
     )
 
-    # Add global arguments
+    # Create a mutually exclusive group for local/no-local options
+    local_group = parser.add_mutually_exclusive_group()
+    local_group.add_argument(
+        "--no-local",
+        dest="use_local",
+        action="store_false",
+        help="Do not use local anvil instance (use live chain instead)",
+    )
+    local_group.add_argument(
+        "--local",
+        "--port",
+        dest="local_port",
+        nargs="?",
+        const=True,  # When --local is specified without a value
+        type=int,  # When --local is specified with a value, treat as int
+        help="Use local anvil instance, optionally specifying port number (default: 8545)",
+    )
+
     parser.add_argument(
+        "--chain",
         "-f",
-        "--rpc-url",
         dest="network",
         default="mainnet",
-        help="Network to fork from",
+        help="Chain to: fork from, to connect to, or to lookup addresses, etc.",
     )
+
     parser.add_argument(
         "-v", action="count", default=0, help="Increase verbosity level"
     )
@@ -925,10 +955,7 @@ Examples:
         "--chain-id", type=int, help="Specify chain ID for the anvil instance"
     )
     start_parser.add_argument(
-        "--port",
-        type=int,
-        default=8545,
-        help="Port for the anvil instance (default: 8545)",
+        "--port", type=int, help="Port number to use the anvil instance listens on"
     )
 
     # Grant command
@@ -1012,16 +1039,21 @@ Examples:
 
     # Parse arguments
     args = parser.parse_args()
-
-    # # Set the default command if none provided
-    # if not args.command:
-    #     args.command = "start"
-
-    # Set up logging based on verbosity level
     configure_logging(args.v, args.q)
-
     # Convert count to Foundry's verbosity flag format (e.g., -vvv)
     verbosity = "-" + "v" * args.v if args.v > 0 else ""
+
+    # Extract rpc_url and rpc_port from local/network arguments
+    if args.use_local:
+        # --local was specified
+        rpc_url = f"http://localhost:{args.local_port or 8545}"
+    else:
+        # --no-local was specified
+        rpc_url = args.network
+        if args.network.startswith("http"):
+            # If it's a URL, use it directly
+            logger.error("--chain cannot be an actual url: {args.network}")
+            sys.exit(1)
 
     logger.info(f"Processing command: {args.command}")
 
@@ -1029,10 +1061,10 @@ Examples:
     if args.command in ["steal"] + steal_aliases:
         if args.erc20:
             print(f"*** transfer {args.to} {args.amount} ERC20 {args.erc20}")
-            grab_erc20(args.network, args.to, args.amount, args.erc20)
+            grab_erc20(args.network, rpc_url, args.to, args.amount, args.erc20)
         else:
             print(f"*** transfer {args.to} {args.amount} ETH")
-            grab(args.network, args.to, args.amount)
+            grab(args.network, rpc_url, args.to, args.amount)
 
     elif args.command == "grant":
         on_address = address_of(args.network, args.on)
@@ -1138,7 +1170,7 @@ Examples:
             print(f"Result: {formatted_result}")
 
     elif args.command == "start":
-        start(args.network, args.chain_id, args.port)
+        start(args.network, args.chain_id, args.port, rpc_url)
 
     elif args.command == "sig":
         # Parse the signature format using the same parser as call/send
