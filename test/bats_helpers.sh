@@ -6,7 +6,7 @@ bbrun() {
 }
 
 # usage:
-# expect [--success|--failure] [--head|--tail] [--partial|--regexp|--regex] [--not] <expected>
+# expect [--success|--failure] [--head|--tail] [--contains|--regexp|--regex|--starts-with|--ends-with] [--not] <expected>
 expect() {
   local status_result
   local mode="exact"
@@ -42,7 +42,7 @@ expect() {
         else
           status_result=1
         fi
-        expected_status="=0"
+        expected_status=" = 0"
         shift
         ;;
       --head)
@@ -53,8 +53,16 @@ expect() {
         selected_output=$(echo "$selected_output" | tail -n 1)
         shift
         ;;
-      --partial)
-        mode="partial"
+      --contains)
+        mode="contains"
+        shift
+        ;;
+      --finishes-with | --ends-with)
+        mode="ends-with"
+        shift
+        ;;
+      --starts-with | --begins-with)
+        mode="starts-with"
         shift
         ;;
       --regexp | --regex)
@@ -94,7 +102,13 @@ $output
     exact)
       [[ "$selected_output" == "$expected" ]] || return $fail
       ;;
-    partial)
+    starts-with)
+      [[ "$selected_output" =~ ^"$expected" ]] || return $fail
+      ;;
+    ends-with)
+      [[ "$selected_output" =~ "$expected"$ ]] || return $fail
+      ;;
+    contains)
       [[ "$selected_output" =~ "$expected" ]] || return $fail
       ;;
     regexp)

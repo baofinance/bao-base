@@ -5,7 +5,7 @@
   "scripts": {
     "upgrade:yarn": "yarn set version stable",
     "upgrade": "[ $# -gt 0 ] && yarn up \"${0}\"; [ $# -eq 0 ] && yarn up \"*\"",
-    "anvil": "./run maul anvil",
+    "anvil": "./run anvil",
     "maul": "./run maul",
     "clean": "./run clean",
     "gas": "./run regression-of gas",

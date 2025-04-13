@@ -133,6 +133,7 @@ def configure_logging(verbosity, quiet):
 
         handler.setFormatter(formatter)
         _logger.addHandler(handler)
+        return _logger
 
 
 def get_logger():

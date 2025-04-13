@@ -270,6 +270,8 @@ else
   debug "Using relative path with added .py extension: $SCRIPT_PY"
 fi
 
+export PYTHONPATH="$BAO_BASE_DIR:$BAO_BASE_BIN_DIR"
+
 if [[ -f "$SCRIPT_PY" ]]; then
   debug "Running Python script: $SCRIPT_PY"
   if [[ "$BAO_BASE_OS" == "windows" ]]; then

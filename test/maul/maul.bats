@@ -2,7 +2,7 @@
 
 # Helper to run maul commands
 maul() {
-  "${BATS_TEST_DIRNAME}/../../../run" maul "$@"
+  "${BATS_TEST_DIRNAME}/../../run" maul "$@"
 }
 
 # Setup: Start anvil in background for tests
@@ -11,7 +11,7 @@ setup() {
   if [ -z "$ANVIL_PID" ]; then
     # Start anvil in background with a unique port to avoid conflicts
     PORT=${ANVIL_PORT:-8545}
-    "${BATS_TEST_DIRNAME}/../../../run" anvil --port $PORT >/tmp/anvil.log 2>&1 &
+    "${BATS_TEST_DIRNAME}/../../run" maul start --port "$PORT" >/tmp/anvil.log 2>&1 &
     ANVIL_PID=$!
 
     # Wait for anvil to start

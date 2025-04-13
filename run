@@ -49,7 +49,7 @@ _process_args
 args=("${temp_args[@]}")
 
 # load locking functions (double checked locking pattern)
-source "$BAO_BASE_BIN_DIR/run/mutexing"
+# source "$BAO_BASE_BIN_DIR/run/mutexing" # no need for this yet (or at all?)
 
 debug "Starting run script"
 debug "BAO_BASE_VERBOSITY=$BAO_BASE_VERBOSITY"
@@ -197,82 +197,148 @@ run_script_with_type() {
 
 # Auto-detect script type
 debug "Detecting script type for $SCRIPT_NAME"
+args_str=""
+if [[ ${#args[@]} -gt 0 ]]; then
+  args_str=" ${args[*]}"
+fi
 
-# First check if it's a directory
+# Collect all possible execution paths and ensure there's only one
+debug "Finding all execution options for $SCRIPT_NAME"
+
+# Array to store all executable options
+declare -a execution_options
+declare -a execution_descriptions
+
+# Check directory with run.sh or run.py
 if [[ -d "$SCRIPT_PATH" ]]; then
-  # Check for run.sh first (existing functionality)
   if [[ -x "$SCRIPT_PATH/run.sh" ]]; then
-    info 0 "Running: $BAO_BASE_DIR_REL/bin/$SCRIPT_NAME/run.sh${*:+ $*}"
-    debug "Directory has an executable run.sh script"
+    execution_options+=("dir_run_sh")
+    execution_descriptions+=("directory with run.sh: $SCRIPT_PATH/run.sh")
+  fi
+
+  if [[ -f "$SCRIPT_PATH/run.py" ]]; then
+    execution_options+=("dir_run_py")
+    execution_descriptions+=("directory with run.py: $SCRIPT_PATH/run.py")
+  fi
+fi
+
+# Check direct file match
+if [[ -f "$SCRIPT_PATH" ]]; then
+  execution_options+=("direct_file")
+  execution_descriptions+=("direct file: $SCRIPT_PATH")
+fi
+
+# Check pattern matches
+matching_files=$(find "$BAO_BASE_BIN_DIR" -maxdepth 1 -type f -name "$SCRIPT_NAME.*" | sort)
+file_count=$(echo "$matching_files" | grep -c "^" || echo "0")
+
+if [[ $file_count -gt 0 ]]; then
+  # Add each matching file as an option
+  while IFS= read -r matched_file; do
+    if [[ -n "$matched_file" ]]; then
+      execution_options+=("pattern_match:$matched_file")
+      execution_descriptions+=("pattern match: $(basename "$matched_file")")
+    fi
+  done <<<"$matching_files"
+fi
+
+# Handle findings
+option_count=${#execution_options[@]}
+
+debug "Found $option_count execution options"
+for ((i = 0; i < option_count; i++)); do
+  debug "Option $((i + 1)): ${execution_descriptions[$i]}"
+done
+
+if [[ $option_count -eq 0 ]]; then
+  error "Could not determine script type for $SCRIPT_NAME"
+  exit 1
+elif [[ $option_count -gt 1 ]]; then
+
+  # Show detailed execution information for each option
+  for ((i = 0; i < option_count; i++)); do
+    echo -n "    Option $((i + 1)): "
+
+    case "${execution_options[$i]}" in
+      dir_run_sh)
+        echo "Would run as bash script: $SCRIPT_NAME$args_str"
+        echo "        Path: $SCRIPT_PATH/run.sh"
+        ;;
+      dir_run_py)
+        script_type=$(detect_script_type "$SCRIPT_PATH/run.py" "python")
+        echo "Would run as $script_type script: $SCRIPT_NAME$args_str"
+        echo "        Path: $SCRIPT_PATH/run.py"
+        ;;
+      direct_file)
+        script_type=$(detect_script_type "$SCRIPT_PATH" "unknown")
+        echo "Would run as $script_type script: $SCRIPT_NAME$args_str"
+        echo "        Path: $SCRIPT_PATH"
+        ;;
+      pattern_match:*)
+        matched_file="${execution_options[$i]#pattern_match:}"
+        script_basename=$(basename "$matched_file")
+        script_type=$(detect_script_type "$matched_file" "unknown")
+        echo "Would run as $script_type script: $script_basename$args_str"
+        echo "        Path: $matched_file"
+        ;;
+    esac
+  done
+
+  error "Multiple execution options found for '$SCRIPT_NAME':"
+fi
+
+# Execute the single option
+debug "Proceeding with execution option: ${execution_descriptions[0]}"
+case "${execution_options[0]}" in
+  dir_run_sh)
+    info 0 "Running: $BAO_BASE_DIR_REL/bin/$SCRIPT_NAME/run.sh$args_str"
     "$SCRIPT_PATH/run.sh" "${args[@]}" || {
       exit_code=$?
       error "Directory run script execution failed with code $exit_code"
       exit $exit_code
     }
-  # Now also check for run.py
-  elif [[ -f "$SCRIPT_PATH/run.py" ]]; then
-    info 0 "Running: $BAO_BASE_DIR_REL/bin/$SCRIPT_NAME/run.py${*:+ $*}"
-    debug "Directory has a run.py script"
+    ;;
 
-    # Detect script type and run with appropriate executor
+  dir_run_py)
+    info 0 "Running: $BAO_BASE_DIR_REL/bin/$SCRIPT_NAME/run.py$args_str"
     script_type=$(detect_script_type "$SCRIPT_PATH/run.py" "python")
     run_script_with_type "$script_type" "$SCRIPT_PATH/run.py" "${args[@]}" || {
       exit_code=$?
       exit $exit_code
     }
-  else
-    error "Directory does not contain a run.sh or run.py script"
-    exit 1
-  fi
-# Check if we have a script file directly with the exact name
-else
-  if [[ -f "$SCRIPT_PATH" ]]; then
-    # Detect script type directly from the file
+    ;;
+
+  direct_file)
     script_type=$(detect_script_type "$SCRIPT_PATH")
     if [[ "$script_type" == "unknown" ]]; then
       error "Could not determine script type for $SCRIPT_PATH"
       exit 1
     fi
 
-    info 0 "Running as $script_type: $BAO_BASE_DIR_REL/bin/$SCRIPT_NAME${*:+ $*}"
+    info 0 "Running as $script_type: $BAO_BASE_DIR_REL/bin/$SCRIPT_NAME$args_str"
     run_script_with_type "$script_type" "$SCRIPT_NAME" "${args[@]}" || {
       exit_code=$?
       exit $exit_code
     }
-  else
-    # Find any files that match the script name pattern
-    matching_files=$(find "$BAO_BASE_BIN_DIR" -maxdepth 1 -type f -name "$SCRIPT_NAME.*" | sort)
-    file_count=$(echo "$matching_files" | grep -c "^" || echo "0")
+    ;;
 
-    # Handle the search results
-    if [[ $file_count -eq 0 ]]; then
-      error "No script file found matching '$SCRIPT_NAME' in $BAO_BASE_BIN_DIR"
-      exit 1
-    elif [[ $file_count -gt 1 ]]; then
-      error "Multiple script files match '$SCRIPT_NAME' in $BAO_BASE_BIN_DIR:"
-      echo "$matching_files" | sed 's|^.*/||' | sort | sed 's/^/    /'
-      error "Please specify the exact file name to avoid ambiguity."
-      exit 1
-    fi
-
-    # We have exactly one match
-    matched_file=$(echo "$matching_files" | head -1)
+  pattern_match:*)
+    matched_file="${execution_options[0]#pattern_match:}"
     script_basename=$(basename "$matched_file")
-
-    # Detect script type from the matched file
     script_type=$(detect_script_type "$matched_file")
+
     if [[ "$script_type" == "unknown" ]]; then
-      error "Could not determine script type for $SCRIPT_NAME"
+      error "Could not determine script type for $matched_file"
       exit 1
     fi
 
-    info 0 "Running as $script_type: $BAO_BASE_DIR_REL/bin/$script_basename${*:+ $*}"
+    info 0 "Running as $script_type: $BAO_BASE_DIR_REL/bin/$script_basename$args_str"
     run_script_with_type "$script_type" "$script_basename" "${args[@]}" || {
       exit_code=$?
       exit $exit_code
     }
-  fi
-fi
+    ;;
+esac
 
 exit_code=0
 debug "Script execution completed successfully with exit code: $exit_code"

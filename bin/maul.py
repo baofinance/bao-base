@@ -13,6 +13,8 @@ import threading
 import time
 
 from dotenv import load_dotenv
+# Change relative import to absolute import since PYTHONPATH includes bin/ directory
+from mauled.core.logging import configure_logging, get_logger
 
 load_dotenv()  # Load .env file once
 
@@ -21,57 +23,59 @@ ABI_DIR = os.getenv("ABI_DIR", "./out")
 
 bao_base_dir = os.getenv("BAO_BASE_DIR", "")
 
+logger = get_logger()
+
 # Configure logging
-logger = logging.getLogger("maul")
-console_handler = logging.StreamHandler()
-formatter = logging.Formatter("%(levelname)s: %(message)s")
-console_handler.setFormatter(formatter)
-logger.addHandler(console_handler)
+# logger = logging.getLogger("maul")
+# console_handler = logging.StreamHandler()
+# formatter = logging.Formatter("%(levelname)s: %(message)s")
+# console_handler.setFormatter(formatter)
+# logger.addHandler(console_handler)
 
-# Map verbosity levels to logging levels:
-# -v    -> INFO     (20)
-# -vv   -> DEBUG    (10)
-# -vvv  -> TRACE    (5) - custom level
-# -vvvv -> TRACE_DETAIL (1) - custom level with much more detail
-logging.TRACE = 5
-logging.TRACE_DETAIL = 1
-logging.addLevelName(logging.TRACE, "TRACE")
-logging.addLevelName(logging.TRACE_DETAIL, "TRACE_DETAIL")
-
-
-def trace(self, message, *args, **kwargs):
-    if self.isEnabledFor(logging.TRACE):
-        self._log(logging.TRACE, message, args, **kwargs)
+# # Map verbosity levels to logging levels:
+# # -v    -> INFO     (20)
+# # -vv   -> DEBUG    (10)
+# # -vvv  -> TRACE    (5) - custom level
+# # -vvvv -> TRACE_DETAIL (1) - custom level with much more detail
+# logging.TRACE = 5
+# logging.TRACE_DETAIL = 1
+# logging.addLevelName(logging.TRACE, "TRACE")
+# logging.addLevelName(logging.TRACE_DETAIL, "TRACE_DETAIL")
 
 
-def trace_detail(self, message, *args, **kwargs):
-    if self.isEnabledFor(logging.TRACE_DETAIL):
-        self._log(logging.TRACE_DETAIL, message, args, **kwargs)
+# def trace(self, message, *args, **kwargs):
+#     if self.isEnabledFor(logging.TRACE):
+#         self._log(logging.TRACE, message, args, **kwargs)
 
 
-logging.Logger.trace = trace
-logging.Logger.trace_detail = trace_detail
+# def trace_detail(self, message, *args, **kwargs):
+#     if self.isEnabledFor(logging.TRACE_DETAIL):
+#         self._log(logging.TRACE_DETAIL, message, args, **kwargs)
 
 
-def set_verbosity(level):
-    """
-    Set verbosity level based on count of -v flags
-    0: WARNING (default)
-    1: INFO (-v)
-    2: DEBUG (-vv)
-    3: TRACE (-vvv)
-    4+: TRACE_DETAIL (-vvvv)
-    """
-    if level == 0:
-        logger.setLevel(logging.WARNING)
-    elif level == 1:
-        logger.setLevel(logging.INFO)
-    elif level == 2:
-        logger.setLevel(logging.DEBUG)
-    elif level == 3:
-        logger.setLevel(logging.TRACE)
-    else:  # level >= 4
-        logger.setLevel(logging.TRACE_DETAIL)
+# logging.Logger.trace = trace
+# logging.Logger.trace_detail = trace_detail
+
+
+# def set_verbosity(level):
+#     """
+#     Set verbosity level based on count of -v flags
+#     0: WARNING (default)
+#     1: INFO (-v)
+#     2: DEBUG (-vv)
+#     3: TRACE (-vvv)
+#     4+: TRACE_DETAIL (-vvvv)
+#     """
+#     if level == 0:
+#         logger.setLevel(logging.WARNING)
+#     elif level == 1:
+#         logger.setLevel(logging.INFO)
+#     elif level == 2:
+#         logger.setLevel(logging.DEBUG)
+#     elif level == 3:
+#         logger.setLevel(logging.TRACE)
+#     else:  # level >= 4
+#         logger.setLevel(logging.TRACE_DETAIL)
 
 
 def quiet_run_command(command):
@@ -89,15 +93,14 @@ def quiet_run_command(command):
 
     # Log stdout/stderr at different levels based on verbosity
     if result.stdout:
-        logger.trace(f"Command stdout: {result.stdout.strip()}")
-        # At TRACE_DETAIL level, we add details about environment and command execution
-        logger.trace_detail(
+        logger.info1(f"Command stdout: {result.stdout.strip()}")
+        logger.info2(
             f"Full command details:\n  Command: {cmd_str}\n  Exit code: {result.returncode}\n  Full stdout: \n{result.stdout}"
         )
 
     if result.stderr:
         # Always show stderr at regular TRACE level
-        logger.trace(f"Command stderr: {result.stderr.strip()}")
+        logger.info1(f"Command stderr: {result.stderr.strip()}")
 
     # Log return code at DEBUG level
     logger.debug(f"Command returned: {result.returncode}")
@@ -739,16 +742,25 @@ def grab_erc20(network, wallet, eth_amount, token):
         )
 
 
-def start(network, chain_id=None):
+def start(network, chain_id=None, port=8545):
     # Store the anvil process so we can terminate it properly
     anvil_process = None
 
     def wait_for_anvil():
-        while quiet_run_command(["nc", "-z", "localhost", "8545"]).returncode != 0:
+        while quiet_run_command(["nc", "-z", "localhost", str(port)]).returncode != 0:
             time.sleep(1)
         print("*** allowing baomultisig to be impersonated...")
+        # Also use RPC URL with port specified to ensure commands target the correct anvil instance
+        rpc_url = f"http://localhost:{port}"
         run_command(
-            ["cast", "rpc", "anvil_impersonateAccount", bcinfo(network, "baomultisig")]
+            [
+                "cast",
+                "rpc",
+                "--rpc-url",
+                rpc_url,
+                "anvil_impersonateAccount",
+                bcinfo(network, "baomultisig"),
+            ]
         )
         grab(network, "baomultisig", "1")
 
@@ -787,6 +799,9 @@ def start(network, chain_id=None):
         # Add chain-id if specified
         if chain_id:
             cmd.extend(["--chain-id", str(chain_id)])
+
+        # Add port if specified (always adding it even though it's the default ensures consistency)
+        cmd.extend(["--port", str(port)])
 
         logger.info(f">>> {' '.join(cmd)}")
         anvil_process = subprocess.Popen(cmd)
@@ -900,6 +915,7 @@ It is particularly useful for reading files with addresses in it for ease of use
 Examples:
   maul.py start -f mainnet                             # Start anvil forked from mainnet
   maul.py start -f mainnet --chain-id 1                # Start anvil with specific chain ID
+  maul.py start -f mainnet --port 8546                 # Start anvil on a custom port
   maul.py steal --to me --amount 100                   # Add 100 ETH to your account
   maul.py steal --to me --amount 1 --erc20 wsteth      # Add 1 wstETH to your account
   maul.py grant --role MINTER_ROLE --on token --to me  # Grant role on contract
@@ -918,6 +934,9 @@ Examples:
     parser.add_argument(
         "-v", action="count", default=0, help="Increase verbosity level"
     )
+    parser.add_argument(
+        "-q", action="store_true", help="Stop all output (apart from errors)"
+    )
 
     # Create subparsers for commands
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
@@ -927,6 +946,12 @@ Examples:
     start_parser = subparsers.add_parser("start", help="Start anvil instance")
     start_parser.add_argument(
         "--chain-id", type=int, help="Specify chain ID for the anvil instance"
+    )
+    start_parser.add_argument(
+        "--port",
+        type=int,
+        default=8545,
+        help="Port for the anvil instance (default: 8545)",
     )
 
     # Grant command
@@ -1016,7 +1041,7 @@ Examples:
     #     args.command = "start"
 
     # Set up logging based on verbosity level
-    set_verbosity(args.v)
+    configure_logging(args.v, args.q)
 
     # Convert count to Foundry's verbosity flag format (e.g., -vvv)
     verbosity = "-" + "v" * args.v if args.v > 0 else ""
@@ -1136,7 +1161,7 @@ Examples:
             print(f"Result: {formatted_result}")
 
     elif args.command == "start":
-        start(args.network, args.chain_id)
+        start(args.network, args.chain_id, args.port)
 
     elif args.command == "sig":
         # Parse the signature format using the same parser as call/send
