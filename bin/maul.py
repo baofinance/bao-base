@@ -347,11 +347,13 @@ def address_of(network, wallet):
         return address
 
 
-def role_number_of(network, role, on):
+def role_number_of(network, rpc_url, role, on):
     if role.startswith("0x") or role.isdigit():
         return role
     on_address = address_of(network, on)
-    result = run_command(["cast", "call", on_address, f"{role}()(uint256)"])
+    result = run_command(
+        ["cast", "call", "--rpc-url", rpc_url, on_address, f"{role}()(uint256)"]
+    )
     output = result.stdout.strip().split()
     if not output:
         raise ValueError(f"Role {role} not found on {on}")
@@ -1037,6 +1039,10 @@ Examples:
         "--amount", required=True, help="Amount of tokens to transfee"
     )
 
+    # address command
+    adddress_of_parser = subparsers.add_parser("address", help="lookup known address")
+    adddress_of_parser.add_argument("--of", help="Specify name of the address")
+
     # Parse arguments
     args = parser.parse_args()
     configure_logging(args.v, args.q)
@@ -1156,7 +1162,7 @@ Examples:
             args.as_,
             lambda as_address: (
                 run_command(
-                    ["cast", args.command, to_address, sig]
+                    ["cast", args.command, "--rpc-url", rpc_url, to_address, sig]
                     + processed_args
                     + (auth_flags if args.command == "send" else [])
                     + ([verbosity] if verbosity else [])
@@ -1202,8 +1208,12 @@ Examples:
                 "*** error: When using a raw function signature, you must use the Contract.function format"
             )
             sys.exit(1)
+    elif args.command == "address":
+        address = address_of(args.network, args.of)
+        print(f"{args.of} address is {address}")
     else:
-        print(f"*** error: Unknown command '{args.command}'")
+        if args.command:
+            logger.error(f"Unknown command '{args.command}'")
         parser.print_help()
         sys.exit(1)
 

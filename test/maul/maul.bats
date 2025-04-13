@@ -1,205 +1,194 @@
 #!/usr/bin/env bats
 
-# Helper to run maul commands
-maul() {
-  echo "DEBUG: maul --local="$ANVIL_PORT" $*" >&2
-  "${BATS_TEST_DIRNAME}/../../run" maul --local="$ANVIL_PORT" "$@"
-}
+load '../bats_helpers.sh'
+load "maul_helpers.sh"
 
-# Check if port is free
-is_port_free() {
-  local port=$1
-  if nc -z localhost $port >/dev/null 2>&1; then
-    return 1 # Port is in use
-  else
-    return 0 # Port is free
-  fi
-}
-
-# Run a command with the correct rpc url
-cast_anvil() {
-  local command="$1"
-  shift
-  echo "DEBUG: cast $command --rpc-url http://localhost:$ANVIL_PORT $*" >&2
-  cast "$command" --rpc-url "http://localhost:$ANVIL_PORT" "$@"
-}
-
-# Impersonate and setup an account with ETH
-setup_account() {
-  local address=$1
-  local eth_amount=${2:-1}
-
-  # Impersonate the account
-  cast_anvil rpc anvil_impersonateAccount "$address" >/dev/null
-
-  # Convert ETH to wei and hex
-  local wei_amount=$(cast to-wei "$eth_amount")
-  local hex_amount=$(cast to-hex "$wei_amount")
-
-  # Set balance
-  cast_anvil rpc anvil_setBalance "$address" "$hex_amount" >/dev/null
-
-  echo "Account $address now has $eth_amount ETH"
-}
-
-# Setup: Start anvil in background for tests
 setup() {
-  # Only start anvil once for all tests
-  if [ -z "$ANVIL_PID" ]; then
-    export ANVIL_PORT
-    # Find a free port to use (starting above 8545)
-    for i in $(seq 8546 $((8546 + 1000))); do
-      if is_port_free $i; then
-        echo "Found free port: $i"
-        ANVIL_PORT=$i
-        break
-      fi
-    done
-
-    [[ -n "$ANVIL_PORT" ]] || {
-      echo "ERROR: Could not find a free port between 8546 and $((8546 + 1000))" >&2
-      exit 1
-    }
-
-    echo "Using port $ANVIL_PORT for anvil"
-
-    # Start anvil in background with proper output redirection
-    echo "Starting anvil on port $ANVIL_PORT"
-    # Use a unique log file for easier debugging
-    LOG_FILE="/tmp/anvil-$ANVIL_PORT.log"
-    anvil -f mainnet --port "$ANVIL_PORT" >"$LOG_FILE" 2>&1 &
-    export ANVIL_PID=$!
-
-    # Wait for anvil to start
-    echo "Waiting for anvil to start..."
-    start_time=$(date +%s)
-    while ! nc -z localhost $ANVIL_PORT; do
-      sleep 0.5
-      current_time=$(date +%s)
-      elapsed_time=$((current_time - start_time))
-      if [ $elapsed_time -gt 10 ]; then
-        echo "Error: anvil failed to start within 10 seconds" >&2
-        cat "$LOG_FILE"
-        exit 1
-      fi
-    done
-
-    echo "Anvil started successfully on $ANVIL_PORT (PID: $ANVIL_PID)"
-  fi
+  # Create temp dir for test outputs
+  mkdir -p "$BATS_TEST_TMPDIR/out"
+  export ABI_DIR="$BATS_TEST_TMPDIR/out"
 }
 
-# Teardown: Kill the anvil process after tests - ALWAYS do this
 teardown() {
-  # Always clean up processes, regardless of test success or failure
-  if [ -n "$ANVIL_PID" ]; then
-    echo "Cleaning up anvil process (PID: $ANVIL_PID)..."
-
-    # First try graceful termination
-    kill -TERM $ANVIL_PID 2>/dev/null || true
-    sleep 1
-
-    # Check if process is still running
-    if kill -0 $ANVIL_PID 2>/dev/null; then
-      echo "Anvil process still running, sending SIGKILL"
-      kill -KILL $ANVIL_PID 2>/dev/null || true
-      sleep 1
-    else
-      echo "Anvil process terminated gracefully"
-    fi
-
-    # Also ensure port is freed
-    if ! is_port_free $ANVIL_PORT; then
-      echo "Port $ANVIL_PORT still in use, attempting to kill processes using it"
-
-      # Try to use lsof if available
-      if command -v lsof >/dev/null 2>&1; then
-        port_pids=$(lsof -ti:$ANVIL_PORT 2>/dev/null || echo "")
-        if [ -n "$port_pids" ]; then
-          echo "Killing processes using port $ANVIL_PORT: $port_pids"
-          kill -9 $port_pids 2>/dev/null || true
-        fi
-      fi
-
-      # Try to use fuser as a fallback
-      if command -v fuser >/dev/null 2>&1; then
-        fuser -k $ANVIL_PORT/tcp 2>/dev/null || true
-      fi
-    fi
-
-    # Clean up environment variables
-    unset ANVIL_PID
-    unset ANVIL_PORT
-
-    echo "Cleanup complete"
-  fi
+  # Clean up temp directory
+  rm -rf "$BATS_TEST_TMPDIR/out"
 }
 
-# TODO: add these to a base test file that doesn't startup anvil
-# Use ANVIL_RPC_URL for all test commands
-# @test "maul command shows help when run without arguments" {
-#   run maul
-#   [ "$status" -eq 1 ]
-#   [[ "$output" == *"usage: maul"* ]]
+@test "maul shows help information if no commands given" {
+  # Use the maul helper function directly
+  run maul
+  expect --status 1 --contains "usage:"
+  expect --status 1 --contains "options:"
+}
+
+@test "maul shows help information" {
+  # Use the maul helper function directly
+  run maul --help
+  expect --contains "usage:"
+  expect --contains "options:"
+}
+
+@test "maul command shows function signature" {
+  # Create mock ABI file for testing
+  mkdir -p "$BATS_TEST_TMPDIR/out"
+  cat >"$BATS_TEST_TMPDIR/out/ERC20.json" <<EOF
+{
+  "abi": [
+    {
+      "name": "transfer",
+      "type": "function",
+      "inputs": [
+        {"name": "recipient", "type": "address"},
+        {"name": "amount", "type": "uint256"}
+      ],
+      "outputs": [
+        {"name": "success", "type": "bool"}
+      ]
+    }
+  ]
+}
+EOF
+
+  # Use the maul helper function - note that maul() already includes "run"
+  run maul sig ERC20.transfer
+
+  # Verify output contains correct signature
+  expect --contains "transfer(address,uint256)"
+  expect --contains "recipient: address"
+  expect --contains "amount: uint256"
+  expect --contains "success: bool"
+}
+
+@test "maul resolves 'baomultisig' to an address" {
+  # Set required environment variables
+  export PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+
+  # Use the maul helper function with resolve command
+  run maul -q address --of baomultisig
+
+  # Check that the output is a valid Ethereum address
+  expect --regexp "0x[a-fA-F0-9]{40}"
+}
+
+# @test "maul decodes known error" {
+#   # Create mock ABI file for testing
+#   mkdir -p "$BATS_TEST_TMPDIR/out"
+#   cat >"$BATS_TEST_TMPDIR/out/TestContract.json" <<EOF
+# {
+#   "abi": [
+#     {
+#       "name": "InvalidValue",
+#       "type": "error",
+#       "inputs": [
+#         {"name": "value", "type": "uint256"}
+#       ]
+#     }
+#   ]
+# }
+# EOF
+
+#   # Calculate error selector for InvalidValue(uint256)
+#   local error_sig=$(cast keccak "InvalidValue(uint256)" 2>/dev/null | head -c 10)
+#   echo "error_sig=$error_sig."
+#   local error_data="${error_sig}000000000000000000000000000000000000000000000000000000000000002a"
+#   echo "error_data=$error_data."
+
+#   # Use maul helper function for decode command
+#   maul decode "$error_data" TestContract
+
+#   # Verify the error is properly decoded
+#   expect --contains "InvalidV alue"
+#   expect --contains "42"
 # }
 
-# @test "maul start command can be run with --help" {
-#   run maul start --help
-#   [ "$status" -eq 0 ]
-#   [[ "$output" == *"--chain-id"* ]]
+# @test "maul handles both signature formats" {
+#   # Create mock ABI file
+#   mkdir -p "$BATS_TEST_TMPDIR/out"
+#   cat >"$BATS_TEST_TMPDIR/out/Token.json" <<EOF
+# {
+#   "abi": [
+#     {
+#       "name": "approve",
+#       "type": "function",
+#       "inputs": [
+#         {"name": "spender", "type": "address"},
+#         {"name": "amount", "type": "uint256"}
+#       ],
+#       "outputs": [
+#         {"name": "success", "type": "bool"}
+#       ]
+#     }
+#   ]
+# }
+# EOF
+
+#   # Test with a full function signature using maul helper
+#   run maul sig "transfer(address,uint256)"
+#   expect --contains "transfer(address,uint256)"
+#   expect --contains "address"
+#   expect --contains "uint256"
+
+#   # Test with Contract.function format
+#   run maul sig Token.approve
+#   expect --contains "approve(address,uint256)"
+#   expect --contains "spender: address"
+#   expect --contains "amount: uint256"
 # }
 
-@test "maul steal command can add ETH to an address" {
-  # Define test wallet
-  TEST_WALLET="0x1234567890123456789012345678901234567890"
+# @test "maul formats different output types correctly" {
+#   # Create mock ABI files for the test
+#   mkdir -p "$BATS_TEST_TMPDIR/out"
+#   cat >"$BATS_TEST_TMPDIR/out/MyContract.json" <<EOF
+# {
+#   "abi": [
+#     {
+#       "name": "isSomething",
+#       "type": "function",
+#       "inputs": [],
+#       "outputs": [
+#         {"name": "result", "type": "bool"}
+#       ]
+#     },
+#     {
+#       "name": "isSomethingElse",
+#       "type": "function",
+#       "inputs": [],
+#       "outputs": [
+#         {"name": "result", "type": "bool"}
+#       ]
+#     },
+#     {
+#       "name": "getNumber",
+#       "type": "function",
+#       "inputs": [],
+#       "outputs": [
+#         {"name": "value", "type": "uint256"}
+#       ]
+#     },
+#     {
+#       "name": "getAddress",
+#       "type": "function",
+#       "inputs": [],
+#       "outputs": [
+#         {"name": "addr", "type": "address"}
+#       ]
+#     }
+#   ]
+# }
+# EOF
 
-  # Get initial balance using the RPC URL
-  initial_balance=$(cast_anvil balance $TEST_WALLET)
-  echo "initial_balance: $initial_balance"
+#   # Use the maul helper function to test formatting
+#   run maul format 0x000000000000000000000000000000000000000000000000000000000000002a MyContract.getNumber
+#   expect --contains "42"
 
-  # Run steal command with the RPC URL
-  run maul steal --to $TEST_WALLET --amount 10
-  echo "status: $status"
-  echo "output: $output"
-  [ "$status" -eq 0 ]
+#   # Test boolean result
+#   run maul format 0x0 MyContract.isSomething
+#   expect --contains "false"
 
-  # Get new balance
-  new_balance=$(cast_anvil balance $TEST_WALLET)
-  echo "new_balance: $new_balance"
+#   run maul format 0x1 MyContract.isSomethingElse
+#   expect --contains "true"
 
-  # Convert wei to ETH for comparison
-  initial_eth=$(cast from-wei $initial_balance)
-  new_eth=$(cast from-wei $new_balance)
-  echo "initial_eth: $initial_eth"
-  echo "new_eth: $new_eth"
-
-  # Check balance increased by ~10 ETH (allow for small precision differences)
-  difference=$(echo "$new_eth - $initial_eth" | bc)
-  echo "difference: $difference"
-
-  [[ $(echo "$difference >= 9.99" | bc) -eq 1 ]]
-  [[ $(echo "$difference <= 10.01" | bc) -eq 1 ]]
-}
-
-@test "maul call command can read state from a contract" {
-  # Use a known contract like WETH on mainnet
-  WETH_ADDRESS="0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
-
-  echo "Testing WETH contract at $WETH_ADDRESS via RPC URL http://localhost:$ANVIL_PORT"
-
-  # Call name() function with explicit timeout to prevent hanging
-  run maul call --to $WETH_ADDRESS --sig "name()(string)"
-
-  # Print debugging information
-  echo "Command status: $status"
-  echo "Command output: $output"
-
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"Wrapped Ether"* ]]
-}
-
-# @test "maul sig command provides function information" {
-#   run maul sig ERC20.transfer
-#   [ "$status" -eq 0 ]
-#   [[ "$output" == *"transfer(address,uint256)"* ]]
-#   [[ "$output" == *"Input Parameters"* ]]
+#   # Test address result
+#   run maul format 0x5FbDB2315678afecb367f032d93F642f64180aa3 MyContract.getAddress
+#   expect --contains "0x5FbDB2315678afecb367f032d93F642f64180aa3"
 # }

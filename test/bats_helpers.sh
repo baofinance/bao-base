@@ -20,9 +20,9 @@ expect() {
     case "$1" in
       --status)
         if [[ "$status" -eq "$2" ]]; then
-          status_result=1
-        else
           status_result=0
+        else
+          status_result=1
         fi
         expected_status=" = $2"
         shift 2
