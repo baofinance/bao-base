@@ -25,58 +25,6 @@ bao_base_dir = os.getenv("BAO_BASE_DIR", "")
 
 logger = get_logger()
 
-# Configure logging
-# logger = logging.getLogger("maul")
-# console_handler = logging.StreamHandler()
-# formatter = logging.Formatter("%(levelname)s: %(message)s")
-# console_handler.setFormatter(formatter)
-# logger.addHandler(console_handler)
-
-# # Map verbosity levels to logging levels:
-# # -v    -> INFO     (20)
-# # -vv   -> DEBUG    (10)
-# # -vvv  -> TRACE    (5) - custom level
-# # -vvvv -> TRACE_DETAIL (1) - custom level with much more detail
-# logging.TRACE = 5
-# logging.TRACE_DETAIL = 1
-# logging.addLevelName(logging.TRACE, "TRACE")
-# logging.addLevelName(logging.TRACE_DETAIL, "TRACE_DETAIL")
-
-
-# def trace(self, message, *args, **kwargs):
-#     if self.isEnabledFor(logging.TRACE):
-#         self._log(logging.TRACE, message, args, **kwargs)
-
-
-# def trace_detail(self, message, *args, **kwargs):
-#     if self.isEnabledFor(logging.TRACE_DETAIL):
-#         self._log(logging.TRACE_DETAIL, message, args, **kwargs)
-
-
-# logging.Logger.trace = trace
-# logging.Logger.trace_detail = trace_detail
-
-
-# def set_verbosity(level):
-#     """
-#     Set verbosity level based on count of -v flags
-#     0: WARNING (default)
-#     1: INFO (-v)
-#     2: DEBUG (-vv)
-#     3: TRACE (-vvv)
-#     4+: TRACE_DETAIL (-vvvv)
-#     """
-#     if level == 0:
-#         logger.setLevel(logging.WARNING)
-#     elif level == 1:
-#         logger.setLevel(logging.INFO)
-#     elif level == 2:
-#         logger.setLevel(logging.DEBUG)
-#     elif level == 3:
-#         logger.setLevel(logging.TRACE)
-#     else:  # level >= 4
-#         logger.setLevel(logging.TRACE_DETAIL)
-
 
 def quiet_run_command(command):
     """
@@ -508,20 +456,39 @@ def parse_sig(network, sig_input):
         sys.exit(1)
 
 
-def grab(network, wallet, eth_amount):
-    address = address_of(network, wallet)
-    wei_amount = run_command(["cast", "to-wei", eth_amount]).stdout.strip()
+def _grab(address, wei_amount):
+    # cast to hex to avoid issues with large numbers
+    wei_amount_hex = run_command(["cast", "to-hex", str(wei_amount)]).stdout.strip()
+
     run_command(
         [
             "cast",
             "rpc",
             "anvil_setBalance",
             address,
-            run_command(["cast", "to-hex", wei_amount]).stdout.strip(),
+            wei_amount_hex,
         ]
     )
+
+
+def grab(network, wallet, eth_amount):
+    address = address_of(network, wallet)
+    wei_amount = run_command(["cast", "to-wei", eth_amount]).stdout.strip()
     wei_balance = run_command(["cast", "balance", address]).stdout.strip()
+
+    _grab(address, int(wei_amount) + int(wei_balance))
+
     eth_balance = run_command(["cast", "from-wei", wei_balance]).stdout.strip()
+    logging.info(f"{wallet} balance is now {eth_balance}")
+
+
+def grab_upto(network, wallet, eth_amount):
+    address = address_of(network, wallet)
+    wei_amount = run_command(["cast", "to-wei", eth_amount]).stdout.strip()
+
+    _grab(address, wei_amount)
+
+    eth_balance = run_command(["cast", "from-wei", wei_amount]).stdout.strip()
     print(f"*** {wallet} balance is now {eth_balance}")
 
 
@@ -762,10 +729,10 @@ def start(network, chain_id=None, port=8545):
                 bcinfo(network, "baomultisig"),
             ]
         )
-        grab(network, "baomultisig", "1")
+        grab_upto(network, "baomultisig", "1")
 
     def signal_handler(sig, frame):
-        print("\n*** Terminating anvil process...")
+        print(f"\n*** Received signal {sig}, terminating anvil process...")
         if anvil_process:
             # Use os.kill instead of process.terminate() for more forceful termination
             try:
@@ -773,17 +740,18 @@ def start(network, chain_id=None, port=8545):
                 time.sleep(0.5)  # Give it a brief moment to terminate gracefully
 
                 # If still running, force kill
-                if anvil_process.poll() is None:
+                if anvil_process and anvil_process.poll() is None:
                     os.kill(anvil_process.pid, signal.SIGKILL)
                     print("*** Forcefully killed anvil process")
             except OSError as e:
                 print(f"Error terminating process: {e}")
 
-        # Exit without calling any other handlers
+        # Exit immediately without calling any other handlers
         os._exit(0)
 
-    # Register the signal handler for CTRL+C (SIGINT)
-    original_handler = signal.signal(signal.SIGINT, signal_handler)
+    # Register the signal handlers for multiple signals
+    original_sigint_handler = signal.signal(signal.SIGINT, signal_handler)
+    original_sigterm_handler = signal.signal(signal.SIGTERM, signal_handler)
 
     try:
         anvil_thread = threading.Thread(target=wait_for_anvil)
@@ -793,28 +761,37 @@ def start(network, chain_id=None, port=8545):
         anvil_thread.start()
 
         # Use subprocess.Popen instead of run_command for direct process control
-        # Don't pipe stdout/stderr to avoid buffer issues that might block termination
         cmd = ["anvil", "-f", network]
 
         # Add chain-id if specified
         if chain_id:
             cmd.extend(["--chain-id", str(chain_id)])
 
-        # Add port if specified (always adding it even though it's the default ensures consistency)
+        # Add port if specified
         cmd.extend(["--port", str(port)])
 
         logger.info(f">>> {' '.join(cmd)}")
         anvil_process = subprocess.Popen(cmd)
 
-        # Wait for anvil process to complete or be interrupted
-        anvil_process.wait()
+        # Use polling instead of wait() to avoid blocking indefinitely
+        # This allows the script to respond to signals from the test framework
+        while anvil_process.poll() is None:
+            time.sleep(0.1)
+
+        # If we get here, anvil exited on its own
+        exit_code = anvil_process.returncode
+        print(f"*** Anvil process exited with code: {exit_code}")
+        return exit_code
     finally:
-        # Restore original signal handler
-        signal.signal(signal.SIGINT, original_handler)
+        # Restore original signal handlers
+        signal.signal(signal.SIGINT, original_sigint_handler)
+        signal.signal(signal.SIGTERM, original_sigterm_handler)
+
         # Make absolutely sure the process is terminated
         if anvil_process and anvil_process.poll() is None:
             try:
                 os.kill(anvil_process.pid, signal.SIGKILL)
+                print("*** Killed anvil process during cleanup")
             except OSError:
                 pass
 
