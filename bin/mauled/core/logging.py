@@ -84,29 +84,6 @@ def configure_logging(verbosity, quiet):
             elif part == "maul":
                 debug_enabled = True
 
-    # Set logging level based on verbosity and quiet flags
-    if quiet:
-        # Quiet mode - use the special QUIET level to suppress all output
-        _logger.setLevel(logging.ERROR)  # Use ERROR instead of QUIET
-    else:
-        # Direct mapping from verbosity to log level
-        if verbosity == 0:
-            _logger.setLevel(logging.INFO)  # Default is now INFO, not WARNING
-        elif verbosity == 1:
-            _logger.setLevel(logging.INFO1)  # -v
-        elif verbosity == 2:
-            _logger.setLevel(logging.INFO2)  # -vv
-        elif verbosity == 3:
-            _logger.setLevel(logging.INFO3)  # -vvv
-        elif verbosity == 4:
-            _logger.setLevel(logging.INFO4)  # -vvvv
-        else:  # 5 or higher (super verbose)
-            raise ValueError("Verbosity level too high. Use -v, -vv, -vvv, or -vvvv.")
-
-        # Override with DEBUG if maul is in DEBUG environment variable
-        if debug_enabled:
-            _logger.setLevel(logging.DEBUG)
-
     # Add handlers if they don't exist
     if not _logger.handlers:
         # Console handler
@@ -133,7 +110,34 @@ def configure_logging(verbosity, quiet):
 
         handler.setFormatter(formatter)
         _logger.addHandler(handler)
-        return _logger
+
+    # Set logging level based on verbosity and quiet flags
+    if quiet:
+        # Quiet mode - use the special QUIET level to suppress all output
+        _logger.setLevel(logging.ERROR)  # Use ERROR instead of QUIET
+    else:
+        # Direct mapping from verbosity to log level
+        if verbosity == 0:
+            _logger.setLevel(logging.INFO)  # Default is now INFO, not WARNING
+            _logger.info("maul logger configured")
+        elif verbosity == 1:
+            _logger.setLevel(logging.INFO1)  # -v
+            _logger.info1("maul logger configured")
+        elif verbosity == 2:
+            _logger.setLevel(logging.INFO2)  # -vv
+            _logger.info2("maul logger configured")
+        elif verbosity == 3:
+            _logger.setLevel(logging.INFO3)  # -vvv
+            _logger.info3("maul logger configured")
+        elif verbosity == 4:
+            _logger.setLevel(logging.INFO4)  # -vvvv
+            _logger.info4("maul logger configured")
+        else:  # 5 or higher (super verbose)
+            raise ValueError("Verbosity level too high. Use -v, -vv, -vvv, or -vvvv.")
+        # Override with DEBUG if maul is in DEBUG environment variable
+        if debug_enabled:
+            _logger.setLevel(logging.DEBUG)
+            _logger.debug("maul logger configured for debug")
 
 
 def get_logger():

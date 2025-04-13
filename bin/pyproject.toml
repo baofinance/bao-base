@@ -12,6 +12,7 @@ dependencies =[
   "packaging~=24.2",
   "python-dotenv~=1.1.0",
   "psutil~=7.0.0",
+  "commentjson>=0.1.0",
 
   # Testing frameworks
   "pytest~=7.4.0",

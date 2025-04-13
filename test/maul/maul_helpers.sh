@@ -4,12 +4,12 @@
 maul() {
   if [ -n "$ANVIL_PORT" ]; then
     # If ANVIL_PORT is set, use it for local anvil
-    echo "DEBUG: maul --local $ANVIL_PORT $*" >&2
-    "${BATS_TEST_DIRNAME}/../../run" maul --local="$ANVIL_PORT" "$@"
+    # echo "DEBUG: maul --local $ANVIL_PORT $*" >&2
+    "${BATS_TEST_DIRNAME}/../../run" -q maul --local="$ANVIL_PORT" "$@"
   else
     # Otherwise, run maul normally
-    echo "DEBUG: maul $*" >&2
-    "${BATS_TEST_DIRNAME}/../../run" maul "$@"
+    # echo "DEBUG: maul $*" >&2
+    "${BATS_TEST_DIRNAME}/../../run" -q maul "$@"
   fi
 }
 
@@ -20,10 +20,10 @@ cast_anvil() {
 
   # Handle RPC URL properly when ANVIL_PORT is set
   if [ -n "$ANVIL_PORT" ]; then
-    echo "DEBUG: cast $command --rpc-url http://localhost:$ANVIL_PORT $*" >&2
+    # echo "DEBUG: cast $command --rpc-url http://localhost:$ANVIL_PORT $*" >&2
     cast "$command" --rpc-url "http://localhost:$ANVIL_PORT" "$@"
   else
-    echo "DEBUG: cast $command $*" >&2
+    # echo "DEBUG: cast $command $*" >&2
     cast "$command" "$@"
   fi
 }

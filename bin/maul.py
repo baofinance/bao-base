@@ -6,12 +6,14 @@ import argparse
 import json
 import logging
 import os
+import re
 import signal
 import subprocess
 import sys
 import threading
 import time
 
+import commentjson
 from dotenv import load_dotenv
 # Change relative import to absolute import since PYTHONPATH includes bin/ directory
 from mauled.core.logging import configure_logging, get_logger
@@ -20,8 +22,6 @@ load_dotenv()  # Load .env file once
 
 deploy_log = "./log/deploy-local.log"
 ABI_DIR = os.getenv("ABI_DIR", "./out")
-
-bao_base_dir = os.getenv("BAO_BASE_DIR", "")
 
 logger = get_logger()
 
@@ -317,17 +317,49 @@ def with_impersonation(
 
 
 def bcinfo(network, name, field="address"):
-    # Use quiet version since bcinfo might legitimately fail
-    result = quiet_run_command(
-        [f"{bao_base_dir}/run", "-q", "bcinfo", network, name, field]
+    """
+    Get information about a contract or address from bcinfo JSON files.
+    Direct Python implementation with support for JSON with comments.
+
+    Args:
+        network: Network to look up info for (e.g., 'mainnet', 'arbitrum')
+        name: Contract/address name to look up
+        field: Field to extract (defaults to 'address')
+
+    Returns:
+        String with the requested information or empty string if not found
+    """
+    # Path to the bcinfo JSON file for the given network
+    bcinfo_file = os.path.join(
+        os.getenv("BAO_BASE_SCRIPT_DIR", ""), f"bcinfo.{network}.json"
     )
-    return result.stdout.strip()
+
+    try:
+        # Check if file exists
+        if not os.path.isfile(bcinfo_file):
+            logger.debug(f"bcinfo file not found: {bcinfo_file}")
+            return ""
+
+        # Read and parse the file with commentjson to handle comments
+        with open(bcinfo_file, "r") as f:
+            data = commentjson.load(f)
+
+        # Extract the requested field
+        if name in data and field in data[name]:
+            return str(data[name][field])
+
+        logger.debug(f"Key {name}.{field} not found in bcinfo for {network}")
+        return ""
+
+    except Exception as e:
+        logger.debug(f"Error in bcinfo: {str(e)}")
+        return ""
 
 
 def address_of(network, wallet):
     if wallet.startswith("0x"):
         return wallet
-    elif wallet == "me":
+    elif wallet.lower() == "me":
         pk = os.getenv("PRIVATE_KEY")
         if pk:
             # Wallet address conversion shouldn't fail
@@ -358,6 +390,27 @@ def role_number_of(network, rpc_url, role, on):
     if not output:
         raise ValueError(f"Role {role} not found on {on}")
     return output[0]
+
+
+def get_function_type_string(param):
+    """
+    Get the full type string for a parameter, properly formatting complex types
+
+    Args:
+        param: Parameter object from ABI
+
+    Returns:
+        str: Properly formatted type string
+    """
+    type_str = param.get("type", "")
+
+    # Handle tuple types - need to recursively process components
+    if type_str == "tuple":
+        components = param.get("components", [])
+        component_types = [get_function_type_string(comp) for comp in components]
+        return f"({','.join(component_types)})"
+
+    return type_str
 
 
 def get_function_info(contract, func_name):
@@ -401,9 +454,10 @@ def get_function_info(contract, func_name):
     try:
         func_data = json.loads(result.stdout.strip())
 
-        # Extract parameter types for the signature
+        # Extract parameter types for the signature - properly handle complex types
         param_types = [
-            input_param.get("type", "") for input_param in func_data.get("inputs", [])
+            get_function_type_string(input_param)
+            for input_param in func_data.get("inputs", [])
         ]
         param_str = ",".join(param_types)
 
@@ -416,6 +470,64 @@ def get_function_info(contract, func_name):
         }
     except json.JSONDecodeError:
         print(f"error: Invalid JSON in ABI for {contract}.{func_name}")
+        sys.exit(1)
+
+
+def get_event_info(contract, event_name):
+    """
+    Get comprehensive information about an event from its ABI
+
+    Args:
+        contract: Contract name to look up
+        event_name: Event name to look up
+
+    Returns:
+        dict: Dictionary containing event information:
+            'signature': Full event signature (e.g. 'Transfer(address,address,uint256)')
+            'param_types': List of parameter types
+            'inputs': List of input parameter details (name, type, indexed, etc.)
+            'abi_path': Path to the contract ABI file
+    """
+    # Find the contract ABI file
+    result = run_command(
+        ["find", ABI_DIR, "-name", f"{contract}.json", "-print", "-quit"]
+    )
+    abi_path = result.stdout.strip()
+    if not abi_path:
+        print(f"error: Contract ABI file not found for {contract}")
+        sys.exit(1)
+
+    # Get detailed event information including inputs
+    result = run_command(
+        [
+            "jq",
+            f'.abi[] | select(.name == "{event_name}" and .type == "event")',
+            abi_path,
+        ]
+    )
+
+    if result.returncode != 0 or not result.stdout.strip():
+        print(f"error: Event {event_name} not found in contract {contract}")
+        sys.exit(1)
+
+    try:
+        event_data = json.loads(result.stdout.strip())
+
+        # Extract parameter types for the signature - properly handle complex types
+        param_types = [
+            get_function_type_string(input_param)
+            for input_param in event_data.get("inputs", [])
+        ]
+        param_str = ",".join(param_types)
+
+        return {
+            "signature": f"{event_name}({param_str})",
+            "param_types": param_types,
+            "inputs": event_data.get("inputs", []),
+            "abi_path": abi_path,
+        }
+    except json.JSONDecodeError:
+        print(f"error: Invalid JSON in ABI for {contract}.{event_name}")
         sys.exit(1)
 
 
@@ -1004,10 +1116,24 @@ Examples:
     )
 
     # Sig command
-    sig_parser = subparsers.add_parser("sig", help="Look up function signature")
+    sig_parser = subparsers.add_parser(
+        "sig", help="Look up function or event signature"
+    )
     sig_parser.add_argument(
         "signature",
-        help="Either a function signature (e.g., 'transfer(address,uint256)') or Contract.function (e.g., 'ERC20.transfer')",
+        help="Either a signature (e.g., 'transfer(address,uint256)') or Contract.name (e.g., 'ERC20.transfer')",
+    )
+
+    # Add mutually exclusive group for function/event flags
+    sig_type_group = sig_parser.add_mutually_exclusive_group()
+    sig_type_group.add_argument(
+        "--function",
+        action="store_true",
+        default=True,
+        help="Look up a function signature (default)",
+    )
+    sig_type_group.add_argument(
+        "--event", action="store_true", default=False, help="Look up an event signature"
     )
 
     # Steal command and aliases
@@ -1179,33 +1305,43 @@ Examples:
         start(args.network, args.chain_id, args.port, rpc_url)
 
     elif args.command == "sig":
-        # Parse the signature format using the same parser as call/send
+        # Parse the signature format using the format Contract.name
         if "." in args.signature:
-            contract, func_name = args.signature.split(".", 1)
-            func_info = get_function_info(contract, func_name)
+            contract, name = args.signature.split(".", 1)
 
-            output = f"*** signature for {contract}.{func_name} is \"{func_info['signature']}\""
+            # Choose function or event lookup based on flags
+            if args.event:
+                info = get_event_info(contract, name)
+                type_label = "event"
+            else:
+                info = get_function_info(contract, name)
+                type_label = "function"
+
+            output = f"{type_label} signature for {contract}.{name} is \"{info['signature']}\""
 
             # Display input parameters if available
-            if func_info["inputs"]:
+            if info["inputs"]:
                 output += "\nInput Parameters:"
-                for i, param in enumerate(func_info["inputs"]):
+                for i, param in enumerate(info["inputs"]):
                     name = param.get("name", "unnamed")
                     type_name = param.get("type", "")
-                    output += f"\n  {i+1}. {name}: {type_name}"
+                    indexed = (
+                        " (indexed)" if param.get("indexed") and args.event else ""
+                    )
+                    output += f"\n  {i+1}. {name}: {type_name}{indexed}"
 
-            # Display return parameters if available
-            if func_info["outputs"]:
+            # Display return parameters if available (only for functions)
+            if not args.event and "outputs" in info and info["outputs"]:
                 output += "\nReturn Values:"
-                for i, param in enumerate(func_info["outputs"]):
+                for i, param in enumerate(info["outputs"]):
                     name = param.get("name", f"return_{i}")
                     type_name = param.get("type", "")
                     output += f"\n  {i+1}. {name}: {type_name}"
 
             print(output)
         else:
-            print(
-                "*** error: When using a raw function signature, you must use the Contract.function format"
+            logger.error(
+                f"Signature must be in the form Contract.name: {args.signature}"
             )
             sys.exit(1)
     elif args.command == "address":
