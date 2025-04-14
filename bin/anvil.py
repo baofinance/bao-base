@@ -79,11 +79,7 @@ def quiet_run_command(command):
     Run command and return result without checking exit code
     """
     cmd_str = " ".join(command)
-    logger.debug(f"Running command: {cmd_str}")
-
-    # Only print command at INFO level and above if we're executing cast/anvil operations
-    if command[0] in ["cast", "anvil"]:
-        logger.info(f">>> {cmd_str}")
+    logger.info(f"bashing: {cmd_str}")
 
     result = subprocess.run(command, capture_output=True, text=True)
 

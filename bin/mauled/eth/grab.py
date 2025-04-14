@@ -10,10 +10,10 @@ import time
 from typing import Any, Literal, Optional, Union
 
 from mauled.core.logging import get_logger
-from mauled.eth.address import address_of
-from mauled.eth.impersonation import with_impersonation
+from mauled.eth.address_lookup import address_of
 
-from bin.mauled.core.subprocess import run_command, run_command_quiet
+from bin.mauled.core.subprocess import quiet_run_command, run_command
+from bin.mauled.eth.impersonation import with_impersonation
 
 logger = get_logger()
 
@@ -101,20 +101,20 @@ def _try_mint_tokens(
 ) -> bool:
     """
     Try to mint tokens directly using the token's mint function.
-
-    Args:
-        rpc_url: RPC URL to use
-        token_address: Token contract address
-        wallet_address: Recipient wallet address
-        wei_amount: Amount in wei to mint
-        eth_amount: Human-readable amount for logging
-
-    Returns:
-        bool: True if successful, False otherwise
     """
-    print(f"*** Trying mint strategy...")
+    # First check if token has a mint function by calling its code
+    code_result = quiet_run_command(
+        ["cast", "code", "--rpc-url", rpc_url, token_address]
+    )
 
-    mint_result = run_command_quiet(
+    # Quick check if the mint function signature exists in the bytecode
+    # This is an optimization to avoid failing transactions
+    if code_result.returncode == 0 and not "40c10f19" in code_result.stdout:
+        logger.debug(f"Token {token_address} does not appear to have a mint function")
+        return False
+
+    # Try the mint function - use the original amount, not wei_amount which might be too large
+    mint_result = quiet_run_command(
         [
             "cast",
             "send",
@@ -145,78 +145,108 @@ def _try_whale_transfer(
 ) -> bool:
     """
     Try transferring tokens from a whale account.
-
-    Args:
-        network: Network name for impersonation
-        rpc_url: RPC URL to use
-        token_address: Token contract address
-        wallet_address: Recipient wallet address
-        wei_amount: Amount in wei to transfer
-        eth_amount: Human-readable amount for logging
-
-    Returns:
-        bool: True if successful, False otherwise
     """
-    print(f"*** Trying whale transfer strategy...")
+    # Try multiple known whales if the first one fails
+    whale_addresses = [
+        # Binance Hot Wallet
+        "0xf977814e90da44bfa03b6295a0616a897441acec",
+        # Other major holders
+        "0x28c6c06298d514db089934071355e5743bf21d60",
+        "0x47ac0fb4f2d84898e4d9e7b4dab3c24507a6d503",
+        "0xe78388b4ce79068e89bf8aa7f218ef6b9ab0e9d0",
+    ]
 
-    try:
-        # Find the largest token holder - using a known whale address
-        top_holder = "0xf977814e90da44bfa03b6295a0616a897441acec"  # Binance Hot Wallet
-
-        top_holder_result = run_command_quiet(
-            [
-                "cast",
-                "call",
-                "--rpc-url",
-                rpc_url,
-                token_address,
-                "balanceOf(address)(uint256)",
-                top_holder,
-            ]
-        )
-
-        if top_holder_result.returncode != 0 or not top_holder_result.stdout.strip():
-            logger.debug("Whale account has no tokens or balanceOf call failed")
-            return False
-
-        # Give the holder address some ETH to pay for gas
-        run_command(
-            [
-                "cast",
-                "rpc",
-                "--rpc-url",
-                rpc_url,
-                "anvil_setBalance",
-                top_holder,
-                "0x21e19e0c9bab2400000",  # 10000 ETH
-            ]
-        )
-
-        # Transfer tokens from whale
-        def transfer_from_whale(impersonated_address):
-            run_command(
+    for whale in whale_addresses:
+        try:
+            # Check if the whale has enough tokens
+            balance_result = quiet_run_command(
                 [
                     "cast",
-                    "send",
+                    "call",
                     "--rpc-url",
                     rpc_url,
                     token_address,
-                    "transfer(address,uint256)",
-                    wallet_address,
-                    str(wei_amount),
-                    "--from",
-                    impersonated_address,
-                    "--unlocked",
+                    "balanceOf(address)(uint256)",
+                    whale,
                 ]
             )
 
-        with_impersonation(network, rpc_url, top_holder, transfer_from_whale)
-        print(f"*** Successfully transferred {eth_amount} tokens from whale account")
-        return True
+            if balance_result.returncode != 0 or not balance_result.stdout.strip():
+                logger.debug(f"Whale {whale} has no tokens or balanceOf call failed")
+                continue
 
-    except Exception as e:
-        logger.debug(f"Error using whale account: {str(e)}")
-        return False
+            whale_balance = int(balance_result.stdout.strip())
+            if whale_balance < wei_amount:
+                logger.debug(
+                    f"Whale {whale} has insufficient balance: {whale_balance} < {wei_amount}"
+                )
+                continue
+
+            # Give the holder address some ETH to pay for gas
+            run_command(
+                [
+                    "cast",
+                    "rpc",
+                    "--rpc-url",
+                    rpc_url,
+                    "anvil_setBalance",
+                    whale,
+                    "0x21e19e0c9bab2400000",  # 10000 ETH
+                ]
+            )
+
+            # Impersonate whale and transfer tokens
+            run_command(
+                [
+                    "cast",
+                    "rpc",
+                    "--rpc-url",
+                    rpc_url,
+                    "anvil_impersonateAccount",
+                    whale,
+                ]
+            )
+
+            try:
+                transfer_result = quiet_run_command(
+                    [
+                        "cast",
+                        "send",
+                        "--rpc-url",
+                        rpc_url,
+                        token_address,
+                        "transfer(address,uint256)",
+                        wallet_address,
+                        str(wei_amount),
+                        "--from",
+                        whale,
+                        "--unlocked",
+                    ]
+                )
+
+                if transfer_result.returncode == 0:
+                    print(
+                        f"*** Successfully transferred {eth_amount} tokens from whale {whale}"
+                    )
+                    return True
+            finally:
+                # Always stop impersonation
+                quiet_run_command(
+                    [
+                        "cast",
+                        "rpc",
+                        "--rpc-url",
+                        rpc_url,
+                        "anvil_stopImpersonatingAccount",
+                        whale,
+                    ]
+                )
+
+        except Exception as e:
+            logger.debug(f"Error using whale {whale}: {str(e)}")
+
+    # If we reach here, all whale attempts failed
+    return False
 
 
 def _try_direct_storage_manipulation(
@@ -234,8 +264,6 @@ def _try_direct_storage_manipulation(
     Returns:
         bool: True if successful, False otherwise
     """
-    print(f"*** Trying direct storage manipulation strategy...")
-
     try:
         # Get current balance
         current_balance = int(
@@ -311,8 +339,6 @@ def _try_admin_transfer(
     Returns:
         bool: True if successful, False otherwise
     """
-    print(f"*** Trying admin transfer strategy...")
-
     try:
         # Get current balance for verification
         current_balance = int(
@@ -350,7 +376,7 @@ def _try_admin_transfer(
             )
 
             # Try to execute a transfer
-            run_command_quiet(
+            quiet_run_command(
                 [
                     "cast",
                     "send",
@@ -398,16 +424,7 @@ def _try_log_scanning(
     """
     Try obtaining tokens by scanning logs for holders and impersonating them.
 
-    Args:
-        rpc_url: RPC URL to use
-        token_address: Token contract address
-        wallet_address: Recipient wallet address
-        wei_amount: Amount in wei to transfer
-
-    Returns:
-        bool: True if successful, False otherwise
     """
-    print(f"*** Trying log scanning strategy...")
 
     # Get the latest block for scanning backwards
     # Check current balance
@@ -544,11 +561,11 @@ def _try_log_scanning(
                     ).stdout.strip()
 
                     print(
-                        f"*** stealing {eth_to_steal} of {token} from {to_address}..."
+                        f"*** stealing {eth_to_steal} of {token_address} from {to_address}..."
                     )
 
                     # Use the with_impersonation helper
-                    def transfer_tokens(impersonated_address):
+                    def transfer_tokens(impersonation_args):
                         # Give the address some ETH to pay for gas
                         run_command(
                             [
@@ -568,17 +585,15 @@ def _try_log_scanning(
                                 "cast",
                                 "send",
                                 token_address,
+                                impersonation_args,
                                 "transfer(address,uint256)",
                                 wallet_address,
                                 str(wei_to_steal),
-                                "--from",
-                                impersonated_address,
-                                "--unlocked",
                             ]
                         )
 
                     # Execute the transfer with impersonation
-                    with_impersonation(network, to_address, transfer_tokens)
+                    with_impersonation(rpc_url, to_address, transfer_tokens)
 
                     # Update tracking variables
                     wei_amount_transferred += wei_to_steal
@@ -586,7 +601,7 @@ def _try_log_scanning(
                         ["cast", "from-wei", str(wei_amount_transferred)]
                     ).stdout.strip()
                     print(
-                        f"*** total amount stolen so far: {eth_amount_transferred} of {eth_amount}"
+                        f"*** total amount stolen so far: {eth_amount_transferred} of {wei_amount}"
                     )
 
                     # Exit if we have enough
@@ -607,7 +622,7 @@ def _try_log_scanning(
         remaining = wei_amount - wei_amount_transferred
         remaining_eth = run_command(["cast", "from-wei", str(remaining)]).stdout.strip()
         print(
-            f"*** Warning: Could only find {eth_amount_transferred} of requested {eth_amount} tokens"
+            f"*** Warning: Could only find {eth_amount_transferred} of requested {wei_amount} tokens"
         )
         print(
             f"*** Missing {remaining_eth} tokens. Try checking more blocks or a different token."
@@ -648,8 +663,33 @@ def grab_erc20(
     wallet_address = address_of(network, wallet)
     token_address = address_of(network, token)
 
-    # Convert to wei
-    wei_amount = int(run_command(["cast", "to-wei", eth_amount]).stdout.strip())
+    # First get the token decimals
+    decimals_result = quiet_run_command(
+        [
+            "cast",
+            "call",
+            "--rpc-url",
+            rpc_url,
+            token_address,
+            "decimals()(uint8)",
+        ]
+    )
+    decimals = 18  # Default to 18 if we can't determine
+    if decimals_result.returncode == 0 and decimals_result.stdout.strip():
+        try:
+            decimals = int(decimals_result.stdout.strip(), 16)
+        except ValueError:
+            pass
+
+    # Convert to wei based on decimals
+    try:
+        amount_float = float(eth_amount)
+        wei_amount = int(amount_float * (10**decimals))
+    except ValueError:
+        # Fallback to cast to-wei
+        wei_amount = int(
+            run_command(["cast", "to-wei", eth_amount, str(decimals)]).stdout.strip()
+        )
 
     # Check current balance
     wei_balance = (
@@ -667,35 +707,33 @@ def grab_erc20(
         .stdout.strip()
         .split()[0]
     )
-    eth_balance = run_command(["cast", "from-wei", wei_balance]).stdout.strip()
-    print(f"*** giving {wallet} {eth_amount} erc20 {token} (current: {eth_balance})...")
-
-    # Only try methods that work in test environments if URL suggests we're in one
-    is_test_environment = rpc_url.startswith("http://localhost")
-    if not is_test_environment and method not in ["logs", "all"]:
-        print(f"*** Method {method} requires a test environment but we're on {rpc_url}")
-        return False
+    eth_balance = run_command(
+        ["cast", "from-wei", wei_balance, str(decimals)]
+    ).stdout.strip()
+    logger.info(
+        f"giving {wallet} {eth_amount} erc20 {token} (current: {eth_balance})..."
+    )
 
     # Strategy selection based on method parameter
-    if method == "mint" or method == "all":
-        if _try_mint_tokens(
-            rpc_url, token_address, wallet_address, wei_amount, eth_amount
-        ):
-            return True
-
     if method == "whale" or method == "all":
         if _try_whale_transfer(
             network, rpc_url, token_address, wallet_address, wei_amount, eth_amount
         ):
             return True
 
-    if is_test_environment and (method == "storage" or method == "all"):
+    if method == "mint" or method == "all":
+        if _try_mint_tokens(
+            rpc_url, token_address, wallet_address, wei_amount, eth_amount
+        ):
+            return True
+
+    if method == "storage" or method == "all":
         if _try_direct_storage_manipulation(
             rpc_url, token_address, wallet_address, wei_amount
         ):
             return True
 
-    if is_test_environment and (method == "admin" or method == "all"):
+    if method == "admin" or method == "all":
         if _try_admin_transfer(
             network, rpc_url, token_address, wallet_address, wei_amount
         ):

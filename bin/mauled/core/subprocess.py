@@ -14,7 +14,7 @@ from mauled.core.logging import get_logger
 logger = get_logger()
 
 
-def run_command_quiet(command: List[str]) -> subprocess.CompletedProcess:
+def quiet_run_command(command: List[str]) -> subprocess.CompletedProcess:
     """
     Run command and return result without checking exit code or raising exceptions.
 
@@ -25,11 +25,7 @@ def run_command_quiet(command: List[str]) -> subprocess.CompletedProcess:
         CompletedProcess: Result of the subprocess execution
     """
     cmd_str = " ".join(command)
-    logger.debug(f"Running command: {cmd_str}")
-
-    # Only print command at INFO level and above if we're executing cast/anvil operations
-    if command and command[0] in ["cast", "anvil"]:
-        logger.info(f">>> {cmd_str}")
+    logger.info(f"$ {cmd_str}")
 
     result = subprocess.run(command, capture_output=True, text=True)
 
@@ -69,7 +65,7 @@ def run_command(
     Raises:
         SystemExit: If command fails and exit_on_error is True
     """
-    result = run_command_quiet(command)
+    result = quiet_run_command(command)
 
     # Check for failure
     if result.returncode != 0:

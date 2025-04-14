@@ -8,6 +8,7 @@ information about contracts from configuration.
 import json
 import os
 import sys
+from typing import List
 
 import commentjson
 from mauled.core.logging import get_logger
@@ -70,6 +71,9 @@ def address_of(network, wallet):
     Returns:
         str: Ethereum address as a hex string
     """
+    if wallet is None:
+        return None
+
     if wallet.startswith("0x"):
         return wallet
     elif wallet.lower() == "me":
@@ -90,3 +94,35 @@ def address_of(network, wallet):
         if not address:
             address = wallet
         return address
+
+
+def address_of_arguments(
+    network: str, args_list: List[str], param_types: List[str]
+) -> List[str]:
+    """
+    Process arguments for a function call or transaction.
+    Resolves addresses when parameter type is 'address'.
+
+    Args:
+        network: Network name
+        args_list: List of arguments
+        param_types: List of parameter types
+
+    Returns:
+        Processed list of arguments
+    """
+    processed_args = []
+    for i, arg in enumerate(args_list):
+        # Check if this parameter is an address type
+        is_address = i < len(param_types) and "address" in param_types[i]
+
+        if is_address:
+            # Convert the argument to an address
+            processed_args.append(address_of(network, arg))
+        else:
+            processed_args.append(arg)
+
+    if processed_args != args_list:
+        logger.debug(f"Converted arguments: {args_list} -> {processed_args}")
+
+    return processed_args

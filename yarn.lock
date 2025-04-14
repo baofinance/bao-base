@@ -160,11 +160,31 @@ __metadata:
   resolution: "bao-base@workspace:."
   dependencies:
     bats: "npm:^1.11.1"
+    bats-assert: "npm:^2.0.0"
+    bats-support: "npm:^0.3.0"
     prettier: "npm:^3.5.3"
     prettier-plugin-solidity: "npm:^1.4.2"
     solhint: "npm:^5.0.5"
   languageName: unknown
   linkType: soft
+
+"bats-assert@npm:^2.0.0":
+  version: 2.0.0
+  resolution: "bats-assert@npm:2.0.0"
+  peerDependencies:
+    bats-support: "*"
+  checksum: 10/d2542c8118c5f7a59b692d431f63bf44bce633b0828e178b8eda3a2a12d366d80ed7e8ae459f6b2f4128546c7bec67bbd1a547c8284c6cc2ad4101953f94af2a
+  languageName: node
+  linkType: hard
+
+"bats-support@npm:^0.3.0":
+  version: 0.3.0
+  resolution: "bats-support@npm:0.3.0"
+  peerDependencies:
+    bats: 0.4 || ^1
+  checksum: 10/985d041c3d00d49364d5fcbf1e7251bbf6852191c365115ffca768311d8360b790a1418cf7bf249ce316ba892790452b9f0d92d025ce99125176064e606c8173
+  languageName: node
+  linkType: hard
 
 "bats@npm:^1.11.1":
   version: 1.11.1

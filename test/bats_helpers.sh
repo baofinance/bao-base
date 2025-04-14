@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Helper functions for BATS tests
 
+load ../../node_modules/bats-support/load.bash
+load ../../node_modules/bats-assert/load.bash
+
 bbrun() {
   run ./run -q "$@"
 }
@@ -79,12 +82,7 @@ expect() {
     esac
   done
 
-  local expected
-  if [ "$#" -eq 0 ]; then
-    expected=$(cat)
-  else
-    expected="$1"
-  fi
+  local expected="$1"
 
   echo "BATS \$output:
 $output
@@ -98,6 +96,7 @@ $output
 
   [ "$status_result" -eq 0 ] || return 1
 
+  [ -z "$expected" ] && return $success
   case "$mode" in
     exact)
       [[ "$selected_output" == "$expected" ]] || return $fail

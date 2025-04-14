@@ -49,13 +49,14 @@ class Command(ABC):
         pass
 
 
-def register_command(name=None, help_text=None):
+def register_command(name=None, help_text=None, aliases=None):
     """
     Decorator to register a command class.
 
     Args:
         name: Name to register the command under (defaults to class.name)
         help_text: Help text for the command (defaults to class.help)
+        aliases: List of command aliases (optional)
 
     Returns:
         Decorator function
@@ -72,9 +73,17 @@ def register_command(name=None, help_text=None):
         if not cls.help:
             cls.help = cls.__name__
 
-        # Register the command
+        # Register the main command name
         _commands[cmd_name] = cls
         logger.debug(f"Registered command: {cmd_name}")
+
+        # Register aliases if provided
+        if aliases:
+            cls.aliases = aliases
+            for alias in aliases:
+                _commands[alias] = cls
+                logger.debug(f"Registered alias: {alias} -> {cmd_name}")
+
         return cls
 
     return decorator
