@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
 
+load ../bats_helpers.sh
 load ./maul_helpers.sh
 
 # Setup: Start anvil in background for tests
@@ -130,24 +131,16 @@ teardown() {
   # Use a known contract like WETH on mainnet
   WETH_ADDRESS="0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
 
-  echo "Testing WETH contract at $WETH_ADDRESS via RPC URL http://localhost:$ANVIL_PORT"
-
   # Call name() function with explicit timeout to prevent hanging
   run maul call --to $WETH_ADDRESS --sig "name()(string)"
-
-  # Print debugging information
-  echo "Command status: $status"
-  echo "Command output: $output"
-
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"Wrapped Ether"* ]]
+  expect --ends-with "Wrapped Ether"
 }
 
 @test "maul sig command provides function information" {
   run maul sig ERC20.transfer
   [ "$status" -eq 0 ]
-  [[ "$output" == *"transfer(address,uint256)"* ]]
-  [[ "$output" == *"Input Parameters"* ]]
+  expect --contains "transfer(address,uint256)"
+  expect --contains "Input Parameters"
 }
 
 @test "maul send command can execute state-changing transactions" {
@@ -162,8 +155,9 @@ teardown() {
   [ "$status" -eq 0 ]
 
   # Get some DAI for the test wallet
+  export DEBUG=maul,vvv
   run maul steal --to $TEST_WALLET --amount 100 --erc20 $DAI_ADDRESS
-  [ "$status" -eq 0 ]
+  expect ""
 
   # Create a destination address
   DEST_WALLET="0x2345678901234567890123456789012345678901"
@@ -174,8 +168,7 @@ teardown() {
 
   # Send 10 DAI to dest wallet
   run maul send --to $DAI_ADDRESS --sig "transfer(address,uint256)" --as $TEST_WALLET $DEST_WALLET 10000000000000000000
-  echo "output: $output"
-  [ "$status" -eq 0 ]
+  expect ""
 
   # Check new DAI balance of destination
   new_dai=$(cast_anvil call $DAI_ADDRESS "balanceOf(address)(uint256)" $DEST_WALLET)

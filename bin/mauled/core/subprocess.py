@@ -1,101 +1,48 @@
-"""Core utility functions for MAUL command-line infrastructure."""
+"""
+Utilities for subprocess execution with appropriate logging and error handling.
 
-import json
-import logging
-import os
-import re
+This module provides functions for running external commands with consistent
+logging and customizable error handling.
+"""
+
 import subprocess
-from typing import Callable, Dict, List, Optional, Union
+import sys
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from .logging import get_logger
+from mauled.core.logging import get_logger
 
 logger = get_logger()
 
-# Dependency-injectable subprocess runner for testing
-_subprocess_runner = subprocess.run
 
-
-def set_subprocess_runner(runner: Callable):
+def run_command_quiet(command: List[str]) -> subprocess.CompletedProcess:
     """
-    Set custom subprocess runner for testing or special environments.
+    Run command and return result without checking exit code or raising exceptions.
 
     Args:
-        runner: Function that implements subprocess.run interface
-    """
-    global _subprocess_runner
-    old_runner = _subprocess_runner
-    _subprocess_runner = runner
-    return old_runner
-
-
-def reset_subprocess_runner():
-    """Reset subprocess runner to default implementation."""
-    global _subprocess_runner
-    _subprocess_runner = subprocess.run
-
-
-def run_command(cmd_list, capture_output=True, check=True, **kwargs):
-    """
-    Run a command and return the result.
-
-    Args:
-        cmd_list: List of command arguments
-        capture_output: Whether to capture stdout/stderr
-        check: Whether to check the return code
-        **kwargs: Additional arguments to pass to subprocess.run
+        command: List of command and arguments to execute
 
     Returns:
-        CompletedProcess object
+        CompletedProcess: Result of the subprocess execution
     """
-    cmd_str = " ".join(cmd_list)
+    cmd_str = " ".join(command)
     logger.debug(f"Running command: {cmd_str}")
 
     # Only print command at INFO level and above if we're executing cast/anvil operations
-    if cmd_list and cmd_list[0] in ["cast", "anvil"]:
+    if command and command[0] in ["cast", "anvil"]:
         logger.info(f">>> {cmd_str}")
 
-    result = _subprocess_runner(
-        cmd_list, capture_output=capture_output, check=check, text=True, **kwargs
-    )
-
-    # Log stdout/stderr at debug level
-    if result.stdout and logger.isEnabledFor(logging.DEBUG):
-        logger.debug(f"Command stdout: {result.stdout.strip()}")
-
-    if result.stderr and logger.isEnabledFor(logging.DEBUG):
-        logger.debug(f"Command stderr: {result.stderr.strip()}")
-
-    # Log return code at debug level
-    logger.debug(f"Command returned: {result.returncode}")
-
-    return result
-
-
-def quiet_run_command(command):
-    """
-    Run command and return result without checking exit code.
-
-    Args:
-        command: Command list to execute
-
-    Returns:
-        CompletedProcess object
-    """
-    cmd_str = " ".join(command)
-    logger.debug(f"Running command (quiet): {cmd_str}")
-
-    # Only print command at INFO level and above if we're executing cast/anvil operations
-    if command[0] in ["cast", "anvil"]:
-        logger.info(f">>> {cmd_str}")
-
-    result = _subprocess_runner(command, capture_output=True, text=True, check=False)
+    result = subprocess.run(command, capture_output=True, text=True)
 
     # Log stdout/stderr at different levels based on verbosity
     if result.stdout:
-        logger.debug(f"Command stdout: {result.stdout.strip()}")
+        logger.info1(f"Command stdout: {result.stdout.strip()}")
+        logger.info2(
+            f"Full command details:\n  Command: {cmd_str}\n  Exit code: {result.returncode}\n  Full stdout: \n{result.stdout}"
+        )
 
     if result.stderr:
-        logger.debug(f"Command stderr: {result.stderr.strip()}")
+        # Always show stderr at regular TRACE level
+        logger.info1(f"Command stderr: {result.stderr.strip()}")
 
     # Log return code at DEBUG level
     logger.debug(f"Command returned: {result.returncode}")
@@ -103,34 +50,46 @@ def quiet_run_command(command):
     return result
 
 
-# Standard test result class for mocking command execution
-class CommandResult:
-    """Result of a command execution for testing."""
+def run_command(
+    command: List[str],
+    on_error: Optional[Callable[[subprocess.CompletedProcess], Any]] = None,
+    exit_on_error: bool = True,
+) -> subprocess.CompletedProcess:
+    """
+    Run command and handle errors based on provided callback or default behavior.
 
-    def __init__(self, stdout="", stderr="", returncode=0):
-        self.stdout = stdout
-        self.stderr = stderr
-        self.returncode = returncode
+    Args:
+        command: List of command and arguments to execute
+        on_error: Optional function to call when command fails (gets CompletedProcess as arg)
+        exit_on_error: Whether to exit the program on error (default: True)
 
-    def __repr__(self):
-        return f"CommandResult(returncode={self.returncode})"
+    Returns:
+        CompletedProcess: Result of the subprocess execution
 
+    Raises:
+        SystemExit: If command fails and exit_on_error is True
+    """
+    result = run_command_quiet(command)
 
+    # Check for failure
+    if result.returncode != 0:
+        # Call custom error handler if provided
+        if on_error:
+            return on_error(result)
 
+        # Default error handling
+        print(f"*** Command failed: {' '.join(command)}")
 
-# Add to exports
-__all__ = [
-    "run_command",
-    "quiet_run_command",
-    "get_function_info",
-    "format_call_result",
-    "CommandResult",
-    "parse_sig",
-    "decode_custom_error",
-    "search_abi_for_error",
-    "set_subprocess_runner",
-    "reset_subprocess_runner",
-    "ether_to_wei",
-    "wei_to_ether",
-    "wei_to_hex",
-]
+        if result.stderr:
+            print(f"*** Error: {result.stderr.strip()}")
+
+        if result.stdout:
+            print(f"*** Output: {result.stdout.strip()}")
+
+        print(f"*** Exit code: {result.returncode}")
+
+        # Exit if specified
+        if exit_on_error:
+            sys.exit(result.returncode)
+
+    return result

@@ -8,7 +8,6 @@ import logging
 import os
 import re
 import signal
-import subprocess
 import sys
 import threading
 import time
@@ -17,6 +16,11 @@ import commentjson
 from dotenv import load_dotenv
 # Change relative import to absolute import since PYTHONPATH includes bin/ directory
 from mauled.core.logging import configure_logging, get_logger
+from mauled.eth.address import address_of, bcinfo
+from mauled.eth.grab import TokenAcquisitionMethod, grab, grab_erc20, grab_upto
+from mauled.eth.impersonation import enable_impersonation, with_impersonation
+
+from bin.mauled.core.subprocess import run_command, run_command_quiet
 
 load_dotenv()  # Load .env file once
 
@@ -26,34 +30,8 @@ ABI_DIR = os.getenv("ABI_DIR", "./out")
 logger = get_logger()
 
 
-def quiet_run_command(command):
-    """
-    Run command and return result without checking exit code
-    """
-    cmd_str = " ".join(command)
-    logger.debug(f"Running command: {cmd_str}")
-
-    # Only print command at INFO level and above if we're executing cast/anvil operations
-    if command[0] in ["cast", "anvil"]:
-        logger.info(f">>> {cmd_str}")
-
-    result = subprocess.run(command, capture_output=True, text=True)
-
-    # Log stdout/stderr at different levels based on verbosity
-    if result.stdout:
-        logger.info1(f"Command stdout: {result.stdout.strip()}")
-        logger.info2(
-            f"Full command details:\n  Command: {cmd_str}\n  Exit code: {result.returncode}\n  Full stdout: \n{result.stdout}"
-        )
-
-    if result.stderr:
-        # Always show stderr at regular TRACE level
-        logger.info1(f"Command stderr: {result.stderr.strip()}")
-
-    # Log return code at DEBUG level
-    logger.debug(f"Command returned: {result.returncode}")
-
-    return result
+# Use imported run_command_quiet as quiet_run_command for compatibility
+quiet_run_command = run_command_quiet
 
 
 def decode_custom_error(error_data, contract_name=None, sig_input=None):
@@ -225,158 +203,59 @@ def search_abi_for_error(abi_path, error_id, error_data):
     return None
 
 
-def run_command(command):
-    """
-    Run command and exit if it fails
-    """
-    result = quiet_run_command(command)
+# Custom error handler for Ethereum-specific commands
+def ethereum_error_handler(result):
+    """Custom error handler for Ethereum commands that can decode custom errors"""
+    print(f"*** Command failed: {' '.join(result.args)}")
 
-    # Exit on failure
-    if result.returncode != 0:
-        print(f"*** Command failed: {' '.join(command)}")
+    # Extract command info for better error context
+    cmd_type = result.args[0] if result.args else "Unknown"
+    sig_input = None
+    if (
+        len(result.args) > 3
+        and cmd_type in ["cast"]
+        and result.args[1] in ["call", "send"]
+    ):
+        # For call/send, the signature is the 3rd arg
+        sig_input = result.args[3] if len(result.args) > 3 else None
 
-        # Extract command info for better error context
-        cmd_type = command[0] if command else "Unknown"
-        sig_input = None
-        if len(command) > 3 and cmd_type in ["cast"] and command[1] in ["call", "send"]:
-            # For call/send, the signature is the 3rd arg
-            sig_input = command[3] if len(command) > 3 else None
-            # Also extract the contract we're calling
-            # contract_addr = command[2] if len(command) > 2 else None
+    if result.stderr:
+        error_msg = result.stderr.strip()
 
-        if result.stderr:
-            error_msg = result.stderr.strip()
+        # Look for custom error pattern in the error message
+        custom_error_match = None
+        if "custom error" in error_msg:
+            import re
 
-            # Look for custom error pattern in the error message
-            custom_error_match = None
-            if "custom error" in error_msg:
-                import re
-
-                # Extract the custom error data
-                custom_error_match = re.search(
-                    r'custom error ([^,\s]+)(?:, data: "([^"]+)")?', error_msg
-                )
-
-            if custom_error_match:
-                error_selector = custom_error_match.group(1)
-                error_data = (
-                    custom_error_match.group(2)
-                    if custom_error_match.group(2)
-                    else error_selector
-                )
-
-                # Try to decode the error with context from the command
-                decoded_error, raw_data = decode_custom_error(
-                    error_data, sig_input=sig_input
-                )
-
-                # Print both decoded error and raw data
-                print(f"*** {decoded_error}")
-                print(f"*** Raw error data: {raw_data}")
-            else:
-                print(f"*** Error: {error_msg}")
-
-        if result.stdout:
-            print(f"*** Output: {result.stdout.strip()}")
-
-        print(f"*** Exit code: {result.returncode}")
-        sys.exit(result.returncode)
-
-    return result
-
-
-def with_impersonation(
-    network, identity, callback_func, *callback_args, **callback_kwargs
-):
-    """
-    Execute a function with optional impersonation
-
-    Args:
-        network: Network name
-        identity: Address to impersonate (if None, no impersonation happens)
-        callback_func: Function to execute
-        *callback_args, **callback_kwargs: Arguments to pass to the callback function
-    """
-    if identity:
-        # Set up impersonation
-        impersonation_address = address_of(network, identity)
-        run_command(["cast", "rpc", "anvil_impersonateAccount", impersonation_address])
-        try:
-            # Execute the callback with the impersonation address
-            return callback_func(
-                impersonation_address, *callback_args, **callback_kwargs
+            # Extract the custom error data
+            custom_error_match = re.search(
+                r'custom error ([^,\s]+)(?:, data: "([^"]+)")?', error_msg
             )
-        finally:
-            # Clean up impersonation
-            run_command(
-                ["cast", "rpc", "anvil_stopImpersonatingAccount", impersonation_address]
+
+        if custom_error_match:
+            error_selector = custom_error_match.group(1)
+            error_data = (
+                custom_error_match.group(2)
+                if custom_error_match.group(2)
+                else error_selector
             )
-    else:
-        # No impersonation needed, just run the function without an impersonation address
-        return callback_func(None, *callback_args, **callback_kwargs)
 
+            # Try to decode the error with context from the command
+            decoded_error, raw_data = decode_custom_error(
+                error_data, sig_input=sig_input
+            )
 
-def bcinfo(network, name, field="address"):
-    """
-    Get information about a contract or address from bcinfo JSON files.
-    Direct Python implementation with support for JSON with comments.
-
-    Args:
-        network: Network to look up info for (e.g., 'mainnet', 'arbitrum')
-        name: Contract/address name to look up
-        field: Field to extract (defaults to 'address')
-
-    Returns:
-        String with the requested information or empty string if not found
-    """
-    # Path to the bcinfo JSON file for the given network
-    bcinfo_file = os.path.join(
-        os.getenv("BAO_BASE_SCRIPT_DIR", ""), f"bcinfo.{network}.json"
-    )
-
-    try:
-        # Check if file exists
-        if not os.path.isfile(bcinfo_file):
-            logger.debug(f"bcinfo file not found: {bcinfo_file}")
-            return ""
-
-        # Read and parse the file with commentjson to handle comments
-        with open(bcinfo_file, "r") as f:
-            data = commentjson.load(f)
-
-        # Extract the requested field
-        if name in data and field in data[name]:
-            return str(data[name][field])
-
-        logger.debug(f"Key {name}.{field} not found in bcinfo for {network}")
-        return ""
-
-    except Exception as e:
-        logger.debug(f"Error in bcinfo: {str(e)}")
-        return ""
-
-
-def address_of(network, wallet):
-    if wallet.startswith("0x"):
-        return wallet
-    elif wallet.lower() == "me":
-        pk = os.getenv("PRIVATE_KEY")
-        if pk:
-            # Wallet address conversion shouldn't fail
-            result = run_command(["cast", "wallet", "address", "--private-key", pk])
-            return result.stdout.strip()
+            # Print both decoded error and raw data
+            print(f"*** {decoded_error}")
+            print(f"*** Raw error data: {raw_data}")
         else:
-            print("error: no private key found in env")
-            sys.exit(1)
-    else:
-        address = bcinfo(network, wallet)
-        if not address and os.path.isfile(deploy_log):
-            with open(deploy_log) as f:
-                data = json.load(f)
-                address = data.get("addresses", {}).get(wallet, "")
-        if not address:
-            address = wallet
-        return address
+            print(f"*** Error: {error_msg}")
+
+    if result.stdout:
+        print(f"*** Output: {result.stdout.strip()}")
+
+    print(f"*** Exit code: {result.returncode}")
+    sys.exit(result.returncode)
 
 
 def role_number_of(network, rpc_url, role, on):
@@ -570,274 +449,6 @@ def parse_sig(network, sig_input):
         sys.exit(1)
 
 
-def _grab(rpc_url, address, wei_amount):
-    logger.info2(f"Setting balance of {address} to {wei_amount} wei")
-    # cast to hex to avoid issues with large numbers
-    wei_amount_hex = run_command(["cast", "to-hex", str(wei_amount)]).stdout.strip()
-
-    run_command(
-        [
-            "cast",
-            "rpc",
-            "--rpc-url",
-            rpc_url,
-            "anvil_setBalance",
-            address,
-            wei_amount_hex,
-        ]
-    )
-
-
-def grab(network, rpc_url, wallet, eth_amount):
-    address = address_of(network, wallet)
-    wei_amount = run_command(["cast", "to-wei", eth_amount]).stdout.strip()
-    wei_balance = run_command(
-        ["cast", "balance", "--rpc-url", rpc_url, address]
-    ).stdout.strip()
-
-    _grab(rpc_url, address, int(wei_amount) + int(wei_balance))
-
-    new_wei_balance = run_command(
-        ["cast", "balance", "--rpc-url", rpc_url, address]
-    ).stdout.strip()
-    eth_balance = run_command(["cast", "from-wei", new_wei_balance]).stdout.strip()
-    logging.info(f"{wallet} balance is now {eth_balance}")
-
-
-def grab_upto(network, rpc_url, wallet, eth_amount):
-    address = address_of(network, wallet)
-    wei_amount = run_command(["cast", "to-wei", eth_amount]).stdout.strip()
-
-    _grab(rpc_url, address, wei_amount)
-
-    wei_balance = run_command(["cast", "balance", address]).stdout.strip()
-    eth_balance = run_command(["cast", "from-wei", wei_balance]).stdout.strip()
-    print(f"*** {wallet} balance is now {eth_balance}")
-
-
-def grab_erc20(network, rpc_url, wallet, eth_amount, token):
-    """
-    Get ERC20 tokens for a wallet by impersonating holders from the event logs
-    using JSON format for easier parsing
-    """
-    wallet_address = address_of(network, wallet)
-    token_address = address_of(network, token)
-
-    # Check current balance
-    wei_balance = (
-        run_command(
-            [
-                "cast",
-                "call",
-                "--rpc-url",
-                rpc_url,
-                token_address,
-                "balanceOf(address)(uint256)",
-                wallet_address,
-            ]
-        )
-        .stdout.strip()
-        .split()[0]
-    )
-    eth_balance = run_command(["cast", "from-wei", wei_balance]).stdout.strip()
-    print(f"*** giving {wallet} {eth_amount} erc20 {token} (current: {eth_balance})...")
-
-    # Convert to wei
-    wei_amount = int(run_command(["cast", "to-wei", eth_amount]).stdout.strip())
-
-    # Track progress
-    wei_amount_transferred = 0
-    done = [wallet_address.lower()]  # Use lowercase for consistent comparison
-
-    # Start with recent blocks
-    latest_block = int(
-        run_command(["cast", "block", "latest", "-f", "number"]).stdout.strip()
-    )
-    block_window = 2000
-    blocks_to_check = [(latest_block - block_window, latest_block)]
-
-    # Process blocks until we have enough tokens or run out of blocks
-    while blocks_to_check and wei_amount_transferred < wei_amount:
-        start_block, end_block = blocks_to_check.pop(0)
-        if start_block < 0:
-            start_block = 0
-
-        # Get Transfer events using JSON output for easier parsing
-        logger.debug(f"Checking blocks {start_block} to {end_block}")
-        events = quiet_run_command(
-            [
-                "cast",
-                "logs",
-                "--rpc-url",
-                rpc_url,
-                "--from-block",
-                str(start_block),
-                "--to-block",
-                str(end_block),
-                "--address",
-                token_address,
-                "Transfer(address,address,uint256)",
-                "--json",  # Request JSON output format
-            ]
-        )
-
-        # Skip if error or no events
-        if events.returncode != 0 or not events.stdout.strip():
-            # Queue earlier blocks to check
-            if start_block > 0:
-                new_end = start_block - 1
-                new_start = max(0, new_end - block_window)
-                blocks_to_check.append((new_start, new_end))
-            continue
-
-        # Parse JSON events
-        try:
-            import json
-
-            logs = json.loads(events.stdout)
-            logger.debug(f"Found {len(logs)} Transfer events")
-
-            # Process each event
-            recipients = []
-            for log in logs:
-                # Standard ERC20 Transfer event has:
-                # topics[0]: Event signature
-                # topics[1]: From address (indexed)
-                # topics[2]: To address (indexed)
-                # data: Amount (not indexed)
-                topics = log.get("topics", [])
-                if len(topics) >= 3:
-                    # Extract 'to' address from topics[2]
-                    # Topic values are 32 bytes (64 hex chars + 0x), but addresses are 20 bytes (40 hex chars)
-                    padded_to_address = topics[2]
-                    # Take the last 40 characters (20 bytes) to get the address
-                    to_address = "0x" + padded_to_address[-40:]
-                    recipients.append(to_address.lower())
-        except json.JSONDecodeError:
-            logger.debug("Failed to parse JSON output from cast logs")
-            # If we can't parse the JSON, just skip this block range and try another
-            if start_block > 0:
-                new_end = start_block - 1
-                new_start = max(0, new_end - block_window)
-                blocks_to_check.append((new_start, new_end))
-            continue
-
-        logger.debug(f"Found {len(recipients)} potential token holders")
-
-        # Process each unique recipient
-        for to_address in set(recipients):
-            # Skip already processed or zero address
-            if (
-                to_address in done
-                or to_address == "0x0000000000000000000000000000000000000000"
-            ):
-                continue
-
-            done.append(to_address)
-            logger.debug(f"Checking balance of: {to_address}")
-
-            try:
-                # Get token balance of this address
-                balance_result = quiet_run_command(
-                    [
-                        "cast",
-                        "call",
-                        "--rpc-url",
-                        rpc_url,
-                        token_address,
-                        "balanceOf(address)(uint256)",
-                        to_address,
-                    ]
-                )
-
-                if balance_result.returncode != 0 or not balance_result.stdout.strip():
-                    continue
-
-                wei_pawn_holding = int(balance_result.stdout.strip().split()[0])
-
-                # Only process addresses with meaningful balances
-                if (
-                    wei_pawn_holding > 1000000
-                ):  # Small threshold to catch more token holders
-                    # Calculate how much to take (90% of their balance, capped at what we still need)
-                    wei_to_steal = min(
-                        wei_pawn_holding * 9 // 10, wei_amount - wei_amount_transferred
-                    )
-                    eth_to_steal = run_command(
-                        ["cast", "from-wei", str(wei_to_steal)]
-                    ).stdout.strip()
-
-                    print(
-                        f"*** stealing {eth_to_steal} of {token} from {to_address}..."
-                    )
-
-                    # Use the with_impersonation helper
-                    def transfer_tokens(impersonated_address):
-                        # Give the address some ETH to pay for gas
-                        run_command(
-                            [
-                                "cast",
-                                "rpc",
-                                "anvil_setBalance",
-                                to_address,
-                                run_command(
-                                    ["cast", "to-hex", "27542757796200000000"]
-                                ).stdout.strip(),
-                            ]
-                        )
-
-                        # Transfer tokens
-                        run_command(
-                            [
-                                "cast",
-                                "send",
-                                token_address,
-                                "transfer(address,uint256)",
-                                wallet_address,
-                                str(wei_to_steal),
-                                "--from",
-                                impersonated_address,
-                                "--unlocked",
-                            ]
-                        )
-
-                    # Execute the transfer with impersonation
-                    with_impersonation(network, to_address, transfer_tokens)
-
-                    # Update tracking variables
-                    wei_amount_transferred += wei_to_steal
-                    eth_amount_transferred = run_command(
-                        ["cast", "from-wei", str(wei_amount_transferred)]
-                    ).stdout.strip()
-                    print(
-                        f"*** total amount stolen so far: {eth_amount_transferred} of {eth_amount}"
-                    )
-
-                    # Exit if we have enough
-                    if wei_amount_transferred >= wei_amount:
-                        return
-
-            except Exception as e:
-                logger.debug(f"Error processing address {to_address}: {str(e)}")
-
-        # Queue up earlier blocks to check if we need more tokens
-        if wei_amount_transferred < wei_amount and start_block > 0:
-            new_end = start_block - 1
-            new_start = max(0, new_end - block_window)
-            blocks_to_check.append((new_start, new_end))
-
-    # If we still couldn't find enough tokens
-    if wei_amount_transferred < wei_amount:
-        remaining = wei_amount - wei_amount_transferred
-        remaining_eth = run_command(["cast", "from-wei", str(remaining)]).stdout.strip()
-        print(
-            f"*** Warning: Could only find {eth_amount_transferred} of requested {eth_amount} tokens"
-        )
-        print(
-            f"*** Missing {remaining_eth} tokens. Try checking more blocks or a different token."
-        )
-
-
 def start(network, chain_id, port, rpc_url):
     # Store the anvil process so we can terminate it properly
     anvil_process = None
@@ -847,17 +458,10 @@ def start(network, chain_id, port, rpc_url):
             time.sleep(1)
         print("*** allowing baomultisig to be impersonated...")
         # Also use RPC URL with port specified to ensure commands target the correct anvil instance
-        run_command(
-            [
-                "cast",
-                "rpc",
-                "--rpc-url",
-                rpc_url,
-                "anvil_impersonateAccount",
-                bcinfo(network, "baomultisig"),
-            ]
+        enable_impersonation(
+            network, rpc_url, "baomultisig", on_error=ethereum_error_handler
         )
-        grab_upto(network, "baomultisig", "1")
+        grab_upto(network, rpc_url, "baomultisig", "1")
 
     def signal_handler(sig, frame):
         print(f"\n*** Received signal {sig}, terminating anvil process...")
@@ -1071,6 +675,8 @@ Examples:
     start_parser.add_argument(
         "--port", type=int, help="Port number to use the anvil instance listens on"
     )
+    # Mark start command as local-only
+    start_parser.set_defaults(local_only=True)
 
     # Grant command
     grant_parser = subparsers.add_parser("grant", help="Grant a role on a contract")
@@ -1162,7 +768,13 @@ Examples:
     )
     steal_parser.add_argument("--to", required=True, help="Recipient address")
     steal_parser.add_argument(
-        "--amount", required=True, help="Amount of tokens to transfee"
+        "--amount", required=True, help="Amount of tokens to transfer"
+    )
+    steal_parser.add_argument(
+        "--method",
+        choices=["mint", "whale", "storage", "admin", "logs", "all"],
+        default="all",
+        help="Method to use for ERC20 token acquisition (default: all)",
     )
 
     # address command
@@ -1171,6 +783,39 @@ Examples:
 
     # Parse arguments
     args = parser.parse_args()
+
+    # Validate local-only commands
+    if hasattr(args, "command") and args.command:
+        # Validate local-only commands
+        local_only_commands = ["start"]  # Commands that only work in local mode
+
+        # Check for local-only command with --no-local flag
+        if args.command in local_only_commands and not args.use_local:
+            print(
+                f"Error: The '{args.command}' command can only be used in local mode (without --no-local)."
+            )
+            sys.exit(1)
+
+        # Validate options that require local mode
+        if not args.use_local:
+            # Check for --as flag which requires impersonation (local-only)
+            if hasattr(args, "as_") and args.as_:
+                print(
+                    f"Error: The '--as' option can only be used in local mode (without --no-local)."
+                )
+                sys.exit(1)
+
+            # Check for steal command with --erc20 flag
+            if (
+                args.command in ["steal"] + steal_aliases
+                and hasattr(args, "erc20")
+                and args.erc20
+            ):
+                print(
+                    f"Error: The '{args.command} --erc20' command can only be used in local mode (without --no-local)."
+                )
+                sys.exit(1)
+
     configure_logging(args.v, args.q)
     # Convert count to Foundry's verbosity flag format (e.g., -vvv)
     verbosity = "-" + "v" * args.v if args.v > 0 else ""
@@ -1192,8 +837,20 @@ Examples:
     # Execute commands
     if args.command in ["steal"] + steal_aliases:
         if args.erc20:
-            print(f"*** transfer {args.to} {args.amount} ERC20 {args.erc20}")
-            grab_erc20(args.network, rpc_url, args.to, args.amount, args.erc20)
+            print(
+                f"*** transfer {args.to} {args.amount} ERC20 {args.erc20} (method: {args.method})"
+            )
+            success = grab_erc20(
+                args.network,
+                rpc_url,
+                args.to,
+                args.amount,
+                args.erc20,
+                method=args.method,  # Pass the method parameter
+            )
+            if not success:
+                print(f"*** Failed to acquire tokens using method: {args.method}")
+                sys.exit(1)
         else:
             print(f"*** transfer {args.to} {args.amount} ETH")
             grab(args.network, rpc_url, args.to, args.amount)
@@ -1285,6 +942,7 @@ Examples:
         # Execute the command and capture result
         result = with_impersonation(
             args.network,
+            rpc_url,
             args.as_,
             lambda as_address: (
                 run_command(
@@ -1294,6 +952,7 @@ Examples:
                     + ([verbosity] if verbosity else [])
                 )
             ),
+            on_error=ethereum_error_handler,
         )
 
         # For 'call' operations, show the result
