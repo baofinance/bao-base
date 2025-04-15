@@ -13,7 +13,7 @@ from typing import List
 import commentjson
 from mauled.core.logging import get_logger
 from mauled.core.subprocess import run_command
-from mauled.eth.run_cast_command import run_cast_command
+from mauled.eth.cast_command import run_cast_command
 
 logger = get_logger()
 

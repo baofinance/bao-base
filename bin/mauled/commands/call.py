@@ -6,10 +6,9 @@ This command makes a read-only call to a contract.
 
 from mauled.command.base import Command, register_command
 from mauled.core.logging import get_logger
-
-from bin.mauled.eth.address_lookup import address_of, address_of_arguments
-from bin.mauled.eth.run_cast_command import run_cast_command
-from bin.mauled.eth.send_call import format_call_result, parse_sig
+from mauled.eth.address_lookup import address_of, address_of_arguments
+from mauled.eth.cast_command import run_cast_command
+from mauled.eth.send_call import format_call_result, parse_sig
 
 logger = get_logger()
 

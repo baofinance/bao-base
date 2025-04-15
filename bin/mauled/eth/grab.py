@@ -11,17 +11,16 @@ from decimal import Decimal
 from typing import Any, List, Literal, Optional, Union
 
 from mauled.core.logging import get_logger
+from mauled.core.subprocess import quiet_run_command, run_command
 from mauled.eth.address_lookup import address_of
-
-from bin.mauled.core.subprocess import quiet_run_command, run_command
-from bin.mauled.eth.conversion import from_wei, to_hex, to_wei
-from bin.mauled.eth.impersonation import with_impersonation
-from bin.mauled.eth.run_cast_command import (
+from mauled.eth.cast_command import (
     run_cast_balance,
     run_cast_balanceOf,
     run_cast_command,
     run_cast_latest_block,
 )
+from mauled.eth.conversion import from_wei, to_hex, to_wei
+from mauled.eth.impersonation import with_impersonation
 
 logger = get_logger()
 
@@ -86,7 +85,7 @@ def grab_upto(network, rpc_url, wallet, eth_amount):
 
     wei_balance = run_cast_balance(address)
 
-    print(f"*** {wallet} balance is now {from_wei(wei_balance)}")
+    logger.info(f"{wallet} balance is now {from_wei(wei_balance)}")
 
 
 def _try_mint_tokens(
@@ -217,7 +216,7 @@ def _try_direct_storage_manipulation(rpc_url: str, token_address: str, wallet_ad
         current_balance = run_cast_balanceOf(rpc_url, token_address, wallet_address)
 
         # Use anvil_setBalance for direct manipulation
-        print(f"*** Using anvil to directly set token balance")
+        logger.info(f"Using anvil to directly set token balance")
         new_balance = current_balance + wei_amount
 
         # Direct manipulation - works in test environment but not in production chains
@@ -227,7 +226,7 @@ def _try_direct_storage_manipulation(rpc_url: str, token_address: str, wallet_ad
         verify_balance = run_cast_balanceOf(rpc_url, token_address, wallet_address)
 
         if int(verify_balance) > current_balance:
-            print(f"*** Successfully manipulated token balance")
+            logger.info(f"Successfully manipulated token balance")
             return True
 
         return False
@@ -293,7 +292,7 @@ def _try_admin_transfer(network: str, rpc_url: str, token_address: str, wallet_a
         )
 
         if int(final_balance) > current_balance:
-            print(f"*** Successfully added tokens using admin account")
+            logger.info(f"Successfully added tokens using admin account")
             return True
 
         return False
@@ -424,7 +423,7 @@ def _try_log_scanning(rpc_url: str, token_address: str, wallet_address: str, wei
                     wei_to_steal = min(wei_pawn_holding * 9 // 10, wei_amount - wei_amount_transferred)
                     eth_to_steal = run_command(["cast", "from-wei", str(wei_to_steal)]).stdout.strip()
 
-                    print(f"*** stealing {eth_to_steal} of {token_address} from {to_address}...")
+                    logger.info(f"stealing {eth_to_steal} of {token_address} from {to_address}...")
 
                     # Execute the transfer with impersonation
                     with_impersonation(
@@ -455,7 +454,7 @@ def _try_log_scanning(rpc_url: str, token_address: str, wallet_address: str, wei
                     eth_amount_transferred = run_command(
                         ["cast", "from-wei", str(wei_amount_transferred)]
                     ).stdout.strip()
-                    print(f"*** total amount stolen so far: {eth_amount_transferred} of {wei_amount}")
+                    logger.info(f"total amount stolen so far: {eth_amount_transferred} of {wei_amount}")
 
                     # Exit if we have enough
                     if wei_amount_transferred >= wei_amount:
@@ -474,8 +473,8 @@ def _try_log_scanning(rpc_url: str, token_address: str, wallet_address: str, wei
     if wei_amount_transferred < wei_amount:
         remaining = wei_amount - wei_amount_transferred
         remaining_eth = run_command(["cast", "from-wei", str(remaining)]).stdout.strip()
-        print(f"*** Warning: Could only find {eth_amount_transferred} of requested {wei_amount} tokens")
-        print(f"*** Missing {remaining_eth} tokens. Try checking more blocks or a different token.")
+        logger.info(f"Warning: Could only find {eth_amount_transferred} of requested {wei_amount} tokens")
+        logger.info(f"Missing {remaining_eth} tokens. Try checking more blocks or a different token.")
         return False
     return True
 
@@ -576,5 +575,5 @@ def grab_erc20(
             if _try_log_scanning(rpc_url, token_address, wallet_address, wei_amount):
                 return True
 
-    print(f"*** Failed to add tokens using methods: {', '.join(methods_to_try)}")
+    logger.info(f"Failed to add tokens using methods: {', '.join(methods_to_try)}")
     return False

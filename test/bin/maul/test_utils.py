@@ -1,16 +1,20 @@
 """Test the core utility functions."""
 
 # Import test utilities and registry
-from test.utils.test_helpers import (CommandResult, SubprocessMock,
-                                     setup_test_registry)
+from test.utils.test_helpers import CommandResult, SubprocessMock, setup_test_registry
 from unittest.mock import patch
 
 import pytest
 
+from maul.registry import reset_registries
+
 # Import directly from implementation source
-from bin.maul.utils import (address_of, quiet_run_command,
-                                 reset_subprocess_runner, set_subprocess_runner)
-from bin.maul.registry import (reset_registries)
+from maul.utils import (
+    address_of,
+    quiet_run_command,
+    reset_subprocess_runner,
+    set_subprocess_runner,
+)
 
 
 # Setup/teardown for tests
@@ -34,9 +38,7 @@ def test_registry():
 # Test quiet_run_command function
 def test_quiet_run_command(subprocess_mock):
     # Configure the mock
-    subprocess_mock.set_response(
-        "echo hello", CommandResult(stdout="Command output", stderr="", returncode=0)
-    )
+    subprocess_mock.set_response("echo hello", CommandResult(stdout="Command output", stderr="", returncode=0))
 
     # Call the function
     result = quiet_run_command(["echo", "hello"])
@@ -53,9 +55,7 @@ def test_address_of():
     # Use patch to mock the resolution functions instead of registry
     with patch("bin.maul.utils.resolution_address_of") as mock_resolve:
         # Test with direct hex address
-        mock_resolve.side_effect = lambda network, name: (
-            name if name.startswith("0x") else "0xmocked_address"
-        )
+        mock_resolve.side_effect = lambda network, name: (name if name.startswith("0x") else "0xmocked_address")
 
         # Test with direct hex address
         address = "0x1234567890123456789012345678901234567890"

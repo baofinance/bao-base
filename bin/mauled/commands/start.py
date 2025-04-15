@@ -14,10 +14,9 @@ import time
 from mauled.command.base import Command, register_command
 from mauled.core.logging import get_logger
 from mauled.core.subprocess import quiet_run_command
+from mauled.eth.address_lookup import address_of, bcinfo
 from mauled.eth.grab import grab_upto
 from mauled.eth.impersonation import enable_impersonation
-
-from bin.mauled.eth.address_lookup import address_of, bcinfo
 
 logger = get_logger()
 
@@ -95,7 +94,7 @@ class StartCommand(Command):
 
             # If we get here, anvil exited on its own
             exit_code = anvil_process.returncode
-            print(f"*** Anvil process exited with code: {exit_code}")
+            logger.info(f"Anvil process exited with code: {exit_code}")
             return exit_code
         finally:
             # Restore original signal handlers

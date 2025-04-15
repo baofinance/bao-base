@@ -5,8 +5,7 @@ This module provides functions for resolving and managing roles on Ethereum cont
 """
 
 from mauled.core.subprocess import run_command
-
-from bin.mauled.eth.address_lookup import address_of
+from mauled.eth.address_lookup import address_of
 
 
 def role_number_of(network, rpc_url, role, on):
@@ -28,9 +27,7 @@ def role_number_of(network, rpc_url, role, on):
     if role.startswith("0x") or role.isdigit():
         return role
     on_address = address_of(network, on)
-    result = run_command(
-        ["cast", "call", "--rpc-url", rpc_url, on_address, f"{role}()(uint256)"]
-    )
+    result = run_command(["cast", "call", "--rpc-url", rpc_url, on_address, f"{role}()(uint256)"])
     output = result.stdout.strip().split()
     if not output:
         raise ValueError(f"Role {role} not found on {on}")

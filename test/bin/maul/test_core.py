@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
-from bin.mauled.eth import grab, grab_erc20
-from bin.mauled.eth.send_call import format_call_result
+from mauled.eth import grab, grab_erc20
+from mauled.eth.send_call import format_call_result
 
 # Import directly from implementation modules instead of compatibility layers
 

@@ -7,9 +7,8 @@ This module provides functions for impersonating Ethereum accounts in test envir
 from typing import Any, Callable, List, Optional
 
 from mauled.core.logging import get_logger
-
-from bin.mauled.core.subprocess import run_command
-from bin.mauled.eth.address_lookup import address_of
+from mauled.core.subprocess import run_command
+from mauled.eth.address_lookup import address_of
 
 logger = get_logger()
 

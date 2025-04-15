@@ -9,11 +9,10 @@ import os
 from mauled.command.base import Command, register_command
 from mauled.core.logging import get_logger
 from mauled.core.subprocess import run_command
+from mauled.eth.address_lookup import address_of
+from mauled.eth.cast_command import run_cast_command
+from mauled.eth.impersonation import with_impersonation
 from mauled.eth.roles import role_number_of
-
-from bin.mauled.eth.address_lookup import address_of
-from bin.mauled.eth.impersonation import with_impersonation
-from bin.mauled.eth.run_cast_command import run_cast_command
 
 logger = get_logger()
 

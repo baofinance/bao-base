@@ -6,11 +6,10 @@ This command makes a state-changing transaction to a contract.
 
 from mauled.command.base import Command, register_command
 from mauled.core.logging import get_logger
+from mauled.eth.address_lookup import address_of, address_of_arguments
+from mauled.eth.cast_command import run_cast_command
 from mauled.eth.impersonation import with_impersonation
-
-from bin.mauled.eth.address_lookup import address_of, address_of_arguments
-from bin.mauled.eth.run_cast_command import run_cast_command
-from bin.mauled.eth.send_call import parse_sig
+from mauled.eth.send_call import parse_sig
 
 logger = get_logger()
 
@@ -50,7 +49,7 @@ class SendCommand(Command):
         # Process arguments (resolve addresses)
         processed_args = address_of_arguments(args.network, args.args, param_types)
 
-        print(f"*** send to {to} with signature {sig}{as_}...")
+        logger.info(f"send to {to} with signature {sig}{as_}...")
 
         # Execute the command and capture result
         with_impersonation(

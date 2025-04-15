@@ -9,8 +9,7 @@ import sys
 from typing import List, Tuple
 
 from mauled.core.logging import get_logger
-
-from bin.mauled.eth.abi import get_function_info
+from mauled.eth.abi import get_function_info
 
 logger = get_logger()
 
@@ -40,7 +39,7 @@ def parse_sig(network: str, sig_input: str) -> Tuple[str, List[str]]:
         func_info = get_function_info(contract, func_name)
         return func_info["signature"], func_info["param_types"]
     else:
-        print(f"*** Error: Invalid signature format '{sig_input}'")
+        logger.info(f"Error: Invalid signature format '{sig_input}'")
         print("*** Signature must be either 'function(type1,type2)' or 'Contract.function'")
         sys.exit(1)
 
@@ -57,8 +56,6 @@ def format_call_result(stdout: str, sig_input: str, network: str = None) -> str:
     Returns:
         Formatted result string
     """
-    from bin.maul import get_function_info  # Import here to avoid circular dependencies
-
     result = stdout.strip()
 
     # If it's an empty result

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # Import the main function from the correct location
-from bin.maul.run import main as maul_main
+from maul.run import main as maul_main
 
 
 def test_help_info(capsys):
