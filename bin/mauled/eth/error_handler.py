@@ -1,7 +1,10 @@
 import re
 import sys
 
+from mauled.core.logging import get_logger
 from mauled.eth.error import decode_custom_error
+
+logger = get_logger()
 
 
 def ethereum_error_handler(result, sig_input=None):
@@ -12,7 +15,7 @@ def ethereum_error_handler(result, sig_input=None):
         result: Command execution result containing stdout, stderr, and args
         sig_input: Optional signature input for decoding errors
     """
-    logger.info(f"Command failed: {' '.join(result.args)}")
+    logger.error(f"Command failed: {' '.join(result.args)}")
 
     if result.stderr:
         error_msg = result.stderr.strip()
@@ -31,7 +34,7 @@ def ethereum_error_handler(result, sig_input=None):
             logger.info(f"{decoded_error}")
             logger.info(f"Raw error data: {raw_data}")
         else:
-            logger.info(f"Error: {error_msg}")
+            logger.error(f"{error_msg}")
 
     if result.stdout:
         logger.info(f"Output: {result.stdout.strip()}")

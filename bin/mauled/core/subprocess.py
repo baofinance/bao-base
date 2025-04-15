@@ -29,14 +29,12 @@ def quiet_run_command(command: List[str]) -> subprocess.CompletedProcess:
 
     # Log stdout/stderr at different levels based on verbosity
     if result.stdout:
-        logger.info1(f"Command stdout: {result.stdout.strip()}")
-        logger.info2(
-            f"Full command details:\n  Command: {cmd_str}\n  Exit code: {result.returncode}\n  Full stdout: \n{result.stdout}"
-        )
+        logger.info1(f"Ccommand details:\n  Command: {cmd_str}\n  Exit code: {result.returncode}")
+        logger.info2(f"Command stdout: {result.stdout.strip()}")
 
     if result.stderr:
         # Always show stderr at regular TRACE level
-        logger.info1(f"Command stderr: {result.stderr.strip()}")
+        logger.error(f"Command stderr: {result.stderr.strip()}")
 
     return result
 

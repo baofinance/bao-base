@@ -106,8 +106,7 @@ def _try_mint_tokens(
         logger.debug(f"Token {token_address} does not appear to have a mint function")
         return False
 
-    # Try the mint function - use the original amount, not wei_amount which might be too large
-
+    # Try the mint function
     mint_result = with_impersonation(
         rpc_url,
         wallet_address,
