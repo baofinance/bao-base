@@ -14,11 +14,10 @@ import time
 from mauled.command.base import Command, register_command
 from mauled.core.logging import get_logger
 from mauled.core.subprocess import quiet_run_command
-from mauled.eth.error import ethereum_error_handler
 from mauled.eth.grab import grab_upto
 from mauled.eth.impersonation import enable_impersonation
 
-from bin.mauled.eth.address_lookup import bcinfo
+from bin.mauled.eth.address_lookup import address_of, bcinfo
 
 logger = get_logger()
 
@@ -30,12 +29,8 @@ class StartCommand(Command):
     @classmethod
     def add_arguments(cls, parser):
         """Add arguments for the start command."""
-        parser.add_argument(
-            "--chain-id", type=int, help="Specify chain ID for the anvil instance"
-        )
-        parser.add_argument(
-            "--port", type=int, help="Port number to use the anvil instance listens on"
-        )
+        parser.add_argument("--chain-id", type=int, help="Specify chain ID for the anvil instance")
+        parser.add_argument("--port", type=int, help="Port number to use the anvil instance listens on")
         # Mark start command as local-only
         parser.set_defaults(local_only=True)
 
@@ -47,21 +42,12 @@ class StartCommand(Command):
 
         def wait_for_anvil():
             port = args.port or 8545
-            while (
-                quiet_run_command(["nc", "-z", "localhost", str(port)]).returncode != 0
-            ):
+            while quiet_run_command(["nc", "-z", "localhost", str(port)]).returncode != 0:
                 time.sleep(1)
             logger.info(f"anvil startup: allowing baomultisig to be impersonated...")
             # Also use RPC URL with port specified to ensure commands target the correct anvil instance
-            enable_impersonation(
-                args.network,
-                args.rpc_url,
-                "baomultisig",
-                on_error=ethereum_error_handler,
-            )
-            logger.info(
-                f"anvil startup: impersonation enabled for baomultisig on {args.network} ({args.rpc_url})"
-            )
+            enable_impersonation(args.rpc_url, address_of(args.network, "baomultisig"))
+            logger.info(f"anvil startup: impersonation enabled for baomultisig on {args.network} ({args.rpc_url})")
             grab_upto(args.network, args.rpc_url, "baomultisig", "1")
 
         def signal_handler(sig, frame):
@@ -88,9 +74,7 @@ class StartCommand(Command):
 
         try:
             anvil_thread = threading.Thread(target=wait_for_anvil)
-            anvil_thread.daemon = (
-                True  # Make thread a daemon so it exits when main thread exits
-            )
+            anvil_thread.daemon = True  # Make thread a daemon so it exits when main thread exits
             anvil_thread.start()
 
             # Use subprocess.Popen instead of run_command for direct process control

@@ -3,33 +3,27 @@
 # This script is a command-line utility for interacting with Ethereum smart contracts with an emphasis on Minter contracts
 
 import argparse
-import json
 import os
-import subprocess
 import sys
 
-import commentjson
 # Import all commands to ensure they're registered
-import mauled.commands
 from dotenv import load_dotenv
-from mauled.command.base import get_all_commands, get_command
+from mauled.command.base import get_all_commands, get_command, import_commands_from_dir
 from mauled.core.logging import configure_logging, get_logger
-from mauled.core.subprocess import quiet_run_command, run_command
-# Change relative import to absolute import since PYTHONPATH includes bin/ directory
-from mauled.eth.abi import (get_event_info, get_function_info,
-                            get_function_type_string)
-from mauled.eth.error import (decode_custom_error, ethereum_error_handler,
-                              search_abi_for_error)
-from mauled.eth.roles import role_number_of
 
-from bin.mauled.eth.address_lookup import address_of, bcinfo
+# Change relative import to absolute import since PYTHONPATH includes bin/ directory
+
+logger = get_logger()
+configure_logging()
 
 load_dotenv()  # Load .env file once
 
 deploy_log = "./log/deploy-local.log"
 ABI_DIR = os.getenv("ABI_DIR", "./out")
 
-logger = get_logger()
+
+# Import all command modules
+import_commands_from_dir(commands_path="bin/mauled/commands")
 
 
 def lookup_env(env_name):
@@ -93,17 +87,11 @@ Examples:
         help="Chain to: fork from, to connect to, or to lookup addresses, etc.",
     )
 
-    parser.add_argument(
-        "-v", action="count", default=0, help="Increase verbosity level"
-    )
-    parser.add_argument(
-        "-q", action="store_true", help="Stop all output (apart from errors)"
-    )
+    parser.add_argument("-v", action="count", default=0, help="Increase verbosity level")
+    parser.add_argument("-q", action="store_true", help="Stop all output (apart from errors)")
 
     # Create subparsers for commands
-    subparsers = parser.add_subparsers(
-        dest="command", title="commands", help="Available commands"
-    )
+    subparsers = parser.add_subparsers(dest="command", title="commands", help="Available commands")
 
     # Register all commands from the registry
     all_commands = get_all_commands()
@@ -145,25 +133,21 @@ Examples:
         args.rpc_url = args.network
 
     logger.info(f"Processing command: {args.command}")
-    logger.info1(f"                  : {args}")
+    logger.info1(f"- args: {vars(args)}")
 
     # Validate local-only commands
     local_only_commands = ["start"]  # Commands that only work in local mode
 
     # Check for local-only command with --no-local flag
     if args.command in local_only_commands and not args.use_local:
-        print(
-            f"Error: The '{args.command}' command can only be used in local mode (without --no-local)."
-        )
+        print(f"Error: The '{args.command}' command can only be used in local mode (without --no-local).")
         sys.exit(1)
 
     # Validate options that require local mode
     if not args.use_local:
         # Check for --as flag which requires impersonation (local-only)
         if hasattr(args, "as_") and args.as_:
-            print(
-                f"Error: The '--as' option can only be used in local mode (without --no-local)."
-            )
+            print(f"Error: The '--as' option can only be used in local mode (without --no-local).")
             sys.exit(1)
 
         # The check for steal command with --erc20 has been moved to StealCommand.verify_local_mode

@@ -8,9 +8,9 @@ from typing import List, Optional
 from .command.base import get_all_commands, get_command
 from .command.config import parse_config_file  # Now correctly imports from config.py
 from .command.discovery import discover_commands
-from .exceptions import CommandLoadError, CommandNotFoundError
-from .core.logging import configure_logging, get_logger
 from .command.parser import create_main_parser, create_subparsers
+from .core.logging import configure_logging, get_logger
+from .exceptions import CommandLoadError, CommandNotFoundError
 
 # Get the logger
 logger = get_logger()

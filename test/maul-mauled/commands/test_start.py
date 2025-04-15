@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # Import directly from implementation module
-from maul.commands.start import StartCommand
+from mauled.commands.start import StartCommand
 
 
 # Test add_arguments method
@@ -14,21 +14,15 @@ def test_add_arguments():
     StartCommand.add_arguments(parser)
 
     # Verify arguments were added
-    parser.add_argument.assert_any_call(
-        "--chain-id", type=int, help="Specify chain ID for the anvil instance"
-    )
-    parser.add_argument.assert_any_call(
-        "--interactive", "-i", action="store_true", help="Start in interactive mode"
-    )
+    parser.add_argument.assert_any_call("--chain-id", type=int, help="Specify chain ID for the anvil instance")
+    parser.add_argument.assert_any_call("--interactive", "-i", action="store_true", help="Start in interactive mode")
 
 
 # Test execute method (updated for simplified implementation)
 def test_execute_basic():
     """Test the basic execution flow of the StartCommand with simplified implementation."""
     # Mock the necessary components
-    with patch.object(StartCommand, "logger") as mock_logger, patch(
-        "subprocess.Popen"
-    ) as mock_popen, patch(
+    with patch.object(StartCommand, "logger") as mock_logger, patch("subprocess.Popen") as mock_popen, patch(
         "time.sleep"
     ) as _mock_sleep, patch(  # Correctly define _mock_sleep as a patch
         "maul.commands.start.quiet_run_command"

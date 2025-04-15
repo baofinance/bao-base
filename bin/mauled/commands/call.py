@@ -6,12 +6,10 @@ This command makes a read-only call to a contract.
 
 from mauled.command.base import Command, register_command
 from mauled.core.logging import get_logger
-from mauled.core.subprocess import run_command
-from mauled.eth.impersonation import with_impersonation
 
-from bin.maul import ethereum_error_handler
-from bin.mauled.commands.send_call import format_call_result, parse_sig
 from bin.mauled.eth.address_lookup import address_of, address_of_arguments
+from bin.mauled.eth.run_cast_command import run_cast_command
+from bin.mauled.eth.send_call import format_call_result, parse_sig
 
 logger = get_logger()
 
@@ -29,9 +27,7 @@ class CallCommand(Command):
             required=True,
             help="Either a function signature (e.g., 'transfer(address,uint256)') or Contract.function (e.g., 'ERC20.transfer')",
         )
-        parser.add_argument(
-            "--as", dest="as_", help="Address to impersonate for the call"
-        )
+        parser.add_argument("--as", dest="as_", help="Address to impersonate for the call")
         parser.add_argument("args", nargs="*", help="Arguments to pass to function")
 
     @classmethod
@@ -66,7 +62,7 @@ class CallCommand(Command):
         #     on_error=ethereum_error_handler,
         # )
 
-        result = run_command(
+        result = run_cast_command(
             [
                 "cast",
                 "call",

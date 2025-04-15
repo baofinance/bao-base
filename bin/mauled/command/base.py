@@ -4,16 +4,36 @@ This module provides the foundation for command registration and discovery,
 consolidating functionality from the previous separate base modules.
 """
 
+import importlib
 import inspect
+import pkgutil
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Type, Union
+from typing import Dict, List, Optional, Type
 
-from ..core.logging import get_logger
+from mauled.core.logging import get_logger
 
 logger = get_logger()
 
 # Command registry - maps command names to command classes
 _commands: Dict[str, Type["Command"]] = {}
+
+
+def import_commands_from_dir(commands_path: str):
+    """Import all Python modules in the commands directory to register commands."""
+    logger.info(f"Importing from {commands_path}...")
+    try:
+        # Convert path to module path format
+        module_path = commands_path.replace("/", ".")
+        # Import each .py file in the commands directory
+        for _, name, is_pkg in pkgutil.iter_modules([commands_path]):
+            if not is_pkg and name != "__init__":
+                try:
+                    importlib.import_module(f"{module_path}.{name}")
+                    logger.info1(f"Imported command module: {name}")
+                except ImportError as e:
+                    logger.error(f"importing command {name}: {e}")
+    except Exception as e:
+        logger.error(f"Error scanning commands directory: {e}")
 
 
 class Command(ABC):
@@ -135,12 +155,7 @@ def find_commands_in_module(module):
     found_commands = []
     for name, obj in inspect.getmembers(module):
         # Check if it's a class that inherits from Command
-        if (
-            inspect.isclass(obj)
-            and obj != Command
-            and issubclass(obj, Command)
-            and obj.__module__ == module.__name__
-        ):
+        if inspect.isclass(obj) and obj != Command and issubclass(obj, Command) and obj.__module__ == module.__name__:
             found_commands.append(obj)
 
     return found_commands

@@ -1,17 +1,12 @@
 import os
 from unittest.mock import MagicMock, patch
 
-
-from maul.resolution import (address_of, is_hex_address,
-                             resolve_me_address)
+from mauled.resolution import address_of, is_hex_address, resolve_me_address
 
 
 def test_is_hex_address():
     # Valid address
-    assert (
-        is_hex_address("0x1234567890123456789012345678901234567890")
-        == "0x1234567890123456789012345678901234567890"
-    )
+    assert is_hex_address("0x1234567890123456789012345678901234567890") == "0x1234567890123456789012345678901234567890"
 
     # Invalid cases
     assert is_hex_address("not-an-address") is None
@@ -21,12 +16,8 @@ def test_is_hex_address():
 
 def test_resolve_me_address():
     # With private key
-    with patch.dict(os.environ, {"PRIVATE_KEY": "0xprivatekey"}), patch(
-        "bin.maul.utils.run_command"
-    ) as mock_run:
-        mock_run.return_value = MagicMock(
-            stdout="0x1234567890123456789012345678901234567890\n"
-        )
+    with patch.dict(os.environ, {"PRIVATE_KEY": "0xprivatekey"}), patch("bin.maul.utils.run_command") as mock_run:
+        mock_run.return_value = MagicMock(stdout="0x1234567890123456789012345678901234567890\n")
         assert resolve_me_address() == "0x1234567890123456789012345678901234567890"
 
     # Without private key

@@ -6,12 +6,11 @@ This command makes a state-changing transaction to a contract.
 
 from mauled.command.base import Command, register_command
 from mauled.core.logging import get_logger
-from mauled.core.subprocess import run_command
 from mauled.eth.impersonation import with_impersonation
 
-from bin.maul import ethereum_error_handler
-from bin.mauled.commands.send_call import parse_sig
 from bin.mauled.eth.address_lookup import address_of, address_of_arguments
+from bin.mauled.eth.run_cast_command import run_cast_command
+from bin.mauled.eth.send_call import parse_sig
 
 logger = get_logger()
 
@@ -29,9 +28,7 @@ class SendCommand(Command):
             required=True,
             help="Either a function signature (e.g., 'transfer(address,uint256)') or Contract.function (e.g., 'ERC20.transfer')",
         )
-        parser.add_argument(
-            "--as", dest="as_", help="Address to impersonate for the transaction"
-        )
+        parser.add_argument("--as", dest="as_", help="Address to impersonate for the transaction")
         parser.add_argument("args", nargs="*", help="Arguments to pass to function")
 
     @classmethod
@@ -42,11 +39,7 @@ class SendCommand(Command):
 
         if args.as_:
             as_address = address_of(args.network, args.as_)
-            as_ = (
-                " as " + args.as_ + " (" + as_address + ")"
-                if as_address != args.as_
-                else ""
-            )
+            as_ = " as " + args.as_ + " (" + as_address + ")" if as_address != args.as_ else ""
         else:
             as_address = None
             as_ = ""
@@ -60,21 +53,17 @@ class SendCommand(Command):
         print(f"*** send to {to} with signature {sig}{as_}...")
 
         # Execute the command and capture result
-        result = with_impersonation(
+        with_impersonation(
             args.rpc_url,
-            args.as_,
+            args.as_ or address_of(args.network, "me"),
             address_of(args.network, "me"),
             lambda impersonation_args: (
-                run_command(
+                run_cast_command(
                     ["cast", "send", "--rpc-url", args.rpc_url, to_address]
                     + impersonation_args
-                    + "--unlocked"
                     + [sig]
                     + processed_args
                     + (["-" + "v" * args.v] if args.v > 0 else [])
                 )
             ),
-            on_error=ethereum_error_handler,
         )
-
-        return result

@@ -16,11 +16,9 @@ logger = get_logger()
 
 def quiet_run_command(command: List[str]) -> subprocess.CompletedProcess:
     """
-    Run command and return result without checking exit code or raising exceptions.
-
+    Run command and return result without checking exit code.
     Args:
         command: List of command and arguments to execute
-
     Returns:
         CompletedProcess: Result of the subprocess execution
     """
@@ -40,52 +38,25 @@ def quiet_run_command(command: List[str]) -> subprocess.CompletedProcess:
         # Always show stderr at regular TRACE level
         logger.info1(f"Command stderr: {result.stderr.strip()}")
 
-    # Log return code at DEBUG level
-    logger.debug(f"Command returned: {result.returncode}")
-
     return result
 
 
 def run_command(
     command: List[str],
-    on_error: Optional[Callable[[subprocess.CompletedProcess], Any]] = None,
-    exit_on_error: bool = True,
 ) -> subprocess.CompletedProcess:
     """
-    Run command and handle errors based on provided callback or default behavior.
-
+    Run command, exitting on error
     Args:
         command: List of command and arguments to execute
-        on_error: Optional function to call when command fails (gets CompletedProcess as arg)
-        exit_on_error: Whether to exit the program on error (default: True)
-
     Returns:
         CompletedProcess: Result of the subprocess execution
-
     Raises:
         SystemExit: If command fails and exit_on_error is True
     """
     result = quiet_run_command(command)
 
+    # TODO: add command exception
     # Check for failure
     if result.returncode != 0:
-        # Call custom error handler if provided
-        if on_error:
-            return on_error(result)
-
-        # Default error handling
-        print(f"*** Command failed: {' '.join(command)}")
-
-        if result.stderr:
-            print(f"*** Error: {result.stderr.strip()}")
-
-        if result.stdout:
-            print(f"*** Output: {result.stdout.strip()}")
-
-        print(f"*** Exit code: {result.returncode}")
-
-        # Exit if specified
-        if exit_on_error:
-            sys.exit(result.returncode)
-
+        raise Exception(f"Command failed with exit code {result.returncode}")
     return result

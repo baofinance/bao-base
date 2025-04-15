@@ -30,7 +30,9 @@
     "pre-checkin": "yarn fmt && yarn slither && yarn lint && yarn test && yarn coverage && yarn gas && yarn sizes && echo \"ready for checkin\"",
     "git-diffs": "./run git-diffs",
     "git-tag": "./run git-tag",
-    "CI": "./run CI"
+    "CI": "./run CI",
+    "lint-imports": "PYTHONPATH=$PWD/bin lint-imports",
+    "pyreverse": "PYTHONPATH=$PWD pyreverse -o dot --ignore logging.py -p bao_finance bin/maul.py bin/mauled && echo \"packages_bao_finance.dot created\""
   },
   "dependencies": {
     "bats": "^1.11.1",

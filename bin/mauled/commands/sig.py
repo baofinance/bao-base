@@ -8,8 +8,7 @@ import sys
 
 from mauled.command.base import Command, register_command
 from mauled.core.logging import get_logger
-
-from bin.maul import get_event_info, get_function_info
+from mauled.eth.abi import get_event_info, get_function_info
 
 logger = get_logger()
 
@@ -64,9 +63,7 @@ class SigCommand(Command):
                 for i, param in enumerate(info["inputs"]):
                     name = param.get("name", "unnamed")
                     type_name = param.get("type", "")
-                    indexed = (
-                        " (indexed)" if param.get("indexed") and args.event else ""
-                    )
+                    indexed = " (indexed)" if param.get("indexed") and args.event else ""
                     output += f"\n  {i+1}. {name}: {type_name}{indexed}"
 
             # Display return parameters if available (only for functions)
@@ -79,7 +76,5 @@ class SigCommand(Command):
 
             print(output)
         else:
-            logger.error(
-                f"Signature must be in the form Contract.name: {args.signature}"
-            )
+            logger.error(f"Signature must be in the form Contract.name: {args.signature}")
             sys.exit(1)

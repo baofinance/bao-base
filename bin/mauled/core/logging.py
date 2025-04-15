@@ -27,24 +27,29 @@ logging.addLevelName(logging.QUIET, "QUIET")
 def info1(self, message, *args, **kwargs):
     """Log message at INFO1 level (for -v verbosity)."""
     if self.isEnabledFor(logging.INFO1):
+        # Add stacklevel=2 to look back one additional frame to find the true caller
+        kwargs.setdefault("stacklevel", 2)
         self._log(logging.INFO1, message, args, **kwargs)
 
 
 def info2(self, message, *args, **kwargs):
     """Log message at INFO2 level (for -vv verbosity)."""
     if self.isEnabledFor(logging.INFO2):
+        kwargs.setdefault("stacklevel", 2)
         self._log(logging.INFO2, message, args, **kwargs)
 
 
 def info3(self, message, *args, **kwargs):
     """Log message at INFO3 level (for -vvv verbosity)."""
     if self.isEnabledFor(logging.INFO3):
+        kwargs.setdefault("stacklevel", 2)
         self._log(logging.INFO3, message, args, **kwargs)
 
 
 def info4(self, message, *args, **kwargs):
     """Log message at INFO4 level (for -vvvv verbosity)."""
     if self.isEnabledFor(logging.INFO4):
+        kwargs.setdefault("stacklevel", 2)
         self._log(logging.INFO4, message, args, **kwargs)
 
 
@@ -55,13 +60,8 @@ logging.Logger.info3 = info3
 logging.Logger.info4 = info4
 
 
-def configure_logging(verbosity, quiet):
+def configure_logging(verbosity: int = 0, quiet: bool = False):
     """Configure the logging system based on verbosity level."""
-
-    # Use BAO_BASE_VERBOSITY directly if verbosity not specified
-    if verbosity is None:
-        verbosity = int(os.environ.get("BAO_BASE_VERBOSITY", "0"))
-    verbosity = int(verbosity)
 
     # Create/get the logger
     _logger = logging.getLogger("maul")
@@ -97,14 +97,10 @@ def configure_logging(verbosity, quiet):
                     # Store original pathname before modifying
                     if hasattr(record, "pathname"):
                         # Convert to path relative to current directory
-                        record.rel_pathname = os.path.relpath(
-                            record.pathname, os.getcwd()
-                        )
+                        record.rel_pathname = os.path.relpath(record.pathname, os.getcwd())
                     return super().format(record)
 
-            formatter = RelativePathFormatter(
-                "%(levelname)s: %(rel_pathname)s:%(lineno)d: %(message)s"
-            )
+            formatter = RelativePathFormatter("%(levelname)s: %(rel_pathname)s:%(lineno)d: %(message)s")
         else:
             formatter = logging.Formatter("%(levelname)s: %(message)s")
 

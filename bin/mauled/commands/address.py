@@ -6,8 +6,7 @@ This command looks up addresses by name.
 
 from mauled.command.base import Command, register_command
 from mauled.core.logging import get_logger
-
-from bin.mauled.eth.address_lookup import address_of
+from mauled.eth.address_lookup import address_of
 
 logger = get_logger()
 

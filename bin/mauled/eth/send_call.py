@@ -5,16 +5,12 @@ Both commands have similar argument structures and execution patterns,
 so common code is extracted here to avoid duplication.
 """
 
-import os
 import sys
 from typing import List, Tuple
 
 from mauled.core.logging import get_logger
-from mauled.core.subprocess import run_command
-from mauled.eth.impersonation import with_impersonation
 
 from bin.mauled.eth.abi import get_function_info
-from bin.mauled.eth.address_lookup import address_of
 
 logger = get_logger()
 
@@ -45,9 +41,7 @@ def parse_sig(network: str, sig_input: str) -> Tuple[str, List[str]]:
         return func_info["signature"], func_info["param_types"]
     else:
         print(f"*** Error: Invalid signature format '{sig_input}'")
-        print(
-            "*** Signature must be either 'function(type1,type2)' or 'Contract.function'"
-        )
+        print("*** Signature must be either 'function(type1,type2)' or 'Contract.function'")
         sys.exit(1)
 
 
@@ -63,8 +57,7 @@ def format_call_result(stdout: str, sig_input: str, network: str = None) -> str:
     Returns:
         Formatted result string
     """
-    from bin.maul import \
-        get_function_info  # Import here to avoid circular dependencies
+    from bin.maul import get_function_info  # Import here to avoid circular dependencies
 
     result = stdout.strip()
 

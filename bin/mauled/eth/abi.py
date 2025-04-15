@@ -73,9 +73,9 @@ def get_function_info(contract, func_name):
         ]
     )
 
-    if result.returncode != 0 or not result.stdout.strip():
-        print(f"error: Function {func_name} not found in contract {contract}")
-        sys.exit(1)
+    # if result.returncode != 0 or not result.stdout.strip():
+    #     print(f"error: Function {func_name} not found in contract {contract}")
+    #     sys.exit(1)
 
     try:
         func_data = json.loads(result.stdout.strip())

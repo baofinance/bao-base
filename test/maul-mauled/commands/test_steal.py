@@ -1,8 +1,7 @@
 from unittest.mock import MagicMock, patch
 
-
 # Import directly from implementation module
-from maul.commands.steal import StealCommand
+from mauled.commands.steal import StealCommand
 
 
 # Test add_arguments method
@@ -11,22 +10,16 @@ def test_add_arguments():
     StealCommand.add_arguments(parser)
 
     # Verify arguments were added
-    parser.add_argument.assert_any_call(
-        "--erc20", help="ERC20 token address or name (if omitted, steals ETH)"
-    )
+    parser.add_argument.assert_any_call("--erc20", help="ERC20 token address or name (if omitted, steals ETH)")
     parser.add_argument.assert_any_call("--to", required=True, help="Recipient address")
-    parser.add_argument.assert_any_call(
-        "--amount", required=True, help="Amount of tokens to transfer"
-    )
+    parser.add_argument.assert_any_call("--amount", required=True, help="Amount of tokens to transfer")
 
 
 # Test execute method for ETH
 def test_execute_eth():
     # NOTE: We must patch where the function is imported, not where it's defined
     # StealCommand imports grab from maul.commands.steal.grab, so we patch that path
-    with patch("maul.commands.steal.grab") as mock_grab, patch.object(
-        StealCommand, "logger"
-    ) as mock_logger:
+    with patch("maul.commands.steal.grab") as mock_grab, patch.object(StealCommand, "logger") as mock_logger:
 
         # Configure mocks
         mock_grab.return_value = "10.0"
@@ -43,14 +36,10 @@ def test_execute_eth():
         result = StealCommand.execute(args)
 
         # Verify logger calls
-        mock_logger.info.assert_called_once_with(
-            "Transferring 10 ETH to 0x1234567890123456789012345678901234567890"
-        )
+        mock_logger.info.assert_called_once_with("Transferring 10 ETH to 0x1234567890123456789012345678901234567890")
 
         # Verify grab call
-        mock_grab.assert_called_once_with(
-            "mainnet", "0x1234567890123456789012345678901234567890", "10"
-        )
+        mock_grab.assert_called_once_with("mainnet", "0x1234567890123456789012345678901234567890", "10")
 
         # Verify result
         assert result["status"] == "success"

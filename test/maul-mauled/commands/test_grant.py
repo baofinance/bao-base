@@ -1,11 +1,11 @@
 import os
+
 # Import test utilities
-from test.utils.test_helpers import (setup_test_environment)
+from test.utils.test_helpers import setup_test_environment
 from unittest.mock import MagicMock, patch
 
-
 # Import the command to test
-from maul.commands.grant import GrantCommand
+from mauled.commands.grant import GrantCommand
 
 
 # Test add_arguments method
@@ -14,18 +14,10 @@ def test_add_arguments():
     GrantCommand.add_arguments(parser)
 
     # Verify arguments were added
-    parser.add_argument.assert_any_call(
-        "--role", required=True, help="Role identifier/name"
-    )
-    parser.add_argument.assert_any_call(
-        "--on", required=True, help="Contract address with role system"
-    )
-    parser.add_argument.assert_any_call(
-        "--to", required=True, help="Address to receive the role"
-    )
-    parser.add_argument.assert_any_call(
-        "--as", dest="as_", help="Address to impersonate when granting"
-    )
+    parser.add_argument.assert_any_call("--role", required=True, help="Role identifier/name")
+    parser.add_argument.assert_any_call("--on", required=True, help="Contract address with role system")
+    parser.add_argument.assert_any_call("--to", required=True, help="Address to receive the role")
+    parser.add_argument.assert_any_call("--as", dest="as_", help="Address to impersonate when granting")
 
 
 # Test execute method with impersonation
@@ -34,11 +26,9 @@ def test_execute_with_impersonation():
     _test_env = setup_test_environment()
 
     # Apply patches - but DON'T patch send() which is what calls with_impersonation
-    with patch(
-        "bin.maul.utils.set_subprocess_runner", return_value=None
-    ) as _mock_set_runner, patch("maul.utils.role_number_of", return_value="123"), patch(
-        "maul.commands.grant.role_number_of", return_value="123"
-    ), patch(
+    with patch("bin.maul.utils.set_subprocess_runner", return_value=None) as _mock_set_runner, patch(
+        "maul.utils.role_number_of", return_value="123"
+    ), patch("maul.commands.grant.role_number_of", return_value="123"), patch(
         "maul.core.eth.with_impersonation"
     ) as mock_with_impersonation, patch(
         "maul.core.eth._send", return_value=MagicMock(stdout="0xtxhash")
@@ -46,9 +36,7 @@ def test_execute_with_impersonation():
 
         # Configure mocks for context manager
         mock_context = MagicMock()
-        mock_context.__enter__.return_value = (
-            "0x3333444455556666777788889999000011112222"
-        )
+        mock_context.__enter__.return_value = "0x3333444455556666777788889999000011112222"
         mock_with_impersonation.return_value = mock_context
 
         # Create args
@@ -94,9 +82,7 @@ def test_execute_with_private_key():
         result = GrantCommand.execute(args)
 
         # Verify grant_role was called correctly
-        mock_grant_role.assert_called_once_with(
-            "mainnet", "contract", "ADMIN_ROLE", "recipient", as_=None
-        )
+        mock_grant_role.assert_called_once_with("mainnet", "contract", "ADMIN_ROLE", "recipient", as_=None)
 
         # Verify result
         assert result["status"] == "success"

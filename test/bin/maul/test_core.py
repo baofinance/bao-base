@@ -1,8 +1,9 @@
 from unittest.mock import MagicMock, patch
 
-from maul.core.eth import grab, grab_erc20
+from bin.mauled.eth import grab, grab_erc20
+from bin.mauled.eth.send_call import format_call_result
+
 # Import directly from implementation modules instead of compatibility layers
-from maul.core.formatting import format_call_result
 
 
 # Test format_call_result function
@@ -28,9 +29,9 @@ def test_grab():
     with patch("maul.core.eth.address_of") as mock_address_of, patch(
         "maul.core.eth.run_command"
     ) as mock_run_command, patch(
-        "bin.maul.utils.ether_to_wei"   # Updated import path
+        "bin.maul.utils.ether_to_wei"  # Updated import path
     ) as mock_ether_to_wei, patch(
-        "bin.maul.utils.wei_to_ether"   # Updated import path
+        "bin.maul.utils.wei_to_ether"  # Updated import path
     ) as mock_wei_to_ether, patch(
         "maul.core.eth.logger"
     ) as _mock_logger:
@@ -43,9 +44,7 @@ def test_grab():
         # Configure run_command mock with multiple returns
         mock_run_command.side_effect = [
             MagicMock(stdout="", returncode=0),  # First call (setBalance)
-            MagicMock(
-                stdout="1000000000000000000", returncode=0
-            ),  # Second call (balance)
+            MagicMock(stdout="1000000000000000000", returncode=0),  # Second call (balance)
         ]
 
         # Call the function
@@ -68,9 +67,7 @@ def test_grab():
 def test_grab_erc20_minimal():
     with patch("maul.core.eth.address_of") as mock_address_of, patch(
         "maul.core.eth.run_command"
-    ) as mock_run_command, patch(
-        "maul.core.eth.quiet_run_command"
-    ) as _mock_quiet_run_command, patch(
+    ) as mock_run_command, patch("maul.core.eth.quiet_run_command") as _mock_quiet_run_command, patch(
         "maul.core.eth.with_impersonation"
     ) as _mock_with_impersonation, patch(
         "maul.core.eth.logger"
@@ -99,9 +96,7 @@ def test_grab_erc20_minimal():
         mock_run_command.side_effect = run_command_side_effect
 
         # No events found
-        _mock_quiet_run_command.return_value = MagicMock(
-            returncode=0, stdout="[]", stderr=""
-        )
+        _mock_quiet_run_command.return_value = MagicMock(returncode=0, stdout="[]", stderr="")
 
         # Call the function with minimal execution path
         result = grab_erc20("mainnet", "user", "0.001", "token")

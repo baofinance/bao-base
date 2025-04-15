@@ -157,7 +157,7 @@ steal_erc20() {
     echo "digits: $digits"
 
     # Run steal command with the RPC URL - pass amount directly
-    run maul steal --to $wallet --amount $amount --erc20 $erc20_address --method $method
+    maul steal --to $wallet --amount $amount --erc20 $erc20_address --method $method
     assert_success
   done
 

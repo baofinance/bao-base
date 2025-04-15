@@ -5,10 +5,12 @@ This command adds ETH or ERC20 tokens to an address.
 """
 
 import sys
+from decimal import Decimal
+from typing import List
 
 from mauled.command.base import Command, register_command
 from mauled.core.logging import get_logger
-from mauled.eth.grab import TokenAcquisitionMethod, grab, grab_erc20
+from mauled.eth import grab, grab_erc20
 
 logger = get_logger()
 
@@ -40,18 +42,16 @@ class StealCommand(Command):
     @classmethod
     def add_arguments(cls, parser):
         """Add arguments for the steal command."""
-        parser.add_argument(
-            "--erc20", help="ERC20 token address or name (if omitted, steals ETH)"
-        )
+        parser.add_argument("--erc20", help="ERC20 token address or name (if omitted, steals ETH)")
         parser.add_argument("--to", required=True, help="Recipient address")
-        parser.add_argument(
-            "--amount", required=True, help="Amount of tokens to transfer"
-        )
+        parser.add_argument("--amount", required=True, type=Decimal, help="Amount of tokens to transfer")
+        aquisition_methods = ["mint", "whale", "storage", "admin", "logs"]
         parser.add_argument(
             "--method",
-            choices=["mint", "whale", "storage", "admin", "logs", "all"],
-            default="all",
-            help="Method to use for ERC20 token acquisition (default: all)",
+            nargs="+",  # Accept multiple methods as an array
+            choices=aquisition_methods,
+            default=[],
+            help=f"Methods to use for ERC20 token acquisition, in order of preference (default: all). Valid methods: {', '.join(aquisition_methods)}",
         )
 
     @classmethod
@@ -67,9 +67,7 @@ class StealCommand(Command):
         """
         # Check for steal command with --erc20 flag in non-local mode
         if hasattr(args, "erc20") and args.erc20 and not args.use_local:
-            print(
-                f"Error: The '{args.command} --erc20' command can only be used in local mode (without --no-local)."
-            )
+            print(f"Error: The '{args.command} --erc20' command can only be used in local mode (without --no-local).")
             sys.exit(1)
 
     @classmethod
@@ -79,16 +77,14 @@ class StealCommand(Command):
         cls.verify_local_mode(args)
 
         if args.erc20:
-            logger.info(
-                f"steal for {args.to} {args.amount} ERC20 {args.erc20} (method: {args.method})"
-            )
+            logger.info(f"steal for {args.to} {args.amount} ERC20 {args.erc20} (method: {args.method})")
             success = grab_erc20(
                 args.network,
                 args.rpc_url,
                 args.to,
                 args.amount,
                 args.erc20,
-                method=args.method,  # Pass the method parameter
+                methods=args.method,  # Pass the methods array
             )
             if not success:
                 logger.error(f"Failed to acquire tokens using method: {args.method}")

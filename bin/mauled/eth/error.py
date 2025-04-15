@@ -11,7 +11,7 @@ import re
 import sys
 
 from mauled.core.logging import get_logger
-from mauled.core.subprocess import quiet_run_command
+from mauled.core.subprocess import quiet_run_command, run_command
 
 logger = get_logger()
 
@@ -36,10 +36,9 @@ def search_abi_for_error(abi_path, error_id, error_data):
     # Extract the contract name from the path for better error messages
     contract_name = os.path.basename(abi_path).split(".")[0]
 
+    # TODO: add run_jq_command
     # Extract errors using type filter
-    error_result = quiet_run_command(
-        ["jq", "-c", '.abi[] | select(.type == "error")', abi_path]
-    )
+    error_result = quiet_run_command(["jq", "-c", '.abi[] | select(.type == "error")', abi_path])
 
     if error_result.returncode == 0 and error_result.stdout.strip():
         logger.debug(f"Found errors in {contract_name}")
@@ -53,60 +52,46 @@ def search_abi_for_error(abi_path, error_id, error_data):
 
                 if name:
                     # Create the error signature for calldata decoding
-                    param_types = [
-                        input_param.get("type", "") for input_param in inputs
-                    ]
+                    param_types = [input_param.get("type", "") for input_param in inputs]
                     sig = f"{name}({','.join(param_types)})"
 
                     # Calculate the selector to check for a match
-                    selector_result = quiet_run_command(["cast", "keccak", sig])
-                    if selector_result.returncode == 0:
-                        # Get just the first 10 characters (0x + 8 for 4 bytes)
-                        selector = selector_result.stdout.strip()[:10]
-                        logger.debug(f"Error {name} has selector {selector}")
+                    selector_result = run_command(["cast", "keccak", sig])
+                    # Get just the first 10 characters (0x + 8 for 4 bytes)
+                    selector = selector_result.stdout.strip()[:10]
+                    logger.debug(f"Error {name} has selector {selector}")
 
-                        if selector == error_id:
-                            logger.debug(
-                                f"Found matching error in {contract_name}: {sig}"
-                            )
+                    if selector == error_id:
+                        logger.debug(f"Found matching error in {contract_name}: {sig}")
 
-                            # Try to decode the full error data with parameters
-                            decoded_params = ""
+                        # Try to decode the full error data with parameters
+                        decoded_params = ""
 
-                            if len(error_data) > 10 and inputs:  # Contains parameters
-                                calldata_result = quiet_run_command(
-                                    ["cast", "calldata", sig, error_data]
-                                )
-                                if (
-                                    calldata_result.returncode == 0
-                                    and calldata_result.stdout.strip()
-                                ):
-                                    # Format parameter names if available
-                                    param_info = []
-                                    decoded_values = (
-                                        calldata_result.stdout.strip().split("\n")
-                                    )
+                        if len(error_data) > 10 and inputs:  # Contains parameters
+                            calldata_result = quiet_run_command(["cast", "calldata", sig, error_data])
+                            if calldata_result.returncode == 0 and calldata_result.stdout.strip():
+                                # Format parameter names if available
+                                param_info = []
+                                decoded_values = calldata_result.stdout.strip().split("\n")
 
-                                    for i, param in enumerate(inputs):
-                                        if i < len(decoded_values):
-                                            param_name = param.get("name", f"param{i}")
-                                            param_value = decoded_values[i].strip()
-                                            param_info.append(
-                                                f"{param_name}={param_value}"
-                                            )
+                                for i, param in enumerate(inputs):
+                                    if i < len(decoded_values):
+                                        param_name = param.get("name", f"param{i}")
+                                        param_value = decoded_values[i].strip()
+                                        param_info.append(f"{param_name}={param_value}")
 
-                                    decoded_params = ", ".join(param_info)
+                                decoded_params = ", ".join(param_info)
 
-                            # Build full error description
-                            error_description = f"Error: {name}"
-                            if decoded_params:
-                                error_description += f"({decoded_params})"
+                        # Build full error description
+                        error_description = f"Error: {name}"
+                        if decoded_params:
+                            error_description += f"({decoded_params})"
 
-                            # Include the contract name for context
-                            error_description += f" [from {contract_name}]"
+                        # Include the contract name for context
+                        error_description += f" [from {contract_name}]"
 
-                            # Return both the decoded error and the raw data
-                            return error_description, error_data
+                        # Return both the decoded error and the raw data
+                        return error_description, error_data
             except Exception as e:
                 logger.debug(f"Error processing error definition: {e}")
 
@@ -157,22 +142,16 @@ def decode_custom_error(error_data, contract_name=None, sig_input=None):
         # First search in the specific contract's ABI
         if contract_name:
             # Find the contract ABI file
-            find_result = quiet_run_command(
-                ["find", ABI_DIR, "-name", f"{contract_name}.json", "-print", "-quit"]
-            )
+            find_result = quiet_run_command(["find", ABI_DIR, "-name", f"{contract_name}.json", "-print", "-quit"])
 
             if find_result.returncode == 0 and find_result.stdout.strip():
-                found_error = search_abi_for_error(
-                    find_result.stdout.strip(), error_id, error_data
-                )
+                found_error = search_abi_for_error(find_result.stdout.strip(), error_id, error_data)
                 if found_error:
                     return found_error
 
         # Then search all contract ABIs
         logger.debug("Searching all contract ABIs for the error selector")
-        find_all_result = quiet_run_command(
-            ["find", ABI_DIR, "-name", "*.json", "-type", "f"]
-        )
+        find_all_result = quiet_run_command(["find", ABI_DIR, "-name", "*.json", "-type", "f"])
 
         if find_all_result.returncode == 0 and find_all_result.stdout.strip():
             for abi_path in find_all_result.stdout.strip().split("\n"):
@@ -186,62 +165,3 @@ def decode_custom_error(error_data, contract_name=None, sig_input=None):
 
     # If all attempts fail, return the original error data
     return f"Custom error: {error_id}", error_data
-
-
-def ethereum_error_handler(result):
-    """
-    Custom error handler for Ethereum commands that can decode custom errors.
-
-    This handler attempts to decode custom error data returned by Ethereum contracts.
-
-    Args:
-        result: Command execution result containing stdout, stderr, and args
-    """
-    print(f"*** Command failed: {' '.join(result.args)}")
-
-    # Extract command info for better error context
-    cmd_type = result.args[0] if result.args else "Unknown"
-    sig_input = None
-    if (
-        len(result.args) > 3
-        and cmd_type in ["cast"]
-        and result.args[1] in ["call", "send"]
-    ):
-        # For call/send, the signature is the 3rd arg
-        sig_input = result.args[3] if len(result.args) > 3 else None
-
-    if result.stderr:
-        error_msg = result.stderr.strip()
-
-        # Look for custom error pattern in the error message
-        custom_error_match = None
-        if "custom error" in error_msg:
-            # Extract the custom error data
-            custom_error_match = re.search(
-                r'custom error ([^,\s]+)(?:, data: "([^"]+)")?', error_msg
-            )
-
-        if custom_error_match:
-            error_selector = custom_error_match.group(1)
-            error_data = (
-                custom_error_match.group(2)
-                if custom_error_match.group(2)
-                else error_selector
-            )
-
-            # Try to decode the error with context from the command
-            decoded_error, raw_data = decode_custom_error(
-                error_data, sig_input=sig_input
-            )
-
-            # Print both decoded error and raw data
-            print(f"*** {decoded_error}")
-            print(f"*** Raw error data: {raw_data}")
-        else:
-            print(f"*** Error: {error_msg}")
-
-    if result.stdout:
-        print(f"*** Output: {result.stdout.strip()}")
-
-    print(f"*** Exit code: {result.returncode}")
-    sys.exit(result.returncode)

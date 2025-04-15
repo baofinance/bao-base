@@ -1,0 +1,15 @@
+[importlinter]
+root_packages=
+  maul
+  mauled
+output_format=dot
+
+[importlinter:contract:no_circular_imports]
+name = No circular imports
+type = layers
+layers =
+  maul
+  mauled.commands
+  mauled.command
+  mauled.eth
+  mauled.core

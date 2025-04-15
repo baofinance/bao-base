@@ -12,8 +12,8 @@ from typing import List
 
 import commentjson
 from mauled.core.logging import get_logger
-
-from bin.mauled.core.subprocess import run_command
+from mauled.core.subprocess import run_command
+from mauled.eth.run_cast_command import run_cast_command
 
 logger = get_logger()
 
@@ -34,9 +34,7 @@ def bcinfo(network, name, field="address"):
         String with the requested information or empty string if not found
     """
     # Path to the bcinfo JSON file for the given network
-    bcinfo_file = os.path.join(
-        os.getenv("BAO_BASE_SCRIPT_DIR", ""), f"bcinfo.{network}.json"
-    )
+    bcinfo_file = os.path.join(os.getenv("BAO_BASE_SCRIPT_DIR", ""), f"bcinfo.{network}.json")
 
     try:
         # Check if file exists
@@ -80,7 +78,7 @@ def address_of(network, wallet):
         pk = os.getenv("PRIVATE_KEY")
         if pk:
             # Wallet address conversion shouldn't fail
-            result = run_command(["cast", "wallet", "address", "--private-key", pk])
+            result = run_cast_command(["cast", "wallet", "address", "--private-key", pk])
             return result.stdout.strip()
         else:
             print("error: no private key found in env")
@@ -96,9 +94,7 @@ def address_of(network, wallet):
         return address
 
 
-def address_of_arguments(
-    network: str, args_list: List[str], param_types: List[str]
-) -> List[str]:
+def address_of_arguments(network: str, args_list: List[str], param_types: List[str]) -> List[str]:
     """
     Process arguments for a function call or transaction.
     Resolves addresses when parameter type is 'address'.
