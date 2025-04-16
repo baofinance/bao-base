@@ -143,24 +143,16 @@ steal_erc20() {
 @test "maul steal command can add many ERC20 to an address using methods" {
   # A list of values (or any parameters you want to test)
   # for method in "mint" "whale" "storage" "admin" "logs"; do
-  for method in "whale" "storage" "admin" "logs"; do
-    echo "Testing method: $method"
-    # Test just one method for now to ensure it works correctly
-    local wallet=$WALLET_A
-    local amount=1000
-    local erc20_address=$DAI_ADDRESS
-    local method="mint"
+  # A list of values (or any parameters you want to test)
+  # for method in "mint" "whale" "storage" "admin" "logs"; do
 
-    # Use cast directly to get decimals and correctly convert to integer
-    digits=$(cast_anvil call $erc20_address "decimals()")
-    digits=$(cast to-dec $digits)
-    echo "digits: $digits"
+  local wallet=$WALLET_A
+  local amount=1000
+  local erc20_address=$DAI_ADDRESS
 
-    # Run steal command with the RPC URL - pass amount directly
-    maul steal --to $wallet --amount $amount --erc20 $erc20_address --method $method
-    assert_success
-  done
-
+  # Run steal command with the RPC URL - pass the methods as separate arguments
+  run maul steal --to $wallet --amount $amount --erc20 $erc20_address --methods mint whale storage admin logs
+  assert_success
 }
 
 # @test "maul steal command can add ERC20 to an address" {

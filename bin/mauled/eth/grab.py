@@ -540,14 +540,7 @@ def grab_erc20(
     )
 
     # Determine which methods to try
-    methods_to_try = []
-    if "all" in methods:
-        # If "all" is specified, use all methods in a predefined optimal order
-        methods_to_try = ["whale", "mint", "storage", "admin", "logs"]
-    else:
-        # Otherwise use the specific methods in the order specified
-        methods_to_try = methods
-
+    methods_to_try = methods
     logger.info(f"Will try methods in this order: {', '.join(methods_to_try)}")
 
     # Try each method in sequence until one succeeds
