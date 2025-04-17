@@ -5,8 +5,8 @@ pragma solidity ^0.8.20;
 //import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
-import { IPreCrime } from "@layerzerolabs/oapp-evm/contracts/precrime/interfaces/IPreCrime.sol";
-import { IOAppPreCrimeSimulator, InboundPacket, Origin } from "@layerzerolabs/oapp-evm/contracts/precrime/interfaces/IOAppPreCrimeSimulator.sol";
+import {IPreCrime} from "@layerzerolabs/oapp-evm/contracts/precrime/interfaces/IPreCrime.sol";
+import {IOAppPreCrimeSimulator, InboundPacket, Origin} from "@layerzerolabs/oapp-evm/contracts/precrime/interfaces/IOAppPreCrimeSimulator.sol";
 
 /**
  * @title OAppPreCrimeSimulator
@@ -84,7 +84,7 @@ abstract contract OAppPreCrimeSimulatorUpgradeable is Initializable, IOAppPreCri
             // They are instead stubbed to default values, address(0) and bytes("")
             // @dev Calling this.lzReceiveSimulate removes ability for assembly return 0 callstack exit,
             // which would cause the revert to be ignored.
-            this.lzReceiveSimulate{ value: packet.value }(
+            this.lzReceiveSimulate{value: packet.value}(
                 packet.origin,
                 packet.guid,
                 packet.message,

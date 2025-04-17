@@ -2,8 +2,8 @@
 
 pragma solidity ^0.8.20;
 
-import { ERC20Upgradeable } from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
-import { IOFT, OFTCoreUpgradeable } from "./OFTCoreUpgradeable.sol";
+import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import {IOFT, OFTCoreUpgradeable} from "./OFTCoreUpgradeable.sol";
 
 /**
  * @title OFT Contract
@@ -26,7 +26,13 @@ abstract contract OFTUpgradeable is OFTCoreUpgradeable, ERC20Upgradeable {
      * @dev Ownable is not initialized here on purpose. It should be initialized in the child contract to
      * accommodate the different version of Ownable.
      */
-    function __OFT_init(string memory _name, string memory _symbol, uint8 _localDecimals, address _lzEndpoint, address _delegate) internal onlyInitializing {
+    function __OFT_init(
+        string memory _name,
+        string memory _symbol,
+        uint8 _localDecimals,
+        address _lzEndpoint,
+        address _delegate
+    ) internal onlyInitializing {
         __ERC20_init(_name, _symbol);
         __OFTCore_init(_localDecimals, _lzEndpoint, _delegate); // updated to pass in endpoint
     }

@@ -5,7 +5,7 @@ pragma solidity ^0.8.20;
 //import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
-import { IOAppCore, ILayerZeroEndpointV2 } from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppCore.sol";
+import {IOAppCore, ILayerZeroEndpointV2} from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppCore.sol";
 
 /**
  * @title OAppCore
@@ -54,7 +54,7 @@ abstract contract OAppCoreUpgradeable is Initializable, IOAppCore, BaoOwnableRol
         if (_delegate == address(0)) revert InvalidDelegate();
 
         endpoint = ILayerZeroEndpointV2(_lzEndpoint); // ✅ set endpoint first
-        endpoint.setDelegate(_delegate);              // ✅ safe to call now
+        endpoint.setDelegate(_delegate); // ✅ safe to call now
     }
 
     /**
