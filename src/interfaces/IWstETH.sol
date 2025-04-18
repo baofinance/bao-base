@@ -9,7 +9,7 @@ pragma solidity ^0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-contract IWstETH is IERC20 {
+interface IWstETH is IERC20 {
     /**
      * @notice Get amount of wstETH for a given amount of stETH
      * @param _stETHAmount amount of stETH
