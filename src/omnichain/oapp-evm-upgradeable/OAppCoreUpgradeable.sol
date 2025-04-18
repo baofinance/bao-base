@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.28;
 
 //import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -12,17 +12,23 @@ import {IOAppCore, ILayerZeroEndpointV2} from "@layerzerolabs/oapp-evm/contracts
  * @dev Abstract contract implementing the IOAppCore interface with basic OApp configurations.
  */
 abstract contract OAppCoreUpgradeable is Initializable, IOAppCore, BaoOwnableRoles {
+    // ========== Custom Errors ==========
+    error InvalidEndpoint();
+    error InvalidDelegate();
+    error NoPeer(uint32 eid);
+
     struct OAppCoreStorage {
         mapping(uint32 => bytes32) peers;
     }
 
     // keccak256(abi.encode(uint256(keccak256("layerzerov2.storage.oappcore")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant OAPP_CORE_STORAGE_LOCATION =
+    bytes32 private constant _OAPP_CORE_STORAGE_LOCATION =
         0x72ab1bc1039b79dc4724ffca13de82c96834302d3c7e0d4252232d4b2dd8f900;
 
     function _getOAppCoreStorage() internal pure returns (OAppCoreStorage storage $) {
+        // solhint-disable-next-line no-inline-assembly
         assembly {
-            $.slot := OAPP_CORE_STORAGE_LOCATION
+            $.slot := _OAPP_CORE_STORAGE_LOCATION
         }
     }
 
@@ -45,12 +51,14 @@ abstract contract OAppCoreUpgradeable is Initializable, IOAppCore, BaoOwnableRol
      * @dev Ownable is not initialized here on purpose. It should be initialized in the child contract to
      * accommodate the different version of Ownable.
      */
+    // solhint-disable-next-line func-name-mixedcase
     function __OAppCore_init(address _lzEndpoint, address _delegate) internal onlyInitializing {
         __OAppCore_init_unchained(_lzEndpoint, _delegate);
     }
 
+    // solhint-disable-next-line func-name-mixedcase
     function __OAppCore_init_unchained(address _lzEndpoint, address _delegate) internal onlyInitializing {
-        if (_lzEndpoint == address(0)) revert(); // optional safety check
+        if (_lzEndpoint == address(0)) revert InvalidEndpoint();
         if (_delegate == address(0)) revert InvalidDelegate();
 
         endpoint = ILayerZeroEndpointV2(_lzEndpoint); // ✅ set endpoint first

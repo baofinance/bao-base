@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.28;
 
 //import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -18,14 +18,15 @@ abstract contract OAppOptionsType3Upgradeable is Initializable, IOAppOptionsType
     }
 
     // keccak256(abi.encode(uint256(keccak256("layerzerov2.storage.oappoptionstype3")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant OAPP_OPTIONS_TYPE_3_STORAGE_LOCATION =
+    bytes32 private constant _OAPP_OPTIONS_TYPE_3_STORAGE_LOCATION =
         0x8d2bda5d9f6ffb5796910376005392955773acee5548d0fcdb10e7c264ea0000;
 
-    uint16 internal constant OPTION_TYPE_3 = 3;
+    uint16 internal constant _OPTION_TYPE_3 = 3;
 
     function _getOAppOptionsType3Storage() internal pure returns (OAppOptionsType3Storage storage $) {
+        // solhint-disable-next-line no-inline-assembly
         assembly {
-            $.slot := OAPP_OPTIONS_TYPE_3_STORAGE_LOCATION
+            $.slot := _OAPP_OPTIONS_TYPE_3_STORAGE_LOCATION
         }
     }
 
@@ -33,8 +34,10 @@ abstract contract OAppOptionsType3Upgradeable is Initializable, IOAppOptionsType
      * @dev Ownable is not initialized here on purpose. It should be initialized in the child contract to
      * accommodate the different version of Ownable.
      */
+    // solhint-disable-next-line func-name-mixedcase, no-empty-blocks
     function __OAppOptionsType3_init() internal onlyInitializing {}
 
+    // solhint-disable-next-line func-name-mixedcase, no-empty-blocks
     function __OAppOptionsType3_init_unchained() internal onlyInitializing {}
 
     function enforcedOptions(uint32 _eid, uint16 _msgType) public view returns (bytes memory) {
@@ -106,6 +109,6 @@ abstract contract OAppOptionsType3Upgradeable is Initializable, IOAppOptionsType
      */
     function _assertOptionsType3(bytes calldata _options) internal pure virtual {
         uint16 optionsType = uint16(bytes2(_options[0:2]));
-        if (optionsType != OPTION_TYPE_3) revert InvalidOptions(_options);
+        if (optionsType != _OPTION_TYPE_3) revert InvalidOptions(_options);
     }
 }

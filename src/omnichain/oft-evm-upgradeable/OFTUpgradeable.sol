@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.28;
 
 import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import {IOFT, OFTCoreUpgradeable} from "./OFTCoreUpgradeable.sol";
@@ -9,7 +9,7 @@ import {IOFT, OFTCoreUpgradeable} from "./OFTCoreUpgradeable.sol";
  * @title OFT Contract
  * @dev OFT is an ERC-20 token that extends the functionality of the OFTCore contract.
  */
-abstract contract OFTUpgradeable is OFTCoreUpgradeable, ERC20Upgradeable {
+abstract contract OFTUpgradeable is IOFT, OFTCoreUpgradeable, ERC20Upgradeable {
     /**
      * @dev Constructor for the OFT contract.
      * @param _lzEndpoint The LayerZero endpoint address.
@@ -26,6 +26,7 @@ abstract contract OFTUpgradeable is OFTCoreUpgradeable, ERC20Upgradeable {
      * @dev Ownable is not initialized here on purpose. It should be initialized in the child contract to
      * accommodate the different version of Ownable.
      */
+    // solhint-disable-next-line func-name-mixedcase
     function __OFT_init(
         string memory _name,
         string memory _symbol,
@@ -37,6 +38,7 @@ abstract contract OFTUpgradeable is OFTCoreUpgradeable, ERC20Upgradeable {
         __OFTCore_init(_localDecimals, _lzEndpoint, _delegate); // updated to pass in endpoint
     }
 
+    // solhint-disable-next-line func-name-mixedcase, no-empty-blocks
     function __OFT_init_unchained() internal onlyInitializing {}
 
     /**

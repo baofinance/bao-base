@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.28;
 
 //import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -19,12 +19,13 @@ abstract contract OAppPreCrimeSimulatorUpgradeable is Initializable, IOAppPreCri
     }
 
     // keccak256(abi.encode(uint256(keccak256("layerzerov2.storage.oappprecrimesimulator")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant OAPP_PRE_CRIME_SIMULATOR_STORAGE_LOCATION =
+    bytes32 private constant _OAPP_PRE_CRIME_SIMULATOR_STORAGE_LOCATION =
         0xefb041d771d6daaa55702fff6eb740d63ba559a75d2d1d3e151c78ff2480b600;
 
     function _getOAppPreCrimeSimulatorStorage() internal pure returns (OAppPreCrimeSimulatorStorage storage $) {
+        // solhint-disable-next-line no-inline-assembly
         assembly {
-            $.slot := OAPP_PRE_CRIME_SIMULATOR_STORAGE_LOCATION
+            $.slot := _OAPP_PRE_CRIME_SIMULATOR_STORAGE_LOCATION
         }
     }
 
@@ -32,8 +33,10 @@ abstract contract OAppPreCrimeSimulatorUpgradeable is Initializable, IOAppPreCri
      * @dev Ownable is not initialized here on purpose. It should be initialized in the child contract to
      * accommodate the different version of Ownable.
      */
+    // solhint-disable-next-line func-name-mixedcase, no-empty-blocks
     function __OAppPreCrimeSimulator_init() internal onlyInitializing {}
 
+    // solhint-disable-next-line func-name-mixedcase, no-empty-blocks
     function __OAppPreCrimeSimulator_init_unchained() internal onlyInitializing {}
 
     function preCrime() external view override returns (address) {

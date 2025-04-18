@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.28;
 
 import {OAppUpgradeable, Origin} from "@bao/omnichain/oapp-evm-upgradeable/OAppUpgradeable.sol";
 import {OAppOptionsType3Upgradeable} from "@bao/omnichain/oapp-evm-upgradeable/libs/OAppOptionsType3Upgradeable.sol";
@@ -31,7 +31,7 @@ abstract contract OFTCoreUpgradeable is
     }
 
     // keccak256(abi.encode(uint256(keccak256("layerzerov2.storage.oftcore")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant OFT_CORE_STORAGE_LOCATION =
+    bytes32 private constant _OFT_CORE_STORAGE_LOCATION =
         0x41db8a78b0206aba5c54bcbfc2bda0d84082a84eb88e680379a57b9e9f653c00;
 
     // @notice Provides a conversion rate when swapping between denominations of SD and LD
@@ -58,8 +58,9 @@ abstract contract OFTCoreUpgradeable is
     event MsgInspectorSet(address inspector);
 
     function _getOFTCoreStorage() internal pure returns (OFTCoreStorage storage $) {
+        // solhint-disable-next-line no-inline-assembly
         assembly {
-            $.slot := OFT_CORE_STORAGE_LOCATION
+            $.slot := _OFT_CORE_STORAGE_LOCATION
         }
     }
 
@@ -95,6 +96,7 @@ abstract contract OFTCoreUpgradeable is
      * @dev Ownable is not initialized here on purpose. It should be initialized in the child contract to
      * accommodate the different version of Ownable.
      */
+    // solhint-disable-next-line func-name-mixedcase
     function __OFTCore_init(uint8 _localDecimals, address _lzEndpoint, address _delegate) internal onlyInitializing {
         if (_localDecimals < sharedDecimals()) revert InvalidLocalDecimals();
 
@@ -105,6 +107,7 @@ abstract contract OFTCoreUpgradeable is
         decimalConversionRate = 10 ** (_localDecimals - sharedDecimals());
     }
 
+    // solhint-disable-next-line func-name-mixedcase, no-empty-blocks
     function __OFTCore_init_unchained() internal onlyInitializing {}
 
     function msgInspector() public view returns (address) {

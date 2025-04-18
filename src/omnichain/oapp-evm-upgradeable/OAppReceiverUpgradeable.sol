@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.28;
 
 import {IOAppReceiver, Origin} from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppReceiver.sol";
 import {OAppCoreUpgradeable} from "./OAppCoreUpgradeable.sol";
@@ -15,17 +15,19 @@ abstract contract OAppReceiverUpgradeable is IOAppReceiver, OAppCoreUpgradeable 
 
     // @dev The version of the OAppReceiver implementation.
     // @dev Version is bumped when changes are made to this contract.
-    uint64 internal constant RECEIVER_VERSION = 2;
+    uint64 internal constant _RECEIVER_VERSION = 2;
 
     /**
      * @param _delegate The delegate capable of making OApp configurations inside of the endpoint.
      * @dev Ownable is not initialized here on purpose. It should be initialized in the child contract to
      * accommodate the different version of Ownable.
      */
+    // solhint-disable-next-line func-name-mixedcase
     function __OAppReceiver_init(address _lzEndpoint, address _delegate) internal onlyInitializing {
         __OAppCore_init(_lzEndpoint, _delegate);
     }
 
+    // solhint-disable-next-line func-name-mixedcase, no-empty-blocks
     function __OAppReceiver_init_unchained() internal onlyInitializing {}
 
     /**
@@ -38,7 +40,7 @@ abstract contract OAppReceiverUpgradeable is IOAppReceiver, OAppCoreUpgradeable 
      * @dev If the OApp uses both OAppSender and OAppReceiver, then this needs to be override returning the correct versions.
      */
     function oAppVersion() public view virtual returns (uint64 senderVersion, uint64 receiverVersion) {
-        return (0, RECEIVER_VERSION);
+        return (0, _RECEIVER_VERSION);
     }
 
     /**

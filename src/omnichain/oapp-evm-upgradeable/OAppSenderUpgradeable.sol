@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.28;
 
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {MessagingParams, MessagingFee, MessagingReceipt} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
@@ -19,17 +19,19 @@ abstract contract OAppSenderUpgradeable is OAppCoreUpgradeable {
 
     // @dev The version of the OAppSender implementation.
     // @dev Version is bumped when changes are made to this contract.
-    uint64 internal constant SENDER_VERSION = 1;
+    uint64 internal constant _SENDER_VERSION = 1;
 
     /**
      * @param _delegate The delegate capable of making OApp configurations inside of the endpoint.
      * @dev Ownable is not initialized here on purpose. It should be initialized in the child contract to
      * accommodate the different version of Ownable.
      */
+    // solhint-disable-next-line func-name-mixedcase
     function __OAppSender_init(address _lzEndpoint, address _delegate) internal onlyInitializing {
         __OAppCore_init(_lzEndpoint, _delegate);
     }
 
+    // solhint-disable-next-line func-name-mixedcase, no-empty-blocks
     function __OAppSender_init_unchained() internal onlyInitializing {}
 
     /**
@@ -42,7 +44,7 @@ abstract contract OAppSenderUpgradeable is OAppCoreUpgradeable {
      * @dev If the OApp uses both OAppSender and OAppReceiver, then this needs to be override returning the correct versions
      */
     function oAppVersion() public view virtual returns (uint64 senderVersion, uint64 receiverVersion) {
-        return (SENDER_VERSION, 0);
+        return (_SENDER_VERSION, 0);
     }
 
     /**

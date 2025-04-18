@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.28;
 
 // @dev Import the 'MessagingFee' and 'MessagingReceipt' so it's exposed to OApp implementers
 // solhint-disable-next-line no-unused-import
@@ -14,7 +14,7 @@ import {OAppCoreUpgradeable} from "./OAppCoreUpgradeable.sol";
  * @title OApp
  * @dev Abstract contract serving as the base for OApp implementation, combining OAppSender and OAppReceiver functionality.
  */
-abstract contract OAppUpgradeable is OAppSenderUpgradeable, OAppReceiverUpgradeable {
+abstract contract OAppUpgradeable is OAppCoreUpgradeable, OAppSenderUpgradeable, OAppReceiverUpgradeable {
     /**
      * @dev Constructor to initialize the OApp with the provided endpoint and owner.
      * @param _endpoint The address of the LOCAL LayerZero endpoint.
@@ -29,12 +29,14 @@ abstract contract OAppUpgradeable is OAppSenderUpgradeable, OAppReceiverUpgradea
      * @dev Ownable is not initialized here on purpose. It should be initialized in the child contract to
      * accommodate the different version of Ownable.
      */
+    // solhint-disable-next-line func-name-mixedcase
     function __OApp_init(address _lzEndpoint, address _delegate) internal onlyInitializing {
         __OAppCore_init(_lzEndpoint, _delegate);
         __OAppReceiver_init_unchained();
         __OAppSender_init_unchained();
     }
 
+    // solhint-disable-next-line func-name-mixedcase, no-empty-blocks
     function __OApp_init_unchained() internal onlyInitializing {}
 
     /**
