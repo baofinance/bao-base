@@ -3,6 +3,8 @@ set -euo pipefail
 
 network="$1"
 key="$2"
-field="$3"
+field="${3:-address}"
 
+echo -n "\"$(tput setaf 4 bold)$field$(tput sgr0)\": "
+# echo -n "\"$field\": "
 jq -r ".${key}.${field} // \"\"" "$BAO_BASE_SCRIPT_DIR"/bcinfo."$network".json
