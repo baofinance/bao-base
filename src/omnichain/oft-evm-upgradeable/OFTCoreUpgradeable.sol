@@ -100,11 +100,11 @@ abstract contract OFTCoreUpgradeable is
     function __OFTCore_init(uint8 _localDecimals, address _lzEndpoint, address _delegate) internal onlyInitializing {
         if (_localDecimals < sharedDecimals()) revert InvalidLocalDecimals();
 
+        decimalConversionRate = 10 ** (_localDecimals - sharedDecimals());
+
         __OApp_init(_lzEndpoint, _delegate);
         __OAppPreCrimeSimulator_init();
         __OAppOptionsType3_init();
-
-        decimalConversionRate = 10 ** (_localDecimals - sharedDecimals());
     }
 
     // solhint-disable-next-line func-name-mixedcase, no-empty-blocks
@@ -235,6 +235,7 @@ abstract contract OFTCoreUpgradeable is
         (bytes memory message, bytes memory options) = _buildMsgAndOptions(_sendParam, amountReceivedLD);
 
         // @dev Sends the message to the LayerZero endpoint and returns the LayerZero msg receipt.
+        // slither-disable-next-line reentrancy-events
         msgReceipt = _lzSend(_sendParam.dstEid, message, options, _fee, _refundAddress);
         // @dev Formulate the OFT receipt.
         oftReceipt = OFTReceipt(amountSentLD, amountReceivedLD);
@@ -272,6 +273,7 @@ abstract contract OFTCoreUpgradeable is
         // @dev Optionally inspect the message and options depending if the OApp owner has set a msg inspector.
         // @dev If it fails inspection, needs to revert in the implementation. ie. does not rely on return boolean
         address inspector = $.msgInspector; // caches the msgInspector to avoid potential double storage read
+        // slither-disable-next-line unused-return
         if (inspector != address(0)) IOAppMsgInspector(inspector).inspect(message, options);
     }
 
@@ -313,6 +315,7 @@ abstract contract OFTCoreUpgradeable is
             // @dev The off-chain executor will listen and process the msg based on the src-chain-callers compose options passed.
             // @dev The index is used when a OApp needs to compose multiple msgs on lzReceive.
             // For default OFT implementation there is only 1 compose msg per lzReceive, thus its always 0.
+            // slither-disable-next-line reentrancy-events
             endpoint.sendCompose(toAddress, _guid, 0 /* the index of the composed message*/, composeMsg);
         }
 
@@ -364,6 +367,7 @@ abstract contract OFTCoreUpgradeable is
      * @dev eg. uint(123) with a conversion rate of 100 becomes uint(100).
      */
     function _removeDust(uint256 _amountLD) internal view virtual returns (uint256 amountLD) {
+        // slither-disable-next-line divide-before-multiply
         return (_amountLD / decimalConversionRate) * decimalConversionRate;
     }
 
