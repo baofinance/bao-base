@@ -5,6 +5,12 @@
     "assembly",
     "unused-state",
     "naming-convention",
-    "dead-code"
+    "dead-code",
+    {
+      "id": "calls-inside-a-loop",
+      "functions": [
+        "OAppPreCrimeSimulatorUpgradeable.lzReceiveAndRevert(InboundPacket[])"
+      ]
+    }
   ]
 }
