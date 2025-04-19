@@ -1,13 +1,14 @@
 {
-  "detectors_to_exclude": [
-    "solc-version",
-    "pragma",
-    "assembly",
-    "unused-state",
-    "naming-convention",
-    "dead-code",
+  "detectors": [
+    { "id": "solc-version", "excluded": true },
+    { "id": "pragma", "excluded": true },
+    { "id": "assembly", "excluded": true },
+    { "id": "unused-state", "excluded": true },
+    { "id": "naming-convention", "excluded": true },
+    { "id": "dead-code", "excluded": true },
     {
       "id": "calls-inside-a-loop",
+      "excluded": false,
       "functions": [
         "OAppPreCrimeSimulatorUpgradeable.lzReceiveAndRevert(InboundPacket[])"
       ]
