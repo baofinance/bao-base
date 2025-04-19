@@ -1,11 +1,3 @@
 {
-  "exclude-detectors": [
-    "solc-version",
-    "pragma",
-    "assembly",
-    "unused-state",
-    "naming-convention",
-    "dead-code",
-    "calls-inside-a-loop"
-  ]
+  "exclude-detectors": "solc-version,pragma,assembly,unused-state,naming-convention,dead-code,calls-inside-a-loop"
 }
