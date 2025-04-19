@@ -14,8 +14,6 @@ import {IOAppCore, ILayerZeroEndpointV2} from "@layerzerolabs/oapp-evm/contracts
 abstract contract OAppCoreUpgradeable is Initializable, IOAppCore, BaoOwnableRoles {
     // ========== Custom Errors ==========
     error InvalidEndpoint();
-    error InvalidDelegate();
-    error NoPeer(uint32 eid);
 
     struct OAppCoreStorage {
         mapping(uint32 => bytes32) peers;

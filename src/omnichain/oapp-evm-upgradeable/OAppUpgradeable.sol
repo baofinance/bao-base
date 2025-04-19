@@ -9,6 +9,7 @@ import {OAppSenderUpgradeable, MessagingFee, MessagingReceipt} from "./OAppSende
 // solhint-disable-next-line no-unused-import
 import {OAppReceiverUpgradeable, Origin} from "./OAppReceiverUpgradeable.sol";
 import {OAppCoreUpgradeable} from "./OAppCoreUpgradeable.sol";
+import {IOAppCore} from "@layerzerolabs/oapp-evm/contracts/oapp/interfaces/IOAppCore.sol";
 
 /**
  * @title OApp
@@ -48,9 +49,9 @@ abstract contract OAppUpgradeable is OAppCoreUpgradeable, OAppSenderUpgradeable,
         public
         pure
         virtual
-        override(OAppSenderUpgradeable, OAppReceiverUpgradeable)
+        override(OAppSenderUpgradeable, OAppReceiverUpgradeable, IOAppCore)
         returns (uint64 senderVersion, uint64 receiverVersion)
     {
-        return (SENDER_VERSION, RECEIVER_VERSION);
+        return (_SENDER_VERSION, _RECEIVER_VERSION);
     }
 }
