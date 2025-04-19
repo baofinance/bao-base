@@ -87,7 +87,7 @@ abstract contract OAppPreCrimeSimulatorUpgradeable is Initializable, IOAppPreCri
             // They are instead stubbed to default values, address(0) and bytes("")
             // @dev Calling this.lzReceiveSimulate removes ability for assembly return 0 callstack exit,
             // which would cause the revert to be ignored.
-            // slither-disable-next-line calls-inside-a-loop
+            // slither-disable-start calls-inside-a-loop
             this.lzReceiveSimulate{value: packet.value}(
                 packet.origin,
                 packet.guid,
@@ -95,6 +95,7 @@ abstract contract OAppPreCrimeSimulatorUpgradeable is Initializable, IOAppPreCri
                 packet.executor,
                 packet.extraData
             );
+            // slither-disable-end calls-inside-a-loop
         }
 
         // @dev Revert with the simulation results. msg.sender must implement IPreCrime.buildSimulationResult().
