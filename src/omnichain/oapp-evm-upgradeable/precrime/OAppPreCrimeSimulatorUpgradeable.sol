@@ -74,6 +74,7 @@ abstract contract OAppPreCrimeSimulatorUpgradeable is Initializable, IOAppPreCri
      * WITHOUT actually executing them.
      */
     function lzReceiveAndRevert(InboundPacket[] calldata _packets) public payable virtual {
+        // slither-disable-start calls-inside-a-loop
         for (uint256 i = 0; i < _packets.length; i++) {
             InboundPacket calldata packet = _packets[i];
 
@@ -87,7 +88,6 @@ abstract contract OAppPreCrimeSimulatorUpgradeable is Initializable, IOAppPreCri
             // They are instead stubbed to default values, address(0) and bytes("")
             // @dev Calling this.lzReceiveSimulate removes ability for assembly return 0 callstack exit,
             // which would cause the revert to be ignored.
-            // slither-disable-start calls-inside-a-loop
             this.lzReceiveSimulate{value: packet.value}(
                 packet.origin,
                 packet.guid,
