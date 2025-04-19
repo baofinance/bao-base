@@ -74,7 +74,7 @@ abstract contract OAppPreCrimeSimulatorUpgradeable is Initializable, IOAppPreCri
      * WITHOUT actually executing them.
      */
     function lzReceiveAndRevert(InboundPacket[] calldata _packets) public payable virtual {
-        // slither-disable-start calls-inside-a-loop
+        // slither-disable-start calls-loop
         for (uint256 i = 0; i < _packets.length; i++) {
             InboundPacket calldata packet = _packets[i];
 
@@ -95,7 +95,7 @@ abstract contract OAppPreCrimeSimulatorUpgradeable is Initializable, IOAppPreCri
                 packet.executor,
                 packet.extraData
             );
-            // slither-disable-end calls-inside-a-loop
+            // slither-disable-end calls-loop
         }
 
         // @dev Revert with the simulation results. msg.sender must implement IPreCrime.buildSimulationResult().
