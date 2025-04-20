@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {BaoOwnableV2} from "@bao/BaoOwnableV2.sol";
-import {BaoRolesV2} from "@bao/internal/BaoRolesV2.sol";
+import {BaoOwnable_v2} from "@bao/BaoOwnable_v2.sol";
+import {BaoRoles_v2} from "@bao/internal/BaoRoles_v2.sol";
 
 /// @title Bao Ownable Roles
-/// see BaoOwnableV2 and BaoRolesV2 for more information
-abstract contract BaoOwnableRolesV2 is BaoOwnableV2, BaoRolesV2 {
+/// see BaoOwnable_v2 and BaoRoles_v2 for more information
+abstract contract BaoOwnableRoles_v2 is BaoOwnable_v2, BaoRoles_v2 {
     /*//////////////////////////////////////////////////////////////////////////
                                     CONSTRUCTOR
     //////////////////////////////////////////////////////////////////////////*/
-    constructor(address owner) BaoOwnableV2(owner) {}
+    constructor(address owner) BaoOwnable_v2(owner) {}
     /*//////////////////////////////////////////////////////////////////////////
                                   PUBLIC FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
     function supportsInterface(
         bytes4 interfaceId
-    ) public view virtual override(BaoOwnableV2, BaoRolesV2) returns (bool) {
-        return BaoOwnableV2.supportsInterface(interfaceId) || BaoRolesV2.supportsInterface(interfaceId);
+    ) public view virtual override(BaoOwnable_v2, BaoRoles_v2) returns (bool) {
+        return BaoOwnable_v2.supportsInterface(interfaceId) || BaoRoles_v2.supportsInterface(interfaceId);
     }
 }

@@ -5,13 +5,13 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ERC165} from "@bao/ERC165.sol";
-import {BaoCheckOwnerV2} from "@bao/internal/BaoCheckOwnerV2.sol";
+import {BaoCheckOwner_v2} from "@bao/internal/BaoCheckOwner_v2.sol";
 
 /**
  * @title Stem
  * @author rootminus0x1
  * @notice A minimal upgradeable contract with no functionality beyond upgradeability, and ownership.
- * The ownershio is controlled by the BaoCheckOwnerV2 contract, which is in the implementation not the proxy.
+ * The ownershio is controlled by the BaoCheckOwner_v2 contract, which is in the implementation not the proxy.
  * This means that reinstating a displaced contract will connect back with the previous owner, unless:
  * - its initializer is called with a different owner, or
  * - the replacement contract also has ownersip in the implementation.
@@ -26,7 +26,7 @@ import {BaoCheckOwnerV2} from "@bao/internal/BaoCheckOwnerV2.sol";
  * after which the given owner is the new owner.
  */
 
-contract Stem is UUPSUpgradeable, BaoCheckOwnerV2, ERC165 {
+contract Stem is UUPSUpgradeable, BaoCheckOwner_v2, ERC165 {
     /*//////////////////////////////////////////////////////////////////////////
                                   CONSTRUCTOR
     //////////////////////////////////////////////////////////////////////////*/
@@ -37,7 +37,7 @@ contract Stem is UUPSUpgradeable, BaoCheckOwnerV2, ERC165 {
     constructor(
         address emergencyController,
         uint256 ownerTransferDelay
-    ) BaoCheckOwnerV2(emergencyController, ownerTransferDelay) {}
+    ) BaoCheckOwner_v2(emergencyController, ownerTransferDelay) {}
 
     /*//////////////////////////////////////////////////////////////////////////
                                   EVENTS
@@ -75,7 +75,7 @@ contract Stem is UUPSUpgradeable, BaoCheckOwnerV2, ERC165 {
     // /// @inheritdoc IERC165
     // function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165) returns (bool) {
     //     // base class doesn't support any interfaces
-    //     return interfaceId == type(IBaoOwnableV2).interfaceId || super.supportsInterface(interfaceId);
+    //     return interfaceId == type(IBaoOwnable_v2).interfaceId || super.supportsInterface(interfaceId);
     // }
 
     /*//////////////////////////////////////////////////////////////////////////

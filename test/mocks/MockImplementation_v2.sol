@@ -3,17 +3,17 @@ pragma solidity ^0.8.28;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {BaoOwnable__v2} from "@bao/BaoOwnable__v2.sol";
+import {BaoOwnable_v2} from "@bao/BaoOwnable_v2.sol";
 
 /**
  * @title MockImplementation
  * @dev A simple mock implementation contract for testing upgrades
  */
-contract MockImplementation__v2 is Initializable, UUPSUpgradeable, BaoOwnable__v2 {
+contract MockImplementation_v2 is Initializable, UUPSUpgradeable, BaoOwnable_v2 {
     uint256 private _value;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
+    constructor(address owner_) BaoOwnable_v2(owner_) {
         _disableInitializers();
     }
 
@@ -21,8 +21,7 @@ contract MockImplementation__v2 is Initializable, UUPSUpgradeable, BaoOwnable__v
      * @dev Initialize function - only used for first deployment
      * This follows the Initializable Contract Pattern
      */
-    function initialize(address owner_, uint256 initialValue) external initializer {
-        _initializeOwner(owner_);
+    function initialize(uint256 initialValue) external initializer {
         __UUPSUpgradeable_init();
         _value = initialValue;
     }

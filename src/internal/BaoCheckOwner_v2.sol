@@ -8,7 +8,7 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 /// provides a modifier that throws if the caller is not the owner
 /// @author rootminus0x1 taken from Solady's Ownable contract (https://github.com/vectorized/solady/blob/main/src/auth/Ownable.sol)
 /// @dev Uses erc7201 storage
-abstract contract BaoCheckOwnerV2 {
+abstract contract BaoCheckOwner_v2 {
     /*//////////////////////////////////////////////////////////////////////////
                                    INTERNAL DATA
     //////////////////////////////////////////////////////////////////////////*/

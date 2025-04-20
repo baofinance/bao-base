@@ -7,8 +7,9 @@ import {Stem} from "src/Stem.sol";
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-// Import both ownership model implementations
-import {MockImplementation} from "mocks/MockImplementation.sol"; // BaoOwnable
+// Import ownership model implementations
+import {MockImplementationWithState} from "mocks/MockImplementationWithState.sol"; // BaoOwnable
+import {MockImplementationWithState_v2} from "mocks/MockImplementationWithState_v2.sol"; // BaoOwnable_v2
 import {MockImplementationOwnableUpgradeable} from "mocks/MockImplementationOwnableUpgradeable.sol"; // OZ Ownable
 
 contract StemOwnershipTest is Test {
@@ -25,16 +26,16 @@ contract StemOwnershipTest is Test {
     // Test 1: BaoOwnable -> Stem -> OZ Ownable
     function testBaoOwnable_to_Stem_to_OZOwnable() public {
         // 1. Start with BaoOwnable implementation
-        MockImplementation baoImplementation = new MockImplementation();
+        MockImplementationWithState baoImplementation = new MockImplementationWithState();
 
         // Initialize with proxyOwner as the pending owner
         bytes memory initData = abi.encodeWithSelector(
-            MockImplementation.initialize.selector,
+            MockImplementationWithState.initialize.selector,
             proxyOwner, // This becomes the pending owner (not immediate owner)
             100 // Initial value
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(baoImplementation), initData);
-        MockImplementation baoProxy = MockImplementation(address(proxy));
+        MockImplementationWithState baoProxy = MockImplementationWithState(address(proxy));
 
         // Test contract is the owner (not proxyOwner)
         assertEq(baoProxy.owner(), address(this));
@@ -115,21 +116,21 @@ contract StemOwnershipTest is Test {
         skip(100);
 
         // 3. Upgrade from Stem to BaoOwnable
-        MockImplementation baoImplementation = new MockImplementation();
+        MockImplementationWithState baoImplementation = new MockImplementationWithState();
 
         vm.prank(emergencyOwner);
         UnsafeUpgrades.upgradeProxy(
             address(proxy),
             address(baoImplementation),
             abi.encodeWithSelector(
-                MockImplementation.initialize.selector,
+                MockImplementationWithState.initialize.selector,
                 proxyOwner, // Pending owner
                 200 // New value
             )
         );
 
         // 4. Verify BaoOwnable initialization
-        MockImplementation baoProxy = MockImplementation(address(proxy));
+        MockImplementationWithState baoProxy = MockImplementationWithState(address(proxy));
         // The owner is now the test contract again
         assertEq(baoProxy.owner(), address(this));
         assertEq(baoProxy.value(), 200);
@@ -144,14 +145,14 @@ contract StemOwnershipTest is Test {
     // Test 3: Emergency ownership transfer via Stem
     function testEmergencyOwnershipTransfer() public {
         // 1. Start with BaoOwnable implementation
-        MockImplementation baoImplementation = new MockImplementation();
+        MockImplementationWithState baoImplementation = new MockImplementationWithState();
         bytes memory initData = abi.encodeWithSelector(
-            MockImplementation.initialize.selector,
+            MockImplementationWithState.initialize.selector,
             proxyOwner, // Pending owner
             100 // Initial value
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(baoImplementation), initData);
-        MockImplementation baoProxy = MockImplementation(address(proxy));
+        MockImplementationWithState baoProxy = MockImplementationWithState(address(proxy));
 
         // Test contract is the initial owner
         assertEq(baoProxy.owner(), address(this));
@@ -199,14 +200,14 @@ contract StemOwnershipTest is Test {
     // Test 4: BaoOwnable -> OZ Ownable direct migration
     function testBaoOwnable_to_OZOwnable_Direct() public {
         // 1. Start with BaoOwnable implementation
-        MockImplementation baoImplementation = new MockImplementation();
+        MockImplementationWithState baoImplementation = new MockImplementationWithState();
         bytes memory initData = abi.encodeWithSelector(
-            MockImplementation.initialize.selector,
+            MockImplementationWithState.initialize.selector,
             proxyOwner, // Pending owner
             100 // Initial value
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(baoImplementation), initData);
-        MockImplementation baoProxy = MockImplementation(address(proxy));
+        MockImplementationWithState baoProxy = MockImplementationWithState(address(proxy));
 
         // Test contract is the initial owner
         assertEq(baoProxy.owner(), address(this));

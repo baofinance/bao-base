@@ -9,24 +9,21 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
  * @title MockImplementationOwnableUpgradeable
  * @dev A mock implementation using OZ OwnableUpgradeable instead of BaoOwnable
  */
-contract MockImplementationOwnableUpgradeable is Initializable, UUPSUpgradeable, OwnableUpgradeable {
+contract MockImplementationOwnableUpgradeableNotInitializer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     // EIP-7201: Storage struct and slot
-    struct MockImplementationOwnableUpgradeableStorage {
+    struct MockImplementationStorage {
         uint256 value;
+        bool initialized;
     }
 
-    // keccak256("bao.mockimplementationownableupgradeable.storage") - 1
-    bytes32 private constant MOCKIMPLEMENTATIONOWNABLEUPGRADEABLE_STORAGE_SLOT =
-        0x9d7955a625105381a23cd83039436890e06a206d930ea14b10a284d4cd0549f9;
+    // keccak256("bao.mockimplementationownableupgradeablenotinitializer.storage") - 1
+    bytes32 private constant MOCKIMPLEMENTATION_STORAGE_SLOT =
+        0x48897bdcbc0e91b54494365ef99ebd7eed1bf55944e2956d16cb55e524bd2043;
 
     // EIP-7201: Storage accessor (Proxy Pattern: EIP-7201)
-    function _getOwnableUpgradeableStorage()
-        private
-        pure
-        returns (MockImplementationOwnableUpgradeableStorage storage $)
-    {
+    function _getMockImplementationStorage() private pure returns (MockImplementationStorage storage $) {
         assembly {
-            $.slot := MOCKIMPLEMENTATIONOWNABLEUPGRADEABLE_STORAGE_SLOT
+            $.slot := MOCKIMPLEMENTATION_STORAGE_SLOT
         }
     }
 
@@ -35,18 +32,22 @@ contract MockImplementationOwnableUpgradeable is Initializable, UUPSUpgradeable,
         _disableInitializers();
     }
 
-    function initialize(address owner_, uint256 initialValue) external initializer {
+    function initialize(address owner_, uint256 initialValue) external {
+        // This is intentionally not using initializer modifier to allow reinitializing for testing
+        MockImplementationStorage storage $ = _getMockImplementationStorage();
+        require(!$.initialized, "Already initialized");
+        $.initialized = true;
         __Ownable_init(owner_);
         __UUPSUpgradeable_init();
-        _getOwnableUpgradeableStorage().value = initialValue;
+        $.value = initialValue;
     }
 
     function value() external view returns (uint256) {
-        return _getOwnableUpgradeableStorage().value;
+        return _getMockImplementationStorage().value;
     }
 
     function setValue(uint256 newValue) external onlyOwner {
-        _getOwnableUpgradeableStorage().value = newValue;
+        _getMockImplementationStorage().value = newValue;
     }
 
     /**
@@ -54,7 +55,7 @@ contract MockImplementationOwnableUpgradeable is Initializable, UUPSUpgradeable,
      * This follows the Proxy State Preservation Pattern
      */
     function postUpgradeSetup(uint256 newValue) external onlyOwner {
-        _getOwnableUpgradeableStorage().value = newValue;
+        _getMockImplementationStorage().value = newValue;
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}

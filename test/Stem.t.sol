@@ -42,21 +42,21 @@ contract StemTest is Test {
         assertEq(implementation.owner(), address(this));
 
         // Transfer ownership to owner
-        implementation.transferOwnership(owner);
+        implementation.transferOwnership(proxyOwner);
 
         // Now owner is the owner
-        assertEq(implementation.owner(), owner);
+        assertEq(implementation.owner(), proxyOwner);
 
         // System is running
         assertEq(implementation.value(), 100);
 
         // Increase value (normal operation)
-        vm.prank(owner);
+        vm.prank(proxyOwner);
         implementation.incrementValue();
         assertEq(implementation.value(), 101);
 
         // 2. Emergency! Upgrade to Stem to pause functionality
-        vm.startPrank(owner);
+        vm.startPrank(proxyOwner);
         UnsafeUpgrades.upgradeProxy(address(proxy), address(stemImplementation), "");
         vm.stopPrank();
 
@@ -83,7 +83,7 @@ contract StemTest is Test {
 
         // 5. Upgrade back from Stem to fixed implementation
         MockImplementationWithState fixedImplementation = new MockImplementationWithState();
-        vm.startPrank(owner);
+        vm.startPrank(proxyOwner);
         UnsafeUpgrades.upgradeProxy(address(proxy), address(fixedImplementation), "");
         vm.stopPrank();
     }
@@ -97,7 +97,7 @@ contract StemTest is Test {
             address(actualImplementation),
             abi.encodeWithSelector(
                 MockImplementationWithState.initialize.selector,
-                owner, // Pending owner
+                proxyOwner, // Pending owner
                 100 // Initial value
             )
         );
@@ -107,16 +107,16 @@ contract StemTest is Test {
         assertEq(implementation.owner(), address(this));
 
         // Transfer ownership to owner
-        implementation.transferOwnership(owner);
+        implementation.transferOwnership(proxyOwner);
 
         // Now owner is the owner
-        assertEq(implementation.owner(), owner);
+        assertEq(implementation.owner(), proxyOwner);
 
-        // 2. EMERGENCY! Original owner (owner) is compromised!
+        // 2. EMERGENCY! Original owner (proxyOwner) is compromised!
         // Deploy new Stem and upgrade to it with new secure owner
         Stem newStem = new Stem(emergencyOwner, 100);
 
-        vm.startPrank(owner);
+        vm.startPrank(proxyOwner);
         UnsafeUpgrades.upgradeProxy(address(proxy), address(newStem), "");
         vm.stopPrank();
 
@@ -141,10 +141,10 @@ contract StemTest is Test {
 
         // 7. Emergency owner can transfer ownership back to the original owner (if desired)
         vm.prank(emergencyOwner);
-        implementation.transferOwnership(owner);
+        implementation.transferOwnership(proxyOwner);
 
         // Ownership is transferred
-        assertEq(implementation.owner(), owner);
+        assertEq(implementation.owner(), proxyOwner);
     }
 
     // --- ADDITIONAL SCENARIOS WITH IMMUTABLES AND STATE CHANGES ---
@@ -161,12 +161,12 @@ contract StemTest is Test {
         skip(100);
 
         // Now owner is the owner
-        assertEq(stemProxy.owner(), owner);
+        assertEq(stemProxy.owner(), proxyOwner);
 
         // 2. Upgrade to implementation with immutables
         MockImplementationWithImmutables immutableImpl = new MockImplementationWithImmutables(999);
 
-        vm.startPrank(owner);
+        vm.startPrank(proxyOwner);
         UnsafeUpgrades.upgradeProxy(address(stemProxy), address(immutableImpl), "");
         vm.stopPrank();
 
@@ -174,7 +174,9 @@ contract StemTest is Test {
         MockImplementationWithImmutables proxiedImpl = MockImplementationWithImmutables(address(proxy));
         assertEq(proxiedImpl.immutableValue(), 999);
 
-        // 4. Initialize state variables - no longer needed as initialization happens in the upgrade step
+        // 4. Initialize state variables
+        vm.prank(proxyOwner);
+        proxiedImpl.setStateValue(123); // Add this line to set the state value
 
         // 5. Verify both immutable and state values work
         assertEq(proxiedImpl.immutableValue(), 999); // Immutable from implementation
@@ -189,7 +191,7 @@ contract StemTest is Test {
             address(initialImpl),
             abi.encodeWithSelector(
                 MockImplementationWithState.initialize.selector,
-                owner, // Pending owner
+                proxyOwner, // Pending owner
                 100 // Initial value
             )
         );
@@ -199,38 +201,35 @@ contract StemTest is Test {
         assertEq(proxiedImpl.owner(), address(this));
 
         // Transfer ownership to owner
-        proxiedImpl.transferOwnership(owner);
+        proxiedImpl.transferOwnership(proxyOwner);
 
         // Now owner is the owner
-        assertEq(proxiedImpl.owner(), owner);
+        assertEq(proxiedImpl.owner(), proxyOwner);
 
         // 2. Make state changes
-        vm.prank(owner);
+        vm.prank(proxyOwner);
         proxiedImpl.incrementValue();
         assertEq(proxiedImpl.value(), 101);
 
         // 3. Pause by upgrading to Stem
-        vm.startPrank(owner);
+        vm.startPrank(proxyOwner);
         UnsafeUpgrades.upgradeProxy(address(proxy), address(stemImplementation), "");
         vm.stopPrank();
 
-        // 4. Deploy enhanced implementation
-        MockImplementation enhancedImpl = new MockImplementation();
+        // 4. Deploy enhanced implementation (same type but new instance)
+        MockImplementationWithState enhancedImpl = new MockImplementationWithState();
 
         // 5. Upgrade from Stem to enhanced implementation
-        vm.startPrank(owner);
+        vm.startPrank(proxyOwner);
         UnsafeUpgrades.upgradeProxy(address(proxy), address(enhancedImpl), "");
         vm.stopPrank();
 
-        // Test contract is now the owner again if using BaoOwnable pattern in MockImplementation
-        // Need to transfer ownership or use the test contract for further operations
-
         // 6. Set up the new implementation after upgrade
-        vm.prank(owner);
-        MockImplementation(address(proxy)).postUpgradeSetup(999);
+        vm.prank(proxyOwner);
+        MockImplementationWithState(address(proxy)).postUpgradeSetup(999);
 
         // 7. Verify enhanced functionality works with expected value
-        assertEq(MockImplementation(address(proxy)).value(), 999);
+        assertEq(MockImplementationWithState(address(proxy)).value(), 999);
     }
 
     // Add a new test specifically for testing stemmed function behavior

@@ -3,9 +3,9 @@ pragma solidity ^0.8.26;
 
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
-import {BaoCheckOwnerV2} from "@bao/internal/BaoCheckOwnerV2.sol";
+import {BaoCheckOwner_v2} from "@bao/internal/BaoCheckOwner_v2.sol";
 import {ERC165} from "@bao/ERC165.sol";
-import {IBaoOwnableV2} from "@bao/interfaces/IBaoOwnableV2.sol";
+import {IBaoOwnable_v2} from "@bao/interfaces/IBaoOwnable_v2.sol";
 
 /// @title Bao Ownable
 /// @dev Note:
@@ -30,7 +30,7 @@ import {IBaoOwnableV2} from "@bao/interfaces/IBaoOwnableV2.sol";
 /// it also adds IRC165 interface query support
 /// @author rootminus0x1
 /// @dev Uses erc7201 storage
-abstract contract BaoOwnableV2 is IBaoOwnableV2, BaoCheckOwnerV2, ERC165 {
+abstract contract BaoOwnable_v2 is IBaoOwnable_v2, BaoCheckOwner_v2, ERC165 {
     /*//////////////////////////////////////////////////////////////////////////
                                CONSTRUCTOR/INITIALIZER
     //////////////////////////////////////////////////////////////////////////*/
@@ -46,7 +46,7 @@ abstract contract BaoOwnableV2 is IBaoOwnableV2, BaoCheckOwnerV2, ERC165 {
     constructor(
         address finalOwner
     )
-        BaoCheckOwnerV2(finalOwner, 3600) // owner changed in 1 hour
+        BaoCheckOwner_v2(finalOwner, 3600) // owner changed in 1 hour
     {}
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -61,6 +61,6 @@ abstract contract BaoOwnableV2 is IBaoOwnableV2, BaoCheckOwnerV2, ERC165 {
     /// @inheritdoc IERC165
     function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165) returns (bool) {
         // base class doesn't support any interfaces
-        return interfaceId == type(IBaoOwnableV2).interfaceId || super.supportsInterface(interfaceId);
+        return interfaceId == type(IBaoOwnable_v2).interfaceId || super.supportsInterface(interfaceId);
     }
 }

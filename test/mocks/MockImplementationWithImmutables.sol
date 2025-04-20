@@ -6,14 +6,12 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {BaoOwnable} from "@bao/BaoOwnable.sol";
 
 /**
- * @title MockImplementationV1WithImmutables
+ * @title MockImplementationWithImmutables
  * @dev A mock implementation contract with immutable values for testing upgrades
  */
-contract MockImplementationV1WithImmutables is Initializable, UUPSUpgradeable, BaoOwnable {
+contract MockImplementationWithImmutables is Initializable, UUPSUpgradeable, BaoOwnable {
     // Immutable value set in constructor
     uint256 public immutable immutableValue;
-
-    // State variable that can change
     uint256 private _stateValue;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -23,19 +21,20 @@ contract MockImplementationV1WithImmutables is Initializable, UUPSUpgradeable, B
     }
 
     // Add overload with owner parameter
-    function initialize(address owner_, uint256 initialValue) external initializer {
+    function initialize(address owner_) external initializer {
         _initializeOwner(owner_);
         __UUPSUpgradeable_init();
-        _stateValue = initialValue;
     }
 
+    function _authorizeUpgrade(address) internal override onlyOwner {}
+
+    // Add the missing stateValue function
     function stateValue() external view returns (uint256) {
         return _stateValue;
     }
 
-    function setStateValue(uint256 newValue) external onlyOwner {
-        _stateValue = newValue;
+    // Add a function to set the state value during initialization/upgrade
+    function setStateValue(uint256 value) external {
+        _stateValue = value;
     }
-
-    function _authorizeUpgrade(address) internal override onlyOwner {}
 }
