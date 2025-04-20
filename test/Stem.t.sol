@@ -14,13 +14,13 @@ import {MockImplementationWithImmutables} from "mocks/MockImplementationWithImmu
 
 contract StemTest is Test {
     Stem public stemImplementation;
-    address public proxyAdmin = address(1);
+    address public owner = address(1);
     address public user = address(2);
     address public emergencyOwner = address(3);
 
     function setUp() public {
         // Deploy the Stem implementation
-        stemImplementation = new Stem();
+        stemImplementation = new Stem(emergencyOwner, 100);
     }
 
     // --- SCENARIO 1: EMERGENCY PAUSE TESTS (SAME OWNER) ---
@@ -28,33 +28,35 @@ contract StemTest is Test {
     function testEmergencyPauseSameOwner() public {
         // 1. Start with a running implementation
         MockImplementationWithState actualImplementation = new MockImplementationWithState();
-        bytes memory initData = abi.encodeWithSelector(
-            MockImplementationWithState.initialize.selector,
-            proxyAdmin, // Pending owner
-            100 // Initial value
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(actualImplementation),
+            abi.encodeWithSelector(
+                MockImplementationWithState.initialize.selector,
+                owner, // Pending owner
+                100 // Initial value
+            )
         );
-        ERC1967Proxy proxy = new ERC1967Proxy(address(actualImplementation), initData);
         MockImplementationWithState implementation = MockImplementationWithState(address(proxy));
 
-        // Test contract is the owner, not proxyAdmin
+        // Test contract is the owner, not owner
         assertEq(implementation.owner(), address(this));
 
-        // Transfer ownership to proxyAdmin
-        implementation.transferOwnership(proxyAdmin);
+        // Transfer ownership to owner
+        implementation.transferOwnership(owner);
 
-        // Now proxyAdmin is the owner
-        assertEq(implementation.owner(), proxyAdmin);
+        // Now owner is the owner
+        assertEq(implementation.owner(), owner);
 
         // System is running
         assertEq(implementation.value(), 100);
 
         // Increase value (normal operation)
-        vm.prank(proxyAdmin);
+        vm.prank(owner);
         implementation.incrementValue();
         assertEq(implementation.value(), 101);
 
         // 2. Emergency! Upgrade to Stem to pause functionality
-        vm.startPrank(proxyAdmin);
+        vm.startPrank(owner);
         UnsafeUpgrades.upgradeProxy(address(proxy), address(stemImplementation), "");
         vm.stopPrank();
 
@@ -81,7 +83,7 @@ contract StemTest is Test {
 
         // 5. Upgrade back from Stem to fixed implementation
         MockImplementationWithState fixedImplementation = new MockImplementationWithState();
-        vm.startPrank(proxyAdmin);
+        vm.startPrank(owner);
         UnsafeUpgrades.upgradeProxy(address(proxy), address(fixedImplementation), "");
         vm.stopPrank();
     }
@@ -91,41 +93,38 @@ contract StemTest is Test {
     function testEmergencyPauseDifferentOwner() public {
         // 1. Start with a running implementation
         MockImplementationWithState actualImplementation = new MockImplementationWithState();
-        bytes memory initData = abi.encodeWithSelector(
-            MockImplementationWithState.initialize.selector,
-            proxyAdmin, // Pending owner
-            100 // Initial value
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(actualImplementation),
+            abi.encodeWithSelector(
+                MockImplementationWithState.initialize.selector,
+                owner, // Pending owner
+                100 // Initial value
+            )
         );
-        ERC1967Proxy proxy = new ERC1967Proxy(address(actualImplementation), initData);
         MockImplementationWithState implementation = MockImplementationWithState(address(proxy));
 
-        // Test contract is the owner, not proxyAdmin
+        // Test contract is the owner, not owner
         assertEq(implementation.owner(), address(this));
 
-        // Transfer ownership to proxyAdmin
-        implementation.transferOwnership(proxyAdmin);
+        // Transfer ownership to owner
+        implementation.transferOwnership(owner);
 
-        // Now proxyAdmin is the owner
-        assertEq(implementation.owner(), proxyAdmin);
+        // Now owner is the owner
+        assertEq(implementation.owner(), owner);
 
-        // 2. EMERGENCY! Original owner (proxyAdmin) is compromised!
+        // 2. EMERGENCY! Original owner (owner) is compromised!
         // Deploy new Stem and upgrade to it with new secure owner
-        Stem newStem = new Stem();
+        Stem newStem = new Stem(emergencyOwner, 100);
 
-        vm.startPrank(proxyAdmin);
+        vm.startPrank(owner);
         UnsafeUpgrades.upgradeProxy(address(proxy), address(newStem), "");
         vm.stopPrank();
-
-        // Initialize Stem with a new secure owner
-        bytes memory stemInitData = abi.encodeWithSelector(Stem.initialize.selector, emergencyOwner);
-        (bool success, ) = address(proxy).call(stemInitData);
-        require(success, "Stem initialization failed");
 
         // Test contract is now the owner
         assertEq(Stem(address(proxy)).owner(), address(this));
 
         // Transfer ownership to emergencyOwner
-        Stem(address(proxy)).transferOwnership(emergencyOwner);
+        skip(100);
 
         // Now emergencyOwner is the owner
         assertEq(Stem(address(proxy)).owner(), emergencyOwner);
@@ -142,33 +141,32 @@ contract StemTest is Test {
 
         // 7. Emergency owner can transfer ownership back to the original owner (if desired)
         vm.prank(emergencyOwner);
-        implementation.transferOwnership(proxyAdmin);
+        implementation.transferOwnership(owner);
 
         // Ownership is transferred
-        assertEq(implementation.owner(), proxyAdmin);
+        assertEq(implementation.owner(), owner);
     }
 
     // --- ADDITIONAL SCENARIOS WITH IMMUTABLES AND STATE CHANGES ---
 
     function testUpgradeWithImmutables() public {
         // 1. Start with Stem proxy
-        bytes memory initData = abi.encodeWithSelector(Stem.initialize.selector, proxyAdmin);
-        ERC1967Proxy proxy = new ERC1967Proxy(address(stemImplementation), initData);
+        ERC1967Proxy proxy = new ERC1967Proxy(address(stemImplementation), "");
         Stem stemProxy = Stem(address(proxy));
 
         // Test contract is the owner
         assertEq(stemProxy.owner(), address(this));
 
-        // Transfer ownership to proxyAdmin
-        stemProxy.transferOwnership(proxyAdmin);
+        // Transfer ownership to owner
+        skip(100);
 
-        // Now proxyAdmin is the owner
-        assertEq(stemProxy.owner(), proxyAdmin);
+        // Now owner is the owner
+        assertEq(stemProxy.owner(), owner);
 
         // 2. Upgrade to implementation with immutables
         MockImplementationWithImmutables immutableImpl = new MockImplementationWithImmutables(999);
 
-        vm.startPrank(proxyAdmin);
+        vm.startPrank(owner);
         UnsafeUpgrades.upgradeProxy(address(stemProxy), address(immutableImpl), "");
         vm.stopPrank();
 
@@ -186,30 +184,33 @@ contract StemTest is Test {
     function testComplexStateTransfer() public {
         // 1. Deploy starter implementation and initialize
         MockImplementationWithState initialImpl = new MockImplementationWithState();
-        bytes memory initData = abi.encodeWithSelector(
-            MockImplementationWithState.initialize.selector,
-            proxyAdmin, // Pending owner
-            100 // Initial value
+
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(initialImpl),
+            abi.encodeWithSelector(
+                MockImplementationWithState.initialize.selector,
+                owner, // Pending owner
+                100 // Initial value
+            )
         );
-        ERC1967Proxy proxy = new ERC1967Proxy(address(initialImpl), initData);
         MockImplementationWithState proxiedImpl = MockImplementationWithState(address(proxy));
 
         // Test contract is the owner
         assertEq(proxiedImpl.owner(), address(this));
 
-        // Transfer ownership to proxyAdmin
-        proxiedImpl.transferOwnership(proxyAdmin);
+        // Transfer ownership to owner
+        proxiedImpl.transferOwnership(owner);
 
-        // Now proxyAdmin is the owner
-        assertEq(proxiedImpl.owner(), proxyAdmin);
+        // Now owner is the owner
+        assertEq(proxiedImpl.owner(), owner);
 
         // 2. Make state changes
-        vm.prank(proxyAdmin);
+        vm.prank(owner);
         proxiedImpl.incrementValue();
         assertEq(proxiedImpl.value(), 101);
 
         // 3. Pause by upgrading to Stem
-        vm.startPrank(proxyAdmin);
+        vm.startPrank(owner);
         UnsafeUpgrades.upgradeProxy(address(proxy), address(stemImplementation), "");
         vm.stopPrank();
 
@@ -217,7 +218,7 @@ contract StemTest is Test {
         MockImplementation enhancedImpl = new MockImplementation();
 
         // 5. Upgrade from Stem to enhanced implementation
-        vm.startPrank(proxyAdmin);
+        vm.startPrank(owner);
         UnsafeUpgrades.upgradeProxy(address(proxy), address(enhancedImpl), "");
         vm.stopPrank();
 
@@ -225,7 +226,7 @@ contract StemTest is Test {
         // Need to transfer ownership or use the test contract for further operations
 
         // 6. Set up the new implementation after upgrade
-        vm.prank(proxyAdmin);
+        vm.prank(owner);
         MockImplementation(address(proxy)).postUpgradeSetup(999);
 
         // 7. Verify enhanced functionality works with expected value
@@ -236,12 +237,14 @@ contract StemTest is Test {
     function testStemmedFunctionBehavior() public {
         // Deploy a contract that will be stemmed
         MockImplementationWithState initialImpl = new MockImplementationWithState();
-        bytes memory initData = abi.encodeWithSelector(
-            MockImplementationWithState.initialize.selector,
-            address(this), // Owner
-            100 // Initial value
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(initialImpl),
+            abi.encodeWithSelector(
+                MockImplementationWithState.initialize.selector,
+                address(this), // Owner
+                100 // Initial value
+            )
         );
-        ERC1967Proxy proxy = new ERC1967Proxy(address(initialImpl), initData);
         MockImplementationWithState implementation = MockImplementationWithState(address(proxy));
 
         // Verify it works initially

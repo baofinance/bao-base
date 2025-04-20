@@ -13,13 +13,13 @@ import {MockImplementationOwnableUpgradeable} from "mocks/MockImplementationOwna
 
 contract StemOwnershipTest is Test {
     Stem public stemImplementation;
-    address public proxyAdmin = address(1);
+    address public proxyOwner = address(1);
     address public user = address(2);
     address public emergencyOwner = address(3);
 
     function setUp() public {
         // Deploy the Stem implementation
-        stemImplementation = new Stem();
+        stemImplementation = new Stem(emergencyOwner, 100);
     }
 
     // Test 1: BaoOwnable -> Stem -> OZ Ownable
@@ -27,39 +27,34 @@ contract StemOwnershipTest is Test {
         // 1. Start with BaoOwnable implementation
         MockImplementation baoImplementation = new MockImplementation();
 
-        // Initialize with proxyAdmin as the pending owner
+        // Initialize with proxyOwner as the pending owner
         bytes memory initData = abi.encodeWithSelector(
             MockImplementation.initialize.selector,
-            proxyAdmin, // This becomes the pending owner (not immediate owner)
+            proxyOwner, // This becomes the pending owner (not immediate owner)
             100 // Initial value
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(baoImplementation), initData);
         MockImplementation baoProxy = MockImplementation(address(proxy));
 
-        // Test contract is the owner (not proxyAdmin)
+        // Test contract is the owner (not proxyOwner)
         assertEq(baoProxy.owner(), address(this));
 
-        // Transfer ownership to proxyAdmin to complete two-step ownership
-        baoProxy.transferOwnership(proxyAdmin);
+        // Transfer ownership to proxyOwner to complete two-step ownership
+        baoProxy.transferOwnership(proxyOwner);
 
-        // Now verify proxyAdmin is the owner
-        assertEq(baoProxy.owner(), proxyAdmin);
+        // Now verify proxyOwner is the owner
+        assertEq(baoProxy.owner(), proxyOwner);
         assertEq(baoProxy.value(), 100);
 
         // 2. Upgrade to Stem (emergency pause)
-        vm.prank(proxyAdmin);
+        vm.prank(proxyOwner);
         UnsafeUpgrades.upgradeProxy(address(proxy), address(stemImplementation), "");
-
-        // Initialize Stem (test contract becomes owner, emergencyOwner is pending)
-        bytes memory stemInitData = abi.encodeWithSelector(Stem.initialize.selector, emergencyOwner);
-        (bool success, ) = address(proxy).call(stemInitData);
-        require(success, "Stem initialization failed");
 
         // Test contract is now the owner again
         assertEq(Stem(address(proxy)).owner(), address(this));
 
         // Transfer ownership to emergencyOwner
-        Stem(address(proxy)).transferOwnership(emergencyOwner);
+        skip(100);
 
         // Verify ownership transfer
         assertEq(Stem(address(proxy)).owner(), emergencyOwner);
@@ -88,7 +83,7 @@ contract StemOwnershipTest is Test {
         ozProxy.setValue(300);
         assertEq(ozProxy.value(), 300);
 
-        vm.prank(proxyAdmin);
+        vm.prank(proxyOwner);
         vm.expectRevert("Ownable: caller is not the owner");
         ozProxy.setValue(400);
     }
@@ -99,30 +94,25 @@ contract StemOwnershipTest is Test {
         MockImplementationOwnableUpgradeable ozImplementation = new MockImplementationOwnableUpgradeable();
         bytes memory initData = abi.encodeWithSelector(
             MockImplementationOwnableUpgradeable.initialize.selector,
-            proxyAdmin, // Owner
+            proxyOwner, // Owner
             100 // Initial value
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(ozImplementation), initData);
         MockImplementationOwnableUpgradeable ozProxy = MockImplementationOwnableUpgradeable(address(proxy));
 
         // Verify OZ ownership model
-        assertEq(ozProxy.owner(), proxyAdmin);
+        assertEq(ozProxy.owner(), proxyOwner);
         assertEq(ozProxy.value(), 100);
 
         // 2. Upgrade to Stem
-        vm.prank(proxyAdmin);
+        vm.prank(proxyOwner);
         UnsafeUpgrades.upgradeProxy(address(proxy), address(stemImplementation), "");
-
-        // Initialize Stem
-        bytes memory stemInitData = abi.encodeWithSelector(Stem.initialize.selector, emergencyOwner);
-        (bool success, ) = address(proxy).call(stemInitData);
-        require(success, "Stem initialization failed");
 
         // Test contract is now the owner
         assertEq(Stem(address(proxy)).owner(), address(this));
 
         // Transfer ownership to emergencyOwner
-        Stem(address(proxy)).transferOwnership(emergencyOwner);
+        skip(100);
 
         // 3. Upgrade from Stem to BaoOwnable
         MockImplementation baoImplementation = new MockImplementation();
@@ -133,7 +123,7 @@ contract StemOwnershipTest is Test {
             address(baoImplementation),
             abi.encodeWithSelector(
                 MockImplementation.initialize.selector,
-                proxyAdmin, // Pending owner
+                proxyOwner, // Pending owner
                 200 // New value
             )
         );
@@ -144,11 +134,11 @@ contract StemOwnershipTest is Test {
         assertEq(baoProxy.owner(), address(this));
         assertEq(baoProxy.value(), 200);
 
-        // Transfer ownership to proxyAdmin
-        baoProxy.transferOwnership(proxyAdmin);
+        // Transfer ownership to proxyOwner
+        baoProxy.transferOwnership(proxyOwner);
 
         // Verify ownership transfer
-        assertEq(baoProxy.owner(), proxyAdmin);
+        assertEq(baoProxy.owner(), proxyOwner);
     }
 
     // Test 3: Emergency ownership transfer via Stem
@@ -157,7 +147,7 @@ contract StemOwnershipTest is Test {
         MockImplementation baoImplementation = new MockImplementation();
         bytes memory initData = abi.encodeWithSelector(
             MockImplementation.initialize.selector,
-            proxyAdmin, // Pending owner
+            proxyOwner, // Pending owner
             100 // Initial value
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(baoImplementation), initData);
@@ -166,32 +156,27 @@ contract StemOwnershipTest is Test {
         // Test contract is the initial owner
         assertEq(baoProxy.owner(), address(this));
 
-        // Transfer ownership to proxyAdmin
-        baoProxy.transferOwnership(proxyAdmin);
+        // Transfer ownership to proxyOwner
+        baoProxy.transferOwnership(proxyOwner);
 
         // Verify ownership transfer
-        assertEq(baoProxy.owner(), proxyAdmin);
+        assertEq(baoProxy.owner(), proxyOwner);
 
         // 2. Simulate compromised owner upgrading to Stem
-        vm.prank(proxyAdmin);
+        vm.prank(proxyOwner);
         UnsafeUpgrades.upgradeProxy(address(proxy), address(stemImplementation), "");
-
-        // Initialize Stem with emergency owner
-        bytes memory stemInitData = abi.encodeWithSelector(Stem.initialize.selector, emergencyOwner);
-        (bool success, ) = address(proxy).call(stemInitData);
-        require(success, "Stem initialization failed");
 
         // Test contract is now the immediate owner
         assertEq(Stem(address(proxy)).owner(), address(this));
 
         // Transfer ownership to emergencyOwner
-        Stem(address(proxy)).transferOwnership(emergencyOwner);
+        skip(100);
 
         // 3. Verify ownership changed
         assertEq(Stem(address(proxy)).owner(), emergencyOwner);
 
         // 4. Original compromised owner can't upgrade
-        vm.prank(proxyAdmin);
+        vm.prank(proxyOwner);
         vm.expectRevert("BaoOwnable: caller is not the owner");
         UnsafeUpgrades.upgradeProxy(address(proxy), address(0x123), "");
 
@@ -217,7 +202,7 @@ contract StemOwnershipTest is Test {
         MockImplementation baoImplementation = new MockImplementation();
         bytes memory initData = abi.encodeWithSelector(
             MockImplementation.initialize.selector,
-            proxyAdmin, // Pending owner
+            proxyOwner, // Pending owner
             100 // Initial value
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(baoImplementation), initData);
@@ -226,29 +211,29 @@ contract StemOwnershipTest is Test {
         // Test contract is the initial owner
         assertEq(baoProxy.owner(), address(this));
 
-        // Transfer ownership to proxyAdmin
-        baoProxy.transferOwnership(proxyAdmin);
+        // Transfer ownership to proxyOwner
+        baoProxy.transferOwnership(proxyOwner);
 
         // Verify ownership transfer
-        assertEq(baoProxy.owner(), proxyAdmin);
+        assertEq(baoProxy.owner(), proxyOwner);
 
         // 2. Direct upgrade to OZ Ownable
         MockImplementationOwnableUpgradeable ozImplementation = new MockImplementationOwnableUpgradeable();
 
-        vm.prank(proxyAdmin);
+        vm.prank(proxyOwner);
         UnsafeUpgrades.upgradeProxy(
             address(proxy),
             address(ozImplementation),
             abi.encodeWithSelector(
                 MockImplementationOwnableUpgradeable.initialize.selector,
-                proxyAdmin, // Keep same owner
+                proxyOwner, // Keep same owner
                 100 // Keep same value
             )
         );
 
         // 3. Verify OZ Ownable works correctly
         MockImplementationOwnableUpgradeable ozProxy = MockImplementationOwnableUpgradeable(address(proxy));
-        assertEq(ozProxy.owner(), proxyAdmin);
+        assertEq(ozProxy.owner(), proxyOwner);
         assertEq(ozProxy.value(), 100);
     }
 }

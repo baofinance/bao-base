@@ -56,7 +56,7 @@ contract Stem is UUPSUpgradeable, BaoCheckOwnerV2, ERC165 {
      * @param selector The first 4 bytes of the call data (function selector)
      */
     /// @dev All calls (including ether transfers) revert with a friendly error
-    event StemmedContractCalled(address indexed sender, uint256 value, bytes data, bytes4 selector);
+    event StemmedContractCalled(address indexed sender, bytes4 indexed selector, bytes data);
 
     /*///////////////////////////////////////////////////////////////////////////
                                   ERRORS
@@ -97,20 +97,13 @@ contract Stem is UUPSUpgradeable, BaoCheckOwnerV2, ERC165 {
      *
      * Note: This function is not payable, so it cannot receive ether directly.
      */
-    fallback() external payable {
+
+    fallback() external {
         bytes4 selector;
         if (msg.data.length >= 4) {
             selector = bytes4(msg.data[0:4]);
         }
-        emit StemmedContractCalled(msg.sender, msg.value, msg.data, selector);
+        emit StemmedContractCalled(msg.sender, selector, msg.data); // Set value to 0
         revert Stemmed("Contract is stemmed and all functions are disabled");
-    }
-
-    /**
-     * @dev Receive function to handle ether transfers to the contract
-     */
-
-    receive() external payable {
-        revert Stemmed("Direct ether transfer rejected: contract is stemmed");
     }
 }
