@@ -8,12 +8,12 @@ import {console2} from "forge-std/console2.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
-import {BaoRolesV2} from "@bao/internal/BaoRolesV2.sol";
-import {BaoOwnableV2} from "@bao/BaoOwnableV2.sol";
+import {BaoRoles_v2} from "@bao/internal/BaoRoles_v2.sol";
+import {BaoOwnable_v2} from "@bao/BaoOwnable_v2.sol";
 
-import {TestBaoOwnableV2Only} from "./BaoOwnableV2.t.sol";
+import {TestBaoOwnable_v2Only} from "./BaoOwnable_v2.t.sol";
 
-abstract contract DerivedBaoRolesV2 is BaoRolesV2 {
+abstract contract DerivedBaoRoles_v2 is BaoRoles_v2 {
     uint256 public MY_ROLE = _ROLE_1;
     uint256 public ANOTHER_ROLE = _ROLE_2;
     uint256 public YET_ANOTHER_ROLE = _ROLE_3;
@@ -21,7 +21,7 @@ abstract contract DerivedBaoRolesV2 is BaoRolesV2 {
     function protectedOwnerOrRoles() public view onlyOwnerOrRoles(MY_ROLE) {}
 }
 
-abstract contract TestBaoRolesV2 is Test {
+abstract contract TestBaoRoles_v2 is Test {
     function _introspection(address roles) internal view {
         assertTrue(IERC165(roles).supportsInterface(type(IERC165).interfaceId));
         assertTrue(IERC165(roles).supportsInterface(type(IBaoRoles).interfaceId));
@@ -30,11 +30,11 @@ abstract contract TestBaoRolesV2 is Test {
     function _roles(address roles, address owner, address user) internal {
         // check basic owner & role based protections, to ensure those functions are there
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        DerivedBaoRolesV2(roles).protectedRoles();
+        DerivedBaoRoles_v2(roles).protectedRoles();
 
-        uint256 myRole = DerivedBaoRolesV2(roles).MY_ROLE();
-        uint256 anotherRole = DerivedBaoRolesV2(roles).ANOTHER_ROLE();
-        uint256 yetAnotherRole = DerivedBaoRolesV2(roles).YET_ANOTHER_ROLE();
+        uint256 myRole = DerivedBaoRoles_v2(roles).MY_ROLE();
+        uint256 anotherRole = DerivedBaoRoles_v2(roles).ANOTHER_ROLE();
+        uint256 yetAnotherRole = DerivedBaoRoles_v2(roles).YET_ANOTHER_ROLE();
 
         // test any and all for 0 roles
         assertEq(IBaoRoles(roles).rolesOf(user), 0);
@@ -59,25 +59,25 @@ abstract contract TestBaoRolesV2 is Test {
 
         // do roles prevent?
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        DerivedBaoRolesV2(roles).protectedRoles();
+        DerivedBaoRoles_v2(roles).protectedRoles();
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        DerivedBaoRolesV2(roles).protectedOwnerOrRoles();
+        DerivedBaoRoles_v2(roles).protectedOwnerOrRoles();
         // vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        // DerivedBaoRolesV2(roles).protectedRolesOrOwner();
+        // DerivedBaoRoles_v2(roles).protectedRolesOrOwner();
 
         // do roles allow
         vm.prank(user);
-        DerivedBaoRolesV2(roles).protectedRoles();
+        DerivedBaoRoles_v2(roles).protectedRoles();
         vm.prank(user);
-        DerivedBaoRolesV2(roles).protectedOwnerOrRoles();
+        DerivedBaoRoles_v2(roles).protectedOwnerOrRoles();
         // vm.prank(user);
-        // DerivedBaoRolesV2(roles).protectedRolesOrOwner();
+        // DerivedBaoRoles_v2(roles).protectedRolesOrOwner();
 
         // do ownerOr allow
         vm.prank(owner);
-        DerivedBaoRolesV2(roles).protectedOwnerOrRoles();
+        DerivedBaoRoles_v2(roles).protectedOwnerOrRoles();
         // vm.prank(owner);
-        // DerivedBaoRolesV2(roles).protectedRolesOrOwner();
+        // DerivedBaoRoles_v2(roles).protectedRolesOrOwner();
 
         // grant 2 new
         vm.prank(owner);

@@ -14,9 +14,9 @@ import {MockImplementationWithImmutables} from "mocks/MockImplementationWithImmu
 
 contract StemTest is Test {
     Stem public stemImplementation;
-    address public owner = address(1);
-    address public user = address(2);
-    address public emergencyOwner = address(3);
+    address proxyOwner = vm.createWallet("proxyOwner").addr;
+    address user = vm.createWallet("user").addr;
+    address emergencyOwner = vm.createWallet("emergencyOwner").addr;
 
     function setUp() public {
         // Deploy the Stem implementation
@@ -32,13 +32,13 @@ contract StemTest is Test {
             address(actualImplementation),
             abi.encodeWithSelector(
                 MockImplementationWithState.initialize.selector,
-                owner, // Pending owner
+                proxyOwner, // Pending owner
                 100 // Initial value
             )
         );
         MockImplementationWithState implementation = MockImplementationWithState(address(proxy));
 
-        // Test contract is the owner, not owner
+        // Test contract is the deployer, not owner
         assertEq(implementation.owner(), address(this));
 
         // Transfer ownership to owner
