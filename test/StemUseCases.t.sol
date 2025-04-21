@@ -80,13 +80,13 @@ contract StemUseCasesTest is Test {
     function testAllOwnershipTransitions() public {
         for (uint i = 0; i < modelFactories.length; i++) {
             for (uint j = 0; j < modelFactories.length; j++) {
-                uint256 snapshot = vm.snapshot();
+                uint256 snapshot = vm.snapshotState();
 
                 console2.log(string.concat("Testing transition from ", modelNames[i], " to ", modelNames[j]));
 
-                testOwnershipTransition(modelFactories[i], modelFactories[j]);
+                _testOwnershipTransition(modelFactories[i], modelFactories[j]);
 
-                vm.revertTo(snapshot);
+                vm.revertToState(snapshot);
             }
         }
     }
@@ -96,10 +96,10 @@ contract StemUseCasesTest is Test {
      * @param sourceFactory The factory for the source ownership model
      * @param targetFactory The factory for the target ownership model
      */
-    function testOwnershipTransition(
+    function _testOwnershipTransition(
         IOwnershipModelFactory sourceFactory,
         IOwnershipModelFactory targetFactory
-    ) public {
+    ) private {
         // ==== Step 1: Deploy source model via proxy ====
         vm.startPrank(deployer);
 
@@ -182,13 +182,13 @@ contract StemUseCasesTest is Test {
         for (uint i = 0; i < modelFactories.length; i++) {
             for (uint j = 0; j < modelFactories.length; j++) {
                 if (i != j) {
-                    uint256 snapshot = vm.snapshot();
+                    uint256 snapshot = vm.snapshotState();
 
                     console2.log(string.concat("Testing direct upgrade from ", modelNames[i], " to ", modelNames[j]));
 
-                    testDirectUpgrade(modelFactories[i], modelFactories[j]);
+                    _testDirectUpgrade(modelFactories[i], modelFactories[j]);
 
-                    vm.revertTo(snapshot);
+                    vm.revertToState(snapshot);
                 }
             }
         }
@@ -197,7 +197,7 @@ contract StemUseCasesTest is Test {
     /**
      * @notice Test direct upgrade between two ownership models without using Stem
      */
-    function testDirectUpgrade(IOwnershipModelFactory sourceFactory, IOwnershipModelFactory targetFactory) public {
+    function _testDirectUpgrade(IOwnershipModelFactory sourceFactory, IOwnershipModelFactory targetFactory) private {
         // ==== Step 1: Deploy source model ====
         vm.startPrank(deployer);
 
@@ -243,20 +243,20 @@ contract StemUseCasesTest is Test {
      */
     function testEmergencyRecoveryForAllModels() public {
         for (uint i = 0; i < modelFactories.length; i++) {
-            uint256 snapshot = vm.snapshot();
+            uint256 snapshot = vm.snapshotState();
 
             console2.log(string.concat("Testing emergency recovery for ", modelNames[i]));
 
-            testEmergencyRecovery(modelFactories[i]);
+            _testEmergencyRecovery(modelFactories[i]);
 
-            vm.revertTo(snapshot);
+            vm.revertToState(snapshot);
         }
     }
 
     /**
      * @notice Test emergency recovery process for a specific ownership model
      */
-    function testEmergencyRecovery(IOwnershipModelFactory modelFactory) public {
+    function _testEmergencyRecovery(IOwnershipModelFactory modelFactory) private {
         // ==== Step 1: Deploy model ====
         vm.startPrank(deployer);
 
@@ -310,20 +310,20 @@ contract StemUseCasesTest is Test {
      */
     function testStemmedFunctionalityBlocked() public {
         for (uint i = 0; i < modelFactories.length; i++) {
-            uint256 snapshot = vm.snapshot();
+            uint256 snapshot = vm.snapshotState();
 
             console2.log(string.concat("Testing stemmed functionality blocking for ", modelNames[i]));
 
-            testStemFunctionBlocking(modelFactories[i]);
+            _testStemFunctionBlocking(modelFactories[i]);
 
-            vm.revertTo(snapshot);
+            vm.revertToState(snapshot);
         }
     }
 
     /**
      * @notice Test that stemming blocks all functionality for a specific model
      */
-    function testStemFunctionBlocking(IOwnershipModelFactory modelFactory) public {
+    function _testStemFunctionBlocking(IOwnershipModelFactory modelFactory) private {
         // ==== Step 1: Deploy model ====
         vm.startPrank(deployer);
 
