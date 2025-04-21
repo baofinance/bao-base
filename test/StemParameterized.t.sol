@@ -36,7 +36,8 @@ contract StemParameterizedTest is Test {
     // Constants for test values
     uint256 constant INITIAL_VALUE = 100;
     uint256 constant UPDATED_VALUE = 200;
-    uint256 constant TRANSFER_DELAY = 100;
+    uint256 constant STEM_TRANSFER_DELAY = 100;
+    uint256 constant TRANSFER_DELAY = 3600; // BaoOwnable_v2 delay (1 hour)
 
     // Base snapshot for test isolation
     uint256 private baseSnapshot;
@@ -48,14 +49,12 @@ contract StemParameterizedTest is Test {
         emergencyOwner = vm.createWallet("emergencyOwner").addr;
 
         // Deploy the Stem implementation with emergency owner and delay
-        stemImplementation = new Stem(emergencyOwner, TRANSFER_DELAY);
+        stemImplementation = new Stem(emergencyOwner, STEM_TRANSFER_DELAY);
 
         // Initialize models array
         models[0] = OwnershipModel.BaoOwnable;
         models[1] = OwnershipModel.BaoOwnable_v2;
         models[2] = OwnershipModel.OZOwnable;
-
-        vm.warp(1); // Reset timestamp to ensure consistent test environment
 
         // Store base snapshot for all tests to revert to
         baseSnapshot = vm.snapshotState();
@@ -64,26 +63,57 @@ contract StemParameterizedTest is Test {
     /**
      * @dev Deploy appropriate implementation based on the ownership model
      */
-    function deployImplementation(OwnershipModel model) internal returns (address impl) {
+    function deployImplementation(OwnershipModel model, address owner) internal returns (address impl) {
         if (model == OwnershipModel.BaoOwnable) {
             impl = address(new MockImplementationWithState());
         } else if (model == OwnershipModel.BaoOwnable_v2) {
-            impl = address(new MockImplementationWithState_v2(address(this)));
+            impl = address(new MockImplementationWithState_v2(owner));
         } else if (model == OwnershipModel.OZOwnable) {
             impl = address(new MockImplementationOwnableUpgradeable());
         }
     }
 
     /**
+     * @dev Setup ownership to proxyOwner
+     */
+    function setupOwnership(address proxy, OwnershipModel model, address owner) internal {
+        if (model == OwnershipModel.BaoOwnable) {
+            // For BaoOwnable, need to transfer from test contract to proxyOwner
+            MockImplementationWithState(proxy).transferOwnership(owner);
+        } else if (model == OwnershipModel.BaoOwnable_v2) {
+            // For BaoOwnable_v2, owner is already set in constructor (see deployImplementation), but needs a time delay
+            skip(TRANSFER_DELAY);
+        } else if (model == OwnershipModel.OZOwnable) {
+            // For OZOwnable, owner is set in initialize
+        } else {
+            revert("Invalid ownership model");
+        }
+    }
+
+    /**
      * @dev Generate initialization data based on ownership model
      */
-    function getInitData(OwnershipModel model, address owner, uint256 value) internal pure returns (bytes memory) {
+    function getInitData(OwnershipModel model, address owner) internal pure returns (bytes memory) {
         if (model == OwnershipModel.BaoOwnable) {
-            return abi.encodeWithSelector(MockImplementationWithState.initialize.selector, owner, value);
+            return abi.encodeWithSelector(MockImplementationWithState.initialize.selector, owner, INITIAL_VALUE);
         } else if (model == OwnershipModel.BaoOwnable_v2) {
-            return abi.encodeWithSelector(MockImplementationWithState_v2.initialize.selector, value);
+            return abi.encodeWithSelector(MockImplementationWithState_v2.initialize.selector, INITIAL_VALUE);
         } else if (model == OwnershipModel.OZOwnable) {
-            return abi.encodeWithSelector(MockImplementationOwnableUpgradeable.initialize.selector, owner, value);
+            return
+                abi.encodeWithSelector(MockImplementationOwnableUpgradeable.initialize.selector, owner, INITIAL_VALUE);
+        } else {
+            revert("Invalid ownership model");
+        }
+    }
+
+    function getUpgradeData(OwnershipModel model) internal pure returns (bytes memory) {
+        if (model == OwnershipModel.BaoOwnable) {
+            return abi.encodeWithSelector(MockImplementationWithState.postUpgradeSetup.selector, UPDATED_VALUE);
+        } else if (model == OwnershipModel.BaoOwnable_v2) {
+            return abi.encodeWithSelector(MockImplementationWithState_v2.postUpgradeSetup.selector, UPDATED_VALUE);
+        } else if (model == OwnershipModel.OZOwnable) {
+            return
+                abi.encodeWithSelector(MockImplementationOwnableUpgradeable.postUpgradeSetup.selector, UPDATED_VALUE);
         } else {
             revert("Invalid ownership model");
         }
@@ -120,25 +150,6 @@ contract StemParameterizedTest is Test {
     }
 
     /**
-     * @dev Setup ownership and return the actor who can perform upgrades
-     */
-    function setupOwnership(address proxy, OwnershipModel model) internal returns (address upgradeActor) {
-        if (model == OwnershipModel.BaoOwnable) {
-            // For BaoOwnable, need to transfer from test contract to proxyOwner
-            MockImplementationWithState(proxy).transferOwnership(proxyOwner);
-            return proxyOwner;
-        } else if (model == OwnershipModel.BaoOwnable_v2) {
-            // For BaoOwnable_v2, owner is already set in constructor
-            return address(this);
-        } else if (model == OwnershipModel.OZOwnable) {
-            // For OZOwnable, owner is set in initialize
-            return proxyOwner;
-        } else {
-            revert("Invalid ownership model");
-        }
-    }
-
-    /**
      * @dev Get model name as string (for console output)
      */
     function getModelName(OwnershipModel model) internal pure returns (string memory) {
@@ -162,7 +173,7 @@ contract StemParameterizedTest is Test {
             for (uint j = 0; j < models.length; j++) {
                 vm.revertToState(baseSnapshot); // Correct revert function
                 console.log("Testing transition from", getModelName(models[i]), "to", getModelName(models[j]));
-                testOwnershipTransition(models[i], models[j]);
+                _testOwnershipTransition(models[i], models[j]);
             }
         }
     }
@@ -170,47 +181,32 @@ contract StemParameterizedTest is Test {
     /**
      * @dev Test a specific ownership transition
      */
-    function testOwnershipTransition(OwnershipModel source, OwnershipModel target) internal {
+    function _testOwnershipTransition(OwnershipModel source, OwnershipModel target) internal {
         // 1. Setup source contract
-        address impl = deployImplementation(source);
-        bytes memory initData = getInitData(source, proxyOwner, INITIAL_VALUE);
+        address impl = deployImplementation(source, proxyOwner);
+        bytes memory initData = getInitData(source, proxyOwner);
         ERC1967Proxy proxy = new ERC1967Proxy(impl, initData);
 
         // 2. Handle initial ownership setup
-        address actor = setupOwnership(address(proxy), source);
+        setupOwnership(address(proxy), source, proxyOwner);
 
         // 3. Verify initial state
         assertEq(getValue(address(proxy), source), INITIAL_VALUE, "Initial value should be set");
-
-        if (source == OwnershipModel.BaoOwnable) {
-            assertEq(getOwner(address(proxy), source), proxyOwner, "Initial owner should be set for BaoOwnable");
-        } else if (source == OwnershipModel.BaoOwnable_v2) {
-            assertEq(getOwner(address(proxy), source), address(this), "Initial owner should be set for BaoOwnable_v2");
-        } else if (source == OwnershipModel.OZOwnable) {
-            assertEq(getOwner(address(proxy), source), proxyOwner, "Initial owner should be set for OZOwnable");
-        }
+        assertEq(getOwner(address(proxy), source), proxyOwner, "Initial owner should be set for BaoOwnable");
 
         // 4. Upgrade to Stem
-        vm.prank(actor);
+        vm.startPrank(proxyOwner);
         UnsafeUpgrades.upgradeProxy(address(proxy), address(stemImplementation), "");
-
-        // 5. Handle Stem ownership
-        if (source == OwnershipModel.BaoOwnable || source == OwnershipModel.BaoOwnable_v2) {
-            assertEq(Stem(address(proxy)).owner(), address(this), "Stem initial owner should be test contract");
-            skip(TRANSFER_DELAY); // Wait for ownership transfer
-            assertEq(Stem(address(proxy)).owner(), emergencyOwner, "Stem ownership should transfer to emergency owner");
-        } else {
-            assertEq(Stem(address(proxy)).owner(), address(this), "Stem owner should be the test contract");
-            skip(TRANSFER_DELAY);
-            assertEq(Stem(address(proxy)).owner(), emergencyOwner, "Stem ownership should transfer to emergency owner");
-        }
+        vm.stopPrank();
+        setupOwnership(address(proxy), source, proxyOwner);
 
         // 6. Upgrade from Stem to target implementation
-        address targetImpl = deployImplementation(target);
-        bytes memory targetInitData = getInitData(target, emergencyOwner, UPDATED_VALUE);
+        address targetImpl = deployImplementation(target, proxyOwner);
+        bytes memory upgradeData = getUpgradeData(target);
 
-        vm.prank(emergencyOwner); // Emergency owner is now the owner
-        UnsafeUpgrades.upgradeProxy(address(proxy), targetImpl, targetInitData);
+        vm.startPrank(emergencyOwner); // Emergency owner is now the owner
+        UnsafeUpgrades.upgradeProxy(address(proxy), targetImpl, upgradeData);
+        vm.stopPrank();
 
         // 7. Verify final state
         assertEq(getValue(address(proxy), target), UPDATED_VALUE, "Updated value should be set");
@@ -246,20 +242,21 @@ contract StemParameterizedTest is Test {
      */
     function testStemmingBehavior(OwnershipModel model) internal {
         // 1. Setup contract based on model
-        address impl = deployImplementation(model);
-        bytes memory initData = getInitData(model, proxyOwner, INITIAL_VALUE);
+        address impl = deployImplementation(model, proxyOwner);
+        bytes memory initData = getInitData(model, proxyOwner);
         ERC1967Proxy proxy = new ERC1967Proxy(impl, initData);
 
         // 2. Handle ownership setup
-        address actor = setupOwnership(address(proxy), model);
+        setupOwnership(address(proxy), model, proxyOwner);
 
         // 3. Verify initial state
         uint256 initialValue = getValue(address(proxy), model);
         assertEq(initialValue, INITIAL_VALUE, "Initial value should be set");
 
         // 4. Stem the contract
-        vm.prank(actor);
+        vm.startPrank(proxyOwner);
         UnsafeUpgrades.upgradeProxy(address(proxy), address(stemImplementation), "");
+        vm.stopPrank();
 
         // 5. Test that functions are stemmed
         vm.expectRevert(); // Should revert with a function not found error
@@ -274,11 +271,12 @@ contract StemParameterizedTest is Test {
         assertEq(Stem(address(proxy)).owner(), emergencyOwner, "Stem ownership should transfer to emergency owner");
 
         // 8. Unstem the contract
-        address newImpl = deployImplementation(model);
-        bytes memory newInitData = getInitData(model, emergencyOwner, UPDATED_VALUE);
+        address newImpl = deployImplementation(model, proxyOwner);
+        bytes memory newInitData = getUpgradeData(model);
 
-        vm.prank(emergencyOwner);
+        vm.startPrank(emergencyOwner);
         UnsafeUpgrades.upgradeProxy(address(proxy), newImpl, newInitData);
+        vm.stopPrank();
 
         // 9. Verify contract works after unstemming
         assertEq(getValue(address(proxy), model), UPDATED_VALUE, "Value should be updated after unstemming");
@@ -289,7 +287,8 @@ contract StemParameterizedTest is Test {
      */
     function testBaoOwnableV2AutoTransfer() public {
         // 1. Deploy BaoOwnable_v2 implementation
-        MockImplementationWithState_v2 implementation = new MockImplementationWithState_v2(address(this));
+        address originalOwner = vm.createWallet("originalOwner").addr;
+        MockImplementationWithState_v2 implementation = new MockImplementationWithState_v2(originalOwner);
         ERC1967Proxy proxy = new ERC1967Proxy(
             address(implementation),
             abi.encodeWithSelector(MockImplementationWithState_v2.initialize.selector, INITIAL_VALUE)
@@ -300,27 +299,44 @@ contract StemParameterizedTest is Test {
         assertEq(proxied.owner(), address(this), "Initial owner should be test contract");
         assertEq(proxied.value(), INITIAL_VALUE, "Initial value should be set");
 
-        // 3. Stem the contract
-        UnsafeUpgrades.upgradeProxy(address(proxy), address(stemImplementation), "");
+        // 7. Transfer ownership to original owner
+        // also check the stem
+        assertEq(stemImplementation.owner(), address(this), "Stem owner should still be test contract");
+        skip(STEM_TRANSFER_DELAY);
+        assertEq(stemImplementation.owner(), emergencyOwner, "Stem owner should now be emergencyOwner");
+        skip(TRANSFER_DELAY); // skip again in case the ownable delay is longer
+        assertEq(proxied.owner(), originalOwner, "Owner should be now be new original owner");
 
-        // 4. Wait for ownership transfer
-        skip(TRANSFER_DELAY);
+        // all good
+
+        // 3. Stem the contract
+        vm.startPrank(originalOwner); // only the original owner can now stem.
+        UnsafeUpgrades.upgradeProxy(address(proxy), address(stemImplementation), "");
+        vm.stopPrank();
+        // as we waited before for the stem to transfer ownerhip before, the proxy is now immediately is owned by the emergency owner
         assertEq(Stem(address(proxy)).owner(), emergencyOwner, "Stem ownership should transfer to emergency owner");
 
         // 5. Unstem with a new BaoOwnable_v2 implementation
         address newOwner = vm.createWallet("newOwner").addr;
         MockImplementationWithState_v2 newImpl = new MockImplementationWithState_v2(newOwner);
 
-        vm.prank(emergencyOwner);
+        vm.startPrank(emergencyOwner);
         UnsafeUpgrades.upgradeProxy(
             address(proxy),
             address(newImpl),
-            abi.encodeWithSelector(MockImplementationWithState_v2.initialize.selector, UPDATED_VALUE)
+            "" // can only do initialisation now with the deployer - that's who owns the implementation, atm!
         );
+        vm.stopPrank();
+        assertEq(proxied.value(), INITIAL_VALUE, "Value should be as before");
+        proxied.postUpgradeSetup(UPDATED_VALUE);
 
         // 6. Verify new state
-        assertEq(MockImplementationWithState_v2(address(proxy)).owner(), newOwner, "Owner should be new owner");
-        assertEq(MockImplementationWithState_v2(address(proxy)).value(), UPDATED_VALUE, "Value should be updated");
+        assertEq(proxied.owner(), address(this), "Owner should be deployer");
+        assertEq(proxied.value(), UPDATED_VALUE, "Value should be updated");
+
+        // 7. Transfer ownership to new owner
+        skip(TRANSFER_DELAY);
+        assertEq(proxied.owner(), newOwner, "Owner should be new owner");
     }
 
     /**
@@ -349,22 +365,23 @@ contract StemParameterizedTest is Test {
      */
     function testDirectTransition(OwnershipModel source, OwnershipModel target) internal {
         // 1. Setup source contract
-        address impl = deployImplementation(source);
-        bytes memory initData = getInitData(source, proxyOwner, INITIAL_VALUE);
+        address impl = deployImplementation(source, proxyOwner);
+        bytes memory initData = getInitData(source, proxyOwner);
         ERC1967Proxy proxy = new ERC1967Proxy(impl, initData);
 
         // 2. Handle initial ownership setup
-        address actor = setupOwnership(address(proxy), source);
+        setupOwnership(address(proxy), source, proxyOwner);
 
         // 3. Verify initial state
         assertEq(getValue(address(proxy), source), INITIAL_VALUE, "Initial value should be set");
 
         // 4. Direct upgrade to target implementation
-        address targetImpl = deployImplementation(target);
-        bytes memory targetInitData = getInitData(target, actor, UPDATED_VALUE);
+        address targetImpl = deployImplementation(target, proxyOwner);
+        bytes memory targetInitData = getUpgradeData(target);
 
-        vm.prank(actor);
+        vm.startPrank(proxyOwner);
         UnsafeUpgrades.upgradeProxy(address(proxy), targetImpl, targetInitData);
+        vm.stopPrank();
 
         // 5. Verify final state
         assertEq(getValue(address(proxy), target), UPDATED_VALUE, "Updated value should be set");
@@ -378,7 +395,7 @@ contract StemParameterizedTest is Test {
                 "Owner should be test contract for BaoOwnable_v2"
             );
         } else if (target == OwnershipModel.OZOwnable) {
-            assertEq(getOwner(address(proxy), target), actor, "Owner should be actor for OZOwnable");
+            assertEq(getOwner(address(proxy), target), proxyOwner, "Owner should be proxyOwner for OZOwnable");
         }
     }
 
@@ -399,15 +416,15 @@ contract StemParameterizedTest is Test {
      */
     function testAllFunctionsStemmedForModel(OwnershipModel model) internal {
         // 1. Setup contract based on model
-        address impl = deployImplementation(model);
-        bytes memory initData = getInitData(model, proxyOwner, INITIAL_VALUE);
+        address impl = deployImplementation(model, proxyOwner);
+        bytes memory initData = getInitData(model, proxyOwner);
         ERC1967Proxy proxy = new ERC1967Proxy(impl, initData);
 
         // 2. Setup ownership using the helper function that handles different models
-        address actor = setupOwnership(address(proxy), model);
+        setupOwnership(address(proxy), model, proxyOwner);
 
         // 3. Stem the contract - use startPrank/stopPrank instead of just prank
-        vm.startPrank(actor);
+        vm.startPrank(proxyOwner);
         UnsafeUpgrades.upgradeProxy(address(proxy), address(stemImplementation), "");
         vm.stopPrank();
 
@@ -418,23 +435,23 @@ contract StemParameterizedTest is Test {
         // 5. Test write functions are stemmed
         // For BaoOwnable and BaoOwnable_v2
         if (model == OwnershipModel.BaoOwnable) {
-            vm.prank(actor);
+            vm.prank(proxyOwner);
             vm.expectRevert();
             MockImplementationWithState(address(proxy)).setValue(999);
 
-            vm.prank(actor);
+            vm.prank(proxyOwner);
             vm.expectRevert();
             MockImplementationWithState(address(proxy)).incrementValue();
         } else if (model == OwnershipModel.BaoOwnable_v2) {
-            vm.prank(actor);
+            vm.prank(proxyOwner);
             vm.expectRevert();
             MockImplementationWithState_v2(address(proxy)).setValue(999);
 
-            vm.prank(actor);
+            vm.prank(proxyOwner);
             vm.expectRevert();
             MockImplementationWithState_v2(address(proxy)).incrementValue();
         } else if (model == OwnershipModel.OZOwnable) {
-            vm.prank(actor);
+            vm.prank(proxyOwner);
             vm.expectRevert();
             MockImplementationOwnableUpgradeable(address(proxy)).setValue(999);
         }
@@ -444,7 +461,7 @@ contract StemParameterizedTest is Test {
 
         // 7. Wait for ownership transfer based on model
         if (model == OwnershipModel.BaoOwnable || model == OwnershipModel.BaoOwnable_v2) {
-            skip(TRANSFER_DELAY);
+            skip(STEM_TRANSFER_DELAY);
             assertEq(Stem(address(proxy)).owner(), emergencyOwner, "Stem ownership should transfer to emergency owner");
         }
     }
@@ -452,8 +469,8 @@ contract StemParameterizedTest is Test {
     /**
      * @dev Call postUpgradeSetup for any implementation
      */
-    function callPostUpgradeSetup(address proxy, OwnershipModel model, uint256 newValue, address actor) internal {
-        vm.startPrank(actor);
+    function callPostUpgradeSetup(address proxy, OwnershipModel model, uint256 newValue, address proxyOwner_) internal {
+        vm.startPrank(proxyOwner_);
         if (model == OwnershipModel.BaoOwnable) {
             MockImplementationWithState(proxy).postUpgradeSetup(newValue);
         } else if (model == OwnershipModel.BaoOwnable_v2) {
@@ -480,19 +497,20 @@ contract StemParameterizedTest is Test {
      */
     function testPostUpgradeSetup(OwnershipModel model) internal {
         // 1. Setup contract based on model
-        address impl = deployImplementation(model);
-        bytes memory initData = getInitData(model, proxyOwner, INITIAL_VALUE);
+        address impl = deployImplementation(model, proxyOwner);
+        bytes memory initData = getInitData(model, proxyOwner);
         ERC1967Proxy proxy = new ERC1967Proxy(impl, initData);
 
         // 2. Handle ownership setup
-        address actor = setupOwnership(address(proxy), model);
+        setupOwnership(address(proxy), model, proxyOwner);
 
         // 3. Verify initial state
         assertEq(getValue(address(proxy), model), INITIAL_VALUE, "Initial value should be set");
 
         // 4. Stem the contract
-        vm.prank(actor);
+        vm.startPrank(proxyOwner);
         UnsafeUpgrades.upgradeProxy(address(proxy), address(stemImplementation), "");
+        vm.stopPrank();
 
         // 5. Wait for ownership transfer if needed
         if (model == OwnershipModel.BaoOwnable || model == OwnershipModel.BaoOwnable_v2) {
@@ -500,10 +518,11 @@ contract StemParameterizedTest is Test {
         }
 
         // 6. Unstem to the same model
-        address newImpl = deployImplementation(model);
+        address newImpl = deployImplementation(model, proxyOwner);
 
-        vm.prank(emergencyOwner);
+        vm.startPrank(emergencyOwner);
         UnsafeUpgrades.upgradeProxy(address(proxy), newImpl, "");
+        vm.stopPrank();
 
         // 7. Use postUpgradeSetup to set a new value
         callPostUpgradeSetup(address(proxy), model, UPDATED_VALUE, emergencyOwner);
@@ -528,32 +547,33 @@ contract StemParameterizedTest is Test {
      */
     function testComplexStateTransfer(OwnershipModel model) internal {
         // 1. Setup initial contract
-        address impl = deployImplementation(model);
-        bytes memory initData = getInitData(model, proxyOwner, INITIAL_VALUE);
+        address impl = deployImplementation(model, proxyOwner);
+        bytes memory initData = getInitData(model, proxyOwner);
         ERC1967Proxy proxy = new ERC1967Proxy(impl, initData);
 
         // 2. Setup ownership
-        address actor = setupOwnership(address(proxy), model);
+        setupOwnership(address(proxy), model, proxyOwner);
 
         // 3. Make state changes if model supports it
         if (model == OwnershipModel.BaoOwnable) {
-            vm.prank(actor);
+            vm.prank(proxyOwner);
             MockImplementationWithState(address(proxy)).incrementValue();
             assertEq(getValue(address(proxy), model), INITIAL_VALUE + 1, "Value should be incremented");
         } else if (model == OwnershipModel.BaoOwnable_v2) {
-            vm.prank(actor);
+            vm.prank(proxyOwner);
             MockImplementationWithState_v2(address(proxy)).incrementValue();
             assertEq(getValue(address(proxy), model), INITIAL_VALUE + 1, "Value should be incremented");
         } else {
             // For OZ model, just set a new value
-            vm.prank(actor);
+            vm.prank(proxyOwner);
             MockImplementationOwnableUpgradeable(address(proxy)).setValue(INITIAL_VALUE + 1);
             assertEq(getValue(address(proxy), model), INITIAL_VALUE + 1, "Value should be updated");
         }
 
         // 4. Pause by upgrading to Stem
-        vm.prank(actor);
+        vm.startPrank(proxyOwner);
         UnsafeUpgrades.upgradeProxy(address(proxy), address(stemImplementation), "");
+        vm.stopPrank();
 
         // 5. Wait for ownership transfer if needed
         if (model == OwnershipModel.BaoOwnable || model == OwnershipModel.BaoOwnable_v2) {
@@ -561,10 +581,11 @@ contract StemParameterizedTest is Test {
         }
 
         // 6. Upgrade from Stem to same implementation type but new instance
-        address newImpl = deployImplementation(model);
+        address newImpl = deployImplementation(model, proxyOwner);
 
-        vm.prank(emergencyOwner);
+        vm.startPrank(emergencyOwner);
         UnsafeUpgrades.upgradeProxy(address(proxy), newImpl, "");
+        vm.stopPrank();
 
         // 7. Set up the new implementation after upgrade using postUpgradeSetup
         callPostUpgradeSetup(address(proxy), model, UPDATED_VALUE, emergencyOwner);
