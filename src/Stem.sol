@@ -95,15 +95,33 @@ contract Stem is UUPSUpgradeable, BaoCheckOwner_v2, ERC165 {
      * This function is called when no other function matches the call data.
      * It emits an event and reverts with a message indicating that the contract is stemmed.
      *
+     * Uses the StaticCall Detection Pattern to avoid emitting events during staticcalls.
+     *
      * Note: This function is not payable, so it cannot receive ether directly.
      */
-
     fallback() external {
-        bytes4 selector;
-        if (msg.data.length >= 4) {
-            selector = bytes4(msg.data[0:4]);
-        }
-        emit StemmedContractCalled(msg.sender, selector, msg.data); // Set value to 0
+        // bytes4 selector;
+        // if (msg.data.length >= 4) {
+        //     selector = bytes4(msg.data[0:4]);
+        // }
+
+        // // Detect if we're in a staticcall context
+        // bool isStaticCall;
+        // assembly {
+        //     // Try to determine if we're in a staticcall by checking the current context
+        //     isStaticCall := iszero(sstore(0x0, sload(0x0)))
+        // }
+
+        // // Only emit the event if not in a staticcall context
+        // if (!isStaticCall) {
+        //     emit StemmedContractCalled(msg.sender, selector, msg.data);
+        // }
         revert Stemmed("Contract is stemmed and all functions are disabled");
     }
+
+    // receive() external payable {
+    //     // Emit the event for ether transfers
+    //     // emit StemmedContractCalled(msg.sender, bytes4(0), msg.data);
+    //     revert Stemmed("Contract is stemmed and all functions are disabled");
+    // }
 }

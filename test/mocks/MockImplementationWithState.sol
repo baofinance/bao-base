@@ -4,12 +4,13 @@ pragma solidity ^0.8.28;
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {BaoOwnable} from "@bao/BaoOwnable.sol";
+import {IMockImplementation} from "../interfaces/IMockImplementation.sol";
 
 /**
  * @title MockImplementationWithState
  * @dev A mock implementation contract with state for testing upgrades
  */
-contract MockImplementationWithState is Initializable, UUPSUpgradeable, BaoOwnable {
+contract MockImplementationWithState is Initializable, UUPSUpgradeable, BaoOwnable, IMockImplementation {
     // EIP-7201: Storage struct and slot
     struct MockImplementationWithStateStorage {
         uint256 value;
@@ -69,4 +70,8 @@ contract MockImplementationWithState is Initializable, UUPSUpgradeable, BaoOwnab
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
+
+    function owner() public view virtual override(BaoOwnable, IMockImplementation) returns (address owner_) {
+        owner_ = BaoOwnable.owner();
+    }
 }

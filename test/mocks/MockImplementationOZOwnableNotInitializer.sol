@@ -6,10 +6,10 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 /**
- * @title MockImplementationOwnableUpgradeable
+ * @title MockImplementationOZOwnable
  * @dev A mock implementation using OZ OwnableUpgradeable instead of BaoOwnable
  */
-contract MockImplementationOwnableUpgradeableNotInitializer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
+contract MockImplementationOZOwnableNotInitializer is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     // EIP-7201: Storage struct and slot
     struct MockImplementationStorage {
         uint256 value;

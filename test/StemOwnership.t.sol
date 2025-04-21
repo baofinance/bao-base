@@ -10,7 +10,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 // Import ownership model implementations
 import {MockImplementationWithState} from "mocks/MockImplementationWithState.sol"; // BaoOwnable
 import {MockImplementationWithState_v2} from "mocks/MockImplementationWithState_v2.sol"; // BaoOwnable_v2
-import {MockImplementationOwnableUpgradeable} from "mocks/MockImplementationOwnableUpgradeable.sol"; // OZ Ownable
+import {MockImplementationOZOwnable} from "mocks/MockImplementationOZOwnable.sol"; // OZ Ownable
 
 contract StemOwnershipTest is Test {
     Stem public stemImplementation;
@@ -61,21 +61,21 @@ contract StemOwnershipTest is Test {
         assertEq(Stem(address(proxy)).owner(), emergencyOwner);
 
         // 3. Upgrade from Stem to OZ Ownable
-        MockImplementationOwnableUpgradeable ozImplementation = new MockImplementationOwnableUpgradeable();
+        MockImplementationOZOwnable ozImplementation = new MockImplementationOZOwnable();
 
         vm.prank(emergencyOwner);
         UnsafeUpgrades.upgradeProxy(
             address(proxy),
             address(ozImplementation),
             abi.encodeWithSelector(
-                MockImplementationOwnableUpgradeable.initialize.selector,
+                MockImplementationOZOwnable.initialize.selector,
                 emergencyOwner, // Owner
                 200 // New value
             )
         );
 
         // 4. Verify OZ Ownable works correctly
-        MockImplementationOwnableUpgradeable ozProxy = MockImplementationOwnableUpgradeable(address(proxy));
+        MockImplementationOZOwnable ozProxy = MockImplementationOZOwnable(address(proxy));
         assertEq(ozProxy.owner(), emergencyOwner);
         assertEq(ozProxy.value(), 200);
 
@@ -92,14 +92,14 @@ contract StemOwnershipTest is Test {
     // Test 2: OZ Ownable -> Stem -> BaoOwnable
     function testOZOwnable_to_Stem_to_BaoOwnable() public {
         // 1. Start with OZ Ownable
-        MockImplementationOwnableUpgradeable ozImplementation = new MockImplementationOwnableUpgradeable();
+        MockImplementationOZOwnable ozImplementation = new MockImplementationOZOwnable();
         bytes memory initData = abi.encodeWithSelector(
-            MockImplementationOwnableUpgradeable.initialize.selector,
+            MockImplementationOZOwnable.initialize.selector,
             proxyOwner, // Owner
             100 // Initial value
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(ozImplementation), initData);
-        MockImplementationOwnableUpgradeable ozProxy = MockImplementationOwnableUpgradeable(address(proxy));
+        MockImplementationOZOwnable ozProxy = MockImplementationOZOwnable(address(proxy));
 
         // Verify OZ ownership model
         assertEq(ozProxy.owner(), proxyOwner);
@@ -182,17 +182,17 @@ contract StemOwnershipTest is Test {
         UnsafeUpgrades.upgradeProxy(address(proxy), address(0x123), "");
 
         // 5. Emergency owner can upgrade to OZ Ownable
-        MockImplementationOwnableUpgradeable ozImplementation = new MockImplementationOwnableUpgradeable();
+        MockImplementationOZOwnable ozImplementation = new MockImplementationOZOwnable();
 
         vm.prank(emergencyOwner);
         UnsafeUpgrades.upgradeProxy(
             address(proxy),
             address(ozImplementation),
-            abi.encodeWithSelector(MockImplementationOwnableUpgradeable.initialize.selector, emergencyOwner, 200)
+            abi.encodeWithSelector(MockImplementationOZOwnable.initialize.selector, emergencyOwner, 200)
         );
 
         // 6. Verify new implementation works with emergency owner
-        MockImplementationOwnableUpgradeable ozProxy = MockImplementationOwnableUpgradeable(address(proxy));
+        MockImplementationOZOwnable ozProxy = MockImplementationOZOwnable(address(proxy));
         assertEq(ozProxy.owner(), emergencyOwner);
         assertEq(ozProxy.value(), 200);
     }
@@ -219,21 +219,21 @@ contract StemOwnershipTest is Test {
         assertEq(baoProxy.owner(), proxyOwner);
 
         // 2. Direct upgrade to OZ Ownable
-        MockImplementationOwnableUpgradeable ozImplementation = new MockImplementationOwnableUpgradeable();
+        MockImplementationOZOwnable ozImplementation = new MockImplementationOZOwnable();
 
         vm.prank(proxyOwner);
         UnsafeUpgrades.upgradeProxy(
             address(proxy),
             address(ozImplementation),
             abi.encodeWithSelector(
-                MockImplementationOwnableUpgradeable.initialize.selector,
+                MockImplementationOZOwnable.initialize.selector,
                 proxyOwner, // Keep same owner
                 100 // Keep same value
             )
         );
 
         // 3. Verify OZ Ownable works correctly
-        MockImplementationOwnableUpgradeable ozProxy = MockImplementationOwnableUpgradeable(address(proxy));
+        MockImplementationOZOwnable ozProxy = MockImplementationOZOwnable(address(proxy));
         assertEq(ozProxy.owner(), proxyOwner);
         assertEq(ozProxy.value(), 100);
     }

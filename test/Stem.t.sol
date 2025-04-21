@@ -63,7 +63,7 @@ contract StemTest is Test {
         // 3. Now the proxy points to Stem - verify specific stemmed behavior
 
         // First, verify implementation address changed
-        assertEq(UnsafeUpgrades.getImplementationAddress(address(proxy)), address(stemImplementation));
+        assertEq(UnsafeUpgrades.implementationAddress(address(proxy)), address(stemImplementation));
 
         // Now test that the stemmed function reverts with a specific pattern
         // No specific selector available - this should produce a function not found error
