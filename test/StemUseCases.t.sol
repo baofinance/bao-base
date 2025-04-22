@@ -270,7 +270,7 @@ contract StemUseCasesTest is Test {
      * @dev Test a specific ownership transition
      */
     function _testOwnershipTransition(IOwnershipModel source, IOwnershipModel target) internal {
-        (address proxy, address sourceImplementation) = _deploy(source, deployer, proxyOwner, INITIAL_VALUE);
+        (address proxy /* address sourceImplementation */, ) = _deploy(source, deployer, proxyOwner, INITIAL_VALUE);
 
         // _stemProxy(source, proxy, proxyOwner, emergencyOwner, address(stemImplementation));
 

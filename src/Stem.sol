@@ -4,7 +4,7 @@ pragma solidity 0.8.28;
 /***************************************************************
  *  THIS CODE IS UNDER DEVELOPMENT - DO NOT USE IN PRODUCTION  *
  ***************************************************************/
-import {IERC5313} from "@openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/interfaces/IERC5313.sol";
+import {IERC5313} from "@openzeppelin/contracts/interfaces/IERC5313.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ERC165} from "@bao/ERC165.sol";
 import {BaoCheckOwner_v2} from "@bao/internal/BaoCheckOwner_v2.sol";
@@ -28,7 +28,7 @@ import {BaoCheckOwner_v2} from "@bao/internal/BaoCheckOwner_v2.sol";
  * after which the given owner is the new owner.
  */
 // solhint-disable-next-line contract-name-camelcase
-contract Stem is UUPSUpgradeable, BaoCheckOwner_v2, ERC165, ERC5313 {
+contract Stem is UUPSUpgradeable, BaoCheckOwner_v2, ERC165, IERC5313 {
     /*//////////////////////////////////////////////////////////////////////////
                                   CONSTRUCTOR
     //////////////////////////////////////////////////////////////////////////*/

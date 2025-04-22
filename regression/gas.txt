@@ -5,6 +5,28 @@ lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/mock
 │ balanceOf       │      647 │  2647 │
 ╘═════════════════╧══════════╧═══════╛
 
+lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy
+╒═════════════════╤══════════╤═══════╕
+│ function name   │   median │   max │
+╞═════════════════╪══════════╪═══════╡
+│ fallback        │      915 │ 34944 │
+╘═════════════════╧══════════╧═══════╛
+
+src/Stem.sol:Stem
+╒═══════════════════════════╤══════════╤═══════╕
+│ function name             │   median │   max │
+╞═══════════════════════════╪══════════╪═══════╡
+│ UPGRADE_INTERFACE_VERSION │      457 │   457 │
+├───────────────────────────┼──────────┼───────┤
+│ fallback                  │      315 │   315 │
+├───────────────────────────┼──────────┼───────┤
+│ owner                     │      358 │   358 │
+├───────────────────────────┼──────────┼───────┤
+│ proxiableUUID             │      325 │   325 │
+├───────────────────────────┼──────────┼───────┤
+│ upgradeToAndCall          │     8909 │  8909 │
+╘═══════════════════════════╧══════════╧═══════╛
+
 test/BaoOwnable.t.sol:DerivedBaoOwnable
 ╒═══════════════════╤══════════╤═══════╕
 │ function name     │   median │   max │
@@ -67,7 +89,7 @@ test/BaoOwnableRoles.t.sol:DerivedBaoOwnableRoles
 │ transferOwnership     │    26463 │ 29091 │
 ╘═══════════════════════╧══════════╧═══════╛
 
-test/BaoOwnableRolesV2.t.sol:DerivedBaoOwnableRolesV2
+test/BaoOwnableRoles_v2.t.sol:DerivedBaoOwnableRoles_v2
 ╒═══════════════════════╤══════════╤═══════╕
 │ function name         │   median │   max │
 ╞═══════════════════════╪══════════╪═══════╡
@@ -164,7 +186,7 @@ test/BaoOwnableTransferrableRoles.t.sol:DerivedBaoOwnableTransferrableRoles
 │ validateOwnershipTransfer    │    27822 │ 27822 │
 ╘══════════════════════════════╧══════════╧═══════╛
 
-test/BaoOwnableV2.t.sol:DerivedBaoOwnableV2
+test/BaoOwnable_v2.t.sol:DerivedBaoOwnable_v2
 ╒═══════════════════╤══════════╤═══════╕
 │ function name     │   median │   max │
 ╞═══════════════════╪══════════╪═══════╡
@@ -229,3 +251,35 @@ test/TokenHolder.t.sol:DerivedTokenHolder
 ├─────────────────┼──────────┼───────┤
 │ sweep           │    32768 │ 60107 │
 ╘═════════════════╧══════════╧═══════╛
+
+test/adapters/BaoOwnableAdapter.sol:BaoOwnableAdapter
+╒══════════════════════╤══════════╤════════╕
+│ function name        │   median │    max │
+╞══════════════════════╪══════════╪════════╡
+│ deployImplementation │   635313 │ 683816 │
+├──────────────────────┼──────────┼────────┤
+│ deployProxy          │   190592 │ 195813 │
+├──────────────────────┼──────────┼────────┤
+│ unauthorizedSelector │      149 │    149 │
+├──────────────────────┼──────────┼────────┤
+│ upgrade              │    44262 │  46468 │
+╘══════════════════════╧══════════╧════════╛
+
+test/mocks/MockImplementationWithState.sol:MockImplementationWithState
+╒═══════════════════════════╤══════════╤═══════╕
+│ function name             │   median │   max │
+╞═══════════════════════════╪══════════╪═══════╡
+│ UPGRADE_INTERFACE_VERSION │      545 │   545 │
+├───────────────────────────┼──────────┼───────┤
+│ owner                     │      534 │   573 │
+├───────────────────────────┼──────────┼───────┤
+│ proxiableUUID             │      369 │   369 │
+├───────────────────────────┼──────────┼───────┤
+│ setValue                  │     6822 │  8859 │
+├───────────────────────────┼──────────┼───────┤
+│ transferOwnership         │     2683 │  2683 │
+├───────────────────────────┼──────────┼───────┤
+│ upgradeToAndCall          │    10981 │ 11065 │
+├───────────────────────────┼──────────┼───────┤
+│ value                     │      362 │   362 │
+╘═══════════════════════════╧══════════╧═══════╛
