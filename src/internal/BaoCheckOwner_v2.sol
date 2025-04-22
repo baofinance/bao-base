@@ -43,6 +43,8 @@ abstract contract BaoCheckOwner_v2 {
 
     // @inheritdoc IBaoOwnable
     function _owner() internal view virtual returns (address owner_) {
+        // check against the transfer time to see if it has happened
+        // slither-disable-next-line timestamp
         owner_ = (block.timestamp >= _OWNER_TRANSFER_AT) ? _OWNER_AT : _BEFORE_OWNER;
     }
 
