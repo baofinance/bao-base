@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+/***************************************************************
+ *  THIS CODE IS UNDER DEVELOPMENT - DO NOT USE IN PRODUCTION  *
+ ***************************************************************/
+
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import {BaoCheckOwner_v2} from "@bao/internal/BaoCheckOwner_v2.sol";
@@ -30,6 +34,7 @@ import {IBaoOwnable_v2} from "@bao/interfaces/IBaoOwnable_v2.sol";
 /// it also adds IRC165 interface query support
 /// @author rootminus0x1
 /// @dev Uses erc7201 storage
+// solhint-disable-next-line contract-name-camelcase
 abstract contract BaoOwnable_v2 is IBaoOwnable_v2, BaoCheckOwner_v2, ERC165 {
     /*//////////////////////////////////////////////////////////////////////////
                                CONSTRUCTOR/INITIALIZER

@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+/***************************************************************
+ *  THIS CODE IS UNDER DEVELOPMENT - DO NOT USE IN PRODUCTION  *
+ ***************************************************************/
+
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -25,7 +29,7 @@ import {BaoCheckOwner_v2} from "@bao/internal/BaoCheckOwner_v2.sol";
  * The deployer becomes the new owner (i.e. is returned from the owner() function) for a given time period,
  * after which the given owner is the new owner.
  */
-
+// solhint-disable-next-line contract-name-camelcase
 contract Stem is UUPSUpgradeable, BaoCheckOwner_v2, ERC165 {
     /*//////////////////////////////////////////////////////////////////////////
                                   CONSTRUCTOR

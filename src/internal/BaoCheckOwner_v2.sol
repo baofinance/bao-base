@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+/***************************************************************
+ *  THIS CODE IS UNDER DEVELOPMENT - DO NOT USE IN PRODUCTION  *
+ ***************************************************************/
+
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
 /// @title Bao Check Owner
@@ -8,6 +12,7 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 /// provides a modifier that throws if the caller is not the owner
 /// @author rootminus0x1 taken from Solady's Ownable contract (https://github.com/vectorized/solady/blob/main/src/auth/Ownable.sol)
 /// @dev Uses erc7201 storage
+// solhint-disable-next-line contract-name-camelcase
 abstract contract BaoCheckOwner_v2 {
     /*//////////////////////////////////////////////////////////////////////////
                                    INTERNAL DATA
