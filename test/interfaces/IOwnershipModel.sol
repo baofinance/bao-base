@@ -9,11 +9,17 @@ import {IMockImplementation} from "../interfaces/IMockImplementation.sol";
  * @dev Strategy Pattern: Defines common interface for all ownership models
  */
 interface IOwnershipModel {
-    function deploy(address initialOwner, uint256 initialValue) external;
-    function upgrade(address newOwner, uint256 newValue) external;
-    function deployImplementation(address initialOwner) external;
-    function upgradeTo(address implementation, uint256 newValue) external;
-    function implementation() external view returns (IMockImplementation);
-    function proxy() external view returns (IMockImplementation);
+    function deployImplementation(address prank, address initialOwner) external returns (address implementation);
+
+    function deployProxy(
+        address prank,
+        address implementation,
+        address initialOwner,
+        uint256 initialValue
+    ) external returns (address proxy);
+
+    function upgrade(address prank, address proxy, address implementation, uint256 newValue) external;
+    function upgrade(address prank, address proxy, address implementation) external;
+
     function unauthorizedSelector() external pure returns (bytes4);
 }

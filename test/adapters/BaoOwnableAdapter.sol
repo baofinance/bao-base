@@ -4,6 +4,8 @@ pragma solidity ^0.8.28;
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
+import {Test, console2} from "forge-std/Test.sol";
+
 import {IOwnershipModel} from "test/interfaces/IOwnershipModel.sol";
 import {MockImplementationWithState} from "test/mocks/MockImplementationWithState.sol";
 import {IMockImplementation} from "test/interfaces/IMockImplementation.sol";
@@ -14,48 +16,42 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
  * @notice Adapter for BaoOwnable ownership model
  * @dev Adapter Pattern: Provides access to implementation rather than mirroring its interface
  */
-contract BaoOwnableAdapter is IOwnershipModel {
-    address private _proxy;
-    MockImplementationWithState private _implementation;
-    address private _owner;
+contract BaoOwnableAdapter is IOwnershipModel, Test {
+    function deployImplementation(address prank, address /*initialOwner*/) external returns (address implementation) {
+        vm.startPrank(prank);
+        implementation = address(new MockImplementationWithState());
+        vm.stopPrank();
+    }
 
-    function deploy(address initialOwner, uint256 initialValue) external {
-        _owner = initialOwner;
-        _implementation = new MockImplementationWithState();
-
-        _proxy = UnsafeUpgrades.deployUUPSProxy(
-            address(_implementation),
+    function deployProxy(
+        address prank,
+        address implementation,
+        address initialOwner,
+        uint256 initialValue
+    ) external returns (address proxy) {
+        vm.startPrank(prank);
+        proxy = UnsafeUpgrades.deployUUPSProxy(
+            implementation,
             abi.encodeWithSelector(MockImplementationWithState.initialize.selector, initialOwner, initialValue)
         );
-
-        MockImplementationWithState(_proxy).transferOwnership(_owner);
+        MockImplementationWithState(proxy).transferOwnership(initialOwner);
+        vm.stopPrank();
     }
 
-
-    function upgrade(address newOwner, uint256 newValue) external {
-        _owner = newOwner;
-        _implementation = new MockImplementationWithState();
-
-        upgradeTo(_implementation, newOwner, newValue`) external {
-
-    }
-
-    function upgradeTo(address implementation, address newOwner, uint256 newValue`) external {
+    function upgrade(address prank, address proxy, address implementation, uint256 newValue) external {
+        vm.startPrank(prank);
         UnsafeUpgrades.upgradeProxy(
-            address(_proxy),
-            address(_implementation),
+            proxy,
+            implementation,
             abi.encodeWithSelector(MockImplementationWithState.postUpgradeSetup.selector, newValue)
         );
-
-        MockImplementationWithState(_proxy).transferOwnership(_owner);
+        vm.stopPrank();
     }
 
-    function implementation() external view returns (IMockImplementation) {
-        return _implementation;
-    }
-
-    function proxy() external view returns (IMockImplementation) {
-        return IMockImplementation(_proxy);
+    function upgrade(address prank, address proxy, address implementation) external {
+        vm.startPrank(prank);
+        UnsafeUpgrades.upgradeProxy(proxy, implementation, "");
+        vm.stopPrank();
     }
 
     function unauthorizedSelector() external pure returns (bytes4) {

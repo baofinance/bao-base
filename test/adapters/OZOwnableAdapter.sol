@@ -5,6 +5,8 @@ import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
+import {Test, console2} from "forge-std/Test.sol";
+
 import {IOwnershipModel} from "test/interfaces/IOwnershipModel.sol";
 import {MockImplementationOZOwnable} from "test/mocks/MockImplementationOZOwnable.sol";
 import {IMockImplementation} from "test/interfaces/IMockImplementation.sol";
@@ -14,39 +16,40 @@ import {IMockImplementation} from "test/interfaces/IMockImplementation.sol";
  * @notice Adapter for OZ's OwnableUpgradeable ownership model
  * @dev Adapter Pattern: Provides access to implementation rather than mirroring its interface
  */
-contract OZOwnableAdapter is IOwnershipModel {
-    address private _proxy;
-    MockImplementationOZOwnable private _implementation;
-    address private _owner;
+contract OZOwnableAdapter is IOwnershipModel, Test {
+    function deployImplementation(address prank, address /*initialOwner*/) external returns (address implementation) {
+        vm.startPrank(prank);
+        implementation = address(new MockImplementationOZOwnable());
+        vm.stopPrank();
+    }
 
-    function deploy(address initialOwner, uint256 initialValue) external {
-        _owner = initialOwner;
-        _implementation = new MockImplementationOZOwnable();
-
-        _proxy = UnsafeUpgrades.deployUUPSProxy(
-            address(_implementation),
+    function deployProxy(
+        address prank,
+        address implementation,
+        address initialOwner,
+        uint256 initialValue
+    ) external returns (address proxy) {
+        vm.startPrank(prank);
+        proxy = UnsafeUpgrades.deployUUPSProxy(
+            address(implementation),
             abi.encodeWithSelector(MockImplementationOZOwnable.initialize.selector, initialOwner, initialValue)
         );
+        vm.stopPrank();
     }
-
-    // this doesn't prank - that's the job of the test
-    function upgrade(address newOwner, uint256 newValue) external {
-        _owner = newOwner;
-        _implementation = new MockImplementationOZOwnable();
-
+    function upgrade(address prank, address proxy, address implementation, uint256 newValue) external {
+        vm.startPrank(prank);
         UnsafeUpgrades.upgradeProxy(
-            address(_proxy),
-            address(_implementation),
+            address(proxy),
+            address(implementation),
             abi.encodeWithSelector(MockImplementationOZOwnable.postUpgradeSetup.selector, newValue)
         );
+        vm.stopPrank();
     }
 
-    function implementation() external view returns (IMockImplementation) {
-        return _implementation;
-    }
-
-    function proxy() external view returns (IMockImplementation) {
-        return IMockImplementation(_proxy);
+    function upgrade(address prank, address proxy, address implementation) external {
+        vm.startPrank(prank);
+        UnsafeUpgrades.upgradeProxy(proxy, implementation, "");
+        vm.stopPrank();
     }
 
     function unauthorizedSelector() external pure returns (bytes4) {
