@@ -12,6 +12,8 @@ library Deployed {
     address public constant BaoUSD = 0x7945b0A6674b175695e5d1D08aE1e6F13744Abb0;
     address public constant BaoETH = 0xf4edfad26EE0D23B69CA93112eccE52704E0006f;
     address public constant stETH = 0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84;
+    address public constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+    address public constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
 
     address public constant PriceOracle_wstETHUSD = 0x97541208c6C8ecfbe57B8A44ba86f2A88bA783e2;
 }
