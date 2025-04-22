@@ -14,22 +14,18 @@ import {IBaoOwnable_v2} from "@bao/interfaces/IBaoOwnable_v2.sol";
 /// @title Bao Ownable
 /// @dev Note:
 /// This implementation auto-initialises the owner to `msg.sender`.
-/// You MUST call the `_initializeOwner` in the constructor / initializer of the deriving contract.
+/// Initialisation is done completely in the constructor, initialising an immutable owner
 ///
 /// BaoOwnable enforces a one-time transfer from the initial deployer to the pending owner
-/// This transfer must occur within 1 hour of initialization
+/// This transfer occurs automatically exactly (or within a few seconds, of) 1 hour after deployment
 /// Once transferred, ownership cannot be transferred again through BaoOwnable's mechanism
 ///
 /// This initialization sets the owner to `msg.sender`, not to the passed 'finalOwner' parameter.
-/// The contract deployer can now act as owner then 'transferOwnership' once complete.
+/// The contract deployer can now act as owner within a 1 hour time period.
 ///
-/// This contract follows [EIP-173](https://eips.ethereum.org/EIPS/eip-173) for compatibility,
-/// however the transferOwnership function can only be called once and then, only by the caller that calls
-/// initializeOwner, and then only within 1 hour
-///
-/// Multiple initialisations are not allowed, to ensure this we make a separate check for a previously set owner
-/// including to address(0).
-/// This ensures that the initializeOwner, an otherwise unprotected function, cannot be called twice.
+/// This contract follows [IERC5313] for ownership query
+/// There is also  a nod and a wink toward [EIP-173](https://eips.ethereum.org/EIPS/eip-173) for compatibility,
+//  however there is no transferOwnership function.
 ///
 /// it also adds IRC165 interface query support
 /// @author rootminus0x1
