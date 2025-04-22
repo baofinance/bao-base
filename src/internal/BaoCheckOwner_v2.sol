@@ -18,20 +18,20 @@ abstract contract BaoCheckOwner_v2 {
                                    INTERNAL DATA
     //////////////////////////////////////////////////////////////////////////*/
 
-    address private immutable _beforeOwner;
-    uint256 private immutable _ownerTransfersAt;
-    address private immutable _ownerAt;
+    address private immutable _BEFORE_OWNER;
+    uint256 private immutable _OWNER_TRANSFER_AT;
+    address private immutable _OWNER_AT;
 
     /*//////////////////////////////////////////////////////////////////////////
                                  INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
     constructor(address delayedOwner, uint256 delay) {
-        _beforeOwner = msg.sender;
-        _ownerTransfersAt = block.timestamp + delay;
-        _ownerAt = delayedOwner;
-        emit IBaoOwnable.OwnershipTransferred(address(0), _beforeOwner);
-        emit IBaoOwnable.OwnershipTransferred(_beforeOwner, _ownerAt);
+        _BEFORE_OWNER = msg.sender;
+        _OWNER_TRANSFER_AT = block.timestamp + delay;
+        _OWNER_AT = delayedOwner;
+        emit IBaoOwnable.OwnershipTransferred(address(0), _BEFORE_OWNER);
+        emit IBaoOwnable.OwnershipTransferred(_BEFORE_OWNER, _OWNER_AT);
     }
 
     /// @dev Throws if the sender is not the owner.
@@ -43,7 +43,7 @@ abstract contract BaoCheckOwner_v2 {
 
     // @inheritdoc IBaoOwnable
     function _owner() internal view virtual returns (address owner_) {
-        owner_ = (block.timestamp >= _ownerTransfersAt) ? _ownerAt : _beforeOwner;
+        owner_ = (block.timestamp >= _OWNER_TRANSFER_AT) ? _OWNER_AT : _BEFORE_OWNER;
     }
 
     /*//////////////////////////////////////////////////////////////////////////
