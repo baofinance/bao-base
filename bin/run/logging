@@ -19,7 +19,8 @@ first_free_fd() {
     echo $((prev + 1))
 }
 
-export LOGGING_FILE_DESCRIPTOR=${LOGGING_FILE_DESCRIPTOR:-8}
+# set the file descriptor for logging this must be 2 or it interferes with anvil (go figure)
+export LOGGING_FILE_DESCRIPTOR=${LOGGING_FILE_DESCRIPTOR:-2}
 # redirect this to stdout, so it's stdout but functions can log but not affect their output
 # who said bash was a good idea?
 # exec 8> >(stdbuf -o0 cat)
@@ -84,7 +85,8 @@ _output() {
     fi
     # format the message
     local format
-    format=$(printf "%-6s" "$type")
+    format=$(printf "%-5s " "$type")
+    # indentation is   ^ ^ always have a separating space
     if [[ -v DEBUG ]]; then
         # if DEBUG is defined at all, we print script info
         format+=" ${BASH_SOURCE[2]}:${BASH_LINENO[1]}"
@@ -120,10 +122,15 @@ error() {
 # Usage: info <level> <message>
 info() {
     local required_level=$1
-    local message=$2
-
+    shift
     if [[ ${BAO_BASE_VERBOSITY:-0} -ge $required_level ]]; then
-        _output "INFO $required_level " "$message"
+      local tag
+      if [[ "$required_level" -gt 0 ]]; then
+          tag="INFO$required_level"
+      else
+          tag="INFO"
+      fi
+      _output "$tag" "$*"
     fi
 }
 
