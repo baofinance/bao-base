@@ -28,17 +28,25 @@ os_version="ubuntu-latest" # TODO: read this from the BAO_BASE_OS_* variables
 workflow="foundry"
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --workflow)
+    --workflow|-w)
       workflow=$2
       shift 2
       ;;
-    --foundry)
+    --foundry|-f)
       foundry_version=$2
       shift 2
       ;;
-    --os)
+    --os|-o)
       os_version=$2
       shift 2
+      ;;
+    --help|-h)
+      echo "Usage: $0 [--workflow <workflow>] [--foundry <version>] [--os <os_version>] [<args>]"
+      echo " -w --workflow <workflow>   Specify the workflow to run (default: foundry)"
+      echo " -f --foundry <version>     Specify the Foundry version (default: stable)"
+      echo " -o --os <os_version>       Specify the OS version (default: ubuntu-latest)"
+      echo " -h --help                  Show this help message"
+      exit 0
       ;;
     *) break ;;
   esac

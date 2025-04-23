@@ -57,10 +57,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@solidity-parser/parser@npm:^0.18.0":
-  version: 0.18.0
-  resolution: "@solidity-parser/parser@npm:0.18.0"
-  checksum: 10/3b600b584f49bd84d6d27aeeb453c49c279df49324e104bda00d12cd3b26f18cb6230ff63db6a0ba1f383868620d318b15b7417a92aa8c580099449adaa13d76
+"@solidity-parser/parser@npm:^0.19.0":
+  version: 0.19.0
+  resolution: "@solidity-parser/parser@npm:0.19.0"
+  checksum: 10/2136708ecc988b534efcf836e95f4f02a1452ab0c026438014c35ce31b26dc011cc8c512d502fc7bcb968f850ab7e524838292bc36cad6a144fedb4c29685587
   languageName: node
   linkType: hard
 
@@ -160,11 +160,31 @@ __metadata:
   resolution: "bao-base@workspace:."
   dependencies:
     bats: "npm:^1.11.1"
-    prettier: "npm:^3.4.2"
-    prettier-plugin-solidity: "npm:^1.4.1"
-    solhint: "npm:^5.0.3"
+    bats-assert: "npm:^2.0.0"
+    bats-support: "npm:^0.3.0"
+    prettier: "npm:^3.5.3"
+    prettier-plugin-solidity: "npm:^1.4.2"
+    solhint: "npm:^5.0.5"
   languageName: unknown
   linkType: soft
+
+"bats-assert@npm:^2.0.0":
+  version: 2.0.0
+  resolution: "bats-assert@npm:2.0.0"
+  peerDependencies:
+    bats-support: "*"
+  checksum: 10/d2542c8118c5f7a59b692d431f63bf44bce633b0828e178b8eda3a2a12d366d80ed7e8ae459f6b2f4128546c7bec67bbd1a547c8284c6cc2ad4101953f94af2a
+  languageName: node
+  linkType: hard
+
+"bats-support@npm:^0.3.0":
+  version: 0.3.0
+  resolution: "bats-support@npm:0.3.0"
+  peerDependencies:
+    bats: 0.4 || ^1
+  checksum: 10/985d041c3d00d49364d5fcbf1e7251bbf6852191c365115ffca768311d8360b790a1418cf7bf249ce316ba892790452b9f0d92d025ce99125176064e606c8173
+  languageName: node
+  linkType: hard
 
 "bats@npm:^1.11.1":
   version: 1.11.1
@@ -678,15 +698,15 @@ __metadata:
   languageName: node
   linkType: hard
 
-"prettier-plugin-solidity@npm:^1.4.1":
-  version: 1.4.1
-  resolution: "prettier-plugin-solidity@npm:1.4.1"
+"prettier-plugin-solidity@npm:^1.4.2":
+  version: 1.4.2
+  resolution: "prettier-plugin-solidity@npm:1.4.2"
   dependencies:
-    "@solidity-parser/parser": "npm:^0.18.0"
-    semver: "npm:^7.5.4"
+    "@solidity-parser/parser": "npm:^0.19.0"
+    semver: "npm:^7.6.3"
   peerDependencies:
     prettier: ">=2.3.0"
-  checksum: 10/8bd0b20cd1a0973bfdbb4e035d5dae9ff229a7f6475c4e31e99b85d74f77625c0a874835df23e51d36750139aa2e5c5d900a366d1cdff16edfe52b3550b7e2da
+  checksum: 10/5f4ca400275c860bbca7ba3ee316682bec04a760a816e903f6a528acc61ef3d2eda9a81edb7e38449b79196d2946db44424fbab78944d2e8bb32f8fed31363bc
   languageName: node
   linkType: hard
 
@@ -699,12 +719,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"prettier@npm:^3.4.2":
-  version: 3.4.2
-  resolution: "prettier@npm:3.4.2"
+"prettier@npm:^3.5.3":
+  version: 3.5.3
+  resolution: "prettier@npm:3.5.3"
   bin:
     prettier: bin/prettier.cjs
-  checksum: 10/a3e806fb0b635818964d472d35d27e21a4e17150c679047f5501e1f23bd4aa806adf660f0c0d35214a210d5d440da6896c2e86156da55f221a57938278dc326e
+  checksum: 10/7050c08f674d9e49fbd9a4c008291d0715471f64e94cc5e4b01729affce221dfc6875c8de7e66b728c64abc9352eefb7eaae071b5f79d30081be207b53774b78
   languageName: node
   linkType: hard
 
@@ -791,12 +811,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"semver@npm:^7.3.7, semver@npm:^7.5.2, semver@npm:^7.5.4":
+"semver@npm:^7.3.7, semver@npm:^7.5.2":
   version: 7.6.3
   resolution: "semver@npm:7.6.3"
   bin:
     semver: bin/semver.js
   checksum: 10/36b1fbe1a2b6f873559cd57b238f1094a053dbfd997ceeb8757d79d1d2089c56d1321b9f1069ce263dc64cfa922fa1d2ad566b39426fe1ac6c723c1487589e10
+  languageName: node
+  linkType: hard
+
+"semver@npm:^7.6.3":
+  version: 7.7.1
+  resolution: "semver@npm:7.7.1"
+  bin:
+    semver: bin/semver.js
+  checksum: 10/4cfa1eb91ef3751e20fc52e47a935a0118d56d6f15a837ab814da0c150778ba2ca4f1a4d9068b33070ea4273629e615066664c2cfcd7c272caf7a8a0f6518b2c
   languageName: node
   linkType: hard
 
@@ -811,11 +840,11 @@ __metadata:
   languageName: node
   linkType: hard
 
-"solhint@npm:^5.0.3":
-  version: 5.0.3
-  resolution: "solhint@npm:5.0.3"
+"solhint@npm:^5.0.5":
+  version: 5.0.5
+  resolution: "solhint@npm:5.0.5"
   dependencies:
-    "@solidity-parser/parser": "npm:^0.18.0"
+    "@solidity-parser/parser": "npm:^0.19.0"
     ajv: "npm:^6.12.6"
     antlr4: "npm:^4.13.1-patch-1"
     ast-parents: "npm:^0.0.1"
@@ -839,7 +868,7 @@ __metadata:
       optional: true
   bin:
     solhint: solhint.js
-  checksum: 10/87bc03fce019a3b3443a37a1bdaaabcec9a19730175d306b1c21109dcc612a520eb710ab746850505494b509156dd3bcf21d77fdb176abd57d4d4e6ca76cd85e
+  checksum: 10/07cce3796e0123fda1e27bb0f81fb94290fb0d4bddc703a10236c81403a3a09fe1bfcbf37c583590778509546b92d43c0799456b4ae9dd183233fd8fe6e88554
   languageName: node
   linkType: hard
 

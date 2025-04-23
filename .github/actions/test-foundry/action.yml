@@ -44,7 +44,13 @@ runs:
       run: |
         yarn
 
-    - name: Run Prettier & Solhint
+    - name: Run Prettier
+      shell: bash
+      run: |
+        yarn prettier --check
+      id: prettier
+
+    - name: Run Solhint
       shell: bash
       run: |
         yarn lint
@@ -60,7 +66,7 @@ runs:
       shell: bash
       run: |
         yarn sizes
-      id: build
+      id: sizes
 
     - name: Run Forge tests
       shell: bash
@@ -68,11 +74,22 @@ runs:
         echo MAINNET_RPC_URL: $MAINNET_RPC_URL
         echo DEFAULT_MAINNET_RPC_URL: $DEFAULT_MAINNET_RPC_URL
         yarn test
-        yarn coverage
-        yarn gas
       id: test
+
+    - name: Run Forge tests - coverage
+      shell: bash
+      run: |
+        yarn coverage
+      id: coverage
+
+    - name: Run Forge tests - gas
+      shell: bash
+      run: |
+        yarn gas
+      id: gas
 
     - name: Check for changed repo files
       shell: bash
       run: |
         yarn git-diffs
+      id: git-diffs
