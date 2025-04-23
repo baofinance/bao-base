@@ -39,11 +39,6 @@ VENV_PYTHON_PATH="$VENV_DIR/$(python_exe_in_env)"
 VENV_ACTIVATE_PATH="$VENV_DIR/$(activate_script_in_env)"
 UV_BIN="$UV_DIR/$(uv_exe_name)"
 
-# check if everything is in place (if not we make it so later)
-debug "VENV_PYTHON_PATH:" $(ls -la "$VENV_PYTHON_PATH" || true)
-debug "VENV_ACTIVATE_PATH:" $(ls -la "$VENV_ACTIVATE_PATH" || true)
-debug "UV_BIN:" $(ls -la "$UV_BIN" || true)
-
 # get verbosity flags for UV based on BAO_BASE_VERBOSITY
 if [[ $BAO_BASE_VERBOSITY -lt 0 ]]; then
   UV_FLAGS="-qq --no-progress" # Quiet mode
