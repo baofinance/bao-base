@@ -1,3 +1,7 @@
 {
-  "action": "workflow_dispatch"
+  "action": "workflow_dispatch",
+  "inputs": {
+    "os": "$OS_VERSION",
+    "foundry": "$FOUNDRY_VERSION"
+  }
 }

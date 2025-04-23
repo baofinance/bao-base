@@ -1,4 +1,4 @@
-name: Local CI
+name: Local CI scripting
 
 on:
   workflow_dispatch:
@@ -25,6 +25,6 @@ jobs:
           submodules: recursive
 
       - name: Run Bao-base CI actions
-        uses: $BAO_BASE/.github/actions/test-foundry
+        uses: $BAO_BASE_DIR_REL/.github/actions/test-scripting
         with:
           foundry: ${{ inputs.foundry }}

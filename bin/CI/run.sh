@@ -1,18 +1,82 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-THIS=$(basename "$0" | cut -d. -f1)
+dep_dir=$(dirname "$0")
+
+# Cleanup function for temporary files
+cleanup() {
+    local exit_code=$?
+    # Check if temp_dir exists and is not empty
+    if [[ -n "${temp_dir:-}" && -d "$temp_dir" ]]; then
+        echo "Cleaning up temporary directory: $temp_dir"
+        rm -rf "$temp_dir"
+    fi
+
+    # Output error message if script failed
+    if [[ $exit_code -ne 0 ]]; then
+        echo "Error: Script exited with status $exit_code" >&2
+    fi
+
+    exit $exit_code
+}
+
+# Trap signals for cleanup
+trap cleanup EXIT INT TERM
+
+foundry_version="stable"
+os_version="ubuntu-latest" # TODO: read this from the BAO_BASE_OS_* variables
+workflow="foundry"
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --workflow)
+            workflow=$2
+            shift 2
+            ;;
+        --foundry)
+            foundry_version=$2
+            shift 2
+            ;;
+        --os)
+            os_version=$2
+            shift 2
+            ;;
+        *) break ;;
+    esac
+done
+
+echo "Running CI for $foundry_version foundry on $os_version"
+
+temp_dir=$(create_temp_dir)
+echo "Created temporary directory: $temp_dir"
+
+workflow_template_file="$dep_dir/local_test_${workflow}.yml"
+workflow_file="$temp_dir/local_test_${workflow}_${os_version}_${foundry_version}.yml"
+event_template_file="$dep_dir/workflow_dispatch.json"
+event_file="$temp_dir/workflow_dispatch_${os_version}_${foundry_version}.json"
+
+echo "replacing \$OS_VERSION with '$os_version' and \$FOUNDY_VERSION with '$foundry_version' in $event_template_file"
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
-DEP_DIR="$BAO_BASE_BIN_DIR/CI"
+sed "s|\$OS_VERSION|$os_version|g" "$event_template_file" | sed "s|\$FOUNDRY_VERSION|$foundry_version|g" > "$event_file"
 
-EVENT=$DEP_DIR/ubuntu_workflow_dispatch_current.json
-WORKFLOW_FILE=local-test-foundry.yml
-WORKFLOW_DIR=./cache
-
-mkdir -p $WORKFLOW_DIR
-echo "replacing \$BAO_BASE with ./$BAO_BASE"
+echo "replacing \$BAO_BASE_DIR_REL with './$BAO_BASE_DIR_REL' in $workflow_file"
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
-sed "s|\$BAO_BASE|./$BAO_BASE|g" "$DEP_DIR/$WORKFLOW_FILE" > "$WORKFLOW_DIR/$WORKFLOW_FILE"
+sed "s|\$BAO_BASE_DIR_REL|./$BAO_BASE_DIR_REL|g" "$workflow_template_file" > "$workflow_file"
 
-echo act -P ubuntu-latest=-self-hosted -W $WORKFLOW_DIR/$WORKFLOW_FILE -e "$EVENT" "$@"
-$BAO_BASE_BIN_DIR/act -P ubuntu-latest=-self-hosted -W $WORKFLOW_DIR/$WORKFLOW_FILE -e "$EVENT" "$@"
+if [[ ! -x "$BAO_BASE_TOOLS_DIR/act/act" ]]; then
+    info 0 "installing act..."
+    mkdir -p "$BAO_BASE_TOOLS_DIR/act"
+    if [[ "$BAO_BASE_OS" == "linux" ]]; then
+        curl https://raw.githubusercontent.com/nektos/act/master/install.sh | bash -s -- -b "$BAO_BASE_TOOLS_DIR/act"
+        if [[ ! -x "$BAO_BASE_TOOLS_DIR/act/act" ]]; then
+            echo "act installation failed"
+            exit 1
+        fi
+    elif [[ "$BAO_BASE_OS" == "macos" ]]; then
+        brew install act
+    else
+        echo "operating system not supported yet"
+    fi
+fi
+
+echo act -P ubuntu-latest=-self-hosted -W "$workflow_file" -e "$event_file" "$@"
+$BAO_BASE_TOOLS_DIR/act/act -P ubuntu-latest=-self-hosted -W "$workflow_file" -e "$event_file" "$@"
