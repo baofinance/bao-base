@@ -1,65 +1,333 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# poetry is installed here
-NEW_PATH="$HOME/.local/bin"
-if [[ ":$PATH:" != *":$NEW_PATH:"* ]]; then
-  export PATH="$PATH:$NEW_PATH"
-  debug "Added $NEW_PATH to PATH"
-fi
+# assumed environment variables - also keeps shellcheck happy
+BAO_BASE_BIN_DIR=$BAO_BASE_BIN_DIR
+BAO_BASE_DIR=$BAO_BASE_DIR
+BAO_BASE_OS=$BAO_BASE_OS
+BAO_BASE_VERBOSITY=$BAO_BASE_VERBOSITY
 
-# Set the path to the Poetry project and the target script
-SCRIPT="$1"; shift
+source "$BAO_BASE_BIN_DIR/platform-utils.sh"
+
+# Set the path to the script
+SCRIPT="$1"
+shift
 debug "Script to run: $SCRIPT"
 debug "Arguments: $*"
+debug "Verbosity level: $BAO_BASE_VERBOSITY"
 
-# Step 1: Install dependencies using Poetry
+# Set up directories
 DEPENDENCIES_DIR="$BAO_BASE_BIN_DIR/$SCRIPT"
 if [ ! -d "$DEPENDENCIES_DIR" ]; then
-    debug "No dedicated directory for $SCRIPT, using global dependencies directory"
     DEPENDENCIES_DIR="$BAO_BASE_BIN_DIR"
 fi
-
 debug "Dependencies directory: $DEPENDENCIES_DIR"
 
-# Ensure Poetry is installed
-if ! command -v poetry &> /dev/null; then
-    echo "error: Poetry is not installed. Please install Poetry and try again."
+# Local directories for tools and environments
+UV_DIR="$BAO_BASE_TOOLS_DIR/uv"
+PYTHON_DIR="$BAO_BASE_TOOLS_DIR/python"
+VENV_DIR="$DEPENDENCIES_DIR/.venv"
+
+mkdir -p "$BAO_BASE_TOOLS_DIR" "$UV_DIR" "$PYTHON_DIR"
+
+# Set environment variables to control UV installation paths
+export UV_CACHE_DIR="$BAO_BASE_TOOLS_DIR/uv-cache"
+export UV_PYTHON_PATH="$PYTHON_DIR"
+mkdir -p "$UV_CACHE_DIR"
+
+# Define virtual environment paths based on OS
+mapfile -t python_paths < <(get_python_paths "$VENV_DIR" | tr ':' '\n')
+VENV_PYTHON_PATH="${python_paths[0]}"
+VENV_ACTIVATE_PATH="${python_paths[1]}"
+
+# Set UV binary name based on OS
+if [[ "$BAO_BASE_OS" == "windows" ]]; then
+    UV_BIN="$UV_DIR/uv.exe"
+else
+    UV_BIN="$UV_DIR/uv"
+fi
+
+debug "Virtual environment Python path: $VENV_PYTHON_PATH"
+debug "Virtual environment activation script: $VENV_ACTIVATE_PATH"
+
+# get appropriate verbosity flags for UV based on BAO_BASE_VERBOSITY
+if [[ $BAO_BASE_VERBOSITY -lt 0 ]]; then
+    UV_FLAGS="-qq --no-progress" # Quiet mode
+else
+    case "$BAO_BASE_VERBOSITY" in
+        0) UV_FLAGS="-qq" ;;
+        1) UV_FLAGS="-q" ;;
+        2) UV_FLAGS="" ;;
+        *) UV_FLAGS="--verbose" ;;
+    esac
+fi
+debug "Using UV flags: $UV_FLAGS"
+
+# Install uv locally
+# Check if uv is already installed
+if [[ ! -x "$UV_BIN" ]]; then
+    debug "Installing uv to $UV_DIR"
+
+    # Create temp directory safely across platforms
+    temp_script=$(create_temp_file "uvinstall")
+    temp_install_dir=$(create_temp_dir "uvinstalldir")
+    debug "Created temp dir: $temp_install_dir"
+
+    debug "Created temp script: $temp_script"
+    curl -fsSL https://astral.sh/uv/install.sh -o "$temp_script" || {
+        error "Failed to download uv install script"
+        exit 1
+    }
+    make_executable "$temp_script"
+
+    # Install uv to a temporary directory - redirect output on Windows
+    debug "Installing uv to temp directory: $temp_install_dir"
+    capture_output "CARGO_HOME='$temp_install_dir/cargo' RUSTUP_HOME='$temp_install_dir/rustup' UV_INSTALL_DIR='$temp_install_dir/bin' NO_MODIFY_PATH=1 '$temp_script'" true || {
+        error "Failed to run uv install script"
+        exit 1
+    }
+
+    # Copy UV to final location with proper name based on OS
+    if [[ "$BAO_BASE_OS" == "windows" ]]; then
+        if [[ -f "$temp_install_dir/bin/uv.exe" ]]; then
+            cp "$temp_install_dir/bin/uv.exe" "$UV_DIR/"
+        else
+            error "Failed to find uv.exe in temporary installation directory"
+            ls -la "$temp_install_dir/bin" || true
+            exit 1
+        fi
+    else
+        cp "$temp_install_dir/bin/uv" "$UV_DIR/"
+    fi
+
+    rm -rf "$temp_install_dir" "$temp_script"
+    debug "uv installed successfully to: $UV_BIN"
+fi
+
+debug "Using uv at: $UV_BIN"
+
+# Check for pyproject.toml
+PYPROJECT_TOML="$DEPENDENCIES_DIR/pyproject.toml"
+if [[ ! -f "$PYPROJECT_TOML" ]]; then
+    error "No pyproject.toml found at $PYPROJECT_TOML"
+    echo "Please create a pyproject.toml file with Python version constraints and dependencies."
+    echo "Example:"
+    echo "[project]"
+    echo "requires-python = \">=3.9,<3.14\""
+    echo ""
+    echo "[project.dependencies]"
+    echo "pandas = \"~=2.2.3\""
+    echo "tabulate = \"~=0.9.0\""
     exit 1
 fi
 
-# set up the poetry config
-export POETRY_VIRTUALENVS_OPTIONS_NO_PIP=true
-export POETRY_NO_INTERACTION=1
-debug "Poetry environment variables set"
+debug "Found pyproject.toml file at $PYPROJECT_TOML"
 
-# get round any python version constraints
-debug "Installing global dependencies"
-{
-    poetry install --no-root --directory "$BAO_BASE_BIN_DIR" 2>&3 | grep -i " - Installing" >&2 || true
-} 3>&2
+# Generate hash for pyproject.toml
+PYPROJECT_TOML_HASH=$(calculate_hash "$PYPROJECT_TOML")
+debug "Generated hash for pyproject.toml: $PYPROJECT_TOML_HASH"
 
-debug "Determining Python version for $DEPENDENCIES_DIR"
-pyversion=$(poetry run --directory "$BAO_BASE_BIN_DIR" python "$BAO_BASE_BIN_DIR/matching-python.py" --directory="$DEPENDENCIES_DIR") || exit $?
-debug "Selected Python version: $pyversion"
+# Check for existing .python-version and uv.lock
+PYTHON_VERSION_LOCK="$DEPENDENCIES_DIR/.python-version"
+UV_LOCK="$DEPENDENCIES_DIR/uv.lock"
 
-if [[ -n "$pyversion" ]]; then
-    debug "Setting Python version for Poetry environment"
-    poetry --directory "$DEPENDENCIES_DIR" env use "$pyversion" > /dev/null
+# Function to check if files exist and have valid hashes
+validate_lock() {
+    local lock_file="$1"
+
+    # Check if both files exist
+    if [[ ! -f "$lock_file" ]]; then
+        info 0 "$lock_file does not exist."
+        return 1
+    fi
+
+    local lock_hash
+    lock_hash=$(grep -E "^# HASH:[a-f0-9]{64}$" "$lock_file" | head -1 | cut -d':' -f2)
+    if [[ -z "$lock_hash" ]]; then
+        info 0 "No hash found in $lock_file."
+        return 1
+    fi
+
+    # Check if hashes match
+    if [[ "$lock_hash" != "$PYPROJECT_TOML_HASH" ]]; then
+        info 0 "$lock_file out of date (hash mismatched)."
+        debug "Hash mismatch:"
+        debug "$PYPROJECT_TOML: $PYPROJECT_TOML_HASH"
+        debug "Lock file: $lock_hash"
+        return 1
+    fi
+
+    debug "Lock files exist with matching hashes"
+    return 0
+}
+
+# Check if both files exist and have matching hashes
+# first the python version
+# as a side-effect we create the env, with the right version
+if ! validate_lock "$PYTHON_VERSION_LOCK"; then
+    debug "Need to regenerate lock file $PYTHON_VERSION_LOCK"
+
+    # Extract requires-python value from pyproject.toml using a simple grep pattern
+    # This works for basic cases, but might need improvement for complex formatting
+    PYTHON_CONSTRAINT=$(grep -E 'requires-python\s*=\s*"[^"]+"' "$PYPROJECT_TOML" | sed 's/.*"\(.*\)".*/\1/')
+    if [[ -z "$PYTHON_CONSTRAINT" ]]; then
+        debug "No requires-python constraint found in $PYPROJECT_TOML, using '3' (i.e. the latest version)"
+        PYTHON_CONSTRAINT="3"
+    fi
+    debug "Using Python constraint: $PYTHON_CONSTRAINT"
+
+    # Clean up old files if they exist
+    [[ -f "$PYTHON_VERSION_LOCK" ]] && rm "$PYTHON_VERSION_LOCK"
+    [[ -f "$UV_LOCK" ]] && rm "$UV_LOCK"
+
+    # Make sure any previous virtual environment is removed first
+    if [[ -d "$VENV_DIR" ]]; then
+        debug "Removing existing virtual environment at $VENV_DIR"
+        rm -rf "$VENV_DIR"
+    fi
+
+    # Create virtual environment with specified Python version using uv env
+    debug "Creating environment with Python constraint: $PYTHON_CONSTRAINT"
+    "$UV_BIN" $UV_FLAGS venv --managed-python --python "${PYTHON_CONSTRAINT}" "$VENV_DIR" || {
+        error "Failed to create virtual environment with Python constraint $PYTHON_CONSTRAINT"
+        exit 1
+    }
+
+    # Get the actual Python version that was installed and use it to create .python-version
+    [[ -f "$VENV_PYTHON_PATH" ]] || error "Failed to find Python at $VENV_PYTHON_PATH in virtual environment
+$BAO_BASE_OS virtual environment directory structure:
+$(ls -la "$VENV_DIR" || true)
+$(ls -la "$VENV_DIR/Scripts" 2> /dev/null || true)
+$(ls -la "$VENV_DIR/bin" 2> /dev/null || true)"
+
+    # Extract the actual Python version from the venv
+    debug "Checking Python version in virtual environment"
+    ACTUAL_PYTHON_VERSION=$("$VENV_PYTHON_PATH" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')")
+    debug "Installed Python $ACTUAL_PYTHON_VERSION, creating .python-version file"
+
+    # Create .python-version file with the actual version and hash
+    {
+        echo "# This file was auto-generated by run-python from constraint: $PYTHON_CONSTRAINT"
+        echo "# HASH:$PYPROJECT_TOML_HASH"
+        echo "$ACTUAL_PYTHON_VERSION"
+    } > "$PYTHON_VERSION_LOCK"
+    debug "Created .python-version file with version $ACTUAL_PYTHON_VERSION and hash"
+else
+    debug "Using existing lock files with matching hash"
+
+    # Get Python version from the .python-version file (skip comments)
+    PYTHON_VERSION=$(grep -v '^#' "$PYTHON_VERSION_LOCK" | head -1 | tr -d '[:space:]')
+    debug "Using Python $PYTHON_VERSION from .python-version"
+
+    # Remove existing venv if it exists to ensure clean state
+    if [[ -d "$VENV_DIR" ]]; then
+        debug "Removing existing virtual environment at $VENV_DIR"
+        rm -rf "$VENV_DIR"
+    fi
+
+    # Create a virtual environment with specified Python version using uv env
+    info 1 "Creating virtual environment at: $VENV_DIR"
+    debug "Creating environment with Python $PYTHON_VERSION"
+    "$UV_BIN" $UV_FLAGS venv --managed-python --python "$PYTHON_VERSION" "$VENV_DIR" || {
+        error "Failed to create virtual environment with Python $PYTHON_VERSION"
+        exit 1
+    }
 fi
 
-# install the dependencies directing the output to stderr
-# this output is nice to see, but not nice if we are running a filter.
-debug "Installing script-specific dependencies"
-{
-    poetry install --no-root --directory "$DEPENDENCIES_DIR" 2>&3 | grep -i " - Installing" >&2 || true
-} 3>&2
+if ! validate_lock "$UV_LOCK"; then
+    debug "Generating $UV_LOCK from $PYPROJECT_TOML"
 
-# Step 2: Run the target Python script in the caller's directory
-if [ -f "$DEPENDENCIES_DIR/$SCRIPT.py" ]; then
-    debug "Running Python script: $DEPENDENCIES_DIR/$SCRIPT.py"
-    poetry run --directory "$DEPENDENCIES_DIR" python "$DEPENDENCIES_DIR/$SCRIPT.py" "$@"
+    # Use capture_output to prevent output from appearing in files (Windows support)
+    capture_output "'$UV_BIN' $UV_FLAGS lock --directory '$DEPENDENCIES_DIR'" true || {
+        error "Failed to lock dependencies"
+        exit 1
+    }
+
+    # Add our hash to the uv.lock file
+    echo "# HASH:$PYPROJECT_TOML_HASH" >> "$UV_LOCK"
+    debug "Generated $UV_LOCK with hash"
+fi
+
+# Verify the Python interpreter in the venv
+if [[ ! -f "$VENV_PYTHON_PATH" ]]; then
+    error "Python executable not found at $VENV_PYTHON_PATH in virtual environment"
+    if [[ "$BAO_BASE_OS" == "windows" ]]; then
+        debug "Windows virtual environment directory structure:"
+        ls -la "$VENV_DIR" || true
+        ls -la "$VENV_DIR/Scripts" 2> /dev/null || true
+    else
+        debug "Virtual environment directory structure:"
+        ls -la "$VENV_DIR" || true
+        ls -la "$VENV_DIR/bin" 2> /dev/null || true
+    fi
+    exit 1
+fi
+
+# Make Python executable is executable
+make_executable "$VENV_PYTHON_PATH" || {
+    error "Failed to make Python executable: $VENV_PYTHON_PATH"
+    exit 1
+}
+
+# Print Python version information based on verbosity level
+PYTHON_VERSION=$("$VENV_PYTHON_PATH" -c "import sys; print(f'Using {sys.implementation.name} {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')")
+info 1 "$PYTHON_VERSION"
+info 2 "Activate with: source $VENV_ACTIVATE_PATH"
+
+# Install dependencies using our local uv
+debug "Installing dependencies from generated uv.lock"
+
+# Activate the virtual environment - handle Windows differently
+if [[ "$BAO_BASE_OS" == "windows" ]]; then
+    # On Windows, we directly call the venv's python since activate can be tricky in bash
+    debug "Running on Windows - directly using Python from venv without activation"
+    PYTHON_CMD="$VENV_PYTHON_PATH"
+
+    # Install dependencies directly with UV
+    debug "Installing dependencies using UV directly on Windows"
+    capture_output "'$UV_BIN' $UV_FLAGS sync --directory '$DEPENDENCIES_DIR'" true || {
+        error "Failed to sync dependencies from uv.lock"
+        exit 1
+    }
 else
-    debug "Running Python command: $SCRIPT"
-    poetry run --directory "$DEPENDENCIES_DIR" "$SCRIPT" "$@"
+    # On Unix systems, use the traditional activation approach
+    source "$VENV_ACTIVATE_PATH" || {
+        error "Failed to activate virtual environment at $VENV_ACTIVATE_PATH"
+        exit 1
+    }
+
+    "$UV_BIN" $UV_FLAGS sync --directory "$DEPENDENCIES_DIR" || {
+        error "Failed to sync dependencies from uv.lock"
+        deactivate 2> /dev/null || true
+        exit 1
+    }
+    PYTHON_CMD="python"
+fi
+
+debug "Dependencies installed successfully"
+
+# Run the target Python script or command
+SCRIPT_PY="$DEPENDENCIES_DIR/$SCRIPT.py"
+if [[ -f "$SCRIPT_PY" ]]; then
+    debug "Running Python script: $SCRIPT_PY"
+    if [[ "$BAO_BASE_OS" == "windows" ]]; then
+        "$VENV_PYTHON_PATH" "$SCRIPT_PY" "$@"
+    else
+        $PYTHON_CMD "$SCRIPT_PY" "$@"
+    fi
+else
+    # Check if the script exists as a system command
+    if command -v "$SCRIPT" &> /dev/null; then
+        debug "Running Python command: $SCRIPT"
+        # Run the command
+        "$SCRIPT" "$@"
+    else
+        error "Python script '$SCRIPT_PY' not found and command '$SCRIPT' not found in PATH"
+        exit 1
+    fi
+fi
+
+# Deactivate the virtual environment (not needed on Windows when we didn't activate)
+if [[ "$BAO_BASE_OS" != "windows" ]]; then
+    deactivate 2> /dev/null || true
 fi

@@ -1,16 +1,35 @@
-[tool.poetry]
-name = "bao-base-bin"
+[project]
+name = "bao-base"
 version = "0.1.0"
-description = "Fallback dependencies for scripts"
-authors = ["rootminus0x1"]
-license = "MIT"
+description = "Bao Finance base utilities"
+requires-python = ">=3.9,<3.14"
 
-[tool.poetry.dependencies]
-python = ">=3.9"
-pandas = "^2.2.3"
-tabulate = "^0.9.0"
-toml = "^0.10.2"
-packaging = "^24.2"
-# safe-pysha3 = "^1.0.4"
-dotenv = "^0.9.9"
-psutil = "^7.0.0"
+dependencies =[
+  # Core data utilities
+  "pandas~=2.2.3",
+  "tabulate~=0.9.0",
+  "toml~=0.10.2",
+  "packaging~=24.2",
+  "python-dotenv~=1.1.0",
+  "psutil~=7.0.0",
+
+  # [tool.pytest.ini_options]
+  # testpaths = ["tests"]
+  # python_files = "test_*.py"
+
+  # Testing frameworks
+  "pytest~=7.4.0",
+  "pytest-cov~=4.1.0",
+  "pytest-xdist~=3.5.0",
+  # Additional test dependencies
+  "coverage~=7.3.2",
+
+  # Linting
+  "ruff~=0.3.0",
+  # formatting
+  "black~=24.0",
+  "isort~=5.13.0",
+]
+
+# [tool.uv.workspace]
+# members = ["slither"]

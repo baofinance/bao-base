@@ -123,7 +123,7 @@ info() {
     local message=$2
 
     if [[ ${BAO_BASE_VERBOSITY:-0} -ge $required_level ]]; then
-        _output "INFO $required_level" "$message"
+        _output "INFO $required_level " "$message"
     fi
 }
 
