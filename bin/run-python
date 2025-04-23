@@ -7,7 +7,7 @@ BAO_BASE_DIR=$BAO_BASE_DIR
 BAO_BASE_OS=$BAO_BASE_OS
 BAO_BASE_VERBOSITY=$BAO_BASE_VERBOSITY
 
-source "$BAO_BASE_BIN_DIR/platform-utils.sh"
+source "$BAO_BASE_BIN_DIR/run/platform-utils.sh"
 
 # Set the path to the script
 SCRIPT="$1"

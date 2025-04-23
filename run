@@ -48,9 +48,6 @@ args=($(debug_opts))
 _process_args
 args=("${temp_args[@]}")
 
-# load locking functions (double checked locking pattern)
-# source "$BAO_BASE_BIN_DIR/run/mutexing" # no need for this yet (or at all?)
-
 debug "Starting run script"
 debug "BAO_BASE_VERBOSITY=$BAO_BASE_VERBOSITY"
 debug "BAO_BASE_DIR=$BAO_BASE_DIR"
@@ -209,8 +206,8 @@ fi
 debug "Finding all execution options for $SCRIPT_NAME"
 
 # Array to store all executable options
-declare -a execution_options
-declare -a execution_descriptions
+declare -a execution_options=()
+declare -a execution_descriptions=()
 
 # Check directory with run.sh or run.py
 if [[ -d "$SCRIPT_PATH" ]]; then
