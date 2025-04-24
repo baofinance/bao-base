@@ -133,11 +133,11 @@ PYTHON_ENV_EXISTS=$([[ -f "$VENV_ACTIVATE_PATH" ]] && echo true || echo false)
 # if the python version is not locked OR the virtual environment does not exist, we need to create a virtual environment with the right version of python
 if [[ "$PYTHON_VERSION_LOCKED" != "true" || "$PYTHON_ENV_EXISTS" != "true" ]]; then
   debug "Need to create a venv"
+  UV_VENV_CMD=($UV_CMD)
+  UV_VENV_CMD+=("venv" "--managed-python")
   if [[ "$PYTHON_VERSION_LOCKED" == "true" ]]; then
     # we have the version and uv will read it from the .python-version file
-    debug "using the python version from .python-version file"
     PYTHON_CONSTRAINT=$(tail -n 1 "$PYTHON_VERSION_LOCK")
-    PYTHON_CONSTRAINT_ARG=""
     PYTHON_CONSTRAINT_SOURCE=".python-version"
   else
     # Extract requires-python value from pyproject.toml using a simple grep pattern
@@ -150,15 +150,15 @@ if [[ "$PYTHON_VERSION_LOCKED" != "true" || "$PYTHON_ENV_EXISTS" != "true" ]]; t
     else
       PYTHON_CONSTRAINT_SOURCE="pyproject.toml"
     fi
-    PYTHON_CONSTRAINT_ARG="--python $PYTHON_CONSTRAINT"
+    UV_ENV_CMD+=("--python" "$PYTHON_CONSTRAINT")
   fi
-  debug "Using Python constraint: $PYTHON_CONSTRAINT"
+  debug "Using Python constraintn ($PYTHON_CONSTRAINT_SOURCE): $PYTHON_CONSTRAINT"
 
   # Create virtual environment with specified Python version using uv env (uses the .python-version file, if it exists and --python is not specified)
   debug "Creating environment with Python constraint: $PYTHON_CONSTRAINT"
   # also stop this from updating .profile & .bashrc
-  UV_VENV_CMD=($UV_CMD)
-  UV_VENV_CMD+=("venv" "--managed-python" "$PYTHON_CONSTRAINT_ARG" "$VENV_DIR")
+
+  UV_VENV_CMD+=("$VENV_DIR")
   debug "Executing: ${UV_VENV_CMD[*]}"
   UV_PYTHON_INSTALL_DIR="$BAO_BASE_TOOLS_DIR/python/install" "${UV_VENV_CMD[@]}" || {
     error "Failed to create virtual environment with Python constraint $PYTHON_CONSTRAINT"
