@@ -79,10 +79,10 @@ runs:
     - name: Run run script debug info
       shell: bash
       run: |
-        DEBUG=run,nothing ./run nothing hello bash script
-        DEBUG=run.sh ./run nothing-dir hello directory
-        DEBUG=run-python ./run nothing-python hello assumed python script
-        DEBUG=run-python ./run nothing-python.py hello .py python script
+        ./run nothing hello bash script
+        ./run nothing-dir hello directory
+        ./run nothing-python hello assumed python script
+        ./run nothing-python.py hello .py python script
       id: nothing
 
     # - name: Run Python (pytest) Tests
@@ -107,5 +107,8 @@ runs:
       shell: bash
       run: |
         git status --short
-        git diff --minimal --exit-code
+        git diff --minimal
+        [[ $(git status --short | wc -l) -gt 0 ]] && {
+          echo "Git repo has changed, either correctly fix those files locally or .gitignore them"; exit 1;
+        } || echo "No changes detected in git repo"
       id: git-diffs
