@@ -79,9 +79,10 @@ runs:
     - name: Run run script debug info
       shell: bash
       run: |
-        DEBUG=run,nothing ./run nothing
-        DEBUG=run.sh ./run nothing-dir
-        DEBUG=run-python ./run nothing-python
+        DEBUG=run,nothing ./run nothing hello bash script
+        DEBUG=run.sh ./run nothing-dir hello directory
+        DEBUG=run-python ./run nothing-python hello assumed python script
+        DEBUG=run-python ./run nothing-python.py hello .py python script
       id: nothing
 
     # - name: Run Python (pytest) Tests
@@ -105,4 +106,5 @@ runs:
     - name: Check for changed repo files
       shell: bash
       run: |
-        yarn git-diffs
+        git status --short
+        git diff --minimal --exit-code

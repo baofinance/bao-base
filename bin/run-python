@@ -192,7 +192,6 @@ fi
 if ! validate_lock "$UV_LOCK"; then
   debug "Generating $UV_LOCK from $PYPROJECT_TOML"
   rm -f "$UV_LOCK"
-  # Use capture_output to prevent output from appearing in files (Windows support)
   UV_LOCK_CMD=($UV_CMD)
   UV_LOCK_CMD+=("lock" "--directory" "$DEPENDENCIES_DIR")
   debug "Executing: ${UV_LOCK_CMD[*]}"
@@ -210,7 +209,11 @@ fi
 UV_RUN_CMD=("$UV_CMD")
 UV_RUN_CMD+=("run" "--project" "$DEPENDENCIES_DIR")
 # Check if the script is a Python script or a command
-if [ -f "$DEPENDENCIES_DIR/$SCRIPT.py" ]; then
+debug "Checking if '$DEPENDENCIES_DIR/$SCRIPT.py' exists"
+if [ -f "$DEPENDENCIES_DIR/$SCRIPT" ]; then
+    debug "Running Python script: $DEPENDENCIES_DIR/$SCRIPT"
+    UV_RUN_CMD+=("$DEPENDENCIES_DIR/$SCRIPT")
+elif [ -f "$DEPENDENCIES_DIR/$SCRIPT.py" ]; then
     debug "Running Python script: $DEPENDENCIES_DIR/$SCRIPT.py"
     UV_RUN_CMD+=("$DEPENDENCIES_DIR/$SCRIPT.py")
 else
