@@ -161,38 +161,27 @@ run_script_with_type() {
   local script="$2"
   shift 2
 
+  local exit_code=0
   case "$script_type" in
     python)
       debug "Executing via run-python: $script"
-      "$BAO_BASE_BIN_DIR/run-python" "$script" "$@" || {
-        exit_code=$?
-        error "Python script execution failed with code $exit_code"
-        return $exit_code
-      }
+      "$BAO_BASE_BIN_DIR/run-python" "$script" "$@" || exit_code=$?
       ;;
     node)
       debug "Executing via run-node: $script"
-      "$BAO_BASE_BIN_DIR/run-node" "$script" "$@" || {
-        exit_code=$?
-        error "Node.js script execution failed with code $exit_code"
-        return $exit_code
-      }
+      "$BAO_BASE_BIN_DIR/run-node" "$script" "$@" || exit_code=$?
       ;;
     bash)
       debug "Executing via run-bash: $script"
-      "$BAO_BASE_BIN_DIR/run-bash" "$script" "$@" || {
-        exit_code=$?
-        error "Bash script execution failed with code $exit_code"
-        return $exit_code
-      }
+      "$BAO_BASE_BIN_DIR/run-bash" "$script" "$@" || exit_code=$?
       ;;
     *)
       error "Unknown script type: $script_type"
       return 1
       ;;
   esac
-
-  return 0
+  [[ "$exit_code" -gt "0" ]] && error "$script_type script execution failed with code $exit_code"
+  return $exit_code
 }
 
 # Auto-detect script type

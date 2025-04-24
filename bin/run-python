@@ -38,20 +38,6 @@ export UV_CACHE_DIR="$BAO_BASE_TOOLS_DIR/uv-cache"
 VENV_PYTHON_PATH="$VENV_DIR/$(python_exe_in_env)"
 VENV_ACTIVATE_PATH="$VENV_DIR/$(activate_script_in_env)"
 UV_BIN="$UV_DIR/$(uv_exe_name)"
-
-# get verbosity flags for UV based on BAO_BASE_VERBOSITY
-if [[ $BAO_BASE_VERBOSITY -lt 0 ]]; then
-  UV_FLAGS="-qq --no-progress" # Quiet mode
-else
-  case "$BAO_BASE_VERBOSITY" in
-    0) UV_FLAGS="-qq" ;;
-    1) UV_FLAGS="-q" ;;
-    2) UV_FLAGS="" ;;
-    *) UV_FLAGS="--verbose" ;;
-  esac
-fi
-debug "Using UV flags: $UV_FLAGS"
-
 # Install uv locally
 if [[ ! -x "$UV_BIN" ]]; then
   debug "uv not found at $UV_BIN, installing to $UV_DIR..."
@@ -79,6 +65,20 @@ if [[ ! -x "$UV_BIN" ]]; then
   debug "uv installed successfully to: $UV_BIN"
 fi
 debug "Using uv at: $UV_BIN:" $($UV_BIN --version)
+UV_CMD=("$UV_BIN")
+
+# get verbosity flags for UV based on BAO_BASE_VERBOSITY
+if [[ $BAO_BASE_VERBOSITY -lt 0 ]]; then
+  UV_CMD+=("-qq" "--no-progress") # Quiet mode
+else
+  case "$BAO_BASE_VERBOSITY" in
+    0) UV_CMD+=("-qq") ;;
+    1) UV_CMD+=("-q") ;;
+    2) UV_CMD+=("") ;;
+    *) UV_CMD+=("--verbose") ;;
+  esac
+fi
+debug "Using command: $UV_CMD"
 
 # Check for pyproject.toml
 PYPROJECT_TOML="$DEPENDENCIES_DIR/pyproject.toml"
@@ -87,7 +87,6 @@ if [[ ! -f "$PYPROJECT_TOML" ]]; then
   exit 1
 fi
 debug "Found pyproject.toml file at $PYPROJECT_TOML"
-
 # Generate hash for pyproject.toml
 PYPROJECT_TOML_HASH=$(calculate_hash "$PYPROJECT_TOML")
 debug "Generated hash for pyproject.toml: $PYPROJECT_TOML_HASH"
@@ -122,14 +121,15 @@ validate_lock() {
     return 1
   fi
 
-  debug "Lock file $lock_file exist with matching hash"
+  debug "Lock file $lock_file exists with matching hash"
   return 0
 }
 
-# Check if we have a virtual environment or the python version lock file is valid
+# install the required python and create a virtual environment with it (if needed)
 PYTHON_VERSION_LOCKED=$(validate_lock "$PYTHON_VERSION_LOCK" && echo true || echo false)
 PYTHON_ENV_EXISTS=$([[ -f "$VENV_ACTIVATE_PATH" ]] && echo true || echo false)
-
+# TODO: handle the case where the venv python and is not the same as the one in the .python-version file
+# TODO: maybe uv installs the correct version of python in the venv automatically? and we just need to set UV_PYTHON_INSTALL_DIR
 # if the python version is not locked OR the virtual environment does not exist, we need to create a virtual environment with the right version of python
 if [[ "$PYTHON_VERSION_LOCKED" != "true" || "$PYTHON_ENV_EXISTS" != "true" ]]; then
   debug "Need to create a venv"
@@ -157,7 +157,10 @@ if [[ "$PYTHON_VERSION_LOCKED" != "true" || "$PYTHON_ENV_EXISTS" != "true" ]]; t
   # Create virtual environment with specified Python version using uv env (uses the .python-version file, if it exists and --python is not specified)
   debug "Creating environment with Python constraint: $PYTHON_CONSTRAINT"
   # also stop this from updating .profile & .bashrc
-  UV_PYTHON_INSTALL_DIR="$BAO_BASE_TOOLS_DIR/python/install" "$UV_BIN" $UV_FLAGS venv --managed-python $PYTHON_CONSTRAINT_ARG "$VENV_DIR" || {
+  UV_VENV_CMD=($UV_CMD)
+  UV_VENV_CMD+=("venv" "--managed-python" "$PYTHON_CONSTRAINT_ARG" "$VENV_DIR")
+  debug "Executing: ${UV_VENV_CMD[*]}"
+  UV_PYTHON_INSTALL_DIR="$BAO_BASE_TOOLS_DIR/python/install" "${UV_VENV_CMD[@]}" || {
     error "Failed to create virtual environment with Python constraint $PYTHON_CONSTRAINT"
     exit 1
   }
@@ -185,11 +188,15 @@ $(ls -la "$VENV_DIR/bin" 2>/dev/null || true)"
   fi
 fi
 
+# use or generate the uv.lock file
 if ! validate_lock "$UV_LOCK"; then
   debug "Generating $UV_LOCK from $PYPROJECT_TOML"
   rm -f "$UV_LOCK"
   # Use capture_output to prevent output from appearing in files (Windows support)
-  capture_output "'$UV_BIN' $UV_FLAGS lock --directory '$DEPENDENCIES_DIR'" true || {
+  UV_LOCK_CMD=($UV_CMD)
+  UV_LOCK_CMD+=("lock" "--directory" "$DEPENDENCIES_DIR")
+  debug "Executing: ${UV_LOCK_CMD[*]}"
+  "${UV_LOCK_CMD[@]}" || {
     error "Failed to lock dependencies"
     exit 1
   }
@@ -199,112 +206,21 @@ if ! validate_lock "$UV_LOCK"; then
   debug "Generated $UV_LOCK with hash"
 fi
 
-# # Verify the Python interpreter in the venv
-# if [[ ! -f "$VENV_PYTHON_PATH" ]]; then
-#   error "Python executable not found at $VENV_PYTHON_PATH in virtual environment"
-#   if [[ "$BAO_BASE_OS" == "windows" ]]; then
-#     debug "Windows virtual environment directory structure:"
-#     ls -la "$VENV_DIR" || true
-#     ls -la "$VENV_DIR/Scripts" 2>/dev/null || true
-#   else
-#     debug "Virtual environment directory structure:"
-#     ls -la "$VENV_DIR" || true
-#     ls -la "$VENV_DIR/bin" 2>/dev/null || true
-#   fi
-#   exit 1
-# fi
-
-# # Make Python executable is executable
-# make_executable "$VENV_PYTHON_PATH" || {
-#   error "Failed to make Python executable: $VENV_PYTHON_PATH"
-#   exit 1
-# }
-
-# # Print Python version information based on verbosity level
-# PYTHON_VERSION=$("$VENV_PYTHON_PATH" -c "import sys; print(f'Using {sys.implementation.name} {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')")
-# info 1 "$PYTHON_VERSION"
-# info 2 "Activate with: source $VENV_ACTIVATE_PATH"
-
-# Install dependencies using our local uv
-debug "Installing dependencies from generated uv.lock"
-
-# Activate the virtual environment - handle Windows differently
-if [[ "$BAO_BASE_OS" == "windows" ]]; then
-  # On Windows, we directly call the venv's python since activate can be tricky in bash
-  debug "Running on Windows - directly using Python from venv without activation"
-  PYTHON_CMD="$VENV_PYTHON_PATH"
-
-  # Install dependencies directly with UV
-  debug "Installing dependencies using UV directly on Windows"
-  capture_output "'$UV_BIN' $UV_FLAGS sync --directory '$DEPENDENCIES_DIR'" true || {
-    error "Failed to sync dependencies from uv.lock"
-    exit 1
-  }
+# build the command
+UV_RUN_CMD=("$UV_CMD")
+UV_RUN_CMD+=("run" "--project" "$DEPENDENCIES_DIR")
+# Check if the script is a Python script or a command
+if [ -f "$DEPENDENCIES_DIR/$SCRIPT.py" ]; then
+    debug "Running Python script: $DEPENDENCIES_DIR/$SCRIPT.py"
+    UV_RUN_CMD+=("$DEPENDENCIES_DIR/$SCRIPT.py")
 else
-  # On Unix systems, use the traditional activation approach
-  source "$VENV_ACTIVATE_PATH" || {
-    error "Failed to activate virtual environment at $VENV_ACTIVATE_PATH"
-    exit 1
-  }
-
-  "$UV_BIN" $UV_FLAGS sync --directory "$DEPENDENCIES_DIR" || {
-    error "Failed to sync dependencies from uv.lock"
-    deactivate 2>/dev/null || true
-    exit 1
-  }
-  PYTHON_CMD="python"
-fi
-
-debug "Dependencies installed successfully"
-
-# Run the target Python script or command
-# Handle absolute paths and paths that already have .py extension
-if [[ "$SCRIPT" == *.py ]]; then
-  # Script already has a .py extension - use as-is
-  if [[ "$SCRIPT" == /* ]]; then
-    # Absolute path
-    SCRIPT_PY="$SCRIPT"
-  else
-    # Relative path with .py extension
-    SCRIPT_PY="$DEPENDENCIES_DIR/$SCRIPT"
-  fi
-  debug "Using script with existing .py extension: $SCRIPT_PY"
-elif [[ "$SCRIPT" == /* ]]; then
-  # Absolute path without .py extension
-  SCRIPT_PY="${SCRIPT}.py"
-  debug "Using absolute path with added .py extension: $SCRIPT_PY"
-else
-  # Relative path without .py extension
-  SCRIPT_PY="$DEPENDENCIES_DIR/$SCRIPT.py"
-  debug "Using relative path with added .py extension: $SCRIPT_PY"
-fi
-
-export PYTHONPATH="$BAO_BASE_DIR:$BAO_BASE_BIN_DIR"
-
-if [[ -f "$SCRIPT_PY" ]]; then
-  debug "Running Python script: $SCRIPT_PY"
-  if [[ "$BAO_BASE_OS" == "windows" ]]; then
-    "$VENV_PYTHON_PATH" "$SCRIPT_PY" "$@"
-  else
-    $PYTHON_CMD "$SCRIPT_PY" "$@"
-  fi
-else
-  # Check if the script exists as a system command
-  if command -v "$SCRIPT" &>/dev/null; then
     debug "Running Python command: $SCRIPT"
-    # Run the command
-    "$SCRIPT" "$@"
-  else
-    error "Python script '$SCRIPT_PY' not found and command '$SCRIPT' not found in PATH"
-    # Additional error information for debugging
-    debug "Script: $SCRIPT"
-    debug "Script path attempted: $SCRIPT_PY"
-    debug "Dependencies directory: $DEPENDENCIES_DIR"
-    exit 1
-  fi
+    UV_RUN_CMD+=("$SCRIPT")
 fi
+# Add all arguments
+for arg in "$@"; do
+    UV_RUN_CMD+=("$arg")
+done
 
-# Deactivate the virtual environment (not needed on Windows when we didn't activate)
-if [[ "$BAO_BASE_OS" != "windows" ]]; then
-  deactivate 2>/dev/null || true
-fi
+debug "Executing: ${UV_RUN_CMD[*]}"
+"${UV_RUN_CMD[@]}"

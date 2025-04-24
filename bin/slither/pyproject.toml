@@ -1,5 +1,5 @@
 [project]
-name = "slither"
+name = "bao-base_bin_slither"
 version = "0.1.0"
 description = "Bao base slither"
 requires-python = ">=3.13,<3.14"
