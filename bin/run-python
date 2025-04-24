@@ -85,13 +85,13 @@ debug "Found pyproject.toml file at $PYPROJECT_TOML"
 # Generate hash for pyproject.toml
 # Handle different OS hashing methods
 if [[ "${BAO_BASE_OS}" == "windows" ]]; then
-  powershell.exe -Command "$(cat <<'EOT'
+  PYPROJECT_TOML_HASH=$(powershell.exe -Command "$(cat <<'EOT'
 $content = Get-Content -Raw '$PYPROJECT_TOML' -Encoding UTF8
 $normalized = $content -replace '\r\n', '\n'
 $stream = [System.IO.MemoryStream]::new([System.Text.Encoding]::UTF8.GetBytes($normalized))
 (Get-FileHash -InputStream $stream -Algorithm SHA256).Hash.ToLower()
 EOT
-)"
+)")
 elif [[ "$BAO_BASE_OS" == "macos" ]]; then
   PYPROJECT_TOML_HASH=$(shasum -a 256 "$PYPROJECT_TOML" | cut -d' ' -f1)
 elif [[ "$BAO_BASE_OS" == "linux" ]]; then
