@@ -45,7 +45,6 @@ runs:
         yarn
 
     - name: Run Prettier
-      if: runner.os != 'windows'
       shell: bash
       run: |
         yarn prettier --check
