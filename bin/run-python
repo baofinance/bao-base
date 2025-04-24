@@ -34,7 +34,7 @@ export UV_PYTHON_BIN_DIR="$BAO_BASE_TOOLS_DIR/python/bin" # where it installs py
 export UV_CACHE_DIR="$BAO_BASE_TOOLS_DIR/uv-cache" # cache directory for dependencies
 
 # Define uv and virtual environment paths based on OS
-if [[ '$BAO_BASE_OS' == 'windows' ]]; then
+if [[ "$BAO_BASE_OS" == "windows" ]]; then
   VENV_PYTHON_PATH="$VENV_DIR/Scripts/python.exe"
   UV_BIN="$UV_DIR/uv.exe"
 else
