@@ -55,7 +55,7 @@ if [[ ! -x "$UV_BIN" ]]; then
 
   # Install uv to a temporary directory - redirect output on Windows
   debug "Installing uv to temp directory: $temp_install_dir"
-  capture_output "CARGO_HOME='$temp_install_dir/cargo' RUSTUP_HOME='$temp_install_dir/rustup' UV_INSTALL_DIR='$UV_DIR' NO_MODIFY_PATH=1 '$temp_script'" true || {
+  CARGO_HOME="$temp_install_dir/cargo" RUSTUP_HOME="$temp_install_dir/rustup" UV_INSTALL_DIR="$UV_DIR" NO_MODIFY_PATH=1 "$temp_script" || {
     rm -rf "$temp_install_dir" "$temp_script"
     error "Failed to run uv install script"
     exit 1

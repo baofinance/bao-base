@@ -91,5 +91,6 @@ runs:
     - name: Check for changed repo files
       shell: bash
       run: |
-        yarn git-diffs
+        git status --short
+        git diff --minimal --exit-code
       id: git-diffs

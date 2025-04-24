@@ -108,3 +108,4 @@ runs:
       run: |
         git status --short
         git diff --minimal --exit-code
+      id: git-diffs
