@@ -57,11 +57,8 @@ debug "BAO_BASE_SCRIPT_DIR=$BAO_BASE_SCRIPT_DIR"
 debug "BAO_BASE_TOOLS_DIR=$BAO_BASE_TOOLS_DIR"
 
 # Detect OS and set environment variables
-source "./bin/run/platform-utils.sh"
-detect_platform
-if [[ "$BAO_BASE_OS" == "windows" ]]; then
-  export DEBUG=-vvvv,run-python
-fi
+source "$BAO_BASE_BIN_DIR/run/platform-utils.sh"
+
 debug "BAO_BASE_OS=$BAO_BASE_OS"
 debug "BAO_BASE_OS_SUBTYPE=$BAO_BASE_OS_SUBTYPE"
 debug "BAO_BASE_OS_VERSION=$BAO_BASE_OS_VERSION"

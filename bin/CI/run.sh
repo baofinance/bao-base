@@ -54,7 +54,8 @@ done
 
 echo "Running CI for $foundry_version foundry on $os_version"
 
-temp_dir=$(create_temp_dir)
+temp_dir="$BAO_BASE_TOOLS_DIR/act-cache/$$"
+mkdir -p "$temp_dir"
 echo "Created temporary directory: $temp_dir"
 
 workflow_template_file="$dep_dir/local_test_${workflow}.yml"

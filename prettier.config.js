@@ -1,19 +1,15 @@
 module.exports = {
     printWidth: 120,
     useTabs: false,
+    tabWidth: 2,
     overrides: [
       {
         files: "*.sol",
         options: {
           semi: true,
           singleQuote: false,
-          trailingComma: "all"
-        }
-      },
-      {
-        files: "*.json",
-        options: {
-          tabWidth: 2
+          trailingComma: "all",
+          tabWidth: 4,
         }
       },
       {
@@ -25,7 +21,8 @@ module.exports = {
           explicitTypes: "preserve",
           semi: true,
           singleQuote: true,
-          trailingComma: "all"
+          trailingComma: "all",
+          tabWidth: 4,
         }
       },
       {

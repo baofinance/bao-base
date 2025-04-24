@@ -7,8 +7,6 @@ BAO_BASE_DIR=$BAO_BASE_DIR
 BAO_BASE_OS=$BAO_BASE_OS
 BAO_BASE_VERBOSITY=$BAO_BASE_VERBOSITY
 
-source "$BAO_BASE_BIN_DIR/run/platform-utils.sh"
-
 # Set the path to the script
 SCRIPT="$1"
 shift
@@ -30,38 +28,34 @@ export UV_UNMANAGED_INSTALL=1
 # Local directories for tools and environments
 UV_DIR="$BAO_BASE_TOOLS_DIR/uv"
 VENV_DIR="$DEPENDENCIES_DIR/.venv"
-export UV_PYTHON_BIN_DIR="$BAO_BASE_TOOLS_DIR/python/bin"
 
-export UV_CACHE_DIR="$BAO_BASE_TOOLS_DIR/uv-cache"
+# environment variables used by uv
+export UV_PYTHON_BIN_DIR="$BAO_BASE_TOOLS_DIR/python/bin" # where it installs python
+export UV_CACHE_DIR="$BAO_BASE_TOOLS_DIR/uv-cache" # cache directory for dependencies
 
 # Define uv and virtual environment paths based on OS
-VENV_PYTHON_PATH="$VENV_DIR/$(python_exe_in_env)"
-VENV_ACTIVATE_PATH="$VENV_DIR/$(activate_script_in_env)"
-UV_BIN="$UV_DIR/$(uv_exe_name)"
+if [[ '$BAO_BASE_OS' == 'windows' ]]; then
+  VENV_PYTHON_PATH="$VENV_DIR/Scripts/python.exe"
+  UV_BIN="$UV_DIR/uv.exe"
+else
+  VENV_PYTHON_PATH="$VENV_DIR/bin/python"
+  UV_BIN="$UV_DIR/uv"
+fi
+
 # Install uv locally
 if [[ ! -x "$UV_BIN" ]]; then
   debug "uv not found at $UV_BIN, installing to $UV_DIR..."
 
-  # Create temp directory safely across platforms
-  temp_script=$(create_temp_file "uvinstall")
-  temp_install_dir=$(create_temp_dir "uvinstalldir")
+  # Create only a temp directory for Cargo/Rustup (still needed)
+  temp_install_dir="$BAO_BASE_TOOLS_DIR/cargo"
 
-  curl -fsSL https://astral.sh/uv/install.sh -o "$temp_script" || {
-    rm -rf "$temp_install_dir" "$temp_script"
-    error "Failed to download uv install script"
+  # Download and execute the script directly without saving to a temp file
+  if ! curl -fsSL https://astral.sh/uv/install.sh | CARGO_HOME="$temp_install_dir" RUSTUP_HOME="$temp_install_dir/rustup" UV_INSTALL_DIR="$UV_DIR" NO_MODIFY_PATH=1 bash; then
+    rm -rf "$temp_install_dir"
+    error "Failed to install uv"
     exit 1
-  }
-  make_executable "$temp_script"
-
-  # Install uv to a temporary directory - redirect output on Windows
-  debug "Installing uv to temp directory: $temp_install_dir"
-  CARGO_HOME="$temp_install_dir/cargo" RUSTUP_HOME="$temp_install_dir/rustup" UV_INSTALL_DIR="$UV_DIR" NO_MODIFY_PATH=1 "$temp_script" || {
-    rm -rf "$temp_install_dir" "$temp_script"
-    error "Failed to run uv install script"
-    exit 1
-  }
-
-  rm -rf "$temp_install_dir" "$temp_script"
+  fi
+  rm -rf "$temp_install_dir"
   debug "uv installed successfully to: $UV_BIN"
 fi
 debug "Using uv at: $UV_BIN:" $($UV_BIN --version)
@@ -87,8 +81,19 @@ if [[ ! -f "$PYPROJECT_TOML" ]]; then
   exit 1
 fi
 debug "Found pyproject.toml file at $PYPROJECT_TOML"
+
 # Generate hash for pyproject.toml
-PYPROJECT_TOML_HASH=$(calculate_hash "$PYPROJECT_TOML")
+# Handle different OS hashing methods
+if [[ "${BAO_BASE_OS}" == "windows" ]]; then
+  PYPROJECT_TOML_HASH=$(powershell.exe -Command "$content = Get-Content -Raw '$PYPROJECT_TOML' -Encoding UTF8; $normalized = $content -replace '\r\n', '\n'; $stream = [System.IO.MemoryStream]::new([System.Text.Encoding]::UTF8.GetBytes($normalized)); (Get-FileHash -InputStream $stream -Algorithm SHA256).Hash.ToLower()")
+elif [[ "$BAO_BASE_OS" == "macos" ]]; then
+  PYPROJECT_TOML_HASH=$(shasum -a 256 "$PYPROJECT_TOML" | cut -d' ' -f1)
+elif [[ "$BAO_BASE_OS" == "linux" ]]; then
+  PYPROJECT_TOML_HASH=$(sha256sum "$PYPROJECT_TOML" | cut -d' ' -f1)
+else
+  echo "Unsupported OS for hash calculation: $BAO_BASE_OS"
+  exit 1
+fi
 debug "Generated hash for pyproject.toml: $PYPROJECT_TOML_HASH"
 
 # Check for existing .python-version and uv.lock
@@ -127,7 +132,7 @@ validate_lock() {
 
 # install the required python and create a virtual environment with it (if needed)
 PYTHON_VERSION_LOCKED=$(validate_lock "$PYTHON_VERSION_LOCK" && echo true || echo false)
-PYTHON_ENV_EXISTS=$([[ -f "$VENV_ACTIVATE_PATH" ]] && echo true || echo false)
+PYTHON_ENV_EXISTS=$([[ -f "$VENV_PYTHON_PATH" ]] && echo true || echo false)
 # TODO: handle the case where the venv python and is not the same as the one in the .python-version file
 # TODO: maybe uv installs the correct version of python in the venv automatically? and we just need to set UV_PYTHON_INSTALL_DIR
 # if the python version is not locked OR the virtual environment does not exist, we need to create a virtual environment with the right version of python
@@ -176,7 +181,7 @@ $(ls -la "$VENV_DIR/bin" 2>/dev/null || true)"
     # If we didn't have a .python-version file, we need to create one
     # Extract the actual Python version from the venv
     debug "Checking Python version in virtual environment"
-    ACTUAL_PYTHON_VERSION=$("$VENV_PYTHON_PATH" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')")
+    ACTUAL_PYTHON_VERSION=$("$VENV_PYTHON_PATH" --version 2>&1 | cut -d' ' -f2) # -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')")
 
     # Create .python-version file with the actual version and hash
     {
