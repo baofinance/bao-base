@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+#
+# Cross-platform mutex implementation for bash scripts
+
+# Create a mutex
+# Usage: mutex_acquire <mutex_name> [timeout_seconds]
+# Returns: 0 if mutex acquired, 1 if timeout
+mutex_acquire() {
+  local mutex_name="$1"
+  local timeout="${2:-60}"  # Default timeout of 60 seconds
+  local mutex_dir="${BAO_BASE_TOOLS_DIR}/.mutex"
+  local mutex_file="${mutex_dir}/${mutex_name}.mutex"
+  local start_time=$(date +%s)
+  local pid=$$
+  local wait_time=0
+
+  # Ensure mutex directory exists
+  mkdir -p "${mutex_dir}" 2>/dev/null
+
+  # Try to acquire the mutex
+  while true; do
+    # Try to create the mutex file with our PID (atomically)
+    if (set -o noclobber; echo "${pid}" > "${mutex_file}") 2>/dev/null; then
+      # We got the mutex
+      debug "Acquired mutex: ${mutex_name}"
+      return 0
+    fi
+
+    # We didn't get the mutex, check if the holder is still alive
+    if [ -f "${mutex_file}" ]; then
+      local holder_pid=$(cat "${mutex_file}" 2>/dev/null)
+
+      # Check if process still exists (works on Linux, macOS, and Windows with Git Bash)
+      if ! ps -p "${holder_pid}" > /dev/null 2>&1; then
+        # Process is dead, clean up and try again
+        debug "Removing stale mutex for PID ${holder_pid}"
+        rm -f "${mutex_file}" 2>/dev/null
+        continue
+      fi
+    fi
+
+    # Check for timeout
+    wait_time=$(($(date +%s) - start_time))
+    if [ ${wait_time} -ge ${timeout} ]; then
+      debug "Timed out waiting for mutex: ${mutex_name}"
+      return 1
+    fi
+
+    # Wait before retrying
+    sleep 0.5
+  done
+}
+
+# Release a mutex
+# Usage: mutex_release <mutex_name>
+mutex_release() {
+  local mutex_name="$1"
+  local mutex_dir="${BAO_BASE_TOOLS_DIR}/.mutex"
+  local mutex_file="${mutex_dir}/${mutex_name}.mutex"
+
+  # Only release if we own it
+  if [ -f "${mutex_file}" ]; then
+    local holder_pid=$(cat "${mutex_file}" 2>/dev/null)
+    if [ "${holder_pid}" = "$$" ]; then
+      rm -f "${mutex_file}" 2>/dev/null
+      debug "Released mutex: ${mutex_name}"
+      return 0
+    else
+      debug "Not releasing mutex ${mutex_name}: owned by PID ${holder_pid}, not $$"
+    fi
+  fi
+
+  return 0
+}
+
+# Cleanup function for use with trap
+# Usage: trap 'mutex_cleanup' EXIT
+mutex_cleanup() {
+  local mutex_dir="${BAO_BASE_TOOLS_DIR}/.mutex"
+
+  # Find and remove all mutexes owned by this process
+  if [ -d "${mutex_dir}" ]; then
+    for mutex_file in "${mutex_dir}"/*.mutex; do
+      if [ -f "${mutex_file}" ]; then
+        local holder_pid=$(cat "${mutex_file}" 2>/dev/null)
+        if [ "${holder_pid}" = "$$" ]; then
+          rm -f "${mutex_file}" 2>/dev/null
+          debug "Cleaned up mutex: $(basename "${mutex_file}" .mutex)"
+        fi
+      fi
+    done
+  fi
+}
+
+# Setup function - automatically called when this file is sourced
+_mutex_setup() {
+  # Check if there's an existing EXIT trap
+  local existing_trap=$(trap -p EXIT | awk -F"'" '{print $2}')
+
+  if [ -n "$existing_trap" ]; then
+    # Combine with existing trap
+    trap "${existing_trap}; mutex_cleanup" EXIT
+  else
+    # Set new trap
+    trap 'mutex_cleanup' EXIT
+  fi
+
+  debug "Mutex system initialized with automatic cleanup"
+}
+
+# Auto-setup when sourced
+_mutex_setup
