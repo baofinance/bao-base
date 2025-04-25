@@ -82,10 +82,19 @@ if [[ ! -f "$PYPROJECT_TOML" ]]; then
 fi
 debug "Found pyproject.toml file at $PYPROJECT_TOML"
 
+info "0" "Using pyproject.toml at $PYPROJECT_TOML"
 # Generate hash for pyproject.toml
 # Handle different OS hashing methods
 if [[ "${BAO_BASE_OS}" == "windows" ]]; then
-PYPROJECT_TOML_HASH=$(powershell.exe -Command "\$filePath=\"$PYPROJECT_TOML\"; \$content = Get-Content -Raw \$filePath -Encoding UTF8; \$normalized = \$content -replace '\r\n', '\n'; \$stream = [System.IO.MemoryStream]::new([System.Text.Encoding]::UTF8.GetBytes(\$normalized)); (Get-FileHash -InputStream \$stream -Algorithm SHA256).Hash.ToLower()")
+  WIN_PATH="$PYPROJECT_TOML"
+  if [[ "$WIN_PATH" =~ ^/([a-zA-Z])/(.*)$ ]]; then
+    # Convert /d/path to d:/path format
+    DRIVE="${BASH_REMATCH[1]}"
+    REST_PATH="${BASH_REMATCH[2]}"
+    WIN_PATH="${DRIVE}:/${REST_PATH}"
+  fi
+  debug "Using Windows path: $WIN_PATH"
+  PYPROJECT_TOML_HASH=$(powershell.exe -Command "(Get-FileHash -Path \"$WIN_PATH\" -Algorithm SHA256).Hash.ToLower()")
 elif [[ "$BAO_BASE_OS" == "macos" ]]; then
   PYPROJECT_TOML_HASH=$(shasum -a 256 "$PYPROJECT_TOML" | cut -d' ' -f1)
 elif [[ "$BAO_BASE_OS" == "linux" ]]; then
