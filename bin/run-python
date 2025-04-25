@@ -86,17 +86,16 @@ info "0" "Using pyproject.toml at $PYPROJECT_TOML"
 # Generate hash for pyproject.toml
 # Handle different OS hashing methods
 if [[ "${BAO_BASE_OS}" == "windows" ]]; then
-  WIN_PATH="$PYPROJECT_TOML"
-  if [[ "$WIN_PATH" =~ ^/([a-zA-Z])/(.*)$ ]]; then
-    # Convert /d/path to d:/path format
-    DRIVE="${BASH_REMATCH[1]}"
-    REST_PATH="${BASH_REMATCH[2]}"
-    WIN_PATH="${DRIVE}:/${REST_PATH}"
-  fi
-  info "Using Windows path: $WIN_PATH"
-  PYPROJECT_TOML_HASH=$(powershell.exe -Command "(Get-FileHash -Path \"$WIN_PATH\" -Algorithm SHA256).Hash.ToLower()")
-elif [[ "$BAO_BASE_OS" == "macos" ]]; then
-  PYPROJECT_TOML_HASH=$(shasum -a 256 "$PYPROJECT_TOML" | cut -d' ' -f1)
+  # WIN_PATH="$PYPROJECT_TOML"
+  # if [[ "$WIN_PATH" =~ ^/([a-zA-Z])/(.*)$ ]]; then
+  #   # Convert /d/path to d:/path format
+  #   DRIVE="${BASH_REMATCH[1]}"
+  #   REST_PATH="${BASH_REMATCH[2]}"
+  #   WIN_PATH="${DRIVE}:/${REST_PATH}"
+  # fi
+  # info "Using Windows path: $WIN_PATH"
+  # PYPROJECT_TOML_HASH=$(powershell.exe -Command "(Get-FileHash -Path \"$WIN_PATH\" -Algorithm SHA256).Hash.ToLower()")
+  PYPROJECT_TOML_HASH=$(tr -d '\r' < "$PYPROJECT_TOML" | powershell -Command "Get-FileHash -Algorithm SHA256 -InputStream | Select-Object -ExpandProperty Hash" | tr '[:upper:]' '[:lower:]')elif [[ "$BAO_BASE_OS" == "macos" ]]; then
 elif [[ "$BAO_BASE_OS" == "linux" ]]; then
   PYPROJECT_TOML_HASH=$(sha256sum "$PYPROJECT_TOML" | cut -d' ' -f1)
 else
