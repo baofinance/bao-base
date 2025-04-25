@@ -7,8 +7,6 @@ BAO_BASE_DIR=$BAO_BASE_DIR
 BAO_BASE_OS=$BAO_BASE_OS
 BAO_BASE_VERBOSITY=$BAO_BASE_VERBOSITY
 
-export DEBUG=-vvvv,run-python
-
 # Set the path to the script
 SCRIPT="$1"
 shift
