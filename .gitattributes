@@ -1,4 +1,24 @@
+# Default to native line endings for platform
 * text=auto
+
+# Force LF for files that need to run in bash
+*.sh text eol=lf
+*.bash text eol=lf
+*.py text eol=lf
+
+# Keep Solidity files consistent since they're primarily edited in cross-platform IDEs
+# also slither is sensitive to CRLF line endings
+*.sol text eol=lf
+
+# we do hash of file contents, so we need to keep them consistent
+*.toml text eol=lf
+
+# Force CRLF for Windows-specific files
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# yarn recommendations
 /.yarn/**            linguist-vendored
 /.yarn/releases/*    binary
 /.yarn/plugins/**/*  binary

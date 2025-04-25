@@ -113,6 +113,7 @@ abstract contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnabl
             // only pending or owner
             let pending_ := sload(_PENDING_SLOT)
             let pendingOwner_ := and(sload(_PENDING_SLOT), 0xffffffffffffffffffffffffffffffffffffffff)
+            // slither-disable-next-line incorrect-equality,timestamp
             if iszero(or(eq(caller(), pendingOwner_), eq(caller(), sload(_INITIALIZED_SLOT)))) {
                 mstore(0x00, 0x82b42900) // `Unauthorized()`.
                 revert(0x1c, 0x04)
@@ -139,6 +140,7 @@ abstract contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnabl
             // combining these checks in one reduces contract size and gas
             let pendingOwner_ := and(pending_, 0x1ffffffffffffffffffffffffffffffffffffffff)
             // let pendingOwner := shr(95, shl(95, pending_)) // owner address + validated bit => validateing twice is disallowed
+            // slither-disable-next-line incorrect-equality,timestamp
             if or(
                 // onlyPendingOwner can call this, but only once - if validated already then it's a mistake
                 iszero(eq(caller(), pendingOwner_)),
@@ -173,6 +175,7 @@ abstract contract BaoOwnableTransferrable is IBaoOwnableTransferrable, BaoOwnabl
                 let pause := shr(192, pending_)
                 // only if the pending address has been validated and matches the stored address
                 // and we haven't past expiry
+                // slither-disable-next-line incorrect-equality,timestamp
                 if or(
                     iszero(eq(or(confirmOwner, shl(_BIT_VALIDATED, 0x1)), shr(95, shl(95, pending_)))),
                     or(

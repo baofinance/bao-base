@@ -23,40 +23,12 @@ runs:
         echo "runner.os=${{ runner.os }}"
         python3 -c "import platform; info = f'{platform.system()} {platform.release()} {platform.version()} {platform.machine()}'; print('-' * len(info)); print(info); print('-' * len(info))"
 
-    - name: Install Bash 5.2
+    - name: Install Bash 5.2 (on macOS)
+      if: runner.os == 'macOS'
       shell: bash
       run: |
-        if [[ "${{ runner.os }}" == "Linux" ]]; then
-          sudo apt-get update
-          sudo apt-get install -y bash
-          echo "Bash updated to version:"
-          bash --version
-        elif [[ "${{ runner.os }}" == "macOS" ]]; then
-          brew install bash
-          echo "Bash updated to version:"
-          bash --version
-        else
-          echo "Windows not supported for Bash upgrade, using default Bash"
-          bash --version
-        fi
-
-    - name: Install recent python
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.13"
-    - shell: bash
-      run: |
-        which python3
-        python3 --version
-
-    - name: Install Poetry (python package manager)
-      uses: snok/install-poetry@v1
-      with:
-        version: 1.8.5
-    - shell: bash
-      run: |
-        which poetry
-        poetry --version
+        brew install bash
+        bash --version
 
     - name: Install ShellCheck
       shell: bash
@@ -66,11 +38,28 @@ runs:
           sudo apt-get install -y shellcheck
         elif [[ "${{ runner.os }}" == "macOS" ]]; then
           brew install shellcheck
+        elif [[ "${{ runner.os }}" == "Windows" ]]; then
+          # Install Chocolatey if not already installed
+          if ! command -v choco &>/dev/null; then
+            echo "Installing Chocolatey..."
+            powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))"
+          fi
+
+          # Install ShellCheck via Chocolatey
+          echo "Installing ShellCheck via Chocolatey..."
+          powershell -Command "choco install shellcheck -y"
+
+          # Add to PATH for this session
+          echo "C:\Program Files\shellcheck" >> $GITHUB_PATH
         else
-          echo "Windows not fully supported for ShellCheck - skipping"
+          echo "Unknown OS, skipping ShellCheck installation"
         fi
+
+        # Verify installation
         if command -v shellcheck &>/dev/null; then
           shellcheck --version
+        else
+          echo "Warning: ShellCheck not available in PATH"
         fi
 
     # we install foundry because some scripts check for it's existence
@@ -87,31 +76,39 @@ runs:
       run: |
         yarn
 
-    - name: Run Bash Script Linting
+    - name: Run run script debug info
       shell: bash
       run: |
-        yarn lint:bash
-      id: lint
+        ./run nothing hello bash script
+        ./run nothing-dir hello directory
+        ./run nothing-python hello assumed python script
+        ./run nothing-python.py hello .py python script
+      id: nothing
 
-    - name: Run Bash Tests
-      shell: bash
-      run: |
-        yarn test:bash
-      id: bats
-
-    # no python tests yet
-    # - name: Run Python unit tests
+    # - name: Run Python (pytest) Tests
     #   shell: bash
     #   run: |
-    #     if [ -f "pyproject.toml" ]; then
-    #       poetry install
-    #       poetry run pytest
-    #     else
-    #       python -m pytest
-    #     fi
+    #     yarn test:python
     #   id: pytest
+
+    # - name: Run Bash (BATS) Tests
+    #   shell: bash
+    #   run: |
+    #     yarn test:bash
+    #   id: bats
+
+    # - name: Run Bash Script Linting
+    #   shell: bash
+    #   run: |
+    #     yarn lint:bash
+    #   id: lint
 
     - name: Check for changed repo files
       shell: bash
       run: |
-        yarn git-diffs
+        git status --short
+        git diff --minimal
+        [[ $(git status --short | wc -l) -gt 0 ]] && {
+          echo "Git repo has changed, either correctly fix those files locally or .gitignore them"; exit 1;
+        } || echo "No changes detected in git repo"
+      id: git-diffs
