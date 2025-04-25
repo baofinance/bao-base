@@ -42,6 +42,8 @@ else
   UV_BIN="$UV_DIR/uv"
 fi
 
+mutex_acquire "uv"
+
 # Install uv locally
 if [[ ! -x "$UV_BIN" ]]; then
   debug "uv not found at $UV_BIN, installing to $UV_DIR..."
@@ -62,6 +64,9 @@ if [[ ! -x "$UV_BIN" ]]; then
   rm -rf "$temp_install_dir"
   debug "uv installed successfully to: $UV_BIN"
 fi
+
+mutex_release "uv"
+
 debug "Using uv at: $UV_BIN:" $($UV_BIN --version)
 UV_CMD=("$UV_BIN")
 

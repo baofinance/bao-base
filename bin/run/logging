@@ -107,7 +107,7 @@ debug() {
     # determine script name from the calling script
     # - fallback to the current script if no caller is found
     local script_name=$(basename "${BASH_SOURCE[1]:-${BASH_SOURCE[0]}}")
-    if [[ ",${DEBUG:-}," == *,"$script_name",* ]]; then
+    if [[ ",${DEBUG:-}," == *,"$script_name",* ]] || [[ "$BAO_BASE_VERBOSITY" > "3" ]]; then
         _output "DEBUG" "$*"
     fi
 }

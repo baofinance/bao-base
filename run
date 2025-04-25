@@ -48,6 +48,8 @@ args=($(debug_opts))
 _process_args
 args=("${temp_args[@]}")
 
+source "$BAO_BASE_BIN_DIR/run/mutex"
+
 debug "Starting run script"
 debug "BAO_BASE_VERBOSITY=$BAO_BASE_VERBOSITY"
 debug "BAO_BASE_DIR=$BAO_BASE_DIR"
