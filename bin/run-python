@@ -7,6 +7,8 @@ BAO_BASE_DIR=$BAO_BASE_DIR
 BAO_BASE_OS=$BAO_BASE_OS
 BAO_BASE_VERBOSITY=$BAO_BASE_VERBOSITY
 
+export DEBUG=-vvvv,run-python
+
 # Set the path to the script
 SCRIPT="$1"
 shift
@@ -82,7 +84,7 @@ if [[ ! -f "$PYPROJECT_TOML" ]]; then
 fi
 debug "Found pyproject.toml file at $PYPROJECT_TOML"
 
-info "0" "Using pyproject.toml at $PYPROJECT_TOML"
+debug "Using pyproject.toml at $PYPROJECT_TOML"
 # Generate hash for pyproject.toml
 # Handle different OS hashing methods
 if [[ "${BAO_BASE_OS}" == "windows" ]]; then
@@ -95,14 +97,16 @@ if [[ "${BAO_BASE_OS}" == "windows" ]]; then
   # fi
   # info "Using Windows path: $WIN_PATH"
   # PYPROJECT_TOML_HASH=$(powershell.exe -Command "(Get-FileHash -Path \"$WIN_PATH\" -Algorithm SHA256).Hash.ToLower()")
-  PYPROJECT_TOML_HASH=$(tr -d '\r' < "$PYPROJECT_TOML" | powershell -Command "Get-FileHash -Algorithm SHA256 -InputStream | Select-Object -ExpandProperty Hash" | tr '[:upper:]' '[:lower:]')elif [[ "$BAO_BASE_OS" == "macos" ]]; then
+  PYPROJECT_TOML_HASH=$(tr -d '\r' < "$PYPROJECT_TOML" | powershell -Command "Get-FileHash -Algorithm SHA256 -InputStream | Select-Object -ExpandProperty Hash" | tr '[:upper:]' '[:lower:]')
+elif [[ "$BAO_BASE_OS" == "macos" ]]; then
+  PYPROJECT_TOML_HASH=$(shasum -a 256 "$PYPROJECT_TOML" | cut -d' ' -f1)
 elif [[ "$BAO_BASE_OS" == "linux" ]]; then
   PYPROJECT_TOML_HASH=$(sha256sum "$PYPROJECT_TOML" | cut -d' ' -f1)
 else
   echo "Unsupported OS for hash calculation: $BAO_BASE_OS"
   exit 1
 fi
-info "Generated hash for pyproject.toml: $PYPROJECT_TOML_HASH"
+debug "Generated hash for pyproject.toml: $PYPROJECT_TOML_HASH"
 
 # Check for existing .python-version and uv.lock
 PYTHON_VERSION_LOCK="$DEPENDENCIES_DIR/.python-version"
