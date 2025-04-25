@@ -7,9 +7,7 @@
   //     "address": "0x2F1567c4A651ED93dB0FC6D9Df1EA9196054f63e",
   //     "description": "staked BaoSynth governance"
   //   },
-
   // Tokens
-
   "cerc20_delegate": {
     "address": "0x90e877e9660a52443cBabD86CA0871A1D60f27e1"
   },
@@ -33,8 +31,11 @@
     "address": "0x0fBcbaEA96Ce0cF7Ee00A8c19c3ab6f5Dc8E1921",
     "symbol": "wstETH",
     "price_feed": "0xdB9Ee83CE2ec52655b707171C3515e9A0Cb1eE91"
-  }
-
+  },
+  "stETH": {
+    "address": "0xae7ab96520de3a18e5e111b5eaab095312d7fe84",
+    "symbol": "stETH"
+  },
   //   "baousd": {
   //     "address": "0x7945b0A6674b175695e5d1D08aE1e6F13744Abb0",
   //     "symbol": "BaoUSD"
