@@ -2,217 +2,330 @@
 set -euo pipefail
 
 # set up where everything is, including backing out symlinks
-export ABS_BAO_BASE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
-export BAO_BASE="$(python3 -c "import os.path; print(os.path.relpath('$ABS_BAO_BASE', '$(pwd)'))")"
-export BAO_BASE_DIR="$(cd ${BAO_BASE} && pwd)"
+bao_base_dir_abs="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+export BAO_BASE_DIR_REL="$(python3 -c "import os.path; print(os.path.relpath('$bao_base_dir_abs', '$(pwd)'))")"
+export BAO_BASE_DIR=$(cd "$BAO_BASE_DIR_REL" && pwd)
 export BAO_BASE_BIN_DIR="$BAO_BASE_DIR/bin"
 export BAO_BASE_SCRIPT_DIR="$BAO_BASE_DIR/script"
+export BAO_BASE_TOOLS_DIR="$BAO_BASE_DIR/.tools"
+export BAO_BASE_VERBOSITY=${VERBOSITY:-0} # allow ths to be passed in as an env var
 
-# Debug function - automatically detects script name and prints messages only if the script is in the DEBUG list
-debug() {
-    # Automatically determine script name from the calling script
-    local script_path="${BASH_SOURCE[1]:-${BASH_SOURCE[0]}}"
-    local script_name=$(basename "$script_path" | sed 's/\..*$//')
-
-    # For run-* scripts, extract the name after "run-"
-    if [[ "$script_name" == run-* ]]; then
-        script_name="${script_name#run-}"
-    fi
-
-    # Check if DEBUG is set and if script_name is in the comma-separated list
-    if [[ -n "${DEBUG:-}" ]]; then
-        # Convert DEBUG to array for easier matching
-        IFS=',' read -ra DEBUG_SCRIPTS <<< "$DEBUG"
-
-        for debug_script in "${DEBUG_SCRIPTS[@]}"; do
-            if [[ "$debug_script" == "$script_name" ]]; then
-                # Send debug output to stderr to avoid affecting function return values
-                echo "DEBUG[$script_name]: $*" >&2
-                return 0
-            fi
-        done
-    fi
-
-    # Not debugging this script
-    return 0
+# Process flags for quiet mode and verbosity
+_process_args() {
+  while [[ ${#args[@]} -gt 0 ]]; do
+    case "${args[0]}" in
+      -q | --quiet)
+        export BAO_BASE_VERBOSITY=-1000
+        args=("${args[@]:1}")
+        ;;
+      -v)
+        export BAO_BASE_VERBOSITY=1
+        args=("${args[@]:1}")
+        ;;
+      -vv)
+        export BAO_BASE_VERBOSITY=2
+        args=("${args[@]:1}")
+        ;;
+      -vvv)
+        export BAO_BASE_VERBOSITY=3
+        args=("${args[@]:1}")
+        ;;
+      -vvvv)
+        export BAO_BASE_VERBOSITY=4
+        args=("${args[@]:1}")
+        ;;
+      *) # Not a flag we process here
+        break ;;
+    esac
+  done
 }
+args=("$@")
+_process_args
 
-# Error handling function
-error() {
-    echo "ERROR: $*" >&2
-    exit 1
-}
-
-# Export the debug function so it's available to child scripts
-export -f debug
-export -f error
+source "$BAO_BASE_BIN_DIR/run/logging"
+temp_args=(${args[@]})
+args=($(debug_opts))
+_process_args
+args=("${temp_args[@]}")
 
 debug "Starting run script"
+debug "BAO_BASE_VERBOSITY=$BAO_BASE_VERBOSITY"
 debug "BAO_BASE_DIR=$BAO_BASE_DIR"
+debug "BAO_BASE_DIR_REL=$BAO_BASE_DIR_REL"
 debug "BAO_BASE_BIN_DIR=$BAO_BASE_BIN_DIR"
+debug "BAO_BASE_SCRIPT_DIR=$BAO_BASE_SCRIPT_DIR"
+debug "BAO_BASE_TOOLS_DIR=$BAO_BASE_TOOLS_DIR"
 
-# Detect if running in quiet mode
-QUIET_MODE=0
-if [[ "$1" == "-q" ]]; then
-    QUIET_MODE=1
-    shift
-    debug "Quiet mode enabled"
+# Detect OS and set environment variables
+source "$BAO_BASE_BIN_DIR/run/platform-utils.sh"
+
+debug "BAO_BASE_OS=$BAO_BASE_OS"
+debug "BAO_BASE_OS_SUBTYPE=$BAO_BASE_OS_SUBTYPE"
+debug "BAO_BASE_OS_VERSION=$BAO_BASE_OS_VERSION"
+
+# Check if we have any arguments left
+if [[ ${#args} -lt 1 ]]; then
+  error "No script specified"
+  exit 1
 fi
 
-SCRIPT_NAME="$1"
-shift
+debug "Verbosity level set to: $BAO_BASE_VERBOSITY"
+
+SCRIPT_NAME="${args[0]}"
+args=("${args[@]:1}")
 SCRIPT_PATH="$BAO_BASE_BIN_DIR/$SCRIPT_NAME"
 
 debug "SCRIPT_NAME=$SCRIPT_NAME"
 debug "SCRIPT_PATH=$SCRIPT_PATH"
-debug "Remaining args: $*"
+debug "Remaining args: ${args[@]}"
+
+# Helper function to detect script type for any file
+# Args:
+#   $1: Path to script file
+#   $2: Optional default type if detection fails (useful for direct file extension checks)
+detect_script_type() {
+  local script_path="$1"
+  local default_type="${2:-unknown}"
+  local detected_type="$default_type"
+
+  # Skip detection if file doesn't exist
+  if [[ ! -f "$script_path" ]]; then
+    echo "$default_type"
+    return
+  fi
+
+  # First try to detect from shebang
+  if [[ -s "$script_path" ]]; then
+    local shebang
+    shebang=$(head -n 1 "$script_path" 2>/dev/null || echo "")
+    debug "Examining shebang: $shebang"
+
+    if [[ "$shebang" == *"python"* ]]; then
+      detected_type="python"
+      debug "Detected Python script from shebang"
+    elif [[ "$shebang" == *"bash"* || "$shebang" == *"sh"* ]]; then
+      detected_type="bash"
+      debug "Detected Bash script from shebang"
+    elif [[ "$shebang" == *"node"* || "$shebang" == *"nodejs"* ]]; then
+      detected_type="node"
+      debug "Detected Node.js script from shebang"
+    fi
+  else
+    debug "Script file is empty or couldn't read shebang"
+  fi
+
+  # Then check extension if shebang detection wasn't conclusive
+  if [[ "$detected_type" == "$default_type" ]]; then
+    if [[ "$script_path" == *.py ]]; then
+      detected_type="python"
+      debug "Detected Python script from extension"
+    elif [[ "$script_path" == *.js ]]; then
+      detected_type="node"
+      debug "Detected Node.js script from extension"
+    elif [[ "$script_path" == *.sh ]]; then
+      detected_type="bash"
+      debug "Detected Bash script from extension"
+    fi
+  fi
+
+  # Verify consistency between shebang and extension if both are detected
+  if [[ "$detected_type" != "$default_type" && "$script_path" == *.* ]]; then
+    local ext_type
+
+    case "${script_path##*.}" in
+      py) ext_type="python" ;;
+      js) ext_type="node" ;;
+      sh) ext_type="bash" ;;
+      *) ext_type="unknown" ;;
+    esac
+
+    if [[ "$ext_type" != "unknown" && "$detected_type" != "$ext_type" ]]; then
+      error "Mismatch between shebang ($detected_type) and file extension ($ext_type) in $script_path"
+      exit 1
+    fi
+  fi
+
+  echo "$detected_type"
+}
+
+# Run a script with the appropriate executor based on script type
+# Args:
+#   $1: Script type (python, node, bash)
+#   $2: Script path or name
+#   $@: Additional arguments to pass to the script
+run_script_with_type() {
+  local script_type="$1"
+  local script="$2"
+  shift 2
+
+  local exit_code=0
+  case "$script_type" in
+    python)
+      debug "Executing via run-python: $script"
+      "$BAO_BASE_BIN_DIR/run-python" "$script" "$@" || exit_code=$?
+      ;;
+    node)
+      debug "Executing via run-node: $script"
+      "$BAO_BASE_BIN_DIR/run-node" "$script" "$@" || exit_code=$?
+      ;;
+    bash)
+      debug "Executing via run-bash: $script"
+      "$BAO_BASE_BIN_DIR/run-bash" "$script" "$@" || exit_code=$?
+      ;;
+    *)
+      error "Unknown script type: $script_type"
+      return 1
+      ;;
+  esac
+  [[ "$exit_code" -gt "0" ]] && error "$script_type script execution failed with code $exit_code"
+  return $exit_code
+}
 
 # Auto-detect script type
 debug "Detecting script type for $SCRIPT_NAME"
+args_str=""
+if [[ ${#args[@]} -gt 0 ]]; then
+  args_str=" ${args[*]}"
+fi
 
-# Determine script type directly (inlined from detect_script_type)
-SCRIPT_TYPE=""
+# Collect all possible execution paths and ensure there's only one
+debug "Finding all execution options for $SCRIPT_NAME"
 
-# First check if it's a directory
+# Array to store all executable options
+declare -a execution_options=()
+declare -a execution_descriptions=()
+
+# Check directory with run.sh or run.py
 if [[ -d "$SCRIPT_PATH" ]]; then
-    debug "Path is a directory: $SCRIPT_PATH"
+  if [[ -x "$SCRIPT_PATH/run.sh" ]]; then
+    execution_options+=("dir_run_sh")
+    execution_descriptions+=("directory with run.sh: $SCRIPT_PATH/run.sh")
+  fi
 
-    # Check if the directory has a run.sh script
-    if [[ -f "$SCRIPT_PATH/run.sh" ]]; then
-        [[ -x "$SCRIPT_PATH/run.sh" ]] || error "$SCRIPT_PATH/run.sh is not executable"
-        debug "Directory has an executable run.sh script"
-        SCRIPT_TYPE="dir-runscript"
-    # Check if it has a pyproject.toml to determine if it's Python
-    elif [[ -f "$SCRIPT_PATH/pyproject.toml" ]]; then
-        debug "Directory contains pyproject.toml"
-        SCRIPT_TYPE="python-dir"
-    elif [[ -f "$SCRIPT_PATH/package.json" ]]; then
-        debug "Directory contains package.json"
-        SCRIPT_TYPE="node-dir"
-    else
-        debug "Directory has unknown structure"
-        SCRIPT_TYPE="unknown-dir"
-    fi
-
-# Check if we have a wrapper script that provides execution instructions
-elif [[ -f "$SCRIPT_PATH" && -x "$SCRIPT_PATH" ]]; then
-    # Check shebang to determine type - safely read first line
-    shebang=""
-    if [[ -s "$SCRIPT_PATH" ]]; then
-        shebang=$(head -n 1 "$SCRIPT_PATH" 2>/dev/null || echo "")
-        debug "Found executable script with shebang: $shebang"
-    else
-        debug "Script file exists but is empty or unreadable"
-    fi
-
-    if [[ "$shebang" == *"python"* ]]; then
-        debug "Detected as Python script (executable)"
-        SCRIPT_TYPE="python"
-    elif [[ "$shebang" == *"node"* ]]; then
-        debug "Detected as Node.js script (executable)"
-        SCRIPT_TYPE="node"
-    else
-        debug "Detected as Bash script (executable)"
-        SCRIPT_TYPE="bash"
-    fi
-
-# Check for module files directly in bin directory
-elif [[ -f "$BAO_BASE_BIN_DIR/$SCRIPT_NAME.py" ]]; then
-    debug "Found Python module file in bin"
-    SCRIPT_TYPE="python"
-elif [[ -f "$BAO_BASE_BIN_DIR/$SCRIPT_NAME.js" ]]; then
-    debug "Found Node.js module file in bin"
-    SCRIPT_TYPE="node"
-elif [[ -f "$BAO_BASE_BIN_DIR/$SCRIPT_NAME.sh" ]]; then
-    debug "Found Bash module file in bin"
-    SCRIPT_TYPE="bash"
-elif [[ -d "$BAO_BASE_BIN_DIR/$SCRIPT_NAME" ]]; then
-    debug "Found directory in bin: $BAO_BASE_BIN_DIR/$SCRIPT_NAME"
-    # Directory-based script (like slither)
-    # Check if it has a pyproject.toml to determine if it's Python
-    if [[ -f "$BAO_BASE_BIN_DIR/$SCRIPT_NAME/pyproject.toml" ]]; then
-        debug "Directory contains pyproject.toml"
-        SCRIPT_TYPE="python-dir"
-    elif [[ -f "$BAO_BASE_BIN_DIR/$SCRIPT_NAME/package.json" ]]; then
-        debug "Directory contains package.json"
-        SCRIPT_TYPE="node-dir"
-    else
-        debug "Directory has unknown structure"
-        SCRIPT_TYPE="unknown-dir"
-    fi
-else
-    debug "No module file found, checking if it's a system command"
-    # Check if it's a known command that uses the global module directory
-    if command -v "$SCRIPT_NAME" &> /dev/null; then
-        debug "Command '$SCRIPT_NAME' exists in system path"
-        # Check if we have a poetry config for this command
-        if [[ -f "$BAO_BASE_BIN_DIR/pyproject.toml" ]]; then
-            debug "Global pyproject.toml found, treating as Python command"
-            SCRIPT_TYPE="python-command"
-        else
-            debug "No global pyproject.toml, treating as system command"
-            SCRIPT_TYPE="system-command"
-        fi
-    else
-        debug "Command not found in path, script type is unknown"
-        SCRIPT_TYPE="unknown"
-    fi
+  if [[ -f "$SCRIPT_PATH/run.py" ]]; then
+    execution_options+=("dir_run_py")
+    execution_descriptions+=("directory with run.py: $SCRIPT_PATH/run.py")
+  fi
 fi
 
-debug "Detected script type: $SCRIPT_TYPE"
-
-if [[ $QUIET_MODE -eq 0 ]]; then
-    echo "Running $SCRIPT_PATH ($SCRIPT_TYPE) $*"
+# Check direct file match
+if [[ -f "$SCRIPT_PATH" ]]; then
+  execution_options+=("direct_file")
+  execution_descriptions+=("direct file: $SCRIPT_PATH")
 fi
 
-exit_code=0
+# Check pattern matches
+matching_files=$(find "$BAO_BASE_BIN_DIR" -maxdepth 1 -type f -name "$SCRIPT_NAME.*" | sort)
+file_count=$(echo "$matching_files" | grep -c "^" || echo "0")
 
-# Execute based on script type (inlined from run_script)
-case "$SCRIPT_TYPE" in
-    dir-runscript)
-        debug "Executing directory's run.sh script"
-        "$SCRIPT_PATH/run.sh" "$@" || { exit_code=$?; error "Directory run script execution failed with code $exit_code"; }
+if [[ $file_count -gt 0 ]]; then
+  # Add each matching file as an option
+  while IFS= read -r matched_file; do
+    if [[ -n "$matched_file" ]]; then
+      execution_options+=("pattern_match:$matched_file")
+      execution_descriptions+=("pattern match: $(basename "$matched_file")")
+    fi
+  done <<<"$matching_files"
+fi
+
+# Handle findings
+option_count=${#execution_options[@]}
+
+debug "Found $option_count execution options"
+for ((i = 0; i < option_count; i++)); do
+  debug "Option $((i + 1)): ${execution_descriptions[$i]}"
+done
+
+if [[ $option_count -eq 0 ]]; then
+  error "Could not determine script type for $SCRIPT_NAME"
+  exit 1
+elif [[ $option_count -gt 1 ]]; then
+
+  # Show detailed execution information for each option
+  for ((i = 0; i < option_count; i++)); do
+    echo -n "    Option $((i + 1)): "
+
+    case "${execution_options[$i]}" in
+      dir_run_sh)
+        echo "Would run as bash script: $SCRIPT_NAME$args_str"
+        echo "        Path: $SCRIPT_PATH/run.sh"
         ;;
-    python)
-        debug "Executing via run-python"
-        "$BAO_BASE_BIN_DIR/run-python" "$SCRIPT_NAME" "$@" || { exit_code=$?; error "Python script execution failed with code $exit_code"; }
+      dir_run_py)
+        script_type=$(detect_script_type "$SCRIPT_PATH/run.py" "python")
+        echo "Would run as $script_type script: $SCRIPT_NAME$args_str"
+        echo "        Path: $SCRIPT_PATH/run.py"
         ;;
-    python-dir|python-command)
-        debug "Executing via run-python (dir/command variant)"
-        "$BAO_BASE_BIN_DIR/run-python" "$SCRIPT_NAME" "$@" || { exit_code=$?; error "Python script execution failed with code $exit_code"; }
+      direct_file)
+        script_type=$(detect_script_type "$SCRIPT_PATH" "unknown")
+        echo "Would run as $script_type script: $SCRIPT_NAME$args_str"
+        echo "        Path: $SCRIPT_PATH"
         ;;
-    node)
-        debug "Executing via run-node"
-        "$BAO_BASE_BIN_DIR/run-node" "$SCRIPT_NAME" "$@" || { exit_code=$?; error "Node.js script execution failed with code $exit_code"; }
+      pattern_match:*)
+        matched_file="${execution_options[$i]#pattern_match:}"
+        script_basename=$(basename "$matched_file")
+        script_type=$(detect_script_type "$matched_file" "unknown")
+        echo "Would run as $script_type script: $script_basename$args_str"
+        echo "        Path: $matched_file"
         ;;
-    node-dir)
-        debug "Executing via run-node (dir variant)"
-        "$BAO_BASE_BIN_DIR/run-node" "$SCRIPT_NAME" "$@" || { exit_code=$?; error "Node.js script execution failed with code $exit_code"; }
-        ;;
-    bash)
-        debug "Executing via run-bash"
-        "$BAO_BASE_BIN_DIR/run-bash" "$SCRIPT_NAME" "$@" || { exit_code=$?; error "Bash script execution failed with code $exit_code"; }
-        ;;
-    system-command)
-        debug "Executing system command directly"
-        command "$SCRIPT_NAME" "$@" || { exit_code=$?; error "System command execution failed with code $exit_code"; }
-        ;;
-    unknown-dir)
-        error "Cannot execute directory '$SCRIPT_PATH' without knowing its type (no pyproject.toml or package.json found)"
-        ;;
-    unknown)
-        # Try to execute it directly if it's unknown but executable
-        if [[ -f "$SCRIPT_PATH" && -x "$SCRIPT_PATH" ]]; then
-            debug "Unknown type but executable, executing directly"
-            "$SCRIPT_PATH" "$@" || { exit_code=$?; error "Script execution failed with code $exit_code"; }
-        else
-            error "Unknown script type for '$SCRIPT_PATH'"
-        fi
-        ;;
-    *)
-        error "Unrecognized script type: $SCRIPT_TYPE"
-        ;;
+    esac
+  done
+
+  error "Multiple execution options found for '$SCRIPT_NAME':"
+fi
+
+# Execute the single option
+debug "Proceeding with execution option: ${execution_descriptions[0]}"
+case "${execution_options[0]}" in
+  dir_run_sh)
+    info 0 "Running: $BAO_BASE_DIR_REL/bin/$SCRIPT_NAME/run.sh$args_str"
+    "$SCRIPT_PATH/run.sh" "${args[@]}" || {
+      exit_code=$?
+      error "Directory run script execution failed with code $exit_code"
+      exit $exit_code
+    }
+    ;;
+
+  dir_run_py)
+    info 0 "Running: $BAO_BASE_DIR_REL/bin/$SCRIPT_NAME/run.py$args_str"
+    script_type=$(detect_script_type "$SCRIPT_PATH/run.py" "python")
+    run_script_with_type "$script_type" "$SCRIPT_PATH/run.py" "${args[@]}" || {
+      exit_code=$?
+      exit $exit_code
+    }
+    ;;
+
+  direct_file)
+    script_type=$(detect_script_type "$SCRIPT_PATH")
+    if [[ "$script_type" == "unknown" ]]; then
+      error "Could not determine script type for $SCRIPT_PATH"
+      exit 1
+    fi
+
+    info 0 "Running as $script_type: $BAO_BASE_DIR_REL/bin/$SCRIPT_NAME$args_str"
+    run_script_with_type "$script_type" "$SCRIPT_NAME" "${args[@]}" || {
+      exit_code=$?
+      exit $exit_code
+    }
+    ;;
+
+  pattern_match:*)
+    matched_file="${execution_options[0]#pattern_match:}"
+    script_basename=$(basename "$matched_file")
+    script_type=$(detect_script_type "$matched_file")
+
+    if [[ "$script_type" == "unknown" ]]; then
+      error "Could not determine script type for $matched_file"
+      exit 1
+    fi
+
+    info 0 "Running as $script_type: $BAO_BASE_DIR_REL/bin/$script_basename$args_str"
+    run_script_with_type "$script_type" "$script_basename" "${args[@]}" || {
+      exit_code=$?
+      exit $exit_code
+    }
+    ;;
 esac
 
+exit_code=0
 debug "Script execution completed successfully with exit code: $exit_code"
 exit $exit_code

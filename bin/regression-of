@@ -5,7 +5,7 @@ mkdir -p ./regression
 REGRESSION_TYPE="$1"
 REGRESSION_FILE="regression/$REGRESSION_TYPE.txt"
 REGRESSION_LOG="regression/$REGRESSION_TYPE.log"
-echo "generating regression for $REGRESSION_TYPE..."
+info 1 "generating regression for $REGRESSION_TYPE..."
 truncate -s 0 "$REGRESSION_FILE" # empty the existing file
 
 # generate the output

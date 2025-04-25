@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+
+# logging
+# logging takes three forms
+# 1. error messages - these are always printed. The process should terminate.
+# 2. info messages - these are printed according to a verbosity level.
+# 3. debug messages - these are printed if and only if the script name is in the DEBUG list.
+
+first_free_fd() {
+    local current_fds=$(lsof -p $$ | awk '$4 ~ /^([0-9]+)[urw]*$/ {print +$4}' | sort -n)
+    prev=2
+    for fd in $(echo "$current_fds"); do
+        if [ $((fd)) -gt $((prev + 1)) ]; then
+            echo $((prev + 1))
+            return
+        fi
+        prev=$fd
+    done
+    echo $((prev + 1))
+}
+
+# set the file descriptor for logging this must be 2 or it interferes with anvil (go figure)
+export LOGGING_FILE_DESCRIPTOR=${LOGGING_FILE_DESCRIPTOR:-2}
+# redirect this to stdout, so it's stdout but functions can log but not affect their output
+# who said bash was a good idea?
+# exec 8> >(stdbuf -o0 cat)
+case "$LOGGING_FILE_DESCRIPTOR" in
+    3)
+        exec 3>&1
+        ;;
+    4)
+        exec 4>&1
+        ;;
+    5)
+        exec 5>&1
+        ;;
+    6)
+        exec 6>&1
+        ;;
+    7)
+        exec 7>&1
+        ;;
+    8)
+        exec 8>&1
+        ;;
+    9)
+        exec 9>&1
+        ;;
+esac
+
+debug_opts() {
+    # extract options from DEBUG variable
+    local debug_options=""
+    local IFS=','
+    for item in ${DEBUG:-}; do
+        # If item starts with dash, add it to debug_options
+        if [[ "$item" == -* ]]; then
+            debug_options+=" $item"
+        fi
+    done
+    echo "$debug_options"
+}
+# hidden text in log messages
+declare -A _logging_hidden_text
+export _logging_hidden_text
+
+# function to hide sensitive text in log messages
+sensitive() {
+    _logging_hidden_text["$1"]="${2:-***hidden***}"
+}
+
+export LOGGING_SENSITIVE_TEXT=${LOGGING_SENSITIVE_TEXT:-hide}
+
+# Output function - prints messages to the output stream
+_output() {
+    local type="$1"
+    shift
+    local message="$*"
+    # remove hidden text
+    if [[ "$LOGGING_SENSITIVE_TEXT" != "show" ]]; then
+        for key in "${!_logging_hidden_text[@]}"; do
+            local value="${_logging_hidden_text[$key]}"
+            message=$(echo "$message" | sed "s|${key}|${value}|g")
+        done
+    fi
+    # format the message
+    local format
+    format=$(printf "%-5s " "$type")
+    # indentation is   ^ ^ always have a separating space
+    if [[ -v DEBUG ]]; then
+        # if DEBUG is defined at all, we print script info
+        format+=" ${BASH_SOURCE[2]}:${BASH_LINENO[1]}"
+        # if [[ "$LOGGING_LEVEL" -ge "4" ]]; then
+        #     format+=" ${FUNCNAME[1]}()"
+        # fi
+        format+=": "
+    fi
+    local indent
+    indent=$(printf "%${#format}s")
+    message=${message//$'\n'/$'\n'"$indent"}
+    # echo "$(date '+%Y-%m-%d %H:%M:%S,%3N') - $format
+    echo "$format$message" >&"$LOGGING_FILE_DESCRIPTOR"
+}
+
+# Debug function - automatically detects script name and prints messages only if the script is in the DEBUG list
+debug() {
+    # determine script name from the calling script
+    # - fallback to the current script if no caller is found
+    local script_name=$(basename "${BASH_SOURCE[1]:-${BASH_SOURCE[0]}}")
+    if [[ ",${DEBUG:-}," == *,"$script_name",* ]]; then
+        _output "DEBUG" "$*"
+    fi
+}
+
+# Error handling function
+error() {
+    _output "ERROR" "$*"
+    exit 1
+}
+
+# Information function based on verbosity level
+# Usage: info <level> <message>
+info() {
+    local required_level=$1
+    shift
+    if [[ ${BAO_BASE_VERBOSITY:-0} -ge $required_level ]]; then
+      local tag
+      if [[ "$required_level" -gt 0 ]]; then
+          tag="INFO$required_level"
+      else
+          tag="INFO"
+      fi
+      _output "$tag" "$*"
+    fi
+}
+
+# Export the functions so they're available to child scripts
+# this avoids namespace polution with helper functions
+# having them there for all subscripts means that clashes are detected early
+export -f _output
+export -f debug
+export -f error
+export -f info
+export -f sensitive

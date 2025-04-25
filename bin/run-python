@@ -1,65 +1,235 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# poetry is installed here
-NEW_PATH="$HOME/.local/bin"
-if [[ ":$PATH:" != *":$NEW_PATH:"* ]]; then
-  export PATH="$PATH:$NEW_PATH"
-  debug "Added $NEW_PATH to PATH"
-fi
+# assumed environment variables - also keeps shellcheck happy
+BAO_BASE_BIN_DIR=$BAO_BASE_BIN_DIR
+BAO_BASE_DIR=$BAO_BASE_DIR
+BAO_BASE_OS=$BAO_BASE_OS
+BAO_BASE_VERBOSITY=$BAO_BASE_VERBOSITY
 
-# Set the path to the Poetry project and the target script
-SCRIPT="$1"; shift
+# Set the path to the script
+SCRIPT="$1"
+shift
 debug "Script to run: $SCRIPT"
 debug "Arguments: $*"
+debug "Verbosity level: $BAO_BASE_VERBOSITY"
 
-# Step 1: Install dependencies using Poetry
-DEPENDENCIES_DIR="$BAO_BASE_BIN_DIR/$SCRIPT"
-if [ ! -d "$DEPENDENCIES_DIR" ]; then
-    debug "No dedicated directory for $SCRIPT, using global dependencies directory"
-    DEPENDENCIES_DIR="$BAO_BASE_BIN_DIR"
+# Set up directories: if "script" is a directory, use
+if [ ! -d "$BAO_BASE_BIN_DIR/$SCRIPT" ]; then
+  DEPENDENCIES_DIR="$BAO_BASE_BIN_DIR"
+else
+  DEPENDENCIES_DIR="$BAO_BASE_BIN_DIR/$SCRIPT"
 fi
-
 debug "Dependencies directory: $DEPENDENCIES_DIR"
 
-# Ensure Poetry is installed
-if ! command -v poetry &> /dev/null; then
-    echo "error: Poetry is not installed. Please install Poetry and try again."
+# don't touch .profile or .bashrc
+export UV_UNMANAGED_INSTALL=1
+
+# Local directories for tools and environments
+UV_DIR="$BAO_BASE_TOOLS_DIR/uv"
+VENV_DIR="$DEPENDENCIES_DIR/.venv"
+
+# environment variables used by uv
+export UV_PYTHON_BIN_DIR="$BAO_BASE_TOOLS_DIR/python/bin" # where it installs python
+export UV_CACHE_DIR="$BAO_BASE_TOOLS_DIR/uv-cache" # cache directory for dependencies
+
+# Define uv and virtual environment paths based on OS
+if [[ "$BAO_BASE_OS" == "windows" ]]; then
+  VENV_PYTHON_PATH="$VENV_DIR/Scripts/python.exe"
+  UV_BIN="$UV_DIR/uv.exe"
+else
+  VENV_PYTHON_PATH="$VENV_DIR/bin/python"
+  UV_BIN="$UV_DIR/uv"
+fi
+
+# Install uv locally
+if [[ ! -x "$UV_BIN" ]]; then
+  debug "uv not found at $UV_BIN, installing to $UV_DIR..."
+
+  # Create only a temp directory for Cargo/Rustup (still needed)
+  temp_install_dir="$BAO_BASE_TOOLS_DIR/cargo"
+
+  # Download and execute the script directly without saving to a temp file
+  if ! curl -fsSL https://astral.sh/uv/install.sh | CARGO_HOME="$temp_install_dir" RUSTUP_HOME="$temp_install_dir/rustup" UV_INSTALL_DIR="$UV_DIR" NO_MODIFY_PATH=1 bash; then
+    rm -rf "$temp_install_dir"
+    error "Failed to install uv"
     exit 1
+  fi
+  rm -rf "$temp_install_dir"
+  debug "uv installed successfully to: $UV_BIN"
+fi
+debug "Using uv at: $UV_BIN:" $($UV_BIN --version)
+UV_CMD=("$UV_BIN")
+
+# get verbosity flags for UV based on BAO_BASE_VERBOSITY
+if [[ $BAO_BASE_VERBOSITY -lt 0 ]]; then
+  UV_CMD+=("-qq" "--no-progress") # Quiet mode
+else
+  case "$BAO_BASE_VERBOSITY" in
+    0) UV_CMD+=("-qq") ;;
+    1) UV_CMD+=("-q") ;;
+    2) UV_CMD+=("") ;;
+    *) UV_CMD+=("--verbose") ;;
+  esac
+fi
+debug "Using command: $UV_CMD"
+
+# Check for pyproject.toml
+PYPROJECT_TOML="$DEPENDENCIES_DIR/pyproject.toml"
+if [[ ! -f "$PYPROJECT_TOML" ]]; then
+  error "No pyproject.toml found at $PYPROJECT_TOML"
+  exit 1
+fi
+debug "Found pyproject.toml file at $PYPROJECT_TOML"
+
+debug "Using pyproject.toml at $PYPROJECT_TOML"
+# Generate hash for pyproject.toml
+# Handle different OS hashing methods
+if [[ "${BAO_BASE_OS}" == "windows" ]]; then
+  PYPROJECT_TOML_HASH=$(tr -d '\r' < "$PYPROJECT_TOML" | powershell.exe -File "$BAO_BASE_BIN_DIR/sha256sum.ps1")
+elif [[ "$BAO_BASE_OS" == "macos" ]]; then
+  PYPROJECT_TOML_HASH=$(shasum -a 256 "$PYPROJECT_TOML" | cut -d' ' -f1)
+elif [[ "$BAO_BASE_OS" == "linux" ]]; then
+  PYPROJECT_TOML_HASH=$(sha256sum "$PYPROJECT_TOML" | cut -d' ' -f1)
+else
+  echo "Unsupported OS for hash calculation: $BAO_BASE_OS"
+  exit 1
+fi
+debug "Generated hash for pyproject.toml: $PYPROJECT_TOML_HASH"
+
+# Check for existing .python-version and uv.lock
+PYTHON_VERSION_LOCK="$DEPENDENCIES_DIR/.python-version"
+UV_LOCK="$DEPENDENCIES_DIR/uv.lock"
+
+# Function to check if files exist and have valid hashes
+validate_lock() {
+  local lock_file="$1"
+
+  # Check if both files exist
+  if [[ ! -f "$lock_file" ]]; then
+    info 0 "$lock_file does not exist."
+    return 1
+  fi
+
+  local lock_hash
+  lock_hash=$(grep -E "^# HASH:[a-f0-9]{64}$" "$lock_file" | head -1 | cut -d':' -f2)
+  if [[ -z "$lock_hash" ]]; then
+    info 0 "No hash found in $lock_file."
+    return 1
+  fi
+
+  # Check if hashes match
+  if [[ "$lock_hash" != "$PYPROJECT_TOML_HASH" ]]; then
+    info 0 "$lock_file hash ($lock_hash) mismatched with pyproject.toml hash ($PYPROJECT_TOML_HASH)."
+    debug "Hash mismatch:"
+    debug "$PYPROJECT_TOML: $PYPROJECT_TOML_HASH"
+    debug "Lock file: $lock_hash"
+    return 1
+  fi
+
+  debug "Lock file $lock_file exists with matching hash"
+  return 0
+}
+
+# install the required python and create a virtual environment with it (if needed)
+PYTHON_VERSION_LOCKED=$(validate_lock "$PYTHON_VERSION_LOCK" && echo true || echo false)
+PYTHON_ENV_EXISTS=$([[ -f "$VENV_PYTHON_PATH" ]] && echo true || echo false)
+# TODO: handle the case where the venv python and is not the same as the one in the .python-version file
+# TODO: maybe uv installs the correct version of python in the venv automatically? and we just need to set UV_PYTHON_INSTALL_DIR
+# if the python version is not locked OR the virtual environment does not exist, we need to create a virtual environment with the right version of python
+if [[ "$PYTHON_VERSION_LOCKED" != "true" || "$PYTHON_ENV_EXISTS" != "true" ]]; then
+  debug "Need to create a venv"
+  UV_VENV_CMD=($UV_CMD)
+  UV_VENV_CMD+=("venv" "--managed-python")
+  if [[ "$PYTHON_VERSION_LOCKED" == "true" ]]; then
+    # we have the version and uv will read it from the .python-version file
+    PYTHON_CONSTRAINT=$(tail -n 1 "$PYTHON_VERSION_LOCK")
+    PYTHON_CONSTRAINT_SOURCE=".python-version"
+  else
+    # Extract requires-python value from pyproject.toml using a simple grep pattern
+    # This works for basic cases, but might need improvement for complex formatting
+    PYTHON_CONSTRAINT=$(grep -E 'requires-python\s*=\s*"[^"]+"' "$PYPROJECT_TOML" | sed 's/.*"\(.*\)".*/\1/')
+    if [[ -z "$PYTHON_CONSTRAINT" ]]; then
+      debug "No requires-python constraint found in $PYPROJECT_TOML, using '3' (i.e. the latest version)"
+      PYTHON_CONSTRAINT="3"
+      PYTHON_CONSTRAINT_SOURCE="default"
+    else
+      PYTHON_CONSTRAINT_SOURCE="pyproject.toml"
+    fi
+    UV_ENV_CMD+=("--python" "$PYTHON_CONSTRAINT")
+  fi
+  debug "Using Python constraintn ($PYTHON_CONSTRAINT_SOURCE): $PYTHON_CONSTRAINT"
+
+  # Create virtual environment with specified Python version using uv env (uses the .python-version file, if it exists and --python is not specified)
+  debug "Creating environment with Python constraint: $PYTHON_CONSTRAINT"
+  # also stop this from updating .profile & .bashrc
+
+  UV_VENV_CMD+=("$VENV_DIR")
+  debug "Executing: ${UV_VENV_CMD[*]}"
+  UV_PYTHON_INSTALL_DIR="$BAO_BASE_TOOLS_DIR/python/install" "${UV_VENV_CMD[@]}" || {
+    error "Failed to create virtual environment with Python constraint $PYTHON_CONSTRAINT"
+    exit 1
+  }
+
+  # Get the actual Python version that was installed and use it to create .python-version
+  [[ -f "$VENV_PYTHON_PATH" ]] || error "Failed to find Python at $VENV_PYTHON_PATH in virtual environment
+$BAO_BASE_OS virtual environment directory structure:
+$(ls -la "$VENV_DIR" || true)
+$(ls -la "$VENV_DIR/Scripts" 2>/dev/null || true)
+$(ls -la "$VENV_DIR/bin" 2>/dev/null || true)"
+
+  if [[ "$PYTHON_VERSION_LOCKED" != "true" ]]; then
+    # If we didn't have a .python-version file, we need to create one
+    # Extract the actual Python version from the venv
+    debug "Checking Python version in virtual environment"
+    ACTUAL_PYTHON_VERSION=$("$VENV_PYTHON_PATH" --version 2>&1 | cut -d' ' -f2) # -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')")
+
+    # Create .python-version file with the actual version and hash
+    {
+      echo "# This file was auto-generated by run-python using a constraint from $PYTHON_CONSTRAINT_SOURCE: $PYTHON_CONSTRAINT"
+      echo "# HASH:$PYPROJECT_TOML_HASH"
+      echo "$ACTUAL_PYTHON_VERSION"
+    } >"$PYTHON_VERSION_LOCK"
+    debug "Created .python-version file with version $ACTUAL_PYTHON_VERSION and hash"
+  fi
 fi
 
-# set up the poetry config
-export POETRY_VIRTUALENVS_OPTIONS_NO_PIP=true
-export POETRY_NO_INTERACTION=1
-debug "Poetry environment variables set"
+# use or generate the uv.lock file
+if ! validate_lock "$UV_LOCK"; then
+  debug "Generating $UV_LOCK from $PYPROJECT_TOML"
+  rm -f "$UV_LOCK"
+  UV_LOCK_CMD=($UV_CMD)
+  UV_LOCK_CMD+=("lock" "--directory" "$DEPENDENCIES_DIR")
+  debug "Executing: ${UV_LOCK_CMD[*]}"
+  "${UV_LOCK_CMD[@]}" || {
+    error "Failed to lock dependencies"
+    exit 1
+  }
 
-# get round any python version constraints
-debug "Installing global dependencies"
-{
-    poetry install --no-root --directory "$BAO_BASE_BIN_DIR" 2>&3 | grep -i " - Installing" >&2 || true
-} 3>&2
-
-debug "Determining Python version for $DEPENDENCIES_DIR"
-pyversion=$(poetry run --directory "$BAO_BASE_BIN_DIR" python "$BAO_BASE_BIN_DIR/matching-python.py" --directory="$DEPENDENCIES_DIR") || exit $?
-debug "Selected Python version: $pyversion"
-
-if [[ -n "$pyversion" ]]; then
-    debug "Setting Python version for Poetry environment"
-    poetry --directory "$DEPENDENCIES_DIR" env use "$pyversion" > /dev/null
+  # Add our hash to the uv.lock file
+  echo "# HASH:$PYPROJECT_TOML_HASH" >>"$UV_LOCK"
+  debug "Generated $UV_LOCK with hash"
 fi
 
-# install the dependencies directing the output to stderr
-# this output is nice to see, but not nice if we are running a filter.
-debug "Installing script-specific dependencies"
-{
-    poetry install --no-root --directory "$DEPENDENCIES_DIR" 2>&3 | grep -i " - Installing" >&2 || true
-} 3>&2
-
-# Step 2: Run the target Python script in the caller's directory
-if [ -f "$DEPENDENCIES_DIR/$SCRIPT.py" ]; then
+# build the command
+UV_RUN_CMD=("$UV_CMD")
+UV_RUN_CMD+=("run" "--project" "$DEPENDENCIES_DIR")
+# Check if the script is a Python script or a command
+debug "Checking if '$DEPENDENCIES_DIR/$SCRIPT.py' exists"
+if [ -f "$DEPENDENCIES_DIR/$SCRIPT" ]; then
+    debug "Running Python script: $DEPENDENCIES_DIR/$SCRIPT"
+    UV_RUN_CMD+=("$DEPENDENCIES_DIR/$SCRIPT")
+elif [ -f "$DEPENDENCIES_DIR/$SCRIPT.py" ]; then
     debug "Running Python script: $DEPENDENCIES_DIR/$SCRIPT.py"
-    poetry run --directory "$DEPENDENCIES_DIR" python "$DEPENDENCIES_DIR/$SCRIPT.py" "$@"
+    UV_RUN_CMD+=("$DEPENDENCIES_DIR/$SCRIPT.py")
 else
     debug "Running Python command: $SCRIPT"
-    poetry run --directory "$DEPENDENCIES_DIR" "$SCRIPT" "$@"
+    UV_RUN_CMD+=("$SCRIPT")
 fi
+# Add all arguments
+for arg in "$@"; do
+    UV_RUN_CMD+=("$arg")
+done
+
+debug "Executing: ${UV_RUN_CMD[*]}"
+"${UV_RUN_CMD[@]}"
