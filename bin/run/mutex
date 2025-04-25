@@ -12,7 +12,6 @@ mutex_acquire() {
   local mutex_file="${mutex_dir}/${mutex_name}.mutex"
   local start_time=$(date +%s)
   local pid=$$
-  local wait_time=0
 
   debug "acquiring mutex for ${pid}: ${mutex_name} (timeout: ${timeout}s)"
 
@@ -21,20 +20,26 @@ mutex_acquire() {
 
   # Try to acquire the mutex
   while true; do
+    local wait_time
+    wait_time=$(($(date +%s) - start_time))
     # Try to create the mutex file with our PID (atomically)
-    if (set -o noclobber; echo "${pid}" > "${mutex_file}") 2>/dev/null; then
+    local expiry
+    expiry=$(( $(date +%s) + 10 * timeout )) # Expiry time is 10 times the timeout
+    if (set -o noclobber; echo "${pid} ${expiry}" > "${mutex_file}") 2>/dev/null; then
       # We got the mutex
-      debug "acquired mutex for ${pid}: ${mutex_name}."
+      debug "acquired mutex for ${pid} in ${wait_time}s: ${mutex_name}."
       return 0
     fi
 
     # We didn't get the mutex, check if the holder is still alive
     if [ -f "${mutex_file}" ]; then
-      local holder_pid=$(cat "${mutex_file}" 2>/dev/null)
-
-      # Check if process still exists (works on Linux, macOS, and Windows with Git Bash)
-      if ! ps -p "${holder_pid}" > /dev/null 2>&1; then
-        # Process is dead, clean up and try again
+      local holder_pid
+      read holder_pid expiry < "${mutex_file}"
+      local now
+      now=$(date +%s)
+      # Check if process still exists or the lock has expired
+      if ! kill -0 "${holder_pid}" 2>/dev/null || [ "${now}" -gt "${expiry}" ]; then
+        # Process is dead, or isn't and it's been a while (i.e. could be pid cycline)
         debug "Removing stale mutex for ${holder_pid}: ${mutex_name}"
         rm -f "${mutex_file}" 2>/dev/null
         continue
@@ -42,7 +47,6 @@ mutex_acquire() {
     fi
 
     # Check for timeout
-    wait_time=$(($(date +%s) - start_time))
     if [ ${wait_time} -ge ${timeout} ]; then
       debug "Timed out waiting for mutex: ${mutex_name}"
       return 1
@@ -64,7 +68,10 @@ mutex_release() {
   debug "releasing mutex for ${pid}: ${mutex_name}"
   # Only release if we own it
   if [ -f "${mutex_file}" ]; then
-    local holder_pid=$(cat "${mutex_file}" 2>/dev/null)
+    local holder_pid
+    local expiry
+    read holder_pid expiry < "${mutex_file}"
+
     if [ "${holder_pid}" = "${pid}" ]; then
       rm -f "${mutex_file}" 2>/dev/null
       debug "released mutex for ${holder_pid}: ${mutex_name}"
@@ -78,57 +85,5 @@ mutex_release() {
   return 0
 }
 
-# Cleanup function for use with trap
-# Usage: trap 'mutex_cleanup' EXIT
-mutex_cleanup() {
-  local mutex_dir="${BAO_BASE_TOOLS_DIR}/.mutex"
-  local pid=$$
-
-  debug "cleaning up mutexes for ${pid}..."
-  # Find and remove all mutexes owned by this process
-  if [ -d "${mutex_dir}" ]; then
-    shopt -s nullglob
-    for mutex_file in "${mutex_dir}"/*.mutex; do
-      if [ -f "${mutex_file}" ]; then
-        local holder_pid=$(cat "${mutex_file}" 2>/dev/null)
-        if [ "${holder_pid}" = "${pid}" ]; then
-          rm -f "${mutex_file}" 2>/dev/null
-          debug "cleaned up mutex for ${holder_pid}: $(basename "${mutex_file}" .mutex)"
-        else
-          debug "Not cleaning up mutex ${mutex_file}: owned by PID ${holder_pid}, not ${pid}"
-        fi
-      fi
-    done
-    shopt -u nullglob
-  fi
-}
-
-# Setup function - automatically called when this file is sourced
-_mutex_setup() {
-  local signals=("EXIT" "INT" "TERM")
-
-  for signal in "${signals[@]}"; do
-    local existing_trap=$(trap -p ${signal} | awk -F"'" '{print $2}')
-
-    if [ -n "$existing_trap" ]; then
-      # Combine with existing trap
-      trap "${existing_trap}; mutex_cleanup" ${signal}
-    else
-      # Set new trap - add 'exit 1' for INT and TERM
-      if [ "$signal" = "EXIT" ]; then
-        trap 'set -e; mutex_cleanup' ${signal}
-      else
-        trap 'set -e; mutex_cleanup; exit 1' ${signal}
-      fi
-    fi
-  done
-
-  debug "Mutex system initialized with automatic cleanup (EXIT, INT, TERM signals)"
-}
-
-# Auto-setup when sourced
-_mutex_setup
-
 export -f mutex_acquire
 export -f mutex_release
-export -f mutex_cleanup
