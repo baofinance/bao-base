@@ -93,7 +93,7 @@ if [[ "${BAO_BASE_OS}" == "windows" ]]; then
     REST_PATH="${BASH_REMATCH[2]}"
     WIN_PATH="${DRIVE}:/${REST_PATH}"
   fi
-  debug "Using Windows path: $WIN_PATH"
+  info "Using Windows path: $WIN_PATH"
   PYPROJECT_TOML_HASH=$(powershell.exe -Command "(Get-FileHash -Path \"$WIN_PATH\" -Algorithm SHA256).Hash.ToLower()")
 elif [[ "$BAO_BASE_OS" == "macos" ]]; then
   PYPROJECT_TOML_HASH=$(shasum -a 256 "$PYPROJECT_TOML" | cut -d' ' -f1)
@@ -103,7 +103,7 @@ else
   echo "Unsupported OS for hash calculation: $BAO_BASE_OS"
   exit 1
 fi
-debug "Generated hash for pyproject.toml: $PYPROJECT_TOML_HASH"
+info "Generated hash for pyproject.toml: $PYPROJECT_TOML_HASH"
 
 # Check for existing .python-version and uv.lock
 PYTHON_VERSION_LOCK="$DEPENDENCIES_DIR/.python-version"
@@ -128,7 +128,7 @@ validate_lock() {
 
   # Check if hashes match
   if [[ "$lock_hash" != "$PYPROJECT_TOML_HASH" ]]; then
-    info 0 "$lock_file out of date (hash mismatched)."
+    info 0 "$lock_file hash ($lock_hash) mismatched with pyproject.toml hash ($PYPROJECT_TOML_HASH)."
     debug "Hash mismatch:"
     debug "$PYPROJECT_TOML: $PYPROJECT_TOML_HASH"
     debug "Lock file: $lock_hash"

@@ -10,6 +10,9 @@
 # also slither is sensitive to CRLF line endings
 *.sol text eol=lf
 
+# we do hash of file contents, so we need to keep them consistent
+*.toml text eol=lf
+
 # Force CRLF for Windows-specific files
 *.bat text eol=crlf
 *.cmd text eol=crlf
