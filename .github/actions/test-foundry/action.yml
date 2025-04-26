@@ -111,9 +111,11 @@ runs:
           out=$(yarn wtf)
           echo "$out"
           if [ -n "$out" ]; then
-            echo "wt-actual-f"
+            echo "wt(actual)f: issues detected by running 'yarn wtf' (which is an optional script in package.json used to detect project bespoke issues)"
             exit 1
           fi
+          echo "wtf: no issues detected by running 'yarn wtf' (which is an optional script in package.json used to detect project bespoke issues)"
         fi
+        echo "wtf: no script "wtf" in package.json, which is fine and dandy as 'yarn wtf' is an optional script in package.json used to detect project bespoke issues"
         exit 0
       id: wtf
