@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+#
+# Cross-platform mutex implementation for bash scripts
+
+# Create a mutex
+# Usage: mutex_acquire <mutex_name> [timeout_seconds]
+# Returns: 0 if mutex acquired, 1 if timeout
+mutex_acquire() {
+  local mutex_name="$1"
+  local timeout="${2:-60}"  # Default timeout of 60 seconds
+  local mutex_dir="${BAO_BASE_TOOLS_DIR}/.mutex"
+  local mutex_file="${mutex_dir}/${mutex_name}.mutex"
+  local start_time=$(date +%s)
+  local pid=$$
+
+  debug "acquiring mutex for ${pid}: ${mutex_name} (timeout: ${timeout}s)"
+
+  # Ensure mutex directory exists
+  mkdir -p "${mutex_dir}" 2>/dev/null
+
+  # Try to acquire the mutex
+  while true; do
+    local wait_time
+    wait_time=$(($(date +%s) - start_time))
+    # Try to create the mutex file with our PID (atomically)
+    local expiry
+    expiry=$(( $(date +%s) + 10 * timeout )) # Expiry time is 10 times the timeout
+    if (set -o noclobber; echo "${pid} ${expiry}" > "${mutex_file}") 2>/dev/null; then
+      # We got the mutex
+      debug "acquired mutex for ${pid} in ${wait_time}s: ${mutex_name}."
+      return 0
+    fi
+
+    # We didn't get the mutex, check if the holder is still alive
+    if [ -f "${mutex_file}" ]; then
+      local holder_pid
+      read holder_pid expiry < "${mutex_file}"
+      local now
+      now=$(date +%s)
+      # Check if process still exists or the lock has expired
+      if ! kill -0 "${holder_pid}" 2>/dev/null || [ "${now}" -gt "${expiry}" ]; then
+        # Process is dead, or isn't and it's been a while (i.e. could be pid cycline)
+        debug "Removing stale mutex for ${holder_pid}: ${mutex_name}"
+        rm -f "${mutex_file}" 2>/dev/null
+        continue
+      fi
+    fi
+
+    # Check for timeout
+    if [ ${wait_time} -ge ${timeout} ]; then
+      debug "Timed out waiting for mutex: ${mutex_name}"
+      return 1
+    fi
+
+    # Wait before retrying
+    sleep 0.5
+  done
+}
+
+# Release a mutex
+# Usage: mutex_release <mutex_name>
+mutex_release() {
+  local mutex_name="$1"
+  local mutex_dir="${BAO_BASE_TOOLS_DIR}/.mutex"
+  local mutex_file="${mutex_dir}/${mutex_name}.mutex"
+  local pid=$$
+
+  debug "releasing mutex for ${pid}: ${mutex_name}"
+  # Only release if we own it
+  if [ -f "${mutex_file}" ]; then
+    local holder_pid
+    local expiry
+    read holder_pid expiry < "${mutex_file}"
+
+    if [ "${holder_pid}" = "${pid}" ]; then
+      rm -f "${mutex_file}" 2>/dev/null
+      debug "released mutex for ${holder_pid}: ${mutex_name}"
+      return 0
+    else
+      debug "Not releasing mutex ${mutex_name}: owned by PID ${holder_pid}, not ${pid}"
+    fi
+  fi
+  debug "released mutex for ${pid}: ${mutex_name}."
+
+  return 0
+}
+
+export -f mutex_acquire
+export -f mutex_release
