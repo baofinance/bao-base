@@ -106,7 +106,7 @@ runs:
       shell: bash
       run: |
         # if the package.json file has a wtf script, run it
-        # if it returns anyting, print it then fail the action
+        # if it returns anything, print it then fail the action
         if jq -e '.scripts.wtf' package.json >/dev/null; then
           out=$(yarn wtf)
           echo "$out"
