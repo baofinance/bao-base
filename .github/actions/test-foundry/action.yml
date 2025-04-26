@@ -65,6 +65,7 @@ runs:
     - name: Run Forge build
       shell: bash
       run: |
+        # generate contract sizes reports into the regression folder - if they differ from the ones in the repo, they will be failed in the git-diffs step
         yarn sizes
       id: sizes
 
@@ -79,21 +80,42 @@ runs:
     - name: Run Forge tests - coverage
       shell: bash
       run: |
+        # generate coverage reports into the regression folder - if they differ from the ones in the repo, they will be failed in the git-diffs step
         yarn coverage
       id: coverage
 
     - name: Run Forge tests - gas
       shell: bash
       run: |
+        # generate gas reports into the regression folder - if they differ from the ones in the repo, they will be failed in the git-diffs step
         yarn gas
       id: gas
 
     - name: Check for changed repo files
       shell: bash
       run: |
+        # if the above created or changed any repo files, then print a diff and fail
         git status --short
         git diff --minimal
         [[ $(git status --short | wc -l) -gt 0 ]] && {
           echo "Git repo has changed, either correctly fix those files locally or .gitignore them"; exit 1;
         } || echo "No changes detected in git repo"
       id: git-diffs
+
+    - name: Check some wtf's
+      shell: bash
+      run: |
+        # if the package.json file has a wtf script, run it
+        # if it returns anything, print it then fail the action
+        if jq -e '.scripts.wtf' package.json >/dev/null; then
+          out=$(yarn wtf)
+          echo "$out"
+          if [ -n "$out" ]; then
+            echo "wt(actual)f: issues detected by running 'yarn wtf' (which is an optional script in package.json used to detect project bespoke issues)"
+            exit 1
+          fi
+          echo "wtf: no issues detected by running 'yarn wtf' (which is an optional script in package.json used to detect project bespoke issues)"
+        fi
+        echo "wtf: no script "wtf" in package.json, which is fine and dandy as 'yarn wtf' is an optional script in package.json used to detect project bespoke issues"
+        exit 0
+      id: wtf
