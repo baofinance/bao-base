@@ -38,7 +38,7 @@ abstract contract BaoCheckOwner {
 
     /// @dev Marks a function as only callable by the owner.
     modifier onlyOwner() virtual {
-        _checkOwner(); // wake-disable-line unchecked-return-value
+        _checkOwner();
         _;
     }
 }
