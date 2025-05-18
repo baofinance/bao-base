@@ -8,20 +8,33 @@ import {BaoCheckOwner} from "@bao/internal/BaoCheckOwner.sol";
 import {Token} from "./Token.sol";
 import {ITokenHolder} from "./interfaces/ITokenHolder.sol";
 
-// TODO: this should be split into different contracts - need a BaoContract for ERC165, ReentrancyGuardTransientUpgradeable, Ownable
-
 abstract contract TokenHolder is ITokenHolder, BaoCheckOwner, ReentrancyGuardTransientUpgradeable {
     using SafeERC20 for IERC20;
 
     /// @notice function to transfer owned owned balance of a token
     /// This allows. for example dust resulting from rounding errors, etc.
     /// in case tokens are transferred to this contract by mistake, they can be recovered
-    function sweep(address token, uint256 amount, address receiver) public virtual nonReentrant onlyOwner {
+    function sweep(address token, uint256 amount, address receiver) public virtual nonReentrant onlySweeper {
         Token.ensureNonZeroAddress(receiver);
         amount = Token.allOf(address(this), token, amount);
         emit Swept(token, amount, receiver);
         if (amount > 0) {
             IERC20(token).safeTransfer(receiver, amount);
         }
+    }
+
+    /// @notice function used in the 'onlySweeper' modifier
+    /// @dev this can be overridden to control access to the sweep function
+    /// @dev it's simpler to override this than the onlySweeper modifier
+    function _checkSweeper() internal view virtual {
+        _checkOwner();
+    }
+
+    /// @notice modifier used by the 'sweep' function
+    /// @dev this can be overridden to control access to the sweep function
+    /// @dev it's simpler to override the '_checkSweeper' function than this
+    modifier onlySweeper() virtual {
+        _checkSweeper();
+        _;
     }
 }
