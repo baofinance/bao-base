@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-forge clean
-forge build
-npx @openzeppelin/upgrades-core validate
+# see https://docs.openzeppelin.com/upgrades-plugins/api-core
+
+# only check the src files
+BUILD_INFO_DIR="out/validate/build-info"
+mkdir -p "$BUILD_INFO_DIR"
+# build again with build-info this time, so we don't force
+forge build --build-info --build-info-path "$BUILD_INFO_DIR" src
+npx @openzeppelin/upgrades-core validate "$BUILD_INFO_DIR"
 
     # # Construct the output path.
     # local json_file="out/$(basename "$source_file")/${contract_type}.json"
