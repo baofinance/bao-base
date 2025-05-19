@@ -31,6 +31,7 @@
     "CI": "./run CI"
   },
   "dependencies": {
+    "@openzeppelin/upgrades-core": "1.44.0",
     "bats": "^1.11.1",
     "bats-assert": "^2.0.0",
     "bats-support": "^0.3.0",
@@ -38,5 +39,5 @@
     "prettier-plugin-solidity": "^1.4.2",
     "solhint": "^5.0.5"
   },
-  "packageManager": "yarn@4.6.0"
+  "packageManager": "yarn@4.9.1"
 }
