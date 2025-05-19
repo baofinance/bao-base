@@ -7,7 +7,7 @@ set -euo pipefail
 BUILD_INFO_DIR="out/validate/build-info"
 mkdir -p "$BUILD_INFO_DIR"
 # build again with build-info this time, so we don't force
-forge build --build-info --build-info-path "$BUILD_INFO_DIR" src
+forge build --build-info --build-info-path "$BUILD_INFO_DIR" --force src
 npx @openzeppelin/upgrades-core validate "$BUILD_INFO_DIR"
 
     # # Construct the output path.
