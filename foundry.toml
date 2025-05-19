@@ -3,22 +3,21 @@ src = "src"
 out = "out"
 libs = ["lib"]
 
+ast = true
+build_info = true
+
 auto_detect_remappings = false # remappings seem to cause problems
 evm_version = "Cancun"
 optimizer = true
 optimizer_runs = 5
 
 #ignored_error_codes=["transient-storage"]
-ignored_warnings_from = ["lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/utils/StorageSlot.sol"]
+ignored_warnings_from = [
+  "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/utils/StorageSlot.sol",
+]
 gas_reports_ignore = ["test"]
-extra_output_files = [
-  "evm.assembly",
-  "ir",
-  ]
-extra_output = [
-  "evm.assembly",
-  "ir",
-  ]
+extra_output_files = ["evm.assembly", "ir"]
+extra_output = ["evm.assembly", "ir", "storageLayout"]
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_KEY}" }

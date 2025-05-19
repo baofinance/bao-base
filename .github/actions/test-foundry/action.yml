@@ -91,6 +91,14 @@ runs:
         yarn gas
       id: gas
 
+    - name: Run upgradeable contract deployment validation
+      shell: bash
+      run: |
+        # check all contracts for deployment upgradeability
+        yarn validate
+      id: validate
+
+
     - name: Check for changed repo files
       shell: bash
       run: |
