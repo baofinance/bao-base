@@ -16,9 +16,7 @@ gas_limit = "18446744073709551615"
 ignored_warnings_from = [
   "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/utils/StorageSlot.sol",
 ]
-ignored_warnings_from = [
-  "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/utils/StorageSlot.sol",
-]
+
 gas_reports_ignore = ["test"]
 extra_output_files = ["evm.assembly", "ir"]
 extra_output = ["evm.assembly", "ir", "storageLayout"]
