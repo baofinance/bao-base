@@ -1,14 +1,26 @@
 #! /usr/bin/env bash
 
-RPC_URL="local"
-NO_VERIFY=false
+. "$BAO_BASE_BIN_DIR/run/logging"
+. "$BAO_BASE_BIN_DIR/run/environment"
+. "$BAO_BASE_BIN_DIR/run/transacting"
+. "$BAO_BASE_BIN_DIR/run/blockchain"
+. "$BAO_BASE_BIN_DIR/run/recording"
 
-if [ -f .env ]; then
-  # Fallback: source .env (assumes no spaces or export keyword)
-  set -a
-  . .env
-  set +a
-fi
+debug "deploy.sh: $*"
+SCRIPT="$1"
+shift
+
+# set the global variables needed for transacting/recording etc
+# default to environment
+PRIVATE_KEY=$(lookup_environment PRIVATE_KEY)
+ETHERSCAN_API_KEY=$(lookup_environment ETHERSCAN_API_KEY)
+
+# only allow this to be command line as it's dangerous
+RPC_URL="local"
+VERIFY="--verify"
+BROADCAST=""
+LOCAL=""
+PUBLIC_KEY=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -17,7 +29,12 @@ while [[ $# -gt 0 ]]; do
     shift 2
     ;;
   --no-verify)
-    NO_VERIFY=true
+    VERIFY=""
+    shift
+    ;;
+  --broadcast)
+    debug "setting BROADCAST"
+    BROADCAST="--broadcast"
     shift
     ;;
   -*)
@@ -28,14 +45,30 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# determine if we're running locally or not
+if [[ "$RPC_URL" == "local" || "$RPC_URL" == *"localhost"* ]]; then
+  LOCAL="local"
+  VERIFY="" # can't verify locally (yet)
+fi
+
+# get the chain_id
+CHAIN_ID=$(chain_id)
+
+# override the private key in certain circumstances
 if [[ "$RPC_URL" == "local:test" ]]; then
   PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
   PUBLIC_KEY="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
   RPC_URL="local"
+else
+  sensitive "$PRIVATE_KEY" "private-key"
+  PUBLIC_KEY=$(public_from_private $PRIVATE_KEY)
 fi
-sensitive "$PRIVATE_KEY"
+sensitive "$ETHERSCAN_API_KEY" "etherscan-api-key"
 
-log "Deploying $* to $RPC_URL network with private key $PRIVATE_KEY"
+record_to "$SCRIPT"
+
+log "transacting on${LOCAL:+ $LOCAL} chain $CHAIN_ID${CHAIN_NAME:+ ($CHAIN_NAME)}"
+log "using wallet with public key $(ens_from_public $PUBLIC_KEY)"
 
 ###################################################################################################
 # Phases
@@ -57,107 +90,4 @@ log "Deploying $* to $RPC_URL network with private key $PRIVATE_KEY"
 # verify
 ###################################################################################################
 
-deploy_contract() {
-  trace "$*"
-  local contract_path=$1
-  shift
-  local constructor_args=("$@")
-  local contract_name=$(basename "$contract_path" | cut -d ':' -f 2)
-  local output
-  local address
-  local tx_hash
-  local block_number
-
-  # Deploy the contract
-  if [ ${#constructor_args[@]} -eq 0 ]; then
-    output=$(forge create "$contract_path" \
-      --rpc-url "$RPC_URL" \
-      --private-key "$PRIVATE_KEY" \
-      --etherscan-api-key "$ETHERSCAN_API_KEY" \
-      --verify \
-      --broadcast 2>&1)
-  else
-    output=$(forge create "$contract_path" \
-      --rpc-url "$RPC_URL" \
-      --private-key "$PRIVATE_KEY" \
-      --etherscan-api-key "$ETHERSCAN_API_KEY" \
-      --verify \
-      --broadcast \
-      --constructor-args "${constructor_args[@]}" 2>&1)
-  fi
-
-  # Extract address and transaction hash
-  address=$(echo "$output" | awk '/Deployed to:/ {print $NF}')
-  tx_hash=$(echo "$output" | awk '/Transaction hash:/ {print $NF}')
-
-  if [[ -z "$address" || -z "$tx_hash" ]]; then
-    echo "Error: Failed to deploy $contract_name. See logs for details."
-    echo "$output" >>"$OUTPUT_FILE"
-    exit 1
-  fi
-
-  # Get block number of deployment transaction
-  block_number=$(cast tx $tx_hash --rpc-url $RPC_URL | awk '/blockNumber/ {print $2}')
-
-  if [[ -z "$block_number" ]]; then
-    echo "Error: Failed to retrieve block number for $contract_name deployment."
-    exit 1
-  fi
-
-  # Append deployment to output file
-  echo "Deployment contract >> $contract_name: $address (Block: $block_number)" >>"$OUTPUT_FILE"
-  echo "$address $block_number"
-  outdent
-}
-
-confirm_deployment() {
-  local contract_name=$1
-  local contract_address=$2
-  local deployment_block=$3
-  local retry_count=0
-  local current_block
-
-  echo "Confirming deployment of $contract_name at $contract_address (Block: $deployment_block)..."
-
-  while true; do
-    current_block=$(cast block latest --rpc-url $RPC_URL | awk '/number/ {print $2}')
-    if [[ -n "$current_block" && "$current_block" -gt "$deployment_block" ]]; then
-      echo "Contract $contract_name confirmed. Current block: $current_block"
-      echo "Contract confirmed >> $contract_name: $contract_address (Confirmed in Block: $deployment_block)" >>"$OUTPUT_FILE"
-      break
-    fi
-    if [[ $retry_count -ge $MAX_RETRIES ]]; then
-      echo "Error: Contract $contract_name at $contract_address not confirmed after $MAX_RETRIES retries."
-      exit 1
-    fi
-    echo "Waiting for contract $contract_name confirmation. Current block: $current_block. Retry $((retry_count + 1))/$MAX_RETRIES"
-    sleep $RETRY_DELAY
-    retry_count=$((retry_count + 1))
-  done
-}
-
-send_transaction() {
-  local target_address=$1
-  local calldata=$2
-  local contract_name=$3
-  local output
-
-  echo "Sending transaction to $contract_name:$target_address..."
-  output=$(cast send \
-    --rpc-url "$RPC_URL" \
-    --private-key "$PRIVATE_KEY" \
-    "$target_address" \
-    "$calldata" 2>&1)
-
-  if [ $? -ne 0 ]; then
-    echo "Error: Transaction to $contract_name:$target_address failed. See logs for details."
-    echo "$output" >>"$OUTPUT_FILE"
-    exit 1
-  fi
-
-  # Log the transaction details without the transaction hash
-  echo "Transaction to $contract_name at $target_address >> calldata: $calldata" >>"$OUTPUT_FILE"
-  echo "Transaction to $contract_name at $target_address succeeded."
-}
-
-deploy_contract "$@"
+. "$SCRIPT" "$@"

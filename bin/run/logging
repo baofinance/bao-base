@@ -70,8 +70,10 @@ export _logging_indent_level=0
 
 # Function to hide sensitive text in log messages
 sensitive() {
-  _hidden_text+=("$1")
-  _hidden_text_replacement+=("<< ${2:-hidden} >>")
+  if [[ -n "$1" ]]; then
+    _hidden_text+=("$1")
+    _hidden_text_replacement+=("<< ${2:-hidden} >>")
+  fi
 }
 
 export LOGGING_SENSITIVE_TEXT=${LOGGING_SENSITIVE_TEXT:-hide}
@@ -83,6 +85,9 @@ _output() {
   local message="$*"
 
   # Remove hidden text
+  # TODO: roll this env into DEBUG, e.g. DEBUG=abc,+sensitive,xyz
+  # TODO: add script name selection in DEBUG, e.g. DEBUG=abc,script,xyz
+  # TODO: also !script,!script2 means exclude
   if [[ "$LOGGING_SENSITIVE_TEXT" != "show" ]]; then
     local i
     for ((i = 0; i < ${#_hidden_text[@]}; i++)); do
@@ -98,24 +103,29 @@ _output() {
   format=$(printf "%-5s " "$type")
   # indentation is   ^ ^ always have a separating space
   if [[ -v DEBUG ]]; then
-    # if DEBUG is defined at all, we print script info
-    # format+=" ${BASH_SOURCE[2]}:${BASH_LINENO[1]}"
-    # Find the script that called the logging function
+    # Debug information about execution context
+    # echo "BASH_SOURCE: ${BASH_SOURCE[*]}" >&"$LOGGING_FILE_DESCRIPTOR"
+    # echo "BASH_LINENO: ${BASH_LINENO[*]}" >&"$LOGGING_FILE_DESCRIPTOR"
+
+    # if DEBUG is defined at all, we print script & line number info in clickable form
     local caller_index=1
-    while [[ "$(basename "${BASH_SOURCE[$caller_index]}")" == "$(basename "${BASH_SOURCE[0]}")" && $caller_index -lt ${#BASH_SOURCE[@]} ]]; do
+    while [[ "$(basename "${BASH_SOURCE[$caller_index]}")" == "logging" && $caller_index -lt ${#BASH_SOURCE[@]} ]]; do
       ((caller_index++))
     done
-
+    # echo "caller_index=$caller_index" >&"$LOGGING_FILE_DESCRIPTOR"
     if [[ $caller_index -lt ${#BASH_SOURCE[@]} ]]; then
       format+=" ${BASH_SOURCE[$caller_index]}:${BASH_LINENO[$((caller_index - 1))]}"
+    else
+      ((caller_index--))
+      format+=" called from ${BASH_SOURCE[$caller_index]}:${BASH_LINENO[$((caller_index - 1))]}"
     fi
     # if [[ "$LOGGING_LEVEL" -ge "4" ]]; then
     #     format+=" ${FUNCNAME[1]}()"
     # fi
     format+=": "
+    # Add indentation based on _logging_indent_level
+    format+=$(printf '%*s' $((_logging_indent_level * 2)) "")
   fi
-  # Add indentation based on _logging_indent_level
-  format+=$(printf '%*s' $((_logging_indent_level * 2)) "")
   local format_indent
   format_indent=$(printf "%${#format}s")
   message=${message//$'\n'/$'\n'"$format_indent"}
@@ -133,19 +143,54 @@ debug() {
   fi
 }
 
+# Add a stack to track trace call depths
+declare -a _trace_stack_levels=()
+export _trace_stack_levels
+
+# Define a global trace return handler
+_trace_return_handler() {
+  # Only process if there are items in the stack
+  if [[ ${#_trace_stack_levels[@]} -gt 0 ]]; then
+    # Get the last stack level we're monitoring
+    local expected_level="${_trace_stack_levels[-1]}"
+
+    # Current stack size when returning
+    local current_level="${#FUNCNAME[@]}"
+
+    # If this is the function we're tracing (stack level matches)
+    if [[ "$current_level" -eq "$expected_level" ]]; then
+      # Get the function name from FUNCNAME
+      local context="${FUNCNAME[1]}"
+
+      # Pop the stack by removing the last element
+      unset '_trace_stack_levels[-1]'
+
+      # Decrease indentation and log the return
+      _logging_indent_level=$((_logging_indent_level - 1))
+      debug "$context()."
+    fi
+  fi
+}
+export -f _trace_return_handler
+
+# Redefine trace function to use the stack
 trace() {
   local context="${FUNCNAME[1]}"
   debug "$context($*)..."
   _logging_indent_level=$((_logging_indent_level + 1))
+
+  # Stack level is current number of functions in call stack
+  # We add +1 to account for extra function call in trap execution
+  _trace_stack_levels+=("$((${#FUNCNAME[@]} + 0))")
+
+  # Set up trap to call our handler
   local old_trap=$(trap -p RETURN)
-  local current_level=$_logging_indent_level
-  local reset_cmd="if [[ \$_logging_indent_level -eq $current_level ]]; then _logging_indent_level=$((_logging_indent_level - 1)); debug \"$context().\"; fi"
   if [[ -n "$old_trap" ]]; then
     old_trap=${old_trap#trap -- \'}
     old_trap=${old_trap%\' RETURN}
-    trap "$reset_cmd; $old_trap" RETURN
+    trap "_trace_return_handler; $old_trap" RETURN
   else
-    trap "$reset_cmd" RETURN
+    trap "_trace_return_handler" RETURN
   fi
 }
 
@@ -187,11 +232,18 @@ log() {
 # Export the functions so they're available to child scripts
 # this avoids namespace polution with helper functions
 # having them there for all subscripts means that clashes are detected early
-export -f _output
+export -f _output # internal functions have to be exported too
+# debug functions driven by DEBUG environment variable, which can select files to print the info on
 export -f debug
 export -f trace
+
+# always printed, error also exits
 export -f error
 export -f warn
-export -f info
 export -f log
+
+# different levels of info, controlled by -v, -vv, -vvv, -vvvv on command line or imbedded in DEBUG
+export -f info
+
+# never print this text on any logging messages unless
 export -f sensitive

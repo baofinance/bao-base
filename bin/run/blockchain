@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+function public_from_private() {
+  local private_key="$1"
+  $cast_exe wallet address --private-key "$private_key"
+}
+export -f public_from_private
+
+function ens_from_public() {
+  trace "$*"
+  local public_key="$1"
+  local result
+
+  # Attempt to look up the ENS name for the address
+  if result=$($cast_exe lookup-address --rpc-url $RPC_URL $public_key 2>/dev/null); then
+    echo "$result"
+  else
+    # If the command fails or returns empty, return an empty string
+    echo "$public_key"
+  fi
+}
+export -f ens_from_public
+
+function chain_id() {
+  local chainid_hex=$($cast_exe chain-id --rpc-url $RPC_URL)
+  echo $((16#${chainid_hex#0x}))
+}
+export -f chain_id
+
+function lookup_network() {
+  trace "$*"
+  local key="$1"
+  local field="${2:-address}"
+
+  debug "looking up '$(chain_id)' in $BAO_BASE_SCRIPT_DIR"/networks.json"
+  local network=$(jq -r ".[$(chain_id)] // \"\"" "$BAO_BASE_SCRIPT_DIR"/networks.json)"
+  debug "network=$network"
+
+  jq -r ".${key}.${field} // \"\"" "$BAO_BASE_SCRIPT_DIR"/bcinfo."$network".json
+}
+export -f lookup_network
+
+function lookup_network() {
+  trace "$*"
+  local key="$1"
+  local field="${2:-address}"
+
+  local network=$(network_name)
+  debug "network=$network"
+
+  # Only proceed if network is not empty
+  if [[ -n "$network" ]]; then
+    jq -r ".${key}.${field} // \"\"" "$BAO_BASE_SCRIPT_DIR/bcinfo.$network.json"
+  else
+    echo ""
+  fi
+}
+export -f lookup_network
+
+# Add a simpler function that just gets the network name for a chain ID
+function network_name() {
+  local chain_id=${1:-$(chain_id)}
+  debug "looking up '$(chain_id)' in $BAO_BASE_SCRIPT_DIR/networks.json"
+  jq -r ".[\"$chain_id\"] // \"\"" "$BAO_BASE_SCRIPT_DIR/networks.json"
+}
+export -f network_name
+
+# # Fetch the chain list JSON from chainid.network and filter for your chain id
+# chain_info=$(curl -s https://chainid.network/chains.json | jq --argjson id "$CHAIN_ID" '.[] | select(.chainId == $id)')
+
+# if [ -n "$chain_info" ]; then
+#     echo "Chain info for Chain ID $CHAIN_ID:"
+#     echo "$chain_info" | jq .
+# else
+#     echo "No matching chain info found for Chain ID $CHAIN_ID"
+# fi

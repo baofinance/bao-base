@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# if [[ -n "${GUARD_SOURCING_TRANSACTING:-}" ]]; then return; fi
+# GUARD_SOURCING_TRANSACTING=1
+# [[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]}..."
+
+# these are global variables that need to be set outside to control the transacting
+export RPC_URL=""
+export VERIFY=""
+export BROADCAST=""
+export PRIVATE_KEY=""
+export ETHERSCAN_API_KEY=""
+export LOCAL=""
+export CHAIN_ID=""
+export CHAIN_NAME=""
+
+export forge_exe=$(command -v forge)
+log "using forge at $forge_exe $($forge_exe --version | head -n 1)."
+export cast_exe=$(command -v cast)
+log "using cast at $cast_exe $($cast_exe --version | head -n 1)."
+
+# usage _deploy_contract <purpose, e.g. implementation/proxy"> <path/to/file:contract> [<contract_name>]
+_deploy_contract() {
+  trace "$*"
+  local purpose="$1"
+  local contract_path="$2"
+  local contract_name="$3"
+  if [[ -z "$contract_name" || "$contract_name" == -* ]]; then
+    contract_name=""
+    shift 2 # Only shift for purpose and contract_path
+  else
+    shift 3 # accept the contract name arg
+  fi
+  local constructor_args=("$@")
+
+  # get the contract to deploy
+  debug "Deploying $contract_path."
+  local contract_type="${contract_path#*:}"
+  debug "contract_type=$contract_type."
+  debug "contract_name=$contract_name."
+
+  local contract_tag
+  contract_tag=${contract_name}$([[ "$contract_name" == "" ]] && echo "$contract_type" || echo " ($contract_type)")${purpose:+ $purpose}
+
+  info "Deploying the $contract_tag contract..."
+
+  local create_args="$file_contract"
+  create_args+=" --rpc-url $RPC_URL"
+  create_args+=" --private-key $PRIVATE_KEY"
+  create_args+=" --etherscan-api-key $ETHERSCAN_API_KEY"
+  create_args+=" $BROADCAST $VERIFY"
+
+  info "$forge_exe" create "$create_args"
+  local response
+  if ! response=$("$forge_exe" create $create_args); then logging fatal "forge create failed for the $contract_tag contract."; fi
+  debug "forge create->${response}."
+
+  local deployer
+  deployer=$(echo "$response" | awk '/Deployer:/ {print $2}')
+  local address
+  address=$(echo "$response" | awk '/Deployed to:/ {print $3}')
+  local tx_hash
+  tx_hash=$(echo "$response" | awk '/Transaction hash:/ {print $3}')
+
+  [[ -z "$address" || -z "$tx_hash" ]] && error "Failed to deploy the $contract_tag contract."
+
+  local block_number
+  block_number=$(cast tx $tx_hash --rpc-url $RPC_URL | awk '/blockNumber/ {print $2}')
+  [[ -z "$block_number" ]] && error "Failed to retrieve block number for $contract_tag contract deployment."
+
+  log "Deployed the $contract_tag contact at $address"
+  log "  by $deployer tx: $tx_hash in block $block_number."
+
+  # return the result
+  local result
+  result=$(jq -nc --arg address "$address" --arg tx_hash "$tx_hash" --arg block_number "$block_number" '{
+        address:$address, tx_hash:$tx_hash, block_number:$block_number}')
+  debug "->$result."
+  echo "$result"
+  # extract using jq '.address', jq '.tx_hash or jq '.block_number'
+}
+
+deploy_contract() {
+  trace "$*"
+  local args="$@"
+  _deploy_contract "non-upgradeable" "$args"
+}
+
+deploy_proxy() {
+  #   proxy=$(_transacting_deploy_contract 'UUPS proxy' \
+  #     'lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy' \
+  #     --constructor-args "$impl_address" '0x') || exit $?
+  #   logging trace "proxy=$proxy."
+
+}
+
+# transacting_deploy_upgradeable_contract() {
+#   logging debug "deploy_upgreadable_contract($*)"
+#   local args="$@"
+
+#   # validate implementation
+
+#   # deploy implementation
+#   local impl
+#   impl=$(_transacting_deploy_contract "implementation" "$args")
+#   logging trace "impl=$impl."
+#   local impl_address
+#   impl_address=$(jq -r '.address' <<<"$impl")
+#   logging debug "impl_address=$impl_address."
+
+#   # save deployed data, for later validation
+
+#   # deploy proxy
+#   local proxy
+#   proxy=$(_transacting_deploy_contract 'UUPS proxy' \
+#     'lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy' \
+#     --constructor-args "$impl_address" '0x') || exit $?
+#   logging trace "proxy=$proxy."
+
+#   # logging info "impl=$impl"
+#   # logging info "proxy=$proxy"
+#   local result
+#   result=$(jq -n --argjson proxy "$proxy" --argjson impl "$impl" '$proxy + {"implementation": $impl}')
+#   logging trace "${FUNCNAME[0]}->$result."
+#   echo "$result"
+# }
+
+confirm_deployment() {
+  local contract_name=$1
+  local contract_address=$2
+  local deployment_block=$3
+  local retry_count=0
+  local current_block
+
+  echo "Confirming deployment of $contract_name at $contract_address (Block: $deployment_block)..."
+
+  while true; do
+    current_block=$(cast block latest --rpc-url $RPC_URL | awk '/number/ {print $2}')
+    if [[ -n "$current_block" && "$current_block" -gt "$deployment_block" ]]; then
+      echo "Contract $contract_name confirmed. Current block: $current_block"
+      echo "Contract confirmed >> $contract_name: $contract_address (Confirmed in Block: $deployment_block)" >>"$OUTPUT_FILE"
+      break
+    fi
+    if [[ $retry_count -ge $MAX_RETRIES ]]; then
+      echo "Error: Contract $contract_name at $contract_address not confirmed after $MAX_RETRIES retries."
+      exit 1
+    fi
+    echo "Waiting for contract $contract_name confirmation. Current block: $current_block. Retry $((retry_count + 1))/$MAX_RETRIES"
+    sleep $RETRY_DELAY
+    retry_count=$((retry_count + 1))
+  done
+}
+
+send_transaction() {
+  local target_address=$1
+  local calldata=$2
+  local contract_name=$3
+  local output
+
+  echo "Sending transaction to $contract_name:$target_address..."
+  output=$(cast send \
+    --rpc-url "$RPC_URL" \
+    --private-key "$PRIVATE_KEY" \
+    "$target_address" \
+    "$calldata" 2>&1)
+
+  if [ $? -ne 0 ]; then
+    echo "Error: Transaction to $contract_name:$target_address failed. See logs for details."
+    echo "$output" >>"$OUTPUT_FILE"
+    exit 1
+  fi
+
+  # Log the transaction details without the transaction hash
+  echo "Transaction to $contract_name at $target_address >> calldata: $calldata" >>"$OUTPUT_FILE"
+  echo "Transaction to $contract_name at $target_address succeeded."
+}
+
+# # TODO: override defaults
+# function transacting_send() {
+#   logging trace "${FUNCNAME[0]}($*)..."
+#   "$cast_exe" send "$@" --rpc-url "$RPC_URL" --private-key "$default_private_key"
+# }
+
+# # TODO: override defaults
+# function transacting_call() {
+#   logging trace "${FUNCNAME[0]}($*)..."
+#   "$cast_exe" call "$@" --rpc-url "$RPC_URL"
+# }
