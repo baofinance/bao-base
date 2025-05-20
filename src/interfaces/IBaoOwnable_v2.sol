@@ -9,7 +9,7 @@ pragma solidity ^0.8.26;
 /// @author rootminus0x1 based on Solady's (https://github.com/vectorized/solady/blob/main/src/auth/Ownable.sol)
 /// No ownership transfers are supported.
 
-// solhint-disable-next-line contract-name-camelcase
+// solhint-disable-next-line contract-name-capwords
 interface IBaoOwnable_v2 {
     /*//////////////////////////////////////////////////////////////////////////
                                    CUSTOM ERRORS

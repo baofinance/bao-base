@@ -20,7 +20,7 @@ import {BaoCheckOwner_v2} from "@bao/internal/BaoCheckOwner_v2.sol";
 /// This change allows it to be mixed in with the 'BaoOwnable' or 'BaoOwnableTransferrable'
 /// contracts to create Roles enabled versions of those contracts
 /// it also adds IRC165 interface query support
-// solhint-disable-next-line contract-name-camelcase
+// solhint-disable-next-line contract-name-capwords
 abstract contract BaoRoles_v2 is BaoCheckOwner_v2, IBaoRoles, ERC165 {
     /// @dev `keccak256(bytes("RolesUpdated(address,uint256)"))`.
     uint256 private constant _ROLES_UPDATED_EVENT_SIGNATURE =

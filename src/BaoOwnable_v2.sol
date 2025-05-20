@@ -30,7 +30,7 @@ import {IBaoOwnable_v2} from "@bao/interfaces/IBaoOwnable_v2.sol";
 /// it also adds IRC165 interface query support
 /// @author rootminus0x1
 /// @dev Uses erc7201 storage
-// solhint-disable-next-line contract-name-camelcase
+// solhint-disable-next-line contract-name-capwords
 abstract contract BaoOwnable_v2 is IBaoOwnable_v2, BaoCheckOwner_v2, ERC165 {
     /*//////////////////////////////////////////////////////////////////////////
                                CONSTRUCTOR/INITIALIZER

@@ -10,7 +10,7 @@ import {BaoRoles_v2} from "@bao/internal/BaoRoles_v2.sol";
 
 /// @title Bao Ownable Roles
 /// see BaoOwnable_v2 and BaoRoles_v2 for more information
-// solhint-disable-next-line contract-name-camelcase
+// solhint-disable-next-line contract-name-capwords
 abstract contract BaoOwnableRoles_v2 is BaoOwnable_v2, BaoRoles_v2 {
     /*//////////////////////////////////////////////////////////////////////////
                                     CONSTRUCTOR
