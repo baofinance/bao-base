@@ -18,14 +18,18 @@ abstract contract BaoCheckOwner_v2 {
                                    INTERNAL DATA
     //////////////////////////////////////////////////////////////////////////*/
 
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address private immutable _BEFORE_OWNER;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint256 private immutable _OWNER_TRANSFER_AT;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     address private immutable _OWNER_AT;
 
     /*//////////////////////////////////////////////////////////////////////////
                                  INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
+    /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(address delayedOwner, uint256 delay) {
         _BEFORE_OWNER = msg.sender;
         _OWNER_TRANSFER_AT = block.timestamp + delay;

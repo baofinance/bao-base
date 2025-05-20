@@ -19,10 +19,11 @@ import {BaoCheckOwner_v2} from "@bao/internal/BaoCheckOwner_v2.sol";
  * - the replacement contract also has ownersip in the implementation.
  *
  * There are several scenarios where this is usefu:
- * 1) When the contract needs t be paused, i.e. all functionalit is disabled, for example in unusual
+ * 1) When the contract needs t be paused, i.e. all functionality is disabled, for example in unusual
  *    circumstances, such as a hack or a bug.
- * 2) If the owner of the previous contract is compromised, but notr disabled, in some way, the Stem contract can take on any owner
- *    but note that the Stem contract cannot be installed unless by the existing owner.
+ * 2) If the owner of the previous contract is compromised, but not disabled, in some way, the Stem contract
+ *    can be owned by any new safe owner, but note that the Stem contract cannot be installed unless by the
+ *    existing owner.
  *
  * The deployer becomes the new owner (i.e. is returned from the owner() function) for a given time period,
  * after which the given owner is the new owner.
@@ -41,28 +42,10 @@ contract Stem is UUPSUpgradeable, BaoCheckOwner_v2, ERC165, IERC5313 {
         uint256 ownerTransferDelay
     ) BaoCheckOwner_v2(emergencyController, ownerTransferDelay) {}
 
-    /*//////////////////////////////////////////////////////////////////////////
-                                  EVENTS
-    //////////////////////////////////////////////////////////////////////////*/
-    /**
-     * @dev Emitted when the contract is stemmed
-     * This event is emitted for all calls to the contract, including ether transfers.
-     * The selector is the first 4 bytes of the call data, which can be used to identify
-     * the function that was called. If no function was called, it will be zero.
-     *
-     * Note: This event is emitted before reverting, so it can be used for debugging.
-     *
-     * @param sender The address that called the contract
-     * @param value The amount of ether sent with the call
-     * @param data The call data
-     * @param selector The first 4 bytes of the call data (function selector)
-     */
-    /// @dev All calls (including ether transfers) revert with a friendly error
-    event StemmedContractCalled(address indexed sender, bytes4 indexed selector, bytes data);
-
     /*///////////////////////////////////////////////////////////////////////////
                                   ERRORS
     //////////////////////////////////////////////////////////////////////////*/
+    /// @dev All calls (including ether transfers) revert with a friendly error
     error Stemmed(string message);
 
     /*//////////////////////////////////////////////////////////////////////////
