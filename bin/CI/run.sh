@@ -28,27 +28,27 @@ os_version="ubuntu-latest" # TODO: read this from the BAO_BASE_OS_* variables
 workflow="foundry"
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --workflow|-w)
-      workflow=$2
-      shift 2
-      ;;
-    --foundry|-f)
-      foundry_version=$2
-      shift 2
-      ;;
-    --os|-o)
-      os_version=$2
-      shift 2
-      ;;
-    --help|-h)
-      echo "Usage: $0 [--workflow <workflow>] [--foundry <version>] [--os <os_version>] [<args>]"
-      echo " -w --workflow <workflow>   Specify the workflow to run (default: foundry)"
-      echo " -f --foundry <version>     Specify the Foundry version (default: stable)"
-      echo " -o --os <os_version>       Specify the OS version (default: ubuntu-latest)"
-      echo " -h --help                  Show this help message"
-      exit 0
-      ;;
-    *) break ;;
+  --workflow | -w)
+    workflow=$2
+    shift 2
+    ;;
+  --foundry | -f)
+    foundry_version=$2
+    shift 2
+    ;;
+  --os | -o)
+    os_version=$2
+    shift 2
+    ;;
+  --help | -h)
+    echo "Usage: $0 [--workflow <workflow>] [--foundry <version>] [--os <os_version>] [<args>]"
+    echo " -w --workflow <workflow>   Specify the workflow to run (default: foundry)"
+    echo " -f --foundry <version>     Specify the Foundry version (default: stable)"
+    echo " -o --os <os_version>       Specify the OS version (default: ubuntu-latest)"
+    echo " -h --help                  Show this help message"
+    exit 0
+    ;;
+  *) break ;;
   esac
 done
 
@@ -67,9 +67,9 @@ echo "replacing \$OS_VERSION with '$os_version' and \$FOUNDY_VERSION with '$foun
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
 sed "s|\$OS_VERSION|$os_version|g" "$event_template_file" | sed "s|\$FOUNDRY_VERSION|$foundry_version|g" >"$event_file"
 
-echo "replacing \$BAO_BASE_DIR_REL with './$BAO_BASE_DIR_REL' in $workflow_file"
+echo "replacing \$BAO_BASE_DIR with './$BAO_BASE_DIR' in $workflow_file"
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
-sed "s|\$BAO_BASE_DIR_REL|./$BAO_BASE_DIR_REL|g" "$workflow_template_file" >"$workflow_file"
+sed "s|\$BAO_BASE_DIR|./$BAO_BASE_DIR|g" "$workflow_template_file" >"$workflow_file"
 
 mutex_acquire "act"
 

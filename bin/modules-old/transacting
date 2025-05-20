@@ -275,7 +275,7 @@ declare -A networks=(
 transacting_config() {
     logging trace "${FUNCNAME[0]}($*)..."
     local args_json
-    args_json=$(argparsing_argparse "$_transacting_arg_spec" $@)
+    args_json=$(argparsing_argparse "$_transacting_arg_spec" $*)
 
     # read environment variables or .env file, in that order of precedence
     args_json=$(_transacting_default_from_env "private_key" "PRIVATE_KEY" "$args_json")

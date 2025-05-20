@@ -3,5 +3,6 @@ set -euo pipefail
 
 SCRIPT="$1"
 shift
+
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
-bash -e "${BAO_BASE_BIN_DIR}/${SCRIPT}" "$@"
+"${BAO_BASE_BIN_DIR}/${SCRIPT}" "$@"

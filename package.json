@@ -9,7 +9,7 @@
     "gas": "./run regression-of gas",
     "sizes": "./run regression-of sizes",
     "prettier": "prettier --log-level warn --ignore-path .gitignore \"{src,test,interfaces,script}/**/*.sol\"",
-    "prettier:bash": "./run fmt-bash {bin,test}/**/*.{sh,bash,bats}",
+    "prettier:bash": "./run fmt-bash bin test",
     "prettier:python": "./run fmt-python {bin,test}/**/*.py",
     "fmt": "yarn prettier --write",
     "fmt:bash": "yarn prettier:bash --write",
