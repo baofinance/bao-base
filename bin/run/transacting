@@ -16,9 +16,9 @@ export CHAIN_ID=""
 export CHAIN_NAME=""
 
 export forge_exe=$(command -v forge)
-log "using forge at $forge_exe $($forge_exe --version | head -n 1)."
+log "using forge at $forge_exe $(forge --version | head -n 1)."
 export cast_exe=$(command -v cast)
-log "using cast at $cast_exe $($cast_exe --version | head -n 1)."
+log "using cast at $cast_exe $(cast --version | head -n 1)."
 
 # usage _deploy_contract <purpose, e.g. implementation/proxy"> <path/to/file:contract> [<contract_name>]
 _deploy_contract() {
@@ -52,10 +52,8 @@ _deploy_contract() {
   create_args+=" $BROADCAST $VERIFY"
   create_args+=" $constructor_args"
 
-  info 1 "forge create $create_args"
   local response
-  if ! response=$("$forge_exe" create $create_args); then logging fatal "forge create failed for the $contract_tag contract."; fi
-  debug "forge create->${response}."
+  if ! response=$(traceit forge create $create_args); then logging fatal "forge create failed for the $contract_tag contract."; fi
 
   local deployer
   deployer=$(echo "$response" | awk '/Deployer:/ {print $2}')
@@ -67,7 +65,7 @@ _deploy_contract() {
   [[ -z "$address" || -z "$tx_hash" ]] && error "Failed to deploy the $contract_tag contract."
 
   local block_number
-  block_number=$(cast tx $tx_hash --rpc-url $RPC_URL | awk '/blockNumber/ {print $2}')
+  block_number=$(traceit cast tx $tx_hash --rpc-url $RPC_URL | awk '/blockNumber/ {print $2}')
   [[ -z "$block_number" ]] && error "Failed to retrieve block number for $contract_tag contract deployment."
 
   log "Deployed the $contract_tag contact at $address"
@@ -77,7 +75,7 @@ _deploy_contract() {
   local result
   result=$(jq -nc --arg address "$address" --arg tx_hash "$tx_hash" --arg block_number "$block_number" '{
         address:$address, tx_hash:$tx_hash, block_number:$block_number}')
-  log "->$result."
+  log "=>$result."
   echo "$result"
   # extract using jq '.address', jq '.tx_hash or jq '.block_number'
 }
@@ -136,7 +134,7 @@ confirm_deployment() {
   echo "Confirming deployment of $contract_name at $contract_address (Block: $deployment_block)..."
 
   while true; do
-    current_block=$(cast block latest --rpc-url $RPC_URL | awk '/number/ {print $2}')
+    current_block=$(traceit cast block latest --rpc-url $RPC_URL | awk '/number/ {print $2}')
     if [[ -n "$current_block" && "$current_block" -gt "$deployment_block" ]]; then
       echo "Contract $contract_name confirmed. Current block: $current_block"
       echo "Contract confirmed >> $contract_name: $contract_address (Confirmed in Block: $deployment_block)" >>"$OUTPUT_FILE"
@@ -163,12 +161,11 @@ function upgrade_proxy() {
   shift 3
   debug "args=$*"
   local calldata
-  calldata=$($cast_exe calldata "$signature" "$@")
-  debug "calldata=${calldata}."
+  calldata=$(traceit cast calldata "$signature" "$@")
   send_transaction $proxy "upgradeToAndCall(address,bytes)" "$implementation" "$calldata"
 
   # Return the proxy address
-  echo "{\"address\":\"$proxy\", \"implementation\":\"$implementation\"}"
+  # echo "{\"address\":\"$proxy\", \"implementation\":\"$implementation\"}"
 }
 export -f upgrade_proxy
 
@@ -178,16 +175,18 @@ send_transaction() {
   local signature="$2"
   shift 2
   local calldata
-  calldata=$($cast_exe calldata $signature "$@")
+
+  # Use the new function for traced execution
+  calldata=$(traceit cast calldata $signature "$@")
 
   local output
-  log "Sending transaction to $target_address $signature $*..."
-  output=$($cast_exe send \
+  log "Sending transaction to $target_address $signature ..."
+  output=$(traceit cast send \
     --rpc-url "$RPC_URL" \
     --private-key "$PRIVATE_KEY" \
     "$target_address" \
     "$calldata")
-  log "done: $output"
+
   # if [ $? -ne 0 ]; then
   #   echo "Error: Transaction to $contract_name:$target_address failed. See logs for details."
   #   echo "$output" >>"$OUTPUT_FILE"
@@ -200,14 +199,68 @@ send_transaction() {
 }
 export -f send_transaction
 
+# Execute a command with set -x and capture the trace output
+traceit() {
+  local trace_fd=3
+  local fifo_file=$(mktemp -u)
+  mkfifo "$fifo_file"
+
+  # Capture all output at once instead of line by line
+  cat "$fifo_file" >/tmp/trace_output.$$ &
+  local cat_pid=$!
+
+  # Redirect trace output to the FIFO
+  exec {trace_fd}>"$fifo_file"
+  BASH_XTRACEFD=$trace_fd
+
+  # Run the command with tracing enabled and capture its output
+  set -x
+  local output
+  output=$("$@")
+  local ret=$?
+  set +x
+
+  # Clean up and collect trace output
+  exec {trace_fd}>&-
+  wait $cat_pid 2>/dev/null || true
+
+  # Get the trace output and apply all transformations
+  LOGGING_UP_LEVEL=1
+  # Process the trace output to:
+  # 1. Remove unwanted lines (local output, local ret=0, set +x)
+  # 2. Remove +++ prefixes
+  # 3. Replace "+++ output=" with "->"
+  local trace_output
+  trace_output=$(sed -E '
+    # Remove unwanted lines completely
+    /^\++ local output/d
+    /^\++ local ret=0/d
+    /^\++ set \+x/d
+    # Replace "+++ output=" with "->"
+    s/^\++ output=/->/
+    # Remove +++ prefixes from remaining lines
+    s/^\++ //' "/tmp/trace_output.$$")
+
+  # Send the processed output at once to info
+  info 1 "$trace_output"
+  LOGGING_UP_LEVEL=0
+
+  # remove the temp files
+  rm "$fifo_file" "/tmp/trace_output.$$"
+
+  # Return the command's output
+  echo "$output"
+  return $ret
+}
+export -f traceit
+
 function call() {
   trace "$*"
   local args=("call")
   args+=("--rpc-url" "$RPC_URL")
   args+=("$@")
-  info 1 "cast ${args[*]}"
   local output
-  output=$("$cast_exe" "${args[@]}")
+  output=$(traceit cast "${args[@]}")
   # TODO: handle more data structures tuples, structs and arrays of numbers and strings
   [[ "$output" =~ ^\".*\"$ ]] && output="${output:1:-1}" # Remove the quotes
   echo "$output"

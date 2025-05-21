@@ -77,6 +77,7 @@ sensitive() {
 }
 
 export LOGGING_SENSITIVE_TEXT=${LOGGING_SENSITIVE_TEXT:-hide}
+export LOGGING_UP_LEVEL=0
 
 # Output function - prints messages to the output stream
 _output() {
@@ -112,6 +113,7 @@ _output() {
     while [[ "$(basename "${BASH_SOURCE[$caller_index]}")" == "logging" && $caller_index -lt ${#BASH_SOURCE[@]} ]]; do
       ((caller_index++))
     done
+    caller_index=$((caller_index + $LOGGING_UP_LEVEL))
     # echo "caller_index=$caller_index" >&"$LOGGING_FILE_DESCRIPTOR"
     if [[ $caller_index -lt ${#BASH_SOURCE[@]} ]]; then
       format+=" ${BASH_SOURCE[$caller_index]}:${BASH_LINENO[$((caller_index - 1))]}"
@@ -228,6 +230,25 @@ info() {
 log() {
   info 0 "$@"
 }
+
+# Function to format commands for logging in a copy-paste friendly way
+format_command_for_log() {
+  local cmd_str=""
+  for arg in "$@"; do
+    # Simplify the special character detection
+    if [[ "$arg" == *" "* || "$arg" == *"|"* || "$arg" == *"&"* ||
+      "$arg" == *";"* || "$arg" == *"<"* || "$arg" == *">"* ||
+      "$arg" == *"("* || "$arg" == *")"* || "$arg" == *"["* ||
+      "$arg" == *"]"* || "$arg" == *"{"* || "$arg" == *"}"* ||
+      "$arg" == *"'"* || "$arg" == *"\""* ]]; then
+      cmd_str+=" \"${arg//\"/\\\"}\""
+    else
+      cmd_str+=" $arg"
+    fi
+  done
+  echo "${cmd_str# }" # Remove leading space
+}
+export -f format_command_for_log
 
 # Export the functions so they're available to child scripts
 # this avoids namespace polution with helper functions
