@@ -51,9 +51,6 @@ if [[ "$RPC_URL" == "local" || "$RPC_URL" == *"localhost"* ]]; then
   VERIFY="" # can't verify locally (yet)
 fi
 
-# get the chain_id
-CHAIN_ID=$(chain_id)
-
 # override the private key in certain circumstances
 if [[ "$RPC_URL" == "local:test" ]]; then
   PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
@@ -64,6 +61,9 @@ else
   PUBLIC_KEY=$(public_from_private $PRIVATE_KEY)
 fi
 sensitive "$ETHERSCAN_API_KEY" "etherscan-api-key"
+
+# get the chain_id
+CHAIN_ID=$(chain_id)
 
 record_to "$SCRIPT"
 

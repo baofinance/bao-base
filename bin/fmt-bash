@@ -67,6 +67,6 @@ done
 info 1 "Found ${#args[@]} files to format"
 
 shopt -s globstar nullglob
-info 2 "$SHFMT_BIN $mode ${args[@]}"
+info 2 "$SHFMT_BIN $mode ${args[*]}"
 
 "$SHFMT_BIN" "$mode" "${args[@]}"

@@ -25,14 +25,14 @@ _deploy_contract() {
   trace "$*"
   local purpose="$1"
   local contract_path="$2"
-  local contract_name="$3"
+  local contract_name="${3:-}"
   if [[ -z "$contract_name" || "$contract_name" == -* ]]; then
     contract_name=""
     shift 2 # Only shift for purpose and contract_path
   else
     shift 3 # accept the contract name arg
   fi
-  local constructor_args=("$@")
+  local constructor_args=("$*")
 
   # get the contract to deploy
   debug "Deploying $contract_path."
@@ -43,15 +43,16 @@ _deploy_contract() {
   local contract_tag
   contract_tag=${contract_name}$([[ "$contract_name" == "" ]] && echo "$contract_type" || echo " ($contract_type)")${purpose:+ $purpose}
 
-  info "Deploying the $contract_tag contract..."
+  log "Deploying the $contract_tag contract..."
 
-  local create_args="$file_contract"
+  local create_args="$contract_path"
   create_args+=" --rpc-url $RPC_URL"
   create_args+=" --private-key $PRIVATE_KEY"
   create_args+=" --etherscan-api-key $ETHERSCAN_API_KEY"
   create_args+=" $BROADCAST $VERIFY"
+  create_args+=" $constructor_args"
 
-  info "$forge_exe" create "$create_args"
+  info 1 "forge create $create_args"
   local response
   if ! response=$("$forge_exe" create $create_args); then logging fatal "forge create failed for the $contract_tag contract."; fi
   debug "forge create->${response}."
@@ -76,23 +77,22 @@ _deploy_contract() {
   local result
   result=$(jq -nc --arg address "$address" --arg tx_hash "$tx_hash" --arg block_number "$block_number" '{
         address:$address, tx_hash:$tx_hash, block_number:$block_number}')
-  debug "->$result."
+  log "->$result."
   echo "$result"
   # extract using jq '.address', jq '.tx_hash or jq '.block_number'
 }
 
 deploy_contract() {
   trace "$*"
-  local args="$@"
-  _deploy_contract "non-upgradeable" "$args"
+  _deploy_contract "simple" "$@"
 }
 
 deploy_proxy() {
-  #   proxy=$(_transacting_deploy_contract 'UUPS proxy' \
-  #     'lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy' \
-  #     --constructor-args "$impl_address" '0x') || exit $?
-  #   logging trace "proxy=$proxy."
-
+  trace "$*"
+  local impl_address="$1"
+  _deploy_contract 'UUPS proxy' \
+    "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy" \
+    --constructor-args "$impl_address" '0x'
 }
 
 # transacting_deploy_upgradeable_contract() {
@@ -152,38 +152,63 @@ confirm_deployment() {
   done
 }
 
-send_transaction() {
-  local target_address=$1
-  local calldata=$2
-  local contract_name=$3
-  local output
+function upgrade_proxy() {
+  trace "$*"
+  local proxy="$1"
+  local implementation="$2"
+  local signature="$3"
+  debug "proxy=${proxy}."
+  debug "implementation=${implementation}."
+  debug "signature=${signature}."
+  shift 3
+  debug "args=$*"
+  local calldata
+  calldata=$($cast_exe calldata "$signature" "$@")
+  debug "calldata=${calldata}."
+  send_transaction $proxy "upgradeToAndCall(address,bytes)" "$implementation" "$calldata"
 
-  echo "Sending transaction to $contract_name:$target_address..."
-  output=$(cast send \
+  # Return the proxy address
+  echo "{\"address\":\"$proxy\", \"implementation\":\"$implementation\"}"
+}
+export -f upgrade_proxy
+
+send_transaction() {
+  trace "$*"
+  local target_address="$1"
+  local signature="$2"
+  shift 2
+  local calldata
+  calldata=$($cast_exe calldata $signature "$@")
+
+  local output
+  log "Sending transaction to $target_address $signature $*..."
+  output=$($cast_exe send \
     --rpc-url "$RPC_URL" \
     --private-key "$PRIVATE_KEY" \
     "$target_address" \
-    "$calldata" 2>&1)
-
-  if [ $? -ne 0 ]; then
-    echo "Error: Transaction to $contract_name:$target_address failed. See logs for details."
-    echo "$output" >>"$OUTPUT_FILE"
-    exit 1
-  fi
+    "$calldata")
+  log "done: $output"
+  # if [ $? -ne 0 ]; then
+  #   echo "Error: Transaction to $contract_name:$target_address failed. See logs for details."
+  #   echo "$output" >>"$OUTPUT_FILE"
+  #   exit 1
+  # fi
 
   # Log the transaction details without the transaction hash
-  echo "Transaction to $contract_name at $target_address >> calldata: $calldata" >>"$OUTPUT_FILE"
-  echo "Transaction to $contract_name at $target_address succeeded."
+  # echo "Transaction to $contract_name at $target_address >> calldata: $calldata" >>"$OUTPUT_FILE"
+  # echo "Transaction to $contract_name at $target_address succeeded."
 }
+export -f send_transaction
 
-# # TODO: override defaults
-# function transacting_send() {
-#   logging trace "${FUNCNAME[0]}($*)..."
-#   "$cast_exe" send "$@" --rpc-url "$RPC_URL" --private-key "$default_private_key"
-# }
-
-# # TODO: override defaults
-# function transacting_call() {
-#   logging trace "${FUNCNAME[0]}($*)..."
-#   "$cast_exe" call "$@" --rpc-url "$RPC_URL"
-# }
+function call() {
+  trace "$*"
+  local args=("call")
+  args+=("--rpc-url" "$RPC_URL")
+  args+=("$@")
+  info 1 "cast ${args[*]}"
+  local output
+  output=$("$cast_exe" "${args[@]}")
+  # TODO: handle more data structures tuples, structs and arrays of numbers and strings
+  [[ "$output" =~ ^\".*\"$ ]] && output="${output:1:-1}" # Remove the quotes
+  echo "$output"
+}
