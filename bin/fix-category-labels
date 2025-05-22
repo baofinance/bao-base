@@ -8,9 +8,9 @@ set -o pipefail
 
 # Check for the --write option
 write_mode=false
-if [ "$1" = "--write" ]; then
+if [[ "$1" = "--write" ]]; then
   write_mode=true
-  shift  # Remove --write from the arguments list
+  shift # Remove --write from the arguments list
 fi
 
 # Track if any differences were found
@@ -18,7 +18,7 @@ differences_found=false
 
 # Iterate over all files provided as arguments, handling globs
 for file in "$@"; do
-  if [ -f "$file" ]; then
+  if [[ -f "${file}" ]]; then
     # Inline AWK command to process the file and output to a temporary file
     awk '
     BEGIN {
@@ -45,31 +45,31 @@ for file in "$@"; do
         next
     }
     { print }
-    ' "$file" > "$file.tmp"
+    ' "${file}" >"${file}.tmp"
 
     # Handle the --write flag
-    if [ "$write_mode" = true ]; then
+    if [[ "${write_mode}" = true ]]; then
       # Overwrite the original file with the processed content
-      mv "$file.tmp" "$file"
+      mv "${file}.tmp" "${file}"
     else
       # Compare the temporary file with the original
-      if ! cmp -s "$file" "$file.tmp"; then
-        if [ "$differences_found" = false ]; then
+      if ! cmp -s "${file}" "${file}.tmp"; then
+        if [[ "${differences_found}" = false ]]; then
           echo "Differences found:" >&2
         fi
-        echo "$file" >&2
+        echo "${file}" >&2
         differences_found=true
       fi
-      rm "$file.tmp"  # Clean up the temporary file
+      rm "${file}.tmp" # Clean up the temporary file
     fi
   else
-    echo "Skipping $file (not a regular file)"
+    echo "Skipping ${file} (not a regular file)"
   fi
 done
 
 # Exit with an error code if any differences were found
-if [ "$write_mode" = false ]; then
-  if [ "$differences_found" = true ]; then
+if [[ "${write_mode}" = false ]]; then
+  if [[ "${differences_found}" = true ]]; then
     exit 1
   else
     echo "No differences found"

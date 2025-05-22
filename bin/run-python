@@ -26,12 +26,13 @@ debug "Dependencies directory: $DEPENDENCIES_DIR"
 export UV_UNMANAGED_INSTALL=1
 
 # Local directories for tools and environments
+# shellcheck disable=SC2154
 UV_DIR="$BAO_BASE_TOOLS_DIR/uv"
 VENV_DIR="$DEPENDENCIES_DIR/.venv"
 
 # environment variables used by uv
 export UV_PYTHON_BIN_DIR="$BAO_BASE_TOOLS_DIR/python/bin" # where it installs python
-export UV_CACHE_DIR="$BAO_BASE_TOOLS_DIR/uv-cache" # cache directory for dependencies
+export UV_CACHE_DIR="$BAO_BASE_TOOLS_DIR/uv-cache"        # cache directory for dependencies
 
 # Define uv and virtual environment paths based on OS
 if [[ "$BAO_BASE_OS" == "windows" ]]; then
@@ -52,7 +53,7 @@ if [[ ! -x "$UV_BIN" ]]; then
   temp_install_dir="$BAO_BASE_TOOLS_DIR/cargo"
 
   # Download and execute the script directly without saving to a temp file
-   installation_output=$(curl -fsSL https://astral.sh/uv/install.sh | CARGO_HOME="$temp_install_dir" RUSTUP_HOME="$temp_install_dir/rustup" UV_INSTALL_DIR="$UV_DIR" NO_MODIFY_PATH=1 bash 2>&1) || {
+  installation_output=$(curl -fsSL https://astral.sh/uv/install.sh | CARGO_HOME="$temp_install_dir" RUSTUP_HOME="$temp_install_dir/rustup" UV_INSTALL_DIR="$UV_DIR" NO_MODIFY_PATH=1 bash 2>&1) || {
     rm -rf "$temp_install_dir"
     error "Failed to install uv"
     info 1 "Installation output: $installation_output"
@@ -67,7 +68,7 @@ fi
 
 mutex_release "uv"
 
-debug "Using uv at: $UV_BIN:" $($UV_BIN --version)
+debug "Using uv at: $UV_BIN: $($UV_BIN --version)" # lint-bash disable=command-substitution
 UV_CMD=("$UV_BIN")
 
 # get verbosity flags for UV based on BAO_BASE_VERBOSITY
@@ -75,13 +76,13 @@ if [[ $BAO_BASE_VERBOSITY -lt 0 ]]; then
   UV_CMD+=("-qq" "--no-progress") # Quiet mode
 else
   case "$BAO_BASE_VERBOSITY" in
-    0) UV_CMD+=("-qq") ;;
-    1) UV_CMD+=("-q") ;;
-    2) UV_CMD+=("") ;;
-    *) UV_CMD+=("--verbose") ;;
+  0) UV_CMD+=("-qq") ;;
+  1) UV_CMD+=("-q") ;;
+  2) UV_CMD+=("") ;;
+  *) UV_CMD+=("--verbose") ;;
   esac
 fi
-debug "Using command: $UV_CMD"
+debug "Using command: ${UV_CMD[*]}"
 
 # Check for pyproject.toml
 PYPROJECT_TOML="$DEPENDENCIES_DIR/pyproject.toml"
@@ -95,7 +96,7 @@ debug "Using pyproject.toml at $PYPROJECT_TOML"
 # Generate hash for pyproject.toml
 # Handle different OS hashing methods
 if [[ "${BAO_BASE_OS}" == "windows" ]]; then
-  PYPROJECT_TOML_HASH=$(tr -d '\r' < "$PYPROJECT_TOML" | powershell.exe -File "$BAO_BASE_BIN_DIR/sha256sum.ps1")
+  PYPROJECT_TOML_HASH=$(tr -d '\r' <"$PYPROJECT_TOML" | powershell.exe -File "$BAO_BASE_BIN_DIR/sha256sum.ps1")
 elif [[ "$BAO_BASE_OS" == "macos" ]]; then
   PYPROJECT_TOML_HASH=$(shasum -a 256 "$PYPROJECT_TOML" | cut -d' ' -f1)
 elif [[ "$BAO_BASE_OS" == "linux" ]]; then
@@ -148,7 +149,7 @@ PYTHON_ENV_EXISTS=$([[ -f "$VENV_PYTHON_PATH" ]] && echo true || echo false)
 # if the python version is not locked OR the virtual environment does not exist, we need to create a virtual environment with the right version of python
 if [[ "$PYTHON_VERSION_LOCKED" != "true" || "$PYTHON_ENV_EXISTS" != "true" ]]; then
   debug "Need to create a venv"
-  UV_VENV_CMD=($UV_CMD)
+  UV_VENV_CMD=("${UV_CMD[@]}")
   UV_VENV_CMD+=("venv" "--managed-python")
   if [[ "$PYTHON_VERSION_LOCKED" == "true" ]]; then
     # we have the version and uv will read it from the .python-version file
@@ -181,11 +182,7 @@ if [[ "$PYTHON_VERSION_LOCKED" != "true" || "$PYTHON_ENV_EXISTS" != "true" ]]; t
   }
 
   # Get the actual Python version that was installed and use it to create .python-version
-  [[ -f "$VENV_PYTHON_PATH" ]] || error "Failed to find Python at $VENV_PYTHON_PATH in virtual environment
-$BAO_BASE_OS virtual environment directory structure:
-$(ls -la "$VENV_DIR" || true)
-$(ls -la "$VENV_DIR/Scripts" 2>/dev/null || true)
-$(ls -la "$VENV_DIR/bin" 2>/dev/null || true)"
+  [[ -f "$VENV_PYTHON_PATH" ]] || error "Failed to find Python at $VENV_PYTHON_PATH in virtual environment"
 
   if [[ "$PYTHON_VERSION_LOCKED" != "true" ]]; then
     # If we didn't have a .python-version file, we need to create one
@@ -207,7 +204,7 @@ fi
 if ! validate_lock "$UV_LOCK"; then
   debug "Generating $UV_LOCK from $PYPROJECT_TOML"
   rm -f "$UV_LOCK"
-  UV_LOCK_CMD=($UV_CMD)
+  UV_LOCK_CMD=("${UV_CMD[@]}")
   UV_LOCK_CMD+=("lock" "--directory" "$DEPENDENCIES_DIR")
   debug "Executing: ${UV_LOCK_CMD[*]}"
   "${UV_LOCK_CMD[@]}" || {
@@ -221,23 +218,23 @@ if ! validate_lock "$UV_LOCK"; then
 fi
 
 # build the command
-UV_RUN_CMD=("$UV_CMD")
+UV_RUN_CMD=("${UV_CMD[@]}")
 UV_RUN_CMD+=("run" "--project" "$DEPENDENCIES_DIR")
 # Check if the script is a Python script or a command
 debug "Checking if '$DEPENDENCIES_DIR/$SCRIPT.py' exists"
 if [ -f "$DEPENDENCIES_DIR/$SCRIPT" ]; then
-    debug "Running Python script: $DEPENDENCIES_DIR/$SCRIPT"
-    UV_RUN_CMD+=("$DEPENDENCIES_DIR/$SCRIPT")
+  debug "Running Python script: $DEPENDENCIES_DIR/$SCRIPT"
+  UV_RUN_CMD+=("$DEPENDENCIES_DIR/$SCRIPT")
 elif [ -f "$DEPENDENCIES_DIR/$SCRIPT.py" ]; then
-    debug "Running Python script: $DEPENDENCIES_DIR/$SCRIPT.py"
-    UV_RUN_CMD+=("$DEPENDENCIES_DIR/$SCRIPT.py")
+  debug "Running Python script: $DEPENDENCIES_DIR/$SCRIPT.py"
+  UV_RUN_CMD+=("$DEPENDENCIES_DIR/$SCRIPT.py")
 else
-    debug "Running Python command: $SCRIPT"
-    UV_RUN_CMD+=("$SCRIPT")
+  debug "Running Python command: $SCRIPT"
+  UV_RUN_CMD+=("$SCRIPT")
 fi
 # Add all arguments
 for arg in "$@"; do
-    UV_RUN_CMD+=("$arg")
+  UV_RUN_CMD+=("$arg")
 done
 
 debug "Executing: ${UV_RUN_CMD[*]}"

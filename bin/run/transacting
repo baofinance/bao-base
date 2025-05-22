@@ -15,10 +15,10 @@ export LOCAL=""
 export CHAIN_ID=""
 export CHAIN_NAME=""
 
-export forge_exe=$(command -v forge)
-log "using forge at $forge_exe $(forge --version | head -n 1)."
-export cast_exe=$(command -v cast)
-log "using cast at $cast_exe $(cast --version | head -n 1)."
+forge_exe=$(command -v forge)
+log "using forge at $forge_exe $(forge --version | head -n 1)." # lint-bash disable=command-substitution
+cast_exe=$(command -v cast)
+log "using cast at $cast_exe $(cast --version | head -n 1)." # lint-bash disable=command-substitution
 
 # usage _deploy_contract <purpose, e.g. implementation/proxy"> <path/to/file:contract> [<contract_name>]
 _deploy_contract() {
@@ -50,10 +50,10 @@ _deploy_contract() {
   create_args+=" --private-key $PRIVATE_KEY"
   create_args+=" --etherscan-api-key $ETHERSCAN_API_KEY"
   create_args+=" $BROADCAST $VERIFY"
-  create_args+=" $constructor_args"
+  create_args+=" ${constructor_args[*]}"
 
   local response
-  if ! response=$(traceit forge create $create_args); then logging fatal "forge create failed for the $contract_tag contract."; fi
+  response=$(traceit forge create $create_args)
 
   local deployer
   deployer=$(echo "$response" | awk '/Deployer:/ {print $2}')
@@ -144,8 +144,8 @@ confirm_deployment() {
       echo "Error: Contract $contract_name at $contract_address not confirmed after $MAX_RETRIES retries."
       exit 1
     fi
-    echo "Waiting for contract $contract_name confirmation. Current block: $current_block. Retry $((retry_count + 1))/$MAX_RETRIES"
-    sleep $RETRY_DELAY
+    echo "Waiting for contract $contract_name confirmation. Current block: $current_block. Retry $((retry_count + 1))/$MAX_RETRIES" # lint-bash disable=command-substitution
+    sleep 1
     retry_count=$((retry_count + 1))
   done
 }
@@ -202,7 +202,8 @@ export -f send_transaction
 # Execute a command with set -x and capture the trace output
 traceit() {
   local trace_fd=3
-  local fifo_file=$(mktemp -u)
+  local fifo_file
+  fifo_file=$(mktemp -u)
   mkfifo "$fifo_file"
 
   # Capture all output at once instead of line by line
@@ -234,15 +235,17 @@ traceit() {
   trace_output=$(sed -E '
     # Remove unwanted lines completely
     /^\++ local output/d
-    /^\++ local ret=0/d
+    s/^\++ local ret=0/ status->success 0/
+    s/^\++ local ret=/ status->fail /
     /^\++ set \+x/d
-    # Replace "+++ output=" with "->"
-    s/^\++ output=/->/
+    # Replace "+++ output=" with "output ->"
+    s/^\++ output=/ output->/
     # Remove +++ prefixes from remaining lines
-    s/^\++ //' "/tmp/trace_output.$$")
+    s/^\++ /execute->/' "/tmp/trace_output.$$")
 
   # Send the processed output at once to info
   info 1 "$trace_output"
+  # shellcheck disable=SC2034
   LOGGING_UP_LEVEL=0
 
   # remove the temp files

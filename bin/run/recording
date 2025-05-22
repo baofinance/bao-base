@@ -8,24 +8,32 @@ set -euo pipefail
 # source "$(dirname "${BASH_SOURCE[0]}")/logging"
 
 export json_recording_directory='./deploy'
+# shellcheck disable=SC2155
 export json_recording_timestamp=$(date '+%Y-%m-%d_%H:%M:%S')
 export json_recording_file=''
 export json_recording_latest_file=''
 
-# setup the file to log to
-record_to() {
-  trace "$*"
-  local calling_script_name="$1"
-  calling_script_name=$(basename $calling_script_name)
-  debug "calling_script_name=${calling_script_name}."
-  local name="${2:+"-$2"}" # if $2 is not defined, name will be empty, otherwise "-$2"
-  debug "name=${name}."
+# this variable can be updated by other scripts
+export RECORDING_NAME=''
 
-  debug "LOCAL=${LOCAL}."
+# setup the file to log to
+_recording_config() {
+  # call once
+  [[ -n "$json_recording_file" ]] && return 0
+  # assume SCRIPT and LOCAL are set-up
+  [[ -n "$SCRIPT" ]] || error "recording or reading without SCRIPT being set up"
+  [[ -n "$LOCAL" ]] || error "recording or reading without LOCAL being set up"
+
+  calling_script_name=$(basename $SCRIPT)S
+  debug "calling_script_name=${calling_script_name}."
+  local name="${RECORDING_NAME:+"-$RECORDING_NAME"}" # if $2 is not defined, name will be empty, otherwise "-$2"
+  debug "name=${name}."
+  local locally=""
+  [[ "$LOCAL" == "local" ]] && locally="local-"
 
   mkdir -p "${json_recording_directory}"
   local base_file_name
-  base_file_name="${json_recording_directory}/${LOCAL:+$LOCAL-}$(network_name)-${calling_script_name}${name}"
+  base_file_name="${json_recording_directory}/${locally}$(network_name)-${calling_script_name}${name}"
   debug "base_file_name=$base_file_name"
 
   json_recording_file="${base_file_name}_${json_recording_timestamp}.log"
@@ -36,35 +44,108 @@ record_to() {
   log "Recording to ${json_recording_file}"
 }
 
-# Add a numeric field to the JSON file
-record_numeric() {
-  local key="$1"
-  local value="$2"
-  _add_json_to_file "{\"$key\": $value}"
-}
-
-# Add a string/address field to the JSON file
-record() {
-  local key="$1"
-  local value="$2"
-  _add_json_to_file "{\"$key\": \"$value\"}"
-}
-
-###################################################################
-# private functions
-
-_add_json_to_file() {
-  trace "$*"
-  if [[ -z "$json_recording_file" ]]; then
-    echo "Error: call recording_to [extra field] before logging"
-  else
-    # create the file if it doesn't exist
-    if [[ ! -f "$json_recording_file" ]]; then
-      echo "{}" >"$json_recording_file"
-    fi
-    local temp
-    temp=$(mktemp)
-    jq ". + $1" "$json_recording_file" >"$temp" && mv "$temp" "$json_recording_file"
-    cp "$json_recording_file" "$json_recording_latest_file"
+# Helper function to build a jq path expression
+# Usage: _build_jq_path "key1" "key2" ... "final_key"
+# Returns: .["key1"]["key2"]["final_key"]
+_build_jq_path() {
+  if [[ $# -eq 0 ]]; then
+    echo "Error: _build_jq_path requires at least one key." >&2
+    return 1
   fi
+
+  local jq_path="." # Initialize with the leading dot
+  for key_part in "$@"; do
+    # Escape any double quotes within the key_part itself
+    local sanitized_key_part="${key_part//\"/\\\"}"
+    # Append each key part in the .["key"] format
+    jq_path+="[\"$sanitized_key_part\"]"
+  done
+  echo "$jq_path"
 }
+
+# Add a field to the JSON file
+store() {
+  # Prepend "numeric" as the type for the record function
+  _record "string" "$@"
+}
+export -f store
+
+# Add a numeric field to the JSON file
+store_numeric() {
+  # Prepend "numeric" as the type for the record function
+  _record "numeric" "$@"
+}
+export -f store_numeric
+
+# Add a nested field to an existing object
+# Usage: _record "type" "value_to_set" "key1" "key2" ... "final_key"
+# type can be "string" or "numeric"
+_record() {
+  trace "$*"
+  local value_type="$1" # Type of the value ("string" or "numeric")
+  local value="$2"      # Value to set
+  shift 2               # Remove type and value, remaining arguments are keys
+
+  if [[ $# -eq 0 ]]; then
+    echo "Error: _record requires at least one key for the path." >&2
+    return 1
+  fi
+
+  if [[ "$value_type" != "string" && "$value_type" != "numeric" ]]; then
+    echo "Error: Invalid value_type '$value_type'. Must be 'string' or 'numeric'." >&2
+    return 1
+  fi
+
+  _recording_config
+  # create the file if it doesn't exist
+  debug "json_recording_file=$json_recording_file"
+  if [[ ! -f "$json_recording_file" ]]; then
+    echo "{}" >"$json_recording_file"
+  fi
+
+  local temp
+  temp=$(mktemp)
+
+  local jq_path_expression
+  jq_path_expression=$(_build_jq_path "$@")
+  if [[ -z "$jq_path_expression" ]]; then
+    # _build_jq_path would have printed an error
+    return 1
+  fi
+  debug "jq_path_expression=${jq_path_expression}."
+
+  # jq assignment: path = value. Use --arg or --argjson based on type.
+  if [[ "$value_type" == "numeric" ]]; then
+    jq --argjson value_to_set "$value" "${jq_path_expression} = \$value_to_set" "$json_recording_file" >"$temp"
+  else # Default to string
+    jq --arg value_to_set "$value" "${jq_path_expression} = \$value_to_set" "$json_recording_file" >"$temp"
+  fi
+
+  mv "$temp" "$json_recording_file"
+  cp "$json_recording_file" "$json_recording_latest_file"
+}
+
+# Read a value from the JSON file using a path composed of the given keys
+# Usage: read "key1" "key2" ... "final_key"
+load() {
+  if [[ $# -eq 0 ]]; then
+    echo "Error: read requires at least one key for the path." >&2
+    return 1
+  fi
+
+  _recording_config
+  if [[ ! -f "$json_recording_file" ]]; then
+    echo "" # File doesn't exist, so key path won't exist
+    return 0
+  fi
+
+  local jq_path_expression
+  jq_path_expression=$(_build_jq_path "$@")
+  if [[ -z "$jq_path_expression" ]]; then
+    # _build_jq_path would have printed an error
+    return 1
+  fi
+
+  jq -r "${jq_path_expression} // \"\"" "$json_recording_file"
+}
+export -f load

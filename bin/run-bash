@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-SCRIPT="$1"
-shift
-
-# shellcheck disable=SC2154 # we don't need to check if the variable is set
-"${BAO_BASE_BIN_DIR}/${SCRIPT}" "$@"

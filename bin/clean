@@ -8,19 +8,19 @@ echo "cleaned build artifacts"
 # clean up the tools cache
 
 clean_directory() {
-    local dir="$1"
+  local dir="$1"
 
-    # Check if the directory contains a poetry project
-    if [[ -f "$dir/pyproject.toml" ]]; then
-        # Get the virtual environment path
-        VENV_PATH=$(cd "$dir" && poetry env info --path 2>/dev/null)
+  # Check if the directory contains a poetry project
+  if [[ -f "${dir}/pyproject.toml" ]]; then
+    # Get the virtual environment path
+    VENV_PATH=$(cd "${dir}" && poetry env info --path 2>/dev/null)
 
-        if [[ $? -eq 0 && -d "$VENV_PATH" ]]; then
-            # Delete the virtual environment
-            rm -rf "$VENV_PATH"
-            echo "for $dir, cleaned: $VENV_PATH"
-        fi
+    if [[ $? -eq 0 && -d "${VENV_PATH}" ]]; then
+      # Delete the virtual environment
+      rm -rf "${VENV_PATH}"
+      echo "for ${dir}, cleaned: ${VENV_PATH}"
     fi
+  fi
 }
 
 # Export the function for use in subshells
@@ -28,5 +28,6 @@ export -f clean_directory
 
 # Recursively find all directories and process them
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
-find "$BAO_BASE_BIN_DIR" -type d -exec bash -c 'clean_directory "$0"' {} \;
+# shellcheck disable=SC2154
+find "${BAO_BASE_BIN_DIR}" -type d -exec bash -c 'clean_directory "$0"' {} \;
 echo "cleaned tools dependencies"

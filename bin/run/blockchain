@@ -3,28 +3,28 @@ set -euo pipefail
 
 function public_from_private() {
   local private_key="$1"
-  $cast_exe wallet address --private-key "$private_key"
+  cast wallet address --private-key "$private_key"
 }
 export -f public_from_private
 
 function ens_from_public() {
   trace "$*"
   local public_key="$1"
-  local result
 
-  # Attempt to look up the ENS name for the address
-  if result=$($cast_exe lookup-address --rpc-url $RPC_URL $public_key 2>/dev/null); then
-    echo "$result"
-  else
-    # If the command fails or returns empty, return an empty string
-    echo "$public_key"
-  fi
+  local ens_name
+  # shellcheck disable=SC2154
+  ens_name=$(cast lookup-ens --rpc-url $RPC_URL "$public_key" 2>/dev/null) || true
+  [[ -n "$ens_name" ]] && echo "$ens_name" || echo "$public_key"
 }
 export -f ens_from_public
 
 function chain_id() {
-  local chainid_hex=$($cast_exe chain-id --rpc-url $RPC_URL)
-  echo $((16#${chainid_hex#0x}))
+  local chainid_hex
+  # shellcheck disable=SC2154
+  chainid_hex=$(cast chain-id --rpc-url $RPC_URL)
+  local result
+  result=$((16#${chainid_hex#0x}))
+  echo "$result"
 }
 export -f chain_id
 
@@ -33,25 +33,20 @@ function lookup_network() {
   local key="$1"
   local field="${2:-address}"
 
-  debug "looking up '$(chain_id)' in $BAO_BASE_SCRIPT_DIR"/networks.json"
-  local network=$(jq -r ".[$(chain_id)] // \"\"" "$BAO_BASE_SCRIPT_DIR"/networks.json)"
-  debug "network=$network"
-
-  jq -r ".${key}.${field} // \"\"" "$BAO_BASE_SCRIPT_DIR"/bcinfo."$network".json
-}
-export -f lookup_network
-
-function lookup_network() {
-  trace "$*"
-  local key="$1"
-  local field="${2:-address}"
-
-  local network=$(network_name)
+  local network
+  network=$(network_name)
   debug "network=$network"
 
   # Only proceed if network is not empty
   if [[ -n "$network" ]]; then
+    # shellcheck disable=SC2154
     jq -r ".${key}.${field} // \"\"" "$BAO_BASE_SCRIPT_DIR/bcinfo.$network.json"
+    local jq_status=$?
+    debug "jq exit status was: ${jq_status}"
+    if [[ $jq_status -ne 0 ]]; then
+      debug "jq failed, lookup_network exiting with 1"
+      exit 1
+    fi
   else
     echo ""
   fi
@@ -60,9 +55,10 @@ export -f lookup_network
 
 # Add a simpler function that just gets the network name for a chain ID
 function network_name() {
-  local chain_id=${1:-$(chain_id)}
-  debug "looking up '$(chain_id)' in $BAO_BASE_SCRIPT_DIR/networks.json"
-  jq -r ".[\"$chain_id\"] // \"\"" "$BAO_BASE_SCRIPT_DIR/networks.json"
+  local chain
+  chain=$(chain_id) # lint-bash disable=command-substitution
+  debug "looking up '${chain}' in $BAO_BASE_SCRIPT_DIR/networks.json"
+  jq -r ".[\"$chain\"] // \"\"" "$BAO_BASE_SCRIPT_DIR/networks.json"
 }
 export -f network_name
 

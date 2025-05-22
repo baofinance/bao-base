@@ -172,8 +172,8 @@ run_script_with_type() {
     "$BAO_BASE_BIN_DIR/run-node" "$script" "$@" || exit_code=$?
     ;;
   bash)
-    debug "Executing via run-bash: $script"
-    "$BAO_BASE_BIN_DIR/run-bash" "$script" "$@" || exit_code=$?
+    debug "Executing $script"
+    . "$BAO_BASE_BIN_DIR"/"$script" "$@" || exit_code=$?
     ;;
   *)
     error "Unknown script type: $script_type"

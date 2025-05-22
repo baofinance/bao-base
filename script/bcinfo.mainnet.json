@@ -3,61 +3,69 @@
     "address": "0xFC69e0a5823E2AfCBEb8a35d33588360F1496a00",
     "description": "Bao Multi-sig"
   },
-  "safe_gov": {
+  "safeGov": {
     "address": "0x3dFc49e5112005179Da613BdE5973229082dAc35",
     "description": "Bao Multi-sig?"
   },
-  "safe_chair": {
+  "safeChair": {
     "address": "0x2F1567c4A651ED93dB0FC6D9Df1EA9196054f63e",
     "description": "staked BaoSynth governance"
   },
-  "cerc20_delegate": {
+  "cerc20Delegate": {
     "address": "0xDb3401beF8f66E7f6CD95984026c26a4F47eEe84"
   },
   "btc": {
-    "price_feed": "0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c"
+    "priceFeed": {
+      "?": {
+        "address": "0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c"
+      }
+    }
   },
   "eth": {
-    "price_feed": [
-      {
-        "quote": "usd",
+    "priceFeed": {
+      "usd": {
         "address": "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419"
       }
-    ]
+    }
   },
   "reth": {
     "address": "0xae78736Cd615f374D3085123A210448E74Fc6393",
     "symbol": "rETH",
-    "price_feed": "0xc44cb0ff4Cd01ca5F79DE6365C37b2aFe2d266CB"
+    "priceFeed": {
+      "?": {
+        "address": "0xc44cb0ff4Cd01ca5F79DE6365C37b2aFe2d266CB"
+      }
+    }
   },
   "tbtc": {
     "address": "0x18084fbA666a33d37592fA2633fD49a74DD93a88",
     "symbol": "tBTC",
-    "price_feed": "0x8350b7De6a6a2C1368E7D4Bd968190e13E354297"
+    "priceFeed": {
+      "?": {
+        "address": "0x8350b7De6a6a2C1368E7D4Bd968190e13E354297"
+      }
+    }
   },
   "steth": {
     "address": "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84",
     "symbol": "stETH",
-    "price_feed": [
-      {
-        "quote": "usd",
+    "priceFeed": {
+      "usd": {
         "address": "0xCfE54B5cD566aB89272946F602D76Ea879CAb4a8"
       },
-      {
-        "quote": "eth",
+      "eth": {
         "address": "0x86392dC19c0b719886221c78AB11eb8Cf5c52812"
       }
-    ]
+    }
   },
   "wsteth": {
     "address": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
     "symbol": "wstETH",
-    "price_feed": [
-      {
-        "quote": "usd",
+    "priceFeed": {
+      "usd": {
         "address": "0x97541208c6C8ecfbe57B8A44ba86f2A88bA783e2"
       }
-    ]
+    }
   },
   "baousd": {
     "address": "0x7945b0A6674b175695e5d1D08aE1e6F13744Abb0",
@@ -75,4 +83,3 @@
     "address": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
     "symbol": "DAI"
   }
-}

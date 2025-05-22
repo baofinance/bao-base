@@ -2,17 +2,17 @@
 ##!/usr/bin/env bats
 
 run_and_check() {
-    set -eo pipefail
-    local script="$1"
-    local expect_status="$2"
-    local expect_output="$3"
-    shift 3
-    output=
-    status=
-    run "$script" "$@"
-    echo "status=${status}."
-    echo "output=${output}."
-    [ "${status}" -eq "${expect_status}" ]
-    echo "expect=${expect_output}."
-    [ "${output}" == "${expect_output}" ]
+  set -eo pipefail
+  local script="$1"
+  local expect_status="$2"
+  local expect_output="$3"
+  shift 3
+  output=
+  status=
+  run "${script}" "$@"
+  echo "status=${status}."
+  echo "output=${output}."
+  [[ "${status}" -eq "${expect_status}" ]]
+  echo "expect=${expect_output}."
+  [[ "${output}" == "${expect_output}" ]]
 }

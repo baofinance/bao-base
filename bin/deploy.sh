@@ -1,13 +1,19 @@
 #! /usr/bin/env bash
+set -euo pipefail
 
-. "$BAO_BASE_BIN_DIR/run/logging"
-. "$BAO_BASE_BIN_DIR/run/environment"
-. "$BAO_BASE_BIN_DIR/run/transacting"
-. "$BAO_BASE_BIN_DIR/run/blockchain"
-. "$BAO_BASE_BIN_DIR/run/recording"
+# shellcheck disable=SC1090,SC1091,SC2154
+. "${BAO_BASE_BIN_DIR}/run/logging"
+# shellcheck disable=SC1090,SC1091,SC2154
+. "${BAO_BASE_BIN_DIR}/run/environment"
+# shellcheck disable=SC1090,SC1091,SC2154
+. "${BAO_BASE_BIN_DIR}/run/transacting"
+# shellcheck disable=SC1090,SC1091,SC2154
+. "${BAO_BASE_BIN_DIR}/run/blockchain"
+# shellcheck disable=SC1090,SC1091,SC2154
+. "${BAO_BASE_BIN_DIR}/run/recording"
 
 debug "deploy.sh: $*"
-SCRIPT="$1"
+export SCRIPT="$1"
 shift
 
 # set the global variables needed for transacting/recording etc
@@ -19,8 +25,10 @@ ETHERSCAN_API_KEY=$(lookup_environment ETHERSCAN_API_KEY)
 RPC_URL="local"
 VERIFY="--verify"
 BROADCAST=""
-LOCAL=""
+LOCAL="remote"
 PUBLIC_KEY=""
+
+declare -a unhandled_args=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -34,60 +42,40 @@ while [[ $# -gt 0 ]]; do
     ;;
   --broadcast)
     debug "setting BROADCAST"
+    # shellcheck disable=SC2034
     BROADCAST="--broadcast"
     shift
     ;;
-  -*)
-    echo "Unknown option: $1"
-    exit 1
+  *)
+    unhandled_args+=("$1")
+    shift
     ;;
-  *) break ;;
   esac
 done
 
 # determine if we're running locally or not
-if [[ "$RPC_URL" == "local" || "$RPC_URL" == *"localhost"* ]]; then
+if [[ "${RPC_URL}" == "local" || "${RPC_URL}" == *"localhost"* ]]; then
   LOCAL="local"
+  # shellcheck disable=SC2034
   VERIFY="" # can't verify locally (yet)
 fi
 
 # override the private key in certain circumstances
-if [[ "$RPC_URL" == "local:test" ]]; then
+if [[ "${RPC_URL}" == "local:test" ]]; then
   PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
   PUBLIC_KEY="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
   RPC_URL="local"
 else
-  sensitive "$PRIVATE_KEY" "private-key"
-  PUBLIC_KEY=$(public_from_private $PRIVATE_KEY)
+  sensitive "${PRIVATE_KEY}" "private-key"
+  PUBLIC_KEY=$(public_from_private "${PRIVATE_KEY}")
 fi
-sensitive "$ETHERSCAN_API_KEY" "etherscan-api-key"
+sensitive "${ETHERSCAN_API_KEY}" "etherscan-api-key"
 
 # get the chain_id
 CHAIN_ID=$(chain_id)
 
-record_to "$SCRIPT"
+log "transacting on${LOCAL:+ ${LOCAL}} chain ${CHAIN_ID}${CHAIN_NAME:+ (${CHAIN_NAME})}" # lint-bash disable=command-substitution
+log "using wallet with public key $(ens_from_public "${PUBLIC_KEY}")"                    # lint-bash disable=command-substitution
 
-log "transacting on${LOCAL:+ $LOCAL} chain $CHAIN_ID${CHAIN_NAME:+ ($CHAIN_NAME)}"
-log "using wallet with public key $(ens_from_public $PUBLIC_KEY)"
-
-###################################################################################################
-# Phases
-###################################################################################################
-
-###################################################################################################
-# deploy proxies
-# - proxies are completely independent of each other
-# - this gives us addresses so we can join the contracts up more easily
-###################################################################################################
-
-###################################################################################################
-# deploy implementations, attach to proxies, perform transactions
-# - this is the guts of the deployment
-# - order of deployment/transaction is important and is left to the script to get it right
-###################################################################################################
-
-###################################################################################################
-# verify
-###################################################################################################
-
-. "$SCRIPT" "$@"
+# shellcheck disable=SC1090
+. "${SCRIPT}" "${unhandled_args[@]}"

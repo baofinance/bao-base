@@ -3,17 +3,17 @@ set -euo pipefail
 
 mkdir -p ./regression
 REGRESSION_TYPE="$1"
-REGRESSION_FILE="regression/$REGRESSION_TYPE.txt"
-REGRESSION_LOG="regression/$REGRESSION_TYPE.log"
-info 1 "generating regression for $REGRESSION_TYPE..."
-truncate -s 0 "$REGRESSION_FILE" # empty the existing file
+REGRESSION_FILE="regression/${REGRESSION_TYPE}.txt"
+REGRESSION_LOG="regression/${REGRESSION_TYPE}.log"
+info 1 "generating regression for ${REGRESSION_TYPE}..."
+truncate -s 0 "${REGRESSION_FILE}" # empty the existing file
 
 # generate the output
 # do this to keep the colour on the console:
 # tee >(sed 's/\x1b\[[0-9;]*m//g' > logfile.log)
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
-"$BAO_BASE_DIR/run" "$REGRESSION_TYPE" "$@" | tee "$REGRESSION_LOG"
+"${BAO_BASE_DIR}/run" "${REGRESSION_TYPE}" "$@" | tee "${REGRESSION_LOG}"
 
 # process it using the filter
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
-cat "$REGRESSION_LOG" | "$BAO_BASE_BIN_DIR/run-python" "extract-$REGRESSION_TYPE" > "$REGRESSION_FILE"
+"${BAO_BASE_BIN_DIR}/run-python" "extract-${REGRESSION_TYPE}" <"${REGRESSION_LOG}" >"${REGRESSION_FILE}"

@@ -7,16 +7,19 @@
 # 3. debug messages - these are printed if and only if the script name is in the DEBUG list.
 
 first_free_fd() {
-  local current_fds=$(lsof -p $$ | awk '$4 ~ /^([0-9]+)[urw]*$/ {print +$4}' | sort -n)
-  prev=2
-  for fd in $(echo "$current_fds"); do
-    if [ $((fd)) -gt $((prev + 1)) ]; then
-      echo $((prev + 1))
+  local prev=2
+  local this=3
+  local fds
+  fds=$(lsof -p $$ | awk '$4 ~ /^([0-9]+)[urw]*$/ {print +$4}' | sort -n) # lint-bash disable=command-substitution
+  while read -r fd; do
+    this=$((prev + 1))
+    if [ "${fd}" -gt "$this" ]; then
+      echo "$this"
       return
     fi
     prev=$fd
-  done
-  echo $((prev + 1))
+  done <<<"${fds}"
+  echo "$this"
 }
 
 # set the file descriptor for logging this must be 2 or it interferes with anvil (go figure)
@@ -139,7 +142,9 @@ _output() {
 debug() {
   # determine script name from the calling script
   # - fallback to the current script if no caller is found
-  local script_name=$(basename "${BASH_SOURCE[1]:-${BASH_SOURCE[0]}}")
+  local script_name
+  script_name=$(basename "${BASH_SOURCE[1]:-${BASH_SOURCE[0]}}")
+  # shellcheck disable=SC2154
   if [[ ",${DEBUG:-}," == *,"$script_name",* ]] || [[ "$BAO_BASE_VERBOSITY" -gt "3" ]]; then
     _output "DEBUG" "$*"
   fi
@@ -186,11 +191,12 @@ trace() {
   _trace_stack_levels+=("$((${#FUNCNAME[@]} + 0))")
 
   # Set up trap to call our handler
-  local old_trap=$(trap -p RETURN)
+  local old_trap
+  old_trap=$(trap -p RETURN)
   if [[ -n "$old_trap" ]]; then
     old_trap=${old_trap#trap -- \'}
     old_trap=${old_trap%\' RETURN}
-    trap "_trace_return_handler; $old_trap" RETURN
+    trap '_trace_return_handler; $old_trap' RETURN
   else
     trap "_trace_return_handler" RETURN
   fi
