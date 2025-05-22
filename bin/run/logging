@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
 # logging
 # logging takes three forms
@@ -11,6 +12,7 @@ first_free_fd() {
   local this=3
   local fds
   fds=$(lsof -p $$ | awk '$4 ~ /^([0-9]+)[urw]*$/ {print +$4}' | sort -n) # lint-bash disable=command-substitution
+  local fd
   while read -r fd; do
     this=$((prev + 1))
     if [ "${fd}" -gt "$this" ]; then
@@ -23,7 +25,7 @@ first_free_fd() {
 }
 
 # set the file descriptor for logging this must be 2 or it interferes with anvil (go figure)
-export LOGGING_FILE_DESCRIPTOR=${LOGGING_FILE_DESCRIPTOR:-2}
+export LOGGING_FILE_DESCRIPTOR=${LOGGING_FILE_DESCRIPTOR:-$(first_free_fd)}
 # redirect this to stdout, so it's stdout but functions can log but not affect their output
 # who said bash was a good idea?
 # exec 8> >(stdbuf -o0 cat)
@@ -63,25 +65,26 @@ debug_opts() {
   done
   echo "$debug_options"
 }
+
 # hidden text in log messages
-declare -a _hidden_text=()
-export _hidden_text
-declare -a _hidden_text_replacement=()
-export _hidden_text_replacement
-# indent_level - increement/decrement by one
-export _logging_indent_level=0
+export _hidden_text=""
+export _hidden_text_replacement=""
 
 # Function to hide sensitive text in log messages
 sensitive() {
   if [[ -n "$1" ]]; then
-    _hidden_text+=("$1")
-    _hidden_text_replacement+=("<<${2:-hidden}>>")
+    # Check if this text already exists in our list (exact line match)
+    if ! grep -Fx "$1" <<<"$_hidden_text" &>/dev/null; then
+      # Append the new text with a newline
+      _hidden_text="${_hidden_text}${1}"$'\n'
+      _hidden_text_replacement="${_hidden_text_replacement}<<${2:-hidden}>>"$'\n'
+    fi
   fi
 }
-
 export LOGGING_SENSITIVE_TEXT=${LOGGING_SENSITIVE_TEXT:-hide}
 export LOGGING_UP_LEVEL=0
-
+# indent_level - increement/decrement by one
+export _logging_indent_level=0
 # Output function - prints messages to the output stream
 _output() {
   local type="$1"
@@ -92,14 +95,16 @@ _output() {
   # TODO: roll this env into DEBUG, e.g. DEBUG=abc,+sensitive,xyz
   # TODO: add script name selection in DEBUG, e.g. DEBUG=abc,script,xyz
   # TODO: also !script,!script2 means exclude
-  if [[ "$LOGGING_SENSITIVE_TEXT" != "show" ]]; then
-    local i
-    for ((i = 0; i < ${#_hidden_text[@]}; i++)); do
-      local key="${_hidden_text[$i]}"
-      local value="${_hidden_text_replacement[$i]}"
-      # Replace all occurrences in the message
-      message="${message//$key/$value}"
-    done
+  # Remove hidden text
+  if [[ "$LOGGING_SENSITIVE_TEXT" != "show" && -n "$_hidden_text" ]]; then
+    # Read the strings line by line in parallel
+    local hide replace
+    while IFS= read -r hide <&3 && IFS= read -r replace <&4; do
+      if [[ -n "${hide}" ]]; then
+        # Replace all occurrences in the message
+        message="${message//${hide}/${replace}}"
+      fi
+    done 3<<<"$_hidden_text" 4<<<"$_hidden_text_replacement"
   fi
 
   # format the message
@@ -145,7 +150,7 @@ debug() {
   local script_name
   script_name=$(basename "${BASH_SOURCE[1]:-${BASH_SOURCE[0]}}")
   # shellcheck disable=SC2154
-  if [[ ",${DEBUG:-}," == *,"$script_name",* ]] || [[ "$BAO_BASE_VERBOSITY" -gt "3" ]]; then
+  if [[ ",${DEBUG:-}," == *,"{$script_name}",* ]] || [[ "${BAO_BASE_VERBOSITY:-0}" -gt "3" ]]; then
     _output "DEBUG" "$*"
   fi
 }
@@ -196,7 +201,7 @@ trace() {
   if [[ -n "$old_trap" ]]; then
     old_trap=${old_trap#trap -- \'}
     old_trap=${old_trap%\' RETURN}
-    trap '_trace_return_handler; $old_trap' RETURN
+    trap "_trace_return_handler; $old_trap" RETURN
   else
     trap "_trace_return_handler" RETURN
   fi

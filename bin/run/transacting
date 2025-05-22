@@ -268,3 +268,11 @@ function call() {
   [[ "$output" =~ ^\".*\"$ ]] && output="${output:1:-1}" # Remove the quotes
   echo "$output"
 }
+
+function use_deployed() {
+  local deployed="$1"
+  local as="$2"
+  local value
+  value=$(network_query "${deployed}") || error "failed to look up ${deployed}"
+  record "${value}" "${as}"
+}

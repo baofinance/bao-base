@@ -28,30 +28,22 @@ function chain_id() {
 }
 export -f chain_id
 
-function lookup_network() {
+function network_query() {
   trace "$*"
   local key="$1"
-  local field="${2:-address}"
-
   local network
   network=$(network_name)
-  debug "network=$network"
-
   # Only proceed if network is not empty
   if [[ -n "$network" ]]; then
+    debug "key=${key}."
     # shellcheck disable=SC2154
-    jq -r ".${key}.${field} // \"\"" "$BAO_BASE_SCRIPT_DIR/bcinfo.$network.json"
-    local jq_status=$?
-    debug "jq exit status was: ${jq_status}"
-    if [[ $jq_status -ne 0 ]]; then
-      debug "jq failed, lookup_network exiting with 1"
-      exit 1
-    fi
+    debug "jq -r ".${key} // \"\" "$BAO_BASE_SCRIPT_DIR/bcinfo.$network.json"
+    jq -r ".${key} // \"\"" "$BAO_BASE_SCRIPT_DIR/bcinfo.$network.json"
   else
     echo ""
   fi
 }
-export -f lookup_network
+export -f network_query
 
 # Add a simpler function that just gets the network name for a chain ID
 function network_name() {

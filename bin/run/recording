@@ -24,7 +24,7 @@ _recording_config() {
   [[ -n "$SCRIPT" ]] || error "recording or reading without SCRIPT being set up"
   [[ -n "$LOCAL" ]] || error "recording or reading without LOCAL being set up"
 
-  calling_script_name=$(basename $SCRIPT)S
+  calling_script_name=$(basename $SCRIPT)
   debug "calling_script_name=${calling_script_name}."
   local name="${RECORDING_NAME:+"-$RECORDING_NAME"}" # if $2 is not defined, name will be empty, otherwise "-$2"
   debug "name=${name}."
@@ -41,7 +41,61 @@ _recording_config() {
   json_recording_latest_file="${base_file_name}_latest.log"
   debug "json_recording_latest_file=${json_recording_latest_file}."
 
+  if [[ ! -f "${json_recording_file}" ]]; then
+    echo "{}" >"${json_recording_file}"
+    cp "${json_recording_file}" "${json_recording_latest_file}"
+  fi
+
   log "Recording to ${json_recording_file}"
+}
+
+function query() {
+  trace "$*"
+  local key="$1"
+  debug "key=${key}."
+
+  _recording_config
+
+  debug "jq -r ".${key} // \"\" "${json_recording_file}"
+  jq -r ".${key} // \"\"" "$json_recording_file"
+}
+export -f query
+
+# Add a field to the JSON file
+record() {
+  # Prepend "numeric" as the type for the record function
+  _record "string" "$@"
+}
+export -f record
+
+# Add a numeric field to the JSON file
+record_numeric() {
+  # Prepend "numeric" as the type for the record function
+  _record "numeric" "$@"
+}
+export -f record_numeric
+
+# Add a nested field to an existing object
+# Usage: _record "type" "value_to_set" "key1" "key2" ... "final_key"
+# type can be "string" or "numeric"
+_record() {
+  trace "$*"
+  local value_type="$1" # Type of the value ("string" or "numeric")
+  local value="$2"      # Value to set
+  local key="$3"
+
+  _recording_config
+
+  local temp
+  temp=$(mktemp)
+
+  # jq assignment: path = value. Use --arg or --argjson based on type.
+  [[ "$value_type" == "numeric" ]] && arg="--argjson" || arg="--arg"
+
+  jq "$arg" value_to_set "$value" ".${key} = \$value_to_set" "$json_recording_file" >"$temp"
+
+  mv "$temp" "$json_recording_file"
+  cp "$json_recording_file" "$json_recording_latest_file"
 }
 
 # Helper function to build a jq path expression
@@ -66,21 +120,21 @@ _build_jq_path() {
 # Add a field to the JSON file
 store() {
   # Prepend "numeric" as the type for the record function
-  _record "string" "$@"
+  _store "string" "$@"
 }
 export -f store
 
 # Add a numeric field to the JSON file
 store_numeric() {
   # Prepend "numeric" as the type for the record function
-  _record "numeric" "$@"
+  _store "numeric" "$@"
 }
 export -f store_numeric
 
 # Add a nested field to an existing object
 # Usage: _record "type" "value_to_set" "key1" "key2" ... "final_key"
 # type can be "string" or "numeric"
-_record() {
+_store() {
   trace "$*"
   local value_type="$1" # Type of the value ("string" or "numeric")
   local value="$2"      # Value to set
@@ -98,10 +152,6 @@ _record() {
 
   _recording_config
   # create the file if it doesn't exist
-  debug "json_recording_file=$json_recording_file"
-  if [[ ! -f "$json_recording_file" ]]; then
-    echo "{}" >"$json_recording_file"
-  fi
 
   local temp
   temp=$(mktemp)

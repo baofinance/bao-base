@@ -1,6 +1,9 @@
 #! /usr/bin/env bash
 set -euo pipefail
 
+export SCRIPT="$1"
+shift
+
 # shellcheck disable=SC1090,SC1091,SC2154
 . "${BAO_BASE_BIN_DIR}/run/logging"
 # shellcheck disable=SC1090,SC1091,SC2154
@@ -13,8 +16,6 @@ set -euo pipefail
 . "${BAO_BASE_BIN_DIR}/run/recording"
 
 debug "deploy.sh: $*"
-export SCRIPT="$1"
-shift
 
 # set the global variables needed for transacting/recording etc
 # default to environment
@@ -77,5 +78,7 @@ CHAIN_ID=$(chain_id)
 log "transacting on${LOCAL:+ ${LOCAL}} chain ${CHAIN_ID}${CHAIN_NAME:+ (${CHAIN_NAME})}" # lint-bash disable=command-substitution
 log "using wallet with public key $(ens_from_public "${PUBLIC_KEY}")"                    # lint-bash disable=command-substitution
 
-# shellcheck disable=SC1090
-. "${SCRIPT}" "${unhandled_args[@]}"
+if [[ "${SCRIPT}" != "BATS" ]]; then
+  . "${SCRIPT}" "${unhandled_args[@]}"
+# ^ look, there's a dot
+fi
