@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-function public_from_private() {
+public_from_private() {
   local private_key="$1"
   cast wallet address --private-key "$private_key"
 }
 export -f public_from_private
 
-function ens_from_public() {
-  trace "$*"
+ens_from_public() {
   local public_key="$1"
 
   local ens_name
@@ -18,7 +17,7 @@ function ens_from_public() {
 }
 export -f ens_from_public
 
-function chain_id() {
+chain_id() {
   local chainid_hex
   # shellcheck disable=SC2154
   chainid_hex=$(cast chain-id --rpc-url $RPC_URL)
@@ -28,8 +27,7 @@ function chain_id() {
 }
 export -f chain_id
 
-function network_query() {
-  trace "$*"
+network_query() {
   local key="$1"
   local network
   network=$(network_name)
@@ -46,7 +44,7 @@ function network_query() {
 export -f network_query
 
 # Add a simpler function that just gets the network name for a chain ID
-function network_name() {
+network_name() {
   local chain
   chain=$(chain_id) # lint-bash disable=command-substitution
   debug "looking up '${chain}' in $BAO_BASE_SCRIPT_DIR/networks.json"

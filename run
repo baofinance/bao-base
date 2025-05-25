@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+shopt -s extdebug
 
 # set up where everything is, including backing out symlinks
 bao_base_dir_abs="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
@@ -40,11 +41,13 @@ _process_args() {
     esac
   done
 }
+# process the command line args
 args=("$@")
 _process_args
 
 source "$BAO_BASE_BIN_DIR/run/logging"
 temp_args=(${args[@]})
+# read options from the DEBUG environment variable
 args=($(debug_opts))
 _process_args
 args=("${temp_args[@]}")

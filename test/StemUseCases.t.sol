@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test, console2} from "forge-std/Test.sol";
-import {Stem} from "src/Stem.sol";
+import {Stem_v1} from "src/Stem_v1.sol";
 
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -16,7 +16,7 @@ import {IMockImplementation} from "test/interfaces/IMockImplementation.sol"; // 
 
 /**
  * @title StemUseCasesTest
- * @dev Systematic test suite for all ownership models and transitions via Stem
+ * @dev Systematic test suite for all ownership models and transitions via Stem_v1
  */
 contract StemUseCasesTest is Test {
     // Enum to represent the three ownership models we're testing
@@ -30,7 +30,7 @@ contract StemUseCasesTest is Test {
     OwnershipModel[3] internal models;
 
     // Test configuration
-    Stem public stemImplementation; // global stem implementation
+    Stem_v1 public stemImplementation; // global stem implementation
 
     address public deployer;
     address public proxyOwner;
@@ -54,8 +54,8 @@ contract StemUseCasesTest is Test {
         emergencyOwner = vm.createWallet("emergencyOwner").addr;
         user = vm.createWallet("user").addr;
 
-        // Deploy the Stem implementation with emergency owner and zero delay to simplify ownership
-        stemImplementation = new Stem(emergencyOwner, 0);
+        // Deploy the Stem_v1 implementation with emergency owner and zero delay to simplify ownership
+        stemImplementation = new Stem_v1(emergencyOwner, 0);
 
         // Initialize models array
         models[0] = OwnershipModel.BaoOwnable;
@@ -117,14 +117,14 @@ contract StemUseCasesTest is Test {
         model.upgrade(proxyOwner_, proxy_, stemImplementation_);
 
         vm.expectRevert(
-            abi.encodeWithSelector(Stem.Stemmed.selector, "Contract is stemmed and all functions are disabled")
+            abi.encodeWithSelector(Stem_v1.Stemmed.selector, "Contract is stemmed and all functions are disabled")
         );
         IMockImplementation(proxy_).value(); // This should revert
         vm.expectRevert(
-            abi.encodeWithSelector(Stem.Stemmed.selector, "Contract is stemmed and all functions are disabled")
+            abi.encodeWithSelector(Stem_v1.Stemmed.selector, "Contract is stemmed and all functions are disabled")
         );
         IMockImplementation(proxy_).setValue(3); // This should revert
-        assertEq(IMockImplementation(proxy_).owner(), stemOwner_, "Stem ownership should transfer to new owner");
+        assertEq(IMockImplementation(proxy_).owner(), stemOwner_, "Stem_v1 ownership should transfer to new owner");
     }
 
     // note that you cannnot unstem to a new implementation with a different owner
@@ -317,20 +317,20 @@ contract StemUseCasesTest is Test {
 
     //     // 7. Transfer ownership to original owner
     //     // also check the stem
-    //     assertEq(stemImplementation.owner(), address(this), "Stem owner should still be test contract");
+    //     assertEq(stemImplementation.owner(), address(this), "Stem_v1 owner should still be test contract");
     //     skip(STEM_TRANSFER_DELAY);
-    //     assertEq(stemImplementation.owner(), emergencyOwner, "Stem owner should now be emergencyOwner");
+    //     assertEq(stemImplementation.owner(), emergencyOwner, "Stem_v1 owner should now be emergencyOwner");
     //     skip(TRANSFER_DELAY); // skip again in case the ownable delay is longer
     //     assertEq(proxied.owner(), originalOwner, "Owner should be now be new original owner");
 
     //     // all good
 
-    //     // 3. Stem the contract
+    //     // 3. Stem_v1 the contract
     //     vm.startPrank(originalOwner); // only the original owner can now stem.
     //     UnsafeUpgrades.upgradeProxy(address(proxy), address(stemImplementation), "");
     //     vm.stopPrank();
     //     // as we waited before for the stem to transfer ownerhip before, the proxy is now immediately is owned by the emergency owner
-    //     assertEq(Stem(address(proxy)).owner(), emergencyOwner, "Stem ownership should transfer to emergency owner");
+    //     assertEq(Stem_v1(address(proxy)).owner(), emergencyOwner, "Stem_v1 ownership should transfer to emergency owner");
 
     //     // 5. Unstem with a new BaoOwnable_v2 implementation
     //     address newOwner = vm.createWallet("newOwner").addr;
@@ -356,7 +356,7 @@ contract StemUseCasesTest is Test {
     // }
 
     // /**
-    //  * @dev Test direct transitions between ownership models without Stem
+    //  * @dev Test direct transitions between ownership models without Stem_v1
     //  */
     // function testDirectOwnershipTransitions() public {
     //     // Test each source → target direct transition
@@ -456,7 +456,7 @@ contract StemUseCasesTest is Test {
     //     // 3. Verify initial state
     //     assertEq(getValue(address(proxy), model), INITIAL_VALUE, "Initial value should be set");
 
-    //     // 4. Stem the contract
+    //     // 4. Stem_v1 the contract
     //     vm.startPrank(proxyOwner);
     //     UnsafeUpgrades.upgradeProxy(address(proxy), address(stemImplementation), "");
     //     vm.stopPrank();
@@ -519,7 +519,7 @@ contract StemUseCasesTest is Test {
     //         assertEq(getValue(address(proxy), model), INITIAL_VALUE + 1, "Value should be updated");
     //     }
 
-    //     // 4. Pause by upgrading to Stem
+    //     // 4. Pause by upgrading to Stem_v1
     //     vm.startPrank(proxyOwner);
     //     UnsafeUpgrades.upgradeProxy(address(proxy), address(stemImplementation), "");
     //     vm.stopPrank();
@@ -529,7 +529,7 @@ contract StemUseCasesTest is Test {
     //         skip(TRANSFER_DELAY);
     //     }
 
-    //     // 6. Upgrade from Stem to same implementation type but new instance
+    //     // 6. Upgrade from Stem_v1 to same implementation type but new instance
     //     address newImpl = deployImplementation(model, proxyOwner);
 
     //     vm.startPrank(emergencyOwner);

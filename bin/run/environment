@@ -2,7 +2,6 @@
 set -euo pipefail
 
 lookup_environment() {
-  trace "$*"
   local env_name="$1"
   # look up the environment
   local value=""

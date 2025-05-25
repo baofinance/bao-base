@@ -20,109 +20,183 @@ log "using forge at $forge_exe $(forge --version | head -n 1)." # lint-bash disa
 cast_exe=$(command -v cast)
 log "using cast at $cast_exe $(cast --version | head -n 1)." # lint-bash disable=command-substitution
 
-# usage _deploy_contract <purpose, e.g. implementation/proxy"> <path/to/file:contract> [<contract_name>]
+# usage _deploy_contract <purpose, e.g. implementation/proxy"> <path/to/file:contract> [<key>]
 _deploy_contract() {
-  trace "$*"
-  local purpose="$1"
-  local contract_path="$2"
-  local contract_name="${3:-}"
-  if [[ -z "$contract_name" || "$contract_name" == -* ]]; then
-    contract_name=""
-    shift 2 # Only shift for purpose and contract_path
-  else
-    shift 3 # accept the contract name arg
-  fi
-  local constructor_args=("$*")
+  local key="$1"
+  local purpose="$2"
+  local contract_path="$3"
+  shift 3
 
   # get the contract to deploy
-  debug "Deploying $contract_path."
+  record "${purpose}" "${key}.category" || error "failed to record ${purpose} for ${key}.category"
+  local contract_source=${contract_path%%:*}
+  record "${contract_source}" "${key}.contractPath" || error "failed to record ${contract_source} for ${key}.contractPath"
   local contract_type="${contract_path#*:}"
-  debug "contract_type=$contract_type."
-  debug "contract_name=$contract_name."
-
+  record "${contract_type}" "${key}.contractType" || error "failed to record ${contract_type} for ${key}.contractType"
   local contract_tag
-  contract_tag=${contract_name}$([[ "$contract_name" == "" ]] && echo "$contract_type" || echo " ($contract_type)")${purpose:+ $purpose}
+  contract_tag=${key}$([[ "$key" == "" ]] && echo "$contract_type" || echo " ($contract_type)")${purpose:+ $purpose}
 
-  log "Deploying the $contract_tag contract..."
-
-  local create_args="$contract_path"
-  create_args+=" --rpc-url $RPC_URL"
-  create_args+=" --private-key $PRIVATE_KEY"
-  create_args+=" --etherscan-api-key $ETHERSCAN_API_KEY"
-  create_args+=" $BROADCAST $VERIFY"
-  create_args+=" ${constructor_args[*]}"
-
+  log "Deploying $contract_tag ..."
   local response
-  response=$(traceit forge create $create_args)
+  response=$(trace_json forge create --json --rpc-url "${RPC_URL}" --private-key "${PRIVATE_KEY}" --etherscan-api-key "${ETHERSCAN_API_KEY}" \
+    "${contract_path}" ${BROADCAST:+"${BROADCAST}"} ${VERIFY:+"${VERIFY}"} \
+    "${libraries[@]}" "${constructor_args[@]}") ||
+    error "Failed to deploy ${contract_tag}"
+  debug "response=${response}."
+  # rename the deployedTo key to address
+  response=$(jq 'with_entries(if .key == "deployedTo" then .key = "address" else . end)' <<<"$response") ||
+    error "failed to rename deployedTo to address in response"
+  record_raw "${response}" "${key}"
 
-  local deployer
-  deployer=$(echo "$response" | awk '/Deployer:/ {print $2}')
-  local address
-  address=$(echo "$response" | awk '/Deployed to:/ {print $3}')
+  # record the transaction hash and block number
   local tx_hash
-  tx_hash=$(echo "$response" | awk '/Transaction hash:/ {print $3}')
-
-  [[ -z "$address" || -z "$tx_hash" ]] && error "Failed to deploy the $contract_tag contract."
+  tx_hash=$(query "${key}".transactionHash) || error "failed to get transaction hash from response"
+  response=$(trace_json cast tx --json $tx_hash --rpc-url $RPC_URL) ||
+    error "failed to get transaction details for ${tx_hash}"
 
   local block_number
-  block_number=$(traceit cast tx $tx_hash --rpc-url $RPC_URL | awk '/blockNumber/ {print $2}')
-  [[ -z "$block_number" ]] && error "Failed to retrieve block number for $contract_tag contract deployment."
-
-  log "Deployed the $contract_tag contact at $address"
-  log "  by $deployer tx: $tx_hash in block $block_number."
-
-  # return the result
-  local result
-  result=$(jq -nc --arg address "$address" --arg tx_hash "$tx_hash" --arg block_number "$block_number" '{
-        address:$address, tx_hash:$tx_hash, block_number:$block_number}')
-  log "=>$result."
-  echo "$result"
-  # extract using jq '.address', jq '.tx_hash or jq '.block_number'
+  block_number=$(jq -r .blockNumber <<<"${response}") || error "failed to get block number from response"
+  record $block_number "${key}".blockNumber
+  log "Deployed $contract_tag."
+}
+###################################################################################################
+# deploy_contract_or_library
+# for internal use only
+# - deploys a contract or librarywith the given key and contract path
+###################################################################################################
+deploy_contract_or_library() {
+  local key="$1"
+  debug "key=${key}."
+  local purpose="$2"
+  debug "purpose=${purpose}."
+  local contract="$3"
+  debug "contract=${contract}."
+  shift 3
+  # process --libraries and --constructor-args, leaving the option arg in the array
+  local libraries=()
+  local constructor_args=()
+  while [[ "$#" -gt 0 ]]; do
+    debug "arg=$1."
+    case "$1" in
+    --libraries)
+      # libraries must have been deployed and so have an address
+      local libpath libcontract libaddress
+      libpath=$(query "$2".contractPath) || error "failed to query $2.contractPath"
+      libcontract=$(query "$2".contractType) || error "failed to query $2.contractType"
+      libaddress=$(query "$2".address) || error "failed to query $2.address"
+      libraries+=("$1" "${libpath}:${libcontract}:${libaddress}")
+      shift 2
+      ;;
+    --constructor-args)
+      # handle constructor args - they are always the last argument
+      local raw_args=()
+      raw_args=$(query_array address "$@") || error "failed to query_array address $*"
+      mapfile -t constructor_args <<<"$raw_args" || error "failed to query_array $*"
+      break
+      ;;
+    *)
+      error "unexpected option for deploy_contract_or_library: $1"
+      exit 1
+      ;;
+    esac
+  done
+  _deploy_contract "${key}" "${purpose}" "${contract}" "${libraries[@]}" "${constructor_args[@]}" ||
+    error "failed to deploy ${key} contract"
 }
 
+###################################################################################################
+# deploy_library
+# - deploys a library with the given key and contract path
+###################################################################################################
+deploy_library() {
+  local key="$1"
+  shift 1
+  deploy_contract_or_library "${key}" "library" "$@" ||
+    error "failed to deploy ${key} library"
+}
+export -f deploy_library
+
+###################################################################################################
+# deploy_contract
+# - deploys a contract with the given key and contract path
+###################################################################################################
 deploy_contract() {
-  trace "$*"
-  _deploy_contract "simple" "$@"
+  local key="$1"
+  shift 1
+  deploy_contract_or_library "${key}" "contract" "$@" ||
+    error "failed to deploy ${key} contract"
 }
+export -f deploy_contract
 
+###################################################################################################
+# deploy_proxy
+# - deploys a UUPS proxy contract with the given implementation key
+# - implementation must have been deployed beforehand and have an address
+###################################################################################################
 deploy_proxy() {
-  trace "$*"
-  local impl_address="$1"
-  _deploy_contract 'UUPS proxy' \
+  local proxy_key="$1"
+  local implementation_key="$2"
+
+  deploy_contract_or_library "${proxy_key}" 'UUPS proxy' \
     "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy" \
-    --constructor-args "$impl_address" '0x'
+    --constructor-args "${implementation_key}" '0x' || error "failed to deploy_proxy ${proxy_key} contract"
+
+  _record_proxy_update "${proxy_key}" "${implementation_key}" || error "failed to record implementation data for ${proxy_key} proxy contract"
 }
+export -f deploy_proxy
 
-# transacting_deploy_upgradeable_contract() {
-#   logging debug "deploy_upgreadable_contract($*)"
-#   local args="$@"
+###################################################################################################
+# deploy_stemmed
+# - a thin wrapper around deploy_proxy to deploy a proxy with a stemmed implementation
+###################################################################################################
+deploy_stemmed() {
+  # key is the proxy key, e.g. leveragedToken
+  local proxy_key="$1"
+  deploy_proxy "${proxy_key}" Stem_v1 || error "failed to deploy_stemmed ${proxy_key} contract"
+}
+export -f deploy_stemmed
 
-#   # validate implementation
+upgrade_proxy() {
+  local proxy_key="$1"
+  local implementation_key="$2"
+  local signature="$3"
+  shift 3
 
-#   # deploy implementation
-#   local impl
-#   impl=$(_transacting_deploy_contract "implementation" "$args")
-#   logging trace "impl=$impl."
-#   local impl_address
-#   impl_address=$(jq -r '.address' <<<"$impl")
-#   logging debug "impl_address=$impl_address."
+  # get the addresses
+  local proxy_address implementation_address
+  proxy_address=$(query "${proxy_key}.address") || error "failed to query ${proxy_key} for address"
+  implementation_address=$(query ${implementation_key}.address) || error "failed to query ${implementation_key} for address"
 
-#   # save deployed data, for later validation
+  debug "signature=${signature}."
+  debug "args=$*."
 
-#   # deploy proxy
-#   local proxy
-#   proxy=$(_transacting_deploy_contract 'UUPS proxy' \
-#     'lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy' \
-#     --constructor-args "$impl_address" '0x') || exit $?
-#   logging trace "proxy=$proxy."
+  # get the calldata for the upgradeToAndCall function
+  local raw_args=()
+  raw_args=$(query_array address "$@") || error "failed to query_array address $*"
+  local signature_args=()
+  mapfile -t signature_args <<<"$raw_args" || error "failed to query_array $*"
+  local calldata
+  calldata=$(trace cast calldata "${signature}" "${signature_args[@]}") ||
+    error "failed to cast calldata for signature ${signature} with args ${raw_args[*]}"
 
-#   # logging info "impl=$impl"
-#   # logging info "proxy=$proxy"
-#   local result
-#   result=$(jq -n --argjson proxy "$proxy" --argjson impl "$impl" '$proxy + {"implementation": $impl}')
-#   logging trace "${FUNCNAME[0]}->$result."
-#   echo "$result"
-# }
+  # do the transaction
+  _send_transaction "$proxy_address" "upgradeToAndCall(address,bytes)" "${implementation_address}" "${calldata}" ||
+    error "failed to send transaction to ${proxy_key} with signature upgradeToAndCall(address,bytes) and args ${implementation_key} ${calldata}"
+
+  _record_proxy_update "${proxy_key}" "${implementation_key}" || error "failed to record implementation data for ${proxy_key} proxy contract"
+}
+export -f upgrade_proxy
+
+_record_proxy_update() {
+  local proxy_key="$1"
+  local implementation_key="$2"
+
+  local implementation_address
+  implementation_address=$(query "${implementation_key}.address") || error "failed to query ${implementation_key} for address"
+
+  record "${implementation_key}" "${proxy_key}".implementation.contract || error "failed to record ${implementation_name} for ${proxy_key} contract"
+  record "${implementation_address}" "${proxy_key}".implementation.address || error "failed to record ${implementation_address} for ${proxy_key} contract"
+}
 
 confirm_deployment() {
   local contract_name=$1
@@ -134,7 +208,8 @@ confirm_deployment() {
   echo "Confirming deployment of $contract_name at $contract_address (Block: $deployment_block)..."
 
   while true; do
-    current_block=$(traceit cast block latest --rpc-url $RPC_URL | awk '/number/ {print $2}')
+    current_block=$(trace cast block latest --rpc-url $RPC_URL | awk '/number/ {print $2}')
+    log "${current_block})"
     if [[ -n "$current_block" && "$current_block" -gt "$deployment_block" ]]; then
       echo "Contract $contract_name confirmed. Current block: $current_block"
       echo "Contract confirmed >> $contract_name: $contract_address (Confirmed in Block: $deployment_block)" >>"$OUTPUT_FILE"
@@ -150,129 +225,76 @@ confirm_deployment() {
   done
 }
 
-function upgrade_proxy() {
-  trace "$*"
-  local proxy="$1"
-  local implementation="$2"
-  local signature="$3"
-  debug "proxy=${proxy}."
-  debug "implementation=${implementation}."
-  debug "signature=${signature}."
-  shift 3
-  debug "args=$*"
-  local calldata
-  calldata=$(traceit cast calldata "$signature" "$@")
-  send_transaction $proxy "upgradeToAndCall(address,bytes)" "$implementation" "$calldata"
-
-  # Return the proxy address
-  # echo "{\"address\":\"$proxy\", \"implementation\":\"$implementation\"}"
-}
-export -f upgrade_proxy
-
 send_transaction() {
-  trace "$*"
-  local target_address="$1"
+  local target_key="$1"
   local signature="$2"
   shift 2
-  local calldata
+  local target_address calldata
+  target_address=$(query "${target_key}.address") || error "failed to query ${target_key} for address"
 
-  # Use the new function for traced execution
-  calldata=$(traceit cast calldata $signature "$@")
+  # get the args
+  local raw_args=()
+  raw_args=$(query_array address "$@") || error "failed to query_array address $*"
+  local signature_args=()
+  mapfile -t signature_args <<<"$raw_args" || error "failed to query_array $*"
 
-  local output
-  log "Sending transaction to $target_address $signature ..."
-  output=$(traceit cast send \
-    --rpc-url "$RPC_URL" \
-    --private-key "$PRIVATE_KEY" \
-    "$target_address" \
-    "$calldata")
-
-  # if [ $? -ne 0 ]; then
-  #   echo "Error: Transaction to $contract_name:$target_address failed. See logs for details."
-  #   echo "$output" >>"$OUTPUT_FILE"
-  #   exit 1
-  # fi
-
-  # Log the transaction details without the transaction hash
-  # echo "Transaction to $contract_name at $target_address >> calldata: $calldata" >>"$OUTPUT_FILE"
-  # echo "Transaction to $contract_name at $target_address succeeded."
+  # send the transaction
+  _send_transaction "$target_address" "${signature}" "${signature_args[@]}" || error "failed to send transaction to ${target_key} with signature ${signature} and args ${signature_args[*]}"
 }
 export -f send_transaction
 
-# Execute a command with set -x and capture the trace output
-traceit() {
-  local trace_fd=3
-  local fifo_file
-  fifo_file=$(mktemp -u)
-  mkfifo "$fifo_file"
+_send_transaction() {
+  local target_address="$1"
+  local signature="$2"
+  shift 2
 
-  # Capture all output at once instead of line by line
-  cat "$fifo_file" >/tmp/trace_output.$$ &
-  local cat_pid=$!
-
-  # Redirect trace output to the FIFO
-  exec {trace_fd}>"$fifo_file"
-  BASH_XTRACEFD=$trace_fd
-
-  # Run the command with tracing enabled and capture its output
-  set -x
-  local output
-  output=$("$@")
-  local ret=$?
-  set +x
-
-  # Clean up and collect trace output
-  exec {trace_fd}>&-
-  wait $cat_pid 2>/dev/null || true
-
-  # Get the trace output and apply all transformations
-  LOGGING_UP_LEVEL=1
-  # Process the trace output to:
-  # 1. Remove unwanted lines (local output, local ret=0, set +x)
-  # 2. Remove +++ prefixes
-  # 3. Replace "+++ output=" with "->"
-  local trace_output
-  trace_output=$(sed -E '
-    # Remove unwanted lines completely
-    /^\++ local output/d
-    s/^\++ local ret=0/ status->success 0/
-    s/^\++ local ret=/ status->fail /
-    /^\++ set \+x/d
-    # Replace "+++ output=" with "output ->"
-    s/^\++ output=/ output->/
-    # Remove +++ prefixes from remaining lines
-    s/^\++ /execute->/' "/tmp/trace_output.$$")
-
-  # Send the processed output at once to info
-  info 1 "$trace_output"
-  # shellcheck disable=SC2034
-  LOGGING_UP_LEVEL=0
-
-  # remove the temp files
-  rm "$fifo_file" "/tmp/trace_output.$$"
-
-  # Return the command's output
-  echo "$output"
-  return $ret
+  # send the transaction
+  local response
+  response=$(trace_json cast send --json --rpc-url "${RPC_URL}" --private-key "${PRIVATE_KEY}" \
+    "$target_address" "${signature}" "$@") ||
+    error "failed to send transaction to ${target_address} with signature ${signature} and args $*"
+  echo "${response}"
 }
-export -f traceit
 
-function call() {
-  trace "$*"
-  local args=("call")
-  args+=("--rpc-url" "$RPC_URL")
-  args+=("$@")
+_call() {
   local output
-  output=$(traceit cast "${args[@]}")
+  output=$(trace cast call "--rpc-url" "${RPC_URL}" "$@") || error "failed to cast call $*"
   # TODO: handle more data structures tuples, structs and arrays of numbers and strings
   [[ "$output" =~ ^\".*\"$ ]] && output="${output:1:-1}" # Remove the quotes
   echo "$output"
 }
 
-function use_deployed() {
-  local deployed="$1"
-  local as="$2"
-  local value
-  value=$(network_query "${deployed}") || error "failed to look up ${deployed}"
-  record "${value}" "${as}"
+call() {
+  local target_key="$1"
+  local sig="$2"
+  shift 2
+
+  # get the target address from the key
+  local target_address
+  target_address=$(query "${target_key}.address") || error "failed to query ${target_key} for address"
+
+  # get the calldata for the given function
+  local raw_args=()
+  mapfile -t raw_args < <(query_array address "$@") || error "failed to query_array $*"
+
+  _call "${target_address}" "${sig}" "${raw_args[@]}"
 }
+export -f call
+
+record_from_network() {
+  local this="$1"
+  local from="$2"
+  local value
+  value=$(network_query "${from}") || error "failed to network_query ${from}"
+  record "${value}" "${this}"
+}
+export -f record_from_network
+
+record_from_call() {
+  local key="$1"
+  shift
+  local value
+  value=$(call "$@") || error "failed to call $*"
+  record "${value}" "${key}"
+}
+export -f record_from_call

@@ -29,7 +29,7 @@ import {BaoCheckOwner_v2} from "@bao/internal/BaoCheckOwner_v2.sol";
  * after which the given owner is the new owner.
  */
 // solhint-disable-next-line contract-name-camelcase
-contract Stem is UUPSUpgradeable, BaoCheckOwner_v2, ERC165, IERC5313 {
+contract Stem_v1 is UUPSUpgradeable, BaoCheckOwner_v2, ERC165, IERC5313 {
     /*//////////////////////////////////////////////////////////////////////////
                                   CONSTRUCTOR
     //////////////////////////////////////////////////////////////////////////*/

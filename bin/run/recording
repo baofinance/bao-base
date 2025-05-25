@@ -26,7 +26,7 @@ _recording_config() {
 
   calling_script_name=$(basename $SCRIPT)
   debug "calling_script_name=${calling_script_name}."
-  local name="${RECORDING_NAME:+"-$RECORDING_NAME"}" # if $2 is not defined, name will be empty, otherwise "-$2"
+  local name="${RECORDING_NAME:+"-$RECORDING_NAME"}"
   debug "name=${name}."
   local locally=""
   [[ "$LOCAL" == "local" ]] && locally="local-"
@@ -49,17 +49,104 @@ _recording_config() {
   log "Recording to ${json_recording_file}"
 }
 
-function query() {
-  trace "$*"
+has_key() {
+  local key="$1"
+  _recording_config
+
+  # Use jq's has() function to check if the key exists
+  local result
+  result=$(jq -rc --arg k "${key}" 'getpath($k | split("."))' "${json_recording_file}")
+  [[ "$result" == "null" ]] && echo false || echo true
+  debug "has_key(${key}) -> ${result}."
+}
+
+query() {
   local key="$1"
   debug "key=${key}."
 
   _recording_config
 
-  debug "jq -r ".${key} // \"\" "${json_recording_file}"
-  jq -r ".${key} // \"\"" "$json_recording_file"
+  debug "jq query: jq -r ".${key}" "${json_recording_file}""
+  local result
+  result=$(jq -r ".${key}" "${json_recording_file}")
+  local status=$?
+  debug "jq \$?=${status}."
+  [[ $status -eq 0 ]] || return ${status}
+  debug "result=${result}."
+  echo "${result}"
 }
 export -f query
+
+# returns a line separated list of values
+# will not return objects, only primitive values
+# suitable for mapfile -t
+# returns a line separated list of values with field extraction from objects
+# first parameter is a comma-separated list of field names to extract from objects
+# for each argument:
+# - if it's an object, looks for any field in the list as a sub-key and returns it if found
+# - if it's a primitive value, returns that value
+# - otherwise returns the argument itself
+query_array() {
+  local fields="$1"
+  shift
+
+  # Split the comma-separated fields into an array
+  IFS=',' read -ra field_array <<<"$fields"
+
+  local arg
+  for arg in "$@"; do
+    debug "arg=${arg}, fields=${fields}."
+
+    # default to the argument itself
+    if [[ $(has_key "${arg}") == "true" ]]; then
+      # Check if the value is an object
+      local type
+      type=$(jq -r ".${arg} | type" "${json_recording_file}") || error "Failed to determine type of '${arg}'."
+      debug "type=${type}."
+      if [[ "$type" == "object" ]]; then
+        # It's an object, try to find one of the fields
+        local found=false
+        local field
+
+        for field in "${field_array[@]}"; do
+          if [[ $(has_key "${arg}.${field}") == "true" ]]; then
+            # Check if the field is not an object
+            local field_type
+            field_type=$(jq -r ".${arg}.${field} | type" "${json_recording_file}") || error "Failed to determine type of field '${field}' in ${arg}."
+
+            if [[ "$field_type" != "object" ]]; then
+              local field_value
+              field_value=$(query "${arg}.${field}")
+              debug "${arg}.${field}->${field_value}."
+              echo "${field_value}"
+              found=true
+              break
+            fi
+          fi
+        done
+
+        # If no suitable field was found, return the argument itself
+        if [[ "$found" == "false" ]]; then
+          debug "No suitable field found in ${arg}, returning arg itself."
+          debug "${arg}->${arg}."
+          echo "${arg}"
+        fi
+      else
+        # It's not an object, just return its value
+        debug "type=${type}, returning value of ${arg}."
+        local raw_arg
+        raw_arg=$(query "${arg}")
+        debug "${arg}->${raw_arg}."
+        echo "${raw_arg}"
+      fi
+    else
+      # Key doesn't exist, return the argument itself
+      debug "!has_key, ${arg}->${arg}."
+      echo "${arg}"
+    fi
+  done
+}
+export -f query_array
 
 # Add a field to the JSON file
 record() {
@@ -69,20 +156,22 @@ record() {
 export -f record
 
 # Add a numeric field to the JSON file
-record_numeric() {
+record_raw() {
   # Prepend "numeric" as the type for the record function
-  _record "numeric" "$@"
+  _record "raw" "$@"
 }
-export -f record_numeric
+export -f record_raw
 
 # Add a nested field to an existing object
 # Usage: _record "type" "value_to_set" "key1" "key2" ... "final_key"
 # type can be "string" or "numeric"
 _record() {
-  trace "$*"
   local value_type="$1" # Type of the value ("string" or "numeric")
-  local value="$2"      # Value to set
+  debug "value_type=${value_type}."
+  local value="$2" # Value to set
+  debug "value=${value}."
   local key="$3"
+  debug "key=${key}."
 
   _recording_config
 
@@ -90,112 +179,43 @@ _record() {
   temp=$(mktemp)
 
   # jq assignment: path = value. Use --arg or --argjson based on type.
-  [[ "$value_type" == "numeric" ]] && arg="--argjson" || arg="--arg"
+  local val_arg
+  [[ "$value_type" == "raw" ]] && val_arg="--argjson" || val_arg="--arg"
 
-  jq "$arg" value_to_set "$value" ".${key} = \$value_to_set" "$json_recording_file" >"$temp"
+  debug "recording as ${key},'${value}'"
+  # jq "$arg" value_to_set "$value" ".${key} = \$value_to_set" "$json_recording_file" >"$temp" || error "Failed to record value '${value}' for key '${key}' in ${json_recording_file}"
 
+  # Enhanced jq script that enforces type safety and handles object merging
+  # Pass both the key and value as jq arguments
+  jq "$val_arg" value_to_set "$value" --arg k "$key" '
+    # Split the key path and convert to jq path
+    ($k | split(".")) as $path |
+
+    # Get existing value (or null if it doesn not exist)
+    (getpath($path) // null) as $existing |
+
+    # Determine types
+    ($existing | type) as $existing_type |
+    ($value_to_set | type) as $new_type |
+
+    # Handle the different cases
+    if $existing_type == "null" then
+      # Key does not exist yet, simply set it
+      setpath($path; $value_to_set)
+    elif $existing_type == "object" and $new_type == "object" then
+      # Both are objects, merge them
+      setpath($path; ($existing * $value_to_set))
+    elif $existing_type == $new_type then
+      # Same non-object types, replace
+      setpath($path; $value_to_set)
+    else
+      # Type mismatch - fail with error
+      error("Type mismatch: Cannot merge " + $existing_type + " with " + $new_type + " for key " + $k)
+    end
+  ' "$json_recording_file" >"$temp" || error "Failed to record value '${value}' for key '${key}' in ${json_recording_file}"
+
+  local status=$?
+  [[ $status -eq 0 ]] || return ${status}
   mv "$temp" "$json_recording_file"
   cp "$json_recording_file" "$json_recording_latest_file"
 }
-
-# Helper function to build a jq path expression
-# Usage: _build_jq_path "key1" "key2" ... "final_key"
-# Returns: .["key1"]["key2"]["final_key"]
-_build_jq_path() {
-  if [[ $# -eq 0 ]]; then
-    echo "Error: _build_jq_path requires at least one key." >&2
-    return 1
-  fi
-
-  local jq_path="." # Initialize with the leading dot
-  for key_part in "$@"; do
-    # Escape any double quotes within the key_part itself
-    local sanitized_key_part="${key_part//\"/\\\"}"
-    # Append each key part in the .["key"] format
-    jq_path+="[\"$sanitized_key_part\"]"
-  done
-  echo "$jq_path"
-}
-
-# Add a field to the JSON file
-store() {
-  # Prepend "numeric" as the type for the record function
-  _store "string" "$@"
-}
-export -f store
-
-# Add a numeric field to the JSON file
-store_numeric() {
-  # Prepend "numeric" as the type for the record function
-  _store "numeric" "$@"
-}
-export -f store_numeric
-
-# Add a nested field to an existing object
-# Usage: _record "type" "value_to_set" "key1" "key2" ... "final_key"
-# type can be "string" or "numeric"
-_store() {
-  trace "$*"
-  local value_type="$1" # Type of the value ("string" or "numeric")
-  local value="$2"      # Value to set
-  shift 2               # Remove type and value, remaining arguments are keys
-
-  if [[ $# -eq 0 ]]; then
-    echo "Error: _record requires at least one key for the path." >&2
-    return 1
-  fi
-
-  if [[ "$value_type" != "string" && "$value_type" != "numeric" ]]; then
-    echo "Error: Invalid value_type '$value_type'. Must be 'string' or 'numeric'." >&2
-    return 1
-  fi
-
-  _recording_config
-  # create the file if it doesn't exist
-
-  local temp
-  temp=$(mktemp)
-
-  local jq_path_expression
-  jq_path_expression=$(_build_jq_path "$@")
-  if [[ -z "$jq_path_expression" ]]; then
-    # _build_jq_path would have printed an error
-    return 1
-  fi
-  debug "jq_path_expression=${jq_path_expression}."
-
-  # jq assignment: path = value. Use --arg or --argjson based on type.
-  if [[ "$value_type" == "numeric" ]]; then
-    jq --argjson value_to_set "$value" "${jq_path_expression} = \$value_to_set" "$json_recording_file" >"$temp"
-  else # Default to string
-    jq --arg value_to_set "$value" "${jq_path_expression} = \$value_to_set" "$json_recording_file" >"$temp"
-  fi
-
-  mv "$temp" "$json_recording_file"
-  cp "$json_recording_file" "$json_recording_latest_file"
-}
-
-# Read a value from the JSON file using a path composed of the given keys
-# Usage: read "key1" "key2" ... "final_key"
-load() {
-  if [[ $# -eq 0 ]]; then
-    echo "Error: read requires at least one key for the path." >&2
-    return 1
-  fi
-
-  _recording_config
-  if [[ ! -f "$json_recording_file" ]]; then
-    echo "" # File doesn't exist, so key path won't exist
-    return 0
-  fi
-
-  local jq_path_expression
-  jq_path_expression=$(_build_jq_path "$@")
-  if [[ -z "$jq_path_expression" ]]; then
-    # _build_jq_path would have printed an error
-    return 1
-  fi
-
-  jq -r "${jq_path_expression} // \"\"" "$json_recording_file"
-}
-export -f load

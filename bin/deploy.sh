@@ -4,8 +4,8 @@ set -euo pipefail
 export SCRIPT="$1"
 shift
 
-# shellcheck disable=SC1090,SC1091,SC2154
-. "${BAO_BASE_BIN_DIR}/run/logging"
+# # shellcheck disable=SC1090,SC1091,SC2154
+# . "${BAO_BASE_BIN_DIR}/run/logging"
 # shellcheck disable=SC1090,SC1091,SC2154
 . "${BAO_BASE_BIN_DIR}/run/environment"
 # shellcheck disable=SC1090,SC1091,SC2154
