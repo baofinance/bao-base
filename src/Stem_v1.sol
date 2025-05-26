@@ -28,7 +28,7 @@ import {BaoCheckOwner_v2} from "@bao/internal/BaoCheckOwner_v2.sol";
  * The deployer becomes the new owner (i.e. is returned from the owner() function) for a given time period,
  * after which the given owner is the new owner.
  */
-// solhint-disable-next-line contract-name-camelcase
+// solhint-disable-next-line contract-name-capwords
 contract Stem_v1 is UUPSUpgradeable, BaoCheckOwner_v2, ERC165, IERC5313 {
     /*//////////////////////////////////////////////////////////////////////////
                                   CONSTRUCTOR
