@@ -321,6 +321,7 @@ _trace() {
   traced_command=$(sed -E '
     # Remove unwanted lines completely
     /^\++ local output/d
+    /^[^+]/d
     /^\++ output=/d
     /^\++ local ret=/d
     /^\++ set \+x/d
