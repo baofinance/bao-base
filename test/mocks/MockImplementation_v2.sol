@@ -13,7 +13,7 @@ contract MockImplementation_v2 is Initializable, UUPSUpgradeable, BaoOwnable_v2 
     uint256 private _value;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(address owner_) BaoOwnable_v2(owner_) {
+    constructor(address owner_) BaoOwnable_v2(owner_, 0) {
         _disableInitializers();
     }
 

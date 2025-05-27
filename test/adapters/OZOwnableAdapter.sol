@@ -17,9 +17,18 @@ import {IMockImplementation} from "test/interfaces/IMockImplementation.sol";
  * @dev Adapter Pattern: Provides access to implementation rather than mirroring its interface
  */
 contract OZOwnableAdapter is IOwnershipModel, Test {
+    function implementationType() external pure returns (uint256) {
+        return uint(IMockImplementation.ImplementationType.MockImplementationOZOwnable);
+    }
+
+    function name() external pure returns (string memory) {
+        return "OZOwnable";
+    }
+
     function deployImplementation(address prank, address /*initialOwner*/) external returns (address implementation) {
         vm.startPrank(prank);
         implementation = address(new MockImplementationOZOwnable());
+        assertEq(MockImplementationOZOwnable(implementation).implementationType(), this.implementationType());
         vm.stopPrank();
     }
 
@@ -36,12 +45,18 @@ contract OZOwnableAdapter is IOwnershipModel, Test {
         );
         vm.stopPrank();
     }
-    function upgrade(address prank, address proxy, address implementation, uint256 newValue) external {
+    function upgradeAndChangeStuff(
+        address prank,
+        address proxy,
+        address implementation,
+        address newOwner,
+        uint256 newValue
+    ) external {
         vm.startPrank(prank);
         UnsafeUpgrades.upgradeProxy(
             address(proxy),
             address(implementation),
-            abi.encodeWithSelector(MockImplementationOZOwnable.postUpgradeSetup.selector, newValue)
+            abi.encodeWithSelector(MockImplementationOZOwnable.postUpgradeSetup.selector, newOwner, newValue)
         );
         vm.stopPrank();
     }

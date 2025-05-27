@@ -44,11 +44,7 @@ abstract contract BaoOwnable_v2 is IBaoOwnable_v2, BaoCheckOwner_v2, ERC165 {
     /// when 'transferOwnership' is called. 'transferOwnership' must be called within an hour.
     /// @param finalOwner sets the owner, a privileged address, of the contract to be set when 'transferOwnership' is called
     // slither-disable-next-line dead-code
-    constructor(
-        address finalOwner
-    )
-        BaoCheckOwner_v2(finalOwner, 3600) // owner changed in 1 hour
-    {}
+    constructor(address finalOwner, uint256 delay) BaoCheckOwner_v2(finalOwner, delay) {}
 
     /*//////////////////////////////////////////////////////////////////////////
                                   PUBLIC FUNCTIONS

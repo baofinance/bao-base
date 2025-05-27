@@ -12,9 +12,11 @@ import {BaoOwnable_v2} from "@bao/BaoOwnable_v2.sol";
 
 contract DerivedBaoOwnable_v2 is BaoOwnable_v2 {
     // constructor sets up the owner
-    constructor(address owner) BaoOwnable_v2(owner) {}
+    constructor(address owner, uint256 delay) BaoOwnable_v2(owner, delay) {}
 
     function protected() public onlyOwner {}
+
+    function unprotected() public {}
 }
 
 contract TestBaoOwnable_v2Only is Test {
@@ -26,126 +28,68 @@ contract TestBaoOwnable_v2Only is Test {
         user = vm.createWallet("user").addr;
     }
 
-    function _initialize(address owner_) internal {
+    function _initialize(address owner_, uint256 delay) internal {
         vm.expectEmit(true, true, true, true);
         emit IBaoOwnable_v2.OwnershipTransferred(address(0), address(this));
         vm.expectEmit(true, true, true, true);
         emit IBaoOwnable_v2.OwnershipTransferred(address(this), owner_);
-        address ownable = address(new DerivedBaoOwnable_v2(owner_));
-        assertEq(IBaoOwnable_v2(ownable).owner(), address(this));
+        address ownable = address(new DerivedBaoOwnable_v2(owner_, delay));
 
-        // move timestamop forward just short of the hour
-        // console2.log("block.timestamp", block.timestamp);
-        skip(3599);
-        // console2.log("block.timestamp", block.timestamp);
-        assertEq(IBaoOwnable_v2(ownable).owner(), address(this));
-        // now we trigger the transfer
-        skip(1);
+        if (delay > 0) {
+            assertEq(IBaoOwnable_v2(ownable).owner(), address(this));
+
+            // move timestamop forward just short of the hour
+            // console2.log("block.timestamp", block.timestamp);
+            skip(delay - 1);
+            // console2.log("block.timestamp", block.timestamp);
+            assertEq(IBaoOwnable_v2(ownable).owner(), address(this));
+            // now we trigger the transfer
+            skip(1);
+        }
         // console2.log("block.timestamp", block.timestamp);
         assertEq(IBaoOwnable_v2(ownable).owner(), owner_);
     }
 
-    // function test_initialize(uint64 start) public {
-    //     start = uint64(bound(start, 1, type(uint64).max - 52 weeks));
-
-    //     vm.warp(start);
-    //     // member data
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), address(0));
-
-    //     // can't transfer ownership, there's no owner or deployer yet
-    //     vm.expectRevert(IBaoOwnable_v2.Unauthorized.selector);
-    //     IBaoOwnable_v2(ownable).transferOwnership(owner);
-
-    //     // pending is all zeros
-    //     assertEq(DerivedBaoOwnable_v2(ownable).pendingOwner(), address(0));
-    //     assertEq(DerivedBaoOwnable_v2(ownable).pendingExpiry(), 0);
-
-    //     // can initialise to an owner
-    //     _initialize(owner);
-
-    //     // can't initialise again
-    //     vm.expectRevert(IBaoOwnable_v2.AlreadyInitialized.selector);
-    //     DerivedBaoOwnable_v2(ownable).initialize(owner);
-
-    //     // can't initialise again
-    //     vm.expectRevert(IBaoOwnable_v2.AlreadyInitialized.selector);
-    //     DerivedBaoOwnable_v2(ownable).initialize(user);
-    // }
-
-    function test_introspection() public virtual {
-        address ownable = address(new DerivedBaoOwnable_v2(address(0)));
+    function _introspectionOnly(address ownable) internal view {
         assertTrue(IERC165(ownable).supportsInterface(type(IERC165).interfaceId));
         assertTrue(IERC165(ownable).supportsInterface(type(IBaoOwnable_v2).interfaceId));
     }
 
-    // function test_initializeTimeoutJustBefore() public {
-    //     DerivedBaoOwnable_v2(ownable).initialize(owner);
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), address(this));
-
-    //     skip(3600);
-
-    //     vm.expectEmit();
-    //     emit IBaoOwnable_v2.OwnershipTransferred(address(this), owner);
-    //     IBaoOwnable_v2(ownable).transferOwnership(owner);
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), owner);
-    // }
-
-    // function test_initializeTimeoutAfter() public {
-    //     DerivedBaoOwnable_v2(ownable).initialize(owner);
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), address(this));
-
-    //     skip(3601);
-
-    //     vm.expectRevert(IBaoOwnable_v2.CannotCompleteTransfer.selector);
-    //     IBaoOwnable_v2(ownable).transferOwnership(owner);
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), address(this));
-    // }
-
-    // function test_owner() public {
-    //     // can initialise to an owner, who is deployer
-    //     vm.expectEmit();
-    //     emit IBaoOwnable_v2.OwnershipTransferred(address(0), address(this));
-    //     DerivedBaoOwnable_v2(ownable).initialize(owner);
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), address(this));
-
-    //     // call a function that fails unless done by an owner
-    //     vm.expectRevert(IBaoOwnable_v2.Unauthorized.selector);
-    //     vm.prank(user);
-    //     IBaoOwnable_v2(ownable).transferOwnership(user);
-
-    //     // complete the transfer
-    //     vm.expectEmit();
-    //     emit IBaoOwnable_v2.OwnershipTransferred(address(this), owner);
-    //     IBaoOwnable_v2(ownable).transferOwnership(owner);
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), owner);
-
-    //     // the have the owner complete on a null pending
-    //     vm.expectRevert(IBaoOwnable_v2.CannotCompleteTransfer.selector);
-    //     vm.prank(owner);
-    //     IBaoOwnable_v2(ownable).transferOwnership(user);
-    // }
+    function test_introspection() public virtual {
+        address ownable = address(new DerivedBaoOwnable_v2(address(0), 0));
+        _introspectionOnly(ownable);
+    }
 
     function test_onlyOwner() public {
-        address ownable = address(new DerivedBaoOwnable_v2(owner));
+        address ownable = address(new DerivedBaoOwnable_v2(owner, 3600));
         // this can call protected at the moment
         DerivedBaoOwnable_v2(ownable).protected();
+        DerivedBaoOwnable_v2(ownable).unprotected();
 
         // owner isn't owner yet
+        vm.prank(owner);
+        DerivedBaoOwnable_v2(ownable).unprotected();
+
         vm.prank(owner);
         vm.expectRevert(IBaoOwnable_v2.Unauthorized.selector);
         DerivedBaoOwnable_v2(ownable).protected();
 
         skip(3600);
         // owner has now moved
+        DerivedBaoOwnable_v2(ownable).unprotected();
+
         vm.expectRevert(IBaoOwnable_v2.Unauthorized.selector);
         DerivedBaoOwnable_v2(ownable).protected();
+
+        vm.prank(owner);
+        DerivedBaoOwnable_v2(ownable).unprotected();
 
         vm.prank(owner);
         DerivedBaoOwnable_v2(ownable).protected();
     }
 
     function test_onlyOwner0() public {
-        address ownable = address(new DerivedBaoOwnable_v2(address(0)));
+        address ownable = address(new DerivedBaoOwnable_v2(address(0), 3600));
         // this can call protected at the moment
         DerivedBaoOwnable_v2(ownable).protected();
         assertEq(IBaoOwnable_v2(ownable).owner(), address(this));
@@ -157,148 +101,18 @@ contract TestBaoOwnable_v2Only is Test {
         assertEq(IBaoOwnable_v2(ownable).owner(), address(0));
     }
 
-    // function test_reinitAfterTransfer() public {
-    //     _initialize(owner);
-
-    //     // can't initialise again after a transfer
-    //     vm.expectRevert(IBaoOwnable_v2.AlreadyInitialized.selector);
-    //     DerivedBaoOwnable_v2(ownable).initialize(address(this));
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), owner);
-    // }
-
-    // function test_reinitAfterRenounce() public {
-    //     _initialize(address(0));
-
-    //     // can't initialise again after a transfer
-    //     vm.expectRevert(IBaoOwnable_v2.AlreadyInitialized.selector);
-    //     DerivedBaoOwnable_v2(ownable).initialize(address(this));
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), address(0));
-    // }
-
-    function test_transfer1stepZero() public {
-        _initialize(address(0));
+    function test_transfer1stepZero(uint256 delay) public {
+        delay = bound(delay, 0, 1 weeks);
+        _initialize(address(0), delay);
     }
 
-    function test_transfer1stepThis() public {
-        _initialize(address(this));
+    function test_transfer1stepThis(uint256 delay) public {
+        delay = bound(delay, 0, 1 weeks);
+        _initialize(address(this), delay);
     }
 
-    function test_transfer1stepAnother() public {
-        _initialize(user);
+    function test_transfer1stepAnother(uint256 delay) public {
+        delay = bound(delay, 0, 1 weeks);
+        _initialize(user, delay);
     }
-
-    // function test_deployNoTransfer() public {
-    //     // initialise to target owner immediately
-    //     vm.prank(owner);
-    //     DerivedBaoOwnable_v2(ownable).initialize(owner);
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), owner);
-
-    //     // owner can't transfer ownership (one-step)
-    //     vm.expectRevert(IBaoOwnable_v2.CannotCompleteTransfer.selector);
-    //     vm.prank(owner);
-    //     IBaoOwnable_v2(ownable).transferOwnership(user);
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), owner);
-
-    //     // owner can't renounce ownership
-    //     vm.expectRevert(IBaoOwnable_v2.CannotCompleteTransfer.selector);
-    //     vm.prank(owner);
-    //     IBaoOwnable_v2(ownable).transferOwnership(address(0));
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), owner);
-    // }
-
-    // function test_deployWithTransfer() public {
-    //     // owner is initially set to the deployer
-    //     vm.expectEmit();
-    //     emit IBaoOwnable_v2.OwnershipTransferred(address(0), address(this));
-    //     DerivedBaoOwnable_v2(ownable).initialize(owner);
-
-    //     // owner can't transfer ownership (one-step)
-    //     vm.expectRevert(IBaoOwnable_v2.Unauthorized.selector);
-    //     vm.prank(owner);
-    //     IBaoOwnable_v2(ownable).transferOwnership(user);
-
-    //     // no-one can transfer ownership (one-step)
-    //     vm.expectRevert(IBaoOwnable_v2.Unauthorized.selector);
-    //     vm.prank(user);
-    //     IBaoOwnable_v2(ownable).transferOwnership(user);
-
-    //     // but deployer can, if they are the owner, transfer ownership
-    //     vm.expectEmit();
-    //     emit IBaoOwnable_v2.OwnershipTransferred(address(this), owner);
-    //     IBaoOwnable_v2(ownable).transferOwnership(owner);
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), owner);
-
-    //     // deployer can't transfer ownership twice
-    //     vm.expectRevert(IBaoOwnable_v2.Unauthorized.selector);
-    //     IBaoOwnable_v2(ownable).transferOwnership(owner);
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), owner);
-
-    //     // owner can't use one-step transfer
-    //     vm.expectRevert(IBaoOwnable_v2.CannotCompleteTransfer.selector);
-    //     vm.prank(owner);
-    //     IBaoOwnable_v2(ownable).transferOwnership(user);
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), owner);
-    // }
-
-    // function test_transferOwnership() public {
-    //     _initialize(user);
-
-    //     // cannot transfer after an hour
-    //     skip(1 hours + 1 seconds);
-    //     vm.expectRevert(IBaoOwnable_v2.Unauthorized.selector);
-    //     IBaoOwnable_v2(ownable).transferOwnership(user);
-    // }
-
-    // function test_deployWithRenounce() public {
-    //     // owner is initially set to the deployer
-    //     _initialize(address(0));
-
-    //     // deployer can't transfer ownership twice
-    //     vm.expectRevert(IBaoOwnable_v2.Unauthorized.selector);
-    //     IBaoOwnable_v2(ownable).transferOwnership(address(0));
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), address(0));
-    // }
-
-    // function test_oneStepDisabledTransfer() public {
-    //     // owner is initially set to the deployer
-    //     vm.expectEmit();
-    //     emit IBaoOwnable_v2.OwnershipTransferred(address(0), address(this));
-    //     DerivedBaoOwnable_v2(ownable).initialize(owner);
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), address(this));
-
-    //     // future owner can't renounce
-    //     vm.expectRevert(IBaoOwnable_v2.Unauthorized.selector);
-    //     vm.prank(owner);
-    //     IBaoOwnable_v2(ownable).transferOwnership(address(0));
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), address(this));
-
-    //     // future owner can't transfer
-    //     vm.expectRevert(IBaoOwnable_v2.Unauthorized.selector);
-    //     vm.prank(owner);
-    //     IBaoOwnable_v2(ownable).transferOwnership(owner);
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), address(this));
-
-    //     // deployer can transfer to owner
-    //     IBaoOwnable_v2(ownable).transferOwnership(owner);
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), owner);
-    // }
-
-    // function test_oneStepDisabledRenounce() public {
-    //     _initialize(address(0));
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), address(0));
-
-    //     // can't renounce
-    //     vm.expectRevert(IBaoOwnable_v2.Unauthorized.selector);
-    //     IBaoOwnable_v2(ownable).transferOwnership(address(0));
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), address(0));
-
-    //     //  can't transfer
-    //     vm.expectRevert(IBaoOwnable_v2.Unauthorized.selector);
-    //     IBaoOwnable_v2(ownable).transferOwnership(owner);
-    //     assertEq(IBaoOwnable_v2(ownable).owner(), address(0));
-
-    //     // can't even request a transfer or a renunciation
-    //     vm.expectRevert(IBaoOwnable_v2.Unauthorized.selector);
-    //     IBaoOwnable_v2(ownable).transferOwnership(owner);
-    // }
 }

@@ -17,7 +17,7 @@ contract MockImplementationV1WithImmutables_v2 is Initializable, UUPSUpgradeable
     uint256 private _stateValue;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(address owner_, uint256 immutableValue_) BaoOwnable_v2(owner_) {
+    constructor(address owner_, uint256 immutableValue_) BaoOwnable_v2(owner_, 0) {
         _disableInitializers();
         immutableValue = immutableValue_;
     }

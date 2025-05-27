@@ -17,9 +17,18 @@ import {IBaoOwnable_v2} from "@bao/interfaces/IBaoOwnable_v2.sol";
  * @dev Adapter Pattern: Provides access to implementation rather than mirroring its interface
  */
 contract BaoOwnable_v2Adapter is IOwnershipModel, Test {
+    function implementationType() external pure returns (uint256) {
+        return uint(IMockImplementation.ImplementationType.MockImplementationWithState_v2);
+    }
+
+    function name() external pure returns (string memory) {
+        return "BaoOwnable_v2";
+    }
+
     function deployImplementation(address prank, address initialOwner) external returns (address implementation) {
         vm.startPrank(prank);
         implementation = address(new MockImplementationWithState_v2(initialOwner));
+        assertEq(MockImplementationWithState_v2(implementation).implementationType(), this.implementationType());
         vm.stopPrank();
         skip(3600);
     }
@@ -38,14 +47,18 @@ contract BaoOwnable_v2Adapter is IOwnershipModel, Test {
         vm.stopPrank();
     }
 
-    function upgrade(address prank, address proxy, address implementation, uint256 newValue) external {
+    function upgradeAndChangeStuff(
+        address prank,
+        address proxy,
+        address implementation,
+        address newOwner,
+        uint256 newValue
+    ) external {
         vm.startPrank(prank);
-        UnsafeUpgrades.upgradeProxy(
-            proxy,
-            implementation,
-            abi.encodeWithSelector(MockImplementationWithState_v2.postUpgradeSetup.selector, newValue)
-        );
+        UnsafeUpgrades.upgradeProxy(proxy, implementation, "");
         vm.stopPrank();
+        vm.prank(newOwner);
+        IMockImplementation(proxy).postUpgradeSetup(newOwner, newValue);
     }
 
     function upgrade(address prank, address proxy, address implementation) external {
