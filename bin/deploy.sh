@@ -3,8 +3,11 @@ set -euo pipefail
 
 export SCRIPT="$1"
 shift
+args=("$@") # reset the global args array for other scripts to use
+# empty the default args array
+set --
 
-# # shellcheck disable=SC1090,SC1091,SC2154
+# shellcheck disable=SC1090,SC1091,SC2154
 # . "${BAO_BASE_BIN_DIR}/run/logging"
 # shellcheck disable=SC1090,SC1091,SC2154
 . "${BAO_BASE_BIN_DIR}/run/environment"
@@ -15,7 +18,7 @@ shift
 # shellcheck disable=SC1090,SC1091,SC2154
 . "${BAO_BASE_BIN_DIR}/run/recording"
 
-debug "deploy.sh: $*"
+debug "deploy.sh: ${args[*]}"
 
 # set the global variables needed for transacting/recording etc
 # default to environment
@@ -29,23 +32,25 @@ BROADCAST=""
 LOCAL="remote"
 PUBLIC_KEY=""
 
-declare -a unhandled_args=()
-
-while [[ $# -gt 0 ]]; do
-  case "$1" in
+local myargs=("${args[@]}") # make a copy of args
+debug "  args: ${args[*]}"
+debug "myargs: ${myargs[*]}"
+args=()
+while [[ ${#myargs[@]} -gt 0 ]]; do
+  case "${myargs[0]}" in
   --rpc-url)
-    RPC_URL="$2"
-    shift 2
+    RPC_URL="${myargs[1]}"
+    myargs=("${myargs[@]:2}") # shift 2
     ;;
   --no-verify)
     VERIFY=""
-    shift
+    myargs=("${myargs[@]:1}") # shift 1
     ;;
   --broadcast)
     debug "setting BROADCAST"
     # shellcheck disable=SC2034
     BROADCAST="--broadcast"
-    shift
+    myargs=("${myargs[@]:1}") # shift 1
     ;;
   -h | --help)
     echo "Usage: ${0} [--rpc-url <url>] [--no-verify] [--broadcast] <script> [<args>...]"
@@ -58,11 +63,12 @@ while [[ $# -gt 0 ]]; do
     exit 0
     ;;
   *)
-    unhandled_args+=("$1")
-    shift
+    args+=("${myargs[0]}")
+    myargs=("${myargs[@]:1}") # shift 1
     ;;
   esac
 done
+debug "args: ${args[*]}"
 
 # override the private key in certain circumstances
 if [[ "${RPC_URL}" == "anvil" ]]; then
@@ -90,8 +96,9 @@ CHAIN_ID=$(chain_id) || error "Failed to get chain ID from RPC URL: ${RPC_URL}"
 
 log "transacting on${LOCAL:+ ${LOCAL}} chain ${CHAIN_ID}${CHAIN_NAME:+ (${CHAIN_NAME})}" # lint-bash disable=command-substitution
 log "using wallet with public key $(ens_from_public "${PUBLIC_KEY}")"                    # lint-bash disable=command-substitution
-
+debug "args: ${args[*]}"
 if [[ "${SCRIPT}" != "BATS" ]]; then
-  . "${SCRIPT}" "${unhandled_args[@]}"
+  # we're not running the BATS tests, so we can run the script
+  . "${SCRIPT}" "${args[@]}"
 # ^ look, there's a dot
 fi
