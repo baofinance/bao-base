@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+shopt -s extdebug
 
 # assumed environment variables - also keeps shellcheck happy
 BAO_BASE_BIN_DIR=$BAO_BASE_BIN_DIR

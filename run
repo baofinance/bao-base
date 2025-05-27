@@ -10,13 +10,19 @@ set --
 bao_base_dir_abs="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 # export BAO_BASE_DIR_REL="$(python3 -c "import os.path; print(os.path.relpath('$bao_base_dir_abs', '$(pwd)'))")"
 # export BAO_BASE_DIR=$(cd "$BAO_BASE_DIR_REL" && pwd)
-export BAO_BASE_DIR="$(python3 -c "import os.path; print(os.path.relpath('$bao_base_dir_abs', '$(pwd)'))")"
+
+# Detect OS and set environment variables
+source "${bao_base_dir_abs}/bin/run/platform-utils.sh"
+if [[ "$BAO_BASE_OS" == "windows" ]]; then
+  export BAO_BASE_DIR="$bao_base_dir_abs"
+else
+  export BAO_BASE_DIR="$(python3 -c "import os.path; print(os.path.relpath('$bao_base_dir_abs', '$(pwd)'))")"
+fi
+
 export BAO_BASE_BIN_DIR="$BAO_BASE_DIR/bin"
 export BAO_BASE_SCRIPT_DIR="$BAO_BASE_DIR/script"
 export BAO_BASE_TOOLS_DIR="$BAO_BASE_DIR/.tools"
 
-# Detect OS and set environment variables
-source "$BAO_BASE_BIN_DIR/run/platform-utils.sh"
 source "$BAO_BASE_BIN_DIR/run/logging"
 debug "args=${args[@]}"
 
@@ -132,11 +138,11 @@ run_script_with_type() {
   case "$script_type" in
   python)
     debug "Executing via run-python: $script"
-    "$BAO_BASE_BIN_DIR/run-python" "$script" "$@" || exit_code=$?
+    . "$BAO_BASE_BIN_DIR/run-python" "$script" "$@" || exit_code=$?
     ;;
   node)
     debug "Executing via run-node: $script"
-    "$BAO_BASE_BIN_DIR/run-node" "$script" "$@" || exit_code=$?
+    . "$BAO_BASE_BIN_DIR/run-node" "$script" "$@" || exit_code=$?
     ;;
   bash)
     debug "Executing $script"
@@ -240,7 +246,7 @@ debug "Proceeding with execution option: ${execution_descriptions[0]}"
 case "${execution_options[0]}" in
 dir_run_sh)
   info 0 "Running: $BAO_BASE_BIN_DIR/$SCRIPT_NAME/run.sh ${args[*]}"
-  "$SCRIPT_PATH/run.sh" "${args[@]}" || {
+  . "$SCRIPT_PATH/run.sh" "${args[@]}" || {
     exit_code=$?
     error "Directory run script execution failed with code $exit_code"
     exit $exit_code
