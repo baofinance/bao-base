@@ -17,7 +17,21 @@ ignored_warnings_from = [
   "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/utils/StorageSlot.sol",
 ]
 
-gas_reports_ignore = ["test"]
+gas_reports_ignore = [
+  "ERC20Mock",
+  "ERC1967Proxy",
+  "DerivedBaoOwnable",
+  "DerivedBaoOwnableRoles",
+  "DerivedBaoOwnableRoles_v2",
+  "DerivedBaoOwnableTransferrable",
+  "DerivedBaoOwnableTransferrableRoles",
+  "DerivedBaoOwnable_v2",
+  "DerivedOwnable",
+  "DerivedOwnableRoles",
+  "DerivedTokenHolder",
+  "BaoOwnableAdapter",
+  "MockImplementationWithState",
+]
 extra_output_files = ["evm.assembly", "ir"]
 extra_output = ["evm.assembly", "ir", "storageLayout"]
 
