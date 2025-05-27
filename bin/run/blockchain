@@ -7,12 +7,12 @@ public_from_private() {
 }
 export -f public_from_private
 
+# return the ENS name if found, otherwise return the public key
 ens_from_public() {
   local public_key="$1"
-
   local ens_name
   # shellcheck disable=SC2154
-  ens_name=$(cast lookup-ens --rpc-url $RPC_URL "$public_key" 2>/dev/null) || true
+  ens_name=$(cast lookup-ens --rpc-url $RPC_URL "$public_key" 2>/dev/null) || true # if no ENS name is found we don't fail
   [[ -n "$ens_name" ]] && echo "$ens_name" || echo "$public_key"
 }
 export -f ens_from_public
@@ -20,9 +20,9 @@ export -f ens_from_public
 chain_id() {
   local chainid_hex
   # shellcheck disable=SC2154
-  chainid_hex=$(cast chain-id --rpc-url $RPC_URL)
+  chainid_hex=$(cast chain-id --rpc-url $RPC_URL) || error "Failed to get chain ID from RPC URL: $RPC_URL"
   local result
-  result=$((16#${chainid_hex#0x}))
+  result=$((16#${chainid_hex#0x})) || error "Failed to convert chain ID from hex to decimal: $chainid_hex"
   echo "$result"
 }
 export -f chain_id
@@ -36,7 +36,7 @@ network_query() {
     debug "key=${key}."
     # shellcheck disable=SC2154
     debug "jq -r ".${key} // \"\" "$BAO_BASE_SCRIPT_DIR/bcinfo.$network.json"
-    jq -r ".${key} // \"\"" "$BAO_BASE_SCRIPT_DIR/bcinfo.$network.json"
+    jq -r ".${key} // \"\"" "$BAO_BASE_SCRIPT_DIR/bcinfo.$network.json" || error "Failed to query key '${key}' in $BAO_BASE_SCRIPT_DIR/bcinfo.$network.json"
   else
     echo ""
   fi
@@ -48,7 +48,7 @@ network_name() {
   local chain
   chain=$(chain_id) # lint-bash disable=command-substitution
   debug "looking up '${chain}' in $BAO_BASE_SCRIPT_DIR/networks.json"
-  jq -r ".[\"$chain\"] // \"\"" "$BAO_BASE_SCRIPT_DIR/networks.json"
+  jq -r ".[\"$chain\"] // \"\"" "$BAO_BASE_SCRIPT_DIR/networks.json" || error "Failed to query network name for chain ID '${chain}' in $BAO_BASE_SCRIPT_DIR/networks.json"
 }
 export -f network_name
 

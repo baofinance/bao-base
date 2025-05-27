@@ -36,26 +36,33 @@ _deploy_contract() {
   local contract_tag
   contract_tag=${key}$([[ "$key" == "" ]] && echo "$contract_type" || echo " ($contract_type)")${purpose:+ $purpose}
 
+  # check for broadcast
+  [[ -n "${BROADCAST:-}" ]] || error "we don't support dry-run deploys yet! Add --broadcast to deploy $contract_tag."
+
+  # do the deploy
   log "Deploying $contract_tag ..."
   local response
-  response=$(trace_json forge create --json --rpc-url "${RPC_URL}" --private-key "${PRIVATE_KEY}" --etherscan-api-key "${ETHERSCAN_API_KEY}" \
+  response=$(trace forge create --json --rpc-url "${RPC_URL}" --private-key "${PRIVATE_KEY}" --etherscan-api-key "${ETHERSCAN_API_KEY}" \
     "${contract_path}" ${BROADCAST:+"${BROADCAST}"} ${VERIFY:+"${VERIFY}"} \
     "${libraries[@]}" "${constructor_args[@]}") ||
     error "Failed to deploy ${contract_tag}"
-  debug "response=${response}."
+
+  # these are returned for non broadcast deploys
+  # response=$(jq 'del(.transaction.input)' <<<${response}) || error "failed to remove transaction.input from response"
+  # response=$(jq 'del(.abi)' <<<${response}) || error "failed to remove abi from response"
+
   # rename the deployedTo key to address
-  response=$(jq 'with_entries(if .key == "deployedTo" then .key = "address" else . end)' <<<"$response") ||
-    error "failed to rename deployedTo to address in response"
+  response=$(jq '.address = .deployedTo' <<<"$response") || error "failed to rename deployedTo to address in response"
   record_raw "${response}" "${key}"
 
   # record the transaction hash and block number
   local tx_hash
   tx_hash=$(query "${key}".transactionHash) || error "failed to get transaction hash from response"
-  response=$(trace_json cast tx --json $tx_hash --rpc-url $RPC_URL) ||
+  response=$(trace cast tx --json $tx_hash --rpc-url $RPC_URL) ||
     error "failed to get transaction details for ${tx_hash}"
 
   local block_number
-  block_number=$(jq -r .blockNumber <<<"${response}") || error "failed to get block number from response"
+  block_number=$(jq -r '.blockNumber' <<<"${response}") || error "failed to get block number from response"
   record $block_number "${key}".blockNumber
   log "Deployed $contract_tag."
 }
@@ -250,18 +257,14 @@ _send_transaction() {
 
   # send the transaction
   local response
-  response=$(trace_json cast send --json --rpc-url "${RPC_URL}" --private-key "${PRIVATE_KEY}" \
+  response=$(trace cast send --json --rpc-url "${RPC_URL}" --private-key "${PRIVATE_KEY}" \
     "$target_address" "${signature}" "$@") ||
     error "failed to send transaction to ${target_address} with signature ${signature} and args $*"
   echo "${response}"
 }
 
 _call() {
-  local output
-  output=$(trace cast call "--rpc-url" "${RPC_URL}" "$@") || error "failed to cast call $*"
-  # TODO: handle more data structures tuples, structs and arrays of numbers and strings
-  [[ "$output" =~ ^\".*\"$ ]] && output="${output:1:-1}" # Remove the quotes
-  echo "$output"
+  trace cast call --json "--rpc-url" "${RPC_URL}" "$@" || error "failed to cast call $*"
 }
 
 call() {
@@ -277,7 +280,12 @@ call() {
   local raw_args=()
   mapfile -t raw_args < <(query_array address "$@") || error "failed to query_array $*"
 
-  _call "${target_address}" "${sig}" "${raw_args[@]}"
+  local output
+  output=$(_call "${target_address}" "${sig}" "${raw_args[@]}") || error "failed to call ${target_key} with signature ${sig} and args ${raw_args[*]}"
+
+  # TODO: handle more data structures: tuples and values (I think structs are just tuples)
+  jq -r '.[0]' <<<"$output"
+
 }
 export -f call
 

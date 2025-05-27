@@ -62,17 +62,10 @@ has_key() {
 
 query() {
   local key="$1"
-  debug "key=${key}."
-
   _recording_config
 
-  debug "jq query: jq -r ".${key}" "${json_recording_file}""
   local result
-  result=$(jq -r ".${key}" "${json_recording_file}")
-  local status=$?
-  debug "jq \$?=${status}."
-  [[ $status -eq 0 ]] || return ${status}
-  debug "result=${result}."
+  result=$(jq -r ".${key}" "${json_recording_file}") || error "Failed to query key '${key}' in ${json_recording_file}"
   echo "${result}"
 }
 export -f query

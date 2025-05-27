@@ -82,13 +82,36 @@ sensitive() {
   fi
 }
 export LOGGING_SENSITIVE_TEXT=${LOGGING_SENSITIVE_TEXT:-hide}
+_hide_sensitive() {
+  # note that this doesn't work well when there are embedded escape sequences
+  local text="$1"
+  # Remove hidden text
+  # TODO: roll this env into DEBUG, e.g. DEBUG=abc,+sensitive,xyz
+  # TODO: add script name selection in DEBUG, e.g. DEBUG=abc,script,xyz
+  # TODO: also !script,!script2 means exclude
+  if [[ "$LOGGING_SENSITIVE_TEXT" != "show" && -n "$_hidden_text" ]]; then
+    # Read the strings line by line in parallel
+    local hide replace
+    while IFS= read -r hide <&3 && IFS= read -r replace <&4; do
+      if [[ -n "${hide}" ]]; then
+        # echo "replacing '${hide}' with '${replace}'"
+        # Replace all occurrences in the text
+        text="${text//${hide}/${replace}}"
+      fi
+    done 3<<<"$_hidden_text" 4<<<"$_hidden_text_replacement"
+  fi
+  echo "$text"
+}
+export -f _hide_sensitive
+
 # indent_level - increement/decrement by one
 # export _logging_indent_level=0
 # Output function - prints messages to the output stream
 _output() {
   local type="$1"
   shift
-  local message="$*"
+  local message
+  message=$(_hide_sensitive "$*") || exit 1
 
   olive="\e[0;32m"
   khaki="\e[0;33m"
@@ -112,26 +135,11 @@ _output() {
     ["ERROR"]=$bold$red
   )
 
-  # Remove hidden text
-  # TODO: roll this env into DEBUG, e.g. DEBUG=abc,+sensitive,xyz
-  # TODO: add script name selection in DEBUG, e.g. DEBUG=abc,script,xyz
-  # TODO: also !script,!script2 means exclude
-  # Remove hidden text
-  if [[ "$LOGGING_SENSITIVE_TEXT" != "show" && -n "$_hidden_text" ]]; then
-    # Read the strings line by line in parallel
-    local hide replace
-    while IFS= read -r hide <&3 && IFS= read -r replace <&4; do
-      if [[ -n "${hide}" ]]; then
-        # Replace all occurrences in the message
-        message="${message//${hide}/${replace}}"
-      fi
-    done 3<<<"$_hidden_text" 4<<<"$_hidden_text_replacement"
-  fi
-
   # format the message
   local format
   format=$(printf "%-5s " "${type}")
   format="${colour_map[$type]}${format}${plain}"
+
   # indentation is   ^ ^ always have a separating space
   local indent=$(printf '%*s' 6 "")
   # Handle embedded newlines in the original message EARLY
@@ -146,7 +154,7 @@ _output() {
     for ((caller_index = 0; caller_index < ${#BASH_SOURCE[@]}; caller_index++)); do
       # Break if (BASH_SOURCE==logging and FUNCNAME==trace) or BASH_SOURCE!=logging
       # echo "stack: BASH_SOURCE[${caller_index}]=${BASH_SOURCE[${caller_index}]}, FUNCNAME[${caller_index}]=${FUNCNAME[${caller_index}]}" >&"$LOGGING_FILE_DESCRIPTOR"
-      [[ "$(basename "${BASH_SOURCE[$caller_index]}")" == "logging" && "${FUNCNAME[$caller_index]}" == "_trace" ]] ||
+      [[ "$(basename "${BASH_SOURCE[$caller_index]}")" == "logging" && "${FUNCNAME[$caller_index]}" == "trace" ]] ||
         [[ "$(basename "${BASH_SOURCE[$caller_index]}")" != "logging" ]] && break
     done
     # if the caller index is out of bounds, we need to go back to the last one
@@ -182,6 +190,7 @@ _output() {
         done
         arg_start=$((arg_start + arg_count)) # Update arg_start for the next frame
       fi
+      args=$(_hide_sensitive "$args") || true
 
       local stack_line
       stack_line=("${blue}${BASH_SOURCE[i]}:${BASH_LINENO[$(($i - 1))]}:")
@@ -212,6 +221,7 @@ _output() {
       message=$'\n'"${indent}${message}"
     fi
   fi
+
   # echo "$(date '+%Y-%m-%d %H:%M:%S,%3N') - $format
   echo -e "$format$message" >&"$LOGGING_FILE_DESCRIPTOR"
 }
@@ -260,9 +270,7 @@ log() {
 }
 
 # Execute a command with set -x and capture the trace output
-_trace() {
-  local output_processor="$1"
-  shift
+trace() {
   if [[ $# -eq 0 ]]; then
     error "No command provided for tracing"
   fi
@@ -283,14 +291,20 @@ _trace() {
   # Run the command with tracing enabled and capture its output
   info 1 "about to execute:"$'\n'"$@"
   # if you channge any of the next 5 lines you also need to change the sed command below
+
+  local output stderr
+  local stdout_file=$(mktemp)
+  local stderr_file=$(mktemp)
   set -x
-  local output
-  output=$("$@")
+  "$@" >"$stdout_file" 2>"$stderr_file"
   local ret=$?
   set +x
-
   # Clean up and collect trace output
   exec {trace_fd}>&-
+
+  output=$(<"$stdout_file")
+  stderr=$(<"$stderr_file")
+  rm "$stdout_file" "$stderr_file"
 
   # Wait for the cat process to finish collecting trace output
   # we don't use wait because we want to timeout if it takes too long
@@ -313,7 +327,7 @@ _trace() {
   # 3. Replace "+++ output=" with "->"
   local raw_trace_output
   raw_trace_output=$(cat /tmp/trace_output.$$) || error "Failed to read trace output from FIFO"
-  info 1 "raw -x output:"$'\n'"$raw_trace_output"
+  info 3 "raw -x output:"$'\n'"$raw_trace_output"
   # remove the temp files
   rm "$fifo_file" "/tmp/trace_output.$$" || error "Failed to remove temporary trace files"
 
@@ -329,44 +343,16 @@ _trace() {
     s/^\++ //g' <<<"$raw_trace_output") || error "Failed to process command output"
 
   # log the command
-  log "command just executed:"$'\n'"$traced_command"
 
-  # process and log the output
-  if [[ "$output_processor" == "json" ]]; then
-    info 1 "output before JSON processing:"$'\n'"$output"
-    local input
-    input=$(jq .input <<<${output}) || error "Failed to extract input from command output"
-    if [[ "$input" != "null" ]]; then
-      debug "input=${input}"
-      input=${input:3:-1} # remove the leading "0x and the trailing "
-      debug "input=${input}"
-      input="$((${#input} / 2)) bytes: 0x${input:0:4}..${input: -4}" # compress it
-      debug "input=${input}"
-      # now update the input field in output
-      output=$(jq --arg input "$input" '.input = $input' <<<${output}) || error "Failed to update input in command output"
-    else
-      output=$(jq . <<<${output}) || error "Failed to process command output as JSON"
-    fi
-  fi
+  log "actual command:"$'\n'"$traced_command"
+  [[ -z "$stderr" ]] || error "${stderr}"
+
   echo "${output}"
-  log "${output}"
+  log "actual output:"$'\n'"${output}"
   # Return the command's output
   return $ret
 }
-
-trace() {
-  # Call the _trace function with the output processor and the command
-  _trace "" "$@"
-  return $?
-}
 export -f trace
-
-trace_json() {
-  # Call the _trace function with the JSON output processor and the command
-  _trace "json" "$@"
-  return $?
-}
-export -f trace_json
 
 # Export the functions so they're available to child scripts
 # this avoids namespace polution with helper functions
