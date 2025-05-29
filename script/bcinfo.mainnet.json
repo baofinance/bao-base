@@ -5,7 +5,7 @@
   },
   "safeGov": {
     "address": "0x3dFc49e5112005179Da613BdE5973229082dAc35",
-    "description": "Bao Multi-sig?"
+    "description": "Bao Treasury"
   },
   "safeChair": {
     "address": "0x2F1567c4A651ED93dB0FC6D9Df1EA9196054f63e",
