@@ -7,7 +7,7 @@ set -euo pipefail
 # 2. info messages - these are printed according to a verbosity level, controlled by DEBUG=-v, -vv, -vvv, -vvvv
 # 3. debug messages - these are printed if and only if the script name is in the DEBUG list.
 
-export BAO_BASE_VERBOSITY=${VERBOSITY:-} # allow ths to be passed in as an env var
+export BAO_BASE_VERBOSITY=${VERBOSITY:-0} # allow ths to be passed in as an env var
 
 # set the file descriptor for logging this must be 2 or it interferes with anvil (go figure)
 export LOGGING_FILE_DESCRIPTOR=${LOGGING_FILE_DESCRIPTOR:-$(first_free_fd)}

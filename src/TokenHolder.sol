@@ -8,7 +8,7 @@ import {BaoCheckOwner} from "@bao/internal/BaoCheckOwner.sol";
 import {Token} from "./Token.sol";
 import {ITokenHolder} from "./interfaces/ITokenHolder.sol";
 
-abstract contract TokenHolder is ITokenHolder, BaoCheckOwner, ReentrancyGuardTransientUpgradeable {
+abstract contract TokenHolder is ReentrancyGuardTransientUpgradeable, BaoCheckOwner, ITokenHolder {
     using SafeERC20 for IERC20;
 
     /// @notice function to transfer owned owned balance of a token

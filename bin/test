@@ -3,7 +3,7 @@ set -e
 set -o pipefail
 # echo "BAO_BASE_VERBOSITY=${BAO_BASE_VERBOSITY:-}"
 VERBOSITY="-vvv"
-if [[ -n "${BAO_BASE_VERBOSITY}" ]]; then
+if [[ "${BAO_BASE_VERBOSITY:-0}" -gt 0 ]]; then
   VERBOSITY="-"
   VERBOSITY+=$(printf "%${BAO_BASE_VERBOSITY}s" "" | tr ' ' 'v')
 fi

@@ -73,10 +73,10 @@ debug "Using uv at: $UV_BIN: $($UV_BIN --version)" # lint-bash disable=command-s
 UV_CMD=("$UV_BIN")
 
 # get verbosity flags for UV based on BAO_BASE_VERBOSITY
-if [[ $BAO_BASE_VERBOSITY -lt 0 ]]; then
+if [[ "${BAO_BASE_VERBOSITY:-0}" -lt 0 ]]; then
   UV_CMD+=("-qq" "--no-progress") # Quiet mode
 else
-  case "$BAO_BASE_VERBOSITY" in
+  case "${BAO_BASE_VERBOSITY:-0}" in
   0) UV_CMD+=("-qq") ;;
   1) UV_CMD+=("-q") ;;
   2) UV_CMD+=("") ;;
