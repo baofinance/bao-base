@@ -49,58 +49,42 @@ library Token {
         if (addr.code.length == 0) revert NotContractAddress(addr);
     }
 
+    /// @notice Sanity checks the given address for some ERC20 compliance. This does not guaranteed the contract is a valid ERC20 token
+    /// @dev Checks if the contract implements some of the basic ERC20 functions by calling them.
+    /// @dev It doesn't check for the full ERC20 interface, because that cannot be done reliably on chain since for example:
+    ///      * The contract may implement the interface but not respond to the functions correctly
+    ///      * Checking mutating functions such as 'approve' is practically impossible to do reliably on chain because a revert can happen for many reasons,
+    ///        making it look like the function does not exist when it actually does.
+    ///      * Checking for calls, even non-mutating ones, such as 'allowance', as it is takes parameters that we can't be sure won't cause reverts
+    ///      but rather ensures that the contract responds, without reverting, to some of the functions.
     // slither-disable-next-line dead-code
-    function ensureERC20Token(address addr) internal view {
+    function sanityCheckERC20Token(address addr) internal view {
         ensureContract(addr);
         if (
             // check all the readonly functions that IERC20 supports
-            !_hasFunction(addr, abi.encodeWithSelector(IERC20Metadata.name.selector)) ||
-            !_hasFunction(addr, abi.encodeWithSelector(IERC20Metadata.symbol.selector)) ||
-            !_hasFunction(addr, abi.encodeWithSelector(IERC20Metadata.decimals.selector)) ||
-            !_hasFunction(addr, abi.encodeWithSelector(IERC20.totalSupply.selector)) ||
-            !_hasFunction(addr, abi.encodeWithSelector(IERC20.balanceOf.selector, address(0))) ||
-            !_hasFunction(addr, abi.encodeWithSelector(IERC20.allowance.selector, address(0), address(0)))
+            !_hasNonMutatingFunction(addr, abi.encodeWithSelector(IERC20Metadata.name.selector)) ||
+            !_hasNonMutatingFunction(addr, abi.encodeWithSelector(IERC20Metadata.symbol.selector)) ||
+            !_hasNonMutatingFunction(addr, abi.encodeWithSelector(IERC20Metadata.decimals.selector)) ||
+            !_hasNonMutatingFunction(addr, abi.encodeWithSelector(IERC20.totalSupply.selector)) ||
+            !_hasNonMutatingFunction(addr, abi.encodeWithSelector(IERC20.balanceOf.selector, address(this)))
         ) {
             revert NotERC20Token(addr);
         }
     }
 
     // slither-disable-next-line dead-code
-    function _hasFunction(address contract_, bytes memory data) internal view returns (bool) {
+    function _hasNonMutatingFunction(address contract_, bytes memory data) internal view returns (bool) {
         // slither-disable-next-line low-level-calls
         (bool success, ) = contract_.staticcall(data);
         return success;
     }
 
-    /**
-     * @notice Checks if a contract contains a function corresponding to a given function selector.
-     * @dev Performs a low-level `call` to check if the target contract responds to the given selector. It is safe even if the function is not view.
-     * @param target The address of the contract to check.
-     * @param selector The 4-byte function selector (first 4 bytes of the Keccak-256 hash of the function signature).
-     * @return hasFunction_ Boolean indicating whether the contract contains the function.
-     */
-    function hasFunction(address target, bytes4 selector) external returns (bool hasFunction_) {
-        ensureContract(target);
-        // solhint-disable-next-line no-inline-assembly
-        assembly {
-            // Allocate memory for the call data (4 bytes for selector)
-            let data := mload(0x40)
-            mstore(data, selector)
-
-            // Perform low-level call with no value and only the selector as input data
-            let success := call(
-                gas(), // Provide all available gas
-                target, // Address of the target contract
-                0, // Send 0 ether to the target contract
-                data, // Pointer to the start of the input (4 bytes function selector)
-                0x04, // Size of the input (4 bytes for the selector)
-                0x00, // We don't need the return data
-                0x00 // Return data size is 0, as we just care about success/failure
-            )
-
-            // Assign result to hasFunction, true if success, false otherwise
-            hasFunction_ := success
-        }
+    function hasNonMutatingParameterlessFunction(
+        address contract_,
+        string memory funcName
+    ) external view returns (bool) {
+        bytes4 selector = bytes4(keccak256(bytes(string.concat(funcName, "()"))));
+        return _hasNonMutatingFunction(contract_, abi.encodeWithSelector(selector));
     }
 
     /**
