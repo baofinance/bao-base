@@ -144,7 +144,7 @@ contract StemUseCasesTest is Test {
         address sourceOwner,
         address targetImplementation
     ) internal {
-        console2.log("Upgrading proxy without changing value");
+        // console2.log("Upgrading proxy without changing value");
 
         assertEq(IMockImplementation(proxy_).owner(), sourceOwner, "_upgradeProxy: owners sould match");
         uint256 beforeValue = IMockImplementation(proxy_).value();
@@ -183,7 +183,7 @@ contract StemUseCasesTest is Test {
         uint256 sourceValue,
         uint256 targetValue
     ) internal {
-        console2.log("Upgrading proxy changing stuff");
+        // console2.log("Upgrading proxy changing stuff");
 
         assertEq(IMockImplementation(proxy_).owner(), sourceOwner, "_upgradeProxyAndChangeStuff: owners sould match");
         assertEq(
@@ -241,7 +241,7 @@ contract StemUseCasesTest is Test {
             vm.revertToState(baseSnapshot);
 
             IOwnershipModel model = createAdapter(i);
-            console2.log("Testing stemming behavior with ", model.name());
+            // console2.log("Testing stemming behavior with ", model.name());
 
             (address proxy, address implementation) = _deploy(model, deployer, proxyOwner, INITIAL_VALUE);
 
@@ -279,7 +279,7 @@ contract StemUseCasesTest is Test {
 
                 modelFrom = createAdapter(i);
                 modelTo = createAdapter(j);
-                console2.log(">>> Testing value change in upgrade from", modelFrom.name(), "to", modelTo.name());
+                // console2.log(">>> Testing value change in upgrade from", modelFrom.name(), "to", modelTo.name());
 
                 _testValueChange(modelFrom, modelTo);
 
@@ -287,7 +287,7 @@ contract StemUseCasesTest is Test {
 
                 modelFrom = createAdapter(i);
                 modelTo = createAdapter(j);
-                console2.log(">>> Testing owner transition in upgrade from", modelFrom.name(), "to", modelTo.name());
+                // console2.log(">>> Testing owner transition in upgrade from", modelFrom.name(), "to", modelTo.name());
 
                 _testOwnershipTransition(modelFrom, modelTo);
             }
