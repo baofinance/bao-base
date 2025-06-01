@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-dep_dir=$(dirname "$0")
+dep_dir=$(dirname "${BASH_SOURCE[0]}")
+debug "dep_dir=${dep_dir}"
 
 # Cleanup function for temporary files
 cleanup() {
