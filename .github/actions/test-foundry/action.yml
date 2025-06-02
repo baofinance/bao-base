@@ -63,6 +63,7 @@ runs:
       id: slither
 
     - name: Run Forge build, generating contract sizes reports into the regression folder - if they differ from the ones in the repo, they will be failed in the git-diffs step
+      if: runner.os != 'Windows' # TODO: for some reason, the sizes processing doesn't work on windows
       shell: bash
       run: |
         # generate contract sizes reports into the regression folder - if they differ from the ones in the repo, they will be failed in the git-diffs step
