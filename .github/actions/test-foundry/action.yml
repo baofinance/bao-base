@@ -78,6 +78,7 @@ runs:
       id: test
 
     - name: Run Forge tests - coverage
+      if: runner.os != 'Windows' # TODO: for some reason, the coverage processing doesn't work on windows
       shell: bash
       run: |
         # generate coverage reports into the regression folder - if they differ from the ones in the repo, they will be failed in the git-diffs step
@@ -85,6 +86,7 @@ runs:
       id: coverage
 
     - name: Run Forge tests - gas
+      if: runner.os != 'Windows' # TODO: for some reason, the gas processing doesn't work on windows
       shell: bash
       run: |
         # generate gas reports into the regression folder - if they differ from the ones in the repo, they will be failed in the git-diffs step
