@@ -24,7 +24,7 @@ debug "calling run-python to process the regression log"
 # Check for changes in the regression file
 info 1 "checking for changes in ${REGRESSION_FILE}..."
 git status --short "${REGRESSION_FILE}"
-git diff --minimal "${REGRESSION_FILE}"
+GIT_PAGER= git diff --minimal "${REGRESSION_FILE}"
 
 if [[ $(git status --short "${REGRESSION_FILE}" | wc -l) -gt 0 ]]; then
   echo "⚠️  The regression file ${REGRESSION_FILE} has changed."
