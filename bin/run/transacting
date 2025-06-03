@@ -28,11 +28,11 @@ _deploy_contract() {
   shift 3
 
   # get the contract to deploy
-  record "${purpose}" "${key}.category" || error "failed to record ${purpose} for ${key}.category"
+  record "${key}.category" "${purpose}" || error "failed to record ${purpose} for ${key}.category"
   local contract_source=${contract_path%%:*}
-  record "${contract_source}" "${key}.contractPath" || error "failed to record ${contract_source} for ${key}.contractPath"
+  record "${key}.contractPath" "${contract_source}" || error "failed to record ${contract_source} for ${key}.contractPath"
   local contract_type="${contract_path#*:}"
-  record "${contract_type}" "${key}.contractType" || error "failed to record ${contract_type} for ${key}.contractType"
+  record "${key}.contractType" "${contract_type}" || error "failed to record ${contract_type} for ${key}.contractType"
   local contract_tag
   contract_tag=${key}$([[ "$key" == "" ]] && echo "$contract_type" || echo " ($contract_type)")${purpose:+ $purpose}
 
@@ -53,7 +53,7 @@ _deploy_contract() {
 
   # rename the deployedTo key to address
   response=$(jq '.address = .deployedTo' <<<"$response") || error "failed to rename deployedTo to address in response"
-  record_raw "${response}" "${key}"
+  record_raw "${key}" "${response}"
 
   # record the transaction hash and block number
   local tx_hash
@@ -63,7 +63,7 @@ _deploy_contract() {
 
   local block_number
   block_number=$(jq -r '.blockNumber' <<<"${response}") || error "failed to get block number from response"
-  record $block_number "${key}".blockNumber
+  record "${key}".blockNumber $block_number
   log "Deployed $contract_tag."
 }
 ###################################################################################################
@@ -97,8 +97,8 @@ deploy_contract_or_library() {
     --constructor-args)
       # handle constructor args - they are always the last argument
       local raw_args=()
-      raw_args=$(query_array address "$@") || error "failed to query_array address $*"
-      mapfile -t constructor_args <<<"$raw_args" || error "failed to query_array $*"
+      raw_args=$(resolve_array address "$@") || error "failed to resolve_array address $*"
+      mapfile -t constructor_args <<<"$raw_args" || error "failed to resolve_array $*"
       break
       ;;
     *)
@@ -179,9 +179,9 @@ upgrade_proxy() {
 
   # get the calldata for the upgradeToAndCall function
   local raw_args=()
-  raw_args=$(query_array address "$@") || error "failed to query_array address $*"
+  raw_args=$(resolve_array address "$@") || error "failed to resolve_array address $*"
   local signature_args=()
-  mapfile -t signature_args <<<"$raw_args" || error "failed to query_array $*"
+  mapfile -t signature_args <<<"$raw_args" || error "failed to resolve_array $*"
   local calldata
   calldata=$(trace cast calldata "${signature}" "${signature_args[@]}") ||
     error "failed to cast calldata for signature ${signature} with args ${raw_args[*]}"
@@ -201,8 +201,8 @@ _record_proxy_update() {
   local implementation_address
   implementation_address=$(query "${implementation_key}.address") || error "failed to query ${implementation_key} for address"
 
-  record "${implementation_key}" "${proxy_key}".implementation.contract || error "failed to record ${implementation_name} for ${proxy_key} contract"
-  record "${implementation_address}" "${proxy_key}".implementation.address || error "failed to record ${implementation_address} for ${proxy_key} contract"
+  record "${proxy_key}".implementation.contract "${implementation_key}" || error "failed to record ${implementation_name} for ${proxy_key} contract"
+  record "${proxy_key}".implementation.address "${implementation_address}" || error "failed to record ${implementation_address} for ${proxy_key} contract"
 }
 
 confirm_deployment() {
@@ -241,9 +241,9 @@ send_transaction() {
 
   # get the args
   local raw_args=()
-  raw_args=$(query_array address "$@") || error "failed to query_array address $*"
+  raw_args=$(resolve_array address "$@") || error "failed to resolve_array address $*"
   local signature_args=()
-  mapfile -t signature_args <<<"$raw_args" || error "failed to query_array $*"
+  mapfile -t signature_args <<<"$raw_args" || error "failed to resolve_array $*"
 
   # send the transaction
   _send_transaction "$target_address" "${signature}" "${signature_args[@]}" || error "failed to send transaction to ${target_key} with signature ${signature} and args ${signature_args[*]}"
@@ -278,7 +278,7 @@ call() {
 
   # get the calldata for the given function
   local raw_args=()
-  mapfile -t raw_args < <(query_array address "$@") || error "failed to query_array $*"
+  mapfile -t raw_args < <(resolve_array address "$@") || error "failed to resolve_array $*"
 
   local output
   output=$(_call "${target_address}" "${sig}" "${raw_args[@]}") || error "failed to call ${target_key} with signature ${sig} and args ${raw_args[*]}"
@@ -294,7 +294,7 @@ record_from_network() {
   local from="$2"
   local value
   value=$(network_query "${from}") || error "failed to network_query ${from}"
-  record "${value}" "${this}"
+  record "${this}" "${value}"
 }
 export -f record_from_network
 
@@ -303,6 +303,22 @@ record_from_call() {
   shift
   local value
   value=$(call "$@") || error "failed to call $*"
-  record "${value}" "${key}"
+  record "${key}" "${value}"
 }
 export -f record_from_call
+
+grantRoles() {
+  # who gets the role
+  local grantee="$1"
+  # with BaoRoles, the role is held in the implementation but accessible via the proxy or the implementation
+  local role="$2" # e.g. minter.ZERO_FEE_ROLE or Minter_v1.HARVESTER_ROLE
+
+  local granter="${role%%.*}"  # e.g. minter or Minter_v1 (proxy or implementation)
+  local role_name="${role#*.}" # e.g. ZERO_FEE_ROLE or HARVESTER_ROLE
+
+  record_from_call "${role}.value" "${granter}" "${role_name}()(uint256)"
+  send_transaction "${granter}" "grantRoles(address,uint256)" "${grantee}" "${role}.value" || error "failed to grant role ${role_name} to ${grantee} by ${granter}"
+  record_append "${role}.grantees" "${grantee}"
+
+}
+export -f grantRoles

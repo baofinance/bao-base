@@ -100,6 +100,17 @@ log "using wallet with public key $(ens_from_public "${PUBLIC_KEY}")"           
 debug "args: ${args[*]}"
 if [[ "${SCRIPT}" != "BATS" ]]; then
   # we're not running the BATS tests, so we can run the script
+
+  local started=$(date '+%Y-%m-%d %H:%M:%S')
+  log "starting at ${started}"
+  record deployment.started "${started}"
+
   . "${SCRIPT}" "${args[@]}"
-# ^ look, there's a dot
+  # look above: there's a dot
+
+  local finished=$(date '+%Y-%m-%d %H:%M:%S')
+  local took=$(($(date -d "${finished}" +%s) - $(date -d "${started}" +%s)))
+  log "finished at ${finished} and took ${took} seconds."
+  record deployment.finished "${finished}"
+  record deployment.took "${took}"
 fi

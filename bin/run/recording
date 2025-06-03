@@ -64,82 +64,97 @@ query() {
   local key="$1"
   _recording_config
 
-  local result
-  result=$(jq -r ".${key}" "${json_recording_file}") || error "Failed to query key '${key}' in ${json_recording_file}"
-  echo "${result}"
+  [[ $(has_key "${key}") == "true" ]] || error "Key '${key}' doesn't exist in ${json_recording_file}"
+  jq -r ".${key}" "${json_recording_file}" || error "Failed to query key '${key}' in ${json_recording_file}"
 }
 export -f query
+
+_resolve() {
+  local fields="$1" # Comma-separated list of fields to extract from objects
+  # arg,
+  # - if it's an object, looks for any field in the list as a sub-key and returns it if found
+  # - if it's a primitive value, returns that value
+  # - otherwise returns the argument itself
+
+  local arg="$2"
+
+  _recording_config
+
+  # Split the comma-separated fields into an array
+  local field_array=()
+  IFS=',' read -ra field_array <<<"$fields"
+
+  debug "arg=${arg}, fields=${fields}."
+
+  # default to the argument itself
+  if [[ $(has_key "${arg}") == "true" ]]; then
+    # Check if the value is an object
+    local type
+    type=$(jq -r ".${arg} | type" "${json_recording_file}") || error "Failed to determine type of '${arg}'."
+    debug "type=${type}."
+    if [[ "$type" == "object" ]]; then
+      # It's an object, try to find one of the fields
+      local found=false
+      local field
+
+      for field in "${field_array[@]}"; do
+        if [[ $(has_key "${arg}.${field}") == "true" ]]; then
+          # Check if the field is not an object
+          local field_type
+          field_type=$(jq -r ".${arg}.${field} | type" "${json_recording_file}") || error "Failed to determine type of field '${field}' in ${arg}."
+
+          if [[ "$field_type" != "object" ]]; then
+            local field_value
+            field_value=$(query "${arg}.${field}")
+            debug "${arg}.${field}->${field_value}."
+            echo "${field_value}"
+            found=true
+            break
+          fi
+        fi
+      done
+
+      # If no suitable field was found, return the argument itself
+      if [[ "$found" == "false" ]]; then
+        debug "No suitable field found in ${arg}, returning arg itself."
+        debug "${arg}->${arg}."
+        echo "${arg}"
+      fi
+    else
+      # It's not an object, just return its value
+      debug "type=${type}, returning value of ${arg}."
+      local raw_arg
+      raw_arg=$(query "${arg}")
+      debug "${arg}->${raw_arg}."
+      echo "${raw_arg}"
+    fi
+  else
+    # Key doesn't exist, return the argument itself
+    debug "!has_key, ${arg}->${arg}."
+    echo "${arg}"
+  fi
+}
+
+resolve() {
+  local arg="$1" # The argument to resolve
+  _resolve "" "${arg}" || error "Failed to resolve argument '${arg}' with fields '${fields}'."
+}
 
 # returns a line separated list of values
 # will not return objects, only primitive values
 # suitable for mapfile -t
 # returns a line separated list of values with field extraction from objects
 # first parameter is a comma-separated list of field names to extract from objects
-# for each argument:
-# - if it's an object, looks for any field in the list as a sub-key and returns it if found
-# - if it's a primitive value, returns that value
-# - otherwise returns the argument itself
-query_array() {
-  local fields="$1"
+# for each argument calls resolve, passing in the fields
+resolve_array() {
+  local fields="$1" # Comma-separated list of fields to extract from objects
   shift
-
-  # Split the comma-separated fields into an array
-  IFS=',' read -ra field_array <<<"$fields"
-
   local arg
   for arg in "$@"; do
-    debug "arg=${arg}, fields=${fields}."
-
-    # default to the argument itself
-    if [[ $(has_key "${arg}") == "true" ]]; then
-      # Check if the value is an object
-      local type
-      type=$(jq -r ".${arg} | type" "${json_recording_file}") || error "Failed to determine type of '${arg}'."
-      debug "type=${type}."
-      if [[ "$type" == "object" ]]; then
-        # It's an object, try to find one of the fields
-        local found=false
-        local field
-
-        for field in "${field_array[@]}"; do
-          if [[ $(has_key "${arg}.${field}") == "true" ]]; then
-            # Check if the field is not an object
-            local field_type
-            field_type=$(jq -r ".${arg}.${field} | type" "${json_recording_file}") || error "Failed to determine type of field '${field}' in ${arg}."
-
-            if [[ "$field_type" != "object" ]]; then
-              local field_value
-              field_value=$(query "${arg}.${field}")
-              debug "${arg}.${field}->${field_value}."
-              echo "${field_value}"
-              found=true
-              break
-            fi
-          fi
-        done
-
-        # If no suitable field was found, return the argument itself
-        if [[ "$found" == "false" ]]; then
-          debug "No suitable field found in ${arg}, returning arg itself."
-          debug "${arg}->${arg}."
-          echo "${arg}"
-        fi
-      else
-        # It's not an object, just return its value
-        debug "type=${type}, returning value of ${arg}."
-        local raw_arg
-        raw_arg=$(query "${arg}")
-        debug "${arg}->${raw_arg}."
-        echo "${raw_arg}"
-      fi
-    else
-      # Key doesn't exist, return the argument itself
-      debug "!has_key, ${arg}->${arg}."
-      echo "${arg}"
-    fi
+    _resolve "${fields}" "${arg}" || error "Failed to resolve argument '${arg}' with fields '${fields}'."
   done
 }
-export -f query_array
+export -f resolve_array
 
 # Add a field to the JSON file
 record() {
@@ -156,17 +171,18 @@ record_raw() {
 export -f record_raw
 
 # Add a nested field to an existing object
-# Usage: _record "type" "value_to_set" "key1" "key2" ... "final_key"
-# type can be "string" or "numeric"
+# Usage: _record "type" "key1" "value"
+# type can be "string" or "raw"
+# raw means any json value, including a numeric one, arrays or objects, etc.)
 _record() {
-  local value_type="$1" # Type of the value ("string" or "numeric")
+  local value_type="$1"
   debug "value_type=${value_type}."
-  local value="$2" # Value to set
-  debug "value=${value}."
-  local key="$3"
+  local key="$2"
   debug "key=${key}."
-
+  local value="$3" # Value to set
+  debug "value=${value}."
   _recording_config
+  value=$(resolve "${value}")
 
   local temp
   temp=$(mktemp)
@@ -211,4 +227,23 @@ _record() {
   [[ $status -eq 0 ]] || return ${status}
   mv "$temp" "$json_recording_file"
   cp "$json_recording_file" "$json_recording_latest_file"
+}
+
+record_append() {
+  local key="$1"
+  shift
+  _recording_config
+
+  # Read the existing array, or create an empty one if it doesn't exist
+  local existing_array
+  existing_array=$(jq -r ".${key} // []" "${json_recording_file}")
+
+  # Append the new values to the existing array
+  local new_values=("$@")
+  for value in "${new_values[@]}"; do
+    existing_array=$(echo "${existing_array}" | jq --arg v "${value}" '. + [$v]')
+  done
+
+  # Write the updated array back to the file
+  _record "raw" "${key}" "${existing_array}" || error "Failed to append values to key '${key}' in ${json_recording_file}"
 }
