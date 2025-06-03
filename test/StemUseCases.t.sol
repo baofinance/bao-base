@@ -98,7 +98,7 @@ contract StemUseCasesTest is Test {
     }
 
     // note that you cannot unstem to a new implementation with a different owner
-    // this is a funcamental limitation of the ERC1967 proxy pattern because it changes the
+    // this is a fundamental limitation of the ERC1967 proxy pattern because it changes the
     // implementation address and calls the upgrade function under the same owner.
     // If the ownership is different between the old and new implementations, then this cannot
     // happen. So the upgrade has to be called later, under the new ownership.
