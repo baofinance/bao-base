@@ -97,7 +97,7 @@ contract StemUseCasesTest is Test {
         assertEq(IMockImplementation(proxy_).owner(), stemOwner_, "Stem_v1 ownership should transfer to new owner");
     }
 
-    // note that you cannnot unstem to a new implementation with a different owner
+    // note that you cannot unstem to a new implementation with a different owner
     // this is a funcamental limitation of the ERC1967 proxy pattern because it changes the
     // implementation address and calls the upgrade function under the same owner.
     // If the ownership is different between the old and new implementations, then this cannot
