@@ -13,7 +13,7 @@ import {BaoCheckOwner_v2} from "@bao/internal/BaoCheckOwner_v2.sol";
  * @title Stem
  * @author rootminus0x1
  * @notice A minimal upgradeable contract with no functionality beyond upgradeability, and ownership.
- * The ownershio is controlled by the BaoCheckOwner_v2 contract, which is in the implementation not the proxy.
+ * The ownership is controlled by the BaoCheckOwner_v2 contract, which is in the implementation not the proxy.
  * This means that reinstating a displaced contract will connect back with the previous owner, unless:
  * - its initializer is called with a different owner, or
  * - the replacement contract also has ownersip in the implementation.
