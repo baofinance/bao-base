@@ -19,7 +19,7 @@ import {BaoCheckOwner_v2} from "@bao/internal/BaoCheckOwner_v2.sol";
  * - the replacement contract also has ownersip in the implementation.
  *
  * There are several scenarios where this is usefu:
- * 1) When the contract needs t be paused, i.e. all functionality is disabled, for example in unusual
+ * 1) When the contract needs to be paused, i.e. all functionality is disabled, for example in unusual
  *    circumstances, such as a hack or a bug.
  * 2) If the owner of the previous contract is compromised, but not disabled, in some way, the Stem contract
  *    can be owned by any new safe owner, but note that the Stem contract cannot be installed unless by the
