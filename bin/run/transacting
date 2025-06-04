@@ -1,0 +1,324 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# if [[ -n "${GUARD_SOURCING_TRANSACTING:-}" ]]; then return; fi
+# GUARD_SOURCING_TRANSACTING=1
+# [[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]}..."
+
+# these are global variables that need to be set outside to control the transacting
+export RPC_URL=""
+export VERIFY=""
+export BROADCAST=""
+export PRIVATE_KEY=""
+export ETHERSCAN_API_KEY=""
+export LOCAL=""
+export CHAIN_ID=""
+export CHAIN_NAME=""
+
+forge_exe=$(command -v forge)
+log "using forge at $forge_exe $(forge --version | head -n 1)." # lint-bash disable=command-substitution
+cast_exe=$(command -v cast)
+log "using cast at $cast_exe $(cast --version | head -n 1)." # lint-bash disable=command-substitution
+
+# usage _deploy_contract <purpose, e.g. implementation/proxy"> <path/to/file:contract> [<key>]
+_deploy_contract() {
+  local key="$1"
+  local purpose="$2"
+  local contract_path="$3"
+  shift 3
+
+  # get the contract to deploy
+  record "${key}.category" "${purpose}" || error "failed to record ${purpose} for ${key}.category"
+  local contract_source=${contract_path%%:*}
+  record "${key}.contractPath" "${contract_source}" || error "failed to record ${contract_source} for ${key}.contractPath"
+  local contract_type="${contract_path#*:}"
+  record "${key}.contractType" "${contract_type}" || error "failed to record ${contract_type} for ${key}.contractType"
+  local contract_tag
+  contract_tag=${key}$([[ "$key" == "" ]] && echo "$contract_type" || echo " ($contract_type)")${purpose:+ $purpose}
+
+  # check for broadcast
+  [[ -n "${BROADCAST:-}" ]] || error "we don't support dry-run deploys yet! Add --broadcast to deploy $contract_tag."
+
+  # do the deploy
+  log "Deploying $contract_tag ..."
+  local response
+  response=$(trace forge create --json --rpc-url "${RPC_URL}" --private-key "${PRIVATE_KEY}" --etherscan-api-key "${ETHERSCAN_API_KEY}" \
+    "${contract_path}" ${BROADCAST:+"${BROADCAST}"} ${VERIFY:+"${VERIFY}"} \
+    "${libraries[@]}" "${constructor_args[@]}") ||
+    error "Failed to deploy ${contract_tag}"
+
+  # these are returned for non broadcast deploys
+  # response=$(jq 'del(.transaction.input)' <<<${response}) || error "failed to remove transaction.input from response"
+  # response=$(jq 'del(.abi)' <<<${response}) || error "failed to remove abi from response"
+
+  # rename the deployedTo key to address
+  response=$(jq '.address = .deployedTo' <<<"$response") || error "failed to rename deployedTo to address in response"
+  record_raw "${key}" "${response}"
+
+  # record the transaction hash and block number
+  local tx_hash
+  tx_hash=$(query "${key}".transactionHash) || error "failed to get transaction hash from response"
+  response=$(trace cast tx --json $tx_hash --rpc-url $RPC_URL) ||
+    error "failed to get transaction details for ${tx_hash}"
+
+  local block_number
+  block_number=$(jq -r '.blockNumber' <<<"${response}") || error "failed to get block number from response"
+  record "${key}".blockNumber $block_number
+  log "Deployed $contract_tag."
+}
+###################################################################################################
+# deploy_contract_or_library
+# for internal use only
+# - deploys a contract or librarywith the given key and contract path
+###################################################################################################
+deploy_contract_or_library() {
+  local key="$1"
+  debug "key=${key}."
+  local purpose="$2"
+  debug "purpose=${purpose}."
+  local contract="$3"
+  debug "contract=${contract}."
+  shift 3
+  # process --libraries and --constructor-args, leaving the option arg in the array
+  local libraries=()
+  local constructor_args=()
+  while [[ "$#" -gt 0 ]]; do
+    debug "arg=$1."
+    case "$1" in
+    --libraries)
+      # libraries must have been deployed and so have an address
+      local libpath libcontract libaddress
+      libpath=$(query "$2".contractPath) || error "failed to query $2.contractPath"
+      libcontract=$(query "$2".contractType) || error "failed to query $2.contractType"
+      libaddress=$(query "$2".address) || error "failed to query $2.address"
+      libraries+=("$1" "${libpath}:${libcontract}:${libaddress}")
+      shift 2
+      ;;
+    --constructor-args)
+      # handle constructor args - they are always the last argument
+      local raw_args=()
+      raw_args=$(resolve_array address "$@") || error "failed to resolve_array address $*"
+      mapfile -t constructor_args <<<"$raw_args" || error "failed to resolve_array $*"
+      break
+      ;;
+    *)
+      error "unexpected option for deploy_contract_or_library: $1"
+      exit 1
+      ;;
+    esac
+  done
+  _deploy_contract "${key}" "${purpose}" "${contract}" "${libraries[@]}" "${constructor_args[@]}" ||
+    error "failed to deploy ${key} contract"
+}
+
+###################################################################################################
+# deploy_library
+# - deploys a library with the given key and contract path
+###################################################################################################
+deploy_library() {
+  local key="$1"
+  shift 1
+  deploy_contract_or_library "${key}" "library" "$@" ||
+    error "failed to deploy ${key} library"
+}
+export -f deploy_library
+
+###################################################################################################
+# deploy_contract
+# - deploys a contract with the given key and contract path
+###################################################################################################
+deploy_contract() {
+  local key="$1"
+  shift 1
+  deploy_contract_or_library "${key}" "contract" "$@" ||
+    error "failed to deploy ${key} contract"
+}
+export -f deploy_contract
+
+###################################################################################################
+# deploy_proxy
+# - deploys a UUPS proxy contract with the given implementation key
+# - implementation must have been deployed beforehand and have an address
+###################################################################################################
+deploy_proxy() {
+  local proxy_key="$1"
+  local implementation_key="$2"
+
+  deploy_contract_or_library "${proxy_key}" 'UUPS proxy' \
+    "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy" \
+    --constructor-args "${implementation_key}" '0x' || error "failed to deploy_proxy ${proxy_key} contract"
+
+  _record_proxy_update "${proxy_key}" "${implementation_key}" || error "failed to record implementation data for ${proxy_key} proxy contract"
+}
+export -f deploy_proxy
+
+###################################################################################################
+# deploy_stemmed
+# - a thin wrapper around deploy_proxy to deploy a proxy with a stemmed implementation
+###################################################################################################
+deploy_stemmed() {
+  # key is the proxy key, e.g. leveragedToken
+  local proxy_key="$1"
+  deploy_proxy "${proxy_key}" Stem_v1 || error "failed to deploy_stemmed ${proxy_key} contract"
+}
+export -f deploy_stemmed
+
+upgrade_proxy() {
+  local proxy_key="$1"
+  local implementation_key="$2"
+  local signature="$3"
+  shift 3
+
+  # get the addresses
+  local proxy_address implementation_address
+  proxy_address=$(query "${proxy_key}.address") || error "failed to query ${proxy_key} for address"
+  implementation_address=$(query ${implementation_key}.address) || error "failed to query ${implementation_key} for address"
+
+  debug "signature=${signature}."
+  debug "args=$*."
+
+  # get the calldata for the upgradeToAndCall function
+  local raw_args=()
+  raw_args=$(resolve_array address "$@") || error "failed to resolve_array address $*"
+  local signature_args=()
+  mapfile -t signature_args <<<"$raw_args" || error "failed to resolve_array $*"
+  local calldata
+  calldata=$(trace cast calldata "${signature}" "${signature_args[@]}") ||
+    error "failed to cast calldata for signature ${signature} with args ${raw_args[*]}"
+
+  # do the transaction
+  _send_transaction "$proxy_address" "upgradeToAndCall(address,bytes)" "${implementation_address}" "${calldata}" ||
+    error "failed to send transaction to ${proxy_key} with signature upgradeToAndCall(address,bytes) and args ${implementation_key} ${calldata}"
+
+  _record_proxy_update "${proxy_key}" "${implementation_key}" || error "failed to record implementation data for ${proxy_key} proxy contract"
+}
+export -f upgrade_proxy
+
+_record_proxy_update() {
+  local proxy_key="$1"
+  local implementation_key="$2"
+
+  local implementation_address
+  implementation_address=$(query "${implementation_key}.address") || error "failed to query ${implementation_key} for address"
+
+  record "${proxy_key}".implementation.contract "${implementation_key}" || error "failed to record ${implementation_name} for ${proxy_key} contract"
+  record "${proxy_key}".implementation.address "${implementation_address}" || error "failed to record ${implementation_address} for ${proxy_key} contract"
+}
+
+confirm_deployment() {
+  local contract_name=$1
+  local contract_address=$2
+  local deployment_block=$3
+  local retry_count=0
+  local current_block
+
+  echo "Confirming deployment of $contract_name at $contract_address (Block: $deployment_block)..."
+
+  while true; do
+    current_block=$(trace cast block latest --rpc-url $RPC_URL | awk '/number/ {print $2}')
+    log "${current_block})"
+    if [[ -n "$current_block" && "$current_block" -gt "$deployment_block" ]]; then
+      echo "Contract $contract_name confirmed. Current block: $current_block"
+      echo "Contract confirmed >> $contract_name: $contract_address (Confirmed in Block: $deployment_block)" >>"$OUTPUT_FILE"
+      break
+    fi
+    if [[ $retry_count -ge $MAX_RETRIES ]]; then
+      echo "Error: Contract $contract_name at $contract_address not confirmed after $MAX_RETRIES retries."
+      exit 1
+    fi
+    echo "Waiting for contract $contract_name confirmation. Current block: $current_block. Retry $((retry_count + 1))/$MAX_RETRIES" # lint-bash disable=command-substitution
+    sleep 1
+    retry_count=$((retry_count + 1))
+  done
+}
+
+send_transaction() {
+  local target_key="$1"
+  local signature="$2"
+  shift 2
+  local target_address calldata
+  target_address=$(query "${target_key}.address") || error "failed to query ${target_key} for address"
+
+  # get the args
+  local raw_args=()
+  raw_args=$(resolve_array address "$@") || error "failed to resolve_array address $*"
+  local signature_args=()
+  mapfile -t signature_args <<<"$raw_args" || error "failed to resolve_array $*"
+
+  # send the transaction
+  _send_transaction "$target_address" "${signature}" "${signature_args[@]}" || error "failed to send transaction to ${target_key} with signature ${signature} and args ${signature_args[*]}"
+}
+export -f send_transaction
+
+_send_transaction() {
+  local target_address="$1"
+  local signature="$2"
+  shift 2
+
+  # send the transaction
+  local response
+  response=$(trace cast send --json --rpc-url "${RPC_URL}" --private-key "${PRIVATE_KEY}" \
+    "$target_address" "${signature}" "$@") ||
+    error "failed to send transaction to ${target_address} with signature ${signature} and args $*"
+  echo "${response}"
+}
+
+_call() {
+  trace cast call --json "--rpc-url" "${RPC_URL}" "$@" || error "failed to cast call $*"
+}
+
+call() {
+  local target_key="$1"
+  local sig="$2"
+  shift 2
+
+  # get the target address from the key
+  local target_address
+  target_address=$(query "${target_key}.address") || error "failed to query ${target_key} for address"
+
+  # get the calldata for the given function
+  local raw_args=()
+  mapfile -t raw_args < <(resolve_array address "$@") || error "failed to resolve_array $*"
+
+  local output
+  output=$(_call "${target_address}" "${sig}" "${raw_args[@]}") || error "failed to call ${target_key} with signature ${sig} and args ${raw_args[*]}"
+
+  # TODO: handle more data structures: tuples and values (I think structs are just tuples)
+  jq -r '.[0]' <<<"$output"
+
+}
+export -f call
+
+record_from_network() {
+  local this="$1"
+  local from="$2"
+  local value
+  value=$(network_query "${from}") || error "failed to network_query ${from}"
+  record "${this}" "${value}"
+}
+export -f record_from_network
+
+record_from_call() {
+  local key="$1"
+  shift
+  local value
+  value=$(call "$@") || error "failed to call $*"
+  record "${key}" "${value}"
+}
+export -f record_from_call
+
+grantRoles() {
+  # who gets the role
+  local grantee="$1"
+  # with BaoRoles, the role is held in the implementation but accessible via the proxy or the implementation
+  local role="$2" # e.g. minter.ZERO_FEE_ROLE or Minter_v1.HARVESTER_ROLE
+
+  local granter="${role%%.*}"  # e.g. minter or Minter_v1 (proxy or implementation)
+  local role_name="${role#*.}" # e.g. ZERO_FEE_ROLE or HARVESTER_ROLE
+
+  record_from_call "${role}.value" "${granter}" "${role_name}()(uint256)"
+  send_transaction "${granter}" "grantRoles(address,uint256)" "${grantee}" "${role}.value" || error "failed to grant role ${role_name} to ${grantee} by ${granter}"
+  record_append "${role}.grantees" "${grantee}"
+
+}
+export -f grantRoles

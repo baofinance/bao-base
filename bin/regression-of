@@ -3,17 +3,33 @@ set -euo pipefail
 
 mkdir -p ./regression
 REGRESSION_TYPE="$1"
-REGRESSION_FILE="regression/$REGRESSION_TYPE.txt"
-REGRESSION_LOG="regression/$REGRESSION_TYPE.log"
-info 1 "generating regression for $REGRESSION_TYPE..."
-truncate -s 0 "$REGRESSION_FILE" # empty the existing file
+shift
+REGRESSION_FILE="regression/${REGRESSION_TYPE}.txt"
+REGRESSION_LOG="regression/${REGRESSION_TYPE}.log"
+info 1 "generating regression for ${REGRESSION_TYPE}..."
+truncate -s 0 "${REGRESSION_FILE}" # empty the existing file
 
 # generate the output
 # do this to keep the colour on the console:
 # tee >(sed 's/\x1b\[[0-9;]*m//g' > logfile.log)
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
-"$BAO_BASE_DIR/run" "$REGRESSION_TYPE" "$@" | tee "$REGRESSION_LOG"
+. "${BAO_BASE_DIR}/run" "${REGRESSION_TYPE}" "$@" | tee "${REGRESSION_LOG}"
+debug "regression-of ${REGRESSION_TYPE} finished."
 
 # process it using the filter
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
-cat "$REGRESSION_LOG" | "$BAO_BASE_BIN_DIR/run-python" "extract-$REGRESSION_TYPE" > "$REGRESSION_FILE"
+debug "calling run-python to process the regression log"
+. "${BAO_BASE_BIN_DIR}/run-python" "extract-${REGRESSION_TYPE}" <"${REGRESSION_LOG}" >"${REGRESSION_FILE}"
+
+# Check for changes in the regression file
+info 1 "checking for changes in ${REGRESSION_FILE}..."
+git status --short "${REGRESSION_FILE}"
+GIT_PAGER= git diff --minimal "${REGRESSION_FILE}"
+
+if [[ $(git status --short "${REGRESSION_FILE}" | wc -l) -gt 0 ]]; then
+  echo "⚠️  The regression file ${REGRESSION_FILE} has changed."
+  echo "Either commit the changes if they are expected or fix the issues causing the differences."
+  exit 1
+else
+  echo "✅ No changes detected in ${REGRESSION_FILE}"
+fi

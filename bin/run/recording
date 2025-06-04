@@ -1,0 +1,249 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# if [[ -n "${GUARD_SOURCING_RECORDING:-}" ]]; then return; fi; GUARD_SOURCING_RECORDING=1
+# [[ -n "${LOADING:-}" ]] && echo "loading ${BASH_SOURCE[0]}..."
+
+# # shellcheck disable=SC1091
+# source "$(dirname "${BASH_SOURCE[0]}")/logging"
+
+export json_recording_directory='./deploy'
+# shellcheck disable=SC2155
+export json_recording_timestamp=$(date '+%Y-%m-%d_%H:%M:%S')
+export json_recording_file=''
+export json_recording_latest_file=''
+
+# this variable can be updated by other scripts
+export RECORDING_NAME=''
+
+# setup the file to log to
+_recording_config() {
+  # call once
+  [[ -n "$json_recording_file" ]] && return 0
+  # assume SCRIPT and LOCAL are set-up
+  [[ -n "$SCRIPT" ]] || error "recording or reading without SCRIPT being set up"
+  [[ -n "$LOCAL" ]] || error "recording or reading without LOCAL being set up"
+
+  calling_script_name=$(basename $SCRIPT)
+  debug "calling_script_name=${calling_script_name}."
+  local name="${RECORDING_NAME:+"-$RECORDING_NAME"}"
+  debug "name=${name}."
+  local locally=""
+  [[ "$LOCAL" == "local" ]] && locally="local-"
+
+  mkdir -p "${json_recording_directory}"
+  local base_file_name
+  base_file_name="${json_recording_directory}/${locally}$(network_name)-${calling_script_name}${name}"
+  debug "base_file_name=$base_file_name"
+
+  json_recording_file="${base_file_name}_${json_recording_timestamp}.log"
+  debug "json_recording_file=${json_recording_file}."
+  json_recording_latest_file="${base_file_name}_latest.log"
+  debug "json_recording_latest_file=${json_recording_latest_file}."
+
+  if [[ ! -f "${json_recording_file}" ]]; then
+    echo "{}" >"${json_recording_file}"
+    cp "${json_recording_file}" "${json_recording_latest_file}"
+  fi
+
+  log "Recording to ${json_recording_file}"
+}
+
+has_key() {
+  local key="$1"
+  _recording_config
+
+  # Use jq's has() function to check if the key exists
+  local result
+  result=$(jq -rc --arg k "${key}" 'getpath($k | split("."))' "${json_recording_file}")
+  [[ "$result" == "null" ]] && echo false || echo true
+  debug "has_key(${key}) -> ${result}."
+}
+
+query() {
+  local key="$1"
+  _recording_config
+
+  [[ $(has_key "${key}") == "true" ]] || error "Key '${key}' doesn't exist in ${json_recording_file}"
+  jq -r ".${key}" "${json_recording_file}" || error "Failed to query key '${key}' in ${json_recording_file}"
+}
+export -f query
+
+_resolve() {
+  local fields="$1" # Comma-separated list of fields to extract from objects
+  # arg,
+  # - if it's an object, looks for any field in the list as a sub-key and returns it if found
+  # - if it's a primitive value, returns that value
+  # - otherwise returns the argument itself
+
+  local arg="$2"
+
+  _recording_config
+
+  # Split the comma-separated fields into an array
+  local field_array=()
+  IFS=',' read -ra field_array <<<"$fields"
+
+  debug "arg=${arg}, fields=${fields}."
+
+  # default to the argument itself
+  if [[ $(has_key "${arg}") == "true" ]]; then
+    # Check if the value is an object
+    local type
+    type=$(jq -r ".${arg} | type" "${json_recording_file}") || error "Failed to determine type of '${arg}'."
+    debug "type=${type}."
+    if [[ "$type" == "object" ]]; then
+      # It's an object, try to find one of the fields
+      local found=false
+      local field
+
+      for field in "${field_array[@]}"; do
+        if [[ $(has_key "${arg}.${field}") == "true" ]]; then
+          # Check if the field is not an object
+          local field_type
+          field_type=$(jq -r ".${arg}.${field} | type" "${json_recording_file}") || error "Failed to determine type of field '${field}' in ${arg}."
+
+          if [[ "$field_type" != "object" ]]; then
+            local field_value
+            field_value=$(query "${arg}.${field}")
+            debug "${arg}.${field}->${field_value}."
+            echo "${field_value}"
+            found=true
+            break
+          fi
+        fi
+      done
+
+      # If no suitable field was found, return the argument itself
+      if [[ "$found" == "false" ]]; then
+        debug "No suitable field found in ${arg}, returning arg itself."
+        debug "${arg}->${arg}."
+        echo "${arg}"
+      fi
+    else
+      # It's not an object, just return its value
+      debug "type=${type}, returning value of ${arg}."
+      local raw_arg
+      raw_arg=$(query "${arg}")
+      debug "${arg}->${raw_arg}."
+      echo "${raw_arg}"
+    fi
+  else
+    # Key doesn't exist, return the argument itself
+    debug "!has_key, ${arg}->${arg}."
+    echo "${arg}"
+  fi
+}
+
+resolve() {
+  local arg="$1" # The argument to resolve
+  _resolve "" "${arg}" || error "Failed to resolve argument '${arg}' with fields '${fields}'."
+}
+
+# returns a line separated list of values
+# will not return objects, only primitive values
+# suitable for mapfile -t
+# returns a line separated list of values with field extraction from objects
+# first parameter is a comma-separated list of field names to extract from objects
+# for each argument calls resolve, passing in the fields
+resolve_array() {
+  local fields="$1" # Comma-separated list of fields to extract from objects
+  shift
+  local arg
+  for arg in "$@"; do
+    _resolve "${fields}" "${arg}" || error "Failed to resolve argument '${arg}' with fields '${fields}'."
+  done
+}
+export -f resolve_array
+
+# Add a field to the JSON file
+record() {
+  # Prepend "numeric" as the type for the record function
+  _record "string" "$@"
+}
+export -f record
+
+# Add a numeric field to the JSON file
+record_raw() {
+  # Prepend "numeric" as the type for the record function
+  _record "raw" "$@"
+}
+export -f record_raw
+
+# Add a nested field to an existing object
+# Usage: _record "type" "key1" "value"
+# type can be "string" or "raw"
+# raw means any json value, including a numeric one, arrays or objects, etc.)
+_record() {
+  local value_type="$1"
+  debug "value_type=${value_type}."
+  local key="$2"
+  debug "key=${key}."
+  local value="$3" # Value to set
+  debug "value=${value}."
+  _recording_config
+  value=$(resolve "${value}")
+
+  local temp
+  temp=$(mktemp)
+
+  # jq assignment: path = value. Use --arg or --argjson based on type.
+  local val_arg
+  [[ "$value_type" == "raw" ]] && val_arg="--argjson" || val_arg="--arg"
+
+  debug "recording as ${key},'${value}'"
+  # jq "$arg" value_to_set "$value" ".${key} = \$value_to_set" "$json_recording_file" >"$temp" || error "Failed to record value '${value}' for key '${key}' in ${json_recording_file}"
+
+  # Enhanced jq script that enforces type safety and handles object merging
+  # Pass both the key and value as jq arguments
+  jq "$val_arg" value_to_set "$value" --arg k "$key" '
+    # Split the key path and convert to jq path
+    ($k | split(".")) as $path |
+
+    # Get existing value (or null if it doesn not exist)
+    (getpath($path) // null) as $existing |
+
+    # Determine types
+    ($existing | type) as $existing_type |
+    ($value_to_set | type) as $new_type |
+
+    # Handle the different cases
+    if $existing_type == "null" then
+      # Key does not exist yet, simply set it
+      setpath($path; $value_to_set)
+    elif $existing_type == "object" and $new_type == "object" then
+      # Both are objects, merge them
+      setpath($path; ($existing * $value_to_set))
+    elif $existing_type == $new_type then
+      # Same non-object types, replace
+      setpath($path; $value_to_set)
+    else
+      # Type mismatch - fail with error
+      error("Type mismatch: Cannot merge " + $existing_type + " with " + $new_type + " for key " + $k)
+    end
+  ' "$json_recording_file" >"$temp" || error "Failed to record value '${value}' for key '${key}' in ${json_recording_file}"
+
+  local status=$?
+  [[ $status -eq 0 ]] || return ${status}
+  mv "$temp" "$json_recording_file"
+  cp "$json_recording_file" "$json_recording_latest_file"
+}
+
+record_append() {
+  local key="$1"
+  shift
+  _recording_config
+
+  # Read the existing array, or create an empty one if it doesn't exist
+  local existing_array
+  existing_array=$(jq -r ".${key} // []" "${json_recording_file}")
+
+  # Append the new values to the existing array
+  local new_values=("$@")
+  for value in "${new_values[@]}"; do
+    existing_array=$(echo "${existing_array}" | jq --arg v "${value}" '. + [$v]')
+  done
+
+  # Write the updated array back to the file
+  _record "raw" "${key}" "${existing_array}" || error "Failed to append values to key '${key}' in ${json_recording_file}"
+}

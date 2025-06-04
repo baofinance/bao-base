@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Create a new array starting with style options
+args=()
+# Use an associative array to ensure uniqueness of files
+declare -A file_set
+
+SHEBANGS="#!/bin/bash:#!/usr/bin/env bash:#!/bin/sh:#!/usr/bin/env sh:#!/usr/bin/env bats:#!lib/bao-base/run"
+
+# Enable extended globbing for better file matching
+shopt -s globstar nullglob
+
+mode="--list"
+for arg in "$@"; do
+  case "${arg}" in
+  --write)
+    mode="--write"
+    ;;
+  --check)
+    mode="--list"
+    ;;
+  --lint)
+    mode="--lint"
+    ;;
+  -*)
+    # add the args to the list
+    args+=("${arg}")
+    ;;
+  *)
+    # TODO: handle globbed directories
+    info 1 "processing arg: ${arg}"
+    # this could be done with "shfmt --find" but it doesn't handle all our shebangs
+    # it's a directory or a file
+    if [[ -d "${arg}" ]]; then
+      info 1 "${arg} is a directory"
+
+      # Use bash's globstar to match files with specific extensions (much cleaner than find)
+      for file in "${arg}"/**/*.{sh,bash,bats}; do
+        if [[ -f "$file" ]]; then
+          info 2 " found ${file} with extension match"
+          file_set["$file"]=1
+        fi
+      done
+
+      # For shebang matches, still use grep as it's more efficient for this task
+      IFS=':' read -ra shebang_patterns <<<"${SHEBANGS}"
+      for shebang in "${shebang_patterns[@]}"; do
+        if [[ -n "${shebang}" ]]; then
+          # Use grep with -m1 to only match the first line of the file
+          while IFS= read -r file; do
+            # Validate that this is actually a bash file by checking first line contains shebang
+            if [[ -n "${file}" ]] && head -n1 "${file}" | grep -q "^${shebang}"; then
+              info 2 " found ${file} with ${shebang}"
+              file_set["$file"]=1
+            fi
+          done < <(grep -l -m1 "^${shebang}" --include="*" --exclude-dir={.git,node_modules,lib} -r "${arg}" 2>/dev/null)
+        fi
+      done
+    else
+      # it's a file or a file pattern
+      file_set["$arg"]=1
+    fi
+    ;;
+  esac
+done
+
+# Print to help debug what files were found
+log "Found ${#file_set[@]} files and file patterns to format"
+
+if [[ "${mode}" == "--lint" ]]; then
+  if ! command -v shellcheck &>/dev/null; then
+    log "shellcheck not found attempting to install..."
+    log "see https://github.com/koalaman/shellcheck#user-content-installing"
+    # shellcheck disable=SC2154
+    if [[ "${BAO_BASE_OS}" == "windows" ]]; then
+      # Windows installation
+      powershell -Command "winget install --id koalaman.shellcheck"
+    elif [[ "${BAO_BASE_OS}" == "macos" ]]; then
+      # macOS installation
+      brew install shellcheck
+    else
+      # Linux installation (Debian/Ubuntu)
+      sudo apt install -y shellcheck
+    fi
+  fi
+  # run shellcheck
+  issues=0
+  info 1 "Running shellcheck..."
+  info 1 "with args: ${args[*]}"
+  info 1 "with files: ${!file_set[*]}"
+  shellcheck --external-sources --shell=bash --enable=all --exclude=SC2310,SC2312,SC2239,SC2096 --severity=warning "${args[@]}" "${!file_set[@]}" || issues=1
+
+  info 1 "Running Bao command substitution check..."
+  # unfortunately shellcheck doesn't catch this critical issue so do it here
+  # this contains an excellent explanation as to why it is an issue:
+  #  https://superuser.com/questions/1836819/why-does-assigning-a-variable-with-command-substitution-and-then-echoing-that-v
+  # and about set -e in general,
+  #  see the bash manual: https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html
+  #  and also a critique of it with horrifyingly basic gotchas: https://mywiki.wooledge.org/BashFAQ/105
+  # You have to ask: why would anyone use bash for anything but the simplest scripts?
+  # then, again, if you have these kinds of checks maybe it's OK?
+
+  # Check if output supports color (is a terminal and TERM is not "dumb")
+  olive=""
+  khaki=""
+  grey=""
+  bold=""
+  plain=""
+  if [[ -t 1 && "${TERM:-}" != "dumb" ]]; then
+    olive="\e[0;32m"
+    khaki="\e[0;33m"
+    grey="\e[2m"
+    bold="\e[1m"
+    plain="\e[0m"
+  fi
+  while read -r line; do
+    file=$(echo "$line" | cut -d':' -f1)
+    lineno=$(echo "$line" | cut -d':' -f2)
+    code=$(echo "$line" | cut -d':' -f3-)
+    issues=1
+
+    echo -e "${bold}In $file line $lineno:${plain}"
+    # Create an underline string with ^ and -
+    spaces="${code%%\$(*}"
+    space_count=${#spaces}
+    dash_count=$((${#code} - space_count - 1))
+    [[ $dash_count -lt 0 ]] && dash_count=0
+    indent=$(printf '%*s' $space_count '')
+    underline="$(printf '%*s' $dash_count '' | tr ' ' '-')"
+
+    echo "  ${code}"
+    echo -e "  ${khaki}${indent}^${underline}${plain}"
+    echo -e "  ${khaki}${indent} warning: Command substitution used as argument without error checking${plain}"
+    echo -e "  ${grey}if this is an acceptable use of command substitution, put this at the end of this line ${olive}# lint-bash disable=command-substitution${plain}"
+    echo ""
+  done < <(grep -nH '\$[(]' "${!file_set[@]}" |
+    grep -v '=' |
+    grep -v '|| \(exit\|return\)' |
+    grep -v '^[^:]*:[^:]*:[ \t]*#' |
+    grep -Ev '#\s*lint-bash\s+disable=command-substitution')
+
+  info 1 "issues=${issues}"
+  if [[ "$issues" -gt 0 ]]; then error "lint-bash discovered issues"; fi
+else
+  # Create a new array starting with style options
+  args+=("--indent=2" "--case-indent")
+
+  SHFMT_BIN="${HOME}/.local/bin/shfmt"
+  if [[ ! -x "${SHFMT_BIN}" ]]; then
+    curl -sS https://webi.sh/shfmt | sh
+  fi
+
+  info 1 "shfmt version:" "$("${SHFMT_BIN}" --version)" # lint-bash disable=command-substitution
+  info 2 "${SHFMT_BIN} ${mode} ${args[*]} ${!file_set[*]}"
+  "${SHFMT_BIN}" "${mode}" "${args[@]}" "${!file_set[@]}"
+fi

@@ -1,144 +1,383 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
 # logging
-# logging takes three forms
-# 1. error messages - these are always printed. The process should terminate.
-# 2. info messages - these are printed according to a verbosity level.
+# logging takes several forms
+# 1. error/warn/log messages - these are always printed. The process should terminate if it's an error.
+# 2. info messages - these are printed according to a verbosity level, controlled by DEBUG=-v, -vv, -vvv, -vvvv
 # 3. debug messages - these are printed if and only if the script name is in the DEBUG list.
 
-first_free_fd() {
-    local current_fds=$(lsof -p $$ | awk '$4 ~ /^([0-9]+)[urw]*$/ {print +$4}' | sort -n)
-    prev=2
-    for fd in $(echo "$current_fds"); do
-        if [ $((fd)) -gt $((prev + 1)) ]; then
-            echo $((prev + 1))
-            return
-        fi
-        prev=$fd
-    done
-    echo $((prev + 1))
-}
+export BAO_BASE_VERBOSITY=${VERBOSITY:-0} # allow ths to be passed in as an env var
 
 # set the file descriptor for logging this must be 2 or it interferes with anvil (go figure)
-export LOGGING_FILE_DESCRIPTOR=${LOGGING_FILE_DESCRIPTOR:-2}
+export LOGGING_FILE_DESCRIPTOR=${LOGGING_FILE_DESCRIPTOR:-$(first_free_fd)}
 # redirect this to stdout, so it's stdout but functions can log but not affect their output
 # who said bash was a good idea?
 # exec 8> >(stdbuf -o0 cat)
 case "$LOGGING_FILE_DESCRIPTOR" in
-    3)
-        exec 3>&1
-        ;;
-    4)
-        exec 4>&1
-        ;;
-    5)
-        exec 5>&1
-        ;;
-    6)
-        exec 6>&1
-        ;;
-    7)
-        exec 7>&1
-        ;;
-    8)
-        exec 8>&1
-        ;;
-    9)
-        exec 9>&1
-        ;;
+3)
+  exec 3>&1
+  ;;
+4)
+  exec 4>&1
+  ;;
+5)
+  exec 5>&1
+  ;;
+6)
+  exec 6>&1
+  ;;
+7)
+  exec 7>&1
+  ;;
+8)
+  exec 8>&1
+  ;;
+9)
+  exec 9>&1
+  ;;
 esac
 
-debug_opts() {
-    # extract options from DEBUG variable
-    local debug_options=""
-    local IFS=','
-    for item in ${DEBUG:-}; do
-        # If item starts with dash, add it to debug_options
-        if [[ "$item" == -* ]]; then
-            debug_options+=" $item"
-        fi
-    done
-    echo "$debug_options"
-}
 # hidden text in log messages
-declare -A _logging_hidden_text
-export _logging_hidden_text
+export _hidden_text=""
+export _hidden_text_replacement=""
 
-# function to hide sensitive text in log messages
+# Function to hide sensitive text in log messages
 sensitive() {
-    _logging_hidden_text["$1"]="${2:-***hidden***}"
+  if [[ -n "$1" ]]; then
+    # Check if this text already exists in our list (exact line match)
+    if ! grep -Fx "$1" <<<"$_hidden_text" &>/dev/null; then
+      # Append the new text with a newline
+      _hidden_text="${_hidden_text}${1}"$'\n'
+      _hidden_text_replacement="${_hidden_text_replacement}<<${2:-hidden}>>"$'\n'
+    fi
+  fi
 }
-
 export LOGGING_SENSITIVE_TEXT=${LOGGING_SENSITIVE_TEXT:-hide}
+_hide_sensitive() {
+  # note that this doesn't work well when there are embedded escape sequences
+  local text="$1"
+  # Remove hidden text
+  # TODO: roll this env into DEBUG, e.g. DEBUG=abc,+sensitive,xyz
+  # TODO: add script name selection in DEBUG, e.g. DEBUG=abc,script,xyz
+  # TODO: also !script,!script2 means exclude
+  if [[ "$LOGGING_SENSITIVE_TEXT" != "show" && -n "$_hidden_text" ]]; then
+    # Read the strings line by line in parallel
+    local hide replace
+    while IFS= read -r hide <&3 && IFS= read -r replace <&4; do
+      if [[ -n "${hide}" ]]; then
+        # echo "replacing '${hide}' with '${replace}'"
+        # Replace all occurrences in the text
+        text="${text//${hide}/${replace}}"
+      fi
+    done 3<<<"$_hidden_text" 4<<<"$_hidden_text_replacement"
+  fi
+  echo "$text"
+}
+export -f _hide_sensitive
 
+# indent_level - increement/decrement by one
+# export _logging_indent_level=0
 # Output function - prints messages to the output stream
 _output() {
-    local type="$1"
-    shift
-    local message="$*"
-    # remove hidden text
-    if [[ "$LOGGING_SENSITIVE_TEXT" != "show" ]]; then
-        for key in "${!_logging_hidden_text[@]}"; do
-            local value="${_logging_hidden_text[$key]}"
-            message=$(echo "$message" | sed "s|${key}|${value}|g")
-        done
-    fi
-    # format the message
-    local format
-    format=$(printf "%-5s " "$type")
-    # indentation is   ^ ^ always have a separating space
-    if [[ -v DEBUG ]]; then
-        # if DEBUG is defined at all, we print script info
-        format+=" ${BASH_SOURCE[2]}:${BASH_LINENO[1]}"
-        # if [[ "$LOGGING_LEVEL" -ge "4" ]]; then
-        #     format+=" ${FUNCNAME[1]}()"
-        # fi
-        format+=": "
-    fi
-    local indent
-    indent=$(printf "%${#format}s")
+  local type="$1"
+  shift
+  local message
+  message=$(_hide_sensitive "$*") || exit 1
+
+  olive="\e[0;32m"
+  khaki="\e[0;33m"
+  grey="\e[2m"
+  dark_grey="\e[38;5;240m"
+  bold="\e[1m"
+  plain="\e[0m"
+  red="\e[0;31m"
+  blue="\e[0;34m"
+  yellow="\e[0;33m"
+  orange="\e[0;38;5;208m"
+  bold="\e[1m"
+  declare -A colour_map=(
+    ["DEBUG"]=$blue
+    ["INFO"]=$olive
+    ["INFO1"]=$olive
+    ["INFO2"]=$olive
+    ["INFO3"]=$olive
+    ["INFO4"]=$olive
+    ["WARN"]=$red
+    ["ERROR"]=$bold$red
+  )
+
+  # format the message
+  local format
+  format=$(printf "%-5s " "${type}")
+  format="${colour_map[$type]}${format}${plain}"
+
+  # indentation is   ^ ^ always have a separating space
+  local indent=$(printf '%*s' 6 "")
+  # Handle embedded newlines in the original message EARLY
+  # This ensures the base message has proper indentation
+  if [[ "$message" == *$'\n'* ]]; then
     message=${message//$'\n'/$'\n'"$indent"}
-    # echo "$(date '+%Y-%m-%d %H:%M:%S,%3N') - $format
-    echo "$format$message" >&"$LOGGING_FILE_DESCRIPTOR"
+  fi
+  if [[ -v DEBUG ]]; then
+    # if DEBUG is defined at all, we print script & line number info in clickable form
+    # find the caller index in the stack relative to this file (logging)
+    local caller_index
+    for ((caller_index = 0; caller_index < ${#BASH_SOURCE[@]}; caller_index++)); do
+      # Break if (BASH_SOURCE==logging and FUNCNAME==trace) or BASH_SOURCE!=logging
+      # echo "stack: BASH_SOURCE[${caller_index}]=${BASH_SOURCE[${caller_index}]}, FUNCNAME[${caller_index}]=${FUNCNAME[${caller_index}]}" >&"$LOGGING_FILE_DESCRIPTOR"
+      [[ "$(basename "${BASH_SOURCE[$caller_index]}")" == "logging" && "${FUNCNAME[$caller_index]}" == "trace" ]] ||
+        [[ "$(basename "${BASH_SOURCE[$caller_index]}")" != "logging" ]] && break
+    done
+    # if the caller index is out of bounds, we need to go back to the last one
+    if [[ $caller_index -ge ${#BASH_SOURCE[@]} ]]; then
+      caller_index=$((${#BASH_SOURCE[@]} - 1))
+      format+=" called from"
+    fi
+
+    # Calculate arg_start from scratch based on the final caller_index
+    local arg_start=0
+    for ((i = 0; i < caller_index; i++)); do
+      arg_start=$((arg_start + BASH_ARGC[i]))
+    done
+
+    # add function stack until the first "source" (the script that sourced this set)
+    # Collect all frames first, then display in reverse order
+    local stack_lines=()
+    local i
+    local orig_arg_start=$arg_start # Save original arg_start
+
+    # First pass: collect all frames
+    for ((i = caller_index; i < ${#FUNCNAME[@]}; i++)); do
+
+      # Calculate arguments for just this stack frame
+      local arg_count=${BASH_ARGC[i]}
+      local args=""
+
+      if [[ $arg_count -gt 0 ]]; then
+        # Extract just the arguments for this frame
+        for ((k = arg_count - 1; k >= 0; k--)); do
+          # Always add a space followed by the quoted argument
+          args+=" \"${BASH_ARGV[$((arg_start + k))]}\""
+        done
+        arg_start=$((arg_start + arg_count)) # Update arg_start for the next frame
+      fi
+      args=$(_hide_sensitive "$args") || true
+
+      local stack_line
+      stack_line=("${blue}${BASH_SOURCE[i]}:${BASH_LINENO[$(($i - 1))]}:")
+      if [[ "${FUNCNAME[i]}" == "source" ]]; then
+        # If we hit a source, we stop
+        stack_line="${stack_line} $args"
+      else
+        # Store this frame's formatted output
+        stack_line="${stack_line} ${FUNCNAME[i]}${grey}$args"
+      fi
+      stack_lines+=("${stack_line}${plain}")
+
+      if [[ "${FUNCNAME[i]}" == "source" ]]; then
+        break
+      fi
+    done
+
+    # Now output the frames in reverse order
+    local line_count=${#stack_lines[@]}
+    local sep=""
+
+    if [[ $line_count -gt 0 ]]; then
+      for ((j = line_count - 1; j >= 0; j--)); do
+        format+="${sep}↓ ${stack_lines[j]}"
+        sep=$'\n'"${indent}"
+      done
+      format+=":"
+      message=$'\n'"${indent}${message}"
+    fi
+  fi
+
+  # echo "$(date '+%Y-%m-%d %H:%M:%S,%3N') - $format
+  echo -e "$format$message" >&"$LOGGING_FILE_DESCRIPTOR"
 }
 
 # Debug function - automatically detects script name and prints messages only if the script is in the DEBUG list
 debug() {
-    # determine script name from the calling script
-    # - fallback to the current script if no caller is found
-    local script_name=$(basename "${BASH_SOURCE[1]:-${BASH_SOURCE[0]}}")
-    if [[ ",${DEBUG:-}," == *,"$script_name",* ]] || [[ "$BAO_BASE_VERBOSITY" > "3" ]]; then
-        _output "DEBUG" "$*"
-    fi
+  # determine script name from the calling script
+  # - fallback to the current script if no caller is found
+  local script_name
+  script_name=$(basename "${BASH_SOURCE[1]:-${BASH_SOURCE[0]}}")
+  # shellcheck disable=SC2154
+  if [[ ",${DEBUG:-}," == *,"${script_name}",* ]]; then
+    _output "DEBUG" "$*"
+  fi
 }
 
 # Error handling function
 error() {
-    _output "ERROR" "$*"
-    exit 1
+  DEBUG="-vvvv" # force debug to be on for error messages
+  _output "ERROR" "$*"
+  exit 1
+}
+
+warn() {
+  _output "WARN" "$*"
 }
 
 # Information function based on verbosity level
 # Usage: info <level> <message>
 info() {
-    local required_level=$1
-    shift
-    if [[ ${BAO_BASE_VERBOSITY:-0} -ge $required_level ]]; then
-      local tag
-      if [[ "$required_level" -gt 0 ]]; then
-          tag="INFO$required_level"
-      else
-          tag="INFO"
-      fi
-      _output "$tag" "$*"
+  local required_level=$1
+  shift
+  if [[ ${BAO_BASE_VERBOSITY:-0} -ge $required_level ]]; then
+    local tag
+    if [[ "$required_level" -gt 0 ]]; then
+      tag="INFO$required_level"
+    else
+      tag="INFO"
     fi
+    _output "$tag" "$*"
+  fi
 }
+
+log() {
+  info 0 "$@"
+}
+
+# Execute a command with set -x and capture the trace output
+trace() {
+  if [[ $# -eq 0 ]]; then
+    error "No command provided for tracing"
+  fi
+
+  local trace_fd="$LOGGING_FILE_DESCRIPTOR"
+  local fifo_file
+  fifo_file=$(mktemp -u) || error "Failed to create a temporary FIFO file for tracing"
+  mkfifo "$fifo_file"
+
+  # Capture all output at once instead of line by line
+  cat "$fifo_file" >/tmp/trace_output.$$ &
+  local cat_pid=$!
+
+  # Redirect trace output to the FIFO
+  exec {trace_fd}>"$fifo_file"
+  BASH_XTRACEFD=$trace_fd
+
+  # Run the command with tracing enabled and capture its output
+  info 1 "about to execute:"$'\n'"$@"
+  # if you channge any of the next 5 lines you also need to change the sed command below
+
+  local output stderr
+  local stdout_file=$(mktemp)
+  local stderr_file=$(mktemp)
+  set -x
+  "$@" >"$stdout_file" 2>"$stderr_file"
+  local ret=$?
+  set +x
+  # Clean up and collect trace output
+  exec {trace_fd}>&-
+
+  output=$(<"$stdout_file")
+  stderr=$(<"$stderr_file")
+  rm "$stdout_file" "$stderr_file"
+
+  # Wait for the cat process to finish collecting trace output
+  # we don't use wait because we want to timeout if it takes too long
+  # this is not crucial for command execution so we don't want to block indefinitely
+  local count=0
+  local max_attempts=20 # 2 seconds total (20 * 0.1s)
+  while kill -0 $cat_pid 2>/dev/null; do
+    sleep 0.1
+    ((count++))
+    if [[ $count -gt $max_attempts ]]; then
+      kill $cat_pid 2>/dev/null || true
+      warn "Trace data collection timed out after 2 seconds"
+      break
+    fi
+  done
+
+  # Process the trace output to:
+  # 1. Remove unwanted lines (local output, local ret=0, set +x)
+  # 2. Remove +++ prefixes
+  # 3. Replace "+++ output=" with "->"
+  local raw_trace_output
+  raw_trace_output=$(cat /tmp/trace_output.$$) || error "Failed to read trace output from FIFO"
+  info 3 "raw -x output:"$'\n'"$raw_trace_output"
+  # remove the temp files
+  rm "$fifo_file" "/tmp/trace_output.$$" || error "Failed to remove temporary trace files"
+
+  local traced_command
+  traced_command=$(sed -E '
+    # Remove unwanted lines completely
+    /^\++ local output/d
+    /^[^+]/d
+    /^\++ output=/d
+    /^\++ local ret=/d
+    /^\++ set \+x/d
+    # Remove +++ prefixes from remaining lines
+    s/^\++ //g' <<<"$raw_trace_output") || error "Failed to process command output"
+
+  # log the command
+
+  log "actual command:"$'\n'"$traced_command"
+  [[ -z "$stderr" ]] || error "${stderr}"
+
+  echo "${output}"
+  log "actual output:"$'\n'"${output}"
+  # Return the command's output
+  return $ret
+}
+export -f trace
+
+# Process flags for quiet mode and verbosity
+_logging_process_arg() {
+  case "$1" in
+  -q | --quiet)
+    BAO_BASE_VERBOSITY=-1000
+    ;;
+  -v | -vv | -vvv | -vvvv)
+    BAO_BASE_VERBOSITY=$((${#1} - 1)) # count the number of 'v's
+    ;;
+  *)
+    return 1
+    ;;
+  esac
+  return 0
+}
+
+_logging_process_args() {
+  local myargs=("${args[@]}") # make a copy of args
+  args=()
+  for myarg in "${myargs[@]}"; do
+    _logging_process_arg "${myarg}" || args+=("${myarg}")
+  done
+}
+
+_process_DEBUG() {
+  # extract options from DEBUG variable
+  local IFS=','
+  for item in ${DEBUG:-}; do
+    # If item starts with dash, add it to debug_options
+    _logging_process_arg "$item" || true
+  done
+}
+_process_DEBUG
+debug "after DEBUG BAO_BASE_VERBOSITY=${BAO_BASE_VERBOSITY}"
+_logging_process_args
+debug "after args  BAO_BASE_VERBOSITY=${BAO_BASE_VERBOSITY}"
 
 # Export the functions so they're available to child scripts
 # this avoids namespace polution with helper functions
 # having them there for all subscripts means that clashes are detected early
-export -f _output
+export -f _output # internal functions have to be exported too
+# debug functions driven by DEBUG environment variable, which can select files to print the info on
 export -f debug
+export -f trace
+
+# always printed, error also exits
 export -f error
+export -f warn
+export -f log
+
+# different levels of info, controlled by -v, -vv, -vvv, -vvvv on command line or imbedded in DEBUG
 export -f info
+
+# never print this text on any logging messages unless
 export -f sensitive
