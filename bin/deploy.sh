@@ -110,7 +110,7 @@ if [[ "${SCRIPT}" != "BATS" ]]; then
 
   local finished=$(date '+%Y-%m-%d %H:%M:%S')
   local took=$(($(date -d "${finished}" +%s) - $(date -d "${started}" +%s)))
-  log "finished at ${finished} and took ${took} seconds."
+  log "finished at ${finished}"
   record deployment.finished "${finished}"
   record deployment.took "${took}"
 fi

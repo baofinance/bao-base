@@ -134,6 +134,8 @@ run_script_with_type() {
   local script="$2"
   shift 2
 
+  local started=$(date '+%Y-%m-%d %H:%M:%S')
+
   local exit_code=0
   case "$script_type" in
   python)
@@ -153,6 +155,10 @@ run_script_with_type() {
     return 1
     ;;
   esac
+  local finished=$(date '+%Y-%m-%d %H:%M:%S')
+  local took=$(($(date -d "${finished}" +%s) - $(date -d "${started}" +%s)))
+  log "took ${took} s"
+
   [[ "$exit_code" -gt "0" ]] && error "$script_type script execution failed with code $exit_code"
   return $exit_code
 }
