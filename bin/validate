@@ -4,8 +4,9 @@ set -euo pipefail
 # see https://docs.openzeppelin.com/upgrades-plugins/api-core
 
 # only check the src files
-BUILD_INFO_DIR="out/validate/build-info"
+FOUNDRY_OUT="out/_validate" # there's no command option to set this
+BUILD_INFO_DIR="$FOUNDRY_OUT/build-info"
 mkdir -p "${BUILD_INFO_DIR}"
-# build again with build-info this time, so we don't force
-forge build --build-info --build-info-path "${BUILD_INFO_DIR}" --force src
+# build again with build-info this time, so we force
+forge build --build-info --build-info-path "${BUILD_INFO_DIR}" --extra-output storageLayout --force src
 npx @openzeppelin/upgrades-core validate "${BUILD_INFO_DIR}"

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT AND GPL-3.0
 // read interface taken from https://etherscan.io/address/0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0#code
 
-pragma solidity ^0.8.28;
+pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 

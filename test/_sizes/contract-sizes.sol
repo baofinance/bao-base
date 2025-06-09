@@ -2,7 +2,7 @@
 // This file has parts of the infrastructure separated out into individual "fake" contracts
 // forge build --sizes lets you know where the contract size is going (approx)
 // They also serve to list the code needed to implement the facility
-pragma solidity 0.8.28;
+pragma solidity >=0.8.28 <0.9.0;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";

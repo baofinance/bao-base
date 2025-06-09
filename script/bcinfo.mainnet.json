@@ -14,6 +14,10 @@
   "cerc20Delegate": {
     "address": "0xDb3401beF8f66E7f6CD95984026c26a4F47eEe84"
   },
+  "vebao": {
+    "address": "0x8Bf70DFE40F07a5ab715F7e888478d9D3680a2B6",
+    "symbol": "veBAO"
+  },
   "btc": {
     "priceFeed": {
       "?": {

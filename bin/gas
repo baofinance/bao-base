@@ -2,5 +2,7 @@
 set -e
 set -o pipefail
 
-forge clean
-forge test --nmp script/**/*.t.sol --isolate --gas-report
+set -x
+forge clean # we don't trust that the --isolate and --gas-report options will work with the cache
+forge test --nmp script/**/*.t.sol --isolate --gas-report "$@"
+set +x

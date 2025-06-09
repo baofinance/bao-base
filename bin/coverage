@@ -2,4 +2,6 @@
 set -e
 set -o pipefail
 
+set -x
 forge coverage --nmp script/**/*.t.sol --report summary --report lcov
+set +x

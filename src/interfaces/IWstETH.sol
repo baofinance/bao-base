@@ -5,7 +5,7 @@
 // removed all non-view functions
 // removed all function implementations
 
-pragma solidity ^0.8.28;
+pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
