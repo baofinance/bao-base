@@ -14,6 +14,7 @@ abstract contract TokenHolder is ReentrancyGuardTransientUpgradeable, BaoCheckOw
     /// @notice function to transfer owned owned balance of a token
     /// This allows. for example dust resulting from rounding errors, etc.
     /// in case tokens are transferred to this contract by mistake, they can be recovered
+    // slither-disable-next-line reentrancy-no-eth
     function sweep(address token, uint256 amount, address receiver) external onlySweeper nonReentrant {
         _sweep(token, amount, receiver);
     }
