@@ -2,6 +2,6 @@
 set -e
 set -o pipefail
 
-set -x
+[[ "${BAO_BASE_VERBOSITY}" -gt 0 ]] && set -x
 forge coverage --nmp script/**/*.t.sol --report summary --report lcov
-set +x
+{ set +x; } 2>/dev/null

@@ -26,7 +26,8 @@ import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
 /// @author rootminus0x1
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
-// solhint-disable-next-line contract-name-camelcase
+// slither-disable-next-line unimplemented-functions
+// solhint-disable-next-line contract-name-capwords
 contract MintableBurnableERC20_v1 is
     Initializable,
     UUPSUpgradeable,

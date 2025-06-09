@@ -7,6 +7,7 @@ FOUNDRY_OUT="out/_sizes"
 mkdir -p "${FOUNDRY_OUT}"
 
 # forge clean, forcing the build as we don't trust the cache
-set -x
-forge build --sizes --force src test/_sizes
-set +x
+debug "BAO_BASE_VERBOSITY=${BAO_BASE_VERBOSITY}."
+[[ "${BAO_BASE_VERBOSITY}" -gt 0 ]] && set -x
+forge build --sizes --force src test/_sizes || { set +x; } 2>/dev/null
+{ set +x; } 2>/dev/null

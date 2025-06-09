@@ -239,4 +239,6 @@ for arg in "$@"; do
 done
 
 debug "Executing: ${UV_RUN_CMD[*]}"
-"${UV_RUN_CMD[@]}"
+[[ "${BAO_BASE_VERBOSITY}" -gt 0 ]] && set -x
+"${UV_RUN_CMD[@]}" || error "Failed to run Python script or command: $SCRIPT"
+{ set +x; } 2>/dev/null
