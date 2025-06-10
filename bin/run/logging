@@ -15,27 +15,27 @@ export LOGGING_FILE_DESCRIPTOR=${LOGGING_FILE_DESCRIPTOR:-$(first_free_fd)}
 # who said bash was a good idea?
 # exec 8> >(stdbuf -o0 cat)
 case "$LOGGING_FILE_DESCRIPTOR" in
-3)
-  exec 3>&1
-  ;;
-4)
-  exec 4>&1
-  ;;
-5)
-  exec 5>&1
-  ;;
-6)
-  exec 6>&1
-  ;;
-7)
-  exec 7>&1
-  ;;
-8)
-  exec 8>&1
-  ;;
-9)
-  exec 9>&1
-  ;;
+  3)
+    exec 3>&1
+    ;;
+  4)
+    exec 4>&1
+    ;;
+  5)
+    exec 5>&1
+    ;;
+  6)
+    exec 6>&1
+    ;;
+  7)
+    exec 7>&1
+    ;;
+  8)
+    exec 8>&1
+    ;;
+  9)
+    exec 9>&1
+    ;;
 esac
 
 # hidden text in log messages
@@ -328,15 +328,15 @@ export -f trace
 # Process flags for quiet mode and verbosity
 _logging_process_arg() {
   case "$1" in
-  -q | --quiet)
-    BAO_BASE_VERBOSITY=-1000
-    ;;
-  -v | -vv | -vvv | -vvvv)
-    BAO_BASE_VERBOSITY=$((${#1} - 1)) # count the number of 'v's
-    ;;
-  *)
-    return 1
-    ;;
+    -q | --quiet)
+      BAO_BASE_VERBOSITY=-1000
+      ;;
+    -v | -vv | -vvv | -vvvv)
+      BAO_BASE_VERBOSITY=$((${#1} - 1)) # count the number of 'v's
+      ;;
+    *)
+      return 1
+      ;;
   esac
   return 0
 }
