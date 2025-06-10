@@ -25,12 +25,15 @@ debug "calling run-python extract-${REGRESSION_TYPE} to process ${REGRESSION_LOG
 # Check for changes in the regression file
 info 1 "checking for changes in ${REGRESSION_FILE}..."
 debug $(git status)
-git status --short "${REGRESSION_FILE}"
-GIT_PAGER="" git diff --minimal "${REGRESSION_FILE}"
 
 if [[ $(git status --short "${REGRESSION_FILE}" | wc -l) -gt 0 ]]; then
-  warn "The regression file ${REGRESSION_FILE} has changed."
-  error "Either commit the changes if they are expected or fix the issues causing the differences."
+  local maxlines=200
+  local changes
+  changes=$'\n'$(GIT_PAGER="" git diff --minimal --color "${REGRESSION_FILE}" 2>&1 | tail -n +5 | head -n "${maxlines}")
+  local linecount
+  linecount=$(echo "${changes}" | wc -l)
+  [[ "$linecount" -gt "$maxlines" ]] && changes+=$'\n'"... (truncated to ${maxlines} lines)"
+  error "The regression file ${REGRESSION_FILE} has changed:${changes}"$'\n'$'\n'"Either commit the changes if they are expected or fix the issues causing the differences."$'\n'
 else
   log "No changes detected in ${REGRESSION_FILE}"
 fi

@@ -93,12 +93,13 @@ runs:
         ./run nothing-python.py hello .py python script
       id: nothing
 
-    - name: Run Bash Script Formatting
-      shell: bash
-      run: |
-        cd ${{ inputs.cwd }}
-        yarn prettier:bash
-      id: prettier
+    # this doesn't agree with the on-save formatter in vscode, so we disable it for now
+    # - name: Run Bash Script Formatting
+    #   shell: bash
+    #   run: |
+    #     cd ${{ inputs.cwd }}
+    #     yarn prettier:bash
+    #   id: prettier
 
     # - name: Run Bash Script Linting
     #   shell: bash
@@ -124,7 +125,6 @@ runs:
       run: |
         cd ${{ inputs.cwd }}
         git status --short
-        git diff --minimal
         [[ $(git status --short | wc -l) -gt 0 ]] && {
           echo "Git repo has changed, either correctly fix those files locally or .gitignore them"; exit 1;
         } || echo "No changes detected in git repo"

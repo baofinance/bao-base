@@ -30,27 +30,27 @@ os_version="ubuntu-latest" # TODO: read this from the BAO_BASE_OS_* variables
 workflow="test-foundry"
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
-    --workflow | -w)
-      workflow=$2
-      shift 2
-      ;;
-    --foundry | -f)
-      foundry_version=$2
-      shift 2
-      ;;
-    --os | -o)
-      os_version=$2
-      shift 2
-      ;;
-    --help | -h)
-      echo "Usage: $0 [--workflow <workflow>] [--foundry <version>] [--os <os_version>] [<args>]"
-      echo " -w --workflow <workflow>   Specify the workflow to run (default: test-foundry)"
-      echo " -f --foundry <version>     Specify the Foundry version (default: stable)"
-      echo " -o --os <os_version>       Specify the OS version (default: ubuntu-latest)"
-      echo " -h --help                  Show this help message"
-      exit 0
-      ;;
-    *) break ;;
+  --workflow | -w)
+    workflow=$2
+    shift 2
+    ;;
+  --foundry | -f)
+    foundry_version=$2
+    shift 2
+    ;;
+  --os | -o)
+    os_version=$2
+    shift 2
+    ;;
+  --help | -h)
+    echo "Usage: $0 [--workflow <workflow>] [--foundry <version>] [--os <os_version>] [<args>]"
+    echo " -w --workflow <workflow>   Specify the workflow to run (default: test-foundry)"
+    echo " -f --foundry <version>     Specify the Foundry version (default: stable)"
+    echo " -o --os <os_version>       Specify the OS version (default: ubuntu-latest)"
+    echo " -h --help                  Show this help message"
+    exit 0
+    ;;
+  *) break ;;
   esac
 done
 
@@ -69,6 +69,10 @@ workflow_file="${temp_dir}/local_test_${workflow}_${os_version}_${foundry_versio
 event_template_file="${dep_dir}/workflow_dispatch.json"
 event_file="${temp_dir}/workflow_dispatch_${os_version}_${foundry_version}.json"
 
+# Create a foundry cache directory if it doesn't exist
+foundry_cache_dir="${BAO_BASE_TOOLS_DIR}/foundry-cache"
+mkdir -p "${foundry_cache_dir}"
+
 # handle submodules - in submodules .git is a file, in the root, it is a directory
 # we need to have act run in the context of the superproject root
 if [[ -f .git ]]; then
@@ -78,6 +82,7 @@ if [[ -f .git ]]; then
   BAO_BASE_TOOLS_DIR=$(realpath "${BAO_BASE_TOOLS_DIR}")
   workflow_file=$(realpath "${workflow_file}")
   event_file=$(realpath "${event_file}")
+  foundry_cache_dir=$(realpath "${foundry_cache_dir}")
   # the relative path of the submodule from the superproject root
   debug "act_execute_dir=${act_execute_dir}"
   debug "BAO_BASE_TOOLS_DIR=${BAO_BASE_TOOLS_DIR}"
@@ -125,12 +130,13 @@ fi
 
 # let them go
 mutex_release "act"
-
-(cd "${act_execute_dir}" &&
-  "${BAO_BASE_TOOLS_DIR}"/act/act \
-    -P ubuntu-latest=-self-hosted \
-    -W "${workflow_file}" \
-    -e "${event_file}" \
-    --env "CWD=${CWD}" \
-    "$@") || error "CI run failed"
+(
+  cd "${act_execute_dir}" &&
+    "${BAO_BASE_TOOLS_DIR}"/act/act \
+      -P ubuntu-latest=-self-hosted \
+      -W "${workflow_file}" \
+      -e "${event_file}" \
+      --env "CWD=${CWD}" \
+      "$@"
+) || error "CI run failed"
 log "CI run succeeded"

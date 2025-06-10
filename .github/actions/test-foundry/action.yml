@@ -120,7 +120,6 @@ runs:
         # if the above created or changed any repo files, then print a diff and fail
         cd ${{ inputs.cwd }}
         git status --short
-        git diff --minimal
         [[ $(git status --short | wc -l) -gt 0 ]] && {
           echo "Git repo has changed, either correctly fix those files locally or .gitignore them"; exit 1;
         } || echo "No changes detected in git repo"
