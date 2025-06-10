@@ -14,54 +14,54 @@ shopt -s globstar nullglob
 mode="--list"
 for arg in "$@"; do
   case "${arg}" in
-  --write)
-    mode="--write"
-    ;;
-  --check)
-    mode="--list"
-    ;;
-  --lint)
-    mode="--lint"
-    ;;
-  -*)
-    # add the args to the list
-    args+=("${arg}")
-    ;;
-  *)
-    # TODO: handle globbed directories
-    info 1 "processing arg: ${arg}"
-    # this could be done with "shfmt --find" but it doesn't handle all our shebangs
-    # it's a directory or a file
-    if [[ -d "${arg}" ]]; then
-      info 1 "${arg} is a directory"
+    --write)
+      mode="--write"
+      ;;
+    --check)
+      mode="--list"
+      ;;
+    --lint)
+      mode="--lint"
+      ;;
+    -*)
+      # add the args to the list
+      args+=("${arg}")
+      ;;
+    *)
+      # TODO: handle globbed directories
+      info 1 "processing arg: ${arg}"
+      # this could be done with "shfmt --find" but it doesn't handle all our shebangs
+      # it's a directory or a file
+      if [[ -d "${arg}" ]]; then
+        info 1 "${arg} is a directory"
 
-      # Use bash's globstar to match files with specific extensions (much cleaner than find)
-      for file in "${arg}"/**/*.{sh,bash,bats}; do
-        if [[ -f "$file" ]]; then
-          info 2 " found ${file} with extension match"
-          file_set["$file"]=1
-        fi
-      done
+        # Use bash's globstar to match files with specific extensions (much cleaner than find)
+        for file in "${arg}"/**/*.{sh,bash,bats}; do
+          if [[ -f "$file" ]]; then
+            info 2 " found ${file} with extension match"
+            file_set["$file"]=1
+          fi
+        done
 
-      # For shebang matches, still use grep as it's more efficient for this task
-      IFS=':' read -ra shebang_patterns <<<"${SHEBANGS}"
-      for shebang in "${shebang_patterns[@]}"; do
-        if [[ -n "${shebang}" ]]; then
-          # Use grep with -m1 to only match the first line of the file
-          while IFS= read -r file; do
-            # Validate that this is actually a bash file by checking first line contains shebang
-            if [[ -n "${file}" ]] && head -n1 "${file}" | grep -q "^${shebang}"; then
-              info 2 " found ${file} with ${shebang}"
-              file_set["$file"]=1
-            fi
-          done < <(grep -l -m1 "^${shebang}" --include="*" --exclude-dir={.git,node_modules,lib} -r "${arg}" 2>/dev/null)
-        fi
-      done
-    else
-      # it's a file or a file pattern
-      file_set["$arg"]=1
-    fi
-    ;;
+        # For shebang matches, still use grep as it's more efficient for this task
+        IFS=':' read -ra shebang_patterns <<<"${SHEBANGS}"
+        for shebang in "${shebang_patterns[@]}"; do
+          if [[ -n "${shebang}" ]]; then
+            # Use grep with -m1 to only match the first line of the file
+            while IFS= read -r file; do
+              # Validate that this is actually a bash file by checking first line contains shebang
+              if [[ -n "${file}" ]] && head -n1 "${file}" | grep -q "^${shebang}"; then
+                info 2 " found ${file} with ${shebang}"
+                file_set["$file"]=1
+              fi
+            done < <(grep -l -m1 "^${shebang}" --include="*" --exclude-dir={.git,node_modules,lib} -r "${arg}" 2>/dev/null)
+          fi
+        done
+      else
+        # it's a file or a file pattern
+        file_set["$arg"]=1
+      fi
+      ;;
   esac
 done
 

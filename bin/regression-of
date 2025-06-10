@@ -26,7 +26,7 @@ debug "calling run-python extract-${REGRESSION_TYPE} to process ${REGRESSION_LOG
 info 1 "checking for changes in ${REGRESSION_FILE}..."
 debug $(git status)
 git status --short "${REGRESSION_FILE}"
-GIT_PAGER= git diff --minimal "${REGRESSION_FILE}"
+GIT_PAGER="" git diff --minimal "${REGRESSION_FILE}"
 
 if [[ $(git status --short "${REGRESSION_FILE}" | wc -l) -gt 0 ]]; then
   warn "The regression file ${REGRESSION_FILE} has changed."
