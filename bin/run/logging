@@ -260,7 +260,7 @@ trace() {
   BASH_XTRACEFD=$trace_fd
 
   # Run the command with tracing enabled and capture its output
-  info 1 "about to execute:"$'\n'"$@"
+  info 1 "about to execute:"$'\n'"$*"
   # if you channge any of the next 5 lines you also need to change the sed command below
 
   local output stderr

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SHFMT_VERSION="3.11.0"
+
 # Create a new array starting with style options
 args=()
 # Use an associative array to ensure uniqueness of files
@@ -66,9 +68,10 @@ for arg in "$@"; do
 done
 
 # Print to help debug what files were found
-log "Found ${#file_set[@]} files and file patterns to format"
+info 1 "Found ${#file_set[@]} files and file patterns"
 
 if [[ "${mode}" == "--lint" ]]; then
+  # https://www.shellcheck.net
   if ! command -v shellcheck &>/dev/null; then
     log "shellcheck not found attempting to install..."
     log "see https://github.com/koalaman/shellcheck#user-content-installing"
@@ -85,6 +88,7 @@ if [[ "${mode}" == "--lint" ]]; then
     fi
   fi
   # run shellcheck
+  log "shellcheck v$(shellcheck --version | awk '/version:/ {print $2}')"
   issues=0
   info 1 "Running shellcheck..."
   info 1 "with args: ${args[*]}"
@@ -146,12 +150,28 @@ else
   # Create a new array starting with style options
   args+=("--indent=2" "--case-indent")
 
-  SHFMT_BIN="${HOME}/.local/bin/shfmt"
-  if [[ ! -x "${SHFMT_BIN}" ]]; then
-    curl -sS https://webi.sh/shfmt | sh
+  # make sure the exe is installed
+  if [[ "${BAO_BASE_OS}" == "windows" ]]; then
+    # Windows-specific handling
+    SHFMT_BIN="${HOME}/.local/bin/shfmt.exe"
+    SHFMT_DOWNLOAD_VARIANT="windows_amd64.exe"
+  else
+    SHFMT_BIN="${HOME}/.local/bin/shfmt"
+    if [[ "${BAO_BASE_OS}" == "macos" ]]; then
+      SHFMT_DOWNLOAD_VARIANT="darwin_amd64"
+    else
+      SHFMT_DOWNLOAD_VARIANT="linux_amd64"
+    fi
   fi
 
-  info 1 "shfmt version:" "$("${SHFMT_BIN}" --version)" # lint-bash disable=command-substitution
+  if [[ ! -x "${SHFMT_BIN}" ]]; then
+    log "Installing shfmt for ${BAO_BASE_OS}..."
+    mkdir -p "${HOME}/.local/bin"
+    curl -sS -L "https://github.com/mvdan/sh/releases/download/v${SHFMT_VERSION}/shfmt_v${SHFMT_VERSION}_${SHFMT_DOWNLOAD_VARIANT}" -o "${SHFMT_BIN}"
+    chmod +x "${SHFMT_BIN}"
+  fi
+
+  log "shfmt v$("${SHFMT_BIN}" --version)" # lint-bash disable=command-substitution
   info 2 "${SHFMT_BIN} ${mode} ${args[*]} ${!file_set[*]}"
   "${SHFMT_BIN}" "${mode}" "${args[@]}" "${!file_set[@]}"
 fi

@@ -93,13 +93,12 @@ runs:
         ./run nothing-python.py hello .py python script
       id: nothing
 
-    # this doesn't agree with the on-save formatter in vscode, so we disable it for now
-    # - name: Run Bash Script Formatting
-    #   shell: bash
-    #   run: |
-    #     cd ${{ inputs.cwd }}
-    #     yarn prettier:bash
-    #   id: prettier
+    - name: Run Bash Script Formatting
+      shell: bash
+      run: |
+        cd ${{ inputs.cwd }}
+        yarn prettier:bash
+      id: prettier
 
     # - name: Run Bash Script Linting
     #   shell: bash

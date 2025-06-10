@@ -33,7 +33,7 @@ BROADCAST=""
 LOCAL="remote"
 PUBLIC_KEY=""
 
-local myargs=("${args[@]}") # make a copy of args
+myargs=("${args[@]}") # make a copy of args
 debug "  args: ${args[*]}"
 debug "myargs: ${myargs[*]}"
 args=()
@@ -101,15 +101,15 @@ debug "args: ${args[*]}"
 if [[ "${SCRIPT}" != "BATS" ]]; then
   # we're not running the BATS tests, so we can run the script
 
-  local started=$(date '+%Y-%m-%d %H:%M:%S')
+  started=$(date '+%Y-%m-%d %H:%M:%S')
   log "starting at ${started}"
   record deployment.started "${started}"
 
   . "${SCRIPT}" "${args[@]}"
   # look above: there's a dot
 
-  local finished=$(date '+%Y-%m-%d %H:%M:%S')
-  local took=$(($(date -d "${finished}" +%s) - $(date -d "${started}" +%s)))
+  finished=$(date '+%Y-%m-%d %H:%M:%S')
+  took=$(($(date -d "${finished}" +%s) - $(date -d "${started}" +%s)))
   log "finished at ${finished}"
   record deployment.finished "${finished}"
   record deployment.took "${took}"
