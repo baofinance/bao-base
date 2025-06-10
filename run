@@ -24,6 +24,7 @@ export BAO_BASE_SCRIPT_DIR="$BAO_BASE_DIR/script"
 export BAO_BASE_TOOLS_DIR="$BAO_BASE_DIR/.tools"
 
 source "$BAO_BASE_BIN_DIR/run/logging"
+debug "pwd=$(pwd)"
 debug "args=${args[*]}"
 
 debug "BAO_BASE_OS=$BAO_BASE_OS"

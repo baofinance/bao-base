@@ -18,18 +18,19 @@ debug "regression-of ${REGRESSION_TYPE} finished."
 
 # process it using the filter
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
-debug "calling run-python to process the regression log"
+debug "pwd=$(pwd)"
+debug "calling run-python extract-${REGRESSION_TYPE} to process ${REGRESSION_LOG} > ${REGRESSION_FILE}"
 . "${BAO_BASE_BIN_DIR}/run-python" "extract-${REGRESSION_TYPE}" <"${REGRESSION_LOG}" >"${REGRESSION_FILE}"
 
 # Check for changes in the regression file
 info 1 "checking for changes in ${REGRESSION_FILE}..."
+debug $(git status)
 git status --short "${REGRESSION_FILE}"
 GIT_PAGER= git diff --minimal "${REGRESSION_FILE}"
 
 if [[ $(git status --short "${REGRESSION_FILE}" | wc -l) -gt 0 ]]; then
-  echo "⚠️  The regression file ${REGRESSION_FILE} has changed."
-  echo "Either commit the changes if they are expected or fix the issues causing the differences."
-  exit 1
+  warn "The regression file ${REGRESSION_FILE} has changed."
+  error "Either commit the changes if they are expected or fix the issues causing the differences."
 else
-  echo "✅ No changes detected in ${REGRESSION_FILE}"
+  log "No changes detected in ${REGRESSION_FILE}"
 fi

@@ -13,6 +13,10 @@ inputs:
   foundry:
     description: "Foundry version to test"
     required: true
+  cwd:
+    description: "Directory to run commands in"
+    required: false
+    default: "."
 
 runs:
   using: "composite"
@@ -22,6 +26,7 @@ runs:
       run: |
         echo "runner.os=${{ runner.os }}"
         python3 -c "import platform; info = f'{platform.system()} {platform.release()} {platform.version()} {platform.machine()}'; print('-' * len(info)); print(info); print('-' * len(info))"
+        bash --version
 
     - name: Install Bash 5.2 (on macOS)
       if: runner.os == 'macOS'
@@ -33,6 +38,7 @@ runs:
     - name: Install ShellCheck
       shell: bash
       run: |
+        cd ${{ inputs.cwd }}
         if [[ "${{ runner.os }}" == "Linux" ]]; then
           sudo apt-get update
           sudo apt-get install -y shellcheck
@@ -74,16 +80,32 @@ runs:
     - name: Install project dependencies
       shell: bash
       run: |
+        cd ${{ inputs.cwd }}
         yarn
 
     - name: Run run script debug info
       shell: bash
       run: |
+        cd ${{ inputs.cwd }}
         ./run nothing hello bash script
         ./run nothing-dir hello directory
         ./run nothing-python hello assumed python script
         ./run nothing-python.py hello .py python script
       id: nothing
+
+    - name: Run Bash Script Formatting
+      shell: bash
+      run: |
+        cd ${{ inputs.cwd }}
+        yarn prettier:bash
+      id: prettier
+
+    # - name: Run Bash Script Linting
+    #   shell: bash
+    #   run: |
+    #     cd ${{ inputs.cwd }}
+    #     yarn lint:bash
+    #   id: lint
 
     # - name: Run Python (pytest) Tests
     #   shell: bash
@@ -97,15 +119,10 @@ runs:
     #     yarn test:bash
     #   id: bats
 
-    # - name: Run Bash Script Linting
-    #   shell: bash
-    #   run: |
-    #     yarn lint:bash
-    #   id: lint
-
     - name: Check for changed repo files
       shell: bash
       run: |
+        cd ${{ inputs.cwd }}
         git status --short
         git diff --minimal
         [[ $(git status --short | wc -l) -gt 0 ]] && {
