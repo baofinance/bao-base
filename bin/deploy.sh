@@ -108,7 +108,6 @@ if [[ "${SCRIPT}" != "BATS" ]]; then
   # look above: there's a dot
 
   finished=$(snap_epoch)
-  log_finished "${started}"
   record deployment.finished $(format_epoch "${finished}")
   local took
   took=$(format_duration "${started}" "${finished}")
