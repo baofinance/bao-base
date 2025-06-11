@@ -252,7 +252,7 @@ debug "Proceeding with execution option: ${execution_descriptions[0]}"
 case "${execution_options[0]}" in
   dir_run_sh)
     info 0 "Running: $BAO_BASE_BIN_DIR/$SCRIPT_NAME/run.sh ${args[*]}"
-    run_script_with_type "bash" "$SCRIPT_PATH/run.sh" "${args[@]}" || {
+    run_script_with_type "bash" "$SCRIPT_NAME/run.sh" "${args[@]}" || {
       exit_code=$?
       error "Directory run script execution failed with code $exit_code"
       exit $exit_code
