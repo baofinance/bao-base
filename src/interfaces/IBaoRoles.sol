@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.26;
+pragma solidity >=0.8.28 <0.9.0;
 
 /// @notice Simple single owner and multiroles authorization mixin.
 /// @author rootminus0x1 a barefaced copy of Solady (https://github.com/vectorized/solady/blob/main/src/auth/OwnableRoles.sol)

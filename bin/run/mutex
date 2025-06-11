@@ -71,8 +71,9 @@ mutex_release() {
   local pid=$$
 
   debug "releasing mutex for ${pid}: ${mutex_name}"
-  # Only release if we own it
+  # is it already released?
   if [ -f "${mutex_file}" ]; then
+    # Only release if we own it
     local holder_pid
     local expiry
     read holder_pid expiry <"${mutex_file}"

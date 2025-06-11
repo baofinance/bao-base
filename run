@@ -24,6 +24,7 @@ export BAO_BASE_SCRIPT_DIR="$BAO_BASE_DIR/script"
 export BAO_BASE_TOOLS_DIR="$BAO_BASE_DIR/.tools"
 
 source "$BAO_BASE_BIN_DIR/run/logging"
+debug "pwd=$(pwd)"
 debug "args=${args[*]}"
 
 debug "BAO_BASE_OS=$BAO_BASE_OS"
@@ -109,10 +110,10 @@ detect_script_type() {
     local ext_type
 
     case "${script_path##*.}" in
-    py) ext_type="python" ;;
-    js) ext_type="node" ;;
-    sh) ext_type="bash" ;;
-    *) ext_type="unknown" ;;
+      py) ext_type="python" ;;
+      js) ext_type="node" ;;
+      sh) ext_type="bash" ;;
+      *) ext_type="unknown" ;;
     esac
 
     if [[ "$ext_type" != "unknown" && "$detected_type" != "$ext_type" ]]; then
@@ -134,25 +135,30 @@ run_script_with_type() {
   local script="$2"
   shift 2
 
+  local started=$(snap_epoch)
+
   local exit_code=0
   case "$script_type" in
-  python)
-    debug "Executing via run-python: $script"
-    . "$BAO_BASE_BIN_DIR/run-python" "$script" "$@" || exit_code=$?
-    ;;
-  node)
-    debug "Executing via run-node: $script"
-    . "$BAO_BASE_BIN_DIR/run-node" "$script" "$@" || exit_code=$?
-    ;;
-  bash)
-    debug "Executing $script"
-    . "$BAO_BASE_BIN_DIR"/"$script" "$@" || exit_code=$?
-    ;;
-  *)
-    error "Unknown script type: $script_type"
-    return 1
-    ;;
+    python)
+      debug "Executing via run-python: $script"
+      . "$BAO_BASE_BIN_DIR/run-python" "$script" "$@" || exit_code=$?
+      ;;
+    node)
+      debug "Executing via run-node: $script"
+      . "$BAO_BASE_BIN_DIR/run-node" "$script" "$@" || exit_code=$?
+      ;;
+    bash)
+      debug "Executing $script"
+      . "$BAO_BASE_BIN_DIR"/"$script" "$@" || exit_code=$?
+      ;;
+    *)
+      error "Unknown script type: $script_type"
+      return 1
+      ;;
   esac
+
+  log_finish "${started}"
+
   [[ "$exit_code" -gt "0" ]] && error "$script_type script execution failed with code $exit_code"
   return $exit_code
 }
@@ -214,27 +220,27 @@ elif [[ $option_count -gt 1 ]]; then
     echo -n "    Option $((i + 1)): "
 
     case "${execution_options[$i]}" in
-    dir_run_sh)
-      echo "Would run as bash script: $SCRIPT_NAME $*"
-      echo "        Path: $SCRIPT_PATH/run.sh"
-      ;;
-    dir_run_py)
-      script_type=$(detect_script_type "$SCRIPT_PATH/run.py" "python")
-      echo "Would run as $script_type script: $SCRIPT_NAME $*"
-      echo "        Path: $SCRIPT_PATH/run.py"
-      ;;
-    direct_file)
-      script_type=$(detect_script_type "$SCRIPT_PATH" "unknown")
-      echo "Would run as $script_type script: $SCRIPT_NAME $*"
-      echo "        Path: $SCRIPT_PATH"
-      ;;
-    pattern_match:*)
-      matched_file="${execution_options[$i]#pattern_match:}"
-      script_basename=$(basename "$matched_file")
-      script_type=$(detect_script_type "$matched_file" "unknown")
-      echo "Would run as $script_type script: $script_basename $*"
-      echo "        Path: $matched_file"
-      ;;
+      dir_run_sh)
+        echo "Would run as bash script: $SCRIPT_NAME $*"
+        echo "        Path: $SCRIPT_PATH/run.sh"
+        ;;
+      dir_run_py)
+        script_type=$(detect_script_type "$SCRIPT_PATH/run.py" "python")
+        echo "Would run as $script_type script: $SCRIPT_NAME $*"
+        echo "        Path: $SCRIPT_PATH/run.py"
+        ;;
+      direct_file)
+        script_type=$(detect_script_type "$SCRIPT_PATH" "unknown")
+        echo "Would run as $script_type script: $SCRIPT_NAME $*"
+        echo "        Path: $SCRIPT_PATH"
+        ;;
+      pattern_match:*)
+        matched_file="${execution_options[$i]#pattern_match:}"
+        script_basename=$(basename "$matched_file")
+        script_type=$(detect_script_type "$matched_file" "unknown")
+        echo "Would run as $script_type script: $script_basename $*"
+        echo "        Path: $matched_file"
+        ;;
     esac
   done
 
@@ -244,52 +250,52 @@ fi
 # Execute the single option
 debug "Proceeding with execution option: ${execution_descriptions[0]}"
 case "${execution_options[0]}" in
-dir_run_sh)
-  info 0 "Running: $BAO_BASE_BIN_DIR/$SCRIPT_NAME/run.sh ${args[*]}"
-  . "$SCRIPT_PATH/run.sh" "${args[@]}" || {
-    exit_code=$?
-    error "Directory run script execution failed with code $exit_code"
-    exit $exit_code
-  }
-  ;;
+  dir_run_sh)
+    info 0 "Running: $BAO_BASE_BIN_DIR/$SCRIPT_NAME/run.sh ${args[*]}"
+    run_script_with_type "bash" "$SCRIPT_NAME/run.sh" "${args[@]}" || {
+      exit_code=$?
+      error "Directory run script execution failed with code $exit_code"
+      exit $exit_code
+    }
+    ;;
 
-dir_run_py)
-  info 0 "Running: $BAO_BASE_BIN_DIR/$SCRIPT_NAME/run.py ${args[*]}"
-  script_type=$(detect_script_type "$SCRIPT_PATH/run.py" "python")
-  run_script_with_type "$script_type" "$SCRIPT_PATH/run.py" "${args[@]}" || {
-    exit_code=$?
-    exit $exit_code
-  }
-  ;;
+  dir_run_py)
+    info 0 "Running: $BAO_BASE_BIN_DIR/$SCRIPT_NAME/run.py ${args[*]}"
+    script_type=$(detect_script_type "$SCRIPT_PATH/run.py" "python")
+    run_script_with_type "$script_type" "$SCRIPT_PATH/run.py" "${args[@]}" || {
+      exit_code=$?
+      exit $exit_code
+    }
+    ;;
 
-direct_file)
-  script_type=$(detect_script_type "$SCRIPT_PATH")
-  if [[ "$script_type" == "unknown" ]]; then
-    error "Could not determine script type for $SCRIPT_PATH"
-  fi
+  direct_file)
+    script_type=$(detect_script_type "$SCRIPT_PATH")
+    if [[ "$script_type" == "unknown" ]]; then
+      error "Could not determine script type for $SCRIPT_PATH"
+    fi
 
-  info 0 "Running as $script_type: $BAO_BASE_BIN_DIR/$SCRIPT_NAME $*"
-  run_script_with_type "$script_type" "$SCRIPT_NAME" "${args[@]}" || {
-    exit_code=$?
-    exit $exit_code
-  }
-  ;;
+    info 0 "Running as $script_type: $BAO_BASE_BIN_DIR/$SCRIPT_NAME $*"
+    run_script_with_type "$script_type" "$SCRIPT_NAME" "${args[@]}" || {
+      exit_code=$?
+      exit $exit_code
+    }
+    ;;
 
-pattern_match:*)
-  matched_file="${execution_options[0]#pattern_match:}"
-  script_basename=$(basename "$matched_file")
-  script_type=$(detect_script_type "$matched_file")
+  pattern_match:*)
+    matched_file="${execution_options[0]#pattern_match:}"
+    script_basename=$(basename "$matched_file")
+    script_type=$(detect_script_type "$matched_file")
 
-  if [[ "$script_type" == "unknown" ]]; then
-    error "Could not determine script type for $matched_file"
-  fi
+    if [[ "$script_type" == "unknown" ]]; then
+      error "Could not determine script type for $matched_file"
+    fi
 
-  info 0 "Running as $script_type: $BAO_BASE_BIN_DIR/$script_basename ${args[*]}"
-  run_script_with_type "$script_type" "$script_basename" "${args[@]}" || {
-    exit_code=$?
-    exit $exit_code
-  }
-  ;;
+    info 0 "Running as $script_type: $BAO_BASE_BIN_DIR/$script_basename ${args[*]}"
+    run_script_with_type "$script_type" "$script_basename" "${args[@]}" || {
+      exit_code=$?
+      exit $exit_code
+    }
+    ;;
 esac
 
 exit_code=0

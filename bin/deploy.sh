@@ -33,40 +33,40 @@ BROADCAST=""
 LOCAL="remote"
 PUBLIC_KEY=""
 
-local myargs=("${args[@]}") # make a copy of args
+myargs=("${args[@]}") # make a copy of args
 debug "  args: ${args[*]}"
 debug "myargs: ${myargs[*]}"
 args=()
 while [[ ${#myargs[@]} -gt 0 ]]; do
   case "${myargs[0]}" in
-  --rpc-url)
-    RPC_URL="${myargs[1]}"
-    myargs=("${myargs[@]:2}") # shift 2
-    ;;
-  --no-verify)
-    VERIFY=""
-    myargs=("${myargs[@]:1}") # shift 1
-    ;;
-  --broadcast)
-    debug "setting BROADCAST"
-    # shellcheck disable=SC2034
-    BROADCAST="--broadcast"
-    myargs=("${myargs[@]:1}") # shift 1
-    ;;
-  -h | --help)
-    echo "Usage: ${0} [--rpc-url <url>] [--no-verify] [--broadcast] <script> [<args>...]"
-    echo "  --rpc-url <url>   Specify the RPC URL to use (default: anvil)"
-    echo "                    \"anvil\" is the same as -rpc-url local, but using a test private key"
-    echo "  --no-verify       Skip verification of contracts on Etherscan, default is to verify on non-local RPC URLs"
-    echo "  --broadcast       Broadcast transactions (default is no broadcasting, i.e. dry-run)"
-    echo "  <script>          The script to run after setting up the environment"
-    echo "  <args>...        Additional arguments to pass to the script"
-    exit 0
-    ;;
-  *)
-    args+=("${myargs[0]}")
-    myargs=("${myargs[@]:1}") # shift 1
-    ;;
+    --rpc-url)
+      RPC_URL="${myargs[1]}"
+      myargs=("${myargs[@]:2}") # shift 2
+      ;;
+    --no-verify)
+      VERIFY=""
+      myargs=("${myargs[@]:1}") # shift 1
+      ;;
+    --broadcast)
+      debug "setting BROADCAST"
+      # shellcheck disable=SC2034
+      BROADCAST="--broadcast"
+      myargs=("${myargs[@]:1}") # shift 1
+      ;;
+    -h | --help)
+      echo "Usage: ${0} [--rpc-url <url>] [--no-verify] [--broadcast] <script> [<args>...]"
+      echo "  --rpc-url <url>   Specify the RPC URL to use (default: anvil)"
+      echo "                    \"anvil\" is the same as -rpc-url local, but using a test private key"
+      echo "  --no-verify       Skip verification of contracts on Etherscan, default is to verify on non-local RPC URLs"
+      echo "  --broadcast       Broadcast transactions (default is no broadcasting, i.e. dry-run)"
+      echo "  <script>          The script to run after setting up the environment"
+      echo "  <args>...        Additional arguments to pass to the script"
+      exit 0
+      ;;
+    *)
+      args+=("${myargs[0]}")
+      myargs=("${myargs[@]:1}") # shift 1
+      ;;
   esac
 done
 debug "args: ${args[*]}"
@@ -101,16 +101,16 @@ debug "args: ${args[*]}"
 if [[ "${SCRIPT}" != "BATS" ]]; then
   # we're not running the BATS tests, so we can run the script
 
-  local started=$(date '+%Y-%m-%d %H:%M:%S')
-  log "starting at ${started}"
-  record deployment.started "${started}"
+  started=$(snap_epoch)
+  record deployment.started $(format_epoch "${started}")
 
   . "${SCRIPT}" "${args[@]}"
   # look above: there's a dot
 
-  local finished=$(date '+%Y-%m-%d %H:%M:%S')
-  local took=$(($(date -d "${finished}" +%s) - $(date -d "${started}" +%s)))
-  log "finished at ${finished} and took ${took} seconds."
-  record deployment.finished "${finished}"
+  finished=$(snap_epoch)
+  log_finished "${started}"
+  record deployment.finished $(format_epoch "${finished}")
+  local took
+  took=$(format_duration "${started}" "${finished}")
   record deployment.took "${took}"
 fi

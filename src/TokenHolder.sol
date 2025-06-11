@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity >=0.8.28 <0.9.0;
 
 import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -14,7 +14,12 @@ abstract contract TokenHolder is ReentrancyGuardTransientUpgradeable, BaoCheckOw
     /// @notice function to transfer owned owned balance of a token
     /// This allows. for example dust resulting from rounding errors, etc.
     /// in case tokens are transferred to this contract by mistake, they can be recovered
-    function sweep(address token, uint256 amount, address receiver) public virtual nonReentrant onlySweeper {
+    // slither-disable-next-line reentrancy-no-eth
+    function sweep(address token, uint256 amount, address receiver) external onlySweeper nonReentrant {
+        _sweep(token, amount, receiver);
+    }
+
+    function _sweep(address token, uint256 amount, address receiver) internal virtual {
         Token.ensureNonZeroAddress(receiver);
         amount = Token.allOf(address(this), token, amount);
         emit Swept(token, amount, receiver);
