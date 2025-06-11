@@ -325,6 +325,70 @@ trace() {
 }
 export -f trace
 
+snap_epoch() {
+  python3 -c 'import time; print(time.time())'
+}
+
+format_epoch() {
+  local epoch="${1:-}"
+  if [[ -z "$epoch" ]]; then
+    epoch=$(snap_epoch)
+  fi
+  # Format the timestamp
+  python3 -c "import time; ts = float($epoch); print(time.strftime('%d-%b-%Y %H:%M:%S', time.gmtime(ts)) + '.{:02d}'.format(int(str(ts).split('.')[-1][:2])))"
+}
+
+format_duration() {
+  local start_epoch="$1"
+  local finish_epoch="$2"
+  local total_seconds
+
+  # Use Python with proper rounding
+  python3 -c "
+import time
+start_ts = $start_epoch
+finish_ts = $finish_epoch
+duration = finish_ts - start_ts + 0.005 # Add 0.005 for proper rounding to two decimal places
+timedelta = time.gmtime(duration)
+days = timedelta.tm_yday - 1  # tm_yday starts from 1, so subtract 1 for zero-based index
+hours = timedelta.tm_hour
+minutes = timedelta.tm_min
+seconds = timedelta.tm_sec
+hundredths = int((duration % 1) * 100)
+if duration > 60*60*24:
+    print(f'{days} days {hours}h {minutes}m')
+elif duration >= 60*60:
+    print(f'{hours}h {minutes}m {seconds}s')
+elif duration >= 60:
+    print(f'{minutes}m {seconds}s')
+else:
+    print(f'{seconds}.{hundredths:02d}s')
+"
+}
+
+log_finish() {
+  local start_epoch="${1:-}"
+  local finish_epoch
+  finish_epoch=$(snap_epoch)
+  # Format the finish timestamp
+  local finish_time
+  finish_time=$(format_epoch "$finish_epoch")
+
+  local took=""
+  if [[ -n "$start_epoch" ]]; then
+    # If start_epoch is provided, use it
+    local start_time
+    start_time=$(format_epoch "$start_epoch")
+    local duration
+    duration=$(format_duration "$start_epoch" "$finish_epoch")
+    took="took ${duration}, started: ${start_time}, "
+  fi
+
+  # Return both the duration and timestamp
+  log "${took}finished: ${finish_time} (UTC)"
+}
+export -f log_finish
+
 # Process flags for quiet mode and verbosity
 _logging_process_arg() {
   case "$1" in

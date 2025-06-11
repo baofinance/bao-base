@@ -101,16 +101,16 @@ debug "args: ${args[*]}"
 if [[ "${SCRIPT}" != "BATS" ]]; then
   # we're not running the BATS tests, so we can run the script
 
-  started=$(date '+%Y-%m-%d %H:%M:%S')
-  log "starting at ${started}"
-  record deployment.started "${started}"
+  started=$(snap_epoch)
+  record deployment.started $(format_epoch "${started}")
 
   . "${SCRIPT}" "${args[@]}"
   # look above: there's a dot
 
-  finished=$(date '+%Y-%m-%d %H:%M:%S')
-  took=$(($(date -d "${finished}" +%s) - $(date -d "${started}" +%s)))
-  log "finished at ${finished}"
-  record deployment.finished "${finished}"
+  finished=$(snap_epoch)
+  log_finished "${started}"
+  record deployment.finished $(format_epoch "${finished}")
+  local took
+  took=$(format_duration "${started}" "${finished}")
   record deployment.took "${took}"
 fi
