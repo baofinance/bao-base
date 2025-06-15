@@ -21,9 +21,9 @@ import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 
-import {MintableBurnableERC20_v1} from "src/MintableBurnableERC20_v1.sol";
-import {IMintableRole} from "src/interfaces/IMintableRole.sol";
-import {IBurnableRole} from "src/interfaces/IBurnableRole.sol";
+import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
+import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
+import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
