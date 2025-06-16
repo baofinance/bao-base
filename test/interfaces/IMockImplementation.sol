@@ -111,11 +111,11 @@ abstract contract MockImplementationWithStateBase is UUPSUpgradeable, IMockImple
     }
 
     function upgradeToAndCall(address newImplementation, bytes memory data) public payable virtual override {
-        console2.log("MockImplementation.upgradeToAndCall called with newImplementation: %s", newImplementation);
+        // console2.log("MockImplementation.upgradeToAndCall called with newImplementation: %s", newImplementation);
 
         super.upgradeToAndCall(newImplementation, data);
 
-        console2.log("MockImplementation.upgradeToAndCall completed.");
+        // console2.log("MockImplementation.upgradeToAndCall completed.");
     }
 
     // modifier log(string memory funcname) {
@@ -133,9 +133,9 @@ abstract contract MockImplementationWithStateBase is UUPSUpgradeable, IMockImple
     modifier $reinitializer(uint64 version) {
         InitializableStorage storage $ = $_getInitializableStorage();
 
-        console2.log("MockImplementation.$reinitializer called with version: %s", version);
-        console2.log("_initializing=%s.", $._initializing);
-        console2.log("_initialized=%s.", $._initialized);
+        // console2.log("MockImplementation.$reinitializer called with version: %s", version);
+        // console2.log("_initializing=%s.", $._initializing);
+        // console2.log("_initialized=%s.", $._initialized);
 
         if ($._initializing || $._initialized >= version) {
             revert InvalidInitialization();
@@ -145,6 +145,6 @@ abstract contract MockImplementationWithStateBase is UUPSUpgradeable, IMockImple
         _;
         $._initializing = false;
         emit Initialized(version);
-        console2.log("MockImplementation.$reinitializer completed.");
+        // console2.log("MockImplementation.$reinitializer completed.");
     }
 }

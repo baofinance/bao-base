@@ -2,6 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
@@ -13,6 +14,7 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
+import {ERC20PermitUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
@@ -66,7 +68,6 @@ contract TestLeveragedTokensSetUp is Test {
         );
     }
 
-    // TODO: create abstract base class to set up testing framework for deploying & testing
     function setUpContract() internal virtual {
         setUp_impl();
         setUp_proxy();
@@ -340,23 +341,149 @@ contract TestLeveragedToken is TestLeveragedTokensSetUp {
     }
 }
 
-contract Test_LeveragedToken_badDeploy is Test {
-    function test_zeroOwner() public {
-        string memory name = "leveraged";
-        string memory symbol = "BaoUSDLwstETH";
+contract TestUpgrade is TestLeveragedTokensSetUp {
+    function test_authorizeUpgrade() public {
+        // Deploy a new implementation
+        address newImpl = address(new MintableBurnableERC20_v1());
 
-        address owner = vm.createWallet("owner").addr;
+        // Should revert if not owner
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        UUPSUpgradeable(leveragedToken).upgradeToAndCall(newImpl, "");
 
-        UnsafeUpgrades.deployUUPSProxy(
-            address(new MintableBurnableERC20_v1()), //"MintableBurnableERC20_v1.sol",
-            abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, name, symbol))
+        // Should succeed if owner
+        vm.prank(owner);
+        UUPSUpgradeable(leveragedToken).upgradeToAndCall(newImpl, "");
+    }
+}
+
+contract TestPermit is TestLeveragedTokensSetUp {
+    function test_permitBasic() public {
+        // Mint some tokens to user1
+        vm.prank(minter);
+        IMintable(leveragedToken).mint(user1, 10 ether);
+
+        // Check initial nonce
+        uint256 initialNonce = IERC20Permit(leveragedToken).nonces(user1);
+        assertEq(initialNonce, 0, "Initial nonce should be 0");
+
+        // Get domain separator
+        bytes32 domainSeparator = IERC20Permit(leveragedToken).DOMAIN_SEPARATOR();
+        assertFalse(domainSeparator == bytes32(0), "Domain separator should not be zero");
+
+        // Create permit signature
+        uint256 deadline = block.timestamp + 1000;
+        bytes32 permitTypehash = keccak256(
+            "Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"
         );
 
-        // address lt = address(new MintableBurnableERC20_v1());
-        // vm.expectRevert(IBaoOwnable.NewOwnerIsZeroAddress.selector);
-        // UnsafeUpgrades.deployUUPSProxy(
-        //     lt, //"MintableBurnableERC20_v1.sol",
-        //     abi.encodeCall(MintableBurnableERC20_v1.initialize, (address(0), name, symbol))
-        // );
+        bytes32 structHash = keccak256(
+            abi.encode(permitTypehash, user1, address(this), 1 ether, initialNonce, deadline)
+        );
+
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(user1Wallet.privateKey, digest);
+
+        // Execute permit
+        vm.expectEmit(true, true, false, true);
+        emit IERC20.Approval(user1, address(this), 1 ether);
+        IERC20Permit(leveragedToken).permit(user1, address(this), 1 ether, deadline, v, r, s);
+
+        // Verify allowance was set
+        assertEq(IERC20(leveragedToken).allowance(user1, address(this)), 1 ether, "Allowance not set correctly");
+
+        // Verify nonce was incremented
+        assertEq(IERC20Permit(leveragedToken).nonces(user1), initialNonce + 1, "Nonce not incremented");
+
+        // Test with expired deadline
+        uint256 expiredDeadline = block.timestamp - 1;
+        bytes32 expiredStructHash = keccak256(
+            abi.encode(
+                permitTypehash,
+                user1,
+                address(this),
+                1 ether,
+                initialNonce + 1, // Updated nonce
+                expiredDeadline
+            )
+        );
+
+        bytes32 expiredDigest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, expiredStructHash));
+
+        (uint8 v2, bytes32 r2, bytes32 s2) = vm.sign(user1Wallet.privateKey, expiredDigest);
+
+        // Should revert with expired deadline
+        vm.expectRevert(abi.encodeWithSelector(ERC20PermitUpgradeable.ERC2612ExpiredSignature.selector, 0));
+        IERC20Permit(leveragedToken).permit(user1, address(this), 1 ether, expiredDeadline, v2, r2, s2);
+    }
+
+    function test_permitInvalidSignature() public {
+        // Mint some tokens to user1
+        vm.prank(minter);
+        IMintable(leveragedToken).mint(user1, 10 ether);
+
+        uint256 deadline = block.timestamp + 1000;
+        bytes32 domainSeparator = IERC20Permit(leveragedToken).DOMAIN_SEPARATOR();
+        uint256 nonce = IERC20Permit(leveragedToken).nonces(user1);
+
+        // Create digest for a different user (user2 wallet)
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"),
+                user1, // owner is still user1
+                address(this),
+                1 ether,
+                nonce,
+                deadline
+            )
+        );
+
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+
+        // Sign with user2's wallet instead of user1
+        Vm.Wallet memory user2Wallet = vm.createWallet("user2_alt");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(user2Wallet.privateKey, digest);
+
+        // Should revert with invalid signature
+        vm.expectRevert(
+            abi.encodeWithSelector(ERC20PermitUpgradeable.ERC2612InvalidSigner.selector, user2Wallet.addr, user1)
+        );
+        IERC20Permit(leveragedToken).permit(user1, address(this), 1 ether, deadline, v, r, s);
+    }
+}
+
+contract TestMaxAllowance is TestLeveragedTokensSetUp {
+    function test_maxAllowance() public {
+        // Mint tokens to user1
+        vm.prank(minter);
+        IMintable(leveragedToken).mint(user1, 10 ether);
+
+        // Set maximum allowance
+        vm.prank(user1);
+        IERC20(leveragedToken).approve(address(this), type(uint256).max);
+
+        // Verify max allowance
+        assertEq(
+            IERC20(leveragedToken).allowance(user1, address(this)),
+            type(uint256).max,
+            "Max allowance not set correctly"
+        );
+
+        // Transfer once
+        IERC20(leveragedToken).transferFrom(user1, user2, 1 ether);
+
+        // Check allowance remains max
+        assertEq(
+            IERC20(leveragedToken).allowance(user1, address(this)),
+            type(uint256).max,
+            "Max allowance should not decrease"
+        );
+
+        // Transfer again
+        IERC20(leveragedToken).transferFrom(user1, user2, 2 ether);
+
+        // Balances should be updated
+        assertEq(IERC20(leveragedToken).balanceOf(user1), 7 ether, "user1 balance incorrect");
+        assertEq(IERC20(leveragedToken).balanceOf(user2), 3 ether, "user2 balance incorrect");
     }
 }
