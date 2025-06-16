@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // OpenZeppelin Contracts (last updated v5.1.0) (token/ERC20/extensions/ERC20Permit.sol)
 
-pragma solidity ^0.8.20;
+pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
@@ -19,7 +19,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
  * need to send a transaction, and thus is not required to hold Ether at all.
  */
 abstract contract ERC20PermitUpgradeable is Initializable, IERC20Permit, EIP712Upgradeable, NoncesUpgradeable {
-    bytes32 private constant PERMIT_TYPEHASH =
+    bytes32 private constant _PERMIT_TYPEHASH =
         keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)");
 
     /**
@@ -37,6 +37,7 @@ abstract contract ERC20PermitUpgradeable is Initializable, IERC20Permit, EIP712U
      *
      * It's a good idea to use the same `name` that is defined as the ERC-20 token name.
      */
+    // solhint-disable-next-line func-name-mixedcase
     function __ERC20Permit_init(string memory name) internal onlyInitializing {
         __EIP712_init_unchained(name, "1");
     }
@@ -57,7 +58,7 @@ abstract contract ERC20PermitUpgradeable is Initializable, IERC20Permit, EIP712U
             revert ERC2612ExpiredSignature(deadline);
         }
 
-        bytes32 structHash = keccak256(abi.encode(PERMIT_TYPEHASH, owner, spender, value, _useNonce(owner), deadline));
+        bytes32 structHash = keccak256(abi.encode(_PERMIT_TYPEHASH, owner, spender, value, _useNonce(owner), deadline));
 
         bytes32 hash = _hashTypedDataV4(structHash);
 
