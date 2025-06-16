@@ -54,6 +54,7 @@ abstract contract ERC20PermitUpgradeable is Initializable, IERC20Permit, EIP712U
         bytes32 r,
         bytes32 s
     ) public virtual {
+        // slither-disable-next-line timestamp
         if (block.timestamp > deadline) {
             revert ERC2612ExpiredSignature(deadline);
         }
