@@ -31,6 +31,7 @@ network_query() {
   local key="$1"
   local network
   network=$(network_name)
+  [[ -n "$network" ]] || error "Failed to get network name for chain ID $(chain_id)"
   # Only proceed if network is not empty
   if [[ -n "$network" ]]; then
     debug "key=${key}."
@@ -46,7 +47,8 @@ export -f network_query
 # Add a simpler function that just gets the network name for a chain ID
 network_name() {
   local chain
-  chain=$(chain_id) # lint-bash disable=command-substitution
+  # chain=$(chain_id) # lint-bash disable=command-substitution
+  chain=${CHAIN_ID}
   debug "looking up '${chain}' in $BAO_BASE_SCRIPT_DIR/networks.json"
   jq -r ".[\"$chain\"] // \"\"" "$BAO_BASE_SCRIPT_DIR/networks.json" || error "Failed to query network name for chain ID '${chain}' in $BAO_BASE_SCRIPT_DIR/networks.json"
 }
