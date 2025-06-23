@@ -25,6 +25,7 @@ jobs:
           submodules: recursive
 
       - name: Run Bao-base CI actions
-        uses: $BAO_BASE_DIR/.github/actions/test-foundry
+        uses: $BAO_BASE_DIR/.github/actions/$ACTION_FILE
         with:
           foundry: ${{ inputs.foundry }}
+          cwd: ${{ env.CWD }}

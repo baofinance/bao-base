@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity >=0.8.28 <0.9.0;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
@@ -35,11 +35,6 @@ contract MockImplementationWithState is Initializable, MockImplementationWithSta
     // See https://docs.openzeppelin.com/contracts/5.x/api/proxy#Initializable for reinitializer
     // after the initial deployment the version is 1, so the next one must be >1, e.g. 2 ↓
     function postUpgradeSetup(address newOwner, uint256 newValue) external reinitializer(2) {
-        console2.log(
-            "MockImplementationWithState.postUpgradeSetup called with newOwner: %s, newValue: %s",
-            newOwner,
-            newValue
-        );
         StateStorage storage $ = _getStateStorage();
         emit ValueChanged($.value, newValue);
         $.value = newValue;

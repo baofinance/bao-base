@@ -77,10 +77,10 @@ if [[ "${BAO_BASE_VERBOSITY:-0}" -lt 0 ]]; then
   UV_CMD+=("-qq" "--no-progress") # Quiet mode
 else
   case "${BAO_BASE_VERBOSITY:-0}" in
-  0) UV_CMD+=("-qq") ;;
-  1) UV_CMD+=("-q") ;;
-  2) UV_CMD+=("") ;;
-  *) UV_CMD+=("--verbose") ;;
+    0) UV_CMD+=("-qq") ;;
+    1) UV_CMD+=("-q") ;;
+    2) UV_CMD+=("") ;;
+    *) UV_CMD+=("--verbose") ;;
   esac
 fi
 debug "Using command: ${UV_CMD[*]}"
@@ -239,4 +239,6 @@ for arg in "$@"; do
 done
 
 debug "Executing: ${UV_RUN_CMD[*]}"
-"${UV_RUN_CMD[@]}"
+[[ "${BAO_BASE_VERBOSITY}" -gt 0 ]] && set -x
+"${UV_RUN_CMD[@]}" || error "Failed to run Python script or command: $SCRIPT"
+{ set +x; } 2>/dev/null

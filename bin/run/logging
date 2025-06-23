@@ -7,7 +7,7 @@ set -euo pipefail
 # 2. info messages - these are printed according to a verbosity level, controlled by DEBUG=-v, -vv, -vvv, -vvvv
 # 3. debug messages - these are printed if and only if the script name is in the DEBUG list.
 
-export BAO_BASE_VERBOSITY=${VERBOSITY:-0} # allow ths to be passed in as an env var
+export BAO_BASE_VERBOSITY=${BAO_BASE_VERBOSITY:-0} # allow ths to be passed in as an env var
 
 # set the file descriptor for logging this must be 2 or it interferes with anvil (go figure)
 export LOGGING_FILE_DESCRIPTOR=${LOGGING_FILE_DESCRIPTOR:-$(first_free_fd)}
@@ -15,27 +15,27 @@ export LOGGING_FILE_DESCRIPTOR=${LOGGING_FILE_DESCRIPTOR:-$(first_free_fd)}
 # who said bash was a good idea?
 # exec 8> >(stdbuf -o0 cat)
 case "$LOGGING_FILE_DESCRIPTOR" in
-3)
-  exec 3>&1
-  ;;
-4)
-  exec 4>&1
-  ;;
-5)
-  exec 5>&1
-  ;;
-6)
-  exec 6>&1
-  ;;
-7)
-  exec 7>&1
-  ;;
-8)
-  exec 8>&1
-  ;;
-9)
-  exec 9>&1
-  ;;
+  3)
+    exec 3>&1
+    ;;
+  4)
+    exec 4>&1
+    ;;
+  5)
+    exec 5>&1
+    ;;
+  6)
+    exec 6>&1
+    ;;
+  7)
+    exec 7>&1
+    ;;
+  8)
+    exec 8>&1
+    ;;
+  9)
+    exec 9>&1
+    ;;
 esac
 
 # hidden text in log messages
@@ -119,7 +119,7 @@ _output() {
   if [[ "$message" == *$'\n'* ]]; then
     message=${message//$'\n'/$'\n'"$indent"}
   fi
-  if [[ -v DEBUG ]]; then
+  if [[ -v DEBUG || "${type}" == "ERROR" ]]; then
     # if DEBUG is defined at all, we print script & line number info in clickable form
     # find the caller index in the stack relative to this file (logging)
     local caller_index
@@ -205,14 +205,13 @@ debug() {
   local script_name
   script_name=$(basename "${BASH_SOURCE[1]:-${BASH_SOURCE[0]}}")
   # shellcheck disable=SC2154
-  if [[ ",${DEBUG:-}," == *,"${script_name}",* ]]; then
+  if [[ ",${DEBUG:-}," == *,"${script_name}",* || ",${DEBUG:-}," == ",all," ]]; then
     _output "DEBUG" "$*"
   fi
 }
 
 # Error handling function
 error() {
-  DEBUG="-vvvv" # force debug to be on for error messages
   _output "ERROR" "$*"
   exit 1
 }
@@ -261,7 +260,7 @@ trace() {
   BASH_XTRACEFD=$trace_fd
 
   # Run the command with tracing enabled and capture its output
-  info 1 "about to execute:"$'\n'"$@"
+  info 1 "about to execute:"$'\n'"$*"
   # if you channge any of the next 5 lines you also need to change the sed command below
 
   local output stderr
@@ -326,18 +325,82 @@ trace() {
 }
 export -f trace
 
+snap_epoch() {
+  python3 -c 'import time; print(time.time())'
+}
+
+format_epoch() {
+  local epoch="${1:-}"
+  if [[ -z "$epoch" ]]; then
+    epoch=$(snap_epoch)
+  fi
+  # Format the timestamp
+  python3 -c "import time; ts = float($epoch); print(time.strftime('%d-%b-%Y %H:%M:%S', time.gmtime(ts)) + '.{:02d}'.format(int(str(ts).split('.')[-1][:2])))"
+}
+
+format_duration() {
+  local start_epoch="$1"
+  local finish_epoch="$2"
+  local total_seconds
+
+  # Use Python with proper rounding
+  python3 -c "
+import time
+start_ts = $start_epoch
+finish_ts = $finish_epoch
+duration = finish_ts - start_ts + 0.005 # Add 0.005 for proper rounding to two decimal places
+timedelta = time.gmtime(duration)
+days = timedelta.tm_yday - 1  # tm_yday starts from 1, so subtract 1 for zero-based index
+hours = timedelta.tm_hour
+minutes = timedelta.tm_min
+seconds = timedelta.tm_sec
+hundredths = int((duration % 1) * 100)
+if duration > 60*60*24:
+    print(f'{days} days {hours}h {minutes}m')
+elif duration >= 60*60:
+    print(f'{hours}h {minutes}m {seconds}s')
+elif duration >= 60:
+    print(f'{minutes}m {seconds}s')
+else:
+    print(f'{seconds}.{hundredths:02d}s')
+"
+}
+
+log_finish() {
+  local start_epoch="${1:-}"
+  local finish_epoch
+  finish_epoch=$(snap_epoch)
+  # Format the finish timestamp
+  local finish_time
+  finish_time=$(format_epoch "$finish_epoch")
+
+  local took=""
+  if [[ -n "$start_epoch" ]]; then
+    # If start_epoch is provided, use it
+    local start_time
+    start_time=$(format_epoch "$start_epoch")
+    local duration
+    duration=$(format_duration "$start_epoch" "$finish_epoch")
+    took="took ${duration}, started: ${start_time}, "
+  fi
+
+  # Return both the duration and timestamp
+  log "${took}finished: ${finish_time} (UTC)"
+}
+export -f log_finish
+
 # Process flags for quiet mode and verbosity
 _logging_process_arg() {
   case "$1" in
-  -q | --quiet)
-    BAO_BASE_VERBOSITY=-1000
-    ;;
-  -v | -vv | -vvv | -vvvv)
-    BAO_BASE_VERBOSITY=$((${#1} - 1)) # count the number of 'v's
-    ;;
-  *)
-    return 1
-    ;;
+    -q | --quiet)
+      BAO_BASE_VERBOSITY=-1000
+      ;;
+    -v | -vv | -vvv | -vvvv)
+      BAO_BASE_VERBOSITY=$((${#1} - 1)) # count the number of 'v's
+      ;;
+    *)
+      return 1
+      ;;
   esac
   return 0
 }

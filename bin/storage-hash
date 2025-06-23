@@ -14,8 +14,8 @@ fi
 KEY=$1
 
 case $KEY in
-  (*.*) ;; # contains "."s, do nothing
-  (*) KEY="bao.storage.$KEY";;
+  *.*) ;; # contains "."s, do nothing
+  *) KEY="bao.storage.$KEY" ;;
 esac
 
 echo using KEY="$KEY"

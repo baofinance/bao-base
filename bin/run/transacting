@@ -85,26 +85,26 @@ deploy_contract_or_library() {
   while [[ "$#" -gt 0 ]]; do
     debug "arg=$1."
     case "$1" in
-    --libraries)
-      # libraries must have been deployed and so have an address
-      local libpath libcontract libaddress
-      libpath=$(query "$2".contractPath) || error "failed to query $2.contractPath"
-      libcontract=$(query "$2".contractType) || error "failed to query $2.contractType"
-      libaddress=$(query "$2".address) || error "failed to query $2.address"
-      libraries+=("$1" "${libpath}:${libcontract}:${libaddress}")
-      shift 2
-      ;;
-    --constructor-args)
-      # handle constructor args - they are always the last argument
-      local raw_args=()
-      raw_args=$(resolve_array address "$@") || error "failed to resolve_array address $*"
-      mapfile -t constructor_args <<<"$raw_args" || error "failed to resolve_array $*"
-      break
-      ;;
-    *)
-      error "unexpected option for deploy_contract_or_library: $1"
-      exit 1
-      ;;
+      --libraries)
+        # libraries must have been deployed and so have an address
+        local libpath libcontract libaddress
+        libpath=$(query "$2".contractPath) || error "failed to query $2.contractPath"
+        libcontract=$(query "$2".contractType) || error "failed to query $2.contractType"
+        libaddress=$(query "$2".address) || error "failed to query $2.address"
+        libraries+=("$1" "${libpath}:${libcontract}:${libaddress}")
+        shift 2
+        ;;
+      --constructor-args)
+        # handle constructor args - they are always the last argument
+        local raw_args=()
+        raw_args=$(resolve_array address "$@") || error "failed to resolve_array address $*"
+        mapfile -t constructor_args <<<"$raw_args" || error "failed to resolve_array $*"
+        break
+        ;;
+      *)
+        error "unexpected option for deploy_contract_or_library: $1"
+        exit 1
+        ;;
     esac
   done
   _deploy_contract "${key}" "${purpose}" "${contract}" "${libraries[@]}" "${constructor_args[@]}" ||
