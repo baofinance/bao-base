@@ -6,7 +6,7 @@ REGRESSION_TYPE="$1"
 shift
 REGRESSION_FILE="regression/${REGRESSION_TYPE}.txt"
 REGRESSION_LOG="regression/${REGRESSION_TYPE}.log"
-info 1 "generating regression for ${REGRESSION_TYPE}..."
+info1 "generating regression for ${REGRESSION_TYPE}..."
 truncate -s 0 "${REGRESSION_FILE}" # empty the existing file
 
 # generate the output
@@ -23,7 +23,7 @@ debug "calling run-python extract-${REGRESSION_TYPE} to process ${REGRESSION_LOG
 . "${BAO_BASE_BIN_DIR}/run-python" "extract-${REGRESSION_TYPE}" <"${REGRESSION_LOG}" >"${REGRESSION_FILE}"
 
 # Check for changes in the regression file
-info 1 "checking for changes in ${REGRESSION_FILE}..."
+info1 "checking for changes in ${REGRESSION_FILE}..."
 debug $(git status)
 
 if [[ $(git status --short "${REGRESSION_FILE}" | wc -l) -gt 0 ]]; then

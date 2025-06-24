@@ -31,16 +31,16 @@ for arg in "$@"; do
       ;;
     *)
       # TODO: handle globbed directories
-      info 1 "processing arg: ${arg}"
+      info1 "processing arg: ${arg}"
       # this could be done with "shfmt --find" but it doesn't handle all our shebangs
       # it's a directory or a file
       if [[ -d "${arg}" ]]; then
-        info 1 "${arg} is a directory"
+        info1 "${arg} is a directory"
 
         # Use bash's globstar to match files with specific extensions (much cleaner than find)
         for file in "${arg}"/**/*.{sh,bash,bats}; do
           if [[ -f "$file" ]]; then
-            info 2 " found ${file} with extension match"
+            info2 " found ${file} with extension match"
             file_set["$file"]=1
           fi
         done
@@ -53,7 +53,7 @@ for arg in "$@"; do
             while IFS= read -r file; do
               # Validate that this is actually a bash file by checking first line contains shebang
               if [[ -n "${file}" ]] && head -n1 "${file}" | grep -q "^${shebang}"; then
-                info 2 " found ${file} with ${shebang}"
+                info2 " found ${file} with ${shebang}"
                 file_set["$file"]=1
               fi
             done < <(grep -l -m1 "^${shebang}" --include="*" --exclude-dir={.git,node_modules,lib} -r "${arg}" 2>/dev/null)
@@ -68,7 +68,7 @@ for arg in "$@"; do
 done
 
 # Print to help debug what files were found
-info 1 "Found ${#file_set[@]} files and file patterns"
+info1 "Found ${#file_set[@]} files and file patterns"
 
 if [[ "${mode}" == "--lint" ]]; then
   # https://www.shellcheck.net
@@ -90,12 +90,12 @@ if [[ "${mode}" == "--lint" ]]; then
   # run shellcheck
   log "shellcheck v$(shellcheck --version | awk '/version:/ {print $2}')"
   issues=0
-  info 1 "Running shellcheck..."
-  info 1 "with args: ${args[*]}"
-  info 1 "with files: ${!file_set[*]}"
+  info1 "Running shellcheck..."
+  info1 "with args: ${args[*]}"
+  info1 "with files: ${!file_set[*]}"
   shellcheck --external-sources --shell=bash --enable=all --exclude=SC2310,SC2312,SC2239,SC2096 --severity=warning "${args[@]}" "${!file_set[@]}" || issues=1
 
-  info 1 "Running Bao command substitution check..."
+  info1 "Running Bao command substitution check..."
   # unfortunately shellcheck doesn't catch this critical issue so do it here
   # this contains an excellent explanation as to why it is an issue:
   #  https://superuser.com/questions/1836819/why-does-assigning-a-variable-with-command-substitution-and-then-echoing-that-v
@@ -144,7 +144,7 @@ if [[ "${mode}" == "--lint" ]]; then
     grep -v '^[^:]*:[^:]*:[ \t]*#' |
     grep -Ev '#\s*lint-bash\s+disable=command-substitution')
 
-  info 1 "issues=${issues}"
+  info1 "issues=${issues}"
   if [[ "$issues" -gt 0 ]]; then error "lint-bash discovered issues"; fi
 else
   # Create a new array starting with style options
@@ -172,6 +172,6 @@ else
   fi
 
   log "shfmt v$("${SHFMT_BIN}" --version)" # lint-bash disable=command-substitution
-  info 2 "${SHFMT_BIN} ${mode} ${args[*]} ${!file_set[*]}"
+  info2 "${SHFMT_BIN} ${mode} ${args[*]} ${!file_set[*]}"
   "${SHFMT_BIN}" "${mode}" "${args[@]}" "${!file_set[@]}"
 fi

@@ -222,13 +222,13 @@ warn() {
 
 # Information function based on verbosity level
 # Usage: info <level> <message>
-info() {
+_info() {
   local required_level=$1
   shift
-  if [[ ${BAO_BASE_VERBOSITY:-0} -ge $required_level ]]; then
+  if [[ "${BAO_BASE_VERBOSITY:-0}" -ge "${required_level}" ]]; then
     local tag
-    if [[ "$required_level" -gt 0 ]]; then
-      tag="INFO$required_level"
+    if [[ "${required_level}" -gt 0 ]]; then
+      tag="INFO${required_level}"
     else
       tag="INFO"
     fi
@@ -236,8 +236,28 @@ info() {
   fi
 }
 
+info() {
+  _info 0 "$@"
+}
+
 log() {
-  info 0 "$@"
+  _info 0 "$@"
+}
+
+info1() {
+  _info 1 "$@"
+}
+
+info2() {
+  _info 2 "$@"
+}
+
+info3() {
+  _info 3 "$@"
+}
+
+info4() {
+  _info 4 "$@"
 }
 
 # Execute a command with set -x and capture the trace output
@@ -260,7 +280,7 @@ trace() {
   BASH_XTRACEFD=$trace_fd
 
   # Run the command with tracing enabled and capture its output
-  info 1 "about to execute:"$'\n'"$*"
+  info1 "about to execute:"$'\n'"$*"
   # if you channge any of the next 5 lines you also need to change the sed command below
 
   local output stderr
@@ -298,7 +318,7 @@ trace() {
   # 3. Replace "+++ output=" with "->"
   local raw_trace_output
   raw_trace_output=$(cat /tmp/trace_output.$$) || error "Failed to read trace output from FIFO"
-  info 3 "raw -x output:"$'\n'"$raw_trace_output"
+  info3 "raw -x output:"$'\n'"$raw_trace_output"
   # remove the temp files
   rm "$fifo_file" "/tmp/trace_output.$$" || error "Failed to remove temporary trace files"
 
@@ -441,6 +461,10 @@ export -f log
 
 # different levels of info, controlled by -v, -vv, -vvv, -vvvv on command line or imbedded in DEBUG
 export -f info
+export -f info1
+export -f info2
+export -f info3
+export -f info4
 
 # never print this text on any logging messages unless
 export -f sensitive
