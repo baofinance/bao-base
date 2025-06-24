@@ -460,6 +460,7 @@ export -f warn
 export -f log
 
 # different levels of info, controlled by -v, -vv, -vvv, -vvvv on command line or imbedded in DEBUG
+export -f _info
 export -f info
 export -f info1
 export -f info2
