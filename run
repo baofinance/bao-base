@@ -251,7 +251,7 @@ fi
 debug "Proceeding with execution option: ${execution_descriptions[0]}"
 case "${execution_options[0]}" in
   dir_run_sh)
-    info 0 "Running: $BAO_BASE_BIN_DIR/$SCRIPT_NAME/run.sh ${args[*]}"
+    log "Running: $BAO_BASE_BIN_DIR/$SCRIPT_NAME/run.sh ${args[*]}"
     run_script_with_type "bash" "$SCRIPT_NAME/run.sh" "${args[@]}" || {
       exit_code=$?
       error "Directory run script execution failed with code $exit_code"
@@ -260,7 +260,7 @@ case "${execution_options[0]}" in
     ;;
 
   dir_run_py)
-    info 0 "Running: $BAO_BASE_BIN_DIR/$SCRIPT_NAME/run.py ${args[*]}"
+    log "Running: $BAO_BASE_BIN_DIR/$SCRIPT_NAME/run.py ${args[*]}"
     script_type=$(detect_script_type "$SCRIPT_PATH/run.py" "python")
     run_script_with_type "$script_type" "$SCRIPT_PATH/run.py" "${args[@]}" || {
       exit_code=$?
@@ -274,7 +274,7 @@ case "${execution_options[0]}" in
       error "Could not determine script type for $SCRIPT_PATH"
     fi
 
-    info 0 "Running as $script_type: $BAO_BASE_BIN_DIR/$SCRIPT_NAME $*"
+    log "Running as $script_type: $BAO_BASE_BIN_DIR/$SCRIPT_NAME $*"
     run_script_with_type "$script_type" "$SCRIPT_NAME" "${args[@]}" || {
       exit_code=$?
       exit $exit_code
@@ -290,7 +290,7 @@ case "${execution_options[0]}" in
       error "Could not determine script type for $matched_file"
     fi
 
-    info 0 "Running as $script_type: $BAO_BASE_BIN_DIR/$script_basename ${args[*]}"
+    log "Running as $script_type: $BAO_BASE_BIN_DIR/$script_basename ${args[*]}"
     run_script_with_type "$script_type" "$script_basename" "${args[@]}" || {
       exit_code=$?
       exit $exit_code

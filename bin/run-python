@@ -57,12 +57,12 @@ if [[ ! -x "$UV_BIN" ]]; then
   installation_output=$(curl -fsSL https://astral.sh/uv/install.sh | CARGO_HOME="$temp_install_dir" RUSTUP_HOME="$temp_install_dir/rustup" UV_INSTALL_DIR="$UV_DIR" NO_MODIFY_PATH=1 bash 2>&1) || {
     rm -rf "$temp_install_dir"
     error "Failed to install uv"
-    info 1 "Installation output: $installation_output"
+    info1 "Installation output: $installation_output"
     exit 1
   }
 
   # Output the installation results through the info function
-  info 1 "$installation_output"
+  info1 "$installation_output"
   rm -rf "$temp_install_dir"
   debug "uv installed successfully to: $UV_BIN"
 fi
