@@ -10,4 +10,4 @@ fi
 
 echo forge test "${VERBOSITY}" --nmp script/**/*.t.sol --summary "$@"
 forge test "${VERBOSITY}" --nmp script/**/*.t.sol --summary "$@"
-echo $(forge test --nmp script/**/*.t.sol --list | egrep '^    .*$' | wc -l) " tests"
+# echo $(forge test --nmp script/**/*.t.sol --list | egrep '^    .*$' | wc -l) " tests"

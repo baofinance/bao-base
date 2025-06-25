@@ -35,16 +35,29 @@ runs:
         brew install bash
         bash --version
 
+    - name: Install uv python framework
+      shell: bash
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | bash
+      id: uv-install
+
     - name: Install Foundry
       uses: foundry-rs/foundry-toolchain@v1
       with:
         version: ${{ inputs.FOUNDRY }}
+      id: foundry-install
 
     - shell: bash
       run: |
         forge --version
 
-    - name: Install project dependencies
+    - name: Install python project dependencies
+      shell: bash
+      run: |
+        cd ${{ inputs.cwd }}
+        uv sync
+
+    - name: Install node project dependencies
       shell: bash
       run: |
         cd ${{ inputs.cwd }}

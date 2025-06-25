@@ -79,7 +79,7 @@ else
   case "${BAO_BASE_VERBOSITY:-0}" in
     0) UV_CMD+=("-qq") ;;
     1) UV_CMD+=("-q") ;;
-    2) UV_CMD+=("") ;;
+    2) ;; # Normal verbosity - don't add any flags
     *) UV_CMD+=("--verbose") ;;
   esac
 fi
@@ -94,133 +94,17 @@ fi
 debug "Found pyproject.toml file at $PYPROJECT_TOML"
 
 debug "Using pyproject.toml at $PYPROJECT_TOML"
-# Generate hash for pyproject.toml
-# Handle different OS hashing methods
-if [[ "${BAO_BASE_OS}" == "windows" ]]; then
-  PYPROJECT_TOML_HASH=$(tr -d '\r' <"$PYPROJECT_TOML" | powershell.exe -File "$BAO_BASE_BIN_DIR/sha256sum.ps1")
-elif [[ "$BAO_BASE_OS" == "macos" ]]; then
-  PYPROJECT_TOML_HASH=$(shasum -a 256 "$PYPROJECT_TOML" | cut -d' ' -f1)
-elif [[ "$BAO_BASE_OS" == "linux" ]]; then
-  PYPROJECT_TOML_HASH=$(sha256sum "$PYPROJECT_TOML" | cut -d' ' -f1)
-else
-  echo "Unsupported OS for hash calculation: $BAO_BASE_OS"
-  exit 1
-fi
-debug "Generated hash for pyproject.toml: $PYPROJECT_TOML_HASH"
+debug "Using pyproject.toml at $PYPROJECT_TOML"
 
-# Check for existing .python-version and uv.lock
-PYTHON_VERSION_LOCK="$DEPENDENCIES_DIR/.python-version"
-UV_LOCK="$DEPENDENCIES_DIR/uv.lock"
-
-# Function to check if files exist and have valid hashes
-validate_lock() {
-  local lock_file="$1"
-
-  # Check if both files exist
-  if [[ ! -f "$lock_file" ]]; then
-    info 0 "$lock_file does not exist."
-    return 1
-  fi
-
-  local lock_hash
-  lock_hash=$(grep -E "^# HASH:[a-f0-9]{64}$" "$lock_file" | head -1 | cut -d':' -f2)
-  if [[ -z "$lock_hash" ]]; then
-    info 0 "No hash found in $lock_file."
-    return 1
-  fi
-
-  # Check if hashes match
-  if [[ "$lock_hash" != "$PYPROJECT_TOML_HASH" ]]; then
-    info 0 "$lock_file hash ($lock_hash) mismatched with pyproject.toml hash ($PYPROJECT_TOML_HASH)."
-    debug "Hash mismatch:"
-    debug "$PYPROJECT_TOML: $PYPROJECT_TOML_HASH"
-    debug "Lock file: $lock_hash"
-    return 1
-  fi
-
-  debug "Lock file $lock_file exists with matching hash"
-  return 0
-}
-
-# install the required python and create a virtual environment with it (if needed)
-PYTHON_VERSION_LOCKED=$(validate_lock "$PYTHON_VERSION_LOCK" && echo true || echo false)
-PYTHON_ENV_EXISTS=$([[ -f "$VENV_PYTHON_PATH" ]] && echo true || echo false)
-# TODO: handle the case where the venv python and is not the same as the one in the .python-version file
-# TODO: maybe uv installs the correct version of python in the venv automatically? and we just need to set UV_PYTHON_INSTALL_DIR
-# if the python version is not locked OR the virtual environment does not exist, we need to create a virtual environment with the right version of python
-if [[ "$PYTHON_VERSION_LOCKED" != "true" || "$PYTHON_ENV_EXISTS" != "true" ]]; then
-  debug "Need to create a venv"
-  UV_VENV_CMD=("${UV_CMD[@]}")
-  UV_VENV_CMD+=("venv" "--managed-python")
-  if [[ "$PYTHON_VERSION_LOCKED" == "true" ]]; then
-    # we have the version and uv will read it from the .python-version file
-    PYTHON_CONSTRAINT=$(tail -n 1 "$PYTHON_VERSION_LOCK")
-    PYTHON_CONSTRAINT_SOURCE=".python-version"
-  else
-    # Extract requires-python value from pyproject.toml using a simple grep pattern
-    # This works for basic cases, but might need improvement for complex formatting
-    PYTHON_CONSTRAINT=$(grep -E 'requires-python\s*=\s*"[^"]+"' "$PYPROJECT_TOML" | sed 's/.*"\(.*\)".*/\1/')
-    if [[ -z "$PYTHON_CONSTRAINT" ]]; then
-      debug "No requires-python constraint found in $PYPROJECT_TOML, using '3' (i.e. the latest version)"
-      PYTHON_CONSTRAINT="3"
-      PYTHON_CONSTRAINT_SOURCE="default"
-    else
-      PYTHON_CONSTRAINT_SOURCE="pyproject.toml"
-    fi
-    UV_ENV_CMD+=("--python" "$PYTHON_CONSTRAINT")
-  fi
-  debug "Using Python constraintn ($PYTHON_CONSTRAINT_SOURCE): $PYTHON_CONSTRAINT"
-
-  # Create virtual environment with specified Python version using uv env (uses the .python-version file, if it exists and --python is not specified)
-  debug "Creating environment with Python constraint: $PYTHON_CONSTRAINT"
-  # also stop this from updating .profile & .bashrc
-
-  UV_VENV_CMD+=("$VENV_DIR")
-  debug "Executing: ${UV_VENV_CMD[*]}"
-  UV_PYTHON_INSTALL_DIR="$BAO_BASE_TOOLS_DIR/python/install" "${UV_VENV_CMD[@]}" || {
-    error "Failed to create virtual environment with Python constraint $PYTHON_CONSTRAINT"
-    exit 1
-  }
-
-  # Get the actual Python version that was installed and use it to create .python-version
-  [[ -f "$VENV_PYTHON_PATH" ]] || error "Failed to find Python at $VENV_PYTHON_PATH in virtual environment"
-
-  if [[ "$PYTHON_VERSION_LOCKED" != "true" ]]; then
-    # If we didn't have a .python-version file, we need to create one
-    # Extract the actual Python version from the venv
-    debug "Checking Python version in virtual environment"
-    ACTUAL_PYTHON_VERSION=$("$VENV_PYTHON_PATH" --version 2>&1 | cut -d' ' -f2) # -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')")
-
-    # Create .python-version file with the actual version and hash
-    {
-      echo "# This file was auto-generated by run-python using a constraint from $PYTHON_CONSTRAINT_SOURCE: $PYTHON_CONSTRAINT"
-      echo "# HASH:$PYPROJECT_TOML_HASH"
-      echo "$ACTUAL_PYTHON_VERSION"
-    } >"$PYTHON_VERSION_LOCK"
-    debug "Created .python-version file with version $ACTUAL_PYTHON_VERSION and hash"
-  fi
-fi
-
-# use or generate the uv.lock file
-if ! validate_lock "$UV_LOCK"; then
-  debug "Generating $UV_LOCK from $PYPROJECT_TOML"
-  rm -f "$UV_LOCK"
-  UV_LOCK_CMD=("${UV_CMD[@]}")
-  UV_LOCK_CMD+=("lock" "--directory" "$DEPENDENCIES_DIR")
-  debug "Executing: ${UV_LOCK_CMD[*]}"
-  "${UV_LOCK_CMD[@]}" || {
-    error "Failed to lock dependencies"
-    exit 1
-  }
-
-  # Add our hash to the uv.lock file
-  echo "# HASH:$PYPROJECT_TOML_HASH" >>"$UV_LOCK"
-  debug "Generated $UV_LOCK with hash"
-fi
-
-# build the command
+# build the command - let uv handle everything automatically
+# uv run will automatically:
+# - Create a virtual environment if needed
+# - Install the correct Python version based on requires-python in pyproject.toml
+# - Generate/update uv.lock if needed
+# - Install dependencies from pyproject.toml/uv.lock
 UV_RUN_CMD=("${UV_CMD[@]}")
 UV_RUN_CMD+=("run" "--project" "$DEPENDENCIES_DIR")
+
 # Check if the script is a Python script or a command
 debug "Checking if '$DEPENDENCIES_DIR/$SCRIPT.py' exists"
 if [ -f "$DEPENDENCIES_DIR/$SCRIPT" ]; then
@@ -233,6 +117,7 @@ else
   debug "Running Python command: $SCRIPT"
   UV_RUN_CMD+=("$SCRIPT")
 fi
+
 # Add all arguments
 for arg in "$@"; do
   UV_RUN_CMD+=("$arg")
@@ -240,5 +125,7 @@ done
 
 debug "Executing: ${UV_RUN_CMD[*]}"
 [[ "${BAO_BASE_VERBOSITY}" -gt 0 ]] && set -x
-"${UV_RUN_CMD[@]}" || error "Failed to run Python script or command: $SCRIPT"
+
+# Clear VIRTUAL_ENV to avoid conflicts with parent project environments
+env -u VIRTUAL_ENV "${UV_RUN_CMD[@]}" || error "Failed to run Python script or command: $SCRIPT"
 { set +x; } 2>/dev/null
