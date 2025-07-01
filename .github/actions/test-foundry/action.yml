@@ -55,7 +55,7 @@ runs:
       shell: bash
       run: |
         cd ${{ inputs.cwd }}
-        [[ -f pyproject.toml ]] && uv sync
+        [[ -f pyproject.toml ]] && uv sync || echo "No pyproject.toml found, skipping python dependencies installation"
 
     - name: Install node project dependencies
       shell: bash
