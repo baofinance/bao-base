@@ -51,11 +51,11 @@ runs:
       run: |
         forge --version
 
-    - name: Install python project dependencies
+    - name: Install python project dependencies (if any)
       shell: bash
       run: |
         cd ${{ inputs.cwd }}
-        uv sync
+        [[ -f pyproject.toml ]] && uv sync
 
     - name: Install node project dependencies
       shell: bash
