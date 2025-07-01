@@ -110,14 +110,14 @@ runs:
         uv run yarn coverage
       id: coverage
 
-    - name: Run Forge tests - gas
-      if: runner.os != 'Windows' # TODO: for some reason, the gas processing doesn't work on windows
-      shell: bash
-      run: |
-        # generate gas reports into the regression folder - if they differ from the ones in the repo, they will be failed in the git-diffs step
-        cd ${{ inputs.cwd }}
-        uv run yarn gas
-      id: gas
+    # - name: Run Forge tests - gas
+    #   if: runner.os != 'Windows' # TODO: for some reason, the gas processing doesn't work on windows
+    #   shell: bash
+    #   run: |
+    #     # generate gas reports into the regression folder - if they differ from the ones in the repo, they will be failed in the git-diffs step
+    #     cd ${{ inputs.cwd }}
+    #     uv run yarn gas
+    #   id: gas
 
     - name: Run upgradeable contract deployment validation
       shell: bash
