@@ -124,7 +124,7 @@ runs:
       run: |
         # check all contracts for deployment upgradeability
         cd ${{ inputs.cwd }}
-        yarn validate
+        uv run yarn validate
       id: validate
 
     - name: Check for changed repo files
