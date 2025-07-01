@@ -3,7 +3,11 @@
 This is a project that can/should be used in all Bao contract projects
 
 ## Build status
-[![test-foundry](https://github.com/baofinance/bao-base/actions/workflows/CI-test-foundry.yml/badge.svg)](https://github.com/baofinance/bao-base/actions/workflows/CI-test-foundry.yml)
+### foundry
+[![CI](https://github.com/baofinance/bao-base/actions/workflows/CI-test-foundry-stable.yml/badge.svg)](https://github.com/baofinance/bao-base/actions/workflows/CI-test-foundry-stable.yml)
+### scripting
+[![CI](https://github.com/baofinance/bao-base/actions/workflows/CI-test-scripting.yml)/badge.svg)](https://github.com/baofinance/bao-base/actions/workflows/CI-test-scripting.yml)]](https://github.com/baofinance/bao-base/actions/workflows/test.yml)
+
 
 ## Usage
 
