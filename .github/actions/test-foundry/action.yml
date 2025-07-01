@@ -90,7 +90,7 @@ runs:
       run: |
         # generate contract sizes reports into the regression folder - if they differ from the ones in the repo, they will be failed in the git-diffs step
         cd ${{ inputs.cwd }}
-        yarn sizes
+        uv run yarn sizes
       id: sizes
 
     - name: Run Forge tests
@@ -98,7 +98,7 @@ runs:
       run: |
         # run all the foundry tests in the test folder
         cd ${{ inputs.cwd }}
-        yarn test
+        uv run yarn test
       id: test
 
     - name: Run Forge tests - coverage
@@ -107,7 +107,7 @@ runs:
       run: |
         # generate coverage reports into the regression folder - if they differ from the ones in the repo, they will be failed in the git-diffs step
         cd ${{ inputs.cwd }}
-        yarn coverage
+        uv run yarn coverage
       id: coverage
 
     - name: Run Forge tests - gas
@@ -116,7 +116,7 @@ runs:
       run: |
         # generate gas reports into the regression folder - if they differ from the ones in the repo, they will be failed in the git-diffs step
         cd ${{ inputs.cwd }}
-        yarn gas
+        uv run yarn gas
       id: gas
 
     - name: Run upgradeable contract deployment validation
