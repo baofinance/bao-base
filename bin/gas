@@ -4,5 +4,5 @@ set -o pipefail
 
 [[ "${BAO_BASE_VERBOSITY}" -gt 0 ]] && set -x
 forge clean # we don't trust that the --isolate and --gas-report options will work with the cache
-forge test --nmp script/**/*.t.sol --isolate --gas-report "$@"
+forge test --nmp script/**/*.t.sol --isolate --gas-report --gas-limit 1500000000 "$@"
 { set +x; } 2>/dev/null
