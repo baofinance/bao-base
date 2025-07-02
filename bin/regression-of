@@ -26,7 +26,7 @@ debug "calling run-python extract-${REGRESSION_TYPE} to process ${REGRESSION_LOG
 info1 "checking for changes in ${REGRESSION_FILE}..."
 debug $(git status)
 
-if [[ $(git diff --quiet "${REGRESSION_FILE}" | wc -l) -gt 0 ]]; then
+if ! git diff --quiet "${REGRESSION_FILE}"; then
   maxlines=100
   changes=$'\n'$(GIT_PAGER="" git diff --minimal --color "${REGRESSION_FILE}" 2>&1 | tail -n +5 | head -n "${maxlines}")
   linecount=$(echo "${changes}" | wc -l)

@@ -136,12 +136,12 @@ runs:
     - name: Check for changed repo files
       shell: bash
       run: |
-        # if the above created or changed any repo files, then print a diff and fail
+        # if there are any added or changed (excluding staged) files then list them and fail
         cd ${{ inputs.cwd }}
-        git status --short
-        [[ $(git status --short | wc -l) -gt 0 ]] && {
+        if ! git diff --quiet || [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
+          git status --short
           echo "Git repo has changed, either correctly fix those files locally or .gitignore them"; exit 1;
-        } || echo "No changes detected in git repo"
+        fi
       id: git-diffs
 
     - name: Check some wtf's
