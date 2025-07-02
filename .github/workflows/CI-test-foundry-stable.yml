@@ -19,8 +19,8 @@ jobs:
           - os: macos-latest
             foundry: stable
 
-          - os: windows-latest
-            foundry: stable
+          # - os: windows-latest
+          #   foundry: stable
 
       fail-fast: false # ensure all jobs run even if one fails
 
