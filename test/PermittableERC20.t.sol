@@ -3,6 +3,8 @@ pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 
+import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -133,8 +135,10 @@ contract PermittableERC20BasicTest is PermittableERC20Setup {
 
 // Mock upgraded version for testing
 contract PermittableERC20_v2 is PermittableERC20_v1 {
-    function version() public pure returns (string memory) {
-        return "v2";
+    string public version;
+
+    function v2initialize(string memory version_) public reinitializer(2) {
+        version = version_;
     }
 }
 
@@ -146,7 +150,10 @@ contract PermittableERC20UpgradeTest is PermittableERC20Setup {
         // Perform the upgrade as the owner
         vm.prank(OWNER);
         // This is the correct way to upgrade in OpenZeppelin UUPS pattern
-        UUPSUpgradeable(proxy).upgradeToAndCall(address(implementationV2), ""); // TODO: initialize call
+        UUPSUpgradeable(proxy).upgradeToAndCall(
+            address(implementationV2),
+            abi.encodeWithSelector(PermittableERC20_v2.v2initialize.selector, "v2")
+        );
 
         // Verify upgrade worked by checking the new function exists
         assertEq(
@@ -620,28 +627,10 @@ contract PermittableERC20UnsafeUpgradesTest is Test {
 
         // Deploy implementation
         implementation = address(new PermittableERC20_v1());
-
-        // Deploy proxy using UnsafeUpgrades instead of manual proxy deployment
-        bytes memory initData = abi.encodeWithSelector(
-            PermittableERC20_v1.initialize.selector,
-            OWNER,
-            "Test Token",
-            "TEST"
+        proxy = UnsafeUpgrades.deployUUPSProxy(
+            implementation,
+            abi.encodeWithSelector(PermittableERC20_v1.initialize.selector, OWNER, "Test Token", "TEST")
         );
-
-        // Import UnsafeUpgrades if needed
-        // import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
-
-        // Deploy using UnsafeUpgrades
-        // proxy = UnsafeUpgrades.deployUUPSProxy(
-        //     address(implementation),
-        //     OWNER,
-        //     initData
-        // );
-
-        // Since we can't actually use UnsafeUpgrades without importing, we'll simulate it
-        // by using the ERC1967Proxy directly like you did in your original tests
-        proxy = address(new ERC1967Proxy(address(implementation), initData));
 
         vm.label(proxy, "PermittableERC20_v1 Proxy");
         vm.label(implementation, "PermittableERC20_v1 Implementation");
@@ -656,16 +645,11 @@ contract PermittableERC20UnsafeUpgradesTest is Test {
 
         // Upgrade using owner
         vm.startPrank(OWNER);
-
-        // If using UnsafeUpgrades:
-        // UnsafeUpgrades.upgradeProxy(
-        //     proxy,
-        //     address(implementationV2),
-        //     ""
-        // );
-
-        // Since we're not actually using UnsafeUpgrades, use direct call:
-        UUPSUpgradeable(proxy).upgradeToAndCall(address(implementationV2), "");
+        UnsafeUpgrades.upgradeProxy(
+            proxy,
+            address(implementationV2),
+            abi.encodeWithSelector(PermittableERC20_v2.v2initialize.selector, "v2")
+        );
 
         vm.stopPrank();
 

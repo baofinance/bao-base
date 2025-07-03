@@ -13,6 +13,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 
+import {console2} from "forge-std/console2.sol";
+
 /// @title Mintable Burnable ERC20 token
 /// @notice A simple mintable and burnable ERC20 token based on Openzeppelin
 /// @author rootminus0x1
@@ -34,6 +36,16 @@ contract PermittableERC20_v1 is
     /// @param name_ The name of the ERC20 token
     /// @param symbol_ The symbol of the ERC20 token. This expected to reflect the collateral and pegged token symbols
     function initialize(address owner_, string memory name_, string memory symbol_) public initializer {
+        console2.log("PermittableERC20_v1.Initialize");
+        __PermittableERC20_init(owner_, name_, symbol_);
+    }
+
+    function __PermittableERC20_init(
+        address owner_,
+        string memory name_,
+        string memory symbol_
+    ) internal onlyInitializing {
+        console2.log("__PermittableERC20_init");
         _initializeOwner(owner_);
         __UUPSUpgradeable_init();
         __ERC20_init(name_, symbol_);

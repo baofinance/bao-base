@@ -27,6 +27,28 @@ src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1
 | transferOwnership | 1.214e+04 |
 | upgradeToAndCall  | 1.106e+04 |
 
+src/PermittableERC20_v1.sol:PermittableERC20_v1
+| function name             |       max |
+|---------------------------|-----------|
+| DOMAIN_SEPARATOR          | 6.522e+03 |
+| UPGRADE_INTERFACE_VERSION | 4.790e+02 |
+| allowance                 | 2.822e+03 |
+| approve                   | 2.480e+04 |
+| balanceOf                 | 2.667e+03 |
+| decimals                  | 2.210e+02 |
+| initialize                | 1.704e+05 |
+| name                      | 3.223e+03 |
+| nonces                    | 2.710e+03 |
+| owner                     | 2.462e+03 |
+| permit                    | 5.764e+04 |
+| supportsInterface         | 9.520e+02 |
+| symbol                    | 3.236e+03 |
+| totalSupply               | 2.370e+03 |
+| transfer                  | 3.002e+04 |
+| transferFrom              | 3.577e+04 |
+| transferOwnership         | 1.214e+04 |
+| upgradeToAndCall          | 4.147e+04 |
+
 src/Stem_v1.sol:Stem_v1
 | function name             |       max |
 |---------------------------|-----------|
@@ -53,35 +75,12 @@ test/BaoAccessControl.t.sol:MockBaoAccessControl
 | owner                   | 2.396e+03 |
 | transferOwnership       | 1.212e+04 |
 
-test/ERC20PermitUpgradeable.t.sol:MockERC20Permit
+test/PermittableERC20.t.sol:PermittableERC20_v2
 | function name    |       max |
 |------------------|-----------|
-| DOMAIN_SEPARATOR | 6.403e+03 |
-| allowance        | 2.774e+03 |
-| initialize       | 9.608e+04 |
-| nonces           | 2.546e+03 |
-| permit           | 8.114e+04 |
-
-test/ERC20PermitUpgradeableUUPS.t.sol:MockERC20PermitUpgradeable
-| function name    |       max |
-|------------------|-----------|
-| DOMAIN_SEPARATOR | 6.459e+03 |
-| allowance        | 2.785e+03 |
-| initialize       | 9.893e+04 |
-| nonces           | 2.580e+03 |
-| permit           | 5.738e+04 |
-| proxiableUUID    | 3.700e+02 |
-| upgradeToAndCall | 3.177e+04 |
-
-test/ERC20PermitUpgradeableUUPS.t.sol:MockERC20PermitUpgradeableV2
-| function name    |       max |
-|------------------|-----------|
-| DOMAIN_SEPARATOR | 6.482e+03 |
-| allowance        | 2.785e+03 |
-| getVersion       | 4.460e+02 |
-| nonces           | 2.646e+03 |
-| permit           | 2.318e+04 |
-| proxiableUUID    | 3.260e+02 |
+| DOMAIN_SEPARATOR | 6.500e+03 |
+| proxiableUUID    | 3.490e+02 |
+| version          | 3.188e+03 |
 
 test/Token.t.sol:MockERC20
 | function name   |       max |
