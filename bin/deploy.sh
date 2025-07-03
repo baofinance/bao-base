@@ -100,10 +100,14 @@ if [[ "${SCRIPT}" != "BATS" ]]; then
 
   started=$(snap_epoch)
   record deployment.started $(format_epoch "${started}")
+  record deployer.address "${PUBLIC_KEY}"
+  start_balance=$(balance "deployer")
 
   . "${SCRIPT}" "${args[@]}"
   # look above: there's a dot
 
+  finish_balance=$(balance "deployer")
+  record deployment.ETH_used $(bc <<<"scale=18; ($start_balance - $finish_balance) / 10^18")
   finished=$(snap_epoch)
   record deployment.finished $(format_epoch "${finished}")
   local took
