@@ -313,6 +313,22 @@ grantRoles() {
 }
 export -f grantRoles
 
+revokeRoles() {
+  # who gets the role
+  local grantee="$1"
+  # with BaoRoles, the role is held in the implementation but accessible via the proxy or the implementation
+  local role="$2" # e.g. minter.ZERO_FEE_ROLE or Minter_v1.HARVESTER_ROLE
+
+  local granter="${role%%.*}"  # e.g. minter or Minter_v1 (proxy or implementation)
+  local role_name="${role#*.}" # e.g. ZERO_FEE_ROLE or HARVESTER_ROLE
+
+  # record_from_call "${role}.value" "${granter}" "${role_name}()(uint256)"
+  send_transaction "${granter}" "revokeRoles(address,uint256)" "${grantee}" "${role}.value" || error "failed to revoke role ${role_name} from ${grantee} by ${granter}"
+  record_append "${role}.grantees" "${grantee} (removed)"
+
+}
+export -f revokeRoles
+
 balance() {
   local target_key="$1"
   shift

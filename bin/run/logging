@@ -339,7 +339,27 @@ trace() {
   [[ -z "$stderr" ]] || error "${stderr}"
 
   echo "${output}"
-  log "actual output:"$'\n'"${output}"
+  if [[ "${BAO_BASE_VERBOSITY:-0}" -ge 1 ]]; then
+    info1 "actual output:"$'\n'"${output}"
+  else
+    # Truncate long input fields to 50 characters
+    # modified_output=$(echo "${output}" | jq 'if (.input | type) == "string" then .input = (.input[0:50] + if .input|length > 50 then "..." else "" end) else . end' 2>/dev/null || echo "${output}")
+    # Truncate long input fields to 50 characters and show total length
+    modified_output=$(echo "${output}" | jq '
+      if (.input | type) == "string" then
+        .input = (
+          if .input|length > 50 then
+            .input[0:50] + "... (" + (.input|length|tostring) + ")"
+          else
+            .input
+          end
+        )
+      else
+        .
+      end' 2>/dev/null || echo "${output}")
+    log "short output:"$'\n'"${modified_output}"
+
+  fi
   # Return the command's output
   return $ret
 }
