@@ -1,4 +1,4 @@
-#! /usr/bin/env bash
+#!/usr/bin/env bash
 set -euo pipefail
 shopt -s extdebug
 
@@ -116,8 +116,8 @@ raw_args=$(resolve_array address "${args[@]}") || error "failed to resolve_array
 local resolved_args=()
 mapfile -t resolved_args <<<"$raw_args" || error "failed to resolve_array ${args[*]}"
 
-log "${resolved_args[*]}"
-"${resolved_args[@]}" --rpc-url "${RPC_URL}" || error "failed to run script ${args[*]}"
+# log "${resolved_args[*]}"
+trace "${resolved_args[@]}" --rpc-url "${RPC_URL}" || error "failed to run script ${args[*]}"
 
 # if [[ -n "$IMPERSONATE" ]]; then
 #   trace cast rpc anvil_stopImpersonatingAccount "$IMPERSONATE_ADDRESS"
