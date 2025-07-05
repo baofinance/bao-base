@@ -69,7 +69,7 @@ query() {
   _recording_config
 
   [[ $(has_key "${key}") == "true" ]] || error "Key '${key}' doesn't exist in ${json_recording_file}"
-  jq -r ".${key}" "${json_recording_file}" || error "Failed to query key '${key}' in ${json_recording_file}"
+  jq -rc ".${key}" "${json_recording_file}" || error "Failed to query key '${key}' in ${json_recording_file}"
 }
 export -f query
 
