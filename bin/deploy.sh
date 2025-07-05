@@ -107,10 +107,18 @@ if [[ "${SCRIPT}" != "BATS" ]]; then
   # look above: there's a dot
 
   finish_balance=$(balance "deployer")
-  record deployment.ETH_used $(bc <<<"scale=18; ($start_balance - $finish_balance) / 10^18")
+  ETH_used=$(bc <<<"scale=18; ($start_balance - $finish_balance) / 10^18")
+  log "ETH spent: ${ETH_used}"
+  record deployment.ETH_used "${ETH_used}"
+
   finished=$(snap_epoch)
   record deployment.finished $(format_epoch "${finished}")
   local took
   took=$(format_duration "${started}" "${finished}")
   record deployment.took "${took}"
+
+  ETH_price=$(curl -s "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd" | jq -r '.ethereum.usd')
+  USD_used=$(bc <<<"(${ETH_used} * ${ETH_price})")
+  record deployment.USD_used "${USD_used}"
+  log "$ spent: ${USD_used}"
 fi

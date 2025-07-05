@@ -42,7 +42,7 @@ args=()
 IMPERSONATE=""
 while [[ ${#myargs[@]} -gt 0 ]]; do
   case "${myargs[0]}" in
-    --as)
+    --from)
       IMPERSONATE="${myargs[1]}"
       myargs=("${myargs[@]:2}") # shift 2
       ;;
@@ -99,13 +99,14 @@ log "using wallet with public key $(ens_from_public "${PUBLIC_KEY}")"           
 
 OVERRIDE_RECORDING_NAME=$(find ./deploy -name "*_latest.log" -type f -printf "%T+ %p\n" | sort | head -n 1 | awk '{print $2}')
 
-# IMPERSONATE_ADDRESS=""
-# if [[ -n "$IMPERSONATE" ]]; then
-#   IMPERSONATE_ADDRESS=$(resolve_array address "$IMPERSONATE")
-#   log "Impersonating account: $IMPERSONATE ($IMPERSONATE_ADDRESS)"
-#   trace cast rpc anvil_setBalance "$IMPERSONATE_ADDRESS" $(cast to-hex 27542757796200000000) >/dev/null # give them 27.5 ETH so they can pay gas
-#   trace cast rpc anvil_impersonateAccount "$IMPERSONATE_ADDRESS"
-# fi
+IMPERSONATE_ADDRESS=""
+if [[ -n "$IMPERSONATE" ]]; then
+  IMPERSONATE_ADDRESS=$(resolve_array address "$IMPERSONATE")
+  log "Impersonating account: $IMPERSONATE ($IMPERSONATE_ADDRESS)"
+  trace cast rpc anvil_setBalance "$IMPERSONATE_ADDRESS" $(cast to-hex 27542757796200000000) >/dev/null # give them 27.5 ETH so they can pay gas
+  trace cast rpc anvil_impersonateAccount "$IMPERSONATE_ADDRESS"
+  args+=("--from" "$IMPERSONATE_ADDRESS" "--unlocked")
+fi
 
 log "${args[*]}"
 # "${args[@]} --from $IMPERSONATE_ADDRESS --unlocked"
@@ -117,8 +118,8 @@ local resolved_args=()
 mapfile -t resolved_args <<<"$raw_args" || error "failed to resolve_array ${args[*]}"
 
 # log "${resolved_args[*]}"
-trace "${resolved_args[@]}" --rpc-url "${RPC_URL}" || error "failed to run script ${args[*]}"
+trace "${resolved_args[@]}" --rpc-url "${RPC_URL}" --private-key "${PRIVATE_KEY}" || error "failed to run script ${args[*]}"
 
-# if [[ -n "$IMPERSONATE" ]]; then
-#   trace cast rpc anvil_stopImpersonatingAccount "$IMPERSONATE_ADDRESS"
-# fi
+if [[ -n "$IMPERSONATE" ]]; then
+  trace cast rpc anvil_stopImpersonatingAccount "$IMPERSONATE_ADDRESS"
+fi
