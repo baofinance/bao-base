@@ -251,15 +251,3 @@ record_append() {
   # Write the updated array back to the file
   _record "raw" "${key}" "${existing_array}" || error "Failed to append values to key '${key}' in ${json_recording_file}"
 }
-
-to_number() {
-  local value="$1"
-  local units=${2:-1} # default scale is units
-  # remove _
-  value="${value//_/}"
-  value="${value//[eE]\+/*10^}"
-  value="${value//[eE]/*10^}"
-  [[ "${units}" == "ether" ]] && value="${value}*1000000000000000000"
-  bc -l <<<"scale=0; ${value}/1"
-}
-export -f to_number
