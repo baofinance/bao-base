@@ -191,8 +191,10 @@ _record_proxy_update() {
   local implementation_address
   implementation_address=$(query "${implementation_key}.address") || error "failed to query ${implementation_key} for address"
 
-  record "${proxy_key}".implementation.contract "${implementation_key}" || error "failed to record ${implementation_name} for ${proxy_key} contract"
+  record "${proxy_key}".implementation.contractType $(query "${implementation_key}".contractType) || error "failed to record ${implementation_name} for ${proxy_key} contract"
+  record "${proxy_key}".implementation.contractPath $(query "${implementation_key}".contractPath) || error "failed to record ${implementation_name} for ${proxy_key} contract"
   record "${proxy_key}".implementation.address "${implementation_address}" || error "failed to record ${implementation_address} for ${proxy_key} contract"
+  record_append "${implementation_key}".proxies "${proxy_key}" || error "failed to record ${proxy_key} as a proxy for ${implementation_key} contract"
 }
 
 confirm_deployment() {
