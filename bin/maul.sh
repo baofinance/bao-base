@@ -2,8 +2,6 @@
 set -euo pipefail
 shopt -s extdebug
 
-export SCRIPT="$1"
-shift
 args=("$@") # reset the global args array for other scripts to use
 # empty the default args array
 set --
@@ -40,8 +38,14 @@ myargs=("${args[@]}") # make a copy of args
 debug "  args: ${args[*]}"
 debug "myargs: ${myargs[*]}"
 args=()
+
+IMPERSONATE=""
 while [[ ${#myargs[@]} -gt 0 ]]; do
   case "${myargs[0]}" in
+    --from)
+      IMPERSONATE="${myargs[1]}"
+      myargs=("${myargs[@]:2}") # shift 2
+      ;;
     --anvil)
       log "--rpc-local anvil is the saame as -rpc-url local, but using a test private key"
       PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
@@ -85,8 +89,6 @@ debug "args: ${args[*]}"
 # determine if we're running locally or not
 if [[ "${RPC_URL}" == "local" || "${RPC_URL}" == *"localhost"* ]]; then
   LOCAL="local"
-  # shellcheck disable=SC2034
-  VERIFY="" # can't verify locally (yet)
 fi
 
 # get the chain_id
@@ -94,31 +96,30 @@ CHAIN_ID=${CHAIN_ID:-$(chain_id)} || error "Failed to get chain ID from RPC URL:
 
 log "transacting on${LOCAL:+ ${LOCAL}} chain ${CHAIN_ID}${CHAIN_NAME:+ (${CHAIN_NAME})}" # lint-bash disable=command-substitution
 log "using wallet with public key $(ens_from_public "${PUBLIC_KEY}")"                    # lint-bash disable=command-substitution
-debug "args: ${args[*]}"
-if [[ "${SCRIPT}" != "BATS" ]]; then
-  # we're not running the BATS tests, so we can run the script
 
-  started=$(snap_epoch)
-  record deployment.started $(format_epoch "${started}")
-  record deployer.address "${PUBLIC_KEY}"
-  start_balance=$(balance "deployer")
+OVERRIDE_RECORDING_NAME=$(find ./deploy -name "*_latest.log" -type f -printf "%T+ %p\n" | sort | head -n 1 | awk '{print $2}')
 
-  . "${SCRIPT}" "${args[@]}"
-  # look above: there's a dot
+IMPERSONATE_ADDRESS=""
+if [[ -n "$IMPERSONATE" ]]; then
+  IMPERSONATE_ADDRESS=$(resolve_array address "$IMPERSONATE")
+  log "Impersonating account: $IMPERSONATE ($IMPERSONATE_ADDRESS)"
+  trace cast rpc anvil_setBalance "$IMPERSONATE_ADDRESS" $(cast to-hex 27542757796200000000) >/dev/null # give them 27.5 ETH so they can pay gas
+  trace cast rpc anvil_impersonateAccount "$IMPERSONATE_ADDRESS"
+  args+=("--from" "$IMPERSONATE_ADDRESS" "--unlocked")
+fi
 
-  finish_balance=$(balance "deployer")
-  ETH_used=$(bc <<<"scale=18; ($start_balance - $finish_balance) / 10^18")
-  log "ETH spent: ${ETH_used}"
-  record deployment.ETH_used "${ETH_used}"
+log "${args[*]}"
+# "${args[@]} --from $IMPERSONATE_ADDRESS --unlocked"
+# trace cast rpc anvil_autoImpersonateAccount true
 
-  finished=$(snap_epoch)
-  record deployment.finished $(format_epoch "${finished}")
-  local took
-  took=$(format_duration "${started}" "${finished}")
-  record deployment.took "${took}"
+local raw_args=()
+raw_args=$(resolve_array address "${args[@]}") || error "failed to resolve_array address $*"
+local resolved_args=()
+mapfile -t resolved_args <<<"$raw_args" || error "failed to resolve_array ${args[*]}"
 
-  ETH_price=$(curl -s "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd" | jq -r '.ethereum.usd')
-  USD_used=$(bc <<<"(${ETH_used} * ${ETH_price})")
-  record deployment.USD_used "${USD_used}"
-  log "$ spent: ${USD_used}"
+# log "${resolved_args[*]}"
+trace "${resolved_args[@]}" --rpc-url "${RPC_URL}" --private-key "${PRIVATE_KEY}" || error "failed to run script ${args[*]}"
+
+if [[ -n "$IMPERSONATE" ]]; then
+  trace cast rpc anvil_stopImpersonatingAccount "$IMPERSONATE_ADDRESS"
 fi

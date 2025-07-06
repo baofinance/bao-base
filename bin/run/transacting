@@ -20,11 +20,16 @@ log "using forge at $forge_exe $(forge --version | head -n 1)." # lint-bash disa
 cast_exe=$(command -v cast)
 log "using cast at $cast_exe $(cast --version | head -n 1)." # lint-bash disable=command-substitution
 
-# usage _deploy_contract <purpose, e.g. implementation/proxy"> <path/to/file:contract> [<key>]
+###################################################################################################
+# _deploy_contract
+# for internal use only
+# deploys a contract or library with the given key and contract path
+# usage _deploy_contract <key> <purpose, e.g. implementation/proxy"> <path/to/file:contract>
+###################################################################################################
 _deploy_contract() {
-  local key="$1"
-  local purpose="$2"
-  local contract_path="$3"
+  local key="$1"           # what it is known as in the recording
+  local purpose="$2"       # what kind of contract it is, e.g. implementation, proxy, library
+  local contract_path="$3" # the contract locator, e.g. path/to/code.file:contract_name
   shift 3
 
   # get the contract to deploy
@@ -38,6 +43,35 @@ _deploy_contract() {
 
   # check for broadcast
   [[ -n "${BROADCAST:-}" ]] || error "we don't support dry-run deploys yet! Add --broadcast to deploy $contract_tag."
+
+  # process --libraries and --constructor-args, leaving the option arg in the array
+  local libraries=()
+  local constructor_args=()
+  while [[ "$#" -gt 0 ]]; do
+    debug "arg=$1."
+    case "$1" in
+      --libraries)
+        # libraries must have been deployed and so have an address
+        local libpath libcontract libaddress
+        libpath=$(query "$2".contractPath) || error "failed to query $2.contractPath"
+        libcontract=$(query "$2".contractType) || error "failed to query $2.contractType"
+        libaddress=$(query "$2".address) || error "failed to query $2.address"
+        libraries+=("$1" "${libpath}:${libcontract}:${libaddress}")
+        shift 2
+        ;;
+      --constructor-args)
+        # handle constructor args - they are always the last argument
+        local raw_args=()
+        raw_args=$(resolve_array address "$@") || error "failed to resolve_array address $*"
+        mapfile -t constructor_args <<<"$raw_args" || error "failed to resolve_array $*"
+        break
+        ;;
+      *)
+        error "unexpected option for _deploy_contract: $1"
+        exit 1
+        ;;
+    esac
+  done
 
   # do the deploy
   log "Deploying $contract_tag ..."
@@ -66,50 +100,6 @@ _deploy_contract() {
   record "${key}".blockNumber $block_number
   log "Deployed $contract_tag."
 }
-###################################################################################################
-# deploy_contract_or_library
-# for internal use only
-# - deploys a contract or librarywith the given key and contract path
-###################################################################################################
-deploy_contract_or_library() {
-  local key="$1"
-  debug "key=${key}."
-  local purpose="$2"
-  debug "purpose=${purpose}."
-  local contract="$3"
-  debug "contract=${contract}."
-  shift 3
-  # process --libraries and --constructor-args, leaving the option arg in the array
-  local libraries=()
-  local constructor_args=()
-  while [[ "$#" -gt 0 ]]; do
-    debug "arg=$1."
-    case "$1" in
-      --libraries)
-        # libraries must have been deployed and so have an address
-        local libpath libcontract libaddress
-        libpath=$(query "$2".contractPath) || error "failed to query $2.contractPath"
-        libcontract=$(query "$2".contractType) || error "failed to query $2.contractType"
-        libaddress=$(query "$2".address) || error "failed to query $2.address"
-        libraries+=("$1" "${libpath}:${libcontract}:${libaddress}")
-        shift 2
-        ;;
-      --constructor-args)
-        # handle constructor args - they are always the last argument
-        local raw_args=()
-        raw_args=$(resolve_array address "$@") || error "failed to resolve_array address $*"
-        mapfile -t constructor_args <<<"$raw_args" || error "failed to resolve_array $*"
-        break
-        ;;
-      *)
-        error "unexpected option for deploy_contract_or_library: $1"
-        exit 1
-        ;;
-    esac
-  done
-  _deploy_contract "${key}" "${purpose}" "${contract}" "${libraries[@]}" "${constructor_args[@]}" ||
-    error "failed to deploy ${key} contract"
-}
 
 ###################################################################################################
 # deploy_library
@@ -118,7 +108,7 @@ deploy_contract_or_library() {
 deploy_library() {
   local key="$1"
   shift 1
-  deploy_contract_or_library "${key}" "library" "$@" ||
+  _deploy_contract "${key}" "library" "$@" ||
     error "failed to deploy ${key} library"
 }
 export -f deploy_library
@@ -130,7 +120,7 @@ export -f deploy_library
 deploy_contract() {
   local key="$1"
   shift 1
-  deploy_contract_or_library "${key}" "contract" "$@" ||
+  _deploy_contract "${key}" "contract" "$@" ||
     error "failed to deploy ${key} contract"
 }
 export -f deploy_contract
@@ -144,7 +134,7 @@ deploy_proxy() {
   local proxy_key="$1"
   local implementation_key="$2"
 
-  deploy_contract_or_library "${proxy_key}" 'UUPS proxy' \
+  _deploy_contract "${proxy_key}" 'UUPS proxy' \
     "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy" \
     --constructor-args "${implementation_key}" '0x' || error "failed to deploy_proxy ${proxy_key} contract"
 
@@ -201,8 +191,10 @@ _record_proxy_update() {
   local implementation_address
   implementation_address=$(query "${implementation_key}.address") || error "failed to query ${implementation_key} for address"
 
-  record "${proxy_key}".implementation.contract "${implementation_key}" || error "failed to record ${implementation_name} for ${proxy_key} contract"
+  record "${proxy_key}".implementation.contractType $(query "${implementation_key}".contractType) || error "failed to record ${implementation_name} for ${proxy_key} contract"
+  record "${proxy_key}".implementation.contractPath $(query "${implementation_key}".contractPath) || error "failed to record ${implementation_name} for ${proxy_key} contract"
   record "${proxy_key}".implementation.address "${implementation_address}" || error "failed to record ${implementation_address} for ${proxy_key} contract"
+  record_append "${implementation_key}".proxies "${proxy_key}" || error "failed to record ${proxy_key} as a proxy for ${implementation_key} contract"
 }
 
 confirm_deployment() {
@@ -322,3 +314,30 @@ grantRoles() {
 
 }
 export -f grantRoles
+
+revokeRoles() {
+  # who gets the role
+  local grantee="$1"
+  # with BaoRoles, the role is held in the implementation but accessible via the proxy or the implementation
+  local role="$2" # e.g. minter.ZERO_FEE_ROLE or Minter_v1.HARVESTER_ROLE
+
+  local granter="${role%%.*}"  # e.g. minter or Minter_v1 (proxy or implementation)
+  local role_name="${role#*.}" # e.g. ZERO_FEE_ROLE or HARVESTER_ROLE
+
+  # record_from_call "${role}.value" "${granter}" "${role_name}()(uint256)"
+  send_transaction "${granter}" "revokeRoles(address,uint256)" "${grantee}" "${role}.value" || error "failed to revoke role ${role_name} from ${grantee} by ${granter}"
+  record_append "${role}.grantees" "${grantee} (removed)"
+
+}
+export -f revokeRoles
+
+balance() {
+  local target_key="$1"
+  shift
+
+  # get the target address from the key
+  local target_address
+  target_address=$(query "${target_key}.address") || error "failed to query ${target_key} for address"
+
+  trace cast balance "$target_address" "--rpc-url" "${RPC_URL}" "$@" || error "failed to cast balancee $*"
+}

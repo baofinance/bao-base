@@ -2,7 +2,6 @@
 pragma solidity 0.8.30;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import {ERC20PermitUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
 import {ERC20BurnableUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20BurnableUpgradeable.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -30,7 +29,6 @@ import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
 contract MintableBurnableERC20_v1 is
     Initializable,
     UUPSUpgradeable,
-    ERC20Upgradeable,
     ERC20PermitUpgradeable,
     ERC20BurnableUpgradeable,
     BaoOwnableRoles,

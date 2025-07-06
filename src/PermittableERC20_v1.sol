@@ -2,7 +2,6 @@
 pragma solidity 0.8.30;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import {ERC20PermitUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -20,13 +19,7 @@ import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 /// @custom:oz-upgrades
 // slither-disable-next-line unimplemented-functions
 // solhint-disable-next-line contract-name-capwords
-contract PermittableERC20_v1 is
-    Initializable,
-    UUPSUpgradeable,
-    ERC20Upgradeable,
-    ERC20PermitUpgradeable,
-    BaoOwnableRoles
-{
+contract PermittableERC20_v1 is Initializable, UUPSUpgradeable, ERC20PermitUpgradeable, BaoOwnableRoles {
     using SafeERC20 for IERC20;
 
     /// @notice initialise the UUPS proxy
@@ -34,6 +27,15 @@ contract PermittableERC20_v1 is
     /// @param name_ The name of the ERC20 token
     /// @param symbol_ The symbol of the ERC20 token. This expected to reflect the collateral and pegged token symbols
     function initialize(address owner_, string memory name_, string memory symbol_) public initializer {
+        __PermittableERC20_init(owner_, name_, symbol_);
+    }
+
+    // solhint-disable-next-line func-name-mixedcase
+    function __PermittableERC20_init(
+        address owner_,
+        string memory name_,
+        string memory symbol_
+    ) internal onlyInitializing {
         _initializeOwner(owner_);
         __UUPSUpgradeable_init();
         __ERC20_init(name_, symbol_);

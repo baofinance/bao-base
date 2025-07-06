@@ -23,7 +23,7 @@
 | MessageHashUtils               |                 85 |               24,491 |
 | MintableBurnableERC20_v1       |              8,325 |               16,251 |
 | Panic                          |                 85 |               24,491 |
-| PermittableERC20_v1            |              7,739 |               16,837 |
+| PermittableERC20_v1            |              7,758 |               16,818 |
 | ProxyAdmin                     |              1,018 |               23,558 |
 | SafeCast                       |                 85 |               24,491 |
 | SafeERC20                      |                 85 |               24,491 |
