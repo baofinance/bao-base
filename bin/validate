@@ -9,4 +9,16 @@ BUILD_INFO_DIR="$FOUNDRY_OUT/build-info"
 mkdir -p "${BUILD_INFO_DIR}"
 # build again with build-info this time, so we force
 forge build --build-info --build-info-path "${BUILD_INFO_DIR}" --extra-output storageLayout --skip "**/*.vy" --force src
-npx @openzeppelin/upgrades-core validate "${BUILD_INFO_DIR}"
+log "running OpenZeppelin upgrades-core validate..."
+npx @openzeppelin/upgrades-core validate "${BUILD_INFO_DIR}" || error "OpenZeppelin upgrades-core validate failed"
+
+# check for root storage
+log "checking namespace-only storage policy..."
+contracts=$(npx @openzeppelin/upgrades-core validate "${BUILD_INFO_DIR}" | grep -o -E '[^[:space:]]+.sol:[A-Za-z_][A-Za-z0-9_]*')
+for contract in ${contracts}; do
+    root_slots=$(forge inspect --json $contract storage-layout | jq '.storage | length')
+    if [ "${root_slots}" -gt 0 ]; then
+        error "Root slots for ${contract}: ${root_slots}\n$(forge inspect $contract storage-layout)"
+    fi
+done
+log "SUCCESS (no contracts have root storage)"
