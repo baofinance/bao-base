@@ -53,10 +53,11 @@ src/Stem_v1.sol:Stem_v1
 | function name             |       max |
 |---------------------------|-----------|
 | UPGRADE_INTERFACE_VERSION | 4.570e+02 |
-| fallback                  | 3.150e+02 |
 | owner                     | 3.340e+02 |
 | proxiableUUID             | 3.250e+02 |
+| setValue                  | 3.150e+02 |
 | upgradeToAndCall          | 8.896e+03 |
+| value                     | 3.150e+02 |
 
 src/Token.sol:Token
 | function name                       |       max |
