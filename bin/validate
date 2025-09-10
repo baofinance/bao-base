@@ -1,6 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Report current shell and bash version/path (works in Bash 3.2+)
+if [ -n "${BASH_VERSION:-}" ]; then
+  # Running under bash
+  echo "Bash in use: ${BASH_VERSION} (path: ${BASH:-unknown})" >&2
+  # Optional: check for >= 5.2
+  major=${BASH_VERSINFO[0]:-0}
+  minor=${BASH_VERSINFO[1]:-0}
+  if { [ "$major" -gt 5 ] || { [ "$major" -eq 5 ] && [ "$minor" -ge 2 ]; }; }; then
+    echo "Bash meets minimum 5.2 requirement" >&2
+  else
+    echo "Bash is below 5.2; PATH/runner may point to older bash" >&2
+  fi
+else
+  # Not running under bash (e.g., sh); show process and default bash
+  shell_name=$(ps -p $$ -o comm= 2>/dev/null || echo "${SHELL:-unknown}")
+  echo "Not running under bash (current shell: ${shell_name})" >&2
+  echo "Default bash in PATH: $(command -v bash 2>/dev/null || echo 'not found')" >&2
+  echo "Default bash version: $(bash --version 2>/dev/null | head -n1 || echo 'unknown')" >&2
+fi
+
 # only check the src files
 FOUNDRY_OUT="out/_validate" # there's no command option to set this
 BUILD_INFO_DIR="$FOUNDRY_OUT/build-info"
