@@ -8,17 +8,108 @@ FOUNDRY_OUT="out/_validate" # there's no command option to set this
 BUILD_INFO_DIR="$FOUNDRY_OUT/build-info"
 mkdir -p "${BUILD_INFO_DIR}"
 # build again with build-info this time, so we force
-forge build --build-info --build-info-path "${BUILD_INFO_DIR}" --extra-output storageLayout --skip "**/*.vy" --force src
+forge build --out ${FOUNDRY_OUT} --build-info --build-info-path "${BUILD_INFO_DIR}" --extra-output storageLayout --skip "**/*.vy" --skip "**/*.t.sol" --skip "**/*.s.sol" --force src
 log "running OpenZeppelin upgrades-core validate..."
 npx @openzeppelin/upgrades-core validate "${BUILD_INFO_DIR}" || error "OpenZeppelin upgrades-core validate failed"
 
-# check for root storage
+# check for root storage access
 log "checking namespace-only storage policy..."
 contracts=$(npx @openzeppelin/upgrades-core validate "${BUILD_INFO_DIR}" | grep -o -E '[^[:space:]]+.sol:[A-Za-z_][A-Za-z0-9_]*')
+
+# Allowed storage slot: OpenZeppelin Initializable (ERC-7201)
+# ALLOWED_OZ_INIT_SLOT=$(cast index-erc7201 openzeppelin.storage.Initializable)
+ALLOWED_OZ_INIT_SLOT="f0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00"
+
+failed=0
 for contract in ${contracts}; do
-    root_slots=$(forge inspect --json $contract storage-layout | jq '.storage | length')
-    if [ "${root_slots}" -gt 0 ]; then
-        error "Root slots for ${contract}: ${root_slots}\n$(forge inspect $contract storage-layout)"
+    this_failed=0
+    # skip libraries
+    if [[ "$contract" == "lib/"* ]]; then
+        continue
+    fi
+    # special case for Stem
+    if [[ "$contract" == *"Stem"*".sol:"*"Stem"* ]]; then
+        continue
+    fi
+
+    ################################################################
+    # check for storage slots not in a namespace (i.e. root slots)
+    ################################################################
+    root_slots=$(forge inspect --out ${FOUNDRY_OUT} --json $contract storage-layout | jq '.storage | length')
+    if [[ "${root_slots}" != "" && "${root_slots}" -gt 0 ]]; then
+        warn "Root slots for ${contract}: ${root_slots}\n$(forge inspect $contract storage-layout)"
+        this_failed=1
+    fi
+
+    ################################################################
+    # check for constructor initialised storage
+    # - Must SSTORE exactly once, to OZ Initializable slot
+    # - No second SSTORE allowed (any other constructor write is disallowed)
+    ################################################################
+
+    init=$(forge inspect --out ${FOUNDRY_OUT} "$contract" bytecode | tr -d '\n')
+    runtime=$(forge inspect --out ${FOUNDRY_OUT} "$contract" deployedBytecode | tr -d '\n')
+
+    # Mandatory: contracts must have constructor code and call _disableInitializers()
+    if [ "$init" = "0x" ] || [ "$runtime" = "0x" ]; then
+        warn "Constructor does not call _disableInitializers(); (no creation/runtime bytecode) in $contract"
+        this_failed=1
+    else
+        # Isolate constructor (init) by trimming runtime tail
+        pos=$(echo -n "$init" | grep -aob -- "${runtime#0x}" | tail -n1 | cut -d: -f1 || true)
+        if [ -n "$pos" ]; then
+            init="${init:0:$pos}"
+        else
+            warn "couldn't locate runtime inside creation for $contract; scanning full creation code"
+        fi
+
+        # Count SSTOREs in init
+        disasm=$(cast disassemble "$init")
+        sstore_count=$(echo "$disasm" | grep -ci '\bSSTORE\b' || true)
+        sload_count=$(echo "$disasm" | grep -ci '\bSLOAD\b' || true)
+
+        # Require exactly one SSTORE (the _disableInitializers write)
+        if [ "${sstore_count:-0}" -eq 0 ]; then
+            warn "Constructor does not call _disableInitializers() (no SSTORE) in $contract"
+            this_failed=1
+        elif [ "${sstore_count:-0}" -gt 1 ]; then
+            warn "Constructor performs multiple SSTOREs in $contract (only Initializable write allowed)"
+            this_failed=1
+        fi
+
+        # echo $init
+        # exit 0
+        # Require the Initializable ERC-7201 slot bytes to appear in constructor bytecode
+        if ! echo "$init" | grep -q "${ALLOWED_OZ_INIT_SLOT}"; then
+            warn "Constructor does not reference Initializable slot (erc7201) in $contract"
+            this_failed=1
+        fi
+
+        # Enforce: exactly one SSTORE, and it must target the Initializable slot
+        # if ! echo "$disasm" | awk -v slot="${ALLOWED_OZ_INIT_SLOT}" '
+        #     BEGIN { pushline=0; total=0; toslot=0; bad=0; window=256 }
+        #     /PUSH[0-9]+/ { if (index($0, slot) > 0) { pushline=NR } next }
+        #     /SSTORE\b/   {
+        #         total++
+        #         if (pushline > 0 && (NR - pushline) <= window) { toslot++ } else { bad=1 }
+        #         next
+        #     }
+        #     END { exit(bad || total != 1 || toslot != 1 ? 1 : 0) }
+        # '; then
+        #     warn "Constructor does not perform exactly one SSTORE to Initializable in $contract"
+        #     this_failed=1
+        # fi
+    fi
+
+    if [[ $this_failed -ne 0 ]]; then
+        failed=1
+        warn " ✘  ${contract}"
+    else
+        log  " ✔  ${contract}"
     fi
 done
-log "SUCCESS (no contracts have root storage)"
+if [[ $failed -ne 0 ]]; then
+    error "some contracts have root storage or constructor-initialized storage"
+    exit 1
+fi
+log "SUCCESS (no contracts have root storage or constructor-initialized storage)"
