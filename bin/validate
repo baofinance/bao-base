@@ -9,11 +9,11 @@ BUILD_INFO_DIR="$FOUNDRY_OUT/build-info"
 mkdir -p "${BUILD_INFO_DIR}"
 # build again with build-info this time, so we force
 forge build --out ${FOUNDRY_OUT} --build-info --build-info-path "${BUILD_INFO_DIR}" --extra-output storageLayout --skip "**/*.vy" --skip "**/*.t.sol" --skip "**/*.s.sol" --force src
-log "running OpenZeppelin upgrades-core validate..."
+echo "running OpenZeppelin upgrades-core validate..."
 npx @openzeppelin/upgrades-core validate "${BUILD_INFO_DIR}" || error "OpenZeppelin upgrades-core validate failed"
 
 # check for root storage access
-log "checking namespace-only storage policy..."
+echo "checking namespace-only storage policy..."
 contracts=$(npx @openzeppelin/upgrades-core validate "${BUILD_INFO_DIR}" | grep -o -E '[^[:space:]]+.sol:[A-Za-z_][A-Za-z0-9_]*')
 
 # Allowed storage slot: OpenZeppelin Initializable (ERC-7201)
@@ -37,7 +37,7 @@ for contract in ${contracts}; do
     ################################################################
     root_slots=$(forge inspect --out ${FOUNDRY_OUT} --json $contract storage-layout | jq '.storage | length')
     if [[ "${root_slots}" != "" && "${root_slots}" -gt 0 ]]; then
-        warn "Root slots for ${contract}: ${root_slots}\n$(forge inspect $contract storage-layout)"
+        echo "ERROR: Root slots for ${contract}: ${root_slots}\n$(forge inspect $contract storage-layout)"
         this_failed=1
     fi
 
@@ -52,7 +52,7 @@ for contract in ${contracts}; do
 
     # Mandatory: contracts must have constructor code and call _disableInitializers()
     if [ "$init" = "0x" ] || [ "$runtime" = "0x" ]; then
-        warn "Constructor does not call _disableInitializers(); (no creation/runtime bytecode) in $contract"
+        echo "ERROR: Constructor does not call _disableInitializers(); (no creation/runtime bytecode) in $contract"
         this_failed=1
     else
         # Isolate constructor (init) by trimming runtime tail
@@ -60,7 +60,7 @@ for contract in ${contracts}; do
         if [ -n "$pos" ]; then
             init="${init:0:$pos}"
         else
-            warn "couldn't locate runtime inside creation for $contract; scanning full creation code"
+            echo "WARNING: Couldn't locate runtime inside creation for $contract; scanning full creation code"
         fi
 
         # Count SSTOREs in init
@@ -70,10 +70,10 @@ for contract in ${contracts}; do
 
         # Require exactly one SSTORE (the _disableInitializers write)
         if [ "${sstore_count:-0}" -eq 0 ]; then
-            warn "Constructor does not call _disableInitializers() (no SSTORE) in $contract"
+            echo "ERROR: Constructor does not call _disableInitializers() (no SSTORE) in $contract"
             this_failed=1
         elif [ "${sstore_count:-0}" -gt 1 ]; then
-            warn "Constructor performs multiple SSTOREs in $contract (only Initializable write allowed)"
+            echo "ERROR: Constructor performs multiple SSTOREs in $contract (only Initializable write allowed)"
             this_failed=1
         fi
 
@@ -81,7 +81,7 @@ for contract in ${contracts}; do
         # exit 0
         # Require the Initializable ERC-7201 slot bytes to appear in constructor bytecode
         if ! echo "$init" | grep -q "${ALLOWED_OZ_INIT_SLOT}"; then
-            warn "Constructor does not reference Initializable slot (erc7201) in $contract"
+            echo "ERROR: Constructor does not reference Initializable slot (erc7201) in $contract"
             this_failed=1
         fi
 
@@ -103,13 +103,14 @@ for contract in ${contracts}; do
 
     if [[ $this_failed -ne 0 ]]; then
         failed=1
-        warn " ✘  ${contract}"
+        echo " ✘  ${contract}"
     else
-        log  " ✔  ${contract}"
+        echo " ✔  ${contract}"
     fi
+    echo ""
 done
 if [[ $failed -ne 0 ]]; then
-    error "some contracts have root storage or constructor-initialized storage"
+    echo "ERROR: some contracts have root storage or constructor-initialized storage"
     exit 1
 fi
-log "SUCCESS (no contracts have root storage or constructor-initialized storage)"
+echo "SUCCESS: (no contracts have root storage or constructor-initialized storage)"
