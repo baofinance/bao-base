@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# see https://docs.openzeppelin.com/upgrades-plugins/api-core
-
 # only check the src files
 FOUNDRY_OUT="out/_validate" # there's no command option to set this
 BUILD_INFO_DIR="$FOUNDRY_OUT/build-info"
 mkdir -p "${BUILD_INFO_DIR}"
 # build again with build-info this time, so we force
 forge build --out ${FOUNDRY_OUT} --build-info --build-info-path "${BUILD_INFO_DIR}" --extra-output storageLayout --skip "**/*.vy" --skip "**/*.t.sol" --skip "**/*.s.sol" --force src
+echo
 echo "running OpenZeppelin upgrades-core validate..."
+echo "-------------------------------------------"
+echo
 npx @openzeppelin/upgrades-core validate "${BUILD_INFO_DIR}" || error "OpenZeppelin upgrades-core validate failed"
 
 # check for root storage access
+echo
 echo "checking namespace-only storage policy..."
+echo "--------------------------------------"
+echo
 contracts=$(npx @openzeppelin/upgrades-core validate "${BUILD_INFO_DIR}" | grep -o -E '[^[:space:]]+.sol:[A-Za-z_][A-Za-z0-9_]*')
 
 # Allowed storage slot: OpenZeppelin Initializable (ERC-7201)
@@ -56,7 +60,8 @@ for contract in ${contracts}; do
         this_failed=1
     else
         # Isolate constructor (init) by trimming runtime tail
-        pos=$(echo -n "$init" | grep -aob -- "${runtime#0x}" | tail -n1 | cut -d: -f1 || true)
+        # pos=$(echo -n "$init" | grep -aob -- "${runtime#0x}" | tail -n1 | cut -d: -f1 || true) # OOM on macos
+        pos=$(node -e "const a=(process.argv[1]||'').toLowerCase(); const b=(process.argv[2]||'').replace(/^0x/,'').toLowerCase(); const i=a.lastIndexOf(b); if(i>=0) process.stdout.write(String(i));" "$init" "$runtime" 2>/dev/null || true)
         if [ -n "$pos" ]; then
             init="${init:0:$pos}"
         else
@@ -111,6 +116,6 @@ for contract in ${contracts}; do
 done
 if [[ $failed -ne 0 ]]; then
     echo "ERROR: some contracts have root storage or constructor-initialized storage"
-    exit 1
+    return 1
 fi
 echo "SUCCESS: (no contracts have root storage or constructor-initialized storage)"

@@ -96,21 +96,18 @@ _output() {
   yellow="\e[0;33m"
   orange="\e[0;38;5;208m"
   bold="\e[1m"
-  declare -A colour_map=(
-    ["DEBUG"]=$blue
-    ["INFO"]=$olive
-    ["INFO1"]=$olive
-    ["INFO2"]=$olive
-    ["INFO3"]=$olive
-    ["INFO4"]=$olive
-    ["WARN"]=$red
-    ["ERROR"]=$bold$red
-  )
+  local colour="$plain"
+  case "$type" in
+    DEBUG) colour=$blue ;;
+    INFO|INFO1|INFO2|INFO3|INFO4) colour=$olive ;;
+    WARN) colour=$red ;;
+    ERROR) colour=$bold$red ;;
+  esac
 
   # format the message
   local format
   format=$(printf "%-5s " "${type}")
-  format="${colour_map[$type]}${format}${plain}"
+  format="${colour}${format}${plain}"
 
   # indentation is   ^ ^ always have a separating space
   local indent=$(printf '%*s' 6 "")
@@ -119,7 +116,7 @@ _output() {
   if [[ "$message" == *$'\n'* ]]; then
     message=${message//$'\n'/$'\n'"$indent"}
   fi
-  if [[ -v DEBUG || "${type}" == "ERROR" ]]; then
+  if [ -n "${DEBUG+x}" ] || [ "$type" = "ERROR" ]; then
     # if DEBUG is defined at all, we print script & line number info in clickable form
     # find the caller index in the stack relative to this file (logging)
     local caller_index
@@ -469,7 +466,7 @@ debug "after args  BAO_BASE_VERBOSITY=${BAO_BASE_VERBOSITY}"
 # Export the functions so they're available to child scripts
 # this avoids namespace polution with helper functions
 # having them there for all subscripts means that clashes are detected early
-export -f _output # internal functions have to be exported too
+# export -f _output # internal functions have to be exported too
 # debug functions driven by DEBUG environment variable, which can select files to print the info on
 export -f debug
 export -f trace
