@@ -16,14 +16,16 @@ import {BaoCheckOwner_v2} from "@bao/internal/BaoCheckOwner_v2.sol";
  * The ownership is controlled by the BaoCheckOwner_v2 contract, which is in the implementation not the proxy.
  * This means that reinstating a displaced contract will connect back with the previous owner, unless:
  * - its initializer is called with a different owner, or
- * - the replacement contract also has ownersip in the implementation.
+ * - the replacement contract also has ownership in the implementation.
  *
- * There are several scenarios where this is usefu:
+ * There are several scenarios where this is useful:
  * 1) When the contract needs to be paused, i.e. all functionality is disabled, for example in unusual
  *    circumstances, such as a hack or a bug.
  * 2) If the owner of the previous contract is compromised, but not disabled, in some way, the Stem contract
  *    can be owned by any new safe owner, but note that the Stem contract cannot be installed unless by the
  *    existing owner.
+ * 3) during deployment, this contract is used to initialise the proxy, protecting against initialize-based
+ *    attack vectors. As it can be upgraded the new implementation can be installed later.
  *
  * The deployer becomes the new owner (i.e. is returned from the owner() function) for a given time period,
  * after which the given owner is the new owner.
@@ -34,7 +36,7 @@ contract Stem_v1 is UUPSUpgradeable, BaoCheckOwner_v2, ERC165, IERC5313 {
                                   CONSTRUCTOR
     //////////////////////////////////////////////////////////////////////////*/
     /**
-     * @dev Disables initializers for the implementation contract
+     * @dev Sets up the ownership via the BaoCheckOwner_v2 constructor.
      */
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(
