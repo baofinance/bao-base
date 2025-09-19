@@ -99,7 +99,7 @@ _output() {
   local colour="$plain"
   case "$type" in
     DEBUG) colour=$blue ;;
-    INFO|INFO1|INFO2|INFO3|INFO4) colour=$olive ;;
+    INFO | INFO1 | INFO2 | INFO3 | INFO4) colour=$olive ;;
     WARN) colour=$red ;;
     ERROR) colour=$bold$red ;;
   esac

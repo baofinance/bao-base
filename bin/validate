@@ -46,96 +46,96 @@ ALLOWED_OZ_INIT_SLOT="f0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c22
 
 failed=0
 for contract in ${contracts}; do
-    this_failed=0
-    # skip libraries
-    if [[ "$contract" == "lib/"* ]]; then
-        continue
-    fi
-    # special case for Stem
-    if [[ "$contract" == *"Stem"*".sol:"*"Stem"* ]]; then
-        continue
-    fi
+  this_failed=0
+  # skip libraries
+  if [[ "$contract" == "lib/"* ]]; then
+    continue
+  fi
+  # special case for Stem
+  if [[ "$contract" == *"Stem"*".sol:"*"Stem"* ]]; then
+    continue
+  fi
 
-    ################################################################
-    # check for storage slots not in a namespace (i.e. root slots)
-    ################################################################
-    root_slots=$(forge inspect --out ${FOUNDRY_OUT} --json $contract storage-layout | jq '.storage | length')
-    if [[ "${root_slots}" != "" && "${root_slots}" -gt 0 ]]; then
-        echo "ERROR: Root slots for ${contract}: ${root_slots}\n$(forge inspect $contract storage-layout)"
-        this_failed=1
-    fi
+  ################################################################
+  # check for storage slots not in a namespace (i.e. root slots)
+  ################################################################
+  root_slots=$(forge inspect --out ${FOUNDRY_OUT} --json $contract storage-layout | jq '.storage | length')
+  if [[ "${root_slots}" != "" && "${root_slots}" -gt 0 ]]; then
+    echo "ERROR: Root slots for ${contract}: ${root_slots}\n$(forge inspect $contract storage-layout)"
+    this_failed=1
+  fi
 
-    ################################################################
-    # check for constructor initialised storage
-    # - Must SSTORE exactly once, to OZ Initializable slot
-    # - No second SSTORE allowed (any other constructor write is disallowed)
-    ################################################################
+  ################################################################
+  # check for constructor initialised storage
+  # - Must SSTORE exactly once, to OZ Initializable slot
+  # - No second SSTORE allowed (any other constructor write is disallowed)
+  ################################################################
 
-    init=$(forge inspect --out ${FOUNDRY_OUT} "$contract" bytecode | tr -d '\n')
-    runtime=$(forge inspect --out ${FOUNDRY_OUT} "$contract" deployedBytecode | tr -d '\n')
+  init=$(forge inspect --out ${FOUNDRY_OUT} "$contract" bytecode | tr -d '\n')
+  runtime=$(forge inspect --out ${FOUNDRY_OUT} "$contract" deployedBytecode | tr -d '\n')
 
-    # Mandatory: contracts must have constructor code and call _disableInitializers()
-    if [ "$init" = "0x" ] || [ "$runtime" = "0x" ]; then
-        echo "ERROR: Constructor does not call _disableInitializers(); (no creation/runtime bytecode) in $contract"
-        this_failed=1
+  # Mandatory: contracts must have constructor code and call _disableInitializers()
+  if [ "$init" = "0x" ] || [ "$runtime" = "0x" ]; then
+    echo "ERROR: Constructor does not call _disableInitializers(); (no creation/runtime bytecode) in $contract"
+    this_failed=1
+  else
+    # Isolate constructor (init) by trimming runtime tail
+    # pos=$(echo -n "$init" | grep -aob -- "${runtime#0x}" | tail -n1 | cut -d: -f1 || true) # OOM on macos
+    pos=$(node -e "const a=(process.argv[1]||'').toLowerCase(); const b=(process.argv[2]||'').replace(/^0x/,'').toLowerCase(); const i=a.lastIndexOf(b); if(i>=0) process.stdout.write(String(i));" "$init" "$runtime" 2>/dev/null || true)
+    if [ -n "$pos" ]; then
+      init="${init:0:$pos}"
     else
-        # Isolate constructor (init) by trimming runtime tail
-        # pos=$(echo -n "$init" | grep -aob -- "${runtime#0x}" | tail -n1 | cut -d: -f1 || true) # OOM on macos
-        pos=$(node -e "const a=(process.argv[1]||'').toLowerCase(); const b=(process.argv[2]||'').replace(/^0x/,'').toLowerCase(); const i=a.lastIndexOf(b); if(i>=0) process.stdout.write(String(i));" "$init" "$runtime" 2>/dev/null || true)
-        if [ -n "$pos" ]; then
-            init="${init:0:$pos}"
-        else
-            echo "WARNING: Couldn't locate runtime inside creation for $contract; scanning full creation code"
-        fi
-
-        # Count SSTOREs in init
-        disasm=$(cast disassemble "$init")
-        sstore_count=$(echo "$disasm" | grep -ci '\bSSTORE\b' || true)
-        sload_count=$(echo "$disasm" | grep -ci '\bSLOAD\b' || true)
-
-        # Require exactly one SSTORE (the _disableInitializers write)
-        if [ "${sstore_count:-0}" -eq 0 ]; then
-            echo "ERROR: Constructor does not call _disableInitializers() (no SSTORE) in $contract"
-            this_failed=1
-        elif [ "${sstore_count:-0}" -gt 1 ]; then
-            echo "ERROR: Constructor performs multiple SSTOREs in $contract (only Initializable write allowed)"
-            this_failed=1
-        fi
-
-        # echo $init
-        # exit 0
-        # Require the Initializable ERC-7201 slot bytes to appear in constructor bytecode
-        if ! echo "$init" | grep -q "${ALLOWED_OZ_INIT_SLOT}"; then
-            echo "ERROR: Constructor does not reference Initializable slot (erc7201) in $contract"
-            this_failed=1
-        fi
-
-        # Enforce: exactly one SSTORE, and it must target the Initializable slot
-        # if ! echo "$disasm" | awk -v slot="${ALLOWED_OZ_INIT_SLOT}" '
-        #     BEGIN { pushline=0; total=0; toslot=0; bad=0; window=256 }
-        #     /PUSH[0-9]+/ { if (index($0, slot) > 0) { pushline=NR } next }
-        #     /SSTORE\b/   {
-        #         total++
-        #         if (pushline > 0 && (NR - pushline) <= window) { toslot++ } else { bad=1 }
-        #         next
-        #     }
-        #     END { exit(bad || total != 1 || toslot != 1 ? 1 : 0) }
-        # '; then
-        #     warn "Constructor does not perform exactly one SSTORE to Initializable in $contract"
-        #     this_failed=1
-        # fi
+      echo "WARNING: Couldn't locate runtime inside creation for $contract; scanning full creation code"
     fi
 
-    if [[ $this_failed -ne 0 ]]; then
-        failed=1
-        echo " ✘  ${contract}"
-    else
-        echo " ✔  ${contract}"
+    # Count SSTOREs in init
+    disasm=$(cast disassemble "$init")
+    sstore_count=$(echo "$disasm" | grep -ci '\bSSTORE\b' || true)
+    sload_count=$(echo "$disasm" | grep -ci '\bSLOAD\b' || true)
+
+    # Require exactly one SSTORE (the _disableInitializers write)
+    if [ "${sstore_count:-0}" -eq 0 ]; then
+      echo "ERROR: Constructor does not call _disableInitializers() (no SSTORE) in $contract"
+      this_failed=1
+    elif [ "${sstore_count:-0}" -gt 1 ]; then
+      echo "ERROR: Constructor performs multiple SSTOREs in $contract (only Initializable write allowed)"
+      this_failed=1
     fi
-    echo ""
+
+    # echo $init
+    # exit 0
+    # Require the Initializable ERC-7201 slot bytes to appear in constructor bytecode
+    if ! echo "$init" | grep -q "${ALLOWED_OZ_INIT_SLOT}"; then
+      echo "ERROR: Constructor does not reference Initializable slot (erc7201) in $contract"
+      this_failed=1
+    fi
+
+    # Enforce: exactly one SSTORE, and it must target the Initializable slot
+    # if ! echo "$disasm" | awk -v slot="${ALLOWED_OZ_INIT_SLOT}" '
+    #     BEGIN { pushline=0; total=0; toslot=0; bad=0; window=256 }
+    #     /PUSH[0-9]+/ { if (index($0, slot) > 0) { pushline=NR } next }
+    #     /SSTORE\b/   {
+    #         total++
+    #         if (pushline > 0 && (NR - pushline) <= window) { toslot++ } else { bad=1 }
+    #         next
+    #     }
+    #     END { exit(bad || total != 1 || toslot != 1 ? 1 : 0) }
+    # '; then
+    #     warn "Constructor does not perform exactly one SSTORE to Initializable in $contract"
+    #     this_failed=1
+    # fi
+  fi
+
+  if [[ $this_failed -ne 0 ]]; then
+    failed=1
+    echo " ✘  ${contract}"
+  else
+    echo " ✔  ${contract}"
+  fi
+  echo ""
 done
 if [[ $failed -ne 0 ]]; then
-    echo "ERROR: some contracts have root storage or constructor-initialized storage"
-    return 1
+  echo "ERROR: some contracts have root storage or constructor-initialized storage"
+  return 1
 fi
 echo "SUCCESS: (no contracts have root storage or constructor-initialized storage)"
