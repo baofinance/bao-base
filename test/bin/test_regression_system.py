@@ -123,14 +123,17 @@ class TestGasDiffFiltering:
 
     def _golden_from_old_and_new(
         self,
-        old_file: Path,
-        new_file: Path,
-        expected_file: Path,
+        old_file_name: str,
+        new_file_name: str,
+        expected_file_name: str,
         *,
         rel_tol: Optional[float] = None,
         abs_tol: Optional[float] = None,
         color: bool = True,
     ) -> None:
+        old_file: Path = TEST_DATA_DIR / old_file_name
+        new_file: Path = TEST_DATA_DIR / new_file_name
+        expected_file: Path = TEST_DATA_DIR / expected_file_name
         # Produce a git diff between two files (no index allows diffing non-repo files)
         args = ["git", "--no-pager", "diff", "--no-index", "--unified=9999"]
         if color:
@@ -249,87 +252,26 @@ class TestGasDiffFiltering:
 
     def test_exceeds_tolerance_from_files(self):
         """Build diff from old/new and compare output to expected; also verify diff equals saved diff file."""
-        old_file = TEST_DATA_DIR / "gas_old_exceeds_tolerance.txt"
-        new_file = TEST_DATA_DIR / "gas_new_exceeds_tolerance.txt"
-        expected = TEST_DATA_DIR / "gas_expected_exceeds_tolerance.txt"
         # Golden assert using generated diff
-        self._golden_from_old_and_new(old_file, new_file, expected)
-        # Verify the generated git diff equals the existing diff file, if present
-        saved_diff = TEST_DATA_DIR / "gas_diff_exceeds_tolerance.txt"
-        if saved_diff.exists():
-            gen = run_command(
-                [
-                    "git",
-                    "--no-pager",
-                    "diff",
-                    "--no-index",
-                    "--unified=9999",
-                    "--color",
-                    str(old_file),
-                    str(new_file),
-                ]
-            )
-            assert gen.returncode in (0, 1)
-            generated = self._strip_color_tokens(self._normalize_git_diff_for_gas(gen.stdout))
-            expected = self._strip_color_tokens(saved_diff.read_text())
-            assert generated == expected
+        self._golden_from_old_and_new(
+            "gas_old_exceeds_tolerance.txt", "gas_new_exceeds_tolerance.txt", "gas_expected_exceeds_tolerance.txt"
+        )
 
     def test_within_tolerance_from_files(self):
         """Build diff from old/new (within tolerance) and compare to expected; also verify diff equals saved diff file."""
-        old_file = TEST_DATA_DIR / "gas_old_within_tolerance.txt"
-        new_file = TEST_DATA_DIR / "gas_new_within_tolerance.txt"
-        expected = TEST_DATA_DIR / "gas_expected_within_tolerance.txt"
-        self._golden_from_old_and_new(old_file, new_file, expected)
-        saved_diff = TEST_DATA_DIR / "gas_diff_within_tolerance.txt"
-        if saved_diff.exists():
-            gen = run_command(
-                [
-                    "git",
-                    "--no-pager",
-                    "diff",
-                    "--no-index",
-                    "--unified=9999",
-                    "--color",
-                    str(old_file),
-                    str(new_file),
-                ]
-            )
-            assert gen.returncode in (0, 1)
-            generated = self._strip_color_tokens(self._normalize_git_diff_for_gas(gen.stdout))
-            expected = self._strip_color_tokens(saved_diff.read_text())
-            assert generated == expected
+        self._golden_from_old_and_new(
+            "gas_old_within_tolerance.txt", "gas_new_within_tolerance.txt", "gas_expected_within_tolerance.txt"
+        )
 
     def test_structural_change_from_files(self):
         """Build diff from old/new (structural change) and compare to expected; also verify diff equals saved diff file."""
-        old_file = TEST_DATA_DIR / "gas_old_structural_change.txt"
-        new_file = TEST_DATA_DIR / "gas_new_structural_change.txt"
-        expected = TEST_DATA_DIR / "gas_expected_structural_change.txt"
-        self._golden_from_old_and_new(old_file, new_file, expected)
-        saved_diff = TEST_DATA_DIR / "gas_diff_structural_change.txt"
-        if saved_diff.exists():
-            gen = run_command(
-                [
-                    "git",
-                    "--no-pager",
-                    "diff",
-                    "--no-index",
-                    "--unified=9999",
-                    "--color",
-                    str(old_file),
-                    str(new_file),
-                ]
-            )
-            assert gen.returncode in (0, 1)
-            generated = self._strip_color_tokens(self._normalize_git_diff_for_gas(gen.stdout))
-            expected = self._strip_color_tokens(saved_diff.read_text())
-            assert generated == expected
+        self._golden_from_old_and_new(
+            "gas_old_structural_change.txt", "gas_new_structural_change.txt", "gas_expected_structural_change.txt"
+        )
 
     def test_golden_diff_from_files(self):
         """Golden test that builds git diff from two files and compares output exactly."""
-        old_file = TEST_DATA_DIR / "gas_old_basic.txt"
-        new_file = TEST_DATA_DIR / "gas_new_basic.txt"
-        expected = TEST_DATA_DIR / "gas_expected_basic.txt"
-        self._golden_from_old_and_new(old_file, new_file, expected)
+        self._golden_from_old_and_new("gas_old_basic.txt", "gas_new_basic.txt", "gas_expected_basic.txt")
 
     def test_custom_tolerances(self):
         """Test custom tolerance parameters."""
@@ -454,20 +396,15 @@ class TestGasDiffFiltering:
 
     def test_multiple_contiguous_changes_with_context(self):
         """Golden test for multiple changes with preserved context and mixed tolerances."""
-        old_file = TEST_DATA_DIR / "gas_old_multiple_changes.txt"
-        new_file = TEST_DATA_DIR / "gas_new_multiple_changes.txt"
-        expected = TEST_DATA_DIR / "gas_expected_multiple_changes.txt"
-        self._golden_from_old_and_new(old_file, new_file, expected)
+        self._golden_from_old_and_new(
+            "gas_old_multiple_changes.txt", "gas_new_multiple_changes.txt", "gas_expected_multiple_changes.txt"
+        )
 
     # Removed duplicate of exceeds_tolerance golden test; coverage replaced by an assertion test below.
 
     def test_edge_whitespace_handling(self):
         """Golden test to verify whitespace robustness in parsing and diff pairing."""
-        # Generate a diff between base and changed files to capture whitespace variations
-        old_file = TEST_DATA_DIR / "gas_old_whitespace.txt"
-        new_file = TEST_DATA_DIR / "gas_new_whitespace.txt"
-        expected = TEST_DATA_DIR / "gas_expected_whitespace.txt"
-        self._golden_from_old_and_new(old_file, new_file, expected)
+        self._golden_from_old_and_new("gas_old_whitespace.txt", "gas_new_whitespace.txt", "gas_expected_whitespace.txt")
 
     def test_exceeds_tolerance_emits_colors_and_exits_one(self):
         """Assert that an exceeds-tolerance diff produces colored output and exit code 1."""

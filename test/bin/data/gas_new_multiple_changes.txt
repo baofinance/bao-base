@@ -1,0 +1,9 @@
+src/test/Test.sol:Test
+| function name                      |      max |
+|------------------------------------|----------|
+| contextFunction1                   | 1.00e+04 |
+| withinToleranceFunc                | 2.01e+05 |
+| exceedsToleranceFunc               | 4.00e+05 |
+| anotherContextFunc                 | 1.50e+04 |
+| withinToleranceFunc2               | 4.02e+05 |
+| contextFunction2                   | 2.00e+04 |

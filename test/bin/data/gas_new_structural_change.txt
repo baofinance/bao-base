@@ -1,0 +1,10 @@
+src/minter/Minter_v1.sol:Minter_v1
+| function name                      |      max |
+|------------------------------------|----------|
+| HARVESTER_ROLE                     | 2.83e+02 |
+| NEW_FUNCTION                       | 1.50e+04 |
+| LEVERAGED_TOKEN                    | 2.83e+02 |
+| collateralRatio                    | 1.91e+04 |
+| mintLeveragedToken                 | 1.49e+05 |
+| mintPeggedToken                    | 1.39e+05 |
+| redeemLeveragedToken               | 1.28e+05 |
