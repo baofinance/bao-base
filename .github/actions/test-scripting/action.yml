@@ -35,6 +35,26 @@ runs:
         brew install bash
         bash --version
 
+    - name: Install uv python framework
+      shell: bash
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | bash
+      id: uv-install
+
+    - name: Install python project dependencies (if any)
+      shell: bash
+      run: |
+        # install python project dependencies
+        cd ${{ inputs.cwd }}
+        [[ -f pyproject.toml ]] && uv sync || echo "No pyproject.toml found, skipping python dependencies installation"
+
+    - name: Install node project dependencies
+      shell: bash
+      run: |
+        # install node project dependencies
+        cd ${{ inputs.cwd }}
+        yarn
+
     - name: Install ShellCheck
       shell: bash
       run: |
@@ -72,7 +92,7 @@ runs:
     - name: Install Foundry
       uses: foundry-rs/foundry-toolchain@v1
       with:
-        version: ${{ inputs.FOUNDRY }}
+        version: ${{ inputs.foundry }}
     - shell: bash
       run: |
         forge --version
@@ -107,15 +127,17 @@ runs:
     #     yarn lint:bash
     #   id: lint
 
-    # - name: Run Python (pytest) Tests
-    #   shell: bash
-    #   run: |
-    #     yarn test:python
-    #   id: pytest
+    - name: Run Python (pytest) Tests
+      shell: bash
+      run: |
+        cd ${{ inputs.cwd }}
+        yarn test:python
+      id: pytest
 
     # - name: Run Bash (BATS) Tests
     #   shell: bash
     #   run: |
+    #     cd ${{ inputs.cwd }}
     #     yarn test:bash
     #   id: bats
 
