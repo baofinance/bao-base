@@ -1,0 +1,535 @@
+#!/usr/bin/env python3
+"""
+Tests for the regression system: git diff filtering and numerical comparison.
+"""
+import difflib
+import os
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
+from typing import List, Optional, Sequence
+
+import pytest
+
+# Test data directory
+TEST_DATA_DIR = Path(__file__).parent / "data"
+
+# Default tolerance values (matching compare-gas script defaults)
+DEFAULT_REL_TOLERANCE = 0.05  # 5%
+DEFAULT_ABS_TOLERANCE = 1000  # 1000 gas units
+
+
+# class TempGitRepo:
+#     """Context manager for creating temporary git repositories for testing."""
+
+#     def __init__(self):
+#         self.temp_dir = None
+#         self.repo_path = None
+
+#     def __enter__(self):
+#         self.temp_dir = tempfile.mkdtemp()
+#         self.repo_path = Path(self.temp_dir)
+
+#         # Initialize git repo
+#         run_command(["git", "init"], self.repo_path)
+#         run_command(["git", "config", "user.email", "test@example.com"], self.repo_path)
+#         run_command(["git", "config", "user.name", "Test User"], self.repo_path)
+
+#         return self.repo_path
+
+#     def __exit__(self, exc_type, exc_val, exc_tb):
+#         if self.temp_dir:
+#             shutil.rmtree(self.temp_dir)
+
+
+def run_command(cmd, cwd=None, stdin_input=""):
+    """Run a command and return the result."""
+    result = subprocess.run(cmd, cwd=cwd, input=stdin_input, capture_output=True, text=True)
+    return result
+
+
+class TestGasDiffFiltering:
+    """Test the compare-gas script functionality."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.compare_gas_script = Path(__file__).parent.parent.parent / "bin" / "compare-gas.py"
+
+    def _run_compare_gas(
+        self, input_lines: Sequence[str], rel_tol: Optional[float] = None, abs_tol: Optional[float] = None
+    ):
+        """Helper to run compare-gas with custom tolerances.
+        Defaults are defined here (single source of truth for tests).
+        """
+        if rel_tol is None:
+            rel_tol = DEFAULT_REL_TOLERANCE
+        if abs_tol is None:
+            abs_tol = DEFAULT_ABS_TOLERANCE
+
+        cmd = [
+            str(self.compare_gas_script),
+            "--rel-tolerance",
+            str(rel_tol),
+            "--abs-tolerance",
+            str(abs_tol),
+        ]
+
+        input_text = "\n".join(input_lines) + "\n"
+        return run_command(cmd, stdin_input=input_text)
+
+    def _create_gas_diff(self, old_value: str, new_value: str, function_name: str = "testFunction") -> List[str]:
+        """Helper to create a simple gas diff with ANSI colors."""
+        return [
+            f"\x1b[31m-| {function_name:<30} | {old_value:>8} |\x1b[m",
+            f"\x1b[32m+| {function_name:<30} | {new_value:>8} |\x1b[m",
+        ]
+
+    def _golden_from_diff(
+        self,
+        diff_file: Path,
+        expected_file: Path,
+        *,
+        rel_tol: Optional[float] = None,
+        abs_tol: Optional[float] = None,
+    ) -> None:
+        """Run compare-gas on the contents of input_file and compare stdout to expected_file.
+        If expected_file doesn't exist, generate it from actual output.
+        On mismatch, display a unified diff in the assertion message.
+        """
+        diff_text = diff_file.read_text()
+        result = self._run_compare_gas(diff_text.splitlines(), rel_tol=rel_tol, abs_tol=abs_tol)
+        actual = result.stdout
+
+        # Ensure folder exists
+        expected_file.parent.mkdir(parents=True, exist_ok=True)
+
+        if not expected_file.exists():
+            expected_file.write_text(actual)
+            return
+
+        expected = expected_file.read_text()
+        if actual != expected:
+            diff = "\n".join(
+                difflib.unified_diff(
+                    expected.splitlines(),
+                    actual.splitlines(),
+                    fromfile=str(expected_file) + " (expected)",
+                    tofile="(actual)",
+                    lineterm="",
+                )
+            )
+            assert False, f"Golden output mismatch for {expected_file}:\n{diff}"
+
+    def _golden_from_old_and_new(
+        self,
+        old_file: Path,
+        new_file: Path,
+        expected_file: Path,
+        *,
+        rel_tol: Optional[float] = None,
+        abs_tol: Optional[float] = None,
+        color: bool = True,
+    ) -> None:
+        # Produce a git diff between two files (no index allows diffing non-repo files)
+        args = ["git", "--no-pager", "diff", "--no-index", "--unified=9999"]
+        if color:
+            args.append("--color")
+        args.extend([str(old_file), str(new_file)])
+        diff_result = run_command(args)
+        # Normalize the git diff into a minimal gas-focused diff to align with saved fixtures/expectations
+        input_text = self._to_minimal_gas_diff(diff_result.stdout)
+
+        # Delegate to the input-file golden by using a temporary file for the diff input
+        with tempfile.NamedTemporaryFile("w+", delete=False, suffix=".txt") as tmp:
+            tmp.write(input_text)
+            tmp_path = Path(tmp.name)
+        try:
+            self._golden_from_diff(tmp_path, expected_file, rel_tol=rel_tol, abs_tol=abs_tol)
+        finally:
+            try:
+                tmp_path.unlink()
+            except Exception:
+                pass
+
+    def _normalize_git_diff_for_gas(self, diff_text: str) -> str:
+        """Strip git diff headers/hunk metadata (even if colored) so only gas table lines remain (context and +/-)."""
+        import re
+
+        ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+        lines = diff_text.splitlines()
+        kept: list[str] = []
+        for raw in lines:
+            # Remove ANSI for header detection, but keep original for output
+            check = ansi_re.sub("", raw).lstrip()
+            if (
+                check.startswith("diff --git ")
+                or check.startswith("index ")
+                or check.startswith("--- ")
+                or check.startswith("+++ ")
+                or check.startswith("@@ ")
+            ):
+                continue
+            kept.append(raw)
+        # Ensure trailing newline at end to match fixture style
+        return "\n".join(kept) + "\n"
+
+    def _strip_color_tokens(self, text: str) -> str:
+        """Remove ANSI escape codes and bare bracket color tokens like [31m, [m used in some fixtures."""
+        import re
+
+        # Remove real ANSI escapes
+        no_ansi = re.sub(r"\x1b\[[0-9;]*m", "", text)
+        # Remove any bare tokens like [31m, [1m, [m that may appear in saved fixtures
+        no_bare = re.sub(r"\[[0-9;]*m", "", no_ansi)
+        return no_bare
+
+    def _to_minimal_gas_diff(self, diff_text: str) -> str:
+        """Convert a raw git diff to a minimal gas-only diff:
+        - Drop diff headers and hunk markers
+        - Keep context lines as-is
+        - Keep +/- lines only if they are gas table rows (start with a '|' table)
+        - Convert +/- markers on non-gas lines to plain context lines (leading space)
+        This mirrors the style of saved gas_diff_* fixtures and avoids spurious structural additions.
+        """
+        import re
+
+        def strip_ansi(s: str) -> str:
+            return re.sub(r"\x1b\[[0-9;]*m", "", s)
+
+        def is_gas_table_row(line: str) -> bool:
+            # Detect a gas table row after stripping ANSI and diff markers
+            s = strip_ansi(line)
+            s = s.lstrip()
+            # Remove single leading diff marker if present
+            if s.startswith("+") or s.startswith("-"):
+                s = s[1:].lstrip()
+            return bool(re.match(r"^\|\s*[^|]+\|\s*\d+(?:\.\d+)?(?:e[+-]?\d+)?\s*\|", s))
+
+        minimal_lines: list[str] = []
+        for raw in self._normalize_git_diff_for_gas(diff_text).splitlines():
+            # Strip ANSI for analysis
+            no_ansi = strip_ansi(raw)
+            s = no_ansi.lstrip()
+            # Detect +/- and table
+            starts_pm = s.startswith(("+", "-"))
+            sign = s[0] if starts_pm else ""
+            rest = s[1:].lstrip() if starts_pm else s
+            is_table = bool(re.match(r"^\|\s*[^|]+\|\s*\d+(?:\.\d+)?(?:e[+-]?\d+)?\s*\|", rest))
+
+            if starts_pm and is_table:
+                # Canonicalize colored +/- table rows: one color code, full row, trailing reset
+                table = rest
+                if sign == "+":
+                    canonical = f"\x1b[32m+{table}\x1b[m"
+                else:
+                    canonical = f"\x1b[31m-{table}\x1b[m"
+                minimal_lines.append(canonical)
+                continue
+
+            if starts_pm and not is_table:
+                # Non-table +/- lines -> treat as plain context, drop ANSI
+                minimal_lines.append(" " + rest)
+                continue
+
+            # Context or headings: drop ANSI entirely
+            minimal_lines.append(no_ansi)
+
+        return "\n".join(minimal_lines) + "\n"
+
+    def test_script_exists(self):
+        """Test that the compare-gas script exists."""
+        assert self.compare_gas_script.exists()
+
+    def test_help_works(self):
+        """Test that the script shows help."""
+        result = run_command([str(self.compare_gas_script), "--help"])
+        assert result.returncode == 0
+        assert "tolerance" in result.stdout
+
+    def test_exceeds_tolerance_from_files(self):
+        """Build diff from old/new and compare output to expected; also verify diff equals saved diff file."""
+        old_file = TEST_DATA_DIR / "gas_old_exceeds_tolerance.txt"
+        new_file = TEST_DATA_DIR / "gas_new_exceeds_tolerance.txt"
+        expected = TEST_DATA_DIR / "gas_expected_exceeds_tolerance.txt"
+        # Golden assert using generated diff
+        self._golden_from_old_and_new(old_file, new_file, expected)
+        # Verify the generated git diff equals the existing diff file, if present
+        saved_diff = TEST_DATA_DIR / "gas_diff_exceeds_tolerance.txt"
+        if saved_diff.exists():
+            gen = run_command(
+                [
+                    "git",
+                    "--no-pager",
+                    "diff",
+                    "--no-index",
+                    "--unified=9999",
+                    "--color",
+                    str(old_file),
+                    str(new_file),
+                ]
+            )
+            assert gen.returncode in (0, 1)
+            generated = self._strip_color_tokens(self._normalize_git_diff_for_gas(gen.stdout))
+            expected = self._strip_color_tokens(saved_diff.read_text())
+            assert generated == expected
+
+    def test_within_tolerance_from_files(self):
+        """Build diff from old/new (within tolerance) and compare to expected; also verify diff equals saved diff file."""
+        old_file = TEST_DATA_DIR / "gas_old_within_tolerance.txt"
+        new_file = TEST_DATA_DIR / "gas_new_within_tolerance.txt"
+        expected = TEST_DATA_DIR / "gas_expected_within_tolerance.txt"
+        self._golden_from_old_and_new(old_file, new_file, expected)
+        saved_diff = TEST_DATA_DIR / "gas_diff_within_tolerance.txt"
+        if saved_diff.exists():
+            gen = run_command(
+                [
+                    "git",
+                    "--no-pager",
+                    "diff",
+                    "--no-index",
+                    "--unified=9999",
+                    "--color",
+                    str(old_file),
+                    str(new_file),
+                ]
+            )
+            assert gen.returncode in (0, 1)
+            generated = self._strip_color_tokens(self._normalize_git_diff_for_gas(gen.stdout))
+            expected = self._strip_color_tokens(saved_diff.read_text())
+            assert generated == expected
+
+    def test_structural_change_from_files(self):
+        """Build diff from old/new (structural change) and compare to expected; also verify diff equals saved diff file."""
+        old_file = TEST_DATA_DIR / "gas_old_structural_change.txt"
+        new_file = TEST_DATA_DIR / "gas_new_structural_change.txt"
+        expected = TEST_DATA_DIR / "gas_expected_structural_change.txt"
+        self._golden_from_old_and_new(old_file, new_file, expected)
+        saved_diff = TEST_DATA_DIR / "gas_diff_structural_change.txt"
+        if saved_diff.exists():
+            gen = run_command(
+                [
+                    "git",
+                    "--no-pager",
+                    "diff",
+                    "--no-index",
+                    "--unified=9999",
+                    "--color",
+                    str(old_file),
+                    str(new_file),
+                ]
+            )
+            assert gen.returncode in (0, 1)
+            generated = self._strip_color_tokens(self._normalize_git_diff_for_gas(gen.stdout))
+            expected = self._strip_color_tokens(saved_diff.read_text())
+            assert generated == expected
+
+    def test_golden_diff_from_files(self):
+        """Golden test that builds git diff from two files and compares output exactly."""
+        old_file = TEST_DATA_DIR / "gas_old_basic.txt"
+        new_file = TEST_DATA_DIR / "gas_new_basic.txt"
+        expected = TEST_DATA_DIR / "gas_expected_basic.txt"
+        self._golden_from_old_and_new(old_file, new_file, expected)
+
+    def test_custom_tolerances(self):
+        """Test custom tolerance parameters."""
+        # Create a simple test case: 100,000 → 102,000 (2% change, 2000 absolute change)
+        test_input = "\x1b[31m-| testFunction | 1.00e+05 |\x1b[m\n\x1b[32m+| testFunction | 1.02e+05 |\x1b[m\n"
+
+        # With test-set tolerances (5% relative, 1000 absolute), should be filtered (2% < 5%)
+        result = self._run_compare_gas(test_input.splitlines())
+        assert result.returncode == 0  # Filtered out
+
+        # With stricter tolerance (1% relative, 500 absolute), should be shown (2% > 1% AND 2000 > 500)
+        result = self._run_compare_gas(test_input.splitlines(), rel_tol=0.01, abs_tol=500)
+        assert result.returncode == 1  # Changes detected
+        assert "testFunction" in result.stdout
+
+    def test_absolute_tolerance_boundary(self):
+        """Test boundary conditions for absolute tolerance."""
+        # Test exactly at absolute tolerance but exceeding relative (1000 gas, 10%)
+        diff_lines = self._create_gas_diff("10000", "11000")  # 1000 gas, 10% change
+        result = self._run_compare_gas(diff_lines)
+        assert result.returncode == 0  # Should be filtered (absolute tolerance satisfied)
+
+        # Test exceeding both tolerances (1001 gas AND >5%)
+        diff_lines = self._create_gas_diff("10000", "11001")  # 1001 gas, 11.01% change
+        result = self._run_compare_gas(diff_lines)
+        assert result.returncode == 1  # Should be shown (exceeds both)
+        assert "testFunction" in result.stdout
+
+    def test_relative_tolerance_boundary(self):
+        """Test boundary conditions for relative tolerance."""
+        # Test exactly at 5% relative tolerance but exceeding absolute (5000 gas)
+        diff_lines = self._create_gas_diff("100000", "105000")  # Exactly 5%, 5000 gas
+        result = self._run_compare_gas(diff_lines)
+        assert result.returncode == 0  # Should be filtered (relative tolerance satisfied)
+
+        # Test exceeding both tolerances (>5% AND >1000 gas)
+        diff_lines = self._create_gas_diff("100000", "106001")  # 6.001%, 6001 gas
+        result = self._run_compare_gas(diff_lines)
+        assert result.returncode == 1  # Should be shown (exceeds both)
+        assert "testFunction" in result.stdout
+
+    def test_very_small_numbers_and_zero(self):
+        """Test handling of very small numbers and zero values."""
+        # Test zero to large value (exceeds both tolerances)
+        diff_lines = self._create_gas_diff("0", "10000")  # Infinite % change, 10000 gas
+        result = self._run_compare_gas(diff_lines)
+        assert result.returncode == 1
+        assert "testFunction" in result.stdout
+
+        # Test non-zero to zero (exceeds both tolerances)
+        diff_lines = self._create_gas_diff("10000", "0")  # -100%, 10000 gas
+        result = self._run_compare_gas(diff_lines)
+        assert result.returncode == 1
+        assert "testFunction" in result.stdout
+
+        # Test very small change within absolute tolerance
+        diff_lines = self._create_gas_diff("10", "100")  # 900% change but 90 gas (within absolute)
+        result = self._run_compare_gas(diff_lines)
+        assert result.returncode == 0  # Should be filtered (within absolute tolerance)
+
+        # Test change exceeding both tolerances
+        diff_lines = self._create_gas_diff("10", "2000")  # 19900% change, 1990 gas (exceeds both)
+        result = self._run_compare_gas(diff_lines)
+        assert result.returncode == 1  # Should be shown (exceeds both)
+        assert "testFunction" in result.stdout
+
+    def test_negative_changes(self):
+        """Test handling of negative (decreasing) gas changes."""
+        # Large decrease exceeding both tolerances (-10%, 10000 gas)
+        diff_lines = self._create_gas_diff("100000", "90000")
+        result = self._run_compare_gas(diff_lines)
+        assert result.returncode == 1
+        assert "testFunction" in result.stdout
+
+        # Small decrease within both tolerances (-2%, 2000 gas - within relative)
+        diff_lines = self._create_gas_diff("100000", "98000")
+        result = self._run_compare_gas(diff_lines)
+        assert result.returncode == 0  # Should be filtered (within relative tolerance)
+
+        # Decrease at absolute boundary but exceeding relative (-1000 gas, -10%)
+        diff_lines = self._create_gas_diff("10000", "9000")
+        result = self._run_compare_gas(diff_lines)
+        assert result.returncode == 0  # Should be filtered (within absolute tolerance)
+
+        # Decrease exceeding both tolerances (-1001 gas AND >5%)
+        diff_lines = self._create_gas_diff("10000", "8999")  # 1001 gas, 10.01%
+        result = self._run_compare_gas(diff_lines)
+        assert result.returncode == 1  # Should be shown
+        assert "testFunction" in result.stdout
+
+    def test_different_number_formats(self):
+        """Test various number formats and precisions."""
+        test_cases = [
+            ("1.00e+05", "1.04e+05"),  # Scientific notation, within tolerance (4%, 4000 gas)
+            ("100000", "110001"),  # Integer notation, exceeds both (10.001%, 10001 gas)
+            ("1.234e+06", "1.350e+06"),  # Scientific with decimals, exceeds both (~9.4%, 116000 gas)
+            ("50000", "50500"),  # Under both thresholds (1%, 500 gas)
+            ("10000", "15000"),  # Exceeds both (50%, 5000 gas)
+        ]
+
+        for old_val, new_val in test_cases:
+            diff_lines = self._create_gas_diff(old_val, new_val)
+            result = self._run_compare_gas(diff_lines, DEFAULT_REL_TOLERANCE, DEFAULT_ABS_TOLERANCE)
+
+            # Calculate expected behavior
+            try:
+                old_num = float(old_val)
+                new_num = float(new_val)
+                rel_change = abs(new_num - old_num) / old_num if old_num != 0 else float("inf")
+                abs_change = abs(new_num - old_num)
+
+                # Should be filtered if EITHER relative OR absolute are within tolerance (math.isclose OR logic)
+                should_be_filtered = rel_change <= DEFAULT_REL_TOLERANCE or abs_change <= DEFAULT_ABS_TOLERANCE
+                expected_returncode = 0 if should_be_filtered else 1
+
+                assert (
+                    result.returncode == expected_returncode
+                ), f"Failed for {old_val} -> {new_val}: rel={rel_change:.3f}, abs={abs_change}"
+            except (ValueError, ZeroDivisionError):
+                # If we can't parse numbers, test should still not crash
+                assert result.returncode in [0, 1]
+
+    def test_multiple_contiguous_changes_with_context(self):
+        """Golden test for multiple changes with preserved context and mixed tolerances."""
+        old_file = TEST_DATA_DIR / "gas_old_multiple_changes.txt"
+        new_file = TEST_DATA_DIR / "gas_new_multiple_changes.txt"
+        expected = TEST_DATA_DIR / "gas_expected_multiple_changes.txt"
+        self._golden_from_old_and_new(old_file, new_file, expected)
+
+    # Removed duplicate of exceeds_tolerance golden test; coverage replaced by an assertion test below.
+
+    def test_edge_whitespace_handling(self):
+        """Golden test to verify whitespace robustness in parsing and diff pairing."""
+        # Generate a diff between base and changed files to capture whitespace variations
+        old_file = TEST_DATA_DIR / "gas_old_whitespace.txt"
+        new_file = TEST_DATA_DIR / "gas_new_whitespace.txt"
+        expected = TEST_DATA_DIR / "gas_expected_whitespace.txt"
+        self._golden_from_old_and_new(old_file, new_file, expected)
+
+    def test_exceeds_tolerance_emits_colors_and_exits_one(self):
+        """Assert that an exceeds-tolerance diff produces colored output and exit code 1."""
+        diff_file = TEST_DATA_DIR / "gas_diff_exceeds_tolerance.txt"
+        diff_text = diff_file.read_text()
+        result = self._run_compare_gas(diff_text.splitlines())
+        # Exit code should indicate changes detected
+        assert result.returncode == 1
+        # Should contain ANSI color codes for removed (red) and added (green) lines
+        assert "\x1b[31m" in result.stdout or "\x1b[31m" in result.stderr
+        assert "\x1b[32m" in result.stdout or "\x1b[32m" in result.stderr
+
+    def test_custom_tolerance_configurations(self):
+        """Test various custom tolerance configurations."""
+        diff_lines = self._create_gas_diff("100000", "103000")  # 3% change, 3000 absolute
+
+        # Test very strict tolerances
+        result = self._run_compare_gas(diff_lines, rel_tol=0.01, abs_tol=100)  # 1%, 100 gas
+        assert result.returncode == 1  # Should exceed both tolerances
+
+        # Test very loose tolerances
+        result = self._run_compare_gas(diff_lines, rel_tol=0.10, abs_tol=5000)  # 10%, 5000 gas
+        assert result.returncode == 0  # Should be within both tolerances
+
+        # Test mixed tolerances - strict relative, loose absolute
+        result = self._run_compare_gas(diff_lines, rel_tol=0.01, abs_tol=5000)  # 1%, 5000 gas
+        assert result.returncode == 0  # Within absolute tolerance (OR logic)
+
+        # Test mixed tolerances - loose relative, strict absolute
+        result = self._run_compare_gas(diff_lines, rel_tol=0.10, abs_tol=100)  # 10%, 100 gas
+        assert result.returncode == 0  # Within relative tolerance (OR logic)
+
+    def test_malformed_input_handling(self):
+        """Golden tests for malformed and non-diff inputs; they should yield no changes (exit 0)."""
+        # 1) Non-diff content
+        diff_file = TEST_DATA_DIR / "gas_diff_malformed.txt"
+        expected = TEST_DATA_DIR / "gas_expected_malformed.txt"
+        self._golden_from_diff(diff_file, expected)
+
+        # 2) Empty input
+        empty_file = TEST_DATA_DIR / "gas_diff_empty.txt"
+        expected_empty = TEST_DATA_DIR / "gas_expected_empty.txt"
+        self._golden_from_diff(empty_file, expected_empty)
+
+        # 3) Context-only table (no +/- changes)
+        context_file = TEST_DATA_DIR / "gas_diff_context_only.txt"
+        expected_context = TEST_DATA_DIR / "gas_expected_context_only.txt"
+        self._golden_from_diff(context_file, expected_context)
+
+    def test_scientific_notation_edge_cases(self):
+        """Test edge cases with scientific notation."""
+        # Very large numbers in scientific notation
+        diff_lines = self._create_gas_diff("1.5e+10", "1.6e+10")  # 6.67% change
+        result = self._run_compare_gas(diff_lines)
+        assert result.returncode == 1  # Should exceed 5% threshold
+
+        # Very small numbers in scientific notation
+        diff_lines = self._create_gas_diff("1.0e+02", "1.1e+02")  # 10% change but small absolute
+        # This should be filtered because the absolute change (10) is less than 1000
+        # The OR logic means if either tolerance is satisfied, it's filtered
+        result = self._run_compare_gas(diff_lines)
+        assert result.returncode == 0  # Mixed notation formats
+        diff_lines = self._create_gas_diff("100000", "1.2e+05")  # 20% change
+        result = self._run_compare_gas(diff_lines)
+        assert result.returncode == 1  # Should exceed threshold

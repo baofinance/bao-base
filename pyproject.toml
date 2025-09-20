@@ -1,0 +1,20 @@
+[project]
+name = "bao-base"
+version = "0.1.0"
+description = "Bao Finance base library with regression testing"
+requires-python = ">=3.9,<3.14"
+
+dependencies = [
+  # Testing framework
+  "pytest~=7.4.0",
+  "pytest-cov~=4.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.4.4",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+python_files = "test_*.py"

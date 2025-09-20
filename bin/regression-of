@@ -18,17 +18,41 @@ debug "regression-of ${REGRESSION_TYPE} finished."
 
 # process it using the filter
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
-debug "pwd=$(pwd)"
-debug "calling run-python extract-${REGRESSION_TYPE} to process ${REGRESSION_LOG} > ${REGRESSION_FILE}"
-. "${BAO_BASE_BIN_DIR}/run-python" "extract-${REGRESSION_TYPE}" <"${REGRESSION_LOG}" >"${REGRESSION_FILE}"
+EXTRACT_SCRIPT="${BAO_BASE_BIN_DIR}/extract-${REGRESSION_TYPE}.py"
+if [[ -x "$EXTRACT_SCRIPT" ]]; then
+  debug "calling run-python extract-${REGRESSION_TYPE} to process ${REGRESSION_LOG} > ${REGRESSION_FILE}"
+  . "${BAO_BASE_BIN_DIR}/run-python" "extract-${REGRESSION_TYPE}" <"${REGRESSION_LOG}" >"${REGRESSION_FILE}"
+else
+  debug "$EXTRACT_SCRIPT not found, copying ${REGRESSION_LOG} to ${REGRESSION_FILE}"
+  cp "${REGRESSION_LOG}" "${REGRESSION_FILE}"
+fi
 
 # Check for changes in the regression file
 info1 "checking for changes in ${REGRESSION_FILE}..."
 debug $(git status)
 
-if ! git diff --quiet "${REGRESSION_FILE}"; then
+has_diffs=false
+git diff --quiet "${REGRESSION_FILE}" || has_diffs=true
+
+if [[ "$has_diffs" == "true" ]]; then
+  # get the diffs
+  raw_changes=$(GIT_PAGER="" git diff --minimal --color "${REGRESSION_FILE}" 2>&1 | tail -n +5)
+  debug "raw changes: $raw_changes"
+
+  # Look for a specialized comparison tool for this regression type
+  COMPARE_SCRIPT="${BAO_BASE_BIN_DIR}/compare-${REGRESSION_TYPE}.py"
+  if [[ -x "$COMPARE_SCRIPT" ]]; then
+    debug "using numerical comparison for ${REGRESSION_TYPE}..."
+    # Generate git diff and pipe through comparison filter
+    raw_changes=$(echo "$raw_changes" | . "${BAO_BASE_BIN_DIR}/run-python" "$COMPARE_SCRIPT") && has_diffs=false
+  else
+    debug "no comparison script found for ${REGRESSION_TYPE}, using raw git diff."
+  fi
+fi
+
+if [[ "$has_diffs" == "true" ]]; then
   maxlines=100
-  changes=$'\n'$(GIT_PAGER="" git diff --minimal --color "${REGRESSION_FILE}" 2>&1 | tail -n +5 | head -n "${maxlines}")
+  changes=$(echo $'\n'$raw_changes | head -n "${maxlines}")
   linecount=$(echo "${changes}" | wc -l)
   [[ "$linecount" -gt "$maxlines" ]] && changes+=$'\n'"... (truncated to ${maxlines} lines)"
   error "The regression file ${REGRESSION_FILE} has changed:${changes}"$'\n'$'\n'"Either commit the changes if they are expected or fix the issues causing the differences."$'\n'
