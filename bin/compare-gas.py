@@ -119,13 +119,24 @@ def _is_plus(line: str) -> bool:
     )
 
 
-def filter_colored_diff_lines(diff_lines: list[str], rel_tol: float, abs_tol: float) -> list[str]:
+def filter_colored_diff_lines(diff_lines: list[str], rel_tol: float, abs_tol: float) -> tuple[list[str], bool]:
     """
-    Filter colored git diff lines, removing those within tolerance.
-    Preserves ANSI colors in the output.
-    Returns filtered lines that exceed tolerance.
+    Filter colored git diff lines.
+    - Always preserve context lines.
+    - For paired +/- data rows (same function):
+        * Exceeds tolerance -> keep both (old red, new green)
+        * Within tolerance  -> replace the pair with a single line derived from the '+' line,
+                               where the first '+' is replaced by a space ' ' (colors preserved),
+                               and emit it at the position of the old '-' line.
+    - For NON-DATA rows (e.g., headers/separators, anything not matching | name | number |):
+        * Treat like context: pass through '-...' as-is.
+        * If a '+...' of the same normalized content and equal length also appears in the chunk,
+          drop the '+...' one to avoid duplication; otherwise keep both.
+    - For structural changes (singletons or name mismatch), keep lines and mark exceeding.
+    Returns: (lines_to_print, has_exceed)
     """
-    filtered_lines = []
+    filtered_lines: list[str] = []
+    has_exceed = False
     i = 0
 
     while i < len(diff_lines):
@@ -137,9 +148,9 @@ def filter_colored_diff_lines(diff_lines: list[str], rel_tol: float, abs_tol: fl
             i += 1
             continue
 
-        # If this is the start of a +/- chunk, collect the whole chunk
+        # Collect a contiguous +/- chunk
         if _is_minus(line) or _is_plus(line):
-            chunk = []
+            chunk: list[tuple[int, str]] = []
             j = i
             while j < len(diff_lines):
                 l = diff_lines[j].rstrip()
@@ -149,52 +160,117 @@ def filter_colored_diff_lines(diff_lines: list[str], rel_tol: float, abs_tol: fl
                     continue
                 break
 
-            # Build mappings by function name for - and + lines
-            minus_map: dict[str, tuple[int, str]] = {}
+            # Build structures
+            minus_map: dict[str, tuple[int, str]] = {}  # data rows keyed by function name
             plus_map: dict[str, tuple[int, str]] = {}
+
+            # Non-data rows grouped by normalized content (strip ANSI, strip +/- and leading spaces)
+            nd_minus: dict[str, list[tuple[int, str, int]]] = {}
+            nd_plus: dict[str, list[tuple[int, str, int]]] = {}
+
             for idx, l in chunk:
                 parsed = parse_gas_line(l)
-                if _is_minus(l):
-                    key = parsed[0] if parsed else f"__non_table_minus__{idx}"
-                    minus_map[key] = (idx, l)
-                elif _is_plus(l):
-                    key = parsed[0] if parsed else f"__non_table_plus__{idx}"
-                    plus_map[key] = (idx, l)
+                if parsed is not None:
+                    # Data rows
+                    func_name = parsed[0]
+                    if _is_minus(l):
+                        minus_map[func_name] = (idx, l)
+                    elif _is_plus(l):
+                        plus_map[func_name] = (idx, l)
+                else:
+                    # Non-data rows
+                    no_ansi = strip_ansi_codes(l)
+                    s = no_ansi.lstrip()
+                    if s[:1] in "+-":
+                        s = s[1:].lstrip()
+                    norm = s  # normalized content for pairing
+                    length = len(no_ansi)
+                    if _is_minus(l):
+                        nd_minus.setdefault(norm, []).append((idx, l, length))
+                    elif _is_plus(l):
+                        nd_plus.setdefault(norm, []).append((idx, l, length))
 
-            # Decide which original indices to keep
-            keep_indices: set[int] = set()
+            keep_map: dict[int, str] = {}  # idx -> output line
+            skip_idx: set[int] = set()
 
-            # Handle paired function names present in both maps and parseable
+            # Handle paired data rows
             for func in list(minus_map.keys() & plus_map.keys()):
                 mi, ml = minus_map[func]
                 pi, pl = plus_map[func]
                 if compare_gas_lines(ml, pl, rel_tol, abs_tol):
-                    keep_indices.add(mi)
-                    keep_indices.add(pi)
-
-                # Remove handled so they are not considered as singletons below
+                    # Exceeds tolerance: keep both
+                    keep_map[mi] = ml
+                    keep_map[pi] = pl
+                    has_exceed = True
+                else:
+                    # Within tolerance: collapse to context-like from '+' line,
+                    # emit at the '-' position and drop the '+'
+                    collapsed = re.sub(r"^((?:\x1b\[[0-9;]*m)*)\+", r"\1 ", pl, count=1)
+                    keep_map[mi] = collapsed
+                    skip_idx.add(pi)
                 del minus_map[func]
                 del plus_map[func]
 
-            # Remaining entries are singletons (structural changes) -> keep them
+            # Remaining singletons among data rows -> structural changes
             for mi, ml in minus_map.values():
-                keep_indices.add(mi)
+                keep_map[mi] = ml
+                has_exceed = True
             for pi, pl in plus_map.values():
-                keep_indices.add(pi)
+                keep_map[pi] = pl
+                has_exceed = True
 
-            # Emit kept lines in original order
+            # Handle non-data rows like context, with de-dup of equal-length +/- pairs
+            for norm in set(nd_minus.keys()) | set(nd_plus.keys()):
+                minus_list = nd_minus.get(norm, [])
+                plus_list = nd_plus.get(norm, [])
+
+                if minus_list and plus_list:
+                    # Compare by equal length; if equal, drop '+'; else keep both
+                    # Pair greedily in order of appearance
+                    used_plus = set()
+                    for mi, ml, mlen in minus_list:
+                        # Find the earliest unused plus with equal length
+                        matched_plus_idx = None
+                        for k, (pi, pl, plen) in enumerate(plus_list):
+                            if k in used_plus:
+                                continue
+                            if plen == mlen:
+                                matched_plus_idx = k
+                                break
+                        if matched_plus_idx is not None:
+                            # Keep '-' as-is, drop the matching '+'
+                            keep_map[mi] = ml
+                            used_plus.add(matched_plus_idx)
+                            # Do not add the matched plus
+                        else:
+                            # No equal-length '+': keep the '-'
+                            keep_map[mi] = ml
+                    # Any remaining unmatched '+' keep as-is
+                    for k, (pi, pl, _) in enumerate(plus_list):
+                        if k not in used_plus:
+                            keep_map[pi] = pl
+                else:
+                    # Only one side present -> keep all lines
+                    for mi, ml, _ in minus_list:
+                        keep_map[mi] = ml
+                    for pi, pl, _ in plus_list:
+                        keep_map[pi] = pl
+
+            # Emit in original order
             for idx, l in chunk:
-                if idx in keep_indices:
-                    filtered_lines.append(l)
+                if idx in skip_idx:
+                    continue
+                if idx in keep_map:
+                    filtered_lines.append(keep_map[idx])
 
             i = j
             continue
 
-        # Otherwise, keep miscellaneous lines as-is
+        # Misc lines as-is
         filtered_lines.append(line)
         i += 1
 
-    return filtered_lines
+    return filtered_lines, has_exceed
 
 
 def main():
@@ -252,31 +328,19 @@ def main():
     if not diff_lines:
         sys.exit(0)  # No diff, no problem
 
-    # Filter the colored diff
-    filtered_lines = filter_colored_diff_lines(diff_lines, args.rel_tolerance, args.abs_tolerance)
+    # Filter the colored diff and detect if anything exceeded tolerance
+    filtered_lines, has_exceed = filter_colored_diff_lines(diff_lines, args.rel_tolerance, args.abs_tolerance)
 
-    if DEBUG:
-        print("\nDEBUG: After filtering:")
-        for i, line in enumerate(filtered_lines):
-            print(f"DEBUG: Line {i}: {repr(line)}")
-
-    # Check if we have any actual change lines (not just context)
-    has_changes = any(
-        line.startswith(("\x1b[31m-", "\x1b[32m+", "-", "+"))
-        or re.search(r"(^|\s)\x1b\[31m-", line)
-        or re.search(r"(^|\s)\x1b\[32m\+", line)
-        for line in filtered_lines
-    )
-
-    if not has_changes:
-        # All changes were within tolerance
+    if not has_exceed:
+        # Nothing exceeded tolerance; still print the (collapsed) lines for visibility
+        for line in filtered_lines:
+            print(line)
         sys.exit(0)
 
-    # Output the filtered diff with colors preserved
+    # Some differences exceeded tolerance
     for line in filtered_lines:
         print(line)
-
-    sys.exit(1)  # Changes exceed tolerance
+    sys.exit(1)
 
 
 if __name__ == "__main__":

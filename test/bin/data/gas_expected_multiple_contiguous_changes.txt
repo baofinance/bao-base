@@ -1,11 +1,12 @@
-[36m@@ -2,8 +2,8 @@[m [msrc/test/Test.sol:Test[m
+[36m@@ -2,9 +2,9 @@[m [msrc/test/Test.sol:Test[m
  | function name                      |      max |[m
  |------------------------------------|----------|[m
  | contextFunction1                   | 1.00e+04 |[m
 [32m [m[32m| withinToleranceFunc                | 2.01e+05 |[m
 [31m-| exceedsToleranceFunc               | 3.00e+05 |[m
-[31m-| exceedsToleranceFunc2              | 1.50e+04 |[m
-[32m [m[32m| withinToleranceFunc2               | 4.02e+05 |[m
+[31m-| exceedsToleranceFunc2              | 4.00e+05 |[m
 [32m+[m[32m| exceedsToleranceFunc               | 4.00e+05 |[m
-[32m+[m[32m| exceedsToleranceFunc2              | 2.50e+04 |[m
+[32m+[m[32m| exceedsToleranceFunc2              | 5.00e+05 |[m
+ | anotherContextFunc                 | 1.50e+04 |[m
+[32m [m[32m| withinToleranceFunc2               | 4.01e+05 |[m
  | contextFunction2                   | 2.00e+04 |[m

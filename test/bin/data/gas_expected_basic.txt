@@ -1,0 +1,8 @@
+[36m@@ -3,7 +3,7 @@[m [msrc/minter/Minter_v1.sol:Minter_v1[m
+ |------------------------------------|----------|[m
+ | HARVESTER_ROLE                     | 2.83e+02 |[m
+ | LEVERAGED_TOKEN                    | 2.83e+02 |[m
+[32m [m[32m| collateralRatio                    | 1.92e+04 |[m
+[32m [m[32m| mintLeveragedToken                 | 1.51e+05 |[m
+ | mintPeggedToken                    | 1.39e+05 |[m
+[32m [m[32m| redeemLeveragedToken               | 1.27e+05 |[m

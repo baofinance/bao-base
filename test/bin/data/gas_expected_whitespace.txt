@@ -1,0 +1,6 @@
+[36m@@ -1,5 +1,5 @@[m
+ src/test/Test.sol:Test[m
+ |function name|max|[m
+[32m [m[32m|testFuncOut1   |210   |[m
+[32m [m[32m| testFunc2                          | 220      |[m
+[32m [m[32m|   testFunc3   |   330   |[m

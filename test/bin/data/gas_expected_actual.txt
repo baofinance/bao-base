@@ -1,0 +1,17 @@
+[36m@@ -16,7 +16,7 @@[m [msrc/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1[m
+ | mint              | 4.91e+04 |[m
+ | name              | 3.25e+03 |[m
+ | nonces            | 2.69e+03 |[m
+[31m-| owner             | 2.44e+03 |[m
+[32m+[m[32m| owner             | 4.44e+03 |[m
+ | permit            | 5.76e+04 |[m
+ | proxiableUUID     | 3.93e+02 |[m
+ | supportsInterface | 1.25e+03 |[m
+[36m@@ -30,7 +30,7 @@[m [msrc/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1[m
+ src/PermittableERC20_v1.sol:PermittableERC20_v1[m
+ | function name             |      max |[m
+ |---------------------------|----------|[m
+[32m [m[32m| DOMAIN_SEPARATOR          | 7.52e+03 |[m
+ | UPGRADE_INTERFACE_VERSION | 4.79e+02 |[m
+ | allowance                 | 2.82e+03 |[m
+ | approve                   | 2.48e+04 |[m

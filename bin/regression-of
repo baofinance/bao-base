@@ -29,14 +29,14 @@ fi
 
 # Check for changes in the regression file
 info1 "checking for changes in ${REGRESSION_FILE}..."
-debug $(git status)
+debug "$(git status)"
 
 has_diffs=false
 git diff --quiet "${REGRESSION_FILE}" || has_diffs=true
 
 if [[ "$has_diffs" == "true" ]]; then
   # get the diffs
-  raw_changes=$(GIT_PAGER="" git diff --minimal --color "${REGRESSION_FILE}" 2>&1 | tail -n +5)
+  raw_changes=$(GIT_PAGER="" git diff --minimal --color "${REGRESSION_FILE}" 2>&1 | tail -n +4)
   debug "raw changes: $raw_changes"
 
   # Look for a specialized comparison tool for this regression type
@@ -52,8 +52,8 @@ fi
 
 if [[ "$has_diffs" == "true" ]]; then
   maxlines=100
-  changes=$(echo $'\n'$raw_changes | head -n "${maxlines}")
-  linecount=$(echo "${changes}" | wc -l)
+  changes=$(printf '\n%s\n' "$raw_changes" | head -n "${maxlines}")
+  linecount=$(printf '%s\n' "$changes" | wc -l)
   [[ "$linecount" -gt "$maxlines" ]] && changes+=$'\n'"... (truncated to ${maxlines} lines)"
   error "The regression file ${REGRESSION_FILE} has changed:${changes}"$'\n'$'\n'"Either commit the changes if they are expected or fix the issues causing the differences."$'\n'
 else

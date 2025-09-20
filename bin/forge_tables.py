@@ -38,7 +38,7 @@ def toStr(df: pd.DataFrame) -> str:
         showindex=False,
         # tablefmt="fancy_grid",
         tablefmt="github",
-        floatfmt=".2e",
+        floatfmt=".3e",
         intfmt=",",
     )
 

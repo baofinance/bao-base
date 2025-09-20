@@ -1,0 +1,136 @@
+[36m@@ -1,115 +1,115 @@[m
+ src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1[m
+[31m-| function name     |      max |[m
+[31m-|-------------------|----------|[m
+[32m [m[32m| BURNER_ROLE       | 2.620e+02 |[m
+[32m [m[32m| DOMAIN_SEPARATOR  | 6.500e+03 |[m
+[32m [m[32m| MINTER_ROLE       | 2.600e+02 |[m
+[32m [m[32m| allowance         | 2.822e+03 |[m
+[32m [m[32m| approve           | 2.483e+04 |[m
+[32m [m[32m| balanceOf         | 2.712e+03 |[m
+[32m [m[32m| burn              | 1.489e+04 |[m
+[32m [m[32m| burnFrom          | 2.061e+04 |[m
+[32m [m[32m| decimals          | 2.880e+02 |[m
+[32m [m[32m| grantRoles        | 2.638e+04 |[m
+[32m [m[32m| hasAnyRole        | 2.614e+03 |[m
+[32m [m[32m| initialize        | 1.665e+05 |[m
+[32m [m[32m| mint              | 4.910e+04 |[m
+[32m [m[32m| name              | 3.246e+03 |[m
+[32m [m[32m| nonces            | 2.688e+03 |[m
+[32m [m[32m| owner             | 2.440e+03 |[m
+[32m [m[32m| permit            | 5.762e+04 |[m
+[32m [m[32m| proxiableUUID     | 3.930e+02 |[m
+[32m [m[32m| supportsInterface | 1.250e+03 |[m
+[32m [m[32m| symbol            | 3.236e+03 |[m
+[32m [m[32m| totalSupply       | 2.326e+03 |[m
+[32m [m[32m| transfer          | 3.002e+04 |[m
+[32m [m[32m| transferFrom      | 3.575e+04 |[m
+[32m [m[32m| transferOwnership | 1.214e+04 |[m
+[32m [m[32m| upgradeToAndCall  | 1.106e+04 |[m
+[32m+[m[32m| function name     |       max |[m
+[32m+[m[32m|-------------------|-----------|[m
+ [m
+ src/PermittableERC20_v1.sol:PermittableERC20_v1[m
+[31m-| function name             |      max |[m
+[31m-|---------------------------|----------|[m
+[32m [m[32m| DOMAIN_SEPARATOR          | 6.522e+03 |[m
+[32m [m[32m| UPGRADE_INTERFACE_VERSION | 4.790e+02 |[m
+[32m [m[32m| allowance                 | 2.822e+03 |[m
+[32m [m[32m| approve                   | 2.480e+04 |[m
+[32m [m[32m| balanceOf                 | 2.667e+03 |[m
+[32m [m[32m| decimals                  | 2.210e+02 |[m
+[32m [m[32m| initialize                | 1.667e+05 |[m
+[32m [m[32m| name                      | 3.223e+03 |[m
+[32m [m[32m| nonces                    | 2.710e+03 |[m
+[32m [m[32m| owner                     | 2.462e+03 |[m
+[32m [m[32m| permit                    | 5.764e+04 |[m
+[32m [m[32m| supportsInterface         | 9.520e+02 |[m
+[32m [m[32m| symbol                    | 3.236e+03 |[m
+[32m [m[32m| totalSupply               | 2.370e+03 |[m
+[32m [m[32m| transfer                  | 3.002e+04 |[m
+[32m [m[32m| transferFrom              | 3.577e+04 |[m
+[32m [m[32m| transferOwnership         | 1.214e+04 |[m
+[32m [m[32m| upgradeToAndCall          | 4.147e+04 |[m
+[32m+[m[32m| function name             |       max |[m
+[32m+[m[32m|---------------------------|-----------|[m
+ [m
+ src/Stem_v1.sol:Stem_v1[m
+[31m-| function name             |      max |[m
+[31m-|---------------------------|----------|[m
+[32m [m[32m| UPGRADE_INTERFACE_VERSION | 4.570e+02 |[m
+[32m [m[32m| owner                     | 3.340e+02 |[m
+[32m [m[32m| proxiableUUID             | 3.250e+02 |[m
+[32m [m[32m| setValue                  | 3.150e+02 |[m
+[32m [m[32m| upgradeToAndCall          | 8.896e+03 |[m
+[32m [m[32m| value                     | 3.150e+02 |[m
+[32m+[m[32m| function name             |       max |[m
+[32m+[m[32m|---------------------------|-----------|[m
+ [m
+ src/Token.sol:Token[m
+[31m-| function name                       |      max |[m
+[31m-|-------------------------------------|----------|[m
+[32m [m[32m| hasNonMutatingParameterlessFunction | 4.190e+03 |[m
+[32m+[m[32m| function name                       |       max |[m
+[32m+[m[32m|-------------------------------------|-----------|[m
+ [m
+ test/BaoAccessControl.t.sol:MockBaoAccessControl[m
+[31m-| function name           |      max |[m
+[31m-|-------------------------|----------|[m
+[32m [m[32m| ANOTHER_ROLE            | 2.390e+02 |[m
+[32m [m[32m| ANOTHER_ROLE_ADMIN_ROLE | 2.160e+02 |[m
+[32m [m[32m| grantRoles              | 2.636e+04 |[m
+[32m [m[32m| hasAllRoles             | 2.636e+03 |[m
+[32m [m[32m| hasAnyRole              | 2.635e+03 |[m
+[32m [m[32m| initialize              | 7.042e+04 |[m
+[32m [m[32m| owner                   | 2.396e+03 |[m
+[32m [m[32m| transferOwnership       | 1.212e+04 |[m
+[32m+[m[32m| function name           |       max |[m
+[32m+[m[32m|-------------------------|-----------|[m
+ [m
+ test/PermittableERC20.t.sol:PermittableERC20_v2[m
+[31m-| function name    |      max |[m
+[31m-|------------------|----------|[m
+[32m [m[32m| DOMAIN_SEPARATOR | 6.500e+03 |[m
+[32m [m[32m| proxiableUUID    | 3.490e+02 |[m
+[32m [m[32m| version          | 3.188e+03 |[m
+[32m+[m[32m| function name    |       max |[m
+[32m+[m[32m|------------------|-----------|[m
+ [m
+ test/Token.t.sol:MockERC20[m
+[31m-| function name   |      max |[m
+[31m-|-----------------|----------|[m
+[32m [m[32m| balanceOf       | 2.559e+03 |[m
+[32m [m[32m| decimals        | 2.377e+03 |[m
+[32m [m[32m| mint            | 6.821e+04 |[m
+[32m [m[32m| name            | 3.086e+03 |[m
+[32m [m[32m| symbol          | 3.129e+03 |[m
+[32m [m[32m| totalSupply     | 2.325e+03 |[m
+[32m+[m[32m| function name   |       max |[m
+[32m+[m[32m|-----------------|-----------|[m
+ [m
+ test/Token.t.sol:MockFunctions[m
+[31m-| function name      |      max |[m
+[31m-|--------------------|----------|[m
+[32m [m[32m| noParamsNoReturn   | 1.630e+02 |[m
+[32m [m[32m| noParamsWithReturn | 2.450e+02 |[m
+[32m [m[32m| stateValue         | 2.259e+03 |[m
+[32m+[m[32m| function name      |       max |[m
+[32m+[m[32m|--------------------|-----------|[m
+ [m
+ test/Token.t.sol:MockNonERC20[m
+[31m-| function name   |      max |[m
+[31m-|-----------------|----------|[m
+[32m [m[32m| name            | 1.230e+02 |[m
+[32m+[m[32m| function name   |       max |[m
+[32m+[m[32m|-----------------|-----------|[m
+ [m
+ test/Token.t.sol:TokenLibraryWrapper[m
+[31m-| function name                       |      max |[m
+[31m-|-------------------------------------|----------|[m
+[32m [m[32m| allOf                               | 6.077e+03 |[m
+[32m [m[32m| callFunction                        | 4.858e+04 |[m
+[32m [m[32m| ensureContract                      | 3.078e+03 |[m
+[32m [m[32m| ensureNonZeroAddress                | 4.820e+02 |[m
+[32m [m[32m| hasNonMutatingParameterlessFunction | 8.122e+03 |[m
+[32m+[m[32m| function name                       |       max |[m
+[32m+[m[32m|-------------------------------------|-----------|[m
