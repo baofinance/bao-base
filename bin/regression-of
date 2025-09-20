@@ -5,38 +5,39 @@ mkdir -p ./regression
 REGRESSION_TYPE="$1"
 shift
 REGRESSION_FILE="regression/${REGRESSION_TYPE}.txt"
-REGRESSION_LOG="regression/${REGRESSION_TYPE}.log"
+EXTRACTED_FILE="regression/${REGRESSION_TYPE}.txt.log" # .log is likely to be gitignored
+GENERATED_LOG="regression/${REGRESSION_TYPE}.log"
 info1 "generating regression for ${REGRESSION_TYPE}..."
-truncate -s 0 "${REGRESSION_FILE}" # empty the existing file
+# truncate -s 0 "${REGRESSION_FILE}" # empty the existing file
 
 # generate the output
 # do this to keep the colour on the console:
 # tee >(sed 's/\x1b\[[0-9;]*m//g' > logfile.log)
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
-. "${BAO_BASE_DIR}/run" "${REGRESSION_TYPE}" "$@" | tee "${REGRESSION_LOG}"
-debug "regression-of ${REGRESSION_TYPE} finished."
+. "${BAO_BASE_DIR}/run" "${REGRESSION_TYPE}" "$@" | tee "${GENERATED_LOG}"
+debug "generating ${REGRESSION_TYPE} file complete."
 
 # process it using the filter
 # shellcheck disable=SC2154 # we don't need to check if the variable is set
 EXTRACT_SCRIPT="${BAO_BASE_BIN_DIR}/extract-${REGRESSION_TYPE}.py"
 if [[ -x "$EXTRACT_SCRIPT" ]]; then
-  debug "calling run-python extract-${REGRESSION_TYPE} to process ${REGRESSION_LOG} > ${REGRESSION_FILE}"
-  . "${BAO_BASE_BIN_DIR}/run-python" "extract-${REGRESSION_TYPE}" <"${REGRESSION_LOG}" >"${REGRESSION_FILE}"
+  debug "calling run-python extract-${REGRESSION_TYPE} to process ${GENERATED_LOG} > ${EXTRACTED_FILE}"
+  . "${BAO_BASE_BIN_DIR}/run-python" "extract-${REGRESSION_TYPE}" <"${GENERATED_LOG}" >"${EXTRACTED_FILE}"
 else
-  debug "$EXTRACT_SCRIPT not found, copying ${REGRESSION_LOG} to ${REGRESSION_FILE}"
-  cp "${REGRESSION_LOG}" "${REGRESSION_FILE}"
+  debug "$EXTRACT_SCRIPT not found, copying ${GENERATED_LOG} to ${EXTRACTED_FILE}"
+  cp "${GENERATED_LOG}" "${EXTRACTED_FILE}"
 fi
 
 # Check for changes in the regression file
-info1 "checking for changes in ${REGRESSION_FILE}..."
+info1 "checking for changes against ${REGRESSION_FILE}..."
 debug "$(git status)"
 
 has_diffs=false
-git diff --quiet "${REGRESSION_FILE}" || has_diffs=true
+git diff --quiet --no-index "${REGRESSION_FILE}" "${EXTRACTED_FILE}" || has_diffs=true
 
 if [[ "$has_diffs" == "true" ]]; then
   # get the diffs
-  raw_changes=$(GIT_PAGER="" git diff --minimal --color "${REGRESSION_FILE}" 2>&1 | tail -n +4)
+  raw_changes=$(GIT_PAGER="" git diff --minimal --color "${REGRESSION_FILE}" "${EXTRACTED_FILE}" 2>&1 | tail -n +4)
   debug "raw changes: $raw_changes"
 
   # Look for a specialized comparison tool for this regression type
@@ -55,7 +56,12 @@ if [[ "$has_diffs" == "true" ]]; then
   changes=$(printf '\n%s\n' "$raw_changes" | head -n "${maxlines}")
   linecount=$(printf '%s\n' "$changes" | wc -l)
   [[ "$linecount" -gt "$maxlines" ]] && changes+=$'\n'"... (truncated to ${maxlines} lines)"
+  # overwrite the regression file so it shows up in git status
+  mv "${EXTRACTED_FILE}" "${REGRESSION_FILE}"
   error "The regression file ${REGRESSION_FILE} has changed:${changes}"$'\n'$'\n'"Either commit the changes if they are expected or fix the issues causing the differences."$'\n'
 else
+  # no need to overwrite the regression file as there are no significant changes
+  debug "no changes detected in ${REGRESSION_FILE}, removing ${EXTRACTED_FILE}"
+  rm "${EXTRACTED_FILE}"
   log "No changes detected in ${REGRESSION_FILE}"
 fi
