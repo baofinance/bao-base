@@ -28,14 +28,19 @@ library Token {
     error NotERC20Token(address token);
 
     function allOf(address account, address token, uint256 tokenIn) internal view returns (uint256 actualIn) {
+        actualIn = allOfQuiet(account, token, tokenIn);
+
+        // slither-disable-next-line incorrect-equality
+        if (actualIn == 0) {
+            revert ZeroInputBalance(token);
+        }
+    }
+
+    function allOfQuiet(address account, address token, uint256 tokenIn) internal view returns (uint256 actualIn) {
         if (tokenIn == type(uint256).max) {
             actualIn = IERC20(token).balanceOf(account);
         } else {
             actualIn = tokenIn;
-        }
-        // slither-disable-next-line incorrect-equality
-        if (actualIn == 0) {
-            revert ZeroInputBalance(token);
         }
     }
 
