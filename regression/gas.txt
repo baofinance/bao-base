@@ -83,6 +83,12 @@ test/PermittableERC20.t.sol:PermittableERC20_v2
 | proxiableUUID    | 3.490e+02 |
 | version          | 3.188e+03 |
 
+test/Solidity.t.sol:ReturnGas
+| function name   |       max |
+|-----------------|-----------|
+| doReturn        | 4.840e+02 |
+| doVariable      | 5.060e+02 |
+
 test/Token.t.sol:MockERC20
 | function name   |       max |
 |-----------------|-----------|
@@ -108,8 +114,9 @@ test/Token.t.sol:MockNonERC20
 test/Token.t.sol:TokenLibraryWrapper
 | function name                       |       max |
 |-------------------------------------|-----------|
-| allOf                               | 6.077e+03 |
-| callFunction                        | 4.858e+04 |
-| ensureContract                      | 3.078e+03 |
-| ensureNonZeroAddress                | 4.820e+02 |
-| hasNonMutatingParameterlessFunction | 8.122e+03 |
+| allOf                               | 6.033e+03 |
+| allOfQuiet                          | 6.055e+03 |
+| callFunction                        | 4.860e+04 |
+| ensureContract                      | 3.101e+03 |
+| ensureNonZeroAddress                | 4.600e+02 |
+| hasNonMutatingParameterlessFunction | 8.078e+03 |

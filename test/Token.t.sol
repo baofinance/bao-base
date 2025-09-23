@@ -71,6 +71,10 @@ contract TokenLibraryWrapper {
         return Token.allOf(account, token, tokenIn);
     }
 
+    function allOfQuiet(address account, address token, uint256 tokenIn) external view returns (uint256) {
+        return Token.allOfQuiet(account, token, tokenIn);
+    }
+
     /**
      * @dev External wrapper for Token.ensureNonZeroAddress
      */
@@ -149,22 +153,33 @@ contract TokenLibraryTest is Test {
     function test_allOf_specificAmount() public view {
         uint256 result = tokenLibExt.allOf(user, address(token), 100 ether);
         assertEq(result, 100 ether, "Should return the specific amount passed");
+        result = tokenLibExt.allOfQuiet(user, address(token), 100 ether);
+        assertEq(result, 100 ether, "Should return the specific amount passed");
     }
 
     function test_allOf_maxValue() public view {
         uint256 result = tokenLibExt.allOf(user, address(token), type(uint256).max);
+        assertEq(result, 1000 ether, "Should return the user's balance");
+        result = tokenLibExt.allOf(user, address(token), type(uint256).max);
         assertEq(result, 1000 ether, "Should return the user's balance");
     }
 
     function test_allOf_zeroReverts() public {
         vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, address(token)));
         tokenLibExt.allOf(user, address(token), 0);
+
+        uint256 result = tokenLibExt.allOfQuiet(user, address(token), 0);
+        assertEq(result, 0, "Should return zero if no balance");
     }
 
     function test_allOf_maxValueWithZeroBalance() public {
         address emptyUser = address(0x1234);
+
         vm.expectRevert(abi.encodeWithSelector(Token.ZeroInputBalance.selector, address(token)));
         tokenLibExt.allOf(emptyUser, address(token), type(uint256).max);
+
+        uint256 result = tokenLibExt.allOfQuiet(emptyUser, address(token), type(uint256).max);
+        assertEq(result, 0, "Should return zero if not a user at all");
     }
 
     // --- ensureNonZeroAddress tests ---
