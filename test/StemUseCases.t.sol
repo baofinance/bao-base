@@ -38,11 +38,11 @@ contract StemUseCasesTest is Test {
 
     function setUp() public {
         // Create test wallets
-        deployer = vm.createWallet("deployer").addr;
-        proxyOwner = vm.createWallet("proxyOwner").addr;
-        proxyOwner2 = vm.createWallet("proxyOwner2").addr;
-        emergencyOwner = vm.createWallet("emergencyOwner").addr;
-        user = vm.createWallet("user").addr;
+        deployer = makeAddr("deployer");
+        proxyOwner = makeAddr("proxyOwner");
+        proxyOwner2 = makeAddr("proxyOwner2");
+        emergencyOwner = makeAddr("emergencyOwner");
+        user = makeAddr("user");
 
         // Deploy the Stem_v1 implementation with emergency owner and zero delay to simplify ownership
         stemImplementation = new Stem_v1(emergencyOwner, 0);

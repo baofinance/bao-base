@@ -42,8 +42,8 @@ contract TestOwnable is Test {
     address user;
 
     function setUp() public virtual {
-        owner = vm.createWallet("owner").addr;
-        user = vm.createWallet("user").addr;
+        owner = makeAddr("owner");
+        user = makeAddr("user");
 
         ownable = address(new DerivedOwnable());
     }

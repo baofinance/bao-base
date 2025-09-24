@@ -57,7 +57,7 @@ contract TestBaoAccessControlSetUp is Test {
     }
 
     function setUp_owner() public virtual {
-        owner = vm.createWallet("owner").addr;
+        owner = makeAddr("owner");
     }
 
     function setUp_impl() internal {

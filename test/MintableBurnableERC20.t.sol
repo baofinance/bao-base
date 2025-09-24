@@ -46,8 +46,8 @@ contract TestLeveragedTokensSetUp is Test {
     address user2;
 
     function setUpFork() internal virtual {
-        owner = vm.createWallet("owner").addr;
-        minter = vm.createWallet("minter").addr;
+        owner = makeAddr("owner");
+        minter = makeAddr("minter");
 
         name = "Leveraged wstETH against BaoUSD";
         symbol = "BaoUSDLwstETH";
@@ -89,7 +89,7 @@ contract TestLeveragedTokensSetUp is Test {
 
         user1Wallet = vm.createWallet("user1");
         user1 = user1Wallet.addr;
-        user2 = vm.createWallet("user2").addr;
+        user2 = makeAddr("user2");
     }
 }
 

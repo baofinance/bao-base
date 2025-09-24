@@ -31,7 +31,7 @@ contract DerivedTokenHolder is TokenHolder, BaoOwnable {
 contract TestTokenHolder is Test {
     address tokenBaoUSD;
     address tokenWstETH;
-    address tokenNotERC20 = vm.createWallet("tokenNotERC20").addr; // not an ERC20 token
+    address tokenNotERC20 = makeAddr("tokenNotERC20"); // not an ERC20 token
 
     address bonusReceiver;
     address owner;
@@ -41,11 +41,11 @@ contract TestTokenHolder is Test {
 
     function setUp() public {
         // vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
-        tokenNotERC20 = vm.createWallet("tokenNotERC20").addr; // not an ERC20 token
+        tokenNotERC20 = makeAddr("tokenNotERC20"); // not an ERC20 token
         tokenBaoUSD = address(new ERC20Mock());
         tokenWstETH = address(new ERC20Mock());
-        bonusReceiver = vm.createWallet("bonusReceiver").addr;
-        owner = vm.createWallet("owner").addr;
+        bonusReceiver = makeAddr("bonusReceiver");
+        owner = makeAddr("owner");
 
         tokenOwner = new DerivedTokenHolder();
         tokenOwner.initialize(owner);
