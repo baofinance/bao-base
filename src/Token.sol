@@ -105,37 +105,4 @@ library Token {
      * @return success Boolean indicating whether the function call succeeded.
      * @return returnData The data returned from the function call.
      */
-
-    // slither-disable-next-line dead-code
-    function callFunction(
-        address target,
-        bytes4 selector,
-        bytes memory calldataParams
-    ) internal returns (bool success, bytes memory returnData) {
-        // Construct the complete calldata (function selector + function arguments)
-        bytes memory callData = abi.encodePacked(selector, calldataParams);
-        // solhint-disable-next-line no-inline-assembly
-        assembly {
-            // Perform the low-level call to the target contract
-            let result := call(
-                gas(), // Provide all available gas
-                target, // Address of the target contract
-                0, // No ether value sent
-                add(callData, 0x20), // Pointer to calldata (offset by 32 bytes due to ABI encoding)
-                mload(callData), // Size of the calldata
-                0x00, // No need to preallocate memory for return data
-                0x00 // Return data size unknown, will be handled later
-            )
-
-            // Set the success variable
-            success := result
-
-            // Handle return data
-            let returnDataSize := returndatasize()
-            returnData := mload(0x40) // Allocate memory for return data
-            mstore(0x40, add(returnData, add(returnDataSize, 0x20))) // Adjust free memory pointer
-            mstore(returnData, returnDataSize) // Store the size of return data
-            returndatacopy(add(returnData, 0x20), 0, returnDataSize) // Copy the return data
-        }
-    }
 }

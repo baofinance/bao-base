@@ -104,7 +104,6 @@ test/Token.t.sol:MockFunctions
 |--------------------|-----------|
 | noParamsNoReturn   | 1.630e+02 |
 | noParamsWithReturn | 2.450e+02 |
-| stateValue         | 2.259e+03 |
 
 test/Token.t.sol:MockNonERC20
 | function name   |       max |
@@ -114,9 +113,8 @@ test/Token.t.sol:MockNonERC20
 test/Token.t.sol:TokenLibraryWrapper
 | function name                       |       max |
 |-------------------------------------|-----------|
-| allOf                               | 6.033e+03 |
-| allOfQuiet                          | 6.055e+03 |
-| callFunction                        | 4.860e+04 |
-| ensureContract                      | 3.101e+03 |
-| ensureNonZeroAddress                | 4.600e+02 |
-| hasNonMutatingParameterlessFunction | 8.078e+03 |
+| allOf                               | 6.048e+03 |
+| allOfQuiet                          | 6.066e+03 |
+| ensureContract                      | 3.078e+03 |
+| ensureNonZeroAddress                | 4.820e+02 |
+| hasNonMutatingParameterlessFunction | 8.001e+03 |

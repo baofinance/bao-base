@@ -105,17 +105,6 @@ contract TokenLibraryWrapper {
     ) external view returns (bool) {
         return Token.hasNonMutatingParameterlessFunction(contractAddr, funcName);
     }
-
-    /**
-     * @dev External wrapper for Token.callFunction
-     */
-    function callFunction(
-        address contractAddr,
-        bytes4 selector,
-        bytes memory calldataParams
-    ) external returns (bool success, bytes memory returnData) {
-        return Token.callFunction(contractAddr, selector, calldataParams);
-    }
 }
 
 // Contract to test Token library functions
@@ -252,66 +241,5 @@ contract TokenLibraryTest is Test {
         // Functions with parameters will revert when called without parameters
         bool exists = tokenLibExt.hasNonMutatingParameterlessFunction(address(testFunctions), "withParamsNoReturn");
         assertFalse(exists, "Should return false for function with parameters");
-    }
-
-    // --- callFunction tests ---
-
-    function test_callFunction_noParamsNoReturn() public {
-        bytes4 selector = bytes4(keccak256("noParamsNoReturn()"));
-        (bool success, bytes memory returnData) = tokenLibExt.callFunction(address(testFunctions), selector, "");
-
-        assertTrue(success, "Function call should succeed");
-        assertEq(returnData.length, 0, "No return data expected");
-    }
-
-    function test_callFunction_noParamsWithReturn() public {
-        bytes4 selector = bytes4(keccak256("noParamsWithReturn()"));
-        (bool success, bytes memory returnData) = tokenLibExt.callFunction(address(testFunctions), selector, "");
-
-        assertTrue(success, "Function call should succeed");
-        assertEq(abi.decode(returnData, (uint256)), 42, "Should return 42");
-    }
-
-    function test_callFunction_withParamsNoReturn() public {
-        bytes4 selector = bytes4(keccak256("withParamsNoReturn(uint256)"));
-        uint256 testValue = 123;
-        (bool success, bytes memory returnData) = tokenLibExt.callFunction(
-            address(testFunctions),
-            selector,
-            abi.encode(testValue)
-        );
-
-        assertTrue(success, "Function call should succeed");
-        assertEq(returnData.length, 0, "No return data expected");
-        assertEq(testFunctions.stateValue(), testValue, "State should be updated");
-    }
-
-    function test_callFunction_withParamsWithReturn() public {
-        bytes4 selector = bytes4(keccak256("withParamsWithReturn(uint256)"));
-        uint256 testValue = 123;
-        (bool success, bytes memory returnData) = tokenLibExt.callFunction(
-            address(testFunctions),
-            selector,
-            abi.encode(testValue)
-        );
-
-        assertTrue(success, "Function call should succeed");
-        assertEq(abi.decode(returnData, (uint256)), testValue * 2, "Should return doubled value");
-        assertEq(testFunctions.stateValue(), testValue, "State should be updated");
-    }
-
-    function test_callFunction_nonExistent() public {
-        bytes4 selector = bytes4(keccak256("nonExistentFunction()"));
-        (bool success, bytes memory returnData) = tokenLibExt.callFunction(address(testFunctions), selector, "");
-
-        assertFalse(success, "Function call should fail");
-        assertEq(returnData.length, 0, "No return data expected for failed call");
-    }
-
-    function test_callFunction_reverting() public {
-        bytes4 selector = bytes4(keccak256("revertingFunction()"));
-        (bool success, ) = tokenLibExt.callFunction(address(nonERC20), selector, "");
-
-        assertFalse(success, "Function call should fail for reverting function");
     }
 }
