@@ -107,6 +107,14 @@ runs:
         uv run yarn test
       id: test
 
+    - name: Run Lint on Forge tests
+      shell: bash
+      run: |
+        # run all the foundry tests in the test folder
+        cd ${{ inputs.cwd }}
+        uv run yarn lint:test
+      id: test
+
     - name: Run Forge tests - coverage
       if: runner.os != 'Windows' # TODO: for some reason, the coverage processing doesn't work on windows
       shell: bash
