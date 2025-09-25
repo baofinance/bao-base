@@ -2,8 +2,6 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
-import {console2} from "forge-std/console2.sol";
-import {Vm} from "forge-std/Vm.sol";
 
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 

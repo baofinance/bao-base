@@ -1,13 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-
 import {Ownable} from "@solady/auth/Ownable.sol";
 import {OwnableRoles} from "@solady/auth/OwnableRoles.sol";
 
 import {Test} from "forge-std/Test.sol";
-import {console2} from "forge-std/console2.sol";
 
 import {IOwnable} from "@bao/interfaces/IOwnable.sol";
 

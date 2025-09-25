@@ -20,8 +20,6 @@ import {BaoOwnableTransferrable} from "@bao/BaoOwnableTransferrable.sol";
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 import {BaoOwnableTransferrableRoles} from "@bao/BaoOwnableTransferrableRoles.sol";
 
-import {TokenHolder} from "@bao/TokenHolder.sol";
-
 /*/////
 UUPSUpgradeable
 ////////////////////////////////////*/

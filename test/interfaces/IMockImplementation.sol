@@ -53,7 +53,6 @@ interface IMockImplementation {
     function postUpgradeSetup(address newOwner, uint256 newValue) external;
 }
 
-import {console2} from "forge-std/console2.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 abstract contract MockImplementationWithStateBase is UUPSUpgradeable, IMockImplementation {

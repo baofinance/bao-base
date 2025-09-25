@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {IMockImplementation} from "../interfaces/IMockImplementation.sol";
-
 /**
  * @title IOwnershipModel
  * @notice Interface for ownership model adapters

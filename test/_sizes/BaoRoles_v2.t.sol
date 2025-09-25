@@ -4,14 +4,10 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import {Test} from "forge-std/Test.sol";
-import {console2} from "forge-std/console2.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {BaoRoles_v2} from "@bao/internal/BaoRoles_v2.sol";
-import {BaoOwnable_v2} from "@bao/BaoOwnable_v2.sol";
-
-import {TestBaoOwnable_v2Only} from "./BaoOwnable_v2.t.sol";
 
 abstract contract DerivedBaoRoles_v2 is BaoRoles_v2 {
     uint256 public MY_ROLE = _ROLE_1;

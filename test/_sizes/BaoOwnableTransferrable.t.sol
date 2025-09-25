@@ -2,10 +2,8 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import {IERC5313} from "@openzeppelin/contracts/interfaces/IERC5313.sol";
 
 import {Test} from "forge-std/Test.sol";
-import {console2} from "forge-std/console2.sol";
 
 import {IBaoOwnableTransferrable} from "@bao/interfaces/IBaoOwnableTransferrable.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";

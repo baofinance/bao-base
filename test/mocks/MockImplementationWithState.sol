@@ -6,8 +6,6 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {BaoOwnable} from "@bao/BaoOwnable.sol";
 import {IMockImplementation, MockImplementationWithStateBase} from "../interfaces/IMockImplementation.sol";
 
-import {console2} from "forge-std/console2.sol";
-
 /**
  * @title MockImplementationWithState
  * @dev A mock implementation contract with state for testing upgrades

@@ -2,11 +2,8 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Token} from "@bao/Token.sol";
-
-import {console2} from "forge-std/console2.sol";
 
 // Mock ERC20 token for testing
 contract MockERC20 is ERC20 {

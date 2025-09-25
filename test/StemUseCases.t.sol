@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Test, console2} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {Stem_v1} from "src/Stem_v1.sol";
-
-import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 // Import all ownership model implementations
 import {BaoOwnableAdapter} from "test/adapters/BaoOwnableAdapter.sol"; // Adapter for BaoOwnable
