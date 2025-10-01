@@ -91,18 +91,31 @@ for line in "${commit_lines[@]}"; do
     status=1
     continue
   fi
-  if [[ ${sub_status:0:1} == "-" || ${sub_status:0:1} == "+" ]]; then
-    echo "error: submodule '$name' at '$path' has local changes or is out of sync:
+
+  if [[ ${sub_status:0:1} == "-" ]]; then
+    echo "error: submodule '$name' at '$path' is not initialized; run 'git submodule update --init -- \"$path\"'" >&2
+    status=1
+    continue
+  fi
+
+  if [[ ${sub_status:0:1} == "+" ]]; then
+    if index_entry=$(git ls-files --stage -- "$path"); then
+      index_commit=$(printf '%s\n' "$index_entry" | awk '{print $2}')
+      echo "error: submodule '$name' at '$path' is staged to $index_commit but checked out at $actual_commit." >&2
+      echo "       Run 'git add $path' to stage $actual_commit or reset the submodule to the staged commit." >&2
+    else
+      echo "error: submodule '$name' at '$path' has local changes or is out of sync:
   $sub_status" >&2
+    fi
     status=1
     continue
   fi
 
   comment=$(git config --file "$LOCK_FILE" "submodule.${name}.comment" 2>/dev/null || true)
   if [[ -n "$comment" ]]; then
-    echo "$name: OK @ $value  # $comment"
+    log "$name: OK @ $value  # $comment"
   else
-    echo "$name: OK @ $value"
+    log "$name: OK @ $value"
   fi
 done
 
