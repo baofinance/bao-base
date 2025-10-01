@@ -72,8 +72,7 @@ for line in "${commit_lines[@]}"; do
     continue
   fi
 
-  actual_commit=$(git -C "$path" rev-parse HEAD 2>/dev/null || true)
-  if [[ -z "$actual_commit" ]]; then
+  if ! actual_commit=$(git -C "$path" rev-parse HEAD); then
     echo "error: unable to read HEAD for submodule '$name' at '$path'" >&2
     status=1
     continue
@@ -88,9 +87,7 @@ for line in "${commit_lines[@]}"; do
     continue
   fi
 
-  sub_status=$(git submodule status -- "$path" 2>/dev/null || true)
-  if [[ -z "$sub_status" ]]; then
-    echo "error: git submodule status returned no data for '$path'" >&2
+  if ! sub_status=$(git submodule status -- "$path"); then
     status=1
     continue
   fi
