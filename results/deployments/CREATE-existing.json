@@ -1,0 +1,22 @@
+{
+  "deployer": {
+    "address": "0x0000000000000000000000000000000000000000"
+  },
+  "deployment": {
+    "stETH": {
+      "address": "0x1234567890123456789012345678901234567890",
+      "blockNumber": 1,
+      "category": "existing",
+      "contractPath": "",
+      "contractType": "ExistingContract",
+      "deployedTo": "0x1234567890123456789012345678901234567890",
+      "deployer": "0x0000000000000000000000000000000000000000"
+    }
+  },
+  "metadata": {
+    "network": "",
+    "startBlock": 0,
+    "startedAt": 0,
+    "version": ""
+  }
+}

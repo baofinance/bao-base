@@ -9,3 +9,4 @@ solidity-stringutils/=lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils
 src/=src/
 test/=test/
 mocks/=test/mocks/
+@bao-script/=script/

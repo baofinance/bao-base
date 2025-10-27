@@ -1,0 +1,23 @@
+{
+  "deployer": {
+    "address": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
+  },
+  "deployment": {
+    "lib1": {
+      "address": "0x104fBc016F4bb334D775a19E8A6510109AC63E00",
+      "blockNumber": 1,
+      "category": "library",
+      "contractPath": "test/TestLib.sol",
+      "contractType": "TestLib",
+      "deployedTo": "0x104fBc016F4bb334D775a19E8A6510109AC63E00",
+      "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
+    }
+  },
+  "metadata": {
+    "finishedAt": 1,
+    "network": "test-network",
+    "startBlock": 1,
+    "startedAt": 1,
+    "version": "v1.0.0"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "deployer": {
+    "address": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
+  },
+  "deployment": {
+    "decimals": {
+      "type": "uint256",
+      "value": 18
+    },
+    "enabled": {
+      "type": "bool",
+      "value": true
+    },
+    "offset": {
+      "type": "int256",
+      "value": -50
+    },
+    "tokenName": {
+      "type": "string",
+      "value": "BaoUSD"
+    },
+    "tokenSymbol": {
+      "type": "string",
+      "value": "BAOUSD"
+    }
+  },
+  "metadata": {
+    "network": "test",
+    "startBlock": 1,
+    "startedAt": 1,
+    "version": "v1.0.0"
+  }
+}

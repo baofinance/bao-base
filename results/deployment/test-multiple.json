@@ -1,0 +1,52 @@
+{
+  "deployer": {
+    "address": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
+  },
+  "deployment": {
+    "contract1": {
+      "address": "0x104fBc016F4bb334D775a19E8A6510109AC63E00",
+      "blockNumber": 1,
+      "category": "contract",
+      "contractPath": "test/SimpleContract.sol",
+      "contractType": "SimpleContract",
+      "deployedTo": "0x104fBc016F4bb334D775a19E8A6510109AC63E00",
+      "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
+    },
+    "external1": {
+      "address": "0x1234567890123456789012345678901234567890",
+      "blockNumber": 1,
+      "category": "existing",
+      "contractPath": "",
+      "contractType": "ExistingContract",
+      "deployedTo": "0x1234567890123456789012345678901234567890",
+      "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
+    },
+    "lib1": {
+      "address": "0x7FdB3132Ff7D02d8B9e221c61cC895ce9a4bb773",
+      "blockNumber": 1,
+      "category": "library",
+      "contractPath": "test/TestLib.sol",
+      "contractType": "TestLib",
+      "deployedTo": "0x7FdB3132Ff7D02d8B9e221c61cC895ce9a4bb773",
+      "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
+    },
+    "proxy1": {
+      "address": "0x75AcD39817992ac88C9adA5Ecf832ff042b682bB",
+      "blockNumber": 1,
+      "category": "UUPS proxy",
+      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+      "contractType": "ERC1967Proxy",
+      "deployedTo": "0x75AcD39817992ac88C9adA5Ecf832ff042b682bB",
+      "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496",
+      "salt": "0x3c47991a094f40776079372290ba385987403d4962b8e0c1e9366be27ff48ef0",
+      "saltString": "proxy-1"
+    }
+  },
+  "metadata": {
+    "finishedAt": 1,
+    "network": "test-network",
+    "startBlock": 1,
+    "startedAt": 1,
+    "version": "v1.0.0"
+  }
+}

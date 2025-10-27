@@ -83,6 +83,8 @@ contract TestReturnGas is Test {
     function testReturnGas() public {
         uint256 gasStart;
 
+        uint256 snap = vm.snapshotState();
+
         gasStart = gasleft();
         uint256 resultReturn = rg.doReturn(1e18, 4e18, 2e18);
         uint256 gasUsedReturn = gasStart - gasleft();
@@ -93,26 +95,21 @@ contract TestReturnGas is Test {
 
         assertEq(resultReturn, resultVariable, "results should be equal");
 
-        // emit log_named_uint("gasUsedReturn", gasUsedReturn);
-        // emit log_named_uint("gasUsedVariable", gasUsedVariable);
-        // assertGt(gasUsedReturn, gasUsedVariable, "variable should use less gas");
-    }
-
-    function testReturnGas1() public {
-        uint256 gasStart;
+        vm.revertToState(snap);
 
         gasStart = gasleft();
-        uint256 resultVariable = rg.doVariable(1e18, 4e18, 2e18);
-        uint256 gasUsedVariable = gasStart - gasleft();
+        uint256 resultVariable1 = rg.doVariable(2e18, 8e18, 4e18);
+        uint256 gasUsedVariable1 = gasStart - gasleft();
 
         gasStart = gasleft();
-        uint256 resultReturn = rg.doReturn(1e18, 4e18, 2e18);
-        uint256 gasUsedReturn = gasStart - gasleft();
+        uint256 resultReturn1 = rg.doReturn(2e18, 8e18, 4e18);
+        uint256 gasUsedReturn1 = gasStart - gasleft();
 
-        assertEq(resultReturn, resultVariable, "results should be equal");
+        assertEq(resultReturn1, resultVariable1, "results should be equal");
 
         // emit log_named_uint("gasUsedReturn", gasUsedReturn);
         // emit log_named_uint("gasUsedVariable", gasUsedVariable);
-        // assertGt(gasUsedReturn, gasUsedVariable, "variable should use less gas");
+        assertLt(gasUsedReturn, gasUsedVariable1, "return should use less gas (first use)");
+        assertLt(gasUsedReturn1, gasUsedVariable, "return should use less gas (second use)");
     }
 }

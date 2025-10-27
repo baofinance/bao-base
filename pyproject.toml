@@ -10,10 +10,9 @@ dependencies = [
   "pytest-cov~=4.1.0",
 ]
 
-[dependency-groups]
-dev = [
-    "pytest>=7.4.4",
-]
+[tool.uv]
+# Force uv to treat this as an application/environment, not a package to publish.
+package = false
 
 [tool.pytest.ini_options]
 testpaths = ["test"]

@@ -118,3 +118,163 @@ test/Token.t.sol:TokenLibraryWrapper
 | ensureContract                      | 3.078e+03 |
 | ensureNonZeroAddress                | 4.820e+02 |
 | hasNonMutatingParameterlessFunction | 8.001e+03 |
+
+test/deployment/DeploymentBasic.t.sol:DeploymentHarness
+| function name       |       max |
+|---------------------|-----------|
+| deployMockContract  | 3.622e+05 |
+| finishDeployment    | 4.337e+04 |
+| getByString         | 8.683e+03 |
+| getEntryType        | 6.295e+03 |
+| getMetadata         | 1.508e+04 |
+| hasByString         | 3.233e+03 |
+| keys                | 1.195e+04 |
+| startDeployment     | 1.351e+05 |
+| useExistingByString | 2.108e+05 |
+
+test/deployment/DeploymentDependency.t.sol:DependencyTestHarness
+| function name   |       max |
+|-----------------|-----------|
+| deployMinter    | 3.415e+05 |
+| deployOracle    | 3.605e+05 |
+| deployToken     | 3.047e+05 |
+| getByString     | 8.683e+03 |
+| hasByString     | 3.255e+03 |
+| startDeployment | 1.351e+05 |
+
+test/deployment/DeploymentDependency.t.sol:MockMinter
+| function name   |       max |
+|-----------------|-----------|
+| oracle          | 2.302e+03 |
+| token           | 2.323e+03 |
+
+test/deployment/DeploymentDependency.t.sol:MockToken
+| function name   |       max |
+|-----------------|-----------|
+| oracle          | 2.301e+03 |
+
+test/deployment/DeploymentIntegration.t.sol:IntegrationTestHarness
+| function name       |       max |
+|---------------------|-----------|
+| deployConfigLibrary | 2.627e+05 |
+| deployMinterProxy   | 1.108e+06 |
+| deployOracleProxy   | 1.030e+06 |
+| deployProxy         | 5.938e+05 |
+| finishDeployment    | 4.334e+04 |
+| getByString         | 8.775e+03 |
+| getEntryType        | 6.295e+03 |
+| hasByString         | 3.189e+03 |
+| keys                | 1.824e+04 |
+| loadFromJson        | 1.441e+06 |
+| saveToJson          | 2.564e+05 |
+| startDeployment     | 1.351e+05 |
+| useExistingByString | 2.107e+05 |
+
+test/deployment/DeploymentIntegration.t.sol:MinterV1
+| function name   |       max |
+|-----------------|-----------|
+| collateralToken | 2.346e+03 |
+| initialize      | 1.132e+05 |
+| oracle          | 2.392e+03 |
+| peggedToken     | 2.326e+03 |
+
+test/deployment/DeploymentIntegration.t.sol:OracleV1
+| function name   |       max |
+|-----------------|-----------|
+| admin           | 2.402e+03 |
+| initialize      | 6.858e+04 |
+| price           | 2.282e+03 |
+
+test/deployment/DeploymentJson.t.sol:JsonTestHarness
+| function name        |       max |
+|----------------------|-----------|
+| deploySimpleContract | 3.623e+05 |
+| deploySimpleProxy    | 9.520e+05 |
+| deployTestLibrary    | 2.797e+05 |
+| finishDeployment     | 4.334e+04 |
+| getByString          | 9.101e+03 |
+| getMetadata          | 1.506e+04 |
+| hasByString          | 3.233e+03 |
+| keys                 | 8.839e+03 |
+| loadFromJson         | 9.097e+05 |
+| saveToJson           | 2.023e+05 |
+| startDeployment      | 1.352e+05 |
+| useExistingByString  | 1.936e+05 |
+
+test/deployment/DeploymentJson.t.sol:SimpleImplementation
+| function name   |       max |
+|-----------------|-----------|
+| initialize      | 4.634e+04 |
+
+test/deployment/DeploymentLibrary.t.sol:LibraryTestHarness
+| function name       |       max |
+|---------------------|-----------|
+| deployMathLibrary   | 2.798e+05 |
+| deployStringLibrary | 2.627e+05 |
+| getByString         | 9.078e+03 |
+| getEntryType        | 6.295e+03 |
+| hasByString         | 3.233e+03 |
+| keys                | 8.839e+03 |
+| startDeployment     | 1.351e+05 |
+
+test/deployment/DeploymentParameter.t.sol:ParameterTestHarness
+| function name      |       max |
+|--------------------|-----------|
+| deployMockContract | 3.622e+05 |
+| getBoolByKey       | 8.674e+03 |
+| getByString        | 8.683e+03 |
+| getEntryType       | 6.295e+03 |
+| getIntByKey        | 8.706e+03 |
+| getStringByKey     | 9.454e+03 |
+| getUintByKey       | 8.707e+03 |
+| keys               | 1.195e+04 |
+| loadFromJson       | 6.441e+05 |
+| saveToJson         | 1.246e+05 |
+| setBoolByKey       | 1.374e+05 |
+| setIntByKey        | 1.377e+05 |
+| setStringByKey     | 1.385e+05 |
+| setUintByKey       | 1.373e+05 |
+| startDeployment    | 1.351e+05 |
+
+test/deployment/DeploymentProxy.t.sol:CounterV1
+| function name   |       max |
+|-----------------|-----------|
+| increment       | 5.293e+03 |
+| initialize      | 4.636e+04 |
+| value           | 2.260e+03 |
+
+test/deployment/DeploymentProxy.t.sol:ProxyTestHarness
+| function name       |       max |
+|---------------------|-----------|
+| deployCounterProxy  | 9.697e+05 |
+| deployProxy         | 2.706e+04 |
+| getByString         | 8.820e+03 |
+| getEntryType        | 6.295e+03 |
+| hasByString         | 3.233e+03 |
+| predictProxyAddress | 1.141e+03 |
+| startDeployment     | 1.351e+05 |
+
+test/deployment/TestDeployment.sol:TestDeployment
+| function name       |       max |
+|---------------------|-----------|
+| finishDeployment    | 4.337e+04 |
+| fromJson            | 9.310e+05 |
+| getBoolByKey        | 8.674e+03 |
+| getByString         | 8.705e+03 |
+| getContract         | 9.101e+03 |
+| getEntry            | 1.112e+04 |
+| getIntByKey         | 8.640e+03 |
+| getStringByKey      | 9.454e+03 |
+| getUintByKey        | 8.707e+03 |
+| hasByString         | 3.233e+03 |
+| keys                | 2.128e+04 |
+| loadFromJson        | 4.583e+05 |
+| registerExisting    | 2.108e+05 |
+| saveToJson          | 9.862e+04 |
+| setBoolByKey        | 1.203e+05 |
+| setIntByKey         | 1.207e+05 |
+| setStringByKey      | 1.385e+05 |
+| setUintByKey        | 1.202e+05 |
+| startDeployment     | 1.351e+05 |
+| toJson              | 1.745e+05 |
+| useExistingByString | 2.106e+05 |

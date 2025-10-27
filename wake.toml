@@ -22,6 +22,7 @@ remappings = [
   "src/=src/",
   "test/=test/",
   "mocks/=test/mocks/",
+  "@bao-script/=script/",
 ]
 
 
