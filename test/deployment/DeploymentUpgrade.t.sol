@@ -44,17 +44,12 @@ contract UpgradeTestHarness is TestDeployment {
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
         OracleV1 impl = new OracleV1();
         bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
-        address proxy = deployProxy(key, address(impl), initData, string.concat(key, "-salt"));
-
-        // Complete ownership transfer to intended admin
-        OracleV1(proxy).transferOwnership(admin);
-
-        return proxy;
+        return deployProxy(key, address(impl), initData, string.concat(key, "-salt"));
     }
 
-    function deployCounterProxy(string memory key, uint256 initialValue) public returns (address) {
+    function deployCounterProxy(string memory key, uint256 initialValue, address admin) public returns (address) {
         CounterV1 impl = new CounterV1();
-        bytes memory initData = abi.encodeCall(CounterV1.initialize, (initialValue));
+        bytes memory initData = abi.encodeCall(CounterV1.initialize, (initialValue, admin));
         return deployProxy(key, address(impl), initData, string.concat(key, "-salt"));
     }
 
@@ -87,6 +82,10 @@ contract DeploymentUpgradeTest is Test {
         // Deploy initial proxy
         address oracle = deployment.deployOracleProxy("Oracle", 1000e18, admin);
 
+        // Complete ownership transfer for all proxies
+        uint256 transferred = deployment.finalizeAllOwnership(admin);
+        assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
+
         // Verify initial state
         OracleV1 oracleV1 = OracleV1(oracle);
         assertEq(oracleV1.price(), 1000e18, "Initial price should be set");
@@ -114,7 +113,11 @@ contract DeploymentUpgradeTest is Test {
         // Deploy multiple proxies
         address oracle1 = deployment.deployOracleProxy("Oracle1", 1000e18, admin);
         address oracle2 = deployment.deployOracleProxy("Oracle2", 1500e18, admin);
-        address counter = deployment.deployCounterProxy("Counter", 10);
+        address counter = deployment.deployCounterProxy("Counter", 10, admin);
+
+        // Complete ownership transfer for all proxies
+        uint256 transferred = deployment.finalizeAllOwnership(admin);
+        assertEq(transferred, 3, "Should transfer ownership of all 3 proxies (2 oracles + 1 counter)");
 
         // Deploy new implementations
         OracleV2 newOracleImpl = new OracleV2();
@@ -148,7 +151,11 @@ contract DeploymentUpgradeTest is Test {
 
     function test_UpgradeWithStateTransition() public {
         // Deploy counter proxy
-        address counter = deployment.deployCounterProxy("Counter", 5);
+        address counter = deployment.deployCounterProxy("Counter", 5, admin);
+
+        // Complete ownership transfer for all proxies
+        uint256 transferred = deployment.finalizeAllOwnership(admin);
+        assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
 
         // Interact with V1
         CounterV1 counterV1 = CounterV1(counter);
@@ -178,6 +185,10 @@ contract DeploymentUpgradeTest is Test {
         // Deploy oracle with admin
         address oracle = deployment.deployOracleProxy("Oracle", 1000e18, admin);
 
+        // Complete ownership transfer for all proxies
+        uint256 transferred = deployment.finalizeAllOwnership(admin);
+        assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
+
         // Deploy new implementation
         OracleV2 newImpl = new OracleV2();
 
@@ -199,6 +210,10 @@ contract DeploymentUpgradeTest is Test {
         // Deploy oracle proxy
         address oracle = deployment.deployOracleProxy("Oracle", 1000e18, admin);
 
+        // Complete ownership transfer for all proxies
+        uint256 transferred = deployment.finalizeAllOwnership(admin);
+        assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
+
         // Deploy new implementation
         OracleV2 newImpl = new OracleV2();
 
@@ -216,6 +231,10 @@ contract DeploymentUpgradeTest is Test {
     function test_UpgradeTrackingInDeployment() public {
         // Deploy oracle proxy
         deployment.deployOracleProxy("Oracle", 1000e18, admin);
+
+        // Complete ownership transfer for all proxies
+        uint256 transferred = deployment.finalizeAllOwnership(admin);
+        assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
 
         // Verify initial deployment tracking
         assertEq(deployment.getEntryType("Oracle"), "proxy", "Should be tracked as proxy");
@@ -241,6 +260,11 @@ contract DeploymentUpgradeTest is Test {
     function test_UpgradeJsonPersistence() public {
         // Deploy and upgrade
         address oracle = deployment.deployOracleProxy("Oracle", 1000e18, admin);
+
+        // Complete ownership transfer for all proxies
+        uint256 transferred = deployment.finalizeAllOwnership(admin);
+        assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
+
         OracleV2 newImpl = new OracleV2();
         IStemUUPS(oracle).upgradeTo(address(newImpl));
 

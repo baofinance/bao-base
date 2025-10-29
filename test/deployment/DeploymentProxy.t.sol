@@ -16,7 +16,7 @@ contract ProxyTestHarness is TestDeployment {
         uint256 initialValue
     ) public returns (address) {
         CounterV1 impl = new CounterV1();
-        bytes memory initData = abi.encodeCall(CounterV1.initialize, (initialValue));
+        bytes memory initData = abi.encodeCall(CounterV1.initialize, (initialValue, address(this)));
         return deployProxy(key, address(impl), initData, saltString);
     }
 }
@@ -99,7 +99,7 @@ contract DeploymentProxyTest is Test {
 
     function test_RevertWhen_ProxyWithoutSalt() public {
         CounterV1 impl = new CounterV1();
-        bytes memory initData = abi.encodeCall(CounterV1.initialize, (42));
+        bytes memory initData = abi.encodeCall(CounterV1.initialize, (42, address(this)));
 
         vm.expectRevert(Deployment.SaltRequired.selector);
         deployment.deployProxy("counter", address(impl), initData, "");

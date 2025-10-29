@@ -12,18 +12,19 @@ import {BaoOwnable} from "@bao/BaoOwnable.sol";
  */
 
 // Simple counter for proxy testing
-contract CounterV1 is Initializable, UUPSUpgradeable {
+contract CounterV1 is Initializable, UUPSUpgradeable, BaoOwnable {
     uint256 public value;
 
-    function initialize(uint256 _value) external initializer {
+    function initialize(uint256 _value, address _owner) external initializer {
         value = _value;
+        _initializeOwner(_owner);
     }
 
     function increment() external {
         value++;
     }
 
-    function _authorizeUpgrade(address) internal override {}
+    function _authorizeUpgrade(address) internal view override onlyOwner {}
 
     /// @dev Add missing upgradeTo method as wrapper around upgradeToAndCall
     function upgradeTo(address newImplementation) external {
