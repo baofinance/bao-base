@@ -254,17 +254,4 @@ contract TestDeployment is Deployment {
     function _strEqual(string memory a, string memory b) private pure returns (bool) {
         return keccak256(bytes(a)) == keccak256(bytes(b));
     }
-
-    // ============================================================================
-    // Ownership Management Wrappers
-    // ============================================================================
-
-    /**
-     * @notice Public wrapper for finalizeOwnership() method
-     * @param newOwner Address that should receive ownership of all proxies
-     * @return transferred Number of proxies that had ownership transferred
-     */
-    function finalizeAllOwnership(address newOwner) public returns (uint256 transferred) {
-        return finalizeOwnership(newOwner);
-    }
 }

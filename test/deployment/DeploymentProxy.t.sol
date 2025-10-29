@@ -6,7 +6,7 @@ import {TestDeployment} from "./TestDeployment.sol";
 
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
-import {CounterV1} from "../mocks/MockUpgradeable.sol";
+import {CounterV1} from "../mocks/upgradeable/MockCounter.sol";
 
 // Test harness extends TestDeployment
 contract ProxyTestHarness is TestDeployment {

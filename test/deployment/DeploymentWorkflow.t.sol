@@ -3,8 +3,9 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {TestDeployment} from "./TestDeployment.sol";
-import {MockERC20} from "../mocks/MockContracts.sol";
-import {OracleV1, MinterV1} from "../mocks/MockUpgradeable.sol";
+import {MockERC20} from "../mocks/tokens/MockERC20.sol";
+import {OracleV1} from "../mocks/upgradeable/MockOracle.sol";
+import {MinterV1} from "../mocks/upgradeable/MockMinter.sol";
 import {MathLib} from "../mocks/TestLibraries.sol";
 
 /**
@@ -14,7 +15,7 @@ import {MathLib} from "../mocks/TestLibraries.sol";
 contract WorkflowTestHarness is TestDeployment {
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
         MockERC20 token = new MockERC20(name, symbol, 18);
-        return registerContract(key, address(token), "MockERC20", "test/mocks/MockContracts.sol", "contract");
+        return registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol", "contract");
     }
 
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
@@ -38,7 +39,7 @@ contract WorkflowTestHarness is TestDeployment {
         bytes memory initData = abi.encodeCall(MinterV1.initialize, (collateral, pegged, oracle, admin));
         address proxy = deployProxy(key, address(impl), initData, string.concat(key, "-salt"));
 
-        // Note: Ownership transfer will be completed centrally via finalizeAllOwnership()
+        // Note: Ownership transfer will be completed centrally via finalizeOwnership()
         return proxy;
     }
 
@@ -88,7 +89,7 @@ contract DeploymentWorkflowTest is Test {
         assertEq(deployment.getEntryType("PriceOracle"), "proxy", "Should be proxy type");
 
         // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeAllOwnership(admin);
+        uint256 transferred = deployment.finalizeOwnership(admin);
         assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
 
         // Verify proxy functionality
@@ -126,7 +127,7 @@ contract DeploymentWorkflowTest is Test {
         address mathLib = deployment.deployMathLibrary("MathLib");
 
         // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeAllOwnership(admin);
+        uint256 transferred = deployment.finalizeOwnership(admin);
         assertEq(transferred, 2, "Should transfer ownership of 2 proxies (Oracle + Minter)");
 
         // Add parameters
@@ -179,7 +180,7 @@ contract DeploymentWorkflowTest is Test {
         assertTrue(minter != address(0), "Minter should be deployed");
 
         // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeAllOwnership(admin);
+        uint256 transferred = deployment.finalizeOwnership(admin);
         assertEq(transferred, 2, "Should transfer ownership of 2 proxies");
 
         deployment.finishDeployment();
@@ -197,7 +198,7 @@ contract DeploymentWorkflowTest is Test {
         address deployed = deployment.deployOracleProxy("Oracle", 1000e18, admin);
 
         // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeAllOwnership(admin);
+        uint256 transferred = deployment.finalizeOwnership(admin);
         assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
 
         // Note: This test would need the salt to be passed through properly
@@ -213,7 +214,7 @@ contract DeploymentWorkflowTest is Test {
         deployment.deployOracleProxy("Oracle", 1500e18, admin);
 
         // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeAllOwnership(admin);
+        uint256 transferred = deployment.finalizeOwnership(admin);
         assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
 
         deployment.setStringByKey("network", "ethereum");

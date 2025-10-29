@@ -3,7 +3,9 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {TestDeployment} from "./TestDeployment.sol";
-import {OracleV1, CounterV1} from "../mocks/MockUpgradeable.sol";
+import {OracleV1} from "../mocks/upgradeable/MockOracle.sol";
+
+import {CounterV1} from "../mocks/upgradeable/MockCounter.sol";
 import {IStemUUPS} from "@bao-script/deployment/Deployment.sol";
 
 // Upgraded version of Oracle for testing
@@ -83,7 +85,7 @@ contract DeploymentUpgradeTest is Test {
         address oracle = deployment.deployOracleProxy("Oracle", 1000e18, admin);
 
         // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeAllOwnership(admin);
+        uint256 transferred = deployment.finalizeOwnership(admin);
         assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
 
         // Verify initial state
@@ -116,7 +118,7 @@ contract DeploymentUpgradeTest is Test {
         address counter = deployment.deployCounterProxy("Counter", 10, admin);
 
         // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeAllOwnership(admin);
+        uint256 transferred = deployment.finalizeOwnership(admin);
         assertEq(transferred, 3, "Should transfer ownership of all 3 proxies (2 oracles + 1 counter)");
 
         // Deploy new implementations
@@ -154,7 +156,7 @@ contract DeploymentUpgradeTest is Test {
         address counter = deployment.deployCounterProxy("Counter", 5, admin);
 
         // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeAllOwnership(admin);
+        uint256 transferred = deployment.finalizeOwnership(admin);
         assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
 
         // Interact with V1
@@ -186,7 +188,7 @@ contract DeploymentUpgradeTest is Test {
         address oracle = deployment.deployOracleProxy("Oracle", 1000e18, admin);
 
         // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeAllOwnership(admin);
+        uint256 transferred = deployment.finalizeOwnership(admin);
         assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
 
         // Deploy new implementation
@@ -211,7 +213,7 @@ contract DeploymentUpgradeTest is Test {
         address oracle = deployment.deployOracleProxy("Oracle", 1000e18, admin);
 
         // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeAllOwnership(admin);
+        uint256 transferred = deployment.finalizeOwnership(admin);
         assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
 
         // Deploy new implementation
@@ -233,7 +235,7 @@ contract DeploymentUpgradeTest is Test {
         deployment.deployOracleProxy("Oracle", 1000e18, admin);
 
         // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeAllOwnership(admin);
+        uint256 transferred = deployment.finalizeOwnership(admin);
         assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
 
         // Verify initial deployment tracking
@@ -262,7 +264,7 @@ contract DeploymentUpgradeTest is Test {
         address oracle = deployment.deployOracleProxy("Oracle", 1000e18, admin);
 
         // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeAllOwnership(admin);
+        uint256 transferred = deployment.finalizeOwnership(admin);
         assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
 
         OracleV2 newImpl = new OracleV2();

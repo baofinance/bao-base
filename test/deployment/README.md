@@ -42,8 +42,9 @@ Successfully implemented a unified deployment registry system (`src/deployment/D
 
 **Mock Infrastructure:**
 
-- `test/mocks/MockContracts.sol` - Simple test contracts
-- `test/mocks/MockUpgradeable.sol` - UUPS proxy implementations
+- `test/mocks/basic/` - Simple test contracts (MockContract, MockImplementation, MockDependencies)
+- `test/mocks/upgradeable/` - UUPS proxy implementations (MockCounter, MockOracle, MockMinter, MockGeneric)
+- `test/mocks/tokens/` - Token mock contracts (MockERC20)
 - `test/mocks/TestLibraries.sol` - Libraries for testing
 
 ### Entry Types

@@ -1,57 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {MockERC20} from "../tokens/MockERC20.sol";
+
 /**
- * @title MockContracts
- * @notice Common mock contracts for deployment testing
- * @dev Centralized location for all simple test contracts to reduce duplication
+ * @title MockOracle
+ * @notice Mock Oracle for dependency testing
  */
-
-// Simple mock contract with name
-contract MockContract {
-    string public name;
-
-    constructor(string memory _name) {
-        name = _name;
-    }
-}
-
-// Mock implementation with initialization
-contract MockImplementation {
-    uint256 public value;
-
-    function initialize(uint256 _value) external {
-        value = _value;
-    }
-}
-
-// Mock ERC20 for testing
-contract MockERC20 {
-    string public name;
-    string public symbol;
-    uint8 public decimals;
-    mapping(address => uint256) public balanceOf;
-    uint256 public totalSupply;
-
-    constructor(string memory _name, string memory _symbol, uint8 _decimals) {
-        name = _name;
-        symbol = _symbol;
-        decimals = _decimals;
-    }
-
-    function mint(address to, uint256 amount) external {
-        balanceOf[to] += amount;
-        totalSupply += amount;
-    }
-
-    function burn(address from, uint256 amount) external {
-        require(balanceOf[from] >= amount, "Insufficient balance");
-        balanceOf[from] -= amount;
-        totalSupply -= amount;
-    }
-}
-
-// Mock Oracle for dependency testing
 contract MockOracle {
     string public constant name = "Oracle";
     uint256 public price;
@@ -68,7 +23,10 @@ contract MockOracle {
     }
 }
 
-// Mock Token that depends on Oracle
+/**
+ * @title MockToken
+ * @notice Mock Token that depends on Oracle
+ */
 contract MockToken {
     address public oracle;
     string public name;
@@ -86,7 +44,10 @@ contract MockToken {
     }
 }
 
-// Mock Minter with multiple dependencies
+/**
+ * @title MockMinter
+ * @notice Mock Minter with multiple dependencies
+ */
 contract MockMinter {
     address public token;
     address public oracle;

@@ -3,21 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {TestDeployment} from "./TestDeployment.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-
-// Simple UUPS implementation for testing
-contract MockUpgradeableContract is Initializable, UUPSUpgradeable {
-    uint256 public value;
-    string public name;
-
-    function initialize(uint256 _value, string memory _name) external initializer {
-        value = _value;
-        name = _name;
-    }
-
-    function _authorizeUpgrade(address) internal override {}
-}
+import {MockUpgradeableContract} from "../mocks/upgradeable/MockGeneric.sol";
 
 // Simple library for testing
 library TestMathLib {
@@ -35,7 +21,10 @@ contract RoundTripTestHarness is TestDeployment {
         string memory mockName
     ) public returns (address) {
         MockUpgradeableContract impl = new MockUpgradeableContract();
-        bytes memory initData = abi.encodeCall(MockUpgradeableContract.initialize, (initialValue, mockName));
+        bytes memory initData = abi.encodeCall(
+            MockUpgradeableContract.initialize,
+            (initialValue, mockName, address(this))
+        );
         return deployProxy(key, address(impl), initData, saltString);
     }
 

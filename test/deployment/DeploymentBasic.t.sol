@@ -6,19 +6,27 @@ import {TestDeployment} from "./TestDeployment.sol";
 
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
-import {MockContract, MockImplementation} from "../mocks/MockContracts.sol";
+import {MockContract} from "../mocks/basic/MockContract.sol";
+import {MockImplementation} from "../mocks/basic/MockImplementation.sol";
 
 // Test harness extends TestDeployment with specific mock deployment methods
 contract DeploymentHarness is TestDeployment {
     function deployMockContract(string memory key, string memory mockName) public returns (address) {
         MockContract mock = new MockContract(mockName);
-        return registerContract(key, address(mock), "MockContract", "test/mocks/MockContracts.sol", "contract");
+        return registerContract(key, address(mock), "MockContract", "test/mocks/basic/MockContract.sol", "contract");
     }
 
     function deployMockImplementation(string memory key, uint256 initValue) public returns (address) {
         MockImplementation impl = new MockImplementation();
         impl.initialize(initValue);
-        return registerContract(key, address(impl), "MockImplementation", "test/mocks/MockContracts.sol", "contract");
+        return
+            registerContract(
+                key,
+                address(impl),
+                "MockImplementation",
+                "test/mocks/basic/MockImplementation.sol",
+                "contract"
+            );
     }
 }
 

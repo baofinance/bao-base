@@ -5,13 +5,14 @@ import {Test} from "forge-std/Test.sol";
 import {TestDeployment} from "./TestDeployment.sol";
 
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
-import {MockOracle, MockToken, MockMinter} from "../mocks/MockContracts.sol";
+import {MockOracle, MockToken, MockMinter} from "../mocks/basic/MockDependencies.sol";
 
 // Test harness extends TestDeployment
 contract DependencyTestHarness is TestDeployment {
     function deployOracle(string memory key, uint256 price) public returns (address) {
         MockOracle oracle = new MockOracle(price);
-        return registerContract(key, address(oracle), "MockOracle", "test/mocks/MockContracts.sol", "contract");
+        return
+            registerContract(key, address(oracle), "MockOracle", "test/mocks/basic/MockDependencies.sol", "contract");
     }
 
     function deployToken(
@@ -22,7 +23,7 @@ contract DependencyTestHarness is TestDeployment {
     ) public returns (address) {
         address oracleAddr = _get(oracleKey);
         MockToken token = new MockToken(oracleAddr, name, decimals);
-        return registerContract(key, address(token), "MockToken", "test/mocks/MockContracts.sol", "contract");
+        return registerContract(key, address(token), "MockToken", "test/mocks/basic/MockDependencies.sol", "contract");
     }
 
     function deployMinter(string memory key, string memory tokenKey, string memory oracleKey) public returns (address) {
