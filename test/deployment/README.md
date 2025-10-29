@@ -8,7 +8,7 @@ Successfully implemented a unified deployment registry system (`src/deployment/D
 
 ### Core Contract: `Deployment.sol`
 
-**Location**: `src/deployment/Deployment.sol`
+**Location**: `script/deployment/Deployment.sol`
 
 **Design Principles**:
 
@@ -18,6 +18,33 @@ Successfully implemented a unified deployment registry system (`src/deployment/D
 4. Internal registration - derived classes just deploy
 5. Automatic JSON persistence with structured metadata
 6. Dependency enforcement via `get()` errors
+
+### Rationalized Test Structure
+
+**Core Functionality Tests:**
+
+- `DeploymentBasic.t.sol` - Basic contract registration and operations
+- `DeploymentProxy.t.sol` - CREATE3 proxy deployment testing
+- `DeploymentLibrary.t.sol` - CREATE library deployment (merged from LibraryDeployment.t.sol)
+- `DeploymentParameter.t.sol` - Typed parameter storage
+- `DeploymentDependency.t.sol` - Inter-contract dependencies
+
+**Persistence Tests:**
+
+- `DeploymentJson.t.sol` - File I/O persistence
+- `DeploymentJsonString.t.sol` - In-memory JSON serialization
+- `DeploymentJsonRoundTrip.t.sol` - Serialization fidelity testing
+
+**Workflow Tests:**
+
+- `DeploymentWorkflow.t.sol` - Complete deployment scenarios (split from DeploymentIntegration.t.sol)
+- `DeploymentUpgrade.t.sol` - Proxy upgrade workflows (split from DeploymentIntegration.t.sol)
+
+**Mock Infrastructure:**
+
+- `test/mocks/MockContracts.sol` - Simple test contracts
+- `test/mocks/MockUpgradeable.sol` - UUPS proxy implementations
+- `test/mocks/TestLibraries.sol` - Libraries for testing
 
 ### Entry Types
 
@@ -76,29 +103,34 @@ Uses composition pattern for clean code:
 All tests in `test/deployment/`:
 
 1. **DeploymentBasic.t.sol** (10 tests)
+
    - Basic deployment functionality
    - Contract registration
    - Error handling
    - Metadata tracking
 
 2. **DeploymentDependency.t.sol** (7 tests)
+
    - Dependency management
    - get() enforcement
    - Chained dependencies
    - Complex dependency graphs
 
 3. **DeploymentProxy.t.sol** (7 tests)
+
    - UUPS proxy deployment
    - CREATE3 deterministic addresses
    - Address prediction
    - Multiple proxies
 
 4. **DeploymentLibrary.t.sol** (4 tests)
+
    - Library deployment via CREATE
    - Non-deterministic addresses
    - Multiple libraries
 
 5. **DeploymentJson.t.sol** (9 tests)
+
    - JSON serialization
    - JSON deserialization
    - Save/load round-trip
@@ -106,6 +138,7 @@ All tests in `test/deployment/`:
    - Incremental deployment
 
 6. **DeploymentIntegration.t.sol** (6 tests)
+
    - End-to-end system deployment
    - Multiple contract types
    - Existing contracts integration

@@ -100,8 +100,14 @@ abstract contract DeploymentJson is DeploymentRegistry {
         // Parse metadata
         _deserializeMetadata(json);
 
-        // Get all keys from deployment object
-        string[] memory loadedKeys = VM.parseJsonKeys(json, ".deployment");
+        // Get all keys from deployment object (if it exists)
+        string[] memory loadedKeys;
+        if (VM.keyExistsJson(json, ".deployment")) {
+            loadedKeys = VM.parseJsonKeys(json, ".deployment");
+        } else {
+            // Empty deployment case - no entries to load
+            loadedKeys = new string[](0);
+        }
 
         for (uint256 i = 0; i < loadedKeys.length; i++) {
             string memory key = loadedKeys[i];

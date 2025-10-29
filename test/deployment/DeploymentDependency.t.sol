@@ -5,44 +5,24 @@ import {Test} from "forge-std/Test.sol";
 import {TestDeployment} from "./TestDeployment.sol";
 
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
+import {MockOracle, MockToken, MockMinter} from "../mocks/MockContracts.sol";
 
-// Mock contracts that depend on each other
-contract MockOracle {
-    string public name = "Oracle";
-}
-
-contract MockToken {
-    address public oracle;
-
-    constructor(address _oracle) {
-        require(_oracle != address(0), "Oracle required");
-        oracle = _oracle;
-    }
-}
-
-contract MockMinter {
-    address public token;
-    address public oracle;
-
-    constructor(address _token, address _oracle) {
-        require(_token != address(0), "Token required");
-        require(_oracle != address(0), "Oracle required");
-        token = _token;
-        oracle = _oracle;
-    }
-}
-
-// Test harness
+// Test harness extends TestDeployment
 contract DependencyTestHarness is TestDeployment {
-    function deployOracle(string memory key) public returns (address) {
-        MockOracle oracle = new MockOracle();
-        return registerContract(key, address(oracle), "MockOracle", "test/MockOracle.sol", "contract");
+    function deployOracle(string memory key, uint256 price) public returns (address) {
+        MockOracle oracle = new MockOracle(price);
+        return registerContract(key, address(oracle), "MockOracle", "test/mocks/MockContracts.sol", "contract");
     }
 
-    function deployToken(string memory key, string memory oracleKey) public returns (address) {
+    function deployToken(
+        string memory key,
+        string memory oracleKey,
+        string memory name,
+        uint8 decimals
+    ) public returns (address) {
         address oracleAddr = _get(oracleKey);
-        MockToken token = new MockToken(oracleAddr);
-        return registerContract(key, address(token), "MockToken", "test/MockToken.sol", "contract");
+        MockToken token = new MockToken(oracleAddr, name, decimals);
+        return registerContract(key, address(token), "MockToken", "test/mocks/MockContracts.sol", "contract");
     }
 
     function deployMinter(string memory key, string memory tokenKey, string memory oracleKey) public returns (address) {
@@ -67,10 +47,10 @@ contract DeploymentDependencyTest is Test {
 
     function test_SimpleDependency() public {
         // Deploy oracle first
-        address oracleAddr = deployment.deployOracle("oracle");
+        address oracleAddr = deployment.deployOracle("oracle", 100);
 
         // Deploy token that depends on oracle
-        address tokenAddr = deployment.deployToken("token", "oracle");
+        address tokenAddr = deployment.deployToken("token", "oracle", "TestToken", 18);
 
         assertTrue(tokenAddr != address(0));
         assertTrue(deployment.hasByString("token"));
@@ -81,8 +61,8 @@ contract DeploymentDependencyTest is Test {
 
     function test_ChainedDependencies() public {
         // Deploy in correct order: oracle -> token -> minter
-        address oracleAddr = deployment.deployOracle("oracle");
-        address tokenAddr = deployment.deployToken("token", "oracle");
+        address oracleAddr = deployment.deployOracle("oracle", 100);
+        address tokenAddr = deployment.deployToken("token", "oracle", "TestToken", 18);
         address minterAddr = deployment.deployMinter("minter", "token", "oracle");
 
         assertTrue(minterAddr != address(0));
@@ -95,12 +75,12 @@ contract DeploymentDependencyTest is Test {
     function test_RevertWhen_DependencyNotDeployed() public {
         // Try to deploy token without oracle
         vm.expectRevert(abi.encodeWithSelector(DeploymentRegistry.ContractNotFound.selector, "oracle"));
-        deployment.deployToken("token", "oracle");
+        deployment.deployToken("token", "oracle", "TestToken", 18);
     }
 
     function test_RevertWhen_ChainedDependencyMissing() public {
         // Deploy only oracle, skip token
-        deployment.deployOracle("oracle");
+        deployment.deployOracle("oracle", 100);
 
         // Try to deploy minter without token
         vm.expectRevert(abi.encodeWithSelector(DeploymentRegistry.ContractNotFound.selector, "token"));
@@ -109,11 +89,11 @@ contract DeploymentDependencyTest is Test {
 
     function test_MultipleDependentsOnSameContract() public {
         // Deploy oracle once
-        address oracleAddr = deployment.deployOracle("oracle");
+        address oracleAddr = deployment.deployOracle("oracle", 100);
 
         // Multiple contracts can depend on it
-        address token1 = deployment.deployToken("token1", "oracle");
-        address token2 = deployment.deployToken("token2", "oracle");
+        address token1 = deployment.deployToken("token1", "oracle", "Token1", 18);
+        address token2 = deployment.deployToken("token2", "oracle", "Token2", 6);
 
         MockToken t1 = MockToken(token1);
         MockToken t2 = MockToken(token2);
@@ -124,7 +104,7 @@ contract DeploymentDependencyTest is Test {
 
     function test_GetBeforeDeployment() public {
         // Verify get() works for deployed contracts
-        deployment.deployOracle("oracle");
+        deployment.deployOracle("oracle", 100);
         address addr = deployment.getByString("oracle");
         assertTrue(addr != address(0));
 
@@ -137,9 +117,9 @@ contract DeploymentDependencyTest is Test {
         // Deploy a complex graph:
         // oracle1, oracle2 -> token1 (uses oracle1) -> minter (uses token1, oracle2)
 
-        deployment.deployOracle("oracle1");
-        address oracle2 = deployment.deployOracle("oracle2");
-        address token1 = deployment.deployToken("token1", "oracle1");
+        deployment.deployOracle("oracle1", 100);
+        address oracle2 = deployment.deployOracle("oracle2", 200);
+        address token1 = deployment.deployToken("token1", "oracle1", "Token1", 18);
         address minter = deployment.deployMinter("minter", "token1", "oracle2");
 
         MockMinter m = MockMinter(minter);

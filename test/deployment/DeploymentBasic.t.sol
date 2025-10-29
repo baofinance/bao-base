@@ -6,35 +6,19 @@ import {TestDeployment} from "./TestDeployment.sol";
 
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {MockContract, MockImplementation} from "../mocks/MockContracts.sol";
 
-// Simple mock contracts for testing
-contract MockContract {
-    string public name;
-
-    constructor(string memory _name) {
-        name = _name;
-    }
-}
-
-contract MockImplementation {
-    uint256 public value;
-
-    function initialize(uint256 _value) external {
-        value = _value;
-    }
-}
-
-// Test harness
+// Test harness extends TestDeployment with specific mock deployment methods
 contract DeploymentHarness is TestDeployment {
     function deployMockContract(string memory key, string memory mockName) public returns (address) {
         MockContract mock = new MockContract(mockName);
-        return registerContract(key, address(mock), "MockContract", "test/MockContract.sol", "contract");
+        return registerContract(key, address(mock), "MockContract", "test/mocks/MockContracts.sol", "contract");
     }
 
     function deployMockImplementation(string memory key, uint256 initValue) public returns (address) {
         MockImplementation impl = new MockImplementation();
         impl.initialize(initValue);
-        return registerContract(key, address(impl), "MockImplementation", "test/MockImplementation.sol", "contract");
+        return registerContract(key, address(impl), "MockImplementation", "test/mocks/MockContracts.sol", "contract");
     }
 }
 
@@ -139,5 +123,26 @@ contract DeploymentBasicTest is Test {
         Deployment.DeploymentMetadata memory metadata = deployment.getMetadata();
         assertTrue(metadata.finishedAt > 0);
         assertTrue(metadata.finishedAt >= metadata.startedAt);
+    }
+
+    function test_RegisterExisting() public {
+        address existingContract = address(0x1234567890123456789012345678901234567890);
+
+        address registered = deployment.useExistingByString("ExistingContract", existingContract);
+
+        assertEq(registered, existingContract);
+        assertEq(deployment.getByString("ExistingContract"), existingContract);
+        assertEq(deployment.getEntryType("ExistingContract"), "contract");
+    }
+
+    function test_RegisterExistingJsonSerialization() public {
+        address existingContract = address(0x1234567890123456789012345678901234567890);
+
+        deployment.useExistingByString("stETH", existingContract);
+        deployment.finishDeployment();
+
+        // Test deployment registration (JSON serialization requires DeploymentJson mixin)
+        assertTrue(deployment.hasByString("stETH"), "Should have stETH registered");
+        assertEq(deployment.getByString("stETH"), existingContract, "Address should be accessible");
     }
 }

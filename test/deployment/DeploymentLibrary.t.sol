@@ -5,34 +5,18 @@ import {Test} from "forge-std/Test.sol";
 import {TestDeployment} from "./TestDeployment.sol";
 
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
+import {MathLib, StringLib} from "../mocks/TestLibraries.sol";
 
-// Simple library for testing
-library MathLib {
-    function add(uint256 a, uint256 b) internal pure returns (uint256) {
-        return a + b;
-    }
-
-    function multiply(uint256 a, uint256 b) internal pure returns (uint256) {
-        return a * b;
-    }
-}
-
-library StringLib {
-    function concat(string memory a, string memory b) internal pure returns (string memory) {
-        return string(abi.encodePacked(a, b));
-    }
-}
-
-// Test harness
+// Test harness extends TestDeployment
 contract LibraryTestHarness is TestDeployment {
     function deployMathLibrary(string memory key) public returns (address) {
         bytes memory bytecode = type(MathLib).creationCode;
-        return deployLibrary(key, bytecode, "MathLib", "test/MathLib.sol");
+        return deployLibrary(key, bytecode, "MathLib", "test/mocks/TestLibraries.sol");
     }
 
     function deployStringLibrary(string memory key) public returns (address) {
         bytes memory bytecode = type(StringLib).creationCode;
-        return deployLibrary(key, bytecode, "StringLib", "test/StringLib.sol");
+        return deployLibrary(key, bytecode, "StringLib", "test/mocks/TestLibraries.sol");
     }
 }
 
@@ -88,5 +72,29 @@ contract DeploymentLibraryTest is Test {
 
         // CREATE uses nonce, so addresses will differ
         assertNotEq(addr1, addr2);
+    }
+
+    function test_LibraryEntryType() public {
+        deployment.deployMathLibrary("mathLib");
+
+        assertEq(deployment.getEntryType("mathLib"), "library");
+    }
+
+    function test_LibraryJsonSerialization() public {
+        address libAddr = deployment.deployMathLibrary("mathLib");
+        deployment.finishDeployment();
+
+        // Test in-memory JSON serialization (no filesystem)
+        string memory json = deployment.toJson();
+
+        assertTrue(bytes(json).length > 0, "JSON should not be empty");
+        assertTrue(vm.keyExistsJson(json, ".deployment.mathLib"), "Should contain mathLib");
+
+        // Verify round-trip
+        LibraryTestHarness newDeployment = new LibraryTestHarness();
+        newDeployment.fromJson(json);
+
+        assertEq(newDeployment.getByString("mathLib"), libAddr, "Address should match after JSON round-trip");
+        assertEq(newDeployment.getEntryType("mathLib"), "library", "Entry type should be preserved");
     }
 }

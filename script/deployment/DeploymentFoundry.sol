@@ -11,7 +11,7 @@ import {Deployment} from "./Deployment.sol";
  *      - Has Vm for address labeling in transaction traces
  *
  */
-abstract contract DeploymentFoundryt is Deployment {
+abstract contract DeploymentFoundry is Deployment {
     /// @notice Foundry VM for labeling addresses in traces
     Vm private immutable VM;
 

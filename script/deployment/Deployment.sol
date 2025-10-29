@@ -6,20 +6,26 @@ import {EfficientHashLib} from "@solady/utils/EfficientHashLib.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {Stem_v1} from "@bao/Stem_v1.sol";
 
-import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
+import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
+
+interface IStemUUPS {
+    function upgradeTo(address newImplementation) external;
+    function upgradeToAndCall(address newImplementation, bytes memory data) external;
+}
 
 /**
  * @title Deployment
  * @notice Deployment operations layer built on top of DeploymentRegistry
  * @dev Responsibilities:
- *      - Deterministic proxy deployment via CREATE3
+ *      - Deterministic proxy deployment via CREATE3, and using Stem_v1 as initial implementation
  *      - Library deployment via CREATE
  *      - Existing contract registration helpers
  *      - Thin wrappers around registry storage helpers
  *      - Designed for specialization (e.g. Harbor overrides deployProxy)
  */
-abstract contract Deployment is DeploymentRegistry {
+abstract contract Deployment is DeploymentJson {
     // ============================================================================
     // Errors
     // ============================================================================
@@ -31,6 +37,18 @@ abstract contract Deployment is DeploymentRegistry {
     error OwnerQueryFailed(address proxy);
     error UnexpectedProxyOwner(address proxy, address owner);
 
+    address private _stem;
+    string private _systemSaltString;
+
+    constructor(string memory systemSaltString) {
+        _stem = address(new Stem_v1(address(this), 0));
+        _systemSaltString = systemSaltString;
+    }
+
+    function makeSalt(string memory saltString) internal view returns (bytes32) {
+        return EfficientHashLib.hash(abi.encodePacked(_systemSaltString, saltString));
+    }
+
     // ============================================================================
     // Proxy Deployment
     // ============================================================================
@@ -38,32 +56,38 @@ abstract contract Deployment is DeploymentRegistry {
     /**
      * @notice Deploy a deterministic UUPS proxy using CREATE3
      * @param key Registry key to register the deployed proxy under
-     * @param implementation Implementation contract address (must be non-zero)
+     * @param implementation Address of the implementation contract
      * @param initData Calldata executed against implementation during proxy construction
-     * @param saltString Human readable salt (will be hashed for CREATE3)
+     * @param proxySaltString Human readable identifier for this proxy (will be hashed for CREATE3)
      * @return proxy Address of the deployed proxy
      */
     function deployProxy(
         string memory key,
         address implementation,
         bytes memory initData,
-        string memory saltString
+        string memory proxySaltString
     ) public virtual returns (address proxy) {
         if (_exists[key]) {
             revert ContractAlreadyExists(key);
         }
         if (implementation == address(0)) revert ImplementationRequired();
-        if (bytes(saltString).length == 0) revert SaltRequired();
+        if (bytes(proxySaltString).length == 0) revert SaltRequired();
 
-        bytes32 salt = _hashSalt(saltString);
-        bytes memory creationCode = abi.encodePacked(
-            type(ERC1967Proxy).creationCode,
-            abi.encode(implementation, initData)
-        );
+        bytes memory creationCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(_stem, ""));
 
+        bytes32 salt = makeSalt(proxySaltString);
         proxy = CREATE3.deployDeterministic(creationCode, salt);
 
-        _registerProxy(key, proxy, "", salt, saltString);
+        _registerProxy(key, proxy, "", salt, proxySaltString);
+
+        // Upgrade Stem → actual implementation with initialization
+        // Note: This external call happens AFTER state changes to prevent reentrancy
+        if (initData.length == 0) {
+            IStemUUPS(proxy).upgradeTo(implementation);
+        } else {
+            IStemUUPS(proxy).upgradeToAndCall(implementation, initData);
+        }
+
         emit ContractDeployed(key, proxy, "UUPS proxy");
 
         return proxy;
@@ -71,12 +95,12 @@ abstract contract Deployment is DeploymentRegistry {
 
     /**
      * @notice Predict the proxy address for a given salt (without deploying)
-     * @param saltString Human readable salt
+     * @param proxySaltString Human readable salt
      * @return Predicted address for the deployment
      */
-    function predictProxyAddress(string memory saltString) public view returns (address) {
-        if (bytes(saltString).length == 0) revert SaltRequired();
-        return CREATE3.predictDeterministicAddress(_hashSalt(saltString), address(this));
+    function predictProxyAddress(string memory proxySaltString) public view returns (address) {
+        if (bytes(proxySaltString).length == 0) revert SaltRequired();
+        return CREATE3.predictDeterministicAddress(makeSalt(proxySaltString), address(this));
     }
 
     // ============================================================================
@@ -195,10 +219,6 @@ abstract contract Deployment is DeploymentRegistry {
     // ============================================================================
     // Internal helpers
     // ============================================================================
-
-    function _hashSalt(string memory saltString) internal pure returns (bytes32) {
-        return EfficientHashLib.hash(bytes(saltString));
-    }
 
     function _requireValidAddress(string memory key, address addr) internal view {
         if (addr == address(0)) {

@@ -2,7 +2,6 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
-import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
 
 /**
  * @title TestDeployment
@@ -12,7 +11,9 @@ import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
  *      Can be used directly or extended for specialized test needs.
  *      Includes DeploymentJson mixin for Foundry-specific JSON operations.
  */
-contract TestDeployment is Deployment, DeploymentJson {
+contract TestDeployment is Deployment {
+    constructor() Deployment("test-salt") {}
+
     // ============================================================================
     // Contract Access Wrappers
     // ============================================================================
