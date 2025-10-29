@@ -50,6 +50,7 @@ abstract contract DeploymentRegistry {
         uint256 startBlock;
         string network;
         string version;
+        string systemSaltString;
     }
 
     /// @notice Contract entry (direct deployment, mock, existing)
