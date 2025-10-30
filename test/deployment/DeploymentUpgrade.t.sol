@@ -46,13 +46,13 @@ contract UpgradeTestHarness is TestDeployment {
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
         OracleV1 impl = new OracleV1();
         bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
-        return deployProxy(key, address(impl), initData, string.concat(key, "-salt"));
+        return deployProxy(key, address(impl), initData);
     }
 
     function deployCounterProxy(string memory key, uint256 initialValue, address admin) public returns (address) {
         CounterV1 impl = new CounterV1();
         bytes memory initData = abi.encodeCall(CounterV1.initialize, (initialValue, admin));
-        return deployProxy(key, address(impl), initData, string.concat(key, "-salt"));
+        return deployProxy(key, address(impl), initData);
     }
 
     function upgradeOracle(string memory key, address newImplementation) public {
@@ -77,7 +77,7 @@ contract DeploymentUpgradeTest is Test {
     function setUp() public {
         deployment = new UpgradeTestHarness();
         admin = address(this);
-        deployment.startDeployment(admin, "upgrade-test", "v1.0.0", "upgrade-test-salt", address(0), "Stem_v1");
+        deployment.startDeployment(admin, "upgrade-test", "v1.0.0", "upgrade-test-salt");
     }
 
     function test_BasicUpgrade() public {

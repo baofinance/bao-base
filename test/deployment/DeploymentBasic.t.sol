@@ -39,7 +39,7 @@ contract DeploymentBasicTest is Test {
 
     function setUp() public {
         deployment = new DeploymentHarness();
-        deployment.startDeployment(address(this), "test", "v1.0.0", "test-system-salt", address(0), "Stem_v1");
+        deployment.startDeployment(address(this), "test", "v1.0.0", "test-system-salt");
     }
 
     function test_StartDeployment() public view {

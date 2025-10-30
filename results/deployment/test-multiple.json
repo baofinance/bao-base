@@ -31,15 +31,16 @@
       "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
     },
     "proxy1": {
-      "address": "0xb3979e52819c2B00de264A57653058af5a18C019",
+      "address": "0xf8e57a8c1394e4fCf149a78eA57c01a543A3BE3b",
       "blockNumber": 1,
       "category": "UUPS proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "contractType": "ERC1967Proxy",
-      "deployedTo": "0xb3979e52819c2B00de264A57653058af5a18C019",
+      "deployedTo": "0xf8e57a8c1394e4fCf149a78eA57c01a543A3BE3b",
       "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496",
-      "salt": "0xf21e971622d9b22669c7d56404d712a4b2d3a194c896737371fe75a233f69232",
-      "saltString": "proxy-1"
+      "proxyType": "UUPS",
+      "salt": "0x7f3464796bc3c8113deed8aba2368eab9368f9157b2e73feda2a1ff2e72b309c",
+      "saltString": "proxy1"
     }
   },
   "metadata": {
@@ -47,7 +48,7 @@
     "network": "test-network",
     "startBlock": 1,
     "startedAt": 1,
-    "stemContract": "0x0000000000000000000000000000000000000000",
+    "stemContract": "0x104fBc016F4bb334D775a19E8A6510109AC63E00",
     "stemContractType": "Stem_v1",
     "version": "v1.0.0"
   },

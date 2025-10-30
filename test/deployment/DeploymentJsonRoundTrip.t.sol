@@ -14,18 +14,13 @@ library TestMathLib {
 
 // Test harness for round-trip testing
 contract RoundTripTestHarness is TestDeployment {
-    function deployMockProxy(
-        string memory key,
-        string memory saltString,
-        uint256 initialValue,
-        string memory mockName
-    ) public returns (address) {
+    function deployMockProxy(string memory key, uint256 initialValue, string memory mockName) public returns (address) {
         MockUpgradeableContract impl = new MockUpgradeableContract();
         bytes memory initData = abi.encodeCall(
             MockUpgradeableContract.initialize,
             (initialValue, mockName, address(this))
         );
-        return deployProxy(key, address(impl), initData, saltString);
+        return deployProxy(key, address(impl), initData);
     }
 
     function deployMockLibrary(string memory key) public returns (address) {
@@ -44,14 +39,7 @@ contract DeploymentJsonRoundTripTest is Test {
 
     function setUp() public {
         deployment = new RoundTripTestHarness();
-        deployment.startDeployment(
-            address(this),
-            "test-network",
-            "v2.1.0",
-            "roundtrip-test-salt",
-            address(0),
-            "Stem_v1"
-        );
+        deployment.startDeployment(address(this), "test-network", "v2.1.0", "roundtrip-test-salt");
     }
 
     function test_ComplexDeploymentRoundTrip() public {
@@ -59,7 +47,7 @@ contract DeploymentJsonRoundTripTest is Test {
         address existingAddr = address(0x1234567890123456789012345678901234567890);
         deployment.useExistingByString("ExistingToken", existingAddr);
 
-        address proxyAddr = deployment.deployMockProxy("TestProxy", "proxy-salt-v1", 42, "Test Proxy");
+        address proxyAddr = deployment.deployMockProxy("TestProxy", 42, "Test Proxy");
         address libAddr = deployment.deployMockLibrary("TestLib");
 
         // Add parameters

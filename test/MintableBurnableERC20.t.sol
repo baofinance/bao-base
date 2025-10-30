@@ -13,7 +13,6 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {ERC20PermitUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
@@ -111,8 +110,6 @@ contract TestLeveragedTokenInitEvents is TestLeveragedTokensSetUp {
 }
 
 contract TestLeveragedToken is TestLeveragedTokensSetUp {
-    using SafeERC20 for IERC20;
-
     function test_init() public {
         // expect a revert if initialize called twice
         vm.expectRevert(Initializable.InvalidInitialization.selector);
@@ -237,7 +234,7 @@ contract TestLeveragedToken is TestLeveragedTokensSetUp {
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, address(this), 0, 1 ether)
         );
-        SafeERC20.safeTransfer(IERC20(leveragedToken), user1, 1 ether);
+        IERC20(leveragedToken).transfer(user1, 1 ether);
 
         // mint some to this
         vm.prank(minter);
@@ -248,7 +245,7 @@ contract TestLeveragedToken is TestLeveragedTokensSetUp {
         assertEq(IERC20(leveragedToken).balanceOf(user1), 0, "user1 starts with none");
         vm.expectEmit(true, true, false, true);
         emit IERC20.Transfer(address(this), user1, 1 ether);
-        SafeERC20.safeTransfer(IERC20(leveragedToken), user1, 1 ether);
+        IERC20(leveragedToken).transfer(user1, 1 ether);
         assertEq(IERC20(leveragedToken).balanceOf(address(this)), 9 ether, "moved 1");
         assertEq(IERC20(leveragedToken).balanceOf(user1), 1 ether, "received 1");
     }
@@ -262,7 +259,7 @@ contract TestLeveragedToken is TestLeveragedTokensSetUp {
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(this), 0, 1 ether)
         );
-        SafeERC20.safeTransferFrom(IERC20(leveragedToken), user1, user2, 1 ether);
+        IERC20(leveragedToken).transferFrom(user1, user2, 1 ether);
 
         vm.prank(user1);
         vm.expectEmit(true, true, false, true);
@@ -272,7 +269,7 @@ contract TestLeveragedToken is TestLeveragedTokensSetUp {
 
         // try when no balance
         vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, user1, 0, 1 ether));
-        SafeERC20.safeTransferFrom(IERC20(leveragedToken), user1, user2, 1 ether);
+        IERC20(leveragedToken).transferFrom(user1, user2, 1 ether);
 
         // mint some to user1
         vm.prank(minter);
@@ -281,7 +278,7 @@ contract TestLeveragedToken is TestLeveragedTokensSetUp {
 
         vm.expectEmit(true, true, false, true);
         emit IERC20.Transfer(user1, user2, 1 ether);
-        SafeERC20.safeTransferFrom(IERC20(leveragedToken), user1, user2, 1 ether);
+        IERC20(leveragedToken).transferFrom(user1, user2, 1 ether);
         assertEq(IERC20(leveragedToken).balanceOf(user1), 9 ether, "moved 1");
         assertEq(IERC20(leveragedToken).balanceOf(user2), 1 ether, "received 1");
 
@@ -290,7 +287,7 @@ contract TestLeveragedToken is TestLeveragedTokensSetUp {
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(this), 0, 1 ether)
         );
-        SafeERC20.safeTransferFrom(IERC20(leveragedToken), user1, user2, 1 ether);
+        IERC20(leveragedToken).transferFrom(user1, user2, 1 ether);
 
         vm.startPrank(user1);
         uint256 deadline = block.timestamp + 1000;
@@ -319,7 +316,7 @@ contract TestLeveragedToken is TestLeveragedTokensSetUp {
 
         vm.expectEmit(true, true, false, true);
         emit IERC20.Transfer(user1, user2, 1 ether);
-        SafeERC20.safeTransferFrom(IERC20(leveragedToken), user1, user2, 1 ether);
+        IERC20(leveragedToken).transferFrom(user1, user2, 1 ether);
         assertEq(IERC20(leveragedToken).balanceOf(user1), 8 ether, "moved another 1");
         assertEq(IERC20(leveragedToken).balanceOf(user2), 2 ether, "received another 1");
     }
@@ -470,7 +467,7 @@ contract TestMaxAllowance is TestLeveragedTokensSetUp {
         );
 
         // Transfer once
-        SafeERC20.safeTransferFrom(IERC20(leveragedToken), user1, user2, 1 ether);
+        IERC20(leveragedToken).transferFrom(user1, user2, 1 ether);
 
         // Check allowance remains max
         assertEq(
@@ -480,7 +477,7 @@ contract TestMaxAllowance is TestLeveragedTokensSetUp {
         );
 
         // Transfer again
-        SafeERC20.safeTransferFrom(IERC20(leveragedToken), user1, user2, 2 ether);
+        IERC20(leveragedToken).transferFrom(user1, user2, 2 ether);
 
         // Balances should be updated
         assertEq(IERC20(leveragedToken).balanceOf(user1), 7 ether, "user1 balance incorrect");

@@ -41,10 +41,10 @@ contract JsonTestHarness is TestDeployment {
         return registerContract(key, address(c), "SimpleContract", "test/SimpleContract.sol", "contract");
     }
 
-    function deploySimpleProxy(string memory key, string memory saltString, uint256 value) public returns (address) {
+    function deploySimpleProxy(string memory key, uint256 value) public returns (address) {
         SimpleImplementation impl = new SimpleImplementation();
         bytes memory initData = abi.encodeCall(SimpleImplementation.initialize, (value));
-        return deployProxy(key, address(impl), initData, saltString);
+        return deployProxy(key, address(impl), initData);
     }
 
     function deployTestLibrary(string memory key) public returns (address) {
@@ -63,7 +63,7 @@ contract DeploymentJsonTest is Test {
 
     function setUp() public {
         deployment = new JsonTestHarness();
-        deployment.startDeployment(address(this), "test-network", "v1.0.0", "json-test-salt", address(0), "Stem_v1");
+        deployment.startDeployment(address(this), "test-network", "v1.0.0", "json-test-salt");
     }
 
     function test_SaveEmptyDeployment() public {
@@ -103,7 +103,7 @@ contract DeploymentJsonTest is Test {
 
     function test_SaveProxyToJson() public {
         string memory path = string.concat(TEST_OUTPUT_DIR, "/test-proxy.json");
-        deployment.deploySimpleProxy("proxy1", "proxy-salt-1", 100);
+        deployment.deploySimpleProxy("proxy1", 100);
         deployment.finishDeployment();
         deployment.saveToJson(path);
 
@@ -117,7 +117,7 @@ contract DeploymentJsonTest is Test {
         assertEq(category, "UUPS proxy");
 
         string memory saltString = vm.parseJsonString(json, ".deployment.proxy1.saltString");
-        assertEq(saltString, "proxy-salt-1");
+        assertEq(saltString, "proxy1");
 
         bytes32 salt = vm.parseJsonBytes32(json, ".deployment.proxy1.salt");
         assertTrue(salt != bytes32(0));
@@ -145,7 +145,7 @@ contract DeploymentJsonTest is Test {
     function test_SaveMultipleEntriesToJson() public {
         string memory path = string.concat(TEST_OUTPUT_DIR, "/test-multiple.json");
         deployment.deploySimpleContract("contract1", "Contract 1");
-        deployment.deploySimpleProxy("proxy1", "proxy-1", 10);
+        deployment.deploySimpleProxy("proxy1", 10);
         deployment.deployTestLibrary("lib1");
         deployment.useExistingByString("external1", address(0x1234567890123456789012345678901234567890));
 
@@ -169,7 +169,7 @@ contract DeploymentJsonTest is Test {
         string memory path = string.concat(TEST_OUTPUT_DIR, "/test-load.json");
         // First, save a deployment
         address contract1Addr = deployment.deploySimpleContract("contract1", "Contract 1");
-        address proxy1Addr = deployment.deploySimpleProxy("proxy1", "proxy-1", 10);
+        address proxy1Addr = deployment.deploySimpleProxy("proxy1", 10);
         address lib1Addr = deployment.deployTestLibrary("lib1");
 
         deployment.finishDeployment();

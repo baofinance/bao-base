@@ -18,7 +18,7 @@
     "network": "test-network",
     "startBlock": 1,
     "startedAt": 1,
-    "stemContract": "0x0000000000000000000000000000000000000000",
+    "stemContract": "0x104fBc016F4bb334D775a19E8A6510109AC63E00",
     "stemContractType": "Stem_v1",
     "version": "v1.0.0"
   },

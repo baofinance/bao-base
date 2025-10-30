@@ -66,7 +66,7 @@ contract IntegrationTestHarness is TestDeployment {
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
         OracleV1 impl = new OracleV1();
         bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
-        return deployProxy(key, address(impl), initData, string.concat(key, "-salt"));
+        return deployProxy(key, address(impl), initData);
     }
 
     function deployMinterProxy(
@@ -82,7 +82,7 @@ contract IntegrationTestHarness is TestDeployment {
 
         MockMinter impl = new MockMinter();
         bytes memory initData = abi.encodeCall(MockMinter.initialize, (collateral, pegged, oracle, admin));
-        return deployProxy(key, address(impl), initData, string.concat(key, "-salt"));
+        return deployProxy(key, address(impl), initData);
     }
 
     function deployConfigLibrary(string memory key) public returns (address) {
@@ -103,7 +103,7 @@ contract DeploymentIntegrationTest is Test {
     function setUp() public {
         admin = address(this);
         deployment = new IntegrationTestHarness();
-        deployment.startDeployment(admin, "test-network", "v1.0.0", "integration-test-salt", address(0), "Stem_v1");
+        deployment.startDeployment(admin, "test-network", "v1.0.0", "integration-test-salt");
     }
 
     function test_DeployFullSystem() public {
@@ -239,9 +239,9 @@ contract DeploymentIntegrationTest is Test {
         bytes memory initData2 = abi.encodeCall(OracleV1.initialize, (2000e18, admin));
         bytes memory initData3 = abi.encodeCall(OracleV1.initialize, (3000e18, admin));
 
-        address proxy1 = deployment.deployProxy("oracle1", address(impl), initData1, "oracle-1");
-        address proxy2 = deployment.deployProxy("oracle2", address(impl), initData2, "oracle-2");
-        address proxy3 = deployment.deployProxy("oracle3", address(impl), initData3, "oracle-3");
+        address proxy1 = deployment.deployProxy("oracle1", address(impl), initData1);
+        address proxy2 = deployment.deployProxy("oracle2", address(impl), initData2);
+        address proxy3 = deployment.deployProxy("oracle3", address(impl), initData3);
 
         // Verify each has different address but same implementation
         assertNotEq(proxy1, proxy2);
@@ -264,7 +264,7 @@ contract DeploymentIntegrationTest is Test {
         // Now deploy minter2 that depends on minter1
         MockMinter minter2Impl = new MockMinter();
         bytes memory initData = abi.encodeCall(MockMinter.initialize, (minter1, token2, oracle, admin));
-        address minter2 = deployment.deployProxy("minter2", address(minter2Impl), initData, "minter2-salt");
+        address minter2 = deployment.deployProxy("minter2", address(minter2Impl), initData);
 
         // Verify dependency chain
         MockMinter m2 = MockMinter(minter2);

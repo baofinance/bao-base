@@ -10,14 +10,10 @@ import {CounterV1} from "../mocks/upgradeable/MockCounter.sol";
 
 // Test harness extends TestDeployment
 contract ProxyTestHarness is TestDeployment {
-    function deployCounterProxy(
-        string memory key,
-        string memory saltString,
-        uint256 initialValue
-    ) public returns (address) {
+    function deployCounterProxy(string memory key, uint256 initialValue) public returns (address) {
         CounterV1 impl = new CounterV1();
         bytes memory initData = abi.encodeCall(CounterV1.initialize, (initialValue, address(this)));
-        return deployProxy(key, address(impl), initData, saltString);
+        return deployProxy(key, address(impl), initData);
     }
 }
 
@@ -30,11 +26,11 @@ contract DeploymentProxyTest is Test {
 
     function setUp() public {
         deployment = new ProxyTestHarness();
-        deployment.startDeployment(address(this), "test", "v1.0.0", "proxy-test-salt", address(0), "Stem_v1");
+        deployment.startDeployment(address(this), "test", "v1.0.0", "proxy-test-salt");
     }
 
     function test_DeployProxy() public {
-        address proxyAddr = deployment.deployCounterProxy("counter", "counter-v1", 42);
+        address proxyAddr = deployment.deployCounterProxy("counter", 42);
 
         assertTrue(proxyAddr != address(0));
         assertTrue(deployment.hasByString("counter"));
@@ -50,29 +46,29 @@ contract DeploymentProxyTest is Test {
     }
 
     function test_PredictProxyAddress() public {
-        address predicted = deployment.predictProxyAddress("counter-v1");
-        address actual = deployment.deployCounterProxy("counter", "counter-v1", 42);
+        address predicted = deployment.predictProxyAddress("counter");
+        address actual = deployment.deployCounterProxy("counter", 42);
 
         assertEq(predicted, actual);
     }
 
     function test_DeterministicProxyAddress() public {
-        // Deploy with same salt should produce same address
-        address addr1 = deployment.predictProxyAddress("deterministic-salt");
+        // Deploy with same key should produce same address
+        address addr1 = deployment.predictProxyAddress("counter1");
 
         // Deploy proxy
-        address deployed = deployment.deployCounterProxy("counter1", "deterministic-salt", 100);
+        address deployed = deployment.deployCounterProxy("counter1", 100);
         assertEq(deployed, addr1);
 
-        // Prediction should still work for different salt
-        address addr2 = deployment.predictProxyAddress("different-salt");
+        // Prediction should work for different key
+        address addr2 = deployment.predictProxyAddress("counter2");
         assertNotEq(addr2, addr1);
     }
 
     function test_MultipleProxies() public {
-        address proxy1 = deployment.deployCounterProxy("counter1", "counter-1", 10);
-        address proxy2 = deployment.deployCounterProxy("counter2", "counter-2", 20);
-        address proxy3 = deployment.deployCounterProxy("counter3", "counter-3", 30);
+        address proxy1 = deployment.deployCounterProxy("counter1", 10);
+        address proxy2 = deployment.deployCounterProxy("counter2", 20);
+        address proxy3 = deployment.deployCounterProxy("counter3", 30);
 
         assertNotEq(proxy1, proxy2);
         assertNotEq(proxy2, proxy3);
@@ -91,22 +87,22 @@ contract DeploymentProxyTest is Test {
     }
 
     function test_RevertWhen_ProxyAlreadyExists() public {
-        deployment.deployCounterProxy("counter", "counter-v1", 42);
+        deployment.deployCounterProxy("counter", 42);
 
         vm.expectRevert(abi.encodeWithSelector(DeploymentRegistry.ContractAlreadyExists.selector, "counter"));
-        deployment.deployCounterProxy("counter", "counter-v1", 100);
+        deployment.deployCounterProxy("counter", 100);
     }
 
-    function test_RevertWhen_ProxyWithoutSalt() public {
+    function test_RevertWhen_ProxyWithEmptyKey() public {
         CounterV1 impl = new CounterV1();
         bytes memory initData = abi.encodeCall(CounterV1.initialize, (42, address(this)));
 
         vm.expectRevert(Deployment.SaltRequired.selector);
-        deployment.deployProxy("counter", address(impl), initData, "");
+        deployment.deployProxy("", address(impl), initData);
     }
 
     function test_RevertWhen_ProxyWithoutImplementation() public {
         vm.expectRevert(Deployment.ImplementationRequired.selector);
-        deployment.deployProxy("counter", address(0), "", "counter-v1");
+        deployment.deployProxy("counter", address(0), "");
     }
 }

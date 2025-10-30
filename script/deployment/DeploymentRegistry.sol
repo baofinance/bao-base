@@ -30,7 +30,8 @@ abstract contract DeploymentRegistry {
     /// @notice CREATE3-specific fields (deterministic deployment)
     struct Create3Info {
         bytes32 salt;
-        string saltString; // Human-readable salt like "minter-v1"
+        string saltString; // Human-readable salt (now matches the registry key)
+        string proxyType; // Type of proxy: "UUPS", "Transparent", "Beacon", etc.
     }
 
     /// @notice Proxy-specific fields
@@ -94,6 +95,7 @@ abstract contract DeploymentRegistry {
     error ParameterTypeMismatch(string key, string expected, string actual);
     error InvalidAddress(string key);
     error UnknownEntryType(string entrytype, string key);
+    error InvalidStemContract(address stemContract);
 
     // ============================================================================
     // Storage
@@ -279,18 +281,16 @@ abstract contract DeploymentRegistry {
         address deployer,
         string memory network,
         string memory version,
-        string memory systemSaltString,
-        address stemContract,
-        string memory stemContractType
-    ) public {
+        string memory systemSaltString
+    ) public virtual {
         _metadata.deployer = deployer;
         _metadata.startedAt = block.timestamp;
         _metadata.startBlock = block.number;
         _metadata.network = network;
         _metadata.version = version;
         _metadata.systemSaltString = systemSaltString;
-        _metadata.stemContract = stemContract;
-        _metadata.stemContractType = stemContractType;
+        _metadata.stemContract = address(0); // Will be set by Deployment layer
+        _metadata.stemContractType = "Stem_v1";
     }
 
     /**
@@ -345,7 +345,8 @@ abstract contract DeploymentRegistry {
         address addr,
         string memory implementationKey,
         bytes32 salt,
-        string memory saltString
+        string memory saltString,
+        string memory proxyType
     ) internal {
         _proxies[key] = ProxyEntry({
             info: DeploymentInfo({
@@ -354,9 +355,9 @@ abstract contract DeploymentRegistry {
                 contractPath: "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
                 txHash: bytes32(0),
                 blockNumber: block.number,
-                category: "UUPS proxy"
+                category: string.concat(proxyType, " proxy")
             }),
-            create3: Create3Info({salt: salt, saltString: saltString}),
+            create3: Create3Info({salt: salt, saltString: saltString, proxyType: proxyType}),
             proxy: ProxyInfo({implementationKey: implementationKey})
         });
 

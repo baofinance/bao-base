@@ -15,7 +15,7 @@ contract DeploymentParameterTest is Test {
 
     function setUp() public {
         deployment = new ParameterTestHarness();
-        deployment.startDeployment(address(this), "test", "v1.0.0", "parameter-test-salt", address(0), "Stem_v1");
+        deployment.startDeployment(address(this), "test", "v1.0.0", "parameter-test-salt");
     }
 
     function test_SetAndGetString() public {

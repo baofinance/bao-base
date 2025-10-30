@@ -162,6 +162,7 @@ abstract contract DeploymentJson is DeploymentRegistry {
         Create3Info memory info,
         string memory json
     ) internal returns (string memory) {
+        json = VM.serializeString(key, "proxyType", info.proxyType);
         json = VM.serializeString(key, "saltString", info.saltString);
         json = VM.serializeBytes32(key, "salt", info.salt);
         return json;

@@ -14,7 +14,7 @@ contract DeploymentJsonStringTest is Test {
 
     function setUp() public {
         deployment = new TestDeployment();
-        deployment.startDeployment(address(this), "localhost", "1.0.0", "jsonstring-test-salt", address(0), "Stem_v1");
+        deployment.startDeployment(address(this), "localhost", "1.0.0", "jsonstring-test-salt");
     }
 
     function test_ToJsonReturnsValidString() public {

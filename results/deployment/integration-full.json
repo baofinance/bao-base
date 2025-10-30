@@ -22,26 +22,28 @@
       "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
     },
     "minter": {
-      "address": "0x3aCd8C152beE15e41DA60E2181C24D7ccB240E84",
+      "address": "0x2f2E67D5433C532B4A9c7e563ccCcF4ED239cE0c",
       "blockNumber": 1,
       "category": "UUPS proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "contractType": "ERC1967Proxy",
-      "deployedTo": "0x3aCd8C152beE15e41DA60E2181C24D7ccB240E84",
+      "deployedTo": "0x2f2E67D5433C532B4A9c7e563ccCcF4ED239cE0c",
       "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496",
-      "salt": "0x939828d6b22203ca3d1fc43215d1747ff0b306ace091ab983cccd5929736c042",
-      "saltString": "minter-salt"
+      "proxyType": "UUPS",
+      "salt": "0x8e57245ae9b3fc022e5fef5cabb437cbb36c14e3cd6a719bf51e2a14cc6eb574",
+      "saltString": "minter"
     },
     "oracle": {
-      "address": "0x96F317cBf374A118a6125A9E7bA2b72339082352",
+      "address": "0x8F15786c83925B3Fc284dD94A0D1BdbE2c9f0936",
       "blockNumber": 1,
       "category": "UUPS proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "contractType": "ERC1967Proxy",
-      "deployedTo": "0x96F317cBf374A118a6125A9E7bA2b72339082352",
+      "deployedTo": "0x8F15786c83925B3Fc284dD94A0D1BdbE2c9f0936",
       "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496",
-      "salt": "0x43d2ddd444b3b2e90a237911a7dd1ba3cdec09e8398c13a578fe2bc1ce2d3325",
-      "saltString": "oracle-salt"
+      "proxyType": "UUPS",
+      "salt": "0x42bfca9ae58d28d192a69289e394df2395b9438b9fc7f5a8fdf6f07330d65c04",
+      "saltString": "oracle"
     },
     "pegged": {
       "address": "0xDDc10602782af652bB913f7bdE1fD82981Db7dd9",
@@ -58,7 +60,7 @@
     "network": "test-network",
     "startBlock": 1,
     "startedAt": 1,
-    "stemContract": "0x0000000000000000000000000000000000000000",
+    "stemContract": "0x104fBc016F4bb334D775a19E8A6510109AC63E00",
     "stemContractType": "Stem_v1",
     "version": "v1.0.0"
   },

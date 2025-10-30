@@ -43,8 +43,13 @@ abstract contract Deployment is DeploymentJson {
         _stem = address(new Stem_v1(address(this), 0));
     }
 
-    function makeSalt(string memory saltString) internal view returns (bytes32) {
-        return EfficientHashLib.hash(abi.encodePacked(_metadata.systemSaltString, saltString));
+    /**
+     * @notice Generate deterministic salt from registry key
+     * @param key The registry key for the deployment
+     * @return The deterministic salt for CREATE3
+     */
+    function makeSalt(string memory key) internal view returns (bytes32) {
+        return EfficientHashLib.hash(abi.encodePacked(_metadata.systemSaltString, key, "UUPS"));
     }
 
     /**
@@ -53,6 +58,27 @@ abstract contract Deployment is DeploymentJson {
      */
     function getSystemSaltString() public view returns (string memory) {
         return _metadata.systemSaltString;
+    }
+
+    /**
+     * @notice Get the stem contract address used for proxy deployments
+     * @return The stem contract address
+     */
+    function getStemContract() public view returns (address) {
+        return _stem;
+    }
+
+    /**
+     * @notice Start a deployment session (overrides parent to set stem contract)
+     */
+    function startDeployment(
+        address deployer,
+        string memory network,
+        string memory version,
+        string memory systemSaltString
+    ) public override {
+        super.startDeployment(deployer, network, version, systemSaltString);
+        _metadata.stemContract = _stem;
     }
 
     // ============================================================================
@@ -64,27 +90,26 @@ abstract contract Deployment is DeploymentJson {
      * @param key Registry key to register the deployed proxy under
      * @param implementation Address of the implementation contract
      * @param initData Calldata executed against implementation during proxy construction
-     * @param proxySaltString Human readable identifier for this proxy (will be hashed for CREATE3)
      * @return proxy Address of the deployed proxy
      */
     function deployProxy(
         string memory key,
         address implementation,
-        bytes memory initData,
-        string memory proxySaltString
+        bytes memory initData
     ) public virtual returns (address proxy) {
         if (_exists[key]) {
             revert ContractAlreadyExists(key);
         }
         if (implementation == address(0)) revert ImplementationRequired();
-        if (bytes(proxySaltString).length == 0) revert SaltRequired();
+        if (bytes(key).length == 0) revert SaltRequired();
 
+        string memory proxyType = "UUPS";
         bytes memory creationCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(_stem, ""));
 
-        bytes32 salt = makeSalt(proxySaltString);
+        bytes32 salt = makeSalt(key);
         proxy = CREATE3.deployDeterministic(creationCode, salt);
 
-        _registerProxy(key, proxy, "", salt, proxySaltString);
+        _registerProxy(key, proxy, "", salt, key, proxyType);
 
         // Upgrade Stem → actual implementation with initialization
         // Note: This external call happens AFTER state changes to prevent reentrancy
@@ -100,13 +125,13 @@ abstract contract Deployment is DeploymentJson {
     }
 
     /**
-     * @notice Predict the proxy address for a given salt (without deploying)
-     * @param proxySaltString Human readable salt
+     * @notice Predict the proxy address for a given key
+     * @param key Registry key for the deployment
      * @return Predicted address for the deployment
      */
-    function predictProxyAddress(string memory proxySaltString) public view returns (address) {
-        if (bytes(proxySaltString).length == 0) revert SaltRequired();
-        return CREATE3.predictDeterministicAddress(makeSalt(proxySaltString), address(this));
+    function predictProxyAddress(string memory key) public view returns (address) {
+        if (bytes(key).length == 0) revert SaltRequired();
+        return CREATE3.predictDeterministicAddress(makeSalt(key), address(this));
     }
 
     // ============================================================================

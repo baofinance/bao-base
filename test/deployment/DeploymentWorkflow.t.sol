@@ -21,7 +21,7 @@ contract WorkflowTestHarness is TestDeployment {
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
         OracleV1 impl = new OracleV1();
         bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
-        return deployProxy(key, address(impl), initData, string.concat(key, "-salt"));
+        return deployProxy(key, address(impl), initData);
     }
 
     function deployMinterProxy(
@@ -39,7 +39,7 @@ contract WorkflowTestHarness is TestDeployment {
 
         MockMinter impl = new MockMinter(collateral, pegged, leveraged);
         bytes memory initData = abi.encodeCall(MockMinter.initialize, (oracle, admin));
-        address proxy = deployProxy(key, address(impl), initData, key);
+        address proxy = deployProxy(key, address(impl), initData);
 
         // Note: Ownership transfer will be completed centrally via finalizeOwnership()
         return proxy;
@@ -62,7 +62,7 @@ contract DeploymentWorkflowTest is Test {
     function setUp() public {
         deployment = new WorkflowTestHarness();
         admin = makeAddr("admin");
-        deployment.startDeployment(admin, "workflow-test", "v2.0.0", "workflow-test-salt", address(0), "Stem_v1");
+        deployment.startDeployment(admin, "workflow-test", "v2.0.0", "workflow-test-salt");
     }
 
     function test_SimpleWorkflow() public {
@@ -163,7 +163,7 @@ contract DeploymentWorkflowTest is Test {
 
         // Verify key count
         string[] memory keys = deployment.keys();
-        assertEq(keys.length, 8, "Should have 8 entries (5 contracts + 3 parameters)");
+        assertEq(keys.length, 9, "Should have 9 entries (6 contracts + 3 parameters)");
     }
 
     function test_WorkflowWithExistingContracts() public {
