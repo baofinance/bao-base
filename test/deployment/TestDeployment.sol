@@ -12,8 +12,6 @@ import {Deployment} from "@bao-script/deployment/Deployment.sol";
  *      Includes DeploymentJson mixin for Foundry-specific JSON operations.
  */
 contract TestDeployment is Deployment {
-    constructor() Deployment("test-salt") {}
-
     // ============================================================================
     // Contract Access Wrappers
     // ============================================================================

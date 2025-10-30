@@ -6,8 +6,8 @@ import {TestDeployment} from "./TestDeployment.sol";
 
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
-import {MockContract} from "../mocks/basic/MockContract.sol";
-import {MockImplementation} from "../mocks/basic/MockImplementation.sol";
+import {MockContract} from "@bao-test/mocks/basic/MockContract.sol";
+import {MockImplementation} from "@bao-test/mocks/basic/MockImplementation.sol";
 
 // Test harness extends TestDeployment with specific mock deployment methods
 contract DeploymentHarness is TestDeployment {
@@ -39,7 +39,7 @@ contract DeploymentBasicTest is Test {
 
     function setUp() public {
         deployment = new DeploymentHarness();
-        deployment.startDeployment(address(this), "test", "v1.0.0");
+        deployment.startDeployment(address(this), "test", "v1.0.0", "test-system-salt", address(0), "Stem_v1");
     }
 
     function test_StartDeployment() public view {

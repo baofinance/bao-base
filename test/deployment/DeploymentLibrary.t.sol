@@ -29,7 +29,7 @@ contract DeploymentLibraryTest is Test {
 
     function setUp() public {
         deployment = new LibraryTestHarness();
-        deployment.startDeployment(address(this), "test", "v1.0.0");
+        deployment.startDeployment(address(this), "test", "v1.0.0", "library-test-salt", address(0), "Stem_v1");
     }
 
     function test_DeployLibrary() public {
@@ -67,7 +67,7 @@ contract DeploymentLibraryTest is Test {
 
         // Create new deployment instance
         LibraryTestHarness deployment2 = new LibraryTestHarness();
-        deployment2.startDeployment(address(this), "test", "v1.0.0");
+        deployment2.startDeployment(address(this), "test", "v1.0.0", "library-test-salt-2", address(0), "Stem_v1");
         address addr2 = deployment2.deployMathLibrary("mathLib2");
 
         // CREATE uses nonce, so addresses will differ

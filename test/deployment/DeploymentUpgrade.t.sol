@@ -77,7 +77,7 @@ contract DeploymentUpgradeTest is Test {
     function setUp() public {
         deployment = new UpgradeTestHarness();
         admin = address(this);
-        deployment.startDeployment(admin, "upgrade-test", "v1.0.0");
+        deployment.startDeployment(admin, "upgrade-test", "v1.0.0", "upgrade-test-salt", address(0), "Stem_v1");
     }
 
     function test_BasicUpgrade() public {

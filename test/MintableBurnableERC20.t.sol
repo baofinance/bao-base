@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+/// forge-config: default.allow_internal_expect_revert = true
+
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
@@ -256,7 +258,7 @@ contract TestLeveragedToken is TestLeveragedTokensSetUp {
         assertEq(IERC20(leveragedToken).balanceOf(user2), 0, "user1 starts with none");
         assertEq(IERC20(leveragedToken).balanceOf(address(this)), 0, "user1 starts with none");
 
-        // try when no no allowance
+        // try when no allowance
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(this), 0, 1 ether)
         );
@@ -268,7 +270,7 @@ contract TestLeveragedToken is TestLeveragedTokensSetUp {
         IERC20(leveragedToken).approve(address(this), 1 ether);
         assertEq(IERC20(leveragedToken).allowance(user1, address(this)), 1 ether, "should have allowance");
 
-        // try when no no balance
+        // try when no balance
         vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, user1, 0, 1 ether));
         SafeERC20.safeTransferFrom(IERC20(leveragedToken), user1, user2, 1 ether);
 

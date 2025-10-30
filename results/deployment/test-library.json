@@ -18,6 +18,9 @@
     "network": "test-network",
     "startBlock": 1,
     "startedAt": 1,
+    "stemContract": "0x0000000000000000000000000000000000000000",
+    "stemContractType": "Stem_v1",
     "version": "v1.0.0"
-  }
+  },
+  "saltString": "json-test-salt"
 }

@@ -19,10 +19,10 @@ remappings = [
   "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
   "solidity-stringutils/=lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils/",
   "@bao/=src/",
+  "@bao-test/=test/",
+  "@bao-script/=script/",
   "src/=src/",
   "test/=test/",
-  "mocks/=test/mocks/",
-  "@bao-script/=script/",
 ]
 
 

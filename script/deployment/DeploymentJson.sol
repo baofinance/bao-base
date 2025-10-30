@@ -69,6 +69,8 @@ abstract contract DeploymentJson is DeploymentRegistry {
         metadataJson = VM.serializeUint("metadata", "startBlock", _metadata.startBlock);
         metadataJson = VM.serializeString("metadata", "network", _metadata.network);
         metadataJson = VM.serializeString("metadata", "version", _metadata.version);
+        metadataJson = VM.serializeAddress("metadata", "stemContract", _metadata.stemContract);
+        metadataJson = VM.serializeString("metadata", "stemContractType", _metadata.stemContractType);
 
         string memory deployerJson = VM.serializeAddress("deployer", "address", _metadata.deployer);
 
@@ -76,6 +78,7 @@ abstract contract DeploymentJson is DeploymentRegistry {
         string memory rootJson = "";
         rootJson = VM.serializeString("root", "metadata", metadataJson);
         rootJson = VM.serializeString("root", "deployer", deployerJson);
+        rootJson = VM.serializeString("root", "saltString", _metadata.systemSaltString);
         if (_keys.length > 0) {
             rootJson = VM.serializeString("root", "deployment", deploymentsJson);
         }
@@ -270,6 +273,23 @@ abstract contract DeploymentJson is DeploymentRegistry {
         _metadata.startBlock = VM.parseJsonUint(json, ".metadata.startBlock");
         _metadata.network = VM.parseJsonString(json, ".metadata.network");
         _metadata.version = VM.parseJsonString(json, ".metadata.version");
+
+        // Handle systemSaltString from top-level
+        string memory saltStringPath = ".saltString";
+        if (VM.keyExistsJson(json, saltStringPath)) {
+            _metadata.systemSaltString = VM.parseJsonString(json, saltStringPath);
+        }
+
+        // Handle stem contract information
+        string memory stemContractPath = ".metadata.stemContract";
+        if (VM.keyExistsJson(json, stemContractPath)) {
+            _metadata.stemContract = VM.parseJsonAddress(json, stemContractPath);
+        }
+
+        string memory stemContractTypePath = ".metadata.stemContractType";
+        if (VM.keyExistsJson(json, stemContractTypePath)) {
+            _metadata.stemContractType = VM.parseJsonString(json, stemContractTypePath);
+        }
 
         string memory finishedPath = ".metadata.finishedAt";
         if (VM.keyExistsJson(json, finishedPath)) {

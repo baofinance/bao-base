@@ -54,7 +54,7 @@ contract OracleV1 is Initializable, UUPSUpgradeable, BaoOwnable {
 }
 
 // Complex Minter with multiple dependencies
-contract MinterV1 is Initializable, UUPSUpgradeable, BaoOwnable {
+contract MockMinter is Initializable, UUPSUpgradeable, BaoOwnable {
     address public collateralToken;
     address public outputToken;
     address public oracle;

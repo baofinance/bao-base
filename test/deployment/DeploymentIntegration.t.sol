@@ -6,7 +6,7 @@ import {TestDeployment} from "./TestDeployment.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-import {MockERC20} from "../mocks/tokens/MockERC20.sol";
+import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 
 contract OracleV1 is Initializable, UUPSUpgradeable {
     uint256 public price;
@@ -27,7 +27,7 @@ contract OracleV1 is Initializable, UUPSUpgradeable {
     }
 }
 
-contract MinterV1 is Initializable, UUPSUpgradeable {
+contract MockMinter is Initializable, UUPSUpgradeable {
     address public collateralToken;
     address public peggedToken;
     address public oracle;
@@ -80,8 +80,8 @@ contract IntegrationTestHarness is TestDeployment {
         address pegged = _get(peggedKey);
         address oracle = _get(oracleKey);
 
-        MinterV1 impl = new MinterV1();
-        bytes memory initData = abi.encodeCall(MinterV1.initialize, (collateral, pegged, oracle, admin));
+        MockMinter impl = new MockMinter();
+        bytes memory initData = abi.encodeCall(MockMinter.initialize, (collateral, pegged, oracle, admin));
         return deployProxy(key, address(impl), initData, string.concat(key, "-salt"));
     }
 
@@ -103,7 +103,7 @@ contract DeploymentIntegrationTest is Test {
     function setUp() public {
         admin = address(this);
         deployment = new IntegrationTestHarness();
-        deployment.startDeployment(admin, "test-network", "v1.0.0");
+        deployment.startDeployment(admin, "test-network", "v1.0.0", "integration-test-salt", address(0), "Stem_v1");
     }
 
     function test_DeployFullSystem() public {
@@ -132,7 +132,7 @@ contract DeploymentIntegrationTest is Test {
         assertEq(oracleContract.price(), 2000e18);
         assertEq(oracleContract.admin(), admin);
 
-        MinterV1 minterContract = MinterV1(minter);
+        MockMinter minterContract = MockMinter(minter);
         assertEq(minterContract.collateralToken(), collateral);
         assertEq(minterContract.peggedToken(), pegged);
         assertEq(minterContract.oracle(), oracle);
@@ -262,12 +262,12 @@ contract DeploymentIntegrationTest is Test {
         address minter1 = deployment.deployMinterProxy("minter1", "token1", "token2", "oracle", admin);
 
         // Now deploy minter2 that depends on minter1
-        MinterV1 minter2Impl = new MinterV1();
-        bytes memory initData = abi.encodeCall(MinterV1.initialize, (minter1, token2, oracle, admin));
+        MockMinter minter2Impl = new MockMinter();
+        bytes memory initData = abi.encodeCall(MockMinter.initialize, (minter1, token2, oracle, admin));
         address minter2 = deployment.deployProxy("minter2", address(minter2Impl), initData, "minter2-salt");
 
         // Verify dependency chain
-        MinterV1 m2 = MinterV1(minter2);
+        MockMinter m2 = MockMinter(minter2);
         assertEq(m2.collateralToken(), minter1);
         assertEq(m2.oracle(), oracle);
     }

@@ -51,6 +51,8 @@ abstract contract DeploymentRegistry {
         string network;
         string version;
         string systemSaltString;
+        address stemContract;
+        string stemContractType;
     }
 
     /// @notice Contract entry (direct deployment, mock, existing)
@@ -273,12 +275,22 @@ abstract contract DeploymentRegistry {
     /**
      * @notice Start a deployment session
      */
-    function startDeployment(address deployer, string memory network, string memory version) public {
+    function startDeployment(
+        address deployer,
+        string memory network,
+        string memory version,
+        string memory systemSaltString,
+        address stemContract,
+        string memory stemContractType
+    ) public {
         _metadata.deployer = deployer;
         _metadata.startedAt = block.timestamp;
         _metadata.startBlock = block.number;
         _metadata.network = network;
         _metadata.version = version;
+        _metadata.systemSaltString = systemSaltString;
+        _metadata.stemContract = stemContract;
+        _metadata.stemContractType = stemContractType;
     }
 
     /**

@@ -3,10 +3,10 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {TestDeployment} from "./TestDeployment.sol";
-import {MockERC20} from "../mocks/tokens/MockERC20.sol";
-import {OracleV1} from "../mocks/upgradeable/MockOracle.sol";
-import {MinterV1} from "../mocks/upgradeable/MockMinter.sol";
-import {MathLib} from "../mocks/TestLibraries.sol";
+import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
+import {OracleV1} from "@bao-test/mocks/upgradeable/MockOracle.sol";
+import {MockMinter} from "@bao-test/mocks/upgradeable/MockMinter.sol";
+import {MathLib} from "@bao-test/mocks/TestLibraries.sol";
 
 /**
  * @title WorkflowTestHarness
@@ -28,16 +28,18 @@ contract WorkflowTestHarness is TestDeployment {
         string memory key,
         string memory collateralKey,
         string memory peggedKey,
+        string memory leveragedKey,
         string memory oracleKey,
         address admin
     ) public returns (address) {
         address collateral = _get(collateralKey);
         address pegged = _get(peggedKey);
+        address leveraged = _get(leveragedKey);
         address oracle = _get(oracleKey);
 
-        MinterV1 impl = new MinterV1();
-        bytes memory initData = abi.encodeCall(MinterV1.initialize, (collateral, pegged, oracle, admin));
-        address proxy = deployProxy(key, address(impl), initData, string.concat(key, "-salt"));
+        MockMinter impl = new MockMinter(collateral, pegged, leveraged);
+        bytes memory initData = abi.encodeCall(MockMinter.initialize, (oracle, admin));
+        address proxy = deployProxy(key, address(impl), initData, key);
 
         // Note: Ownership transfer will be completed centrally via finalizeOwnership()
         return proxy;
@@ -59,8 +61,8 @@ contract DeploymentWorkflowTest is Test {
 
     function setUp() public {
         deployment = new WorkflowTestHarness();
-        admin = address(this);
-        deployment.startDeployment(admin, "workflow-test", "v2.0.0");
+        admin = makeAddr("admin");
+        deployment.startDeployment(admin, "workflow-test", "v2.0.0", "workflow-test-salt", address(0), "Stem_v1");
     }
 
     function test_SimpleWorkflow() public {
@@ -116,12 +118,13 @@ contract DeploymentWorkflowTest is Test {
         // Deploy tokens
         address usdc = deployment.deployMockERC20("USDC", "USD Coin", "USDC");
         address baoUSD = deployment.deployMockERC20("baoUSD", "Bao USD", "baoUSD");
+        address leveragedUSD = deployment.deployMockERC20("leveragedUSD", "Bao leveragedUSD", "leveragedUSD");
 
         // Deploy oracle
         address oracle = deployment.deployOracleProxy("PriceOracle", 1500e18, admin);
 
         // Deploy minter with dependencies
-        address minter = deployment.deployMinterProxy("Minter", "USDC", "baoUSD", "PriceOracle", admin);
+        address minter = deployment.deployMinterProxy("Minter", "USDC", "baoUSD", "leveragedUSD", "PriceOracle", admin);
 
         // Deploy library
         address mathLib = deployment.deployMathLibrary("MathLib");
@@ -146,9 +149,10 @@ contract DeploymentWorkflowTest is Test {
         assertTrue(mathLib != address(0), "MathLib should be deployed");
 
         // Verify minter dependencies
-        MinterV1 minterContract = MinterV1(minter);
-        assertEq(minterContract.collateralToken(), usdc, "Collateral should be USDC");
-        assertEq(minterContract.peggedToken(), baoUSD, "Pegged should be baoUSD");
+        MockMinter minterContract = MockMinter(minter);
+        assertEq(minterContract.WRAPPED_COLLATERAL_TOKEN(), usdc, "Collateral should be USDC");
+        assertEq(minterContract.PEGGED_TOKEN(), baoUSD, "Pegged should be peggedUSD");
+        assertEq(minterContract.LEVERAGED_TOKEN(), leveragedUSD, "Leveraged should be leveragedUSD");
         assertEq(minterContract.oracle(), oracle, "Oracle should be connected");
         assertEq(minterContract.owner(), admin, "Owner should be set");
 
@@ -171,12 +175,22 @@ contract DeploymentWorkflowTest is Test {
         address existingBaoUSD = address(0x9876543210987654321098765432109876543210);
         deployment.useExistingByString("baoUSD", existingBaoUSD);
 
+        address leveragedUSD = address(new MockERC20("leveragedUSD", "Bao leveragedUSD", 18));
+        deployment.useExistingByString("leveragedUSD", leveragedUSD);
+
         // Deploy new contracts that depend on existing ones
         address oracle = deployment.deployOracleProxy("PriceOracle", 1500e18, admin);
         assertTrue(oracle != address(0), "Oracle should be deployed");
 
         // Use existing contracts
-        address minter = deployment.deployMinterProxy("Minter", "ExistingUSDC", "baoUSD", "PriceOracle", admin);
+        address minter = deployment.deployMinterProxy(
+            "Minter",
+            "ExistingUSDC",
+            "baoUSD",
+            "leveragedUSD",
+            "PriceOracle",
+            admin
+        );
         assertTrue(minter != address(0), "Minter should be deployed");
 
         // Complete ownership transfer for all proxies
@@ -186,8 +200,10 @@ contract DeploymentWorkflowTest is Test {
         deployment.finishDeployment();
 
         // Verify existing contract integration
-        MinterV1 minterContract = MinterV1(minter);
-        assertEq(minterContract.collateralToken(), existingUSDC, "Should use existing USDC");
+        MockMinter minterContract = MockMinter(minter);
+        assertEq(minterContract.WRAPPED_COLLATERAL_TOKEN(), existingUSDC, "Should use existing USDC");
+        assertEq(minterContract.PEGGED_TOKEN(), existingBaoUSD, "Should use existing baoUSD");
+        assertEq(minterContract.LEVERAGED_TOKEN(), leveragedUSD, "Should use leveragedUSD");
     }
 
     function test_DeterministicProxyAddresses() public {

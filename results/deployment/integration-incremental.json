@@ -13,25 +13,25 @@
       "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
     },
     "minter": {
-      "address": "0x4B5d17E55E9b246F5474f65fF3204E87926e6f4B",
+      "address": "0x4dD78728e4d2dD1a2978A7758546Dd5Cd56Fb11d",
       "blockNumber": 1,
       "category": "UUPS proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "contractType": "ERC1967Proxy",
-      "deployedTo": "0x4B5d17E55E9b246F5474f65fF3204E87926e6f4B",
+      "deployedTo": "0x4dD78728e4d2dD1a2978A7758546Dd5Cd56Fb11d",
       "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496",
-      "salt": "0x1f153d93dbc67875179b3149a73c4a6809bbd686a1bc33e0a9761f393e4854ae",
+      "salt": "0x939828d6b22203ca3d1fc43215d1747ff0b306ace091ab983cccd5929736c042",
       "saltString": "minter-salt"
     },
     "oracle": {
-      "address": "0xA34433BA22c5A039777579a28F1715A04b56964A",
+      "address": "0x316C3eBc818fd0297a04DD890ac39f1BD328873C",
       "blockNumber": 1,
       "category": "UUPS proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "contractType": "ERC1967Proxy",
-      "deployedTo": "0xA34433BA22c5A039777579a28F1715A04b56964A",
+      "deployedTo": "0x316C3eBc818fd0297a04DD890ac39f1BD328873C",
       "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496",
-      "salt": "0x590d2da928f6002f9ace4c8eab05d3c18b04b9b121152158650b5b6f94755397",
+      "salt": "0x43d2ddd444b3b2e90a237911a7dd1ba3cdec09e8398c13a578fe2bc1ce2d3325",
       "saltString": "oracle-salt"
     },
     "pegged": {
@@ -48,6 +48,9 @@
     "network": "test-network",
     "startBlock": 1,
     "startedAt": 1,
+    "stemContract": "0x0000000000000000000000000000000000000000",
+    "stemContractType": "Stem_v1",
     "version": "v1.0.0"
-  }
+  },
+  "saltString": "integration-test-salt"
 }

@@ -30,7 +30,7 @@ contract DeploymentProxyTest is Test {
 
     function setUp() public {
         deployment = new ProxyTestHarness();
-        deployment.startDeployment(address(this), "test", "v1.0.0");
+        deployment.startDeployment(address(this), "test", "v1.0.0", "proxy-test-salt", address(0), "Stem_v1");
     }
 
     function test_DeployProxy() public {

@@ -63,7 +63,7 @@ contract DeploymentJsonTest is Test {
 
     function setUp() public {
         deployment = new JsonTestHarness();
-        deployment.startDeployment(address(this), "test-network", "v1.0.0");
+        deployment.startDeployment(address(this), "test-network", "v1.0.0", "json-test-salt", address(0), "Stem_v1");
     }
 
     function test_SaveEmptyDeployment() public {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {MockERC20} from "../tokens/MockERC20.sol";
+import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 
 /**
  * @title MockOracle

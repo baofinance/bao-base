@@ -38,15 +38,21 @@ abstract contract Deployment is DeploymentJson {
     error UnexpectedProxyOwner(address proxy, address owner);
 
     address private _stem;
-    string private _systemSaltString;
 
-    constructor(string memory systemSaltString) {
+    constructor() {
         _stem = address(new Stem_v1(address(this), 0));
-        _systemSaltString = systemSaltString;
     }
 
     function makeSalt(string memory saltString) internal view returns (bytes32) {
-        return EfficientHashLib.hash(abi.encodePacked(_systemSaltString, saltString));
+        return EfficientHashLib.hash(abi.encodePacked(_metadata.systemSaltString, saltString));
+    }
+
+    /**
+     * @notice Get the system salt string used for deterministic deployments
+     * @return The system salt string
+     */
+    function getSystemSaltString() public view returns (string memory) {
+        return _metadata.systemSaltString;
     }
 
     // ============================================================================
