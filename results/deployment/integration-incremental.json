@@ -13,24 +13,24 @@
       "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
     },
     "minter": {
-      "address": "0x03C7adE63bF169beE426e4F1EA28De0FC6346F31",
+      "address": "0x7ac6Da408B0c34af91380005825CEBb5819886AA",
       "blockNumber": 1,
       "category": "UUPS proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "contractType": "ERC1967Proxy",
-      "deployedTo": "0x03C7adE63bF169beE426e4F1EA28De0FC6346F31",
+      "deployedTo": "0x7ac6Da408B0c34af91380005825CEBb5819886AA",
       "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496",
       "proxyType": "UUPS",
       "salt": "0x8e57245ae9b3fc022e5fef5cabb437cbb36c14e3cd6a719bf51e2a14cc6eb574",
       "saltString": "minter"
     },
     "oracle": {
-      "address": "0x0fC3D3A353D5C1b49fD53e882E3C5aeC71E64964",
+      "address": "0x8117bb39A43e80848aEDCc4fDB68d07c33fd4bEa",
       "blockNumber": 1,
       "category": "UUPS proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "contractType": "ERC1967Proxy",
-      "deployedTo": "0x0fC3D3A353D5C1b49fD53e882E3C5aeC71E64964",
+      "deployedTo": "0x8117bb39A43e80848aEDCc4fDB68d07c33fd4bEa",
       "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496",
       "proxyType": "",
       "salt": "0x42bfca9ae58d28d192a69289e394df2395b9438b9fc7f5a8fdf6f07330d65c04",
