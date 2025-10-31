@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {TestDeployment} from "./TestDeployment.sol";
+import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
@@ -98,11 +99,13 @@ contract IntegrationTestHarness is TestDeployment {
 contract DeploymentIntegrationTest is Test {
     IntegrationTestHarness public deployment;
     address public admin;
+    UUPSProxyDeployStub internal stub;
     string constant TEST_OUTPUT_DIR = "results/deployment";
 
     function setUp() public {
         admin = address(this);
         deployment = new IntegrationTestHarness();
+        stub = UUPSProxyDeployStub(deployment.getDeployStub());
         deployment.startDeployment(admin, "test-network", "v1.0.0", "integration-test-salt");
     }
 
@@ -154,9 +157,10 @@ contract DeploymentIntegrationTest is Test {
         deployment.finishDeployment();
         deployment.saveToJson(path);
 
-        // Load into new deployment
-        IntegrationTestHarness newDeployment = new IntegrationTestHarness();
-        newDeployment.loadFromJson(path);
+    // Load into new deployment
+    IntegrationTestHarness newDeployment = new IntegrationTestHarness();
+    stub.setDeployer(address(newDeployment));
+    newDeployment.loadFromJson(path);
 
         // Verify all loaded correctly
         assertTrue(newDeployment.hasByString("collateral"));
@@ -209,20 +213,25 @@ contract DeploymentIntegrationTest is Test {
         deployment.saveToJson(path);
 
         // Phase 2: Load and add oracle
-        IntegrationTestHarness phase2 = new IntegrationTestHarness();
-        phase2.loadFromJson(path);
+    IntegrationTestHarness phase2 = new IntegrationTestHarness();
+    stub.setDeployer(address(phase2));
+    phase2.loadFromJson(path);
+    phase2.resumeDeployment(admin);
         phase2.deployOracleProxy("oracle", 2000e18, admin);
         phase2.saveToJson(path);
 
         // Phase 3: Load and add minter
-        IntegrationTestHarness phase3 = new IntegrationTestHarness();
-        phase3.loadFromJson(path);
+    IntegrationTestHarness phase3 = new IntegrationTestHarness();
+    stub.setDeployer(address(phase3));
+    phase3.loadFromJson(path);
+    phase3.resumeDeployment(admin);
         phase3.deployMinterProxy("minter", "collateral", "pegged", "oracle", admin);
         phase3.saveToJson(path);
 
         // Verify final state
-        IntegrationTestHarness finalDeployment = new IntegrationTestHarness();
-        finalDeployment.loadFromJson(path);
+    IntegrationTestHarness finalDeployment = new IntegrationTestHarness();
+    stub.setDeployer(address(finalDeployment));
+    finalDeployment.loadFromJson(path);
 
         assertTrue(finalDeployment.hasByString("collateral"));
         assertTrue(finalDeployment.hasByString("pegged"));

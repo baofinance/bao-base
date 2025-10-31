@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {TestDeployment} from "./TestDeployment.sol";
+import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {MathLib, StringLib} from "../mocks/TestLibraries.sol";
@@ -26,9 +27,11 @@ contract LibraryTestHarness is TestDeployment {
  */
 contract DeploymentLibraryTest is Test {
     LibraryTestHarness public deployment;
+    UUPSProxyDeployStub internal stub;
 
     function setUp() public {
         deployment = new LibraryTestHarness();
+        stub = UUPSProxyDeployStub(deployment.getDeployStub());
         deployment.startDeployment(address(this), "test", "v1.0.0", "library-test-salt");
     }
 
@@ -92,6 +95,7 @@ contract DeploymentLibraryTest is Test {
 
         // Verify round-trip
         LibraryTestHarness newDeployment = new LibraryTestHarness();
+        stub.setDeployer(address(newDeployment));
         newDeployment.fromJson(json);
 
         assertEq(newDeployment.getByString("mathLib"), libAddr, "Address should match after JSON round-trip");

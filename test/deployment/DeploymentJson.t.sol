@@ -7,6 +7,8 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
+import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 // Mock contracts for JSON testing
 contract SimpleContract {
@@ -59,10 +61,12 @@ contract JsonTestHarness is TestDeployment {
  */
 contract DeploymentJsonTest is Test {
     JsonTestHarness public deployment;
+    UUPSProxyDeployStub internal stub;
     string constant TEST_OUTPUT_DIR = "results/deployment";
 
     function setUp() public {
         deployment = new JsonTestHarness();
+        stub = UUPSProxyDeployStub(deployment.getDeployStub());
         deployment.startDeployment(address(this), "test-network", "v1.0.0", "json-test-salt");
     }
 
@@ -177,6 +181,7 @@ contract DeploymentJsonTest is Test {
 
         // Create new deployment and load
         JsonTestHarness newDeployment = new JsonTestHarness();
+        stub.setDeployer(address(newDeployment));
         newDeployment.loadFromJson(path);
 
         // Verify all contracts are loaded
@@ -202,7 +207,9 @@ contract DeploymentJsonTest is Test {
 
         // Load and continue
         JsonTestHarness newDeployment = new JsonTestHarness();
+        stub.setDeployer(address(newDeployment));
         newDeployment.loadFromJson(path);
+        newDeployment.resumeDeployment(address(this));
 
         // Verify loaded contract exists
         assertTrue(newDeployment.hasByString("contract1"));
@@ -248,5 +255,11 @@ contract DeploymentJsonTest is Test {
 
         assertEq(savedStartTime, startTime);
         assertEq(savedFinishTime, startTime + 100);
+    }
+
+    function test_RevertWhen_ResumeWithoutJson() public {
+        JsonTestHarness fresh = new JsonTestHarness();
+        vm.expectRevert(DeploymentRegistry.DeploymentResumeUnavailable.selector);
+        fresh.resumeDeployment(address(this));
     }
 }

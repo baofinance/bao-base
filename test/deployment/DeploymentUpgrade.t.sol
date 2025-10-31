@@ -6,7 +6,8 @@ import {TestDeployment} from "./TestDeployment.sol";
 import {OracleV1} from "../mocks/upgradeable/MockOracle.sol";
 
 import {CounterV1} from "../mocks/upgradeable/MockCounter.sol";
-import {IStemUUPS} from "@bao-script/deployment/Deployment.sol";
+import {IUUPSUpgradeableProxy} from "@bao-script/deployment/Deployment.sol";
+import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 // Upgraded version of Oracle for testing
 contract OracleV2 is OracleV1 {
@@ -57,12 +58,12 @@ contract UpgradeTestHarness is TestDeployment {
 
     function upgradeOracle(string memory key, address newImplementation) public {
         address proxy = _get(key);
-        IStemUUPS(proxy).upgradeTo(newImplementation);
+        IUUPSUpgradeableProxy(proxy).upgradeTo(newImplementation);
     }
 
     function upgradeCounter(string memory key, address newImplementation) public {
         address proxy = _get(key);
-        IStemUUPS(proxy).upgradeTo(newImplementation);
+        IUUPSUpgradeableProxy(proxy).upgradeTo(newImplementation);
     }
 }
 
@@ -73,10 +74,12 @@ contract UpgradeTestHarness is TestDeployment {
 contract DeploymentUpgradeTest is Test {
     UpgradeTestHarness public deployment;
     address public admin;
+    UUPSProxyDeployStub internal stub;
 
     function setUp() public {
         deployment = new UpgradeTestHarness();
         admin = address(this);
+        stub = UUPSProxyDeployStub(deployment.getDeployStub());
         deployment.startDeployment(admin, "upgrade-test", "v1.0.0", "upgrade-test-salt");
     }
 
@@ -97,7 +100,7 @@ contract DeploymentUpgradeTest is Test {
         OracleV2 newImpl = new OracleV2();
 
         // Upgrade proxy (called from owner - this contract)
-        IStemUUPS(oracle).upgradeTo(address(newImpl));
+        IUUPSUpgradeableProxy(oracle).upgradeTo(address(newImpl));
 
         // Verify upgrade worked
         OracleV2 oracleV2 = OracleV2(oracle);
@@ -126,10 +129,10 @@ contract DeploymentUpgradeTest is Test {
         CounterV2 newCounterImpl = new CounterV2();
 
         // Upgrade Oracle1 (called from owner - this contract)
-        IStemUUPS(oracle1).upgradeTo(address(newOracleImpl));
+        IUUPSUpgradeableProxy(oracle1).upgradeTo(address(newOracleImpl));
 
         // Upgrade Counter (called from owner - this contract)
-        IStemUUPS(counter).upgradeTo(address(newCounterImpl));
+        IUUPSUpgradeableProxy(counter).upgradeTo(address(newCounterImpl));
 
         // Verify Oracle1 upgrade
         OracleV2 oracle1V2 = OracleV2(oracle1);
@@ -167,7 +170,7 @@ contract DeploymentUpgradeTest is Test {
 
         // Deploy and upgrade to V2 (called from owner - this contract)
         CounterV2 newImpl = new CounterV2();
-        IStemUUPS(counter).upgradeTo(address(newImpl));
+        IUUPSUpgradeableProxy(counter).upgradeTo(address(newImpl));
 
         // Verify state persisted
         CounterV2 counterV2 = CounterV2(counter);
@@ -198,11 +201,11 @@ contract DeploymentUpgradeTest is Test {
         address unauthorized = address(0xBEEF);
         vm.prank(unauthorized);
         vm.expectRevert(abi.encodeWithSignature("Unauthorized()"));
-        IStemUUPS(oracle).upgradeTo(address(newImpl));
+        IUUPSUpgradeableProxy(oracle).upgradeTo(address(newImpl));
 
         // Verify upgrade from authorized account works
         vm.prank(admin);
-        IStemUUPS(oracle).upgradeTo(address(newImpl));
+        IUUPSUpgradeableProxy(oracle).upgradeTo(address(newImpl));
 
         OracleV2 oracleV2 = OracleV2(oracle);
         assertEq(oracleV2.getVersion(), 2, "Should be upgraded");
@@ -221,7 +224,7 @@ contract DeploymentUpgradeTest is Test {
 
         // Upgrade with call to set new price
         bytes memory upgradeCall = abi.encodeCall(OracleV2.setPrice, (3000e18));
-        IStemUUPS(oracle).upgradeToAndCall(address(newImpl), upgradeCall);
+        IUUPSUpgradeableProxy(oracle).upgradeToAndCall(address(newImpl), upgradeCall);
 
         // Verify upgrade and call execution
         OracleV2 oracleV2 = OracleV2(oracle);
@@ -247,7 +250,7 @@ contract DeploymentUpgradeTest is Test {
 
         // Upgrade proxy (called from owner - this contract)
         address oracle = deployment.getByString("Oracle");
-        IStemUUPS(oracle).upgradeTo(address(newImpl));
+        IUUPSUpgradeableProxy(oracle).upgradeTo(address(newImpl));
 
         // Verify deployment tracking persists
         assertEq(deployment.getEntryType("Oracle"), "proxy", "Should still be tracked as proxy");
@@ -268,7 +271,7 @@ contract DeploymentUpgradeTest is Test {
         assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
 
         OracleV2 newImpl = new OracleV2();
-        IStemUUPS(oracle).upgradeTo(address(newImpl));
+        IUUPSUpgradeableProxy(oracle).upgradeTo(address(newImpl));
 
         deployment.finishDeployment();
 
@@ -278,6 +281,7 @@ contract DeploymentUpgradeTest is Test {
 
         // Test JSON round-trip
         UpgradeTestHarness newDeployment = new UpgradeTestHarness();
+        stub.setDeployer(address(newDeployment));
         newDeployment.fromJson(json);
 
         address restoredOracle = newDeployment.getByString("Oracle");

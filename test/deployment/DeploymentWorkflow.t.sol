@@ -7,6 +7,7 @@ import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {OracleV1} from "@bao-test/mocks/upgradeable/MockOracle.sol";
 import {MockMinter} from "@bao-test/mocks/upgradeable/MockMinter.sol";
 import {MathLib} from "@bao-test/mocks/TestLibraries.sol";
+import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 /**
  * @title WorkflowTestHarness
@@ -58,10 +59,12 @@ contract WorkflowTestHarness is TestDeployment {
 contract DeploymentWorkflowTest is Test {
     WorkflowTestHarness public deployment;
     address public admin;
+    UUPSProxyDeployStub internal stub;
 
     function setUp() public {
         deployment = new WorkflowTestHarness();
         admin = makeAddr("admin");
+        stub = UUPSProxyDeployStub(deployment.getDeployStub());
         deployment.startDeployment(admin, "workflow-test", "v2.0.0", "workflow-test-salt");
     }
 
@@ -247,6 +250,7 @@ contract DeploymentWorkflowTest is Test {
 
         // Test loading from JSON
         WorkflowTestHarness newDeployment = new WorkflowTestHarness();
+        stub.setDeployer(address(newDeployment));
         newDeployment.fromJson(json);
 
         // Verify loaded data

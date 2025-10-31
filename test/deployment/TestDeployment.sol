@@ -2,6 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 /**
  * @title TestDeployment
@@ -12,6 +13,25 @@ import {Deployment} from "@bao-script/deployment/Deployment.sol";
  *      Includes DeploymentJson mixin for Foundry-specific JSON operations.
  */
 contract TestDeployment is Deployment {
+    constructor() {
+        UUPSProxyDeployStub stub = new UUPSProxyDeployStub(msg.sender);
+        _configureDeployStub(address(stub), "UUPSProxyDeployStub");
+    }
+
+    function finalizeOwnership(address newOwner) public returns (uint256) {
+        return _finalizeOwnership(newOwner);
+    }
+
+    function configureDeployStub(address stubAddress, string memory stubImplementation) public {
+        _configureDeployStub(stubAddress, stubImplementation);
+    }
+
+    function deployTestStub(address owner) public returns (address) {
+        UUPSProxyDeployStub stub = new UUPSProxyDeployStub(owner);
+        _configureDeployStub(address(stub), "UUPSProxyDeployStub");
+        return address(stub);
+    }
+
     // ============================================================================
     // Contract Access Wrappers
     // ============================================================================

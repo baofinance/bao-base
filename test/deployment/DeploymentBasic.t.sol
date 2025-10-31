@@ -153,4 +153,26 @@ contract DeploymentBasicTest is Test {
         assertTrue(deployment.hasByString("stETH"), "Should have stETH registered");
         assertEq(deployment.getByString("stETH"), existingContract, "Address should be accessible");
     }
+
+    function test_RevertWhen_StartDeploymentTwice() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                DeploymentRegistry.DeploymentLifecycleInvalid.selector,
+                uint8(DeploymentRegistry.Lifecycle.Uninitialized),
+                uint8(DeploymentRegistry.Lifecycle.Active)
+            )
+        );
+        deployment.startDeployment(address(this), "test", "v1.0.0", "test-system-salt");
+    }
+
+    function test_RevertWhen_ActionWithoutLifecycle() public {
+        DeploymentHarness fresh = new DeploymentHarness();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                DeploymentRegistry.DeploymentLifecycleNotActive.selector,
+                uint8(DeploymentRegistry.Lifecycle.Uninitialized)
+            )
+        );
+        fresh.deployMockContract("mock", "Mock Contract");
+    }
 }

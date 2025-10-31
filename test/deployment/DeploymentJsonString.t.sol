@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {TestDeployment} from "./TestDeployment.sol";
+import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 /**
  * @title DeploymentJsonStringTest
@@ -11,9 +12,11 @@ import {TestDeployment} from "./TestDeployment.sol";
  */
 contract DeploymentJsonStringTest is Test {
     TestDeployment public deployment;
+    UUPSProxyDeployStub internal stub;
 
     function setUp() public {
         deployment = new TestDeployment();
+        stub = UUPSProxyDeployStub(deployment.getDeployStub());
         deployment.startDeployment(address(this), "localhost", "1.0.0", "jsonstring-test-salt");
     }
 
@@ -46,6 +49,7 @@ contract DeploymentJsonStringTest is Test {
 
         // Create new deployment and load from string
         TestDeployment newDeployment = new TestDeployment();
+        stub.setDeployer(address(newDeployment));
         newDeployment.fromJson(json);
 
         // Verify loaded data
@@ -74,6 +78,7 @@ contract DeploymentJsonStringTest is Test {
 
         // Deserialize to new instance
         TestDeployment restored = new TestDeployment();
+        stub.setDeployer(address(restored));
         restored.fromJson(json);
 
         // Verify all contracts
@@ -115,6 +120,7 @@ contract DeploymentJsonStringTest is Test {
         string memory json = deployment.toJson();
 
         TestDeployment loaded = new TestDeployment();
+        stub.setDeployer(address(loaded));
         loaded.fromJson(json);
 
         assertEq(loaded.keys().length, 3, "Should have 3 contracts");
@@ -134,6 +140,7 @@ contract DeploymentJsonStringTest is Test {
         string memory json = deployment.toJson();
 
         TestDeployment loaded = new TestDeployment();
+        stub.setDeployer(address(loaded));
         loaded.fromJson(json);
 
         assertEq(loaded.keys().length, 3, "Should have 3 parameters");
@@ -155,6 +162,7 @@ contract DeploymentJsonStringTest is Test {
 
         // Load from file
         TestDeployment loaded = new TestDeployment();
+        stub.setDeployer(address(loaded));
         loaded.loadFromJson(path);
 
         assertEq(loaded.getByString("Token"), address(0x5555));
@@ -177,6 +185,7 @@ contract DeploymentJsonStringTest is Test {
 
         // Load using original method
         TestDeployment loaded = new TestDeployment();
+        stub.setDeployer(address(loaded));
         loaded.loadFromJson(path);
 
         assertEq(loaded.getByString("LoadTest"), address(0x9999));

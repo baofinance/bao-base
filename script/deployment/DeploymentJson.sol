@@ -69,8 +69,8 @@ abstract contract DeploymentJson is DeploymentRegistry {
         metadataJson = VM.serializeUint("metadata", "startBlock", _metadata.startBlock);
         metadataJson = VM.serializeString("metadata", "network", _metadata.network);
         metadataJson = VM.serializeString("metadata", "version", _metadata.version);
-        metadataJson = VM.serializeAddress("metadata", "stemContract", _metadata.stemContract);
-        metadataJson = VM.serializeString("metadata", "stemContractType", _metadata.stemContractType);
+    metadataJson = VM.serializeAddress("metadata", "stubAddress", _metadata.stubAddress);
+    metadataJson = VM.serializeString("metadata", "stubImplementation", _metadata.stubImplementation);
 
         string memory deployerJson = VM.serializeAddress("deployer", "address", _metadata.deployer);
 
@@ -100,6 +100,9 @@ abstract contract DeploymentJson is DeploymentRegistry {
      * @param json JSON string to parse
      */
     function fromJson(string memory json) public virtual {
+        if (_lifecycle != Lifecycle.Uninitialized) {
+            revert DeploymentLifecycleInvalid(uint8(Lifecycle.Uninitialized), uint8(_lifecycle));
+        }
         // Parse metadata
         _deserializeMetadata(json);
 
@@ -281,15 +284,15 @@ abstract contract DeploymentJson is DeploymentRegistry {
             _metadata.systemSaltString = VM.parseJsonString(json, saltStringPath);
         }
 
-        // Handle stem contract information
-        string memory stemContractPath = ".metadata.stemContract";
-        if (VM.keyExistsJson(json, stemContractPath)) {
-            _metadata.stemContract = VM.parseJsonAddress(json, stemContractPath);
+    // Handle stub information
+        string memory stubAddressPath = ".metadata.stubAddress";
+        if (VM.keyExistsJson(json, stubAddressPath)) {
+            _metadata.stubAddress = VM.parseJsonAddress(json, stubAddressPath);
         }
 
-        string memory stemContractTypePath = ".metadata.stemContractType";
-        if (VM.keyExistsJson(json, stemContractTypePath)) {
-            _metadata.stemContractType = VM.parseJsonString(json, stemContractTypePath);
+        string memory stubImplementationPath = ".metadata.stubImplementation";
+        if (VM.keyExistsJson(json, stubImplementationPath)) {
+            _metadata.stubImplementation = VM.parseJsonString(json, stubImplementationPath);
         }
 
         string memory finishedPath = ".metadata.finishedAt";

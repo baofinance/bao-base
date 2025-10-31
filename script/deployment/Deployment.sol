@@ -4,13 +4,12 @@ pragma solidity >=0.8.28 <0.9.0;
 import {CREATE3} from "@solady/utils/CREATE3.sol";
 import {EfficientHashLib} from "@solady/utils/EfficientHashLib.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
-import {Stem_v1} from "@bao/Stem_v1.sol";
+import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
 
-interface IStemUUPS {
+interface IUUPSUpgradeableProxy {
     function upgradeTo(address newImplementation) external;
     function upgradeToAndCall(address newImplementation, bytes memory data) external;
 }
@@ -19,7 +18,7 @@ interface IStemUUPS {
  * @title Deployment
  * @notice Deployment operations layer built on top of DeploymentRegistry
  * @dev Responsibilities:
- *      - Deterministic proxy deployment via CREATE3, and using Stem_v1 as initial implementation
+ *      - Deterministic proxy deployment via CREATE3, using a shared UUPS stub
  *      - Library deployment via CREATE
  *      - Existing contract registration helpers
  *      - Thin wrappers around registry storage helpers
@@ -37,113 +36,173 @@ abstract contract Deployment is DeploymentJson {
     error OwnerQueryFailed(address proxy);
     error UnexpectedProxyOwner(address proxy, address owner);
 
-    address private _stem;
+    address private _stub;
 
-    constructor() {
-        _stem = address(new Stem_v1(address(this), 0));
+    // ============================================================================
+    // Bootstrap / Stub configuration
+    // ============================================================================
+
+    /**
+     * @dev Ensure the stored stub is configured and the current contract is the deployer.
+     */
+    function _syncStubFromMetadata() internal {
+        address stubAddress = _metadata.stubAddress;
+        if (stubAddress == address(0)) {
+            revert InvalidStub(stubAddress);
+        }
+
+        address deployerAddress = _queryStubDeployer(stubAddress);
+        if (deployerAddress != address(this)) {
+            revert InvalidStubDeployer(stubAddress, deployerAddress);
+        }
+
+        _stub = stubAddress;
+        if (bytes(_metadata.stubImplementation).length == 0) {
+            _metadata.stubImplementation = "UUPSProxyDeployStub";
+        }
+    }
+
+    function _queryStubDeployer(address stubAddress) private view returns (address deployer) {
+        try UUPSProxyDeployStub(stubAddress).deployer() returns (address value) {
+            deployer = value;
+        } catch {
+            revert InvalidStub(stubAddress);
+        }
     }
 
     /**
-     * @notice Generate deterministic salt from registry key
-     * @param key The registry key for the deployment
-     * @return The deterministic salt for CREATE3
+     * @dev Configure the stub for the current session.
      */
+    function _configureDeployStub(address stubAddress, string memory stubImplementation) internal {
+        if (stubAddress == address(0)) {
+            revert InvalidStub(stubAddress);
+        }
+
+        address deployerAddress = _queryStubDeployer(stubAddress);
+        if (deployerAddress != address(this)) {
+            revert InvalidStubDeployer(stubAddress, deployerAddress);
+        }
+
+        _stub = stubAddress;
+        _metadata.stubAddress = stubAddress;
+
+        if (bytes(stubImplementation).length == 0) {
+            _metadata.stubImplementation = "UUPSProxyDeployStub";
+        } else {
+            _metadata.stubImplementation = stubImplementation;
+        }
+    }
+
+    // ============================================================================
+    // Exposed views
+    // ============================================================================
+
     function makeSalt(string memory key) internal view returns (bytes32) {
         return EfficientHashLib.hash(abi.encodePacked(_metadata.systemSaltString, key, "UUPS"));
     }
 
-    /**
-     * @notice Get the system salt string used for deterministic deployments
-     * @return The system salt string
-     */
     function getSystemSaltString() public view returns (string memory) {
         return _metadata.systemSaltString;
     }
 
-    /**
-     * @notice Get the stem contract address used for proxy deployments
-     * @return The stem contract address
-     */
-    function getStemContract() public view returns (address) {
-        return _stem;
+    function getDeployStub() public view returns (address) {
+        return _stub;
     }
 
-    /**
-     * @notice Start a deployment session (overrides parent to set stem contract)
-     */
+    // ============================================================================
+    // Lifecycle overrides
+    // ============================================================================
+
     function startDeployment(
         address deployer,
         string memory network,
         string memory version,
         string memory systemSaltString
     ) public override {
+        if (_stub == address(0)) {
+            revert InvalidStub(_stub);
+        }
+
+        string memory stubImplementation = _metadata.stubImplementation;
+
         super.startDeployment(deployer, network, version, systemSaltString);
-        _metadata.stemContract = _stem;
+
+        _metadata.stubAddress = _stub;
+        if (bytes(stubImplementation).length == 0) {
+            stubImplementation = "UUPSProxyDeployStub";
+        }
+        _metadata.stubImplementation = stubImplementation;
     }
 
-    /**
-     * @notice Load deployment state from JSON and align the stem reference
-     * @dev Ensures CREATE3 deployments reuse the original stem implementation.
-     */
+    function resumeDeployment(address deployer) public virtual override {
+        super.resumeDeployment(deployer);
+        _syncStubFromMetadata();
+    }
+
     function fromJson(string memory json) public virtual override {
         super.fromJson(json);
-
-        if (_metadata.stemContract != address(0)) {
-            _stem = _metadata.stemContract;
-        } else if (_stem == address(0)) {
-            _stem = address(new Stem_v1(address(this), 0));
-            _metadata.stemContract = _stem;
-        }
+        _syncStubFromMetadata();
     }
 
     // ============================================================================
-    // Proxy Deployment
+    // Proxy Deployment / Upgrades
     // ============================================================================
 
-    /**
-     * @notice Deploy a deterministic UUPS proxy using CREATE3
-     * @param key Registry key to register the deployed proxy under
-     * @param implementation Address of the implementation contract
-     * @param initData Calldata executed against implementation during proxy construction
-     * @return proxy Address of the deployed proxy
-     */
     function deployProxy(
         string memory key,
         address implementation,
         bytes memory initData
     ) public virtual returns (address proxy) {
+        _requireActive();
         if (_exists[key]) {
             revert ContractAlreadyExists(key);
         }
         if (implementation == address(0)) revert ImplementationRequired();
         if (bytes(key).length == 0) revert SaltRequired();
 
-        string memory proxyType = "UUPS";
-        bytes memory creationCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(_stem, ""));
+        if (_stub == address(0)) {
+            revert InvalidStub(_stub);
+        }
+
+        bytes memory creationCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(_stub, ""));
 
         bytes32 salt = makeSalt(key);
         proxy = CREATE3.deployDeterministic(creationCode, salt);
 
-        _registerProxy(key, proxy, "", salt, key, proxyType);
+        _registerProxy(key, proxy, "", salt, key, "UUPS");
 
-        // Upgrade Stem → actual implementation with initialization
-        // Note: This external call happens AFTER state changes to prevent reentrancy
         if (initData.length == 0) {
-            IStemUUPS(proxy).upgradeTo(implementation);
+            IUUPSUpgradeableProxy(proxy).upgradeTo(implementation);
         } else {
-            IStemUUPS(proxy).upgradeToAndCall(implementation, initData);
+            IUUPSUpgradeableProxy(proxy).upgradeToAndCall(implementation, initData);
         }
 
         emit ContractDeployed(key, proxy, "UUPS proxy");
-
         return proxy;
     }
 
-    /**
-     * @notice Predict the proxy address for a given key
-     * @param key Registry key for the deployment
-     * @return Predicted address for the deployment
-     */
+    function upgradeProxy(
+        string memory key,
+        address newImplementation,
+        bytes memory initData
+    ) public virtual returns (address proxy) {
+        _requireActive();
+        if (!_exists[key] || !_eq(_entryType[key], "proxy")) {
+            revert ContractNotFound(key);
+        }
+        if (newImplementation == address(0)) revert ImplementationRequired();
+
+        proxy = _proxies[key].info.addr;
+
+        if (initData.length == 0) {
+            IUUPSUpgradeableProxy(proxy).upgradeTo(newImplementation);
+        } else {
+            IUUPSUpgradeableProxy(proxy).upgradeToAndCall(newImplementation, initData);
+        }
+
+        emit ContractUpdated(key, proxy, proxy);
+    }
+
     function predictProxyAddress(string memory key) public view returns (address) {
         if (bytes(key).length == 0) revert SaltRequired();
         return CREATE3.predictDeterministicAddress(makeSalt(key), address(this));
@@ -153,13 +212,8 @@ abstract contract Deployment is DeploymentJson {
     // Registration Helpers
     // ============================================================================
 
-    /**
-     * @notice Register an existing deployment under a key
-     * @param key Registry key
-     * @param addr Existing contract address (must be non-zero)
-     * @return Address that was registered (for chaining)
-     */
     function useExisting(string memory key, address addr) public virtual returns (address) {
+        _requireActive();
         return _registerContractEntry(key, addr, "ExistingContract", "", "existing");
     }
 
@@ -200,29 +254,17 @@ abstract contract Deployment is DeploymentJson {
         return addr;
     }
 
-    // ============================================================================
-    // Library Deployment
-    // ============================================================================
-
-    /**
-     * @notice Deploy a library via CREATE (non-deterministic)
-     * @param key Registry key
-     * @param bytecode Raw creation bytecode for the library
-     * @param contractType Logical type metadata
-     * @param contractPath Source path metadata
-     * @return Address of deployed library
-     */
     function _deployLibrary(
         string memory key,
         bytes memory bytecode,
         string memory contractType,
         string memory contractPath
     ) internal returns (address) {
+        _requireActive();
         if (_exists[key]) {
             revert LibraryAlreadyExists(key);
         }
         address addr;
-        // solhint-disable-next-line no-inline-assembly
         assembly {
             addr := create(0, add(bytecode, 0x20), mload(bytecode))
         }
@@ -237,12 +279,8 @@ abstract contract Deployment is DeploymentJson {
     // Ownership Finalization
     // =========================================================================
 
-    /**
-     * @notice Finalize ownership for all Stem proxies controlled by this deployment
-     * @param newOwner Address that should receive ownership
-     * @return transferred Number of proxies that transferred ownership
-     */
-    function finalizeOwnership(address newOwner) public returns (uint256 transferred) {
+    function _finalizeOwnership(address newOwner) internal returns (uint256 transferred) {
+        _requireActive();
         if (newOwner == address(0)) {
             revert InvalidAddress("finalizeOwnership");
         }
@@ -255,11 +293,26 @@ abstract contract Deployment is DeploymentJson {
 
             if (_eq(_entryType[key], "proxy")) {
                 address proxy = _proxies[key].info.addr;
+                address currentOwner;
+                try IBaoOwnable(proxy).owner() returns (address owner) {
+                    currentOwner = owner;
+                } catch {
+                    revert OwnerQueryFailed(proxy);
+                }
 
-                IBaoOwnable(proxy).transferOwnership(newOwner);
-                ++transferred;
+                if (currentOwner != address(this)) {
+                    revert UnexpectedProxyOwner(proxy, currentOwner);
+                }
+
+                try IBaoOwnable(proxy).transferOwnership(newOwner) {
+                    ++transferred;
+                } catch {
+                    revert OwnershipTransferFailed(proxy);
+                }
             }
         }
+
+        return transferred;
     }
 
     // ============================================================================

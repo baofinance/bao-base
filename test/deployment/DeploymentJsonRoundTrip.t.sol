@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Test} from "forge-std/Test.sol";
 import {TestDeployment} from "./TestDeployment.sol";
 import {MockUpgradeableContract} from "../mocks/upgradeable/MockGeneric.sol";
+import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 // Simple library for testing
 library TestMathLib {
@@ -36,9 +37,11 @@ contract RoundTripTestHarness is TestDeployment {
  */
 contract DeploymentJsonRoundTripTest is Test {
     RoundTripTestHarness public deployment;
+    UUPSProxyDeployStub internal stub;
 
     function setUp() public {
         deployment = new RoundTripTestHarness();
+        stub = UUPSProxyDeployStub(deployment.getDeployStub());
         deployment.startDeployment(address(this), "test-network", "v2.1.0", "roundtrip-test-salt");
     }
 
@@ -63,6 +66,7 @@ contract DeploymentJsonRoundTripTest is Test {
 
         // Create new deployment and deserialize
         RoundTripTestHarness restored = new RoundTripTestHarness();
+        stub.setDeployer(address(restored));
         restored.fromJson(json);
 
         // Verify all contracts are preserved
@@ -92,6 +96,7 @@ contract DeploymentJsonRoundTripTest is Test {
         string memory json = deployment.toJson();
 
         RoundTripTestHarness restored = new RoundTripTestHarness();
+        stub.setDeployer(address(restored));
         restored.fromJson(json);
 
         // Should have metadata but no contracts
@@ -120,6 +125,7 @@ contract DeploymentJsonRoundTripTest is Test {
         string memory json = deployment.toJson();
 
         RoundTripTestHarness restored = new RoundTripTestHarness();
+        stub.setDeployer(address(restored));
         restored.fromJson(json);
 
         // Verify all contracts
@@ -160,6 +166,7 @@ contract DeploymentJsonRoundTripTest is Test {
         string memory json = deployment.toJson();
 
         RoundTripTestHarness restored = new RoundTripTestHarness();
+        stub.setDeployer(address(restored));
         restored.fromJson(json);
 
         assertEq(restored.getByString("token-with-dashes"), address(0x1111), "Dashes in key failed");
