@@ -81,6 +81,21 @@ abstract contract Deployment is DeploymentJson {
         _metadata.stemContract = _stem;
     }
 
+    /**
+     * @notice Load deployment state from JSON and align the stem reference
+     * @dev Ensures CREATE3 deployments reuse the original stem implementation.
+     */
+    function fromJson(string memory json) public virtual override {
+        super.fromJson(json);
+
+        if (_metadata.stemContract != address(0)) {
+            _stem = _metadata.stemContract;
+        } else if (_stem == address(0)) {
+            _stem = address(new Stem_v1(address(this), 0));
+            _metadata.stemContract = _stem;
+        }
+    }
+
     // ============================================================================
     // Proxy Deployment
     // ============================================================================
