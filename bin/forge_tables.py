@@ -1,7 +1,7 @@
 import io
 import re
 import sys
-from typing import Callable
+from typing import Any, Callable, cast
 
 import pandas as pd
 from tabulate import tabulate
@@ -30,25 +30,35 @@ def extract(log_data: str) -> list[str]:
     return result
 
 
-def toStr(df: pd.DataFrame) -> str:
+def toStr(
+    df: pd.DataFrame,
+    *,
+    floatfmt: str | dict[str, str],
+    intfmt: str,
+) -> str:
     # how we want to store the dataframe
     return tabulate(
-        df,
+        cast(Any, df),
         headers="keys",
         showindex=False,
         # tablefmt="fancy_grid",
         tablefmt="github",
-        floatfmt=".3e",
-        intfmt=",",
+        floatfmt=floatfmt,
+        intfmt=intfmt,
     )
 
 
-def process(toNamedDataFrame: Callable[[str], tuple[pd.DataFrame, str]]):
+def process(
+    toNamedDataFrame: Callable[[str], tuple[pd.DataFrame, str]],
+    *,
+    floatfmt: str | dict[str, str],
+    intfmt: str,
+):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     first = True
     for table in extract(sys.stdin.read()):
         # Parse the table
-        df, path = toNamedDataFrame(table)
+        parsed_df, path = toNamedDataFrame(table)
 
         # Write the formatted table to stdout
         if first:
@@ -58,4 +68,4 @@ def process(toNamedDataFrame: Callable[[str], tuple[pd.DataFrame, str]]):
 
         if path:
             sys.stdout.write(path + "\n")
-        sys.stdout.write(toStr(df) + "\n")
+        sys.stdout.write(toStr(parsed_df, floatfmt=floatfmt, intfmt=intfmt) + "\n")

@@ -1,3 +1,11 @@
+script/deployment/UUPSProxyDeployStub.sol:UUPSProxyDeployStub
+| function name    |       max |
+|------------------|-----------|
+| deployer         | 2.445e+03 |
+| initialize       | 4.763e+04 |
+| setDeployer      | 3.018e+04 |
+| upgradeToAndCall | 1.200e+05 |
+
 src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1
 | function name     |       max |
 |-------------------|-----------|
@@ -56,7 +64,7 @@ src/Stem_v1.sol:Stem_v1
 | owner                     | 3.340e+02 |
 | proxiableUUID             | 3.250e+02 |
 | setValue                  | 3.150e+02 |
-| upgradeToAndCall          | 1.198e+05 |
+| upgradeToAndCall          | 8.896e+03 |
 | value                     | 3.150e+02 |
 
 src/Token.sol:Token
@@ -122,42 +130,44 @@ test/Token.t.sol:TokenLibraryWrapper
 test/deployment/DeploymentBasic.t.sol:DeploymentHarness
 | function name       |       max |
 |---------------------|-----------|
-| deployMockContract  | 4.066e+05 |
-| finishDeployment    | 4.337e+04 |
-| getByString         | 8.683e+03 |
+| deployMockContract  | 4.089e+05 |
+| finishDeployment    | 4.870e+04 |
+| getByString         | 8.639e+03 |
 | getEntryType        | 6.295e+03 |
 | getMetadata         | 2.328e+04 |
-| hasByString         | 3.255e+03 |
-| keys                | 1.197e+04 |
-| startDeployment     | 2.057e+05 |
-| useExistingByString | 2.109e+05 |
+| hasByString         | 3.233e+03 |
+| keys                | 1.195e+04 |
+| startDeployment     | 9.172e+05 |
+| useExistingByString | 2.132e+05 |
 
 test/deployment/DeploymentDependency.t.sol:DependencyTestHarness
 | function name   |       max |
 |-----------------|-----------|
-| deployMinter    | 4.228e+05 |
-| deployOracle    | 4.377e+05 |
-| deployToken     | 4.978e+05 |
-| getByString     | 8.705e+03 |
-| hasByString     | 3.255e+03 |
-| startDeployment | 2.057e+05 |
+| deployMinter    | 4.250e+05 |
+| deployOracle    | 4.398e+05 |
+| deployToken     | 5.000e+05 |
+| getByString     | 8.683e+03 |
+| hasByString     | 3.233e+03 |
+| startDeployment | 9.173e+05 |
 
 test/deployment/DeploymentIntegration.t.sol:IntegrationTestHarness
 | function name       |       max |
 |---------------------|-----------|
-| deployConfigLibrary | 2.627e+05 |
-| deployMinterProxy   | 1.142e+06 |
-| deployOracleProxy   | 1.064e+06 |
-| deployProxy         | 6.270e+05 |
-| finishDeployment    | 4.334e+04 |
-| getByString         | 8.864e+03 |
+| deployConfigLibrary | 2.650e+05 |
+| deployMinterProxy   | 1.195e+06 |
+| deployOracleProxy   | 1.117e+06 |
+| deployProxy         | 6.802e+05 |
+| finishDeployment    | 4.879e+04 |
+| getByString         | 8.820e+03 |
+| getDeployStub       | 2.386e+03 |
 | getEntryType        | 6.295e+03 |
-| hasByString         | 3.211e+03 |
-| keys                | 1.826e+04 |
-| loadFromJson        | 1.522e+06 |
+| hasByString         | 3.167e+03 |
+| keys                | 1.824e+04 |
+| loadFromJson        | 1.553e+06 |
+| resumeDeployment    | 6.523e+04 |
 | saveToJson          | 2.763e+05 |
-| startDeployment     | 2.058e+05 |
-| useExistingByString | 2.107e+05 |
+| startDeployment     | 9.174e+05 |
+| useExistingByString | 2.130e+05 |
 
 test/deployment/DeploymentIntegration.t.sol:MockMinter
 | function name   |       max |
@@ -179,18 +189,21 @@ test/deployment/DeploymentIntegration.t.sol:OracleV1
 test/deployment/DeploymentJson.t.sol:JsonTestHarness
 | function name        |       max |
 |----------------------|-----------|
-| deploySimpleContract | 3.623e+05 |
-| deploySimpleProxy    | 9.852e+05 |
-| deployTestLibrary    | 2.797e+05 |
-| finishDeployment     | 4.334e+04 |
-| getByString          | 9.101e+03 |
-| getMetadata          | 2.326e+04 |
-| hasByString          | 3.255e+03 |
-| keys                 | 8.861e+03 |
-| loadFromJson         | 9.878e+05 |
-| saveToJson           | 2.175e+05 |
-| startDeployment      | 2.058e+05 |
-| useExistingByString  | 1.937e+05 |
+| deploySimpleContract | 3.645e+05 |
+| deploySimpleProxy    | 1.038e+06 |
+| deployTestLibrary    | 2.822e+05 |
+| finishDeployment     | 4.879e+04 |
+| fromJson             | 1.608e+05 |
+| getByString          | 9.079e+03 |
+| getDeployStub        | 2.386e+03 |
+| getMetadata          | 2.328e+04 |
+| hasByString          | 3.233e+03 |
+| keys                 | 8.839e+03 |
+| loadFromJson         | 1.018e+06 |
+| resumeDeployment     | 6.523e+04 |
+| saveToJson           | 2.176e+05 |
+| startDeployment      | 9.173e+05 |
+| useExistingByString  | 1.960e+05 |
 
 test/deployment/DeploymentJson.t.sol:SimpleImplementation
 | function name   |       max |
@@ -201,69 +214,76 @@ test/deployment/DeploymentJson.t.sol:SimpleImplementation
 test/deployment/DeploymentJsonRoundTrip.t.sol:RoundTripTestHarness
 | function name       |       max |
 |---------------------|-----------|
-| deployMockLibrary   | 2.627e+05 |
-| deployMockProxy     | 1.234e+06 |
-| finishDeployment    | 4.337e+04 |
-| fromJson            | 2.526e+06 |
-| getBoolByKey        | 8.674e+03 |
-| getByString         | 9.123e+03 |
+| deployMockLibrary   | 2.650e+05 |
+| deployMockProxy     | 1.287e+06 |
+| finishDeployment    | 4.870e+04 |
+| fromJson            | 2.557e+06 |
+| getBoolByKey        | 8.740e+03 |
+| getByString         | 9.079e+03 |
+| getDeployStub       | 2.408e+03 |
 | getEntryType        | 6.295e+03 |
-| getIntByKey         | 8.706e+03 |
+| getIntByKey         | 8.662e+03 |
 | getMetadata         | 2.328e+04 |
 | getStringByKey      | 9.454e+03 |
-| getUintByKey        | 8.707e+03 |
-| keys                | 4.931e+04 |
-| setBoolByKey        | 1.203e+05 |
-| setIntByKey         | 1.206e+05 |
-| setStringByKey      | 1.216e+05 |
-| setUintByKey        | 1.202e+05 |
-| startDeployment     | 2.058e+05 |
+| getUintByKey        | 8.729e+03 |
+| keys                | 4.929e+04 |
+| setBoolByKey        | 1.225e+05 |
+| setIntByKey         | 1.228e+05 |
+| setStringByKey      | 1.238e+05 |
+| setUintByKey        | 1.224e+05 |
+| startDeployment     | 9.174e+05 |
 | toJson              | 4.850e+05 |
-| useExistingByString | 2.108e+05 |
+| useExistingByString | 2.131e+05 |
 
 test/deployment/DeploymentLibrary.t.sol:LibraryTestHarness
 | function name       |       max |
 |---------------------|-----------|
-| deployMathLibrary   | 2.798e+05 |
-| deployStringLibrary | 2.627e+05 |
-| finishDeployment    | 4.337e+04 |
-| fromJson            | 4.639e+05 |
-| getByString         | 9.078e+03 |
+| deployMathLibrary   | 2.821e+05 |
+| deployStringLibrary | 2.650e+05 |
+| finishDeployment    | 4.870e+04 |
+| fromJson            | 4.943e+05 |
+| getByString         | 9.123e+03 |
+| getDeployStub       | 2.408e+03 |
 | getEntryType        | 6.295e+03 |
-| hasByString         | 3.255e+03 |
-| keys                | 8.861e+03 |
-| startDeployment     | 2.057e+05 |
-| toJson              | 9.307e+04 |
+| hasByString         | 3.233e+03 |
+| keys                | 8.839e+03 |
+| startDeployment     | 9.173e+05 |
+| toJson              | 9.309e+04 |
 
 test/deployment/DeploymentParameter.t.sol:ParameterTestHarness
 | function name      |       max |
 |--------------------|-----------|
-| deployMockContract | 3.622e+05 |
-| getBoolByKey       | 8.652e+03 |
-| getByString        | 8.683e+03 |
+| deployMockContract | 3.644e+05 |
+| getBoolByKey       | 8.740e+03 |
+| getByString        | 8.661e+03 |
+| getDeployStub      | 2.408e+03 |
 | getEntryType       | 6.295e+03 |
-| getIntByKey        | 8.684e+03 |
+| getIntByKey        | 8.662e+03 |
 | getStringByKey     | 9.454e+03 |
-| getUintByKey       | 8.707e+03 |
-| keys               | 1.197e+04 |
-| loadFromJson       | 7.186e+05 |
+| getUintByKey       | 8.729e+03 |
+| keys               | 1.195e+04 |
+| loadFromJson       | 7.489e+05 |
 | saveToJson         | 1.352e+05 |
-| setBoolByKey       | 1.374e+05 |
-| setIntByKey        | 1.377e+05 |
-| setStringByKey     | 1.385e+05 |
-| setUintByKey       | 1.373e+05 |
-| startDeployment    | 2.057e+05 |
+| setBoolByKey       | 1.396e+05 |
+| setIntByKey        | 1.399e+05 |
+| setStringByKey     | 1.407e+05 |
+| setUintByKey       | 1.395e+05 |
+| startDeployment    | 9.173e+05 |
 
 test/deployment/DeploymentProxy.t.sol:ProxyTestHarness
 | function name       |       max |
 |---------------------|-----------|
-| deployCounterProxy  | 1.209e+06 |
-| deployProxy         | 2.648e+04 |
-| getByString         | 8.842e+03 |
+| deployCounterProxy  | 1.262e+06 |
+| deployProxy         | 2.864e+04 |
+| fromJson            | 6.161e+05 |
+| getByString         | 8.820e+03 |
+| getDeployStub       | 2.408e+03 |
 | getEntryType        | 6.295e+03 |
-| hasByString         | 3.255e+03 |
+| hasByString         | 3.233e+03 |
 | predictProxyAddress | 3.773e+03 |
-| startDeployment     | 2.057e+05 |
+| resumeDeployment    | 6.803e+04 |
+| startDeployment     | 9.172e+05 |
+| toJson              | 1.154e+05 |
 
 test/deployment/DeploymentUpgrade.t.sol:CounterV2
 | function name   |       max |
@@ -288,62 +308,78 @@ test/deployment/DeploymentUpgrade.t.sol:OracleV2
 test/deployment/DeploymentUpgrade.t.sol:UpgradeTestHarness
 | function name      |       max |
 |--------------------|-----------|
-| deployCounterProxy | 1.209e+06 |
-| deployOracleProxy  | 1.207e+06 |
-| finalizeOwnership  | 9.483e+04 |
-| finishDeployment   | 4.337e+04 |
-| fromJson           | 6.089e+05 |
-| getByString        | 8.820e+03 |
+| deployCounterProxy | 1.262e+06 |
+| deployOracleProxy  | 1.260e+06 |
+| finalizeOwnership  | 1.010e+05 |
+| finishDeployment   | 4.870e+04 |
+| fromJson           | 6.395e+05 |
+| getByString        | 8.776e+03 |
+| getDeployStub      | 2.408e+03 |
 | getEntryType       | 6.295e+03 |
-| hasByString        | 3.167e+03 |
-| startDeployment    | 2.058e+05 |
+| hasByString        | 3.255e+03 |
+| startDeployment    | 9.173e+05 |
 | toJson             | 1.167e+05 |
 
 test/deployment/DeploymentWorkflow.t.sol:WorkflowTestHarness
 | function name       |       max |
 |---------------------|-----------|
-| deployMathLibrary   | 2.798e+05 |
-| deployMinterProxy   | 1.384e+06 |
-| deployOracleProxy   | 1.207e+06 |
-| finalizeOwnership   | 9.562e+04 |
-| finishDeployment    | 4.337e+04 |
-| fromJson            | 9.047e+05 |
-| getBoolByKey        | 8.674e+03 |
-| getByString         | 9.167e+03 |
+| deployMathLibrary   | 2.821e+05 |
+| deployMinterProxy   | 1.437e+06 |
+| deployOracleProxy   | 1.260e+06 |
+| finalizeOwnership   | 1.005e+05 |
+| finishDeployment    | 4.870e+04 |
+| fromJson            | 9.351e+05 |
+| getBoolByKey        | 8.762e+03 |
+| getByString         | 9.123e+03 |
+| getDeployStub       | 2.408e+03 |
 | getEntryType        | 6.295e+03 |
 | getMetadata         | 2.330e+04 |
 | getStringByKey      | 9.476e+03 |
 | getUintByKey        | 8.640e+03 |
-| keys                | 3.068e+04 |
-| predictProxyAddress | 3.695e+03 |
-| setBoolByKey        | 1.203e+05 |
-| setStringByKey      | 1.215e+05 |
-| setUintByKey        | 1.203e+05 |
-| startDeployment     | 2.058e+05 |
-| toJson              | 1.642e+05 |
-| useExistingByString | 2.108e+05 |
+| keys                | 3.066e+04 |
+| predictProxyAddress | 3.804e+03 |
+| setBoolByKey        | 1.225e+05 |
+| setStringByKey      | 1.237e+05 |
+| setUintByKey        | 1.224e+05 |
+| startDeployment     | 9.174e+05 |
+| toJson              | 1.643e+05 |
+| useExistingByString | 2.131e+05 |
 
 test/deployment/TestDeployment.sol:TestDeployment
 | function name       |       max |
 |---------------------|-----------|
-| finishDeployment    | 4.337e+04 |
-| fromJson            | 1.008e+06 |
-| getBoolByKey        | 8.652e+03 |
-| getByString         | 8.705e+03 |
-| getIntByKey         | 8.706e+03 |
-| getStringByKey      | 9.476e+03 |
-| getUintByKey        | 8.640e+03 |
-| hasByString         | 3.167e+03 |
-| keys                | 2.130e+04 |
-| loadFromJson        | 5.328e+05 |
+| finishDeployment    | 4.879e+04 |
+| fromJson            | 1.038e+06 |
+| getBoolByKey        | 8.718e+03 |
+| getByString         | 8.661e+03 |
+| getDeployStub       | 2.386e+03 |
+| getIntByKey         | 8.662e+03 |
+| getStringByKey      | 9.454e+03 |
+| getUintByKey        | 8.729e+03 |
+| hasByString         | 3.233e+03 |
+| keys                | 2.128e+04 |
+| loadFromJson        | 5.632e+05 |
 | saveToJson          | 1.092e+05 |
-| setBoolByKey        | 1.203e+05 |
-| setIntByKey         | 1.207e+05 |
-| setStringByKey      | 1.385e+05 |
-| setUintByKey        | 1.203e+05 |
-| startDeployment     | 2.058e+05 |
+| setBoolByKey        | 1.226e+05 |
+| setIntByKey         | 1.228e+05 |
+| setStringByKey      | 1.406e+05 |
+| setUintByKey        | 1.224e+05 |
+| startDeployment     | 9.173e+05 |
 | toJson              | 1.852e+05 |
-| useExistingByString | 2.105e+05 |
+| useExistingByString | 2.129e+05 |
+
+test/deployment/UUPSProxyDeployStub.t.sol:UUPSProxyDeployStubHarness
+| function name              |       max |
+|----------------------------|-----------|
+| authorizeUpgrade           | 2.684e+03 |
+| completeOwnershipHandover  | 2.875e+04 |
+| deployer                   | 2.445e+03 |
+| handoverTimeout            | 2.650e+02 |
+| initialize                 | 4.763e+04 |
+| owner                      | 2.393e+03 |
+| ownershipHandoverExpiresAt | 2.596e+03 |
+| requestOwnershipHandover   | 4.452e+04 |
+| setDeployer                | 3.018e+04 |
 
 test/mocks/basic/MockDependencies.sol:MockMinter
 | function name   |       max |
@@ -361,8 +397,9 @@ test/mocks/upgradeable/MockCounter.sol:CounterV1
 |-------------------|-----------|
 | increment         | 5.271e+03 |
 | initialize        | 9.235e+04 |
+| owner             | 2.329e+03 |
 | proxiableUUID     | 3.920e+02 |
-| transferOwnership | 1.212e+04 |
+| transferOwnership | 1.012e+04 |
 | upgradeTo         | 1.070e+04 |
 | value             | 2.338e+03 |
 
@@ -382,7 +419,7 @@ test/mocks/upgradeable/MockMinter.sol:MockMinter
 | oracle                   | 2.357e+03 |
 | owner                    | 2.407e+03 |
 | proxiableUUID            | 3.920e+02 |
-| transferOwnership        | 1.214e+04 |
+| transferOwnership        | 1.014e+04 |
 
 test/mocks/upgradeable/MockOracle.sol:OracleV1
 | function name     |       max |
@@ -391,6 +428,6 @@ test/mocks/upgradeable/MockOracle.sol:OracleV1
 | owner             | 2.418e+03 |
 | price             | 2.315e+03 |
 | proxiableUUID     | 3.700e+02 |
-| transferOwnership | 1.212e+04 |
+| transferOwnership | 1.012e+04 |
 | upgradeTo         | 1.077e+04 |
 | upgradeToAndCall  | 3.909e+04 |

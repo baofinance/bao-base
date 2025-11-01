@@ -1,41 +1,46 @@
-| Contract                       |   Runtime Size (B) |   Runtime Margin (B) |
-|--------------------------------|--------------------|----------------------|
-| Address                        |                 85 |               24,491 |
-| Deployed                       |                408 |               24,168 |
-| DerivedBaoOwnable              |                874 |               23,702 |
-| DerivedBaoOwnableRoles         |              1,757 |               22,819 |
-| DerivedBaoOwnableRoles_v2      |              1,365 |               23,211 |
-| DerivedBaoOwnableTransferrable |              1,513 |               23,063 |
-| DerivedBaoOwnable_v2           |                509 |               24,067 |
-| DerivedOwnable                 |                916 |               23,660 |
-| DerivedOwnableRoles            |              1,555 |               23,021 |
-| DerivedTokenHolder             |              1,909 |               22,667 |
-| ECDSA                          |                 85 |               24,491 |
-| ERC1967Utils                   |                 85 |               24,491 |
-| ERC20Mock                      |              1,953 |               22,623 |
-| Errors                         |                 85 |               24,491 |
-| Math                           |                 85 |               24,491 |
-| MessageHashUtils               |                 85 |               24,491 |
-| MintableBurnableERC20_v1       |              8,325 |               16,251 |
-| Panic                          |                 85 |               24,491 |
-| PermittableERC20_v1            |              7,758 |               16,818 |
-| SafeCast                       |                 85 |               24,491 |
-| SafeERC20                      |                 85 |               24,491 |
-| SignedMath                     |                 85 |               24,491 |
-| Stem_v1                        |              2,022 |               22,554 |
-| StorageSlot                    |                 85 |               24,491 |
-| Strings                        |                 85 |               24,491 |
-| Token                          |                648 |               23,928 |
-| TransientSlot                  |                 85 |               24,491 |
-| _BaoOwnableRoles_              |              1,219 |               23,357 |
-| _BaoOwnableTransferrableRoles_ |              1,961 |               22,615 |
-| _BaoOwnableTransferrable_      |              1,381 |               23,195 |
-| _BaoOwnable_                   |                636 |               23,940 |
-| _Initializable_UUPSUpGradeable |              1,540 |               23,036 |
-| _OZAccessControl               |              1,114 |               23,462 |
-| _OZDefaultAdminRules           |              3,561 |               21,015 |
-| _OZOwnable                     |                545 |               24,031 |
-| _OZOwnable2Step                |                812 |               23,764 |
-| _SoladyOwnable                 |                727 |               23,849 |
-| _SoladyOwnableRoles            |              1,273 |               23,303 |
-| _UUPSUpgradeable               |              1,540 |               23,036 |
+| Contract                       |   Runtime Size (B) |   Runtime Margin (B) |   Initcode Size (B) |   Deploy Gas |   Deploy Cost ($) |
+|--------------------------------|--------------------|----------------------|---------------------|--------------|-------------------|
+| Address                        |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| CREATE3                        |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| Deployed                       |                408 |               24,168 |                 460 |       86,200 |              8.62 |
+| DerivedBaoOwnable              |                874 |               23,702 |                 902 |      183,820 |             18.38 |
+| DerivedBaoOwnableRoles         |              1,757 |               22,819 |               1,799 |      369,390 |             36.94 |
+| DerivedBaoOwnableRoles_v2      |              1,365 |               23,211 |               1,719 |      290,190 |             29.02 |
+| DerivedBaoOwnableTransferrable |              1,513 |               23,063 |               1,541 |      318,010 |             31.80 |
+| DerivedBaoOwnable_v2           |                509 |               24,067 |                 845 |      110,250 |             11.03 |
+| DerivedOwnable                 |                916 |               23,660 |                 944 |      192,640 |             19.26 |
+| DerivedOwnableRoles            |              1,555 |               23,021 |               1,583 |      326,830 |             32.68 |
+| DerivedTokenHolder             |              1,909 |               22,667 |               1,937 |      401,170 |             40.12 |
+| ECDSA                          |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| ERC1967Proxy                   |                163 |               24,413 |                 976 |       42,360 |              4.24 |
+| ERC1967Utils                   |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| ERC20Mock                      |              1,953 |               22,623 |               2,419 |      414,790 |             41.48 |
+| EfficientHashLib               |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| Errors                         |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| Math                           |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| MessageHashUtils               |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| MintableBurnableERC20_v1       |              8,325 |               16,251 |               8,574 |    1,750,740 |            175.07 |
+| Panic                          |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| Pause                          |              2,022 |               22,554 |               2,375 |      428,150 |             42.82 |
+| PermittableERC20_v1            |              7,758 |               16,818 |               8,007 |    1,631,670 |            163.17 |
+| SafeCast                       |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| SafeERC20                      |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| SignedMath                     |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| Stem_v1                        |              2,022 |               22,554 |               2,382 |      428,220 |             42.82 |
+| StorageSlot                    |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| Strings                        |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| Token                          |                648 |               23,928 |                 700 |      136,600 |             13.66 |
+| TransientSlot                  |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| UUPSProxyDeployStub            |              2,915 |               21,661 |               3,293 |      615,930 |             61.59 |
+| _BaoOwnableRoles_              |              1,219 |               23,357 |               1,247 |      256,270 |             25.63 |
+| _BaoOwnableTransferrableRoles_ |              1,961 |               22,615 |               1,989 |      412,090 |             41.21 |
+| _BaoOwnableTransferrable_      |              1,381 |               23,195 |               1,409 |      290,290 |             29.03 |
+| _BaoOwnable_                   |                636 |               23,940 |                 664 |      133,840 |             13.38 |
+| _Initializable_UUPSUpGradeable |              1,540 |               23,036 |               1,596 |      323,960 |             32.40 |
+| _OZAccessControl               |              1,114 |               23,462 |               1,142 |      234,220 |             23.42 |
+| _OZDefaultAdminRules           |              3,561 |               21,015 |               3,589 |      748,090 |             74.81 |
+| _OZOwnable                     |                545 |               24,031 |                 573 |      114,730 |             11.47 |
+| _OZOwnable2Step                |                812 |               23,764 |                 840 |      170,800 |             17.08 |
+| _SoladyOwnable                 |                727 |               23,849 |                 755 |      152,950 |             15.29 |
+| _SoladyOwnableRoles            |              1,273 |               23,303 |               1,301 |      267,610 |             26.76 |
+| _UUPSUpgradeable               |              1,540 |               23,036 |               1,596 |      323,960 |             32.40 |
