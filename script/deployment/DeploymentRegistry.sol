@@ -23,6 +23,8 @@ abstract contract DeploymentRegistry {
         Finished
     }
 
+    uint256 internal constant DEPLOYMENT_SCHEMA_VERSION = 1;
+
     // ============================================================================
     // Shared/Embedded Structs (for composition)
     // ============================================================================
@@ -61,9 +63,7 @@ abstract contract DeploymentRegistry {
         uint256 startBlock;
         string network;
         string version;
-    string systemSaltString;
-    address stubAddress;
-    string stubImplementation;
+        string systemSaltString;
     }
 
     /// @notice Contract entry (direct deployment, mock, existing)
@@ -105,8 +105,6 @@ abstract contract DeploymentRegistry {
     error ParameterTypeMismatch(string key, string expected, string actual);
     error InvalidAddress(string key);
     error UnknownEntryType(string entrytype, string key);
-    error InvalidStub(address stubAddress);
-    error InvalidStubDeployer(address stubAddress, address currentDeployer);
     error DeploymentLifecycleInvalid(uint8 expected, uint8 actual);
     error DeploymentLifecycleNotActive(uint8 current);
     error DeploymentResumeUnavailable();
@@ -132,6 +130,8 @@ abstract contract DeploymentRegistry {
     mapping(string => bool) internal _exists;
     mapping(string => string) internal _entryType;
     string[] internal _keys;
+    uint256 internal _schemaVersion;
+    mapping(string => bool) internal _resumedProxies;
 
     // ============================================================================
     // PUBLIC API - Registry Access
@@ -145,6 +145,8 @@ abstract contract DeploymentRegistry {
      * @dev Internal - external callers should use HarborDeployment's type-safe get(Contract)
      */
     function _get(string memory key) internal view returns (address) {
+        _requireActive();
+
         if (!_exists[key]) {
             revert ContractNotFound(key);
         }
@@ -309,14 +311,13 @@ abstract contract DeploymentRegistry {
             revert DeploymentLifecycleInvalid(uint8(Lifecycle.Uninitialized), uint8(_lifecycle));
         }
         _lifecycle = Lifecycle.Active;
+        _schemaVersion = DEPLOYMENT_SCHEMA_VERSION;
         _metadata.deployer = deployer;
         _metadata.startedAt = block.timestamp;
         _metadata.startBlock = block.number;
         _metadata.network = network;
         _metadata.version = version;
-    _metadata.systemSaltString = systemSaltString;
-    _metadata.stubAddress = address(0); // Will be set by Deployment layer
-    _metadata.stubImplementation = "";
+        _metadata.systemSaltString = systemSaltString;
         _metadata.finishedAt = 0;
     }
 
@@ -417,6 +418,15 @@ abstract contract DeploymentRegistry {
         _exists[key] = true;
         _entryType[key] = "proxy";
         _keys.push(key);
+        _resumedProxies[key] = false;
+    }
+
+    function _getProxy(string memory key) internal view returns (address proxy) {
+        _requireActive();
+        proxy = _proxies[key].info.addr;
+        if (proxy == address(0)) {
+            revert ContractNotFound(key);
+        }
     }
 
     /**
@@ -444,6 +454,14 @@ abstract contract DeploymentRegistry {
         _exists[key] = true;
         _entryType[key] = "implementation";
         _keys.push(key);
+    }
+
+    function _getImplementation(string memory key) internal view returns (address implementation) {
+        _requireActive();
+        implementation = _implementations[key].info.addr;
+        if (implementation = address(0)) {
+            revert ContractNotFound(key);
+        }
     }
 
     /**

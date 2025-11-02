@@ -10,9 +10,9 @@ import {CounterV1} from "../mocks/upgradeable/MockCounter.sol";
 
 // Test harness extends TestDeployment
 contract ProxyTestHarness is TestDeployment {
-    function deployCounterProxy(string memory key, uint256 initialValue) public returns (address) {
+    function deployCounterProxy(string memory key, uint256 initialValue, address owner) public returns (address) {
         CounterV1 impl = new CounterV1();
-        bytes memory initData = abi.encodeCall(CounterV1.initialize, (initialValue, address(this)));
+        bytes memory initData = abi.encodeCall(CounterV1.initialize, (initialValue, owner));
         return deployProxy(key, address(impl), initData);
     }
 }
@@ -23,14 +23,18 @@ contract ProxyTestHarness is TestDeployment {
  */
 contract DeploymentProxyTest is Test {
     ProxyTestHarness public deployment;
+    address internal admin;
+    address internal outsider;
 
     function setUp() public {
         deployment = new ProxyTestHarness();
         deployment.startDeployment(address(this), "test", "v1.0.0", "proxy-test-salt");
+        admin = makeAddr("admin");
+        outsider = makeAddr("outsider");
     }
 
     function test_DeployProxy() public {
-        address proxyAddr = deployment.deployCounterProxy("counter", 42);
+        address proxyAddr = deployment.deployCounterProxy("counter", 42, admin);
 
         assertTrue(proxyAddr != address(0));
         assertTrue(deployment.hasByString("counter"));
@@ -40,14 +44,16 @@ contract DeploymentProxyTest is Test {
         // Verify proxy is working
         CounterV1 counter = CounterV1(proxyAddr);
         assertEq(counter.value(), 42);
+        assertEq(counter.owner(), admin);
 
+        vm.prank(admin);
         counter.increment();
         assertEq(counter.value(), 43);
     }
 
     function test_PredictProxyAddress() public {
         address predicted = deployment.predictProxyAddress("counter");
-        address actual = deployment.deployCounterProxy("counter", 42);
+        address actual = deployment.deployCounterProxy("counter", 42, admin);
 
         assertEq(predicted, actual);
     }
@@ -57,7 +63,7 @@ contract DeploymentProxyTest is Test {
         address addr1 = deployment.predictProxyAddress("counter1");
 
         // Deploy proxy
-        address deployed = deployment.deployCounterProxy("counter1", 100);
+        address deployed = deployment.deployCounterProxy("counter1", 100, admin);
         assertEq(deployed, addr1);
 
         // Prediction should work for different key
@@ -66,9 +72,9 @@ contract DeploymentProxyTest is Test {
     }
 
     function test_MultipleProxies() public {
-        address proxy1 = deployment.deployCounterProxy("counter1", 10);
-        address proxy2 = deployment.deployCounterProxy("counter2", 20);
-        address proxy3 = deployment.deployCounterProxy("counter3", 30);
+        address proxy1 = deployment.deployCounterProxy("counter1", 10, admin);
+        address proxy2 = deployment.deployCounterProxy("counter2", 20, admin);
+        address proxy3 = deployment.deployCounterProxy("counter3", 30, admin);
 
         assertNotEq(proxy1, proxy2);
         assertNotEq(proxy2, proxy3);
@@ -87,10 +93,10 @@ contract DeploymentProxyTest is Test {
     }
 
     function test_RevertWhen_ProxyAlreadyExists() public {
-        deployment.deployCounterProxy("counter", 42);
+        deployment.deployCounterProxy("counter", 42, admin);
 
         vm.expectRevert(abi.encodeWithSelector(DeploymentRegistry.ContractAlreadyExists.selector, "counter"));
-        deployment.deployCounterProxy("counter", 100);
+        deployment.deployCounterProxy("counter", 100, admin);
     }
 
     function test_RevertWhen_ProxyWithEmptyKey() public {
@@ -104,5 +110,48 @@ contract DeploymentProxyTest is Test {
     function test_RevertWhen_ProxyWithoutImplementation() public {
         vm.expectRevert(Deployment.ImplementationRequired.selector);
         deployment.deployProxy("counter", address(0), "");
+    }
+
+    function test_ResumeRestoresPredictions_() public {
+        address existingProxy = deployment.deployCounterProxy("counter", 11, admin);
+        string memory expectedMessage = "resumed registry retains counter";
+        assertEq(deployment.getByString("counter"), existingProxy, expectedMessage);
+
+        string memory json = deployment.toJson();
+
+        ProxyTestHarness resumed = new ProxyTestHarness();
+        resumed.fromJson(json);
+        resumed.resumeDeployment(admin);
+
+        assertEq(resumed.getByString("counter"), existingProxy, "resumed counter address stable");
+
+        address resumedPrediction = resumed.predictProxyAddress("counterNext");
+        address resumedDeployed = resumed.deployCounterProxy("counterNext", 22, admin);
+
+        assertEq(resumedPrediction, resumedDeployed, "resumed prediction matches deployment");
+        assertEq(resumed.getByString("counterNext"), resumedDeployed, "resumed registry stores new proxy");
+    }
+
+    function test_FinalizeOwnershipAfterResumeSkipsResumedProxy() public {
+        deployment.deployCounterProxy("counter", 5, admin);
+        string memory json = deployment.toJson();
+
+        ProxyTestHarness resumed = new ProxyTestHarness();
+        resumed.fromJson(json);
+        resumed.resumeDeployment(admin);
+
+        uint256 transferred = resumed.finalizeOwnership(admin);
+        assertEq(transferred, 0, "resumed entries should be skipped");
+    }
+
+    function test_FinalizeOwnershipRevertsOnUnexpectedOwner() public {
+        address proxyAddr = deployment.deployCounterProxy("counter", 7, admin);
+        CounterV1 counter = CounterV1(proxyAddr);
+
+        vm.prank(admin);
+        counter.transferOwnership(outsider);
+
+        vm.expectRevert(abi.encodeWithSelector(Deployment.UnexpectedProxyOwner.selector, proxyAddr, outsider));
+        deployment.finalizeOwnership(admin);
     }
 }

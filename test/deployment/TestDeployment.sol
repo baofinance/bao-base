@@ -2,7 +2,6 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
-import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 /**
  * @title TestDeployment
@@ -11,25 +10,15 @@ import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.so
  *      Production code uses the type-safe enum API, but tests need string-based access.
  *      Can be used directly or extended for specialized test needs.
  *      Includes DeploymentJson mixin for Foundry-specific JSON operations.
+ * @dev Defaults to address(this) as DEPLOYER_CONTEXT for test simplicity
  */
 contract TestDeployment is Deployment {
-    constructor() {
-        UUPSProxyDeployStub stub = new UUPSProxyDeployStub(msg.sender);
-        _configureDeployStub(address(stub), "UUPSProxyDeployStub");
-    }
+    /// @notice Constructor for test environment
+    /// @dev Passes address(0) to Deployment constructor, which defaults to address(this)
+    constructor() Deployment(address(0)) {}
 
     function finalizeOwnership(address newOwner) public returns (uint256) {
         return _finalizeOwnership(newOwner);
-    }
-
-    function configureDeployStub(address stubAddress, string memory stubImplementation) public {
-        _configureDeployStub(stubAddress, stubImplementation);
-    }
-
-    function deployTestStub(address owner) public returns (address) {
-        UUPSProxyDeployStub stub = new UUPSProxyDeployStub(owner);
-        _configureDeployStub(address(stub), "UUPSProxyDeployStub");
-        return address(stub);
     }
 
     // ============================================================================
@@ -74,7 +63,7 @@ contract TestDeployment is Deployment {
         string memory contractPath,
         string memory category
     ) public returns (address) {
-        return _registerContractEntry(key, addr, contractType, contractPath, category);
+        return _registerContract(key, addr, contractType, contractPath, category);
     }
 
     /**

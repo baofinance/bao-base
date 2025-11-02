@@ -3,7 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {TestDeployment} from "./TestDeployment.sol";
-import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 /**
  * @title DeploymentJsonStringTest
@@ -12,11 +11,9 @@ import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.so
  */
 contract DeploymentJsonStringTest is Test {
     TestDeployment public deployment;
-    UUPSProxyDeployStub internal stub;
 
     function setUp() public {
         deployment = new TestDeployment();
-        stub = UUPSProxyDeployStub(deployment.getDeployStub());
         deployment.startDeployment(address(this), "localhost", "1.0.0", "jsonstring-test-salt");
     }
 
@@ -31,6 +28,9 @@ contract DeploymentJsonStringTest is Test {
 
         // Verify it's not empty
         assertTrue(bytes(json).length > 0, "JSON should not be empty");
+
+        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
+        assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Verify it contains expected keys
         assertTrue(vm.keyExistsJson(json, ".deployment.MockToken"), "Should contain MockToken");
@@ -47,9 +47,11 @@ contract DeploymentJsonStringTest is Test {
 
         string memory json = deployment.toJson();
 
+        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
+        assertEq(schemaVersion, 1, "Schema version should be 1");
+
         // Create new deployment and load from string
         TestDeployment newDeployment = new TestDeployment();
-        stub.setDeployer(address(newDeployment));
         newDeployment.fromJson(json);
 
         // Verify loaded data
@@ -76,9 +78,11 @@ contract DeploymentJsonStringTest is Test {
         // Serialize to string
         string memory json = deployment.toJson();
 
+        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
+        assertEq(schemaVersion, 1, "Schema version should be 1");
+
         // Deserialize to new instance
         TestDeployment restored = new TestDeployment();
-        stub.setDeployer(address(restored));
         restored.fromJson(json);
 
         // Verify all contracts
@@ -101,6 +105,9 @@ contract DeploymentJsonStringTest is Test {
 
         string memory json = deployment.toJson();
 
+        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
+        assertEq(schemaVersion, 1, "Schema version should be 1");
+
         // Should still have metadata
         assertTrue(vm.keyExistsJson(json, ".metadata"), "Should have metadata");
         assertTrue(vm.keyExistsJson(json, ".deployer"), "Should have deployer");
@@ -119,8 +126,10 @@ contract DeploymentJsonStringTest is Test {
 
         string memory json = deployment.toJson();
 
+        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
+        assertEq(schemaVersion, 1, "Schema version should be 1");
+
         TestDeployment loaded = new TestDeployment();
-        stub.setDeployer(address(loaded));
         loaded.fromJson(json);
 
         assertEq(loaded.keys().length, 3, "Should have 3 contracts");
@@ -139,8 +148,10 @@ contract DeploymentJsonStringTest is Test {
 
         string memory json = deployment.toJson();
 
+        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
+        assertEq(schemaVersion, 1, "Schema version should be 1");
+
         TestDeployment loaded = new TestDeployment();
-        stub.setDeployer(address(loaded));
         loaded.fromJson(json);
 
         assertEq(loaded.keys().length, 3, "Should have 3 parameters");
@@ -160,9 +171,12 @@ contract DeploymentJsonStringTest is Test {
         deployment.finishDeployment();
         deployment.saveToJson(path);
 
+        string memory json = vm.readFile(path);
+        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
+        assertEq(schemaVersion, 1, "Schema version should be 1");
+
         // Load from file
         TestDeployment loaded = new TestDeployment();
-        stub.setDeployer(address(loaded));
         loaded.loadFromJson(path);
 
         assertEq(loaded.getByString("Token"), address(0x5555));
@@ -183,9 +197,12 @@ contract DeploymentJsonStringTest is Test {
         deployment.finishDeployment();
         deployment.saveToJson(path);
 
+        string memory json = vm.readFile(path);
+        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
+        assertEq(schemaVersion, 1, "Schema version should be 1");
+
         // Load using original method
         TestDeployment loaded = new TestDeployment();
-        stub.setDeployer(address(loaded));
         loaded.loadFromJson(path);
 
         assertEq(loaded.getByString("LoadTest"), address(0x9999));

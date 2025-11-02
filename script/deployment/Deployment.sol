@@ -18,181 +18,143 @@ interface IUUPSUpgradeableProxy {
  * @title Deployment
  * @notice Deployment operations layer built on top of DeploymentRegistry
  * @dev Responsibilities:
- *      - Deterministic proxy deployment via CREATE3, using a shared UUPS stub
+ *      - Deterministic proxy deployment via CREATE3
  *      - Library deployment via CREATE
  *      - Existing contract registration helpers
  *      - Thin wrappers around registry storage helpers
  *      - Designed for specialization (e.g. Harbor overrides deployProxy)
+ * @dev Cross-chain determinism is achieved through injected deployer context:
+ *      - Production: Pass the harness address deployed via Nick's Factory
+ *      - Testing: Pass address(0) to default to address(this)
  */
 abstract contract Deployment is DeploymentJson {
+    // ============================================================================
+    // Immutables
+    // ============================================================================
+
+    /// @notice Deployer context address used for CREATE3 determinism
+    /// @dev In production, this is the harness address deployed via Nick's Factory.
+    ///      In tests, this defaults to address(this) when address(0) is passed.
+    address internal immutable DEPLOYER_CONTEXT;
+
+    // ============================================================================
+    // Constants
+    // ============================================================================
+
+    /// @notice Nick's Factory address for deterministic CREATE2 deployments
+    /// @dev Available on 100+ chains at this address
+    address internal constant NICKS_FACTORY = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
+
+    // ============================================================================
+    // Constructor
+    // ============================================================================
+
+    /// @notice Initialize deployment with deployer context
+    /// @param deployerContext Address to use for CREATE3 determinism.
+    ///        Pass address(0) in tests to use address(this).
+    ///        Pass predicted harness address in production.
+    constructor(address deployerContext) {
+        DEPLOYER_CONTEXT = deployerContext == address(0) ? address(this) : deployerContext;
+    }
+
     // ============================================================================
     // Errors
     // ============================================================================
 
-    error ImplementationRequired();
-    error SaltRequired();
+    error ImplementationKeyRequired();
+    error KeyRequired();
+
     error LibraryDeploymentFailed(string key);
     error OwnershipTransferFailed(address proxy);
     error OwnerQueryFailed(address proxy);
     error UnexpectedProxyOwner(address proxy, address owner);
 
-    address private _stub;
-
-    // ============================================================================
-    // Bootstrap / Stub configuration
-    // ============================================================================
-
-    /**
-     * @dev Ensure the stored stub is configured and the current contract is the deployer.
-     */
-    function _syncStubFromMetadata() internal {
-        address stubAddress = _metadata.stubAddress;
-        if (stubAddress == address(0)) {
-            revert InvalidStub(stubAddress);
-        }
-
-        address deployerAddress = _queryStubDeployer(stubAddress);
-        if (deployerAddress != address(this)) {
-            revert InvalidStubDeployer(stubAddress, deployerAddress);
-        }
-
-        _stub = stubAddress;
-        if (bytes(_metadata.stubImplementation).length == 0) {
-            _metadata.stubImplementation = "UUPSProxyDeployStub";
-        }
-    }
-
-    function _queryStubDeployer(address stubAddress) private view returns (address deployer) {
-        try UUPSProxyDeployStub(stubAddress).deployer() returns (address value) {
-            deployer = value;
-        } catch {
-            revert InvalidStub(stubAddress);
-        }
-    }
-
-    /**
-     * @dev Configure the stub for the current session.
-     */
-    function _configureDeployStub(address stubAddress, string memory stubImplementation) internal {
-        if (stubAddress == address(0)) {
-            revert InvalidStub(stubAddress);
-        }
-
-        address deployerAddress = _queryStubDeployer(stubAddress);
-        if (deployerAddress != address(this)) {
-            revert InvalidStubDeployer(stubAddress, deployerAddress);
-        }
-
-        _stub = stubAddress;
-        _metadata.stubAddress = stubAddress;
-
-        if (bytes(stubImplementation).length == 0) {
-            _metadata.stubImplementation = "UUPSProxyDeployStub";
-        } else {
-            _metadata.stubImplementation = stubImplementation;
-        }
-    }
-
+    // TODO: add start & resume Deployment
+    // TODO:
     // ============================================================================
     // Exposed views
     // ============================================================================
 
-    function makeSalt(string memory key) internal view returns (bytes32) {
-        return EfficientHashLib.hash(abi.encodePacked(_metadata.systemSaltString, key, "UUPS"));
-    }
-
     function getSystemSaltString() public view returns (string memory) {
         return _metadata.systemSaltString;
-    }
-
-    function getDeployStub() public view returns (address) {
-        return _stub;
-    }
-
-    // ============================================================================
-    // Lifecycle overrides
-    // ============================================================================
-
-    function startDeployment(
-        address deployer,
-        string memory network,
-        string memory version,
-        string memory systemSaltString
-    ) public override {
-        if (_stub == address(0)) {
-            revert InvalidStub(_stub);
-        }
-
-        string memory stubImplementation = _metadata.stubImplementation;
-
-        super.startDeployment(deployer, network, version, systemSaltString);
-
-        _metadata.stubAddress = _stub;
-        if (bytes(stubImplementation).length == 0) {
-            stubImplementation = "UUPSProxyDeployStub";
-        }
-        _metadata.stubImplementation = stubImplementation;
-    }
-
-    function resumeDeployment(address deployer) public virtual override {
-        super.resumeDeployment(deployer);
-        _syncStubFromMetadata();
-    }
-
-    function fromJson(string memory json) public virtual override {
-        super.fromJson(json);
-        _syncStubFromMetadata();
     }
 
     // ============================================================================
     // Proxy Deployment / Upgrades
     // ============================================================================
 
-    function deployProxy(
-        string memory key,
-        address implementation,
-        bytes memory initData
-    ) public virtual returns (address proxy) {
-        _requireActive();
-        if (_exists[key]) {
-            revert ContractAlreadyExists(key);
-        }
-        if (implementation == address(0)) revert ImplementationRequired();
-        if (bytes(key).length == 0) revert SaltRequired();
+    enum Create3Mode {
+        Predict,
+        Deploy
+    }
 
-        if (_stub == address(0)) {
-            revert InvalidStub(_stub);
-        }
+    /// @notice Internal proxy deployment logic with CREATE3
+    /// @dev Uses DEPLOYER_CONTEXT for address calculations to ensure cross-chain determinism
+    /// @param mode Predict or Deploy
+    /// @param proxyKey Key for the proxy deployment
+    /// @return proxy Proxy address (deployed or predicted)
+    /// @return salt Salt used for CREATE3
+    /// @return saltString Human-readable salt string
+    function _doProxy(
+        Create3Mode mode,
+        string memory proxyKey
+    ) public view returns (address proxy, bytes32 salt, string memory saltString) {
+        // crystalise the salt
+        bytes memory saltBytes = abi.encodePacked(_metadata.systemSaltString, "/", proxyKey, "/UUPS");
+        salt = EfficientHashLib.hash(saltBytes);
 
-        bytes memory creationCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(_stub, ""));
-
-        bytes32 salt = makeSalt(key);
-        proxy = CREATE3.deployDeterministic(creationCode, salt);
-
-        _registerProxy(key, proxy, "", salt, key, "UUPS");
-
-        if (initData.length == 0) {
-            IUUPSUpgradeableProxy(proxy).upgradeTo(implementation);
+        // deploy the stub at deterministic address using DEPLOYER_CONTEXT
+        address stub;
+        if (mode == Create3Mode.Deploy) {
+            stub = CREATE3.deployDeterministic(type(UUPSProxyDeployStub).creationCode, salt);
         } else {
-            IUUPSUpgradeableProxy(proxy).upgradeToAndCall(implementation, initData);
+            stub = CREATE3.predictDeterministicAddress(type(UUPSProxyDeployStub).creationCode, salt, DEPLOYER_CONTEXT);
+        }
+        /// deploy the proxy at deterministic address using DEPLOYER_CONTEXT
+        bytes memory proxyCreationCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(stub, bytes("")));
+        if (mode == Create3Mode.Deploy) {
+            proxy = CREATE3.deployDeterministic(proxyCreationCode, salt);
+        } else {
+            proxy = CREATE3.predictDeterministicAddress(proxyCreationCode, salt, DEPLOYER_CONTEXT);
+        }
+    }
+
+    /// @dev this only works with BaoOwnable derived implementations
+    function deployProxy(
+        string memory proxyKey,
+        string memory implementationKey,
+        bytes memory implementationInitData
+    ) external virtual returns (address) {
+        _requireActive();
+        if (_exists[proxyKey]) {
+            revert ContractAlreadyExists(proxyKey);
+        }
+        address implementation = _get(implementationKey);
+        if (!_exists[implementationKey] || !_eq(_entryType[implementationKey], "implementation")) {
+            revert ImplementationKeyRequired();
         }
 
-        emit ContractDeployed(key, proxy, "UUPS proxy");
+        // deploy the proxy (+ stub)
+        (address proxy, bytes32 salt, string memory saltString) = _doProxy(Create3Mode.Deploy, proxyKey);
+
+        // install the implementation
+        IUUPSUpgradeableProxy(proxy).upgradeToAndCall(implementation, implementationInitData);
+
+        _registerProxy(proxyKey, proxy, implementationKey, salt, saltString, "UUPS");
+
+        emit ContractDeployed(proxyKey, proxy, "UUPS proxy");
         return proxy;
     }
 
+    // TODO: rather than an implementation address, it should take an implementation key
     function upgradeProxy(
         string memory key,
-        address newImplementation,
+        string memory newImplementationKey,
         bytes memory initData
-    ) public virtual returns (address proxy) {
+    ) external virtual {
         _requireActive();
-        if (!_exists[key] || !_eq(_entryType[key], "proxy")) {
-            revert ContractNotFound(key);
-        }
-        if (newImplementation == address(0)) revert ImplementationRequired();
-
-        proxy = _proxies[key].info.addr;
+        address proxy = _getProxy(key);
+        address newImplementation = _getImplementation(key);
 
         if (initData.length == 0) {
             IUUPSUpgradeableProxy(proxy).upgradeTo(newImplementation);
@@ -203,31 +165,18 @@ abstract contract Deployment is DeploymentJson {
         emit ContractUpdated(key, proxy, proxy);
     }
 
-    function predictProxyAddress(string memory key) public view returns (address) {
-        if (bytes(key).length == 0) revert SaltRequired();
-        return CREATE3.predictDeterministicAddress(makeSalt(key), address(this));
+    function predictProxyAddress(string memory proxyKey) public view returns (address proxy) {
+        (proxy, , ) = _doProxy(Create3Mode.Deploy, proxyKey);
     }
 
     // ============================================================================
     // Registration Helpers
     // ============================================================================
 
-    function useExisting(string memory key, address addr) public virtual returns (address) {
+    function useExisting(string memory key, address addr) public virtual {
         _requireActive();
-        return _registerContractEntry(key, addr, "ExistingContract", "", "existing");
-    }
-
-    function _registerContractEntry(
-        string memory key,
-        address addr,
-        string memory contractType,
-        string memory contractPath,
-        string memory category
-    ) internal returns (address) {
         _requireValidAddress(key, addr);
-        _registerContract(key, addr, contractType, contractPath, category);
-        emit ContractDeployed(key, addr, category);
-        return addr;
+        _registerContract(key, addr, "ExistingContract", "blockchain", "existing");
     }
 
     function _registerImplementationEntry(
@@ -235,11 +184,10 @@ abstract contract Deployment is DeploymentJson {
         address addr,
         string memory contractType,
         string memory contractPath
-    ) internal returns (address) {
+    ) internal {
         _requireValidAddress(key, addr);
         _registerImplementation(key, addr, contractType, contractPath);
         emit ContractDeployed(key, addr, "implementation");
-        return addr;
     }
 
     function _registerLibraryEntry(
@@ -247,11 +195,10 @@ abstract contract Deployment is DeploymentJson {
         address addr,
         string memory contractType,
         string memory contractPath
-    ) internal returns (address) {
+    ) internal {
         _requireValidLibrary(key, addr);
         _registerLibrary(key, addr, contractType, contractPath);
         emit ContractDeployed(key, addr, "library");
-        return addr;
     }
 
     function _deployLibrary(
@@ -259,7 +206,7 @@ abstract contract Deployment is DeploymentJson {
         bytes memory bytecode,
         string memory contractType,
         string memory contractPath
-    ) internal returns (address) {
+    ) internal {
         _requireActive();
         if (_exists[key]) {
             revert LibraryAlreadyExists(key);
@@ -272,7 +219,6 @@ abstract contract Deployment is DeploymentJson {
             revert LibraryDeploymentFailed(key);
         }
         _registerLibraryEntry(key, addr, contractType, contractPath);
-        return addr;
     }
 
     // =========================================================================
@@ -292,23 +238,14 @@ abstract contract Deployment is DeploymentJson {
             string memory key = allKeys[i];
 
             if (_eq(_entryType[key], "proxy")) {
+                if (_resumedProxies[key]) {
+                    continue;
+                }
+
                 address proxy = _proxies[key].info.addr;
                 address currentOwner;
-                try IBaoOwnable(proxy).owner() returns (address owner) {
-                    currentOwner = owner;
-                } catch {
-                    revert OwnerQueryFailed(proxy);
-                }
-
-                if (currentOwner != address(this)) {
-                    revert UnexpectedProxyOwner(proxy, currentOwner);
-                }
-
-                try IBaoOwnable(proxy).transferOwnership(newOwner) {
-                    ++transferred;
-                } catch {
-                    revert OwnershipTransferFailed(proxy);
-                }
+                IBaoOwnable(proxy).transferOwnership(newOwner);
+                ++transferred;
             }
         }
 

@@ -16,12 +16,12 @@
       "saltString": "oracle"
     },
     "pegged": {
-      "address": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
+      "address": "0x104fBc016F4bb334D775a19E8A6510109AC63E00",
       "blockNumber": 1,
       "category": "mock",
       "contractPath": "test/mocks/tokens/MockERC20.sol",
       "contractType": "MockERC20",
-      "deployedTo": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
+      "deployedTo": "0x104fBc016F4bb334D775a19E8A6510109AC63E00",
       "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
     },
     "wstETH": {
@@ -38,8 +38,6 @@
     "network": "test-network",
     "startBlock": 1,
     "startedAt": 1,
-    "stubAddress": "0x104fBc016F4bb334D775a19E8A6510109AC63E00",
-    "stubImplementation": "UUPSProxyDeployStub",
     "version": "v1.0.0"
   },
   "saltString": "integration-test-salt"

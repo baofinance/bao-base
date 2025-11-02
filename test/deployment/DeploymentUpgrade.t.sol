@@ -7,7 +7,6 @@ import {OracleV1} from "../mocks/upgradeable/MockOracle.sol";
 
 import {CounterV1} from "../mocks/upgradeable/MockCounter.sol";
 import {IUUPSUpgradeableProxy} from "@bao-script/deployment/Deployment.sol";
-import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 // Upgraded version of Oracle for testing
 contract OracleV2 is OracleV1 {
@@ -74,12 +73,10 @@ contract UpgradeTestHarness is TestDeployment {
 contract DeploymentUpgradeTest is Test {
     UpgradeTestHarness public deployment;
     address public admin;
-    UUPSProxyDeployStub internal stub;
 
     function setUp() public {
         deployment = new UpgradeTestHarness();
         admin = address(this);
-        stub = UUPSProxyDeployStub(deployment.getDeployStub());
         deployment.startDeployment(admin, "upgrade-test", "v1.0.0", "upgrade-test-salt");
     }
 
@@ -89,7 +86,7 @@ contract DeploymentUpgradeTest is Test {
 
         // Complete ownership transfer for all proxies
         uint256 transferred = deployment.finalizeOwnership(admin);
-        assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
+        assertEq(transferred, 0, "Ownership assigned during deployment");
 
         // Verify initial state
         OracleV1 oracleV1 = OracleV1(oracle);
@@ -122,7 +119,7 @@ contract DeploymentUpgradeTest is Test {
 
         // Complete ownership transfer for all proxies
         uint256 transferred = deployment.finalizeOwnership(admin);
-        assertEq(transferred, 3, "Should transfer ownership of all 3 proxies (2 oracles + 1 counter)");
+        assertEq(transferred, 0, "Ownership assigned during deployment");
 
         // Deploy new implementations
         OracleV2 newOracleImpl = new OracleV2();
@@ -160,7 +157,7 @@ contract DeploymentUpgradeTest is Test {
 
         // Complete ownership transfer for all proxies
         uint256 transferred = deployment.finalizeOwnership(admin);
-        assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
+        assertEq(transferred, 0, "Ownership assigned during deployment");
 
         // Interact with V1
         CounterV1 counterV1 = CounterV1(counter);
@@ -192,7 +189,7 @@ contract DeploymentUpgradeTest is Test {
 
         // Complete ownership transfer for all proxies
         uint256 transferred = deployment.finalizeOwnership(admin);
-        assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
+        assertEq(transferred, 0, "Ownership assigned during deployment");
 
         // Deploy new implementation
         OracleV2 newImpl = new OracleV2();
@@ -217,7 +214,7 @@ contract DeploymentUpgradeTest is Test {
 
         // Complete ownership transfer for all proxies
         uint256 transferred = deployment.finalizeOwnership(admin);
-        assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
+        assertEq(transferred, 0, "Ownership assigned during deployment");
 
         // Deploy new implementation
         OracleV2 newImpl = new OracleV2();
@@ -239,7 +236,7 @@ contract DeploymentUpgradeTest is Test {
 
         // Complete ownership transfer for all proxies
         uint256 transferred = deployment.finalizeOwnership(admin);
-        assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
+        assertEq(transferred, 0, "Ownership assigned during deployment");
 
         // Verify initial deployment tracking
         assertEq(deployment.getEntryType("Oracle"), "proxy", "Should be tracked as proxy");
@@ -268,7 +265,7 @@ contract DeploymentUpgradeTest is Test {
 
         // Complete ownership transfer for all proxies
         uint256 transferred = deployment.finalizeOwnership(admin);
-        assertEq(transferred, 1, "Should transfer ownership of 1 proxy");
+        assertEq(transferred, 0, "Ownership assigned during deployment");
 
         OracleV2 newImpl = new OracleV2();
         IUUPSUpgradeableProxy(oracle).upgradeTo(address(newImpl));
@@ -281,7 +278,6 @@ contract DeploymentUpgradeTest is Test {
 
         // Test JSON round-trip
         UpgradeTestHarness newDeployment = new UpgradeTestHarness();
-        stub.setDeployer(address(newDeployment));
         newDeployment.fromJson(json);
 
         address restoredOracle = newDeployment.getByString("Oracle");

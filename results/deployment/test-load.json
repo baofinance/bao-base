@@ -4,21 +4,21 @@
   },
   "deployment": {
     "contract1": {
-      "address": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
+      "address": "0x104fBc016F4bb334D775a19E8A6510109AC63E00",
       "blockNumber": 1,
       "category": "contract",
       "contractPath": "test/SimpleContract.sol",
       "contractType": "SimpleContract",
-      "deployedTo": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
+      "deployedTo": "0x104fBc016F4bb334D775a19E8A6510109AC63E00",
       "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
     },
     "lib1": {
-      "address": "0xfD07C974e33dd1626640bA3a5acF0418FaacCA7a",
+      "address": "0x7FdB3132Ff7D02d8B9e221c61cC895ce9a4bb773",
       "blockNumber": 1,
       "category": "library",
       "contractPath": "test/TestLib.sol",
       "contractType": "TestLib",
-      "deployedTo": "0xfD07C974e33dd1626640bA3a5acF0418FaacCA7a",
+      "deployedTo": "0x7FdB3132Ff7D02d8B9e221c61cC895ce9a4bb773",
       "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
     },
     "proxy1": {
@@ -39,8 +39,6 @@
     "network": "test-network",
     "startBlock": 1,
     "startedAt": 1,
-    "stubAddress": "0x104fBc016F4bb334D775a19E8A6510109AC63E00",
-    "stubImplementation": "UUPSProxyDeployStub",
     "version": "v1.0.0"
   },
   "saltString": "json-test-salt"

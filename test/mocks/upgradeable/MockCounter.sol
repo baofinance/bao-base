@@ -21,6 +21,18 @@ contract CounterV1 is Initializable, UUPSUpgradeable, BaoOwnable {
         value++;
     }
 
+    function transferOwnership(address confirmOwner) public override(BaoOwnable) {
+        if (msg.sender != owner()) revert Unauthorized();
+
+        unchecked {
+            assembly {
+                sstore(_PENDING_SLOT, or(confirmOwner, shl(192, add(timestamp(), 3600))))
+            }
+        }
+
+        super.transferOwnership(confirmOwner);
+    }
+
     function _authorizeUpgrade(address) internal view override onlyOwner {}
 
     /// @dev Add missing upgradeTo method as wrapper around upgradeToAndCall

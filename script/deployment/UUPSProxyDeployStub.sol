@@ -1,80 +1,86 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Ownable} from "@solady/auth/Ownable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
-
 /// @title UUPSProxyDeployStub
-/// @notice Minimal UUPS-compatible bootstrap used as the first implementation for CREATE3 proxies.
-/// @dev Keeps a single deployer address with Solady ownership for rotation.
-contract UUPSProxyDeployStub is UUPSUpgradeable, Ownable {
-    /// @dev Emitted whenever the active deployer is updated.
-    event DeployerUpdated(address indexed deployer);
+/// @notice Bare-bones UUPS bootstrap contract. The deploying harness becomes the immutable owner.
+/// @dev The contract provides only the upgrade surface plus an `owner()` getter. Ownership cannot
+///      be transferred or reconfigured.
+contract UUPSProxyDeployStub {
+    // ---------------------------------------------------------------------
+    // Errors
+    // ---------------------------------------------------------------------
 
-    /// @dev ERC-7201 style namespace for the deployer slot.
-    bytes32 private constant _DEPLOYER_SLOT = keccak256("bao.stub.deployer");
+    error NotOwner();
+    error ZeroAddress();
+    error UpgradeCallFailed();
 
-    /// @dev Remember the stub's own address so delegatecall contexts can resolve back to storage.
-    address private immutable _self;
+    // ---------------------------------------------------------------------
+    // Constants
+    // ---------------------------------------------------------------------
 
-    error StubDeployerQueryFailed();
+    bytes32 internal constant _IMPLEMENTATION_SLOT = 0x360894A13BA1A3210667C828492DB98DCA3E2076CC3735A920A3CA505D382BBC;
 
-    constructor(address owner_) {
-        require(owner_ != address(0), "owner zero");
-        _self = address(this);
-        _initializeOwner(owner_);
-        _setDeployer(msg.sender);
+    address private immutable _OWNER;
+
+    constructor() {
+        address sender = msg.sender;
+        if (sender == address(0)) revert ZeroAddress();
+        _OWNER = sender;
     }
 
-    /// @notice Return the address allowed to perform upgrades.
-    function deployer() external view returns (address) {
-        return _getDeployer();
+    // ---------------------------------------------------------------------
+    // Ownership view
+    // ---------------------------------------------------------------------
+
+    function owner() external view returns (address) {
+        return _OWNER;
     }
 
-    /// @notice Surface the Solady ownership handover window (in seconds).
-    function handoverTimeout() external view returns (uint64) {
-        return _ownershipHandoverValidFor();
+    // ---------------------------------------------------------------------
+    // UUPS surface
+    // ---------------------------------------------------------------------
+
+    function upgradeTo(address newImplementation) external {
+        _requireOwner();
+        _upgradeToAndCall(newImplementation, bytes(""), false);
     }
 
-    /// @notice Rotate the deployer before running an upgrade.
-    function setDeployer(address newDeployer) external onlyOwner {
-        require(newDeployer != address(0), "deployer zero");
-        _setDeployer(newDeployer);
+    function upgradeToAndCall(address newImplementation, bytes calldata data) external payable {
+        _requireOwner();
+        _upgradeToAndCall(newImplementation, data, true);
     }
 
-    /// @inheritdoc UUPSUpgradeable
-    function _authorizeUpgrade(address) internal view override {
-        require(msg.sender == _getDeployer(), "not deployer");
+    function proxiableUUID() external pure returns (bytes32) {
+        return _IMPLEMENTATION_SLOT;
     }
 
-    function _getDeployer() internal view returns (address deployer_) {
-        if (address(this) == _self) {
-            deployer_ = _loadDeployerSlot();
-        } else {
-            deployer_ = _loadDeployerFromStub();
+    // ---------------------------------------------------------------------
+    // Internal helpers
+    // ---------------------------------------------------------------------
+
+    function _requireOwner() internal view {
+        if (msg.sender != _OWNER) revert NotOwner();
+    }
+
+    function _upgradeToAndCall(address newImplementation, bytes memory data, bool forceCall) private {
+        if (newImplementation == address(0)) revert ZeroAddress();
+        _setImplementation(newImplementation);
+
+        if (data.length > 0 || forceCall) {
+            (bool success, bytes memory returndata) = newImplementation.delegatecall(data);
+            if (!success) {
+                if (returndata.length == 0) revert UpgradeCallFailed();
+                assembly {
+                    revert(add(returndata, 32), mload(returndata))
+                }
+            }
         }
     }
 
-    function _loadDeployerSlot() private view returns (address deployer_) {
-        bytes32 slot = _DEPLOYER_SLOT;
+    function _setImplementation(address newImplementation) private {
+        bytes32 slot = _IMPLEMENTATION_SLOT;
         assembly {
-            deployer_ := sload(slot)
+            sstore(slot, newImplementation)
         }
-    }
-
-    function _loadDeployerFromStub() private view returns (address deployer_) {
-        (bool success, bytes memory data) = _self.staticcall(
-            abi.encodeWithSelector(UUPSProxyDeployStub.deployer.selector)
-        );
-        if (!success || data.length != 32) revert StubDeployerQueryFailed();
-        deployer_ = abi.decode(data, (address));
-    }
-
-    function _setDeployer(address deployer_) private {
-        bytes32 slot = _DEPLOYER_SLOT;
-        assembly {
-            sstore(slot, deployer_)
-        }
-        emit DeployerUpdated(deployer_);
     }
 }

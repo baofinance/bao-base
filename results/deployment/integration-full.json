@@ -4,21 +4,21 @@
   },
   "deployment": {
     "collateral": {
-      "address": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
+      "address": "0x104fBc016F4bb334D775a19E8A6510109AC63E00",
       "blockNumber": 1,
       "category": "mock",
       "contractPath": "test/mocks/tokens/MockERC20.sol",
       "contractType": "MockERC20",
-      "deployedTo": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
+      "deployedTo": "0x104fBc016F4bb334D775a19E8A6510109AC63E00",
       "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
     },
     "configLib": {
-      "address": "0xc98D9175A32ca68C4B83dB84B4707AF82ae37cC4",
+      "address": "0x4ff05a443250A64a18C68CEdd2122cFDf3872140",
       "blockNumber": 1,
       "category": "library",
       "contractPath": "test/ConfigLib.sol",
       "contractType": "ConfigLib",
-      "deployedTo": "0xc98D9175A32ca68C4B83dB84B4707AF82ae37cC4",
+      "deployedTo": "0x4ff05a443250A64a18C68CEdd2122cFDf3872140",
       "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
     },
     "minter": {
@@ -46,12 +46,12 @@
       "saltString": "oracle"
     },
     "pegged": {
-      "address": "0xDDc10602782af652bB913f7bdE1fD82981Db7dd9",
+      "address": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
       "blockNumber": 1,
       "category": "mock",
       "contractPath": "test/mocks/tokens/MockERC20.sol",
       "contractType": "MockERC20",
-      "deployedTo": "0xDDc10602782af652bB913f7bdE1fD82981Db7dd9",
+      "deployedTo": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
       "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
     }
   },
@@ -60,8 +60,6 @@
     "network": "test-network",
     "startBlock": 1,
     "startedAt": 1,
-    "stubAddress": "0x104fBc016F4bb334D775a19E8A6510109AC63E00",
-    "stubImplementation": "UUPSProxyDeployStub",
     "version": "v1.0.0"
   },
   "saltString": "integration-test-salt"

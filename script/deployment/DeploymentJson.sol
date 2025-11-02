@@ -69,13 +69,15 @@ abstract contract DeploymentJson is DeploymentRegistry {
         metadataJson = VM.serializeUint("metadata", "startBlock", _metadata.startBlock);
         metadataJson = VM.serializeString("metadata", "network", _metadata.network);
         metadataJson = VM.serializeString("metadata", "version", _metadata.version);
-    metadataJson = VM.serializeAddress("metadata", "stubAddress", _metadata.stubAddress);
-    metadataJson = VM.serializeString("metadata", "stubImplementation", _metadata.stubImplementation);
-
         string memory deployerJson = VM.serializeAddress("deployer", "address", _metadata.deployer);
 
         // Build root JSON - serialize in order (last one finalizes)
         string memory rootJson = "";
+        uint256 schemaVersion = _schemaVersion;
+        if (schemaVersion == 0) {
+            schemaVersion = DEPLOYMENT_SCHEMA_VERSION;
+        }
+        rootJson = VM.serializeUint("root", "schemaVersion", schemaVersion);
         rootJson = VM.serializeString("root", "metadata", metadataJson);
         rootJson = VM.serializeString("root", "deployer", deployerJson);
         rootJson = VM.serializeString("root", "saltString", _metadata.systemSaltString);
@@ -102,6 +104,11 @@ abstract contract DeploymentJson is DeploymentRegistry {
     function fromJson(string memory json) public virtual {
         if (_lifecycle != Lifecycle.Uninitialized) {
             revert DeploymentLifecycleInvalid(uint8(Lifecycle.Uninitialized), uint8(_lifecycle));
+        }
+        if (VM.keyExistsJson(json, ".schemaVersion")) {
+            _schemaVersion = VM.parseJsonUint(json, ".schemaVersion");
+        } else {
+            _schemaVersion = DEPLOYMENT_SCHEMA_VERSION;
         }
         // Parse metadata
         _deserializeMetadata(json);
@@ -284,17 +291,6 @@ abstract contract DeploymentJson is DeploymentRegistry {
             _metadata.systemSaltString = VM.parseJsonString(json, saltStringPath);
         }
 
-    // Handle stub information
-        string memory stubAddressPath = ".metadata.stubAddress";
-        if (VM.keyExistsJson(json, stubAddressPath)) {
-            _metadata.stubAddress = VM.parseJsonAddress(json, stubAddressPath);
-        }
-
-        string memory stubImplementationPath = ".metadata.stubImplementation";
-        if (VM.keyExistsJson(json, stubImplementationPath)) {
-            _metadata.stubImplementation = VM.parseJsonString(json, stubImplementationPath);
-        }
-
         string memory finishedPath = ".metadata.finishedAt";
         if (VM.keyExistsJson(json, finishedPath)) {
             _metadata.finishedAt = VM.parseJsonUint(json, finishedPath);
@@ -333,11 +329,16 @@ abstract contract DeploymentJson is DeploymentRegistry {
         Create3Info memory create3Info;
         create3Info.salt = VM.parseJsonBytes32(json, string.concat(basePath, ".salt"));
         create3Info.saltString = VM.parseJsonString(json, string.concat(basePath, ".saltString"));
+        string memory proxyTypePath = string.concat(basePath, ".proxyType");
+        if (VM.keyExistsJson(json, proxyTypePath)) {
+            create3Info.proxyType = VM.parseJsonString(json, proxyTypePath);
+        }
 
         _proxies[key] = ProxyEntry({info: info, create3: create3Info, proxy: ProxyInfo({implementationKey: ""})});
         _exists[key] = true;
         _entryType[key] = "proxy";
         _keys.push(key);
+        _resumedProxies[key] = true;
     }
 
     function _deserializeLibrary(string memory json, string memory key) private {

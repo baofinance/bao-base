@@ -3,7 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {TestDeployment} from "./TestDeployment.sol";
-import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 
@@ -13,11 +12,9 @@ import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol"
  */
 contract DeploymentParameterTest is Test {
     ParameterTestHarness public deployment;
-    UUPSProxyDeployStub internal stub;
 
     function setUp() public {
         deployment = new ParameterTestHarness();
-        stub = UUPSProxyDeployStub(deployment.getDeployStub());
         deployment.startDeployment(address(this), "test", "v1.0.0", "parameter-test-salt");
     }
 
@@ -106,7 +103,6 @@ contract DeploymentParameterTest is Test {
 
         // Create new deployment and load
         ParameterTestHarness newDeployment = new ParameterTestHarness();
-        stub.setDeployer(address(newDeployment));
         newDeployment.loadFromJson(filepath);
 
         // Verify all parameters loaded correctly

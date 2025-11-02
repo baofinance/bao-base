@@ -8,7 +8,6 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
-import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 // Mock contracts for JSON testing
 contract SimpleContract {
@@ -61,12 +60,10 @@ contract JsonTestHarness is TestDeployment {
  */
 contract DeploymentJsonTest is Test {
     JsonTestHarness public deployment;
-    UUPSProxyDeployStub internal stub;
     string constant TEST_OUTPUT_DIR = "results/deployment";
 
     function setUp() public {
         deployment = new JsonTestHarness();
-        stub = UUPSProxyDeployStub(deployment.getDeployStub());
         deployment.startDeployment(address(this), "test-network", "v1.0.0", "json-test-salt");
     }
 
@@ -77,6 +74,9 @@ contract DeploymentJsonTest is Test {
         // Verify file exists
         string memory json = vm.readFile(path);
         assertTrue(bytes(json).length > 0);
+
+        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
+        assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Verify metadata
         address deployer = vm.parseJsonAddress(json, ".deployer.address");
@@ -93,6 +93,9 @@ contract DeploymentJsonTest is Test {
         deployment.saveToJson(path);
 
         string memory json = vm.readFile(path);
+
+        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
+        assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Verify contract is in JSON
         address addr = vm.parseJsonAddress(json, ".deployment.contract1.address");
@@ -112,6 +115,9 @@ contract DeploymentJsonTest is Test {
         deployment.saveToJson(path);
 
         string memory json = vm.readFile(path);
+
+        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
+        assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Verify proxy fields
         address addr = vm.parseJsonAddress(json, ".deployment.proxy1.address");
@@ -134,6 +140,9 @@ contract DeploymentJsonTest is Test {
         deployment.saveToJson(path);
 
         string memory json = vm.readFile(path);
+
+        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
+        assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Verify library fields
         address addr = vm.parseJsonAddress(json, ".deployment.lib1.address");
@@ -158,6 +167,9 @@ contract DeploymentJsonTest is Test {
 
         string memory json = vm.readFile(path);
 
+        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
+        assertEq(schemaVersion, 1, "Schema version should be 1");
+
         // Verify all entries are present
         assertTrue(vm.keyExistsJson(json, ".deployment.contract1"));
         assertTrue(vm.keyExistsJson(json, ".deployment.proxy1"));
@@ -179,9 +191,12 @@ contract DeploymentJsonTest is Test {
         deployment.finishDeployment();
         deployment.saveToJson(path);
 
+        string memory json = vm.readFile(path);
+        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
+        assertEq(schemaVersion, 1, "Schema version should be 1");
+
         // Create new deployment and load
         JsonTestHarness newDeployment = new JsonTestHarness();
-        stub.setDeployer(address(newDeployment));
         newDeployment.loadFromJson(path);
 
         // Verify all contracts are loaded
@@ -205,9 +220,12 @@ contract DeploymentJsonTest is Test {
         deployment.deploySimpleContract("contract1", "Contract 1");
         deployment.saveToJson(path);
 
+        string memory json = vm.readFile(path);
+        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
+        assertEq(schemaVersion, 1, "Schema version should be 1");
+
         // Load and continue
         JsonTestHarness newDeployment = new JsonTestHarness();
-        stub.setDeployer(address(newDeployment));
         newDeployment.loadFromJson(path);
         newDeployment.resumeDeployment(address(this));
 
@@ -232,6 +250,8 @@ contract DeploymentJsonTest is Test {
         deployment.saveToJson(path);
 
         string memory json = vm.readFile(path);
+        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
+        assertEq(schemaVersion, 1, "Schema version should be 1");
         uint256 blockNumber = vm.parseJsonUint(json, ".deployment.contract1.blockNumber");
 
         assertEq(blockNumber, deployBlock);
@@ -249,6 +269,8 @@ contract DeploymentJsonTest is Test {
         deployment.saveToJson(path);
 
         string memory json = vm.readFile(path);
+        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
+        assertEq(schemaVersion, 1, "Schema version should be 1");
 
         uint256 savedStartTime = vm.parseJsonUint(json, ".metadata.startedAt");
         uint256 savedFinishTime = vm.parseJsonUint(json, ".metadata.finishedAt");

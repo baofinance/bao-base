@@ -18,8 +18,9 @@ abstract contract DeploymentFoundry is Deployment {
     /**
      * @notice Constructor
      * @param _vm Foundry VM instance (pass `vm` from your script)
+     * @param deployerContext Address to use for CREATE3 determinism (see Deployment.sol)
      */
-    constructor(Vm _vm) {
+    constructor(Vm _vm, address deployerContext) Deployment(deployerContext) {
         VM = _vm;
     }
 

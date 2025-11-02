@@ -28,8 +28,6 @@
     "network": "test",
     "startBlock": 1,
     "startedAt": 1,
-    "stubAddress": "0x104fBc016F4bb334D775a19E8A6510109AC63E00",
-    "stubImplementation": "UUPSProxyDeployStub",
     "version": "v1.0.0"
   },
   "saltString": "parameter-test-salt"
