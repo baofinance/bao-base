@@ -19,5 +19,6 @@
     "startedAt": 1,
     "version": "v1.0.0"
   },
-  "saltString": "json-test-salt"
+  "saltString": "json-test-salt",
+  "schemaVersion": 1
 }

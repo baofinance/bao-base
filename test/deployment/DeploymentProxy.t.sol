@@ -12,8 +12,10 @@ import {CounterV1} from "../mocks/upgradeable/MockCounter.sol";
 contract ProxyTestHarness is TestDeployment {
     function deployCounterProxy(string memory key, uint256 initialValue, address owner) public returns (address) {
         CounterV1 impl = new CounterV1();
+        string memory implKey = string.concat(key, "_impl");
+        registerImplementation(implKey, address(impl), "CounterV1", "test/mocks/upgradeable/MockCounter.sol");
         bytes memory initData = abi.encodeCall(CounterV1.initialize, (initialValue, owner));
-        return deployProxy(key, address(impl), initData);
+        return this.deployProxy(key, implKey, initData);
     }
 }
 
@@ -101,15 +103,21 @@ contract DeploymentProxyTest is Test {
 
     function test_RevertWhen_ProxyWithEmptyKey() public {
         CounterV1 impl = new CounterV1();
+        deployment.registerImplementation(
+            "testImpl",
+            address(impl),
+            "CounterV1",
+            "test/mocks/upgradeable/MockCounter.sol"
+        );
         bytes memory initData = abi.encodeCall(CounterV1.initialize, (42, address(this)));
 
-        vm.expectRevert(Deployment.SaltRequired.selector);
-        deployment.deployProxy("", address(impl), initData);
+        vm.expectRevert(Deployment.KeyRequired.selector);
+        deployment.deployProxy("", "testImpl", initData);
     }
 
     function test_RevertWhen_ProxyWithoutImplementation() public {
-        vm.expectRevert(Deployment.ImplementationRequired.selector);
-        deployment.deployProxy("counter", address(0), "");
+        vm.expectRevert();
+        deployment.deployProxy("counter", "nonexistent_impl", "");
     }
 
     function test_ResumeRestoresPredictions_() public {

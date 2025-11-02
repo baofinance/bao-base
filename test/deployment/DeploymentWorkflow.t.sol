@@ -15,13 +15,17 @@ import {MathLib} from "@bao-test/mocks/TestLibraries.sol";
 contract WorkflowTestHarness is TestDeployment {
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
         MockERC20 token = new MockERC20(name, symbol, 18);
-        return registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol", "contract");
+        registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol", "contract");
+        return _get(key);
     }
 
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
         OracleV1 impl = new OracleV1();
+        string memory implKey = string.concat(key, "_impl");
+        registerImplementation(implKey, address(impl), "OracleV1", "test/mocks/upgradeable/MockOracle.sol");
         bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
-        return deployProxy(key, address(impl), initData);
+        this.deployProxy(key, implKey, initData);
+        return _get(key);
     }
 
     function deployMinterProxy(
@@ -32,22 +36,25 @@ contract WorkflowTestHarness is TestDeployment {
         string memory oracleKey,
         address admin
     ) public returns (address) {
-        address collateral = _get(collateralKey);
-        address pegged = _get(peggedKey);
-        address leveraged = _get(leveragedKey);
-        address oracle = _get(oracleKey);
-
-        MockMinter impl = new MockMinter(collateral, pegged, leveraged);
-        bytes memory initData = abi.encodeCall(MockMinter.initialize, (oracle, admin));
-        address proxy = deployProxy(key, address(impl), initData);
-
-        // Note: Ownership transfer will be completed centrally via finalizeOwnership()
-        return proxy;
+        MockMinter impl = new MockMinter(_get(collateralKey), _get(peggedKey), _get(leveragedKey));
+        registerImplementation(
+            string.concat(key, "_impl"),
+            address(impl),
+            "MockMinter",
+            "test/mocks/upgradeable/MockMinter.sol"
+        );
+        return
+            this.deployProxy(
+                key,
+                string.concat(key, "_impl"),
+                abi.encodeCall(MockMinter.initialize, (_get(oracleKey), admin))
+            );
     }
 
     function deployMathLibrary(string memory key) public returns (address) {
         bytes memory bytecode = type(MathLib).creationCode;
-        return deployLibrary(key, bytecode, "MathLib", "test/mocks/TestLibraries.sol");
+        deployLibrary(key, bytecode, "MathLib", "test/mocks/TestLibraries.sol");
+        return _get(key);
     }
 }
 

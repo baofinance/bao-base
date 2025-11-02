@@ -45,14 +45,18 @@ contract CounterV2 is CounterV1 {
 contract UpgradeTestHarness is TestDeployment {
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
         OracleV1 impl = new OracleV1();
+        string memory implKey = string.concat(key, "_impl");
+        registerImplementation(implKey, address(impl), "OracleV1", "test/mocks/upgradeable/MockOracle.sol");
         bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
-        return deployProxy(key, address(impl), initData);
+        return this.deployProxy(key, implKey, initData);
     }
 
     function deployCounterProxy(string memory key, uint256 initialValue, address admin) public returns (address) {
         CounterV1 impl = new CounterV1();
+        string memory implKey = string.concat(key, "_impl");
+        registerImplementation(implKey, address(impl), "CounterV1", "test/mocks/upgradeable/MockCounter.sol");
         bytes memory initData = abi.encodeCall(CounterV1.initialize, (initialValue, admin));
-        return deployProxy(key, address(impl), initData);
+        return this.deployProxy(key, implKey, initData);
     }
 
     function upgradeOracle(string memory key, address newImplementation) public {

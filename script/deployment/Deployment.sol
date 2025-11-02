@@ -98,25 +98,46 @@ abstract contract Deployment is DeploymentJson {
     function _doProxy(
         Create3Mode mode,
         string memory proxyKey
-    ) public view returns (address proxy, bytes32 salt, string memory saltString) {
-        // crystalise the salt
-        bytes memory saltBytes = abi.encodePacked(_metadata.systemSaltString, "/", proxyKey, "/UUPS");
-        salt = EfficientHashLib.hash(saltBytes);
+    ) internal returns (address proxy, bytes32 salt, string memory saltString) {
+        // crystalise the salts - need different salts for stub and proxy
+        bytes memory stubSaltBytes = abi.encodePacked(_metadata.systemSaltString, "/", proxyKey, "/UUPS/stub");
+        bytes32 stubSalt = EfficientHashLib.hash(stubSaltBytes);
+
+        bytes memory proxySaltBytes = abi.encodePacked(_metadata.systemSaltString, "/", proxyKey, "/UUPS/proxy");
+        salt = EfficientHashLib.hash(proxySaltBytes);
+        saltString = proxyKey;
 
         // deploy the stub at deterministic address using DEPLOYER_CONTEXT
         address stub;
         if (mode == Create3Mode.Deploy) {
-            stub = CREATE3.deployDeterministic(type(UUPSProxyDeployStub).creationCode, salt);
+            stub = CREATE3.deployDeterministic(type(UUPSProxyDeployStub).creationCode, stubSalt);
         } else {
-            stub = CREATE3.predictDeterministicAddress(type(UUPSProxyDeployStub).creationCode, salt, DEPLOYER_CONTEXT);
+            stub = CREATE3.predictDeterministicAddress(stubSalt, DEPLOYER_CONTEXT);
         }
         /// deploy the proxy at deterministic address using DEPLOYER_CONTEXT
         bytes memory proxyCreationCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(stub, bytes("")));
         if (mode == Create3Mode.Deploy) {
             proxy = CREATE3.deployDeterministic(proxyCreationCode, salt);
         } else {
-            proxy = CREATE3.predictDeterministicAddress(proxyCreationCode, salt, DEPLOYER_CONTEXT);
+            proxy = CREATE3.predictDeterministicAddress(salt, DEPLOYER_CONTEXT);
         }
+    }
+
+    /// @notice Predict proxy address without deploying
+    /// @param proxyKey Key for the proxy deployment
+    /// @return proxy Predicted proxy address
+    /// @return salt Salt that will be used for CREATE3
+    /// @return saltString Human-readable salt string
+    function _predictProxy(
+        string memory proxyKey
+    ) internal view returns (address proxy, bytes32 salt, string memory saltString) {
+        // crystalise the proxy salt (same as in _doProxy)
+        bytes memory proxySaltBytes = abi.encodePacked(_metadata.systemSaltString, "/", proxyKey, "/UUPS/proxy");
+        salt = EfficientHashLib.hash(proxySaltBytes);
+        saltString = proxyKey;
+
+        // predict proxy address using DEPLOYER_CONTEXT
+        proxy = CREATE3.predictDeterministicAddress(salt, DEPLOYER_CONTEXT);
     }
 
     /// @dev this only works with BaoOwnable derived implementations
@@ -149,7 +170,7 @@ abstract contract Deployment is DeploymentJson {
     // TODO: rather than an implementation address, it should take an implementation key
     function upgradeProxy(
         string memory key,
-        string memory newImplementationKey,
+        string memory /* newImplementationKey */,
         bytes memory initData
     ) external virtual {
         _requireActive();
@@ -166,7 +187,7 @@ abstract contract Deployment is DeploymentJson {
     }
 
     function predictProxyAddress(string memory proxyKey) public view returns (address proxy) {
-        (proxy, , ) = _doProxy(Create3Mode.Deploy, proxyKey);
+        (proxy, , ) = _predictProxy(proxyKey);
     }
 
     // ============================================================================
@@ -243,7 +264,6 @@ abstract contract Deployment is DeploymentJson {
                 }
 
                 address proxy = _proxies[key].info.addr;
-                address currentOwner;
                 IBaoOwnable(proxy).transferOwnership(newOwner);
                 ++transferred;
             }

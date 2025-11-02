@@ -60,13 +60,17 @@ library ConfigLib {
 contract IntegrationTestHarness is TestDeployment {
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
         MockERC20 token = new MockERC20(name, symbol, 18);
-        return registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol", "mock");
+        registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol", "mock");
+        return _get(key);
     }
 
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
         OracleV1 impl = new OracleV1();
+        string memory implKey = string.concat(key, "_impl");
+        registerImplementation(implKey, address(impl), "OracleV1", "test/mocks/upgradeable/MockOracle.sol");
         bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
-        return deployProxy(key, address(impl), initData);
+        this.deployProxy(key, implKey, initData);
+        return _get(key);
     }
 
     function deployMinterProxy(
@@ -81,13 +85,16 @@ contract IntegrationTestHarness is TestDeployment {
         address oracle = _get(oracleKey);
 
         MockMinter impl = new MockMinter();
+        string memory implKey = string.concat(key, "_impl");
+        registerImplementation(implKey, address(impl), "MockMinter", "test/mocks/upgradeable/MockMinter.sol");
         bytes memory initData = abi.encodeCall(MockMinter.initialize, (collateral, pegged, oracle, admin));
-        return deployProxy(key, address(impl), initData);
+        return this.deployProxy(key, implKey, initData);
     }
 
     function deployConfigLibrary(string memory key) public returns (address) {
         bytes memory bytecode = type(ConfigLib).creationCode;
-        return deployLibrary(key, bytecode, "ConfigLib", "test/ConfigLib.sol");
+        deployLibrary(key, bytecode, "ConfigLib", "test/ConfigLib.sol");
+        return _get(key);
     }
 }
 
@@ -241,15 +248,21 @@ contract DeploymentIntegrationTest is Test {
     function test_MultipleProxiesWithSameImplementation() public {
         // Deploy one implementation
         OracleV1 impl = new OracleV1();
+        deployment.registerImplementation(
+            "oracle_impl",
+            address(impl),
+            "OracleV1",
+            "test/mocks/upgradeable/MockOracle.sol"
+        );
 
         // Deploy multiple proxies
         bytes memory initData1 = abi.encodeCall(OracleV1.initialize, (1000e18, admin));
         bytes memory initData2 = abi.encodeCall(OracleV1.initialize, (2000e18, admin));
         bytes memory initData3 = abi.encodeCall(OracleV1.initialize, (3000e18, admin));
 
-        address proxy1 = deployment.deployProxy("oracle1", address(impl), initData1);
-        address proxy2 = deployment.deployProxy("oracle2", address(impl), initData2);
-        address proxy3 = deployment.deployProxy("oracle3", address(impl), initData3);
+        address proxy1 = deployment.deployProxy("oracle1", "oracle_impl", initData1);
+        address proxy2 = deployment.deployProxy("oracle2", "oracle_impl", initData2);
+        address proxy3 = deployment.deployProxy("oracle3", "oracle_impl", initData3);
 
         // Verify each has different address but same implementation
         assertNotEq(proxy1, proxy2);
@@ -271,8 +284,14 @@ contract DeploymentIntegrationTest is Test {
 
         // Now deploy minter2 that depends on minter1
         MockMinter minter2Impl = new MockMinter();
+        deployment.registerImplementation(
+            "minter2_impl",
+            address(minter2Impl),
+            "MockMinter",
+            "test/mocks/upgradeable/MockMinter.sol"
+        );
         bytes memory initData = abi.encodeCall(MockMinter.initialize, (minter1, token2, oracle, admin));
-        address minter2 = deployment.deployProxy("minter2", address(minter2Impl), initData);
+        address minter2 = deployment.deployProxy("minter2", "minter2_impl", initData);
 
         // Verify dependency chain
         MockMinter m2 = MockMinter(minter2);

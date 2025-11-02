@@ -47,10 +47,9 @@ contract TestDeployment is Deployment {
      * @notice Public wrapper for internal useExisting() method
      * @param key String key to register
      * @param addr Address of existing contract
-     * @return The address that was registered
      */
-    function useExistingByString(string memory key, address addr) public returns (address) {
-        return useExisting(key, addr);
+    function useExistingByString(string memory key, address addr) public {
+        useExisting(key, addr);
     }
 
     /**
@@ -62,7 +61,7 @@ contract TestDeployment is Deployment {
         string memory contractType,
         string memory contractPath,
         string memory category
-    ) public returns (address) {
+    ) public {
         return _registerContract(key, addr, contractType, contractPath, category);
     }
 
@@ -74,8 +73,8 @@ contract TestDeployment is Deployment {
         address addr,
         string memory contractType,
         string memory contractPath
-    ) public returns (address) {
-        return _registerImplementationEntry(key, addr, contractType, contractPath);
+    ) public {
+        _registerImplementationEntry(key, addr, contractType, contractPath);
     }
 
     /**
@@ -86,8 +85,8 @@ contract TestDeployment is Deployment {
         address addr,
         string memory contractType,
         string memory contractPath
-    ) public returns (address) {
-        return _registerLibraryEntry(key, addr, contractType, contractPath);
+    ) public {
+        _registerLibraryEntry(key, addr, contractType, contractPath);
     }
 
     // ============================================================================
@@ -174,10 +173,9 @@ contract TestDeployment is Deployment {
      * @notice Public wrapper for deployLibrary with simplified parameters
      * @param key String key to register
      * @param bytecode Contract bytecode to deploy
-     * @return Address of deployed library
      */
-    function deployLibrary(string memory key, bytes memory bytecode) public returns (address) {
-        return _deployLibrary(key, bytecode, "Library", "");
+    function deployLibrary(string memory key, bytes memory bytecode) public {
+        _deployLibrary(key, bytecode, "Library", "");
     }
 
     /**
@@ -185,10 +183,9 @@ contract TestDeployment is Deployment {
      * @dev The salt parameter is ignored - libraries always use CREATE
      * @param key String key to register
      * @param bytecode Contract bytecode to deploy
-     * @return Address of deployed library
      */
-    function deployLibrary(string memory key, bytes memory bytecode, string memory) public returns (address) {
-        return _deployLibrary(key, bytecode, "Library", "");
+    function deployLibrary(string memory key, bytes memory bytecode, string memory) public {
+        _deployLibrary(key, bytecode, "Library", "");
     }
 
     /**
@@ -199,8 +196,8 @@ contract TestDeployment is Deployment {
         bytes memory bytecode,
         string memory contractType,
         string memory contractPath
-    ) public returns (address) {
-        return _deployLibrary(key, bytecode, contractType, contractPath);
+    ) public {
+        _deployLibrary(key, bytecode, contractType, contractPath);
     }
 
     // ============================================================================
@@ -220,10 +217,9 @@ contract TestDeployment is Deployment {
      * @notice Alias for useExistingByString for backward compatibility
      * @param key String key to register
      * @param addr Address of existing contract
-     * @return The address that was registered
      */
-    function registerExisting(string memory key, address addr) public returns (address) {
-        return useExisting(key, addr);
+    function registerExisting(string memory key, address addr) public {
+        useExisting(key, addr);
     }
 
     /**

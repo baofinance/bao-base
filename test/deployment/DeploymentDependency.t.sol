@@ -11,8 +11,8 @@ import {MockOracle, MockToken, MockMinter} from "../mocks/basic/MockDependencies
 contract DependencyTestHarness is TestDeployment {
     function deployOracle(string memory key, uint256 price) public returns (address) {
         MockOracle oracle = new MockOracle(price);
-        return
-            registerContract(key, address(oracle), "MockOracle", "test/mocks/basic/MockDependencies.sol", "contract");
+        registerContract(key, address(oracle), "MockOracle", "test/mocks/basic/MockDependencies.sol", "contract");
+        return _get(key);
     }
 
     function deployToken(
@@ -23,14 +23,16 @@ contract DependencyTestHarness is TestDeployment {
     ) public returns (address) {
         address oracleAddr = _get(oracleKey);
         MockToken token = new MockToken(oracleAddr, name, decimals);
-        return registerContract(key, address(token), "MockToken", "test/mocks/basic/MockDependencies.sol", "contract");
+        registerContract(key, address(token), "MockToken", "test/mocks/basic/MockDependencies.sol", "contract");
+        return _get(key);
     }
 
     function deployMinter(string memory key, string memory tokenKey, string memory oracleKey) public returns (address) {
         address tokenAddr = _get(tokenKey);
         address oracleAddr = _get(oracleKey);
         MockMinter minter = new MockMinter(tokenAddr, oracleAddr);
-        return registerContract(key, address(minter), "MockMinter", "test/MockMinter.sol", "contract");
+        registerContract(key, address(minter), "MockMinter", "test/MockMinter.sol", "contract");
+        return _get(key);
     }
 }
 

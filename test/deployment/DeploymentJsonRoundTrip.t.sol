@@ -16,16 +16,19 @@ library TestMathLib {
 contract RoundTripTestHarness is TestDeployment {
     function deployMockProxy(string memory key, uint256 initialValue, string memory mockName) public returns (address) {
         MockUpgradeableContract impl = new MockUpgradeableContract();
+        string memory implKey = string.concat(key, "_impl");
+        registerImplementation(implKey, address(impl), "MockUpgradeableContract", "test/MockUpgradeableContract.sol");
         bytes memory initData = abi.encodeCall(
             MockUpgradeableContract.initialize,
             (initialValue, mockName, address(this))
         );
-        return deployProxy(key, address(impl), initData);
+        return this.deployProxy(key, implKey, initData);
     }
 
     function deployMockLibrary(string memory key) public returns (address) {
         bytes memory bytecode = type(TestMathLib).creationCode;
-        return deployLibrary(key, bytecode, "TestMathLib", "test/TestMathLib.sol");
+        deployLibrary(key, bytecode, "TestMathLib", "test/TestMathLib.sol");
+        return _get(key);
     }
 }
 

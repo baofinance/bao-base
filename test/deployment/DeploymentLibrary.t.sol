@@ -11,12 +11,14 @@ import {MathLib, StringLib} from "../mocks/TestLibraries.sol";
 contract LibraryTestHarness is TestDeployment {
     function deployMathLibrary(string memory key) public returns (address) {
         bytes memory bytecode = type(MathLib).creationCode;
-        return deployLibrary(key, bytecode, "MathLib", "test/mocks/TestLibraries.sol");
+        deployLibrary(key, bytecode, "MathLib", "test/mocks/TestLibraries.sol");
+        return _get(key);
     }
 
     function deployStringLibrary(string memory key) public returns (address) {
         bytes memory bytecode = type(StringLib).creationCode;
-        return deployLibrary(key, bytecode, "StringLib", "test/mocks/TestLibraries.sol");
+        deployLibrary(key, bytecode, "StringLib", "test/mocks/TestLibraries.sol");
+        return _get(key);
     }
 }
 

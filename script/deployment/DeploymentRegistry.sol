@@ -459,7 +459,7 @@ abstract contract DeploymentRegistry {
     function _getImplementation(string memory key) internal view returns (address implementation) {
         _requireActive();
         implementation = _implementations[key].info.addr;
-        if (implementation = address(0)) {
+        if (implementation == address(0)) {
             revert ContractNotFound(key);
         }
     }

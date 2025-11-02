@@ -13,20 +13,21 @@ import {MockImplementation} from "@bao-test/mocks/basic/MockImplementation.sol";
 contract DeploymentHarness is TestDeployment {
     function deployMockContract(string memory key, string memory mockName) public returns (address) {
         MockContract mock = new MockContract(mockName);
-        return registerContract(key, address(mock), "MockContract", "test/mocks/basic/MockContract.sol", "contract");
+        registerContract(key, address(mock), "MockContract", "test/mocks/basic/MockContract.sol", "contract");
+        return _get(key);
     }
 
     function deployMockImplementation(string memory key, uint256 initValue) public returns (address) {
         MockImplementation impl = new MockImplementation();
         impl.initialize(initValue);
-        return
-            registerContract(
-                key,
-                address(impl),
-                "MockImplementation",
-                "test/mocks/basic/MockImplementation.sol",
-                "contract"
-            );
+        registerContract(
+            key,
+            address(impl),
+            "MockImplementation",
+            "test/mocks/basic/MockImplementation.sol",
+            "contract"
+        );
+        return _get(key);
     }
 }
 
@@ -77,12 +78,11 @@ contract DeploymentBasicTest is Test {
     }
 
     function test_UseExistingContract() public {
-        MockContract mock = new MockContract("Existing Mock");
-        address mockAddr = deployment.useExistingByString("existing1", address(mock));
+        address mock = address(new MockContract("Existing Mock"));
+        deployment.useExistingByString("existing1", mock);
 
-        assertEq(mockAddr, address(mock));
         assertTrue(deployment.hasByString("existing1"));
-        assertEq(deployment.getByString("existing1"), address(mock));
+        assertEq(deployment.getByString("existing1"), mock);
         assertEq(deployment.getEntryType("existing1"), "contract");
     }
 
@@ -136,9 +136,8 @@ contract DeploymentBasicTest is Test {
     function test_RegisterExisting() public {
         address existingContract = address(0x1234567890123456789012345678901234567890);
 
-        address registered = deployment.useExistingByString("ExistingContract", existingContract);
+        deployment.useExistingByString("ExistingContract", existingContract);
 
-        assertEq(registered, existingContract);
         assertEq(deployment.getByString("ExistingContract"), existingContract);
         assertEq(deployment.getEntryType("ExistingContract"), "contract");
     }

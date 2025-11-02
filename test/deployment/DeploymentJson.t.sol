@@ -39,18 +39,23 @@ library TestLib {
 contract JsonTestHarness is TestDeployment {
     function deploySimpleContract(string memory key, string memory name) public returns (address) {
         SimpleContract c = new SimpleContract(name);
-        return registerContract(key, address(c), "SimpleContract", "test/SimpleContract.sol", "contract");
+        registerContract(key, address(c), "SimpleContract", "test/SimpleContract.sol", "contract");
+        return _get(key);
     }
 
     function deploySimpleProxy(string memory key, uint256 value) public returns (address) {
         SimpleImplementation impl = new SimpleImplementation();
+        string memory implKey = string.concat(key, "_impl");
+        registerImplementation(implKey, address(impl), "SimpleImplementation", "test/SimpleImplementation.sol");
         bytes memory initData = abi.encodeCall(SimpleImplementation.initialize, (value));
-        return deployProxy(key, address(impl), initData);
+        this.deployProxy(key, implKey, initData);
+        return _get(key);
     }
 
     function deployTestLibrary(string memory key) public returns (address) {
         bytes memory bytecode = type(TestLib).creationCode;
-        return deployLibrary(key, bytecode, "TestLib", "test/TestLib.sol");
+        deployLibrary(key, bytecode, "TestLib", "test/TestLib.sol");
+        return _get(key);
     }
 }
 

@@ -57,13 +57,6 @@ contract ExampleProductionDeployment is Script {
      *     }
      * }
      */
-    function deployContracts() public view {
-        address harnessAddr = predictHarnessAddress();
-        require(harnessAddr.code.length > 0, "Harness not deployed yet");
-
-        console.log("Harness deployed at:", harnessAddr);
-        console.log("Create your deployment script and pass this address as deployerContext");
-    }
 
     /**
      * @notice Predict harness address before deployment

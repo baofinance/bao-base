@@ -137,7 +137,8 @@ contract ParameterTestHarness is TestDeployment {
     function deployMockContract(string memory key, string memory name) public returns (address) {
         // Simple mock - just create a minimal contract
         address mock = address(new MockContract(name));
-        return registerContract(key, mock, "MockContract", "test/MockContract.sol", "mock");
+        registerContract(key, mock, "MockContract", "test/MockContract.sol", "mock");
+        return _get(key);
     }
 }
 
