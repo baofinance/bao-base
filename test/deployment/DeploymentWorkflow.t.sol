@@ -36,19 +36,23 @@ contract WorkflowTestHarness is TestDeployment {
         string memory oracleKey,
         address admin
     ) public returns (address) {
-        MockMinter impl = new MockMinter(_get(collateralKey), _get(peggedKey), _get(leveragedKey));
+        address collateral = _get(collateralKey);
+        address pegged = _get(peggedKey);
+        address leveraged = _get(leveragedKey);
+        address oracle = _get(oracleKey);
+
+        // Constructor parameters: immutable token addresses (rarely change)
+        MockMinter impl = new MockMinter(collateral, pegged, leveraged);
         registerImplementation(
             string.concat(key, "_impl"),
             address(impl),
             "MockMinter",
             "test/mocks/upgradeable/MockMinter.sol"
         );
+
+        // Initialize parameters: oracle (has update function), owner (two-step pattern)
         return
-            this.deployProxy(
-                key,
-                string.concat(key, "_impl"),
-                abi.encodeCall(MockMinter.initialize, (_get(oracleKey), admin))
-            );
+            this.deployProxy(key, string.concat(key, "_impl"), abi.encodeCall(MockMinter.initialize, (oracle, admin)));
     }
 
     function deployMathLibrary(string memory key) public returns (address) {
@@ -69,7 +73,7 @@ contract DeploymentWorkflowTest is Test {
     function setUp() public {
         deployment = new WorkflowTestHarness();
         admin = makeAddr("admin");
-        deployment.startDeployment(admin, "workflow-test", "v2.0.0", "workflow-test-salt");
+        deployment.initialize(admin, "workflow-test", "v2.0.0", "workflow-test-salt");
     }
 
     function test_SimpleWorkflow() public {
@@ -82,7 +86,7 @@ contract DeploymentWorkflowTest is Test {
         assertEq(deployment.getEntryType("USDC"), "contract", "Should be contract type");
 
         // Finish deployment
-        deployment.finishDeployment();
+        deployment.finish();
 
         // Verify metadata
         assertGt(deployment.getMetadata().finishedAt, 0, "Should be finished");
@@ -97,16 +101,16 @@ contract DeploymentWorkflowTest is Test {
         assertEq(deployment.getByString("PriceOracle"), oracle, "Oracle should be registered");
         assertEq(deployment.getEntryType("PriceOracle"), "proxy", "Should be proxy type");
 
-        // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeOwnership(admin);
-        assertEq(transferred, 0, "Ownership assigned during deployment");
+        // Finish deployment and transfer ownership
+        deployment.finish();
+        // Ownership transferred by finish()
 
         // Verify proxy functionality
         OracleV1 oracleContract = OracleV1(oracle);
         assertEq(oracleContract.price(), 1500e18, "Price should be initialized");
         assertEq(oracleContract.owner(), admin, "Owner should be set");
 
-        deployment.finishDeployment();
+        deployment.finish();
     }
 
     function test_LibraryWorkflow() public {
@@ -118,7 +122,7 @@ contract DeploymentWorkflowTest is Test {
         assertEq(deployment.getByString("MathLib"), mathLib, "Library should be registered");
         assertEq(deployment.getEntryType("MathLib"), "library", "Should be library type");
 
-        deployment.finishDeployment();
+        deployment.finish();
     }
 
     function test_ComplexWorkflow() public {
@@ -136,9 +140,9 @@ contract DeploymentWorkflowTest is Test {
         // Deploy library
         address mathLib = deployment.deployMathLibrary("MathLib");
 
-        // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeOwnership(admin);
-        assertEq(transferred, 0, "Ownership assigned during deployment");
+        // Finish deployment and transfer ownership
+        deployment.finish();
+        // Ownership transferred by finish()
 
         // Add parameters
         deployment.setStringByKey("systemName", "BaoFinance");
@@ -146,7 +150,7 @@ contract DeploymentWorkflowTest is Test {
         deployment.setBoolByKey("testnet", true);
 
         // Finish deployment
-        deployment.finishDeployment();
+        deployment.finish();
 
         // Verify all components
         assertTrue(usdc != address(0), "USDC should be deployed");
@@ -170,9 +174,9 @@ contract DeploymentWorkflowTest is Test {
         assertEq(deployment.getUintByKey("version"), 2, "Version should be set");
         assertTrue(deployment.getBoolByKey("testnet"), "Testnet flag should be true");
 
-        // Verify key count
+        // Verify key count (3 tokens + 2 proxies + 2 implementations + 1 library + 3 parameters)
         string[] memory keys = deployment.keys();
-        assertEq(keys.length, 9, "Should have 9 entries (6 contracts + 3 parameters)");
+        assertEq(keys.length, 11, "Should have 11 entries (8 contracts + 3 parameters)");
     }
 
     function test_WorkflowWithExistingContracts() public {
@@ -202,16 +206,16 @@ contract DeploymentWorkflowTest is Test {
         );
         assertTrue(minter != address(0), "Minter should be deployed");
 
-        // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeOwnership(admin);
-        assertEq(transferred, 0, "Ownership assigned during deployment");
+        // Finish deployment and transfer ownership
+        deployment.finish();
+        // Ownership transferred by finish()
 
         OracleV1 oracleContractExisting = OracleV1(oracle);
         assertEq(oracleContractExisting.owner(), admin, "Oracle owner should be admin");
         MockMinter minterContractExisting = MockMinter(minter);
         assertEq(minterContractExisting.owner(), admin, "Minter owner should be admin");
 
-        deployment.finishDeployment();
+        deployment.finish();
 
         // Verify existing contract integration
         MockMinter minterContract = MockMinter(minter);
@@ -227,9 +231,9 @@ contract DeploymentWorkflowTest is Test {
 
         address deployed = deployment.deployOracleProxy("Oracle", 1000e18, admin);
 
-        // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeOwnership(admin);
-        assertEq(transferred, 0, "Ownership assigned during deployment");
+        // Finish deployment and transfer ownership
+        deployment.finish();
+        // Ownership transferred by finish()
 
         // Note: This test would need the salt to be passed through properly
         // For now, just verify the proxy was deployed
@@ -246,12 +250,12 @@ contract DeploymentWorkflowTest is Test {
         deployment.deployMockERC20("USDC", "USD Coin", "USDC");
         deployment.deployOracleProxy("Oracle", 1500e18, admin);
 
-        // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeOwnership(admin);
-        assertEq(transferred, 0, "Ownership assigned during deployment");
+        // Finish deployment and transfer ownership
+        deployment.finish();
+        // Ownership transferred by finish()
 
         deployment.setStringByKey("network", "ethereum");
-        deployment.finishDeployment();
+        deployment.finish();
 
         // Test JSON round-trip
         string memory json = deployment.toJson();

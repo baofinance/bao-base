@@ -23,8 +23,10 @@ abstract contract DeploymentJson is DeploymentRegistry {
     /**
      * @notice Save deployment to JSON file
      * @param filepath Path to write JSON file
+     * @dev Updates finishedAt to current timestamp on each save
      */
     function saveToJson(string memory filepath) public virtual {
+        _updateFinishedAt();
         VM.writeJson(toJson(), filepath);
     }
 
@@ -70,6 +72,7 @@ abstract contract DeploymentJson is DeploymentRegistry {
         metadataJson = VM.serializeString("metadata", "network", _metadata.network);
         metadataJson = VM.serializeString("metadata", "version", _metadata.version);
         string memory deployerJson = VM.serializeAddress("deployer", "address", _metadata.deployer);
+        string memory ownerJson = VM.serializeAddress("owner", "address", _metadata.owner);
 
         // Build root JSON - serialize in order (last one finalizes)
         string memory rootJson = "";
@@ -80,6 +83,7 @@ abstract contract DeploymentJson is DeploymentRegistry {
         rootJson = VM.serializeUint("root", "schemaVersion", schemaVersion);
         rootJson = VM.serializeString("root", "metadata", metadataJson);
         rootJson = VM.serializeString("root", "deployer", deployerJson);
+        rootJson = VM.serializeString("root", "owner", ownerJson);
         rootJson = VM.serializeString("root", "saltString", _metadata.systemSaltString);
         if (_keys.length > 0) {
             rootJson = VM.serializeString("root", "deployment", deploymentsJson);
@@ -102,8 +106,8 @@ abstract contract DeploymentJson is DeploymentRegistry {
      * @param json JSON string to parse
      */
     function fromJson(string memory json) public virtual {
-        if (_lifecycle != Lifecycle.Uninitialized) {
-            revert DeploymentLifecycleInvalid(uint8(Lifecycle.Uninitialized), uint8(_lifecycle));
+        if (_metadata.startedAt != 0) {
+            revert AlreadyInitialized();
         }
         if (VM.keyExistsJson(json, ".schemaVersion")) {
             _schemaVersion = VM.parseJsonUint(json, ".schemaVersion");
@@ -280,21 +284,13 @@ abstract contract DeploymentJson is DeploymentRegistry {
 
     function _deserializeMetadata(string memory json) private {
         _metadata.deployer = VM.parseJsonAddress(json, ".deployer.address");
+        _metadata.owner = VM.parseJsonAddress(json, ".owner.address");
         _metadata.startedAt = VM.parseJsonUint(json, ".metadata.startedAt");
         _metadata.startBlock = VM.parseJsonUint(json, ".metadata.startBlock");
         _metadata.network = VM.parseJsonString(json, ".metadata.network");
         _metadata.version = VM.parseJsonString(json, ".metadata.version");
-
-        // Handle systemSaltString from top-level
-        string memory saltStringPath = ".saltString";
-        if (VM.keyExistsJson(json, saltStringPath)) {
-            _metadata.systemSaltString = VM.parseJsonString(json, saltStringPath);
-        }
-
-        string memory finishedPath = ".metadata.finishedAt";
-        if (VM.keyExistsJson(json, finishedPath)) {
-            _metadata.finishedAt = VM.parseJsonUint(json, finishedPath);
-        }
+        _metadata.systemSaltString = VM.parseJsonString(json, ".saltString");
+        _metadata.finishedAt = VM.parseJsonUint(json, ".metadata.finishedAt");
     }
 
     function _deserializeContract(string memory json, string memory key) private {
@@ -384,5 +380,25 @@ abstract contract DeploymentJson is DeploymentRegistry {
             _entryType[key] = "bool";
             _keys.push(key);
         }
+    }
+
+    // ============================================================================
+    // Auto-save Support
+    // ============================================================================
+
+    /**
+     * @notice Derive filepath from system salt
+     * @return Path where JSON should be saved
+     */
+    function _filepath() internal view returns (string memory) {
+        return string.concat("results/deployments/", _metadata.systemSaltString, ".json");
+    }
+
+    /**
+     * @notice Auto-save deployment state to JSON
+     * @dev Called after every mutation to keep JSON in sync
+     */
+    function _autoSave() internal {
+        saveToJson(_filepath());
     }
 }

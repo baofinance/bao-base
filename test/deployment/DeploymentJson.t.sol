@@ -69,7 +69,7 @@ contract DeploymentJsonTest is Test {
 
     function setUp() public {
         deployment = new JsonTestHarness();
-        deployment.startDeployment(address(this), "test-network", "v1.0.0", "json-test-salt");
+        deployment.initialize(address(this), "test-network", "v1.0.0", "json-test-salt");
     }
 
     function test_SaveEmptyDeployment() public {
@@ -85,7 +85,7 @@ contract DeploymentJsonTest is Test {
 
         // Verify metadata
         address deployer = vm.parseJsonAddress(json, ".deployer.address");
-        assertEq(deployer, address(this));
+        assertEq(deployer, address(deployment)); // deployer is the harness
 
         string memory network = vm.parseJsonString(json, ".metadata.network");
         assertEq(network, "test-network");
@@ -94,7 +94,7 @@ contract DeploymentJsonTest is Test {
     function test_SaveContractToJson() public {
         string memory path = string.concat(TEST_OUTPUT_DIR, "/test-contract.json");
         deployment.deploySimpleContract("contract1", "Test Contract");
-        deployment.finishDeployment();
+        deployment.finish();
         deployment.saveToJson(path);
 
         string memory json = vm.readFile(path);
@@ -116,7 +116,7 @@ contract DeploymentJsonTest is Test {
     function test_SaveProxyToJson() public {
         string memory path = string.concat(TEST_OUTPUT_DIR, "/test-proxy.json");
         deployment.deploySimpleProxy("proxy1", 100);
-        deployment.finishDeployment();
+        deployment.finish();
         deployment.saveToJson(path);
 
         string memory json = vm.readFile(path);
@@ -141,7 +141,7 @@ contract DeploymentJsonTest is Test {
     function test_SaveLibraryToJson() public {
         string memory path = string.concat(TEST_OUTPUT_DIR, "/test-library.json");
         deployment.deployTestLibrary("lib1");
-        deployment.finishDeployment();
+        deployment.finish();
         deployment.saveToJson(path);
 
         string memory json = vm.readFile(path);
@@ -167,7 +167,7 @@ contract DeploymentJsonTest is Test {
         deployment.deployTestLibrary("lib1");
         deployment.useExistingByString("external1", address(0x1234567890123456789012345678901234567890));
 
-        deployment.finishDeployment();
+        deployment.finish();
         deployment.saveToJson(path);
 
         string memory json = vm.readFile(path);
@@ -193,7 +193,7 @@ contract DeploymentJsonTest is Test {
         address proxy1Addr = deployment.deploySimpleProxy("proxy1", 10);
         address lib1Addr = deployment.deployTestLibrary("lib1");
 
-        deployment.finishDeployment();
+        deployment.finish();
         deployment.saveToJson(path);
 
         string memory json = vm.readFile(path);
@@ -231,8 +231,7 @@ contract DeploymentJsonTest is Test {
 
         // Load and continue
         JsonTestHarness newDeployment = new JsonTestHarness();
-        newDeployment.loadFromJson(path);
-        newDeployment.resumeDeployment(address(this));
+        newDeployment.resumeFrom(path);
 
         // Verify loaded contract exists
         assertTrue(newDeployment.hasByString("contract1"));
@@ -269,7 +268,7 @@ contract DeploymentJsonTest is Test {
         deployment.deploySimpleContract("contract1", "Contract 1");
 
         vm.warp(block.timestamp + 100);
-        deployment.finishDeployment();
+        deployment.finish();
 
         deployment.saveToJson(path);
 
@@ -284,9 +283,9 @@ contract DeploymentJsonTest is Test {
         assertEq(savedFinishTime, startTime + 100);
     }
 
-    function test_RevertWhen_ResumeWithoutJson() public {
+    function test_RevertWhen_ResumeNonexistentPath() public {
         JsonTestHarness fresh = new JsonTestHarness();
-        vm.expectRevert(DeploymentRegistry.DeploymentResumeUnavailable.selector);
-        fresh.resumeDeployment(address(this));
+        vm.expectRevert();
+        fresh.resume("nonexistent-salt");
     }
 }

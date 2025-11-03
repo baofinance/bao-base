@@ -3,19 +3,19 @@
     "address": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
   },
   "deployment": {
-    "contract1": {
-      "address": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
+    "existing1": {
+      "address": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
       "blockNumber": 1,
-      "category": "contract",
-      "contractPath": "test/SimpleContract.sol",
-      "contractType": "SimpleContract",
-      "deployedTo": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
+      "category": "existing",
+      "contractPath": "blockchain",
+      "contractType": "ExistingContract",
+      "deployedTo": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
     }
   },
   "metadata": {
     "finishedAt": 1,
-    "network": "test-network",
+    "network": "test",
     "startBlock": 1,
     "startedAt": 1,
     "version": "v1.0.0"
@@ -23,6 +23,6 @@
   "owner": {
     "address": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
   },
-  "saltString": "json-test-salt",
+  "saltString": "test-system-salt",
   "schemaVersion": 1
 }

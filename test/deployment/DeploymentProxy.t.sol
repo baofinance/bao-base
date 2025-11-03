@@ -11,9 +11,14 @@ import {CounterV1} from "../mocks/upgradeable/MockCounter.sol";
 // Test harness extends TestDeployment
 contract ProxyTestHarness is TestDeployment {
     function deployCounterProxy(string memory key, uint256 initialValue, address owner) public returns (address) {
-        CounterV1 impl = new CounterV1();
         string memory implKey = string.concat(key, "_impl");
-        registerImplementation(implKey, address(impl), "CounterV1", "test/mocks/upgradeable/MockCounter.sol");
+        
+        // Only deploy implementation if it doesn't exist yet
+        if (!hasByString(implKey)) {
+            CounterV1 impl = new CounterV1();
+            registerImplementation(implKey, address(impl), "CounterV1", "test/mocks/upgradeable/MockCounter.sol");
+        }
+        
         bytes memory initData = abi.encodeCall(CounterV1.initialize, (initialValue, owner));
         return this.deployProxy(key, implKey, initData);
     }
@@ -30,7 +35,7 @@ contract DeploymentProxyTest is Test {
 
     function setUp() public {
         deployment = new ProxyTestHarness();
-        deployment.startDeployment(address(this), "test", "v1.0.0", "proxy-test-salt");
+        deployment.initialize(address(this), "test", "v1.0.0", "proxy-test-salt");
         admin = makeAddr("admin");
         outsider = makeAddr("outsider");
     }
@@ -46,6 +51,11 @@ contract DeploymentProxyTest is Test {
         // Verify proxy is working
         CounterV1 counter = CounterV1(proxyAddr);
         assertEq(counter.value(), 42);
+        assertEq(counter.owner(), address(deployment)); // harness is initial owner
+
+        // Complete ownership transfer (within 3600 second window)
+        vm.prank(address(deployment));
+        counter.transferOwnership(admin);
         assertEq(counter.owner(), admin);
 
         vm.prank(admin);
@@ -109,9 +119,9 @@ contract DeploymentProxyTest is Test {
             "CounterV1",
             "test/mocks/upgradeable/MockCounter.sol"
         );
-        bytes memory initData = abi.encodeCall(CounterV1.initialize, (42, address(this)));
+        bytes memory initData = abi.encodeCall(CounterV1.initialize, (42, admin));
 
-        vm.expectRevert(Deployment.KeyRequired.selector);
+        vm.expectRevert(DeploymentRegistry.KeyRequired.selector);
         deployment.deployProxy("", "testImpl", initData);
     }
 
@@ -128,8 +138,7 @@ contract DeploymentProxyTest is Test {
         string memory json = deployment.toJson();
 
         ProxyTestHarness resumed = new ProxyTestHarness();
-        resumed.fromJson(json);
-        resumed.resumeDeployment(admin);
+        resumed.resumeFromJson(json);
 
         assertEq(resumed.getByString("counter"), existingProxy, "resumed counter address stable");
 
@@ -145,21 +154,23 @@ contract DeploymentProxyTest is Test {
         string memory json = deployment.toJson();
 
         ProxyTestHarness resumed = new ProxyTestHarness();
-        resumed.fromJson(json);
-        resumed.resumeDeployment(admin);
+        resumed.resumeFromJson(json);
 
-        uint256 transferred = resumed.finalizeOwnership(admin);
+        uint256 transferred = resumed.countTransferrableProxies(admin);
         assertEq(transferred, 0, "resumed entries should be skipped");
     }
 
-    function test_FinalizeOwnershipRevertsOnUnexpectedOwner() public {
+    function test_FinishSkipsProxiesWithUnexpectedOwner() public {
         address proxyAddr = deployment.deployCounterProxy("counter", 7, admin);
         CounterV1 counter = CounterV1(proxyAddr);
 
-        vm.prank(admin);
+        // Transfer ownership from harness to outsider manually
+        vm.prank(address(deployment));
         counter.transferOwnership(outsider);
 
-        vm.expectRevert(abi.encodeWithSelector(Deployment.UnexpectedProxyOwner.selector, proxyAddr, outsider));
-        deployment.finalizeOwnership(admin);
+        // finish() should skip this proxy since owner is not the harness
+        uint256 transferred = deployment.finish();
+        assertEq(transferred, 0, "Should not transfer ownership when current owner is not harness");
+        assertEq(counter.owner(), outsider, "Owner should remain outsider");
     }
 }

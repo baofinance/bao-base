@@ -17,8 +17,43 @@ contract TestDeployment is Deployment {
     /// @dev Passes address(0) to Deployment constructor, which defaults to address(this)
     constructor() Deployment(address(0)) {}
 
-    function finalizeOwnership(address newOwner) public returns (uint256) {
-        return _finalizeOwnership(newOwner);
+    /// @notice Count how many proxies are still owned by this harness (for testing)
+    /// @dev Useful for verifying ownership transfer behavior in tests
+    function countTransferrableProxies(address /* newOwner */) public view returns (uint256) {
+        // This is for testing - just check if any proxies still owned by this harness
+        uint256 stillOwned = 0;
+        string[] memory allKeys = _keys;
+        
+        for (uint256 i; i < allKeys.length; i++) {
+            string memory key = allKeys[i];
+            
+            if (_eq(_entryType[key], "proxy")) {
+                address proxy = _proxies[key].info.addr;
+                (bool success, bytes memory data) = proxy.staticcall(abi.encodeWithSignature("owner()"));
+                if (success && data.length == 32) {
+                    address currentOwner = abi.decode(data, (address));
+                    if (currentOwner == address(this)) {
+                        ++stillOwned;
+                    }
+                }
+            }
+        }
+        
+        return stillOwned;
+    }
+
+    // ============================================================================
+    // Test-only Resume Methods (bypass auto-derived paths)
+    // ============================================================================
+
+    /// @notice Resume from custom filepath (test only)
+    function resumeFrom(string memory filepath) public {
+        _resumeFrom(filepath);
+    }
+
+    /// @notice Resume from JSON string (test only)
+    function resumeFromJson(string memory json) public {
+        _resumeFromJson(json);
     }
 
     // ============================================================================

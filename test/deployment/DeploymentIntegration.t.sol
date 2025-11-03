@@ -28,14 +28,23 @@ contract OracleV1 is Initializable, UUPSUpgradeable {
 }
 
 contract MockMinter is Initializable, UUPSUpgradeable {
-    address public collateralToken;
-    address public peggedToken;
+    // Constructor parameters: immutable token addresses (rarely change, require upgrade to modify)
+    address public immutable collateralToken;
+    address public immutable peggedToken;
+    address public immutable leveragedToken;
+
+    // Initialize parameters: oracle (has update function), admin (owner)
     address public oracle;
     address public admin;
 
-    function initialize(address _collateral, address _pegged, address _oracle, address _admin) external initializer {
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor(address _collateral, address _pegged, address _leveraged) {
         collateralToken = _collateral;
         peggedToken = _pegged;
+        leveragedToken = _leveraged;
+    }
+
+    function initialize(address _oracle, address _admin) external initializer {
         oracle = _oracle;
         admin = _admin;
     }
@@ -84,10 +93,13 @@ contract IntegrationTestHarness is TestDeployment {
         address pegged = _get(peggedKey);
         address oracle = _get(oracleKey);
 
-        MockMinter impl = new MockMinter();
+        // Constructor parameters: immutable token addresses (rarely change, require upgrade to modify)
+        MockMinter impl = new MockMinter(collateral, pegged, oracle);
         string memory implKey = string.concat(key, "_impl");
         registerImplementation(implKey, address(impl), "MockMinter", "test/mocks/upgradeable/MockMinter.sol");
-        bytes memory initData = abi.encodeCall(MockMinter.initialize, (collateral, pegged, oracle, admin));
+
+        // Initialize parameters: oracle (has update function), owner (two-step pattern)
+        bytes memory initData = abi.encodeCall(MockMinter.initialize, (oracle, admin));
         return this.deployProxy(key, implKey, initData);
     }
 
@@ -110,7 +122,7 @@ contract DeploymentIntegrationTest is Test {
     function setUp() public {
         admin = address(this);
         deployment = new IntegrationTestHarness();
-        deployment.startDeployment(admin, "test-network", "v1.0.0", "integration-test-salt");
+        deployment.initialize(admin, "test-network", "v1.0.0", "integration-test-salt");
     }
 
     function test_DeployFullSystem() public {
@@ -144,9 +156,9 @@ contract DeploymentIntegrationTest is Test {
         assertEq(minterContract.peggedToken(), pegged);
         assertEq(minterContract.oracle(), oracle);
 
-        // Verify keys
+        // Verify keys (collateral, pegged, oracle_impl, oracle, minter_impl, minter, configLib = 7)
         string[] memory keys = deployment.keys();
-        assertEq(keys.length, 5);
+        assertEq(keys.length, 7);
     }
 
     function test_SaveAndLoadFullSystem() public {
@@ -158,7 +170,7 @@ contract DeploymentIntegrationTest is Test {
         deployment.deployMinterProxy("minter", "collateral", "pegged", "oracle", admin);
         deployment.deployConfigLibrary("configLib");
 
-        deployment.finishDeployment();
+        deployment.finish();
         deployment.saveToJson(path);
 
         string memory jsonBeforeLoad = vm.readFile(path);
@@ -223,15 +235,13 @@ contract DeploymentIntegrationTest is Test {
 
         // Phase 2: Load and add oracle
         IntegrationTestHarness phase2 = new IntegrationTestHarness();
-        phase2.loadFromJson(path);
-        phase2.resumeDeployment(admin);
+        phase2.resumeFrom(path);
         phase2.deployOracleProxy("oracle", 2000e18, admin);
         phase2.saveToJson(path);
 
         // Phase 3: Load and add minter
         IntegrationTestHarness phase3 = new IntegrationTestHarness();
-        phase3.loadFromJson(path);
-        phase3.resumeDeployment(admin);
+        phase3.resumeFrom(path);
         phase3.deployMinterProxy("minter", "collateral", "pegged", "oracle", admin);
         phase3.saveToJson(path);
 
@@ -283,14 +293,16 @@ contract DeploymentIntegrationTest is Test {
         address minter1 = deployment.deployMinterProxy("minter1", "token1", "token2", "oracle", admin);
 
         // Now deploy minter2 that depends on minter1
-        MockMinter minter2Impl = new MockMinter();
+        // Constructor: immutable token addresses
+        MockMinter minter2Impl = new MockMinter(minter1, token2, oracle);
         deployment.registerImplementation(
             "minter2_impl",
             address(minter2Impl),
             "MockMinter",
             "test/mocks/upgradeable/MockMinter.sol"
         );
-        bytes memory initData = abi.encodeCall(MockMinter.initialize, (minter1, token2, oracle, admin));
+        // Initialize: oracle (has update function), owner
+        bytes memory initData = abi.encodeCall(MockMinter.initialize, (oracle, admin));
         address minter2 = deployment.deployProxy("minter2", "minter2_impl", initData);
 
         // Verify dependency chain

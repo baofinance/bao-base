@@ -1,37 +1,51 @@
 {
   "deployer": {
-    "address": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
+    "address": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
   },
   "deployment": {
     "contract1": {
-      "address": "0x104fBc016F4bb334D775a19E8A6510109AC63E00",
+      "address": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
       "blockNumber": 1,
       "category": "contract",
       "contractPath": "test/SimpleContract.sol",
       "contractType": "SimpleContract",
-      "deployedTo": "0x104fBc016F4bb334D775a19E8A6510109AC63E00",
-      "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
+      "deployedTo": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
     },
     "lib1": {
-      "address": "0x7FdB3132Ff7D02d8B9e221c61cC895ce9a4bb773",
+      "address": "0xfD07C974e33dd1626640bA3a5acF0418FaacCA7a",
       "blockNumber": 1,
       "category": "library",
       "contractPath": "test/TestLib.sol",
       "contractType": "TestLib",
-      "deployedTo": "0x7FdB3132Ff7D02d8B9e221c61cC895ce9a4bb773",
-      "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
+      "deployedTo": "0xfD07C974e33dd1626640bA3a5acF0418FaacCA7a",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
     },
     "proxy1": {
-      "address": "0xf8e57a8c1394e4fCf149a78eA57c01a543A3BE3b",
+      "address": "0x33472E68F565F03B397a3650e011F10FD0579755",
       "blockNumber": 1,
       "category": "UUPS proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "contractType": "ERC1967Proxy",
-      "deployedTo": "0xf8e57a8c1394e4fCf149a78eA57c01a543A3BE3b",
-      "deployer": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496",
+      "deployedTo": "0x33472E68F565F03B397a3650e011F10FD0579755",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "implementation": {
+        "address": "0xDDc10602782af652bB913f7bdE1fD82981Db7dd9",
+        "contractPath": "test/SimpleImplementation.sol",
+        "contractType": "SimpleImplementation"
+      },
       "proxyType": "UUPS",
-      "salt": "0x7f3464796bc3c8113deed8aba2368eab9368f9157b2e73feda2a1ff2e72b309c",
+      "salt": "0xecb239d91c7e146fc98b9491f52ed303a9af027e4151d3c636b1c3ea66eff022",
       "saltString": "proxy1"
+    },
+    "proxy1_impl": {
+      "address": "0xDDc10602782af652bB913f7bdE1fD82981Db7dd9",
+      "blockNumber": 1,
+      "category": "contract",
+      "contractPath": "test/SimpleImplementation.sol",
+      "contractType": "SimpleImplementation",
+      "deployedTo": "0xDDc10602782af652bB913f7bdE1fD82981Db7dd9",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
     }
   },
   "metadata": {
@@ -41,5 +55,9 @@
     "startedAt": 1,
     "version": "v1.0.0"
   },
-  "saltString": "json-test-salt"
+  "owner": {
+    "address": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
+  },
+  "saltString": "json-test-salt",
+  "schemaVersion": 1
 }

@@ -13,7 +13,7 @@ import {MockImplementation} from "@bao-test/mocks/basic/MockImplementation.sol";
 contract DeploymentHarness is TestDeployment {
     function deployMockContract(string memory key, string memory mockName) public returns (address) {
         MockContract mock = new MockContract(mockName);
-        registerContract(key, address(mock), "MockContract", "test/mocks/basic/MockContract.sol", "contract");
+        useExisting(key, address(mock));
         return _get(key);
     }
 
@@ -40,12 +40,13 @@ contract DeploymentBasicTest is Test {
 
     function setUp() public {
         deployment = new DeploymentHarness();
-        deployment.startDeployment(address(this), "test", "v1.0.0", "test-system-salt");
+        deployment.initialize(address(this), "test", "v1.0.0", "test-system-salt");
     }
 
-    function test_StartDeployment() public view {
+    function test_Initialize() public view {
         Deployment.DeploymentMetadata memory metadata = deployment.getMetadata();
-        assertEq(metadata.deployer, address(this));
+        assertEq(metadata.deployer, address(deployment)); // deployer is the harness
+        assertEq(metadata.owner, address(this)); // owner is the test
         assertEq(metadata.network, "test");
         assertEq(metadata.version, "v1.0.0");
         assertTrue(metadata.startedAt > 0);
@@ -125,8 +126,8 @@ contract DeploymentBasicTest is Test {
         deployment.useExistingByString("invalid", address(0));
     }
 
-    function test_FinishDeployment() public {
-        deployment.finishDeployment();
+    function test_Finish() public {
+        deployment.finish();
 
         Deployment.DeploymentMetadata memory metadata = deployment.getMetadata();
         assertTrue(metadata.finishedAt > 0);
@@ -146,7 +147,7 @@ contract DeploymentBasicTest is Test {
         address existingContract = address(0x1234567890123456789012345678901234567890);
 
         deployment.useExistingByString("stETH", existingContract);
-        deployment.finishDeployment();
+        deployment.finish();
 
         // Test deployment registration (JSON serialization requires DeploymentJson mixin)
         assertTrue(deployment.hasByString("stETH"), "Should have stETH registered");
@@ -154,24 +155,15 @@ contract DeploymentBasicTest is Test {
     }
 
     function test_RevertWhen_StartDeploymentTwice() public {
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                DeploymentRegistry.DeploymentLifecycleInvalid.selector,
-                uint8(DeploymentRegistry.Lifecycle.Uninitialized),
-                uint8(DeploymentRegistry.Lifecycle.Active)
-            )
-        );
-        deployment.startDeployment(address(this), "test", "v1.0.0", "test-system-salt");
+        vm.expectRevert(DeploymentRegistry.AlreadyInitialized.selector);
+        deployment.initialize(address(this), "test", "v1.0.0", "test-system-salt");
     }
 
-    function test_RevertWhen_ActionWithoutLifecycle() public {
+    function test_ActionWithoutInitialization() public {
         DeploymentHarness fresh = new DeploymentHarness();
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                DeploymentRegistry.DeploymentLifecycleNotActive.selector,
-                uint8(DeploymentRegistry.Lifecycle.Uninitialized)
-            )
-        );
-        fresh.deployMockContract("mock", "Mock Contract");
+        // With no lifecycle checks, mutations work even without initialization
+        // However, auto-save will try to save to empty path (will fail silently in tests)
+        address mockAddr = fresh.deployMockContract("mock", "Mock Contract");
+        assertTrue(mockAddr != address(0));
     }
 }

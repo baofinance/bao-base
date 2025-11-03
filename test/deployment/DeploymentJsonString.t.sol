@@ -14,7 +14,7 @@ contract DeploymentJsonStringTest is Test {
 
     function setUp() public {
         deployment = new TestDeployment();
-        deployment.startDeployment(address(this), "localhost", "1.0.0", "jsonstring-test-salt");
+        deployment.initialize(address(this), "localhost", "1.0.0", "jsonstring-test-salt");
     }
 
     function test_ToJsonReturnsValidString() public {
@@ -43,7 +43,7 @@ contract DeploymentJsonStringTest is Test {
         deployment.useExistingByString("Token1", address(0x1111));
         deployment.useExistingByString("Token2", address(0x2222));
         deployment.setStringByKey("name", "TestSystem");
-        deployment.finishDeployment();
+        deployment.finish();
 
         string memory json = deployment.toJson();
 
@@ -73,7 +73,7 @@ contract DeploymentJsonStringTest is Test {
         deployment.setIntByKey("temperature", -42);
         deployment.setBoolByKey("isProduction", true);
 
-        deployment.finishDeployment();
+        deployment.finish();
 
         // Serialize to string
         string memory json = deployment.toJson();
@@ -101,7 +101,7 @@ contract DeploymentJsonStringTest is Test {
     }
 
     function test_EmptyDeploymentSerialization() public {
-        deployment.finishDeployment();
+        deployment.finish();
 
         string memory json = deployment.toJson();
 
@@ -122,7 +122,7 @@ contract DeploymentJsonStringTest is Test {
         deployment.useExistingByString("Contract2", address(0x2));
         deployment.useExistingByString("Contract3", address(0x3));
 
-        deployment.finishDeployment();
+        deployment.finish();
 
         string memory json = deployment.toJson();
 
@@ -144,7 +144,7 @@ contract DeploymentJsonStringTest is Test {
         deployment.setUintByKey("param2", 100);
         deployment.setBoolByKey("param3", false);
 
-        deployment.finishDeployment();
+        deployment.finish();
 
         string memory json = deployment.toJson();
 
@@ -168,7 +168,7 @@ contract DeploymentJsonStringTest is Test {
         string memory path = "results/deployments/json-compat-test.json";
         vm.createDir("results/deployments", true);
 
-        deployment.finishDeployment();
+        deployment.finish();
         deployment.saveToJson(path);
 
         string memory json = vm.readFile(path);
@@ -194,7 +194,7 @@ contract DeploymentJsonStringTest is Test {
         string memory path = "results/deployments/load-compat-test.json";
         vm.createDir("results/deployments", true);
 
-        deployment.finishDeployment();
+        deployment.finish();
         deployment.saveToJson(path);
 
         string memory json = vm.readFile(path);

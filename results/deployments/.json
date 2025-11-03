@@ -1,0 +1,28 @@
+{
+  "deployer": {
+    "address": "0x0000000000000000000000000000000000000000"
+  },
+  "deployment": {
+    "mock": {
+      "address": "0xffD4505B3452Dc22f8473616d50503bA9E1710Ac",
+      "blockNumber": 1,
+      "category": "existing",
+      "contractPath": "blockchain",
+      "contractType": "ExistingContract",
+      "deployedTo": "0xffD4505B3452Dc22f8473616d50503bA9E1710Ac",
+      "deployer": "0x0000000000000000000000000000000000000000"
+    }
+  },
+  "metadata": {
+    "finishedAt": 1,
+    "network": "",
+    "startBlock": 0,
+    "startedAt": 0,
+    "version": ""
+  },
+  "owner": {
+    "address": "0x0000000000000000000000000000000000000000"
+  },
+  "saltString": "",
+  "schemaVersion": 1
+}

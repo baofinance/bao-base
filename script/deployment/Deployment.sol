@@ -5,9 +5,9 @@ import {CREATE3} from "@solady/utils/CREATE3.sol";
 import {EfficientHashLib} from "@solady/utils/EfficientHashLib.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
-import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
+import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 interface IUUPSUpgradeableProxy {
     function upgradeTo(address newImplementation) external;
@@ -38,6 +38,14 @@ abstract contract Deployment is DeploymentJson {
     address internal immutable DEPLOYER_CONTEXT;
 
     // ============================================================================
+    // Storage
+    // ============================================================================
+
+    /// @notice Bootstrap stub used as initial implementation for all proxies
+    /// @dev Deployed once per session, owned by this harness, enables BaoOwnable compatibility with CREATE3
+    UUPSProxyDeployStub internal _stub;
+
+    // ============================================================================
     // Constants
     // ============================================================================
 
@@ -62,15 +70,94 @@ abstract contract Deployment is DeploymentJson {
     // ============================================================================
 
     error ImplementationKeyRequired();
-    error KeyRequired();
 
     error LibraryDeploymentFailed(string key);
     error OwnershipTransferFailed(address proxy);
     error OwnerQueryFailed(address proxy);
     error UnexpectedProxyOwner(address proxy, address owner);
 
-    // TODO: add start & resume Deployment
-    // TODO:
+    // ============================================================================
+    // Deployment Lifecycle
+    // ============================================================================
+
+    /// @notice Initialize a new deployment session
+    /// @param owner The final owner address for all deployed contracts
+    /// @param network Network name for metadata
+    /// @param version Version string for metadata
+    /// @param systemSaltString System salt for deterministic addresses
+    function initialize(
+        address owner,
+        string memory network,
+        string memory version,
+        string memory systemSaltString
+    ) public virtual {
+        _initializeMetadata(owner, network, version, systemSaltString);
+        _stub = new UUPSProxyDeployStub();
+        _autoSave();
+    }
+
+    /// @notice Resume deployment from JSON file
+    /// @param systemSaltString System salt to derive filepath
+    function resume(string memory systemSaltString) public virtual {
+        string memory filepath = string.concat("results/deployments/", systemSaltString, ".json");
+        loadFromJson(filepath);
+        _stub = new UUPSProxyDeployStub();
+    }
+
+    /// @notice Resume deployment from custom file path (internal - for tests)
+    /// @param filepath Custom path to JSON file
+    function _resumeFrom(string memory filepath) internal virtual {
+        loadFromJson(filepath);
+        _stub = new UUPSProxyDeployStub();
+    }
+
+    /// @notice Resume deployment from JSON string (internal - for tests)
+    /// @param json JSON string to parse
+    function _resumeFromJson(string memory json) internal virtual {
+        fromJson(json);
+        _stub = new UUPSProxyDeployStub();
+    }
+
+    /// @notice Finish deployment session and finalize ownership
+    /// @dev Transfers ownership to metadata.owner for all proxies currently owned by this harness
+    /// @dev Auto-save will update finishedAt timestamp
+    /// @return transferred Number of proxies whose ownership was transferred
+    function finish() public virtual returns (uint256 transferred) {
+        address owner = _metadata.owner;
+        string[] memory allKeys = _keys;
+        uint256 length = allKeys.length;
+
+        for (uint256 i; i < length; i++) {
+            string memory key = allKeys[i];
+
+            if (_eq(_entryType[key], "proxy")) {
+                if (_resumedProxies[key]) {
+                    continue;
+                }
+
+                address proxy = _proxies[key].info.addr;
+
+                // Check if proxy supports owner() method (BaoOwnable pattern)
+                (bool success, bytes memory data) = proxy.staticcall(abi.encodeWithSignature("owner()"));
+                if (!success || data.length != 32) {
+                    // Contract doesn't support BaoOwnable, skip
+                    continue;
+                }
+
+                address currentOwner = abi.decode(data, (address));
+
+                // Only transfer if current owner is this harness (temporary owner from stub pattern)
+                if (currentOwner == address(this)) {
+                    IBaoOwnable(proxy).transferOwnership(owner);
+                    ++transferred;
+                }
+            }
+        }
+
+        _autoSave();
+        return transferred;
+    }
+
     // ============================================================================
     // Exposed views
     // ============================================================================
@@ -83,70 +170,35 @@ abstract contract Deployment is DeploymentJson {
     // Proxy Deployment / Upgrades
     // ============================================================================
 
-    enum Create3Mode {
-        Predict,
-        Deploy
-    }
-
-    /// @notice Internal proxy deployment logic with CREATE3
-    /// @dev Uses DEPLOYER_CONTEXT for address calculations to ensure cross-chain determinism
-    /// @param mode Predict or Deploy
-    /// @param proxyKey Key for the proxy deployment
-    /// @return proxy Proxy address (deployed or predicted)
-    /// @return salt Salt used for CREATE3
-    /// @return saltString Human-readable salt string
-    function _doProxy(
-        Create3Mode mode,
-        string memory proxyKey
-    ) internal returns (address proxy, bytes32 salt, string memory saltString) {
-        // crystalise the salts - need different salts for stub and proxy
-        bytes memory stubSaltBytes = abi.encodePacked(_metadata.systemSaltString, "/", proxyKey, "/UUPS/stub");
-        bytes32 stubSalt = EfficientHashLib.hash(stubSaltBytes);
-
-        bytes memory proxySaltBytes = abi.encodePacked(_metadata.systemSaltString, "/", proxyKey, "/UUPS/proxy");
-        salt = EfficientHashLib.hash(proxySaltBytes);
-        saltString = proxyKey;
-
-        // deploy the stub at deterministic address using DEPLOYER_CONTEXT
-        address stub;
-        if (mode == Create3Mode.Deploy) {
-            stub = CREATE3.deployDeterministic(type(UUPSProxyDeployStub).creationCode, stubSalt);
-        } else {
-            stub = CREATE3.predictDeterministicAddress(stubSalt, DEPLOYER_CONTEXT);
-        }
-        /// deploy the proxy at deterministic address using DEPLOYER_CONTEXT
-        bytes memory proxyCreationCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(stub, bytes("")));
-        if (mode == Create3Mode.Deploy) {
-            proxy = CREATE3.deployDeterministic(proxyCreationCode, salt);
-        } else {
-            proxy = CREATE3.predictDeterministicAddress(salt, DEPLOYER_CONTEXT);
-        }
-    }
-
     /// @notice Predict proxy address without deploying
     /// @param proxyKey Key for the proxy deployment
     /// @return proxy Predicted proxy address
-    /// @return salt Salt that will be used for CREATE3
-    /// @return saltString Human-readable salt string
-    function _predictProxy(
-        string memory proxyKey
-    ) internal view returns (address proxy, bytes32 salt, string memory saltString) {
-        // crystalise the proxy salt (same as in _doProxy)
+    function predictProxyAddress(string memory proxyKey) public view returns (address proxy) {
+        if (bytes(proxyKey).length == 0) {
+            revert KeyRequired();
+        }
         bytes memory proxySaltBytes = abi.encodePacked(_metadata.systemSaltString, "/", proxyKey, "/UUPS/proxy");
-        salt = EfficientHashLib.hash(proxySaltBytes);
-        saltString = proxyKey;
-
-        // predict proxy address using DEPLOYER_CONTEXT
+        bytes32 salt = EfficientHashLib.hash(proxySaltBytes);
         proxy = CREATE3.predictDeterministicAddress(salt, DEPLOYER_CONTEXT);
     }
 
-    /// @dev this only works with BaoOwnable derived implementations
+    /// @notice Deploy a UUPS proxy using bootstrap stub pattern
+    /// @dev Three-step process:
+    ///      1. Deploy ERC1967Proxy via CREATE3 pointing to stub (no initialization)
+    ///      2. Call proxy.upgradeToAndCall(implementation, initData) to atomically upgrade and initialize
+    ///      During initialization, msg.sender = this harness (via stub ownership), enabling BaoOwnable compatibility
+    /// @param proxyKey Key for the proxy deployment
+    /// @param implementationKey Key of the implementation to use
+    /// @param implementationInitData Initialization data to pass to implementation (includes owner if needed)
+    /// @return proxy The deployed proxy address
     function deployProxy(
         string memory proxyKey,
         string memory implementationKey,
         bytes memory implementationInitData
     ) external virtual returns (address) {
-        _requireActive();
+        if (bytes(proxyKey).length == 0) {
+            revert KeyRequired();
+        }
         if (_exists[proxyKey]) {
             revert ContractAlreadyExists(proxyKey);
         }
@@ -155,39 +207,48 @@ abstract contract Deployment is DeploymentJson {
             revert ImplementationKeyRequired();
         }
 
-        // deploy the proxy (+ stub)
-        (address proxy, bytes32 salt, string memory saltString) = _doProxy(Create3Mode.Deploy, proxyKey);
+        // Compute salt
+        bytes memory proxySaltBytes = abi.encodePacked(_metadata.systemSaltString, "/", proxyKey, "/UUPS/proxy");
+        bytes32 salt = EfficientHashLib.hash(proxySaltBytes);
+        string memory saltString = proxyKey;
 
-        // install the implementation
+        // Step 1: Deploy proxy via CREATE3 pointing to stub (no initialization yet)
+        bytes memory proxyCreationCode = abi.encodePacked(
+            type(ERC1967Proxy).creationCode,
+            abi.encode(address(_stub), bytes(""))
+        );
+        address proxy = CREATE3.deployDeterministic(proxyCreationCode, salt);
+
+        // Step 2: Upgrade to real implementation with atomic initialization
+        // msg.sender during initialize will be this contract (harness) via stub ownership
         IUUPSUpgradeableProxy(proxy).upgradeToAndCall(implementation, implementationInitData);
 
         _registerProxy(proxyKey, proxy, implementationKey, salt, saltString, "UUPS");
+        _autoSave();
 
         emit ContractDeployed(proxyKey, proxy, "UUPS proxy");
         return proxy;
     }
 
-    // TODO: rather than an implementation address, it should take an implementation key
     function upgradeProxy(
-        string memory key,
-        string memory /* newImplementationKey */,
+        string memory proxyKey,
+        string memory newImplementationKey,
         bytes memory initData
     ) external virtual {
-        _requireActive();
-        address proxy = _getProxy(key);
-        address newImplementation = _getImplementation(key);
+        if (bytes(proxyKey).length == 0 || bytes(newImplementationKey).length == 0) {
+            revert KeyRequired();
+        }
+        address proxy = _getProxy(proxyKey);
+        address newImplementation = _getImplementation(newImplementationKey);
 
         if (initData.length == 0) {
             IUUPSUpgradeableProxy(proxy).upgradeTo(newImplementation);
         } else {
             IUUPSUpgradeableProxy(proxy).upgradeToAndCall(newImplementation, initData);
         }
+        _autoSave();
 
-        emit ContractUpdated(key, proxy, proxy);
-    }
-
-    function predictProxyAddress(string memory proxyKey) public view returns (address proxy) {
-        (proxy, , ) = _predictProxy(proxyKey);
+        emit ContractUpdated(proxyKey, proxy, proxy);
     }
 
     // ============================================================================
@@ -195,9 +256,9 @@ abstract contract Deployment is DeploymentJson {
     // ============================================================================
 
     function useExisting(string memory key, address addr) public virtual {
-        _requireActive();
         _requireValidAddress(key, addr);
         _registerContract(key, addr, "ExistingContract", "blockchain", "existing");
+        _autoSave();
     }
 
     function _registerImplementationEntry(
@@ -208,6 +269,7 @@ abstract contract Deployment is DeploymentJson {
     ) internal {
         _requireValidAddress(key, addr);
         _registerImplementation(key, addr, contractType, contractPath);
+        _autoSave();
         emit ContractDeployed(key, addr, "implementation");
     }
 
@@ -217,8 +279,9 @@ abstract contract Deployment is DeploymentJson {
         string memory contractType,
         string memory contractPath
     ) internal {
-        _requireValidLibrary(key, addr);
+        _requireValidAddress(key, addr);
         _registerLibrary(key, addr, contractType, contractPath);
+        _autoSave();
         emit ContractDeployed(key, addr, "library");
     }
 
@@ -228,7 +291,6 @@ abstract contract Deployment is DeploymentJson {
         string memory contractType,
         string memory contractPath
     ) internal {
-        _requireActive();
         if (_exists[key]) {
             revert LibraryAlreadyExists(key);
         }
@@ -242,41 +304,14 @@ abstract contract Deployment is DeploymentJson {
         _registerLibraryEntry(key, addr, contractType, contractPath);
     }
 
-    // =========================================================================
-    // Ownership Finalization
-    // =========================================================================
-
-    function _finalizeOwnership(address newOwner) internal returns (uint256 transferred) {
-        _requireActive();
-        if (newOwner == address(0)) {
-            revert InvalidAddress("finalizeOwnership");
-        }
-
-        string[] memory allKeys = _keys;
-        uint256 length = allKeys.length;
-
-        for (uint256 i; i < length; i++) {
-            string memory key = allKeys[i];
-
-            if (_eq(_entryType[key], "proxy")) {
-                if (_resumedProxies[key]) {
-                    continue;
-                }
-
-                address proxy = _proxies[key].info.addr;
-                IBaoOwnable(proxy).transferOwnership(newOwner);
-                ++transferred;
-            }
-        }
-
-        return transferred;
-    }
-
     // ============================================================================
     // Internal helpers
     // ============================================================================
 
     function _requireValidAddress(string memory key, address addr) internal view {
+        if (bytes(key).length == 0) {
+            revert KeyRequired();
+        }
         if (addr == address(0)) {
             revert InvalidAddress(key);
         }
@@ -286,11 +321,38 @@ abstract contract Deployment is DeploymentJson {
     }
 
     function _requireValidLibrary(string memory key, address addr) internal view {
+        if (bytes(key).length == 0) {
+            revert KeyRequired();
+        }
         if (addr == address(0)) {
             revert InvalidAddress(key);
         }
         if (_exists[key]) {
             revert LibraryAlreadyExists(key);
         }
+    }
+
+    // ============================================================================
+    // Parameter Setters with Auto-save
+    // ============================================================================
+
+    function _setString(string memory key, string memory value) internal virtual override {
+        super._setString(key, value);
+        _autoSave();
+    }
+
+    function _setUint(string memory key, uint256 value) internal virtual override {
+        super._setUint(key, value);
+        _autoSave();
+    }
+
+    function _setInt(string memory key, int256 value) internal virtual override {
+        super._setInt(key, value);
+        _autoSave();
+    }
+
+    function _setBool(string memory key, bool value) internal virtual override {
+        super._setBool(key, value);
+        _autoSave();
     }
 }

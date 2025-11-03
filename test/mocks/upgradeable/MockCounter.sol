@@ -12,9 +12,13 @@ import {BaoOwnable} from "@bao/BaoOwnable.sol";
 contract CounterV1 is Initializable, UUPSUpgradeable, BaoOwnable {
     uint256 public value;
 
-    function initialize(uint256 _value, address _owner) external initializer {
+    /// @notice Initialize with two-step ownership
+    /// @param _value Initial counter value
+    /// @param _finalOwner Final owner address (pending, requires transferOwnership to complete)
+    /// @dev msg.sender becomes temporary owner for setup, _finalOwner becomes pending
+    function initialize(uint256 _value, address _finalOwner) external initializer {
         value = _value;
-        _initializeOwner(_owner);
+        _initializeOwner(_finalOwner);
     }
 
     function increment() external {

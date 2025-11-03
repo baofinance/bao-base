@@ -4,7 +4,7 @@
   },
   "metadata": {
     "finishedAt": 1,
-    "network": "test-network",
+    "network": "test",
     "startBlock": 1,
     "startedAt": 1,
     "version": "v1.0.0"
@@ -12,6 +12,6 @@
   "owner": {
     "address": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
   },
-  "saltString": "json-test-salt",
+  "saltString": "dependency-test-salt",
   "schemaVersion": 1
 }

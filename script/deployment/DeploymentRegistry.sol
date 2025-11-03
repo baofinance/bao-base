@@ -14,14 +14,8 @@ pragma solidity >=0.8.28 <0.9.0;
  */
 abstract contract DeploymentRegistry {
     // =========================================================================
-    // Lifecycle State
+    // Constants
     // =========================================================================
-
-    enum Lifecycle {
-        Uninitialized,
-        Active,
-        Finished
-    }
 
     uint256 internal constant DEPLOYMENT_SCHEMA_VERSION = 1;
 
@@ -46,9 +40,9 @@ abstract contract DeploymentRegistry {
         string proxyType; // Type of proxy: "UUPS", "Transparent", "Beacon", etc.
     }
 
-    /// @notice Proxy-specific fields
+    /// @notice Proxy-specific info (implementation reference)
     struct ProxyInfo {
-        string implementationKey; // Key to the implementation entry
+        string implementationKey;
     }
 
     // ============================================================================
@@ -58,6 +52,7 @@ abstract contract DeploymentRegistry {
     /// @notice Top-level deployment metadata
     struct DeploymentMetadata {
         address deployer;
+        address owner;
         uint256 startedAt;
         uint256 finishedAt;
         uint256 startBlock;
@@ -105,16 +100,14 @@ abstract contract DeploymentRegistry {
     error ParameterTypeMismatch(string key, string expected, string actual);
     error InvalidAddress(string key);
     error UnknownEntryType(string entrytype, string key);
-    error DeploymentLifecycleInvalid(uint8 expected, uint8 actual);
-    error DeploymentLifecycleNotActive(uint8 current);
-    error DeploymentResumeUnavailable();
+    error AlreadyInitialized();
+    error KeyRequired();
 
     // ============================================================================
     // Storage
     // ============================================================================
 
     DeploymentMetadata internal _metadata;
-    Lifecycle internal _lifecycle;
 
     mapping(string => ContractEntry) internal _contracts;
     mapping(string => ProxyEntry) internal _proxies;
@@ -145,8 +138,6 @@ abstract contract DeploymentRegistry {
      * @dev Internal - external callers should use HarborDeployment's type-safe get(Contract)
      */
     function _get(string memory key) internal view returns (address) {
-        _requireActive();
-
         if (!_exists[key]) {
             revert ContractNotFound(key);
         }
@@ -243,7 +234,10 @@ abstract contract DeploymentRegistry {
      * @param key Parameter identifier
      * @param value The string value
      */
-    function _setString(string memory key, string memory value) internal {
+    function _setString(string memory key, string memory value) internal virtual {
+        if (bytes(key).length == 0) {
+            revert KeyRequired();
+        }
         _setStringParam(key, value);
     }
 
@@ -252,7 +246,10 @@ abstract contract DeploymentRegistry {
      * @param key Parameter identifier
      * @param value The uint256 value
      */
-    function _setUint(string memory key, uint256 value) internal {
+    function _setUint(string memory key, uint256 value) internal virtual {
+        if (bytes(key).length == 0) {
+            revert KeyRequired();
+        }
         _setUintParam(key, value);
     }
 
@@ -261,7 +258,10 @@ abstract contract DeploymentRegistry {
      * @param key Parameter identifier
      * @param value The int256 value
      */
-    function _setInt(string memory key, int256 value) internal {
+    function _setInt(string memory key, int256 value) internal virtual {
+        if (bytes(key).length == 0) {
+            revert KeyRequired();
+        }
         _setIntParam(key, value);
     }
 
@@ -270,7 +270,10 @@ abstract contract DeploymentRegistry {
      * @param key Parameter identifier
      * @param value The bool value
      */
-    function _setBool(string memory key, bool value) internal {
+    function _setBool(string memory key, bool value) internal virtual {
+        if (bytes(key).length == 0) {
+            revert KeyRequired();
+        }
         _setBoolParam(key, value);
     }
 
@@ -292,27 +295,28 @@ abstract contract DeploymentRegistry {
     }
 
     /**
-     * @notice Get current lifecycle state
+     * @notice Get deployment metadata
      */
-    function getLifecycleState() public view returns (Lifecycle) {
-        return _lifecycle;
+    function getMetadata() public view returns (DeploymentMetadata memory) {
+        return _metadata;
     }
 
     /**
-     * @notice Start a deployment session
+     * @notice Initialize deployment metadata
+     * @param owner The final owner address for all deployed contracts
      */
-    function startDeployment(
-        address deployer,
+    function _initializeMetadata(
+        address owner,
         string memory network,
         string memory version,
         string memory systemSaltString
-    ) public virtual {
-        if (_lifecycle != Lifecycle.Uninitialized) {
-            revert DeploymentLifecycleInvalid(uint8(Lifecycle.Uninitialized), uint8(_lifecycle));
+    ) internal {
+        if (_metadata.startedAt != 0) {
+            revert AlreadyInitialized();
         }
-        _lifecycle = Lifecycle.Active;
         _schemaVersion = DEPLOYMENT_SCHEMA_VERSION;
-        _metadata.deployer = deployer;
+        _metadata.deployer = address(this);
+        _metadata.owner = owner;
         _metadata.startedAt = block.timestamp;
         _metadata.startBlock = block.number;
         _metadata.network = network;
@@ -322,41 +326,11 @@ abstract contract DeploymentRegistry {
     }
 
     /**
-     * @notice Resume a deployment session from preloaded metadata
+     * @notice Update finishedAt timestamp to current time
+     * @dev Called on every save to track last modification time
      */
-    function resumeDeployment(address deployer) public virtual {
-        if (_lifecycle != Lifecycle.Uninitialized) {
-            revert DeploymentLifecycleInvalid(uint8(Lifecycle.Uninitialized), uint8(_lifecycle));
-        }
-        if (_metadata.startedAt == 0) {
-            revert DeploymentResumeUnavailable();
-        }
-        _lifecycle = Lifecycle.Active;
-        _metadata.deployer = deployer;
-        _metadata.startedAt = block.timestamp;
-        _metadata.startBlock = block.number;
-        _metadata.finishedAt = 0;
-    }
-
-    /**
-     * @notice Finish a deployment session
-     */
-    function finishDeployment() public {
-        if (_lifecycle == Lifecycle.Uninitialized) {
-            revert DeploymentLifecycleInvalid(uint8(Lifecycle.Active), uint8(_lifecycle));
-        }
-        if (_lifecycle == Lifecycle.Finished) {
-            return;
-        }
+    function _updateFinishedAt() internal {
         _metadata.finishedAt = block.timestamp;
-        _lifecycle = Lifecycle.Finished;
-    }
-
-    /**
-     * @notice Get deployment metadata
-     */
-    function getMetadata() public view returns (DeploymentMetadata memory) {
-        return _metadata;
     }
 
     // ============================================================================
@@ -373,7 +347,6 @@ abstract contract DeploymentRegistry {
         string memory contractPath,
         string memory category
     ) internal {
-        _requireActive();
         _contracts[key] = ContractEntry({
             info: DeploymentInfo({
                 addr: addr,
@@ -401,7 +374,6 @@ abstract contract DeploymentRegistry {
         string memory saltString,
         string memory proxyType
     ) internal {
-        _requireActive();
         _proxies[key] = ProxyEntry({
             info: DeploymentInfo({
                 addr: addr,
@@ -422,7 +394,6 @@ abstract contract DeploymentRegistry {
     }
 
     function _getProxy(string memory key) internal view returns (address proxy) {
-        _requireActive();
         proxy = _proxies[key].info.addr;
         if (proxy == address(0)) {
             revert ContractNotFound(key);
@@ -438,7 +409,6 @@ abstract contract DeploymentRegistry {
         string memory contractType,
         string memory contractPath
     ) internal {
-        _requireActive();
         _implementations[key] = ImplementationEntry({
             info: DeploymentInfo({
                 addr: addr,
@@ -457,7 +427,6 @@ abstract contract DeploymentRegistry {
     }
 
     function _getImplementation(string memory key) internal view returns (address implementation) {
-        _requireActive();
         implementation = _implementations[key].info.addr;
         if (implementation == address(0)) {
             revert ContractNotFound(key);
@@ -473,7 +442,6 @@ abstract contract DeploymentRegistry {
         string memory contractType,
         string memory contractPath
     ) internal {
-        _requireActive();
         _libraries[key] = LibraryEntry({
             info: DeploymentInfo({
                 addr: addr,
@@ -494,7 +462,6 @@ abstract contract DeploymentRegistry {
      * @notice Internal helper to set a string parameter
      */
     function _setStringParam(string memory key, string memory value) internal {
-        _requireActive();
         if (_exists[key]) {
             revert ParameterAlreadyExists(key);
         }
@@ -512,7 +479,6 @@ abstract contract DeploymentRegistry {
      * @notice Internal helper to set a uint256 parameter
      */
     function _setUintParam(string memory key, uint256 value) internal {
-        _requireActive();
         if (_exists[key]) {
             revert ParameterAlreadyExists(key);
         }
@@ -530,7 +496,6 @@ abstract contract DeploymentRegistry {
      * @notice Internal helper to set an int256 parameter
      */
     function _setIntParam(string memory key, int256 value) internal {
-        _requireActive();
         if (_exists[key]) {
             revert ParameterAlreadyExists(key);
         }
@@ -548,7 +513,6 @@ abstract contract DeploymentRegistry {
      * @notice Internal helper to set a bool parameter
      */
     function _setBoolParam(string memory key, bool value) internal {
-        _requireActive();
         if (_exists[key]) {
             revert ParameterAlreadyExists(key);
         }
@@ -567,11 +531,5 @@ abstract contract DeploymentRegistry {
      */
     function _eq(string memory a, string memory b) internal pure returns (bool) {
         return keccak256(bytes(a)) == keccak256(bytes(b));
-    }
-
-    function _requireActive() internal view {
-        if (_lifecycle != Lifecycle.Active) {
-            revert DeploymentLifecycleNotActive(uint8(_lifecycle));
-        }
     }
 }

@@ -81,16 +81,24 @@ contract DeploymentUpgradeTest is Test {
     function setUp() public {
         deployment = new UpgradeTestHarness();
         admin = address(this);
-        deployment.startDeployment(admin, "upgrade-test", "v1.0.0", "upgrade-test-salt");
+        deployment.initialize(admin, "upgrade-test", "v1.0.0", "upgrade-test-salt");
     }
 
     function test_BasicUpgrade() public {
         // Deploy initial proxy
         address oracle = deployment.deployOracleProxy("Oracle", 1000e18, admin);
 
-        // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeOwnership(admin);
-        assertEq(transferred, 0, "Ownership assigned during deployment");
+        // Verify ownership still with harness before finish
+        uint256 stillOwned = deployment.countTransferrableProxies(admin);
+        assertEq(stillOwned, 1, "Ownership should still be with harness");
+
+        // Complete ownership transfer
+        uint256 transferred = deployment.finish();
+        assertEq(transferred, 1, "Should transfer 1 proxy");
+
+        // Verify ownership transferred
+        stillOwned = deployment.countTransferrableProxies(admin);
+        assertEq(stillOwned, 0, "Ownership should be transferred after finish");
 
         // Verify initial state
         OracleV1 oracleV1 = OracleV1(oracle);
@@ -121,9 +129,9 @@ contract DeploymentUpgradeTest is Test {
         address oracle2 = deployment.deployOracleProxy("Oracle2", 1500e18, admin);
         address counter = deployment.deployCounterProxy("Counter", 10, admin);
 
-        // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeOwnership(admin);
-        assertEq(transferred, 0, "Ownership assigned during deployment");
+        // Finish deployment and transfer ownership
+        deployment.finish();
+        // Ownership transferred by finish()
 
         // Deploy new implementations
         OracleV2 newOracleImpl = new OracleV2();
@@ -159,9 +167,9 @@ contract DeploymentUpgradeTest is Test {
         // Deploy counter proxy
         address counter = deployment.deployCounterProxy("Counter", 5, admin);
 
-        // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeOwnership(admin);
-        assertEq(transferred, 0, "Ownership assigned during deployment");
+        // Finish deployment and transfer ownership
+        deployment.finish();
+        // Ownership transferred by finish()
 
         // Interact with V1
         CounterV1 counterV1 = CounterV1(counter);
@@ -191,9 +199,9 @@ contract DeploymentUpgradeTest is Test {
         // Deploy oracle with admin
         address oracle = deployment.deployOracleProxy("Oracle", 1000e18, admin);
 
-        // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeOwnership(admin);
-        assertEq(transferred, 0, "Ownership assigned during deployment");
+        // Finish deployment and transfer ownership
+        deployment.finish();
+        // Ownership transferred by finish()
 
         // Deploy new implementation
         OracleV2 newImpl = new OracleV2();
@@ -216,9 +224,9 @@ contract DeploymentUpgradeTest is Test {
         // Deploy oracle proxy
         address oracle = deployment.deployOracleProxy("Oracle", 1000e18, admin);
 
-        // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeOwnership(admin);
-        assertEq(transferred, 0, "Ownership assigned during deployment");
+        // Finish deployment and transfer ownership
+        deployment.finish();
+        // Ownership transferred by finish()
 
         // Deploy new implementation
         OracleV2 newImpl = new OracleV2();
@@ -238,9 +246,9 @@ contract DeploymentUpgradeTest is Test {
         // Deploy oracle proxy
         deployment.deployOracleProxy("Oracle", 1000e18, admin);
 
-        // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeOwnership(admin);
-        assertEq(transferred, 0, "Ownership assigned during deployment");
+        // Finish deployment and transfer ownership
+        deployment.finish();
+        // Ownership transferred by finish()
 
         // Verify initial deployment tracking
         assertEq(deployment.getEntryType("Oracle"), "proxy", "Should be tracked as proxy");
@@ -267,14 +275,14 @@ contract DeploymentUpgradeTest is Test {
         // Deploy and upgrade
         address oracle = deployment.deployOracleProxy("Oracle", 1000e18, admin);
 
-        // Complete ownership transfer for all proxies
-        uint256 transferred = deployment.finalizeOwnership(admin);
-        assertEq(transferred, 0, "Ownership assigned during deployment");
+        // Finish deployment and transfer ownership
+        deployment.finish();
+        // Ownership transferred by finish()
 
         OracleV2 newImpl = new OracleV2();
         IUUPSUpgradeableProxy(oracle).upgradeTo(address(newImpl));
 
-        deployment.finishDeployment();
+        deployment.finish();
 
         // Test JSON serialization after upgrade
         string memory json = deployment.toJson();
@@ -290,5 +298,197 @@ contract DeploymentUpgradeTest is Test {
         // Verify the restored proxy still has V2 functionality
         OracleV2 restoredOracleV2 = OracleV2(restoredOracle);
         assertEq(restoredOracleV2.getVersion(), 2, "Restored proxy should have V2 implementation");
+    }
+
+    function test_UpgradeProxyWithNewImplementationKey() public {
+        // Deploy counter with V1
+        address counterAddr = deployment.deployCounterProxy("Counter", 10, admin);
+        CounterV1 counterV1 = CounterV1(counterAddr);
+        assertEq(counterV1.value(), 10, "Initial value should be 10");
+
+        // Verify ownership still with harness (needed for upgrade)
+        assertEq(counterV1.owner(), address(deployment), "Owner should be harness before finish");
+
+        // Deploy V2 implementation separately
+        CounterV2 v2Impl = new CounterV2();
+        deployment.registerImplementation(
+            "Counter_v2_impl",
+            address(v2Impl),
+            "CounterV2",
+            "test/mocks/upgradeable/MockCounter.sol"
+        );
+
+        // Upgrade proxy to V2 using deployment system (harness is owner)
+        deployment.upgradeProxy("Counter", "Counter_v2_impl", "");
+
+        // Now transfer ownership
+        deployment.finish();
+
+        // Verify it's now V2
+        CounterV2 counterV2 = CounterV2(counterAddr);
+        assertEq(counterV2.getVersion(), 2, "Should be version 2 after upgrade");
+        assertEq(counterV2.value(), 10, "Value should persist");
+
+        // Test new V2 functionality
+        counterV2.decrement();
+        assertEq(counterV2.value(), 9, "Decrement should work");
+        assertEq(counterV2.decrementCount(), 1, "Decrement count should be 1");
+    }
+
+    function test_UpgradeAfterFinish() public {
+        // Deploy and finish deployment
+        address counterAddr = deployment.deployCounterProxy("Counter", 100, admin);
+        deployment.finish();
+
+        // Verify ownership transferred
+        CounterV1 counterV1 = CounterV1(counterAddr);
+        assertEq(counterV1.owner(), admin, "Owner should be admin after finish");
+        assertEq(counterV1.value(), 100, "Initial value should be 100");
+
+        // Deploy V2 implementation
+        CounterV2 v2Impl = new CounterV2();
+
+        // Register as new deployment operation (deployment system continues)
+        deployment.registerImplementation(
+            "Counter_v2_impl",
+            address(v2Impl),
+            "CounterV2",
+            "test/mocks/upgradeable/MockCounter.sol"
+        );
+
+        // Upgrade from admin (owner) using UUPS directly since deployment is finished
+        vm.prank(admin);
+        IUUPSUpgradeableProxy(counterAddr).upgradeTo(address(v2Impl));
+
+        // Verify upgrade worked
+        CounterV2 counterV2 = CounterV2(counterAddr);
+        assertEq(counterV2.getVersion(), 2, "Should be version 2");
+        assertEq(counterV2.value(), 100, "Value should persist");
+        assertEq(counterV2.owner(), admin, "Owner should still be admin");
+
+        // Test V2 functionality
+        vm.prank(admin);
+        counterV2.decrement();
+        assertEq(counterV2.value(), 99, "Decrement should work");
+        assertEq(counterV2.decrementCount(), 1, "Should track decrements");
+    }
+
+    function test_Downgrade_V1_to_V2_to_V1() public {
+        // Deploy V1
+        address counterAddr = deployment.deployCounterProxy("Counter", 50, admin);
+
+        CounterV1 counterV1 = CounterV1(counterAddr);
+        assertEq(counterV1.value(), 50, "Initial V1 value");
+
+        // Increment in V1
+        vm.prank(admin);
+        counterV1.increment();
+        assertEq(counterV1.value(), 51, "After increment");
+
+        // Upgrade to V2
+        CounterV2 v2Impl = new CounterV2();
+        deployment.registerImplementation(
+            "Counter_v2_impl",
+            address(v2Impl),
+            "CounterV2",
+            "test/mocks/upgradeable/MockCounter.sol"
+        );
+        deployment.upgradeProxy("Counter", "Counter_v2_impl", "");
+
+        CounterV2 counterV2 = CounterV2(counterAddr);
+        assertEq(counterV2.getVersion(), 2, "Should be V2");
+        assertEq(counterV2.value(), 51, "Value persists to V2");
+
+        // Use V2 functionality
+        vm.prank(address(deployment)); // Still owned by harness
+        counterV2.decrement();
+        assertEq(counterV2.value(), 50, "After decrement");
+        assertEq(counterV2.decrementCount(), 1, "Decrement count");
+
+        // Downgrade back to V1
+        CounterV1 v1ImplNew = new CounterV1();
+        deployment.registerImplementation(
+            "Counter_v1_impl",
+            address(v1ImplNew),
+            "CounterV1",
+            "test/mocks/upgradeable/MockCounter.sol"
+        );
+        deployment.upgradeProxy("Counter", "Counter_v1_impl", "");
+
+        CounterV1 counterV1Again = CounterV1(counterAddr);
+        assertEq(counterV1Again.value(), 50, "Value persists to V1 again");
+
+        // V1 doesn't have decrementCount, but value is preserved
+        vm.prank(address(deployment));
+        counterV1Again.increment();
+        assertEq(counterV1Again.value(), 51, "Can still increment in V1");
+
+        // Finish deployment
+        deployment.finish();
+        assertEq(counterV1Again.owner(), admin, "Owner transferred");
+    }
+}
+
+// Import for non-BaoOwnable test
+import {MockImplementationOZOwnable} from "../mocks/MockImplementationOZOwnable.sol";
+
+contract DeploymentNonBaoOwnableTest is Test {
+    UpgradeTestHarness public deployment;
+    address public admin;
+
+    function setUp() public {
+        deployment = new UpgradeTestHarness();
+        admin = address(this);
+        deployment.initialize(admin, "non-bao-test", "v1.0.0", "non-bao-test-salt");
+    }
+
+    function test_OZOwnableWorks() public {
+        // Deploy proxy with OZ Ownable (not BaoOwnable)
+        // This test verifies that OZ Ownable works with the deployment system
+        MockImplementationOZOwnable ozImpl = new MockImplementationOZOwnable();
+        deployment.registerImplementation(
+            "oz_impl",
+            address(ozImpl),
+            "MockImplementationOZOwnable",
+            "test/mocks/MockImplementationOZOwnable.sol"
+        );
+
+        // Initialize with harness as owner
+        bytes memory initData = abi.encodeCall(MockImplementationOZOwnable.initialize, (address(deployment), 42));
+        address proxyAddr = deployment.deployProxy("oz_proxy", "oz_impl", initData);
+
+        assertTrue(proxyAddr != address(0), "Proxy should deploy");
+        MockImplementationOZOwnable proxy = MockImplementationOZOwnable(proxyAddr);
+
+        // With OZ Ownable, owner is immediately the harness
+        assertEq(proxy.owner(), address(deployment), "Owner should be harness");
+
+        // finish() calls transferOwnership(admin) which works with OZ Ownable
+        uint256 transferred = deployment.finish();
+
+        assertEq(transferred, 1, "OZ Ownable ownership transfer succeeds");
+        assertEq(proxy.owner(), admin, "Owner transferred to admin");
+    }
+
+    function test_OZOwnableDoesNotSupportPendingOwner() public {
+        // Deploy proxy with OZ Ownable
+        MockImplementationOZOwnable ozImpl = new MockImplementationOZOwnable();
+        deployment.registerImplementation(
+            "oz_impl",
+            address(ozImpl),
+            "MockImplementationOZOwnable",
+            "test/mocks/MockImplementationOZOwnable.sol"
+        );
+
+        bytes memory initData = abi.encodeCall(MockImplementationOZOwnable.initialize, (address(deployment), 42));
+        address proxyAddr = deployment.deployProxy("oz_proxy", "oz_impl", initData);
+
+        // OZ Ownable doesn't have pendingOwner() method
+        (bool success, ) = proxyAddr.staticcall(abi.encodeWithSignature("pendingOwner()"));
+        assertFalse(success, "OZ Ownable should not support pendingOwner()");
+
+        // BaoOwnable also doesn't expose pendingOwner() publicly (only BaoOwnableTransferrable does)
+        // So this test demonstrates the difference between OZ Ownable and BaoOwnableTransferrable
+        // not between OZ Ownable and BaoOwnable
     }
 }

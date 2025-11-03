@@ -1,0 +1,98 @@
+{
+  "deployer": {
+    "address": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+  },
+  "deployment": {
+    "ExistingUSDC": {
+      "address": "0x1234567890123456789012345678901234567890",
+      "blockNumber": 1,
+      "category": "existing",
+      "contractPath": "blockchain",
+      "contractType": "ExistingContract",
+      "deployedTo": "0x1234567890123456789012345678901234567890",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+    },
+    "Minter": {
+      "address": "0xDF9969B7746C16e163C048a1ed1e4c2e607C1E55",
+      "blockNumber": 1,
+      "category": "UUPS proxy",
+      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+      "contractType": "ERC1967Proxy",
+      "deployedTo": "0xDF9969B7746C16e163C048a1ed1e4c2e607C1E55",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "implementation": {
+        "address": "0x7FdB3132Ff7D02d8B9e221c61cC895ce9a4bb773",
+        "contractPath": "test/mocks/upgradeable/MockMinter.sol",
+        "contractType": "MockMinter"
+      },
+      "proxyType": "UUPS",
+      "salt": "0xeb14606e459774703385e1c46956bbe984a21f8ffb738252b3e4c61132420e9b",
+      "saltString": "Minter"
+    },
+    "Minter_impl": {
+      "address": "0x7FdB3132Ff7D02d8B9e221c61cC895ce9a4bb773",
+      "blockNumber": 1,
+      "category": "contract",
+      "contractPath": "test/mocks/upgradeable/MockMinter.sol",
+      "contractType": "MockMinter",
+      "deployedTo": "0x7FdB3132Ff7D02d8B9e221c61cC895ce9a4bb773",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+    },
+    "PriceOracle": {
+      "address": "0xEdF697FfB655f23B822bAc8059cA09C0461E31A7",
+      "blockNumber": 1,
+      "category": "UUPS proxy",
+      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+      "contractType": "ERC1967Proxy",
+      "deployedTo": "0xEdF697FfB655f23B822bAc8059cA09C0461E31A7",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "implementation": {
+        "address": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
+        "contractPath": "test/mocks/upgradeable/MockOracle.sol",
+        "contractType": "OracleV1"
+      },
+      "proxyType": "UUPS",
+      "salt": "0xcac753d8bb711ec86040790988de0b49130d449de572abfc6b2681d3b418aae7",
+      "saltString": "PriceOracle"
+    },
+    "PriceOracle_impl": {
+      "address": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
+      "blockNumber": 1,
+      "category": "contract",
+      "contractPath": "test/mocks/upgradeable/MockOracle.sol",
+      "contractType": "OracleV1",
+      "deployedTo": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+    },
+    "baoUSD": {
+      "address": "0x9876543210987654321098765432109876543210",
+      "blockNumber": 1,
+      "category": "existing",
+      "contractPath": "blockchain",
+      "contractType": "ExistingContract",
+      "deployedTo": "0x9876543210987654321098765432109876543210",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+    },
+    "leveragedUSD": {
+      "address": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
+      "blockNumber": 1,
+      "category": "existing",
+      "contractPath": "blockchain",
+      "contractType": "ExistingContract",
+      "deployedTo": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+    }
+  },
+  "metadata": {
+    "finishedAt": 1,
+    "network": "workflow-test",
+    "startBlock": 1,
+    "startedAt": 1,
+    "version": "v2.0.0"
+  },
+  "owner": {
+    "address": "0xaA10a84CE7d9AE517a52c6d5cA153b369Af99ecF"
+  },
+  "saltString": "workflow-test-salt",
+  "schemaVersion": 1
+}

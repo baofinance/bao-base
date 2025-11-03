@@ -12,9 +12,13 @@ import {BaoOwnable} from "@bao/BaoOwnable.sol";
 contract OracleV1 is Initializable, UUPSUpgradeable, BaoOwnable {
     uint256 public price;
 
-    function initialize(uint256 _price, address _owner) external initializer {
+    /// @notice Initialize with two-step ownership
+    /// @param _price Initial oracle price
+    /// @param _finalOwner Final owner address (pending, requires transferOwnership to complete)
+    /// @dev msg.sender becomes temporary owner for setup, _finalOwner becomes pending
+    function initialize(uint256 _price, address _finalOwner) external initializer {
         price = _price;
-        _initializeOwner(_owner);
+        _initializeOwner(_finalOwner);
     }
 
     function setPrice(uint256 _price) external virtual onlyOwner {

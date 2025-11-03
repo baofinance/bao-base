@@ -31,7 +31,7 @@ contract DeploymentLibraryTest is Test {
 
     function setUp() public {
         deployment = new LibraryTestHarness();
-        deployment.startDeployment(address(this), "test", "v1.0.0", "library-test-salt");
+        deployment.initialize(address(this), "test", "v1.0.0", "library-test-salt");
     }
 
     function test_DeployLibrary() public {
@@ -69,7 +69,7 @@ contract DeploymentLibraryTest is Test {
 
         // Create new deployment instance
         LibraryTestHarness deployment2 = new LibraryTestHarness();
-        deployment2.startDeployment(address(this), "test", "v1.0.0", "library-test-salt-2");
+        deployment2.initialize(address(this), "test", "v1.0.0", "library-test-salt-2");
         address addr2 = deployment2.deployMathLibrary("mathLib2");
 
         // CREATE uses nonce, so addresses will differ
@@ -84,7 +84,7 @@ contract DeploymentLibraryTest is Test {
 
     function test_LibraryJsonSerialization() public {
         address libAddr = deployment.deployMathLibrary("mathLib");
-        deployment.finishDeployment();
+        deployment.finish();
 
         // Test in-memory JSON serialization (no filesystem)
         string memory json = deployment.toJson();

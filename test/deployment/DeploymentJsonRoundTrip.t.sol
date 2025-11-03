@@ -20,7 +20,7 @@ contract RoundTripTestHarness is TestDeployment {
         registerImplementation(implKey, address(impl), "MockUpgradeableContract", "test/MockUpgradeableContract.sol");
         bytes memory initData = abi.encodeCall(
             MockUpgradeableContract.initialize,
-            (initialValue, mockName, address(this))
+            (initialValue, mockName, getMetadata().owner)
         );
         return this.deployProxy(key, implKey, initData);
     }
@@ -42,7 +42,7 @@ contract DeploymentJsonRoundTripTest is Test {
 
     function setUp() public {
         deployment = new RoundTripTestHarness();
-        deployment.startDeployment(address(this), "test-network", "v2.1.0", "roundtrip-test-salt");
+        deployment.initialize(address(this), "test-network", "v2.1.0", "roundtrip-test-salt");
     }
 
     function test_ComplexDeploymentRoundTrip() public {
@@ -59,7 +59,7 @@ contract DeploymentJsonRoundTripTest is Test {
         deployment.setIntByKey("offset", -100);
         deployment.setBoolByKey("enabled", true);
 
-        deployment.finishDeployment();
+        deployment.finish();
 
         // Serialize to JSON
         string memory json = deployment.toJson();
@@ -93,7 +93,7 @@ contract DeploymentJsonRoundTripTest is Test {
     }
 
     function test_EmptyDeploymentRoundTrip() public {
-        deployment.finishDeployment();
+        deployment.finish();
 
         string memory json = deployment.toJson();
 
@@ -124,7 +124,7 @@ contract DeploymentJsonRoundTripTest is Test {
             deployment.setUintByKey(key, i * 100);
         }
 
-        deployment.finishDeployment();
+        deployment.finish();
 
         string memory json = deployment.toJson();
 
@@ -167,7 +167,7 @@ contract DeploymentJsonRoundTripTest is Test {
         deployment.setStringByKey("string-param", "value with spaces");
         deployment.setStringByKey('json"escape', 'value with "quotes"');
 
-        deployment.finishDeployment();
+        deployment.finish();
 
         string memory json = deployment.toJson();
 

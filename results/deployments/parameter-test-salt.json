@@ -6,22 +6,6 @@
     "decimals": {
       "type": "uint256",
       "value": 18
-    },
-    "enabled": {
-      "type": "bool",
-      "value": true
-    },
-    "offset": {
-      "type": "int256",
-      "value": -50
-    },
-    "tokenName": {
-      "type": "string",
-      "value": "BaoUSD"
-    },
-    "tokenSymbol": {
-      "type": "string",
-      "value": "BAOUSD"
     }
   },
   "metadata": {
