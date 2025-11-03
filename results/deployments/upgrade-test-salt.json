@@ -1,45 +1,35 @@
 {
-  "deployer": {
-    "address": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
-  },
+  "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
   "deployment": {
-    "Counter": {
-      "address": "0x1AEB96dcD8d0D3c52dE63b71ef6d7E894454eB64",
+    "Oracle": {
+      "address": "0xFe2F40701e3D50A2F0440389aE171De65FCB6879",
       "blockNumber": 1,
       "category": "UUPS proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "contractType": "ERC1967Proxy",
-      "deployedTo": "0x1AEB96dcD8d0D3c52dE63b71ef6d7E894454eB64",
+      "deployedTo": "0xFe2F40701e3D50A2F0440389aE171De65FCB6879",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
-      "implementation": {
-        "address": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
-        "contractPath": "test/mocks/upgradeable/MockCounter.sol",
-        "contractType": "CounterV1"
-      },
+      "implementationKey": "Oracle_impl",
       "proxyType": "UUPS",
-      "salt": "0x2d63d1df4f48c5b0173d051494e81a3042a7d6b2540c2184e3a408379698b285",
-      "saltString": "Counter"
+      "salt": "0x08d0c6cffe6ef93d766161a3f53443689eada772ad15c11e9953ed729a778cdc",
+      "saltString": "Oracle"
     },
-    "Counter_impl": {
+    "Oracle_impl": {
       "address": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
       "blockNumber": 1,
       "category": "contract",
-      "contractPath": "test/mocks/upgradeable/MockCounter.sol",
-      "contractType": "CounterV1",
+      "contractPath": "test/mocks/upgradeable/MockOracle.sol",
+      "contractType": "OracleV1",
       "deployedTo": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
     }
   },
-  "metadata": {
-    "finishedAt": 1,
-    "network": "upgrade-test",
-    "startBlock": 1,
-    "startedAt": 1,
-    "version": "v1.0.0"
-  },
-  "owner": {
-    "address": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
-  },
+  "finishedAt": 1,
+  "network": "upgrade-test",
+  "owner": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496",
   "saltString": "upgrade-test-salt",
-  "schemaVersion": 1
+  "schemaVersion": 1,
+  "startBlock": 1,
+  "startedAt": 1,
+  "version": "v1.0.0"
 }

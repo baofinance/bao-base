@@ -1,7 +1,5 @@
 {
-  "deployer": {
-    "address": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
-  },
+  "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
   "deployment": {
     "decimals": {
       "type": "uint256",
@@ -24,16 +22,21 @@
       "value": "BAOUSD"
     }
   },
-  "metadata": {
-    "finishedAt": 1,
-    "network": "test",
-    "startBlock": 1,
-    "startedAt": 1,
-    "version": "v1.0.0"
-  },
-  "owner": {
-    "address": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
-  },
+  "network": "test",
+  "owner": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496",
   "saltString": "parameter-test-salt",
-  "schemaVersion": 1
+  "schemaVersion": 1,
+  "version": "v1.0.0",
+  "runs": [
+    {
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "startTimestamp": 1,
+      "startTimestampISO": "1970-01-01T00:00:01Z",
+      "finishTimestamp": 1,
+      "finishTimestampISO": "1970-01-01T00:00:01Z",
+      "startBlock": 1,
+      "finishBlock": 1,
+      "finished": true
+    }
+  ]
 }

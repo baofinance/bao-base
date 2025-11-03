@@ -1,7 +1,5 @@
 {
-  "deployer": {
-    "address": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
-  },
+  "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
   "deployment": {
     "oz_impl": {
       "address": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
@@ -10,7 +8,10 @@
       "contractPath": "test/mocks/MockImplementationOZOwnable.sol",
       "contractType": "MockImplementationOZOwnable",
       "deployedTo": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
-      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "proxies": [
+        "oz_proxy"
+      ]
     },
     "oz_proxy": {
       "address": "0x21B7DA94e5D592BD69A59Ee60cec4324f588e67c",
@@ -20,26 +21,28 @@
       "contractType": "ERC1967Proxy",
       "deployedTo": "0x21B7DA94e5D592BD69A59Ee60cec4324f588e67c",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
-      "implementation": {
-        "address": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
-        "contractPath": "test/mocks/MockImplementationOZOwnable.sol",
-        "contractType": "MockImplementationOZOwnable"
-      },
+      "factory": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "implementationKey": "oz_impl",
       "proxyType": "UUPS",
       "salt": "0xaaa36d2969a9a7ebcf5a993b2db4e85e8e5124fbef578a1f2885e445d3a9f7b7",
       "saltString": "oz_proxy"
     }
   },
-  "metadata": {
-    "finishedAt": 1,
-    "network": "non-bao-test",
-    "startBlock": 1,
-    "startedAt": 1,
-    "version": "v1.0.0"
-  },
-  "owner": {
-    "address": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496"
-  },
+  "network": "non-bao-test",
+  "owner": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496",
   "saltString": "non-bao-test-salt",
-  "schemaVersion": 1
+  "schemaVersion": 1,
+  "version": "v1.0.0",
+  "runs": [
+    {
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "startTimestamp": 1,
+      "startTimestampISO": "1970-01-01T00:00:01Z",
+      "finishTimestamp": 1,
+      "finishTimestampISO": "1970-01-01T00:00:01Z",
+      "startBlock": 1,
+      "finishBlock": 1,
+      "finished": true
+    }
+  ]
 }
