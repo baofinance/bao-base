@@ -77,7 +77,6 @@ abstract contract DeploymentRegistry {
         DeploymentInfo info;
         address factory; // CREATE3 factory address (if CREATE3-deployed)
         address deployer; // Address that executed the deployment
-        string[] proxies; // Proxy keys using this as implementation (for implementations only)
     }
 
     /// @notice Proxy entry (always uses CREATE3)
@@ -385,7 +384,7 @@ abstract contract DeploymentRegistry {
         string memory contractPath,
         string memory category,
         address deployer
-    ) internal {
+    ) internal virtual {
         _requireActiveRun();
         _contracts[key] = ContractEntry({
             info: DeploymentInfo({
@@ -397,8 +396,7 @@ abstract contract DeploymentRegistry {
                 category: category
             }),
             factory: address(0),
-            deployer: deployer,
-            proxies: new string[](0)
+            deployer: deployer
         });
 
         _exists[key] = true;
@@ -435,9 +433,6 @@ abstract contract DeploymentRegistry {
             deployer: deployer
         });
 
-        // Add this proxy to the implementation's proxies list
-        _contracts[implementationKey].proxies.push(key);
-
         _exists[key] = true;
         _entryType[key] = "proxy";
         _keys.push(key);
@@ -449,6 +444,16 @@ abstract contract DeploymentRegistry {
         if (proxy == address(0)) {
             revert ContractNotFound(key);
         }
+    }
+
+    /**
+     * @notice Update proxy's implementation reference after upgrade
+     * @param proxyKey The key of the proxy being upgraded
+     * @param newImplementationKey The key of the new implementation
+     */
+    function _updateProxyImplementation(string memory proxyKey, string memory newImplementationKey) internal virtual {
+        _requireActiveRun();
+        _proxies[proxyKey].proxy.implementationKey = newImplementationKey;
     }
 
     /**
@@ -472,8 +477,7 @@ abstract contract DeploymentRegistry {
                 category: "contract"
             }),
             factory: address(0), // Implementations use regular CREATE, not CREATE3
-            deployer: deployer,
-            proxies: new string[](0)
+            deployer: deployer
         });
 
         _exists[key] = true;

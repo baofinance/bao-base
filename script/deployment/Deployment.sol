@@ -274,6 +274,9 @@ abstract contract Deployment is DeploymentJson {
         } else {
             IUUPSUpgradeableProxy(proxy).upgradeToAndCall(newImplementation, initData);
         }
+        
+        // Update registry to reflect the new implementation
+        _updateProxyImplementation(proxyKey, newImplementationKey);
         _saveToRegistry();
 
         emit ContractUpdated(proxyKey, proxy, proxy);
@@ -283,11 +286,22 @@ abstract contract Deployment is DeploymentJson {
     // Registration Helpers
     // ============================================================================
 
+    function _registerStandardContract(
+        string memory key,
+        address addr,
+        string memory contractType,
+        string memory contractPath,
+        string memory category,
+        address deployer
+    ) internal virtual override {
+        super._registerStandardContract(key, addr, contractType, contractPath, category, deployer);
+        _saveToRegistry();
+    }
+
     function useExisting(string memory key, address addr) public virtual {
         _requireActiveRun();
         _requireValidAddress(key, addr);
         _registerStandardContract(key, addr, "ExistingContract", "blockchain", "existing", address(0));
-        _saveToRegistry();
     }
 
     function _registerImplementationEntry(

@@ -2,6 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {TestDeployment} from "./TestDeployment.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -107,6 +108,134 @@ contract IntegrationTestHarness is TestDeployment {
         bytes memory bytecode = type(ConfigLib).creationCode;
         deployLibrary(key, bytecode, "ConfigLib", "test/ConfigLib.sol");
         return _get(key);
+    }
+}
+
+/**
+ * @title PhaseSnapshotHarness
+ * @notice Captures snapshots at finish() to show state after each deployment phase
+ * @dev Used for test_IncrementalDeployment to capture phase1, phase2, phase3 states
+ */
+contract PhaseSnapshotHarness is IntegrationTestHarness {
+    /// @notice Foundry VM for file operations
+    Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+
+    /// @notice Counter for phase snapshots
+    uint256 private _phaseCounter;
+
+    constructor() {
+        _phaseCounter = 0;
+    }
+
+    /// @notice Override finish to capture phase snapshot
+    /// @dev Saves a numbered phase snapshot after each finish() call
+    function finish() public override returns (uint256 transferred) {
+        transferred = super.finish();
+
+        // Increment phase counter
+        _phaseCounter++;
+
+        // Copy the autosaved file to a phase-numbered snapshot
+        string memory sourcePath = _filepath();
+        string memory destPath = string.concat(
+            _removeJsonExtension(sourcePath),
+            "-phase",
+            _uintToString(_phaseCounter),
+            ".json"
+        );
+
+        // Read from autosaved file and write to phase snapshot
+        string memory content = vm.readFile(sourcePath);
+        vm.writeFile(destPath, content);
+    }
+
+    /// @notice Remove .json extension from filepath
+    function _removeJsonExtension(string memory path) private pure returns (string memory) {
+        bytes memory pathBytes = bytes(path);
+        require(pathBytes.length > 5, "Path too short");
+        
+        // Check if ends with .json
+        if (
+            pathBytes[pathBytes.length - 5] == '.' &&
+            pathBytes[pathBytes.length - 4] == 'j' &&
+            pathBytes[pathBytes.length - 3] == 's' &&
+            pathBytes[pathBytes.length - 2] == 'o' &&
+            pathBytes[pathBytes.length - 1] == 'n'
+        ) {
+            bytes memory result = new bytes(pathBytes.length - 5);
+            for (uint256 i = 0; i < pathBytes.length - 5; i++) {
+                result[i] = pathBytes[i];
+            }
+            return string(result);
+        }
+        return path;
+    }
+
+    /// @notice Convert uint to string
+    function _uintToString(uint256 value) private pure returns (string memory) {
+        if (value == 0) return "0";
+
+        uint256 temp = value;
+        uint256 digits;
+        while (temp != 0) {
+            digits++;
+            temp /= 10;
+        }
+
+        bytes memory buffer = new bytes(digits);
+        while (value != 0) {
+            digits--;
+            buffer[digits] = bytes1(uint8(48 + (value % 10)));
+            value /= 10;
+        }
+
+        return string(buffer);
+    }
+}
+
+/**
+ * @title OperationSnapshotHarness
+ * @notice Captures snapshots after each deployment operation for detailed regression testing
+ * @dev Used to demonstrate autosave capturing every deploy, register, etc.
+ */
+contract OperationSnapshotHarness is IntegrationTestHarness {
+    /// @notice Counter for operation snapshots
+    uint256 private _operationCounter;
+
+    constructor() {
+        _operationCounter = 0;
+    }
+
+    /// @notice Override to save snapshot after each operation
+    /// @dev Captures state after deploy, register, useExisting, setParameter, etc.
+    function _saveToRegistry() internal override {
+        super._saveToRegistry();
+
+        // Save snapshot with operation counter
+        string memory snapshotPath = string.concat(_filepath(), "-op", _uintToString(_operationCounter));
+        saveToJson(snapshotPath);
+        _operationCounter++;
+    }
+
+    /// @notice Convert uint to string
+    function _uintToString(uint256 value) private pure returns (string memory) {
+        if (value == 0) return "0";
+
+        uint256 temp = value;
+        uint256 digits;
+        while (temp != 0) {
+            digits++;
+            temp /= 10;
+        }
+
+        bytes memory buffer = new bytes(digits);
+        while (value != 0) {
+            digits--;
+            buffer[digits] = bytes1(uint8(48 + (value % 10)));
+            value /= 10;
+        }
+
+        return string(buffer);
     }
 }
 
@@ -232,50 +361,34 @@ contract DeploymentIntegrationTest is Test {
     function test_IncrementalDeployment() public {
         // Use unique salt to avoid conflicts with other tests
         string memory incrementalSalt = "integration-incremental-salt";
-        string memory autosavePath = string.concat(TEST_OUTPUT_DIR, "/", incrementalSalt, ".json");
 
-        // Phase 1: Deploy tokens with autosave
+        // Phase 1: Deploy tokens with autosave and snapshots
         vm.warp(1000000); // Set initial timestamp
         vm.roll(100); // Set initial block number
-        IntegrationTestHarness phase1 = new IntegrationTestHarness();
+        PhaseSnapshotHarness phase1 = new PhaseSnapshotHarness();
         phase1.start(admin, TEST_NETWORK, TEST_VERSION, incrementalSalt);
         phase1.enableAutoSave();
         phase1.deployMockERC20("collateral", "wETH", "wETH");
         phase1.deployMockERC20("pegged", "USD", "USD");
-        phase1.finish(); // autosaves to integration-incremental-salt.json
+        phase1.finish(); // autosaves and creates phase1 snapshot
 
-        // Copy phase 1 state as regression file
-        string memory phase1Json = vm.readFile(autosavePath);
-        string memory phase1Path = string.concat(TEST_OUTPUT_DIR, "/", incrementalSalt, "-phase1.json");
-        vm.writeFile(phase1Path, phase1Json);
-
-        // Phase 2: Resume and add oracle with autosave (simulate time passing)
+        // Phase 2: Resume and add oracle (simulate time passing)
         vm.warp(2000000); // Advance timestamp by 1M seconds
         vm.roll(200); // Advance by 100 blocks
-        IntegrationTestHarness phase2 = new IntegrationTestHarness();
-        phase2.resume(TEST_NETWORK, incrementalSalt); // resumes using salt
+        PhaseSnapshotHarness phase2 = new PhaseSnapshotHarness();
+        phase2.resume(TEST_NETWORK, incrementalSalt);
         phase2.enableAutoSave();
         phase2.deployOracleProxy("oracle", 2000e18, admin);
-        phase2.finish(); // autosaves to integration-incremental-salt.json (overwrites)
+        phase2.finish(); // autosaves and creates phase2 snapshot
 
-        // Copy phase 2 state as regression file
-        string memory phase2Json = vm.readFile(autosavePath);
-        string memory phase2Path = string.concat(TEST_OUTPUT_DIR, "/", incrementalSalt, "-phase2.json");
-        vm.writeFile(phase2Path, phase2Json);
-
-        // Phase 3: Resume and add minter with autosave (simulate more time passing)
+        // Phase 3: Resume and add minter (simulate more time passing)
         vm.warp(3000000); // Advance timestamp by another 1M seconds
         vm.roll(300); // Advance by another 100 blocks
-        IntegrationTestHarness phase3 = new IntegrationTestHarness();
-        phase3.resume(TEST_NETWORK, incrementalSalt); // resumes using salt
+        PhaseSnapshotHarness phase3 = new PhaseSnapshotHarness();
+        phase3.resume(TEST_NETWORK, incrementalSalt);
         phase3.enableAutoSave();
         phase3.deployMinterProxy("minter", "collateral", "pegged", "oracle", admin);
-        phase3.finish(); // autosaves to integration-incremental-salt.json (overwrites)
-
-        // Copy phase 3 state as regression file
-        string memory phase3Json = vm.readFile(autosavePath);
-        string memory phase3Path = string.concat(TEST_OUTPUT_DIR, "/", incrementalSalt, "-phase3.json");
-        vm.writeFile(phase3Path, phase3Json);
+        phase3.finish(); // autosaves and creates phase3 snapshot
 
         // Verify final state
         IntegrationTestHarness finalDeployment = new IntegrationTestHarness();

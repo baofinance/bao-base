@@ -144,8 +144,15 @@ abstract contract DeploymentJson is DeploymentRegistry {
         // Post-processing: mark contracts that have proxies as implementations
         for (uint256 i = 0; i < loadedKeys.length; i++) {
             string memory key = loadedKeys[i];
-            if (_eq(_entryType[key], "contract") && _contracts[key].proxies.length > 0) {
-                _entryType[key] = "implementation";
+            if (_eq(_entryType[key], "contract")) {
+                // Check if any proxy uses this as implementation
+                for (uint256 j = 0; j < loadedKeys.length; j++) {
+                    if (_eq(_entryType[loadedKeys[j]], "proxy") && 
+                        _eq(_proxies[loadedKeys[j]].proxy.implementationKey, key)) {
+                        _entryType[key] = "implementation";
+                        break;
+                    }
+                }
             }
         }
     }
@@ -203,6 +210,36 @@ abstract contract DeploymentJson is DeploymentRegistry {
         return json;
     }
 
+    /**
+     * @dev Build proxies array for an implementation by iterating through all proxies
+     * @param implementationKey The key of the implementation contract
+     * @return Array of proxy keys that use this implementation
+     */
+    function _buildProxiesArray(string memory implementationKey) private view returns (string[] memory) {
+        // Count proxies that use this implementation
+        uint256 count = 0;
+        for (uint256 i = 0; i < _keys.length; i++) {
+            if (_eq(_entryType[_keys[i]], "proxy")) {
+                if (_eq(_proxies[_keys[i]].proxy.implementationKey, implementationKey)) {
+                    count++;
+                }
+            }
+        }
+        
+        // Build array
+        string[] memory proxies = new string[](count);
+        uint256 index = 0;
+        for (uint256 i = 0; i < _keys.length; i++) {
+            if (_eq(_entryType[_keys[i]], "proxy")) {
+                if (_eq(_proxies[_keys[i]].proxy.implementationKey, implementationKey)) {
+                    proxies[index++] = _keys[i];
+                }
+            }
+        }
+        
+        return proxies;
+    }
+
     // ============================================================================
     // Entry Serializers - Compose from reusable serializers
     // ============================================================================
@@ -222,9 +259,11 @@ abstract contract DeploymentJson is DeploymentRegistry {
             entryJson = VM.serializeAddress(key, "deployer", entry.deployer);
         }
         
-        // Add proxies array for implementations (if non-empty)
-        if (isImplementation && entry.proxies.length > 0) {
-            entryJson = VM.serializeString(key, "proxies", entry.proxies);
+        // Build proxies array dynamically for implementations
+        if (isImplementation) {
+            string[] memory proxies = _buildProxiesArray(key);
+            // Always serialize the array, even if empty, to ensure it overwrites any previous value
+            entryJson = VM.serializeString(key, "proxies", proxies);
         }
 
         return VM.serializeString("deployment", key, entryJson);
@@ -366,11 +405,8 @@ abstract contract DeploymentJson is DeploymentRegistry {
         if (!isExisting && VM.keyExistsJson(json, string.concat(basePath, ".deployer"))) {
             deployer = VM.parseJsonAddress(json, string.concat(basePath, ".deployer"));
         }
-        
-        // Parse proxies array (empty for non-implementations)
-        string[] memory proxies = new string[](0);
 
-        _contracts[key] = ContractEntry({info: info, factory: factory, deployer: deployer, proxies: proxies});
+        _contracts[key] = ContractEntry({info: info, factory: factory, deployer: deployer});
 
         _exists[key] = true;
         _entryType[key] = "contract";
@@ -411,11 +447,6 @@ abstract contract DeploymentJson is DeploymentRegistry {
         _entryType[key] = "proxy";
         _keys.push(key);
         _resumedProxies[key] = true;
-        
-        // Add this proxy to the implementation's proxies array
-        if (bytes(proxyInfo.implementationKey).length > 0) {
-            _contracts[proxyInfo.implementationKey].proxies.push(key);
-        }
     }
 
     function _deserializeLibrary(string memory json, string memory key) private {

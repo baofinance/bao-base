@@ -48,7 +48,7 @@ contract TestDeployment is Deployment {
 
     /// @notice Override to disable registry saves by default in tests
     /// @dev Tests that want regression files should call enableAutoSave() or use explicit saveToJson()
-    function _saveToRegistry() internal override {
+    function _saveToRegistry() internal virtual override {
         if (_registrySavesEnabled) {
             super._saveToRegistry();
         }
@@ -60,10 +60,10 @@ contract TestDeployment is Deployment {
         // This is for testing - just check if any proxies still owned by this harness
         uint256 stillOwned = 0;
         string[] memory allKeys = _keys;
-        
+
         for (uint256 i; i < allKeys.length; i++) {
             string memory key = allKeys[i];
-            
+
             if (_eq(_entryType[key], "proxy")) {
                 address proxy = _proxies[key].info.addr;
                 (bool success, bytes memory data) = proxy.staticcall(abi.encodeWithSignature("owner()"));
@@ -75,7 +75,7 @@ contract TestDeployment is Deployment {
                 }
             }
         }
-        
+
         return stillOwned;
     }
 
@@ -134,7 +134,15 @@ contract TestDeployment is Deployment {
         string memory contractPath,
         string memory category
     ) public {
-        return _registerStandardContract(key, addr, contractType, contractPath, category, _runs[_runs.length - 1].deployer);
+        return
+            _registerStandardContract(
+                key,
+                addr,
+                contractType,
+                contractPath,
+                category,
+                _runs[_runs.length - 1].deployer
+            );
     }
 
     /**

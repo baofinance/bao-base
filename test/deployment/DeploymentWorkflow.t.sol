@@ -2,6 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {TestDeployment} from "./TestDeployment.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {OracleV1} from "@bao-test/mocks/upgradeable/MockOracle.sol";
@@ -63,6 +64,83 @@ contract WorkflowTestHarness is TestDeployment {
 }
 
 /**
+ * @title OperationSnapshotHarness
+ * @notice Captures snapshots after each deployment operation
+ * @dev Demonstrates autosave capturing every deploy, register, setParameter, etc.
+ */
+contract OperationSnapshotHarness is WorkflowTestHarness {
+    /// @notice Foundry VM for file operations
+    Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+
+    /// @notice Counter for operation snapshots
+    uint256 private _operationCounter;
+
+    constructor() {
+        _operationCounter = 0;
+    }
+
+    /// @notice Override to save snapshot after each operation
+    /// @dev Captures state after deploy, register, useExisting, setParameter, etc.
+    function _saveToRegistry() internal virtual override {
+        super._saveToRegistry();
+
+        // Build snapshot path: insert -opXX before .json extension
+        string memory basePath = _filepath();
+        string memory snapshotPath = string.concat(
+            _removeJsonExtension(basePath),
+            "-op",
+            _uintToString(_operationCounter),
+            ".json"
+        );
+        saveToJson(snapshotPath);
+        _operationCounter++;
+    }
+
+    /// @notice Remove .json extension from filepath
+    function _removeJsonExtension(string memory path) private pure returns (string memory) {
+        bytes memory pathBytes = bytes(path);
+        require(pathBytes.length > 5, "Path too short");
+        
+        // Check if ends with .json
+        if (
+            pathBytes[pathBytes.length - 5] == '.' &&
+            pathBytes[pathBytes.length - 4] == 'j' &&
+            pathBytes[pathBytes.length - 3] == 's' &&
+            pathBytes[pathBytes.length - 2] == 'o' &&
+            pathBytes[pathBytes.length - 1] == 'n'
+        ) {
+            bytes memory result = new bytes(pathBytes.length - 5);
+            for (uint256 i = 0; i < pathBytes.length - 5; i++) {
+                result[i] = pathBytes[i];
+            }
+            return string(result);
+        }
+        return path;
+    }
+
+    /// @notice Convert uint to string
+    function _uintToString(uint256 value) private pure returns (string memory) {
+        if (value == 0) return "0";
+
+        uint256 temp = value;
+        uint256 digits;
+        while (temp != 0) {
+            digits++;
+            temp /= 10;
+        }
+
+        bytes memory buffer = new bytes(digits);
+        while (value != 0) {
+            digits--;
+            buffer[digits] = bytes1(uint8(48 + (value % 10)));
+            value /= 10;
+        }
+
+        return string(buffer);
+    }
+}
+
+/**
  * @title DeploymentWorkflowTest
  * @notice Tests complete deployment workflows from start to finish
  */
@@ -93,6 +171,69 @@ contract DeploymentWorkflowTest is Test {
 
         // Verify metadata
         assertGt(deployment.getMetadata().finishTimestamp, 0, "Should be finished");
+    }
+
+    function test_OperationSnapshots() public {
+        // Use OperationSnapshotHarness to capture each operation
+        OperationSnapshotHarness snapDeployment = new OperationSnapshotHarness();
+        snapDeployment.start(admin, TEST_NETWORK, TEST_VERSION, "workflow-operation-snapshots");
+        snapDeployment.enableAutoSave();
+
+        // op0: start()
+        // op1: deployMockERC20 - registerContract
+        snapDeployment.deployMockERC20("collateral", "ETH", "ETH");
+
+        // op2: deployMockERC20 - registerContract
+        snapDeployment.deployMockERC20("pegged", "USD", "USD");
+
+        // op3: useExisting
+        address existingContract = address(0x1234567890123456789012345678901234567890);
+        vm.etch(existingContract, hex"01"); // Make it non-empty
+        snapDeployment.useExisting("existingToken", existingContract);
+
+        // op4: setStringByKey parameter
+        snapDeployment.setStringByKey("configValue", "testValue");
+
+        // op5: setUintByKey parameter
+        snapDeployment.setUintByKey("maxSupply", 1000000e18);
+
+        // op6: setIntByKey parameter
+        snapDeployment.setIntByKey("offset", -100);
+
+        // op7: setBoolByKey parameter
+        snapDeployment.setBoolByKey("enabled", true);
+
+        // op8: registerImplementation (in deployOracleProxy)
+        // op9: deployProxy
+        snapDeployment.deployOracleProxy("oracle", 2000e18, admin);
+
+        // op10: upgradeProxy - deploy new implementation and upgrade
+        OracleV1 newImpl = new OracleV1();
+        snapDeployment.registerImplementation(
+            "oracle_impl_v2",
+            address(newImpl),
+            "OracleV1",
+            "test/mocks/upgradeable/MockOracle.sol"
+        );
+        // op11: upgradeProxy (without initialization data to avoid reinitializing)
+        snapDeployment.upgradeProxy("oracle", "oracle_impl_v2", bytes(""));
+
+        // op12: deployMathLibrary - registerLibrary
+        snapDeployment.deployMathLibrary("mathLib");
+
+        // op13: finish()
+        snapDeployment.finish();
+
+        // Verify all operations were captured
+        assertTrue(snapDeployment.hasByString("collateral"));
+        assertTrue(snapDeployment.hasByString("pegged"));
+        assertTrue(snapDeployment.hasByString("existingToken"));
+        assertTrue(snapDeployment.hasByString("oracle"));
+        assertTrue(snapDeployment.hasByString("mathLib"));
+        assertEq(snapDeployment.getStringByKey("configValue"), "testValue");
+        assertEq(snapDeployment.getUintByKey("maxSupply"), 1000000e18);
+        assertEq(snapDeployment.getIntByKey("offset"), -100);
+        assertTrue(snapDeployment.getBoolByKey("enabled"));
     }
 
     function test_ProxyWorkflow() public {
@@ -129,7 +270,7 @@ contract DeploymentWorkflowTest is Test {
     function test_ComplexWorkflow() public {
         // Enable auto-save to generate workflow-test-salt.json for regression
         deployment.enableAutoSave();
-        
+
         // Deploy tokens
         address usdc = deployment.deployMockERC20("USDC", "USD Coin", "USDC");
         address baoUSD = deployment.deployMockERC20("baoUSD", "Bao USD", "baoUSD");
