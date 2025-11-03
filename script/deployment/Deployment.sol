@@ -274,7 +274,7 @@ abstract contract Deployment is DeploymentJson {
         } else {
             IUUPSUpgradeableProxy(proxy).upgradeToAndCall(newImplementation, initData);
         }
-        
+
         // Update registry to reflect the new implementation
         _updateProxyImplementation(proxyKey, newImplementationKey);
         _saveToRegistry();

@@ -83,7 +83,7 @@ abstract contract DeploymentJson is DeploymentRegistry {
         rootJson = VM.serializeString("root", "saltString", _metadata.systemSaltString);
         rootJson = VM.serializeString("root", "network", _metadata.network);
         rootJson = VM.serializeString("root", "version", _metadata.version);
-        
+
         // Always include deployment field (empty object if no entries)
         rootJson = VM.serializeString("root", "deployment", _keys.length > 0 ? deploymentsJson : "{}");
 
@@ -140,15 +140,17 @@ abstract contract DeploymentJson is DeploymentRegistry {
                 }
             }
         }
-        
+
         // Post-processing: mark contracts that have proxies as implementations
         for (uint256 i = 0; i < loadedKeys.length; i++) {
             string memory key = loadedKeys[i];
             if (_eq(_entryType[key], "contract")) {
                 // Check if any proxy uses this as implementation
                 for (uint256 j = 0; j < loadedKeys.length; j++) {
-                    if (_eq(_entryType[loadedKeys[j]], "proxy") && 
-                        _eq(_proxies[loadedKeys[j]].proxy.implementationKey, key)) {
+                    if (
+                        _eq(_entryType[loadedKeys[j]], "proxy") &&
+                        _eq(_proxies[loadedKeys[j]].proxy.implementationKey, key)
+                    ) {
                         _entryType[key] = "implementation";
                         break;
                     }
@@ -225,7 +227,7 @@ abstract contract DeploymentJson is DeploymentRegistry {
                 }
             }
         }
-        
+
         // Build array
         string[] memory proxies = new string[](count);
         uint256 index = 0;
@@ -236,7 +238,7 @@ abstract contract DeploymentJson is DeploymentRegistry {
                 }
             }
         }
-        
+
         return proxies;
     }
 
@@ -249,7 +251,7 @@ abstract contract DeploymentJson is DeploymentRegistry {
 
         string memory entryJson = "";
         entryJson = _serializeDeploymentInfo(key, entry.info, entryJson);
-        
+
         // Add factory (if CREATE3) and deployer (executor) - skip deployer for existing contracts
         bool isExisting = _eq(entry.info.category, "existing");
         if (entry.factory != address(0)) {
@@ -258,7 +260,7 @@ abstract contract DeploymentJson is DeploymentRegistry {
         if (!isExisting && entry.deployer != address(0)) {
             entryJson = VM.serializeAddress(key, "deployer", entry.deployer);
         }
-        
+
         // Build proxies array dynamically for implementations
         if (isImplementation) {
             string[] memory proxies = _buildProxiesArray(key);
@@ -276,7 +278,7 @@ abstract contract DeploymentJson is DeploymentRegistry {
         entryJson = _serializeDeploymentInfo(key, entry.info, entryJson);
         entryJson = _serializeCREATE3Info(key, entry.create3, entryJson);
         entryJson = _serializeProxyInfo(key, entry.proxy, entryJson);
-        
+
         // Add factory and deployer (executor)
         entryJson = VM.serializeAddress(key, "factory", entry.factory);
         entryJson = VM.serializeAddress(key, "deployer", entry.deployer);
@@ -289,7 +291,7 @@ abstract contract DeploymentJson is DeploymentRegistry {
 
         string memory entryJson = "";
         entryJson = _serializeDeploymentInfo(key, entry.info, entryJson);
-        
+
         // Add deployer (executor)
         entryJson = VM.serializeAddress(key, "deployer", entry.deployer);
 
@@ -330,13 +332,13 @@ abstract contract DeploymentJson is DeploymentRegistry {
         // Load runs array - must exist for valid deployment
         require(VM.keyExistsJson(json, ".runs"), "Missing runs array in JSON");
         require(VM.keyExistsJson(json, ".runs[0]"), "Empty runs array in JSON");
-        
+
         // Count runs by trying to access increasing indices
         uint256 runCount = 0;
         while (VM.keyExistsJson(json, string.concat(".runs[", VM.toString(runCount), "]"))) {
             runCount++;
         }
-        
+
         // Parse each run manually (avoiding ISO fields which aren't in struct)
         for (uint256 i = 0; i < runCount; i++) {
             string memory runPath = string.concat(".runs[", VM.toString(i), "]");
@@ -353,16 +355,16 @@ abstract contract DeploymentJson is DeploymentRegistry {
             }
             _runs.push(run);
         }
-        
+
         // Validate runs for resume
         require(_runs.length >= 1, "Cannot resume: no runs in deployment");
         require(_runs[_runs.length - 1].finished, "Cannot resume: last run not finished");
-        
+
         _metadata.startTimestamp = _runs[0].startTimestamp;
         _metadata.startBlock = _runs[0].startBlock;
         _metadata.finishTimestamp = _runs[_runs.length - 1].finishTimestamp;
         _metadata.finishBlock = _runs[_runs.length - 1].finishBlock;
-        
+
         // Create new run record for this resume
         _runs.push(
             RunRecord({
@@ -442,7 +444,13 @@ abstract contract DeploymentJson is DeploymentRegistry {
         address factory = VM.parseJsonAddress(json, string.concat(basePath, ".factory"));
         address deployer = VM.parseJsonAddress(json, string.concat(basePath, ".deployer"));
 
-        _proxies[key] = ProxyEntry({info: info, create3: create3Info, proxy: proxyInfo, factory: factory, deployer: deployer});
+        _proxies[key] = ProxyEntry({
+            info: info,
+            create3: create3Info,
+            proxy: proxyInfo,
+            factory: factory,
+            deployer: deployer
+        });
         _exists[key] = true;
         _entryType[key] = "proxy";
         _keys.push(key);

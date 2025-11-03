@@ -148,49 +148,6 @@ contract PhaseSnapshotHarness is IntegrationTestHarness {
         string memory content = vm.readFile(sourcePath);
         vm.writeFile(destPath, content);
     }
-
-    /// @notice Remove .json extension from filepath
-    function _removeJsonExtension(string memory path) private pure returns (string memory) {
-        bytes memory pathBytes = bytes(path);
-        require(pathBytes.length > 5, "Path too short");
-        
-        // Check if ends with .json
-        if (
-            pathBytes[pathBytes.length - 5] == '.' &&
-            pathBytes[pathBytes.length - 4] == 'j' &&
-            pathBytes[pathBytes.length - 3] == 's' &&
-            pathBytes[pathBytes.length - 2] == 'o' &&
-            pathBytes[pathBytes.length - 1] == 'n'
-        ) {
-            bytes memory result = new bytes(pathBytes.length - 5);
-            for (uint256 i = 0; i < pathBytes.length - 5; i++) {
-                result[i] = pathBytes[i];
-            }
-            return string(result);
-        }
-        return path;
-    }
-
-    /// @notice Convert uint to string
-    function _uintToString(uint256 value) private pure returns (string memory) {
-        if (value == 0) return "0";
-
-        uint256 temp = value;
-        uint256 digits;
-        while (temp != 0) {
-            digits++;
-            temp /= 10;
-        }
-
-        bytes memory buffer = new bytes(digits);
-        while (value != 0) {
-            digits--;
-            buffer[digits] = bytes1(uint8(48 + (value % 10)));
-            value /= 10;
-        }
-
-        return string(buffer);
-    }
 }
 
 /**
@@ -215,27 +172,6 @@ contract OperationSnapshotHarness is IntegrationTestHarness {
         string memory snapshotPath = string.concat(_filepath(), "-op", _uintToString(_operationCounter));
         saveToJson(snapshotPath);
         _operationCounter++;
-    }
-
-    /// @notice Convert uint to string
-    function _uintToString(uint256 value) private pure returns (string memory) {
-        if (value == 0) return "0";
-
-        uint256 temp = value;
-        uint256 digits;
-        while (temp != 0) {
-            digits++;
-            temp /= 10;
-        }
-
-        bytes memory buffer = new bytes(digits);
-        while (value != 0) {
-            digits--;
-            buffer[digits] = bytes1(uint8(48 + (value % 10)));
-            value /= 10;
-        }
-
-        return string(buffer);
     }
 }
 
