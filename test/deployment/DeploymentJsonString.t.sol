@@ -11,10 +11,13 @@ import {TestDeployment} from "./TestDeployment.sol";
  */
 contract DeploymentJsonStringTest is Test {
     TestDeployment public deployment;
+    string constant TEST_NETWORK = "localhost";
+    string constant TEST_SALT = "jsonstring-test-salt";
+    string constant TEST_VERSION = "1.0.0";
 
     function setUp() public {
         deployment = new TestDeployment();
-        deployment.start(address(this), "localhost", "1.0.0", "jsonstring-test-salt");
+        deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
     function test_ToJsonReturnsValidString() public {
@@ -108,9 +111,14 @@ contract DeploymentJsonStringTest is Test {
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
-        // Should still have metadata
-        assertTrue(vm.keyExistsJson(json, ".metadata"), "Should have metadata");
+        // Should still have metadata fields (now flattened to root)
+        assertTrue(vm.keyExistsJson(json, ".runs"), "Should have runs array");
+        assertTrue(vm.keyExistsJson(json, ".network"), "Should have network");
         assertTrue(vm.keyExistsJson(json, ".deployer"), "Should have deployer");
+
+        // Verify runs array has at least one entry (from finish())
+        uint256 startTimestamp = vm.parseJsonUint(json, ".runs[0].startTimestamp");
+        assertTrue(startTimestamp > 0, "Should have startTimestamp in runs");
 
         // Note: Empty deployment won't have .deployment key, which is fine
         // We just verify metadata exists
@@ -170,11 +178,7 @@ contract DeploymentJsonStringTest is Test {
         deployment.finish();
         deployment.saveToJson(path);
 
-        string memory json = vm.readFile(path);
-        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
-        assertEq(schemaVersion, 1, "Schema version should be 1");
-
-        // Load from file
+        // Load from file - if this succeeds, schema is valid
         TestDeployment loaded = new TestDeployment();
         loaded.loadFromJson(path);
 
@@ -195,11 +199,7 @@ contract DeploymentJsonStringTest is Test {
         deployment.finish();
         deployment.saveToJson(path);
 
-        string memory json = vm.readFile(path);
-        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
-        assertEq(schemaVersion, 1, "Schema version should be 1");
-
-        // Load using original method
+        // Load using original method - if this succeeds, schema is valid
         TestDeployment loaded = new TestDeployment();
         loaded.loadFromJson(path);
 

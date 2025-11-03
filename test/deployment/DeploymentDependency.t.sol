@@ -42,10 +42,13 @@ contract DependencyTestHarness is TestDeployment {
  */
 contract DeploymentDependencyTest is Test {
     DependencyTestHarness public deployment;
+    string constant TEST_NETWORK = "test";
+    string constant TEST_SALT = "dependency-test-salt";
+    string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public {
         deployment = new DependencyTestHarness();
-        deployment.start(address(this), "test", "v1.0.0", "dependency-test-salt");
+        deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
     function test_SimpleDependency() public {

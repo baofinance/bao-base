@@ -12,13 +12,13 @@ import {CounterV1} from "../mocks/upgradeable/MockCounter.sol";
 contract ProxyTestHarness is TestDeployment {
     function deployCounterProxy(string memory key, uint256 initialValue, address owner) public returns (address) {
         string memory implKey = string.concat(key, "_impl");
-        
+
         // Only deploy implementation if it doesn't exist yet
         if (!hasByString(implKey)) {
             CounterV1 impl = new CounterV1();
             registerImplementation(implKey, address(impl), "CounterV1", "test/mocks/upgradeable/MockCounter.sol");
         }
-        
+
         bytes memory initData = abi.encodeCall(CounterV1.initialize, (initialValue, owner));
         return this.deployProxy(key, implKey, initData);
     }
@@ -32,10 +32,13 @@ contract DeploymentProxyTest is Test {
     ProxyTestHarness public deployment;
     address internal admin;
     address internal outsider;
+    string constant TEST_NETWORK = "test";
+    string constant TEST_SALT = "proxy-test-salt";
+    string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public {
         deployment = new ProxyTestHarness();
-        deployment.start(address(this), "test", "v1.0.0", "proxy-test-salt");
+        deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
         admin = makeAddr("admin");
         outsider = makeAddr("outsider");
     }
@@ -135,6 +138,7 @@ contract DeploymentProxyTest is Test {
         string memory expectedMessage = "resumed registry retains counter";
         assertEq(deployment.getByString("counter"), existingProxy, expectedMessage);
 
+        deployment.finish();
         string memory json = deployment.toJson();
 
         ProxyTestHarness resumed = new ProxyTestHarness();
@@ -151,6 +155,7 @@ contract DeploymentProxyTest is Test {
 
     function test_FinalizeOwnershipAfterResumeSkipsResumedProxy() public {
         deployment.deployCounterProxy("counter", 5, admin);
+        deployment.finish();
         string memory json = deployment.toJson();
 
         ProxyTestHarness resumed = new ProxyTestHarness();

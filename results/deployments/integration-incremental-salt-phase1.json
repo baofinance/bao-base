@@ -1,0 +1,40 @@
+{
+  "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
+  "deployment": {
+    "collateral": {
+      "address": "0x8d2C17FAd02B7bb64139109c6533b7C2b9CADb81",
+      "blockNumber": 100,
+      "category": "mock",
+      "contractPath": "test/mocks/tokens/MockERC20.sol",
+      "contractType": "MockERC20",
+      "deployedTo": "0x8d2C17FAd02B7bb64139109c6533b7C2b9CADb81",
+      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b"
+    },
+    "pegged": {
+      "address": "0x3C8Ca53ee5661D29d3d3C0732689a4b86947EAF0",
+      "blockNumber": 100,
+      "category": "mock",
+      "contractPath": "test/mocks/tokens/MockERC20.sol",
+      "contractType": "MockERC20",
+      "deployedTo": "0x3C8Ca53ee5661D29d3d3C0732689a4b86947EAF0",
+      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b"
+    }
+  },
+  "network": "test-network",
+  "owner": "0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496",
+  "saltString": "integration-incremental-salt",
+  "schemaVersion": 1,
+  "version": "v1.0.0",
+  "runs": [
+    {
+      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
+      "startTimestamp": 1000000,
+      "startTimestampISO": "1970-01-12T13:46:40Z",
+      "finishTimestamp": 1000000,
+      "finishTimestampISO": "1970-01-12T13:46:40Z",
+      "startBlock": 100,
+      "finishBlock": 100,
+      "finished": true
+    }
+  ]
+}

@@ -37,10 +37,13 @@ contract DeploymentHarness is TestDeployment {
  */
 contract DeploymentBasicTest is Test {
     DeploymentHarness public deployment;
+    string constant TEST_NETWORK = "test";
+    string constant TEST_SALT = "test-system-salt";
+    string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public {
         deployment = new DeploymentHarness();
-        deployment.start(address(this), "test", "v1.0.0", "test-system-salt");
+        deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
     function test_Initialize() public view {
@@ -49,7 +52,7 @@ contract DeploymentBasicTest is Test {
         assertEq(metadata.owner, address(this)); // owner is the test
         assertEq(metadata.network, "test");
         assertEq(metadata.version, "v1.0.0");
-        assertTrue(metadata.startedAt > 0);
+        assertTrue(metadata.startTimestamp > 0);
         assertTrue(metadata.startBlock > 0);
     }
 
@@ -130,8 +133,8 @@ contract DeploymentBasicTest is Test {
         deployment.finish();
 
         Deployment.DeploymentMetadata memory metadata = deployment.getMetadata();
-        assertTrue(metadata.finishedAt > 0);
-        assertTrue(metadata.finishedAt >= metadata.startedAt);
+        assertTrue(metadata.finishTimestamp > 0);
+        assertTrue(metadata.finishTimestamp >= metadata.startTimestamp);
     }
 
     function test_RegisterExisting() public {
@@ -156,14 +159,13 @@ contract DeploymentBasicTest is Test {
 
     function test_RevertWhen_StartDeploymentTwice() public {
         vm.expectRevert(DeploymentRegistry.AlreadyInitialized.selector);
-        deployment.start(address(this), "test", "v1.0.0", "test-system-salt");
+        deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
-    function test_ActionWithoutInitialization() public {
+    function test_RevertWhen_ActionWithoutInitialization() public {
         DeploymentHarness fresh = new DeploymentHarness();
-        // With no lifecycle checks, mutations work even without initialization
-        // However, auto-save will try to save to empty path (will fail silently in tests)
-        address mockAddr = fresh.deployMockContract("mock", "Mock Contract");
-        assertTrue(mockAddr != address(0));
+        // Actions without initialization should fail (no active run)
+        vm.expectRevert("No active run");
+        fresh.deployMockContract("mock", "Mock Contract");
     }
 }

@@ -39,10 +39,13 @@ contract RoundTripTestHarness is TestDeployment {
  */
 contract DeploymentJsonRoundTripTest is Test {
     RoundTripTestHarness public deployment;
+    string constant TEST_NETWORK = "test-network";
+    string constant TEST_SALT = "roundtrip-test-salt";
+    string constant TEST_VERSION = "v2.1.0";
 
     function setUp() public {
         deployment = new RoundTripTestHarness();
-        deployment.start(address(this), "test-network", "v2.1.0", "roundtrip-test-salt");
+        deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
     function test_ComplexDeploymentRoundTrip() public {
@@ -88,8 +91,8 @@ contract DeploymentJsonRoundTripTest is Test {
         assertTrue(restored.getBoolByKey("enabled"), "Bool parameter mismatch");
 
         // Verify metadata is preserved
-        assertEq(restored.getMetadata().network, "test-network", "Network metadata mismatch");
-        assertEq(restored.getMetadata().version, "v2.1.0", "Version metadata mismatch");
+        assertEq(restored.getMetadata().network, TEST_NETWORK, "Network metadata mismatch");
+        assertEq(restored.getMetadata().version, TEST_VERSION, "Version metadata mismatch");
     }
 
     function test_EmptyDeploymentRoundTrip() public {
@@ -107,8 +110,8 @@ contract DeploymentJsonRoundTripTest is Test {
         string[] memory keys = restored.keys();
         assertEq(keys.length, 0, "Should have no deployment keys");
 
-        assertEq(restored.getMetadata().network, "test-network", "Network should be preserved");
-        assertEq(restored.getMetadata().version, "v2.1.0", "Version should be preserved");
+        assertEq(restored.getMetadata().network, TEST_NETWORK, "Network should be preserved");
+        assertEq(restored.getMetadata().version, TEST_VERSION, "Version should be preserved");
     }
 
     function test_LargeDeploymentRoundTrip() public {

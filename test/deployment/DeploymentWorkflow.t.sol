@@ -69,11 +69,14 @@ contract WorkflowTestHarness is TestDeployment {
 contract DeploymentWorkflowTest is Test {
     WorkflowTestHarness public deployment;
     address public admin;
+    string constant TEST_NETWORK = "workflow-test";
+    string constant TEST_SALT = "workflow-test-salt";
+    string constant TEST_VERSION = "v2.0.0";
 
     function setUp() public {
         deployment = new WorkflowTestHarness();
         admin = makeAddr("admin");
-        deployment.start(admin, "workflow-test", "v2.0.0", "workflow-test-salt");
+        deployment.start(admin, TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
     function test_SimpleWorkflow() public {
@@ -89,7 +92,7 @@ contract DeploymentWorkflowTest is Test {
         deployment.finish();
 
         // Verify metadata
-        assertGt(deployment.getMetadata().finishedAt, 0, "Should be finished");
+        assertGt(deployment.getMetadata().finishTimestamp, 0, "Should be finished");
     }
 
     function test_ProxyWorkflow() public {
@@ -109,8 +112,6 @@ contract DeploymentWorkflowTest is Test {
         OracleV1 oracleContract = OracleV1(oracle);
         assertEq(oracleContract.price(), 1500e18, "Price should be initialized");
         assertEq(oracleContract.owner(), admin, "Owner should be set");
-
-        deployment.finish();
     }
 
     function test_LibraryWorkflow() public {
@@ -126,6 +127,9 @@ contract DeploymentWorkflowTest is Test {
     }
 
     function test_ComplexWorkflow() public {
+        // Enable auto-save to generate workflow-test-salt.json for regression
+        deployment.enableAutoSave();
+        
         // Deploy tokens
         address usdc = deployment.deployMockERC20("USDC", "USD Coin", "USDC");
         address baoUSD = deployment.deployMockERC20("baoUSD", "Bao USD", "baoUSD");
@@ -148,9 +152,6 @@ contract DeploymentWorkflowTest is Test {
         deployment.setStringByKey("systemName", "BaoFinance");
         deployment.setUintByKey("version", 2);
         deployment.setBoolByKey("testnet", true);
-
-        // Finish deployment
-        deployment.finish();
 
         // Verify all components
         assertTrue(usdc != address(0), "USDC should be deployed");
@@ -215,8 +216,6 @@ contract DeploymentWorkflowTest is Test {
         MockMinter minterContractExisting = MockMinter(minter);
         assertEq(minterContractExisting.owner(), admin, "Minter owner should be admin");
 
-        deployment.finish();
-
         // Verify existing contract integration
         MockMinter minterContract = MockMinter(minter);
         assertEq(minterContract.WRAPPED_COLLATERAL_TOKEN(), existingUSDC, "Should use existing USDC");
@@ -255,7 +254,6 @@ contract DeploymentWorkflowTest is Test {
         // Ownership transferred by finish()
 
         deployment.setStringByKey("network", "ethereum");
-        deployment.finish();
 
         // Test JSON round-trip
         string memory json = deployment.toJson();

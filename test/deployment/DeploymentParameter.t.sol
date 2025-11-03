@@ -12,10 +12,13 @@ import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol"
  */
 contract DeploymentParameterTest is Test {
     ParameterTestHarness public deployment;
+    string constant TEST_NETWORK = "test";
+    string constant TEST_SALT = "parameter-test-salt";
+    string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public {
         deployment = new ParameterTestHarness();
-        deployment.start(address(this), "test", "v1.0.0", "parameter-test-salt");
+        deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
     function test_SetAndGetString() public {
@@ -99,6 +102,7 @@ contract DeploymentParameterTest is Test {
 
         // Save to JSON
         string memory filepath = "results/deployments/test-parameters.json";
+        deployment.finish();
         deployment.saveToJson(filepath);
 
         // Create new deployment and load

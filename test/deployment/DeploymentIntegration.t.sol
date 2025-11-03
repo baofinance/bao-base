@@ -118,11 +118,14 @@ contract DeploymentIntegrationTest is Test {
     IntegrationTestHarness public deployment;
     address public admin;
     string constant TEST_OUTPUT_DIR = "results/deployments";
+    string constant TEST_NETWORK = "test-network";
+    string constant TEST_SALT = "integration-test-salt";
+    string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public {
         admin = address(this);
         deployment = new IntegrationTestHarness();
-        deployment.start(admin, "test-network", "v1.0.0", "integration-test-salt");
+        deployment.start(admin, TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
     function test_DeployFullSystem() public {
@@ -162,7 +165,9 @@ contract DeploymentIntegrationTest is Test {
     }
 
     function test_SaveAndLoadFullSystem() public {
-        string memory path = string.concat(TEST_OUTPUT_DIR, "/integration-full.json");
+        // Enable auto-save for regression testing
+        deployment.enableAutoSave();
+
         // Deploy full system
         deployment.deployMockERC20("collateral", "wETH", "wETH");
         deployment.deployMockERC20("pegged", "USD", "USD");
@@ -171,13 +176,9 @@ contract DeploymentIntegrationTest is Test {
         deployment.deployConfigLibrary("configLib");
 
         deployment.finish();
-        deployment.saveToJson(path);
 
-        string memory jsonBeforeLoad = vm.readFile(path);
-        uint256 schemaVersionBeforeLoad = vm.parseJsonUint(jsonBeforeLoad, ".schemaVersion");
-        assertEq(schemaVersionBeforeLoad, 1, "Schema version should be 1");
-
-        // Load into new deployment
+        // Load into new deployment (autosave already wrote the file)
+        string memory path = string.concat(TEST_OUTPUT_DIR, "/", TEST_SALT, ".json");
         IntegrationTestHarness newDeployment = new IntegrationTestHarness();
         newDeployment.loadFromJson(path);
 
@@ -200,7 +201,9 @@ contract DeploymentIntegrationTest is Test {
     }
 
     function test_DeploymentWithExistingContracts() public {
-        string memory path = string.concat(TEST_OUTPUT_DIR, "/integration-existing.json");
+        // Enable auto-save for regression testing
+        deployment.enableAutoSave();
+
         // Use existing mainnet contracts (simulated)
         address wstEth = address(0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
         deployment.useExistingByString("wstETH", wstEth);
@@ -208,14 +211,14 @@ contract DeploymentIntegrationTest is Test {
         // Deploy new contracts that depend on existing
         deployment.deployMockERC20("pegged", "USD", "USD");
         deployment.deployOracleProxy("oracle", 2000e18, admin);
+        deployment.finish();
 
         // Verify existing contract is in registry
         assertEq(deployment.getByString("wstETH"), wstEth);
         assertTrue(deployment.hasByString("wstETH"));
 
-        // Should be able to save with existing contracts
-        deployment.saveToJson(path);
-
+        // Read autosaved file
+        string memory path = string.concat(TEST_OUTPUT_DIR, "/", TEST_SALT, ".json");
         string memory json = vm.readFile(path);
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
@@ -227,27 +230,56 @@ contract DeploymentIntegrationTest is Test {
     }
 
     function test_IncrementalDeployment() public {
-        string memory path = string.concat(TEST_OUTPUT_DIR, "/integration-incremental.json");
-        // Phase 1: Deploy tokens
-        deployment.deployMockERC20("collateral", "wETH", "wETH");
-        deployment.deployMockERC20("pegged", "USD", "USD");
-        deployment.saveToJson(path);
+        // Use unique salt to avoid conflicts with other tests
+        string memory incrementalSalt = "integration-incremental-salt";
+        string memory autosavePath = string.concat(TEST_OUTPUT_DIR, "/", incrementalSalt, ".json");
 
-        // Phase 2: Load and add oracle
+        // Phase 1: Deploy tokens with autosave
+        vm.warp(1000000); // Set initial timestamp
+        vm.roll(100); // Set initial block number
+        IntegrationTestHarness phase1 = new IntegrationTestHarness();
+        phase1.start(admin, TEST_NETWORK, TEST_VERSION, incrementalSalt);
+        phase1.enableAutoSave();
+        phase1.deployMockERC20("collateral", "wETH", "wETH");
+        phase1.deployMockERC20("pegged", "USD", "USD");
+        phase1.finish(); // autosaves to integration-incremental-salt.json
+
+        // Copy phase 1 state as regression file
+        string memory phase1Json = vm.readFile(autosavePath);
+        string memory phase1Path = string.concat(TEST_OUTPUT_DIR, "/", incrementalSalt, "-phase1.json");
+        vm.writeFile(phase1Path, phase1Json);
+
+        // Phase 2: Resume and add oracle with autosave (simulate time passing)
+        vm.warp(2000000); // Advance timestamp by 1M seconds
+        vm.roll(200); // Advance by 100 blocks
         IntegrationTestHarness phase2 = new IntegrationTestHarness();
-        phase2.resumeFrom(path);
+        phase2.resume(TEST_NETWORK, incrementalSalt); // resumes using salt
+        phase2.enableAutoSave();
         phase2.deployOracleProxy("oracle", 2000e18, admin);
-        phase2.saveToJson(path);
+        phase2.finish(); // autosaves to integration-incremental-salt.json (overwrites)
 
-        // Phase 3: Load and add minter
+        // Copy phase 2 state as regression file
+        string memory phase2Json = vm.readFile(autosavePath);
+        string memory phase2Path = string.concat(TEST_OUTPUT_DIR, "/", incrementalSalt, "-phase2.json");
+        vm.writeFile(phase2Path, phase2Json);
+
+        // Phase 3: Resume and add minter with autosave (simulate more time passing)
+        vm.warp(3000000); // Advance timestamp by another 1M seconds
+        vm.roll(300); // Advance by another 100 blocks
         IntegrationTestHarness phase3 = new IntegrationTestHarness();
-        phase3.resumeFrom(path);
+        phase3.resume(TEST_NETWORK, incrementalSalt); // resumes using salt
+        phase3.enableAutoSave();
         phase3.deployMinterProxy("minter", "collateral", "pegged", "oracle", admin);
-        phase3.saveToJson(path);
+        phase3.finish(); // autosaves to integration-incremental-salt.json (overwrites)
+
+        // Copy phase 3 state as regression file
+        string memory phase3Json = vm.readFile(autosavePath);
+        string memory phase3Path = string.concat(TEST_OUTPUT_DIR, "/", incrementalSalt, "-phase3.json");
+        vm.writeFile(phase3Path, phase3Json);
 
         // Verify final state
         IntegrationTestHarness finalDeployment = new IntegrationTestHarness();
-        finalDeployment.loadFromJson(path);
+        finalDeployment.resume(TEST_NETWORK, incrementalSalt);
 
         assertTrue(finalDeployment.hasByString("collateral"));
         assertTrue(finalDeployment.hasByString("pegged"));

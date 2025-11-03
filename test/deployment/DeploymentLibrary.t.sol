@@ -28,10 +28,13 @@ contract LibraryTestHarness is TestDeployment {
  */
 contract DeploymentLibraryTest is Test {
     LibraryTestHarness public deployment;
+    string constant TEST_NETWORK = "test";
+    string constant TEST_SALT = "library-test-salt";
+    string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public {
         deployment = new LibraryTestHarness();
-        deployment.start(address(this), "test", "v1.0.0", "library-test-salt");
+        deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
     function test_DeployLibrary() public {
@@ -69,7 +72,7 @@ contract DeploymentLibraryTest is Test {
 
         // Create new deployment instance
         LibraryTestHarness deployment2 = new LibraryTestHarness();
-        deployment2.start(address(this), "test", "v1.0.0", "library-test-salt-2");
+        deployment2.start(address(this), TEST_NETWORK, TEST_VERSION, "library-test-salt-2");
         address addr2 = deployment2.deployMathLibrary("mathLib2");
 
         // CREATE uses nonce, so addresses will differ

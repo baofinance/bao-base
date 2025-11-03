@@ -53,17 +53,31 @@ abstract contract DeploymentRegistry {
     struct DeploymentMetadata {
         address deployer;
         address owner;
-        uint256 startedAt;
-        uint256 finishedAt;
+        uint256 startTimestamp;
+        uint256 finishTimestamp;
         uint256 startBlock;
+        uint256 finishBlock;
         string network;
         string version;
         string systemSaltString;
     }
 
+    /// @notice Lightweight run record for audit trail
+    struct RunRecord {
+        address deployer;
+        uint256 startTimestamp;
+        uint256 finishTimestamp;
+        uint256 startBlock;
+        uint256 finishBlock;
+        bool finished;
+    }
+
     /// @notice Contract entry (direct deployment, mock, existing)
     struct ContractEntry {
         DeploymentInfo info;
+        address factory; // CREATE3 factory address (if CREATE3-deployed)
+        address deployer; // Address that executed the deployment
+        string[] proxies; // Proxy keys using this as implementation (for implementations only)
     }
 
     /// @notice Proxy entry (always uses CREATE3)
@@ -71,17 +85,14 @@ abstract contract DeploymentRegistry {
         DeploymentInfo info;
         Create3Info create3;
         ProxyInfo proxy;
-    }
-
-    /// @notice Implementation entry (contract backing proxies)
-    struct ImplementationEntry {
-        DeploymentInfo info;
-        string[] proxies; // Keys of proxies using this
+        address factory; // CREATE3 factory address
+        address deployer; // Address that executed the deployment
     }
 
     /// @notice Library entry (always uses CREATE)
     struct LibraryEntry {
         DeploymentInfo info;
+        address deployer; // Address that executed the deployment
     }
 
     // ============================================================================
@@ -108,10 +119,10 @@ abstract contract DeploymentRegistry {
     // ============================================================================
 
     DeploymentMetadata internal _metadata;
+    RunRecord[] internal _runs;
 
     mapping(string => ContractEntry) internal _contracts;
     mapping(string => ProxyEntry) internal _proxies;
-    mapping(string => ImplementationEntry) internal _implementations;
     mapping(string => LibraryEntry) internal _libraries;
 
     // Direct mappings for each parameter type (no struct wrappers)
@@ -146,7 +157,7 @@ abstract contract DeploymentRegistry {
 
         if (_eq(entryType, "contract")) return _contracts[key].info.addr;
         if (_eq(entryType, "proxy")) return _proxies[key].info.addr;
-        if (_eq(entryType, "implementation")) return _implementations[key].info.addr;
+        if (_eq(entryType, "implementation")) return _contracts[key].info.addr;
         if (_eq(entryType, "library")) return _libraries[key].info.addr;
 
         revert UnknownEntryType(entryType, key);
@@ -302,6 +313,13 @@ abstract contract DeploymentRegistry {
     }
 
     /**
+     * @notice Require that a run is active
+     */
+    function _requireActiveRun() internal view {
+        require(_runs.length > 0, "No active run");
+    }
+
+    /**
      * @notice Initialize deployment metadata
      * @param owner The final owner address for all deployed contracts
      */
@@ -311,26 +329,46 @@ abstract contract DeploymentRegistry {
         string memory version,
         string memory systemSaltString
     ) internal {
-        if (_metadata.startedAt != 0) {
+        if (_metadata.startTimestamp != 0) {
             revert AlreadyInitialized();
         }
+        require(_runs.length == 0, "Cannot start: runs already exist");
         _schemaVersion = DEPLOYMENT_SCHEMA_VERSION;
         _metadata.deployer = address(this);
         _metadata.owner = owner;
-        _metadata.startedAt = block.timestamp;
+        _metadata.startTimestamp = block.timestamp;
         _metadata.startBlock = block.number;
         _metadata.network = network;
         _metadata.version = version;
         _metadata.systemSaltString = systemSaltString;
-        _metadata.finishedAt = 0;
+        _metadata.finishTimestamp = 0;
+        _metadata.finishBlock = 0;
+
+        // Create initial run record
+        _runs.push(
+            RunRecord({
+                deployer: address(this),
+                startTimestamp: block.timestamp,
+                finishTimestamp: 0,
+                startBlock: block.number,
+                finishBlock: 0,
+                finished: false
+            })
+        );
     }
 
     /**
-     * @notice Update finishedAt timestamp to current time
+     * @notice Update finishTimestamp timestamp and block to current time/block
      * @dev Called on every save to track last modification time
      */
     function _updateFinishedAt() internal {
-        _metadata.finishedAt = block.timestamp;
+        _metadata.finishTimestamp = block.timestamp;
+        _metadata.finishBlock = block.number;
+
+        // Update current run's finish fields (but don't mark as finished)
+        require(_runs.length > 0, "No active run");
+        _runs[_runs.length - 1].finishTimestamp = block.timestamp;
+        _runs[_runs.length - 1].finishBlock = block.number;
     }
 
     // ============================================================================
@@ -338,15 +376,17 @@ abstract contract DeploymentRegistry {
     // ============================================================================
 
     /**
-     * @notice Internal function to register a contract
+     * @notice Internal function to register a standard contract (implementations, libraries, mocks, existing)
      */
-    function _registerContract(
+    function _registerStandardContract(
         string memory key,
         address addr,
         string memory contractType,
         string memory contractPath,
-        string memory category
+        string memory category,
+        address deployer
     ) internal {
+        _requireActiveRun();
         _contracts[key] = ContractEntry({
             info: DeploymentInfo({
                 addr: addr,
@@ -355,7 +395,10 @@ abstract contract DeploymentRegistry {
                 txHash: bytes32(0),
                 blockNumber: block.number,
                 category: category
-            })
+            }),
+            factory: address(0),
+            deployer: deployer,
+            proxies: new string[](0)
         });
 
         _exists[key] = true;
@@ -372,8 +415,11 @@ abstract contract DeploymentRegistry {
         string memory implementationKey,
         bytes32 salt,
         string memory saltString,
-        string memory proxyType
+        string memory proxyType,
+        address factory,
+        address deployer
     ) internal {
+        _requireActiveRun();
         _proxies[key] = ProxyEntry({
             info: DeploymentInfo({
                 addr: addr,
@@ -384,8 +430,13 @@ abstract contract DeploymentRegistry {
                 category: string.concat(proxyType, " proxy")
             }),
             create3: Create3Info({salt: salt, saltString: saltString, proxyType: proxyType}),
-            proxy: ProxyInfo({implementationKey: implementationKey})
+            proxy: ProxyInfo({implementationKey: implementationKey}),
+            factory: factory,
+            deployer: deployer
         });
+
+        // Add this proxy to the implementation's proxies list
+        _contracts[implementationKey].proxies.push(key);
 
         _exists[key] = true;
         _entryType[key] = "proxy";
@@ -401,15 +452,17 @@ abstract contract DeploymentRegistry {
     }
 
     /**
-     * @notice Internal function to register an implementation
+     * @notice Internal function to register an implementation (stored as contract)
      */
     function _registerImplementation(
         string memory key,
         address addr,
         string memory contractType,
-        string memory contractPath
+        string memory contractPath,
+        address deployer
     ) internal {
-        _implementations[key] = ImplementationEntry({
+        _requireActiveRun();
+        _contracts[key] = ContractEntry({
             info: DeploymentInfo({
                 addr: addr,
                 contractType: contractType,
@@ -418,7 +471,9 @@ abstract contract DeploymentRegistry {
                 blockNumber: block.number,
                 category: "contract"
             }),
-            proxies: new string[](0) // Initialize empty dynamic array
+            factory: address(0), // Implementations use regular CREATE, not CREATE3
+            deployer: deployer,
+            proxies: new string[](0)
         });
 
         _exists[key] = true;
@@ -427,7 +482,7 @@ abstract contract DeploymentRegistry {
     }
 
     function _getImplementation(string memory key) internal view returns (address implementation) {
-        implementation = _implementations[key].info.addr;
+        implementation = _contracts[key].info.addr;
         if (implementation == address(0)) {
             revert ContractNotFound(key);
         }
@@ -440,8 +495,10 @@ abstract contract DeploymentRegistry {
         string memory key,
         address addr,
         string memory contractType,
-        string memory contractPath
+        string memory contractPath,
+        address deployer
     ) internal {
+        _requireActiveRun();
         _libraries[key] = LibraryEntry({
             info: DeploymentInfo({
                 addr: addr,
@@ -450,7 +507,8 @@ abstract contract DeploymentRegistry {
                 txHash: bytes32(0),
                 blockNumber: block.number,
                 category: "library"
-            })
+            }),
+            deployer: deployer
         });
 
         _exists[key] = true;

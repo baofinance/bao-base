@@ -18,6 +18,7 @@
       "contractType": "ERC1967Proxy",
       "deployedTo": "0xDF9969B7746C16e163C048a1ed1e4c2e607C1E55",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "factory": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
       "implementationKey": "Minter_impl",
       "proxyType": "UUPS",
       "salt": "0xeb14606e459774703385e1c46956bbe984a21f8ffb738252b3e4c61132420e9b",
@@ -30,7 +31,10 @@
       "contractPath": "test/mocks/upgradeable/MockMinter.sol",
       "contractType": "MockMinter",
       "deployedTo": "0x4ff05a443250A64a18C68CEdd2122cFDf3872140",
-      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "proxies": [
+        "Minter"
+      ]
     },
     "PriceOracle": {
       "address": "0xEdF697FfB655f23B822bAc8059cA09C0461E31A7",
@@ -40,6 +44,7 @@
       "contractType": "ERC1967Proxy",
       "deployedTo": "0xEdF697FfB655f23B822bAc8059cA09C0461E31A7",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "factory": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
       "implementationKey": "PriceOracle_impl",
       "proxyType": "UUPS",
       "salt": "0xcac753d8bb711ec86040790988de0b49130d449de572abfc6b2681d3b418aae7",
@@ -52,7 +57,10 @@
       "contractPath": "test/mocks/upgradeable/MockOracle.sol",
       "contractType": "OracleV1",
       "deployedTo": "0xfD07C974e33dd1626640bA3a5acF0418FaacCA7a",
-      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "proxies": [
+        "PriceOracle"
+      ]
     },
     "USDC": {
       "address": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",

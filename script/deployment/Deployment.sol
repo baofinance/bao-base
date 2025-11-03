@@ -93,7 +93,7 @@ abstract contract Deployment is DeploymentJson {
     ) public virtual {
         _initializeMetadata(owner, network, version, systemSaltString);
         _stub = new UUPSProxyDeployStub();
-        _autoSave();
+        _saveToRegistry();
     }
 
     /// @notice Resume deployment from JSON file
@@ -126,7 +126,7 @@ abstract contract Deployment is DeploymentJson {
 
     /// @notice Finish deployment session and finalize ownership
     /// @dev Transfers ownership to metadata.owner for all proxies currently owned by this harness
-    /// @dev Auto-save will update finishedAt timestamp
+    /// @dev Records run in audit trail and updates finishTimestamp timestamp
     /// @return transferred Number of proxies whose ownership was transferred
     function finish() public virtual returns (uint256 transferred) {
         address owner = _metadata.owner;
@@ -160,7 +160,19 @@ abstract contract Deployment is DeploymentJson {
             }
         }
 
-        _autoSave();
+        // Mark current run as finished
+        require(_runs.length > 0, "No run to finish");
+        require(!_runs[_runs.length - 1].finished, "Run already finished");
+
+        _runs[_runs.length - 1].finishTimestamp = block.timestamp;
+        _runs[_runs.length - 1].finishBlock = block.number;
+        _runs[_runs.length - 1].finished = true;
+
+        // Update metadata timestamps from last run
+        _metadata.finishTimestamp = block.timestamp;
+        _metadata.finishBlock = block.number;
+
+        _saveToRegistry();
         return transferred;
     }
 
@@ -202,6 +214,7 @@ abstract contract Deployment is DeploymentJson {
         string memory implementationKey,
         bytes memory implementationInitData
     ) external virtual returns (address) {
+        _requireActiveRun();
         if (bytes(proxyKey).length == 0) {
             revert KeyRequired();
         }
@@ -229,8 +242,17 @@ abstract contract Deployment is DeploymentJson {
         // msg.sender during initialize will be this contract (harness) via stub ownership
         IUUPSUpgradeableProxy(proxy).upgradeToAndCall(implementation, implementationInitData);
 
-        _registerProxy(proxyKey, proxy, implementationKey, salt, saltString, "UUPS");
-        _autoSave();
+        _registerProxy(
+            proxyKey,
+            proxy,
+            implementationKey,
+            salt,
+            saltString,
+            "UUPS",
+            _metadata.deployer,
+            _runs[_runs.length - 1].deployer
+        );
+        _saveToRegistry();
 
         emit ContractDeployed(proxyKey, proxy, "UUPS proxy");
         return proxy;
@@ -252,7 +274,7 @@ abstract contract Deployment is DeploymentJson {
         } else {
             IUUPSUpgradeableProxy(proxy).upgradeToAndCall(newImplementation, initData);
         }
-        _autoSave();
+        _saveToRegistry();
 
         emit ContractUpdated(proxyKey, proxy, proxy);
     }
@@ -262,9 +284,10 @@ abstract contract Deployment is DeploymentJson {
     // ============================================================================
 
     function useExisting(string memory key, address addr) public virtual {
+        _requireActiveRun();
         _requireValidAddress(key, addr);
-        _registerContract(key, addr, "ExistingContract", "blockchain", "existing");
-        _autoSave();
+        _registerStandardContract(key, addr, "ExistingContract", "blockchain", "existing", address(0));
+        _saveToRegistry();
     }
 
     function _registerImplementationEntry(
@@ -273,9 +296,10 @@ abstract contract Deployment is DeploymentJson {
         string memory contractType,
         string memory contractPath
     ) internal {
+        _requireActiveRun();
         _requireValidAddress(key, addr);
-        _registerImplementation(key, addr, contractType, contractPath);
-        _autoSave();
+        _registerImplementation(key, addr, contractType, contractPath, _runs[_runs.length - 1].deployer);
+        _saveToRegistry();
         emit ContractDeployed(key, addr, "implementation");
     }
 
@@ -285,9 +309,10 @@ abstract contract Deployment is DeploymentJson {
         string memory contractType,
         string memory contractPath
     ) internal {
+        _requireActiveRun();
         _requireValidAddress(key, addr);
-        _registerLibrary(key, addr, contractType, contractPath);
-        _autoSave();
+        _registerLibrary(key, addr, contractType, contractPath, _runs[_runs.length - 1].deployer);
+        _saveToRegistry();
         emit ContractDeployed(key, addr, "library");
     }
 
@@ -344,21 +369,21 @@ abstract contract Deployment is DeploymentJson {
 
     function _setString(string memory key, string memory value) internal virtual override {
         super._setString(key, value);
-        _autoSave();
+        _saveToRegistry();
     }
 
     function _setUint(string memory key, uint256 value) internal virtual override {
         super._setUint(key, value);
-        _autoSave();
+        _saveToRegistry();
     }
 
     function _setInt(string memory key, int256 value) internal virtual override {
         super._setInt(key, value);
-        _autoSave();
+        _saveToRegistry();
     }
 
     function _setBool(string memory key, bool value) internal virtual override {
         super._setBool(key, value);
-        _autoSave();
+        _saveToRegistry();
     }
 }

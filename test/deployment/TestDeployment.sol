@@ -14,9 +14,25 @@ import {Deployment} from "@bao-script/deployment/Deployment.sol";
  * @dev Overrides to use results/deployments flat structure (no network subdirs)
  */
 contract TestDeployment is Deployment {
+    /// @notice Flag to control registry saves in tests
+    bool private _registrySavesEnabled;
+
     /// @notice Constructor for test environment
     /// @dev Passes address(0) to Deployment constructor, which defaults to address(this)
-    constructor() Deployment(address(0)) {}
+    /// @dev Registry saves disabled by default in tests to avoid polluting results directory
+    constructor() Deployment(address(0)) {
+        _registrySavesEnabled = false;
+    }
+
+    /// @notice Enable registry saves for tests that want to generate regression files
+    function enableAutoSave() public {
+        _registrySavesEnabled = true;
+    }
+
+    /// @notice Disable registry saves (default behavior)
+    function disableAutoSave() public {
+        _registrySavesEnabled = false;
+    }
 
     /// @notice Override to add results/ prefix for test outputs
     /// @return "results/" prefix for test deployment files
@@ -28,6 +44,14 @@ contract TestDeployment is Deployment {
     /// @return false to disable network subdirectories in tests
     function _useNetworkSubdir() internal pure override returns (bool) {
         return false;
+    }
+
+    /// @notice Override to disable registry saves by default in tests
+    /// @dev Tests that want regression files should call enableAutoSave() or use explicit saveToJson()
+    function _saveToRegistry() internal override {
+        if (_registrySavesEnabled) {
+            super._saveToRegistry();
+        }
     }
 
     /// @notice Count how many proxies are still owned by this harness (for testing)
@@ -101,7 +125,7 @@ contract TestDeployment is Deployment {
     }
 
     /**
-     * @notice Public wrapper for internal _registerContractEntry helper
+     * @notice Public wrapper for contract registration
      */
     function registerContract(
         string memory key,
@@ -110,7 +134,7 @@ contract TestDeployment is Deployment {
         string memory contractPath,
         string memory category
     ) public {
-        return _registerContract(key, addr, contractType, contractPath, category);
+        return _registerStandardContract(key, addr, contractType, contractPath, category, _runs[_runs.length - 1].deployer);
     }
 
     /**

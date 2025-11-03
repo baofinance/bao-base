@@ -77,11 +77,14 @@ contract UpgradeTestHarness is TestDeployment {
 contract DeploymentUpgradeTest is Test {
     UpgradeTestHarness public deployment;
     address public admin;
+    string constant TEST_NETWORK = "upgrade-test";
+    string constant TEST_SALT = "upgrade-test-salt";
+    string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public {
         deployment = new UpgradeTestHarness();
         admin = address(this);
-        deployment.start(admin, "upgrade-test", "v1.0.0", "upgrade-test-salt");
+        deployment.start(admin, TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
     function test_BasicUpgrade() public {
@@ -282,8 +285,6 @@ contract DeploymentUpgradeTest is Test {
         OracleV2 newImpl = new OracleV2();
         IUUPSUpgradeableProxy(oracle).upgradeTo(address(newImpl));
 
-        deployment.finish();
-
         // Test JSON serialization after upgrade
         string memory json = deployment.toJson();
         assertTrue(vm.keyExistsJson(json, ".deployment.Oracle"), "Should contain Oracle in JSON");
@@ -435,11 +436,14 @@ import {MockImplementationOZOwnable} from "../mocks/MockImplementationOZOwnable.
 contract DeploymentNonBaoOwnableTest is Test {
     UpgradeTestHarness public deployment;
     address public admin;
+    string constant TEST_NETWORK = "non-bao-test";
+    string constant TEST_SALT = "non-bao-test-salt";
+    string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public {
         deployment = new UpgradeTestHarness();
         admin = address(this);
-        deployment.start(admin, "non-bao-test", "v1.0.0", "non-bao-test-salt");
+        deployment.start(admin, TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
     function test_OZOwnableWorks() public {

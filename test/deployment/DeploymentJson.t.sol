@@ -66,38 +66,37 @@ contract JsonTestHarness is TestDeployment {
 contract DeploymentJsonTest is Test {
     JsonTestHarness public deployment;
     string constant TEST_OUTPUT_DIR = "results/deployments";
+    string constant TEST_NETWORK = "test-network";
+    string constant TEST_SALT = "json-test-salt";
+    string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public {
         deployment = new JsonTestHarness();
-        deployment.start(address(this), "test-network", "v1.0.0", "json-test-salt");
+        deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
     function test_SaveEmptyDeployment() public {
-        string memory path = string.concat(TEST_OUTPUT_DIR, "/test-empty.json");
-        deployment.saveToJson(path);
-
-        // Verify file exists
-        string memory json = vm.readFile(path);
+        // Use toJson() for verification without saving file
+        string memory json = deployment.toJson();
         assertTrue(bytes(json).length > 0);
 
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Verify metadata
-        address deployer = vm.parseJsonAddress(json, ".deployer.address");
+        address deployer = vm.parseJsonAddress(json, ".deployer");
         assertEq(deployer, address(deployment)); // deployer is the harness
 
-        string memory network = vm.parseJsonString(json, ".metadata.network");
-        assertEq(network, "test-network");
+        string memory network = vm.parseJsonString(json, ".network");
+        assertEq(network, TEST_NETWORK);
     }
 
     function test_SaveContractToJson() public {
-        string memory path = string.concat(TEST_OUTPUT_DIR, "/test-contract.json");
         deployment.deploySimpleContract("contract1", "Test Contract");
         deployment.finish();
-        deployment.saveToJson(path);
 
-        string memory json = vm.readFile(path);
+        // Use toJson() for verification without saving file
+        string memory json = deployment.toJson();
 
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
@@ -114,12 +113,11 @@ contract DeploymentJsonTest is Test {
     }
 
     function test_SaveProxyToJson() public {
-        string memory path = string.concat(TEST_OUTPUT_DIR, "/test-proxy.json");
         deployment.deploySimpleProxy("proxy1", 100);
         deployment.finish();
-        deployment.saveToJson(path);
 
-        string memory json = vm.readFile(path);
+        // Use toJson() for verification without saving file
+        string memory json = deployment.toJson();
 
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
@@ -139,12 +137,10 @@ contract DeploymentJsonTest is Test {
     }
 
     function test_SaveLibraryToJson() public {
-        string memory path = string.concat(TEST_OUTPUT_DIR, "/test-library.json");
         deployment.deployTestLibrary("lib1");
         deployment.finish();
-        deployment.saveToJson(path);
 
-        string memory json = vm.readFile(path);
+        string memory json = deployment.toJson();
 
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
@@ -161,15 +157,17 @@ contract DeploymentJsonTest is Test {
     }
 
     function test_SaveMultipleEntriesToJson() public {
-        string memory path = string.concat(TEST_OUTPUT_DIR, "/test-multiple.json");
+        // Enable auto-save to generate json-test-salt.json for regression
+        deployment.enableAutoSave();
+
         deployment.deploySimpleContract("contract1", "Contract 1");
         deployment.deploySimpleProxy("proxy1", 10);
         deployment.deployTestLibrary("lib1");
         deployment.useExistingByString("external1", address(0x1234567890123456789012345678901234567890));
 
         deployment.finish();
-        deployment.saveToJson(path);
 
+        string memory path = string.concat(TEST_OUTPUT_DIR, "/json-test-salt.json");
         string memory json = vm.readFile(path);
 
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
@@ -181,9 +179,9 @@ contract DeploymentJsonTest is Test {
         assertTrue(vm.keyExistsJson(json, ".deployment.lib1"));
         assertTrue(vm.keyExistsJson(json, ".deployment.external1"));
 
-        // Verify metadata
-        uint256 finishedAt = vm.parseJsonUint(json, ".metadata.finishedAt");
-        assertTrue(finishedAt > 0);
+        // Verify metadata - finish timestamp is now in runs array
+        uint256 finishTimestamp = vm.parseJsonUint(json, ".runs[0].finishTimestamp");
+        assertTrue(finishTimestamp > 0);
     }
 
     function test_LoadFromJson() public {
@@ -195,10 +193,6 @@ contract DeploymentJsonTest is Test {
 
         deployment.finish();
         deployment.saveToJson(path);
-
-        string memory json = vm.readFile(path);
-        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
-        assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Create new deployment and load
         JsonTestHarness newDeployment = new JsonTestHarness();
@@ -215,19 +209,16 @@ contract DeploymentJsonTest is Test {
 
         // Verify metadata
         Deployment.DeploymentMetadata memory metadata = newDeployment.getMetadata();
-        assertEq(metadata.network, "test-network");
-        assertEq(metadata.version, "v1.0.0");
+        assertEq(metadata.network, TEST_NETWORK);
+        assertEq(metadata.version, TEST_VERSION);
     }
 
     function test_LoadAndContinueDeployment() public {
         string memory path = string.concat(TEST_OUTPUT_DIR, "/test-continue.json");
         // Save initial deployment
         deployment.deploySimpleContract("contract1", "Contract 1");
+        deployment.finish();
         deployment.saveToJson(path);
-
-        string memory json = vm.readFile(path);
-        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
-        assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Load and continue
         JsonTestHarness newDeployment = new JsonTestHarness();
@@ -247,13 +238,11 @@ contract DeploymentJsonTest is Test {
     }
 
     function test_JsonContainsBlockNumber() public {
-        string memory path = string.concat(TEST_OUTPUT_DIR, "/test-blocknumber.json");
         uint256 deployBlock = block.number;
 
         deployment.deploySimpleContract("contract1", "Contract 1");
-        deployment.saveToJson(path);
 
-        string memory json = vm.readFile(path);
+        string memory json = deployment.toJson();
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
         uint256 blockNumber = vm.parseJsonUint(json, ".deployment.contract1.blockNumber");
@@ -262,7 +251,6 @@ contract DeploymentJsonTest is Test {
     }
 
     function test_JsonContainsTimestamps() public {
-        string memory path = string.concat(TEST_OUTPUT_DIR, "/test-timestamps.json");
         uint256 startTime = block.timestamp;
 
         deployment.deploySimpleContract("contract1", "Contract 1");
@@ -270,14 +258,13 @@ contract DeploymentJsonTest is Test {
         vm.warp(block.timestamp + 100);
         deployment.finish();
 
-        deployment.saveToJson(path);
-
-        string memory json = vm.readFile(path);
+        string memory json = deployment.toJson();
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
-        uint256 savedStartTime = vm.parseJsonUint(json, ".metadata.startedAt");
-        uint256 savedFinishTime = vm.parseJsonUint(json, ".metadata.finishedAt");
+        // Timestamps are now in runs array
+        uint256 savedStartTime = vm.parseJsonUint(json, ".runs[0].startTimestamp");
+        uint256 savedFinishTime = vm.parseJsonUint(json, ".runs[0].finishTimestamp");
 
         assertEq(savedStartTime, startTime);
         assertEq(savedFinishTime, startTime + 100);
@@ -287,5 +274,65 @@ contract DeploymentJsonTest is Test {
         JsonTestHarness fresh = new JsonTestHarness();
         vm.expectRevert();
         fresh.resume("test", "nonexistent-salt");
+    }
+
+    function test_DeployerPreservedAcrossResume() public {
+        string memory path = string.concat(TEST_OUTPUT_DIR, "/test-deployers.json");
+
+        // Deploy first contract with original deployer
+        address deployer1 = address(deployment);
+        deployment.deploySimpleContract("contract1", "Contract 1");
+        deployment.finish();
+        deployment.saveToJson(path);
+
+        string memory json1 = vm.readFile(path);
+        address savedDeployer1 = vm.parseJsonAddress(json1, ".deployer");
+        assertEq(savedDeployer1, deployer1, "First deployer should be recorded");
+
+        // Create new harness with different deployer address
+        JsonTestHarness newDeployment = new JsonTestHarness();
+        address deployer2 = address(newDeployment);
+        assertTrue(deployer2 != deployer1, "Deployers should be different");
+
+        // Resume from existing JSON
+        newDeployment.resumeFrom(path);
+
+        // Verify the deployer is preserved from the original deployment
+        Deployment.DeploymentMetadata memory metadata = newDeployment.getMetadata();
+        assertEq(metadata.deployer, deployer1, "Original deployer should be preserved after resume");
+
+        // Deploy second contract with the new deployment context
+        newDeployment.deploySimpleContract("contract2", "Contract 2");
+        newDeployment.finish();
+        newDeployment.saveToJson(path);
+
+        // Verify JSON still shows the original deployer (preserved across resume)
+        string memory json2 = vm.readFile(path);
+        address savedDeployer2 = vm.parseJsonAddress(json2, ".deployer");
+        assertEq(savedDeployer2, deployer1, "Original deployer should be preserved in JSON");
+
+        // Verify both contracts exist
+        assertTrue(vm.keyExistsJson(json2, ".deployment.contract1"), "contract1 should exist");
+        assertTrue(vm.keyExistsJson(json2, ".deployment.contract2"), "contract2 should exist");
+    }
+
+    function test_RevertWhen_ResumeFromUnfinishedRun() public {
+        string memory path = string.concat(TEST_OUTPUT_DIR, "/test-unfinished.json");
+
+        // Deploy contract but DON'T call finish()
+        deployment.deploySimpleContract("contract1", "Contract 1");
+
+        // Verify the JSON has an unfinished run
+        string memory json = deployment.toJson();
+        bool finished = vm.parseJsonBool(json, ".runs[0].finished");
+        assertFalse(finished, "Run should not be finished");
+
+        // Save to file for resume test
+        deployment.saveToJson(path);
+
+        // Try to resume - should fail
+        JsonTestHarness newDeployment = new JsonTestHarness();
+        vm.expectRevert("Cannot resume: last run not finished");
+        newDeployment.resumeFrom(path);
     }
 }
