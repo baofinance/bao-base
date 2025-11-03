@@ -73,7 +73,7 @@ contract DeploymentWorkflowTest is Test {
     function setUp() public {
         deployment = new WorkflowTestHarness();
         admin = makeAddr("admin");
-        deployment.initialize(admin, "workflow-test", "v2.0.0", "workflow-test-salt");
+        deployment.start(admin, "workflow-test", "v2.0.0", "workflow-test-salt");
     }
 
     function test_SimpleWorkflow() public {

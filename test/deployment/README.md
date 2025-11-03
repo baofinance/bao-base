@@ -1,8 +1,67 @@
-# Deployment Framework - Implementation Summary
+# Deployment Framework
 
 ## Overview
 
-Successfully implemented a unified deployment registry system (`src/deployment/Deployment.sol`) that replaces the previous three-layer inheritance structure (BaseDeployment → CREATE3Deployment/CREATEDeployment → HarborDeployment).
+Unified deployment registry system (`script/deployment/Deployment.sol`) providing deterministic cross-chain contract addresses via CREATE3 with deployer context injection.
+
+**Key Features**:
+- Deterministic proxy addresses across chains using CREATE3
+- Injected deployer context (production vs test)
+- Bootstrap stub pattern for BaoOwnable compatibility
+- Incremental deployment with JSON state preservation
+- Type-safe deployment workflow (Foundry and Wake)
+
+## Quick Start
+
+### Deployer Context Pattern
+
+The system uses **injected deployer context** for deterministic addresses:
+- **CREATE3** calculates: `hash(deployer, salt)`
+- **DEPLOYER_CONTEXT** passed to `Deployment` constructor
+- Same context + same salt = same addresses across chains
+
+### Production Setup
+
+```solidity
+// 1. Deploy harness via Nick's Factory (0x4e59b44847b379578588920cA78FbF26c0B4956C)
+bytes32 salt = keccak256("your-protocol-harness-v1");
+bytes memory deployData = abi.encodePacked(salt, type(YourDeployment).creationCode);
+(bool success, bytes memory returnData) = NICKS_FACTORY.call(deployData);
+address harnessAddr = address(uint160(uint256(bytes32(returnData))));
+
+// 2. Harness uses its own address as deployer context
+contract YourDeployment is DeploymentFoundry {
+    constructor(address deployerContext) DeploymentFoundry(vm, deployerContext) {}
+    
+    function deployProtocol() external {
+        start(owner, "mainnet", "v1.0.0", "protocol-salt");
+        deployProxy("token", "TokenImpl", initData);
+        finish();
+    }
+}
+
+// 3. Same harness address on all chains = same contract addresses
+```
+
+### Test Setup
+
+```solidity
+// Simple approach (current tests)
+contract TestDeployment is Deployment {
+    constructor() Deployment(address(0)) {} // Defaults to address(this)
+}
+
+function setUp() public {
+    deployment = new TestDeployment();
+    deployment.start(address(this), "test", "v1", "test-salt");
+}
+```
+
+**Benefits**:
+✅ Identical code for production and tests
+✅ Simple constructor parameter switch
+✅ Predictable addresses before deployment
+✅ Cross-chain determinism
 
 ## Architecture
 
@@ -15,7 +74,7 @@ Successfully implemented a unified deployment registry system (`src/deployment/D
 1. All proxies use CREATE3 (deterministic cross-chain)
 2. All libraries use CREATE (standard opcode)
 3. Contracts use CREATE (for mocks, tests, quick deployments)
-4. Internal registration - derived classes just deploy
+4. Deployer context injection (production vs test)
 5. Automatic JSON persistence with structured metadata
 6. Dependency enforcement via `get()` errors
 
@@ -274,13 +333,15 @@ Example structure:
 }
 ```
 
-## Usage Pattern
+## Usage Patterns
+
+### Basic Deployment
 
 ```solidity
 contract MyDeployment is Deployment {
     function deploy() external {
-        // Start session
-        startDeployment(msg.sender, "mainnet", "v1.0.0");
+        // Start session (creates bootstrap stub)
+        start(msg.sender, "mainnet", "v1.0.0", "protocol-salt");
 
         // Use existing contracts
         address wstETH = useExisting("wstETH", 0x7f39C581...);
@@ -288,27 +349,85 @@ contract MyDeployment is Deployment {
         // Deploy contracts (enforce dependencies via get())
         address oracle = get("oracle");  // Reverts if not deployed
 
-        // Deploy proxy
+        // Deploy proxy (deterministic via CREATE3)
         address minter = deployProxy(
             "minter",
             minterImplementation,
-            initData,
-            "minter-v1"
+            initData
         );
 
         // Finish and save
-        finishDeployment();
-        saveToJson("results/deployment/mainnet.json");
+        finish();
+        // Production: deployments/mainnet/protocol-salt.json
+        // Tests: results/deployments/protocol-salt.json
     }
 }
 ```
 
-## Next Steps
+### Production Deployment Workflow
 
-1. **Harbor Layer**: Create `HarborDeployment` that extends `Deployment` and uses HarborConstants for type-safe keys
-2. **Migrate Tests**: Update existing Harbor tests to use new framework
-3. **Role Tracking**: Add `recordRoleGrant()` for tracking role assignments
-4. **TypeScript Integration**: Generate TypeScript interfaces and deployment scripts
+1. **Deploy Harness via Nick's Factory** (one-time per chain):
+   ```solidity
+   address constant NICKS_FACTORY = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
+   bytes32 salt = keccak256("your-protocol-harness-v1");
+   
+   // Predict address first
+   bytes32 hash = keccak256(abi.encodePacked(
+       bytes1(0xff), NICKS_FACTORY, salt, 
+       keccak256(type(YourDeployment).creationCode)
+   ));
+   address predicted = address(uint160(uint256(hash)));
+   ```
+
+2. **Deploy contracts** using identical system salt across chains
+3. **Repeat on other chains** - same harness address + same salt = same contract addresses
+
+### Incremental Deployment
+
+```solidity
+// Phase 1: Initial deployment
+deployment.start(owner, "mainnet", "v1", "protocol-v1");
+deployment.deployProxy("token", tokenImpl, initData);
+deployment.finish();
+
+// Phase 2: Resume and add more
+deployment.resume("mainnet", "protocol-v1");
+deployment.deployProxy("vault", vaultImpl, initData);
+deployment.finish();
+```
+
+## Production Simulation in Tests
+
+The architecture supports full production simulation using `MockNicksFactory`:
+
+```solidity
+import { MockNicksFactory } from "test/mocks/deployment/MockNicksFactory.sol";
+
+address constant NICKS_FACTORY = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
+bytes32 constant SALT = keccak256("your-protocol-harness-v1");
+
+function setUp() public {
+    // Mock Nick's Factory at real address
+    MockNicksFactory mockFactory = new MockNicksFactory();
+    vm.etch(NICKS_FACTORY, address(mockFactory).code);
+    
+    // Deploy harness via mock factory (same as production)
+    bytes memory deployData = abi.encodePacked(SALT, type(YourDeployment).creationCode);
+    (bool success, bytes memory returnData) = NICKS_FACTORY.call(deployData);
+    address harnessAddr = address(uint160(uint256(bytes32(returnData))));
+    
+    // Use deployed harness (validates full production flow)
+    deployment = YourDeployment(harnessAddr);
+    deployment.start(owner, "test", "v1", "test-salt");
+}
+```
+
+**Note**: Architecture supports this but not yet implemented in current test suite.
+
+## See Also
+
+- **Full Design**: [deployment-system.md](../../doc/deployment-system.md) - Complete architecture and design decisions
+- **Mock Factory**: [MockNicksFactory.sol](../mocks/deployment/MockNicksFactory.sol) - Factory mock for testing
 
 ## Dependencies
 

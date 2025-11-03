@@ -2,11 +2,11 @@
 
 ## Purpose
 
-- Provide a defense-in-depth bootstrap that keeps UUPS proxies inert until an approved implementation is installed.
-- Guarantee deterministic proxy addresses across chains and incremental phases.
-- Coordinate upgrades while keeping proxy addresses deterministic and preserving downstream multisig ownership flows.
-- Deliver a chain-wide pausing facility that routes halted proxies through a dedicated Pause contract with the owner baked into the bytecode.
-- Maintain a typesafe, linted, and fully tested deployment workflow that is shared by Foundry and Wake automation.
+- Support BaoOwnable's ownership pattern with front-running protection during proxy initialization.
+- Provide deterministic proxy addresses across chains using CREATE3.
+- Enable incremental deployments with state preservation via JSON serialization.
+- Support chain-wide pausing via dedicated Pause contract.
+- Maintain typesafe deployment workflow shared by Foundry and Wake.
 
 ## Cross-Chain Determinism Strategy
 
@@ -14,15 +14,11 @@ The deployment system achieves deterministic addresses across chains through **i
 
 ### Why CREATE3 and Nick's Factory?
 
-**CREATE3** provides bytecode-independent deterministic addresses—contract addresses depend only on deployer and salt, not bytecode. This enables:
-
-1. **Known Addresses Up-Front**: Predict all proxy addresses before deployment, eliminating order dependencies. Deploy contracts in any sequence, even with circular dependencies (e.g., TokenA referencing TokenB, TokenB referencing TokenA).
-
-2. **Atomic Initialization**: ERC1967Proxy constructor calls `upgradeToAndCall(implementation, _data)` in one transaction, preventing front-running attacks on initialize functions. Standard UUPS proxy pattern used across Aave, Uniswap, and other major protocols.
+**CREATE3** provides bytecode-independent deterministic addresses depending only on deployer and salt. This enables predicting all proxy addresses before deployment, eliminating order dependencies and enabling circular references.
 
 **Nick's Factory** (`0x4e59b44847b379578588920cA78FbF26c0B4956C`) deploys the harness deterministically via CREATE2, enabling identical contract addresses across chains. While deployed on 100+ chains, new chains may require manual deployment—see [deployment instructions](https://github.com/Arachnid/deterministic-deployment-proxy#usage).
 
-**Result**: Order-independent deployment of complex multi-contract systems with circular dependencies and identical cross-chain addresses.
+**Result**: Order-independent deployment of complex multi-contract systems with identical predictable cross-chain addresses.
 
 ### Architecture
 
@@ -89,6 +85,7 @@ The deployment system uses two levels of salts to achieve deterministic addresse
 Implementations follow a specific pattern for parameter handling:
 
 - **Constructor Parameters**: For values that should not change or won't change often. These require a proxy upgrade to modify.
+
   - Examples: Token addresses, immutable configuration
   - Benefit: Do not consume contract code size, saving deployment gas
   - Set when creating the implementation: `new MockMinter(collateralToken, peggedToken, leveragedToken)`
@@ -102,81 +99,83 @@ Implementations follow a specific pattern for parameter handling:
 
 ## Core Components
 
-- **ERC1967Proxy with Atomic Initialization**
-  - Standard UUPS proxy pattern: each proxy deployed via CREATE3 points directly to implementation with atomic initialization.
-  - Constructor calls `upgradeToAndCall(implementation, _data)` in one transaction, preventing front-running.
-  - Addresses deterministically derived from deployer context and salt.
-  - Implementations are created with constructor parameters first, then proxies deployed with initialize data.
+- **Bootstrap Stub Pattern**
+
+  Implementation artifact required because CREATE3 makes `msg.sender = proxy` during deployment, but BaoOwnable's `_initializeOwner()` uses `msg.sender` to set owner. Each session deploys one `UUPSProxyDeployStub` owned by the harness. Proxies deploy via CREATE3 as `ERC1967Proxy` pointing to the stub, then upgrade to implementation with `upgradeToAndCall(implementation, initData)`. This ensures the harness is `msg.sender` during initialization, enabling BaoOwnable compatibility with CREATE3.
+
+  _Future direction_: BaoOwnable will be refactored to accept an explicit owner parameter, eliminating this requirement and aligning with industry-standard single-step ERC1967Proxy deployment.
+
 - **Deployment Registry + Metadata**
-  - Stores registry entries, proxy metadata, system salt string, owner address, and the current deployment state.
-  - Serialization to JSON captures the full state required to resume deployments deterministically, with versioning.
+
+  Stores registry entries, proxy metadata, system salt string, owner address, and deployment state. JSON serialization captures full state for deterministic resumption with versioning.
+
 - **Deployment Facade**
-  - Provides two mutually exclusive entry points:
-    1. `startDeployment(...)` for fresh sessions.
-    2. `resumeDeployment(...)` for sessions restored from JSON.
-  - Tracks lifecycle: `Uninitialized → Active → Finished`; any attempt to re-run a start/resume method after activation reverts.
+
+  Provides two mutually exclusive entry points: `start()` for fresh sessions, `resume()` for sessions restored from JSON. Tracks lifecycle: `Uninitialized → Active → Finished`; re-running start/resume after activation reverts.
 
 ## Access Control Model
 
 - **Proxy Ownership**
-  - Each proxy delegates to its implementation immediately upon deployment.
-  - Implementations use the Bao deployer-initiated ownership flow: deployers complete configuration and role grants before the irreversible-without-an-upgrade transfer to the multisig.
-  - The deployment harness transfers proxy ownership to the configured owner during finalization.
+
+  Harness becomes temporary owner, completes configuration, then transfers to multisig via `finish()`. BaoOwnable's two-step transfer (set pending, confirm) provides safety for ownership handoff.
+
 - **Initialization Security**
-  - Initialization happens atomically in the ERC1967Proxy constructor, eliminating front-running risk.
-  - The `_data` parameter encodes the initialize call with all required parameters, including owner address for implementations that need it.
+
+  Proxy deploys to deterministic address via CREATE3, then upgrades with initialization atomically via `upgradeToAndCall`. This prevents front-running while maintaining determinism.
 
 ## Deployment Workflow
 
-- **Fresh Deployment (`startDeployment`)**
-  1. Require lifecycle state `Uninitialized`.
-  2. Accept explicit inputs: system salt string and owner address.
-  3. Persist metadata (owner, system salt string) and mark lifecycle `Active` so subsequent proxy deployments can derive deterministic proxy addresses from the agreed salt.
-- **Resumed Deployment (`resumeDeployment`)**
-  1. Require lifecycle state `Uninitialized`.
-  2. Load JSON, restore metadata (owner, system salt string, prior deployments, predicted proxy addresses).
-  3. Mark lifecycle `Active` and continue deploying with the restored parameters.
+- **Fresh Deployment (`start`)**
+  1. Accepts owner, network, version, and system salt string.
+  2. Deploys bootstrap stub owned by the harness.
+  3. Persists metadata enabling deterministic proxy addresses.
+- **Resumed Deployment (`resume`)**
+  1. Loads JSON (from system salt or custom path).
+  2. Deploys new bootstrap stub for this session.
+  3. Continues deploying with restored parameters.
 - **Incremental Phases**
-  - Each phase loads JSON, deploys additional proxies, and saves JSON.
-  - Phases do not depend on prior runtime state; address determinism flows solely from the salt scheme.
-- **Finish (`finishDeployment`)**
-  - Calls `finalizeOwnership` internally before marking lifecycle `Finished`.
-  - Updates metadata timestamps and confirms deployment completion.
+
+  Each phase resumes from JSON, deploys additional proxies, saves JSON. Address determinism flows from salt scheme, not runtime state.
+
+- **Finish (`finish`)**
+
+  Transfers proxy ownership from harness to configured owner. Skips proxies restored from JSON (already transferred). Returns count of transferred proxies.
 
 ## Deterministic Proxy Guarantees
 
-- Addresses derived from salt `<salt>/UUPS/proxy`, persisted in JSON for deterministic resumption.
+- Addresses derived from salt `<systemSaltString>/<proxyKey>/UUPS/proxy`, persisted in JSON for deterministic resumption.
 - Predictive checks validate deployed addresses match predictions.
-- Atomic initialization via ERC1967Proxy constructor prevents front-running.
+- Bootstrap pattern prevents front-running while maintaining determinism.
 - Known addresses up-front enable order-independent deployment and circular dependencies.
 
 ## Testing Coverage
 
 ### Current Mapping
 
-| Requirement               | Test (file :: contract :: function)                                                                                               | Notes                                                                                 |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Atomic initialization     | `test/deployment/DeploymentProxy.t.sol :: DeploymentProxyTest :: test_DeployProxy`                                                | Validates proxy deploys with implementation and initialization in single transaction. |
-| Lifecycle enforcement     | `test/deployment/DeploymentBasic.t.sol :: DeploymentBasicTest :: test_StartDeployment_`, `test_RevertWhen_ActionWithoutLifecycle` | Covers exclusivity of `start`/`resume` and finish guard rails.                        |
-| Deterministic predictions | `test/deployment/DeploymentProxy.t.sol :: DeploymentProxyTest :: test_PredictProxyAddress`, `test_ResumeRestoresPredictions_`     | Ensures predictions survive JSON resumptions with deterministic salts.                |
-| Registry serialization    | `test/deployment/DeploymentJson.t.sol :: DeploymentJsonTest :: test_LoadFromJson`, `test_SaveToJson` variants                     | Confirms contracts, proxies, libraries, and parameters survive round-trips.           |
-| Incremental phases        | `test/deployment/DeploymentIntegration.t.sol :: DeploymentIntegrationTest :: test_IncrementalDeployment`                          | Simulates phased rollouts with repeated JSON loads.                                   |
-| Production upgrade flows  | `test/deployment/DeploymentUpgrade.t.sol :: DeploymentUpgradeTest :: test_UpgradeWithStateTransition` et al.                      | Validates upgrade sequencing and state retention.                                     |
+| Requirement               | Test (file :: contract :: function)                                                                                           | Notes                                                                       |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Bootstrap pattern         | `test/deployment/DeploymentProxy.t.sol :: DeploymentProxyTest :: test_DeployProxy`                                            | Validates proxy deployment and upgrade-with-initialization flow.            |
+| Lifecycle enforcement     | `test/deployment/DeploymentBasic.t.sol :: DeploymentBasicTest :: test_Initialize`, `test_Finish`                              | Covers `start`/`resume` lifecycle and finish behavior.                      |
+| Deterministic predictions | `test/deployment/DeploymentProxy.t.sol :: DeploymentProxyTest :: test_PredictProxyAddress`, `test_ResumeRestoresPredictions_` | Ensures predictions survive JSON resumptions with deterministic salts.      |
+| Registry serialization    | `test/deployment/DeploymentJson.t.sol :: DeploymentJsonTest :: test_LoadFromJson`, `test_SaveToJson` variants                 | Confirms contracts, proxies, libraries, and parameters survive round-trips. |
+| Incremental phases        | `test/deployment/DeploymentIntegration.t.sol :: DeploymentIntegrationTest :: test_IncrementalDeployment`                      | Simulates phased rollouts with repeated JSON loads.                         |
+| Production upgrade flows  | `test/deployment/DeploymentUpgrade.t.sol :: DeploymentUpgradeTest :: test_UpgradeWithStateTransition` et al.                  | Validates upgrade sequencing and state retention.                           |
 
 ### Coverage Gaps
 
 - Pause contract lifecycle (upgrade to `Pause` then resume) remains untested; requires concrete Pause implementation.
 - Cross-deployer "cross-chain" equivalence scenarios that compare predictions across independent harness instances still need an explicit regression beyond JSON resumptions.
+- Tests currently use `TestDeployment` with `address(0)` defaulting to `address(this)`. Full production simulation using `MockNicksFactory` via `vm.etch()` is not yet implemented in test suite.
 
 ## Rejected Alternatives
 
 - **Timeout-Based Deployer Revocation**: Fragile deployment duration assumptions can strand upgrades.
-- **Intermediate Bootstrap Stub**: ERC1967Proxy atomic initialization eliminates front-running without an intermediate stub, saving ~400k gas per proxy.
-- **Safe Singleton Factory**: While battle-tested and widely deployed (`0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7`), Nick's Factory (`0x4e59b44847b379578588920cA78FbF26c0B4956C`) is more universal and exists on more chains. Both provide equivalent CREATE2 determinism for harness deployment; Nick's Factory is preferred for broader compatibility.
-- **Keyless Deployment for Harness**: Generating one-time keypairs and broadcasting signed transactions provides maximum trustlessness but adds operational complexity. Nick's Factory achieves the same outcome (deterministic harness addresses) with simpler tooling and no manual key management.
-- **Same-Nonce EOA Deployment**: Deploying the harness from an EOA at the same nonce across chains is fragile; a single out-of-order transaction on any chain breaks determinism. Factory-based deployment via Nick's method is more robust.
-- **Environment Auto-Detection**: Using chain ID or block number to automatically switch between test and production modes introduces hidden behavior and potential for misconfiguration. Explicit deployer context injection makes the deployment mode clear and predictable.
-- **Separate Test/Production Harnesses**: Maintaining different code paths for test and production environments creates drift and reduces test coverage of production code. Injected deployer context allows identical code to run in both environments with a simple constructor parameter switch.
+- **Single-Step ERC1967Proxy Deployment**: Industry standard pattern calls `upgradeToAndCall(implementation, _data)` in constructor. CREATE3 makes `msg.sender = proxy`, which breaks BaoOwnable's use of `msg.sender` for ownership. Bootstrap stub adds one transaction per proxy but enables BaoOwnable + CREATE3 compatibility.
+- **Safe Singleton Factory**: Nick's Factory exists on more chains than Safe Singleton Factory (`0x914d7Fec6aaC8cd542e72Bca78B30650d45643d7`).
+- **Keyless Deployment for Harness**: Generating one-time keypairs adds operational complexity. Nick's Factory achieves the same outcome with simpler tooling.
+- **Same-Nonce EOA Deployment**: Fragile; a single out-of-order transaction on any chain breaks determinism. Factory-based deployment is more robust.
+- **Environment Auto-Detection**: Using chain ID or block number introduces hidden behavior and potential misconfiguration. Explicit deployer context injection makes deployment mode clear.
+- **Separate Test/Production Harnesses**: Maintaining different code paths creates drift. Injected deployer context allows identical code in both environments with a simple constructor parameter switch.
 
 ## Usage Guide
 
@@ -192,32 +191,35 @@ Implementations follow a specific pattern for parameter handling:
 3.  **Instantiate Harness with Context**:
     - Create deployment instance: `deployment = YourDeployment(deployedAddress)`.
     - The harness is constructed with its own address as the `deployerContext`.
-4.  **Deploy Pause Contract**: Deploy the dedicated `Pause` contract owned by the multisig so it is available for emergency upgrades.
-5.  **Initialize Deployment**: Call `startDeployment` with the owner and system salt string. Use the same `systemSaltString` on all chains to ensure identical contract addresses.
-6.  **Deploy Proxies**: Execute proxy deployments; each call deterministically deploys the proxy at `<salt>/UUPS/proxy` pointing directly to the implementation with atomic initialization. To pause a contract, upgrade the proxy to the `Pause` contract and later restore the production implementation when safe.
-7.  **Finalize**: Invoke `finishDeployment` (which finalizes proxy ownership) and save JSON.
-8.  **Repeat on Other Chains**: Use the same salt with Nick's Factory to deploy the harness at the same address on each chain, then repeat steps 3-7.
+4.  **Deploy Pause Contract**: Deploy the dedicated `Pause` contract owned by the multisig for emergency upgrades.
+5.  **Start Deployment**: Call `start()` with owner, network, version, and system salt string. Use identical `systemSaltString` across chains for matching addresses.
+6.  **Deploy Proxies**: Each call deploys proxy to deterministic address via CREATE3, then calls `upgradeToAndCall(implementation, initData)`.
+7.  **Pause Contracts**: To pause a contract, upgrade proxy to `Pause` contract; restore production implementation when safe.
+8.  **Finalize**: Invoke `finish()` to transfer proxy ownership to configured owner, then save JSON.
+9.  **Repeat on Other Chains**: Use same salt with Nick's Factory to deploy harness at same address on each chain, then repeat steps 3-8.
 
 ### Development and Testing Workflow
 
-#### Simple Testing (Recommended)
+#### Simple Testing (Current Implementation)
 
-1.  **Instantiate Harness**: `deployment = new TestDeployment()` (passes `address(0)`, defaults to `address(this)`).
-2.  **Initialize Deployment**: Call `startDeployment` with test parameters and a consistent `systemSaltString`.
-3.  **Deploy Contracts**: Use the harness to deploy proxies and implementations; CREATE3 ensures determinism within test environment.
-4.  **Save State**: Serialize to JSON for cross-test verification and incremental testing.
+1.  **Instantiate Harness**: `deployment = new TestDeployment()` (defaults to `address(this)` as deployer context).
+2.  **Start Deployment**: Call `start()` with test parameters.
+3.  **Deploy Contracts**: Each proxy deploys via CREATE3 with bootstrap pattern.
+4.  **Save State**: Serialize to JSON for verification and incremental testing.
 
-#### Full Production Simulation (For Integration Tests)
+#### Full Production Simulation (Planned)
 
 1.  **Mock Nick's Factory**: Deploy `MockNicksFactory` and use `vm.etch(NICKS_FACTORY, mockFactory.code)`.
 2.  **Deploy Harness via Mock Factory**: Follow production workflow steps 1-3 using the mock factory.
 3.  **Run Production Code**: Execute the exact same deployment logic as production would use.
 4.  **Validate Addresses**: Confirm predicted addresses match deployed addresses.
+5.  **Note**: This approach is not yet implemented in the test suite but is supported by the architecture.
 
 - **Incremental / Resumed Deployment**
-  1. Call `resumeDeployment` with the saved JSON.
-  2. The harness restores registry state, redeploys any required stubs deterministically, and resumes deployments.
-  3. After completing the phase, call `finishDeployment` (or re-save JSON if continuing later).
+  1. Call `resume` with system salt string (to derive filepath) or custom filepath.
+  2. Harness restores registry state and deploys new bootstrap stub for this session.
+  3. Deploy additional contracts as needed; they use same deterministic addresses.
+  4. After completing phase, call `finish()` to transfer new proxy ownership, then save JSON.
 - **Governance Changes**
   - Proxies point directly to implementations from the moment of deployment.
   - Production contracts follow the Bao ownership choreography: the deployer configures the implementation, then hands control to the multisig once it is safe.
@@ -231,7 +233,7 @@ Implementations follow a specific pattern for parameter handling:
 
 ## Lifecycle Clarifications
 
-- Every system depends on the canonical system salt and the `Pause` target recorded in JSON. `startDeployment` is typically invoked only once—when seeding those anchors and the initial metadata. `Pause` may be replaced (and persisted) without rerunning `startDeployment`; the shared JSON keeps deterministic predictions aligned. All subsequent activity, including incremental feature rollout or emergency response, uses `resumeDeployment` so new layers extend the existing deterministic state instead of recreating it. The same contracts underpin both Foundry and Wake workflows to guarantee environment parity.
+- `start()` is typically invoked once to seed system salt and metadata. All subsequent activity uses `resume()` to extend the deterministic state. Each session creates its own bootstrap stub. The same contracts underpin both Foundry and Wake workflows.
 
 ## Existing Deployments
 

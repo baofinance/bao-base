@@ -80,12 +80,12 @@ abstract contract Deployment is DeploymentJson {
     // Deployment Lifecycle
     // ============================================================================
 
-    /// @notice Initialize a new deployment session
-    /// @param owner The final owner address for all deployed contracts
+    /// @notice Start a fresh deployment session
+    /// @param owner Owner address for deployed contracts
     /// @param network Network name for metadata
     /// @param version Version string for metadata
     /// @param systemSaltString System salt for deterministic addresses
-    function initialize(
+    function start(
         address owner,
         string memory network,
         string memory version,
@@ -97,9 +97,15 @@ abstract contract Deployment is DeploymentJson {
     }
 
     /// @notice Resume deployment from JSON file
+    /// @param network Network name (for subdirectory in production)
     /// @param systemSaltString System salt to derive filepath
-    function resume(string memory systemSaltString) public virtual {
-        string memory filepath = string.concat("results/deployments/", systemSaltString, ".json");
+    function resume(string memory network, string memory systemSaltString) public virtual {
+        string memory filepath;
+        if (_useNetworkSubdir()) {
+            filepath = string.concat(_getBaseDirPrefix(), "deployments/", network, "/", systemSaltString, ".json");
+        } else {
+            filepath = string.concat(_getBaseDirPrefix(), "deployments/", systemSaltString, ".json");
+        }
         loadFromJson(filepath);
         _stub = new UUPSProxyDeployStub();
     }

@@ -3,40 +3,115 @@
     "address": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
   },
   "deployment": {
-    "json\"escape": {
-      "type": "string",
-      "value": "value with \"quotes\""
-    },
-    "string-param": {
-      "type": "string",
-      "value": "value with spaces"
-    },
-    "token-with-dashes": {
-      "address": "0x0000000000000000000000000000000000001111",
+    "contract0": {
+      "address": "0x0000000000000000000000000000000000001000",
       "blockNumber": 1,
       "category": "existing",
       "contractPath": "blockchain",
       "contractType": "ExistingContract",
-      "deployedTo": "0x0000000000000000000000000000000000001111",
+      "deployedTo": "0x0000000000000000000000000000000000001000",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
     },
-    "tokenWithCamelCase": {
-      "address": "0x0000000000000000000000000000000000003333",
+    "contract1": {
+      "address": "0x0000000000000000000000000000000000001001",
       "blockNumber": 1,
       "category": "existing",
       "contractPath": "blockchain",
       "contractType": "ExistingContract",
-      "deployedTo": "0x0000000000000000000000000000000000003333",
+      "deployedTo": "0x0000000000000000000000000000000000001001",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
     },
-    "token_with_underscores": {
-      "address": "0x0000000000000000000000000000000000002222",
+    "contract2": {
+      "address": "0x0000000000000000000000000000000000001002",
       "blockNumber": 1,
       "category": "existing",
       "contractPath": "blockchain",
       "contractType": "ExistingContract",
-      "deployedTo": "0x0000000000000000000000000000000000002222",
+      "deployedTo": "0x0000000000000000000000000000000000001002",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+    },
+    "contract3": {
+      "address": "0x0000000000000000000000000000000000001003",
+      "blockNumber": 1,
+      "category": "existing",
+      "contractPath": "blockchain",
+      "contractType": "ExistingContract",
+      "deployedTo": "0x0000000000000000000000000000000000001003",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+    },
+    "contract4": {
+      "address": "0x0000000000000000000000000000000000001004",
+      "blockNumber": 1,
+      "category": "existing",
+      "contractPath": "blockchain",
+      "contractType": "ExistingContract",
+      "deployedTo": "0x0000000000000000000000000000000000001004",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+    },
+    "contract5": {
+      "address": "0x0000000000000000000000000000000000001005",
+      "blockNumber": 1,
+      "category": "existing",
+      "contractPath": "blockchain",
+      "contractType": "ExistingContract",
+      "deployedTo": "0x0000000000000000000000000000000000001005",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+    },
+    "contract6": {
+      "address": "0x0000000000000000000000000000000000001006",
+      "blockNumber": 1,
+      "category": "existing",
+      "contractPath": "blockchain",
+      "contractType": "ExistingContract",
+      "deployedTo": "0x0000000000000000000000000000000000001006",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+    },
+    "contract7": {
+      "address": "0x0000000000000000000000000000000000001007",
+      "blockNumber": 1,
+      "category": "existing",
+      "contractPath": "blockchain",
+      "contractType": "ExistingContract",
+      "deployedTo": "0x0000000000000000000000000000000000001007",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+    },
+    "contract8": {
+      "address": "0x0000000000000000000000000000000000001008",
+      "blockNumber": 1,
+      "category": "existing",
+      "contractPath": "blockchain",
+      "contractType": "ExistingContract",
+      "deployedTo": "0x0000000000000000000000000000000000001008",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+    },
+    "contract9": {
+      "address": "0x0000000000000000000000000000000000001009",
+      "blockNumber": 1,
+      "category": "existing",
+      "contractPath": "blockchain",
+      "contractType": "ExistingContract",
+      "deployedTo": "0x0000000000000000000000000000000000001009",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+    },
+    "param0": {
+      "type": "uint256",
+      "value": 0
+    },
+    "param1": {
+      "type": "uint256",
+      "value": 100
+    },
+    "param2": {
+      "type": "uint256",
+      "value": 200
+    },
+    "param3": {
+      "type": "uint256",
+      "value": 300
+    },
+    "param4": {
+      "type": "uint256",
+      "value": 400
     }
   },
   "metadata": {

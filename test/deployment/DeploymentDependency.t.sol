@@ -45,7 +45,7 @@ contract DeploymentDependencyTest is Test {
 
     function setUp() public {
         deployment = new DependencyTestHarness();
-        deployment.initialize(address(this), "test", "v1.0.0", "dependency-test-salt");
+        deployment.start(address(this), "test", "v1.0.0", "dependency-test-salt");
     }
 
     function test_SimpleDependency() public {

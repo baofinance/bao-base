@@ -117,12 +117,12 @@ contract IntegrationTestHarness is TestDeployment {
 contract DeploymentIntegrationTest is Test {
     IntegrationTestHarness public deployment;
     address public admin;
-    string constant TEST_OUTPUT_DIR = "results/deployment";
+    string constant TEST_OUTPUT_DIR = "results/deployments";
 
     function setUp() public {
         admin = address(this);
         deployment = new IntegrationTestHarness();
-        deployment.initialize(admin, "test-network", "v1.0.0", "integration-test-salt");
+        deployment.start(admin, "test-network", "v1.0.0", "integration-test-salt");
     }
 
     function test_DeployFullSystem() public {

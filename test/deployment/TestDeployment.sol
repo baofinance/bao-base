@@ -11,11 +11,24 @@ import {Deployment} from "@bao-script/deployment/Deployment.sol";
  *      Can be used directly or extended for specialized test needs.
  *      Includes DeploymentJson mixin for Foundry-specific JSON operations.
  * @dev Defaults to address(this) as DEPLOYER_CONTEXT for test simplicity
+ * @dev Overrides to use results/deployments flat structure (no network subdirs)
  */
 contract TestDeployment is Deployment {
     /// @notice Constructor for test environment
     /// @dev Passes address(0) to Deployment constructor, which defaults to address(this)
     constructor() Deployment(address(0)) {}
+
+    /// @notice Override to add results/ prefix for test outputs
+    /// @return "results/" prefix for test deployment files
+    function _getBaseDirPrefix() internal pure override returns (string memory) {
+        return "results/";
+    }
+
+    /// @notice Override to use flat structure (no network subdirectories)
+    /// @return false to disable network subdirectories in tests
+    function _useNetworkSubdir() internal pure override returns (bool) {
+        return false;
+    }
 
     /// @notice Count how many proxies are still owned by this harness (for testing)
     /// @dev Useful for verifying ownership transfer behavior in tests

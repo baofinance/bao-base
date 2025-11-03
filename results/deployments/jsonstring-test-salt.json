@@ -3,39 +3,22 @@
     "address": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
   },
   "deployment": {
-    "Admin": {
-      "address": "0x000000000000000000000000000000000000ABcD",
+    "MockToken": {
+      "address": "0x0000000000000000000000000000000000001234",
       "blockNumber": 1,
       "category": "existing",
       "contractPath": "blockchain",
       "contractType": "ExistingContract",
-      "deployedTo": "0x000000000000000000000000000000000000ABcD",
+      "deployedTo": "0x0000000000000000000000000000000000001234",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
     },
-    "Treasury": {
-      "address": "0x000000000000000000000000000000000000dEaD",
-      "blockNumber": 1,
-      "category": "existing",
-      "contractPath": "blockchain",
-      "contractType": "ExistingContract",
-      "deployedTo": "0x000000000000000000000000000000000000dEaD",
-      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
-    },
-    "chainId": {
+    "decimals": {
       "type": "uint256",
-      "value": 1
+      "value": 18
     },
-    "isProduction": {
-      "type": "bool",
-      "value": true
-    },
-    "networkName": {
+    "tokenName": {
       "type": "string",
-      "value": "Ethereum"
-    },
-    "temperature": {
-      "type": "int256",
-      "value": -42
+      "value": "Test Token"
     }
   },
   "metadata": {

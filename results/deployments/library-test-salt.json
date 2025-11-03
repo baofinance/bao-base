@@ -3,7 +3,7 @@
     "address": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
   },
   "deployment": {
-    "mathLib1": {
+    "mathLib": {
       "address": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
       "blockNumber": 1,
       "category": "library",

@@ -14,7 +14,7 @@ contract DeploymentJsonStringTest is Test {
 
     function setUp() public {
         deployment = new TestDeployment();
-        deployment.initialize(address(this), "localhost", "1.0.0", "jsonstring-test-salt");
+        deployment.start(address(this), "localhost", "1.0.0", "jsonstring-test-salt");
     }
 
     function test_ToJsonReturnsValidString() public {
@@ -166,7 +166,6 @@ contract DeploymentJsonStringTest is Test {
         deployment.setStringByKey("name", "SavedToken");
 
         string memory path = "results/deployments/json-compat-test.json";
-        vm.createDir("results/deployments", true);
 
         deployment.finish();
         deployment.saveToJson(path);
@@ -192,7 +191,6 @@ contract DeploymentJsonStringTest is Test {
         deployment.setUintByKey("value", 42);
 
         string memory path = "results/deployments/load-compat-test.json";
-        vm.createDir("results/deployments", true);
 
         deployment.finish();
         deployment.saveToJson(path);

@@ -65,11 +65,11 @@ contract JsonTestHarness is TestDeployment {
  */
 contract DeploymentJsonTest is Test {
     JsonTestHarness public deployment;
-    string constant TEST_OUTPUT_DIR = "results/deployment";
+    string constant TEST_OUTPUT_DIR = "results/deployments";
 
     function setUp() public {
         deployment = new JsonTestHarness();
-        deployment.initialize(address(this), "test-network", "v1.0.0", "json-test-salt");
+        deployment.start(address(this), "test-network", "v1.0.0", "json-test-salt");
     }
 
     function test_SaveEmptyDeployment() public {
@@ -286,6 +286,6 @@ contract DeploymentJsonTest is Test {
     function test_RevertWhen_ResumeNonexistentPath() public {
         JsonTestHarness fresh = new JsonTestHarness();
         vm.expectRevert();
-        fresh.resume("nonexistent-salt");
+        fresh.resume("test", "nonexistent-salt");
     }
 }

@@ -3,6 +3,24 @@
     "address": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
   },
   "deployment": {
+    "contract1": {
+      "address": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
+      "blockNumber": 1,
+      "category": "contract",
+      "contractPath": "test/SimpleContract.sol",
+      "contractType": "SimpleContract",
+      "deployedTo": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+    },
+    "lib1": {
+      "address": "0xfD07C974e33dd1626640bA3a5acF0418FaacCA7a",
+      "blockNumber": 1,
+      "category": "library",
+      "contractPath": "test/TestLib.sol",
+      "contractType": "TestLib",
+      "deployedTo": "0xfD07C974e33dd1626640bA3a5acF0418FaacCA7a",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+    },
     "proxy1": {
       "address": "0x33472E68F565F03B397a3650e011F10FD0579755",
       "blockNumber": 1,
@@ -12,7 +30,7 @@
       "deployedTo": "0x33472E68F565F03B397a3650e011F10FD0579755",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
       "implementation": {
-        "address": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
+        "address": "0xDDc10602782af652bB913f7bdE1fD82981Db7dd9",
         "contractPath": "test/SimpleImplementation.sol",
         "contractType": "SimpleImplementation"
       },
@@ -21,12 +39,12 @@
       "saltString": "proxy1"
     },
     "proxy1_impl": {
-      "address": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
+      "address": "0xDDc10602782af652bB913f7bdE1fD82981Db7dd9",
       "blockNumber": 1,
       "category": "contract",
       "contractPath": "test/SimpleImplementation.sol",
       "contractType": "SimpleImplementation",
-      "deployedTo": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
+      "deployedTo": "0xDDc10602782af652bB913f7bdE1fD82981Db7dd9",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
     }
   },

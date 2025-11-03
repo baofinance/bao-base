@@ -81,7 +81,7 @@ contract DeploymentUpgradeTest is Test {
     function setUp() public {
         deployment = new UpgradeTestHarness();
         admin = address(this);
-        deployment.initialize(admin, "upgrade-test", "v1.0.0", "upgrade-test-salt");
+        deployment.start(admin, "upgrade-test", "v1.0.0", "upgrade-test-salt");
     }
 
     function test_BasicUpgrade() public {
@@ -439,7 +439,7 @@ contract DeploymentNonBaoOwnableTest is Test {
     function setUp() public {
         deployment = new UpgradeTestHarness();
         admin = address(this);
-        deployment.initialize(admin, "non-bao-test", "v1.0.0", "non-bao-test-salt");
+        deployment.start(admin, "non-bao-test", "v1.0.0", "non-bao-test-salt");
     }
 
     function test_OZOwnableWorks() public {

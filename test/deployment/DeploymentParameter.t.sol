@@ -15,7 +15,7 @@ contract DeploymentParameterTest is Test {
 
     function setUp() public {
         deployment = new ParameterTestHarness();
-        deployment.initialize(address(this), "test", "v1.0.0", "parameter-test-salt");
+        deployment.start(address(this), "test", "v1.0.0", "parameter-test-salt");
     }
 
     function test_SetAndGetString() public {
@@ -98,7 +98,7 @@ contract DeploymentParameterTest is Test {
         deployment.setIntByKey("offset", -50);
 
         // Save to JSON
-        string memory filepath = "results/deployment/test-parameters.json";
+        string memory filepath = "results/deployments/test-parameters.json";
         deployment.saveToJson(filepath);
 
         // Create new deployment and load

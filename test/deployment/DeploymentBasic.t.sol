@@ -40,7 +40,7 @@ contract DeploymentBasicTest is Test {
 
     function setUp() public {
         deployment = new DeploymentHarness();
-        deployment.initialize(address(this), "test", "v1.0.0", "test-system-salt");
+        deployment.start(address(this), "test", "v1.0.0", "test-system-salt");
     }
 
     function test_Initialize() public view {
@@ -156,7 +156,7 @@ contract DeploymentBasicTest is Test {
 
     function test_RevertWhen_StartDeploymentTwice() public {
         vm.expectRevert(DeploymentRegistry.AlreadyInitialized.selector);
-        deployment.initialize(address(this), "test", "v1.0.0", "test-system-salt");
+        deployment.start(address(this), "test", "v1.0.0", "test-system-salt");
     }
 
     function test_ActionWithoutInitialization() public {

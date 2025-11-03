@@ -24,9 +24,18 @@ abstract contract DeploymentJson is DeploymentRegistry {
      * @notice Save deployment to JSON file
      * @param filepath Path to write JSON file
      * @dev Updates finishedAt to current timestamp on each save
+     * @dev Creates parent directory structure if it doesn't exist
      */
     function saveToJson(string memory filepath) public virtual {
         _updateFinishedAt();
+        // Create directory structure based on whether network subdirs are used
+        string memory dir;
+        if (_useNetworkSubdir()) {
+            dir = string.concat(_getBaseDirPrefix(), "deployments/", _metadata.network);
+        } else {
+            dir = string.concat(_getBaseDirPrefix(), "deployments");
+        }
+        VM.createDir(dir, true);
         VM.writeJson(toJson(), filepath);
     }
 
@@ -387,11 +396,35 @@ abstract contract DeploymentJson is DeploymentRegistry {
     // ============================================================================
 
     /**
-     * @notice Derive filepath from system salt
+     * @notice Get base directory prefix (empty for production, "results/" for tests)
+     * @dev Override in test harness to return "results/"
+     * @return Directory prefix (default: empty string for production)
+     */
+    function _getBaseDirPrefix() internal view virtual returns (string memory) {
+        return "";
+    }
+
+    /**
+     * @notice Check if network subdirectory should be used
+     * @dev Override in test harness to return false for flat structure
+     * @return True for production (use network subdir), false for tests (flat)
+     */
+    function _useNetworkSubdir() internal view virtual returns (bool) {
+        return true;
+    }
+
+    /**
+     * @notice Derive filepath from system salt and network
      * @return Path where JSON should be saved
+     * @dev Production: deployments/{network}/{salt}.json
+     * @dev Tests: results/deployments/{salt}.json
      */
     function _filepath() internal view returns (string memory) {
-        return string.concat("results/deployments/", _metadata.systemSaltString, ".json");
+        if (_useNetworkSubdir()) {
+            return string.concat(_getBaseDirPrefix(), "deployments/", _metadata.network, "/", _metadata.systemSaltString, ".json");
+        } else {
+            return string.concat(_getBaseDirPrefix(), "deployments/", _metadata.systemSaltString, ".json");
+        }
     }
 
     /**

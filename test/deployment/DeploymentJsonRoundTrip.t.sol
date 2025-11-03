@@ -42,7 +42,7 @@ contract DeploymentJsonRoundTripTest is Test {
 
     function setUp() public {
         deployment = new RoundTripTestHarness();
-        deployment.initialize(address(this), "test-network", "v2.1.0", "roundtrip-test-salt");
+        deployment.start(address(this), "test-network", "v2.1.0", "roundtrip-test-salt");
     }
 
     function test_ComplexDeploymentRoundTrip() public {

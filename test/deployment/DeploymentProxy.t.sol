@@ -35,7 +35,7 @@ contract DeploymentProxyTest is Test {
 
     function setUp() public {
         deployment = new ProxyTestHarness();
-        deployment.initialize(address(this), "test", "v1.0.0", "proxy-test-salt");
+        deployment.start(address(this), "test", "v1.0.0", "proxy-test-salt");
         admin = makeAddr("admin");
         outsider = makeAddr("outsider");
     }
