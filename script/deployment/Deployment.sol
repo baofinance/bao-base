@@ -46,6 +46,9 @@ abstract contract Deployment is DeploymentJson {
     /// @dev Deployed once per session, owned by this harness, enables BaoOwnable compatibility with CREATE3
     UUPSProxyDeployStub internal _stub;
 
+    /// @notice Cached BaoDeployer owner used for deterministic address prediction
+    address internal _baoDeployerOwnerCache;
+
     // ============================================================================
     // Constants
     // ============================================================================
@@ -66,91 +69,63 @@ abstract contract Deployment is DeploymentJson {
     // BaoDeployer Helpers
     // ============================================================================
 
-    /// @notice Get the deterministic BaoDeployer proxy address
-    /// @dev Computes address of the ERC1967Proxy that wraps the BaoDeployer implementation
-    /// @dev Proxy is deployed WITHOUT init data for determinism - initialize() called separately
-    /// @return deployer BaoDeployer proxy address (same on all chains)
-    function _getBaoDeployerAddress() internal pure returns (address deployer) {
-        // Step 1: Compute implementation address
-        bytes32 implBytecodeHash = keccak256(type(BaoDeployer).creationCode);
-        bytes32 implSalt = keccak256(abi.encodePacked(BAO_DEPLOYER_SALT, ".implementation"));
-        address implementation = address(
-            uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), NICKS_FACTORY, implSalt, implBytecodeHash))))
-        );
-
-        // Step 2: Compute proxy address (NO init data for determinism)
-        bytes memory proxyCreationCode = abi.encodePacked(
-            type(ERC1967Proxy).creationCode,
-            abi.encode(implementation, "") // Empty init data
-        );
-        bytes32 proxyBytecodeHash = keccak256(proxyCreationCode);
-        bytes32 proxyHash = keccak256(
-            abi.encodePacked(bytes1(0xff), NICKS_FACTORY, BAO_DEPLOYER_SALT, proxyBytecodeHash)
-        );
-        return address(uint160(uint256(proxyHash)));
+    /// @notice Predict BaoDeployer address for a given owner (CREATE2 via Nick's Factory)
+    function _predictBaoDeployerAddress(address owner) internal pure returns (address) {
+        bytes memory creationCode = abi.encodePacked(type(BaoDeployer).creationCode, abi.encode(owner));
+        bytes32 bytecodeHash = keccak256(creationCode);
+        bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), NICKS_FACTORY, BAO_DEPLOYER_SALT, bytecodeHash));
+        return address(uint160(uint256(hash)));
     }
 
-    /// @notice Check if BaoDeployer exists
-    /// @return True if BaoDeployer has code at the expected address
+    /// @notice Get the cached BaoDeployer address (returns zero if owner not configured)
+    function _getBaoDeployerAddress() internal view returns (address) {
+        address owner = _baoDeployerOwnerCache;
+        if (owner == address(0)) {
+            return address(0);
+        }
+        return _predictBaoDeployerAddress(owner);
+    }
+
+    /// @notice Check if BaoDeployer exists at the predicted address
     function _baoDeployerExists() internal view returns (bool) {
-        return _getBaoDeployerAddress().code.length > 0;
+        address deployer = _getBaoDeployerAddress();
+        return deployer != address(0) && deployer.code.length > 0;
     }
 
     /// @notice Deploy BaoDeployer via Nick's Factory if it doesn't exist
-    /// @dev This function is reusable for both production and test deployments
-    /// @param owner Address that will own the BaoDeployer
-    /// @param initialDeployers Array of addresses to grant DEPLOYER_ROLE
+    /// @param owner Address that will own the BaoDeployer (baked into creation bytecode)
     /// @return deployed Address of the BaoDeployer (whether newly deployed or existing)
-    function _deployBaoDeployer(address owner, address[] memory initialDeployers) internal returns (address deployed) {
-        deployed = _getBaoDeployerAddress();
+    function _deployBaoDeployer(address owner) internal returns (address deployed) {
+        if (owner == address(0)) {
+            revert FactoryDeploymentFailed("BaoDeployer owner required");
+        }
 
-        // Only deploy if it doesn't exist
+        if (_baoDeployerOwnerCache != address(0) && _baoDeployerOwnerCache != owner) {
+            revert FactoryDeploymentFailed("BaoDeployer owner mismatch");
+        }
+
+        _baoDeployerOwnerCache = owner;
+        deployed = _predictBaoDeployerAddress(owner);
+
         if (!_baoDeployerExists()) {
             address factory = NICKS_FACTORY;
-
-            // Step 1: Deploy the implementation contract via CREATE2
-            bytes memory implCreationCode = type(BaoDeployer).creationCode;
-            bytes32 implSalt = keccak256(abi.encodePacked(BAO_DEPLOYER_SALT, ".implementation"));
-            address implementation;
+            bytes memory creationCode = abi.encodePacked(type(BaoDeployer).creationCode, abi.encode(owner));
+            bytes32 salt = BAO_DEPLOYER_SALT;
 
             /// @solidity memory-safe-assembly
             assembly {
-                let n := mload(implCreationCode)
-                mstore(implCreationCode, implSalt)
-                if iszero(call(gas(), factory, 0, implCreationCode, add(n, 0x20), 0x00, 0x20)) {
-                    returndatacopy(implCreationCode, 0x00, returndatasize())
-                    revert(implCreationCode, returndatasize())
+                let codeLength := mload(creationCode)
+                mstore(creationCode, salt)
+                if iszero(call(gas(), factory, 0, creationCode, add(codeLength, 0x20), 0x00, 0x20)) {
+                    returndatacopy(creationCode, 0x00, returndatasize())
+                    revert(creationCode, returndatasize())
                 }
-                mstore(implCreationCode, n)
-                implementation := shr(96, mload(0x00))
-            }
-
-            require(implementation.code.length > 0, "BaoDeployer implementation has no code");
-
-            // Step 2: Deploy the proxy via CREATE2 pointing to implementation (NO init data for determinism)
-            bytes memory proxyCreationCode = abi.encodePacked(
-                type(ERC1967Proxy).creationCode,
-                abi.encode(implementation, "") // Empty init data - we'll initialize separately
-            );
-            bytes32 proxySalt = BAO_DEPLOYER_SALT;
-
-            /// @solidity memory-safe-assembly
-            assembly {
-                let n := mload(proxyCreationCode)
-                mstore(proxyCreationCode, proxySalt)
-                if iszero(call(gas(), factory, 0, proxyCreationCode, add(n, 0x20), 0x00, 0x20)) {
-                    returndatacopy(proxyCreationCode, 0x00, returndatasize())
-                    revert(proxyCreationCode, returndatasize())
-                }
-                mstore(proxyCreationCode, n)
+                mstore(creationCode, codeLength)
                 deployed := shr(96, mload(0x00))
             }
 
-            require(deployed == _getBaoDeployerAddress(), "BaoDeployer proxy deployed to unexpected address");
-            require(deployed.code.length > 0, "BaoDeployer proxy has no code");
-
-            // Step 3: Initialize the proxy separately (now address is deterministic regardless of init params)
-            BaoDeployer(deployed).initialize(owner, initialDeployers);
+            require(deployed == _predictBaoDeployerAddress(owner), "BaoDeployer deployed to unexpected address");
+            require(deployed.code.length > 0, "BaoDeployer missing code");
         }
 
         return deployed;
@@ -188,8 +163,11 @@ abstract contract Deployment is DeploymentJson {
     /// @dev Returns BaoDeployer address - same on all chains (deployed via Nick's Factory)
     ///      This is used for both prediction and deployment
     /// @return deployer BaoDeployer contract address
-    function _getCreate3Deployer() internal pure virtual returns (address deployer) {
-        return _getBaoDeployerAddress();
+    function _getCreate3Deployer() internal view virtual returns (address deployer) {
+        deployer = _getBaoDeployerAddress();
+        if (deployer == address(0)) {
+            revert FactoryDeploymentFailed("BaoDeployer owner not configured");
+        }
     }
 
     /// @notice Deploy contract via CREATE3 using BaoDeployer

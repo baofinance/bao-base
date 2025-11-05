@@ -11,7 +11,7 @@ import {MockDeployment} from "./MockDeployment.sol";
  */
 contract DeploymentJsonStringTest is BaoDeploymentTest {
     MockDeployment public deployment;
-    
+
     string constant TEST_NETWORK = "localhost";
     string constant TEST_SALT = "jsonstring-test-salt";
     string constant TEST_VERSION = "1.0.0";

@@ -79,18 +79,18 @@ contract BaoDeployerTest is Test {
         address[] memory initDeployers = new address[](2);
         initDeployers[0] = deployer1;
         initDeployers[1] = deployer2;
-        
+
         bytes memory initData = abi.encodeCall(BaoDeployer.initialize, (finalOwner, initDeployers));
         ERC1967Proxy proxy = new ERC1967Proxy(address(freshImpl), initData);
         BaoDeployer freshDeployer = BaoDeployer(payable(address(proxy)));
 
         // Check owner
         assertEq(freshDeployer.owner(), finalOwner);
-        
+
         // Check deployers were granted roles
         assertTrue(freshDeployer.isAuthorizedDeployer(deployer1));
         assertTrue(freshDeployer.isAuthorizedDeployer(deployer2));
-        
+
         // Check enumeration
         address[] memory deployerList = freshDeployer.deployers();
         assertEq(deployerList.length, 2);
@@ -192,7 +192,7 @@ contract BaoDeployerTest is Test {
         // Check enumeration updated
         address[] memory holdersAfter = deployer.deployers();
         assertEq(holdersAfter.length, 2);
-        
+
         // deployer2 should not be in the list
         for (uint256 i = 0; i < holdersAfter.length; i++) {
             assertTrue(holdersAfter[i] != deployer2);
@@ -245,8 +245,6 @@ contract BaoDeployerTest is Test {
         vm.expectRevert(abi.encodeWithSelector(BaoDeployer.UnauthorizedDeployer.selector, user));
         deployer.deployDeterministic(creationCode, salt);
     }
-
-
 
     function test_Deploy_Deterministic() public {
         deployer.grantRoles(deployer1, DEPLOYER_ROLE);
@@ -560,10 +558,8 @@ contract BaoDeployerTest is Test {
         address[] memory holders = deployer.deployers();
         assertEq(holders.length, 1); // address(0) is included
         assertEq(holders[0], address(0));
-        
+
         // address(0) is now an authorized deployer
         assertTrue(deployer.isAuthorizedDeployer(address(0)));
     }
-
-
 }

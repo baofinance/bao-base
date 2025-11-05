@@ -6,89 +6,48 @@ import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 import {Vm} from "forge-std/Vm.sol";
 
 /**
- * @title MockDeployment
- * @notice Mock deployment harness for testing
- * @dev Exposes internal Deployment methods with public wrappers for test access
- * @dev Infrastructure (Nick's Factory, BaoDeployer) setup helpers exposed for tests
- * @dev Production code uses type-safe enum API; tests use these string-based wrappers
+ * @title TestDeployment
+ * @notice Test harness that exposes internal Deployment methods for testing
+ * @dev This class provides public wrappers for internal string-based methods.
+ *      Production code uses the type-safe enum API, but tests need string-based access.
+ *      Can be used directly or extended for specialized test needs.
+ *      Includes DeploymentJson mixin for Foundry-specific JSON operations.
  * @dev Defaults to address(this) as DEPLOYER_CONTEXT for test simplicity
  * @dev Overrides to use results/deployments flat structure (no network subdirs)
  */
-contract MockDeployment is Deployment {
+contract TestDeployment is Deployment {
     /// @notice Foundry VM interface for cheatcodes
     Vm private constant vm = Vm(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
 
     /// @notice Flag to control registry saves in tests
     bool private _registrySavesEnabled;
 
-    /// @notice Constructor for test deployment harness
+    /// @notice Constructor for test environment
     /// @dev Passes address(0) to Deployment constructor, which defaults to address(this)
     /// @dev Registry saves disabled by default in tests to avoid polluting results directory
-    /// @dev Does NOT deploy infrastructure - that's handled by BaoDeploymentTest.setUp()
-    /// @dev Configures itself as operator when it owns the BaoDeployer
+    /// @dev Automatically deploys Nick's Factory and BaoDeployer for CREATE3 support
     constructor() Deployment(address(0)) {
         _registrySavesEnabled = false;
-
-        // Configure operator if this harness already owns the BaoDeployer (resumed test state)
-        if (_baoDeployerExists()) {
-            address deployerAddr = _getBaoDeployerAddress();
-            if (deployerAddr != address(0)) {
-                BaoDeployer deployer = BaoDeployer(deployerAddr);
-                address owner = deployer.owner();
-                if (owner == address(this)) {
-                    vm.startPrank(owner);
-                    deployer.setOperator(address(this));
-                    vm.stopPrank();
-                }
-            }
-        }
+        _ensureBaoDeployer();
     }
 
-    /*//////////////////////////////////////////////////////////////////////////
-                        INFRASTRUCTURE DEPLOYMENT HELPERS
-                        (Test-only exposure of production logic)
-    //////////////////////////////////////////////////////////////////////////*/
-
-    /// @notice Etch Nick's Factory for test environments (test-only helper)
-    /// @dev Production chains already have Nick's Factory deployed
-    /// @dev Tests need to etch it since they run on fresh EVM state
-    function etchNicksFactory() public {
+    /// @notice Ensure BaoDeployer is deployed for testing
+    /// @dev Deploys Nick's Factory (if needed) and BaoDeployer (if needed)
+    ///      This ensures tests have the full infrastructure for CREATE3 deployments
+    ///      Uses the production-ready _deployBaoDeployer() from Deployment.sol
+    function _ensureBaoDeployer() private {
+        // Step 1: Deploy Nick's Factory if not present (test environment only)
         if (NICKS_FACTORY.code.length == 0) {
             vm.etch(NICKS_FACTORY, NICKS_FACTORY_BYTECODE);
         }
+
+        // Step 2: Deploy BaoDeployer using production deployment function
+        // Initialize with address(this) as owner for test environment
+        address deployed = _deployBaoDeployer(address(this));
+
+        // Step 3: Configure this harness as operator to enable commit/reveal in tests
+        BaoDeployer(deployed).setOperator(address(this));
     }
-
-    /// @notice Deploy BaoDeployer via Nick's Factory (test helper)
-    /// @dev Exposes parent's _deployBaoDeployer() for test infrastructure setup
-    /// @dev This is the same logic used in production - no duplication
-    /// @param owner Address that will own the BaoDeployer
-    /// @return deployed Address of the BaoDeployer
-    function deployBaoDeployer(address owner) public returns (address deployed) {
-        deployed = _deployBaoDeployer(owner);
-
-        // Convenience: when tests own the deployer, make them operator for commit/reveal flows
-        if (owner == address(this)) {
-            vm.startPrank(owner);
-            BaoDeployer(deployed).setOperator(address(this));
-            vm.stopPrank();
-        }
-    }
-
-    /// @notice Check if BaoDeployer exists (test helper)
-    /// @return True if BaoDeployer has code at the expected address
-    function baoDeployerExists() public view returns (bool) {
-        return _baoDeployerExists();
-    }
-
-    /// @notice Get BaoDeployer address (test helper)
-    /// @return Address where BaoDeployer is/will be deployed
-    function getBaoDeployerAddress() public view returns (address) {
-        return _getBaoDeployerAddress();
-    }
-
-    /*//////////////////////////////////////////////////////////////////////////
-                            REGISTRY CONTROL
-    //////////////////////////////////////////////////////////////////////////*/
 
     /// @notice Enable registry saves for tests that want to generate regression files
     function enableAutoSave() public {

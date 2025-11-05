@@ -212,11 +212,21 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         bytes memory fundedCode = type(FundedVault).creationCode;
         vm.deal(address(deployment), 10 ether);
         deployment.deployContractWithValue{value: 5 ether}(
-            "vault_funded", 5 ether, fundedCode, "FundedVault", "test/mocks/deployment/FundedVault.sol"
+            "vault_funded",
+            5 ether,
+            fundedCode,
+            "FundedVault",
+            "test/mocks/deployment/FundedVault.sol"
         );
 
         // Deploy unfunded vault (same contract type, zero value)
-        deployment.deployContractWithValue("vault_unfunded", 0, fundedCode, "FundedVault", "test/mocks/deployment/FundedVault.sol");
+        deployment.deployContractWithValue(
+            "vault_unfunded",
+            0,
+            fundedCode,
+            "FundedVault",
+            "test/mocks/deployment/FundedVault.sol"
+        );
 
         deployment.finish();
 
@@ -225,8 +235,14 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         string memory json = vm.readFile(path);
 
         // Verify both vaults have factory field (CREATE3 deployments)
-        assertTrue(vm.keyExistsJson(json, ".deployment.vault_funded.factory"), "Funded vault should have factory field");
-        assertTrue(vm.keyExistsJson(json, ".deployment.vault_unfunded.factory"), "Unfunded vault should have factory field");
+        assertTrue(
+            vm.keyExistsJson(json, ".deployment.vault_funded.factory"),
+            "Funded vault should have factory field"
+        );
+        assertTrue(
+            vm.keyExistsJson(json, ".deployment.vault_unfunded.factory"),
+            "Unfunded vault should have factory field"
+        );
 
         // Verify factory is BaoDeployer address
         address fundedFactory = vm.parseJsonAddress(json, ".deployment.vault_funded.factory");
