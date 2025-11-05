@@ -46,7 +46,7 @@ contract DeploymentDependencyTest is BaoDeploymentTest {
     string constant TEST_SALT = "dependency-test-salt";
     string constant TEST_VERSION = "v1.0.0";
 
-    function setUp() public {
+    function setUp() public override {
         super.setUp();
         deployment = new DependencyTestHarness();
         deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);

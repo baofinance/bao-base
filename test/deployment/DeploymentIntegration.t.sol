@@ -187,7 +187,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
     string constant TEST_SALT = "integration-test-salt";
     string constant TEST_VERSION = "v1.0.0";
 
-    function setUp() public {
+    function setUp() public override {
         super.setUp();
         admin = address(this);
         deployment = new IntegrationTestHarness();

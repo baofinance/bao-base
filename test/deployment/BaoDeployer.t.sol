@@ -36,7 +36,6 @@ contract BaoDeployerTest is Test {
     event ContractDeployed(address indexed deployer, address indexed deployed, bytes32 indexed salt);
 
     function setUp() public {
-        super.setUp();
         finalOwner = makeAddr("finalOwner");
         deployer1 = makeAddr("deployer1");
         deployer2 = makeAddr("deployer2");

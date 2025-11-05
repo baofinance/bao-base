@@ -108,7 +108,7 @@ contract DeploymentWorkflowTest is BaoDeploymentTest {
     string constant TEST_SALT = "workflow-test-salt";
     string constant TEST_VERSION = "v2.0.0";
 
-    function setUp() public {
+    function setUp() public override {
         super.setUp();
         deployment = new WorkflowTestHarness();
         admin = makeAddr("admin");

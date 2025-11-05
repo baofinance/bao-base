@@ -81,7 +81,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
     string constant TEST_SALT = "upgrade-test-salt";
     string constant TEST_VERSION = "v1.0.0";
 
-    function setUp() public {
+    function setUp() public override {
         super.setUp();
         deployment = new UpgradeTestHarness();
         admin = address(this);
@@ -441,7 +441,7 @@ contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
     string constant TEST_SALT = "non-bao-test-salt";
     string constant TEST_VERSION = "v1.0.0";
 
-    function setUp() public {
+    function setUp() public override {
         super.setUp();
         deployment = new UpgradeTestHarness();
         admin = address(this);

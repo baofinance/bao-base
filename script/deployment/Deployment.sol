@@ -66,14 +66,28 @@ abstract contract Deployment is DeploymentJson {
     // BaoDeployer Helpers
     // ============================================================================
 
-    /// @notice Get the deterministic BaoDeployer address
-    /// @dev Computes CREATE2 address from Nick's Factory
-    /// @dev BaoDeployer has no constructor parameters for full CREATE2 determinism
-    /// @return deployer BaoDeployer contract address (same on all chains)
+    /// @notice Get the deterministic BaoDeployer proxy address
+    /// @dev Computes address of the ERC1967Proxy that wraps the BaoDeployer implementation
+    /// @dev Proxy is deployed WITHOUT init data for determinism - initialize() called separately
+    /// @return deployer BaoDeployer proxy address (same on all chains)
     function _getBaoDeployerAddress() internal pure returns (address deployer) {
-        bytes32 bytecodeHash = keccak256(type(BaoDeployer).creationCode);
-        bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), NICKS_FACTORY, BAO_DEPLOYER_SALT, bytecodeHash));
-        return address(uint160(uint256(hash)));
+        // Step 1: Compute implementation address
+        bytes32 implBytecodeHash = keccak256(type(BaoDeployer).creationCode);
+        bytes32 implSalt = keccak256(abi.encodePacked(BAO_DEPLOYER_SALT, ".implementation"));
+        address implementation = address(
+            uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), NICKS_FACTORY, implSalt, implBytecodeHash))))
+        );
+
+        // Step 2: Compute proxy address (NO init data for determinism)
+        bytes memory proxyCreationCode = abi.encodePacked(
+            type(ERC1967Proxy).creationCode,
+            abi.encode(implementation, "") // Empty init data
+        );
+        bytes32 proxyBytecodeHash = keccak256(proxyCreationCode);
+        bytes32 proxyHash = keccak256(
+            abi.encodePacked(bytes1(0xff), NICKS_FACTORY, BAO_DEPLOYER_SALT, proxyBytecodeHash)
+        );
+        return address(uint160(uint256(proxyHash)));
     }
 
     /// @notice Check if BaoDeployer exists
@@ -87,42 +101,58 @@ abstract contract Deployment is DeploymentJson {
     /// @param owner Address that will own the BaoDeployer
     /// @param initialDeployers Array of addresses to grant DEPLOYER_ROLE
     /// @return deployed Address of the BaoDeployer (whether newly deployed or existing)
-    function _deployBaoDeployer(
-        address owner,
-        address[] memory initialDeployers
-    ) internal returns (address deployed) {
+    function _deployBaoDeployer(address owner, address[] memory initialDeployers) internal returns (address deployed) {
         deployed = _getBaoDeployerAddress();
-        
+
         // Only deploy if it doesn't exist
         if (!_baoDeployerExists()) {
-            // Deploy via Nick's Factory for CREATE2 determinism
-            bytes memory creationCode = type(BaoDeployer).creationCode;
-            bytes32 salt = BAO_DEPLOYER_SALT;
             address factory = NICKS_FACTORY;
-            
-            /// @solidity memory-safe-assembly  
+
+            // Step 1: Deploy the implementation contract via CREATE2
+            bytes memory implCreationCode = type(BaoDeployer).creationCode;
+            bytes32 implSalt = keccak256(abi.encodePacked(BAO_DEPLOYER_SALT, ".implementation"));
+            address implementation;
+
+            /// @solidity memory-safe-assembly
             assembly {
-                let n := mload(creationCode)
-                // Store salt at the beginning of creationCode memory
-                mstore(creationCode, salt)
-                // Call Nick's Factory with (salt ++ creationCode)
-                if iszero(call(gas(), factory, 0, creationCode, add(n, 0x20), 0x00, 0x20)) {
-                    returndatacopy(creationCode, 0x00, returndatasize())
-                    revert(creationCode, returndatasize())
+                let n := mload(implCreationCode)
+                mstore(implCreationCode, implSalt)
+                if iszero(call(gas(), factory, 0, implCreationCode, add(n, 0x20), 0x00, 0x20)) {
+                    returndatacopy(implCreationCode, 0x00, returndatasize())
+                    revert(implCreationCode, returndatasize())
                 }
-                // Restore the length
-                mstore(creationCode, n)
-                // Extract address from return data (shift right 96 bits)
+                mstore(implCreationCode, n)
+                implementation := shr(96, mload(0x00))
+            }
+
+            require(implementation.code.length > 0, "BaoDeployer implementation has no code");
+
+            // Step 2: Deploy the proxy via CREATE2 pointing to implementation (NO init data for determinism)
+            bytes memory proxyCreationCode = abi.encodePacked(
+                type(ERC1967Proxy).creationCode,
+                abi.encode(implementation, "") // Empty init data - we'll initialize separately
+            );
+            bytes32 proxySalt = BAO_DEPLOYER_SALT;
+
+            /// @solidity memory-safe-assembly
+            assembly {
+                let n := mload(proxyCreationCode)
+                mstore(proxyCreationCode, proxySalt)
+                if iszero(call(gas(), factory, 0, proxyCreationCode, add(n, 0x20), 0x00, 0x20)) {
+                    returndatacopy(proxyCreationCode, 0x00, returndatasize())
+                    revert(proxyCreationCode, returndatasize())
+                }
+                mstore(proxyCreationCode, n)
                 deployed := shr(96, mload(0x00))
             }
-            
-            require(deployed == _getBaoDeployerAddress(), "BaoDeployer deployed to unexpected address");
-            require(deployed.code.length > 0, "BaoDeployer has no code");
-            
-            // Initialize with owner and initial deployers
+
+            require(deployed == _getBaoDeployerAddress(), "BaoDeployer proxy deployed to unexpected address");
+            require(deployed.code.length > 0, "BaoDeployer proxy has no code");
+
+            // Step 3: Initialize the proxy separately (now address is deterministic regardless of init params)
             BaoDeployer(deployed).initialize(owner, initialDeployers);
         }
-        
+
         return deployed;
     }
 

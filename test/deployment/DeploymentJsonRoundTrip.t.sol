@@ -43,7 +43,7 @@ contract DeploymentJsonRoundTripTest is BaoDeploymentTest {
     string constant TEST_SALT = "roundtrip-test-salt";
     string constant TEST_VERSION = "v2.1.0";
 
-    function setUp() public {
+    function setUp() public override {
         super.setUp();
         deployment = new RoundTripTestHarness();
         deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);

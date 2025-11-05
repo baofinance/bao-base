@@ -11,13 +11,14 @@ import {MockDeployment} from "./MockDeployment.sol";
  */
 contract DeploymentJsonStringTest is BaoDeploymentTest {
     MockDeployment public deployment;
+    
     string constant TEST_NETWORK = "localhost";
     string constant TEST_SALT = "jsonstring-test-salt";
     string constant TEST_VERSION = "1.0.0";
 
-    function setUp() public {
+    function setUp() public override {
         super.setUp();
-        deployment = new TestDeployment();
+        deployment = new MockDeployment();
         deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
@@ -55,7 +56,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Create new deployment and load from string
-        TestDeployment newDeployment = new TestDeployment();
+        MockDeployment newDeployment = new MockDeployment();
         newDeployment.fromJson(json);
 
         // Verify loaded data
@@ -86,7 +87,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Deserialize to new instance
-        TestDeployment restored = new TestDeployment();
+        MockDeployment restored = new MockDeployment();
         restored.fromJson(json);
 
         // Verify all contracts
@@ -138,7 +139,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
-        TestDeployment loaded = new TestDeployment();
+        MockDeployment loaded = new MockDeployment();
         loaded.fromJson(json);
 
         assertEq(loaded.keys().length, 3, "Should have 3 contracts");
@@ -160,7 +161,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
-        TestDeployment loaded = new TestDeployment();
+        MockDeployment loaded = new MockDeployment();
         loaded.fromJson(json);
 
         assertEq(loaded.keys().length, 3, "Should have 3 parameters");
@@ -180,7 +181,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         deployment.saveToJson(path);
 
         // Load from file - if this succeeds, schema is valid
-        TestDeployment loaded = new TestDeployment();
+        MockDeployment loaded = new MockDeployment();
         loaded.loadFromJson(path);
 
         assertEq(loaded.getByString("Token"), address(0x5555));
@@ -201,7 +202,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         deployment.saveToJson(path);
 
         // Load using original method - if this succeeds, schema is valid
-        TestDeployment loaded = new TestDeployment();
+        MockDeployment loaded = new MockDeployment();
         loaded.loadFromJson(path);
 
         assertEq(loaded.getByString("LoadTest"), address(0x9999));

@@ -21,12 +21,23 @@ contract MockDeployment is Deployment {
     /// @notice Flag to control registry saves in tests
     bool private _registrySavesEnabled;
 
-    /// @notice Constructor for test environment
+    /// @notice Constructor for test deployment harness
     /// @dev Passes address(0) to Deployment constructor, which defaults to address(this)
     /// @dev Registry saves disabled by default in tests to avoid polluting results directory
     /// @dev Does NOT deploy infrastructure - that's handled by BaoDeploymentTest.setUp()
+    /// @dev Grants itself DEPLOYER_ROLE if BaoDeployer exists
     constructor() Deployment(address(0)) {
         _registrySavesEnabled = false;
+
+        // Grant DEPLOYER_ROLE to this MockDeployment instance if BaoDeployer exists
+        if (_baoDeployerExists()) {
+            BaoDeployer deployer = BaoDeployer(_getBaoDeployerAddress());
+            address owner = deployer.owner();
+            // Use startPrank/stopPrank to ensure the prank is active for the grantRoles call
+            vm.startPrank(owner);
+            deployer.grantRoles(address(this), deployer.DEPLOYER_ROLE());
+            vm.stopPrank();
+        }
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -49,10 +60,7 @@ contract MockDeployment is Deployment {
     /// @param owner Address that will own the BaoDeployer
     /// @param initialDeployers Array of addresses to grant DEPLOYER_ROLE
     /// @return deployed Address of the BaoDeployer
-    function deployBaoDeployer(
-        address owner,
-        address[] memory initialDeployers
-    ) public returns (address deployed) {
+    function deployBaoDeployer(address owner, address[] memory initialDeployers) public returns (address deployed) {
         return _deployBaoDeployer(owner, initialDeployers);
     }
 

@@ -70,7 +70,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
     string constant TEST_SALT = "json-test-salt";
     string constant TEST_VERSION = "v1.0.0";
 
-    function setUp() public {
+    function setUp() public override {
         super.setUp();
         deployment = new JsonTestHarness();
         deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);

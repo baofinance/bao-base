@@ -32,7 +32,7 @@ contract DeploymentLibraryTest is BaoDeploymentTest {
     string constant TEST_SALT = "library-test-salt";
     string constant TEST_VERSION = "v1.0.0";
 
-    function setUp() public {
+    function setUp() public override {
         super.setUp();
         deployment = new LibraryTestHarness();
         deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);

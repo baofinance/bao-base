@@ -28,7 +28,7 @@ contract UUPSProxyDeployStubTest is BaoDeploymentTest {
     address internal owner;
     address internal outsider;
 
-    function setUp() public {
+    function setUp() public override {
         super.setUp();
         // TODO:
         owner = address(this);

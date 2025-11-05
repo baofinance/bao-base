@@ -63,7 +63,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
     string constant TEST_SALT = "fields-test-salt";
     string constant TEST_VERSION = "v1.0.0";
 
-    function setUp() public {
+    function setUp() public override {
         super.setUp();
         deployment = new FieldsTestHarness();
         admin = address(this);

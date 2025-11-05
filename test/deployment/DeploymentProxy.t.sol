@@ -36,7 +36,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     string constant TEST_SALT = "proxy-test-salt";
     string constant TEST_VERSION = "v1.0.0";
 
-    function setUp() public {
+    function setUp() public override {
         super.setUp();
         deployment = new ProxyTestHarness();
         deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
