@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Test} from "forge-std/Test.sol";
-import {TestDeployment} from "./TestDeployment.sol";
+import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
+import {MockDeployment} from "./MockDeployment.sol";
 
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 
@@ -10,13 +10,14 @@ import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol"
  * @title DeploymentParameterTest
  * @notice Tests parameter storage and retrieval (typed configuration values)
  */
-contract DeploymentParameterTest is Test {
+contract DeploymentParameterTest is BaoDeploymentTest {
     ParameterTestHarness public deployment;
     string constant TEST_NETWORK = "test";
     string constant TEST_SALT = "parameter-test-salt";
     string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public {
+        super.setUp();
         deployment = new ParameterTestHarness();
         deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
@@ -137,7 +138,7 @@ contract DeploymentParameterTest is Test {
 }
 
 // Test harness with mock deployment method
-contract ParameterTestHarness is TestDeployment {
+contract ParameterTestHarness is MockDeployment {
     function deployMockContract(string memory key, string memory name) public returns (address) {
         // Simple mock - just create a minimal contract
         address mock = address(new MockContract(name));

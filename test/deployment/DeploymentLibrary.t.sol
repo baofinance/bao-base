@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Test} from "forge-std/Test.sol";
-import {TestDeployment} from "./TestDeployment.sol";
+import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
+import {MockDeployment} from "./MockDeployment.sol";
 
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {MathLib, StringLib} from "../mocks/TestLibraries.sol";
 
-// Test harness extends TestDeployment
-contract LibraryTestHarness is TestDeployment {
+// Test harness extends MockDeployment
+contract LibraryTestHarness is MockDeployment {
     function deployMathLibrary(string memory key) public returns (address) {
         bytes memory bytecode = type(MathLib).creationCode;
         deployLibrary(key, bytecode, "MathLib", "test/mocks/TestLibraries.sol");
@@ -26,13 +26,14 @@ contract LibraryTestHarness is TestDeployment {
  * @title DeploymentLibraryTest
  * @notice Tests library deployment functionality (CREATE)
  */
-contract DeploymentLibraryTest is Test {
+contract DeploymentLibraryTest is BaoDeploymentTest {
     LibraryTestHarness public deployment;
     string constant TEST_NETWORK = "test";
     string constant TEST_SALT = "library-test-salt";
     string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public {
+        super.setUp();
         deployment = new LibraryTestHarness();
         deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }

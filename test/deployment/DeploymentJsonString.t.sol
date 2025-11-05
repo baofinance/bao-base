@@ -1,21 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Test} from "forge-std/Test.sol";
-import {TestDeployment} from "./TestDeployment.sol";
+import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
+import {MockDeployment} from "./MockDeployment.sol";
 
 /**
  * @title DeploymentJsonStringTest
  * @notice Tests for string-based JSON serialization (no filesystem access)
  * @dev Demonstrates toJson() and fromJson() methods that don't litter filesystem
  */
-contract DeploymentJsonStringTest is Test {
-    TestDeployment public deployment;
+contract DeploymentJsonStringTest is BaoDeploymentTest {
+    MockDeployment public deployment;
     string constant TEST_NETWORK = "localhost";
     string constant TEST_SALT = "jsonstring-test-salt";
     string constant TEST_VERSION = "1.0.0";
 
     function setUp() public {
+        super.setUp();
         deployment = new TestDeployment();
         deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }

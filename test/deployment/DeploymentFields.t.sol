@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Test} from "forge-std/Test.sol";
-import {TestDeployment} from "./TestDeployment.sol";
+import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
+import {MockDeployment} from "./MockDeployment.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
+import {FundedVault} from "@bao-test/mocks/deployment/FundedVault.sol";
 
 contract SimpleImplementation is Initializable, UUPSUpgradeable {
     uint256 public value;
@@ -28,7 +29,7 @@ library TestLib {
 }
 
 // Test harness with helper methods
-contract FieldsTestHarness is TestDeployment {
+contract FieldsTestHarness is MockDeployment {
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
         MockERC20 token = new MockERC20(name, symbol, 18);
         registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol", "contract");
@@ -55,7 +56,7 @@ contract FieldsTestHarness is TestDeployment {
  * @title DeploymentFieldsTest
  * @notice Tests that factory and deployer fields are correctly set for different entry types
  */
-contract DeploymentFieldsTest is Test {
+contract DeploymentFieldsTest is BaoDeploymentTest {
     FieldsTestHarness public deployment;
     address public admin;
     string constant TEST_NETWORK = "test-network";
@@ -63,6 +64,7 @@ contract DeploymentFieldsTest is Test {
     string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public {
+        super.setUp();
         deployment = new FieldsTestHarness();
         admin = address(this);
         deployment.start(admin, TEST_NETWORK, TEST_VERSION, TEST_SALT);
@@ -200,5 +202,46 @@ contract DeploymentFieldsTest is Test {
         assertEq(deployer2, deployer3, "All proxies should have same deployer");
         assertEq(factory1, address(deployment), "Factory should be deployment contract");
         assertEq(deployer1, address(deployment), "Deployer should be deployment contract");
+    }
+
+    function test_FundedVaultDeployments_WithAndWithoutValue() public {
+        // Enable auto-save for regression testing
+        deployment.enableAutoSave();
+
+        // Deploy funded vault with value
+        bytes memory fundedCode = type(FundedVault).creationCode;
+        vm.deal(address(deployment), 10 ether);
+        deployment.deployContractWithValue{value: 5 ether}(
+            "vault_funded", 5 ether, fundedCode, "FundedVault", "test/mocks/deployment/FundedVault.sol"
+        );
+
+        // Deploy unfunded vault (same contract type, zero value)
+        deployment.deployContractWithValue("vault_unfunded", 0, fundedCode, "FundedVault", "test/mocks/deployment/FundedVault.sol");
+
+        deployment.finish();
+
+        // Read JSON output
+        string memory path = string.concat("results/deployments/", TEST_SALT, ".json");
+        string memory json = vm.readFile(path);
+
+        // Verify both vaults have factory field (CREATE3 deployments)
+        assertTrue(vm.keyExistsJson(json, ".deployment.vault_funded.factory"), "Funded vault should have factory field");
+        assertTrue(vm.keyExistsJson(json, ".deployment.vault_unfunded.factory"), "Unfunded vault should have factory field");
+
+        // Verify factory is BaoDeployer address
+        address fundedFactory = vm.parseJsonAddress(json, ".deployment.vault_funded.factory");
+        address unfundedFactory = vm.parseJsonAddress(json, ".deployment.vault_unfunded.factory");
+
+        // Factory should be the BaoDeployer (not deployment contract, which is just the executor)
+        assertTrue(fundedFactory != address(0), "Funded vault factory should not be zero");
+        assertTrue(unfundedFactory != address(0), "Unfunded vault factory should not be zero");
+        assertEq(fundedFactory, unfundedFactory, "Both vaults should use same factory (BaoDeployer)");
+
+        // Verify both vaults are deployed and have correct balance
+        address fundedVault = vm.parseJsonAddress(json, ".deployment.vault_funded.address");
+        address unfundedVault = vm.parseJsonAddress(json, ".deployment.vault_unfunded.address");
+
+        assertEq(fundedVault.balance, 5 ether, "Funded vault should have 5 ETH");
+        assertEq(unfundedVault.balance, 0, "Unfunded vault should have 0 ETH");
     }
 }

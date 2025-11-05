@@ -2,27 +2,75 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 /**
- * @title TestDeployment
- * @notice Test harness that exposes internal Deployment methods for testing
- * @dev This class provides public wrappers for internal string-based methods.
- *      Production code uses the type-safe enum API, but tests need string-based access.
- *      Can be used directly or extended for specialized test needs.
- *      Includes DeploymentJson mixin for Foundry-specific JSON operations.
+ * @title MockDeployment
+ * @notice Mock deployment harness for testing
+ * @dev Exposes internal Deployment methods with public wrappers for test access
+ * @dev Infrastructure (Nick's Factory, BaoDeployer) setup helpers exposed for tests
+ * @dev Production code uses type-safe enum API; tests use these string-based wrappers
  * @dev Defaults to address(this) as DEPLOYER_CONTEXT for test simplicity
  * @dev Overrides to use results/deployments flat structure (no network subdirs)
  */
-contract TestDeployment is Deployment {
+contract MockDeployment is Deployment {
+    /// @notice Foundry VM interface for cheatcodes
+    Vm private constant vm = Vm(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+
     /// @notice Flag to control registry saves in tests
     bool private _registrySavesEnabled;
 
     /// @notice Constructor for test environment
     /// @dev Passes address(0) to Deployment constructor, which defaults to address(this)
     /// @dev Registry saves disabled by default in tests to avoid polluting results directory
+    /// @dev Does NOT deploy infrastructure - that's handled by BaoDeploymentTest.setUp()
     constructor() Deployment(address(0)) {
         _registrySavesEnabled = false;
     }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                        INFRASTRUCTURE DEPLOYMENT HELPERS
+                        (Test-only exposure of production logic)
+    //////////////////////////////////////////////////////////////////////////*/
+
+    /// @notice Etch Nick's Factory for test environments (test-only helper)
+    /// @dev Production chains already have Nick's Factory deployed
+    /// @dev Tests need to etch it since they run on fresh EVM state
+    function etchNicksFactory() public {
+        if (NICKS_FACTORY.code.length == 0) {
+            vm.etch(NICKS_FACTORY, NICKS_FACTORY_BYTECODE);
+        }
+    }
+
+    /// @notice Deploy BaoDeployer via Nick's Factory (test helper)
+    /// @dev Exposes parent's _deployBaoDeployer() for test infrastructure setup
+    /// @dev This is the same logic used in production - no duplication
+    /// @param owner Address that will own the BaoDeployer
+    /// @param initialDeployers Array of addresses to grant DEPLOYER_ROLE
+    /// @return deployed Address of the BaoDeployer
+    function deployBaoDeployer(
+        address owner,
+        address[] memory initialDeployers
+    ) public returns (address deployed) {
+        return _deployBaoDeployer(owner, initialDeployers);
+    }
+
+    /// @notice Check if BaoDeployer exists (test helper)
+    /// @return True if BaoDeployer has code at the expected address
+    function baoDeployerExists() public view returns (bool) {
+        return _baoDeployerExists();
+    }
+
+    /// @notice Get BaoDeployer address (test helper)
+    /// @return Address where BaoDeployer is/will be deployed
+    function getBaoDeployerAddress() public pure returns (address) {
+        return _getBaoDeployerAddress();
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                            REGISTRY CONTROL
+    //////////////////////////////////////////////////////////////////////////*/
 
     /// @notice Enable registry saves for tests that want to generate regression files
     function enableAutoSave() public {
@@ -323,6 +371,44 @@ contract TestDeployment is Deployment {
         string memory contractPath
     ) public {
         _deployLibrary(key, bytecode, contractType, contractPath);
+    }
+
+    /**
+     * @notice Deploy a contract via CREATE3 with ETH value to payable constructor
+     * @dev Uses BaoDeployer's value-enabled deployDeterministic
+     * @param key String key to register the contract
+     * @param value Amount of ETH (in wei) to send to constructor (requires payable constructor)
+     * @param creationCode Contract creation bytecode
+     * @param contractType Contract type for metadata (e.g., "FundedVault")
+     * @param contractPath Source path for metadata
+     * @return deployed Address of the deployed contract
+     */
+    function deployContractWithValue(
+        string memory key,
+        uint256 value,
+        bytes memory creationCode,
+        string memory contractType,
+        string memory contractPath
+    ) public payable returns (address deployed) {
+        _requireActiveRun();
+        if (bytes(key).length == 0) {
+            revert KeyRequired();
+        }
+        if (_exists[key]) {
+            revert ContractAlreadyExists(key);
+        }
+
+        // Compute salt
+        bytes memory saltBytes = abi.encodePacked(_metadata.systemSaltString, "/", key, "/contract");
+        bytes32 salt = keccak256(saltBytes);
+
+        // Deploy via CREATE3 with value
+        deployed = _deployViaCreate3WithValue(value, creationCode, salt);
+
+        // Register the contract
+        registerContract(key, deployed, contractType, contractPath, "contract");
+
+        emit ContractDeployed(key, deployed, contractType);
     }
 
     // ============================================================================

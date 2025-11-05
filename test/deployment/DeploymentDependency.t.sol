@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Test} from "forge-std/Test.sol";
-import {TestDeployment} from "./TestDeployment.sol";
+import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
+import {MockDeployment} from "./MockDeployment.sol";
 
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {MockOracle, MockToken, MockMinter} from "../mocks/basic/MockDependencies.sol";
 
-// Test harness extends TestDeployment
-contract DependencyTestHarness is TestDeployment {
+// Test harness extends MockDeployment
+contract DependencyTestHarness is MockDeployment {
     function deployOracle(string memory key, uint256 price) public returns (address) {
         MockOracle oracle = new MockOracle(price);
         registerContract(key, address(oracle), "MockOracle", "test/mocks/basic/MockDependencies.sol", "contract");
@@ -40,13 +40,14 @@ contract DependencyTestHarness is TestDeployment {
  * @title DeploymentDependencyTest
  * @notice Tests dependency management and error handling
  */
-contract DeploymentDependencyTest is Test {
+contract DeploymentDependencyTest is BaoDeploymentTest {
     DependencyTestHarness public deployment;
     string constant TEST_NETWORK = "test";
     string constant TEST_SALT = "dependency-test-salt";
     string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public {
+        super.setUp();
         deployment = new DependencyTestHarness();
         deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }

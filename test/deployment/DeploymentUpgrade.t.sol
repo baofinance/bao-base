@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Test} from "forge-std/Test.sol";
-import {TestDeployment} from "./TestDeployment.sol";
+import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
+import {MockDeployment} from "./MockDeployment.sol";
 import {OracleV1} from "../mocks/upgradeable/MockOracle.sol";
 
 import {CounterV1} from "../mocks/upgradeable/MockCounter.sol";
@@ -42,7 +42,7 @@ contract CounterV2 is CounterV1 {
  * @title UpgradeTestHarness
  * @notice Test harness for proxy upgrade scenarios
  */
-contract UpgradeTestHarness is TestDeployment {
+contract UpgradeTestHarness is MockDeployment {
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
         OracleV1 impl = new OracleV1();
         string memory implKey = string.concat(key, "_impl");
@@ -74,7 +74,7 @@ contract UpgradeTestHarness is TestDeployment {
  * @title DeploymentUpgradeTest
  * @notice Tests proxy upgrade scenarios and implementation management
  */
-contract DeploymentUpgradeTest is Test {
+contract DeploymentUpgradeTest is BaoDeploymentTest {
     UpgradeTestHarness public deployment;
     address public admin;
     string constant TEST_NETWORK = "upgrade-test";
@@ -82,6 +82,7 @@ contract DeploymentUpgradeTest is Test {
     string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public {
+        super.setUp();
         deployment = new UpgradeTestHarness();
         admin = address(this);
         deployment.start(admin, TEST_NETWORK, TEST_VERSION, TEST_SALT);
@@ -433,7 +434,7 @@ contract DeploymentUpgradeTest is Test {
 // Import for non-BaoOwnable test
 import {MockImplementationOZOwnable} from "../mocks/MockImplementationOZOwnable.sol";
 
-contract DeploymentNonBaoOwnableTest is Test {
+contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
     UpgradeTestHarness public deployment;
     address public admin;
     string constant TEST_NETWORK = "non-bao-test";
@@ -441,6 +442,7 @@ contract DeploymentNonBaoOwnableTest is Test {
     string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public {
+        super.setUp();
         deployment = new UpgradeTestHarness();
         admin = address(this);
         deployment.start(admin, TEST_NETWORK, TEST_VERSION, TEST_SALT);

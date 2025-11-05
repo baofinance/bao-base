@@ -6,6 +6,7 @@ import {EfficientHashLib} from "@solady/utils/EfficientHashLib.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
+import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
@@ -49,9 +50,81 @@ abstract contract Deployment is DeploymentJson {
     // Constants
     // ============================================================================
 
-    /// @notice Nick's Factory address for deterministic CREATE2 deployments
-    /// @dev Available on 100+ chains at this address
+    /// Nick's Factory address (deployed on 100+ chains)
     address internal constant NICKS_FACTORY = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
+
+    /// Nick's Factory bytecode for test environments
+    /// Source: https://github.com/Vectorized/solady/blob/main/test/utils/TestPlus.sol
+    bytes internal constant NICKS_FACTORY_BYTECODE =
+        hex"7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
+
+    /// Salt for deploying BaoDeployer via Nick's Factory
+    /// This ensures BaoDeployer has the same address on all chains
+    bytes32 internal constant BAO_DEPLOYER_SALT = keccak256("Bao.deterministic-deployer.harbor.v1");
+
+    // ============================================================================
+    // BaoDeployer Helpers
+    // ============================================================================
+
+    /// @notice Get the deterministic BaoDeployer address
+    /// @dev Computes CREATE2 address from Nick's Factory
+    /// @dev BaoDeployer has no constructor parameters for full CREATE2 determinism
+    /// @return deployer BaoDeployer contract address (same on all chains)
+    function _getBaoDeployerAddress() internal pure returns (address deployer) {
+        bytes32 bytecodeHash = keccak256(type(BaoDeployer).creationCode);
+        bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), NICKS_FACTORY, BAO_DEPLOYER_SALT, bytecodeHash));
+        return address(uint160(uint256(hash)));
+    }
+
+    /// @notice Check if BaoDeployer exists
+    /// @return True if BaoDeployer has code at the expected address
+    function _baoDeployerExists() internal view returns (bool) {
+        return _getBaoDeployerAddress().code.length > 0;
+    }
+
+    /// @notice Deploy BaoDeployer via Nick's Factory if it doesn't exist
+    /// @dev This function is reusable for both production and test deployments
+    /// @param owner Address that will own the BaoDeployer
+    /// @param initialDeployers Array of addresses to grant DEPLOYER_ROLE
+    /// @return deployed Address of the BaoDeployer (whether newly deployed or existing)
+    function _deployBaoDeployer(
+        address owner,
+        address[] memory initialDeployers
+    ) internal returns (address deployed) {
+        deployed = _getBaoDeployerAddress();
+        
+        // Only deploy if it doesn't exist
+        if (!_baoDeployerExists()) {
+            // Deploy via Nick's Factory for CREATE2 determinism
+            bytes memory creationCode = type(BaoDeployer).creationCode;
+            bytes32 salt = BAO_DEPLOYER_SALT;
+            address factory = NICKS_FACTORY;
+            
+            /// @solidity memory-safe-assembly  
+            assembly {
+                let n := mload(creationCode)
+                // Store salt at the beginning of creationCode memory
+                mstore(creationCode, salt)
+                // Call Nick's Factory with (salt ++ creationCode)
+                if iszero(call(gas(), factory, 0, creationCode, add(n, 0x20), 0x00, 0x20)) {
+                    returndatacopy(creationCode, 0x00, returndatasize())
+                    revert(creationCode, returndatasize())
+                }
+                // Restore the length
+                mstore(creationCode, n)
+                // Extract address from return data (shift right 96 bits)
+                deployed := shr(96, mload(0x00))
+            }
+            
+            require(deployed == _getBaoDeployerAddress(), "BaoDeployer deployed to unexpected address");
+            require(deployed.code.length > 0, "BaoDeployer has no code");
+            
+            // Initialize with owner and initial deployers
+            BaoDeployer(deployed).initialize(owner, initialDeployers);
+        }
+        
+        return deployed;
+    }
 
     // ============================================================================
     // Constructor
@@ -75,6 +148,59 @@ abstract contract Deployment is DeploymentJson {
     error OwnershipTransferFailed(address proxy);
     error OwnerQueryFailed(address proxy);
     error UnexpectedProxyOwner(address proxy, address owner);
+    error FactoryDeploymentFailed(string reason);
+
+    // ============================================================================
+    // Factory Abstraction
+    // ============================================================================
+
+    /// @notice Get the deployer address for CREATE3 operations
+    /// @dev Returns BaoDeployer address - same on all chains (deployed via Nick's Factory)
+    ///      This is used for both prediction and deployment
+    /// @return deployer BaoDeployer contract address
+    function _getCreate3Deployer() internal pure virtual returns (address deployer) {
+        return _getBaoDeployerAddress();
+    }
+
+    /// @notice Deploy contract via CREATE3 using BaoDeployer
+    /// @dev CREATE3 provides bytecode-independent deterministic addresses
+    ///      Deployment is done by BaoDeployer (same address on all chains)
+    /// @param creationCode The contract creation bytecode
+    /// @param salt The salt for deterministic address generation
+    /// @return deployed The address of the deployed contract
+    function _deployViaCreate3(bytes memory creationCode, bytes32 salt) internal returns (address deployed) {
+        address baoDeployer = _getBaoDeployerAddress();
+
+        // Ensure BaoDeployer exists
+        if (!_baoDeployerExists()) {
+            revert FactoryDeploymentFailed("BaoDeployer not deployed - call _ensureBaoDeployer() first");
+        }
+
+        // Call BaoDeployer to deploy via CREATE3
+        deployed = BaoDeployer(baoDeployer).deployDeterministic(creationCode, salt);
+    }
+
+    /// @notice Deploy via CREATE3 with ETH value
+    /// @dev Internal helper that calls BaoDeployer's value-enabled deployDeterministic
+    /// @param value Amount of ETH to send to the deployed contract's constructor
+    /// @param creationCode Contract creation bytecode
+    /// @param salt CREATE3 salt for deterministic address
+    /// @return deployed Address of the deployed contract
+    function _deployViaCreate3WithValue(
+        uint256 value,
+        bytes memory creationCode,
+        bytes32 salt
+    ) internal returns (address deployed) {
+        address baoDeployer = _getBaoDeployerAddress();
+
+        // Ensure BaoDeployer exists
+        if (!_baoDeployerExists()) {
+            revert FactoryDeploymentFailed("BaoDeployer not deployed - call _ensureBaoDeployer() first");
+        }
+
+        // Call BaoDeployer to deploy via CREATE3 with value
+        deployed = BaoDeployer(baoDeployer).deployDeterministic{value: value}(value, creationCode, salt);
+    }
 
     // ============================================================================
     // Deployment Lifecycle
@@ -197,7 +323,8 @@ abstract contract Deployment is DeploymentJson {
         }
         bytes memory proxySaltBytes = abi.encodePacked(_metadata.systemSaltString, "/", proxyKey, "/UUPS/proxy");
         bytes32 salt = EfficientHashLib.hash(proxySaltBytes);
-        proxy = CREATE3.predictDeterministicAddress(salt, DEPLOYER_CONTEXT);
+        address deployer = _getCreate3Deployer();
+        proxy = CREATE3.predictDeterministicAddress(salt, deployer);
     }
 
     /// @notice Deploy a UUPS proxy using bootstrap stub pattern
@@ -231,12 +358,12 @@ abstract contract Deployment is DeploymentJson {
         bytes32 salt = EfficientHashLib.hash(proxySaltBytes);
         string memory saltString = proxyKey;
 
-        // Step 1: Deploy proxy via CREATE3 pointing to stub (no initialization yet)
+        // Step 1: Deploy proxy via factory pointing to stub (no initialization yet)
         bytes memory proxyCreationCode = abi.encodePacked(
             type(ERC1967Proxy).creationCode,
             abi.encode(address(_stub), bytes(""))
         );
-        address proxy = CREATE3.deployDeterministic(proxyCreationCode, salt);
+        address proxy = _deployViaCreate3(proxyCreationCode, salt);
 
         // Step 2: Upgrade to real implementation with atomic initialization
         // msg.sender during initialize will be this contract (harness) via stub ownership

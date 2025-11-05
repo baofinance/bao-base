@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Test} from "forge-std/Test.sol";
-import {TestDeployment} from "./TestDeployment.sol";
+import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
+import {MockDeployment} from "./MockDeployment.sol";
 
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {CounterV1} from "../mocks/upgradeable/MockCounter.sol";
 
-// Test harness extends TestDeployment
-contract ProxyTestHarness is TestDeployment {
+// Test harness extends MockDeployment
+contract ProxyTestHarness is MockDeployment {
     function deployCounterProxy(string memory key, uint256 initialValue, address owner) public returns (address) {
         string memory implKey = string.concat(key, "_impl");
 
@@ -28,7 +28,7 @@ contract ProxyTestHarness is TestDeployment {
  * @title DeploymentProxyTest
  * @notice Tests proxy deployment functionality (CREATE3)
  */
-contract DeploymentProxyTest is Test {
+contract DeploymentProxyTest is BaoDeploymentTest {
     ProxyTestHarness public deployment;
     address internal admin;
     address internal outsider;
@@ -37,6 +37,7 @@ contract DeploymentProxyTest is Test {
     string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public {
+        super.setUp();
         deployment = new ProxyTestHarness();
         deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
         admin = makeAddr("admin");

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Test} from "forge-std/Test.sol";
-import {TestDeployment} from "./TestDeployment.sol";
+import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
+import {MockDeployment} from "./MockDeployment.sol";
 import {MockUpgradeableContract} from "../mocks/upgradeable/MockGeneric.sol";
 
 // Simple library for testing
@@ -13,7 +13,7 @@ library TestMathLib {
 }
 
 // Test harness for round-trip testing
-contract RoundTripTestHarness is TestDeployment {
+contract RoundTripTestHarness is MockDeployment {
     function deployMockProxy(string memory key, uint256 initialValue, string memory mockName) public returns (address) {
         MockUpgradeableContract impl = new MockUpgradeableContract();
         string memory implKey = string.concat(key, "_impl");
@@ -37,13 +37,14 @@ contract RoundTripTestHarness is TestDeployment {
  * @notice Tests JSON serialization fidelity across complex deployment scenarios
  * @dev Ensures all deployment data survives JSON round-trip conversion
  */
-contract DeploymentJsonRoundTripTest is Test {
+contract DeploymentJsonRoundTripTest is BaoDeploymentTest {
     RoundTripTestHarness public deployment;
     string constant TEST_NETWORK = "test-network";
     string constant TEST_SALT = "roundtrip-test-salt";
     string constant TEST_VERSION = "v2.1.0";
 
     function setUp() public {
+        super.setUp();
         deployment = new RoundTripTestHarness();
         deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }

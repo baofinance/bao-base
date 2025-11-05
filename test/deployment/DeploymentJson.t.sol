@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Test} from "forge-std/Test.sol";
-import {TestDeployment} from "./TestDeployment.sol";
+import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
+import {MockDeployment} from "./MockDeployment.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
@@ -36,7 +36,7 @@ library TestLib {
 }
 
 // Test harness
-contract JsonTestHarness is TestDeployment {
+contract JsonTestHarness is MockDeployment {
     function deploySimpleContract(string memory key, string memory name) public returns (address) {
         SimpleContract c = new SimpleContract(name);
         registerContract(key, address(c), "SimpleContract", "test/SimpleContract.sol", "contract");
@@ -63,7 +63,7 @@ contract JsonTestHarness is TestDeployment {
  * @title DeploymentJsonTest
  * @notice Tests JSON serialization and deserialization
  */
-contract DeploymentJsonTest is Test {
+contract DeploymentJsonTest is BaoDeploymentTest {
     JsonTestHarness public deployment;
     string constant TEST_OUTPUT_DIR = "results/deployments";
     string constant TEST_NETWORK = "test-network";
@@ -71,6 +71,7 @@ contract DeploymentJsonTest is Test {
     string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public {
+        super.setUp();
         deployment = new JsonTestHarness();
         deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }

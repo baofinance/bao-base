@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Test} from "forge-std/Test.sol";
+import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {TestDeployment} from "./TestDeployment.sol";
+import {MockDeployment} from "./MockDeployment.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {OracleV1} from "@bao-test/mocks/upgradeable/MockOracle.sol";
 import {MockMinter} from "@bao-test/mocks/upgradeable/MockMinter.sol";
@@ -13,7 +13,7 @@ import {MathLib} from "@bao-test/mocks/TestLibraries.sol";
  * @title WorkflowTestHarness
  * @notice Test harness for full deployment workflows
  */
-contract WorkflowTestHarness is TestDeployment {
+contract WorkflowTestHarness is MockDeployment {
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
         MockERC20 token = new MockERC20(name, symbol, 18);
         registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol", "contract");
@@ -101,7 +101,7 @@ contract OperationSnapshotHarness is WorkflowTestHarness {
  * @title DeploymentWorkflowTest
  * @notice Tests complete deployment workflows from start to finish
  */
-contract DeploymentWorkflowTest is Test {
+contract DeploymentWorkflowTest is BaoDeploymentTest {
     WorkflowTestHarness public deployment;
     address public admin;
     string constant TEST_NETWORK = "workflow-test";
@@ -109,6 +109,7 @@ contract DeploymentWorkflowTest is Test {
     string constant TEST_VERSION = "v2.0.0";
 
     function setUp() public {
+        super.setUp();
         deployment = new WorkflowTestHarness();
         admin = makeAddr("admin");
         deployment.start(admin, TEST_NETWORK, TEST_VERSION, TEST_SALT);

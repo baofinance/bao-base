@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Test} from "forge-std/Test.sol";
-import {TestDeployment} from "./TestDeployment.sol";
+import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
+import {MockDeployment} from "./MockDeployment.sol";
 
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {MockContract} from "@bao-test/mocks/basic/MockContract.sol";
 import {MockImplementation} from "@bao-test/mocks/basic/MockImplementation.sol";
 
-// Test harness extends TestDeployment with specific mock deployment methods
-contract DeploymentHarness is TestDeployment {
+// Test harness extends MockDeployment with specific mock deployment methods
+contract DeploymentHarness is MockDeployment {
     function deployMockContract(string memory key, string memory mockName) public returns (address) {
         MockContract mock = new MockContract(mockName);
         useExisting(key, address(mock));
@@ -35,13 +35,14 @@ contract DeploymentHarness is TestDeployment {
  * @title DeploymentBasicTest
  * @notice Tests basic deployment functionality with string keys
  */
-contract DeploymentBasicTest is Test {
+contract DeploymentBasicTest is BaoDeploymentTest {
     DeploymentHarness public deployment;
     string constant TEST_NETWORK = "test";
     string constant TEST_SALT = "test-system-salt";
     string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public {
+        super.setUp();
         deployment = new DeploymentHarness();
         deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
