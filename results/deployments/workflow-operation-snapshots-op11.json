@@ -1,14 +1,14 @@
 {
-  "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
+  "deployer": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a",
   "deployment": {
     "collateral": {
-      "address": "0x8d2C17FAd02B7bb64139109c6533b7C2b9CADb81",
+      "address": "0xCB6f5076b5bbae81D7643BfBf57897E8E3FB1db9",
       "blockNumber": 1,
       "category": "contract",
       "contractPath": "test/mocks/tokens/MockERC20.sol",
       "contractType": "MockERC20",
-      "deployedTo": "0x8d2C17FAd02B7bb64139109c6533b7C2b9CADb81",
-      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b"
+      "deployedTo": "0xCB6f5076b5bbae81D7643BfBf57897E8E3FB1db9",
+      "deployer": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a"
     },
     "configValue": {
       "type": "string",
@@ -32,49 +32,49 @@
       "value": -100
     },
     "oracle": {
-      "address": "0x8ad55df8657E184C1457Fd0CF302D0F208DBB03f",
+      "address": "0x99ae3d6C8c6c4f0b976Ad73b4E879Bd6ED375e82",
       "blockNumber": 1,
       "category": "UUPS proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "contractType": "ERC1967Proxy",
-      "deployedTo": "0x8ad55df8657E184C1457Fd0CF302D0F208DBB03f",
-      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
-      "factory": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
+      "deployedTo": "0x99ae3d6C8c6c4f0b976Ad73b4E879Bd6ED375e82",
+      "deployer": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a",
+      "factory": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a",
       "implementationKey": "oracle_impl_v2",
       "proxyType": "UUPS",
       "salt": "0x1d1d26a0795b6007f384add210f2c24f44c64c77bb3d06b33891036580cbdaa6",
       "saltString": "oracle"
     },
     "oracle_impl": {
-      "address": "0x76006C4471fb6aDd17728e9c9c8B67d5AF06cDA0",
+      "address": "0x5Fa39CD9DD20a3A77BA0CaD164bD5CF0d7bb3303",
       "blockNumber": 1,
       "category": "contract",
       "contractPath": "test/mocks/upgradeable/MockOracle.sol",
       "contractType": "OracleV1",
-      "deployedTo": "0x76006C4471fb6aDd17728e9c9c8B67d5AF06cDA0",
-      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
+      "deployedTo": "0x5Fa39CD9DD20a3A77BA0CaD164bD5CF0d7bb3303",
+      "deployer": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a",
       "proxies": []
     },
     "oracle_impl_v2": {
-      "address": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a",
+      "address": "0x5991A2dF15A8F6A256D3Ec51E99254Cd3fb576A9",
       "blockNumber": 1,
       "category": "contract",
       "contractPath": "test/mocks/upgradeable/MockOracle.sol",
       "contractType": "OracleV1",
-      "deployedTo": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a",
-      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
+      "deployedTo": "0x5991A2dF15A8F6A256D3Ec51E99254Cd3fb576A9",
+      "deployer": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a",
       "proxies": [
         "oracle"
       ]
     },
     "pegged": {
-      "address": "0x3C8Ca53ee5661D29d3d3C0732689a4b86947EAF0",
+      "address": "0xA11d35fE4b9Ca9979F2FF84283a9Ce190F60Cd00",
       "blockNumber": 1,
       "category": "contract",
       "contractPath": "test/mocks/tokens/MockERC20.sol",
       "contractType": "MockERC20",
-      "deployedTo": "0x3C8Ca53ee5661D29d3d3C0732689a4b86947EAF0",
-      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b"
+      "deployedTo": "0xA11d35fE4b9Ca9979F2FF84283a9Ce190F60Cd00",
+      "deployer": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a"
     }
   },
   "network": "workflow-test",
@@ -84,7 +84,7 @@
   "version": "v2.0.0",
   "runs": [
     {
-      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
+      "deployer": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a",
       "startTimestamp": 1,
       "startTimestampISO": "1970-01-01T00:00:01Z",
       "finishTimestamp": 1,

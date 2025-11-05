@@ -8,10 +8,12 @@ This document describes a secure architecture for deploying contracts with ident
 
 - Same contract addresses on all EVM chains
 - Operator EOA can be rotated without affecting deployed addresses
-- Cryptographically secure against front-running and address squatting
+- Cryptographically secure against front-running and infrastructure squatting
+- Owner-gated operator pattern prevents address squatting during gradual rollout
 - Separates deployment authority from contract ownership
 - Bytecode-independent deployment (upgrades don't change address)
 - Supports both simultaneous multi-chain deployment and gradual chain-by-chain rollout
+- Automated deployment via GitHub Actions with secret management and environment protection
 
 ## References and Theoretical Foundation
 
@@ -104,7 +106,7 @@ Deploy to mainnet first, then expand to additional chains over time. Best for:
 **Critical Property**: Both strategies produce **identical addresses** because:
 
 - Infrastructure addresses (Part 2) depend only on bytecode and salt (same everywhere)
-- Contract addresses (Part 3) depend only on BaoFinanceDeployer address and userSalt (same everywhere)
+- Contract addresses (Part 3) depend only on BaoDeployer address and userSalt (same everywhere)
 - Timing of deployment does NOT affect addresses
 
 The sections below document **Strategy B** (gradual rollout), which is more general. Strategy A is simply executing the same steps in parallel across multiple chains rather than sequentially.
@@ -166,23 +168,35 @@ const create3DeployerAddress = ethers.getCreate2Address(nicksFactory, salt, ethe
 // Result: 0x... (same on all chains)
 ```
 
-### Step 1.3: Snapshot BaoFinanceDeployer Bytecode
+### Step 1.3: Register Governance Addresses
 
-The canonical deployer provides stable identity and operator management.
+Deterministic deployment is governed by two roles:
+
+- **`deploymentOwner`** – the cold multisig (typically a Safe) that owns BaoDeployer everywhere.
+- **`deploymentOperator`** – the hot wallet (EOA) that performs commit/reveal for day-to-day deployments.
+
+Record both addresses in configuration (`config/deployment-governance.json` works well) and persist the owner separately in `config/deployment-owner.txt` for the constructor encoding step. Until the owner delegates to an operator on a given chain, BaoDeployer remains inert.
+
+### Step 1.4: Snapshot BaoDeployer Bytecode (Owner Embedded)
+
+The canonical deployer now inherits Solady's `Ownable` contract. The multisig owner address is baked into the creation bytecode, so the deployer is fully configured the instant Nick's Factory instantiates it—no post-deployment initializer or secret reveal is required.
 
 **Critical Requirements:**
 
-- Constructor takes NO parameters (operator set to msg.sender initially)
-- Fixed compiler settings
-- No chain-specific logic
+- Constructor takes a single `address initialOwner` argument.
+- `_initializeOwner(initialOwner)` runs inside the constructor; ownership cannot be front-run or replaced on other chains.
+- `operator` starts as `address(0)`; the owner sets it per chain via `setOperator`.
+- Fixed compiler settings, no chain-specific branches.
+- Freeze the creation bytecode **including** the encoded owner argument.
 
 ```solidity
-// BaoFinanceDeployer.sol - FROZEN BYTECODE
+// BaoDeployer.sol - FROZEN BYTECODE
 pragma solidity 0.8.23;
 
 import { CREATE3Deployer } from "./CREATE3Deployer.sol";
+import { Ownable } from "solady/auth/Ownable.sol";
 
-contract BaoFinanceDeployer {
+contract BaoDeployer is Ownable {
   address public operator;
   mapping(bytes32 => address) public commitments; // commitHash => committer
 
@@ -190,8 +204,9 @@ contract BaoFinanceDeployer {
   event Committed(bytes32 indexed commitHash, string indexed userSalt, address indexed committer);
   event Deployed(address indexed deployed, string indexed userSalt, address indexed deployer);
 
-  constructor() {
-    operator = msg.sender;
+  constructor(address initialOwner) {
+    _initializeOwner(initialOwner); // Owner locked at deployment
+    operator = address(0); // Nobody can deploy until owner delegates
   }
 
   modifier onlyOperator() {
@@ -199,7 +214,7 @@ contract BaoFinanceDeployer {
     _;
   }
 
-  function setOperator(address newOperator) external onlyOperator {
+  function setOperator(address newOperator) external onlyOwner {
     emit OperatorChanged(operator, newOperator);
     operator = newOperator;
   }
@@ -241,9 +256,26 @@ contract BaoFinanceDeployer {
 }
 ```
 
-Save compiled bytecode to `bytecode/BaoFinanceDeployer.hex`.
+**Compilation:**
 
-### Step 1.4: Define Salt Space
+```bash
+# Compile with fixed settings
+forge build
+
+# Extract creation bytecode (without constructor args)
+forge inspect BaoDeployer bytecode > bytecode/BaoDeployer.hex
+
+# Append ABI-encoded constructor argument (the multisig owner)
+OWNER=$(cat config/deployment-owner.txt)
+cast abi-encode "constructor(address)" $OWNER >> bytecode/BaoDeployer.hex
+
+# Freeze the resulting artifact
+mv bytecode/BaoDeployer.hex bytecode/BaoDeployer-init.hex
+```
+
+**Result:** `bytecode/BaoDeployer-init.hex` contains the exact creation bytecode (contract + encoded owner). Deploying this blob with the fixed salt yields the same BaoDeployer address on every chain, and ownership is set immutably at construction time.
+
+### Step 1.5: Define Salt Space
 
 Create `config/deployment-salts.json`:
 
@@ -251,7 +283,7 @@ Create `config/deployment-salts.json`:
 {
   "infrastructure": {
     "CREATE3Deployer": "0x0000000000000000000000000000000000000000000000000000000042616f00",
-    "BaoFinanceDeployer": "0x0000000000000000000000000000000000000000000000000000000042616f01"
+    "BaoDeployer": "0x0000000000000000000000000000000000000000000000000000000042616f01"
   },
   "defi-contracts": {
     "HarborImplementation_v1": "harbor-impl-v1",
@@ -263,27 +295,46 @@ Create `config/deployment-salts.json`:
 }
 ```
 
-### Step 1.5: Pre-Calculate All Addresses
+### Step 1.6: Pre-Calculate All Addresses
 
 Generate `addresses.json` with predicted addresses for every chain:
 
-```javascript
-const addresses = {
-  CREATE3Deployer: calculateCreate2Address(nicksFactory, salts.CREATE3Deployer, deployerBytecode),
-  BaoFinanceDeployer: calculateCreate2Address(nicksFactory, salts.BaoFinanceDeployer, canonicalBytecode),
-  HarborImplementation_v1: calculateCreate3Address(baoDeployer, "harbor-impl-v1"),
-  HarborProxy_ETH: calculateCreate3Address(baoDeployer, "harbor-proxy-eth-mainnet"),
-  // ... etc
-};
+```bash
+# Use foundry script to calculate all addresses
+forge script script/CalculateAddresses.s.sol
 
-function calculateCreate3Address(deployer, userSalt) {
-  const actualSalt = keccak256(deployer + userSalt);
-  const proxyAddress = keccak256(0xff + deployer + actualSalt + keccak256(minimalProxyBytecode));
-  return keccak256(0xd6 + 0x94 + proxyAddress + 0x01); // RLP encoding of CREATE from proxy
-}
+# This generates addresses.json with all predicted addresses
 ```
 
 **Result:** `addresses.json` contains every address you'll ever deploy, calculated before touching any chain.
+
+### Step 1.7: Store Deployment Credentials in GitHub
+
+With ownership embedded, the only hot credential is the operator private key. Store it (and the owner address for scripts) in encrypted CI secrets:
+
+```bash
+# Operator hot wallet used by GitHub Actions
+gh secret set DEPLOYMENT_OPERATOR_KEY --body "$OPERATOR_PRIVATE_KEY"
+gh secret set DEPLOYMENT_OPERATOR_ADDRESS --body "$DEPLOYMENT_OPERATOR"
+
+# Multisig owner (read-only value for scripts and dashboards)
+gh secret set DEPLOYMENT_OWNER_ADDRESS --body "$DEPLOYMENT_OWNER"
+
+# Store per-chain RPC URLs
+gh secret set ETHEREUM_RPC_URL --body "$MAINNET_RPC"
+gh secret set ARBITRUM_RPC_URL --body "$ARBITRUM_RPC"
+# ... etc for each chain
+
+# Optional: Use OIDC for AWS KMS instead of storing private keys
+gh secret set AWS_ROLE_ARN --body "arn:aws:iam::ACCOUNT:role/DeploymentRole"
+```
+
+**Team Benefits:**
+
+- Team members can trigger deployments without touching raw keys
+- GitHub logs all secret access (audit trail)
+- Environment protection rules prevent accidental production deployments
+- Encrypted secrets keep the hot key isolated from source control
 
 ---
 
@@ -323,40 +374,51 @@ cast code $CREATE3_DEPLOYER_ADDRESS --rpc-url $RPC
 # Should return bytecode matching CREATE3Deployer.hex
 ```
 
-### Step 2.2: Deploy BaoFinanceDeployer to Chain
+### Step 2.2: Deploy BaoDeployer to Chain
 
 **Process:**
 
-```javascript
-const tx = await nicksFactoryContract.deploy(canonicalDeployerBytecode, salts.BaoFinanceDeployer, {
-  gasLimit: 1000000,
-});
-await tx.wait();
-
-const deployedAddress = ethers.getCreate2Address(
-  nicksFactory,
-  salts.BaoFinanceDeployer,
-  keccak256(canonicalDeployerBytecode),
-);
-assert(deployedAddress === addresses.BaoFinanceDeployer);
+```bash
+# Deploy using foundry script (Nick's Factory + frozen init bytecode)
+forge script script/DeployInfrastructure.s.sol \
+  --rpc-url $ETHEREUM_RPC_URL \
+  --broadcast \
+  --verify
 ```
 
-**Critical:** The constructor will set `operator = msg.sender` (the deployer EOA). This is intentional and safe because:
+The deployment script should read `bytecode/BaoDeployer-init.hex` (creation bytecode + encoded owner) and hand it to Nick's Factory together with the fixed salt from `deployment-salts.json`.
 
-- Operator can be changed later via `setOperator()`
-- Changing operator does NOT affect deployed contract addresses
-- Addresses depend only on BaoFinanceDeployer's address (stable) and userSalt
+**What this deploys:**
 
-### Step 2.3: Configure Initial Operator
+- BaoDeployer with the multisig owner immutably set
+- Initial state: `operator = address(0)` (namespace locked until the owner delegates)
+- Anyone can pay the gas to deploy this; the address is identical as long as the same bytecode + salt are used
 
-If deploying from a temporary EOA, immediately transfer operator role:
+**Anti-Squatting Property:** An attacker can copy the deployment transaction, but without access to the owner multisig they cannot assign an operator. BaoDeployer remains inert until the authorized owner signs a delegation.
 
-```javascript
-const baoDeployer = await ethers.getContractAt("BaoFinanceDeployer", addresses.BaoFinanceDeployer);
-await baoDeployer.setOperator(PERMANENT_OPERATOR_ADDRESS);
+### Step 2.3: Delegate Operator Role
+
+Have the owner multisig submit a transaction to set the operator for this chain:
+
+```bash
+# Produce calldata for BaoDeployer.setOperator
+cast calldata "setOperator(address)" $DEPLOYMENT_OPERATOR > /tmp/set-operator-calldata
+
+# Load /tmp/set-operator-calldata into your Safe Transaction Builder (UI or CLI)
+# and send a 0-value transaction to $BAO_DEPLOYER_ADDRESS from the multisig.
+
+# After the required confirmations, execute the Safe transaction per your normal process.
 ```
 
-**Result:** Infrastructure is ready. Same addresses on every chain where you perform Steps 2.1-2.3.
+(If you automate with Foundry, run `forge script script/SetOperator.s.sol` using a multisig signer. The key requirement is that the transaction originates from the owner address.)
+
+**This transaction:**
+
+- Sets `operator = deploymentOperator`
+- Can be repeated any time the operator rotates (set to new address or `address(0)` temporarily)
+- Leaves a clear governance audit trail in the multisig
+
+**Result:** Infrastructure is ready. Same addresses on every chain where you perform Steps 2.1-2.3. Attackers can pre-deploy BaoDeployer, but without owner approval they cannot activate the namespace; you can arrive later, delegate the operator, and continue with deterministic contract deployments.
 
 **Gradual Rollout Timeline Example**:
 
@@ -385,61 +447,39 @@ Each chain's deployment is **independent** - you can deploy Harbor v1.0 on mainn
 
 ### Step 3.1: Prepare Deployment
 
-**Components:**
+**With commitment (secure):**
 
-1. **Implementation contract** (e.g., Harbor.sol) - UUPS upgradeable
-2. **Proxy creation code** - ERC1967Proxy pointing to implementation
-3. **Initialization data** - `initialize()` call encoded as calldata
+```solidity
+constructor(address initialOwner) {
+  _initializeOwner(initialOwner); // Multisig owns the deployer everywhere
+  operator = address(0);          // Owner delegates per chain via setOperator
+}
 
-**Example:**
-
-```javascript
-// 1. Deploy implementation first (or use existing)
-const harborImpl = await ethers.deployContract("Harbor");
-await harborImpl.waitForDeployment();
-
-// 2. Prepare proxy creation code
-const proxyBytecode = ethers.concat([
-  ERC1967Proxy.bytecode,
-  ethers.AbiCoder.defaultAbiCoder().encode(
-    ["address", "bytes"],
-    [await harborImpl.getAddress(), "0x"], // No initialization in constructor
-  ),
-]);
-
-// 3. Prepare initialization data
-const initData = harbor.interface.encodeFunctionData("initialize", [
-  owner,
-  params.collateralToken,
-  params.borrowToken,
-  params.oracle,
-  params.liquidationRatio,
-]);
+function setOperator(address newOperator) external onlyOwner {
+  emit OperatorChanged(operator, newOperator);
+  operator = newOperator;
+}
 ```
 
-### Step 3.2: Create Commitment
+- Attacker deploys on Arbitrum → multisig owner already set, `operator = address(0)`
+- Without multisig approval, attacker cannot call `setOperator` → namespace stays frozen
+- You arrive later, multisig signs `setOperator(deploymentOperator)` → deployments resume ✓
+- Attacker effectively prepaid the gas for your infrastructure deployment
 
-**Process:**
+**Key Insight:** Deterministic addresses depend solely on Nick's Factory, the salt, and the frozen bytecode. Ownership is orthogonal to deployment timing, so even if an attacker pays first, control still sits with the multisig.
+
+**Timeline Example:**
 
 ```javascript
-const userSalt = "harbor-proxy-eth-mainnet"; // From deployment-salts.json
-const commitHash = ethers.keccak256(
-  ethers.AbiCoder.defaultAbiCoder().encode(["bytes", "string", "bytes"], [proxyBytecode, userSalt, initData]),
-);
-
-const baoDeployer = await ethers.getContractAt("BaoFinanceDeployer", addresses.BaoFinanceDeployer, operatorSigner);
-const tx = await baoDeployer.commit(commitHash, userSalt);
-await tx.wait();
-
 console.log(`Committed at block ${tx.blockNumber}`);
 console.log(`Can reveal after block ${tx.blockNumber + 10}`);
 ```
 
 **Why 10 blocks?**
 
-- Ensures commitment is finalized before reveal
-- Prevents MEV reordering attacks
-- Gives time for commitment to propagate across nodes
+- Ensures the commitment is finalized before reveal
+- Gives the commit transaction time to propagate across the network
+- Keeps MEV builders from reconstructing the payload before finality
 
 ### Step 3.3: Wait for Finalization
 
@@ -517,7 +557,7 @@ Perform Steps 3.1-3.5 on every chain where infrastructure exists (Part 2).
 - Use **same userSalt** on every chain (e.g., "harbor-proxy-eth-mainnet")
 - Implementation can differ per chain (chain-specific optimizations)
 - Initialization parameters can differ per chain (different oracle addresses, etc.)
-- **Proxy address will be identical** because BaoFinanceDeployer address and userSalt are identical
+- **Proxy address will be identical** because BaoDeployer address and userSalt are identical
 
 **Gradual Rollout Strategy**:
 
@@ -575,7 +615,7 @@ The operator EOA can be changed without affecting any deployed contract addresse
 **Critical Property:**
 Changing operator does NOT change deployed addresses because addresses depend on:
 
-- BaoFinanceDeployer address (stable, never changes)
+- BaoDeployer address (stable, never changes)
 - userSalt (defined in deployment-salts.json)
 
 NOT on:
@@ -595,11 +635,7 @@ const newOperatorAddress = "0x..."; // New EOA or multisig
 **Step 4.2: Execute Rotation**
 
 ```javascript
-const baoDeployer = await ethers.getContractAt(
-  "BaoFinanceDeployer",
-  addresses.BaoFinanceDeployer,
-  currentOperatorSigner,
-);
+const baoDeployer = await ethers.getContractAt("BaoDeployer", addresses.BaoDeployer, currentOperatorSigner);
 
 const tx = await baoDeployer.setOperator(newOperatorAddress);
 await tx.wait();
@@ -656,8 +692,8 @@ await baoDeployer.connect(backupSigner).setOperator(emergencyOperator);
 If no backup exists and operator key is lost, infrastructure is "frozen" on that chain:
 
 - Existing deployments unaffected
-- Cannot deploy new contracts via BaoFinanceDeployer
-- Must deploy new BaoFinanceDeployer with different salt (different addresses)
+- Cannot deploy new contracts via BaoDeployer
+- Must deploy new BaoDeployer with different salt (different addresses)
 
 ---
 
@@ -665,7 +701,7 @@ If no backup exists and operator key is lost, infrastructure is "frozen" on that
 
 **Critical Distinction:**
 
-- **Operator** = Can deploy contracts via BaoFinanceDeployer
+- **Operator** = Can deploy contracts via BaoDeployer
 - **Owner** = Controls deployed contracts (e.g., Harbor proxy)
 
 These are intentionally separate roles.
@@ -675,7 +711,7 @@ These are intentionally separate roles.
 **Who:** Single EOA or lightweight multisig
 **Controls:**
 
-- Calling `commit()` and `reveal()` on BaoFinanceDeployer
+- Calling `commit()` and `reveal()` on BaoDeployer
 - Deploying new contracts
 - Rotating operator role
 
@@ -705,7 +741,7 @@ These are intentionally separate roles.
 
 **Does NOT control:**
 
-- BaoFinanceDeployer operator role
+- BaoDeployer operator role
 - Ability to deploy new contracts
 
 ### Initialization Pattern
@@ -772,9 +808,9 @@ function reveal(...) external {
 bytes32 actualSalt = keccak256(abi.encodePacked(address(this), userSalt));
 ```
 
-- Address depends on BaoFinanceDeployer address as msg.sender
+- Address depends on BaoDeployer address as msg.sender
 - Attacker cannot make CREATE3Deployer receive same msg.sender
-- Even if attacker deploys identical BaoFinanceDeployer, their instance has different address
+- Even if attacker deploys identical BaoDeployer, their instance has different address
 - Different address = different msg.sender = different actualSalt = different deployed address
 
 **Mathematical proof:**
@@ -872,31 +908,391 @@ modifier onlyOperator() {
 - Even if attacker gets same CREATE3Deployer address, msg.sender namespace prevents address collision
 - Probability of collision: ~2^160 (address space), effectively impossible
 
+### Attack 8: Infrastructure Squatting During Gradual Rollout
+
+**Scenario:** You deploy on mainnet Month 1. An attacker copies the bytecode and deploys to Arbitrum Month 2 before you do, hoping to seize the namespace.
+
+**Mitigation: Owner-Gated Operator Rotation**
+
+**Without owner gating (vulnerable):**
+
+```solidity
+constructor() {
+  operator = msg.sender; // Whoever deploys becomes operator!
+}
+```
+
+- You deploy on mainnet → you're operator ✓
+- Attacker deploys on Arbitrum → they're operator ✗
+- They can deploy contracts at your pre-calculated addresses
+
+**With owner gating (secure):**
+
+```solidity
+constructor(address initialOwner) {
+  _initializeOwner(initialOwner); // Multisig is locked in at deployment
+  operator = address(0);
+}
+
+function setOperator(address newOperator) external onlyOwner {
+  emit OperatorChanged(operator, newOperator);
+  operator = newOperator;
+}
+```
+
+- Attacker deploys on Arbitrum → multisig owner already set, `operator = address(0)`
+- Without the multisig's signature, attacker cannot call `setOperator` → namespace stays inert
+- You arrive later, multisig signs `setOperator(deploymentOperator)` → you take control ✓
+- Attacker effectively prepaid the gas for your infrastructure deployment
+
+**Key Insight:** Ownership is domain-separated from deployment. CREATE2 determinism keeps addresses identical, while the multisig retains exclusive authority to activate each chain.
+
+**Timeline:**
+
+```
+Month 1: Deploy BaoDeployer (owner baked in) on mainnet; multisig sets operator
+Month 2: Attacker deploys BaoDeployer on Arbitrum (operator remains address(0))
+Month 3: Multisig submits setOperator for Arbitrum; deployments continue
+Month 4: Deploy contracts at pre-calculated addresses
+```
+
+**Key Property:** Gradual rollout remains safe. Address determinism holds, and only the owner multisig can unlock a chain by delegating an operator.
+
+---
+
+## Part 7: GitHub Actions Deployment Automation
+
+GitHub provides infrastructure for secure, automated multi-chain deployments:
+
+### Benefits
+
+1. **Secret Management:** Encrypted storage with team access (without revealing secrets)
+2. **Environment Protection:** Require approvals before production deployments
+3. **Multi-Chain Orchestration:** Deploy to multiple chains in parallel or sequentially
+4. **Deployment Tracking:** Built-in API tracks what's deployed where
+5. **Audit Trail:** All deployments logged with who approved and when
+6. **OIDC Integration:** Connect to cloud HSMs without storing credentials
+
+### Setup GitHub Environments
+
+Create environment for each chain with protection rules:
+
+```bash
+# Create environments via GitHub UI or CLI
+gh api repos/baofinance/harbor-yield/environments/ethereum-mainnet \
+  --method PUT \
+  --field deployment_branch_policy[protected_branches]=true \
+  --field deployment_branch_policy[custom_branch_policies]=false
+
+# Add protection rules
+gh api repos/baofinance/harbor-yield/environments/ethereum-mainnet/deployment-protection-rules \
+  --method POST \
+  --field type="required_reviewers" \
+  --field reviewers[][id]=USER_ID
+
+# Environment-specific secrets
+gh secret set OPERATOR_PRIVATE_KEY --env ethereum-mainnet --body "$MAINNET_KEY"
+gh secret set RPC_URL --env ethereum-mainnet --body "$MAINNET_RPC"
+```
+
+### Workflow: Deploy Infrastructure
+
+`.github/workflows/deploy-infrastructure.yml`:
+
+```yaml
+name: Deploy Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain:
+        description: "Chain to deploy to"
+        required: true
+        type: choice
+        options:
+          - ethereum-mainnet
+          - arbitrum
+          - optimism
+          - base
+          - polygon
+
+jobs:
+  deploy-infrastructure:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.chain }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Deploy CREATE3Deployer
+        env:
+          RPC_URL: ${{ secrets.RPC_URL }}
+          OPERATOR_KEY: ${{ secrets.DEPLOYMENT_OPERATOR_KEY }}
+        run: |
+          forge script script/DeployInfrastructure.s.sol \
+            --rpc-url $RPC_URL \
+            --private-key $OPERATOR_KEY \
+            --broadcast \
+            --verify
+
+      - name: Generate setOperator calldata for multisig
+        env:
+          DEPLOYMENT_OPERATOR: ${{ secrets.DEPLOYMENT_OPERATOR_ADDRESS }}
+        run: |
+          cast calldata "setOperator(address)" $DEPLOYMENT_OPERATOR > set-operator-calldata.txt
+          echo "Propose a multisig transaction to BaoDeployer with this calldata:" \
+            && cat set-operator-calldata.txt
+
+      - name: Verify Deployment
+        run: |
+          forge script script/VerifyInfrastructure.s.sol --rpc-url ${{ secrets.RPC_URL }}
+
+      - name: Record Deployment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.ref,
+              environment: '${{ inputs.chain }}',
+              description: 'Infrastructure deployment',
+              auto_merge: false,
+              required_contexts: [],
+              payload: {
+                contract: 'BaoDeployer',
+                chain: '${{ inputs.chain }}',
+                timestamp: new Date().toISOString()
+              }
+            });
+```
+
+### Workflow: Multi-Chain Simultaneous Deployment
+
+For deploying to all chains at once:
+
+```yaml
+name: Deploy Multi-Chain
+
+on:
+  workflow_dispatch:
+    inputs:
+      contract:
+        description: "Contract to deploy"
+        required: true
+        type: choice
+        options:
+          - infrastructure
+          - harbor
+
+jobs:
+  deploy:
+    strategy:
+      matrix:
+        chain:
+          - ethereum-mainnet
+          - arbitrum
+          - optimism
+          - base
+          - polygon
+      fail-fast: false # Continue even if one chain fails
+
+    runs-on: ubuntu-latest
+    environment: ${{ matrix.chain }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Deploy ${{ inputs.contract }}
+        env:
+          RPC_URL: ${{ secrets.RPC_URL }}
+          OPERATOR_PRIVATE_KEY: ${{ secrets.OPERATOR_PRIVATE_KEY }}
+        run: |
+          forge script script/Deploy${{ inputs.contract }}.s.sol \
+            --rpc-url $RPC_URL \
+            --private-key $OPERATOR_PRIVATE_KEY \
+            --broadcast
+```
+
+### Workflow: Commit-Reveal Automation
+
+Automate the 10-block wait between commit and reveal:
+
+```yaml
+name: Deploy Contract with Commit-Reveal
+
+on:
+  workflow_dispatch:
+    inputs:
+      chain:
+        required: true
+        type: choice
+        options: [ethereum-mainnet, arbitrum, optimism]
+      salt:
+        required: true
+        description: "User salt for deployment"
+        type: string
+
+jobs:
+  commit:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.chain }}
+    outputs:
+      commit_block: ${{ steps.commit.outputs.block }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Commit Deployment
+        id: commit
+        env:
+          RPC_URL: ${{ secrets.RPC_URL }}
+          OPERATOR_PRIVATE_KEY: ${{ secrets.OPERATOR_PRIVATE_KEY }}
+          USER_SALT: ${{ inputs.salt }}
+        run: |
+          BLOCK=$(forge script script/CommitDeployment.s.sol \
+            --rpc-url $RPC_URL \
+            --private-key $OPERATOR_PRIVATE_KEY \
+            --broadcast \
+            --json | jq -r '.receipts[0].blockNumber')
+          echo "block=$BLOCK" >> $GITHUB_OUTPUT
+          echo "Committed at block $BLOCK"
+
+  wait-for-finality:
+    needs: commit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait 10 blocks
+        run: |
+          echo "Waiting for finality from block ${{ needs.commit.outputs.commit_block }}"
+          sleep 120  # ~10 blocks on mainnet (12s * 10)
+
+  reveal:
+    needs: [commit, wait-for-finality]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.chain }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Reveal Deployment
+        env:
+          RPC_URL: ${{ secrets.RPC_URL }}
+          DEPLOYMENT_OPERATOR_KEY: ${{ secrets.DEPLOYMENT_OPERATOR_KEY }}
+          USER_SALT: ${{ inputs.salt }}
+        run: |
+          forge script script/RevealDeployment.s.sol \
+            --rpc-url $RPC_URL \
+            --private-key $DEPLOYMENT_OPERATOR_KEY \
+            --broadcast
+```
+
+### Local Testing with Anvil
+
+For local development, test without GitHub Actions:
+
+```bash
+# Start forked mainnet
+anvil --fork-url $MAINNET_RPC_URL --fork-block-number 18000000
+
+# In another terminal, run deployment scripts
+forge script script/DeployInfrastructure.s.sol \
+  --rpc-url http://localhost:8545 \
+  --broadcast
+
+# Delegate operator (simulate multisig call)
+forge script script/SetOperator.s.sol \
+  --rpc-url http://localhost:8545 \
+  --broadcast
+
+# Test contract deployment
+forge script script/DeployHarbor.s.sol \
+  --rpc-url http://localhost:8545 \
+  --broadcast
+
+# Verify addresses match
+forge script script/VerifyAddresses.s.sol --rpc-url http://localhost:8545
+```
+
+**Makefile for convenience:**
+
+```makefile
+# Makefile
+.PHONY: anvil-fork deploy-infra set-operator deploy-harbor test-local
+
+anvil-fork:
+	anvil --fork-url $(MAINNET_RPC_URL) --chain-id 1
+
+deploy-infra:
+	forge script script/DeployInfrastructure.s.sol \
+		--rpc-url http://localhost:8545 \
+		--broadcast
+
+
+set-operator:
+  forge script script/SetOperator.s.sol \
+		--rpc-url http://localhost:8545 \
+		--broadcast
+
+deploy-harbor:
+	forge script script/DeployHarbor.s.sol \
+		--rpc-url http://localhost:8545 \
+		--broadcast
+
+test-local: deploy-infra set-operator deploy-harbor
+	forge script script/VerifyAddresses.s.sol --rpc-url http://localhost:8545
+	@echo "✓ All addresses match predicted values"
+```
+
+Usage:
+
+```bash
+# Terminal 1: Start anvil
+make anvil-fork
+
+# Terminal 2: Deploy everything
+make test-local
+```
+
+**Don't use `act` for local testing** - it adds Docker overhead and network complexity. Anvil + forge scripts is simpler and faster for contract development.
+
 ---
 
 ## Appendix: Deployment Checklist
 
 ### Pre-Deployment (One-Time)
 
-- [ ] Compile CREATE3Deployer with fixed settings
+- [ ] Record deployment owner (multisig) and operator addresses (`config/deployment-governance.json`)
+- [ ] Store operator hot key and addresses in GitHub Secrets (with environment protection)
+- [ ] Compile CREATE3Deployer with fixed settings (parameterless constructor)
 - [ ] Save bytecode to `bytecode/CREATE3Deployer.hex`
-- [ ] Compile BaoFinanceDeployer with fixed settings
-- [ ] Save bytecode to `bytecode/BaoFinanceDeployer.hex`
+- [ ] Compile BaoDeployer with owner constructor argument
+- [ ] Append encoded owner and save to `bytecode/BaoDeployer-init.hex`
 - [ ] Define all salts in `config/deployment-salts.json`
 - [ ] Calculate all addresses, save to `addresses.json`
 - [ ] Verify addresses are identical across all chains (simulation)
-- [ ] Document operator EOA and backup procedures
+- [ ] Set up GitHub Environments for each chain with approval rules
+- [ ] Test deployment on local anvil fork
 
 ### Per-Chain Infrastructure
 
 - [ ] Verify Nick's Factory exists at 0x4e59...56C
 - [ ] Fund deployer EOA with gas
-- [ ] Deploy CREATE3Deployer via Nick's Factory
+- [ ] Deploy CREATE3Deployer via Nick's Factory (`forge script script/DeployInfrastructure.s.sol`)
 - [ ] Verify CREATE3Deployer address matches `addresses.json`
-- [ ] Deploy BaoFinanceDeployer via Nick's Factory
-- [ ] Verify BaoFinanceDeployer address matches `addresses.json`
-- [ ] Set operator to production EOA (if deployed from temp EOA)
-- [ ] Verify operator is set correctly
+- [ ] Deploy BaoDeployer via Nick's Factory (owner baked into bytecode)
+- [ ] Verify BaoDeployer address matches `addresses.json`
+- [ ] Submit `setOperator(deploymentOperator)` from the owner multisig
+- [ ] Verify operator is set correctly via `operator()`
+- [ ] Record deployment in GitHub deployment API
 
 ### Per-Contract Deployment
 
@@ -918,7 +1314,7 @@ modifier onlyOperator() {
 
 - [ ] Prepare new operator address
 - [ ] Fund new operator with gas (if EOA)
-- [ ] Call `setOperator(newOperator)` from current operator
+- [ ] Call `setOperator(newOperator)` from the owner multisig
 - [ ] Verify operator changed via `operator()` view function
 - [ ] Test new operator with test deployment
 - [ ] Update operational documentation
@@ -927,7 +1323,7 @@ modifier onlyOperator() {
 ### Emergency Procedures
 
 - [ ] Document backup operator for each chain
-- [ ] Store BaoFinanceDeployer addresses for quick reference
+- [ ] Store BaoDeployer addresses for quick reference
 - [ ] Prepare emergency rotation script
 - [ ] Test emergency rotation on testnet
 - [ ] Document multisig contacts for deployed contracts
@@ -1025,7 +1421,7 @@ Result: All chains have same proxy address, but each got most stable code availa
 ```
 Day 0: Infrastructure deployment
   - Deploy CREATE3Deployer on Ethereum, Arbitrum, Optimism, Base, Polygon
-  - Deploy BaoFinanceDeployer on all chains
+  - Deploy BaoDeployer on all chains
   - Verify all addresses match addresses.json
 
 Day 1: Contract deployment
@@ -1089,7 +1485,7 @@ optimism.HarborProxy = "0x1234...5678"  ✓
 
 This works because addresses depend on:
 
-- BaoFinanceDeployer address (determined by bytecode, same everywhere)
+- BaoDeployer address (determined by bytecode, same everywhere)
 - userSalt (defined in deployment-salts.json, same everywhere)
 
 And NOT on:
@@ -1112,14 +1508,24 @@ This architecture provides:
 
 3. **Cryptographic Security:** Commit-reveal prevents front-running; preimage resistance ensures commitments cannot be predicted
 
-4. **Namespace Isolation:** msg.sender namespacing prevents address squatting even if attacker deploys identical contracts
+4. **Infrastructure Squatting Protection:** Committed operator pattern prevents attackers from capturing your namespace during gradual rollout
 
-5. **Atomic Initialization:** Deploy and initialize in same transaction eliminates initialization front-running
+5. **Namespace Isolation:** msg.sender namespacing prevents address squatting even if attacker deploys identical contracts
 
-6. **Separation of Powers:** Operator deploys contracts, multisig owns contracts; compromise of one doesn't compromise the other
+6. **Atomic Initialization:** Deploy and initialize in same transaction eliminates initialization front-running
 
-7. **Upgrade Safety:** UUPS proxies can be upgraded without changing address; implementations can differ per chain
+7. **Separation of Powers:** Operator deploys contracts, multisig owns contracts; compromise of one doesn't compromise the other
 
-8. **Deployment Flexibility:** Supports both gradual chain-by-chain rollout and simultaneous multi-chain deployment with identical results
+8. **Upgrade Safety:** UUPS proxies can be upgraded without changing address; implementations can differ per chain
 
-The system is production-ready and handles all known attack vectors through cryptographic and architectural means rather than trust assumptions. Whether you deploy to all chains at once or roll out gradually over months, users see the same addresses everywhere.
+9. **Deployment Flexibility:** Supports both gradual chain-by-chain rollout and simultaneous multi-chain deployment with identical results
+
+10. **Automated Operations:** GitHub Actions integration provides secret management, multi-chain orchestration, approval workflows, and deployment tracking
+
+The system is production-ready and handles all known attack vectors through cryptographic and architectural means rather than trust assumptions. Whether you deploy to all chains at once or roll out gradually over months:
+
+- Users see the same addresses everywhere
+- Attackers cannot squat your addresses (even if they deploy infrastructure first)
+- Team can collaborate using GitHub without sharing raw secrets
+- All deployments are logged and auditable
+- Local testing with Foundry + Anvil matches production deployment flow
