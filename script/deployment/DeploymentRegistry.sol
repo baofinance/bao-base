@@ -182,7 +182,7 @@ abstract contract DeploymentRegistry {
      * @dev Reverts with DependencyNotMet if contract not deployed
      * @dev Internal - external callers should use HarborDeployment's type-safe get(Contract)
      */
-    function get(string memory key) public view returns (address) {
+    function get(string memory key) public view virtual returns (address) {
         if (!_exists[key]) {
             revert ContractNotFound(key);
         }
@@ -215,7 +215,7 @@ abstract contract DeploymentRegistry {
      * @return value The string value
      * @dev Reverts with ParameterNotFound if parameter not set
      */
-    function getString(string memory key) external view returns (string memory) {
+    function getString(string memory key) public view returns (string memory) {
         if (!_exists[key]) {
             revert ParameterNotFound(key);
         }
@@ -230,7 +230,7 @@ abstract contract DeploymentRegistry {
      * @param key Parameter identifier
      * @return value The uint256 value
      */
-    function getUint(string memory key) external view returns (uint256) {
+    function getUint(string memory key) public view returns (uint256) {
         if (!_exists[key]) {
             revert ParameterNotFound(key);
         }
@@ -245,7 +245,7 @@ abstract contract DeploymentRegistry {
      * @param key Parameter identifier
      * @return value The int256 value
      */
-    function getInt(string memory key) external view returns (int256) {
+    function getInt(string memory key) public view returns (int256) {
         if (!_exists[key]) {
             revert ParameterNotFound(key);
         }
@@ -260,7 +260,7 @@ abstract contract DeploymentRegistry {
      * @param key Parameter identifier
      * @return value The bool value
      */
-    function getBool(string memory key) external view returns (bool) {
+    function getBool(string memory key) public view returns (bool) {
         if (!_exists[key]) {
             revert ParameterNotFound(key);
         }

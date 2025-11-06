@@ -385,7 +385,7 @@ abstract contract Deployment is DeploymentRegistry {
         address addr,
         string memory contractType,
         string memory contractPath
-    ) public {
+    ) public virtual {
         _requireActiveRun();
         _requireValidAddress(key, addr);
         super._registerImplementation(key, addr, contractType, contractPath, _runs[_runs.length - 1].deployer);
