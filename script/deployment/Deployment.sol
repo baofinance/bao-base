@@ -14,7 +14,7 @@ import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrast
 
 interface IUUPSUpgradeableProxy {
     function upgradeTo(address newImplementation) external;
-    function upgradeToAndCall(address newImplementation, bytes memory data) external;
+    function upgradeToAndCall(address newImplementation, bytes memory data) external payable;
 }
 
 /**
@@ -47,6 +47,7 @@ abstract contract Deployment is DeploymentRegistry {
     error OwnerQueryFailed(address proxy);
     error UnexpectedProxyOwner(address proxy, address owner);
     error FactoryDeploymentFailed(string reason);
+    error ValueMismatch(uint256 expected, uint256 received);
 
     // ============================================================================
     // Factory Abstraction
@@ -203,7 +204,10 @@ abstract contract Deployment is DeploymentRegistry {
         string memory proxyKey,
         string memory implementationKey,
         bytes memory implementationInitData
-    ) external virtual returns (address proxy) {
+    ) external payable virtual returns (address proxy) {
+        if (msg.value != value) {
+            revert ValueMismatch(value, msg.value);
+        }
         proxy = _deployProxy(value, proxyKey, implementationKey, implementationInitData);
     }
 
@@ -224,7 +228,29 @@ abstract contract Deployment is DeploymentRegistry {
         proxy = _deployProxy(0, proxyKey, implementationKey, implementationInitData);
     }
 
-    function _deployContract(
+    function predictableDeployContract(
+        uint256 value,
+        string memory key,
+        bytes memory initCode,
+        string memory contractType,
+        string memory contractPath
+    ) external payable virtual returns (address addr) {
+        if (msg.value != value) {
+            revert ValueMismatch(value, msg.value);
+        }
+        return _predictableDeployContract(value, key, initCode, contractType, contractPath);
+    }
+
+    function predictableDeployContract(
+        string memory key,
+        bytes memory initCode,
+        string memory contractType,
+        string memory contractPath
+    ) external virtual returns (address addr) {
+        return _predictableDeployContract(0, key, initCode, contractType, contractPath);
+    }
+
+    function _predictableDeployContract(
         uint256 value,
         string memory key,
         bytes memory initCode,
@@ -294,20 +320,23 @@ abstract contract Deployment is DeploymentRegistry {
         // commit-reveal via to avoid front-running the deployment which could steal our address
         {
             BaoDeployer deployer = BaoDeployer(DeploymentInfrastructure.predictBaoDeployerAddress());
-            deployer.commit(
-                DeploymentInfrastructure.commitment(
-                    address(this),
-                    value,
-                    salt,
-                    EfficientHashLib.hash(proxyCreationCode)
-                )
+            bytes32 commitment = DeploymentInfrastructure.commitment(
+                address(this),
+                0,
+                salt,
+                EfficientHashLib.hash(proxyCreationCode)
             );
-            proxy = deployer.reveal{value: value}(proxyCreationCode, salt, value);
+            deployer.commit(commitment);
+            proxy = deployer.reveal(proxyCreationCode, salt, 0);
         }
 
         // Step 2: Upgrade to real implementation with atomic initialization
         // msg.sender during initialize will be this contract (harness) via stub ownership
-        IUUPSUpgradeableProxy(proxy).upgradeToAndCall(implementation, implementationInitData);
+        if (value == 0) {
+            IUUPSUpgradeableProxy(proxy).upgradeToAndCall(implementation, implementationInitData);
+        } else {
+            IUUPSUpgradeableProxy(proxy).upgradeToAndCall{value: value}(implementation, implementationInitData);
+        }
 
         _registerProxy(
             proxyKey,

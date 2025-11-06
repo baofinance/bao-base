@@ -6,6 +6,7 @@ import {DeploymentRegistryJson} from "@bao-script/deployment/DeploymentRegistryJ
 import {DeploymentFoundry} from "@bao-script/deployment/DeploymentFoundry.sol";
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
+import {EfficientHashLib} from "@solady/utils/EfficientHashLib.sol";
 
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 
@@ -222,14 +223,28 @@ contract MockDeployment is DeploymentFoundry {
             );
     }
 
-    function predictableDeployContract(
+    function simulatePredictableDeployWithoutFunding(
         uint256 value,
         string memory key,
         bytes memory initCode,
-        string memory contractType,
-        string memory contractPath
-    ) external virtual returns (address) {
-        return _deployContract(value, key, initCode, contractType, contractPath);
+        string memory /* contractType */,
+        string memory /* contractPath */
+    ) external virtual returns (address addr) {
+        _requireActiveRun();
+        if (bytes(key).length == 0) {
+            revert KeyRequired();
+        }
+        if (_exists[key]) {
+            revert ContractAlreadyExists(key);
+        }
+
+        bytes32 salt = EfficientHashLib.hash(abi.encodePacked(_metadata.systemSaltString, "/", key, "/contract"));
+        address baoDeployerAddr = DeploymentInfrastructure.predictBaoDeployerAddress();
+        BaoDeployer baoDeployer = BaoDeployer(baoDeployerAddr);
+        bytes32 commitment = DeploymentInfrastructure.commitment(address(this), value, salt, keccak256(initCode));
+        baoDeployer.commit(commitment);
+
+        addr = baoDeployer.reveal{value: 0}(initCode, salt, value);
     }
 
     // /**

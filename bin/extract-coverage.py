@@ -18,7 +18,7 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str]:
     header = [col.strip() for col in re.split(r"\s+\|\s+", header_line.strip("| "))]
 
     # Extract rows containing 'src/' and clean them
-    rows_match = re.findall(r"^\| src/.+\|$", input_data, re.MULTILINE)
+    rows_match = re.findall(r"^\| (?:(?:src|script)/|Total\b).+\|$", input_data, re.MULTILINE)
     if not rows_match:
         raise ValueError("Input data does not contain valid table rows.")
 
@@ -26,6 +26,11 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str]:
     for row_line in rows_match:
         # Split by '|' separator and strip whitespace from each cell
         columns = [col.strip() for col in re.split(r"\s+\|\s+", row_line.strip("| "))]
+
+        # Ignore Foundry script stubs (*.s.sol) to keep focus on deployable code coverage
+        if columns and columns[0].endswith(".s.sol"):
+            continue
+
         data.append(columns)
 
     # Create the DataFrame using the cleaned and validated data
@@ -33,16 +38,25 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str]:
 
     # format the data to show xxx% (nn/mm), with asterisk and padding for <100%
     def _format_coverage_cell(raw: str) -> str:
-        parts = raw.split(" ")
-        percent_value = float(parts[0].rstrip("%"))
+        raw = raw.strip()
+        match = re.search(r"(\d+(?:\.\d+)?)%", raw)
+        if not match:
+            return raw
+
+        percent_value = float(match.group(1))
         percent = f"{percent_value:2.0f}"
+
         if percent == "100":
             marker = "✓"
             spacer = " "
         else:
             marker = "X"
             spacer = "  "
-        return f"{marker}{spacer}{percent}% {parts[1]}"
+
+        count_match = re.search(r"\((\d+/\d+)\)", raw)
+        suffix = f" {count_match.group(0)}" if count_match else ""
+
+        return f"{marker}{spacer}{percent}%{suffix}"
 
     for column in df.columns[1:5]:
         df[column] = df[column].map(_format_coverage_cell)

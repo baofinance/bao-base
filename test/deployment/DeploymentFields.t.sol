@@ -3,10 +3,17 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {MockDeployment} from "./MockDeployment.sol";
+import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
-import {FundedVault} from "@bao-test/mocks/deployment/FundedVault.sol";
+import {
+    FundedVault,
+    FundedVaultUUPS,
+    NonPayableVault,
+    NonPayableVaultUUPS
+} from "@bao-test/mocks/deployment/FundedVault.sol";
 
 contract SimpleImplementation is Initializable, UUPSUpgradeable {
     uint256 public value;
@@ -49,6 +56,39 @@ contract MockDeploymentFields is MockDeployment {
         bytes memory libBytecode = type(TestLib).creationCode;
         deployLibrary(key, libBytecode, "TestLib", "test/TestLib.sol");
         return get(key);
+    }
+
+    function deployFundedVault(string memory key, uint256 value) public returns (address) {
+        bytes memory fundedCode = type(FundedVault).creationCode;
+        return
+            this.predictableDeployContract{value: value}(
+                value,
+                key,
+                fundedCode,
+                "FundedVault",
+                "test/mocks/deployment/FundedVault.sol"
+            );
+    }
+
+    function deployFundedVaultProxy(string memory key, address owner, uint256 value) public returns (address) {
+        FundedVaultUUPS impl = new FundedVaultUUPS(owner);
+        string memory implKey = string.concat(key, "_impl");
+        registerImplementation(implKey, address(impl), "FundedVaultUUPS", "test/mocks/deployment/FundedVault.sol");
+        bytes memory initData = abi.encodeCall(FundedVaultUUPS.initialize, ());
+        return this.deployProxy{value: value}(value, key, implKey, initData);
+    }
+
+    function deployNonPayableVaultProxy(
+        string memory key,
+        address owner,
+        uint256 value,
+        uint256 initializerValue
+    ) public returns (address) {
+        NonPayableVaultUUPS impl = new NonPayableVaultUUPS(owner);
+        string memory implKey = string.concat(key, "_impl");
+        registerImplementation(implKey, address(impl), "NonPayableVaultUUPS", "test/mocks/deployment/FundedVault.sol");
+        bytes memory initData = abi.encodeCall(NonPayableVaultUUPS.initialize, (initializerValue));
+        return this.deployProxy{value: value}(value, key, implKey, initData);
     }
 }
 
@@ -213,7 +253,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         bytes memory fundedCode = type(FundedVault).creationCode;
 
         vm.deal(address(deployment), 10 ether);
-        deployment.predictableDeployContract(
+        deployment.predictableDeployContract{value: 5 ether}(
             5 ether,
             "vault_funded",
             fundedCode,
@@ -224,7 +264,6 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         // TODO: test that a non-payable contract can be deployed with value?
         // Deploy unfunded vault (same contract type, zero value)
         deployment.predictableDeployContract(
-            0,
             "vault_unfunded",
             fundedCode,
             "FundedVault",
@@ -262,5 +301,88 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
 
         assertEq(fundedVault.balance, 5 ether, "Funded vault should have 5 ETH");
         assertEq(unfundedVault.balance, 0, "Unfunded vault should have 0 ETH");
+    }
+
+    function test_FundedVaultProxyDeployments_WithAndWithoutValue() public {
+        deployment.enableAutoSave();
+
+        vm.deal(address(deployment), 10 ether);
+
+        address fundedProxy = deployment.deployFundedVaultProxy("vault_proxy_funded", admin, 5 ether);
+        address unfundedProxy = deployment.deployFundedVaultProxy("vault_proxy_unfunded", admin, 0);
+
+        deployment.finish();
+
+        string memory path = string.concat("results/deployments/", TEST_SALT, ".json");
+        string memory json = vm.readFile(path);
+
+        address factoryFunded = vm.parseJsonAddress(json, ".deployment.vault_proxy_funded.factory");
+        address factoryUnfunded = vm.parseJsonAddress(json, ".deployment.vault_proxy_unfunded.factory");
+        address deployerFunded = vm.parseJsonAddress(json, ".deployment.vault_proxy_funded.deployer");
+        address deployerUnfunded = vm.parseJsonAddress(json, ".deployment.vault_proxy_unfunded.deployer");
+
+        assertEq(factoryFunded, address(deployment), "Proxy factory should be deployment contract");
+        assertEq(factoryUnfunded, address(deployment), "Proxy factory should be deployment contract");
+        assertEq(deployerFunded, address(deployment), "Proxy deployer should be deployment contract");
+        assertEq(deployerUnfunded, address(deployment), "Proxy deployer should be deployment contract");
+
+        address recordedFunded = vm.parseJsonAddress(json, ".deployment.vault_proxy_funded.address");
+        address recordedUnfunded = vm.parseJsonAddress(json, ".deployment.vault_proxy_unfunded.address");
+
+        assertEq(recordedFunded, fundedProxy, "Recorded funded proxy address mismatch");
+        assertEq(recordedUnfunded, unfundedProxy, "Recorded unfunded proxy address mismatch");
+
+        assertEq(recordedFunded.balance, 5 ether, "Funded proxy should hold 5 ETH");
+        assertEq(recordedUnfunded.balance, 0, "Unfunded proxy should hold 0 ETH");
+
+        assertEq(FundedVaultUUPS(recordedFunded).initialBalance(), 5 ether, "Initializer should record funded balance");
+        assertEq(FundedVaultUUPS(recordedUnfunded).initialBalance(), 0, "Initializer should record zero balance");
+    }
+
+    function test_RevertWhen_FundingNonPayableContract() public {
+        vm.deal(address(deployment), 1 ether);
+
+        bytes memory nonPayableCode = abi.encodePacked(type(NonPayableVault).creationCode, abi.encode(uint256(123)));
+
+        vm.expectRevert();
+        deployment.predictableDeployContract(
+            1 ether,
+            "vault_nonpayable",
+            nonPayableCode,
+            "NonPayableVault",
+            "test/mocks/deployment/FundedVault.sol"
+        );
+    }
+
+    function test_RevertWhen_UnderfundingPredictableDeploy() public {
+        bytes memory fundedCode = type(FundedVault).creationCode;
+
+        vm.deal(address(deployment), 0);
+
+        vm.expectRevert(abi.encodeWithSelector(BaoDeployer.ValueMismatch.selector, 1 ether, 0));
+        deployment.simulatePredictableDeployWithoutFunding(
+            1 ether,
+            "vault_underfunded",
+            fundedCode,
+            "FundedVault",
+            "test/mocks/deployment/FundedVault.sol"
+        );
+    }
+
+    function test_RevertWhen_FundingNonPayableProxy() public {
+        vm.deal(address(deployment), 1 ether);
+
+        vm.expectRevert();
+        deployment.deployNonPayableVaultProxy("vault_nonpayable_proxy", admin, 1 ether, uint256(123));
+    }
+
+    function test_RevertWhen_UnderfundingProxyDeployment() public {
+        FundedVaultUUPS impl = new FundedVaultUUPS(admin);
+        string memory implKey = "vault_proxy_underfunded_impl";
+        deployment.registerImplementation(implKey, address(impl), "FundedVaultUUPS", "test/mocks/deployment/FundedVault.sol");
+        bytes memory initData = abi.encodeCall(FundedVaultUUPS.initialize, ());
+
+    vm.expectRevert(abi.encodeWithSelector(Deployment.ValueMismatch.selector, 5 ether, 0));
+    deployment.deployProxy{value: 0}(5 ether, "vault_proxy_underfunded", implKey, initData);
     }
 }

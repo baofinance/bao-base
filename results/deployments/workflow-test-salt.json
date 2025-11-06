@@ -11,12 +11,12 @@
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
     },
     "Minter": {
-      "address": "0x7C38CA4ccA3e778214e5ee24875BA5d96d9A7f8F",
+      "address": "0xBef473A557e348eF676765fADab805a3ad04dbAe",
       "blockNumber": 1,
       "category": "UUPS proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "contractType": "ERC1967Proxy",
-      "deployedTo": "0x7C38CA4ccA3e778214e5ee24875BA5d96d9A7f8F",
+      "deployedTo": "0xBef473A557e348eF676765fADab805a3ad04dbAe",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
       "factory": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
       "implementationKey": "Minter_impl",
@@ -37,12 +37,12 @@
       ]
     },
     "PriceOracle": {
-      "address": "0x460E5dFCe0c7E4e5B4e6a9Ee18D40e2fA8441A0A",
+      "address": "0x1d3Dcb344fDAA7c21973EA471Ba5F28f99d3DFe6",
       "blockNumber": 1,
       "category": "UUPS proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "contractType": "ERC1967Proxy",
-      "deployedTo": "0x460E5dFCe0c7E4e5B4e6a9Ee18D40e2fA8441A0A",
+      "deployedTo": "0x1d3Dcb344fDAA7c21973EA471Ba5F28f99d3DFe6",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
       "factory": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
       "implementationKey": "PriceOracle_impl",

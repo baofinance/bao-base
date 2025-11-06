@@ -2,12 +2,12 @@
   "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
   "deployment": {
     "proxy1": {
-      "address": "0x0C67612C33E109843E5b426660C988e406B2C753",
+      "address": "0x1dE51Cb25Ad6B20968e0da0ba8261AF883E26695",
       "blockNumber": 1,
       "category": "UUPS proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "contractType": "ERC1967Proxy",
-      "deployedTo": "0x0C67612C33E109843E5b426660C988e406B2C753",
+      "deployedTo": "0x1dE51Cb25Ad6B20968e0da0ba8261AF883E26695",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
       "factory": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
       "implementationKey": "proxy1_impl",
@@ -28,12 +28,12 @@
       ]
     },
     "proxy2": {
-      "address": "0x0718874e30d47F806E5f116a5cbE38490A7C65Bd",
+      "address": "0x042ea9d76bCEF23CF6B250A7A5436c3Db0c024B8",
       "blockNumber": 1,
       "category": "UUPS proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "contractType": "ERC1967Proxy",
-      "deployedTo": "0x0718874e30d47F806E5f116a5cbE38490A7C65Bd",
+      "deployedTo": "0x042ea9d76bCEF23CF6B250A7A5436c3Db0c024B8",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
       "factory": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
       "implementationKey": "proxy2_impl",
@@ -54,12 +54,12 @@
       ]
     },
     "proxy3": {
-      "address": "0x1eA345699a60a705fB421b78AD9b8fb95CC79eA6",
+      "address": "0x30A10d714f1F842F50408916163CB445A76f4538",
       "blockNumber": 1,
       "category": "UUPS proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "contractType": "ERC1967Proxy",
-      "deployedTo": "0x1eA345699a60a705fB421b78AD9b8fb95CC79eA6",
+      "deployedTo": "0x30A10d714f1F842F50408916163CB445A76f4538",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
       "factory": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
       "implementationKey": "proxy3_impl",

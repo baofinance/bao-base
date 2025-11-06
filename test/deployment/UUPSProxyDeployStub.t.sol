@@ -30,7 +30,6 @@ contract UUPSProxyDeployStubTest is BaoDeploymentTest {
 
     function setUp() public override {
         super.setUp();
-        // TODO:
         owner = address(this);
         stub = new UUPSProxyDeployStub();
         outsider = makeAddr("outsider");
