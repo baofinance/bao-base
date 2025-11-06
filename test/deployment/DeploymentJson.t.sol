@@ -36,11 +36,11 @@ library TestLib {
 }
 
 // Test harness
-contract JsonTestHarness is MockDeployment {
+contract MockDeploymentJson is MockDeployment {
     function deploySimpleContract(string memory key, string memory name) public returns (address) {
         SimpleContract c = new SimpleContract(name);
         registerContract(key, address(c), "SimpleContract", "test/SimpleContract.sol", "contract");
-        return _get(key);
+        return get(key);
     }
 
     function deploySimpleProxy(string memory key, uint256 value) public returns (address) {
@@ -49,13 +49,13 @@ contract JsonTestHarness is MockDeployment {
         registerImplementation(implKey, address(impl), "SimpleImplementation", "test/SimpleImplementation.sol");
         bytes memory initData = abi.encodeCall(SimpleImplementation.initialize, (value));
         this.deployProxy(key, implKey, initData);
-        return _get(key);
+        return get(key);
     }
 
     function deployTestLibrary(string memory key) public returns (address) {
         bytes memory bytecode = type(TestLib).creationCode;
         deployLibrary(key, bytecode, "TestLib", "test/TestLib.sol");
-        return _get(key);
+        return get(key);
     }
 }
 
@@ -64,7 +64,7 @@ contract JsonTestHarness is MockDeployment {
  * @notice Tests JSON serialization and deserialization
  */
 contract DeploymentJsonTest is BaoDeploymentTest {
-    JsonTestHarness public deployment;
+    MockDeploymentJson public deployment;
     string constant TEST_OUTPUT_DIR = "results/deployments";
     string constant TEST_NETWORK = "test-network";
     string constant TEST_SALT = "json-test-salt";
@@ -72,7 +72,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
 
     function setUp() public override {
         super.setUp();
-        deployment = new JsonTestHarness();
+        deployment = new MockDeploymentJson();
         deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
@@ -104,7 +104,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
 
         // Verify contract is in JSON
         address addr = vm.parseJsonAddress(json, ".deployment.contract1.address");
-        assertEq(addr, deployment.getByString("contract1"));
+        assertEq(addr, deployment.get("contract1"));
 
         string memory category = vm.parseJsonString(json, ".deployment.contract1.category");
         assertEq(category, "contract");
@@ -125,7 +125,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
 
         // Verify proxy fields
         address addr = vm.parseJsonAddress(json, ".deployment.proxy1.address");
-        assertEq(addr, deployment.getByString("proxy1"));
+        assertEq(addr, deployment.get("proxy1"));
 
         string memory category = vm.parseJsonString(json, ".deployment.proxy1.category");
         assertEq(category, "UUPS proxy");
@@ -148,7 +148,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
 
         // Verify library fields
         address addr = vm.parseJsonAddress(json, ".deployment.lib1.address");
-        assertEq(addr, deployment.getByString("lib1"));
+        assertEq(addr, deployment.get("lib1"));
 
         string memory category = vm.parseJsonString(json, ".deployment.lib1.category");
         assertEq(category, "library");
@@ -164,7 +164,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         deployment.deploySimpleContract("contract1", "Contract 1");
         deployment.deploySimpleProxy("proxy1", 10);
         deployment.deployTestLibrary("lib1");
-        deployment.useExistingByString("external1", address(0x1234567890123456789012345678901234567890));
+        deployment.useExisting("external1", address(0x1234567890123456789012345678901234567890));
 
         deployment.finish();
 
@@ -193,20 +193,20 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         address lib1Addr = deployment.deployTestLibrary("lib1");
 
         deployment.finish();
-        deployment.saveToJson(path);
+        deployment.toJsonFile(path);
 
         // Create new deployment and load
-        JsonTestHarness newDeployment = new JsonTestHarness();
-        newDeployment.loadFromJson(path);
+        MockDeploymentJson newDeployment = new MockDeploymentJson();
+        newDeployment.fromJsonFile(path);
 
         // Verify all contracts are loaded
-        assertTrue(newDeployment.hasByString("contract1"));
-        assertTrue(newDeployment.hasByString("proxy1"));
-        assertTrue(newDeployment.hasByString("lib1"));
+        assertTrue(newDeployment.has("contract1"));
+        assertTrue(newDeployment.has("proxy1"));
+        assertTrue(newDeployment.has("lib1"));
 
-        assertEq(newDeployment.getByString("contract1"), contract1Addr);
-        assertEq(newDeployment.getByString("proxy1"), proxy1Addr);
-        assertEq(newDeployment.getByString("lib1"), lib1Addr);
+        assertEq(newDeployment.get("contract1"), contract1Addr);
+        assertEq(newDeployment.get("proxy1"), proxy1Addr);
+        assertEq(newDeployment.get("lib1"), lib1Addr);
 
         // Verify metadata
         Deployment.DeploymentMetadata memory metadata = newDeployment.getMetadata();
@@ -219,20 +219,20 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         // Save initial deployment
         deployment.deploySimpleContract("contract1", "Contract 1");
         deployment.finish();
-        deployment.saveToJson(path);
+        deployment.toJsonFile(path);
 
         // Load and continue
-        JsonTestHarness newDeployment = new JsonTestHarness();
+        MockDeploymentJson newDeployment = new MockDeploymentJson();
         newDeployment.resumeFrom(path);
 
         // Verify loaded contract exists
-        assertTrue(newDeployment.hasByString("contract1"));
+        assertTrue(newDeployment.has("contract1"));
 
         // Continue deploying
         newDeployment.deploySimpleContract("contract2", "Contract 2");
 
-        assertTrue(newDeployment.hasByString("contract1"));
-        assertTrue(newDeployment.hasByString("contract2"));
+        assertTrue(newDeployment.has("contract1"));
+        assertTrue(newDeployment.has("contract2"));
 
         string[] memory keys = newDeployment.keys();
         assertEq(keys.length, 2);
@@ -272,7 +272,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
     }
 
     function test_RevertWhen_ResumeNonexistentPath() public {
-        JsonTestHarness fresh = new JsonTestHarness();
+        MockDeploymentJson fresh = new MockDeploymentJson();
         vm.expectRevert();
         fresh.resume("test", "nonexistent-salt");
     }
@@ -284,14 +284,14 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         address deployer1 = address(deployment);
         deployment.deploySimpleContract("contract1", "Contract 1");
         deployment.finish();
-        deployment.saveToJson(path);
+        deployment.toJsonFile(path);
 
         string memory json1 = vm.readFile(path);
         address savedDeployer1 = vm.parseJsonAddress(json1, ".deployer");
         assertEq(savedDeployer1, deployer1, "First deployer should be recorded");
 
         // Create new harness with different deployer address
-        JsonTestHarness newDeployment = new JsonTestHarness();
+        MockDeploymentJson newDeployment = new MockDeploymentJson();
         address deployer2 = address(newDeployment);
         assertTrue(deployer2 != deployer1, "Deployers should be different");
 
@@ -305,7 +305,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         // Deploy second contract with the new deployment context
         newDeployment.deploySimpleContract("contract2", "Contract 2");
         newDeployment.finish();
-        newDeployment.saveToJson(path);
+        newDeployment.toJsonFile(path);
 
         // Verify JSON still shows the original deployer (preserved across resume)
         string memory json2 = vm.readFile(path);
@@ -329,10 +329,10 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         assertFalse(finished, "Run should not be finished");
 
         // Save to file for resume test
-        deployment.saveToJson(path);
+        deployment.toJsonFile(path);
 
         // Try to resume - should fail
-        JsonTestHarness newDeployment = new JsonTestHarness();
+        MockDeploymentJson newDeployment = new MockDeploymentJson();
         vm.expectRevert("Cannot resume: last run not finished");
         newDeployment.resumeFrom(path);
     }

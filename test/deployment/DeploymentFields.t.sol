@@ -29,11 +29,11 @@ library TestLib {
 }
 
 // Test harness with helper methods
-contract FieldsTestHarness is MockDeployment {
+contract MockDeploymentFields is MockDeployment {
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
         MockERC20 token = new MockERC20(name, symbol, 18);
         registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol", "contract");
-        return _get(key);
+        return get(key);
     }
 
     function deploySimpleProxy(string memory key, uint256 value, address admin) public returns (address) {
@@ -48,7 +48,7 @@ contract FieldsTestHarness is MockDeployment {
     function deployTestLibrary(string memory key) public returns (address) {
         bytes memory libBytecode = type(TestLib).creationCode;
         deployLibrary(key, libBytecode, "TestLib", "test/TestLib.sol");
-        return _get(key);
+        return get(key);
     }
 }
 
@@ -57,7 +57,7 @@ contract FieldsTestHarness is MockDeployment {
  * @notice Tests that factory and deployer fields are correctly set for different entry types
  */
 contract DeploymentFieldsTest is BaoDeploymentTest {
-    FieldsTestHarness public deployment;
+    MockDeploymentFields public deployment;
     address public admin;
     string constant TEST_NETWORK = "test-network";
     string constant TEST_SALT = "fields-test-salt";
@@ -65,7 +65,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
 
     function setUp() public override {
         super.setUp();
-        deployment = new FieldsTestHarness();
+        deployment = new MockDeploymentFields();
         admin = address(this);
         deployment.start(admin, TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
@@ -204,25 +204,28 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         assertEq(deployer1, address(deployment), "Deployer should be deployment contract");
     }
 
+    // TODO: do this with proxy deployment too
     function test_FundedVaultDeployments_WithAndWithoutValue() public {
         // Enable auto-save for regression testing
         deployment.enableAutoSave();
 
         // Deploy funded vault with value
         bytes memory fundedCode = type(FundedVault).creationCode;
+
         vm.deal(address(deployment), 10 ether);
-        deployment.deployContractWithValue{value: 5 ether}(
-            "vault_funded",
+        deployment.predictableDeployContract(
             5 ether,
+            "vault_funded",
             fundedCode,
             "FundedVault",
             "test/mocks/deployment/FundedVault.sol"
         );
 
+        // TODO: test that a non-payable contract can be deployed with value?
         // Deploy unfunded vault (same contract type, zero value)
-        deployment.deployContractWithValue(
-            "vault_unfunded",
+        deployment.predictableDeployContract(
             0,
+            "vault_unfunded",
             fundedCode,
             "FundedVault",
             "test/mocks/deployment/FundedVault.sol"

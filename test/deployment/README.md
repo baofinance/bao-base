@@ -47,12 +47,12 @@ contract YourDeployment is DeploymentFoundry {
 
 ```solidity
 // Simple approach (current tests)
-contract TestDeployment is Deployment {
+contract MockDeployment is Deployment {
     constructor() Deployment(address(0)) {} // Defaults to address(this)
 }
 
 function setUp() public {
-    deployment = new TestDeployment();
+  deployment = new MockDeployment();
     deployment.start(address(this), "test", "v1", "test-salt");
 }
 ```

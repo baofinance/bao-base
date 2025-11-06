@@ -8,17 +8,17 @@ import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol"
 import {MathLib, StringLib} from "../mocks/TestLibraries.sol";
 
 // Test harness extends MockDeployment
-contract LibraryTestHarness is MockDeployment {
+contract MockDeploymentLibrary is MockDeployment {
     function deployMathLibrary(string memory key) public returns (address) {
         bytes memory bytecode = type(MathLib).creationCode;
         deployLibrary(key, bytecode, "MathLib", "test/mocks/TestLibraries.sol");
-        return _get(key);
+        return get(key);
     }
 
     function deployStringLibrary(string memory key) public returns (address) {
         bytes memory bytecode = type(StringLib).creationCode;
         deployLibrary(key, bytecode, "StringLib", "test/mocks/TestLibraries.sol");
-        return _get(key);
+        return get(key);
     }
 }
 
@@ -27,14 +27,14 @@ contract LibraryTestHarness is MockDeployment {
  * @notice Tests library deployment functionality (CREATE)
  */
 contract DeploymentLibraryTest is BaoDeploymentTest {
-    LibraryTestHarness public deployment;
+    MockDeploymentLibrary public deployment;
     string constant TEST_NETWORK = "test";
     string constant TEST_SALT = "library-test-salt";
     string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public override {
         super.setUp();
-        deployment = new LibraryTestHarness();
+        deployment = new MockDeploymentLibrary();
         deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
@@ -42,9 +42,9 @@ contract DeploymentLibraryTest is BaoDeploymentTest {
         address libAddr = deployment.deployMathLibrary("mathLib");
 
         assertTrue(libAddr != address(0));
-        assertTrue(deployment.hasByString("mathLib"));
-        assertEq(deployment.getByString("mathLib"), libAddr);
-        assertEq(deployment.getEntryType("mathLib"), "library");
+        assertTrue(deployment.has("mathLib"));
+        assertEq(deployment.get("mathLib"), libAddr);
+        assertEq(deployment.getType("mathLib"), "library");
     }
 
     function test_DeployMultipleLibraries() public {
@@ -53,8 +53,8 @@ contract DeploymentLibraryTest is BaoDeploymentTest {
 
         assertNotEq(mathLib, stringLib);
 
-        assertTrue(deployment.hasByString("mathLib"));
-        assertTrue(deployment.hasByString("stringLib"));
+        assertTrue(deployment.has("mathLib"));
+        assertTrue(deployment.has("stringLib"));
 
         string[] memory keys = deployment.keys();
         assertEq(keys.length, 2);
@@ -72,7 +72,7 @@ contract DeploymentLibraryTest is BaoDeploymentTest {
         address addr1 = deployment.deployMathLibrary("mathLib1");
 
         // Create new deployment instance
-        LibraryTestHarness deployment2 = new LibraryTestHarness();
+        MockDeploymentLibrary deployment2 = new MockDeploymentLibrary();
         deployment2.start(address(this), TEST_NETWORK, TEST_VERSION, "library-test-salt-2");
         address addr2 = deployment2.deployMathLibrary("mathLib2");
 
@@ -83,7 +83,7 @@ contract DeploymentLibraryTest is BaoDeploymentTest {
     function test_LibraryEntryType() public {
         deployment.deployMathLibrary("mathLib");
 
-        assertEq(deployment.getEntryType("mathLib"), "library");
+        assertEq(deployment.getType("mathLib"), "library");
     }
 
     function test_LibraryJsonSerialization() public {
@@ -97,10 +97,10 @@ contract DeploymentLibraryTest is BaoDeploymentTest {
         assertTrue(vm.keyExistsJson(json, ".deployment.mathLib"), "Should contain mathLib");
 
         // Verify round-trip
-        LibraryTestHarness newDeployment = new LibraryTestHarness();
+        MockDeploymentLibrary newDeployment = new MockDeploymentLibrary();
         newDeployment.fromJson(json);
 
-        assertEq(newDeployment.getByString("mathLib"), libAddr, "Address should match after JSON round-trip");
-        assertEq(newDeployment.getEntryType("mathLib"), "library", "Entry type should be preserved");
+        assertEq(newDeployment.get("mathLib"), libAddr, "Address should match after JSON round-trip");
+        assertEq(newDeployment.getType("mathLib"), "library", "Entry type should be preserved");
     }
 }

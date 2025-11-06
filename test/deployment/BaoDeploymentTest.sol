@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {MockDeployment} from "./MockDeployment.sol";
+import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 
 /**
  * @title BaoDeploymentTest
@@ -26,8 +27,8 @@ import {MockDeployment} from "./MockDeployment.sol";
  *          }
  */
 abstract contract BaoDeploymentTest is BaoTest {
-    address internal constant _BAO_DEPLOYER_OWNER = 0xFC69e0a5823E2AfCBEb8a35d33588360F1496a00;
-    address internal _baoDeployerAddress;
+    address internal _baoDeployer;
+    address internal _baoMultisig;
 
     /**
      * @notice Set up deployment infrastructure for tests
@@ -39,26 +40,19 @@ abstract contract BaoDeploymentTest is BaoTest {
      * @dev Derived classes MUST call super.setUp() first, then create their deployment
      */
     function setUp() public virtual {
-        MockDeployment bootstrap = new MockDeployment();
-        bootstrap.etchNicksFactory();
+        // install Nick's factory if not present
+        if (DeploymentInfrastructure._NICKS_FACTORY.code.length == 0) {
+            vm.etch(DeploymentInfrastructure._NICKS_FACTORY, DeploymentInfrastructure._NICKS_FACTORY_BYTECODE);
+        }
+        vm.label(DeploymentInfrastructure._NICKS_FACTORY, "Nick's factory");
 
-        vm.label(_BAO_DEPLOYER_OWNER, "Bao Multisig");
+        _baoMultisig = DeploymentInfrastructure.BAOMULTISIG;
+        vm.label(_baoMultisig, "_baoMultisig");
 
-        _baoDeployerAddress = bootstrap.deployBaoDeployer(_BAO_DEPLOYER_OWNER);
-        vm.label(_baoDeployerAddress, "BaoDeployer");
-    }
-
-    function baoDeployerOwner() public pure returns (address) {
-        return _BAO_DEPLOYER_OWNER;
-    }
-
-    function baoDeployer() public view returns (address) {
-        return _baoDeployerAddress;
-    }
-
-    function _bootstrapDeployment(MockDeployment deployment) internal {
-        deployment.etchNicksFactory();
-        deployment.deployBaoDeployer(_BAO_DEPLOYER_OWNER);
-        deployment.assignBaoDeployerOperator(_BAO_DEPLOYER_OWNER, address(deployment));
+        _baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
+        if (_baoDeployer.code.length == 0) {
+            DeploymentInfrastructure.deployBaoDeployer();
+        }
+        vm.label(_baoDeployer, "_baoDeployer");
     }
 }

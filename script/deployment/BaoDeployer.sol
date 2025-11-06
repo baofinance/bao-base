@@ -78,7 +78,7 @@ contract BaoDeployer is Ownable {
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @notice Record a deployment commitment (hash of all deployment parameters)
-    /// @param commitment keccak256 hash produced via {computeCommitment}
+    /// @param commitment keccak256 hash produced via {DeploymentInfrastructure.commitment}
     function commit(bytes32 commitment) external onlyOperator {
         if (commitment == bytes32(0)) revert CommitmentMismatch(bytes32(0), bytes32(0));
         if (_commitments[commitment] != 0) revert CommitmentAlreadyExists(commitment);
@@ -105,25 +105,11 @@ contract BaoDeployer is Ownable {
         uint256 value
     ) external payable onlyOperator returns (address deployed) {
         if (msg.value != value) revert ValueMismatch(value, msg.value);
-        bytes32 expected = computeCommitment(msg.sender, value, salt, keccak256(initCode));
+        bytes32 expected = keccak256(abi.encode(msg.sender, value, salt, keccak256(initCode)));
         if (_commitments[expected] == 0) revert UnknownCommitment(expected);
         delete _commitments[expected];
         deployed = CREATE3.deployDeterministic(value, initCode, salt);
         emit DeploymentRevealed(expected, deployed, salt, value);
-    }
-
-    /// @notice Helper to calculate the commitment hash used for commit/reveal
-    /// @param committer Address that will perform commit + reveal (usually the operator EOA)
-    /// @param value ETH sent alongside deployment
-    /// @param salt CREATE3 salt
-    /// @param initCodeHash keccak256 hash of the complete initCode
-    function computeCommitment(
-        address committer,
-        uint256 value,
-        bytes32 salt,
-        bytes32 initCodeHash
-    ) public view returns (bytes32) {
-        return keccak256(abi.encode(address(this), committer, value, salt, initCodeHash));
     }
 
     /*//////////////////////////////////////////////////////////////////////////

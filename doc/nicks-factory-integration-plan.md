@@ -88,7 +88,7 @@ function _getCreate3Factory() internal view virtual returns (address) {
 **Test Harness Override:**
 
 ```solidity
-contract TestDeployment is Deployment {
+contract MockDeployment is Deployment {
   address private _mockFactory;
 
   function _getCreate3Factory() internal view virtual override returns (address) {
@@ -124,16 +124,16 @@ contract TestDeployment is Deployment {
 
 ```solidity
 contract MyTest is Test {
-  TestDeployment deployment;
+  MockDeployment deployment;
 
   function setUp() public {
     // Option A: Use mock factory
     MockNicksFactory mockFactory = new MockNicksFactory();
-    deployment = new TestDeployment();
+  deployment = new MockDeployment();
     deployment.setMockFactory(address(mockFactory));
 
     // Option B: Use self-deployment (no mock)
-    deployment = new TestDeployment();
+  deployment = new MockDeployment();
     // Factory will default to address(deployment)
   }
 }
@@ -158,11 +158,11 @@ contract MyTest is Test {
 
 ```solidity
 contract MyForkTest is Test {
-  TestDeployment deployment;
+  MockDeployment deployment;
 
   function setUp() public {
     // No special setup needed!
-    deployment = new TestDeployment();
+  deployment = new MockDeployment();
     // Factory auto-detected from fork
   }
 }
@@ -361,7 +361,7 @@ forge script script/ProductionDeploy.s.sol \
 
 **Factory Resolution:**
 
-1. Check `_mockFactory` → address(0) (TestDeployment not used in production)
+1. Check `_mockFactory` → address(0) (MockDeployment not used in production)
 2. Check `NICKS_FACTORY.code.length` → >0 (exists on mainnet)
 3. Return `NICKS_FACTORY` → use real factory
 
@@ -578,7 +578,7 @@ function _deployViaFactory(bytes memory creationCode, bytes32 salt) internal ret
 
 **Files:**
 
-- `test/deployment/TestDeployment.sol`
+- `test/deployment/MockDeployment.sol`
   - Add `_mockFactory` storage variable
   - Override `_getCreate3Factory()`
   - Add `setMockFactory()` public method
@@ -587,7 +587,7 @@ function _deployViaFactory(bytes memory creationCode, bytes32 salt) internal ret
 **Changes:**
 
 ```solidity
-contract TestDeployment is Deployment {
+contract MockDeployment is Deployment {
   address private _mockFactory;
 
   function _getCreate3Factory() internal view virtual override returns (address) {
@@ -649,7 +649,7 @@ _registerProxy(
 
 ```solidity
 contract DeploymentForkTest is Test {
-    TestDeployment deployment;
+  MockDeployment deployment;
 
     function setUp() public {
         // Verify we're on a fork
@@ -658,7 +658,7 @@ contract DeploymentForkTest is Test {
             "Must run with --fork-url for this test"
         );
 
-        deployment = new TestDeployment();
+  deployment = new MockDeployment();
         deployment.start(...);
     }
 
@@ -710,7 +710,7 @@ contract AnvilDeployScript is Script {
     MockNicksFactory mockFactory = new MockNicksFactory();
 
     // Deploy harness
-    TestDeployment deployment = new TestDeployment();
+  MockDeployment deployment = new MockDeployment();
     deployment.setMockFactory(address(mockFactory));
 
     // Deploy system
@@ -738,7 +738,7 @@ contract ForkedAnvilDeployScript is Script {
     require(NICKS_FACTORY.code.length > 0, "Must fork mainnet for this script");
 
     // Deploy harness (no mock needed)
-    TestDeployment deployment = new TestDeployment();
+  MockDeployment deployment = new MockDeployment();
 
     // Deploy system using real factory
     deployment.start(msg.sender, "forked-anvil", "v1.0.0", "test-salt");

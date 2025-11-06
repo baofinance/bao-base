@@ -23,15 +23,6 @@
       "blockNumber": 1,
       "category": "existing"
     },
-    "mathLib": {
-      "address": "0x4B2AEa91Ed33FFb3783e545cc5F975174dC53EF0",
-      "blockNumber": 1,
-      "category": "library",
-      "contractPath": "test/mocks/TestLibraries.sol",
-      "contractType": "MathLib",
-      "deployedTo": "0x4B2AEa91Ed33FFb3783e545cc5F975174dC53EF0",
-      "deployer": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a"
-    },
     "maxSupply": {
       "type": "uint256",
       "value": "1000000000000000000000000"
@@ -39,20 +30,6 @@
     "offset": {
       "type": "int256",
       "value": -100
-    },
-    "oracle": {
-      "address": "0x99ae3d6C8c6c4f0b976Ad73b4E879Bd6ED375e82",
-      "blockNumber": 1,
-      "category": "UUPS proxy",
-      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
-      "contractType": "ERC1967Proxy",
-      "deployedTo": "0x99ae3d6C8c6c4f0b976Ad73b4E879Bd6ED375e82",
-      "deployer": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a",
-      "factory": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a",
-      "implementationKey": "oracle_impl_v2",
-      "proxyType": "UUPS",
-      "salt": "0x1d1d26a0795b6007f384add210f2c24f44c64c77bb3d06b33891036580cbdaa6",
-      "saltString": "oracle"
     },
     "oracle_impl": {
       "address": "0x5Fa39CD9DD20a3A77BA0CaD164bD5CF0d7bb3303",
@@ -63,18 +40,6 @@
       "deployedTo": "0x5Fa39CD9DD20a3A77BA0CaD164bD5CF0d7bb3303",
       "deployer": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a",
       "proxies": []
-    },
-    "oracle_impl_v2": {
-      "address": "0x5991A2dF15A8F6A256D3Ec51E99254Cd3fb576A9",
-      "blockNumber": 1,
-      "category": "contract",
-      "contractPath": "test/mocks/upgradeable/MockOracle.sol",
-      "contractType": "OracleV1",
-      "deployedTo": "0x5991A2dF15A8F6A256D3Ec51E99254Cd3fb576A9",
-      "deployer": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a",
-      "proxies": [
-        "oracle"
-      ]
     },
     "pegged": {
       "address": "0xA11d35fE4b9Ca9979F2FF84283a9Ce190F60Cd00",
@@ -100,7 +65,7 @@
       "finishTimestampISO": "1970-01-01T00:00:01Z",
       "startBlock": 1,
       "finishBlock": 1,
-      "finished": true
+      "finished": false
     }
   ]
 }

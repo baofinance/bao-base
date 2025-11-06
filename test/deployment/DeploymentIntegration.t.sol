@@ -67,11 +67,11 @@ library ConfigLib {
 }
 
 // Integration test harness
-contract IntegrationTestHarness is MockDeployment {
+contract MockDeploymentIntegration is MockDeployment {
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
         MockERC20 token = new MockERC20(name, symbol, 18);
         registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol", "mock");
-        return _get(key);
+        return get(key);
     }
 
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
@@ -80,7 +80,7 @@ contract IntegrationTestHarness is MockDeployment {
         registerImplementation(implKey, address(impl), "OracleV1", "test/mocks/upgradeable/MockOracle.sol");
         bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
         this.deployProxy(key, implKey, initData);
-        return _get(key);
+        return get(key);
     }
 
     function deployMinterProxy(
@@ -90,9 +90,9 @@ contract IntegrationTestHarness is MockDeployment {
         string memory oracleKey,
         address admin
     ) public returns (address) {
-        address collateral = _get(collateralKey);
-        address pegged = _get(peggedKey);
-        address oracle = _get(oracleKey);
+        address collateral = get(collateralKey);
+        address pegged = get(peggedKey);
+        address oracle = get(oracleKey);
 
         // Constructor parameters: immutable token addresses (rarely change, require upgrade to modify)
         MockMinter impl = new MockMinter(collateral, pegged, oracle);
@@ -107,7 +107,7 @@ contract IntegrationTestHarness is MockDeployment {
     function deployConfigLibrary(string memory key) public returns (address) {
         bytes memory bytecode = type(ConfigLib).creationCode;
         deployLibrary(key, bytecode, "ConfigLib", "test/ConfigLib.sol");
-        return _get(key);
+        return get(key);
     }
 }
 
@@ -116,7 +116,7 @@ contract IntegrationTestHarness is MockDeployment {
  * @notice Captures snapshots at finish() to show state after each deployment phase
  * @dev Used for test_IncrementalDeployment to capture phase1, phase2, phase3 states
  */
-contract PhaseSnapshotHarness is IntegrationTestHarness {
+contract PhaseSnapshotHarness is MockDeploymentIntegration {
     /// @notice Foundry VM for file operations
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
@@ -151,11 +151,11 @@ contract PhaseSnapshotHarness is IntegrationTestHarness {
 }
 
 /**
- * @title OperationSnapshotHarness
+ * @title MockDeploymentOperation
  * @notice Captures snapshots after each deployment operation for detailed regression testing
  * @dev Used to demonstrate autosave capturing every deploy, register, etc.
  */
-contract OperationSnapshotHarness is IntegrationTestHarness {
+contract MockDeploymentOperation is MockDeploymentIntegration {
     /// @notice Counter for operation snapshots
     uint256 private _operationCounter;
 
@@ -165,12 +165,10 @@ contract OperationSnapshotHarness is IntegrationTestHarness {
 
     /// @notice Override to save snapshot after each operation
     /// @dev Captures state after deploy, register, useExisting, setParameter, etc.
-    function _saveToRegistry() internal override {
-        super._saveToRegistry();
-
+    function _saveRegistry() internal virtual override {
         // Save snapshot with operation counter
         string memory snapshotPath = string.concat(_filepath(), "-op", _uintToString(_operationCounter));
-        saveToJson(snapshotPath);
+        toJsonFile(snapshotPath);
         _operationCounter++;
     }
 }
@@ -180,7 +178,7 @@ contract OperationSnapshotHarness is IntegrationTestHarness {
  * @notice End-to-end integration tests with complex scenarios
  */
 contract DeploymentIntegrationTest is BaoDeploymentTest {
-    IntegrationTestHarness public deployment;
+    MockDeploymentIntegration public deployment;
     address public admin;
     string constant TEST_OUTPUT_DIR = "results/deployments";
     string constant TEST_NETWORK = "test-network";
@@ -190,7 +188,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         admin = address(this);
-        deployment = new IntegrationTestHarness();
+        deployment = new MockDeploymentIntegration();
         deployment.start(admin, TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
@@ -209,11 +207,11 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         deployment.deployConfigLibrary("configLib");
 
         // Verify all deployed
-        assertTrue(deployment.hasByString("collateral"));
-        assertTrue(deployment.hasByString("pegged"));
-        assertTrue(deployment.hasByString("oracle"));
-        assertTrue(deployment.hasByString("minter"));
-        assertTrue(deployment.hasByString("configLib"));
+        assertTrue(deployment.has("collateral"));
+        assertTrue(deployment.has("pegged"));
+        assertTrue(deployment.has("oracle"));
+        assertTrue(deployment.has("minter"));
+        assertTrue(deployment.has("configLib"));
 
         // Verify contract functionality
         OracleV1 oracleContract = OracleV1(oracle);
@@ -245,25 +243,25 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
 
         // Load into new deployment (autosave already wrote the file)
         string memory path = string.concat(TEST_OUTPUT_DIR, "/", TEST_SALT, ".json");
-        IntegrationTestHarness newDeployment = new IntegrationTestHarness();
-        newDeployment.loadFromJson(path);
+        MockDeploymentIntegration newDeployment = new MockDeploymentIntegration();
+        newDeployment.fromJsonFile(path);
 
         // Verify all loaded correctly
-        assertTrue(newDeployment.hasByString("collateral"));
-        assertTrue(newDeployment.hasByString("pegged"));
-        assertTrue(newDeployment.hasByString("oracle"));
-        assertTrue(newDeployment.hasByString("minter"));
-        assertTrue(newDeployment.hasByString("configLib"));
+        assertTrue(newDeployment.has("collateral"));
+        assertTrue(newDeployment.has("pegged"));
+        assertTrue(newDeployment.has("oracle"));
+        assertTrue(newDeployment.has("minter"));
+        assertTrue(newDeployment.has("configLib"));
 
         // Verify addresses match
-        assertEq(newDeployment.getByString("collateral"), deployment.getByString("collateral"));
-        assertEq(newDeployment.getByString("oracle"), deployment.getByString("oracle"));
-        assertEq(newDeployment.getByString("minter"), deployment.getByString("minter"));
+        assertEq(newDeployment.get("collateral"), deployment.get("collateral"));
+        assertEq(newDeployment.get("oracle"), deployment.get("oracle"));
+        assertEq(newDeployment.get("minter"), deployment.get("minter"));
 
         // Verify entry types
-        assertEq(newDeployment.getEntryType("collateral"), "contract");
-        assertEq(newDeployment.getEntryType("oracle"), "proxy");
-        assertEq(newDeployment.getEntryType("configLib"), "library");
+        assertEq(newDeployment.getType("collateral"), "contract");
+        assertEq(newDeployment.getType("oracle"), "proxy");
+        assertEq(newDeployment.getType("configLib"), "library");
     }
 
     function test_DeploymentWithExistingContracts() public {
@@ -272,7 +270,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
 
         // Use existing mainnet contracts (simulated)
         address wstEth = address(0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
-        deployment.useExistingByString("wstETH", wstEth);
+        deployment.useExisting("wstETH", wstEth);
 
         // Deploy new contracts that depend on existing
         deployment.deployMockERC20("pegged", "USD", "USD");
@@ -280,8 +278,8 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         deployment.finish();
 
         // Verify existing contract is in registry
-        assertEq(deployment.getByString("wstETH"), wstEth);
-        assertTrue(deployment.hasByString("wstETH"));
+        assertEq(deployment.get("wstETH"), wstEth);
+        assertTrue(deployment.has("wstETH"));
 
         // Read autosaved file
         string memory path = string.concat(TEST_OUTPUT_DIR, "/", TEST_SALT, ".json");
@@ -328,13 +326,13 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         phase3.finish(); // autosaves and creates phase3 snapshot
 
         // Verify final state
-        IntegrationTestHarness finalDeployment = new IntegrationTestHarness();
+        MockDeploymentIntegration finalDeployment = new MockDeploymentIntegration();
         finalDeployment.resume(TEST_NETWORK, incrementalSalt);
 
-        assertTrue(finalDeployment.hasByString("collateral"));
-        assertTrue(finalDeployment.hasByString("pegged"));
-        assertTrue(finalDeployment.hasByString("oracle"));
-        assertTrue(finalDeployment.hasByString("minter"));
+        assertTrue(finalDeployment.has("collateral"));
+        assertTrue(finalDeployment.has("pegged"));
+        assertTrue(finalDeployment.has("oracle"));
+        assertTrue(finalDeployment.has("minter"));
     }
 
     function test_MultipleProxiesWithSameImplementation() public {

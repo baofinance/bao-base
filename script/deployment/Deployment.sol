@@ -7,8 +7,10 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
-import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
+import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
+
+import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 
 interface IUUPSUpgradeableProxy {
     function upgradeTo(address newImplementation) external;
@@ -28,7 +30,7 @@ interface IUUPSUpgradeableProxy {
  *      - Production: Pass the harness address deployed via Nick's Factory
  *      - Testing: Pass address(0) to default to address(this)
  */
-abstract contract Deployment is DeploymentJson {
+abstract contract Deployment is DeploymentRegistry {
     // ============================================================================
     // Immutables
     // ============================================================================
@@ -45,103 +47,6 @@ abstract contract Deployment is DeploymentJson {
     /// @notice Bootstrap stub used as initial implementation for all proxies
     /// @dev Deployed once per session, owned by this harness, enables BaoOwnable compatibility with CREATE3
     UUPSProxyDeployStub internal _stub;
-
-    /// @notice Cached BaoDeployer owner used for deterministic address prediction
-    address internal _baoDeployerOwnerCache;
-
-    // ============================================================================
-    // Constants
-    // ============================================================================
-
-    /// Nick's Factory address (deployed on 100+ chains)
-    address internal constant NICKS_FACTORY = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
-
-    /// Nick's Factory bytecode for test environments
-    /// Source: https://github.com/Vectorized/solady/blob/main/test/utils/TestPlus.sol
-    bytes internal constant NICKS_FACTORY_BYTECODE =
-        hex"7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
-
-    /// Salt for deploying BaoDeployer via Nick's Factory
-    /// This ensures BaoDeployer has the same address on all chains
-    bytes32 internal constant BAO_DEPLOYER_SALT = keccak256("Bao.deterministic-deployer.harbor.v1");
-
-    // ============================================================================
-    // BaoDeployer Helpers
-    // ============================================================================
-
-    /// @notice Predict BaoDeployer address for a given owner (CREATE2 via Nick's Factory)
-    function _predictBaoDeployerAddress(address owner) internal pure returns (address) {
-        bytes memory creationCode = abi.encodePacked(type(BaoDeployer).creationCode, abi.encode(owner));
-        bytes32 bytecodeHash = keccak256(creationCode);
-        bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), NICKS_FACTORY, BAO_DEPLOYER_SALT, bytecodeHash));
-        return address(uint160(uint256(hash)));
-    }
-
-    /// @notice Get the cached BaoDeployer address (returns zero if owner not configured)
-    function _getBaoDeployerAddress() internal view returns (address) {
-        address owner = _baoDeployerOwnerCache;
-        if (owner == address(0)) {
-            return address(0);
-        }
-        return _predictBaoDeployerAddress(owner);
-    }
-
-    /// @notice Check if BaoDeployer exists at the predicted address
-    function _baoDeployerExists() internal view returns (bool) {
-        address deployer = _getBaoDeployerAddress();
-        return deployer != address(0) && deployer.code.length > 0;
-    }
-
-    /// @notice Deploy BaoDeployer via Nick's Factory if it doesn't exist
-    /// @param owner Address that will own the BaoDeployer (baked into creation bytecode)
-    /// @return deployed Address of the BaoDeployer (whether newly deployed or existing)
-    function _deployBaoDeployer(address owner) internal returns (address deployed) {
-        if (owner == address(0)) {
-            revert FactoryDeploymentFailed("BaoDeployer owner required");
-        }
-
-        if (_baoDeployerOwnerCache != address(0) && _baoDeployerOwnerCache != owner) {
-            revert FactoryDeploymentFailed("BaoDeployer owner mismatch");
-        }
-
-        _baoDeployerOwnerCache = owner;
-        deployed = _predictBaoDeployerAddress(owner);
-
-        if (!_baoDeployerExists()) {
-            address factory = NICKS_FACTORY;
-            bytes memory creationCode = abi.encodePacked(type(BaoDeployer).creationCode, abi.encode(owner));
-            bytes32 salt = BAO_DEPLOYER_SALT;
-
-            /// @solidity memory-safe-assembly
-            assembly {
-                let codeLength := mload(creationCode)
-                mstore(creationCode, salt)
-                if iszero(call(gas(), factory, 0, creationCode, add(codeLength, 0x20), 0x00, 0x20)) {
-                    returndatacopy(creationCode, 0x00, returndatasize())
-                    revert(creationCode, returndatasize())
-                }
-                mstore(creationCode, codeLength)
-                deployed := shr(96, mload(0x00))
-            }
-
-            require(deployed == _predictBaoDeployerAddress(owner), "BaoDeployer deployed to unexpected address");
-            require(deployed.code.length > 0, "BaoDeployer missing code");
-        }
-
-        return deployed;
-    }
-
-    // ============================================================================
-    // Constructor
-    // ============================================================================
-
-    /// @notice Initialize deployment with deployer context
-    /// @param deployerContext Address to use for CREATE3 determinism.
-    ///        Pass address(0) in tests to use address(this).
-    ///        Pass predicted harness address in production.
-    constructor(address deployerContext) {
-        DEPLOYER_CONTEXT = deployerContext == address(0) ? address(this) : deployerContext;
-    }
 
     // ============================================================================
     // Errors
@@ -164,52 +69,10 @@ abstract contract Deployment is DeploymentJson {
     ///      This is used for both prediction and deployment
     /// @return deployer BaoDeployer contract address
     function _getCreate3Deployer() internal view virtual returns (address deployer) {
-        deployer = _getBaoDeployerAddress();
+        deployer = DeploymentInfrastructure.predictBaoDeployerAddress();
         if (deployer == address(0)) {
             revert FactoryDeploymentFailed("BaoDeployer owner not configured");
         }
-    }
-
-    /// @notice Deploy contract via CREATE3 using BaoDeployer
-    /// @dev CREATE3 provides bytecode-independent deterministic addresses
-    ///      Deployment is done by BaoDeployer (same address on all chains)
-    /// @param creationCode The contract creation bytecode
-    /// @param salt The salt for deterministic address generation
-    /// @return deployed The address of the deployed contract
-    function _deployViaCreate3(bytes memory creationCode, bytes32 salt) internal returns (address deployed) {
-        if (!_baoDeployerExists()) {
-            revert FactoryDeploymentFailed("BaoDeployer not deployed - call _ensureBaoDeployer() first");
-        }
-
-        BaoDeployer deployer = BaoDeployer(_getBaoDeployerAddress());
-        bytes32 initCodeHash = keccak256(creationCode);
-        bytes32 commitment = deployer.computeCommitment(address(this), 0, salt, initCodeHash);
-
-        deployer.commit(commitment);
-        deployed = deployer.reveal{value: 0}(creationCode, salt, 0);
-    }
-
-    /// @notice Deploy via CREATE3 with ETH value
-    /// @dev Internal helper that calls BaoDeployer's value-enabled deployDeterministic
-    /// @param value Amount of ETH to send to the deployed contract's constructor
-    /// @param creationCode Contract creation bytecode
-    /// @param salt CREATE3 salt for deterministic address
-    /// @return deployed Address of the deployed contract
-    function _deployViaCreate3WithValue(
-        uint256 value,
-        bytes memory creationCode,
-        bytes32 salt
-    ) internal returns (address deployed) {
-        if (!_baoDeployerExists()) {
-            revert FactoryDeploymentFailed("BaoDeployer not deployed - call _ensureBaoDeployer() first");
-        }
-
-        BaoDeployer deployer = BaoDeployer(_getBaoDeployerAddress());
-        bytes32 initCodeHash = keccak256(creationCode);
-        bytes32 commitment = deployer.computeCommitment(address(this), value, salt, initCodeHash);
-
-        deployer.commit(commitment);
-        deployed = deployer.reveal{value: value}(creationCode, salt, value);
     }
 
     // ============================================================================
@@ -228,35 +91,29 @@ abstract contract Deployment is DeploymentJson {
         string memory systemSaltString
     ) public virtual {
         _initializeMetadata(owner, network, version, systemSaltString);
+
+        require(DeploymentInfrastructure.predictBaoDeployerAddress().code.length > 0, "need to deploy the BaoDeployer");
+
+        // if the deployer is not deployed then we cannot start
         _stub = new UUPSProxyDeployStub();
-        _saveToRegistry();
+    }
+
+    function deployBaoDeployer() public {
+        DeploymentInfrastructure.deployBaoDeployer();
     }
 
     /// @notice Resume deployment from JSON file
     /// @param network Network name (for subdirectory in production)
     /// @param systemSaltString System salt to derive filepath
     function resume(string memory network, string memory systemSaltString) public virtual {
-        string memory filepath;
-        if (_useNetworkSubdir()) {
-            filepath = string.concat(_getBaseDirPrefix(), "deployments/", network, "/", systemSaltString, ".json");
-        } else {
-            filepath = string.concat(_getBaseDirPrefix(), "deployments/", systemSaltString, ".json");
-        }
-        loadFromJson(filepath);
+        _loadRegistry(_filepath(network, systemSaltString));
         _stub = new UUPSProxyDeployStub();
     }
 
     /// @notice Resume deployment from custom file path (internal - for tests)
     /// @param filepath Custom path to JSON file
     function _resumeFrom(string memory filepath) internal virtual {
-        loadFromJson(filepath);
-        _stub = new UUPSProxyDeployStub();
-    }
-
-    /// @notice Resume deployment from JSON string (internal - for tests)
-    /// @param json JSON string to parse
-    function _resumeFromJson(string memory json) internal virtual {
-        fromJson(json);
+        _loadRegistry(filepath);
         _stub = new UUPSProxyDeployStub();
     }
 
@@ -308,7 +165,7 @@ abstract contract Deployment is DeploymentJson {
         _metadata.finishTimestamp = block.timestamp;
         _metadata.finishBlock = block.number;
 
-        _saveToRegistry();
+        _saveRegistry();
         return transferred;
     }
 
@@ -336,6 +193,14 @@ abstract contract Deployment is DeploymentJson {
         address deployer = _getCreate3Deployer();
         proxy = CREATE3.predictDeterministicAddress(salt, deployer);
     }
+    function deployProxy(
+        uint256 value,
+        string memory proxyKey,
+        string memory implementationKey,
+        bytes memory implementationInitData
+    ) external virtual returns (address proxy) {
+        proxy = _deployProxy(value, proxyKey, implementationKey, implementationInitData);
+    }
 
     /// @notice Deploy a UUPS proxy using bootstrap stub pattern
     /// @dev Three-step process:
@@ -350,7 +215,57 @@ abstract contract Deployment is DeploymentJson {
         string memory proxyKey,
         string memory implementationKey,
         bytes memory implementationInitData
-    ) external virtual returns (address) {
+    ) external virtual returns (address proxy) {
+        proxy = _deployProxy(0, proxyKey, implementationKey, implementationInitData);
+    }
+
+    function _deployContract(
+        uint256 value,
+        string memory key,
+        bytes memory initCode,
+        string memory contractType,
+        string memory contractPath
+    ) internal virtual returns (address addr) {
+        _requireActiveRun();
+        if (bytes(key).length == 0) {
+            revert KeyRequired();
+        }
+        if (_exists[key]) {
+            revert ContractAlreadyExists(key);
+        }
+
+        // Compute salt
+        bytes memory saltBytes = abi.encodePacked(_metadata.systemSaltString, "/", key, "/contract");
+        bytes32 salt = EfficientHashLib.hash(saltBytes);
+        // string memory saltString = key;
+
+        // commit-reveal via to avoid front-running the deployment which could steal our address
+        BaoDeployer deployer = BaoDeployer(DeploymentInfrastructure.predictBaoDeployerAddress());
+        bytes32 commitment = DeploymentInfrastructure.commitment(address(this), value, salt, keccak256(initCode));
+
+        deployer.commit(commitment);
+        addr = deployer.reveal{value: value}(initCode, salt, value);
+
+        // TODO: register predeicted address contract
+        _registerStandardContract(
+            key,
+            addr,
+            "CREATE3 contract",
+            contractType,
+            contractPath,
+            _runs[_runs.length - 1].deployer
+        );
+
+        emit ContractDeployed(key, addr, "CREATE3 contract");
+        return addr;
+    }
+
+    function _deployProxy(
+        uint256 value,
+        string memory proxyKey,
+        string memory implementationKey,
+        bytes memory implementationInitData
+    ) internal virtual returns (address proxy) {
         _requireActiveRun();
         if (bytes(proxyKey).length == 0) {
             revert KeyRequired();
@@ -358,7 +273,7 @@ abstract contract Deployment is DeploymentJson {
         if (_exists[proxyKey]) {
             revert ContractAlreadyExists(proxyKey);
         }
-        address implementation = _get(implementationKey);
+        address implementation = get(implementationKey);
         if (!_exists[implementationKey] || !_eq(_entryType[implementationKey], "implementation")) {
             revert ImplementationKeyRequired();
         }
@@ -373,7 +288,20 @@ abstract contract Deployment is DeploymentJson {
             type(ERC1967Proxy).creationCode,
             abi.encode(address(_stub), bytes(""))
         );
-        address proxy = _deployViaCreate3(proxyCreationCode, salt);
+
+        // commit-reveal via to avoid front-running the deployment which could steal our address
+        {
+            BaoDeployer deployer = BaoDeployer(DeploymentInfrastructure.predictBaoDeployerAddress());
+            deployer.commit(
+                DeploymentInfrastructure.commitment(
+                    address(this),
+                    value,
+                    salt,
+                    EfficientHashLib.hash(proxyCreationCode)
+                )
+            );
+            proxy = deployer.reveal{value: value}(proxyCreationCode, salt, value);
+        }
 
         // Step 2: Upgrade to real implementation with atomic initialization
         // msg.sender during initialize will be this contract (harness) via stub ownership
@@ -389,7 +317,6 @@ abstract contract Deployment is DeploymentJson {
             _metadata.deployer,
             _runs[_runs.length - 1].deployer
         );
-        _saveToRegistry();
 
         emit ContractDeployed(proxyKey, proxy, "UUPS proxy");
         return proxy;
@@ -414,68 +341,34 @@ abstract contract Deployment is DeploymentJson {
 
         // Update registry to reflect the new implementation
         _updateProxyImplementation(proxyKey, newImplementationKey);
-        _saveToRegistry();
 
         emit ContractUpdated(proxyKey, proxy, proxy);
     }
 
-    // ============================================================================
-    // Registration Helpers
-    // ============================================================================
-
-    function _registerStandardContract(
-        string memory key,
-        address addr,
-        string memory contractType,
-        string memory contractPath,
-        string memory category,
-        address deployer
-    ) internal virtual override {
-        super._registerStandardContract(key, addr, contractType, contractPath, category, deployer);
-        _saveToRegistry();
-    }
-
     function useExisting(string memory key, address addr) public virtual {
-        _requireActiveRun();
-        _requireValidAddress(key, addr);
         _registerStandardContract(key, addr, "ExistingContract", "blockchain", "existing", address(0));
     }
 
-    function _registerImplementationEntry(
+    function registerImplementation(
         string memory key,
         address addr,
         string memory contractType,
         string memory contractPath
-    ) internal {
+    ) public {
         _requireActiveRun();
         _requireValidAddress(key, addr);
-        _registerImplementation(key, addr, contractType, contractPath, _runs[_runs.length - 1].deployer);
-        _saveToRegistry();
+        super._registerImplementation(key, addr, contractType, contractPath, _runs[_runs.length - 1].deployer);
         emit ContractDeployed(key, addr, "implementation");
     }
 
-    function _registerLibraryEntry(
-        string memory key,
-        address addr,
-        string memory contractType,
-        string memory contractPath
-    ) internal {
-        _requireActiveRun();
-        _requireValidAddress(key, addr);
-        _registerLibrary(key, addr, contractType, contractPath, _runs[_runs.length - 1].deployer);
-        _saveToRegistry();
-        emit ContractDeployed(key, addr, "library");
-    }
-
-    function _deployLibrary(
+    function deployLibrary(
         string memory key,
         bytes memory bytecode,
         string memory contractType,
         string memory contractPath
-    ) internal {
-        if (_exists[key]) {
-            revert LibraryAlreadyExists(key);
-        }
+    ) public {
+        _requireActiveRun();
+
         address addr;
         assembly {
             addr := create(0, add(bytecode, 0x20), mload(bytecode))
@@ -483,58 +376,8 @@ abstract contract Deployment is DeploymentJson {
         if (addr == address(0)) {
             revert LibraryDeploymentFailed(key);
         }
-        _registerLibraryEntry(key, addr, contractType, contractPath);
-    }
 
-    // ============================================================================
-    // Internal helpers
-    // ============================================================================
-
-    function _requireValidAddress(string memory key, address addr) internal view {
-        if (bytes(key).length == 0) {
-            revert KeyRequired();
-        }
-        if (addr == address(0)) {
-            revert InvalidAddress(key);
-        }
-        if (_exists[key]) {
-            revert ContractAlreadyExists(key);
-        }
-    }
-
-    function _requireValidLibrary(string memory key, address addr) internal view {
-        if (bytes(key).length == 0) {
-            revert KeyRequired();
-        }
-        if (addr == address(0)) {
-            revert InvalidAddress(key);
-        }
-        if (_exists[key]) {
-            revert LibraryAlreadyExists(key);
-        }
-    }
-
-    // ============================================================================
-    // Parameter Setters with Auto-save
-    // ============================================================================
-
-    function _setString(string memory key, string memory value) internal virtual override {
-        super._setString(key, value);
-        _saveToRegistry();
-    }
-
-    function _setUint(string memory key, uint256 value) internal virtual override {
-        super._setUint(key, value);
-        _saveToRegistry();
-    }
-
-    function _setInt(string memory key, int256 value) internal virtual override {
-        super._setInt(key, value);
-        _saveToRegistry();
-    }
-
-    function _setBool(string memory key, bool value) internal virtual override {
-        super._setBool(key, value);
-        _saveToRegistry();
+        _registerLibrary(key, addr, contractType, contractPath, _runs[_runs.length - 1].deployer);
+        emit ContractDeployed(key, addr, "library");
     }
 }

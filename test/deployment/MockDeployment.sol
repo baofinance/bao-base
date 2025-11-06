@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
+import {DeploymentRegistryJson} from "@bao-script/deployment/DeploymentRegistryJson.sol";
+import {DeploymentFoundry} from "@bao-script/deployment/DeploymentFoundry.sol";
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 import {Vm} from "forge-std/Vm.sol";
+
+import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 
 /**
  * @title MockDeployment
@@ -14,10 +18,7 @@ import {Vm} from "forge-std/Vm.sol";
  * @dev Defaults to address(this) as DEPLOYER_CONTEXT for test simplicity
  * @dev Overrides to use results/deployments flat structure (no network subdirs)
  */
-contract MockDeployment is Deployment {
-    /// @notice Foundry VM interface for cheatcodes
-    Vm private constant vm = Vm(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
-
+contract MockDeployment is DeploymentFoundry {
     /// @notice Flag to control registry saves in tests
     bool private _registrySavesEnabled;
 
@@ -26,22 +27,13 @@ contract MockDeployment is Deployment {
     /// @dev Registry saves disabled by default in tests to avoid polluting results directory
     /// @dev Does NOT deploy infrastructure - that's handled by BaoDeploymentTest.setUp()
     /// @dev Configures itself as operator when it owns the BaoDeployer
-    constructor() Deployment(address(0)) {
+    constructor() {
         _registrySavesEnabled = false;
 
         // Configure operator if this harness already owns the BaoDeployer (resumed test state)
-        if (_baoDeployerExists()) {
-            address deployerAddr = _getBaoDeployerAddress();
-            if (deployerAddr != address(0)) {
-                BaoDeployer deployer = BaoDeployer(deployerAddr);
-                address owner = deployer.owner();
-                if (owner == address(this)) {
-                    vm.startPrank(owner);
-                    deployer.setOperator(address(this));
-                    vm.stopPrank();
-                }
-            }
-        }
+        VM.startPrank(DeploymentInfrastructure.BAOMULTISIG);
+        BaoDeployer(DeploymentInfrastructure.predictBaoDeployerAddress()).setOperator(address(this));
+        VM.stopPrank();
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -49,48 +41,18 @@ contract MockDeployment is Deployment {
                         (Test-only exposure of production logic)
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @notice Etch Nick's Factory for test environments (test-only helper)
-    /// @dev Production chains already have Nick's Factory deployed
-    /// @dev Tests need to etch it since they run on fresh EVM state
-    function etchNicksFactory() public {
-        if (NICKS_FACTORY.code.length == 0) {
-            vm.etch(NICKS_FACTORY, NICKS_FACTORY_BYTECODE);
-        }
-    }
-
-    /// @notice Deploy BaoDeployer via Nick's Factory (test helper)
-    /// @dev Exposes parent's _deployBaoDeployer() for test infrastructure setup
-    /// @dev This is the same logic used in production - no duplication
-    /// @param owner Address that will own the BaoDeployer
-    /// @return deployed Address of the BaoDeployer
-    function deployBaoDeployer(address owner) public returns (address deployed) {
-        deployed = _deployBaoDeployer(owner);
-    }
-
     /// @notice Assign BaoDeployer operator by impersonating the owner (test helper)
     /// @param owner Address with ownership privileges (e.g., Bao multisig)
     /// @param operator Contract that should act as operator
     function assignBaoDeployerOperator(address owner, address operator) public {
-        address deployed = _getBaoDeployerAddress();
+        address deployed = DeploymentInfrastructure.predictBaoDeployerAddress();
         if (deployed == address(0)) {
             revert FactoryDeploymentFailed("BaoDeployer owner not configured");
         }
 
-        vm.startPrank(owner);
+        VM.startPrank(owner);
         BaoDeployer(deployed).setOperator(operator);
-        vm.stopPrank();
-    }
-
-    /// @notice Check if BaoDeployer exists (test helper)
-    /// @return True if BaoDeployer has code at the expected address
-    function baoDeployerExists() public view returns (bool) {
-        return _baoDeployerExists();
-    }
-
-    /// @notice Get BaoDeployer address (test helper)
-    /// @return Address where BaoDeployer is/will be deployed
-    function getBaoDeployerAddress() public view returns (address) {
-        return _getBaoDeployerAddress();
+        VM.stopPrank();
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -120,11 +82,27 @@ contract MockDeployment is Deployment {
     }
 
     /// @notice Override to disable registry saves by default in tests
-    /// @dev Tests that want regression files should call enableAutoSave() or use explicit saveToJson()
-    function _saveToRegistry() internal virtual override {
+    /// @dev Tests that want regression files should call enableAutoSave() or use explicit toJsonFile()
+    function _saveRegistry() internal virtual override(DeploymentRegistry, DeploymentRegistryJson) {
         if (_registrySavesEnabled) {
-            super._saveToRegistry();
+            super._saveRegistry();
         }
+    }
+
+    function fromJsonFile(string memory filepath) public {
+        _fromJsonFile(filepath);
+    }
+
+    function toJsonFile(string memory filepath) public {
+        _toJsonFile(filepath);
+    }
+
+    function fromJson(string memory json) public virtual {
+        return _fromJson(json);
+    }
+
+    function toJson() public virtual returns (string memory) {
+        return _toJson();
     }
 
     /// @notice Count how many proxies are still owned by this harness (for testing)
@@ -203,44 +181,17 @@ contract MockDeployment is Deployment {
 
     /// @notice Resume from custom filepath (test only)
     function resumeFrom(string memory filepath) public {
-        _resumeFrom(filepath);
+        _fromJsonFile(filepath);
     }
 
     /// @notice Resume from JSON string (test only)
     function resumeFromJson(string memory json) public {
-        _resumeFromJson(json);
+        _fromJson(json);
     }
 
     // ============================================================================
     // Contract Access Wrappers
     // ============================================================================
-
-    /**
-     * @notice Public wrapper for internal _get() method
-     * @param key String key to look up
-     * @return Address of the deployed contract
-     */
-    function getByString(string memory key) public view returns (address) {
-        return _get(key);
-    }
-
-    /**
-     * @notice Public wrapper for internal _has() method
-     * @param key String key to check
-     * @return True if contract exists
-     */
-    function hasByString(string memory key) public view returns (bool) {
-        return _has(key);
-    }
-
-    /**
-     * @notice Public wrapper for internal useExisting() method
-     * @param key String key to register
-     * @param addr Address of existing contract
-     */
-    function useExistingByString(string memory key, address addr) public {
-        useExisting(key, addr);
-    }
 
     /**
      * @notice Public wrapper for contract registration
@@ -263,229 +214,58 @@ contract MockDeployment is Deployment {
             );
     }
 
-    /**
-     * @notice Public wrapper for internal _registerImplementationEntry helper
-     */
-    function registerImplementation(
-        string memory key,
-        address addr,
-        string memory contractType,
-        string memory contractPath
-    ) public {
-        _registerImplementationEntry(key, addr, contractType, contractPath);
-    }
-
-    /**
-     * @notice Public wrapper for internal _registerLibraryEntry helper
-     */
-    function registerLibrary(
-        string memory key,
-        address addr,
-        string memory contractType,
-        string memory contractPath
-    ) public {
-        _registerLibraryEntry(key, addr, contractType, contractPath);
-    }
-
-    // ============================================================================
-    // Parameter Access Wrappers
-    // ============================================================================
-
-    /**
-     * @notice Public wrapper for internal _getString() method
-     * @param key String key to look up
-     * @return The string value
-     */
-    function getStringByKey(string memory key) public view returns (string memory) {
-        return _getString(key);
-    }
-
-    /**
-     * @notice Public wrapper for internal _getUint() method
-     * @param key String key to look up
-     * @return The uint256 value
-     */
-    function getUintByKey(string memory key) public view returns (uint256) {
-        return _getUint(key);
-    }
-
-    /**
-     * @notice Public wrapper for internal _getInt() method
-     * @param key String key to look up
-     * @return The int256 value
-     */
-    function getIntByKey(string memory key) public view returns (int256) {
-        return _getInt(key);
-    }
-
-    /**
-     * @notice Public wrapper for internal _getBool() method
-     * @param key String key to look up
-     * @return The bool value
-     */
-    function getBoolByKey(string memory key) public view returns (bool) {
-        return _getBool(key);
-    }
-
-    /**
-     * @notice Public wrapper for internal _setString() method
-     * @param key String key to set
-     * @param value The string value
-     */
-    function setStringByKey(string memory key, string memory value) public {
-        _setString(key, value);
-    }
-
-    /**
-     * @notice Public wrapper for internal _setUint() method
-     * @param key String key to set
-     * @param value The uint256 value
-     */
-    function setUintByKey(string memory key, uint256 value) public {
-        _setUint(key, value);
-    }
-
-    /**
-     * @notice Public wrapper for internal _setInt() method
-     * @param key String key to set
-     * @param value The int256 value
-     */
-    function setIntByKey(string memory key, int256 value) public {
-        _setInt(key, value);
-    }
-
-    /**
-     * @notice Public wrapper for internal _setBool() method
-     * @param key String key to set
-     * @param value The bool value
-     */
-    function setBoolByKey(string memory key, bool value) public {
-        _setBool(key, value);
-    }
-
-    // ============================================================================
-    // Library Deployment Wrappers
-    // ============================================================================
-
-    /**
-     * @notice Public wrapper for deployLibrary with simplified parameters
-     * @param key String key to register
-     * @param bytecode Contract bytecode to deploy
-     */
-    function deployLibrary(string memory key, bytes memory bytecode) public {
-        _deployLibrary(key, bytecode, "Library", "");
-    }
-
-    /**
-     * @notice Public wrapper with salt parameter for backward compatibility
-     * @dev The salt parameter is ignored - libraries always use CREATE
-     * @param key String key to register
-     * @param bytecode Contract bytecode to deploy
-     */
-    function deployLibrary(string memory key, bytes memory bytecode, string memory) public {
-        _deployLibrary(key, bytecode, "Library", "");
-    }
-
-    /**
-     * @notice Public wrapper exposing full metadata options for library deployment
-     */
-    function deployLibrary(
-        string memory key,
-        bytes memory bytecode,
-        string memory contractType,
-        string memory contractPath
-    ) public {
-        _deployLibrary(key, bytecode, contractType, contractPath);
-    }
-
-    /**
-     * @notice Deploy a contract via CREATE3 with ETH value to payable constructor
-     * @dev Uses BaoDeployer's value-enabled deployDeterministic
-     * @param key String key to register the contract
-     * @param value Amount of ETH (in wei) to send to constructor (requires payable constructor)
-     * @param creationCode Contract creation bytecode
-     * @param contractType Contract type for metadata (e.g., "FundedVault")
-     * @param contractPath Source path for metadata
-     * @return deployed Address of the deployed contract
-     */
-    function deployContractWithValue(
-        string memory key,
+    function predictableDeployContract(
         uint256 value,
-        bytes memory creationCode,
+        string memory key,
+        bytes memory initCode,
         string memory contractType,
         string memory contractPath
-    ) public payable returns (address deployed) {
-        _requireActiveRun();
-        if (bytes(key).length == 0) {
-            revert KeyRequired();
-        }
-        if (_exists[key]) {
-            revert ContractAlreadyExists(key);
-        }
-
-        // Compute salt
-        bytes memory saltBytes = abi.encodePacked(_metadata.systemSaltString, "/", key, "/contract");
-        bytes32 salt = keccak256(saltBytes);
-
-        // Deploy via CREATE3 with value
-        deployed = _deployViaCreate3WithValue(value, creationCode, salt);
-
-        // Register the contract
-        registerContract(key, deployed, contractType, contractPath, "contract");
-
-        emit ContractDeployed(key, deployed, contractType);
+    ) external virtual returns (address) {
+        return _deployContract(value, key, initCode, contractType, contractPath);
     }
 
-    // ============================================================================
-    // Compatibility Helpers
-    // ============================================================================
+    // /**
+    //  * @notice Deploy a contract via CREATE3 with ETH value to payable constructor
+    //  * @dev Uses BaoDeployer's value-enabled deployDeterministic
+    //  * @param key String key to register the contract
+    //  * @param value Amount of ETH (in wei) to send to constructor (requires payable constructor)
+    //  * @param creationCode Contract creation bytecode
+    //  * @param contractType Contract type for metadata (e.g., "FundedVault")
+    //  * @param contractPath Source path for metadata
+    //  * @return deployed Address of the deployed contract
+    //  */
+    // function deployContractWithValue(
+    //     string memory key,
+    //     uint256 value,
+    //     bytes memory creationCode,
+    //     string memory contractType,
+    //     string memory contractPath
+    // ) public payable returns (address deployed) {
+    //     _requireActiveRun();
+    //     if (bytes(key).length == 0) {
+    //         revert KeyRequired();
+    //     }
+    //     if (_exists[key]) {
+    //         revert ContractAlreadyExists(key);
+    //     }
 
-    /**
-     * @notice Alias for getByString for backward compatibility
-     * @param key String key to look up
-     * @return Address of the deployed contract
-     */
-    function getContract(string memory key) public view returns (address) {
-        return _get(key);
-    }
+    //     // Compute salt
+    //     bytes memory saltBytes = abi.encodePacked(_metadata.systemSaltString, "/", key, "/contract");
+    //     bytes32 salt = keccak256(saltBytes);
 
-    /**
-     * @notice Alias for useExistingByString for backward compatibility
-     * @param key String key to register
-     * @param addr Address of existing contract
-     */
-    function registerExisting(string memory key, address addr) public {
-        useExisting(key, addr);
-    }
+    //     address baoDeployerAddr = _predictBaoDeployerAddress();
+    //     BaoDeployer baoDeployer = BaoDeployer(baoDeployerAddr);
+    //     bytes32 initCodeHash = keccak256(creationCode);
+    //     bytes32 commitment = DeploymentInfrastructure.commitment(address(this), value, salt, initCodeHash);
 
-    /**
-     * @notice Simple entry struct for test compatibility
-     */
-    struct DeploymentEntry {
-        address addr;
-        string category;
-    }
+    //     baoDeployer.commit(commitment);
+    //     deployed = baoDeployer.reveal{value: value}(creationCode, salt, value);
 
-    /**
-     * @notice Get entry information for backward compatibility
-     * @param key String key to look up
-     * @return Entry with address and category
-     */
-    function getEntry(string memory key) public view returns (DeploymentEntry memory) {
-        string memory entryType = getEntryType(key);
-        address addr = _get(key);
+    //     // Register the contract
+    //     registerContract(key, deployed, contractType, contractPath, "contract");
 
-        DeploymentEntry memory entry;
-        entry.addr = addr;
-
-        if (_strEqual(entryType, "library")) {
-            entry.category = "library";
-        } else if (_strEqual(entryType, "contract")) {
-            entry.category = "existing";
-        }
-
-        return entry;
-    }
+    //     emit ContractDeployed(key, deployed, contractType);
+    // }
 
     /**
      * @notice Helper for string comparison

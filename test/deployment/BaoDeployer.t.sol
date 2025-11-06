@@ -6,6 +6,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 import {FundedVault, NonPayableVault, FundedVaultUUPS} from "@bao-test/mocks/deployment/FundedVault.sol";
+import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 
 contract SimpleContract {
     uint256 public value;
@@ -16,7 +17,7 @@ contract SimpleContract {
         deployer = msg.sender;
     }
 }
-
+/*  */
 contract BaoDeployerTest is Test {
     BaoDeployer internal deployer;
     address internal owner;
@@ -33,7 +34,7 @@ contract BaoDeployerTest is Test {
     }
 
     function _commit(bytes memory initCode, bytes32 salt, uint256 value) internal returns (bytes32 commitment) {
-        commitment = deployer.computeCommitment(operator, value, salt, keccak256(initCode));
+        commitment = keccak256(abi.encode(operator, value, salt, keccak256(initCode)));
         vm.prank(operator);
         deployer.commit(commitment);
     }
@@ -109,7 +110,7 @@ contract BaoDeployerTest is Test {
         bytes32 badSalt = keccak256("bad.salt");
         _commit(initCode, salt, 0);
 
-        bytes32 expected = deployer.computeCommitment(operator, 0, badSalt, keccak256(initCode));
+        bytes32 expected = DeploymentInfrastructure.commitment(operator, 0, badSalt, keccak256(initCode));
 
         vm.prank(operator);
         vm.expectRevert(abi.encodeWithSelector(BaoDeployer.UnknownCommitment.selector, expected));
@@ -119,7 +120,7 @@ contract BaoDeployerTest is Test {
     function testRevealWithoutCommitReverts() public {
         bytes memory initCode = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(9)));
         bytes32 salt = keccak256("no.commit");
-        bytes32 expected = deployer.computeCommitment(operator, 0, salt, keccak256(initCode));
+        bytes32 expected = DeploymentInfrastructure.commitment(operator, 0, salt, keccak256(initCode));
 
         vm.prank(operator);
         vm.expectRevert(abi.encodeWithSelector(BaoDeployer.UnknownCommitment.selector, expected));
@@ -144,7 +145,7 @@ contract BaoDeployerTest is Test {
         deployer.setOperator(address(0));
         bytes memory initCode = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(5)));
         bytes32 salt = keccak256("operator.unset");
-        bytes32 commitment = deployer.computeCommitment(address(0), 0, salt, keccak256(initCode));
+        bytes32 commitment = DeploymentInfrastructure.commitment(address(0), 0, salt, keccak256(initCode));
 
         vm.expectRevert(abi.encodeWithSelector(BaoDeployer.OperatorRequired.selector));
         vm.prank(address(0));
@@ -154,7 +155,7 @@ contract BaoDeployerTest is Test {
     function testUnauthorizedCallerCannotCommit() public {
         bytes memory initCode = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(11)));
         bytes32 salt = keccak256("unauthorized");
-        bytes32 commitment = deployer.computeCommitment(operator, 0, salt, keccak256(initCode));
+        bytes32 commitment = DeploymentInfrastructure.commitment(operator, 0, salt, keccak256(initCode));
 
         vm.prank(outsider);
         vm.expectRevert(abi.encodeWithSelector(BaoDeployer.UnauthorizedOperator.selector, outsider));

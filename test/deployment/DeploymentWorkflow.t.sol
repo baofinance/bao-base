@@ -10,14 +10,14 @@ import {MockMinter} from "@bao-test/mocks/upgradeable/MockMinter.sol";
 import {MathLib} from "@bao-test/mocks/TestLibraries.sol";
 
 /**
- * @title WorkflowTestHarness
+ * @title MockDeploymentWorkflow
  * @notice Test harness for full deployment workflows
  */
-contract WorkflowTestHarness is MockDeployment {
+contract MockDeploymentWorkflow is MockDeployment {
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
         MockERC20 token = new MockERC20(name, symbol, 18);
         registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol", "contract");
-        return _get(key);
+        return get(key);
     }
 
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
@@ -26,7 +26,7 @@ contract WorkflowTestHarness is MockDeployment {
         registerImplementation(implKey, address(impl), "OracleV1", "test/mocks/upgradeable/MockOracle.sol");
         bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
         this.deployProxy(key, implKey, initData);
-        return _get(key);
+        return get(key);
     }
 
     function deployMinterProxy(
@@ -37,10 +37,10 @@ contract WorkflowTestHarness is MockDeployment {
         string memory oracleKey,
         address admin
     ) public returns (address) {
-        address collateral = _get(collateralKey);
-        address pegged = _get(peggedKey);
-        address leveraged = _get(leveragedKey);
-        address oracle = _get(oracleKey);
+        address collateral = get(collateralKey);
+        address pegged = get(peggedKey);
+        address leveraged = get(leveragedKey);
+        address oracle = get(oracleKey);
 
         // Constructor parameters: immutable token addresses (rarely change)
         MockMinter impl = new MockMinter(collateral, pegged, leveraged);
@@ -59,7 +59,7 @@ contract WorkflowTestHarness is MockDeployment {
     function deployMathLibrary(string memory key) public returns (address) {
         bytes memory bytecode = type(MathLib).creationCode;
         deployLibrary(key, bytecode, "MathLib", "test/mocks/TestLibraries.sol");
-        return _get(key);
+        return get(key);
     }
 }
 
@@ -68,7 +68,7 @@ contract WorkflowTestHarness is MockDeployment {
  * @notice Captures snapshots after each deployment operation
  * @dev Demonstrates autosave capturing every deploy, register, setParameter, etc.
  */
-contract OperationSnapshotHarness is WorkflowTestHarness {
+contract OperationSnapshotHarness is MockDeploymentWorkflow {
     /// @notice Foundry VM for file operations
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
@@ -81,9 +81,7 @@ contract OperationSnapshotHarness is WorkflowTestHarness {
 
     /// @notice Override to save snapshot after each operation
     /// @dev Captures state after deploy, register, useExisting, setParameter, etc.
-    function _saveToRegistry() internal virtual override {
-        super._saveToRegistry();
-
+    function _saveRegistry() internal virtual override {
         // Build snapshot path: insert -opXX before .json extension
         string memory basePath = _filepath();
         string memory snapshotPath = string.concat(
@@ -92,7 +90,7 @@ contract OperationSnapshotHarness is WorkflowTestHarness {
             _uintToString(_operationCounter),
             ".json"
         );
-        saveToJson(snapshotPath);
+        toJsonFile(snapshotPath);
         _operationCounter++;
     }
 }
@@ -102,7 +100,7 @@ contract OperationSnapshotHarness is WorkflowTestHarness {
  * @notice Tests complete deployment workflows from start to finish
  */
 contract DeploymentWorkflowTest is BaoDeploymentTest {
-    WorkflowTestHarness public deployment;
+    MockDeploymentWorkflow public deployment;
     address public admin;
     string constant TEST_NETWORK = "workflow-test";
     string constant TEST_SALT = "workflow-test-salt";
@@ -110,7 +108,7 @@ contract DeploymentWorkflowTest is BaoDeploymentTest {
 
     function setUp() public override {
         super.setUp();
-        deployment = new WorkflowTestHarness();
+        deployment = new MockDeploymentWorkflow();
         admin = makeAddr("admin");
         deployment.start(admin, TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
@@ -121,8 +119,8 @@ contract DeploymentWorkflowTest is BaoDeploymentTest {
 
         // Verify deployment
         assertTrue(token != address(0), "Token should be deployed");
-        assertEq(deployment.getByString("USDC"), token, "Token should be registered");
-        assertEq(deployment.getEntryType("USDC"), "contract", "Should be contract type");
+        assertEq(deployment.get("USDC"), token, "Token should be registered");
+        assertEq(deployment.getType("USDC"), "contract", "Should be contract type");
 
         // Finish deployment
         deployment.finish();
@@ -150,16 +148,16 @@ contract DeploymentWorkflowTest is BaoDeploymentTest {
         snapDeployment.useExisting("existingToken", existingContract);
 
         // op4: setStringByKey parameter
-        snapDeployment.setStringByKey("configValue", "testValue");
+        snapDeployment.setString("configValue", "testValue");
 
         // op5: setUintByKey parameter
-        snapDeployment.setUintByKey("maxSupply", 1000000e18);
+        snapDeployment.setUint("maxSupply", 1000000e18);
 
         // op6: setIntByKey parameter
-        snapDeployment.setIntByKey("offset", -100);
+        snapDeployment.setInt("offset", -100);
 
         // op7: setBoolByKey parameter
-        snapDeployment.setBoolByKey("enabled", true);
+        snapDeployment.setBool("enabled", true);
 
         // op8: registerImplementation (in deployOracleProxy)
         // op9: deployProxy
@@ -183,15 +181,15 @@ contract DeploymentWorkflowTest is BaoDeploymentTest {
         snapDeployment.finish();
 
         // Verify all operations were captured
-        assertTrue(snapDeployment.hasByString("collateral"));
-        assertTrue(snapDeployment.hasByString("pegged"));
-        assertTrue(snapDeployment.hasByString("existingToken"));
-        assertTrue(snapDeployment.hasByString("oracle"));
-        assertTrue(snapDeployment.hasByString("mathLib"));
-        assertEq(snapDeployment.getStringByKey("configValue"), "testValue");
-        assertEq(snapDeployment.getUintByKey("maxSupply"), 1000000e18);
-        assertEq(snapDeployment.getIntByKey("offset"), -100);
-        assertTrue(snapDeployment.getBoolByKey("enabled"));
+        assertTrue(snapDeployment.has("collateral"));
+        assertTrue(snapDeployment.has("pegged"));
+        assertTrue(snapDeployment.has("existingToken"));
+        assertTrue(snapDeployment.has("oracle"));
+        assertTrue(snapDeployment.has("mathLib"));
+        assertEq(snapDeployment.getString("configValue"), "testValue");
+        assertEq(snapDeployment.getUint("maxSupply"), 1000000e18);
+        assertEq(snapDeployment.getInt("offset"), -100);
+        assertTrue(snapDeployment.getBool("enabled"));
     }
 
     function test_ProxyWorkflow() public {
@@ -200,8 +198,8 @@ contract DeploymentWorkflowTest is BaoDeploymentTest {
 
         // Verify proxy deployment
         assertTrue(oracle != address(0), "Oracle should be deployed");
-        assertEq(deployment.getByString("PriceOracle"), oracle, "Oracle should be registered");
-        assertEq(deployment.getEntryType("PriceOracle"), "proxy", "Should be proxy type");
+        assertEq(deployment.get("PriceOracle"), oracle, "Oracle should be registered");
+        assertEq(deployment.getType("PriceOracle"), "proxy", "Should be proxy type");
 
         // Finish deployment and transfer ownership
         deployment.finish();
@@ -219,8 +217,8 @@ contract DeploymentWorkflowTest is BaoDeploymentTest {
 
         // Verify library deployment
         assertTrue(mathLib != address(0), "Library should be deployed");
-        assertEq(deployment.getByString("MathLib"), mathLib, "Library should be registered");
-        assertEq(deployment.getEntryType("MathLib"), "library", "Should be library type");
+        assertEq(deployment.get("MathLib"), mathLib, "Library should be registered");
+        assertEq(deployment.getType("MathLib"), "library", "Should be library type");
 
         deployment.finish();
     }
@@ -248,9 +246,9 @@ contract DeploymentWorkflowTest is BaoDeploymentTest {
         // Ownership transferred by finish()
 
         // Add parameters
-        deployment.setStringByKey("systemName", "BaoFinance");
-        deployment.setUintByKey("version", 2);
-        deployment.setBoolByKey("testnet", true);
+        deployment.setString("systemName", "BaoFinance");
+        deployment.setUint("version", 2);
+        deployment.setBool("testnet", true);
 
         // Verify all components
         assertTrue(usdc != address(0), "USDC should be deployed");
@@ -270,9 +268,9 @@ contract DeploymentWorkflowTest is BaoDeploymentTest {
         assertEq(oracleContract.owner(), admin, "Oracle owner should be admin");
 
         // Verify parameters
-        assertEq(deployment.getStringByKey("systemName"), "BaoFinance", "System name should be set");
-        assertEq(deployment.getUintByKey("version"), 2, "Version should be set");
-        assertTrue(deployment.getBoolByKey("testnet"), "Testnet flag should be true");
+        assertEq(deployment.getString("systemName"), "BaoFinance", "System name should be set");
+        assertEq(deployment.getUint("version"), 2, "Version should be set");
+        assertTrue(deployment.getBool("testnet"), "Testnet flag should be true");
 
         // Verify key count (3 tokens + 2 proxies + 2 implementations + 1 library + 3 parameters)
         string[] memory keys = deployment.keys();
@@ -282,14 +280,14 @@ contract DeploymentWorkflowTest is BaoDeploymentTest {
     function test_WorkflowWithExistingContracts() public {
         // Register existing contracts
         address existingUSDC = address(0x1234567890123456789012345678901234567890);
-        deployment.useExistingByString("ExistingUSDC", existingUSDC);
+        deployment.useExisting("ExistingUSDC", existingUSDC);
 
         // Register existing baoUSD contract
         address existingBaoUSD = address(0x9876543210987654321098765432109876543210);
-        deployment.useExistingByString("baoUSD", existingBaoUSD);
+        deployment.useExisting("baoUSD", existingBaoUSD);
 
         address leveragedUSD = address(new MockERC20("leveragedUSD", "Bao leveragedUSD", 18));
-        deployment.useExistingByString("leveragedUSD", leveragedUSD);
+        deployment.useExisting("leveragedUSD", leveragedUSD);
 
         // Deploy new contracts that depend on existing ones
         address oracle = deployment.deployOracleProxy("PriceOracle", 1500e18, admin);
@@ -337,7 +335,7 @@ contract DeploymentWorkflowTest is BaoDeploymentTest {
         // For now, just verify the proxy was deployed
         assertTrue(deployed != address(0), "Proxy should be deployed");
         assertTrue(predicted != address(0), "Predicted should be non-zero");
-        assertEq(deployment.getByString("Oracle"), deployed, "Proxy should be registered");
+        assertEq(deployment.get("Oracle"), deployed, "Proxy should be registered");
 
         OracleV1 oracleContractDeterministic = OracleV1(deployed);
         assertEq(oracleContractDeterministic.owner(), admin, "Oracle owner should be admin");
@@ -352,7 +350,7 @@ contract DeploymentWorkflowTest is BaoDeploymentTest {
         deployment.finish();
         // Ownership transferred by finish()
 
-        deployment.setStringByKey("network", "ethereum");
+        deployment.setString("network", "ethereum");
 
         // Test JSON round-trip
         string memory json = deployment.toJson();
@@ -364,12 +362,12 @@ contract DeploymentWorkflowTest is BaoDeploymentTest {
         assertTrue(vm.keyExistsJson(json, ".deployment.network"), "Should contain network parameter");
 
         // Test loading from JSON
-        WorkflowTestHarness newDeployment = new WorkflowTestHarness();
+        MockDeploymentWorkflow newDeployment = new MockDeploymentWorkflow();
         newDeployment.fromJson(json);
 
         // Verify loaded data
-        assertEq(newDeployment.getByString("USDC"), deployment.getByString("USDC"), "USDC address should match");
-        assertEq(newDeployment.getByString("Oracle"), deployment.getByString("Oracle"), "Oracle address should match");
-        assertEq(newDeployment.getStringByKey("network"), "ethereum", "Network parameter should match");
+        assertEq(newDeployment.get("USDC"), deployment.get("USDC"), "USDC address should match");
+        assertEq(newDeployment.get("Oracle"), deployment.get("Oracle"), "Oracle address should match");
+        assertEq(newDeployment.getString("network"), "ethereum", "Network parameter should match");
     }
 }

@@ -41,7 +41,7 @@ Two approaches available depending on testing goals:
 
 #### Simple Approach (Recommended for Most Tests)
 
-- **Pass `address(0)`**: Instantiate deployment with `new TestDeployment()` which passes `address(0)` to the base constructor.
+- **Pass `address(0)`**: Instantiate deployment with `new MockDeployment()` which passes `address(0)` to the base constructor.
 - **Default Behavior**: When `deployerContext` is `address(0)`, the constructor defaults to `address(this)`.
 - **Benefits**: Simple, fast iteration, no extra setup required.
 - **Limitation**: Deployed addresses won't match production addresses (but will be deterministic within test environment).
@@ -165,7 +165,7 @@ Implementations follow a specific pattern for parameter handling:
 
 - Pause contract lifecycle (upgrade to `Pause` then resume) remains untested; requires concrete Pause implementation.
 - Cross-deployer "cross-chain" equivalence scenarios that compare predictions across independent harness instances still need an explicit regression beyond JSON resumptions.
-- Tests currently use `TestDeployment` with `address(0)` defaulting to `address(this)`. Full production simulation using `MockNicksFactory` via `vm.etch()` is not yet implemented in test suite.
+- Tests currently use `MockDeployment` with `address(0)` defaulting to `address(this)`. Full production simulation using `MockNicksFactory` via `vm.etch()` is not yet implemented in test suite.
 
 ## Rejected Alternatives
 
@@ -202,7 +202,7 @@ Implementations follow a specific pattern for parameter handling:
 
 #### Simple Testing (Current Implementation)
 
-1.  **Instantiate Harness**: `deployment = new TestDeployment()` (defaults to `address(this)` as deployer context).
+1.  **Instantiate Harness**: `deployment = new MockDeployment()` (defaults to `address(this)` as deployer context).
 2.  **Start Deployment**: Call `start()` with test parameters.
 3.  **Deploy Contracts**: Each proxy deploys via CREATE3 with bootstrap pattern.
 4.  **Save State**: Serialize to JSON for verification and incremental testing.

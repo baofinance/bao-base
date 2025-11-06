@@ -8,11 +8,11 @@ import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol"
 import {MockOracle, MockToken, MockMinter} from "../mocks/basic/MockDependencies.sol";
 
 // Test harness extends MockDeployment
-contract DependencyTestHarness is MockDeployment {
+contract MockDeploymentDependency is MockDeployment {
     function deployOracle(string memory key, uint256 price) public returns (address) {
         MockOracle oracle = new MockOracle(price);
         registerContract(key, address(oracle), "MockOracle", "test/mocks/basic/MockDependencies.sol", "contract");
-        return _get(key);
+        return get(key);
     }
 
     function deployToken(
@@ -21,18 +21,18 @@ contract DependencyTestHarness is MockDeployment {
         string memory name,
         uint8 decimals
     ) public returns (address) {
-        address oracleAddr = _get(oracleKey);
+        address oracleAddr = get(oracleKey);
         MockToken token = new MockToken(oracleAddr, name, decimals);
         registerContract(key, address(token), "MockToken", "test/mocks/basic/MockDependencies.sol", "contract");
-        return _get(key);
+        return get(key);
     }
 
     function deployMinter(string memory key, string memory tokenKey, string memory oracleKey) public returns (address) {
-        address tokenAddr = _get(tokenKey);
-        address oracleAddr = _get(oracleKey);
+        address tokenAddr = get(tokenKey);
+        address oracleAddr = get(oracleKey);
         MockMinter minter = new MockMinter(tokenAddr, oracleAddr);
         registerContract(key, address(minter), "MockMinter", "test/MockMinter.sol", "contract");
-        return _get(key);
+        return get(key);
     }
 }
 
@@ -41,14 +41,14 @@ contract DependencyTestHarness is MockDeployment {
  * @notice Tests dependency management and error handling
  */
 contract DeploymentDependencyTest is BaoDeploymentTest {
-    DependencyTestHarness public deployment;
+    MockDeploymentDependency public deployment;
     string constant TEST_NETWORK = "test";
     string constant TEST_SALT = "dependency-test-salt";
     string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public override {
         super.setUp();
-        deployment = new DependencyTestHarness();
+        deployment = new MockDeploymentDependency();
         deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
@@ -60,7 +60,7 @@ contract DeploymentDependencyTest is BaoDeploymentTest {
         address tokenAddr = deployment.deployToken("token", "oracle", "TestToken", 18);
 
         assertTrue(tokenAddr != address(0));
-        assertTrue(deployment.hasByString("token"));
+        assertTrue(deployment.has("token"));
 
         MockToken token = MockToken(tokenAddr);
         assertEq(token.oracle(), oracleAddr);
@@ -112,12 +112,12 @@ contract DeploymentDependencyTest is BaoDeploymentTest {
     function test_GetBeforeDeployment() public {
         // Verify get() works for deployed contracts
         deployment.deployOracle("oracle", 100);
-        address addr = deployment.getByString("oracle");
+        address addr = deployment.get("oracle");
         assertTrue(addr != address(0));
 
         // Verify get() reverts for non-deployed
         vm.expectRevert(abi.encodeWithSelector(DeploymentRegistry.ContractNotFound.selector, "token"));
-        deployment.getByString("token");
+        deployment.get("token");
     }
 
     function test_ComplexDependencyGraph() public {

@@ -15,18 +15,28 @@ Vm constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
  * @dev Example: contract MyTest is Deployment, DeploymentJson { }
  * @dev Wake deployments: DO NOT inherit from this - use Python for state management
  */
-abstract contract DeploymentJson is DeploymentRegistry {
+abstract contract DeploymentRegistryJson is DeploymentRegistry {
     // ============================================================================
     // JSON Public API
     // ============================================================================
 
-    /**
-     * @notice Save deployment to JSON file
-     * @param filepath Path to write JSON file
-     * @dev Updates finishTimestamp to current timestamp on each save
-     * @dev Creates parent directory structure if it doesn't exist
-     */
-    function saveToJson(string memory filepath) public virtual {
+    function _filext() internal pure returns (string memory) {
+        return "json";
+    }
+
+    function _fromJsonFile(string memory filePath) internal {
+        _fromJson(VM.readFile(filePath));
+    }
+
+    function _toJsonFile(string memory filePath) internal {
+        VM.writeJson(_toJson(), filePath);
+    }
+
+    function _loadRegistry(string memory filePath) internal override {
+        _fromJsonFile(filePath);
+    }
+
+    function _saveRegistry() internal virtual override {
         _updateFinishedAt();
         // Create directory structure based on whether network subdirs are used
         string memory dir;
@@ -36,7 +46,7 @@ abstract contract DeploymentJson is DeploymentRegistry {
             dir = string.concat(_getBaseDirPrefix(), "deployments");
         }
         VM.createDir(dir, true);
-        VM.writeJson(toJson(), filepath);
+        _toJsonFile(_filepath());
     }
 
     /**
@@ -44,7 +54,7 @@ abstract contract DeploymentJson is DeploymentRegistry {
      * @dev Useful for tests to avoid littering filesystem
      * @return JSON string representation of the deployment
      */
-    function toJson() public virtual returns (string memory) {
+    function _toJson() internal virtual returns (string memory) {
         // Serialize all entries and capture final JSON
         string memory deploymentsJson = "";
         if (_keys.length > 0) {
@@ -94,19 +104,11 @@ abstract contract DeploymentJson is DeploymentRegistry {
     }
 
     /**
-     * @notice Load deployment from JSON file
-     * @param filepath Path to JSON file to load
-     */
-    function loadFromJson(string memory filepath) public virtual {
-        fromJson(VM.readFile(filepath));
-    }
-
-    /**
      * @notice Load deployment from JSON string (without reading from file)
      * @dev Useful for tests to avoid littering filesystem
      * @param json JSON string to parse
      */
-    function fromJson(string memory json) public virtual {
+    function _fromJson(string memory json) internal {
         if (_metadata.startTimestamp != 0) {
             revert AlreadyInitialized();
         }
@@ -662,53 +664,4 @@ abstract contract DeploymentJson is DeploymentRegistry {
     // ============================================================================
     // Auto-save Support
     // ============================================================================
-
-    /**
-     * @notice Get base directory prefix (empty for production, "results/" for tests)
-     * @dev Override in test harness to return "results/"
-     * @return Directory prefix (default: empty string for production)
-     */
-    function _getBaseDirPrefix() internal view virtual returns (string memory) {
-        return "";
-    }
-
-    /**
-     * @notice Check if network subdirectory should be used
-     * @dev Override in test harness to return false for flat structure
-     * @return True for production (use network subdir), false for tests (flat)
-     */
-    function _useNetworkSubdir() internal view virtual returns (bool) {
-        return true;
-    }
-
-    /**
-     * @notice Derive filepath from system salt and network
-     * @return Path where JSON should be saved
-     * @dev Production: deployments/{network}/{salt}.json
-     * @dev Tests: results/deployments/{salt}.json
-     */
-    function _filepath() internal view returns (string memory) {
-        if (_useNetworkSubdir()) {
-            return
-                string.concat(
-                    _getBaseDirPrefix(),
-                    "deployments/",
-                    _metadata.network,
-                    "/",
-                    _metadata.systemSaltString,
-                    ".json"
-                );
-        } else {
-            return string.concat(_getBaseDirPrefix(), "deployments/", _metadata.systemSaltString, ".json");
-        }
-    }
-
-    /**
-     * @notice Save deployment state to registry JSON file
-     * @dev Called after every mutation to keep JSON in sync with in-memory state
-     * @dev Can be overridden in test harnesses to disable registry saves
-     */
-    function _saveToRegistry() internal virtual {
-        saveToJson(_filepath());
-    }
 }

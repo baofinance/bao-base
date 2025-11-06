@@ -9,12 +9,12 @@ import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol"
 import {CounterV1} from "../mocks/upgradeable/MockCounter.sol";
 
 // Test harness extends MockDeployment
-contract ProxyTestHarness is MockDeployment {
+contract MockDeploymentProxy is MockDeployment {
     function deployCounterProxy(string memory key, uint256 initialValue, address owner) public returns (address) {
         string memory implKey = string.concat(key, "_impl");
 
         // Only deploy implementation if it doesn't exist yet
-        if (!hasByString(implKey)) {
+        if (!has(implKey)) {
             CounterV1 impl = new CounterV1();
             registerImplementation(implKey, address(impl), "CounterV1", "test/mocks/upgradeable/MockCounter.sol");
         }
@@ -29,7 +29,7 @@ contract ProxyTestHarness is MockDeployment {
  * @notice Tests proxy deployment functionality (CREATE3)
  */
 contract DeploymentProxyTest is BaoDeploymentTest {
-    ProxyTestHarness public deployment;
+    MockDeploymentProxy public deployment;
     address internal admin;
     address internal outsider;
     string constant TEST_NETWORK = "test";
@@ -38,7 +38,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
 
     function setUp() public override {
         super.setUp();
-        deployment = new ProxyTestHarness();
+        deployment = new MockDeploymentProxy();
         deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
         admin = makeAddr("admin");
         outsider = makeAddr("outsider");
@@ -48,9 +48,9 @@ contract DeploymentProxyTest is BaoDeploymentTest {
         address proxyAddr = deployment.deployCounterProxy("counter", 42, admin);
 
         assertTrue(proxyAddr != address(0));
-        assertTrue(deployment.hasByString("counter"));
-        assertEq(deployment.getByString("counter"), proxyAddr);
-        assertEq(deployment.getEntryType("counter"), "proxy");
+        assertTrue(deployment.has("counter"));
+        assertEq(deployment.get("counter"), proxyAddr);
+        assertEq(deployment.getType("counter"), "proxy");
 
         // Verify proxy is working
         CounterV1 counter = CounterV1(proxyAddr);
@@ -95,9 +95,9 @@ contract DeploymentProxyTest is BaoDeploymentTest {
         assertNotEq(proxy1, proxy2);
         assertNotEq(proxy2, proxy3);
 
-        assertTrue(deployment.hasByString("counter1"));
-        assertTrue(deployment.hasByString("counter2"));
-        assertTrue(deployment.hasByString("counter3"));
+        assertTrue(deployment.has("counter1"));
+        assertTrue(deployment.has("counter2"));
+        assertTrue(deployment.has("counter3"));
 
         CounterV1 c1 = CounterV1(proxy1);
         CounterV1 c2 = CounterV1(proxy2);
@@ -137,21 +137,21 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     function test_ResumeRestoresPredictions_() public {
         address existingProxy = deployment.deployCounterProxy("counter", 11, admin);
         string memory expectedMessage = "resumed registry retains counter";
-        assertEq(deployment.getByString("counter"), existingProxy, expectedMessage);
+        assertEq(deployment.get("counter"), existingProxy, expectedMessage);
 
         deployment.finish();
         string memory json = deployment.toJson();
 
-        ProxyTestHarness resumed = new ProxyTestHarness();
+        MockDeploymentProxy resumed = new MockDeploymentProxy();
         resumed.resumeFromJson(json);
 
-        assertEq(resumed.getByString("counter"), existingProxy, "resumed counter address stable");
+        assertEq(resumed.get("counter"), existingProxy, "resumed counter address stable");
 
         address resumedPrediction = resumed.predictProxyAddress("counterNext");
         address resumedDeployed = resumed.deployCounterProxy("counterNext", 22, admin);
 
         assertEq(resumedPrediction, resumedDeployed, "resumed prediction matches deployment");
-        assertEq(resumed.getByString("counterNext"), resumedDeployed, "resumed registry stores new proxy");
+        assertEq(resumed.get("counterNext"), resumedDeployed, "resumed registry stores new proxy");
     }
 
     function test_FinalizeOwnershipAfterResumeSkipsResumedProxy() public {
@@ -159,7 +159,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
         deployment.finish();
         string memory json = deployment.toJson();
 
-        ProxyTestHarness resumed = new ProxyTestHarness();
+        MockDeploymentProxy resumed = new MockDeploymentProxy();
         resumed.resumeFromJson(json);
 
         uint256 transferred = resumed.countTransferrableProxies(admin);

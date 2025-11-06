@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Vm} from "forge-std/Vm.sol";
 import {Deployment} from "./Deployment.sol";
+import {DeploymentRegistryJson} from "@bao-script/deployment/DeploymentRegistryJson.sol";
 
 /**
  * @title DeploymentFoundry
@@ -11,18 +12,9 @@ import {Deployment} from "./Deployment.sol";
  *      - Has Vm for address labeling in transaction traces
  *
  */
-abstract contract DeploymentFoundry is Deployment {
+abstract contract DeploymentFoundry is Deployment, DeploymentRegistryJson {
     /// @notice Foundry VM for labeling addresses in traces
-    Vm private immutable VM;
-
-    /**
-     * @notice Constructor
-     * @param _vm Foundry VM instance (pass `vm` from your script)
-     * @param deployerContext Address to use for CREATE3 determinism (see Deployment.sol)
-     */
-    constructor(Vm _vm, address deployerContext) Deployment(deployerContext) {
-        VM = _vm;
-    }
+    Vm constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     /**
      * @notice Label addresses in Foundry traces

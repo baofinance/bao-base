@@ -39,10 +39,10 @@ contract CounterV2 is CounterV1 {
 }
 
 /**
- * @title UpgradeTestHarness
+ * @title MockDeploymentUpgrade
  * @notice Test harness for proxy upgrade scenarios
  */
-contract UpgradeTestHarness is MockDeployment {
+contract MockDeploymentUpgrade is MockDeployment {
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
         OracleV1 impl = new OracleV1();
         string memory implKey = string.concat(key, "_impl");
@@ -60,12 +60,12 @@ contract UpgradeTestHarness is MockDeployment {
     }
 
     function upgradeOracle(string memory key, address newImplementation) public {
-        address proxy = _get(key);
+        address proxy = get(key);
         IUUPSUpgradeableProxy(proxy).upgradeTo(newImplementation);
     }
 
     function upgradeCounter(string memory key, address newImplementation) public {
-        address proxy = _get(key);
+        address proxy = get(key);
         IUUPSUpgradeableProxy(proxy).upgradeTo(newImplementation);
     }
 }
@@ -75,7 +75,7 @@ contract UpgradeTestHarness is MockDeployment {
  * @notice Tests proxy upgrade scenarios and implementation management
  */
 contract DeploymentUpgradeTest is BaoDeploymentTest {
-    UpgradeTestHarness public deployment;
+    MockDeploymentUpgrade public deployment;
     address public admin;
     string constant TEST_NETWORK = "upgrade-test";
     string constant TEST_SALT = "upgrade-test-salt";
@@ -83,7 +83,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
 
     function setUp() public override {
         super.setUp();
-        deployment = new UpgradeTestHarness();
+        deployment = new MockDeploymentUpgrade();
         admin = address(this);
         deployment.start(admin, TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
@@ -255,22 +255,22 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         // Ownership transferred by finish()
 
         // Verify initial deployment tracking
-        assertEq(deployment.getEntryType("Oracle"), "proxy", "Should be tracked as proxy");
-        assertTrue(deployment.hasByString("Oracle"), "Should have Oracle entry");
+        assertEq(deployment.getType("Oracle"), "proxy", "Should be tracked as proxy");
+        assertTrue(deployment.has("Oracle"), "Should have Oracle entry");
 
         // Deploy new implementation
         OracleV2 newImpl = new OracleV2();
 
         // Upgrade proxy (called from owner - this contract)
-        address oracle = deployment.getByString("Oracle");
+        address oracle = deployment.get("Oracle");
         IUUPSUpgradeableProxy(oracle).upgradeTo(address(newImpl));
 
         // Verify deployment tracking persists
-        assertEq(deployment.getEntryType("Oracle"), "proxy", "Should still be tracked as proxy");
-        assertTrue(deployment.hasByString("Oracle"), "Should still have Oracle entry");
+        assertEq(deployment.getType("Oracle"), "proxy", "Should still be tracked as proxy");
+        assertTrue(deployment.has("Oracle"), "Should still have Oracle entry");
 
         // Address should remain the same (proxy address, not implementation)
-        address proxyAddr = deployment.getByString("Oracle");
+        address proxyAddr = deployment.get("Oracle");
         OracleV2 oracleV2 = OracleV2(proxyAddr);
         assertEq(oracleV2.getVersion(), 2, "Proxy should have new implementation");
     }
@@ -291,10 +291,10 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         assertTrue(vm.keyExistsJson(json, ".deployment.Oracle"), "Should contain Oracle in JSON");
 
         // Test JSON round-trip
-        UpgradeTestHarness newDeployment = new UpgradeTestHarness();
+        MockDeploymentUpgrade newDeployment = new MockDeploymentUpgrade();
         newDeployment.fromJson(json);
 
-        address restoredOracle = newDeployment.getByString("Oracle");
+        address restoredOracle = newDeployment.get("Oracle");
         assertTrue(restoredOracle != address(0), "Oracle should be restored from JSON");
 
         // Verify the restored proxy still has V2 functionality
@@ -435,7 +435,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
 import {MockImplementationOZOwnable} from "../mocks/MockImplementationOZOwnable.sol";
 
 contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
-    UpgradeTestHarness public deployment;
+    MockDeploymentUpgrade public deployment;
     address public admin;
     string constant TEST_NETWORK = "non-bao-test";
     string constant TEST_SALT = "non-bao-test-salt";
@@ -443,7 +443,7 @@ contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
 
     function setUp() public override {
         super.setUp();
-        deployment = new UpgradeTestHarness();
+        deployment = new MockDeploymentUpgrade();
         admin = address(this);
         deployment.start(admin, TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }

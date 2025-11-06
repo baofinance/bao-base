@@ -136,6 +136,41 @@ abstract contract DeploymentRegistry {
     uint256 internal _schemaVersion;
     mapping(string => bool) internal _resumedProxies;
 
+    function _fileext() internal pure virtual returns (string memory) {}
+
+    function _filepath() internal view returns (string memory) {
+        return _filepath(_metadata.network, _metadata.systemSaltString);
+    }
+
+    function _filepath(string memory network, string memory systemSaltString) internal view returns (string memory) {
+        string memory dir = string.concat(_getBaseDirPrefix(), "deployments");
+        if (_useNetworkSubdir()) {
+            dir = string.concat(dir, "/", network);
+        }
+        return string.concat(dir, "/", systemSaltString, ".", _fileext());
+    }
+
+    function _loadRegistry(string memory filePath) internal virtual;
+    function _saveRegistry() internal virtual;
+
+    /**
+     * @notice Get base directory prefix (empty for production, "results/" for tests)
+     * @dev Override in test harness to return "results/"
+     * @return Directory prefix (default: empty string for production)
+     */
+    function _getBaseDirPrefix() internal view virtual returns (string memory) {
+        return "";
+    }
+
+    /**
+     * @notice Check if network subdirectory should be used
+     * @dev Override in test harness to return false for flat structure
+     * @return True for production (use network subdir), false for tests (flat)
+     */
+    function _useNetworkSubdir() internal view virtual returns (bool) {
+        return true;
+    }
+
     // ============================================================================
     // PUBLIC API - Registry Access
     // ============================================================================
@@ -147,7 +182,7 @@ abstract contract DeploymentRegistry {
      * @dev Reverts with DependencyNotMet if contract not deployed
      * @dev Internal - external callers should use HarborDeployment's type-safe get(Contract)
      */
-    function _get(string memory key) internal view returns (address) {
+    function get(string memory key) public view returns (address) {
         if (!_exists[key]) {
             revert ContractNotFound(key);
         }
@@ -166,7 +201,7 @@ abstract contract DeploymentRegistry {
      * @notice Check if contract is registered
      * @dev Internal - external callers should use HarborDeployment's type-safe has(Contract)
      */
-    function _has(string memory key) internal view returns (bool) {
+    function has(string memory key) public view returns (bool) {
         return _exists[key];
     }
 
@@ -180,7 +215,7 @@ abstract contract DeploymentRegistry {
      * @return value The string value
      * @dev Reverts with ParameterNotFound if parameter not set
      */
-    function _getString(string memory key) internal view returns (string memory) {
+    function getString(string memory key) external view returns (string memory) {
         if (!_exists[key]) {
             revert ParameterNotFound(key);
         }
@@ -195,7 +230,7 @@ abstract contract DeploymentRegistry {
      * @param key Parameter identifier
      * @return value The uint256 value
      */
-    function _getUint(string memory key) internal view returns (uint256) {
+    function getUint(string memory key) external view returns (uint256) {
         if (!_exists[key]) {
             revert ParameterNotFound(key);
         }
@@ -210,7 +245,7 @@ abstract contract DeploymentRegistry {
      * @param key Parameter identifier
      * @return value The int256 value
      */
-    function _getInt(string memory key) internal view returns (int256) {
+    function getInt(string memory key) external view returns (int256) {
         if (!_exists[key]) {
             revert ParameterNotFound(key);
         }
@@ -225,7 +260,7 @@ abstract contract DeploymentRegistry {
      * @param key Parameter identifier
      * @return value The bool value
      */
-    function _getBool(string memory key) internal view returns (bool) {
+    function getBool(string memory key) external view returns (bool) {
         if (!_exists[key]) {
             revert ParameterNotFound(key);
         }
@@ -244,11 +279,22 @@ abstract contract DeploymentRegistry {
      * @param key Parameter identifier
      * @param value The string value
      */
-    function _setString(string memory key, string memory value) internal virtual {
+    function setString(string memory key, string memory value) public virtual {
         if (bytes(key).length == 0) {
             revert KeyRequired();
         }
-        _setStringParam(key, value);
+        if (_exists[key]) {
+            revert ParameterAlreadyExists(key);
+        }
+
+        _stringParams[key] = value;
+
+        _exists[key] = true;
+        _entryType[key] = "string";
+        _keys.push(key);
+
+        emit ParameterSet(key, "string");
+        _saveRegistry();
     }
 
     /**
@@ -256,11 +302,22 @@ abstract contract DeploymentRegistry {
      * @param key Parameter identifier
      * @param value The uint256 value
      */
-    function _setUint(string memory key, uint256 value) internal virtual {
+    function setUint(string memory key, uint256 value) public virtual {
         if (bytes(key).length == 0) {
             revert KeyRequired();
         }
-        _setUintParam(key, value);
+        if (_exists[key]) {
+            revert ParameterAlreadyExists(key);
+        }
+
+        _uintParams[key] = value;
+
+        _exists[key] = true;
+        _entryType[key] = "uint256";
+        _keys.push(key);
+
+        emit ParameterSet(key, "uint256");
+        _saveRegistry();
     }
 
     /**
@@ -268,11 +325,19 @@ abstract contract DeploymentRegistry {
      * @param key Parameter identifier
      * @param value The int256 value
      */
-    function _setInt(string memory key, int256 value) internal virtual {
-        if (bytes(key).length == 0) {
-            revert KeyRequired();
+    function setInt(string memory key, int256 value) public virtual {
+        if (_exists[key]) {
+            revert ParameterAlreadyExists(key);
         }
-        _setIntParam(key, value);
+
+        _intParams[key] = value;
+
+        _exists[key] = true;
+        _entryType[key] = "int256";
+        _keys.push(key);
+
+        emit ParameterSet(key, "int256");
+        _saveRegistry();
     }
 
     /**
@@ -280,24 +345,35 @@ abstract contract DeploymentRegistry {
      * @param key Parameter identifier
      * @param value The bool value
      */
-    function _setBool(string memory key, bool value) internal virtual {
+    function setBool(string memory key, bool value) public virtual {
         if (bytes(key).length == 0) {
             revert KeyRequired();
         }
-        _setBoolParam(key, value);
+        if (_exists[key]) {
+            revert ParameterAlreadyExists(key);
+        }
+
+        _boolParams[key] = value;
+
+        _exists[key] = true;
+        _entryType[key] = "bool";
+        _keys.push(key);
+
+        emit ParameterSet(key, "bool");
+        _saveRegistry();
     }
 
     /**
      * @notice Get all registered keys
      */
-    function keys() public view returns (string[] memory) {
+    function keys() external view returns (string[] memory) {
         return _keys;
     }
 
     /**
      * @notice Get entry type for a key
      */
-    function getEntryType(string memory key) public view returns (string memory) {
+    function getType(string memory key) external view returns (string memory) {
         if (!_exists[key]) {
             revert ContractNotFound(key);
         }
@@ -307,7 +383,7 @@ abstract contract DeploymentRegistry {
     /**
      * @notice Get deployment metadata
      */
-    function getMetadata() public view returns (DeploymentMetadata memory) {
+    function getMetadata() external view returns (DeploymentMetadata memory) {
         return _metadata;
     }
 
@@ -354,6 +430,7 @@ abstract contract DeploymentRegistry {
                 finished: false
             })
         );
+        _saveRegistry();
     }
 
     /**
@@ -386,6 +463,7 @@ abstract contract DeploymentRegistry {
         address deployer
     ) internal virtual {
         _requireActiveRun();
+        _requireValidAddress(key, addr);
         _contracts[key] = ContractEntry({
             info: DeploymentInfo({
                 addr: addr,
@@ -402,6 +480,7 @@ abstract contract DeploymentRegistry {
         _exists[key] = true;
         _entryType[key] = "contract";
         _keys.push(key);
+        _saveRegistry();
     }
 
     /**
@@ -437,6 +516,7 @@ abstract contract DeploymentRegistry {
         _entryType[key] = "proxy";
         _keys.push(key);
         _resumedProxies[key] = false;
+        _saveRegistry();
     }
 
     function _getProxy(string memory key) internal view returns (address proxy) {
@@ -454,6 +534,7 @@ abstract contract DeploymentRegistry {
     function _updateProxyImplementation(string memory proxyKey, string memory newImplementationKey) internal virtual {
         _requireActiveRun();
         _proxies[proxyKey].proxy.implementationKey = newImplementationKey;
+        _saveRegistry();
     }
 
     /**
@@ -483,6 +564,7 @@ abstract contract DeploymentRegistry {
         _exists[key] = true;
         _entryType[key] = "implementation";
         _keys.push(key);
+        _saveRegistry();
     }
 
     function _getImplementation(string memory key) internal view returns (address implementation) {
@@ -518,74 +600,31 @@ abstract contract DeploymentRegistry {
         _exists[key] = true;
         _entryType[key] = "library";
         _keys.push(key);
+        _saveRegistry();
     }
 
-    /**
-     * @notice Internal helper to set a string parameter
-     */
-    function _setStringParam(string memory key, string memory value) internal {
-        if (_exists[key]) {
-            revert ParameterAlreadyExists(key);
+    function _requireValidAddress(string memory key, address addr) internal view {
+        if (bytes(key).length == 0) {
+            revert KeyRequired();
         }
-
-        _stringParams[key] = value;
-
-        _exists[key] = true;
-        _entryType[key] = "string";
-        _keys.push(key);
-
-        emit ParameterSet(key, "string");
+        if (addr == address(0)) {
+            revert InvalidAddress(key);
+        }
+        if (_exists[key]) {
+            revert ContractAlreadyExists(key);
+        }
     }
 
-    /**
-     * @notice Internal helper to set a uint256 parameter
-     */
-    function _setUintParam(string memory key, uint256 value) internal {
-        if (_exists[key]) {
-            revert ParameterAlreadyExists(key);
+    function _requireValidLibrary(string memory key, address addr) internal view {
+        if (bytes(key).length == 0) {
+            revert KeyRequired();
         }
-
-        _uintParams[key] = value;
-
-        _exists[key] = true;
-        _entryType[key] = "uint256";
-        _keys.push(key);
-
-        emit ParameterSet(key, "uint256");
-    }
-
-    /**
-     * @notice Internal helper to set an int256 parameter
-     */
-    function _setIntParam(string memory key, int256 value) internal {
-        if (_exists[key]) {
-            revert ParameterAlreadyExists(key);
+        if (addr == address(0)) {
+            revert InvalidAddress(key);
         }
-
-        _intParams[key] = value;
-
-        _exists[key] = true;
-        _entryType[key] = "int256";
-        _keys.push(key);
-
-        emit ParameterSet(key, "int256");
-    }
-
-    /**
-     * @notice Internal helper to set a bool parameter
-     */
-    function _setBoolParam(string memory key, bool value) internal {
         if (_exists[key]) {
-            revert ParameterAlreadyExists(key);
+            revert LibraryAlreadyExists(key);
         }
-
-        _boolParams[key] = value;
-
-        _exists[key] = true;
-        _entryType[key] = "bool";
-        _keys.push(key);
-
-        emit ParameterSet(key, "bool");
     }
 
     /**

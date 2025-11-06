@@ -11,83 +11,83 @@ import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol"
  * @notice Tests parameter storage and retrieval (typed configuration values)
  */
 contract DeploymentParameterTest is BaoDeploymentTest {
-    ParameterTestHarness public deployment;
+    MockDeploymentParameter public deployment;
     string constant TEST_NETWORK = "test";
     string constant TEST_SALT = "parameter-test-salt";
     string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public override {
         super.setUp();
-        deployment = new ParameterTestHarness();
+        deployment = new MockDeploymentParameter();
         deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
     function test_SetAndGetString() public {
-        deployment.setStringByKey("tokenName", "BaoUSD");
+        deployment.setString("tokenName", "BaoUSD");
 
-        assertEq(deployment.getStringByKey("tokenName"), "BaoUSD");
-        assertEq(deployment.getEntryType("tokenName"), "string");
+        assertEq(deployment.getString("tokenName"), "BaoUSD");
+        assertEq(deployment.getType("tokenName"), "string");
     }
 
     function test_SetAndGetUint() public {
-        deployment.setUintByKey("decimals", 18);
+        deployment.setUint("decimals", 18);
 
-        assertEq(deployment.getUintByKey("decimals"), 18);
-        assertEq(deployment.getEntryType("decimals"), "uint256");
+        assertEq(deployment.getUint("decimals"), 18);
+        assertEq(deployment.getType("decimals"), "uint256");
     }
 
     function test_SetAndGetInt() public {
-        deployment.setIntByKey("offset", -100);
+        deployment.setInt("offset", -100);
 
-        assertEq(deployment.getIntByKey("offset"), -100);
-        assertEq(deployment.getEntryType("offset"), "int256");
+        assertEq(deployment.getInt("offset"), -100);
+        assertEq(deployment.getType("offset"), "int256");
     }
 
     function test_SetAndGetBool() public {
-        deployment.setBoolByKey("enabled", true);
+        deployment.setBool("enabled", true);
 
-        assertTrue(deployment.getBoolByKey("enabled"));
-        assertEq(deployment.getEntryType("enabled"), "bool");
+        assertTrue(deployment.getBool("enabled"));
+        assertEq(deployment.getType("enabled"), "bool");
     }
 
     function test_CannotOverwriteParameter() public {
-        deployment.setUintByKey("value", 100);
-        assertEq(deployment.getUintByKey("value"), 100);
+        deployment.setUint("value", 100);
+        assertEq(deployment.getUint("value"), 100);
 
         // Attempting to overwrite should revert
         vm.expectRevert(abi.encodeWithSelector(DeploymentRegistry.ParameterAlreadyExists.selector, "value"));
-        deployment.setUintByKey("value", 200);
+        deployment.setUint("value", 200);
     }
 
     function test_MultipleParameters() public {
-        deployment.setStringByKey("name", "Harbor");
-        deployment.setStringByKey("symbol", "HBR");
-        deployment.setUintByKey("decimals", 18);
-        deployment.setBoolByKey("transferable", true);
+        deployment.setString("name", "Harbor");
+        deployment.setString("symbol", "HBR");
+        deployment.setUint("decimals", 18);
+        deployment.setBool("transferable", true);
 
-        assertEq(deployment.getStringByKey("name"), "Harbor");
-        assertEq(deployment.getStringByKey("symbol"), "HBR");
-        assertEq(deployment.getUintByKey("decimals"), 18);
-        assertTrue(deployment.getBoolByKey("transferable"));
+        assertEq(deployment.getString("name"), "Harbor");
+        assertEq(deployment.getString("symbol"), "HBR");
+        assertEq(deployment.getUint("decimals"), 18);
+        assertTrue(deployment.getBool("transferable"));
     }
 
     function test_RevertWhen_ParameterNotFound() public {
         vm.expectRevert(abi.encodeWithSelector(DeploymentRegistry.ParameterNotFound.selector, "nonexistent"));
-        deployment.getStringByKey("nonexistent");
+        deployment.getString("nonexistent");
     }
 
     function test_RevertWhen_TypeMismatch() public {
-        deployment.setStringByKey("name", "Test");
+        deployment.setString("name", "Test");
 
         vm.expectRevert(
             abi.encodeWithSelector(DeploymentRegistry.ParameterTypeMismatch.selector, "name", "uint256", "string")
         );
-        deployment.getUintByKey("name");
+        deployment.getUint("name");
     }
 
     function test_ParametersInKeysList() public {
-        deployment.setStringByKey("param1", "value1");
-        deployment.setUintByKey("param2", 42);
+        deployment.setString("param1", "value1");
+        deployment.setUint("param2", 42);
 
         string[] memory allKeys = deployment.keys();
         assertEq(allKeys.length, 2);
@@ -95,27 +95,27 @@ contract DeploymentParameterTest is BaoDeploymentTest {
 
     function test_SaveAndLoadParameters() public {
         // Set parameters
-        deployment.setStringByKey("tokenName", "BaoUSD");
-        deployment.setStringByKey("tokenSymbol", "BAOUSD");
-        deployment.setUintByKey("decimals", 18);
-        deployment.setBoolByKey("enabled", true);
-        deployment.setIntByKey("offset", -50);
+        deployment.setString("tokenName", "BaoUSD");
+        deployment.setString("tokenSymbol", "BAOUSD");
+        deployment.setUint("decimals", 18);
+        deployment.setBool("enabled", true);
+        deployment.setInt("offset", -50);
 
         // Save to JSON
         string memory filepath = "results/deployments/test-parameters.json";
         deployment.finish();
-        deployment.saveToJson(filepath);
+        deployment.toJsonFile(filepath);
 
         // Create new deployment and load
-        ParameterTestHarness newDeployment = new ParameterTestHarness();
-        newDeployment.loadFromJson(filepath);
+        MockDeploymentParameter newDeployment = new MockDeploymentParameter();
+        newDeployment.fromJsonFile(filepath);
 
         // Verify all parameters loaded correctly
-        assertEq(newDeployment.getStringByKey("tokenName"), "BaoUSD");
-        assertEq(newDeployment.getStringByKey("tokenSymbol"), "BAOUSD");
-        assertEq(newDeployment.getUintByKey("decimals"), 18);
-        assertTrue(newDeployment.getBoolByKey("enabled"));
-        assertEq(newDeployment.getIntByKey("offset"), -50);
+        assertEq(newDeployment.getString("tokenName"), "BaoUSD");
+        assertEq(newDeployment.getString("tokenSymbol"), "BAOUSD");
+        assertEq(newDeployment.getUint("decimals"), 18);
+        assertTrue(newDeployment.getBool("enabled"));
+        assertEq(newDeployment.getInt("offset"), -50);
     }
 
     function test_MixedContractsAndParameters() public {
@@ -123,13 +123,13 @@ contract DeploymentParameterTest is BaoDeploymentTest {
         address mockAddr = deployment.deployMockContract("token", "MockToken");
 
         // Set parameters
-        deployment.setStringByKey("symbol", "MTK");
-        deployment.setUintByKey("decimals", 18);
+        deployment.setString("symbol", "MTK");
+        deployment.setUint("decimals", 18);
 
         // Verify both work
-        assertEq(deployment.getByString("token"), mockAddr);
-        assertEq(deployment.getStringByKey("symbol"), "MTK");
-        assertEq(deployment.getUintByKey("decimals"), 18);
+        assertEq(deployment.get("token"), mockAddr);
+        assertEq(deployment.getString("symbol"), "MTK");
+        assertEq(deployment.getUint("decimals"), 18);
 
         // Verify keys include both
         string[] memory allKeys = deployment.keys();
@@ -138,12 +138,12 @@ contract DeploymentParameterTest is BaoDeploymentTest {
 }
 
 // Test harness with mock deployment method
-contract ParameterTestHarness is MockDeployment {
+contract MockDeploymentParameter is MockDeployment {
     function deployMockContract(string memory key, string memory name) public returns (address) {
         // Simple mock - just create a minimal contract
         address mock = address(new MockContract(name));
         registerContract(key, mock, "MockContract", "test/MockContract.sol", "mock");
-        return _get(key);
+        return get(key);
     }
 }
 

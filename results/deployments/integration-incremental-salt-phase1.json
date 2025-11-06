@@ -10,58 +10,6 @@
       "deployedTo": "0xCB6f5076b5bbae81D7643BfBf57897E8E3FB1db9",
       "deployer": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a"
     },
-    "minter": {
-      "address": "0x16F6ee67f2d4097e0b1DD4798105E929588bce8f",
-      "blockNumber": 300,
-      "category": "UUPS proxy",
-      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
-      "contractType": "ERC1967Proxy",
-      "deployedTo": "0x16F6ee67f2d4097e0b1DD4798105E929588bce8f",
-      "deployer": "0xc7183455a4C133Ae270771860664b6B7ec320bB1",
-      "factory": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a",
-      "implementationKey": "minter_impl",
-      "proxyType": "UUPS",
-      "salt": "0x6561870c1e6e1c53ae7e5ec4f4520ac7dfa05c91808f775063b6ccf13cf266f2",
-      "saltString": "minter"
-    },
-    "minter_impl": {
-      "address": "0x746326d3E4e54BA617F8aB39A21b7420aE8bF97d",
-      "blockNumber": 300,
-      "category": "contract",
-      "contractPath": "test/mocks/upgradeable/MockMinter.sol",
-      "contractType": "MockMinter",
-      "deployedTo": "0x746326d3E4e54BA617F8aB39A21b7420aE8bF97d",
-      "deployer": "0xc7183455a4C133Ae270771860664b6B7ec320bB1",
-      "proxies": [
-        "minter"
-      ]
-    },
-    "oracle": {
-      "address": "0xdE41d9aCecd57EEC2A36c081951de8D3c5C1B768",
-      "blockNumber": 200,
-      "category": "UUPS proxy",
-      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
-      "contractType": "ERC1967Proxy",
-      "deployedTo": "0xdE41d9aCecd57EEC2A36c081951de8D3c5C1B768",
-      "deployer": "0x5991A2dF15A8F6A256D3Ec51E99254Cd3fb576A9",
-      "factory": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a",
-      "implementationKey": "oracle_impl",
-      "proxyType": "UUPS",
-      "salt": "0x672ef5fb74da1efc0b25dbf4a4ace9a9290eac84fd2a2b07f5be93d31cbf33cc",
-      "saltString": "oracle"
-    },
-    "oracle_impl": {
-      "address": "0xDD4c722d1614128933d6DC7EFA50A6913e804E12",
-      "blockNumber": 200,
-      "category": "contract",
-      "contractPath": "test/mocks/upgradeable/MockOracle.sol",
-      "contractType": "OracleV1",
-      "deployedTo": "0xDD4c722d1614128933d6DC7EFA50A6913e804E12",
-      "deployer": "0x5991A2dF15A8F6A256D3Ec51E99254Cd3fb576A9",
-      "proxies": [
-        "oracle"
-      ]
-    },
     "pegged": {
       "address": "0xA11d35fE4b9Ca9979F2FF84283a9Ce190F60Cd00",
       "blockNumber": 100,
@@ -86,26 +34,6 @@
       "finishTimestampISO": "1970-01-12T13:46:40Z",
       "startBlock": 100,
       "finishBlock": 100,
-      "finished": true
-    },
-    {
-      "deployer": "0x5991A2dF15A8F6A256D3Ec51E99254Cd3fb576A9",
-      "startTimestamp": 2000000,
-      "startTimestampISO": "1970-01-24T03:33:20Z",
-      "finishTimestamp": 2000000,
-      "finishTimestampISO": "1970-01-24T03:33:20Z",
-      "startBlock": 200,
-      "finishBlock": 200,
-      "finished": true
-    },
-    {
-      "deployer": "0xc7183455a4C133Ae270771860664b6B7ec320bB1",
-      "startTimestamp": 3000000,
-      "startTimestampISO": "1970-02-04T17:20:00Z",
-      "finishTimestamp": 3000000,
-      "finishTimestampISO": "1970-02-04T17:20:00Z",
-      "startBlock": 300,
-      "finishBlock": 300,
       "finished": true
     }
   ]

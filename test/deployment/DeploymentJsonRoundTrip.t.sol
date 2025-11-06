@@ -13,14 +13,14 @@ library TestMathLib {
 }
 
 // Test harness for round-trip testing
-contract RoundTripTestHarness is MockDeployment {
+contract MockDeploymentRoundTrip is MockDeployment {
     function deployMockProxy(string memory key, uint256 initialValue, string memory mockName) public returns (address) {
         MockUpgradeableContract impl = new MockUpgradeableContract();
         string memory implKey = string.concat(key, "_impl");
         registerImplementation(implKey, address(impl), "MockUpgradeableContract", "test/MockUpgradeableContract.sol");
         bytes memory initData = abi.encodeCall(
             MockUpgradeableContract.initialize,
-            (initialValue, mockName, getMetadata().owner)
+            (initialValue, mockName, _metadata.owner)
         );
         return this.deployProxy(key, implKey, initData);
     }
@@ -28,7 +28,7 @@ contract RoundTripTestHarness is MockDeployment {
     function deployMockLibrary(string memory key) public returns (address) {
         bytes memory bytecode = type(TestMathLib).creationCode;
         deployLibrary(key, bytecode, "TestMathLib", "test/TestMathLib.sol");
-        return _get(key);
+        return get(key);
     }
 }
 
@@ -38,30 +38,30 @@ contract RoundTripTestHarness is MockDeployment {
  * @dev Ensures all deployment data survives JSON round-trip conversion
  */
 contract DeploymentJsonRoundTripTest is BaoDeploymentTest {
-    RoundTripTestHarness public deployment;
+    MockDeploymentRoundTrip public deployment;
     string constant TEST_NETWORK = "test-network";
     string constant TEST_SALT = "roundtrip-test-salt";
     string constant TEST_VERSION = "v2.1.0";
 
     function setUp() public override {
         super.setUp();
-        deployment = new RoundTripTestHarness();
+        deployment = new MockDeploymentRoundTrip();
         deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
     function test_ComplexDeploymentRoundTrip() public {
         // Create a complex deployment scenario
         address existingAddr = address(0x1234567890123456789012345678901234567890);
-        deployment.useExistingByString("ExistingToken", existingAddr);
+        deployment.useExisting("ExistingToken", existingAddr);
 
         address proxyAddr = deployment.deployMockProxy("TestProxy", 42, "Test Proxy");
         address libAddr = deployment.deployMockLibrary("TestLib");
 
         // Add parameters
-        deployment.setStringByKey("networkName", "Ethereum");
-        deployment.setUintByKey("chainId", 1);
-        deployment.setIntByKey("offset", -100);
-        deployment.setBoolByKey("enabled", true);
+        deployment.setString("networkName", "Ethereum");
+        deployment.setUint("chainId", 1);
+        deployment.setInt("offset", -100);
+        deployment.setBool("enabled", true);
 
         deployment.finish();
 
@@ -72,24 +72,24 @@ contract DeploymentJsonRoundTripTest is BaoDeploymentTest {
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Create new deployment and deserialize
-        RoundTripTestHarness restored = new RoundTripTestHarness();
+        MockDeploymentRoundTrip restored = new MockDeploymentRoundTrip();
         restored.fromJson(json);
 
         // Verify all contracts are preserved
-        assertEq(restored.getByString("ExistingToken"), existingAddr, "Existing contract address mismatch");
-        assertEq(restored.getByString("TestProxy"), proxyAddr, "Proxy address mismatch");
-        assertEq(restored.getByString("TestLib"), libAddr, "Library address mismatch");
+        assertEq(restored.get("ExistingToken"), existingAddr, "Existing contract address mismatch");
+        assertEq(restored.get("TestProxy"), proxyAddr, "Proxy address mismatch");
+        assertEq(restored.get("TestLib"), libAddr, "Library address mismatch");
 
         // Verify entry types are preserved
-        assertEq(restored.getEntryType("ExistingToken"), "contract", "Existing contract type mismatch");
-        assertEq(restored.getEntryType("TestProxy"), "proxy", "Proxy type mismatch");
-        assertEq(restored.getEntryType("TestLib"), "library", "Library type mismatch");
+        assertEq(restored.getType("ExistingToken"), "contract", "Existing contract type mismatch");
+        assertEq(restored.getType("TestProxy"), "proxy", "Proxy type mismatch");
+        assertEq(restored.getType("TestLib"), "library", "Library type mismatch");
 
         // Verify parameters are preserved
-        assertEq(restored.getStringByKey("networkName"), "Ethereum", "String parameter mismatch");
-        assertEq(restored.getUintByKey("chainId"), 1, "Uint parameter mismatch");
-        assertEq(restored.getIntByKey("offset"), -100, "Int parameter mismatch");
-        assertTrue(restored.getBoolByKey("enabled"), "Bool parameter mismatch");
+        assertEq(restored.getString("networkName"), "Ethereum", "String parameter mismatch");
+        assertEq(restored.getUint("chainId"), 1, "Uint parameter mismatch");
+        assertEq(restored.getInt("offset"), -100, "Int parameter mismatch");
+        assertTrue(restored.getBool("enabled"), "Bool parameter mismatch");
 
         // Verify metadata is preserved
         assertEq(restored.getMetadata().network, TEST_NETWORK, "Network metadata mismatch");
@@ -104,7 +104,7 @@ contract DeploymentJsonRoundTripTest is BaoDeploymentTest {
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
-        RoundTripTestHarness restored = new RoundTripTestHarness();
+        MockDeploymentRoundTrip restored = new MockDeploymentRoundTrip();
         restored.fromJson(json);
 
         // Should have metadata but no contracts
@@ -120,12 +120,12 @@ contract DeploymentJsonRoundTripTest is BaoDeploymentTest {
         for (uint256 i = 0; i < 10; i++) {
             string memory key = string(abi.encodePacked("contract", vm.toString(i)));
             address addr = address(uint160(0x1000 + i));
-            deployment.useExistingByString(key, addr);
+            deployment.useExisting(key, addr);
         }
 
         for (uint256 i = 0; i < 5; i++) {
             string memory key = string(abi.encodePacked("param", vm.toString(i)));
-            deployment.setUintByKey(key, i * 100);
+            deployment.setUint(key, i * 100);
         }
 
         deployment.finish();
@@ -135,25 +135,21 @@ contract DeploymentJsonRoundTripTest is BaoDeploymentTest {
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
-        RoundTripTestHarness restored = new RoundTripTestHarness();
+        MockDeploymentRoundTrip restored = new MockDeploymentRoundTrip();
         restored.fromJson(json);
 
         // Verify all contracts
         for (uint256 i = 0; i < 10; i++) {
             string memory key = string(abi.encodePacked("contract", vm.toString(i)));
             address expected = address(uint160(0x1000 + i));
-            assertEq(
-                restored.getByString(key),
-                expected,
-                string(abi.encodePacked("Contract ", vm.toString(i), " mismatch"))
-            );
+            assertEq(restored.get(key), expected, string(abi.encodePacked("Contract ", vm.toString(i), " mismatch")));
         }
 
         // Verify all parameters
         for (uint256 i = 0; i < 5; i++) {
             string memory key = string(abi.encodePacked("param", vm.toString(i)));
             assertEq(
-                restored.getUintByKey(key),
+                restored.getUint(key),
                 i * 100,
                 string(abi.encodePacked("Parameter ", vm.toString(i), " mismatch"))
             );
@@ -165,11 +161,11 @@ contract DeploymentJsonRoundTripTest is BaoDeploymentTest {
 
     function test_SpecialCharactersInKeysRoundTrip() public {
         // Test keys with special characters that might break JSON
-        deployment.useExistingByString("token-with-dashes", address(0x1111));
-        deployment.useExistingByString("token_with_underscores", address(0x2222));
-        deployment.useExistingByString("tokenWithCamelCase", address(0x3333));
-        deployment.setStringByKey("string-param", "value with spaces");
-        deployment.setStringByKey('json"escape', 'value with "quotes"');
+        deployment.useExisting("token-with-dashes", address(0x1111));
+        deployment.useExisting("token_with_underscores", address(0x2222));
+        deployment.useExisting("tokenWithCamelCase", address(0x3333));
+        deployment.setString("string-param", "value with spaces");
+        deployment.setString('json"escape', 'value with "quotes"');
 
         deployment.finish();
 
@@ -178,13 +174,13 @@ contract DeploymentJsonRoundTripTest is BaoDeploymentTest {
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
-        RoundTripTestHarness restored = new RoundTripTestHarness();
+        MockDeploymentRoundTrip restored = new MockDeploymentRoundTrip();
         restored.fromJson(json);
 
-        assertEq(restored.getByString("token-with-dashes"), address(0x1111), "Dashes in key failed");
-        assertEq(restored.getByString("token_with_underscores"), address(0x2222), "Underscores in key failed");
-        assertEq(restored.getByString("tokenWithCamelCase"), address(0x3333), "CamelCase in key failed");
-        assertEq(restored.getStringByKey("string-param"), "value with spaces", "Spaces in value failed");
-        assertEq(restored.getStringByKey('json"escape'), 'value with "quotes"', "Quotes in value failed");
+        assertEq(restored.get("token-with-dashes"), address(0x1111), "Dashes in key failed");
+        assertEq(restored.get("token_with_underscores"), address(0x2222), "Underscores in key failed");
+        assertEq(restored.get("tokenWithCamelCase"), address(0x3333), "CamelCase in key failed");
+        assertEq(restored.getString("string-param"), "value with spaces", "Spaces in value failed");
+        assertEq(restored.getString('json"escape'), 'value with "quotes"', "Quotes in value failed");
     }
 }

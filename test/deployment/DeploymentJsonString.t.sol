@@ -24,9 +24,9 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
 
     function test_ToJsonReturnsValidString() public {
         // Deploy some contracts
-        deployment.useExistingByString("MockToken", address(0x1234));
-        deployment.setStringByKey("tokenName", "Test Token");
-        deployment.setUintByKey("decimals", 18);
+        deployment.useExisting("MockToken", address(0x1234));
+        deployment.setString("tokenName", "Test Token");
+        deployment.setUint("decimals", 18);
 
         // Get JSON string without writing to file
         string memory json = deployment.toJson();
@@ -45,9 +45,9 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
 
     function test_FromJsonLoadsFromString() public {
         // Deploy and serialize
-        deployment.useExistingByString("Token1", address(0x1111));
-        deployment.useExistingByString("Token2", address(0x2222));
-        deployment.setStringByKey("name", "TestSystem");
+        deployment.useExisting("Token1", address(0x1111));
+        deployment.useExisting("Token2", address(0x2222));
+        deployment.setString("name", "TestSystem");
         deployment.finish();
 
         string memory json = deployment.toJson();
@@ -60,23 +60,23 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         newDeployment.fromJson(json);
 
         // Verify loaded data
-        assertEq(newDeployment.getByString("Token1"), address(0x1111), "Token1 address mismatch");
-        assertEq(newDeployment.getByString("Token2"), address(0x2222), "Token2 address mismatch");
-        assertEq(newDeployment.getStringByKey("name"), "TestSystem", "Name parameter mismatch");
+        assertEq(newDeployment.get("Token1"), address(0x1111), "Token1 address mismatch");
+        assertEq(newDeployment.get("Token2"), address(0x2222), "Token2 address mismatch");
+        assertEq(newDeployment.getString("name"), "TestSystem", "Name parameter mismatch");
 
-        assertTrue(newDeployment.hasByString("Token1"), "Should have Token1");
-        assertTrue(newDeployment.hasByString("Token2"), "Should have Token2");
+        assertTrue(newDeployment.has("Token1"), "Should have Token1");
+        assertTrue(newDeployment.has("Token2"), "Should have Token2");
     }
 
     function test_RoundTripWithoutFilesystem() public {
         // Create complex deployment state
-        deployment.useExistingByString("Admin", address(0xABCD));
-        deployment.useExistingByString("Treasury", address(0xDEAD));
+        deployment.useExisting("Admin", address(0xABCD));
+        deployment.useExisting("Treasury", address(0xDEAD));
 
-        deployment.setStringByKey("networkName", "Ethereum");
-        deployment.setUintByKey("chainId", 1);
-        deployment.setIntByKey("temperature", -42);
-        deployment.setBoolByKey("isProduction", true);
+        deployment.setString("networkName", "Ethereum");
+        deployment.setUint("chainId", 1);
+        deployment.setInt("temperature", -42);
+        deployment.setBool("isProduction", true);
 
         deployment.finish();
 
@@ -91,14 +91,14 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         restored.fromJson(json);
 
         // Verify all contracts
-        assertEq(restored.getByString("Admin"), address(0xABCD), "Admin address");
-        assertEq(restored.getByString("Treasury"), address(0xDEAD), "Treasury address");
+        assertEq(restored.get("Admin"), address(0xABCD), "Admin address");
+        assertEq(restored.get("Treasury"), address(0xDEAD), "Treasury address");
 
         // Verify all parameters
-        assertEq(restored.getStringByKey("networkName"), "Ethereum", "Network name");
-        assertEq(restored.getUintByKey("chainId"), 1, "Chain ID");
-        assertEq(restored.getIntByKey("temperature"), -42, "Temperature");
-        assertTrue(restored.getBoolByKey("isProduction"), "Is production flag");
+        assertEq(restored.getString("networkName"), "Ethereum", "Network name");
+        assertEq(restored.getUint("chainId"), 1, "Chain ID");
+        assertEq(restored.getInt("temperature"), -42, "Temperature");
+        assertTrue(restored.getBool("isProduction"), "Is production flag");
 
         // Verify keys list
         string[] memory keys = restored.keys();
@@ -128,9 +128,9 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
 
     function test_OnlyContractsNoFiles() public {
         // Deploy multiple contracts without touching filesystem
-        deployment.useExistingByString("Contract1", address(0x1));
-        deployment.useExistingByString("Contract2", address(0x2));
-        deployment.useExistingByString("Contract3", address(0x3));
+        deployment.useExisting("Contract1", address(0x1));
+        deployment.useExisting("Contract2", address(0x2));
+        deployment.useExisting("Contract3", address(0x3));
 
         deployment.finish();
 
@@ -143,16 +143,16 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         loaded.fromJson(json);
 
         assertEq(loaded.keys().length, 3, "Should have 3 contracts");
-        assertEq(loaded.getByString("Contract1"), address(0x1));
-        assertEq(loaded.getByString("Contract2"), address(0x2));
-        assertEq(loaded.getByString("Contract3"), address(0x3));
+        assertEq(loaded.get("Contract1"), address(0x1));
+        assertEq(loaded.get("Contract2"), address(0x2));
+        assertEq(loaded.get("Contract3"), address(0x3));
     }
 
     function test_OnlyParametersNoFiles() public {
         // Only parameters, no contracts
-        deployment.setStringByKey("param1", "value1");
-        deployment.setUintByKey("param2", 100);
-        deployment.setBoolByKey("param3", false);
+        deployment.setString("param1", "value1");
+        deployment.setUint("param2", 100);
+        deployment.setBool("param3", false);
 
         deployment.finish();
 
@@ -165,27 +165,27 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         loaded.fromJson(json);
 
         assertEq(loaded.keys().length, 3, "Should have 3 parameters");
-        assertEq(loaded.getStringByKey("param1"), "value1");
-        assertEq(loaded.getUintByKey("param2"), 100);
-        assertFalse(loaded.getBoolByKey("param3"));
+        assertEq(loaded.getString("param1"), "value1");
+        assertEq(loaded.getUint("param2"), 100);
+        assertFalse(loaded.getBool("param3"));
     }
 
     function test_PreservesSaveToJsonCompatibility() public {
         // Ensure saveToJson still works (uses toJson internally)
-        deployment.useExistingByString("Token", address(0x5555));
-        deployment.setStringByKey("name", "SavedToken");
+        deployment.useExisting("Token", address(0x5555));
+        deployment.setString("name", "SavedToken");
 
         string memory path = "results/deployments/json-compat-test.json";
 
         deployment.finish();
-        deployment.saveToJson(path);
+        deployment.toJsonFile(path);
 
         // Load from file - if this succeeds, schema is valid
         MockDeployment loaded = new MockDeployment();
-        loaded.loadFromJson(path);
+        loaded.fromJsonFile(path);
 
-        assertEq(loaded.getByString("Token"), address(0x5555));
-        assertEq(loaded.getStringByKey("name"), "SavedToken");
+        assertEq(loaded.get("Token"), address(0x5555));
+        assertEq(loaded.getString("name"), "SavedToken");
 
         // Cleanup
         vm.removeFile(path);
@@ -193,20 +193,20 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
 
     function test_PreservesLoadFromJsonCompatibility() public {
         // Test that loadFromJson still works (uses fromJson internally)
-        deployment.useExistingByString("LoadTest", address(0x9999));
-        deployment.setUintByKey("value", 42);
+        deployment.useExisting("LoadTest", address(0x9999));
+        deployment.setUint("value", 42);
 
         string memory path = "results/deployments/load-compat-test.json";
 
         deployment.finish();
-        deployment.saveToJson(path);
+        deployment.toJsonFile(path);
 
         // Load using original method - if this succeeds, schema is valid
         MockDeployment loaded = new MockDeployment();
-        loaded.loadFromJson(path);
+        loaded.fromJsonFile(path);
 
-        assertEq(loaded.getByString("LoadTest"), address(0x9999));
-        assertEq(loaded.getUintByKey("value"), 42);
+        assertEq(loaded.get("LoadTest"), address(0x9999));
+        assertEq(loaded.getUint("value"), 42);
 
         // Cleanup
         vm.removeFile(path);
