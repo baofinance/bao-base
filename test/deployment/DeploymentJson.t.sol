@@ -92,6 +92,21 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         assertEq(network, TEST_NETWORK);
     }
 
+    function test_RunSerializationIncludesFinishFieldsWhenActive() public {
+        string memory json = deployment.toJson();
+
+        assertTrue(vm.keyExistsJson(json, ".runs[0].finishTimestamp"));
+        uint256 finishTimestamp = vm.parseJsonUint(json, ".runs[0].finishTimestamp");
+        assertEq(finishTimestamp, 0, "Should serialize zero finish timestamp");
+
+        string memory finishIso = vm.parseJsonString(json, ".runs[0].finishTimestampISO");
+        assertEq(bytes(finishIso).length, 0, "Should serialize empty ISO string");
+
+        assertTrue(vm.keyExistsJson(json, ".runs[0].finishBlock"));
+        uint256 finishBlock = vm.parseJsonUint(json, ".runs[0].finishBlock");
+        assertEq(finishBlock, 0, "Should serialize zero finish block");
+    }
+
     function test_SaveContractToJson() public {
         deployment.deploySimpleContract("contract1", "Test Contract");
         deployment.finish();

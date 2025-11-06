@@ -136,7 +136,7 @@ abstract contract DeploymentRegistry {
     uint256 internal _schemaVersion;
     mapping(string => bool) internal _resumedProxies;
 
-    function _fileext() internal pure virtual returns (string memory) {}
+    function _fileext() internal pure virtual returns (string memory);
 
     function _filepath() internal view returns (string memory) {
         return _filepath(_metadata.network, _metadata.systemSaltString);
@@ -460,6 +460,7 @@ abstract contract DeploymentRegistry {
         string memory contractType,
         string memory contractPath,
         string memory category,
+        address factory,
         address deployer
     ) internal virtual {
         _requireActiveRun();
@@ -473,7 +474,7 @@ abstract contract DeploymentRegistry {
                 blockNumber: block.number,
                 category: category
             }),
-            factory: address(0),
+            factory: factory,
             deployer: deployer
         });
 
@@ -585,6 +586,7 @@ abstract contract DeploymentRegistry {
         address deployer
     ) internal {
         _requireActiveRun();
+        _requireValidLibrary(key, addr);
         _libraries[key] = LibraryEntry({
             info: DeploymentInfo({
                 addr: addr,

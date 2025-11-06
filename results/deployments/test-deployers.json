@@ -11,12 +11,12 @@
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
     },
     "contract2": {
-      "address": "0xffD4505B3452Dc22f8473616d50503bA9E1710Ac",
+      "address": "0x8d2C17FAd02B7bb64139109c6533b7C2b9CADb81",
       "blockNumber": 1,
       "category": "contract",
       "contractPath": "test/SimpleContract.sol",
       "contractType": "SimpleContract",
-      "deployedTo": "0xffD4505B3452Dc22f8473616d50503bA9E1710Ac",
+      "deployedTo": "0x8d2C17FAd02B7bb64139109c6533b7C2b9CADb81",
       "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b"
     }
   },

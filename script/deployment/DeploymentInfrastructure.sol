@@ -6,14 +6,14 @@ import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 library DeploymentInfrastructure {
     address public constant BAOMULTISIG = 0xFC69e0a5823E2AfCBEb8a35d33588360F1496a00;
 
-    address internal constant _NICKS_FACTORY = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
+    address public constant _NICKS_FACTORY = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
     /// @dev The bytecode of Nick's factory.
-    bytes internal constant _NICKS_FACTORY_BYTECODE =
+    bytes public constant _NICKS_FACTORY_BYTECODE =
         hex"7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
 
     /// Salt for deploying BaoDeployer via Nick's Factory
     /// This ensures BaoDeployer has the same address on all chains
-    bytes32 internal constant _BAO_DEPLOYER_SALT = keccak256("Bao.deterministic-deployer.v1");
+    bytes32 internal constant _BAO_DEPLOYER_SALT = keccak256("Bao.deterministic-deployer.harbor.v1");
 
     /// @notice Predict BaoDeployer address for a given owner (CREATE2 via Nick's Factory)
     function predictBaoDeployerAddress() internal pure returns (address) {
@@ -24,7 +24,7 @@ library DeploymentInfrastructure {
     }
 
     /// @notice Deploy BaoDeployer via Nick's Factory if it doesn't exist
-    function deployBaoDeployer() external returns (address deployed) {
+    function deployBaoDeployer() internal returns (address deployed) {
         deployed = predictBaoDeployerAddress();
         address factory = _NICKS_FACTORY;
         bytes memory creationCode = abi.encodePacked(type(BaoDeployer).creationCode, abi.encode(BAOMULTISIG));

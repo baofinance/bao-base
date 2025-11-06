@@ -20,7 +20,7 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
     // JSON Public API
     // ============================================================================
 
-    function _filext() internal pure returns (string memory) {
+    function _fileext() internal pure override returns (string memory) {
         return "json";
     }
 
@@ -593,19 +593,15 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
             runJson = string.concat(runJson, '"deployer":"', VM.toString(_runs[i].deployer), '",');
             runJson = string.concat(runJson, '"startTimestamp":', VM.toString(_runs[i].startTimestamp), ",");
             runJson = string.concat(runJson, '"startTimestampISO":"', _formatTimestamp(_runs[i].startTimestamp), '",');
-            if (_runs[i].finishTimestamp > 0) {
-                runJson = string.concat(runJson, '"finishTimestamp":', VM.toString(_runs[i].finishTimestamp), ",");
-                runJson = string.concat(
-                    runJson,
-                    '"finishTimestampISO":"',
-                    _formatTimestamp(_runs[i].finishTimestamp),
-                    '",'
-                );
-            }
+            runJson = string.concat(runJson, '"finishTimestamp":', VM.toString(_runs[i].finishTimestamp), ",");
+            runJson = string.concat(
+                runJson,
+                '"finishTimestampISO":"',
+                _formatTimestamp(_runs[i].finishTimestamp),
+                '",'
+            );
             runJson = string.concat(runJson, '"startBlock":', VM.toString(_runs[i].startBlock), ",");
-            if (_runs[i].finishBlock > 0) {
-                runJson = string.concat(runJson, '"finishBlock":', VM.toString(_runs[i].finishBlock), ",");
-            }
+            runJson = string.concat(runJson, '"finishBlock":', VM.toString(_runs[i].finishBlock), ",");
             runJson = string.concat(runJson, '"finished":', _runs[i].finished ? "true" : "false");
             runJson = string.concat(runJson, "}");
 

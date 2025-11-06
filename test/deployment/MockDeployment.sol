@@ -5,7 +5,7 @@ import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol"
 import {DeploymentRegistryJson} from "@bao-script/deployment/DeploymentRegistryJson.sol";
 import {DeploymentFoundry} from "@bao-script/deployment/DeploymentFoundry.sol";
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
-import {Vm} from "forge-std/Vm.sol";
+import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 
@@ -15,7 +15,7 @@ import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrast
  * @dev Exposes internal Deployment methods with public wrappers for test access
  * @dev Infrastructure (Nick's Factory, BaoDeployer) setup helpers exposed for tests
  * @dev Production code uses type-safe enum API; tests use these string-based wrappers
- * @dev Defaults to address(this) as DEPLOYER_CONTEXT for test simplicity
+ * @dev Automatically configures the BaoDeployer operator when available
  * @dev Overrides to use results/deployments flat structure (no network subdirs)
  */
 contract MockDeployment is DeploymentFoundry {
@@ -23,17 +23,22 @@ contract MockDeployment is DeploymentFoundry {
     bool private _registrySavesEnabled;
 
     /// @notice Constructor for test deployment harness
-    /// @dev Passes address(0) to Deployment constructor, which defaults to address(this)
     /// @dev Registry saves disabled by default in tests to avoid polluting results directory
     /// @dev Does NOT deploy infrastructure - that's handled by BaoDeploymentTest.setUp()
-    /// @dev Configures itself as operator when it owns the BaoDeployer
     constructor() {
         _registrySavesEnabled = false;
+    }
 
-        // Configure operator if this harness already owns the BaoDeployer (resumed test state)
-        VM.startPrank(DeploymentInfrastructure.BAOMULTISIG);
-        BaoDeployer(DeploymentInfrastructure.predictBaoDeployerAddress()).setOperator(address(this));
-        VM.stopPrank();
+    function _ensureBaoDeployerOperator() internal override {
+        address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
+
+        if (baoDeployer.code.length > 0 && BaoDeployer(baoDeployer).operator() != address(this)) {
+            VM.startPrank(DeploymentInfrastructure.BAOMULTISIG);
+            BaoDeployer(baoDeployer).setOperator(address(this));
+            VM.stopPrank();
+        }
+
+        super._ensureBaoDeployerOperator();
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -181,12 +186,14 @@ contract MockDeployment is DeploymentFoundry {
 
     /// @notice Resume from custom filepath (test only)
     function resumeFrom(string memory filepath) public {
-        _fromJsonFile(filepath);
+        _resumeFrom(filepath);
     }
 
     /// @notice Resume from JSON string (test only)
     function resumeFromJson(string memory json) public {
         _fromJson(json);
+        _ensureBaoDeployerOperator();
+        _stub = new UUPSProxyDeployStub();
     }
 
     // ============================================================================
@@ -210,6 +217,7 @@ contract MockDeployment is DeploymentFoundry {
                 contractType,
                 contractPath,
                 category,
+                address(0),
                 _runs[_runs.length - 1].deployer
             );
     }

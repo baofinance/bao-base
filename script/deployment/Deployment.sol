@@ -26,20 +26,8 @@ interface IUUPSUpgradeableProxy {
  *      - Existing contract registration helpers
  *      - Thin wrappers around registry storage helpers
  *      - Designed for specialization (e.g. Harbor overrides deployProxy)
- * @dev Cross-chain determinism is achieved through injected deployer context:
- *      - Production: Pass the harness address deployed via Nick's Factory
- *      - Testing: Pass address(0) to default to address(this)
  */
 abstract contract Deployment is DeploymentRegistry {
-    // ============================================================================
-    // Immutables
-    // ============================================================================
-
-    /// @notice Deployer context address used for CREATE3 determinism
-    /// @dev In production, this is the harness address deployed via Nick's Factory.
-    ///      In tests, this defaults to address(this) when address(0) is passed.
-    address internal immutable DEPLOYER_CONTEXT;
-
     // ============================================================================
     // Storage
     // ============================================================================
@@ -75,6 +63,17 @@ abstract contract Deployment is DeploymentRegistry {
         }
     }
 
+    /// @notice Ensure this deployment harness is configured as BaoDeployer operator
+    function _ensureBaoDeployerOperator() internal virtual {
+        address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
+        if (baoDeployer.code.length == 0) {
+            revert FactoryDeploymentFailed("BaoDeployer missing code");
+        }
+        if (BaoDeployer(baoDeployer).operator() != address(this)) {
+            revert FactoryDeploymentFailed("BaoDeployer operator not configured for harness");
+        }
+    }
+
     // ============================================================================
     // Deployment Lifecycle
     // ============================================================================
@@ -93,13 +92,17 @@ abstract contract Deployment is DeploymentRegistry {
         _initializeMetadata(owner, network, version, systemSaltString);
 
         require(DeploymentInfrastructure.predictBaoDeployerAddress().code.length > 0, "need to deploy the BaoDeployer");
+        _ensureBaoDeployerOperator();
 
         // if the deployer is not deployed then we cannot start
         _stub = new UUPSProxyDeployStub();
     }
 
-    function deployBaoDeployer() public {
-        DeploymentInfrastructure.deployBaoDeployer();
+    function deployBaoDeployer() public returns (address deployed) {
+        deployed = DeploymentInfrastructure.deployBaoDeployer();
+        if (_runs.length > 0 && !_exists["BaoDeployer"]) {
+            useExisting("BaoDeployer", deployed);
+        }
     }
 
     /// @notice Resume deployment from JSON file
@@ -107,6 +110,7 @@ abstract contract Deployment is DeploymentRegistry {
     /// @param systemSaltString System salt to derive filepath
     function resume(string memory network, string memory systemSaltString) public virtual {
         _loadRegistry(_filepath(network, systemSaltString));
+        _ensureBaoDeployerOperator();
         _stub = new UUPSProxyDeployStub();
     }
 
@@ -114,6 +118,7 @@ abstract contract Deployment is DeploymentRegistry {
     /// @param filepath Custom path to JSON file
     function _resumeFrom(string memory filepath) internal virtual {
         _loadRegistry(filepath);
+        _ensureBaoDeployerOperator();
         _stub = new UUPSProxyDeployStub();
     }
 
@@ -235,28 +240,25 @@ abstract contract Deployment is DeploymentRegistry {
         }
 
         // Compute salt
-        bytes memory saltBytes = abi.encodePacked(_metadata.systemSaltString, "/", key, "/contract");
-        bytes32 salt = EfficientHashLib.hash(saltBytes);
-        // string memory saltString = key;
+        bytes32 salt = EfficientHashLib.hash(abi.encodePacked(_metadata.systemSaltString, "/", key, "/contract"));
 
         // commit-reveal via to avoid front-running the deployment which could steal our address
-        BaoDeployer deployer = BaoDeployer(DeploymentInfrastructure.predictBaoDeployerAddress());
-        bytes32 commitment = DeploymentInfrastructure.commitment(address(this), value, salt, keccak256(initCode));
+        address baoDeployerAddr = DeploymentInfrastructure.predictBaoDeployerAddress();
+        BaoDeployer baoDeployer = BaoDeployer(baoDeployerAddr);
+        baoDeployer.commit(DeploymentInfrastructure.commitment(address(this), value, salt, keccak256(initCode)));
+        addr = baoDeployer.reveal{value: value}(initCode, salt, value);
 
-        deployer.commit(commitment);
-        addr = deployer.reveal{value: value}(initCode, salt, value);
-
-        // TODO: register predeicted address contract
         _registerStandardContract(
             key,
             addr,
-            "CREATE3 contract",
             contractType,
             contractPath,
+            "contract",
+            baoDeployerAddr,
             _runs[_runs.length - 1].deployer
         );
 
-        emit ContractDeployed(key, addr, "CREATE3 contract");
+        emit ContractDeployed(key, addr, "contract");
         return addr;
     }
 
@@ -346,7 +348,7 @@ abstract contract Deployment is DeploymentRegistry {
     }
 
     function useExisting(string memory key, address addr) public virtual {
-        _registerStandardContract(key, addr, "ExistingContract", "blockchain", "existing", address(0));
+        _registerStandardContract(key, addr, "ExistingContract", "blockchain", "existing", address(0), address(0));
     }
 
     function registerImplementation(
