@@ -65,13 +65,20 @@ contract MockDeployment is Deployment {
     /// @return deployed Address of the BaoDeployer
     function deployBaoDeployer(address owner) public returns (address deployed) {
         deployed = _deployBaoDeployer(owner);
+    }
 
-        // Convenience: when tests own the deployer, make them operator for commit/reveal flows
-        if (owner == address(this)) {
-            vm.startPrank(owner);
-            BaoDeployer(deployed).setOperator(address(this));
-            vm.stopPrank();
+    /// @notice Assign BaoDeployer operator by impersonating the owner (test helper)
+    /// @param owner Address with ownership privileges (e.g., Bao multisig)
+    /// @param operator Contract that should act as operator
+    function assignBaoDeployerOperator(address owner, address operator) public {
+        address deployed = _getBaoDeployerAddress();
+        if (deployed == address(0)) {
+            revert FactoryDeploymentFailed("BaoDeployer owner not configured");
         }
+
+        vm.startPrank(owner);
+        BaoDeployer(deployed).setOperator(operator);
+        vm.stopPrank();
     }
 
     /// @notice Check if BaoDeployer exists (test helper)

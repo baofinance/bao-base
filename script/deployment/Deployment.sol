@@ -177,15 +177,16 @@ abstract contract Deployment is DeploymentJson {
     /// @param salt The salt for deterministic address generation
     /// @return deployed The address of the deployed contract
     function _deployViaCreate3(bytes memory creationCode, bytes32 salt) internal returns (address deployed) {
-        address baoDeployer = _getBaoDeployerAddress();
-
-        // Ensure BaoDeployer exists
         if (!_baoDeployerExists()) {
             revert FactoryDeploymentFailed("BaoDeployer not deployed - call _ensureBaoDeployer() first");
         }
 
-        // Call BaoDeployer to deploy via CREATE3
-        deployed = BaoDeployer(baoDeployer).deployDeterministic(creationCode, salt);
+        BaoDeployer deployer = BaoDeployer(_getBaoDeployerAddress());
+        bytes32 initCodeHash = keccak256(creationCode);
+        bytes32 commitment = deployer.computeCommitment(address(this), 0, salt, initCodeHash);
+
+        deployer.commit(commitment);
+        deployed = deployer.reveal{value: 0}(creationCode, salt, 0);
     }
 
     /// @notice Deploy via CREATE3 with ETH value
@@ -199,15 +200,16 @@ abstract contract Deployment is DeploymentJson {
         bytes memory creationCode,
         bytes32 salt
     ) internal returns (address deployed) {
-        address baoDeployer = _getBaoDeployerAddress();
-
-        // Ensure BaoDeployer exists
         if (!_baoDeployerExists()) {
             revert FactoryDeploymentFailed("BaoDeployer not deployed - call _ensureBaoDeployer() first");
         }
 
-        // Call BaoDeployer to deploy via CREATE3 with value
-        deployed = BaoDeployer(baoDeployer).deployDeterministic{value: value}(value, creationCode, salt);
+        BaoDeployer deployer = BaoDeployer(_getBaoDeployerAddress());
+        bytes32 initCodeHash = keccak256(creationCode);
+        bytes32 commitment = deployer.computeCommitment(address(this), value, salt, initCodeHash);
+
+        deployer.commit(commitment);
+        deployed = deployer.reveal{value: value}(creationCode, salt, value);
     }
 
     // ============================================================================

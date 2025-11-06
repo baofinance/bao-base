@@ -26,6 +26,9 @@ import {MockDeployment} from "./MockDeployment.sol";
  *          }
  */
 abstract contract BaoDeploymentTest is BaoTest {
+    address internal constant _BAO_DEPLOYER_OWNER = 0xFC69e0a5823E2AfCBEb8a35d33588360F1496a00;
+    address internal _baoDeployerAddress;
+
     /**
      * @notice Set up deployment infrastructure for tests
      * @dev This runs once per test contract (not per test function)
@@ -36,18 +39,26 @@ abstract contract BaoDeploymentTest is BaoTest {
      * @dev Derived classes MUST call super.setUp() first, then create their deployment
      */
     function setUp() public virtual {
-        // Use MockDeployment to access shared deployment logic
-        MockDeployment tempDeployment = new MockDeployment();
+        MockDeployment bootstrap = new MockDeployment();
+        bootstrap.etchNicksFactory();
 
-        // Step 1: Etch Nick's Factory for test environment
-        tempDeployment.etchNicksFactory();
+        vm.label(_BAO_DEPLOYER_OWNER, "Bao Multisig");
 
-        // Step 2: Deploy BaoDeployer (implementation + proxy) with this contract as owner/deployer
-        // This calls Deployment._deployBaoDeployer() which properly deploys via CREATE2
-        address[] memory initialDeployers = new address[](1);
-        initialDeployers[0] = address(this);
-        tempDeployment.deployBaoDeployer(address(this), initialDeployers);
+        _baoDeployerAddress = bootstrap.deployBaoDeployer(_BAO_DEPLOYER_OWNER);
+        vm.label(_baoDeployerAddress, "BaoDeployer");
+    }
 
-        // Step 3: Derived classes create their own deployment instance after calling super.setUp()
+    function baoDeployerOwner() public pure returns (address) {
+        return _BAO_DEPLOYER_OWNER;
+    }
+
+    function baoDeployer() public view returns (address) {
+        return _baoDeployerAddress;
+    }
+
+    function _bootstrapDeployment(MockDeployment deployment) internal {
+        deployment.etchNicksFactory();
+        deployment.deployBaoDeployer(_BAO_DEPLOYER_OWNER);
+        deployment.assignBaoDeployerOperator(_BAO_DEPLOYER_OWNER, address(deployment));
     }
 }
