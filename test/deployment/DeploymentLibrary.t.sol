@@ -91,14 +91,14 @@ contract DeploymentLibraryTest is BaoDeploymentTest {
         deployment.finish();
 
         // Test in-memory JSON serialization (no filesystem)
-        string memory json = deployment.toJson();
+        string memory json = deployment.toJsonString();
 
         assertTrue(bytes(json).length > 0, "JSON should not be empty");
         assertTrue(vm.keyExistsJson(json, ".deployment.mathLib"), "Should contain mathLib");
 
         // Verify round-trip
         MockDeploymentLibrary newDeployment = new MockDeploymentLibrary();
-        newDeployment.fromJson(json);
+        newDeployment.fromJsonString(json);
 
         assertEq(newDeployment.get("mathLib"), libAddr, "Address should match after JSON round-trip");
         assertEq(newDeployment.getType("mathLib"), "library", "Entry type should be preserved");

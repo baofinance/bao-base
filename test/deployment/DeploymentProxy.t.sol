@@ -140,10 +140,11 @@ contract DeploymentProxyTest is BaoDeploymentTest {
         assertEq(deployment.get("counter"), existingProxy, expectedMessage);
 
         deployment.finish();
-        string memory json = deployment.toJson();
+        string memory json = deployment.toJsonString();
 
         MockDeploymentProxy resumed = new MockDeploymentProxy();
-        resumed.resumeFromJson(json);
+        resumed.fromJsonString(json);
+        resumed.resumeAfterLoad();
 
         assertEq(resumed.get("counter"), existingProxy, "resumed counter address stable");
 
@@ -157,10 +158,10 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     function test_FinalizeOwnershipAfterResumeSkipsResumedProxy() public {
         deployment.deployCounterProxy("counter", 5, admin);
         deployment.finish();
-        string memory json = deployment.toJson();
+        string memory json = deployment.toJsonString();
 
         MockDeploymentProxy resumed = new MockDeploymentProxy();
-        resumed.resumeFromJson(json);
+        resumed.fromJsonString(json);
 
         uint256 transferred = resumed.countTransferrableProxies(admin);
         assertEq(transferred, 0, "resumed entries should be skipped");

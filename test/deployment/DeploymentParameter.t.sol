@@ -102,13 +102,12 @@ contract DeploymentParameterTest is BaoDeploymentTest {
         deployment.setInt("offset", -50);
 
         // Save to JSON
-        string memory filepath = "results/deployments/test-parameters.json";
         deployment.finish();
-        deployment.toJsonFile(filepath);
+        string memory json = deployment.toJsonString();
 
         // Create new deployment and load
         MockDeploymentParameter newDeployment = new MockDeploymentParameter();
-        newDeployment.fromJsonFile(filepath);
+        newDeployment.fromJsonString(json);
 
         // Verify all parameters loaded correctly
         assertEq(newDeployment.getString("tokenName"), "BaoUSD");

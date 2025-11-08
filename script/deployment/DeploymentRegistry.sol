@@ -136,21 +136,7 @@ abstract contract DeploymentRegistry {
     uint256 internal _schemaVersion;
     mapping(string => bool) internal _resumedProxies;
 
-    function _fileext() internal pure virtual returns (string memory);
-
-    function _filepath() internal view returns (string memory) {
-        return _filepath(_metadata.network, _metadata.systemSaltString);
-    }
-
-    function _filepath(string memory network, string memory systemSaltString) internal view returns (string memory) {
-        string memory dir = string.concat(_getBaseDirPrefix(), "deployments");
-        if (_useNetworkSubdir()) {
-            dir = string.concat(dir, "/", network);
-        }
-        return string.concat(dir, "/", systemSaltString, ".", _fileext());
-    }
-
-    function _loadRegistry(string memory filePath) internal virtual;
+    function _loadRegistry(string memory network, string memory systemSaltString) internal virtual;
     function _saveRegistry() internal virtual;
 
     /**

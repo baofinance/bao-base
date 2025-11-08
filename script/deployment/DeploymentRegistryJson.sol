@@ -16,37 +16,52 @@ Vm constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
  * @dev Wake deployments: DO NOT inherit from this - use Python for state management
  */
 abstract contract DeploymentRegistryJson is DeploymentRegistry {
+    function _getBaseDirPrefix() internal view virtual override returns (string memory) {
+        return super._getBaseDirPrefix();
+    }
+
     // ============================================================================
     // JSON Public API
     // ============================================================================
 
-    function _fileext() internal pure override returns (string memory) {
-        return "json";
+    function _dir(string memory network) internal view returns (string memory dir) {
+        dir = string.concat(_getBaseDirPrefix(), "/deployments");
+        if (_useNetworkSubdir() && bytes(network).length > 0) {
+            dir = string.concat(dir, "/", network);
+        }
     }
 
-    function _fromJsonFile(string memory filePath) internal {
-        _fromJson(VM.readFile(filePath));
+    function _createDir(string memory network) internal {
+        VM.createDir(_dir(network), true);
     }
 
-    function _toJsonFile(string memory filePath) internal {
-        VM.writeJson(_toJson(), filePath);
+    function _filesuffix() internal view virtual returns (string memory) {
+        return "";
     }
 
-    function _loadRegistry(string memory filePath) internal override {
-        _fromJsonFile(filePath);
+    function _filename(string memory systemSaltString) internal view returns (string memory name) {
+        name = string.concat(systemSaltString, _filesuffix(), ".json");
+    }
+
+    function _filepath(
+        string memory network,
+        string memory systemSaltString
+    ) internal view returns (string memory path) {
+        path = string.concat(_dir(network), "/", _filename(systemSaltString));
+    }
+
+    function _filepath() internal view returns (string memory path) {
+        path = _filepath(_metadata.network, _metadata.systemSaltString);
+    }
+
+    function _loadRegistry(string memory network, string memory systemSaltString) internal override {
+        _fromJson(VM.readFile(_filepath(network, systemSaltString)));
     }
 
     function _saveRegistry() internal virtual override {
         _updateFinishedAt();
-        // Create directory structure based on whether network subdirs are used
-        string memory dir;
-        if (_useNetworkSubdir()) {
-            dir = string.concat(_getBaseDirPrefix(), "deployments/", _metadata.network);
-        } else {
-            dir = string.concat(_getBaseDirPrefix(), "deployments");
-        }
-        VM.createDir(dir, true);
-        _toJsonFile(_filepath());
+        _createDir(_metadata.network);
+        VM.writeJson(_toJson(), _filepath(_metadata.network, _metadata.systemSaltString));
     }
 
     /**
@@ -331,10 +346,6 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
         _metadata.version = VM.parseJsonString(json, ".version");
         _metadata.systemSaltString = VM.parseJsonString(json, ".saltString");
 
-        // Load runs array - must exist for valid deployment
-        require(VM.keyExistsJson(json, ".runs"), "Missing runs array in JSON");
-        require(VM.keyExistsJson(json, ".runs[0]"), "Empty runs array in JSON");
-
         // Count runs by trying to access increasing indices
         uint256 runCount = 0;
         while (VM.keyExistsJson(json, string.concat(".runs[", VM.toString(runCount), "]"))) {
@@ -358,26 +369,10 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
             _runs.push(run);
         }
 
-        // Validate runs for resume
-        require(_runs.length >= 1, "Cannot resume: no runs in deployment");
-        require(_runs[_runs.length - 1].finished, "Cannot resume: last run not finished");
-
         _metadata.startTimestamp = _runs[0].startTimestamp;
         _metadata.startBlock = _runs[0].startBlock;
         _metadata.finishTimestamp = _runs[_runs.length - 1].finishTimestamp;
         _metadata.finishBlock = _runs[_runs.length - 1].finishBlock;
-
-        // Create new run record for this resume
-        _runs.push(
-            RunRecord({
-                deployer: address(this),
-                startTimestamp: block.timestamp,
-                finishTimestamp: 0,
-                startBlock: block.number,
-                finishBlock: 0,
-                finished: false
-            })
-        );
     }
 
     function _deserializeContract(string memory json, string memory key) private {

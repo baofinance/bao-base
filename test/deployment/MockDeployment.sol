@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {DeploymentRegistryJson} from "@bao-script/deployment/DeploymentRegistryJson.sol";
-import {DeploymentFoundry} from "@bao-script/deployment/DeploymentFoundry.sol";
+import {DeploymentFoundryTest} from "@bao-script/deployment/DeploymentFoundry.sol";
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 import {EfficientHashLib} from "@solady/utils/EfficientHashLib.sol";
@@ -19,7 +19,7 @@ import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrast
  * @dev Automatically configures the BaoDeployer operator when available
  * @dev Overrides to use results/deployments flat structure (no network subdirs)
  */
-contract MockDeployment is DeploymentFoundry {
+contract MockDeployment is DeploymentFoundryTest {
     /// @notice Flag to control registry saves in tests
     bool private _registrySavesEnabled;
 
@@ -28,37 +28,6 @@ contract MockDeployment is DeploymentFoundry {
     /// @dev Does NOT deploy infrastructure - that's handled by BaoDeploymentTest.setUp()
     constructor() {
         _registrySavesEnabled = false;
-    }
-
-    function _ensureBaoDeployerOperator() internal override {
-        address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
-
-        if (baoDeployer.code.length > 0 && BaoDeployer(baoDeployer).operator() != address(this)) {
-            VM.startPrank(DeploymentInfrastructure.BAOMULTISIG);
-            BaoDeployer(baoDeployer).setOperator(address(this));
-            VM.stopPrank();
-        }
-
-        super._ensureBaoDeployerOperator();
-    }
-
-    /*//////////////////////////////////////////////////////////////////////////
-                        INFRASTRUCTURE DEPLOYMENT HELPERS
-                        (Test-only exposure of production logic)
-    //////////////////////////////////////////////////////////////////////////*/
-
-    /// @notice Assign BaoDeployer operator by impersonating the owner (test helper)
-    /// @param owner Address with ownership privileges (e.g., Bao multisig)
-    /// @param operator Contract that should act as operator
-    function assignBaoDeployerOperator(address owner, address operator) public {
-        address deployed = DeploymentInfrastructure.predictBaoDeployerAddress();
-        if (deployed == address(0)) {
-            revert FactoryDeploymentFailed("BaoDeployer owner not configured");
-        }
-
-        VM.startPrank(owner);
-        BaoDeployer(deployed).setOperator(operator);
-        VM.stopPrank();
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -75,12 +44,6 @@ contract MockDeployment is DeploymentFoundry {
         _registrySavesEnabled = false;
     }
 
-    /// @notice Override to add results/ prefix for test outputs
-    /// @return "results/" prefix for test deployment files
-    function _getBaseDirPrefix() internal pure override returns (string memory) {
-        return "results/";
-    }
-
     /// @notice Override to use flat structure (no network subdirectories)
     /// @return false to disable network subdirectories in tests
     function _useNetworkSubdir() internal pure override returns (bool) {
@@ -95,21 +58,45 @@ contract MockDeployment is DeploymentFoundry {
         }
     }
 
-    function fromJsonFile(string memory filepath) public {
-        _fromJsonFile(filepath);
+    function filepath() public view returns (string memory) {
+        return _filepath();
     }
 
-    function toJsonFile(string memory filepath) public {
-        _toJsonFile(filepath);
+    function forceLoadRegistry(string memory fileName) public {
+        _loadRegistry("", fileName);
     }
 
-    function fromJson(string memory json) public virtual {
-        return _fromJson(json);
+    function forceSaveRegistry() public {
+        super._saveRegistry();
     }
 
-    function toJson() public virtual returns (string memory) {
+    function toJsonString() public virtual returns (string memory) {
         return _toJson();
     }
+
+    function fromJsonString(string memory json) public {
+        _fromJson(json);
+    }
+
+    function resumeAfterLoad() public {
+        _resumeAfterLoad();
+    }
+
+    // ============================================================================
+    // Test-only Resume Methods (bypass auto-derived paths)
+    // ============================================================================
+
+    // /// @notice Resume from custom filepath (test only)
+    // function resumeFrom(string memory fileName) public {
+    //     _fromJsonFile(fileName);
+    // }
+
+    // /// @notice Resume from JSON string (test only)
+    // function resumeFromJson(string memory json) public {
+    //     _fromJson(json);
+    //     _ensureBaoDeployerOperator();
+    //     _stub = new UUPSProxyDeployStub();
+    // }
 
     /// @notice Count how many proxies are still owned by this harness (for testing)
     /// @dev Useful for verifying ownership transfer behavior in tests
@@ -136,29 +123,6 @@ contract MockDeployment is DeploymentFoundry {
         return stillOwned;
     }
 
-    /// @notice Remove .json extension from filepath
-    /// @dev Used by snapshot harnesses to insert operation/phase numbers before extension
-    function _removeJsonExtension(string memory path) internal pure returns (string memory) {
-        bytes memory pathBytes = bytes(path);
-        require(pathBytes.length > 5, "Path too short");
-
-        // Check if ends with .json
-        if (
-            pathBytes[pathBytes.length - 5] == "." &&
-            pathBytes[pathBytes.length - 4] == "j" &&
-            pathBytes[pathBytes.length - 3] == "s" &&
-            pathBytes[pathBytes.length - 2] == "o" &&
-            pathBytes[pathBytes.length - 1] == "n"
-        ) {
-            bytes memory result = new bytes(pathBytes.length - 5);
-            for (uint256 i = 0; i < pathBytes.length - 5; i++) {
-                result[i] = pathBytes[i];
-            }
-            return string(result);
-        }
-        return path;
-    }
-
     /// @notice Convert uint to string
     /// @dev Used by snapshot harnesses to create numbered snapshot filenames
     function _uintToString(uint256 value) internal pure returns (string memory) {
@@ -179,22 +143,6 @@ contract MockDeployment is DeploymentFoundry {
         }
 
         return string(buffer);
-    }
-
-    // ============================================================================
-    // Test-only Resume Methods (bypass auto-derived paths)
-    // ============================================================================
-
-    /// @notice Resume from custom filepath (test only)
-    function resumeFrom(string memory filepath) public {
-        _resumeFrom(filepath);
-    }
-
-    /// @notice Resume from JSON string (test only)
-    function resumeFromJson(string memory json) public {
-        _fromJson(json);
-        _ensureBaoDeployerOperator();
-        _stub = new UUPSProxyDeployStub();
     }
 
     // ============================================================================
@@ -246,49 +194,6 @@ contract MockDeployment is DeploymentFoundry {
 
         addr = baoDeployer.reveal{value: 0}(initCode, salt, value);
     }
-
-    // /**
-    //  * @notice Deploy a contract via CREATE3 with ETH value to payable constructor
-    //  * @dev Uses BaoDeployer's value-enabled deployDeterministic
-    //  * @param key String key to register the contract
-    //  * @param value Amount of ETH (in wei) to send to constructor (requires payable constructor)
-    //  * @param creationCode Contract creation bytecode
-    //  * @param contractType Contract type for metadata (e.g., "FundedVault")
-    //  * @param contractPath Source path for metadata
-    //  * @return deployed Address of the deployed contract
-    //  */
-    // function deployContractWithValue(
-    //     string memory key,
-    //     uint256 value,
-    //     bytes memory creationCode,
-    //     string memory contractType,
-    //     string memory contractPath
-    // ) public payable returns (address deployed) {
-    //     _requireActiveRun();
-    //     if (bytes(key).length == 0) {
-    //         revert KeyRequired();
-    //     }
-    //     if (_exists[key]) {
-    //         revert ContractAlreadyExists(key);
-    //     }
-
-    //     // Compute salt
-    //     bytes memory saltBytes = abi.encodePacked(_metadata.systemSaltString, "/", key, "/contract");
-    //     bytes32 salt = keccak256(saltBytes);
-
-    //     address baoDeployerAddr = _predictBaoDeployerAddress();
-    //     BaoDeployer baoDeployer = BaoDeployer(baoDeployerAddr);
-    //     bytes32 initCodeHash = keccak256(creationCode);
-    //     bytes32 commitment = DeploymentInfrastructure.commitment(address(this), value, salt, initCodeHash);
-
-    //     baoDeployer.commit(commitment);
-    //     deployed = baoDeployer.reveal{value: value}(creationCode, salt, value);
-
-    //     // Register the contract
-    //     registerContract(key, deployed, contractType, contractPath, "contract");
-
-    //     emit ContractDeployed(key, deployed, contractType);
-    // }
 
     /**
      * @notice Helper for string comparison

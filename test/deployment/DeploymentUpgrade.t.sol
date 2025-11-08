@@ -287,12 +287,12 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         IUUPSUpgradeableProxy(oracle).upgradeTo(address(newImpl));
 
         // Test JSON serialization after upgrade
-        string memory json = deployment.toJson();
+        string memory json = deployment.toJsonString();
         assertTrue(vm.keyExistsJson(json, ".deployment.Oracle"), "Should contain Oracle in JSON");
 
         // Test JSON round-trip
         MockDeploymentUpgrade newDeployment = new MockDeploymentUpgrade();
-        newDeployment.fromJson(json);
+        newDeployment.fromJsonString(json);
 
         address restoredOracle = newDeployment.get("Oracle");
         assertTrue(restoredOracle != address(0), "Oracle should be restored from JSON");

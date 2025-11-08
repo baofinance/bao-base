@@ -1,11 +1,12 @@
 | File                                           | % Lines            | % Statements       | % Branches       | % Funcs          |
 |------------------------------------------------|--------------------|--------------------|------------------|------------------|
 | script/deployment/BaoDeployer.sol              | X  84% (31/37)     | X  73% (27/37)     | X  33% (3/9)     | X  82% (9/11)    |
-| script/deployment/Deployment.sol               | X  87% (118/136)   | X  89% (128/144)   | X  50% (14/28)   | X  84% (16/19)   |
-| script/deployment/DeploymentFoundry.sol        | X   0% (0/2)       | X   0% (0/1)       | ✓ 100% (0/0)     | X   0% (0/1)     |
+| script/deployment/Deployment.sol               | X  86% (120/139)   | X  89% (131/148)   | X  50% (14/28)   | X  80% (16/20)   |
+| script/deployment/DeploymentConfig.sol         | X  85% (57/67)     | X  87% (68/78)     | X  80% (12/15)   | X  82% (9/11)    |
+| script/deployment/DeploymentFoundry.sol        | X  78% (43/55)     | X  83% (55/66)     | X  67% (4/6)     | X  69% (9/13)    |
 | script/deployment/DeploymentInfrastructure.sol | X  90% (19/21)     | X  91% (21/23)     | X  40% (2/5)     | ✓ 100% (3/3)     |
 | script/deployment/DeploymentRegistry.sol       | X  85% (152/179)   | X  86% (131/153)   | X  43% (16/37)   | X  93% (28/30)   |
-| script/deployment/DeploymentRegistryJson.sol   | X  98% (322/330)   | X  98% (374/381)   | X  86% (62/72)   | ✓ 100% (25/25)   |
+| script/deployment/DeploymentRegistryJson.sol   | X  96% (318/333)   | X  97% (372/385)   | X  86% (62/72)   | X  88% (23/26)   |
 | script/deployment/UUPSProxyDeployStub.sol      | X  96% (26/27)     | X  88% (22/25)     | X  67% (4/6)     | ✓ 100% (8/8)     |
 | src/BaoOwnable.sol                             | ✓ 100% (27/27)     | ✓ 100% (24/24)     | ✓ 100% (3/3)     | ✓ 100% (6/6)     |
 | src/BaoOwnableRoles.sol                        | ✓ 100% (2/2)       | ✓ 100% (4/4)       | ✓ 100% (0/0)     | ✓ 100% (1/1)     |
@@ -23,4 +24,4 @@
 | src/internal/BaoCheckOwner_v2.sol              | ✓ 100% (13/13)     | ✓ 100% (10/10)     | ✓ 100% (1/1)     | ✓ 100% (4/4)     |
 | src/internal/BaoRoles.sol                      | ✓ 100% (56/56)     | ✓ 100% (49/49)     | ✓ 100% (6/6)     | ✓ 100% (16/16)   |
 | src/internal/BaoRoles_v2.sol                   | ✓ 100% (47/47)     | X  98% (42/43)     | ✓ 100% (4/4)     | ✓ 100% (14/14)   |
-| Total                                          | X  80% (1722/2151) | X  83% (1671/2002) | X  57% (149/261) | X  70% (362/514) |
+| Total                                          | X  80% (1814/2265) | X  84% (1786/2138) | X  59% (165/281) | X  70% (377/537) |

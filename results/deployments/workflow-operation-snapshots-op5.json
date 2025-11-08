@@ -43,10 +43,10 @@
       "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
       "startTimestamp": 1,
       "startTimestampISO": "1970-01-01T00:00:01Z",
-      "finishTimestamp": 0,
-      "finishTimestampISO": "",
+      "finishTimestamp": 1,
+      "finishTimestampISO": "1970-01-01T00:00:01Z",
       "startBlock": 1,
-      "finishBlock": 0,
+      "finishBlock": 1,
       "finished": false
     }
   ]

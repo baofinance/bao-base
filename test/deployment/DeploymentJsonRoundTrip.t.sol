@@ -66,14 +66,14 @@ contract DeploymentJsonRoundTripTest is BaoDeploymentTest {
         deployment.finish();
 
         // Serialize to JSON
-        string memory json = deployment.toJson();
+        string memory json = deployment.toJsonString();
 
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Create new deployment and deserialize
         MockDeploymentRoundTrip restored = new MockDeploymentRoundTrip();
-        restored.fromJson(json);
+        restored.fromJsonString(json);
 
         // Verify all contracts are preserved
         assertEq(restored.get("ExistingToken"), existingAddr, "Existing contract address mismatch");
@@ -99,13 +99,13 @@ contract DeploymentJsonRoundTripTest is BaoDeploymentTest {
     function test_EmptyDeploymentRoundTrip() public {
         deployment.finish();
 
-        string memory json = deployment.toJson();
+        string memory json = deployment.toJsonString();
 
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
         MockDeploymentRoundTrip restored = new MockDeploymentRoundTrip();
-        restored.fromJson(json);
+        restored.fromJsonString(json);
 
         // Should have metadata but no contracts
         string[] memory keys = restored.keys();
@@ -130,13 +130,13 @@ contract DeploymentJsonRoundTripTest is BaoDeploymentTest {
 
         deployment.finish();
 
-        string memory json = deployment.toJson();
+        string memory json = deployment.toJsonString();
 
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
         MockDeploymentRoundTrip restored = new MockDeploymentRoundTrip();
-        restored.fromJson(json);
+        restored.fromJsonString(json);
 
         // Verify all contracts
         for (uint256 i = 0; i < 10; i++) {
@@ -169,13 +169,13 @@ contract DeploymentJsonRoundTripTest is BaoDeploymentTest {
 
         deployment.finish();
 
-        string memory json = deployment.toJson();
+        string memory json = deployment.toJsonString();
 
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
         MockDeploymentRoundTrip restored = new MockDeploymentRoundTrip();
-        restored.fromJson(json);
+        restored.fromJsonString(json);
 
         assertEq(restored.get("token-with-dashes"), address(0x1111), "Dashes in key failed");
         assertEq(restored.get("token_with_underscores"), address(0x2222), "Underscores in key failed");

@@ -28,6 +28,10 @@ interface IUUPSUpgradeableProxy {
  *      - Designed for specialization (e.g. Harbor overrides deployProxy)
  */
 abstract contract Deployment is DeploymentRegistry {
+    function _getBaseDirPrefix() internal view virtual override returns (string memory) {
+        return super._getBaseDirPrefix();
+    }
+
     // ============================================================================
     // Storage
     // ============================================================================
@@ -110,15 +114,27 @@ abstract contract Deployment is DeploymentRegistry {
     /// @param network Network name (for subdirectory in production)
     /// @param systemSaltString System salt to derive filepath
     function resume(string memory network, string memory systemSaltString) public virtual {
-        _loadRegistry(_filepath(network, systemSaltString));
-        _ensureBaoDeployerOperator();
-        _stub = new UUPSProxyDeployStub();
+        _loadRegistry(network, systemSaltString);
+        _resumeAfterLoad();
     }
 
-    /// @notice Resume deployment from custom file path (internal - for tests)
-    /// @param filepath Custom path to JSON file
-    function _resumeFrom(string memory filepath) internal virtual {
-        _loadRegistry(filepath);
+    function _resumeAfterLoad() internal {
+        // Validate runs for resume
+        require(_runs.length >= 1, "Cannot resume: no runs in deployment");
+        require(_runs[_runs.length - 1].finished, "Cannot resume: last run not finished");
+
+        // Create new run record for this resume session
+        _runs.push(
+            RunRecord({
+                deployer: address(this),
+                startTimestamp: block.timestamp,
+                finishTimestamp: 0,
+                startBlock: block.number,
+                finishBlock: 0,
+                finished: false
+            })
+        );
+
         _ensureBaoDeployerOperator();
         _stub = new UUPSProxyDeployStub();
     }
@@ -318,8 +334,10 @@ abstract contract Deployment is DeploymentRegistry {
         );
 
         // commit-reveal via to avoid front-running the deployment which could steal our address
+        address factory = DeploymentInfrastructure.predictBaoDeployerAddress();
+
         {
-            BaoDeployer deployer = BaoDeployer(DeploymentInfrastructure.predictBaoDeployerAddress());
+            BaoDeployer deployer = BaoDeployer(factory);
             bytes32 commitment = DeploymentInfrastructure.commitment(
                 address(this),
                 0,
@@ -345,7 +363,7 @@ abstract contract Deployment is DeploymentRegistry {
             salt,
             saltString,
             "UUPS",
-            _metadata.deployer,
+            factory,
             _runs[_runs.length - 1].deployer
         );
 

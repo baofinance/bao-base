@@ -64,11 +64,11 @@ contract MockDeploymentWorkflow is MockDeployment {
 }
 
 /**
- * @title OperationSnapshotHarness
+ * @title MockDeploymentOperation
  * @notice Captures snapshots after each deployment operation
  * @dev Demonstrates autosave capturing every deploy, register, setParameter, etc.
  */
-contract OperationSnapshotHarness is MockDeploymentWorkflow {
+contract MockDeploymentOperation is MockDeploymentWorkflow {
     /// @notice Foundry VM for file operations
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
@@ -79,18 +79,14 @@ contract OperationSnapshotHarness is MockDeploymentWorkflow {
         _operationCounter = 0;
     }
 
+    function _filesuffix() internal view override returns (string memory) {
+        return string.concat("-op", _uintToString(_operationCounter));
+    }
+
     /// @notice Override to save snapshot after each operation
     /// @dev Captures state after deploy, register, useExisting, setParameter, etc.
     function _saveRegistry() internal virtual override {
-        // Build snapshot path: insert -opXX before .json extension
-        string memory basePath = _filepath();
-        string memory snapshotPath = string.concat(
-            _removeJsonExtension(basePath),
-            "-op",
-            _uintToString(_operationCounter),
-            ".json"
-        );
-        toJsonFile(snapshotPath);
+        super._saveRegistry();
         _operationCounter++;
     }
 }
@@ -131,7 +127,7 @@ contract DeploymentWorkflowTest is BaoDeploymentTest {
 
     function test_OperationSnapshots() public {
         // Use OperationSnapshotHarness to capture each operation
-        OperationSnapshotHarness snapDeployment = new OperationSnapshotHarness();
+        MockDeploymentOperation snapDeployment = new MockDeploymentOperation();
         snapDeployment.start(admin, TEST_NETWORK, TEST_VERSION, "workflow-operation-snapshots");
         snapDeployment.enableAutoSave();
 
@@ -353,7 +349,7 @@ contract DeploymentWorkflowTest is BaoDeploymentTest {
         deployment.setString("network", "ethereum");
 
         // Test JSON round-trip
-        string memory json = deployment.toJson();
+        string memory json = deployment.toJsonString();
         assertTrue(bytes(json).length > 0, "JSON should be generated");
 
         // Verify JSON contains expected entries
@@ -363,7 +359,7 @@ contract DeploymentWorkflowTest is BaoDeploymentTest {
 
         // Test loading from JSON
         MockDeploymentWorkflow newDeployment = new MockDeploymentWorkflow();
-        newDeployment.fromJson(json);
+        newDeployment.fromJsonString(json);
 
         // Verify loaded data
         assertEq(newDeployment.get("USDC"), deployment.get("USDC"), "USDC address should match");

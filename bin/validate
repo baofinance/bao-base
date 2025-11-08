@@ -21,10 +21,14 @@ else
   echo "Default bash version: $(bash --version 2>/dev/null | head -n1 || echo 'unknown')" >&2
 fi
 
-# only check the src files
-FOUNDRY_OUT="out/_validate" # there's no command option to set this
+# separate build output & cache
+FOUNDRY_OUT="out/_validate"
+export FOUNDRY_CACHE_PATH=cache/_validate
+
 BUILD_INFO_DIR="$FOUNDRY_OUT/build-info"
 mkdir -p "${BUILD_INFO_DIR}"
+# only check the src files
+
 # build again with build-info this time, so we force
 forge build --out ${FOUNDRY_OUT} --build-info --build-info-path "${BUILD_INFO_DIR}" --extra-output storageLayout --skip "**/*.vy" --skip "**/*.t.sol" --skip "**/*.s.sol" --force src
 echo

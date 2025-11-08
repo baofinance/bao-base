@@ -112,64 +112,37 @@ contract MockDeploymentIntegration is MockDeployment {
 }
 
 /**
- * @title PhaseSnapshotHarness
+ * @title MockDeploymentPhase
  * @notice Captures snapshots at finish() to show state after each deployment phase
  * @dev Used for test_IncrementalDeployment to capture phase1, phase2, phase3 states
  */
-contract PhaseSnapshotHarness is MockDeploymentIntegration {
+contract MockDeploymentPhase is MockDeploymentIntegration {
     /// @notice Foundry VM for file operations
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     /// @notice Counter for phase snapshots
-    uint256 private _phaseCounter;
+    uint256 private immutable _phaseCounter;
 
-    constructor() {
-        _phaseCounter = 0;
+    constructor(uint256 phase) {
+        _phaseCounter = phase;
     }
 
-    /// @notice Override finish to capture phase snapshot
-    /// @dev Saves a numbered phase snapshot after each finish() call
-    function finish() public override returns (uint256 transferred) {
-        transferred = super.finish();
+    // function _filesuffix() internal view virtual override returns (string memory) {
+    //     return string.concat("-phase", _uintToString(_phaseCounter));
+    // }
 
-        // Increment phase counter
-        _phaseCounter++;
+    function filename(string memory saltString) public view returns (string memory) {
+        return _filename(saltString);
+    }
 
-        // Copy the autosaved file to a phase-numbered snapshot
-        string memory sourcePath = _filepath();
-        string memory destPath = string.concat(
-            _removeJsonExtension(sourcePath),
-            "-phase",
-            _uintToString(_phaseCounter),
-            ".json"
+    function finish() public override returns (uint256 result) {
+        result = super.finish();
+        // Autosave snapshot at end of phase
+        string memory dest = _filepath(
+            "",
+            string.concat(getSystemSaltString(), "-phase", _uintToString(_phaseCounter))
         );
-
-        // Read from autosaved file and write to phase snapshot
-        string memory content = vm.readFile(sourcePath);
-        vm.writeFile(destPath, content);
-    }
-}
-
-/**
- * @title MockDeploymentOperation
- * @notice Captures snapshots after each deployment operation for detailed regression testing
- * @dev Used to demonstrate autosave capturing every deploy, register, etc.
- */
-contract MockDeploymentOperation is MockDeploymentIntegration {
-    /// @notice Counter for operation snapshots
-    uint256 private _operationCounter;
-
-    constructor() {
-        _operationCounter = 0;
-    }
-
-    /// @notice Override to save snapshot after each operation
-    /// @dev Captures state after deploy, register, useExisting, setParameter, etc.
-    function _saveRegistry() internal virtual override {
-        // Save snapshot with operation counter
-        string memory snapshotPath = string.concat(_filepath(), "-op", _uintToString(_operationCounter));
-        toJsonFile(snapshotPath);
-        _operationCounter++;
+        vm.writeJson(toJsonString(), dest);
     }
 }
 
@@ -180,7 +153,6 @@ contract MockDeploymentOperation is MockDeploymentIntegration {
 contract DeploymentIntegrationTest is BaoDeploymentTest {
     MockDeploymentIntegration public deployment;
     address public admin;
-    string constant TEST_OUTPUT_DIR = "results/deployments";
     string constant TEST_NETWORK = "test-network";
     string constant TEST_SALT = "integration-test-salt";
     string constant TEST_VERSION = "v1.0.0";
@@ -242,9 +214,8 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         deployment.finish();
 
         // Load into new deployment (autosave already wrote the file)
-        string memory path = string.concat(TEST_OUTPUT_DIR, "/", TEST_SALT, ".json");
         MockDeploymentIntegration newDeployment = new MockDeploymentIntegration();
-        newDeployment.fromJsonFile(path);
+        newDeployment.forceLoadRegistry(TEST_SALT);
 
         // Verify all loaded correctly
         assertTrue(newDeployment.has("collateral"));
@@ -265,9 +236,6 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
     }
 
     function test_DeploymentWithExistingContracts() public {
-        // Enable auto-save for regression testing
-        deployment.enableAutoSave();
-
         // Use existing mainnet contracts (simulated)
         address wstEth = address(0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
         deployment.useExisting("wstETH", wstEth);
@@ -282,8 +250,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         assertTrue(deployment.has("wstETH"));
 
         // Read autosaved file
-        string memory path = string.concat(TEST_OUTPUT_DIR, "/", TEST_SALT, ".json");
-        string memory json = vm.readFile(path);
+        string memory json = deployment.toJsonString();
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
         address loaded = vm.parseJsonAddress(json, ".deployment.wstETH.address");
@@ -296,11 +263,11 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
     function test_IncrementalDeployment() public {
         // Use unique salt to avoid conflicts with other tests
         string memory incrementalSalt = "integration-incremental-salt";
-
+        uint256 phase = 1;
         // Phase 1: Deploy tokens with autosave and snapshots
         vm.warp(1000000); // Set initial timestamp
         vm.roll(100); // Set initial block number
-        PhaseSnapshotHarness phase1 = new PhaseSnapshotHarness();
+        MockDeploymentPhase phase1 = new MockDeploymentPhase(phase++);
         phase1.start(admin, TEST_NETWORK, TEST_VERSION, incrementalSalt);
         phase1.enableAutoSave();
         phase1.deployMockERC20("collateral", "wETH", "wETH");
@@ -310,7 +277,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         // Phase 2: Resume and add oracle (simulate time passing)
         vm.warp(2000000); // Advance timestamp by 1M seconds
         vm.roll(200); // Advance by 100 blocks
-        PhaseSnapshotHarness phase2 = new PhaseSnapshotHarness();
+        MockDeploymentPhase phase2 = new MockDeploymentPhase(phase++);
         phase2.resume(TEST_NETWORK, incrementalSalt);
         phase2.enableAutoSave();
         phase2.deployOracleProxy("oracle", 2000e18, admin);
@@ -319,14 +286,14 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         // Phase 3: Resume and add minter (simulate more time passing)
         vm.warp(3000000); // Advance timestamp by another 1M seconds
         vm.roll(300); // Advance by another 100 blocks
-        PhaseSnapshotHarness phase3 = new PhaseSnapshotHarness();
+        MockDeploymentPhase phase3 = new MockDeploymentPhase(phase++);
         phase3.resume(TEST_NETWORK, incrementalSalt);
         phase3.enableAutoSave();
         phase3.deployMinterProxy("minter", "collateral", "pegged", "oracle", admin);
         phase3.finish(); // autosaves and creates phase3 snapshot
 
         // Verify final state
-        MockDeploymentIntegration finalDeployment = new MockDeploymentIntegration();
+        MockDeploymentIntegration finalDeployment = new MockDeploymentPhase(phase++);
         finalDeployment.resume(TEST_NETWORK, incrementalSalt);
 
         assertTrue(finalDeployment.has("collateral"));

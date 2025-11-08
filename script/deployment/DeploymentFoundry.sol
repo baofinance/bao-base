@@ -3,7 +3,10 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Vm} from "forge-std/Vm.sol";
 import {Deployment} from "./Deployment.sol";
+import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {DeploymentRegistryJson} from "@bao-script/deployment/DeploymentRegistryJson.sol";
+import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
+import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 
 /**
  * @title DeploymentFoundry
@@ -13,6 +16,16 @@ import {DeploymentRegistryJson} from "@bao-script/deployment/DeploymentRegistryJ
  *
  */
 abstract contract DeploymentFoundry is Deployment, DeploymentRegistryJson {
+    function _getBaseDirPrefix()
+        internal
+        view
+        virtual
+        override(DeploymentRegistryJson, Deployment)
+        returns (string memory)
+    {
+        return super._getBaseDirPrefix();
+    }
+
     /// @notice Foundry VM for labeling addresses in traces
     Vm constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
@@ -24,5 +37,24 @@ abstract contract DeploymentFoundry is Deployment, DeploymentRegistryJson {
      */
     function labelAddress(address addr, string memory label) public {
         VM.label(addr, label);
+    }
+}
+
+contract DeploymentFoundryTest is DeploymentFoundry {
+    function _ensureBaoDeployerOperator() internal virtual override {
+        address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
+        if (baoDeployer.code.length > 0 && BaoDeployer(baoDeployer).operator() != address(this)) {
+            VM.startPrank(DeploymentInfrastructure.BAOMULTISIG);
+            BaoDeployer(baoDeployer).setOperator(address(this));
+            VM.stopPrank();
+        }
+        super._ensureBaoDeployerOperator();
+    }
+
+    function _getBaseDirPrefix() internal view virtual override(DeploymentFoundry) returns (string memory) {
+        if (VM.envExists("BAO_DEPLOYMENT_LOGS_ROOT")) {
+            return VM.envString("BAO_DEPLOYMENT_LOGS_ROOT");
+        }
+        return "results";
     }
 }
