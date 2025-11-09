@@ -119,23 +119,23 @@ library DeploymentConfig {
         return pointer;
     }
 
-    /// @dev Resolve pointer precedence: top-level, contract-specific, then contract defaults
+    /// @dev Resolve pointer precedence: contract-specific in $.contracts, then top-level defaults
     function _resolvePointer(
         SourceJson memory config,
         string memory contractKey,
         string memory fieldPath
     ) private view returns (bool, string memory) {
-        // Check contract-specific overrides first
+        // Check contract-specific overrides in $.contracts section
         if (bytes(contractKey).length != 0) {
-            string memory contractPointer = _buildPointer("$", contractKey, fieldPath);
+            string memory contractPointer = _buildPointer("$.contracts", contractKey, fieldPath);
             if (_exists(config, contractPointer)) {
                 return (true, contractPointer);
             }
 
-            // Check if contract is known (exists in config)
-            bool contractKnown = _exists(config, _buildPointer("$", contractKey, ""));
+            // Check if contract is known (exists in $.contracts)
+            bool contractKnown = _exists(config, _buildPointer("$.contracts", contractKey, ""));
 
-            // Only fall back to top-level default if contract is known or no contract key given
+            // Only fall back to top-level default if contract is known
             if (!contractKnown) {
                 return (false, "");
             }
