@@ -3,33 +3,24 @@
     "network": "testnet",
     "version": "1.0.0"
   },
-  "defaults": {
-    "owner": "0x0000000000000000000000000000000000aaaa01",
-    "admin": "0x0000000000000000000000000000000000aaaa02",
-    "pegged": {
-      "params": {
-        "name": "Bao USD",
-        "symbol": "BAOUSD",
-        "decimals": 18
-      }
-    },
-    "stabilityPoolCollateral": {
-      "params": {
-        "minDeposit": 1000000000000000000
-      }
+  "owner": "0x0000000000000000000000000000000000aaaa01",
+  "admin": "0x0000000000000000000000000000000000aaaa02",
+  "pegged": {
+    "owner": "0x0000000000000000000000000000000000bbbb01",
+    "params": {
+      "name": "Bao USD",
+      "symbol": "cUSD",
+      "decimals": 18
     }
   },
-  "contracts": {
-    "pegged": {
-      "owner": "0x0000000000000000000000000000000000bbbb01",
-      "params": {
-        "symbol": "cUSD"
-      }
-    },
-    "minter": {
-      "params": {
-        "feeBps": 25
-      }
+  "stabilityPoolCollateral": {
+    "params": {
+      "minDeposit": 1000000000000000000
+    }
+  },
+  "minter": {
+    "params": {
+      "feeBps": 25
     }
   },
   "conflicts": {

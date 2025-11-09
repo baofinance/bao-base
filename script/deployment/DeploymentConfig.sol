@@ -125,20 +125,26 @@ library DeploymentConfig {
         string memory contractKey,
         string memory fieldPath
     ) private view returns (bool, string memory) {
-        // For empty contractKey, check top-level first
-        if (bytes(contractKey).length == 0) {
-            string memory topLevel = string.concat("$.", fieldPath);
-            if (_exists(config, topLevel)) {
-                return (true, topLevel);
-            }
-        }
-
-        // Check contract-specific overrides
+        // Check contract-specific overrides first
         if (bytes(contractKey).length != 0) {
             string memory contractPointer = _buildPointer("$", contractKey, fieldPath);
             if (_exists(config, contractPointer)) {
                 return (true, contractPointer);
             }
+
+            // Check if contract is known (exists in config)
+            bool contractKnown = _exists(config, _buildPointer("$", contractKey, ""));
+
+            // Only fall back to top-level default if contract is known or no contract key given
+            if (!contractKnown) {
+                return (false, "");
+            }
+        }
+
+        // Fall back to top-level default
+        string memory topLevel = string.concat("$.", fieldPath);
+        if (_exists(config, topLevel)) {
+            return (true, topLevel);
         }
 
         return (false, "");
