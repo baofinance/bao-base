@@ -119,33 +119,25 @@ library DeploymentConfig {
         return pointer;
     }
 
-    /// @dev Resolve pointer precedence: contract override, contract defaults, then global defaults.
+    /// @dev Resolve pointer precedence: top-level, contract-specific, then contract defaults
     function _resolvePointer(
         SourceJson memory config,
         string memory contractKey,
         string memory fieldPath
     ) private view returns (bool, string memory) {
-        bool contractKnown;
-        if (bytes(contractKey).length != 0) {
-            string memory contractPointer = _buildPointer("$.contracts", contractKey, fieldPath);
-            if (_exists(config, contractPointer)) {
-                return (true, contractPointer);
+        // For empty contractKey, check top-level first
+        if (bytes(contractKey).length == 0) {
+            string memory topLevel = string.concat("$.", fieldPath);
+            if (_exists(config, topLevel)) {
+                return (true, topLevel);
             }
-
-            string memory contractDefault = _buildPointer("$.defaults", contractKey, fieldPath);
-            if (_exists(config, contractDefault)) {
-                return (true, contractDefault);
-            }
-
-            contractKnown =
-                _exists(config, _buildPointer("$.contracts", contractKey, "")) ||
-                _exists(config, _buildPointer("$.defaults", contractKey, ""));
         }
 
-        if (bytes(contractKey).length == 0 || contractKnown) {
-            string memory globalDefault = _buildPointer("$.defaults", "", fieldPath);
-            if (_exists(config, globalDefault)) {
-                return (true, globalDefault);
+        // Check contract-specific overrides
+        if (bytes(contractKey).length != 0) {
+            string memory contractPointer = _buildPointer("$", contractKey, fieldPath);
+            if (_exists(config, contractPointer)) {
+                return (true, contractPointer);
             }
         }
 

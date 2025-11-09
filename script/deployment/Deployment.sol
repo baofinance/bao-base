@@ -28,10 +28,6 @@ interface IUUPSUpgradeableProxy {
  *      - Designed for specialization (e.g. Harbor overrides deployProxy)
  */
 abstract contract Deployment is DeploymentRegistry {
-    function _getBaseDirPrefix() internal view virtual override returns (string memory) {
-        return super._getBaseDirPrefix();
-    }
-
     // ============================================================================
     // Storage
     // ============================================================================

@@ -20,10 +20,10 @@ abstract contract DeploymentFoundry is Deployment, DeploymentRegistryJson {
         internal
         view
         virtual
-        override(DeploymentRegistryJson, Deployment)
+        override(DeploymentRegistryJson, DeploymentRegistry)
         returns (string memory)
     {
-        return super._getBaseDirPrefix();
+        return DeploymentRegistryJson._getBaseDirPrefix();
     }
 
     /// @notice Foundry VM for labeling addresses in traces
@@ -40,7 +40,7 @@ abstract contract DeploymentFoundry is Deployment, DeploymentRegistryJson {
     }
 }
 
-contract DeploymentFoundryTest is DeploymentFoundry {
+abstract contract DeploymentFoundryTest is DeploymentFoundry {
     function _ensureBaoDeployerOperator() internal virtual override {
         address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
         if (baoDeployer.code.length > 0 && BaoDeployer(baoDeployer).operator() != address(this)) {
@@ -51,7 +51,7 @@ contract DeploymentFoundryTest is DeploymentFoundry {
         super._ensureBaoDeployerOperator();
     }
 
-    function _getBaseDirPrefix() internal view virtual override(DeploymentFoundry) returns (string memory) {
+    function _getBaseDirPrefix() internal view virtual override returns (string memory) {
         if (VM.envExists("BAO_DEPLOYMENT_LOGS_ROOT")) {
             return VM.envString("BAO_DEPLOYMENT_LOGS_ROOT");
         }
