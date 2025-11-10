@@ -186,6 +186,7 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
         string memory json
     ) internal returns (string memory) {
         json = VM.serializeString(key, "category", info.category);
+        json = VM.serializeBool(key, "dryRun", info.dryRun);
 
         // For existing contracts, only include address and blockNumber
         bool isExisting = _eq(info.category, "existing");
@@ -360,6 +361,9 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
             run.startTimestamp = VM.parseJsonUint(json, string.concat(runPath, ".startTimestamp"));
             run.startBlock = VM.parseJsonUint(json, string.concat(runPath, ".startBlock"));
             run.finished = VM.parseJsonBool(json, string.concat(runPath, ".finished"));
+            if (VM.keyExistsJson(json, string.concat(runPath, ".dryRun"))) {
+                run.dryRun = VM.parseJsonBool(json, string.concat(runPath, ".dryRun"));
+            }
             if (VM.keyExistsJson(json, string.concat(runPath, ".finishTimestamp"))) {
                 run.finishTimestamp = VM.parseJsonUint(json, string.concat(runPath, ".finishTimestamp"));
             }
@@ -404,6 +408,9 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
         if (!isExisting && VM.keyExistsJson(json, string.concat(basePath, ".deployer"))) {
             deployer = VM.parseJsonAddress(json, string.concat(basePath, ".deployer"));
         }
+        if (VM.keyExistsJson(json, string.concat(basePath, ".dryRun"))) {
+            info.dryRun = VM.parseJsonBool(json, string.concat(basePath, ".dryRun"));
+        }
 
         _contracts[key] = ContractEntry({info: info, factory: factory, deployer: deployer});
 
@@ -440,6 +447,9 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
         // Parse factory (CREATE3 - always present for proxies) and deployer (executor)
         address factory = VM.parseJsonAddress(json, string.concat(basePath, ".factory"));
         address deployer = VM.parseJsonAddress(json, string.concat(basePath, ".deployer"));
+        if (VM.keyExistsJson(json, string.concat(basePath, ".dryRun"))) {
+            info.dryRun = VM.parseJsonBool(json, string.concat(basePath, ".dryRun"));
+        }
 
         _proxies[key] = ProxyEntry({
             info: info,
@@ -463,6 +473,9 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
         info.contractPath = VM.parseJsonString(json, string.concat(basePath, ".contractPath"));
         info.blockNumber = VM.parseJsonUint(json, string.concat(basePath, ".blockNumber"));
         info.category = VM.parseJsonString(json, string.concat(basePath, ".category"));
+        if (VM.keyExistsJson(json, string.concat(basePath, ".dryRun"))) {
+            info.dryRun = VM.parseJsonBool(json, string.concat(basePath, ".dryRun"));
+        }
 
         // Parse deployer (executor)
         address deployer = VM.parseJsonAddress(json, string.concat(basePath, ".deployer"));
@@ -597,6 +610,7 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
             );
             runJson = string.concat(runJson, '"startBlock":', VM.toString(_runs[i].startBlock), ",");
             runJson = string.concat(runJson, '"finishBlock":', VM.toString(_runs[i].finishBlock), ",");
+                runJson = string.concat(runJson, '"dryRun":', _runs[i].dryRun ? "true" : "false", ",");
             runJson = string.concat(runJson, '"finished":', _runs[i].finished ? "true" : "false");
             runJson = string.concat(runJson, "}");
 

@@ -31,6 +31,7 @@ abstract contract DeploymentRegistry {
         bytes32 txHash;
         uint256 blockNumber;
         string category; // "contract", "proxy", "library", "mock", "existing"
+        bool dryRun; // Whether this was a dry-run deployment (predicted address, no code)
     }
 
     /// @notice CREATE3-specific fields (deterministic deployment)
@@ -69,6 +70,7 @@ abstract contract DeploymentRegistry {
         uint256 finishTimestamp;
         uint256 startBlock;
         uint256 finishBlock;
+        bool dryRun;
         bool finished;
     }
 
@@ -119,6 +121,7 @@ abstract contract DeploymentRegistry {
 
     DeploymentMetadata internal _metadata;
     RunRecord[] internal _runs;
+    bool internal _dryRun;
 
     mapping(string => ContractEntry) internal _contracts;
     mapping(string => ProxyEntry) internal _proxies;
@@ -381,45 +384,6 @@ abstract contract DeploymentRegistry {
     }
 
     /**
-     * @notice Initialize deployment metadata
-     * @param owner The final owner address for all deployed contracts
-     */
-    function _initializeMetadata(
-        address owner,
-        string memory network,
-        string memory version,
-        string memory systemSaltString
-    ) internal {
-        if (_metadata.startTimestamp != 0) {
-            revert AlreadyInitialized();
-        }
-        require(_runs.length == 0, "Cannot start: runs already exist");
-        _schemaVersion = DEPLOYMENT_SCHEMA_VERSION;
-        _metadata.deployer = address(this);
-        _metadata.owner = owner;
-        _metadata.startTimestamp = block.timestamp;
-        _metadata.startBlock = block.number;
-        _metadata.network = network;
-        _metadata.version = version;
-        _metadata.systemSaltString = systemSaltString;
-        _metadata.finishTimestamp = 0;
-        _metadata.finishBlock = 0;
-
-        // Create initial run record
-        _runs.push(
-            RunRecord({
-                deployer: address(this),
-                startTimestamp: block.timestamp,
-                finishTimestamp: 0,
-                startBlock: block.number,
-                finishBlock: 0,
-                finished: false
-            })
-        );
-        _saveRegistry();
-    }
-
-    /**
      * @notice Update finishTimestamp timestamp and block to current time/block
      * @dev Called on every save to track last modification time
      */
@@ -458,7 +422,8 @@ abstract contract DeploymentRegistry {
                 contractPath: contractPath,
                 txHash: bytes32(0),
                 blockNumber: block.number,
-                category: category
+                category: category,
+                dryRun: _dryRun
             }),
             factory: factory,
             deployer: deployer
@@ -491,7 +456,8 @@ abstract contract DeploymentRegistry {
                 contractPath: "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
                 txHash: bytes32(0),
                 blockNumber: block.number,
-                category: string.concat(proxyType, " proxy")
+                category: string.concat(proxyType, " proxy"),
+                dryRun: _dryRun
             }),
             create3: Create3Info({salt: salt, saltString: saltString, proxyType: proxyType}),
             proxy: ProxyInfo({implementationKey: implementationKey}),
@@ -542,7 +508,8 @@ abstract contract DeploymentRegistry {
                 contractPath: contractPath,
                 txHash: bytes32(0),
                 blockNumber: block.number,
-                category: "contract"
+                category: "contract",
+                dryRun: _dryRun
             }),
             factory: address(0), // Implementations use regular CREATE, not CREATE3
             deployer: deployer
@@ -580,7 +547,8 @@ abstract contract DeploymentRegistry {
                 contractPath: contractPath,
                 txHash: bytes32(0),
                 blockNumber: block.number,
-                category: "library"
+                category: "library",
+                dryRun: _dryRun
             }),
             deployer: deployer
         });

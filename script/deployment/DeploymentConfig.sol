@@ -132,17 +132,22 @@ library DeploymentConfig {
                 return (true, contractPointer);
             }
 
-            // Check if contract is known (exists in $.contracts)
-            bool contractKnown = _exists(config, _buildPointer("$.contracts", contractKey, ""));
+            string memory contractBase = _buildPointer("$.contracts", contractKey, "");
+            bool contractsSectionExists = _exists(config, "$.contracts");
 
-            // Only fall back to top-level default if contract is known
-            if (!contractKnown) {
+            // If the contract is explicitly declared in $.contracts but the field is missing, treat it as an error
+            if (contractsSectionExists && _exists(config, contractBase)) {
                 return (false, "");
             }
         }
 
         // Fall back to top-level default
-        string memory topLevel = string.concat("$.", fieldPath);
+        string memory topLevel;
+        if (bytes(contractKey).length != 0) {
+            topLevel = _buildPointer("$", contractKey, fieldPath);
+        } else {
+            topLevel = string.concat("$.", fieldPath);
+        }
         if (_exists(config, topLevel)) {
             return (true, topLevel);
         }
