@@ -610,7 +610,7 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
             );
             runJson = string.concat(runJson, '"startBlock":', VM.toString(_runs[i].startBlock), ",");
             runJson = string.concat(runJson, '"finishBlock":', VM.toString(_runs[i].finishBlock), ",");
-                runJson = string.concat(runJson, '"dryRun":', _runs[i].dryRun ? "true" : "false", ",");
+            runJson = string.concat(runJson, '"dryRun":', _runs[i].dryRun ? "true" : "false", ",");
             runJson = string.concat(runJson, '"finished":', _runs[i].finished ? "true" : "false");
             runJson = string.concat(runJson, "}");
 
