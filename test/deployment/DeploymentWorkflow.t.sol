@@ -106,7 +106,7 @@ contract DeploymentWorkflowTest is BaoDeploymentTest {
         super.setUp();
         deployment = new MockDeploymentWorkflow();
         admin = makeAddr("admin");
-        deployment.start(admin, TEST_NETWORK, TEST_VERSION, TEST_SALT);
+        startDeploymentSession(deployment, admin, TEST_NETWORK, TEST_VERSION, TEST_SALT, false);
     }
 
     function test_SimpleWorkflow() public {
@@ -128,7 +128,14 @@ contract DeploymentWorkflowTest is BaoDeploymentTest {
     function test_OperationSnapshots() public {
         // Use OperationSnapshotHarness to capture each operation
         MockDeploymentOperation snapDeployment = new MockDeploymentOperation();
-        snapDeployment.start(admin, TEST_NETWORK, TEST_VERSION, "workflow-operation-snapshots");
+        startDeploymentSession(
+            snapDeployment,
+            admin,
+            TEST_NETWORK,
+            TEST_VERSION,
+            "workflow-operation-snapshots",
+            false
+        );
         snapDeployment.enableAutoSave();
 
         // op0: start()

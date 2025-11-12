@@ -85,7 +85,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         super.setUp();
         deployment = new MockDeploymentUpgrade();
         admin = address(this);
-        deployment.start(admin, TEST_NETWORK, TEST_VERSION, TEST_SALT);
+        startDeploymentSession(deployment, admin, TEST_NETWORK, TEST_VERSION, TEST_SALT, false);
     }
 
     function test_BasicUpgrade() public {
@@ -445,7 +445,7 @@ contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
         super.setUp();
         deployment = new MockDeploymentUpgrade();
         admin = address(this);
-        deployment.start(admin, TEST_NETWORK, TEST_VERSION, TEST_SALT);
+        startDeploymentSession(deployment, admin, TEST_NETWORK, TEST_VERSION, TEST_SALT, false);
     }
 
     function test_OZOwnableWorks() public {

@@ -73,7 +73,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new MockDeploymentJson();
-        deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
+        startDeploymentSession(deployment, address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT, false);
     }
 
     function test_SaveEmptyDeployment() public {
@@ -285,8 +285,9 @@ contract DeploymentJsonTest is BaoDeploymentTest {
 
     function test_RevertWhen_ResumeNonexistentPath() public {
         MockDeploymentJson fresh = new MockDeploymentJson();
+    string memory config = buildDeploymentConfig(address(this), TEST_VERSION, "nonexistent-salt");
         vm.expectRevert();
-        fresh.resume("test", "nonexistent-salt");
+    fresh.resume(config, TEST_NETWORK, false);
     }
 
     function test_RevertWhen_ResumeFromUnfinishedRun() public {

@@ -11,6 +11,7 @@ import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol"
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
+import {DeploymentConfig} from "@bao-script/deployment/DeploymentConfig.sol";
 
 interface IUUPSUpgradeableProxy {
     function upgradeTo(address newImplementation) external;
@@ -49,6 +50,12 @@ abstract contract Deployment is DeploymentRegistry {
     error UnexpectedProxyOwner(address proxy, address owner);
     error FactoryDeploymentFailed(string reason);
     error ValueMismatch(uint256 expected, uint256 received);
+    error ConfigSchemaMismatch(uint256 expected, uint256 actual);
+    error ConfigOwnerMismatch(address expected, address actual);
+    error ConfigVersionMismatch(string expected, string actual);
+    error ConfigNetworkMismatch(string expected, string actual);
+    error ConfigSaltMismatch(string expected, string actual);
+    error ConfigSystemSaltMissing();
 
     // ============================================================================
     // Factory Abstraction
@@ -80,19 +87,31 @@ abstract contract Deployment is DeploymentRegistry {
     // Deployment Lifecycle
     // ============================================================================
 
-    /// @notice Start a fresh deployment session
-    /// @param owner Owner address for deployed contracts
-    /// @param network Network name for metadata
-    /// @param version Version string for metadata
-    /// @param systemSaltString System salt for deterministic addresses
+    /// @notice Start a fresh deployment session from JSON config
+    /// @param jsonConfig Deployment configuration JSON string
+    /// @param network Network label used for deployment logs
     /// @param dryRun Whether this deployment session should avoid executing state-changing calls
-    function start(
-        address owner,
-        string memory network,
-        string memory version,
-        string memory systemSaltString,
-        bool dryRun
-    ) public virtual {
+    function start(string memory jsonConfig, string memory network, bool dryRun) public virtual {
+        DeploymentConfig.SourceJson memory config = DeploymentConfig.fromJson(jsonConfig);
+        start(config, network, dryRun);
+    }
+
+    /// @notice Start a fresh deployment session from a parsed config
+    /// @param config Parsed deployment configuration
+    /// @param network Network label used for deployment logs
+    /// @param dryRun Whether this deployment session should avoid executing state-changing calls
+    function start(DeploymentConfig.SourceJson memory config, string memory network, bool dryRun) public virtual {
+        address owner = DeploymentConfig.get(config, "", "owner");
+        string memory version = DeploymentConfig.getString(config, "", "version");
+
+        if (DeploymentConfig.has(config, "", "schemaVersion")) {
+            uint256 configSchema = DeploymentConfig.getUint(config, "", "schemaVersion");
+            if (configSchema != DEPLOYMENT_SCHEMA_VERSION) {
+                revert ConfigSchemaMismatch(DEPLOYMENT_SCHEMA_VERSION, configSchema);
+            }
+        }
+
+        string memory systemSaltString = _deriveSystemSalt(config);
         if (_metadata.startTimestamp != 0) {
             revert AlreadyInitialized();
         }
@@ -123,10 +142,12 @@ abstract contract Deployment is DeploymentRegistry {
         );
         _saveRegistry();
 
-        require(DeploymentInfrastructure.predictBaoDeployerAddress().code.length > 0, "need to deploy the BaoDeployer");
+        require(
+            DeploymentInfrastructure.predictBaoDeployerAddress().code.length > 0,
+            "need to deploy the BaoDeployer"
+        );
         _ensureBaoDeployerOperator();
 
-        // if the deployer is not deployed then we cannot start
         _stub = new UUPSProxyDeployStub();
     }
 
@@ -142,14 +163,59 @@ abstract contract Deployment is DeploymentRegistry {
         }
     }
 
-    /// @notice Resume deployment from JSON file
-    /// @param network Network name (for subdirectory in production)
-    /// @param systemSaltString System salt to derive filepath
+    /// @notice Resume deployment from JSON config
+    /// @param jsonConfig Deployment configuration JSON string
+    /// @param network Network label used for deployment logs
     /// @param dryRun Dry-run mode to use for the resumed session
-    function resume(string memory network, string memory systemSaltString, bool dryRun) public virtual {
+    function resume(string memory jsonConfig, string memory network, bool dryRun) public virtual {
+        DeploymentConfig.SourceJson memory config = DeploymentConfig.fromJson(jsonConfig);
+        resume(config, network, dryRun);
+    }
+
+    /// @notice Resume deployment from parsed config
+    /// @param config Parsed deployment configuration
+    /// @param dryRun Dry-run mode to use for the resumed session
+    function resume(DeploymentConfig.SourceJson memory config, string memory network, bool dryRun) public virtual {
+        string memory systemSaltString = _deriveSystemSalt(config);
         _loadRegistry(network, systemSaltString);
+
+        if (_schemaVersion != DEPLOYMENT_SCHEMA_VERSION) {
+            revert ConfigSchemaMismatch(DEPLOYMENT_SCHEMA_VERSION, _schemaVersion);
+        }
+
+        address configOwner = DeploymentConfig.get(config, "", "owner");
+        string memory configVersion = DeploymentConfig.getString(config, "", "version");
+
+        if (_metadata.owner != configOwner) {
+            revert ConfigOwnerMismatch(configOwner, _metadata.owner);
+        }
+        if (!_eq(_metadata.version, configVersion)) {
+            revert ConfigVersionMismatch(configVersion, _metadata.version);
+        }
+
+        if (!_eq(_metadata.systemSaltString, systemSaltString)) {
+            revert ConfigSaltMismatch(systemSaltString, _metadata.systemSaltString);
+        }
+
+        if (bytes(network).length != 0 && !_eq(_metadata.network, network)) {
+            revert ConfigNetworkMismatch(_metadata.network, network);
+        }
+        if (bytes(network).length != 0) {
+            _metadata.network = network;
+        }
+
         _dryRun = dryRun;
         _resumeAfterLoad();
+    }
+
+    /// @notice Derive the system salt string from configuration data
+    /// @dev Default implementation expects `systemSaltString` at the top level of the config
+    function _deriveSystemSalt(DeploymentConfig.SourceJson memory config) internal view virtual returns (string memory) {
+        if (DeploymentConfig.has(config, "", "systemSaltString")) {
+            return DeploymentConfig.getString(config, "", "systemSaltString");
+        }
+
+        revert ConfigSystemSaltMissing();
     }
 
     function _resumeAfterLoad() internal {

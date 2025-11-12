@@ -49,7 +49,7 @@ contract DeploymentDependencyTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new MockDeploymentDependency();
-        deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT, false);
+        startDeploymentSession(deployment, address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT, false);
     }
 
     function test_SimpleDependency() public {

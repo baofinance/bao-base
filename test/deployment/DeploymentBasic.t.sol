@@ -44,7 +44,7 @@ contract DeploymentBasicTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new DeploymentHarness();
-        deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT, false);
+        startDeploymentSession(deployment, address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT, false);
     }
 
     function test_Initialize() public view {
@@ -160,7 +160,7 @@ contract DeploymentBasicTest is BaoDeploymentTest {
 
     function test_RevertWhen_StartDeploymentTwice() public {
         vm.expectRevert(DeploymentRegistry.AlreadyInitialized.selector);
-        deployment.start(address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT, false);
+        startDeploymentSession(deployment, address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT, false);
     }
 
     function test_RevertWhen_ActionWithoutInitialization() public {

@@ -103,7 +103,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         super.setUp();
         deployment = new MockDeploymentFields();
         admin = address(this);
-        deployment.start(admin, TEST_NETWORK, TEST_VERSION, TEST_SALT);
+        startDeploymentSession(deployment, admin, TEST_NETWORK, TEST_VERSION, TEST_SALT, false);
     }
 
     function test_ProxyHasFactoryAndDeployer() public {

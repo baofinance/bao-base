@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {MockDeployment} from "./MockDeployment.sol";
+import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 
 /**
@@ -54,5 +55,44 @@ abstract contract BaoDeploymentTest is BaoTest {
             DeploymentInfrastructure.deployBaoDeployer();
         }
         vm.label(_baoDeployer, "_baoDeployer");
+    }
+
+    function buildDeploymentConfig(
+        address owner,
+        string memory version,
+        string memory systemSalt
+    ) internal pure returns (string memory) {
+        string memory json = string.concat('{"owner":"', vm.toString(owner), '","version":"', version, '"');
+
+        if (bytes(systemSalt).length != 0) {
+            json = string.concat(json, ',"systemSaltString":"', systemSalt, '"');
+        }
+
+        json = string.concat(json, "}");
+        return json;
+    }
+
+    function startDeploymentSession(
+        Deployment deployment,
+        address owner,
+        string memory network,
+        string memory version,
+        string memory systemSalt,
+        bool dryRun
+    ) internal {
+        string memory config = buildDeploymentConfig(owner, version, systemSalt);
+        deployment.start(config, network, dryRun);
+    }
+
+    function resumeDeploymentSession(
+        Deployment deployment,
+        address owner,
+        string memory network,
+        string memory version,
+        string memory systemSalt,
+        bool dryRun
+    ) internal {
+        string memory config = buildDeploymentConfig(owner, version, systemSalt);
+        deployment.resume(config, network, dryRun);
     }
 }
