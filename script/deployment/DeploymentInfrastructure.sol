@@ -15,6 +15,10 @@ library DeploymentInfrastructure {
     /// This ensures BaoDeployer has the same address on all chains
     bytes32 internal constant _BAO_DEPLOYER_SALT = keccak256("Bao.deterministic-deployer.harbor.v1");
 
+    error BaoDeployerCodeMismatch(bytes32 expected, bytes32 actual);
+    error BaoDeployerOwnerMismatch(address expected, address actual);
+    error BaoDeployerProbeFailed();
+
     /// @notice Predict BaoDeployer address for a given owner (CREATE2 via Nick's Factory)
     function predictBaoDeployerAddress() internal pure returns (address) {
         bytes memory creationCode = abi.encodePacked(type(BaoDeployer).creationCode, abi.encode(BAOMULTISIG));
@@ -26,6 +30,27 @@ library DeploymentInfrastructure {
     /// @notice Deploy BaoDeployer via Nick's Factory if it doesn't exist
     function deployBaoDeployer() internal returns (address deployed) {
         deployed = predictBaoDeployerAddress();
+
+        bytes32 expectedRuntimeHash = keccak256(type(BaoDeployer).runtimeCode);
+        bytes32 existingCodeHash;
+        assembly {
+            existingCodeHash := extcodehash(deployed)
+        }
+
+        if (existingCodeHash != bytes32(0)) {
+            if (existingCodeHash != expectedRuntimeHash) {
+                revert BaoDeployerCodeMismatch(expectedRuntimeHash, existingCodeHash);
+            }
+            try BaoDeployer(deployed).owner() returns (address currentOwner) {
+                if (currentOwner != BAOMULTISIG) {
+                    revert BaoDeployerOwnerMismatch(BAOMULTISIG, currentOwner);
+                }
+            } catch {
+                revert BaoDeployerProbeFailed();
+            }
+            return deployed;
+        }
+
         address factory = _NICKS_FACTORY;
         bytes memory creationCode = abi.encodePacked(type(BaoDeployer).creationCode, abi.encode(BAOMULTISIG));
         bytes32 salt = _BAO_DEPLOYER_SALT;
