@@ -142,10 +142,7 @@ abstract contract Deployment is DeploymentRegistry {
         );
         _saveRegistry();
 
-        require(
-            DeploymentInfrastructure.predictBaoDeployerAddress().code.length > 0,
-            "need to deploy the BaoDeployer"
-        );
+        require(DeploymentInfrastructure.predictBaoDeployerAddress().code.length > 0, "need to deploy the BaoDeployer");
         _ensureBaoDeployerOperator();
 
         _stub = new UUPSProxyDeployStub();
@@ -210,7 +207,9 @@ abstract contract Deployment is DeploymentRegistry {
 
     /// @notice Derive the system salt string from configuration data
     /// @dev Default implementation expects `systemSaltString` at the top level of the config
-    function _deriveSystemSalt(DeploymentConfig.SourceJson memory config) internal view virtual returns (string memory) {
+    function _deriveSystemSalt(
+        DeploymentConfig.SourceJson memory config
+    ) internal view virtual returns (string memory) {
         if (DeploymentConfig.has(config, "", "systemSaltString")) {
             return DeploymentConfig.getString(config, "", "systemSaltString");
         }
@@ -512,13 +511,13 @@ abstract contract Deployment is DeploymentRegistry {
 
     /**
      * @notice Register implementation with key derived from proxy key and contract type
-     * @dev Implementation key pattern: proxyKey:contractType
+     * @dev Implementation key pattern: proxyKey__contractType
      *      This ensures consistent implementation key generation across all deployers
      * @param proxyKey The proxy key this implementation is for
      * @param addr Implementation contract address
      * @param contractType Contract type name (used in key derivation)
      * @param contractPath Source file path
-     * @return implKey The derived implementation key (proxyKey:contractType)
+     * @return implKey The derived implementation key (proxyKey__contractType)
      */
     function registerImplementation(
         string memory proxyKey,
@@ -527,10 +526,18 @@ abstract contract Deployment is DeploymentRegistry {
         string memory contractPath
     ) public virtual returns (string memory implKey) {
         _requireActiveRun();
-        implKey = string.concat(proxyKey, ":", contractType);
+        implKey = _deriveImplementationKey(proxyKey, contractType);
         _requireValidAddress(implKey, addr);
         _registerImplementation(implKey, addr, contractType, contractPath, _runs[_runs.length - 1].deployer);
         emit ContractDeployed(implKey, addr, "implementation");
+    }
+
+    /// @notice Derive the canonical implementation key for a proxy key and contract type
+    function _deriveImplementationKey(
+        string memory proxyKey,
+        string memory contractType
+    ) internal pure returns (string memory) {
+        return string.concat(proxyKey, "__", contractType);
     }
 
     function deployLibrary(

@@ -11,12 +11,12 @@ import {CounterV1} from "../mocks/upgradeable/MockCounter.sol";
 // Test harness extends MockDeployment
 contract MockDeploymentProxy is MockDeployment {
     function deployCounterProxy(string memory key, uint256 initialValue, address owner) public returns (address) {
-        string memory implKey = string.concat(key, "_impl");
+        string memory implKey = implementationKey(key, "CounterV1");
 
         // Only deploy implementation if it doesn't exist yet
         if (!has(implKey)) {
             CounterV1 impl = new CounterV1();
-            registerImplementation(implKey, address(impl), "CounterV1", "test/mocks/upgradeable/MockCounter.sol");
+            implKey = registerImplementation(key, address(impl), "CounterV1", "test/mocks/upgradeable/MockCounter.sol");
         }
 
         bytes memory initData = abi.encodeCall(CounterV1.initialize, (initialValue, owner));
@@ -117,8 +117,8 @@ contract DeploymentProxyTest is BaoDeploymentTest {
 
     function test_RevertWhen_ProxyWithEmptyKey() public {
         CounterV1 impl = new CounterV1();
-        deployment.registerImplementation(
-            "testImpl",
+        string memory implKey = deployment.registerImplementation(
+            "testImplProxy",
             address(impl),
             "CounterV1",
             "test/mocks/upgradeable/MockCounter.sol"
@@ -126,12 +126,12 @@ contract DeploymentProxyTest is BaoDeploymentTest {
         bytes memory initData = abi.encodeCall(CounterV1.initialize, (42, admin));
 
         vm.expectRevert(DeploymentRegistry.KeyRequired.selector);
-        deployment.deployProxy("", "testImpl", initData);
+        deployment.deployProxy("", implKey, initData);
     }
 
     function test_RevertWhen_ProxyWithoutImplementation() public {
-        vm.expectRevert();
-        deployment.deployProxy("counter", "nonexistent_impl", "");
+    vm.expectRevert();
+    deployment.deployProxy("counter", "nonexistent_impl", "");
     }
 
     function test_ResumeRestoresPredictions_() public {

@@ -125,31 +125,57 @@ library DeploymentConfig {
         string memory contractKey,
         string memory fieldPath
     ) private view returns (bool, string memory) {
-        // Check contract-specific overrides in $.contracts section
-        if (bytes(contractKey).length != 0) {
-            string memory contractPointer = _buildPointer("$.contracts", contractKey, fieldPath);
-            if (_exists(config, contractPointer)) {
-                return (true, contractPointer);
+        bool contractSpecified = bytes(contractKey).length != 0;
+        bool contractKnown = !contractSpecified;
+
+        if (contractSpecified) {
+            if (_pointerAvailable(config, _buildPointer("$.contracts", contractKey, ""))) {
+                contractKnown = true;
+            } else if (_pointerAvailable(config, _buildPointer("$.defaults", contractKey, ""))) {
+                contractKnown = true;
+            } else if (_pointerAvailable(config, _buildPointer("$", contractKey, ""))) {
+                contractKnown = true;
             }
 
-            string memory contractBase = _buildPointer("$.contracts", contractKey, "");
-            bool contractsSectionExists = _exists(config, "$.contracts");
-
-            // If the contract is explicitly declared in $.contracts but the field is missing, treat it as an error
-            if (contractsSectionExists && _exists(config, contractBase)) {
-                return (false, "");
+            string memory contractPointer = _buildPointer("$.contracts", contractKey, fieldPath);
+            if (_pointerAvailable(config, contractPointer)) {
+                return (true, contractPointer);
             }
         }
 
         // Fall back to top-level default
         string memory topLevel;
-        if (bytes(contractKey).length != 0) {
+        if (contractSpecified) {
             topLevel = _buildPointer("$", contractKey, fieldPath);
         } else {
             topLevel = string.concat("$.", fieldPath);
         }
-        if (_exists(config, topLevel)) {
+        if (_pointerAvailable(config, topLevel)) {
             return (true, topLevel);
+        }
+
+        // Fall back to defaults.<contractKey> when present (per-contract defaults)
+        if (contractSpecified) {
+            string memory contractDefault = _buildPointer("$.defaults", contractKey, fieldPath);
+            if (_pointerAvailable(config, contractDefault)) {
+                return (true, contractDefault);
+            }
+        }
+
+        // Fall back to shared defaults.<fieldPath> when present (global defaults)
+        string memory globalDefault;
+        if ((contractKnown || !contractSpecified) && bytes(fieldPath).length != 0) {
+            globalDefault = string.concat("$.defaults.", fieldPath);
+            if (_pointerAvailable(config, globalDefault)) {
+                return (true, globalDefault);
+            }
+        }
+
+        if ((contractKnown || !contractSpecified) && bytes(fieldPath).length != 0) {
+            string memory rootField = string.concat("$.", fieldPath);
+            if (_pointerAvailable(config, rootField)) {
+                return (true, rootField);
+            }
         }
 
         return (false, "");
@@ -191,4 +217,15 @@ library DeploymentConfig {
         }
         return true;
     }
+
+    function _pointerAvailable(SourceJson memory config, string memory pointer) private view returns (bool) {
+        if (_exists(config, pointer)) {
+            return true;
+        }
+        if (bytes(pointer).length == 0) {
+            return false;
+        }
+        return VM.keyExistsJson(config.text, pointer);
+    }
+
 }

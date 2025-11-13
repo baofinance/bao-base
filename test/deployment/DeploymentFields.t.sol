@@ -41,8 +41,12 @@ contract MockDeploymentFields is MockDeployment {
 
     function deploySimpleProxy(string memory key, uint256 value, address admin) public returns (address) {
         SimpleImplementation impl = new SimpleImplementation();
-        string memory implKey = string.concat(key, "_impl");
-        registerImplementation(implKey, address(impl), "SimpleImplementation", "test/SimpleImplementation.sol");
+        string memory implKey = registerImplementation(
+            key,
+            address(impl),
+            "SimpleImplementation",
+            "test/SimpleImplementation.sol"
+        );
         bytes memory initData = abi.encodeCall(SimpleImplementation.initialize, (value, admin));
         address proxy = this.deployProxy(key, implKey, initData);
         return proxy;
@@ -68,8 +72,12 @@ contract MockDeploymentFields is MockDeployment {
 
     function deployFundedVaultProxy(string memory key, address owner, uint256 value) public returns (address) {
         FundedVaultUUPS impl = new FundedVaultUUPS(owner);
-        string memory implKey = string.concat(key, "_impl");
-        registerImplementation(implKey, address(impl), "FundedVaultUUPS", "test/mocks/deployment/FundedVault.sol");
+        string memory implKey = registerImplementation(
+            key,
+            address(impl),
+            "FundedVaultUUPS",
+            "test/mocks/deployment/FundedVault.sol"
+        );
         bytes memory initData = abi.encodeCall(FundedVaultUUPS.initialize, ());
         return this.deployProxy{value: value}(value, key, implKey, initData);
     }
@@ -81,8 +89,12 @@ contract MockDeploymentFields is MockDeployment {
         uint256 initializerValue
     ) public returns (address) {
         NonPayableVaultUUPS impl = new NonPayableVaultUUPS(owner);
-        string memory implKey = string.concat(key, "_impl");
-        registerImplementation(implKey, address(impl), "NonPayableVaultUUPS", "test/mocks/deployment/FundedVault.sol");
+        string memory implKey = registerImplementation(
+            key,
+            address(impl),
+            "NonPayableVaultUUPS",
+            "test/mocks/deployment/FundedVault.sol"
+        );
         bytes memory initData = abi.encodeCall(NonPayableVaultUUPS.initialize, (initializerValue));
         return this.deployProxy{value: value}(value, key, implKey, initData);
     }
@@ -134,8 +146,10 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         string memory json = deployment.toJsonString();
 
         // Implementation should have deployer but no factory (not CREATE3)
-        bool hasFactory = vm.keyExistsJson(json, ".deployment.proxy1_impl.factory");
-        address deployer = vm.parseJsonAddress(json, ".deployment.proxy1_impl.deployer");
+        string memory implKey = deployment.implementationKey("proxy1", "SimpleImplementation");
+        string memory implPath = string.concat(".deployment.", implKey);
+        bool hasFactory = vm.keyExistsJson(json, string.concat(implPath, ".factory"));
+        address deployer = vm.parseJsonAddress(json, string.concat(implPath, ".deployer"));
 
         assertFalse(hasFactory, "Implementation should not have factory field");
         assertEq(deployer, address(deployment), "Implementation deployer should be deployment contract");
@@ -363,9 +377,8 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
 
     function test_RevertWhen_UnderfundingProxyDeployment() public {
         FundedVaultUUPS impl = new FundedVaultUUPS(admin);
-        string memory implKey = "vault_proxy_underfunded_impl";
-        deployment.registerImplementation(
-            implKey,
+        string memory implKey = deployment.registerImplementation(
+            "vault_proxy_underfunded",
             address(impl),
             "FundedVaultUUPS",
             "test/mocks/deployment/FundedVault.sol"

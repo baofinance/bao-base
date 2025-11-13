@@ -45,16 +45,24 @@ contract CounterV2 is CounterV1 {
 contract MockDeploymentUpgrade is MockDeployment {
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
         OracleV1 impl = new OracleV1();
-        string memory implKey = string.concat(key, "_impl");
-        registerImplementation(implKey, address(impl), "OracleV1", "test/mocks/upgradeable/MockOracle.sol");
+        string memory implKey = registerImplementation(
+            key,
+            address(impl),
+            "OracleV1",
+            "test/mocks/upgradeable/MockOracle.sol"
+        );
         bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
         return this.deployProxy(key, implKey, initData);
     }
 
     function deployCounterProxy(string memory key, uint256 initialValue, address admin) public returns (address) {
         CounterV1 impl = new CounterV1();
-        string memory implKey = string.concat(key, "_impl");
-        registerImplementation(implKey, address(impl), "CounterV1", "test/mocks/upgradeable/MockCounter.sol");
+        string memory implKey = registerImplementation(
+            key,
+            address(impl),
+            "CounterV1",
+            "test/mocks/upgradeable/MockCounter.sol"
+        );
         bytes memory initData = abi.encodeCall(CounterV1.initialize, (initialValue, admin));
         return this.deployProxy(key, implKey, initData);
     }
@@ -313,15 +321,16 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
 
         // Deploy V2 implementation separately
         CounterV2 v2Impl = new CounterV2();
-        deployment.registerImplementation(
+        string memory counterV2Key = deployment.registerImplementation(
             "Counter_v2_impl",
             address(v2Impl),
             "CounterV2",
             "test/mocks/upgradeable/MockCounter.sol"
         );
+        assertEq(counterV2Key, deployment.implementationKey("Counter_v2_impl", "CounterV2"));
 
         // Upgrade proxy to V2 using deployment system (harness is owner)
-        deployment.upgradeProxy("Counter", "Counter_v2_impl", "");
+        deployment.upgradeProxy("Counter", counterV2Key, "");
 
         // Now transfer ownership
         deployment.finish();
@@ -351,11 +360,14 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         CounterV2 v2Impl = new CounterV2();
 
         // Register as new deployment operation (deployment system continues)
-        deployment.registerImplementation(
-            "Counter_v2_impl",
-            address(v2Impl),
-            "CounterV2",
-            "test/mocks/upgradeable/MockCounter.sol"
+        assertEq(
+            deployment.registerImplementation(
+                "Counter_v2_impl",
+                address(v2Impl),
+                "CounterV2",
+                "test/mocks/upgradeable/MockCounter.sol"
+            ),
+            deployment.implementationKey("Counter_v2_impl", "CounterV2")
         );
 
         // Upgrade from admin (owner) using UUPS directly since deployment is finished
@@ -389,13 +401,13 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
 
         // Upgrade to V2
         CounterV2 v2Impl = new CounterV2();
-        deployment.registerImplementation(
+        string memory counterV2Key = deployment.registerImplementation(
             "Counter_v2_impl",
             address(v2Impl),
             "CounterV2",
             "test/mocks/upgradeable/MockCounter.sol"
         );
-        deployment.upgradeProxy("Counter", "Counter_v2_impl", "");
+        deployment.upgradeProxy("Counter", counterV2Key, "");
 
         CounterV2 counterV2 = CounterV2(counterAddr);
         assertEq(counterV2.getVersion(), 2, "Should be V2");
@@ -409,13 +421,13 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
 
         // Downgrade back to V1
         CounterV1 v1ImplNew = new CounterV1();
-        deployment.registerImplementation(
+        string memory counterV1Key = deployment.registerImplementation(
             "Counter_v1_impl",
             address(v1ImplNew),
             "CounterV1",
             "test/mocks/upgradeable/MockCounter.sol"
         );
-        deployment.upgradeProxy("Counter", "Counter_v1_impl", "");
+        deployment.upgradeProxy("Counter", counterV1Key, "");
 
         CounterV1 counterV1Again = CounterV1(counterAddr);
         assertEq(counterV1Again.value(), 50, "Value persists to V1 again");
@@ -452,7 +464,7 @@ contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
         // Deploy proxy with OZ Ownable (not BaoOwnable)
         // This test verifies that OZ Ownable works with the deployment system
         MockImplementationOZOwnable ozImpl = new MockImplementationOZOwnable();
-        deployment.registerImplementation(
+        string memory ozImplKey = deployment.registerImplementation(
             "oz_impl",
             address(ozImpl),
             "MockImplementationOZOwnable",
@@ -461,7 +473,7 @@ contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
 
         // Initialize with harness as owner
         bytes memory initData = abi.encodeCall(MockImplementationOZOwnable.initialize, (address(deployment), 42));
-        address proxyAddr = deployment.deployProxy("oz_proxy", "oz_impl", initData);
+        address proxyAddr = deployment.deployProxy("oz_proxy", ozImplKey, initData);
 
         assertTrue(proxyAddr != address(0), "Proxy should deploy");
         MockImplementationOZOwnable proxy = MockImplementationOZOwnable(proxyAddr);
@@ -479,7 +491,7 @@ contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
     function test_OZOwnableDoesNotSupportPendingOwner() public {
         // Deploy proxy with OZ Ownable
         MockImplementationOZOwnable ozImpl = new MockImplementationOZOwnable();
-        deployment.registerImplementation(
+        string memory ozImplKey = deployment.registerImplementation(
             "oz_impl",
             address(ozImpl),
             "MockImplementationOZOwnable",
@@ -487,7 +499,7 @@ contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
         );
 
         bytes memory initData = abi.encodeCall(MockImplementationOZOwnable.initialize, (address(deployment), 42));
-        address proxyAddr = deployment.deployProxy("oz_proxy", "oz_impl", initData);
+        address proxyAddr = deployment.deployProxy("oz_proxy", ozImplKey, initData);
 
         // OZ Ownable doesn't have pendingOwner() method
         (bool success, ) = proxyAddr.staticcall(abi.encodeWithSignature("pendingOwner()"));

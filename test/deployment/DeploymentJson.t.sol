@@ -45,8 +45,12 @@ contract MockDeploymentJson is MockDeployment {
 
     function deploySimpleProxy(string memory key, uint256 value) public returns (address) {
         SimpleImplementation impl = new SimpleImplementation();
-        string memory implKey = string.concat(key, "_impl");
-        registerImplementation(implKey, address(impl), "SimpleImplementation", "test/SimpleImplementation.sol");
+        string memory implKey = registerImplementation(
+            key,
+            address(impl),
+            "SimpleImplementation",
+            "test/SimpleImplementation.sol"
+        );
         bytes memory initData = abi.encodeCall(SimpleImplementation.initialize, (value));
         this.deployProxy(key, implKey, initData);
         return get(key);

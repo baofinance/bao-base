@@ -16,8 +16,12 @@ library TestMathLib {
 contract MockDeploymentRoundTrip is MockDeployment {
     function deployMockProxy(string memory key, uint256 initialValue, string memory mockName) public returns (address) {
         MockUpgradeableContract impl = new MockUpgradeableContract();
-        string memory implKey = string.concat(key, "_impl");
-        registerImplementation(implKey, address(impl), "MockUpgradeableContract", "test/MockUpgradeableContract.sol");
+        string memory implKey = registerImplementation(
+            key,
+            address(impl),
+            "MockUpgradeableContract",
+            "test/MockUpgradeableContract.sol"
+        );
         bytes memory initData = abi.encodeCall(
             MockUpgradeableContract.initialize,
             (initialValue, mockName, _metadata.owner)

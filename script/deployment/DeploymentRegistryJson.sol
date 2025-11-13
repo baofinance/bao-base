@@ -118,6 +118,10 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
         return rootJson;
     }
 
+    function _deploymentBasePath(string memory key) private pure returns (string memory) {
+        return string.concat(".deployment.", key);
+    }
+
     /**
      * @notice Load deployment from JSON string (without reading from file)
      * @dev Useful for tests to avoid littering filesystem
@@ -142,11 +146,13 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
             string memory key = loadedKeys[i];
 
             // Check if it's a parameter first (has .type field)
-            if (VM.keyExistsJson(json, string.concat(".deployment.", key, ".type"))) {
+            string memory basePath = _deploymentBasePath(key);
+
+            if (VM.keyExistsJson(json, string.concat(basePath, ".type"))) {
                 _deserializeParameter(json, key);
             } else {
                 // Otherwise check category for contract types
-                string memory category = VM.parseJsonString(json, string.concat(".deployment.", key, ".category"));
+                string memory category = VM.parseJsonString(json, string.concat(basePath, ".category"));
 
                 if (_eq(category, "UUPS proxy")) {
                     _deserializeProxy(json, key);
@@ -380,7 +386,7 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
     }
 
     function _deserializeContract(string memory json, string memory key) private {
-        string memory basePath = string.concat(".deployment.", key);
+        string memory basePath = _deploymentBasePath(key);
 
         DeploymentInfo memory info;
         info.addr = VM.parseJsonAddress(json, string.concat(basePath, ".address"));
@@ -420,7 +426,7 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
     }
 
     function _deserializeProxy(string memory json, string memory key) private {
-        string memory basePath = string.concat(".deployment.", key);
+        string memory basePath = _deploymentBasePath(key);
 
         DeploymentInfo memory info;
         info.addr = VM.parseJsonAddress(json, string.concat(basePath, ".address"));
@@ -465,7 +471,7 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
     }
 
     function _deserializeLibrary(string memory json, string memory key) private {
-        string memory basePath = string.concat(".deployment.", key);
+        string memory basePath = _deploymentBasePath(key);
 
         DeploymentInfo memory info;
         info.addr = VM.parseJsonAddress(json, string.concat(basePath, ".address"));
@@ -487,7 +493,7 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
     }
 
     function _deserializeParameter(string memory json, string memory key) private {
-        string memory basePath = string.concat(".deployment.", key);
+        string memory basePath = _deploymentBasePath(key);
 
         // Read type field explicitly
         string memory paramType = VM.parseJsonString(json, string.concat(basePath, ".type"));

@@ -22,8 +22,12 @@ contract MockDeploymentWorkflow is MockDeployment {
 
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
         OracleV1 impl = new OracleV1();
-        string memory implKey = string.concat(key, "_impl");
-        registerImplementation(implKey, address(impl), "OracleV1", "test/mocks/upgradeable/MockOracle.sol");
+        string memory implKey = registerImplementation(
+            key,
+            address(impl),
+            "OracleV1",
+            "test/mocks/upgradeable/MockOracle.sol"
+        );
         bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
         this.deployProxy(key, implKey, initData);
         return get(key);
@@ -44,16 +48,15 @@ contract MockDeploymentWorkflow is MockDeployment {
 
         // Constructor parameters: immutable token addresses (rarely change)
         MockMinter impl = new MockMinter(collateral, pegged, leveraged);
-        registerImplementation(
-            string.concat(key, "_impl"),
+        string memory implKey = registerImplementation(
+            key,
             address(impl),
             "MockMinter",
             "test/mocks/upgradeable/MockMinter.sol"
         );
 
         // Initialize parameters: oracle (has update function), owner (two-step pattern)
-        return
-            this.deployProxy(key, string.concat(key, "_impl"), abi.encodeCall(MockMinter.initialize, (oracle, admin)));
+        return this.deployProxy(key, implKey, abi.encodeCall(MockMinter.initialize, (oracle, admin)));
     }
 
     function deployMathLibrary(string memory key) public returns (address) {
@@ -168,14 +171,14 @@ contract DeploymentWorkflowTest is BaoDeploymentTest {
 
         // op10: upgradeProxy - deploy new implementation and upgrade
         OracleV1 newImpl = new OracleV1();
-        snapDeployment.registerImplementation(
+        string memory oracleImplV2Key = snapDeployment.registerImplementation(
             "oracle_impl_v2",
             address(newImpl),
             "OracleV1",
             "test/mocks/upgradeable/MockOracle.sol"
         );
         // op11: upgradeProxy (without initialization data to avoid reinitializing)
-        snapDeployment.upgradeProxy("oracle", "oracle_impl_v2", bytes(""));
+        snapDeployment.upgradeProxy("oracle", oracleImplV2Key, bytes(""));
 
         // op12: deployMathLibrary - registerLibrary
         snapDeployment.deployMathLibrary("mathLib");

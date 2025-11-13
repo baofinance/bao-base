@@ -76,8 +76,12 @@ contract MockDeploymentIntegration is MockDeployment {
 
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
         OracleV1 impl = new OracleV1();
-        string memory implKey = string.concat(key, "_impl");
-        registerImplementation(implKey, address(impl), "OracleV1", "test/mocks/upgradeable/MockOracle.sol");
+        string memory implKey = registerImplementation(
+            key,
+            address(impl),
+            "OracleV1",
+            "test/mocks/upgradeable/MockOracle.sol"
+        );
         bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
         this.deployProxy(key, implKey, initData);
         return get(key);
@@ -96,8 +100,12 @@ contract MockDeploymentIntegration is MockDeployment {
 
         // Constructor parameters: immutable token addresses (rarely change, require upgrade to modify)
         MockMinter impl = new MockMinter(collateral, pegged, oracle);
-        string memory implKey = string.concat(key, "_impl");
-        registerImplementation(implKey, address(impl), "MockMinter", "test/mocks/upgradeable/MockMinter.sol");
+        string memory implKey = registerImplementation(
+            key,
+            address(impl),
+            "MockMinter",
+            "test/mocks/upgradeable/MockMinter.sol"
+        );
 
         // Initialize parameters: oracle (has update function), owner (two-step pattern)
         bytes memory initData = abi.encodeCall(MockMinter.initialize, (oracle, admin));
@@ -195,7 +203,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         assertEq(minterContract.peggedToken(), pegged);
         assertEq(minterContract.oracle(), oracle);
 
-        // Verify keys (collateral, pegged, oracle_impl, oracle, minter_impl, minter, configLib = 7)
+        // Verify keys (collateral, pegged, oracle__OracleV1, oracle, minter__MockMinter, minter, configLib = 7)
         string[] memory keys = deployment.keys();
         assertEq(keys.length, 7);
     }
@@ -305,7 +313,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
     function test_MultipleProxiesWithSameImplementation() public {
         // Deploy one implementation
         OracleV1 impl = new OracleV1();
-        deployment.registerImplementation(
+        string memory implKey = deployment.registerImplementation(
             "oracle_impl",
             address(impl),
             "OracleV1",
@@ -317,9 +325,9 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         bytes memory initData2 = abi.encodeCall(OracleV1.initialize, (2000e18, admin));
         bytes memory initData3 = abi.encodeCall(OracleV1.initialize, (3000e18, admin));
 
-        address proxy1 = deployment.deployProxy("oracle1", "oracle_impl", initData1);
-        address proxy2 = deployment.deployProxy("oracle2", "oracle_impl", initData2);
-        address proxy3 = deployment.deployProxy("oracle3", "oracle_impl", initData3);
+    address proxy1 = deployment.deployProxy("oracle1", implKey, initData1);
+    address proxy2 = deployment.deployProxy("oracle2", implKey, initData2);
+    address proxy3 = deployment.deployProxy("oracle3", implKey, initData3);
 
         // Verify each has different address but same implementation
         assertNotEq(proxy1, proxy2);
@@ -342,7 +350,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         // Now deploy minter2 that depends on minter1
         // Constructor: immutable token addresses
         MockMinter minter2Impl = new MockMinter(minter1, token2, oracle);
-        deployment.registerImplementation(
+        string memory implKey = deployment.registerImplementation(
             "minter2_impl",
             address(minter2Impl),
             "MockMinter",
@@ -350,7 +358,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         );
         // Initialize: oracle (has update function), owner
         bytes memory initData = abi.encodeCall(MockMinter.initialize, (oracle, admin));
-        address minter2 = deployment.deployProxy("minter2", "minter2_impl", initData);
+        address minter2 = deployment.deployProxy("minter2", implKey, initData);
 
         // Verify dependency chain
         MockMinter m2 = MockMinter(minter2);

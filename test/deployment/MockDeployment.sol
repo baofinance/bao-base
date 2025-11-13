@@ -201,4 +201,12 @@ contract MockDeployment is DeploymentFoundryTest {
     function _strEqual(string memory a, string memory b) private pure returns (bool) {
         return keccak256(bytes(a)) == keccak256(bytes(b));
     }
+
+    /// @notice Compute the derived implementation key for assertions in tests
+    function implementationKey(
+        string memory proxyKey,
+        string memory contractType
+    ) public pure returns (string memory) {
+        return _deriveImplementationKey(proxyKey, contractType);
+    }
 }
