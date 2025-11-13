@@ -39,7 +39,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new MockDeploymentProxy();
-        startDeploymentSession(deployment, address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT, false);
+    startDeploymentSession(deployment, address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
         admin = makeAddr("admin");
         outsider = makeAddr("outsider");
     }

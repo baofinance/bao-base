@@ -31,7 +31,6 @@ abstract contract DeploymentRegistry {
         bytes32 txHash;
         uint256 blockNumber;
         string category; // "contract", "proxy", "library", "mock", "existing"
-        bool dryRun; // Whether this was a dry-run deployment (predicted address, no code)
     }
 
     /// @notice CREATE3-specific fields (deterministic deployment)
@@ -70,7 +69,6 @@ abstract contract DeploymentRegistry {
         uint256 finishTimestamp;
         uint256 startBlock;
         uint256 finishBlock;
-        bool dryRun;
         bool finished;
     }
 
@@ -121,8 +119,6 @@ abstract contract DeploymentRegistry {
 
     DeploymentMetadata internal _metadata;
     RunRecord[] internal _runs;
-    bool internal _dryRun;
-
     mapping(string => ContractEntry) internal _contracts;
     mapping(string => ProxyEntry) internal _proxies;
     mapping(string => LibraryEntry) internal _libraries;
@@ -422,8 +418,7 @@ abstract contract DeploymentRegistry {
                 contractPath: contractPath,
                 txHash: bytes32(0),
                 blockNumber: block.number,
-                category: category,
-                dryRun: _dryRun
+                category: category
             }),
             factory: factory,
             deployer: deployer
@@ -456,8 +451,7 @@ abstract contract DeploymentRegistry {
                 contractPath: "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
                 txHash: bytes32(0),
                 blockNumber: block.number,
-                category: string.concat(proxyType, " proxy"),
-                dryRun: _dryRun
+                category: string.concat(proxyType, " proxy")
             }),
             create3: Create3Info({salt: salt, saltString: saltString, proxyType: proxyType}),
             proxy: ProxyInfo({implementation: implementationKey}),
@@ -508,8 +502,7 @@ abstract contract DeploymentRegistry {
                 contractPath: contractPath,
                 txHash: bytes32(0),
                 blockNumber: block.number,
-                category: "contract",
-                dryRun: _dryRun
+                category: "contract"
             }),
             factory: address(0), // Implementations use regular CREATE, not CREATE3
             deployer: deployer
@@ -547,8 +540,7 @@ abstract contract DeploymentRegistry {
                 contractPath: contractPath,
                 txHash: bytes32(0),
                 blockNumber: block.number,
-                category: "library",
-                dryRun: _dryRun
+                category: "library"
             }),
             deployer: deployer
         });

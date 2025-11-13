@@ -42,8 +42,6 @@ abstract contract Deployment is DeploymentRegistry {
     // ============================================================================
 
     error ImplementationKeyRequired();
-    error DryRunModeActive();
-
     error LibraryDeploymentFailed(string key);
     error OwnershipTransferFailed(address proxy);
     error OwnerQueryFailed(address proxy);
@@ -90,17 +88,15 @@ abstract contract Deployment is DeploymentRegistry {
     /// @notice Start a fresh deployment session from JSON config
     /// @param jsonConfig Deployment configuration JSON string
     /// @param network Network label used for deployment logs
-    /// @param dryRun Whether this deployment session should avoid executing state-changing calls
-    function start(string memory jsonConfig, string memory network, bool dryRun) public virtual {
+    function start(string memory jsonConfig, string memory network) public virtual {
         DeploymentConfig.SourceJson memory config = DeploymentConfig.fromJson(jsonConfig);
-        start(config, network, dryRun);
+        start(config, network);
     }
 
     /// @notice Start a fresh deployment session from a parsed config
     /// @param config Parsed deployment configuration
     /// @param network Network label used for deployment logs
-    /// @param dryRun Whether this deployment session should avoid executing state-changing calls
-    function start(DeploymentConfig.SourceJson memory config, string memory network, bool dryRun) public virtual {
+    function start(DeploymentConfig.SourceJson memory config, string memory network) public virtual {
         address owner = DeploymentConfig.get(config, "", "owner");
         string memory version = DeploymentConfig.getString(config, "", "version");
 
@@ -117,7 +113,6 @@ abstract contract Deployment is DeploymentRegistry {
         }
         require(_runs.length == 0, "Cannot start: runs already exist");
 
-        _dryRun = dryRun;
         _schemaVersion = DEPLOYMENT_SCHEMA_VERSION;
         _metadata.deployer = address(this);
         _metadata.owner = owner;
@@ -136,7 +131,6 @@ abstract contract Deployment is DeploymentRegistry {
                 finishTimestamp: 0,
                 startBlock: block.number,
                 finishBlock: 0,
-                dryRun: dryRun,
                 finished: false
             })
         );
@@ -147,12 +141,6 @@ abstract contract Deployment is DeploymentRegistry {
 
         _stub = new UUPSProxyDeployStub();
     }
-
-    /// @notice Check if dry-run mode is active
-    function isDryRun() public view returns (bool) {
-        return _dryRun;
-    }
-
     function deployBaoDeployer() public returns (address deployed) {
         deployed = DeploymentInfrastructure.deployBaoDeployer();
         if (_runs.length > 0 && !_exists["BaoDeployer"]) {
@@ -163,16 +151,14 @@ abstract contract Deployment is DeploymentRegistry {
     /// @notice Resume deployment from JSON config
     /// @param jsonConfig Deployment configuration JSON string
     /// @param network Network label used for deployment logs
-    /// @param dryRun Dry-run mode to use for the resumed session
-    function resume(string memory jsonConfig, string memory network, bool dryRun) public virtual {
+    function resume(string memory jsonConfig, string memory network) public virtual {
         DeploymentConfig.SourceJson memory config = DeploymentConfig.fromJson(jsonConfig);
-        resume(config, network, dryRun);
+        resume(config, network);
     }
 
     /// @notice Resume deployment from parsed config
     /// @param config Parsed deployment configuration
-    /// @param dryRun Dry-run mode to use for the resumed session
-    function resume(DeploymentConfig.SourceJson memory config, string memory network, bool dryRun) public virtual {
+    function resume(DeploymentConfig.SourceJson memory config, string memory network) public virtual {
         string memory systemSaltString = _deriveSystemSalt(config);
         _loadRegistry(network, systemSaltString);
 
@@ -201,7 +187,6 @@ abstract contract Deployment is DeploymentRegistry {
             _metadata.network = network;
         }
 
-        _dryRun = dryRun;
         _resumeAfterLoad();
     }
 
@@ -230,7 +215,6 @@ abstract contract Deployment is DeploymentRegistry {
                 finishTimestamp: 0,
                 startBlock: block.number,
                 finishBlock: 0,
-                dryRun: _dryRun,
                 finished: false
             })
         );
@@ -428,41 +412,27 @@ abstract contract Deployment is DeploymentRegistry {
         bytes32 salt = EfficientHashLib.hash(proxySaltBytes);
         string memory saltString = proxyKey;
 
-        // Get factory address (needed for both dry-run and actual deployment)
         address factory = DeploymentInfrastructure.predictBaoDeployerAddress();
 
-        // Compute proxy creation code (same for dry-run and actual deployment)
         bytes memory proxyCreationCode = abi.encodePacked(
             type(ERC1967Proxy).creationCode,
             abi.encode(address(_stub), bytes(""))
         );
 
-        // In dry-run mode, only predict address; otherwise deploy
-        bool actuallyDeployed = !_dryRun;
+        BaoDeployer deployer = BaoDeployer(factory);
+        bytes32 commitment = DeploymentInfrastructure.commitment(
+            address(this),
+            0,
+            salt,
+            EfficientHashLib.hash(proxyCreationCode)
+        );
+        deployer.commit(commitment);
+        proxy = deployer.reveal(proxyCreationCode, salt, 0);
 
-        if (actuallyDeployed) {
-            // Step 1: Deploy proxy via factory pointing to stub (no initialization yet)
-            // commit-reveal to avoid front-running the deployment which could steal our address
-            BaoDeployer deployer = BaoDeployer(factory);
-            bytes32 commitment = DeploymentInfrastructure.commitment(
-                address(this),
-                0,
-                salt,
-                EfficientHashLib.hash(proxyCreationCode)
-            );
-            deployer.commit(commitment);
-            proxy = deployer.reveal(proxyCreationCode, salt, 0);
-
-            // Step 2: Upgrade to real implementation with atomic initialization
-            // msg.sender during initialize will be this contract (harness) via stub ownership
-            if (value == 0) {
-                IUUPSUpgradeableProxy(proxy).upgradeToAndCall(implementation, implementationInitData);
-            } else {
-                IUUPSUpgradeableProxy(proxy).upgradeToAndCall{value: value}(implementation, implementationInitData);
-            }
+        if (value == 0) {
+            IUUPSUpgradeableProxy(proxy).upgradeToAndCall(implementation, implementationInitData);
         } else {
-            // Dry-run: predict address only
-            proxy = CREATE3.predictDeterministicAddress(salt, factory);
+            IUUPSUpgradeableProxy(proxy).upgradeToAndCall{value: value}(implementation, implementationInitData);
         }
 
         // Register proxy (same for both dry-run and actual deployment)
@@ -477,9 +447,7 @@ abstract contract Deployment is DeploymentRegistry {
             _runs[_runs.length - 1].deployer
         );
 
-        if (actuallyDeployed) {
-            emit ContractDeployed(proxyKey, proxy, "UUPS proxy");
-        }
+        emit ContractDeployed(proxyKey, proxy, "UUPS proxy");
     }
 
     function upgradeProxy(

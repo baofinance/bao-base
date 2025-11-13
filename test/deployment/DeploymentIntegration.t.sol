@@ -169,7 +169,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         super.setUp();
         admin = address(this);
         deployment = new MockDeploymentIntegration();
-        startDeploymentSession(deployment, admin, TEST_NETWORK, TEST_VERSION, TEST_SALT, false);
+    startDeploymentSession(deployment, admin, TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
     function test_DeployFullSystem() public {
@@ -276,7 +276,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         vm.warp(1000000); // Set initial timestamp
         vm.roll(100); // Set initial block number
         MockDeploymentPhase phase1 = new MockDeploymentPhase(phase++);
-        startDeploymentSession(phase1, admin, TEST_NETWORK, TEST_VERSION, incrementalSalt, false);
+    startDeploymentSession(phase1, admin, TEST_NETWORK, TEST_VERSION, incrementalSalt);
         phase1.enableAutoSave();
         phase1.deployMockERC20("collateral", "wETH", "wETH");
         phase1.deployMockERC20("pegged", "USD", "USD");
@@ -286,7 +286,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         vm.warp(2000000); // Advance timestamp by 1M seconds
         vm.roll(200); // Advance by 100 blocks
         MockDeploymentPhase phase2 = new MockDeploymentPhase(phase++);
-        resumeDeploymentSession(phase2, admin, TEST_NETWORK, TEST_VERSION, incrementalSalt, false);
+    resumeDeploymentSession(phase2, admin, TEST_NETWORK, TEST_VERSION, incrementalSalt);
         phase2.enableAutoSave();
         phase2.deployOracleProxy("oracle", 2000e18, admin);
         phase2.finish(); // autosaves and creates phase2 snapshot
@@ -295,14 +295,14 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         vm.warp(3000000); // Advance timestamp by another 1M seconds
         vm.roll(300); // Advance by another 100 blocks
         MockDeploymentPhase phase3 = new MockDeploymentPhase(phase++);
-        resumeDeploymentSession(phase3, admin, TEST_NETWORK, TEST_VERSION, incrementalSalt, false);
+    resumeDeploymentSession(phase3, admin, TEST_NETWORK, TEST_VERSION, incrementalSalt);
         phase3.enableAutoSave();
         phase3.deployMinterProxy("minter", "collateral", "pegged", "oracle", admin);
         phase3.finish(); // autosaves and creates phase3 snapshot
 
         // Verify final state
         MockDeploymentIntegration finalDeployment = new MockDeploymentPhase(phase++);
-        resumeDeploymentSession(finalDeployment, admin, TEST_NETWORK, TEST_VERSION, incrementalSalt, false);
+    resumeDeploymentSession(finalDeployment, admin, TEST_NETWORK, TEST_VERSION, incrementalSalt);
 
         assertTrue(finalDeployment.has("collateral"));
         assertTrue(finalDeployment.has("pegged"));

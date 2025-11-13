@@ -8,8 +8,7 @@
       "contractPath": "test/mocks/tokens/MockERC20.sol",
       "contractType": "MockERC20",
       "deployedTo": "0x8d2C17FAd02B7bb64139109c6533b7C2b9CADb81",
-      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
-      "dryRun": false
+      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b"
     },
     "oracle": {
       "address": "0xB022d6Bbf5B0Ed40d7E04e3B0CE397892Db22e6D",
@@ -19,7 +18,6 @@
       "contractType": "ERC1967Proxy",
       "deployedTo": "0xB022d6Bbf5B0Ed40d7E04e3B0CE397892Db22e6D",
       "deployer": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a",
-      "dryRun": false,
       "factory": "0x336785A852B689A839C312522Ea637917dF3F932",
       "implementation": "oracle__OracleV1",
       "proxyType": "UUPS",
@@ -34,7 +32,6 @@
       "contractType": "OracleV1",
       "deployedTo": "0xCB6f5076b5bbae81D7643BfBf57897E8E3FB1db9",
       "deployer": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a",
-      "dryRun": false,
       "proxies": [
         "oracle"
       ]
@@ -46,8 +43,7 @@
       "contractPath": "test/mocks/tokens/MockERC20.sol",
       "contractType": "MockERC20",
       "deployedTo": "0x3C8Ca53ee5661D29d3d3C0732689a4b86947EAF0",
-      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
-      "dryRun": false
+      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b"
     }
   },
   "network": "test-network",
@@ -64,7 +60,6 @@
       "finishTimestampISO": "1970-01-12T13:46:40Z",
       "startBlock": 100,
       "finishBlock": 100,
-      "dryRun": false,
       "finished": true
     },
     {
@@ -75,7 +70,6 @@
       "finishTimestampISO": "1970-01-24T03:33:20Z",
       "startBlock": 200,
       "finishBlock": 200,
-      "dryRun": false,
       "finished": true
     }
   ]

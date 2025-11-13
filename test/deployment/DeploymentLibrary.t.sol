@@ -35,7 +35,7 @@ contract DeploymentLibraryTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new MockDeploymentLibrary();
-        startDeploymentSession(deployment, address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT, false);
+    startDeploymentSession(deployment, address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
     function test_DeployLibrary() public {
@@ -73,7 +73,7 @@ contract DeploymentLibraryTest is BaoDeploymentTest {
 
         // Create new deployment instance
         MockDeploymentLibrary deployment2 = new MockDeploymentLibrary();
-        startDeploymentSession(deployment2, address(this), TEST_NETWORK, TEST_VERSION, "library-test-salt-2", false);
+    startDeploymentSession(deployment2, address(this), TEST_NETWORK, TEST_VERSION, "library-test-salt-2");
         address addr2 = deployment2.deployMathLibrary("mathLib2");
 
         // CREATE uses nonce, so addresses will differ

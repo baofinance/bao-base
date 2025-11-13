@@ -8,8 +8,7 @@
       "contractPath": "test/mocks/tokens/MockERC20.sol",
       "contractType": "MockERC20",
       "deployedTo": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
-      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
-      "dryRun": false
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
     },
     "configLib": {
       "address": "0xD76ffbd1eFF76C510C3a509fE22864688aC3A588",
@@ -18,8 +17,7 @@
       "contractPath": "test/ConfigLib.sol",
       "contractType": "ConfigLib",
       "deployedTo": "0xD76ffbd1eFF76C510C3a509fE22864688aC3A588",
-      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
-      "dryRun": false
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
     },
     "minter": {
       "address": "0xEA0ed18d0e69d007a5d80275c24e95084C8e6Aa0",
@@ -29,7 +27,6 @@
       "contractType": "ERC1967Proxy",
       "deployedTo": "0xEA0ed18d0e69d007a5d80275c24e95084C8e6Aa0",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
-      "dryRun": false,
       "factory": "0x336785A852B689A839C312522Ea637917dF3F932",
       "implementation": "minter__MockMinter",
       "proxyType": "UUPS",
@@ -44,7 +41,6 @@
       "contractType": "MockMinter",
       "deployedTo": "0xfD07C974e33dd1626640bA3a5acF0418FaacCA7a",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
-      "dryRun": false,
       "proxies": [
         "minter"
       ]
@@ -57,7 +53,6 @@
       "contractType": "ERC1967Proxy",
       "deployedTo": "0x993F113d1250fb9EB3F1700e7Dd6f0767A5FB8e5",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
-      "dryRun": false,
       "factory": "0x336785A852B689A839C312522Ea637917dF3F932",
       "implementation": "oracle__OracleV1",
       "proxyType": "UUPS",
@@ -72,7 +67,6 @@
       "contractType": "OracleV1",
       "deployedTo": "0x7FdB3132Ff7D02d8B9e221c61cC895ce9a4bb773",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
-      "dryRun": false,
       "proxies": [
         "oracle"
       ]
@@ -84,8 +78,7 @@
       "contractPath": "test/mocks/tokens/MockERC20.sol",
       "contractType": "MockERC20",
       "deployedTo": "0xDDc10602782af652bB913f7bdE1fD82981Db7dd9",
-      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
-      "dryRun": false
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
     }
   },
   "network": "test-network",
@@ -102,7 +95,6 @@
       "finishTimestampISO": "1970-01-01T00:00:01Z",
       "startBlock": 1,
       "finishBlock": 1,
-      "dryRun": false,
       "finished": true
     }
   ]

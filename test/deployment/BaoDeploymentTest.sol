@@ -77,11 +77,10 @@ abstract contract BaoDeploymentTest is BaoTest {
         address owner,
         string memory network,
         string memory version,
-        string memory systemSalt,
-        bool dryRun
+        string memory systemSalt
     ) internal {
         string memory config = buildDeploymentConfig(owner, version, systemSalt);
-        deployment.start(config, network, dryRun);
+        deployment.start(config, network);
     }
 
     function resumeDeploymentSession(
@@ -89,10 +88,9 @@ abstract contract BaoDeploymentTest is BaoTest {
         address owner,
         string memory network,
         string memory version,
-        string memory systemSalt,
-        bool dryRun
+        string memory systemSalt
     ) internal {
         string memory config = buildDeploymentConfig(owner, version, systemSalt);
-        deployment.resume(config, network, dryRun);
+        deployment.resume(config, network);
     }
 }
