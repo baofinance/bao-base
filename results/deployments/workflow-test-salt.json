@@ -8,7 +8,8 @@
       "contractPath": "test/mocks/TestLibraries.sol",
       "contractType": "MathLib",
       "deployedTo": "0x4ff05a443250A64a18C68CEdd2122cFDf3872140",
-      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "dryRun": false
     },
     "Minter": {
       "address": "0x7C38CA4ccA3e778214e5ee24875BA5d96d9A7f8F",
@@ -18,13 +19,14 @@
       "contractType": "ERC1967Proxy",
       "deployedTo": "0x7C38CA4ccA3e778214e5ee24875BA5d96d9A7f8F",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "dryRun": false,
       "factory": "0x336785A852B689A839C312522Ea637917dF3F932",
-      "implementationKey": "Minter_impl",
+      "implementation": "Minter__MockMinter",
       "proxyType": "UUPS",
       "salt": "0xeb14606e459774703385e1c46956bbe984a21f8ffb738252b3e4c61132420e9b",
       "saltString": "Minter"
     },
-    "Minter_impl": {
+    "Minter__MockMinter": {
       "address": "0xD76ffbd1eFF76C510C3a509fE22864688aC3A588",
       "blockNumber": 1,
       "category": "contract",
@@ -32,6 +34,7 @@
       "contractType": "MockMinter",
       "deployedTo": "0xD76ffbd1eFF76C510C3a509fE22864688aC3A588",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "dryRun": false,
       "proxies": [
         "Minter"
       ]
@@ -44,13 +47,14 @@
       "contractType": "ERC1967Proxy",
       "deployedTo": "0x460E5dFCe0c7E4e5B4e6a9Ee18D40e2fA8441A0A",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "dryRun": false,
       "factory": "0x336785A852B689A839C312522Ea637917dF3F932",
-      "implementationKey": "PriceOracle_impl",
+      "implementation": "PriceOracle__OracleV1",
       "proxyType": "UUPS",
       "salt": "0xcac753d8bb711ec86040790988de0b49130d449de572abfc6b2681d3b418aae7",
       "saltString": "PriceOracle"
     },
-    "PriceOracle_impl": {
+    "PriceOracle__OracleV1": {
       "address": "0xfD07C974e33dd1626640bA3a5acF0418FaacCA7a",
       "blockNumber": 1,
       "category": "contract",
@@ -58,6 +62,7 @@
       "contractType": "OracleV1",
       "deployedTo": "0xfD07C974e33dd1626640bA3a5acF0418FaacCA7a",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "dryRun": false,
       "proxies": [
         "PriceOracle"
       ]
@@ -69,7 +74,8 @@
       "contractPath": "test/mocks/tokens/MockERC20.sol",
       "contractType": "MockERC20",
       "deployedTo": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
-      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "dryRun": false
     },
     "baoUSD": {
       "address": "0xDDc10602782af652bB913f7bdE1fD82981Db7dd9",
@@ -78,7 +84,8 @@
       "contractPath": "test/mocks/tokens/MockERC20.sol",
       "contractType": "MockERC20",
       "deployedTo": "0xDDc10602782af652bB913f7bdE1fD82981Db7dd9",
-      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "dryRun": false
     },
     "leveragedUSD": {
       "address": "0x7FdB3132Ff7D02d8B9e221c61cC895ce9a4bb773",
@@ -87,7 +94,8 @@
       "contractPath": "test/mocks/tokens/MockERC20.sol",
       "contractType": "MockERC20",
       "deployedTo": "0x7FdB3132Ff7D02d8B9e221c61cC895ce9a4bb773",
-      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "dryRun": false
     },
     "systemName": {
       "type": "string",
@@ -116,6 +124,7 @@
       "finishTimestampISO": "1970-01-01T00:00:01Z",
       "startBlock": 1,
       "finishBlock": 1,
+      "dryRun": false,
       "finished": true
     }
   ]

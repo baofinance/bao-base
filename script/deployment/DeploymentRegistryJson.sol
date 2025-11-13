@@ -172,7 +172,7 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
                 for (uint256 j = 0; j < loadedKeys.length; j++) {
                     if (
                         _eq(_entryType[loadedKeys[j]], "proxy") &&
-                        _eq(_proxies[loadedKeys[j]].proxy.implementationKey, key)
+                        _eq(_proxies[loadedKeys[j]].proxy.implementation, key)
                     ) {
                         _entryType[key] = "implementation";
                         break;
@@ -230,8 +230,8 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
         ProxyInfo memory info,
         string memory json
     ) internal returns (string memory) {
-        if (bytes(info.implementationKey).length > 0) {
-            json = VM.serializeString(key, "implementationKey", info.implementationKey);
+        if (bytes(info.implementation).length > 0) {
+            json = VM.serializeString(key, "implementation", info.implementation);
         }
         return json;
     }
@@ -246,7 +246,7 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
         uint256 count = 0;
         for (uint256 i = 0; i < _keys.length; i++) {
             if (_eq(_entryType[_keys[i]], "proxy")) {
-                if (_eq(_proxies[_keys[i]].proxy.implementationKey, implementationKey)) {
+                if (_eq(_proxies[_keys[i]].proxy.implementation, implementationKey)) {
                     count++;
                 }
             }
@@ -257,7 +257,7 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
         uint256 index = 0;
         for (uint256 i = 0; i < _keys.length; i++) {
             if (_eq(_entryType[_keys[i]], "proxy")) {
-                if (_eq(_proxies[_keys[i]].proxy.implementationKey, implementationKey)) {
+                if (_eq(_proxies[_keys[i]].proxy.implementation, implementationKey)) {
                     proxies[index++] = _keys[i];
                 }
             }
@@ -445,9 +445,9 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry {
         }
 
         ProxyInfo memory proxyInfo;
-        string memory implKeyPath = string.concat(basePath, ".implementationKey");
+        string memory implKeyPath = string.concat(basePath, ".implementation");
         if (VM.keyExistsJson(json, implKeyPath)) {
-            proxyInfo.implementationKey = VM.parseJsonString(json, implKeyPath);
+            proxyInfo.implementation = VM.parseJsonString(json, implKeyPath);
         }
 
         // Parse factory (CREATE3 - always present for proxies) and deployer (executor)

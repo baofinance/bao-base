@@ -8,7 +8,8 @@
       "contractPath": "test/mocks/tokens/MockERC20.sol",
       "contractType": "MockERC20",
       "deployedTo": "0x8d2C17FAd02B7bb64139109c6533b7C2b9CADb81",
-      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b"
+      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
+      "dryRun": false
     },
     "configValue": {
       "type": "string",
@@ -21,7 +22,8 @@
     "existingToken": {
       "address": "0x1234567890123456789012345678901234567890",
       "blockNumber": 1,
-      "category": "existing"
+      "category": "existing",
+      "dryRun": false
     },
     "mathLib": {
       "address": "0x6891e60906DEBeA401F670D74d01D117a3bEAD39",
@@ -30,7 +32,8 @@
       "contractPath": "test/mocks/TestLibraries.sol",
       "contractType": "MathLib",
       "deployedTo": "0x6891e60906DEBeA401F670D74d01D117a3bEAD39",
-      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b"
+      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
+      "dryRun": false
     },
     "maxSupply": {
       "type": "uint256",
@@ -48,13 +51,14 @@
       "contractType": "ERC1967Proxy",
       "deployedTo": "0x14D64e1E6F80405f4D949d1438cBFc0A49d62d26",
       "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
+      "dryRun": false,
       "factory": "0x336785A852B689A839C312522Ea637917dF3F932",
-      "implementationKey": "oracle_impl_v2",
+      "implementation": "oracle_impl_v2__OracleV1",
       "proxyType": "UUPS",
       "salt": "0x1d1d26a0795b6007f384add210f2c24f44c64c77bb3d06b33891036580cbdaa6",
       "saltString": "oracle"
     },
-    "oracle_impl": {
+    "oracle__OracleV1": {
       "address": "0x76006C4471fb6aDd17728e9c9c8B67d5AF06cDA0",
       "blockNumber": 1,
       "category": "contract",
@@ -62,9 +66,10 @@
       "contractType": "OracleV1",
       "deployedTo": "0x76006C4471fb6aDd17728e9c9c8B67d5AF06cDA0",
       "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
+      "dryRun": false,
       "proxies": []
     },
-    "oracle_impl_v2": {
+    "oracle_impl_v2__OracleV1": {
       "address": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a",
       "blockNumber": 1,
       "category": "contract",
@@ -72,6 +77,7 @@
       "contractType": "OracleV1",
       "deployedTo": "0xF62849F9A0B5Bf2913b396098F7c7019b51A820a",
       "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
+      "dryRun": false,
       "proxies": [
         "oracle"
       ]
@@ -83,7 +89,8 @@
       "contractPath": "test/mocks/tokens/MockERC20.sol",
       "contractType": "MockERC20",
       "deployedTo": "0x3C8Ca53ee5661D29d3d3C0732689a4b86947EAF0",
-      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b"
+      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
+      "dryRun": false
     }
   },
   "network": "workflow-test",
@@ -100,6 +107,7 @@
       "finishTimestampISO": "1970-01-01T00:00:01Z",
       "startBlock": 1,
       "finishBlock": 1,
+      "dryRun": false,
       "finished": true
     }
   ]

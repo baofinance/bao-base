@@ -43,7 +43,7 @@ abstract contract DeploymentRegistry {
 
     /// @notice Proxy-specific info (implementation reference)
     struct ProxyInfo {
-        string implementationKey;
+        string implementation;
     }
 
     // ============================================================================
@@ -460,7 +460,7 @@ abstract contract DeploymentRegistry {
                 dryRun: _dryRun
             }),
             create3: Create3Info({salt: salt, saltString: saltString, proxyType: proxyType}),
-            proxy: ProxyInfo({implementationKey: implementationKey}),
+            proxy: ProxyInfo({implementation: implementationKey}),
             factory: factory,
             deployer: deployer
         });
@@ -486,7 +486,7 @@ abstract contract DeploymentRegistry {
      */
     function _updateProxyImplementation(string memory proxyKey, string memory newImplementationKey) internal virtual {
         _requireActiveRun();
-        _proxies[proxyKey].proxy.implementationKey = newImplementationKey;
+        _proxies[proxyKey].proxy.implementation = newImplementationKey;
         _saveRegistry();
     }
 

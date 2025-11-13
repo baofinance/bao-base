@@ -8,12 +8,14 @@
       "contractPath": "test/SimpleContract.sol",
       "contractType": "SimpleContract",
       "deployedTo": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
-      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "dryRun": false
     },
     "external1": {
       "address": "0x1234567890123456789012345678901234567890",
       "blockNumber": 1,
-      "category": "existing"
+      "category": "existing",
+      "dryRun": false
     },
     "lib1": {
       "address": "0x7FdB3132Ff7D02d8B9e221c61cC895ce9a4bb773",
@@ -22,7 +24,8 @@
       "contractPath": "test/TestLib.sol",
       "contractType": "TestLib",
       "deployedTo": "0x7FdB3132Ff7D02d8B9e221c61cC895ce9a4bb773",
-      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "dryRun": false
     },
     "proxy1": {
       "address": "0x106373B7d295308d25d502768ce0fE499B47F6ba",
@@ -32,13 +35,14 @@
       "contractType": "ERC1967Proxy",
       "deployedTo": "0x106373B7d295308d25d502768ce0fE499B47F6ba",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "dryRun": false,
       "factory": "0x336785A852B689A839C312522Ea637917dF3F932",
-      "implementationKey": "proxy1_impl",
+      "implementation": "proxy1__SimpleImplementation",
       "proxyType": "UUPS",
       "salt": "0xecb239d91c7e146fc98b9491f52ed303a9af027e4151d3c636b1c3ea66eff022",
       "saltString": "proxy1"
     },
-    "proxy1_impl": {
+    "proxy1__SimpleImplementation": {
       "address": "0xDDc10602782af652bB913f7bdE1fD82981Db7dd9",
       "blockNumber": 1,
       "category": "contract",
@@ -46,6 +50,7 @@
       "contractType": "SimpleImplementation",
       "deployedTo": "0xDDc10602782af652bB913f7bdE1fD82981Db7dd9",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "dryRun": false,
       "proxies": [
         "proxy1"
       ]
@@ -65,6 +70,7 @@
       "finishTimestampISO": "1970-01-01T00:00:01Z",
       "startBlock": 1,
       "finishBlock": 1,
+      "dryRun": false,
       "finished": true
     }
   ]

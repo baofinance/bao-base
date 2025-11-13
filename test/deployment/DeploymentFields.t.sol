@@ -129,12 +129,15 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         // Verify proxy has both factory and deployer
         address factory = vm.parseJsonAddress(json, ".deployment.proxy1.factory");
         address deployer = vm.parseJsonAddress(json, ".deployment.proxy1.deployer");
+        string memory implKey = deployment.implementationKey("proxy1", "SimpleImplementation");
+        string memory recordedImplementation = vm.parseJsonString(json, ".deployment.proxy1.implementation");
 
         // Factory should be the CREATE3 deployer, deployer should be the harness executor
         assertEq(factory, DeploymentInfrastructure.predictBaoDeployerAddress(), "Proxy factory should be BaoDeployer");
         assertEq(deployer, address(deployment), "Proxy deployer should be deployment contract");
         assertTrue(factory != address(0), "Factory should not be zero");
         assertTrue(deployer != address(0), "Deployer should not be zero");
+        assertEq(recordedImplementation, implKey, "Proxy implementation key should match derived key");
     }
 
     function test_ImplementationHasDeployerNoFactory() public {
