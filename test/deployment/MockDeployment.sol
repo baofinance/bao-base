@@ -82,6 +82,19 @@ contract MockDeployment is DeploymentFoundryTest {
         _resumeAfterLoad();
     }
 
+    /// @notice Load deployment state from JSON and immediately resume
+    /// @param json Serialized deployment registry (typically produced by toJsonString)
+    /// @param network Optional network label override applied to metadata
+    function resumeFromJson(string memory json, string memory network) public {
+        _fromJson(json);
+
+        if (bytes(network).length != 0 && !_eq(_metadata.network, network)) {
+            _metadata.network = network;
+        }
+
+        _resumeAfterLoad();
+    }
+
     // ============================================================================
     // Test-only Resume Methods (bypass auto-derived paths)
     // ============================================================================

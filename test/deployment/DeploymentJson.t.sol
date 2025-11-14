@@ -310,4 +310,25 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         vm.expectRevert("Cannot resume: last run not finished");
         newDeployment.resumeAfterLoad();
     }
+
+    function test_ResumeFromJsonHelperCreatesActiveRun() public {
+        deployment.deploySimpleContract("contract1", "Contract 1");
+        deployment.finish();
+        string memory json = deployment.toJsonString();
+
+        MockDeploymentJson resumed = new MockDeploymentJson();
+        string memory resumeNetwork = "resumed-network";
+        resumed.resumeFromJson(json, resumeNetwork);
+
+        assertTrue(resumed.has("contract1"), "loaded contract present after resume");
+        Deployment.DeploymentMetadata memory metadata = resumed.getMetadata();
+        assertEq(metadata.network, resumeNetwork, "network override applied");
+
+        resumed.deploySimpleContract("contract2", "Contract 2");
+        assertTrue(resumed.has("contract2"), "can continue deploying after resume");
+
+        string memory resumedJson = resumed.toJsonString();
+        bool runFinished = vm.parseJsonBool(resumedJson, ".runs[1].finished");
+        assertFalse(runFinished, "new run should be active");
+    }
 }

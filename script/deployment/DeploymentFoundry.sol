@@ -23,7 +23,7 @@ abstract contract DeploymentFoundry is Deployment, DeploymentRegistryJson {
         override(DeploymentRegistryJson, DeploymentRegistry)
         returns (string memory)
     {
-        return DeploymentRegistryJson._getBaseDirPrefix();
+        return ".";
     }
 
     /// @notice Foundry VM for labeling addresses in traces
