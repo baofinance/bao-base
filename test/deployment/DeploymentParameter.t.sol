@@ -19,7 +19,7 @@ contract DeploymentParameterTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new MockDeploymentParameter();
-    startDeploymentSession(deployment, address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
+        startDeploymentSession(deployment, address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
     function test_SetAndGetString() public {

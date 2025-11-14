@@ -216,10 +216,7 @@ contract MockDeployment is DeploymentFoundryTest {
     }
 
     /// @notice Compute the derived implementation key for assertions in tests
-    function implementationKey(
-        string memory proxyKey,
-        string memory contractType
-    ) public pure returns (string memory) {
+    function implementationKey(string memory proxyKey, string memory contractType) public pure returns (string memory) {
         return _deriveImplementationKey(proxyKey, contractType);
     }
 }

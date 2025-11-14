@@ -50,7 +50,7 @@ contract DeploymentJsonRoundTripTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new MockDeploymentRoundTrip();
-    startDeploymentSession(deployment, address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
+        startDeploymentSession(deployment, address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
     function test_ComplexDeploymentRoundTrip() public {

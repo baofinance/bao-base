@@ -131,13 +131,7 @@ contract DeploymentWorkflowTest is BaoDeploymentTest {
     function test_OperationSnapshots() public {
         // Use OperationSnapshotHarness to capture each operation
         MockDeploymentOperation snapDeployment = new MockDeploymentOperation();
-        startDeploymentSession(
-            snapDeployment,
-            admin,
-            TEST_NETWORK,
-            TEST_VERSION,
-            "workflow-operation-snapshots"
-        );
+        startDeploymentSession(snapDeployment, admin, TEST_NETWORK, TEST_VERSION, "workflow-operation-snapshots");
         snapDeployment.enableAutoSave();
 
         // op0: start()

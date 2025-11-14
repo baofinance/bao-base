@@ -39,7 +39,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new MockDeploymentProxy();
-    startDeploymentSession(deployment, address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
+        startDeploymentSession(deployment, address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
         admin = makeAddr("admin");
         outsider = makeAddr("outsider");
     }
@@ -130,8 +130,8 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     }
 
     function test_RevertWhen_ProxyWithoutImplementation() public {
-    vm.expectRevert();
-    deployment.deployProxy("counter", "nonexistent_impl", "");
+        vm.expectRevert();
+        deployment.deployProxy("counter", "nonexistent_impl", "");
     }
 
     function test_ResumeRestoresPredictions_() public {

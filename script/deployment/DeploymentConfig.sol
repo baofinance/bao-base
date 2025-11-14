@@ -227,5 +227,4 @@ library DeploymentConfig {
         }
         return VM.keyExistsJson(config.text, pointer);
     }
-
 }
