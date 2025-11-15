@@ -2,13 +2,13 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {MockDeployment} from "./MockDeployment.sol";
+import {DeploymentFoundryTesting} from "./DeploymentFoundryTesting.sol";
 
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {MockOracle, MockToken, MockMinter} from "../mocks/basic/MockDependencies.sol";
 
-// Test harness extends MockDeployment
-contract MockDeploymentDependency is MockDeployment {
+// Test harness extends DeploymentFoundryTesting
+contract MockDeploymentDependency is DeploymentFoundryTesting {
     function deployOracle(string memory key, uint256 price) public returns (address) {
         MockOracle oracle = new MockOracle(price);
         registerContract(key, address(oracle), "MockOracle", "test/mocks/basic/MockDependencies.sol", "contract");

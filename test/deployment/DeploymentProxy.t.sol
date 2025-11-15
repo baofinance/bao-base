@@ -2,14 +2,14 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {MockDeployment} from "./MockDeployment.sol";
+import {DeploymentFoundryTesting} from "./DeploymentFoundryTesting.sol";
 
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {CounterV1} from "../mocks/upgradeable/MockCounter.sol";
 
-// Test harness extends MockDeployment
-contract MockDeploymentProxy is MockDeployment {
+// Test harness extends DeploymentFoundryTesting
+contract MockDeploymentProxy is DeploymentFoundryTesting {
     function deployCounterProxy(string memory key, uint256 initialValue, address owner) public returns (address) {
         string memory implKey = implementationKey(key, "CounterV1");
 

@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {MockDeployment} from "./MockDeployment.sol";
+import {DeploymentFoundryTesting} from "./DeploymentFoundryTesting.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
@@ -36,7 +36,7 @@ library TestLib {
 }
 
 // Test harness
-contract MockDeploymentJson is MockDeployment {
+contract MockDeploymentJson is DeploymentFoundryTesting {
     function deploySimpleContract(string memory key, string memory name) public returns (address) {
         SimpleContract c = new SimpleContract(name);
         registerContract(key, address(c), "SimpleContract", "test/SimpleContract.sol", "contract");

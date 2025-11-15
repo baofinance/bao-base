@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {MockDeployment} from "./MockDeployment.sol";
+import {DeploymentFoundryTesting} from "./DeploymentFoundryTesting.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
@@ -32,7 +32,7 @@ library TestLib {
 }
 
 // Test harness with helper methods
-contract MockDeploymentFields is MockDeployment {
+contract MockDeploymentFields is DeploymentFoundryTesting {
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
         MockERC20 token = new MockERC20(name, symbol, 18);
         registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol", "contract");

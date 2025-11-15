@@ -2,13 +2,13 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {MockDeployment} from "./MockDeployment.sol";
+import {DeploymentFoundryTesting} from "./DeploymentFoundryTesting.sol";
 
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {MathLib, StringLib} from "../mocks/TestLibraries.sol";
 
-// Test harness extends MockDeployment
-contract MockDeploymentLibrary is MockDeployment {
+// Test harness extends DeploymentFoundryTesting
+contract MockDeploymentLibrary is DeploymentFoundryTesting {
     function deployMathLibrary(string memory key) public returns (address) {
         bytes memory bytecode = type(MathLib).creationCode;
         deployLibrary(key, bytecode, "MathLib", "test/mocks/TestLibraries.sol");

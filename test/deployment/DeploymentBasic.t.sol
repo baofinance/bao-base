@@ -2,15 +2,15 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {MockDeployment} from "./MockDeployment.sol";
+import {DeploymentFoundryTesting} from "./DeploymentFoundryTesting.sol";
 
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {MockContract} from "@bao-test/mocks/basic/MockContract.sol";
 import {MockImplementation} from "@bao-test/mocks/basic/MockImplementation.sol";
 
-// Test harness extends MockDeployment with specific mock deployment methods
-contract DeploymentHarness is MockDeployment {
+// Test harness extends DeploymentFoundryTesting with specific mock deployment methods
+contract DeploymentHarness is DeploymentFoundryTesting {
     function deployMockContract(string memory key, string memory mockName) public returns (address) {
         MockContract mock = new MockContract(mockName);
         useExisting(key, address(mock));

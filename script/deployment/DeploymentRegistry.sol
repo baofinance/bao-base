@@ -138,24 +138,6 @@ abstract contract DeploymentRegistry {
     function _loadRegistry(string memory network, string memory systemSaltString) internal virtual;
     function _saveRegistry() internal virtual;
 
-    /**
-     * @notice Get base directory prefix (empty for production, "results/" for tests)
-     * @dev Override in test harness to return "results/"
-     * @return Directory prefix (default: empty string for production)
-     */
-    function _getBaseDirPrefix() internal view virtual returns (string memory) {
-        return "";
-    }
-
-    /**
-     * @notice Check if network subdirectory should be used
-     * @dev Override in test harness to return false for flat structure
-     * @return True for production (use network subdir), false for tests (flat)
-     */
-    function _useNetworkSubdir() internal view virtual returns (bool) {
-        return true;
-    }
-
     // ============================================================================
     // PUBLIC API - Registry Access
     // ============================================================================

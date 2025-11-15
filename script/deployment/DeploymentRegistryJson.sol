@@ -1,23 +1,34 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Vm} from "forge-std/Vm.sol";
 import {DeploymentRegistry} from "./DeploymentRegistry.sol";
-
-/// @dev Foundry VM for JSON operations
-Vm constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+import {DeploymentFoundryVm} from "./DeploymentFoundryVm.sol";
 
 /**
- * @title DeploymentJson
+ * @title DeploymentRegistryJson
  * @notice JSON persistence mixin for Foundry-based deployments
  * @dev FOUNDRY-ONLY: This contract uses Foundry's VM cheat codes for JSON operations
- * @dev Usage: Mix into Foundry test contracts to add JSON persistence
- * @dev Example: contract MyTest is Deployment, DeploymentJson { }
- * @dev Wake deployments: DO NOT inherit from this - use Python for state management
+ * @dev Usage: Mix into Foundry deployment/test contracts to add JSON persistence
  */
-abstract contract DeploymentRegistryJson is DeploymentRegistry {
-    function _getBaseDirPrefix() internal view virtual override returns (string memory) {
-        return super._getBaseDirPrefix();
+abstract contract DeploymentRegistryJson is DeploymentRegistry, DeploymentFoundryVm {
+    /**
+     * @notice Get base directory prefix for deployment files
+     * @dev Default for production: "." (current directory)
+     *      Override in testing variant to use "results/"
+     * @return Base directory path
+     */
+    function _getBaseDirPrefix() internal view virtual returns (string memory) {
+        return ".";
+    }
+
+    /**
+     * @notice Check if network subdirectory should be used
+     * @dev Default for production: true (use network subdirs)
+     *      Override in testing variant to return false (flat structure)
+     * @return True for production (use network subdir), false for tests (flat)
+     */
+    function _useNetworkSubdir() internal view virtual returns (bool) {
+        return true;
     }
 
     // ============================================================================

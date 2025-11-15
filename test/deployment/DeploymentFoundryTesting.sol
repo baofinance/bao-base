@@ -1,31 +1,35 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {DeploymentRegistryJson} from "@bao-script/deployment/DeploymentRegistryJson.sol";
-import {DeploymentFoundryTest} from "@bao-script/deployment/DeploymentFoundry.sol";
+import {DeploymentRegistryJsonTesting} from "@bao-script/deployment/DeploymentRegistryJsonTesting.sol";
+import {DeploymentFoundryTestingVm} from "@bao-script/deployment/DeploymentFoundryTestingVm.sol";
+import {BaoDeployerSetOperator} from "@bao-script/deployment/BaoDeployerSetOperator.sol";
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
-import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
+import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {EfficientHashLib} from "@solady/utils/EfficientHashLib.sol";
 
-import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
-
 /**
- * @title MockDeployment
- * @notice Mock deployment harness for testing
- * @dev Exposes internal Deployment methods with public wrappers for test access
- * @dev Infrastructure (Nick's Factory, BaoDeployer) setup helpers exposed for tests
- * @dev Production code uses type-safe enum API; tests use these string-based wrappers
- * @dev Automatically configures the BaoDeployer operator when available
- * @dev Overrides to use results/deployments flat structure (no network subdirs)
+ * @title DeploymentFoundryTesting
+ * @notice Concrete deployment harness for Foundry tests
+ * @dev Combines: Deployment + JSON (testing variant) + VM support + BaoDeployer auto-setup
+ *      Exposes internal methods with public wrappers for test access
+ *      Automatically configures BaoDeployer operator when available
+ *      Registry saves disabled by default (use enableAutoSave() to generate regression files)
  */
-contract MockDeployment is DeploymentFoundryTest {
+contract DeploymentFoundryTesting is
+    Deployment,
+    DeploymentRegistryJsonTesting,
+    DeploymentFoundryTestingVm,
+    BaoDeployerSetOperator
+{
     /// @notice Flag to control registry saves in tests
     bool private _registrySavesEnabled;
 
     /// @notice Constructor for test deployment harness
-    /// @dev Registry saves disabled by default in tests to avoid polluting results directory
-    /// @dev Does NOT deploy infrastructure - that's handled by BaoDeploymentTest.setUp()
+    /// @dev Registry saves disabled by default to avoid polluting results directory
     constructor() {
         _registrySavesEnabled = false;
     }
@@ -44,12 +48,6 @@ contract MockDeployment is DeploymentFoundryTest {
         _registrySavesEnabled = false;
     }
 
-    /// @notice Override to use flat structure (no network subdirectories)
-    /// @return false to disable network subdirectories in tests
-    function _useNetworkSubdir() internal pure override returns (bool) {
-        return false;
-    }
-
     /// @notice Override to disable registry saves by default in tests
     /// @dev Tests that want regression files should call enableAutoSave() or use explicit toJsonFile()
     function _saveRegistry() internal virtual override(DeploymentRegistry, DeploymentRegistryJson) {
@@ -57,6 +55,37 @@ contract MockDeployment is DeploymentFoundryTest {
             super._saveRegistry();
         }
     }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                        BAODEPLOYER IMPERSONATION (VM)
+    //////////////////////////////////////////////////////////////////////////*/
+
+    /// @notice Override to auto-configure BaoDeployer operator for tests
+    function _ensureBaoDeployerOperator() internal virtual override {
+        _ensureBaoDeployerOperatorConfigured();
+    }
+
+    /// @notice Start BaoDeployer impersonation using VM.startPrank
+    function _startBaoDeployerImpersonation()
+        internal
+        virtual
+        override(BaoDeployerSetOperator, DeploymentFoundryTestingVm)
+    {
+        VM.startPrank(DeploymentInfrastructure.BAOMULTISIG);
+    }
+
+    /// @notice Stop BaoDeployer impersonation using VM.stopPrank
+    function _stopBaoDeployerImpersonation()
+        internal
+        virtual
+        override(BaoDeployerSetOperator, DeploymentFoundryTestingVm)
+    {
+        VM.stopPrank();
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                        TEST-ONLY EXPOSED METHODS
+    //////////////////////////////////////////////////////////////////////////*/
 
     function filepath() public view returns (string memory) {
         return _filepath();
@@ -95,26 +124,9 @@ contract MockDeployment is DeploymentFoundryTest {
         _resumeAfterLoad();
     }
 
-    // ============================================================================
-    // Test-only Resume Methods (bypass auto-derived paths)
-    // ============================================================================
-
-    // /// @notice Resume from custom filepath (test only)
-    // function resumeFrom(string memory fileName) public {
-    //     _fromJsonFile(fileName);
-    // }
-
-    // /// @notice Resume from JSON string (test only)
-    // function resumeFromJson(string memory json) public {
-    //     _fromJson(json);
-    //     _ensureBaoDeployerOperator();
-    //     _stub = new UUPSProxyDeployStub();
-    // }
-
     /// @notice Count how many proxies are still owned by this harness (for testing)
     /// @dev Useful for verifying ownership transfer behavior in tests
     function countTransferrableProxies(address /* newOwner */) public view returns (uint256) {
-        // This is for testing - just check if any proxies still owned by this harness
         uint256 stillOwned = 0;
         string[] memory allKeys = _keys;
 
@@ -158,9 +170,9 @@ contract MockDeployment is DeploymentFoundryTest {
         return string(buffer);
     }
 
-    // ============================================================================
-    // Contract Access Wrappers
-    // ============================================================================
+    /*//////////////////////////////////////////////////////////////////////////
+                        CONTRACT ACCESS WRAPPERS
+    //////////////////////////////////////////////////////////////////////////*/
 
     /**
      * @notice Public wrapper for contract registration

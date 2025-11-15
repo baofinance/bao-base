@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {MockDeployment} from "./MockDeployment.sol";
+import {DeploymentFoundryTesting} from "./DeploymentFoundryTesting.sol";
 
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 
@@ -137,7 +137,7 @@ contract DeploymentParameterTest is BaoDeploymentTest {
 }
 
 // Test harness with mock deployment method
-contract MockDeploymentParameter is MockDeployment {
+contract MockDeploymentParameter is DeploymentFoundryTesting {
     function deployMockContract(string memory key, string memory name) public returns (address) {
         // Simple mock - just create a minimal contract
         address mock = address(new MockContract(name));

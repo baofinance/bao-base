@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {MockDeployment} from "./MockDeployment.sol";
+import {DeploymentFoundryTesting} from "./DeploymentFoundryTesting.sol";
 
 /**
  * @title DeploymentJsonStringTest
@@ -10,7 +10,7 @@ import {MockDeployment} from "./MockDeployment.sol";
  * @dev Demonstrates toJsonString() and fromJson() methods that don't litter filesystem
  */
 contract DeploymentJsonStringTest is BaoDeploymentTest {
-    MockDeployment public deployment;
+    DeploymentFoundryTesting public deployment;
 
     string constant TEST_NETWORK = "localhost";
     string constant TEST_SALT = "jsonstring-test-salt";
@@ -18,7 +18,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
 
     function setUp() public override {
         super.setUp();
-        deployment = new MockDeployment();
+        deployment = new DeploymentFoundryTesting();
         startDeploymentSession(deployment, address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
     }
 
@@ -56,7 +56,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Create new deployment and load from string
-        MockDeployment newDeployment = new MockDeployment();
+        DeploymentFoundryTesting newDeployment = new DeploymentFoundryTesting();
         newDeployment.fromJsonString(json);
 
         // Verify loaded data
@@ -87,7 +87,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Deserialize to new instance
-        MockDeployment restored = new MockDeployment();
+        DeploymentFoundryTesting restored = new DeploymentFoundryTesting();
         restored.fromJsonString(json);
 
         // Verify all contracts
@@ -139,7 +139,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
-        MockDeployment loaded = new MockDeployment();
+        DeploymentFoundryTesting loaded = new DeploymentFoundryTesting();
         loaded.fromJsonString(json);
 
         assertEq(loaded.keys().length, 3, "Should have 3 contracts");
@@ -161,7 +161,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
-        MockDeployment loaded = new MockDeployment();
+        DeploymentFoundryTesting loaded = new DeploymentFoundryTesting();
         loaded.fromJsonString(json);
 
         assertEq(loaded.keys().length, 3, "Should have 3 parameters");
@@ -179,7 +179,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         string memory json = deployment.toJsonString();
 
         // Load from file - if this succeeds, schema is valid
-        MockDeployment loaded = new MockDeployment();
+        DeploymentFoundryTesting loaded = new DeploymentFoundryTesting();
         loaded.fromJsonString(json);
 
         assertEq(loaded.get("Token"), address(0x5555));
@@ -195,7 +195,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         string memory json = deployment.toJsonString();
 
         // Load using original method - if this succeeds, schema is valid
-        MockDeployment loaded = new MockDeployment();
+        DeploymentFoundryTesting loaded = new DeploymentFoundryTesting();
         loaded.fromJsonString(json);
 
         assertEq(loaded.get("LoadTest"), address(0x9999));

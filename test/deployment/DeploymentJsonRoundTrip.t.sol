@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {MockDeployment} from "./MockDeployment.sol";
+import {DeploymentFoundryTesting} from "./DeploymentFoundryTesting.sol";
 import {MockUpgradeableContract} from "../mocks/upgradeable/MockGeneric.sol";
 
 // Simple library for testing
@@ -13,7 +13,7 @@ library TestMathLib {
 }
 
 // Test harness for round-trip testing
-contract MockDeploymentRoundTrip is MockDeployment {
+contract MockDeploymentRoundTrip is DeploymentFoundryTesting {
     function deployMockProxy(string memory key, uint256 initialValue, string memory mockName) public returns (address) {
         MockUpgradeableContract impl = new MockUpgradeableContract();
         string memory implKey = registerImplementation(
