@@ -16,7 +16,7 @@ abstract contract DeploymentRegistryJsonTesting is DeploymentRegistryJson {
      * @dev Can be overridden via BAO_DEPLOYMENT_LOGS_ROOT environment variable
      * @return Base directory path - "results" for test suites
      */
-    function _getBaseDirPrefix() internal view override returns (string memory) {
+    function _getBaseDirPrefix() internal view virtual override returns (string memory) {
         if (VM.envExists("BAO_DEPLOYMENT_LOGS_ROOT")) {
             return VM.envString("BAO_DEPLOYMENT_LOGS_ROOT");
         }
@@ -27,7 +27,7 @@ abstract contract DeploymentRegistryJsonTesting is DeploymentRegistryJson {
      * @notice Override to use flat structure (no network subdirectories) in tests
      * @return false - tests use flat directory structure
      */
-    function _useNetworkSubdir() internal pure override returns (bool) {
+    function _useNetworkSubdir() internal pure virtual override returns (bool) {
         return false;
     }
 }
