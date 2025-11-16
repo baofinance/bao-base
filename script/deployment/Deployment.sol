@@ -142,6 +142,8 @@ abstract contract Deployment is DeploymentRegistry {
         _requireBaoDeployerOperator();
 
         _stub = new UUPSProxyDeployStub();
+
+        _registerConfigParameters(config);
     }
     function deployBaoDeployer() public returns (address deployed) {
         deployed = DeploymentInfrastructure.deployBaoDeployer();
@@ -190,6 +192,8 @@ abstract contract Deployment is DeploymentRegistry {
         }
 
         _resumeAfterLoad();
+
+        _registerConfigParameters(config);
     }
 
     /// @notice Derive the system salt string from configuration data
@@ -389,6 +393,207 @@ abstract contract Deployment is DeploymentRegistry {
 
         emit ContractDeployed(key, addr, "contract");
         return addr;
+    }
+
+    // =========================================================================
+    // Config Parameter Registration
+    // =========================================================================
+
+    function _registerConfigParameters(DeploymentConfig.SourceJson memory config) internal virtual {
+        _registerConfigParameters(config, "", "$");
+    }
+
+    function _registerConfigParameters(
+        DeploymentConfig.SourceJson memory config,
+        string memory keyPrefix,
+        string memory pointer
+    ) internal virtual {
+        if (bytes(pointer).length == 0) {
+            return;
+        }
+
+        if (bytes(keyPrefix).length != 0 && _shouldSkipConfigParameterKey(keyPrefix)) {
+            return;
+        }
+
+        (bool hasChildren, string[] memory childKeys) = DeploymentConfig.listObjectKeys(config, pointer);
+        if (hasChildren && childKeys.length > 0) {
+            for (uint256 i = 0; i < childKeys.length; i++) {
+                string memory childKey = childKeys[i];
+                string memory nestedKey = _joinConfigParameterKey(keyPrefix, childKey);
+                string memory nestedPointer = _appendPointer(pointer, childKey);
+                _registerConfigParameters(config, nestedKey, nestedPointer);
+            }
+            return;
+        }
+
+        if (_hasArrayEntries(config, pointer)) {
+            uint256 index;
+            while (DeploymentConfig.hasArrayEntry(config, pointer, index)) {
+                string memory indexString = _uintToString(index);
+                string memory nestedKey = _joinConfigParameterKey(keyPrefix, indexString);
+                string memory nestedPointer = string.concat(pointer, "[", indexString, "]");
+                _registerConfigParameters(config, nestedKey, nestedPointer);
+                unchecked {
+                    ++index;
+                }
+            }
+            return;
+        }
+
+        _registerScalarConfigParameter(config, keyPrefix, pointer);
+    }
+
+    function _registerScalarConfigParameter(
+        DeploymentConfig.SourceJson memory config,
+        string memory key,
+        string memory pointer
+    ) internal {
+        if (bytes(key).length == 0) {
+            return;
+        }
+        if (_shouldSkipConfigParameterKey(key)) {
+            return;
+        }
+        if (_exists[key]) {
+            return;
+        }
+
+        (bool boolSuccess, bool boolValue) = DeploymentConfig.tryReadBool(config, pointer);
+        if (boolSuccess) {
+            setBool(key, boolValue);
+            return;
+        }
+
+        (bool stringSuccess, string memory stringValue) = DeploymentConfig.tryReadString(config, pointer);
+        if (stringSuccess && _looksLikeHexAddress(stringValue)) {
+            setString(key, stringValue);
+            return;
+        }
+
+        (bool intSuccess, int256 intValue) = DeploymentConfig.tryReadInt(config, pointer);
+        (bool uintSuccess, uint256 uintValue) = DeploymentConfig.tryReadUint(config, pointer);
+        if (intSuccess || uintSuccess) {
+            _setNumberParameter(key, uintSuccess, uintValue, intSuccess, intValue);
+            return;
+        }
+
+        if (stringSuccess) {
+            setString(key, stringValue);
+        }
+    }
+
+    function _joinConfigParameterKey(string memory prefix, string memory child) private pure returns (string memory) {
+        if (bytes(prefix).length == 0) {
+            return child;
+        }
+        if (bytes(child).length == 0) {
+            return prefix;
+        }
+        return string.concat(prefix, ".", child);
+    }
+
+    function _appendPointer(string memory pointer, string memory child) private pure returns (string memory) {
+        if (bytes(child).length == 0) {
+            return pointer;
+        }
+        if (bytes(pointer).length == 0) {
+            return child;
+        }
+
+        bytes memory pointerBytes = bytes(pointer);
+        if (pointerBytes.length == 1 && pointerBytes[0] == bytes1("$")) {
+            return string.concat(pointer, ".", child);
+        }
+        return string.concat(pointer, ".", child);
+    }
+
+    function _hasArrayEntries(
+        DeploymentConfig.SourceJson memory config,
+        string memory pointer
+    ) private view returns (bool) {
+        return DeploymentConfig.hasArrayEntry(config, pointer, 0);
+    }
+
+    function _shouldSkipConfigParameterKey(string memory key) private pure returns (bool) {
+        bytes memory data = bytes(key);
+        if (data.length == 0) {
+            return true;
+        }
+        if (_containsDot(data)) {
+            return false;
+        }
+
+        bytes32 keyHash = keccak256(data);
+        if (
+            keyHash == keccak256(bytes("owner")) ||
+            keyHash == keccak256(bytes("treasury")) ||
+            keyHash == keccak256(bytes("version")) ||
+            keyHash == keccak256(bytes("network")) ||
+            keyHash == keccak256(bytes("systemSaltString")) ||
+            keyHash == keccak256(bytes("schemaVersion")) ||
+            keyHash == keccak256(bytes("conflicts")) ||
+            keyHash == keccak256(bytes("contracts"))
+        ) {
+            return true;
+        }
+
+        return false;
+    }
+
+    function _containsDot(bytes memory data) private pure returns (bool) {
+        for (uint256 i = 0; i < data.length; i++) {
+            if (data[i] == bytes1(".")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function _looksLikeHexAddress(string memory value) private pure returns (bool) {
+        bytes memory data = bytes(value);
+        if (data.length != 42) {
+            return false;
+        }
+        if (data[0] != bytes1("0")) {
+            return false;
+        }
+        bytes1 prefix = data[1];
+        if (prefix != bytes1("x") && prefix != bytes1("X")) {
+            return false;
+        }
+        for (uint256 i = 2; i < data.length; i++) {
+            bytes1 char = data[i];
+            bool isDigit = char >= bytes1("0") && char <= bytes1("9");
+            bool isLower = char >= bytes1("a") && char <= bytes1("f");
+            bool isUpper = char >= bytes1("A") && char <= bytes1("F");
+            if (!isDigit && !isLower && !isUpper) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    function _uintToString(uint256 value) internal pure returns (string memory) {
+        if (value == 0) {
+            return "0";
+        }
+
+        uint256 temp = value;
+        uint256 digits;
+        while (temp != 0) {
+            digits++;
+            temp /= 10;
+        }
+
+        bytes memory buffer = new bytes(digits);
+        while (value != 0) {
+            digits--;
+            buffer[digits] = bytes1(uint8(48 + (value % 10)));
+            value /= 10;
+        }
+
+        return string(buffer);
     }
 
     function _deployProxy(

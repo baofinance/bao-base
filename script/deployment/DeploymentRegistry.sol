@@ -341,6 +341,40 @@ abstract contract DeploymentRegistry {
         _saveRegistry();
     }
 
+    function _setNumberParameter(
+        string memory key,
+        bool supportsUint,
+        uint256 uintValue,
+        bool supportsInt,
+        int256 intValue
+    ) internal virtual {
+        if (bytes(key).length == 0) {
+            revert KeyRequired();
+        }
+        if (!supportsUint && !supportsInt) {
+            revert("Number parameter requires a value");
+        }
+        if (_exists[key]) {
+            revert ParameterAlreadyExists(key);
+        }
+
+        if (supportsUint) {
+            _uintParams[key] = uintValue;
+            _numberSupportsUint[key] = true;
+        }
+        if (supportsInt) {
+            _intParams[key] = intValue;
+            _numberSupportsInt[key] = true;
+        }
+
+        _exists[key] = true;
+        _entryType[key] = ENTRY_TYPE_NUMBER;
+        _keys.push(key);
+
+        emit ParameterSet(key, ENTRY_TYPE_NUMBER);
+        _saveRegistry();
+    }
+
     /**
      * @notice Get all registered keys
      */

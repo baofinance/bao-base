@@ -106,6 +106,54 @@ library DeploymentConfig {
         revert ConfigUnknownDirective(key, directive);
     }
 
+    function pointerExists(SourceJson memory config, string memory pointer) internal view returns (bool) {
+        return _pointerAvailable(config, pointer);
+    }
+
+    function listObjectKeys(
+        SourceJson memory config,
+        string memory pointer
+    ) internal pure returns (bool, string[] memory) {
+        return _tryParseJsonKeys(config, pointer);
+    }
+
+    function hasArrayEntry(
+        SourceJson memory config,
+        string memory pointer,
+        uint256 index
+    ) internal view returns (bool) {
+        string memory arrayPointer = string.concat(pointer, "[", VM.toString(index), "]");
+        return _pointerAvailable(config, arrayPointer);
+    }
+
+    function tryReadBool(
+        SourceJson memory config,
+        string memory pointer
+    ) internal pure returns (bool, bool) {
+        return _tryParseJsonBool(config, pointer);
+    }
+
+    function tryReadString(
+        SourceJson memory config,
+        string memory pointer
+    ) internal pure returns (bool, string memory) {
+        return _tryParseJsonString(config, pointer);
+    }
+
+    function tryReadUint(
+        SourceJson memory config,
+        string memory pointer
+    ) internal pure returns (bool, uint256) {
+        return _tryParseJsonUint(config, pointer);
+    }
+
+    function tryReadInt(
+        SourceJson memory config,
+        string memory pointer
+    ) internal pure returns (bool, int256) {
+        return _tryParseJsonInt(config, pointer);
+    }
+
     /// @dev Resolve a JSON pointer or revert if absent.
     function _requirePointer(
         SourceJson memory config,
@@ -186,8 +234,9 @@ library DeploymentConfig {
         if (bytes(pointer).length == 0) {
             return false;
         }
+        string memory normalized = _toDotPointer(pointer);
         (bool success, bytes memory returnData) = address(VM).staticcall(
-            abi.encodeWithSignature("parseJson(string,string)", config.text, pointer)
+            abi.encodeWithSignature("parseJson(string,string)", config.text, normalized)
         );
         if (!success) {
             return false;
@@ -209,7 +258,8 @@ library DeploymentConfig {
         if (bytes(pointer).length == 0) {
             return false;
         }
-        return VM.keyExistsJson(config.text, pointer);
+        string memory normalized = _toDotPointer(pointer);
+        return VM.keyExistsJson(config.text, normalized);
     }
 
     function _isOwnerField(string memory fieldPath) private pure returns (bool) {
@@ -217,5 +267,102 @@ library DeploymentConfig {
             return false;
         }
         return keccak256(bytes(fieldPath)) == keccak256(bytes("owner"));
+    }
+
+    function _tryParseJsonKeys(
+        SourceJson memory config,
+        string memory pointer
+    ) private pure returns (bool, string[] memory) {
+        string memory normalized = _toDotPointer(pointer);
+        try VM.parseJsonKeys(config.text, normalized) returns (string[] memory keys) {
+            return (true, keys);
+        } catch {
+            return (false, new string[](0));
+        }
+    }
+
+    function _toDotPointer(string memory pointer) private pure returns (string memory) {
+        bytes memory data = bytes(pointer);
+        if (data.length == 0) {
+            return "";
+        }
+        if (data[0] != bytes1("$")) {
+            if (data[0] == bytes1(".")) {
+                return pointer;
+            }
+            bytes memory prefixed = new bytes(data.length + 1);
+            prefixed[0] = bytes1(".");
+            for (uint256 i = 0; i < data.length; i++) {
+                prefixed[i + 1] = data[i];
+            }
+            return string(prefixed);
+        }
+
+        if (data.length == 1) {
+            return ".";
+        }
+
+        if (data[1] == bytes1(".")) {
+            bytes memory trimmed = new bytes(data.length - 1);
+            for (uint256 i = 1; i < data.length; i++) {
+                trimmed[i - 1] = data[i];
+            }
+            return string(trimmed);
+        }
+
+        bytes memory normalized = new bytes(data.length);
+        normalized[0] = bytes1(".");
+        for (uint256 i = 1; i < data.length; i++) {
+            normalized[i] = data[i];
+        }
+        return string(normalized);
+    }
+
+    function _tryParseJsonBool(
+        SourceJson memory config,
+        string memory pointer
+    ) private pure returns (bool, bool) {
+        string memory normalized = _toDotPointer(pointer);
+        try VM.parseJsonBool(config.text, normalized) returns (bool value) {
+            return (true, value);
+        } catch {
+            return (false, false);
+        }
+    }
+
+    function _tryParseJsonString(
+        SourceJson memory config,
+        string memory pointer
+    ) private pure returns (bool, string memory) {
+        string memory normalized = _toDotPointer(pointer);
+        try VM.parseJsonString(config.text, normalized) returns (string memory value) {
+            return (true, value);
+        } catch {
+            return (false, "");
+        }
+    }
+
+    function _tryParseJsonUint(
+        SourceJson memory config,
+        string memory pointer
+    ) private pure returns (bool, uint256) {
+        string memory normalized = _toDotPointer(pointer);
+        try VM.parseJsonUint(config.text, normalized) returns (uint256 value) {
+            return (true, value);
+        } catch {
+            return (false, 0);
+        }
+    }
+
+    function _tryParseJsonInt(
+        SourceJson memory config,
+        string memory pointer
+    ) private pure returns (bool, int256) {
+        string memory normalized = _toDotPointer(pointer);
+        try VM.parseJsonInt(config.text, normalized) returns (int256 value) {
+            return (true, value);
+        } catch {
+            return (false, 0);
+        }
     }
 }
