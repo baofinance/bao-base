@@ -93,11 +93,11 @@ contract DeploymentJsonRoundTripTest is BaoDeploymentTest {
         // Verify parameters are preserved
         assertEq(restored.getString("networkName"), "Ethereum", "String parameter mismatch");
         assertEq(restored.getUint("chainId"), 1, "Uint parameter mismatch");
-    assertEq(restored.getInt("chainId"), 1, "Number should be readable via int getter");
+        assertEq(restored.getInt("chainId"), 1, "Number should be readable via int getter");
         assertEq(restored.getInt("offset"), -100, "Int parameter mismatch");
         assertTrue(restored.getBool("enabled"), "Bool parameter mismatch");
-    assertEq(restored.getType("chainId"), "number", "Number type mismatch");
-    assertEq(restored.getType("offset"), "number", "Signed number should track shared type");
+        assertEq(restored.getType("chainId"), "number", "Number type mismatch");
+        assertEq(restored.getType("offset"), "number", "Signed number should track shared type");
 
         // Verify metadata is preserved
         assertEq(restored.getMetadata().network, TEST_NETWORK, "Network metadata mismatch");
@@ -210,24 +210,14 @@ contract DeploymentJsonRoundTripTest is BaoDeploymentTest {
         assertEq(restored.getType("negative"), "number", "Negative number should use shared type");
         assertEq(restored.getInt("negative"), -5, "Negative number int getter failed");
         vm.expectRevert(
-            abi.encodeWithSelector(
-                DeploymentRegistry.ParameterTypeMismatch.selector,
-                "negative",
-                "uint256",
-                "number"
-            )
+            abi.encodeWithSelector(DeploymentRegistry.ParameterTypeMismatch.selector, "negative", "uint256", "number")
         );
         restored.getUint("negative");
 
         assertEq(restored.getType("huge"), "number", "Large number should use shared type");
         assertEq(restored.getUint("huge"), type(uint256).max, "Large number uint getter failed");
         vm.expectRevert(
-            abi.encodeWithSelector(
-                DeploymentRegistry.ParameterTypeMismatch.selector,
-                "huge",
-                "int256",
-                "number"
-            )
+            abi.encodeWithSelector(DeploymentRegistry.ParameterTypeMismatch.selector, "huge", "int256", "number")
         );
         restored.getInt("huge");
     }
