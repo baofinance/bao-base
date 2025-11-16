@@ -70,8 +70,10 @@ abstract contract Deployment is DeploymentRegistry {
         }
     }
 
-    /// @notice Ensure this deployment harness is configured as BaoDeployer operator
-    function _ensureBaoDeployerOperator() internal virtual {
+    /// @notice Require that this deployment harness is configured as BaoDeployer operator
+    /// @dev Production check - reverts if operator not already configured by multisig
+    ///      Testing classes override this to auto-setup operator via VM.prank
+    function _requireBaoDeployerOperator() internal virtual {
         address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
         if (baoDeployer.code.length == 0) {
             revert FactoryDeploymentFailed("BaoDeployer missing code");
@@ -137,7 +139,7 @@ abstract contract Deployment is DeploymentRegistry {
         _saveRegistry();
 
         require(DeploymentInfrastructure.predictBaoDeployerAddress().code.length > 0, "need to deploy the BaoDeployer");
-        _ensureBaoDeployerOperator();
+        _requireBaoDeployerOperator();
 
         _stub = new UUPSProxyDeployStub();
     }
@@ -220,7 +222,7 @@ abstract contract Deployment is DeploymentRegistry {
         );
         _saveRegistry();
 
-        _ensureBaoDeployerOperator();
+        _requireBaoDeployerOperator();
         _stub = new UUPSProxyDeployStub();
     }
 

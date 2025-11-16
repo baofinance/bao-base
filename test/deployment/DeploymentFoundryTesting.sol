@@ -1,12 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {DeploymentRegistryJson} from "@bao-script/deployment/DeploymentRegistryJson.sol";
-import {DeploymentRegistryJsonTesting} from "@bao-script/deployment/DeploymentRegistryJsonTesting.sol";
-import {DeploymentFoundryTestingVm} from "@bao-script/deployment/DeploymentFoundryTestingVm.sol";
-import {BaoDeployerSetOperator} from "@bao-script/deployment/BaoDeployerSetOperator.sol";
+import {DeploymentOperatorTesting} from "@bao-script/deployment/DeploymentOperatorTesting.sol";
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {EfficientHashLib} from "@solady/utils/EfficientHashLib.sol";
@@ -14,17 +11,12 @@ import {EfficientHashLib} from "@solady/utils/EfficientHashLib.sol";
 /**
  * @title DeploymentFoundryTesting
  * @notice Concrete deployment harness for Foundry tests
- * @dev Combines: Deployment + JSON (testing variant) + VM support + BaoDeployer auto-setup
+ * @dev Combines: DeploymentOperatorTesting (Deployment + operator mixins in one)
  *      Exposes internal methods with public wrappers for test access
  *      Automatically configures BaoDeployer operator when available
  *      Registry saves disabled by default (use enableAutoSave() to generate regression files)
  */
-contract DeploymentFoundryTesting is
-    Deployment,
-    DeploymentRegistryJsonTesting,
-    DeploymentFoundryTestingVm,
-    BaoDeployerSetOperator
-{
+contract DeploymentFoundryTesting is DeploymentOperatorTesting {
     /// @notice Flag to control registry saves in tests
     bool private _registrySavesEnabled;
 
@@ -54,33 +46,6 @@ contract DeploymentFoundryTesting is
         if (_registrySavesEnabled) {
             super._saveRegistry();
         }
-    }
-
-    /*//////////////////////////////////////////////////////////////////////////
-                        BAODEPLOYER IMPERSONATION (VM)
-    //////////////////////////////////////////////////////////////////////////*/
-
-    /// @notice Override to auto-configure BaoDeployer operator for tests
-    function _ensureBaoDeployerOperator() internal virtual override {
-        _ensureBaoDeployerOperatorConfigured();
-    }
-
-    /// @notice Start BaoDeployer impersonation using VM.startPrank
-    function _startBaoDeployerImpersonation()
-        internal
-        virtual
-        override(BaoDeployerSetOperator, DeploymentFoundryTestingVm)
-    {
-        VM.startPrank(DeploymentInfrastructure.BAOMULTISIG);
-    }
-
-    /// @notice Stop BaoDeployer impersonation using VM.stopPrank
-    function _stopBaoDeployerImpersonation()
-        internal
-        virtual
-        override(BaoDeployerSetOperator, DeploymentFoundryTestingVm)
-    {
-        VM.stopPrank();
     }
 
     /*//////////////////////////////////////////////////////////////////////////
