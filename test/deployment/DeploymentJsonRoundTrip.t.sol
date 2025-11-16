@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentFoundryTesting} from "./DeploymentFoundryTesting.sol";
 import {MockUpgradeableContract} from "../mocks/upgradeable/MockGeneric.sol";
+import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 
 // Simple library for testing
 library TestMathLib {
@@ -92,8 +93,11 @@ contract DeploymentJsonRoundTripTest is BaoDeploymentTest {
         // Verify parameters are preserved
         assertEq(restored.getString("networkName"), "Ethereum", "String parameter mismatch");
         assertEq(restored.getUint("chainId"), 1, "Uint parameter mismatch");
+    assertEq(restored.getInt("chainId"), 1, "Number should be readable via int getter");
         assertEq(restored.getInt("offset"), -100, "Int parameter mismatch");
         assertTrue(restored.getBool("enabled"), "Bool parameter mismatch");
+    assertEq(restored.getType("chainId"), "number", "Number type mismatch");
+    assertEq(restored.getType("offset"), "number", "Signed number should track shared type");
 
         // Verify metadata is preserved
         assertEq(restored.getMetadata().network, TEST_NETWORK, "Network metadata mismatch");
@@ -186,5 +190,45 @@ contract DeploymentJsonRoundTripTest is BaoDeploymentTest {
         assertEq(restored.get("tokenWithCamelCase"), address(0x3333), "CamelCase in key failed");
         assertEq(restored.getString("string-param"), "value with spaces", "Spaces in value failed");
         assertEq(restored.getString('json"escape'), 'value with "quotes"', "Quotes in value failed");
+    }
+
+    function test_NumberParametersAreSharedAcrossGetters() public {
+        deployment.setUint("positive", 42);
+        deployment.setInt("negative", -5);
+        deployment.setUint("huge", type(uint256).max);
+
+        deployment.finish();
+        string memory json = deployment.toJsonString();
+
+        MockDeploymentRoundTrip restored = new MockDeploymentRoundTrip();
+        restored.fromJsonString(json);
+
+        assertEq(restored.getType("positive"), "number", "Positive number should use shared type");
+        assertEq(restored.getUint("positive"), 42, "Positive number uint getter failed");
+        assertEq(restored.getInt("positive"), 42, "Positive number int getter failed");
+
+        assertEq(restored.getType("negative"), "number", "Negative number should use shared type");
+        assertEq(restored.getInt("negative"), -5, "Negative number int getter failed");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                DeploymentRegistry.ParameterTypeMismatch.selector,
+                "negative",
+                "uint256",
+                "number"
+            )
+        );
+        restored.getUint("negative");
+
+        assertEq(restored.getType("huge"), "number", "Large number should use shared type");
+        assertEq(restored.getUint("huge"), type(uint256).max, "Large number uint getter failed");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                DeploymentRegistry.ParameterTypeMismatch.selector,
+                "huge",
+                "int256",
+                "number"
+            )
+        );
+        restored.getInt("huge");
     }
 }

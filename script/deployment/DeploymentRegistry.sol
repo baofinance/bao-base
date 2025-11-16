@@ -18,6 +18,7 @@ abstract contract DeploymentRegistry {
     // =========================================================================
 
     uint256 internal constant DEPLOYMENT_SCHEMA_VERSION = 1;
+    string internal constant ENTRY_TYPE_NUMBER = "number";
 
     // ============================================================================
     // Shared/Embedded Structs (for composition)
@@ -128,6 +129,8 @@ abstract contract DeploymentRegistry {
     mapping(string => uint256) internal _uintParams;
     mapping(string => int256) internal _intParams;
     mapping(string => bool) internal _boolParams;
+    mapping(string => bool) internal _numberSupportsUint;
+    mapping(string => bool) internal _numberSupportsInt;
 
     mapping(string => bool) internal _exists;
     mapping(string => string) internal _entryType;
@@ -201,10 +204,14 @@ abstract contract DeploymentRegistry {
         if (!_exists[key]) {
             revert ParameterNotFound(key);
         }
-        if (!_eq(_entryType[key], "uint256")) {
-            revert ParameterTypeMismatch(key, "uint256", _entryType[key]);
+        string memory entryType = _entryType[key];
+        if (_eq(entryType, "uint256")) {
+            return _uintParams[key];
         }
-        return _uintParams[key];
+        if (_eq(entryType, ENTRY_TYPE_NUMBER) && _numberSupportsUint[key]) {
+            return _uintParams[key];
+        }
+        revert ParameterTypeMismatch(key, "uint256", entryType);
     }
 
     /**
@@ -216,10 +223,14 @@ abstract contract DeploymentRegistry {
         if (!_exists[key]) {
             revert ParameterNotFound(key);
         }
-        if (!_eq(_entryType[key], "int256")) {
-            revert ParameterTypeMismatch(key, "int256", _entryType[key]);
+        string memory entryType = _entryType[key];
+        if (_eq(entryType, "int256")) {
+            return _intParams[key];
         }
-        return _intParams[key];
+        if (_eq(entryType, ENTRY_TYPE_NUMBER) && _numberSupportsInt[key]) {
+            return _intParams[key];
+        }
+        revert ParameterTypeMismatch(key, "int256", entryType);
     }
 
     /**

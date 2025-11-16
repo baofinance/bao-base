@@ -4,73 +4,105 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Test} from "forge-std/Test.sol";
 import {DeploymentConfig} from "@bao-script/deployment/DeploymentConfig.sol";
 
-contract DeploymentConfigTest is Test {
-    DeploymentConfig.SourceJson private config;
+contract DeploymentConfigSetup is Test {
+    DeploymentConfig.SourceJson internal config;
 
-    function setUp() public {
+    function setUp() public virtual {
+        config = DeploymentConfig.fromJson(_loadFixture());
+    }
+
+    function _loadFixture() internal view returns (string memory text) {
         string memory root = vm.projectRoot();
-        string memory path = string.concat(root, "/test/fixtures/deployment/config-basic.json");
-        string memory text;
-        try vm.readFile(path) returns (string memory contents) {
-            text = contents;
+        string memory primary = string.concat(root, "/test/fixtures/deployment/config-basic.json");
+        try vm.readFile(primary) returns (string memory contents) {
+            return contents;
         } catch {
-            path = string.concat(root, "/lib/bao-base/test/fixtures/deployment/config-basic.json");
-            text = vm.readFile(path);
+            string memory fallbackPath = string.concat(
+                root,
+                "/lib/bao-base/test/fixtures/deployment/config-basic.json"
+            );
+            return vm.readFile(fallbackPath);
         }
-        config = DeploymentConfig.fromJson(text);
     }
+}
 
-    function test_getAddress_prefersContractOverride() public view {
+contract DeploymentConfigTest is DeploymentConfigSetup {
+    function test_getAddress_prefersContractOverride_() public view {
         address owner = DeploymentConfig.get(config, "pegged", "owner");
-        assertEq(owner, vm.parseAddress("0x0000000000000000000000000000000000bbbb01"));
+        address expected = vm.parseAddress("0x0000000000000000000000000000000000bbbb01");
+        assertEq(owner, expected, "pegged owner override value");
     }
 
-    function test_getAddress_fallsBackToDefaultOwner() public view {
+    function test_getAddress_fallsBackToDefaultOwner_() public view {
         address owner = DeploymentConfig.get(config, "stabilityPoolCollateral", "owner");
-        assertEq(owner, vm.parseAddress("0x0000000000000000000000000000000000aaaa01"));
+        address expected = vm.parseAddress("0x0000000000000000000000000000000000aaaa01");
+        assertEq(owner, expected, "collateral owner fallback");
     }
 
-    function test_getString_prefersContractOverride() public view {
-        string memory symbol = DeploymentConfig.getString(config, "pegged", "params.symbol");
-        assertEq(symbol, "cUSD");
+    function test_getString_prefersContractOverride_() public view {
+        string memory symbol = DeploymentConfig.getString(config, "pegged", "symbol");
+        assertEq(symbol, "cUSD", "pegged symbol override");
     }
 
-    function test_getString_fallsBackToContractDefaults() public view {
-        string memory name = DeploymentConfig.getString(config, "pegged", "params.name");
-        assertEq(name, "Bao USD");
+    function test_getString_readsContractField_() public view {
+        string memory name = DeploymentConfig.getString(config, "pegged", "name");
+        assertEq(name, "Bao USD", "pegged name value");
     }
 
-    function test_getUint_fallsBackToContractSpecificDefaults() public view {
-        uint256 minDeposit = DeploymentConfig.getUint(config, "stabilityPoolCollateral", "params.minDeposit");
-        assertEq(minDeposit, 1e18);
+    function test_getUint_prefersContractOverride_() public view {
+        uint256 minDeposit = DeploymentConfig.getUint(config, "stabilityPoolCollateral", "minDeposit");
+        assertEq(minDeposit, 2 ether, "collateral minDeposit override");
     }
 
-    function test_getUint_prefersContractOverride() public view {
-        uint256 feeBps = DeploymentConfig.getUint(config, "minter", "params.feeBps");
-        assertEq(feeBps, 25);
+    function test_getUint_readsDirectContractField_() public view {
+        uint256 feeBps = DeploymentConfig.getUint(config, "minter", "feeBps");
+        assertEq(feeBps, 25, "minter feeBps value");
     }
 
-    function test_missingFieldReverts() public {
+    function test_getUint_missingContractValueReverts_() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(DeploymentConfig.ConfigValueMissing.selector, "stabilityPoolLeveraged", "minDeposit")
+        );
+        this._getUint("stabilityPoolLeveraged", "minDeposit");
+    }
+
+    function test_missingFieldReverts_() public {
         vm.expectRevert(abi.encodeWithSelector(DeploymentConfig.ConfigValueMissing.selector, "unknown", "owner"));
         this._getOwner("unknown");
     }
 
-    function test_conflictResolution_preferConfig() public view {
+    function test_conflictResolution_preferConfig_() public view {
         DeploymentConfig.ConflictResolution resolution = DeploymentConfig.conflictResolution(config, "owner");
-        assertEq(uint256(resolution), uint256(DeploymentConfig.ConflictResolution.PreferConfig));
+        assertEq(
+            uint256(resolution),
+            uint256(DeploymentConfig.ConflictResolution.PreferConfig),
+            "root conflict prefer config"
+        );
     }
 
-    function test_conflictResolution_preferLog() public view {
+    function test_conflictResolution_preferLog_() public view {
         DeploymentConfig.ConflictResolution resolution = DeploymentConfig.conflictResolution(config, "minter.owner");
-        assertEq(uint256(resolution), uint256(DeploymentConfig.ConflictResolution.PreferLog));
+        assertEq(
+            uint256(resolution),
+            uint256(DeploymentConfig.ConflictResolution.PreferLog),
+            "minter conflict prefer log"
+        );
     }
 
-    function test_conflictResolution_unspecified() public view {
+    function test_conflictResolution_unspecified_() public view {
         DeploymentConfig.ConflictResolution resolution = DeploymentConfig.conflictResolution(config, "pegged.owner");
-        assertEq(uint256(resolution), uint256(DeploymentConfig.ConflictResolution.Unspecified));
+        assertEq(
+            uint256(resolution),
+            uint256(DeploymentConfig.ConflictResolution.Unspecified),
+            "pegged conflict unspecified"
+        );
     }
 
     function _getOwner(string memory contractKey) external view returns (address) {
         return DeploymentConfig.get(config, contractKey, "owner");
+    }
+
+    function _getUint(string memory contractKey, string memory fieldPath) external view returns (uint256) {
+        return DeploymentConfig.getUint(config, contractKey, fieldPath);
     }
 }

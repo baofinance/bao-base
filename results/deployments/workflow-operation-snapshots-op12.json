@@ -10,14 +10,8 @@
       "deployedTo": "0x8d2C17FAd02B7bb64139109c6533b7C2b9CADb81",
       "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b"
     },
-    "configValue": {
-      "type": "string",
-      "value": "testValue"
-    },
-    "enabled": {
-      "type": "bool",
-      "value": true
-    },
+    "configValue": "testValue",
+    "enabled": true,
     "existingToken": {
       "address": "0x1234567890123456789012345678901234567890",
       "blockNumber": 1,
@@ -32,14 +26,8 @@
       "deployedTo": "0x6891e60906DEBeA401F670D74d01D117a3bEAD39",
       "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b"
     },
-    "maxSupply": {
-      "type": "uint256",
-      "value": "1000000000000000000000000"
-    },
-    "offset": {
-      "type": "int256",
-      "value": -100
-    },
+    "maxSupply": "1000000000000000000000000",
+    "offset": -100,
     "oracle": {
       "address": "0x14D64e1E6F80405f4D949d1438cBFc0A49d62d26",
       "blockNumber": 1,

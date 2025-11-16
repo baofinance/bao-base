@@ -119,7 +119,7 @@ library DeploymentConfig {
         return pointer;
     }
 
-    /// @dev Resolve pointer precedence: contract-specific in $.contracts, then top-level defaults
+    /// @dev Resolve pointer precedence: contract-specific in $.contracts, top-level contracts, and owner fallback
     function _resolvePointer(
         SourceJson memory config,
         string memory contractKey,
@@ -131,12 +131,12 @@ library DeploymentConfig {
         if (contractSpecified) {
             if (_pointerAvailable(config, _buildPointer("$.contracts", contractKey, ""))) {
                 contractKnown = true;
-            } else if (_pointerAvailable(config, _buildPointer("$.defaults", contractKey, ""))) {
-                contractKnown = true;
             } else if (_pointerAvailable(config, _buildPointer("$", contractKey, ""))) {
                 contractKnown = true;
             }
+        }
 
+        if (contractSpecified) {
             string memory contractPointer = _buildPointer("$.contracts", contractKey, fieldPath);
             if (_pointerAvailable(config, contractPointer)) {
                 return (true, contractPointer);
@@ -154,27 +154,11 @@ library DeploymentConfig {
             return (true, topLevel);
         }
 
-        // Fall back to defaults.<contractKey> when present (per-contract defaults)
-        if (contractSpecified) {
-            string memory contractDefault = _buildPointer("$.defaults", contractKey, fieldPath);
-            if (_pointerAvailable(config, contractDefault)) {
-                return (true, contractDefault);
-            }
-        }
-
-        // Fall back to shared defaults.<fieldPath> when present (global defaults)
-        string memory globalDefault;
-        if ((contractKnown || !contractSpecified) && bytes(fieldPath).length != 0) {
-            globalDefault = string.concat("$.defaults.", fieldPath);
-            if (_pointerAvailable(config, globalDefault)) {
-                return (true, globalDefault);
-            }
-        }
-
-        if ((contractKnown || !contractSpecified) && bytes(fieldPath).length != 0) {
-            string memory rootField = string.concat("$.", fieldPath);
-            if (_pointerAvailable(config, rootField)) {
-                return (true, rootField);
+        // Fall back to shared owner when explicitly requested
+        if (contractSpecified && contractKnown && _isOwnerField(fieldPath)) {
+            string memory ownerPointer = _buildPointer("$", "", fieldPath);
+            if (_pointerAvailable(config, ownerPointer)) {
+                return (true, ownerPointer);
             }
         }
 
@@ -226,5 +210,12 @@ library DeploymentConfig {
             return false;
         }
         return VM.keyExistsJson(config.text, pointer);
+    }
+
+    function _isOwnerField(string memory fieldPath) private pure returns (bool) {
+        if (bytes(fieldPath).length == 0) {
+            return false;
+        }
+        return keccak256(bytes(fieldPath)) == keccak256(bytes("owner"));
     }
 }

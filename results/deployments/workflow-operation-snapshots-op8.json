@@ -10,27 +10,15 @@
       "deployedTo": "0x8d2C17FAd02B7bb64139109c6533b7C2b9CADb81",
       "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b"
     },
-    "configValue": {
-      "type": "string",
-      "value": "testValue"
-    },
-    "enabled": {
-      "type": "bool",
-      "value": true
-    },
+    "configValue": "testValue",
+    "enabled": true,
     "existingToken": {
       "address": "0x1234567890123456789012345678901234567890",
       "blockNumber": 1,
       "category": "existing"
     },
-    "maxSupply": {
-      "type": "uint256",
-      "value": "1000000000000000000000000"
-    },
-    "offset": {
-      "type": "int256",
-      "value": -100
-    },
+    "maxSupply": "1000000000000000000000000",
+    "offset": -100,
     "oracle__OracleV1": {
       "address": "0x76006C4471fb6aDd17728e9c9c8B67d5AF06cDA0",
       "blockNumber": 1,

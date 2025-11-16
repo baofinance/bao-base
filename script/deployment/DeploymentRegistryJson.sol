@@ -82,27 +82,31 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry, DeploymentFoundr
      */
     function _toJson() internal virtual returns (string memory) {
         // Serialize all entries and capture final JSON
-        string memory deploymentsJson = "";
+        string memory deploymentsJson = "{}";
         if (_keys.length > 0) {
             for (uint256 i = 0; i < _keys.length; i++) {
                 string memory key = _keys[i];
                 string memory entryType = _entryType[key];
 
                 if (_eq(entryType, "contract")) {
-                    deploymentsJson = _serializeContractToObject(key, false);
+                    string memory serialized = _serializeContractToObject(key, false);
+                    deploymentsJson = VM.serializeString("deployment", key, serialized);
                 } else if (_eq(entryType, "proxy")) {
-                    deploymentsJson = _serializeProxyToObject(key);
+                    string memory serialized = _serializeProxyToObject(key);
+                    deploymentsJson = VM.serializeString("deployment", key, serialized);
                 } else if (_eq(entryType, "implementation")) {
-                    deploymentsJson = _serializeContractToObject(key, true); // Include proxies array
+                    string memory serialized = _serializeContractToObject(key, true); // Include proxies array
+                    deploymentsJson = VM.serializeString("deployment", key, serialized);
                 } else if (_eq(entryType, "library")) {
-                    deploymentsJson = _serializeLibraryToObject(key);
+                    string memory serialized = _serializeLibraryToObject(key);
+                    deploymentsJson = VM.serializeString("deployment", key, serialized);
                 } else if (
                     _eq(entryType, "string") ||
                     _eq(entryType, "uint256") ||
                     _eq(entryType, "int256") ||
                     _eq(entryType, "bool")
                 ) {
-                    deploymentsJson = _serializeParameterToObject(key);
+                    deploymentsJson = _serializeParameterEntry(key);
                 }
             }
         }
@@ -133,6 +137,25 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry, DeploymentFoundr
         return string.concat(".deployment.", key);
     }
 
+    function _entryNamespace(string memory key) private pure returns (string memory) {
+        return string.concat("deployment:", key);
+    }
+
+    function _splitParameterKey(
+        string memory key
+    ) private pure returns (string memory baseKey, string memory fieldKey) {
+        bytes memory keyBytes = bytes(key);
+        for (uint256 i = 0; i < keyBytes.length; i++) {
+            if (keyBytes[i] == bytes1(".")) {
+                baseKey = _substring(key, 0, i);
+                fieldKey = _substring(key, i + 1, keyBytes.length);
+                return (baseKey, fieldKey);
+            }
+        }
+        baseKey = key;
+        fieldKey = "";
+    }
+
     /**
      * @notice Load deployment from JSON string (without reading from file)
      * @dev Useful for tests to avoid littering filesystem
@@ -155,15 +178,15 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry, DeploymentFoundr
 
         for (uint256 i = 0; i < loadedKeys.length; i++) {
             string memory key = loadedKeys[i];
-
-            // Check if it's a parameter first (has .type field)
             string memory basePath = _deploymentBasePath(key);
 
-            if (VM.keyExistsJson(json, string.concat(basePath, ".type"))) {
-                _deserializeParameter(json, key);
-            } else {
-                // Otherwise check category for contract types
-                string memory category = VM.parseJsonString(json, string.concat(basePath, ".category"));
+            if (!VM.keyExistsJson(json, basePath)) {
+                continue;
+            }
+
+            string memory categoryPath = string.concat(basePath, ".category");
+            if (VM.keyExistsJson(json, categoryPath)) {
+                string memory category = VM.parseJsonString(json, categoryPath);
 
                 if (_eq(category, "UUPS proxy")) {
                     _deserializeProxy(json, key);
@@ -172,6 +195,13 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry, DeploymentFoundr
                 } else {
                     _deserializeContract(json, key);
                 }
+
+                _deserializeParameterChildren(json, key, basePath);
+                continue;
+            }
+
+            if (!_deserializeParameterChildren(json, key, basePath)) {
+                _deserializeParameterValue(json, key, basePath);
             }
         }
 
@@ -282,73 +312,104 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry, DeploymentFoundr
     function _serializeContractToObject(string memory key, bool isImplementation) private returns (string memory) {
         ContractEntry memory entry = _contracts[key];
 
+        string memory namespaceKey = _entryNamespace(key);
         string memory entryJson = "";
-        entryJson = _serializeDeploymentInfo(key, entry.info, entryJson);
+        entryJson = _serializeDeploymentInfo(namespaceKey, entry.info, entryJson);
 
         // Add factory (if CREATE3) and deployer (executor) - skip deployer for existing contracts
         bool isExisting = _eq(entry.info.category, "existing");
         if (entry.factory != address(0)) {
-            entryJson = VM.serializeAddress(key, "factory", entry.factory);
+            entryJson = VM.serializeAddress(namespaceKey, "factory", entry.factory);
         }
         if (!isExisting && entry.deployer != address(0)) {
-            entryJson = VM.serializeAddress(key, "deployer", entry.deployer);
+            entryJson = VM.serializeAddress(namespaceKey, "deployer", entry.deployer);
         }
 
         // Build proxies array dynamically for implementations
         if (isImplementation) {
             string[] memory proxies = _buildProxiesArray(key);
             // Always serialize the array, even if empty, to ensure it overwrites any previous value
-            entryJson = VM.serializeString(key, "proxies", proxies);
+            entryJson = VM.serializeString(namespaceKey, "proxies", proxies);
         }
 
-        return VM.serializeString("deployment", key, entryJson);
+        return entryJson;
     }
 
     function _serializeProxyToObject(string memory key) private returns (string memory) {
         ProxyEntry memory entry = _proxies[key];
 
+        string memory namespaceKey = _entryNamespace(key);
         string memory entryJson = "";
-        entryJson = _serializeDeploymentInfo(key, entry.info, entryJson);
-        entryJson = _serializeCREATE3Info(key, entry.create3, entryJson);
-        entryJson = _serializeProxyInfo(key, entry.proxy, entryJson);
+        entryJson = _serializeDeploymentInfo(namespaceKey, entry.info, entryJson);
+        entryJson = _serializeCREATE3Info(namespaceKey, entry.create3, entryJson);
+        entryJson = _serializeProxyInfo(namespaceKey, entry.proxy, entryJson);
 
         // Add factory and deployer (executor)
-        entryJson = VM.serializeAddress(key, "factory", entry.factory);
-        entryJson = VM.serializeAddress(key, "deployer", entry.deployer);
+        entryJson = VM.serializeAddress(namespaceKey, "factory", entry.factory);
+        entryJson = VM.serializeAddress(namespaceKey, "deployer", entry.deployer);
 
-        return VM.serializeString("deployment", key, entryJson);
+        return entryJson;
     }
 
     function _serializeLibraryToObject(string memory key) private returns (string memory) {
         LibraryEntry memory entry = _libraries[key];
 
+        string memory namespaceKey = _entryNamespace(key);
         string memory entryJson = "";
-        entryJson = _serializeDeploymentInfo(key, entry.info, entryJson);
+        entryJson = _serializeDeploymentInfo(namespaceKey, entry.info, entryJson);
 
         // Add deployer (executor)
-        entryJson = VM.serializeAddress(key, "deployer", entry.deployer);
+        entryJson = VM.serializeAddress(namespaceKey, "deployer", entry.deployer);
 
-        return VM.serializeString("deployment", key, entryJson);
+        return entryJson;
     }
 
-    function _serializeParameterToObject(string memory key) private returns (string memory) {
+    function _serializeParameterEntry(string memory key) private returns (string memory) {
         string memory paramType = _entryType[key];
-        string memory entryJson = "";
+        (string memory base, string memory field) = _splitParameterKey(key);
 
-        // Always serialize type first
-        entryJson = VM.serializeString(key, "type", paramType);
-
-        if (_eq(paramType, "string")) {
-            entryJson = VM.serializeString(key, "value", _stringParams[key]);
-        } else if (_eq(paramType, "uint256")) {
-            entryJson = VM.serializeUint(key, "value", _uintParams[key]);
-        } else if (_eq(paramType, "int256")) {
-            entryJson = VM.serializeInt(key, "value", _intParams[key]);
-        } else if (_eq(paramType, "bool")) {
-            entryJson = VM.serializeBool(key, "value", _boolParams[key]);
+        if (bytes(field).length == 0) {
+            if (_eq(paramType, "string")) {
+                return VM.serializeString("deployment", base, _stringParams[key]);
+            } else if (_eq(paramType, "uint256")) {
+                return VM.serializeUint("deployment", base, _uintParams[key]);
+            } else if (_eq(paramType, "int256")) {
+                return VM.serializeInt("deployment", base, _intParams[key]);
+            } else if (_eq(paramType, ENTRY_TYPE_NUMBER)) {
+                if (_numberSupportsInt[key]) {
+                    return VM.serializeInt("deployment", base, _intParams[key]);
+                }
+                if (_numberSupportsUint[key]) {
+                    return VM.serializeUint("deployment", base, _uintParams[key]);
+                }
+                revert("Number parameter missing value");
+            } else if (_eq(paramType, "bool")) {
+                return VM.serializeBool("deployment", base, _boolParams[key]);
+            }
+            return "{}";
         }
 
-        return VM.serializeString("deployment", key, entryJson);
+        string memory namespaceKey = _entryNamespace(base);
+        string memory entryJson = "";
+        if (_eq(paramType, "string")) {
+            entryJson = VM.serializeString(namespaceKey, field, _stringParams[key]);
+        } else if (_eq(paramType, "uint256")) {
+            entryJson = VM.serializeUint(namespaceKey, field, _uintParams[key]);
+        } else if (_eq(paramType, "int256")) {
+            entryJson = VM.serializeInt(namespaceKey, field, _intParams[key]);
+        } else if (_eq(paramType, ENTRY_TYPE_NUMBER)) {
+            if (_numberSupportsInt[key]) {
+                entryJson = VM.serializeInt(namespaceKey, field, _intParams[key]);
+            } else if (_numberSupportsUint[key]) {
+                entryJson = VM.serializeUint(namespaceKey, field, _uintParams[key]);
+            } else {
+                revert("Number parameter missing value");
+            }
+        } else if (_eq(paramType, "bool")) {
+            entryJson = VM.serializeBool(namespaceKey, field, _boolParams[key]);
+        }
+
+        return VM.serializeString("deployment", base, entryJson);
     }
 
     // ============================================================================
@@ -489,33 +550,140 @@ abstract contract DeploymentRegistryJson is DeploymentRegistry, DeploymentFoundr
         _keys.push(key);
     }
 
-    function _deserializeParameter(string memory json, string memory key) private {
-        string memory basePath = _deploymentBasePath(key);
-
-        // Read type field explicitly
-        string memory paramType = VM.parseJsonString(json, string.concat(basePath, ".type"));
-
-        if (_eq(paramType, "string")) {
-            _stringParams[key] = VM.parseJsonString(json, string.concat(basePath, ".value"));
-            _exists[key] = true;
-            _entryType[key] = "string";
-            _keys.push(key);
-        } else if (_eq(paramType, "uint256")) {
-            _uintParams[key] = VM.parseJsonUint(json, string.concat(basePath, ".value"));
-            _exists[key] = true;
-            _entryType[key] = "uint256";
-            _keys.push(key);
-        } else if (_eq(paramType, "int256")) {
-            _intParams[key] = VM.parseJsonInt(json, string.concat(basePath, ".value"));
-            _exists[key] = true;
-            _entryType[key] = "int256";
-            _keys.push(key);
-        } else if (_eq(paramType, "bool")) {
-            _boolParams[key] = VM.parseJsonBool(json, string.concat(basePath, ".value"));
-            _exists[key] = true;
-            _entryType[key] = "bool";
-            _keys.push(key);
+    function _deserializeParameterChildren(
+        string memory json,
+        string memory baseKey,
+        string memory basePath
+    ) private returns (bool) {
+        if (!VM.keyExistsJson(json, basePath)) {
+            return false;
         }
+
+        (bool hasChildren, string[] memory childKeys) = _tryParseJsonKeys(json, basePath);
+        if (!hasChildren) {
+            return false;
+        }
+
+        bytes32 baseTypeHash = keccak256(bytes(_entryType[baseKey]));
+        bool isStructuredEntry = _exists[baseKey] &&
+            (baseTypeHash == keccak256("contract") ||
+                baseTypeHash == keccak256("implementation") ||
+                baseTypeHash == keccak256("proxy") ||
+                baseTypeHash == keccak256("library"));
+
+        for (uint256 i = 0; i < childKeys.length; i++) {
+            if (isStructuredEntry && _isReservedContractField(childKeys[i])) {
+                continue;
+            }
+
+            string memory childKey = string.concat(baseKey, ".", childKeys[i]);
+            string memory childPath = string.concat(basePath, ".", childKeys[i]);
+
+            if (_deserializeParameterChildren(json, childKey, childPath)) {
+                continue;
+            }
+
+            _deserializeParameterValue(json, childKey, childPath);
+        }
+
+        return true;
+    }
+
+    function _deserializeParameterValue(string memory json, string memory key, string memory valuePath) private {
+        string memory paramType;
+
+        (bool intSuccess, int256 intValue) = _tryParseJsonInt(json, valuePath);
+        (bool uintSuccess, uint256 uintValue) = _tryParseJsonUint(json, valuePath);
+
+        if (intSuccess || uintSuccess) {
+            paramType = ENTRY_TYPE_NUMBER;
+
+            if (intSuccess) {
+                _intParams[key] = intValue;
+                _numberSupportsInt[key] = true;
+            }
+            if (uintSuccess) {
+                _uintParams[key] = uintValue;
+                _numberSupportsUint[key] = true;
+            }
+        } else {
+            (bool boolSuccess, bool boolValue) = _tryParseJsonBool(json, valuePath);
+            if (boolSuccess) {
+                _boolParams[key] = boolValue;
+                paramType = "bool";
+            } else {
+                (bool stringSuccess, string memory stringValue) = _tryParseJsonString(json, valuePath);
+                if (stringSuccess) {
+                    _stringParams[key] = stringValue;
+                    paramType = "string";
+                }
+            }
+        }
+
+        require(bytes(paramType).length != 0, "Unsupported parameter type");
+
+        _exists[key] = true;
+        _entryType[key] = paramType;
+        _keys.push(key);
+    }
+
+    function _tryParseJsonKeys(string memory json, string memory path) private pure returns (bool, string[] memory) {
+        try VM.parseJsonKeys(json, path) returns (string[] memory keys) {
+            return (true, keys);
+        } catch {
+            return (false, new string[](0));
+        }
+    }
+
+    function _tryParseJsonBool(string memory json, string memory path) private pure returns (bool, bool) {
+        try VM.parseJsonBool(json, path) returns (bool value) {
+            return (true, value);
+        } catch {
+            return (false, false);
+        }
+    }
+
+    function _tryParseJsonString(string memory json, string memory path) private pure returns (bool, string memory) {
+        try VM.parseJsonString(json, path) returns (string memory value) {
+            return (true, value);
+        } catch {
+            return (false, "");
+        }
+    }
+
+    function _tryParseJsonInt(string memory json, string memory path) private pure returns (bool, int256) {
+        try VM.parseJsonInt(json, path) returns (int256 value) {
+            return (true, value);
+        } catch {
+            return (false, 0);
+        }
+    }
+
+    function _tryParseJsonUint(string memory json, string memory path) private pure returns (bool, uint256) {
+        try VM.parseJsonUint(json, path) returns (uint256 value) {
+            return (true, value);
+        } catch {
+            return (false, 0);
+        }
+    }
+
+    function _isReservedContractField(string memory field) private pure returns (bool) {
+        bytes32 fieldHash = keccak256(bytes(field));
+        return (fieldHash == keccak256("address") ||
+            fieldHash == keccak256("blockNumber") ||
+            fieldHash == keccak256("category") ||
+            fieldHash == keccak256("contractPath") ||
+            fieldHash == keccak256("contractType") ||
+            fieldHash == keccak256("deployedTo") ||
+            fieldHash == keccak256("deployer") ||
+            fieldHash == keccak256("factory") ||
+            fieldHash == keccak256("implementation") ||
+            fieldHash == keccak256("proxyType") ||
+            fieldHash == keccak256("salt") ||
+            fieldHash == keccak256("saltString") ||
+            fieldHash == keccak256("transactionHash") ||
+            fieldHash == keccak256("proxies") ||
+            fieldHash == keccak256("dryRun"));
     }
 
     // ============================================================================

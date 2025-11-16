@@ -89,18 +89,9 @@
       "deployedTo": "0x7FdB3132Ff7D02d8B9e221c61cC895ce9a4bb773",
       "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
     },
-    "systemName": {
-      "type": "string",
-      "value": "BaoFinance"
-    },
-    "testnet": {
-      "type": "bool",
-      "value": true
-    },
-    "version": {
-      "type": "uint256",
-      "value": 2
-    }
+    "systemName": "BaoFinance",
+    "testnet": true,
+    "version": 2
   },
   "network": "workflow-test",
   "owner": "0xaA10a84CE7d9AE517a52c6d5cA153b369Af99ecF",
