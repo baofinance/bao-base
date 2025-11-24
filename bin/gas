@@ -3,6 +3,11 @@ set -e
 set -o pipefail
 
 [[ "${BAO_BASE_VERBOSITY}" -gt 0 ]] && set -x
-forge clean # we don't trust that the --isolate and --gas-report options will work with the cache
-forge test --nmp script/**/*.t.sol --isolate --gas-report --gas-limit 1500000000 "$@"
+# separate build output & cache
+FOUNDRY_OUT=out/_gas
+export FOUNDRY_CACHE_PATH=cache/_gas
+
+# use the gas limit set in foundry.toml
+forge test --out ${FOUNDRY_OUT} --nmp script/**/*.t.sol --isolate --gas-report "$@"
+
 { set +x; } 2>/dev/null
