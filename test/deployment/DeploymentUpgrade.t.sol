@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {DeploymentFoundryTesting} from "./DeploymentFoundryTesting.sol";
+import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
 import {OracleV1} from "../mocks/upgradeable/MockOracle.sol";
 
 import {CounterV1} from "../mocks/upgradeable/MockCounter.sol";
@@ -42,7 +42,7 @@ contract CounterV2 is CounterV1 {
  * @title MockDeploymentUpgrade
  * @notice Test harness for proxy upgrade scenarios
  */
-contract MockDeploymentUpgrade is DeploymentFoundryTesting {
+contract MockDeploymentUpgrade is DeploymentTesting {
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
         OracleV1 impl = new OracleV1();
         string memory implKey = registerImplementation(

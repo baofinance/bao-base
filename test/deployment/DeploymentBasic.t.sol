@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {DeploymentJsonTesting} from "./DeploymentJsonTesting.sol";
+import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 
 import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
@@ -137,10 +137,10 @@ contract DeploymentBasicTest is BaoDeploymentTest {
     function test_Finish() public {
         deployment.finish();
 
-        assertGt(deployment.getUint(deployment.SESSION_FINISH_TIMESTAMP), 0);
+        assertGt(deployment.getUint(deployment.SESSION_FINISH_TIMESTAMP()), 0);
         assertGe(
-            deployment.getUint(deployment.SESSION_FINISH_TIMESTAMP),
-            deployment.getUint(deployment.SESSION_START_TIMESTAMP)
+            deployment.getUint(deployment.SESSION_FINISH_TIMESTAMP()),
+            deployment.getUint(deployment.SESSION_START_TIMESTAMP())
         );
     }
 
@@ -150,7 +150,7 @@ contract DeploymentBasicTest is BaoDeploymentTest {
         deployment.useExisting("ExistingContract", existingContract);
 
         assertEq(deployment.get("ExistingContract"), existingContract);
-        assertEq(deployment.getType("ExistingContract"), "contract");
+        assertEq(uint(deployment.keyType("ExistingContract")), uint(DataType.CONTRACT));
     }
 
     function test_RegisterExistingJsonSerialization() public {

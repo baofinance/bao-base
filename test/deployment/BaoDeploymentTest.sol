@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {DeploymentJsonTesting} from "./DeploymentJsonTesting.sol";
+import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 
@@ -13,18 +13,18 @@ import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrast
  * @dev Test hierarchy:
  *      BaoTest (utility assertions)
  *        └─ BaoDeploymentTest (deployment infrastructure only)
- *             └─ MyDeploymentTest (creates DeploymentFoundryTesting as needed)
+ *             └─ MyDeploymentTest (creates DeploymentTesting as needed)
  * @dev For tests that don't need deployment infrastructure, extend BaoTest directly
  *
- * @dev NO DUPLICATION: Uses DeploymentFoundryTesting helpers which delegate to production
+ * @dev NO DUPLICATION: Uses DeploymentTesting helpers which delegate to production
  *      Deployment._deployBaoDeployer() - tests and production share the same code.
  *
  * @dev NOTE: This base class does NOT declare a `deployment` variable.
- *      Derived test classes should declare and create their own DeploymentFoundryTesting:
- *          DeploymentFoundryTesting public deployment;
+ *      Derived test classes should declare and create their own DeploymentTesting:
+ *          DeploymentTesting public deployment;
  *          function setUp() public override {
  *              super.setUp();
- *              deployment = new DeploymentFoundryTesting();
+ *              deployment = new DeploymentTesting();
  *          }
  */
 abstract contract BaoDeploymentTest is BaoTest {

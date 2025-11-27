@@ -2,16 +2,16 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
+import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
 
 import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
 import {MockOracle, MockToken, MockMinter} from "../mocks/basic/MockDependencies.sol";
 
-// Test harness extends DeploymentFoundryTesting
-contract MockDeploymentDependency is DeploymentFoundryTesting {
+// Test harness extends DeploymentTesting
+contract MockDeploymentDependency is DeploymentTesting {
     function deployOracle(string memory key, uint256 price) public returns (address) {
         MockOracle oracle = new MockOracle(price);
-        registerContract(key, address(oracle), "MockOracle", "test/mocks/basic/MockDependencies.sol", "contract");
+        registerContract(key, address(oracle), "MockOracle", "test/mocks/basic/MockDependencies.sol");
         return get(key);
     }
 
@@ -23,7 +23,7 @@ contract MockDeploymentDependency is DeploymentFoundryTesting {
     ) public returns (address) {
         address oracleAddr = get(oracleKey);
         MockToken token = new MockToken(oracleAddr, name, decimals);
-        registerContract(key, address(token), "MockToken", "test/mocks/basic/MockDependencies.sol", "contract");
+        registerContract(key, address(token), "MockToken", "test/mocks/basic/MockDependencies.sol");
         return get(key);
     }
 
@@ -31,7 +31,7 @@ contract MockDeploymentDependency is DeploymentFoundryTesting {
         address tokenAddr = get(tokenKey);
         address oracleAddr = get(oracleKey);
         MockMinter minter = new MockMinter(tokenAddr, oracleAddr);
-        registerContract(key, address(minter), "MockMinter", "test/MockMinter.sol", "contract");
+        registerContract(key, address(minter), "MockMinter", "test/MockMinter.sol");
         return get(key);
     }
 }
@@ -44,12 +44,11 @@ contract DeploymentDependencyTest is BaoDeploymentTest {
     MockDeploymentDependency public deployment;
     string constant TEST_NETWORK = "test";
     string constant TEST_SALT = "dependency-test-salt";
-    string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public override {
         super.setUp();
         deployment = new MockDeploymentDependency();
-        startDeploymentSession(deployment, address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
+        deployment.start(TEST_NETWORK, TEST_SALT, "");
     }
 
     function test_SimpleDependency() public {
@@ -81,7 +80,7 @@ contract DeploymentDependencyTest is BaoDeploymentTest {
 
     function test_RevertWhen_DependencyNotDeployed() public {
         // Try to deploy token without oracle
-        vm.expectRevert(abi.encodeWithSelector(DeploymentRegistry.ContractNotFound.selector, "oracle"));
+        vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, "contracts.oracle"));
         deployment.deployToken("token", "oracle", "TestToken", 18);
     }
 
@@ -90,7 +89,7 @@ contract DeploymentDependencyTest is BaoDeploymentTest {
         deployment.deployOracle("oracle", 100);
 
         // Try to deploy minter without token
-        vm.expectRevert(abi.encodeWithSelector(DeploymentRegistry.ContractNotFound.selector, "token"));
+        vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, "contracts.token"));
         deployment.deployMinter("minter", "token", "oracle");
     }
 
@@ -116,7 +115,7 @@ contract DeploymentDependencyTest is BaoDeploymentTest {
         assertTrue(addr != address(0));
 
         // Verify get() reverts for non-deployed
-        vm.expectRevert(abi.encodeWithSelector(DeploymentRegistry.ContractNotFound.selector, "token"));
+        vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, "contracts.token"));
         deployment.get("token");
     }
 

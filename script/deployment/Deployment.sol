@@ -42,6 +42,7 @@ abstract contract Deployment is DeploymentKeys {
     error KeyRequired();
     error SessionNotStarted();
     error SessionAlreadyFinished();
+    error AlreadyInitialized();
 
     // ============================================================================
     // Storage
@@ -107,7 +108,7 @@ abstract contract Deployment is DeploymentKeys {
     /// @param network Network name (e.g., "mainnet", "arbitrum", "anvil")
     /// @param systemSaltString System salt string for deterministic addresses
     function start(string memory network, string memory systemSaltString, string memory startPoint) public {
-        require(!_sessionActive, "Session already started");
+        if (_sessionActive) revert AlreadyInitialized();
 
         _data = _createDeploymentData(network, systemSaltString, startPoint);
 
@@ -456,6 +457,20 @@ abstract contract Deployment is DeploymentKeys {
         _setString(string.concat(key, ".category"), "existing");
     }
 
+    function registerContract(
+        string memory key,
+        address addr,
+        string memory contractType,
+        string memory contractPath
+    ) public {
+        // Store implementation address in data layer
+        _set(key, addr);
+
+        // Optionally store metadata
+        _setString(string.concat(key, ".type"), contractType);
+        _setString(string.concat(key, ".path"), contractPath);
+    }
+
     /**
      * @notice Register implementation with key derived from proxy key and contract type
      * @dev Implementation key pattern: proxyKey__contractType
@@ -471,15 +486,10 @@ abstract contract Deployment is DeploymentKeys {
         address addr,
         string memory contractType,
         string memory contractPath
-    ) public virtual returns (string memory implKey) {
+    ) public returns (string memory implKey) {
         implKey = _deriveImplementationKey(proxyKey, contractType);
 
-        // Store implementation address in data layer
-        _set(implKey, addr);
-
-        // Optionally store metadata
-        _setString(string.concat(implKey, ".type"), contractType);
-        _setString(string.concat(implKey, ".path"), contractPath);
+        registerContract(proxyKey, addr, contractType, contractPath);
     }
 
     /// @notice Derive the canonical implementation key for a proxy key and contract type

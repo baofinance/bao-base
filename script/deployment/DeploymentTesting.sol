@@ -1,21 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
-import {DeploymentKeys} from "@bao-script/deployment/DeploymentKeys.sol";
-import {IDeploymentDataWritable} from "@bao-script/deployment/interfaces/IDeploymentDataWritable.sol";
-import {DeploymentDataJson} from "@bao-script/deployment/DeploymentDataJson.sol";
+import {Deployment} from "@bao-script/deployment/Deployment.sol";
 
 /**
- * @title DeploymentJson
- * @notice JSON-specific deployment layer with file I/O
+ * @title DeploymentTesting
+ * @notice test-specific deployment
  * @dev Extends base Deployment with:
- *      - JSON file path resolution (input/output)
- *      - Timestamp-based file naming
- *      - DeploymentDataJson integration
- *      Subclasses implement _createDataLayer to choose specific JSON data implementation
+ *      - access to the underlying data structure for testing
  */
-contract DeploymentJsonTesting is DeploymentJson {
+contract DeploymentTesting is Deployment {
     /// @notice Set contract address
     /// @dev Adds "contracts." prefix: "pegged" → "contracts.pegged"
     function set(string memory key, address value) public {

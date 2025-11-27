@@ -2,21 +2,22 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {DeploymentFoundryTesting} from "./DeploymentFoundryTesting.sol";
+import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
+import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
 
 contract DeploymentConfigParameterBagTest is BaoDeploymentTest {
-    DeploymentFoundryTesting internal deployment;
+    DeploymentTesting internal deployment;
     string constant OWNER_ADDRESS = "0x0000000000000000000000000000000000000001";
     string constant COLLATERAL_ADDRESS = "0x0000000000000000000000000000000000000002";
 
     function setUp() public override {
         super.setUp();
-        deployment = new DeploymentFoundryTesting();
+        deployment = new DeploymentTesting();
     }
 
     function test_FlattensNestedConfigIntoParameters() public {
         string memory configJson = _buildConfigJson();
-        deployment.start(configJson, "testnet");
+        deployment.start("testnet", "test-salt", "");
 
         assertEq(deployment.getString("pegged.name"), "Bao USD");
         assertEq(deployment.getString("pegged.symbol"), "BAOUSD");
@@ -29,7 +30,7 @@ contract DeploymentConfigParameterBagTest is BaoDeploymentTest {
         assertEq(deployment.getInt("minter.ratios.0"), -1);
         assertEq(deployment.getUint("minter.ratios.1"), 2);
 
-        vm.expectRevert(abi.encodeWithSelector(DeploymentRegistry.ParameterNotFound.selector, "owner"));
+        vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, "owner"));
         deployment.getString("owner");
     }
 

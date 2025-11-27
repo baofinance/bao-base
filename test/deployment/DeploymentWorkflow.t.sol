@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {DeploymentFoundryTesting} from "./DeploymentFoundryTesting.sol";
+import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {OracleV1} from "@bao-test/mocks/upgradeable/MockOracle.sol";
 import {MockMinter} from "@bao-test/mocks/upgradeable/MockMinter.sol";
@@ -13,7 +13,7 @@ import {MathLib} from "@bao-test/mocks/TestLibraries.sol";
  * @title MockDeploymentWorkflow
  * @notice Test harness for full deployment workflows
  */
-contract MockDeploymentWorkflow is DeploymentFoundryTesting {
+contract MockDeploymentWorkflow is DeploymentTesting {
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
         MockERC20 token = new MockERC20(name, symbol, 18);
         registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol", "contract");
