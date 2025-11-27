@@ -2,13 +2,13 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
-import {DeploymentConfig} from "@bao-script/deployment/DeploymentConfig.sol";
+import {DeploymentDataJsonTesting} from "@bao-script/deployment/DeploymentDataJsonTesting.sol";
 
 contract DeploymentConfigSetup is Test {
-    DeploymentConfig.SourceJson internal config;
+    DeploymentDataJsonTesting internal config;
 
     function setUp() public virtual {
-        config = DeploymentConfig.fromJson(_loadFixture());
+        config = new DeploymentDataJsonTesting(_loadFixture());
     }
 
     function _loadFixture() internal view returns (string memory text) {

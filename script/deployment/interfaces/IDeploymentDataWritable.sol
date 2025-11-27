@@ -2,7 +2,6 @@
 pragma solidity ^0.8.28;
 
 import {IDeploymentData} from "./IDeploymentData.sol";
-import {DataType} from "../DataType.sol";
 
 /**
  * @title IDeploymentDataWritable

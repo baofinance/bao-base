@@ -6,7 +6,6 @@ import {DeploymentKeys} from "@bao-script/deployment/DeploymentKeys.sol";
 import {DeploymentLogsTest} from "./DeploymentLogsTest.sol";
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {MockHarborDeploymentDev} from "./MockHarborDeploymentDev.sol";
-import {HarborKeys} from "./HarborKeys.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 
 string constant OWNER_KEY_PERSISTENCE = "owner";

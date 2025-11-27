@@ -2,9 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {DeploymentKeys} from "@bao-script/deployment/DeploymentKeys.sol";
-import {DataType} from "@bao-script/deployment/DataType.sol";
-import {DeploymentKeyNames as KeyNames} from "@bao-script/deployment/DeploymentKeyNames.sol";
+import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.sol";
 
 /**
  * @title TestKeysForValidation
@@ -37,7 +35,7 @@ contract DeploymentKeysTest is BaoTest {
     uint256 baseKeyCount;
 
     function _ck(string memory key) internal pure returns (string memory) {
-        return string.concat(KeyNames.CONTRACTS_PREFIX, key);
+        return string.concat("contracts", key);
     }
 
     function _assertKeyDelta(uint256 expectedDelta) internal view {

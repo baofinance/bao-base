@@ -2,34 +2,17 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {DeploymentKeys} from "@bao-script/deployment/DeploymentKeys.sol";
-import {DeploymentKeyNames as KeyNames} from "@bao-script/deployment/DeploymentKeyNames.sol";
 import {IDeploymentDataWritable} from "@bao-script/deployment/interfaces/IDeploymentDataWritable.sol";
 import {DeploymentDataJsonTesting} from "@bao-script/deployment/DeploymentDataJsonTesting.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
-import {HarborKeys} from "./HarborKeys.sol";
 import {DeploymentTesting} from "./DeploymentTesting.sol";
 
 /**
- * @title HarborKeyRegistry
+ * @title HarborDeploymentKeys
  * @notice Key registry for Harbor protocol deployment
  */
-contract HarborKeyRegistry is DeploymentKeys {
-    constructor() {
-        string memory prefix = KeyNames.CONTRACTS_PREFIX;
-        string memory peggedKey = string.concat(prefix, HarborKeys.PEGGED);
-        string memory implementationKey = string.concat(prefix, HarborKeys.PEGGED_IMPLEMENTATION);
-        string memory implementationLabelKey = string.concat(prefix, HarborKeys.PEGGED_IMPLEMENTATION_LABEL);
+contract HarborDeploymentKeys is DeploymentKeys {
 
-        addKey(peggedKey);
-        addKey(implementationKey);
-        addStringKey(implementationLabelKey);
-        addStringKey(string.concat(peggedKey, ".category"));
-        addStringKey(string.concat(implementationKey, ".type"));
-        addStringKey(string.concat(implementationKey, ".path"));
-        addStringKey(string.concat(prefix, HarborKeys.PEGGED_SYMBOL));
-        addStringKey(string.concat(prefix, HarborKeys.PEGGED_NAME));
-        addAddressKey(string.concat(prefix, HarborKeys.PEGGED_OWNER));
-    }
 }
 
 /**
@@ -44,18 +27,26 @@ contract MockHarborDeploymentProduction is DeploymentTesting {
     // ============================================================================
     // Abstract Method Implementations
     // ============================================================================
+    constructor() {
 
-    function _createKeys() internal override returns (DeploymentKeys) {
-        return new HarborKeyRegistry();
-    }
+    // Contract keys (top-level, no dots)
+    string memory constant PEGGED = "pegged";
+    string memory constant PEGGED_IMPLEMENTATION = "pegged__MintableBurnableERC20_v1";
+    string memory constant PEGGED_IMPLEMENTATION_LABEL = "pegged.implementation";
 
-    function _createDataLayer(
-        string memory inputPath,
-        string memory /* outputPath */
-    ) internal override returns (IDeploymentDataWritable) {
-        // For testing we use DeploymentDataJsonTesting (results/ directory)
-        // Production would use DeploymentDataJson (deployment root)
-        return new DeploymentDataJsonTesting(_keyRegistry, inputPath);
+    // Pegged token configuration keys
+    string memory constant PEGGED_SYMBOL = "pegged.symbol";
+    string memory constant PEGGED_NAME = "pegged.name";
+    string memory constant PEGGED_OWNER = "pegged.owner";
+
+
+        addKey(PEGGED);
+        addStringKey(string.concat(PEGGED, ".category"));
+        addStringKey(string.concat(PEGGED_IMPLEMENTATION, ".type"));
+        addStringKey(string.concat(PEGGED_IMPLEMENTATION, ".path"));
+        addStringKey(string.concat(CONTRACTS_PREFIX, PEGGED_SYMBOL));
+        addStringKey(string.concat(CONTRACTS_PREFIX, PEGGED_NAME));
+        addAddressKey(string.concat(CONTRACTS_PREFIX, PEGGED_OWNER));
     }
 
     // ============================================================================
@@ -63,20 +54,20 @@ contract MockHarborDeploymentProduction is DeploymentTesting {
     // ============================================================================
 
     function deployPegged() public returns (address proxy) {
-        string memory symbol = _getString(HarborKeys.PEGGED_SYMBOL);
-        string memory name = _getString(HarborKeys.PEGGED_NAME);
-        address owner = _getAddress(HarborKeys.PEGGED_OWNER);
+        string memory symbol = _getString(PEGGED_SYMBOL);
+        string memory name = _getString(PEGGED_NAME);
+        address owner = _getAddress(PEGGED_OWNER);
 
         MintableBurnableERC20_v1 impl = new MintableBurnableERC20_v1();
         string memory implKey = registerImplementation(
-            HarborKeys.PEGGED,
+            PEGGED,
             address(impl),
             "MintableBurnableERC20_v1",
             "src/MintableBurnableERC20_v1.sol"
         );
 
         bytes memory initData = abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, name, symbol));
-        proxy = this.deployProxy(HarborKeys.PEGGED, implKey, initData);
+        proxy = this.deployProxy(PEGGED, implKey, initData);
 
         return proxy;
     }

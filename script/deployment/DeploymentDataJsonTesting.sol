@@ -107,4 +107,12 @@ contract DeploymentDataJsonTesting is DeploymentDataJson {
         }
         return string(buffer);
     }
+
+    function toJson() public returns (string memory) {
+        return _toJson();
+    }
+
+    function fromJson(string memory json) public {
+        _fromJson(json);
+    }
 }

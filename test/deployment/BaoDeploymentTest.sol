@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {DeploymentFoundryTesting} from "./DeploymentFoundryTesting.sol";
+import {DeploymentJsonTesting} from "./DeploymentJsonTesting.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 
@@ -57,6 +57,7 @@ abstract contract BaoDeploymentTest is BaoTest {
         vm.label(_baoDeployer, "_baoDeployer");
     }
 
+    /*
     function buildDeploymentConfig(
         address owner,
         string memory version,
@@ -93,4 +94,5 @@ abstract contract BaoDeploymentTest is BaoTest {
         string memory config = buildDeploymentConfig(owner, version, systemSalt);
         deployment.resume(config, network);
     }
+*/
 }

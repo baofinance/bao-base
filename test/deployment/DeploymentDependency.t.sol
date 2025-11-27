@@ -2,9 +2,9 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {DeploymentFoundryTesting} from "./DeploymentFoundryTesting.sol";
+import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 
-import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
+import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
 import {MockOracle, MockToken, MockMinter} from "../mocks/basic/MockDependencies.sol";
 
 // Test harness extends DeploymentFoundryTesting

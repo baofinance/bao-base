@@ -1,8 +1,33 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {DataType} from "./DataType.sol";
-import {DeploymentKeyNames as KeyNames} from "./DeploymentKeyNames.sol";
+/**
+ * @title DataType
+ * @notice Enum for deployment data types
+ * @dev Maps to JSON types with uint/int distinction for validation
+ *      CONTRACT: Top-level deployed contracts (no dots in key)
+ *      ADDRESS: Nested addresses (keys contain dots, e.g., "pegged.implementation")
+ *      STRING: String values (keys contain dots, e.g., "token.symbol")
+ *      UINT: Unsigned integer values (keys contain dots, e.g., "token.decimals")
+ *      INT: Signed integer values (keys contain dots, e.g., "config.temperature")
+ *      BOOL: Boolean values (keys contain dots, e.g., "config.enabled")
+ *      ADDRESS_ARRAY: Array of addresses (keys contain dots, e.g., "config.validators")
+ *      STRING_ARRAY: Array of strings (keys contain dots, e.g., "config.tags")
+ *      UINT_ARRAY: Array of unsigned integers (keys contain dots, e.g., "config.limits")
+ *      INT_ARRAY: Array of signed integers (keys contain dots, e.g., "config.deltas")
+ */
+enum DataType {
+    CONTRACT,
+    ADDRESS,
+    STRING,
+    UINT,
+    INT,
+    BOOL,
+    ADDRESS_ARRAY,
+    STRING_ARRAY,
+    UINT_ARRAY,
+    INT_ARRAY
+}
 
 /**
  * @title DeploymentKeys
@@ -30,12 +55,50 @@ abstract contract DeploymentKeys {
 
     // ============ Constructor ============
 
+    // Global metadata
+    string internal constant SCHEMA_VERSION = "schemaVersion";
+    string public constant OWNER = "owner";
+    string public constant SYSTEM_SALT_STRING = "systemSaltString";
+
+    // Session metadata
+    string public constant SESSION_ROOT = "session";
+    string public constant SESSION_VERSION = "session.version";
+    string public constant SESSION_DEPLOYER = "session.deployer";
+    string public constant SESSION_START_TIMESTAMP = "session.startTimestamp";
+    string public constant SESSION_FINISH_TIMESTAMP = "session.finishTimestamp";
+    string public constant SESSION_START_BLOCK = "session.startBlock";
+    string public constant SESSION_FINISH_BLOCK = "session.finishBlock";
+    string public constant SESSION_NETWORK = "session.network";
+
+    // TODO: rationalise the contracts prefix in one place (maybe here?)
+    // Contracts namespace
+    string public constant CONTRACTS_ROOT = "contracts";
+    string public constant CONTRACTS_PREFIX = "contracts.";
+
     /**
      * @notice Initialize deployment keys with metadata keys
      * @dev Automatically registers session.* namespace for all deployments
      */
     constructor() {
-        _registerDeploymentKeys();
+        // Top-level metadata
+        addUintKey(SCHEMA_VERSION);
+
+        // Global deployment configuration
+        addAddressKey(OWNER);
+        addStringKey(SYSTEM_SALT_STRING);
+
+        // Session metadata namespace
+        addKey(SESSION_ROOT);
+        addStringKey(SESSION_VERSION);
+        addAddressKey(SESSION_DEPLOYER);
+        addUintKey(SESSION_START_TIMESTAMP);
+        addUintKey(SESSION_FINISH_TIMESTAMP);
+        addUintKey(SESSION_START_BLOCK);
+        addUintKey(SESSION_FINISH_BLOCK);
+        addStringKey(SESSION_NETWORK);
+
+        // Contracts namespace (parent for all deployed contracts)
+        addKey(CONTRACTS_ROOT);
     }
 
     // ============ Key Registration ============
@@ -203,7 +266,7 @@ abstract contract DeploymentKeys {
      * @notice Get all registered keys
      * @return keys Array of all configuration keys
      */
-    function getAllKeys() external view returns (string[] memory keys) {
+    function keys() external view returns (string[] memory keys) {
         return _allKeys;
     }
 
@@ -212,7 +275,7 @@ abstract contract DeploymentKeys {
      * @param key The key to look up
      * @return expectedType The registered type for this key
      */
-    function getKeyType(string memory key) external view returns (DataType expectedType) {
+    function keyType(string memory key) external view returns (DataType expectedType) {
         return _keyTypes[key];
     }
 
@@ -318,7 +381,7 @@ abstract contract DeploymentKeys {
             if (
                 _keyRegistered[candidate] &&
                 _keyTypes[candidate] == DataType.CONTRACT &&
-                keccak256(bytes(candidate)) != keccak256(bytes(KeyNames.CONTRACTS_ROOT))
+                keccak256(bytes(candidate)) != keccak256(bytes(CONTRACTS_ROOT))
             ) {
                 return;
             }
@@ -329,33 +392,6 @@ abstract contract DeploymentKeys {
             }
             dotPos = nextDot;
         }
-    }
-
-    /**
-     * @notice Register deployment metadata keys
-     * @dev Called automatically in constructor to set up session.* namespace
-     *      These keys track deployment session metadata
-     */
-    function _registerDeploymentKeys() private {
-        // Top-level metadata
-        _registerKey(KeyNames.SCHEMA_VERSION, DataType.UINT);
-
-        // Global deployment configuration
-        _registerKey(KeyNames.OWNER, DataType.ADDRESS);
-        _registerKey(KeyNames.SYSTEM_SALT_STRING, DataType.STRING);
-
-        // Session metadata namespace
-        _registerKey(KeyNames.SESSION_ROOT, DataType.CONTRACT);
-        _registerKey(KeyNames.SESSION_VERSION, DataType.STRING);
-        _registerKey(KeyNames.SESSION_DEPLOYER, DataType.ADDRESS);
-        _registerKey(KeyNames.SESSION_START_TIMESTAMP, DataType.UINT);
-        _registerKey(KeyNames.SESSION_FINISH_TIMESTAMP, DataType.UINT);
-        _registerKey(KeyNames.SESSION_START_BLOCK, DataType.UINT);
-        _registerKey(KeyNames.SESSION_FINISH_BLOCK, DataType.UINT);
-        _registerKey(KeyNames.SESSION_NETWORK, DataType.STRING);
-
-        // Contracts namespace (parent for all deployed contracts)
-        _registerKey(KeyNames.CONTRACTS_ROOT, DataType.CONTRACT);
     }
 
     function _substring(bytes memory data, uint256 endExclusive) private pure returns (string memory) {

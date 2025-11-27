@@ -11,9 +11,8 @@ import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.so
 
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {IDeploymentDataWritable} from "@bao-script/deployment/interfaces/IDeploymentDataWritable.sol";
-import {IDeploymentDataJson} from "@bao-script/deployment/interfaces/IDeploymentDataJson.sol";
+import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
 import {DeploymentKeys} from "@bao-script/deployment/DeploymentKeys.sol";
-import {DeploymentKeyNames as KeyNames} from "@bao-script/deployment/DeploymentKeyNames.sol";
 
 interface IUUPSUpgradeableProxy {
     function upgradeTo(address newImplementation) external;
@@ -30,7 +29,7 @@ interface IUUPSUpgradeableProxy {
  *      - All state managed through IDeploymentDataWritable
  *      - Designed for specialization (e.g. Harbor overrides deployProxy)
  */
-abstract contract Deployment {
+abstract contract Deployment is DeploymentKeys {
     // ============================================================================
     // Errors
     // ============================================================================
@@ -50,138 +49,18 @@ abstract contract Deployment {
 
     /// @notice Data layer holding all configuration and deployment state
     /// @dev Composition pattern: allows swapping implementations (JSON, Memory, etc.)
-    ///      Private to enforce access through wrapper methods with "contracts." prefix
-    IDeploymentDataWritable private _data;
-
-    /// @notice Key registry for validation and type safety
-    DeploymentKeys internal _keyRegistry;
+    ///      Protected to allow subclass access while enforcing wrapper methods for contracts.
+    IDeploymentDataWritable internal _data;
 
     /// @notice Bootstrap stub used as initial implementation for all proxies
     /// @dev Deployed once per session, owned by this harness, enables BaoOwnable compatibility with CREATE3
     UUPSProxyDeployStub internal _stub;
 
     /// @notice Session started flag
-    bool private _sessionActive;
+    bool internal _sessionActive;
 
     /// @notice Session finished flag
-    bool private _sessionFinished;
-
-    // ============================================================================
-    // Abstract Methods (subclass implementation required)
-    // ============================================================================
-
-    /// @notice Create the data layer implementation
-    /// @dev Subclasses choose implementation: DeploymentDataJson, DeploymentDataMemory, etc.
-    /// @param inputPath Path to load initial data from (empty string if none)
-    /// @param outputPath Path where data should be persisted (empty string to disable)
-    /// @return data The data layer implementation
-    function _createDataLayer(
-        string memory inputPath,
-        string memory outputPath
-    ) internal virtual returns (IDeploymentDataWritable data);
-
-    /// @notice Create the key registry for validation
-    /// @dev Subclasses provide project-specific keys extending DeploymentKeys
-    /// @return keys The key registry
-    function _createKeys() internal virtual returns (DeploymentKeys keys);
-
-    /// @notice Get base directory for deployment files
-    /// @dev Override in test classes to use results/ instead of ./
-    /// @return Base directory path
-    function _getDeploymentBaseDir() internal view virtual returns (string memory) {
-        return ".";
-    }
-
-    /// @notice Whether to use system salt subdirectory in path
-    /// @dev Production uses salt subdirs, tests may override to false
-    /// @return True if paths should include system salt subdirectory
-    function _useSystemSaltSubdir() internal view virtual returns (bool) {
-        return true;
-    }
-
-    // ============================================================================
-    // Path Calculation
-    // ============================================================================
-
-    /// @notice Build input file path from timestamp keyword
-    /// @param network Network name
-    /// @param systemSaltString System salt
-    /// @param inputTimestamp "first", "latest", ISO timestamp, or empty for config.json
-    /// @return Absolute path to input JSON file
-    function _resolveInputPath(
-        string memory network,
-        string memory systemSaltString,
-        string memory inputTimestamp
-    ) internal view returns (string memory) {
-        string memory baseTree = _buildBaseTree(systemSaltString);
-
-        if (bytes(inputTimestamp).length == 0 || _streq(inputTimestamp, "first")) {
-            return string.concat(baseTree, "/config.json");
-        }
-
-        // "latest" and explicit timestamps need the network directory
-        string memory networkDir = string.concat(baseTree, "/", network);
-
-        if (_streq(inputTimestamp, "latest")) {
-            // TODO: implement latest file finding if needed
-            revert("Latest file resolution not yet implemented");
-        }
-
-        return string.concat(networkDir, "/", inputTimestamp, ".json");
-    }
-
-    /// @notice Build output file path
-    /// @param network Network name
-    /// @param systemSaltString System salt
-    /// @return Absolute path where JSON should be written
-    function _buildOutputPath(
-        string memory network,
-        string memory systemSaltString
-    ) internal view returns (string memory) {
-        string memory networkDir = string.concat(_buildBaseTree(systemSaltString), "/", network);
-        string memory timestamp = _generateTimestamp();
-        return string.concat(networkDir, "/", timestamp, ".json");
-    }
-
-    function _buildBaseTree(string memory systemSaltString) private view returns (string memory) {
-        string memory tree = string.concat(_getDeploymentBaseDir(), "/deployments");
-        if (_useSystemSaltSubdir() && bytes(systemSaltString).length != 0) {
-            tree = string.concat(tree, "/", systemSaltString);
-        }
-        return tree;
-    }
-
-    function _generateTimestamp() private view returns (string memory) {
-        // Simple ISO 8601 timestamp
-        uint256 ts = block.timestamp;
-        return _formatTimestamp(ts);
-    }
-
-    function _formatTimestamp(uint256 ts) private pure returns (string memory) {
-        // Simplified timestamp formatting
-        return string(abi.encodePacked("deployment-", _uint2str(ts)));
-    }
-
-    function _uint2str(uint256 value) private pure returns (string memory) {
-        if (value == 0) return "0";
-        uint256 temp = value;
-        uint256 digits = 0;
-        while (temp != 0) {
-            digits++;
-            temp /= 10;
-        }
-        bytes memory buffer = new bytes(digits);
-        while (value != 0) {
-            digits--;
-            buffer[digits] = bytes1(uint8(48 + (value % 10)));
-            value /= 10;
-        }
-        return string(buffer);
-    }
-
-    function _streq(string memory a, string memory b) private pure returns (bool) {
-        return keccak256(bytes(a)) == keccak256(bytes(b));
-    }
+    bool internal _sessionFinished;
 
     // ============================================================================
     // Factory Abstraction
@@ -215,48 +94,31 @@ abstract contract Deployment {
     // Deployment Lifecycle
     // ============================================================================
 
+    function _createDeploymentData(
+        string memory /*network*/,
+        string memory /*systemSaltString*/,
+        string memory /*inputTimestamp*/
+    ) internal virtual returns (IDeploymentDataWritable) {
+        return new DeploymentDataMemory(this);
+    }
+
     /// @notice Start deployment session
-    /// @dev Creates data layer, initializes session, sets up BaoDeployer
-    /// @param owner Final owner for all deployed proxies (transferred in finish())
+    /// @dev Subclasses must call _startWithDataLayer after creating data layer
     /// @param network Network name (e.g., "mainnet", "arbitrum", "anvil")
     /// @param systemSaltString System salt string for deterministic addresses
-    /// @param inputTimestamp Input source: "", "first", "latest", or ISO 8601 timestamp
-    function start(
-        address owner,
-        string memory network,
-        string memory systemSaltString,
-        string memory inputTimestamp
-    ) public virtual {
+    function start(string memory network, string memory systemSaltString, string memory startPoint) public {
         require(!_sessionActive, "Session already started");
 
-        // Create key registry
-        _keyRegistry = _createKeys();
-
-        // Calculate paths for data layer
-        string memory inputPath = bytes(inputTimestamp).length > 0
-            ? _resolveInputPath(network, systemSaltString, inputTimestamp)
-            : "";
-        string memory outputPath = _buildOutputPath(network, systemSaltString);
-
-        // Create and configure data layer
-        _data = _createDataLayer(inputPath, outputPath);
-
-        // If data layer supports file I/O, set output path
-        try IDeploymentDataJson(address(_data)).setOutputPath(outputPath) {
-            // Data layer implements IDeploymentDataJson - output path set
-        } catch {
-            // Data layer doesn't support file I/O (e.g., DeploymentDataMemory)
-        }
+        _data = _createDeploymentData(network, systemSaltString, startPoint);
 
         // Set global deployment configuration
-        _data.setAddress(KeyNames.OWNER, owner);
-        _data.setString(KeyNames.SYSTEM_SALT_STRING, systemSaltString);
+        _data.setString(SYSTEM_SALT_STRING, systemSaltString);
 
         // Initialize session metadata
-        _data.setString(KeyNames.SESSION_NETWORK, network);
-        _data.setAddress(KeyNames.SESSION_DEPLOYER, address(this));
-        _data.setUint(KeyNames.SESSION_START_TIMESTAMP, block.timestamp);
-        _data.setUint(KeyNames.SESSION_START_BLOCK, block.number);
+        _data.setString(SESSION_NETWORK, network);
+        _data.setAddress(SESSION_DEPLOYER, address(this));
+        _data.setUint(SESSION_START_TIMESTAMP, block.timestamp);
+        _data.setUint(SESSION_START_BLOCK, block.number);
 
         // Set up deployment infrastructure
         _requireBaoDeployerOperator();
@@ -277,8 +139,8 @@ abstract contract Deployment {
         // For now, we rely on subclasses to call _transferProxyOwnership for each proxy
 
         // Mark session finished using registered keys
-        _data.setUint(KeyNames.SESSION_FINISH_TIMESTAMP, block.timestamp);
-        _data.setUint(KeyNames.SESSION_FINISH_BLOCK, block.number);
+        _data.setUint(SESSION_FINISH_TIMESTAMP, block.timestamp);
+        _data.setUint(SESSION_FINISH_BLOCK, block.number);
         _sessionFinished = true;
 
         return transferred;
@@ -300,7 +162,7 @@ abstract contract Deployment {
         }
 
         address currentOwner = abi.decode(data, (address));
-        address finalOwner = _data.getAddress(KeyNames.OWNER);
+        address finalOwner = _data.getAddress(OWNER);
 
         // Only transfer if current owner is this harness (temporary owner from stub pattern)
         if (currentOwner == address(this)) {
@@ -324,7 +186,7 @@ abstract contract Deployment {
     // ============================================================================
 
     function _contractsKey(string memory key) private pure returns (string memory) {
-        return string.concat(KeyNames.CONTRACTS_PREFIX, key);
+        return string.concat(CONTRACTS_PREFIX, key);
     }
 
     /// @notice Set contract address
@@ -452,7 +314,7 @@ abstract contract Deployment {
     /// @notice Derive system salt for deterministic address calculations
     /// @dev Subclasses can override to customize salt derivation (e.g., network-specific tweaks)
     function _deriveSystemSalt() internal view virtual returns (string memory) {
-        return _data.getString(KeyNames.SYSTEM_SALT_STRING);
+        return _data.getString(SYSTEM_SALT_STRING);
     }
 
     // ============================================================================

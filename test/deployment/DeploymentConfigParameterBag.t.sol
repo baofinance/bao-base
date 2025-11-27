@@ -3,7 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentFoundryTesting} from "./DeploymentFoundryTesting.sol";
-import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 
 contract DeploymentConfigParameterBagTest is BaoDeploymentTest {
     DeploymentFoundryTesting internal deployment;
@@ -23,7 +22,7 @@ contract DeploymentConfigParameterBagTest is BaoDeploymentTest {
         assertEq(deployment.getString("pegged.symbol"), "BAOUSD");
         assertEq(deployment.getUint("pegged.decimals"), 18);
 
-    assertEq(deployment.getString("collateral.address"), COLLATERAL_ADDRESS);
+        assertEq(deployment.getString("collateral.address"), COLLATERAL_ADDRESS);
 
         assertEq(deployment.getUint("minter.bands.0"), 100);
         assertEq(deployment.getUint("minter.bands.1"), 200);

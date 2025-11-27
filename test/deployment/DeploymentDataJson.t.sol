@@ -2,8 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {DeploymentDataJsonTesting} from "@bao-script/deployment/DeploymentDataJsonTesting.sol";
-import {DeploymentKeys} from "@bao-script/deployment/DeploymentKeys.sol";
-import {DataType} from "@bao-script/deployment/DataType.sol";
+import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {DeploymentLogsTest} from "./DeploymentLogsTest.sol";
 

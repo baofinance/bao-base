@@ -3,8 +3,7 @@ pragma solidity ^0.8.28;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
-import {DeploymentKeys} from "@bao-script/deployment/DeploymentKeys.sol";
-import {DataType} from "@bao-script/deployment/DataType.sol";
+import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.sol";
 
 string constant OWNER_KEY = "owner";
 string constant PEGGED_KEY = "contracts.pegged";

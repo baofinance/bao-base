@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {DeploymentRegistryJsonTesting} from "@bao-script/deployment/DeploymentRegistryJsonTesting.sol";
+import {DeploymentDataJsonTesting} from "@bao-script/deployment/DeploymentRegistryJsonTesting.sol";
 import {DeploymentFoundryTestingVm} from "@bao-script/deployment/DeploymentFoundryTestingVm.sol";
 import {BaoDeployerSetOperator} from "@bao-script/deployment/BaoDeployerSetOperator.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
