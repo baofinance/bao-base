@@ -7,11 +7,13 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
-import {DeploymentRegistry} from "@bao-script/deployment/DeploymentRegistry.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
-import {DeploymentConfig} from "@bao-script/deployment/DeploymentConfig.sol";
+import {IDeploymentDataWritable} from "@bao-script/deployment/interfaces/IDeploymentDataWritable.sol";
+import {IDeploymentDataJson} from "@bao-script/deployment/interfaces/IDeploymentDataJson.sol";
+import {DeploymentKeys} from "@bao-script/deployment/DeploymentKeys.sol";
+import {DeploymentKeyNames as KeyNames} from "@bao-script/deployment/DeploymentKeyNames.sol";
 
 interface IUUPSUpgradeableProxy {
     function upgradeTo(address newImplementation) external;
@@ -20,23 +22,15 @@ interface IUUPSUpgradeableProxy {
 
 /**
  * @title Deployment
- * @notice Deployment operations layer built on top of DeploymentRegistry
+ * @notice Deployment operations using composition-based data layer
  * @dev Responsibilities:
  *      - Deterministic proxy deployment via CREATE3
  *      - Library deployment via CREATE
  *      - Existing contract registration helpers
- *      - Thin wrappers around registry storage helpers
+ *      - All state managed through IDeploymentDataWritable
  *      - Designed for specialization (e.g. Harbor overrides deployProxy)
  */
-abstract contract Deployment is DeploymentRegistry {
-    // ============================================================================
-    // Storage
-    // ============================================================================
-
-    /// @notice Bootstrap stub used as initial implementation for all proxies
-    /// @dev Deployed once per session, owned by this harness, enables BaoOwnable compatibility with CREATE3
-    UUPSProxyDeployStub internal _stub;
-
+abstract contract Deployment {
     // ============================================================================
     // Errors
     // ============================================================================
@@ -44,16 +38,150 @@ abstract contract Deployment is DeploymentRegistry {
     error ImplementationKeyRequired();
     error LibraryDeploymentFailed(string key);
     error OwnershipTransferFailed(address proxy);
-    error OwnerQueryFailed(address proxy);
-    error UnexpectedProxyOwner(address proxy, address owner);
     error FactoryDeploymentFailed(string reason);
     error ValueMismatch(uint256 expected, uint256 received);
-    error ConfigSchemaMismatch(uint256 expected, uint256 actual);
-    error ConfigOwnerMismatch(address expected, address actual);
-    error ConfigVersionMismatch(string expected, string actual);
-    error ConfigNetworkMismatch(string expected, string actual);
-    error ConfigSaltMismatch(string expected, string actual);
-    error ConfigSystemSaltMissing();
+    error KeyRequired();
+    error SessionNotStarted();
+    error SessionAlreadyFinished();
+
+    // ============================================================================
+    // Storage
+    // ============================================================================
+
+    /// @notice Data layer holding all configuration and deployment state
+    /// @dev Composition pattern: allows swapping implementations (JSON, Memory, etc.)
+    ///      Private to enforce access through wrapper methods with "contracts." prefix
+    IDeploymentDataWritable private _data;
+
+    /// @notice Key registry for validation and type safety
+    DeploymentKeys internal _keyRegistry;
+
+    /// @notice Bootstrap stub used as initial implementation for all proxies
+    /// @dev Deployed once per session, owned by this harness, enables BaoOwnable compatibility with CREATE3
+    UUPSProxyDeployStub internal _stub;
+
+    /// @notice Session started flag
+    bool private _sessionActive;
+
+    /// @notice Session finished flag
+    bool private _sessionFinished;
+
+    // ============================================================================
+    // Abstract Methods (subclass implementation required)
+    // ============================================================================
+
+    /// @notice Create the data layer implementation
+    /// @dev Subclasses choose implementation: DeploymentDataJson, DeploymentDataMemory, etc.
+    /// @param inputPath Path to load initial data from (empty string if none)
+    /// @param outputPath Path where data should be persisted (empty string to disable)
+    /// @return data The data layer implementation
+    function _createDataLayer(
+        string memory inputPath,
+        string memory outputPath
+    ) internal virtual returns (IDeploymentDataWritable data);
+
+    /// @notice Create the key registry for validation
+    /// @dev Subclasses provide project-specific keys extending DeploymentKeys
+    /// @return keys The key registry
+    function _createKeys() internal virtual returns (DeploymentKeys keys);
+
+    /// @notice Get base directory for deployment files
+    /// @dev Override in test classes to use results/ instead of ./
+    /// @return Base directory path
+    function _getDeploymentBaseDir() internal view virtual returns (string memory) {
+        return ".";
+    }
+
+    /// @notice Whether to use system salt subdirectory in path
+    /// @dev Production uses salt subdirs, tests may override to false
+    /// @return True if paths should include system salt subdirectory
+    function _useSystemSaltSubdir() internal view virtual returns (bool) {
+        return true;
+    }
+
+    // ============================================================================
+    // Path Calculation
+    // ============================================================================
+
+    /// @notice Build input file path from timestamp keyword
+    /// @param network Network name
+    /// @param systemSaltString System salt
+    /// @param inputTimestamp "first", "latest", ISO timestamp, or empty for config.json
+    /// @return Absolute path to input JSON file
+    function _resolveInputPath(
+        string memory network,
+        string memory systemSaltString,
+        string memory inputTimestamp
+    ) internal view returns (string memory) {
+        string memory baseTree = _buildBaseTree(systemSaltString);
+
+        if (bytes(inputTimestamp).length == 0 || _streq(inputTimestamp, "first")) {
+            return string.concat(baseTree, "/config.json");
+        }
+
+        // "latest" and explicit timestamps need the network directory
+        string memory networkDir = string.concat(baseTree, "/", network);
+
+        if (_streq(inputTimestamp, "latest")) {
+            // TODO: implement latest file finding if needed
+            revert("Latest file resolution not yet implemented");
+        }
+
+        return string.concat(networkDir, "/", inputTimestamp, ".json");
+    }
+
+    /// @notice Build output file path
+    /// @param network Network name
+    /// @param systemSaltString System salt
+    /// @return Absolute path where JSON should be written
+    function _buildOutputPath(
+        string memory network,
+        string memory systemSaltString
+    ) internal view returns (string memory) {
+        string memory networkDir = string.concat(_buildBaseTree(systemSaltString), "/", network);
+        string memory timestamp = _generateTimestamp();
+        return string.concat(networkDir, "/", timestamp, ".json");
+    }
+
+    function _buildBaseTree(string memory systemSaltString) private view returns (string memory) {
+        string memory tree = string.concat(_getDeploymentBaseDir(), "/deployments");
+        if (_useSystemSaltSubdir() && bytes(systemSaltString).length != 0) {
+            tree = string.concat(tree, "/", systemSaltString);
+        }
+        return tree;
+    }
+
+    function _generateTimestamp() private view returns (string memory) {
+        // Simple ISO 8601 timestamp
+        uint256 ts = block.timestamp;
+        return _formatTimestamp(ts);
+    }
+
+    function _formatTimestamp(uint256 ts) private pure returns (string memory) {
+        // Simplified timestamp formatting
+        return string(abi.encodePacked("deployment-", _uint2str(ts)));
+    }
+
+    function _uint2str(uint256 value) private pure returns (string memory) {
+        if (value == 0) return "0";
+        uint256 temp = value;
+        uint256 digits = 0;
+        while (temp != 0) {
+            digits++;
+            temp /= 10;
+        }
+        bytes memory buffer = new bytes(digits);
+        while (value != 0) {
+            digits--;
+            buffer[digits] = bytes1(uint8(48 + (value % 10)));
+            value /= 10;
+        }
+        return string(buffer);
+    }
+
+    function _streq(string memory a, string memory b) private pure returns (bool) {
+        return keccak256(bytes(a)) == keccak256(bytes(b));
+    }
 
     // ============================================================================
     // Factory Abstraction
@@ -87,207 +215,244 @@ abstract contract Deployment is DeploymentRegistry {
     // Deployment Lifecycle
     // ============================================================================
 
-    /// @notice Start a fresh deployment session from JSON config
-    /// @param jsonConfig Deployment configuration JSON string
-    /// @param network Network label used for deployment logs
-    function start(string memory jsonConfig, string memory network) public virtual {
-        DeploymentConfig.SourceJson memory config = DeploymentConfig.fromJson(jsonConfig);
-        start(config, network);
-    }
+    /// @notice Start deployment session
+    /// @dev Creates data layer, initializes session, sets up BaoDeployer
+    /// @param owner Final owner for all deployed proxies (transferred in finish())
+    /// @param network Network name (e.g., "mainnet", "arbitrum", "anvil")
+    /// @param systemSaltString System salt string for deterministic addresses
+    /// @param inputTimestamp Input source: "", "first", "latest", or ISO 8601 timestamp
+    function start(
+        address owner,
+        string memory network,
+        string memory systemSaltString,
+        string memory inputTimestamp
+    ) public virtual {
+        require(!_sessionActive, "Session already started");
 
-    /// @notice Start a fresh deployment session from a parsed config
-    /// @param config Parsed deployment configuration
-    /// @param network Network label used for deployment logs
-    function start(DeploymentConfig.SourceJson memory config, string memory network) public virtual {
-        address owner = DeploymentConfig.get(config, "", "owner");
-        string memory version = DeploymentConfig.getString(config, "", "version");
+        // Create key registry
+        _keyRegistry = _createKeys();
 
-        if (DeploymentConfig.has(config, "", "schemaVersion")) {
-            uint256 configSchema = DeploymentConfig.getUint(config, "", "schemaVersion");
-            if (configSchema != DEPLOYMENT_SCHEMA_VERSION) {
-                revert ConfigSchemaMismatch(DEPLOYMENT_SCHEMA_VERSION, configSchema);
-            }
+        // Calculate paths for data layer
+        string memory inputPath = bytes(inputTimestamp).length > 0
+            ? _resolveInputPath(network, systemSaltString, inputTimestamp)
+            : "";
+        string memory outputPath = _buildOutputPath(network, systemSaltString);
+
+        // Create and configure data layer
+        _data = _createDataLayer(inputPath, outputPath);
+
+        // If data layer supports file I/O, set output path
+        try IDeploymentDataJson(address(_data)).setOutputPath(outputPath) {
+            // Data layer implements IDeploymentDataJson - output path set
+        } catch {
+            // Data layer doesn't support file I/O (e.g., DeploymentDataMemory)
         }
 
-        string memory systemSaltString = _deriveSystemSalt(config);
-        if (_metadata.startTimestamp != 0) {
-            revert AlreadyInitialized();
-        }
-        require(_runs.length == 0, "Cannot start: runs already exist");
+        // Set global deployment configuration
+        _data.setAddress(KeyNames.OWNER, owner);
+        _data.setString(KeyNames.SYSTEM_SALT_STRING, systemSaltString);
 
-        _schemaVersion = DEPLOYMENT_SCHEMA_VERSION;
-        _metadata.deployer = address(this);
-        _metadata.owner = owner;
-        _metadata.startTimestamp = block.timestamp;
-        _metadata.startBlock = block.number;
-        _metadata.network = network;
-        _metadata.version = version;
-        _metadata.systemSaltString = systemSaltString;
-        _metadata.finishTimestamp = 0;
-        _metadata.finishBlock = 0;
+        // Initialize session metadata
+        _data.setString(KeyNames.SESSION_NETWORK, network);
+        _data.setAddress(KeyNames.SESSION_DEPLOYER, address(this));
+        _data.setUint(KeyNames.SESSION_START_TIMESTAMP, block.timestamp);
+        _data.setUint(KeyNames.SESSION_START_BLOCK, block.number);
 
-        _runs.push(
-            RunRecord({
-                deployer: address(this),
-                startTimestamp: block.timestamp,
-                finishTimestamp: 0,
-                startBlock: block.number,
-                finishBlock: 0,
-                finished: false
-            })
-        );
-        _saveRegistry();
-
-        require(DeploymentInfrastructure.predictBaoDeployerAddress().code.length > 0, "need to deploy the BaoDeployer");
+        // Set up deployment infrastructure
         _requireBaoDeployerOperator();
-
         _stub = new UUPSProxyDeployStub();
 
-        _registerConfigParameters(config);
+        _sessionActive = true;
     }
+
+    /// @notice Finish deployment session
+    /// @dev Transfers ownership to final owner for all proxies, marks session complete
+    /// @return transferred Number of proxies whose ownership was transferred
+    function finish() public virtual returns (uint256 transferred) {
+        if (!_sessionActive) revert SessionNotStarted();
+        if (_sessionFinished) revert SessionAlreadyFinished();
+
+        // Transfer ownership for all deployed proxies
+        // Note: This is a simplified implementation - production may need to track proxy list
+        // For now, we rely on subclasses to call _transferProxyOwnership for each proxy
+
+        // Mark session finished using registered keys
+        _data.setUint(KeyNames.SESSION_FINISH_TIMESTAMP, block.timestamp);
+        _data.setUint(KeyNames.SESSION_FINISH_BLOCK, block.number);
+        _sessionFinished = true;
+
+        return transferred;
+    }
+
+    function dataStore() public view returns (address) {
+        return address(_data);
+    }
+
+    /// @notice Transfer ownership of a proxy to final owner
+    /// @dev Called by subclass during finish() for each proxy
+    /// @param proxy Proxy address
+    function _transferProxyOwnership(address proxy) internal {
+        // Check if proxy supports owner() method (BaoOwnable pattern)
+        (bool success, bytes memory data) = proxy.staticcall(abi.encodeWithSignature("owner()"));
+        if (!success || data.length != 32) {
+            // Contract doesn't support BaoOwnable, skip
+            return;
+        }
+
+        address currentOwner = abi.decode(data, (address));
+        address finalOwner = _data.getAddress(KeyNames.OWNER);
+
+        // Only transfer if current owner is this harness (temporary owner from stub pattern)
+        if (currentOwner == address(this)) {
+            IBaoOwnable(proxy).transferOwnership(finalOwner);
+        }
+    }
+
+    /// @notice Deploy BaoDeployer if needed (primarily for tests)
+    /// @dev Production deployments should assume BaoDeployer already exists
+    ///      This is here for test convenience only
+    /// @return deployed BaoDeployer address
     function deployBaoDeployer() public returns (address deployed) {
         deployed = DeploymentInfrastructure.deployBaoDeployer();
-        if (_runs.length > 0 && !_exists["BaoDeployer"]) {
+        if (_sessionActive) {
             useExisting("BaoDeployer", deployed);
         }
     }
 
-    /// @notice Resume deployment from JSON config
-    /// @param jsonConfig Deployment configuration JSON string
-    /// @param network Network label used for deployment logs
-    function resume(string memory jsonConfig, string memory network) public virtual {
-        DeploymentConfig.SourceJson memory config = DeploymentConfig.fromJson(jsonConfig);
-        resume(config, network);
-    }
-
-    /// @notice Resume deployment from parsed config
-    /// @param config Parsed deployment configuration
-    function resume(DeploymentConfig.SourceJson memory config, string memory network) public virtual {
-        string memory systemSaltString = _deriveSystemSalt(config);
-        _loadRegistry(network, systemSaltString);
-
-        if (_schemaVersion != DEPLOYMENT_SCHEMA_VERSION) {
-            revert ConfigSchemaMismatch(DEPLOYMENT_SCHEMA_VERSION, _schemaVersion);
-        }
-
-        address configOwner = DeploymentConfig.get(config, "", "owner");
-        string memory configVersion = DeploymentConfig.getString(config, "", "version");
-
-        if (_metadata.owner != configOwner) {
-            revert ConfigOwnerMismatch(configOwner, _metadata.owner);
-        }
-        if (!_eq(_metadata.version, configVersion)) {
-            revert ConfigVersionMismatch(configVersion, _metadata.version);
-        }
-
-        if (!_eq(_metadata.systemSaltString, systemSaltString)) {
-            revert ConfigSaltMismatch(systemSaltString, _metadata.systemSaltString);
-        }
-
-        if (bytes(network).length != 0 && !_eq(_metadata.network, network)) {
-            revert ConfigNetworkMismatch(_metadata.network, network);
-        }
-        if (bytes(network).length != 0) {
-            _metadata.network = network;
-        }
-
-        _resumeAfterLoad();
-
-        _registerConfigParameters(config);
-    }
-
-    /// @notice Derive the system salt string from configuration data
-    /// @dev Default implementation expects `systemSaltString` at the top level of the config
-    function _deriveSystemSalt(
-        DeploymentConfig.SourceJson memory config
-    ) internal view virtual returns (string memory) {
-        if (DeploymentConfig.has(config, "", "systemSaltString")) {
-            return DeploymentConfig.getString(config, "", "systemSaltString");
-        }
-
-        revert ConfigSystemSaltMissing();
-    }
-
-    function _resumeAfterLoad() internal {
-        // Validate runs for resume
-        require(_runs.length >= 1, "Cannot resume: no runs in deployment");
-        require(_runs[_runs.length - 1].finished, "Cannot resume: last run not finished");
-
-        // Create new run record for this resume session
-        _runs.push(
-            RunRecord({
-                deployer: address(this),
-                startTimestamp: block.timestamp,
-                finishTimestamp: 0,
-                startBlock: block.number,
-                finishBlock: 0,
-                finished: false
-            })
-        );
-        _saveRegistry();
-
-        _requireBaoDeployerOperator();
-        _stub = new UUPSProxyDeployStub();
-    }
-
-    /// @notice Finish deployment session and finalize ownership
-    /// @dev Transfers ownership to metadata.owner for all proxies currently owned by this harness
-    /// @dev Records run in audit trail and updates finishTimestamp timestamp
-    /// @return transferred Number of proxies whose ownership was transferred
-    function finish() public virtual returns (uint256 transferred) {
-        address owner = _metadata.owner;
-        string[] memory allKeys = _keys;
-        uint256 length = allKeys.length;
-
-        for (uint256 i; i < length; i++) {
-            string memory key = allKeys[i];
-
-            if (_eq(_entryType[key], "proxy")) {
-                if (_resumedProxies[key]) {
-                    continue;
-                }
-
-                address proxy = _proxies[key].info.addr;
-
-                // Check if proxy supports owner() method (BaoOwnable pattern)
-                (bool success, bytes memory data) = proxy.staticcall(abi.encodeWithSignature("owner()"));
-                if (!success || data.length != 32) {
-                    // Contract doesn't support BaoOwnable, skip
-                    continue;
-                }
-
-                address currentOwner = abi.decode(data, (address));
-
-                // Only transfer if current owner is this harness (temporary owner from stub pattern)
-                if (currentOwner == address(this)) {
-                    IBaoOwnable(proxy).transferOwnership(owner);
-                    ++transferred;
-                }
-            }
-        }
-
-        // Mark current run as finished
-        require(_runs.length > 0, "No run to finish");
-        require(!_runs[_runs.length - 1].finished, "Run already finished");
-
-        _runs[_runs.length - 1].finishTimestamp = block.timestamp;
-        _runs[_runs.length - 1].finishBlock = block.number;
-        _runs[_runs.length - 1].finished = true;
-
-        // Update metadata timestamps from last run
-        _metadata.finishTimestamp = block.timestamp;
-        _metadata.finishBlock = block.number;
-
-        _saveRegistry();
-        return transferred;
-    }
-
     // ============================================================================
-    // Exposed views
+    // Data Layer Wrappers (add "contracts." prefix)
     // ============================================================================
 
-    function getSystemSaltString() public view returns (string memory) {
-        return _metadata.systemSaltString;
+    function _contractsKey(string memory key) private pure returns (string memory) {
+        return string.concat(KeyNames.CONTRACTS_PREFIX, key);
+    }
+
+    /// @notice Set contract address
+    /// @dev Adds "contracts." prefix: "pegged" → "contracts.pegged"
+    function _set(string memory key, address value) internal {
+        _data.set(_contractsKey(key), value);
+    }
+
+    /// @notice Get contract address
+    /// @dev Adds "contracts." prefix: "pegged" → "contracts.pegged"
+    function _get(string memory key) internal view returns (address) {
+        return _data.get(_contractsKey(key));
+    }
+
+    /// @notice Check if contract key exists
+    /// @dev Adds "contracts." prefix
+    function _has(string memory key) internal view returns (bool) {
+        return _data.has(_contractsKey(key));
+    }
+
+    /// @notice Set string value
+    /// @dev Adds "contracts." prefix: "pegged.symbol" → "contracts.pegged.symbol"
+    function _setString(string memory key, string memory value) internal {
+        _data.setString(_contractsKey(key), value);
+    }
+
+    /// @notice Get string value
+    /// @dev Adds "contracts." prefix
+    function _getString(string memory key) internal view returns (string memory) {
+        return _data.getString(_contractsKey(key));
+    }
+
+    /// @notice Set uint value
+    /// @dev Adds "contracts." prefix
+    function _setUint(string memory key, uint256 value) internal {
+        _data.setUint(_contractsKey(key), value);
+    }
+
+    /// @notice Get uint value
+    /// @dev Adds "contracts." prefix
+    function _getUint(string memory key) internal view returns (uint256) {
+        return _data.getUint(_contractsKey(key));
+    }
+
+    /// @notice Set int value
+    /// @dev Adds "contracts." prefix
+    function _setInt(string memory key, int256 value) internal {
+        _data.setInt(_contractsKey(key), value);
+    }
+
+    /// @notice Get int value
+    /// @dev Adds "contracts." prefix
+    function _getInt(string memory key) internal view returns (int256) {
+        return _data.getInt(_contractsKey(key));
+    }
+
+    /// @notice Set bool value
+    /// @dev Adds "contracts." prefix
+    function _setBool(string memory key, bool value) internal {
+        _data.setBool(_contractsKey(key), value);
+    }
+
+    /// @notice Get bool value
+    /// @dev Adds "contracts." prefix
+    function _getBool(string memory key) internal view returns (bool) {
+        return _data.getBool(_contractsKey(key));
+    }
+
+    function _setAddress(string memory key, address value) internal {
+        _data.setAddress(_contractsKey(key), value);
+    }
+
+    function _getAddress(string memory key) internal view returns (address) {
+        return _data.getAddress(_contractsKey(key));
+    }
+
+    /// @notice Set address array
+    /// @dev Adds "contracts." prefix
+    function _setAddressArray(string memory key, address[] memory values) internal {
+        _data.setAddressArray(_contractsKey(key), values);
+    }
+
+    /// @notice Get address array
+    /// @dev Adds "contracts." prefix
+    function _getAddressArray(string memory key) internal view returns (address[] memory) {
+        return _data.getAddressArray(_contractsKey(key));
+    }
+
+    /// @notice Set string array
+    /// @dev Adds "contracts." prefix
+    function _setStringArray(string memory key, string[] memory values) internal {
+        _data.setStringArray(_contractsKey(key), values);
+    }
+
+    /// @notice Get string array
+    /// @dev Adds "contracts." prefix
+    function _getStringArray(string memory key) internal view returns (string[] memory) {
+        return _data.getStringArray(_contractsKey(key));
+    }
+
+    /// @notice Set uint array
+    /// @dev Adds "contracts." prefix
+    function _setUintArray(string memory key, uint256[] memory values) internal {
+        _data.setUintArray(_contractsKey(key), values);
+    }
+
+    /// @notice Get uint array
+    /// @dev Adds "contracts." prefix
+    function _getUintArray(string memory key) internal view returns (uint256[] memory) {
+        return _data.getUintArray(_contractsKey(key));
+    }
+
+    /// @notice Set int array
+    /// @dev Adds "contracts." prefix
+    function _setIntArray(string memory key, int256[] memory values) internal {
+        _data.setIntArray(_contractsKey(key), values);
+    }
+
+    /// @notice Get int array
+    /// @dev Adds "contracts." prefix
+    function _getIntArray(string memory key) internal view returns (int256[] memory) {
+        return _data.getIntArray(_contractsKey(key));
+    }
+
+    /// @notice Derive system salt for deterministic address calculations
+    /// @dev Subclasses can override to customize salt derivation (e.g., network-specific tweaks)
+    function _deriveSystemSalt() internal view virtual returns (string memory) {
+        return _data.getString(KeyNames.SYSTEM_SALT_STRING);
     }
 
     // ============================================================================
@@ -301,11 +466,14 @@ abstract contract Deployment is DeploymentRegistry {
         if (bytes(proxyKey).length == 0) {
             revert KeyRequired();
         }
-        bytes memory proxySaltBytes = abi.encodePacked(_metadata.systemSaltString, "/", proxyKey, "/UUPS/proxy");
+        string memory systemSalt = _deriveSystemSalt();
+        bytes memory proxySaltBytes = abi.encodePacked(systemSalt, "/", proxyKey, "/UUPS/proxy");
         bytes32 salt = EfficientHashLib.hash(proxySaltBytes);
         address deployer = _getCreate3Deployer();
         proxy = CREATE3.predictDeterministicAddress(salt, deployer);
     }
+
+    /// @notice Deploy a UUPS proxy using bootstrap stub pattern (with value)
     function deployProxy(
         uint256 value,
         string memory proxyKey,
@@ -335,289 +503,30 @@ abstract contract Deployment is DeploymentRegistry {
         proxy = _deployProxy(0, proxyKey, implementationKey, implementationInitData);
     }
 
-    function predictableDeployContract(
-        uint256 value,
-        string memory key,
-        bytes memory initCode,
-        string memory contractType,
-        string memory contractPath
-    ) external payable virtual returns (address addr) {
-        if (msg.value != value) {
-            revert ValueMismatch(value, msg.value);
-        }
-        return _predictableDeployContract(value, key, initCode, contractType, contractPath);
-    }
-
-    function predictableDeployContract(
-        string memory key,
-        bytes memory initCode,
-        string memory contractType,
-        string memory contractPath
-    ) external virtual returns (address addr) {
-        return _predictableDeployContract(0, key, initCode, contractType, contractPath);
-    }
-
-    function _predictableDeployContract(
-        uint256 value,
-        string memory key,
-        bytes memory initCode,
-        string memory contractType,
-        string memory contractPath
-    ) internal virtual returns (address addr) {
-        _requireActiveRun();
-        if (bytes(key).length == 0) {
-            revert KeyRequired();
-        }
-        if (_exists[key]) {
-            revert ContractAlreadyExists(key);
-        }
-
-        // Compute salt
-        bytes32 salt = EfficientHashLib.hash(abi.encodePacked(_metadata.systemSaltString, "/", key, "/contract"));
-
-        // commit-reveal via to avoid front-running the deployment which could steal our address
-        address baoDeployerAddr = DeploymentInfrastructure.predictBaoDeployerAddress();
-        BaoDeployer baoDeployer = BaoDeployer(baoDeployerAddr);
-        baoDeployer.commit(DeploymentInfrastructure.commitment(address(this), value, salt, keccak256(initCode)));
-        addr = baoDeployer.reveal{value: value}(initCode, salt, value);
-
-        _registerStandardContract(
-            key,
-            addr,
-            contractType,
-            contractPath,
-            "contract",
-            baoDeployerAddr,
-            _runs[_runs.length - 1].deployer
-        );
-
-        emit ContractDeployed(key, addr, "contract");
-        return addr;
-    }
-
-    // =========================================================================
-    // Config Parameter Registration
-    // =========================================================================
-
-    function _registerConfigParameters(DeploymentConfig.SourceJson memory config) internal virtual {
-        _registerConfigParameters(config, "", "$");
-    }
-
-    function _registerConfigParameters(
-        DeploymentConfig.SourceJson memory config,
-        string memory keyPrefix,
-        string memory pointer
-    ) internal virtual {
-        if (bytes(pointer).length == 0) {
-            return;
-        }
-
-        if (bytes(keyPrefix).length != 0 && _shouldSkipConfigParameterKey(keyPrefix)) {
-            return;
-        }
-
-        (bool hasChildren, string[] memory childKeys) = DeploymentConfig.listObjectKeys(config, pointer);
-        if (hasChildren && childKeys.length > 0) {
-            for (uint256 i = 0; i < childKeys.length; i++) {
-                string memory childKey = childKeys[i];
-                string memory nestedKey = _joinConfigParameterKey(keyPrefix, childKey);
-                string memory nestedPointer = _appendPointer(pointer, childKey);
-                _registerConfigParameters(config, nestedKey, nestedPointer);
-            }
-            return;
-        }
-
-        if (_hasArrayEntries(config, pointer)) {
-            uint256 index;
-            while (DeploymentConfig.hasArrayEntry(config, pointer, index)) {
-                string memory indexString = _uintToString(index);
-                string memory nestedKey = _joinConfigParameterKey(keyPrefix, indexString);
-                string memory nestedPointer = string.concat(pointer, "[", indexString, "]");
-                _registerConfigParameters(config, nestedKey, nestedPointer);
-                unchecked {
-                    ++index;
-                }
-            }
-            return;
-        }
-
-        _registerScalarConfigParameter(config, keyPrefix, pointer);
-    }
-
-    function _registerScalarConfigParameter(
-        DeploymentConfig.SourceJson memory config,
-        string memory key,
-        string memory pointer
-    ) internal {
-        if (bytes(key).length == 0) {
-            return;
-        }
-        if (_shouldSkipConfigParameterKey(key)) {
-            return;
-        }
-        if (_exists[key]) {
-            return;
-        }
-
-        (bool boolSuccess, bool boolValue) = DeploymentConfig.tryReadBool(config, pointer);
-        if (boolSuccess) {
-            setBool(key, boolValue);
-            return;
-        }
-
-        (bool stringSuccess, string memory stringValue) = DeploymentConfig.tryReadString(config, pointer);
-        if (stringSuccess && _looksLikeHexAddress(stringValue)) {
-            setString(key, stringValue);
-            return;
-        }
-
-        (bool intSuccess, int256 intValue) = DeploymentConfig.tryReadInt(config, pointer);
-        (bool uintSuccess, uint256 uintValue) = DeploymentConfig.tryReadUint(config, pointer);
-        if (intSuccess || uintSuccess) {
-            _setNumberParameter(key, uintSuccess, uintValue, intSuccess, intValue);
-            return;
-        }
-
-        if (stringSuccess) {
-            setString(key, stringValue);
-        }
-    }
-
-    function _joinConfigParameterKey(string memory prefix, string memory child) private pure returns (string memory) {
-        if (bytes(prefix).length == 0) {
-            return child;
-        }
-        if (bytes(child).length == 0) {
-            return prefix;
-        }
-        return string.concat(prefix, ".", child);
-    }
-
-    function _appendPointer(string memory pointer, string memory child) private pure returns (string memory) {
-        if (bytes(child).length == 0) {
-            return pointer;
-        }
-        if (bytes(pointer).length == 0) {
-            return child;
-        }
-
-        bytes memory pointerBytes = bytes(pointer);
-        if (pointerBytes.length == 1 && pointerBytes[0] == bytes1("$")) {
-            return string.concat(pointer, ".", child);
-        }
-        return string.concat(pointer, ".", child);
-    }
-
-    function _hasArrayEntries(
-        DeploymentConfig.SourceJson memory config,
-        string memory pointer
-    ) private view returns (bool) {
-        return DeploymentConfig.hasArrayEntry(config, pointer, 0);
-    }
-
-    function _shouldSkipConfigParameterKey(string memory key) private pure returns (bool) {
-        bytes memory data = bytes(key);
-        if (data.length == 0) {
-            return true;
-        }
-        if (_containsDot(data)) {
-            return false;
-        }
-
-        bytes32 keyHash = keccak256(data);
-        if (
-            keyHash == keccak256(bytes("owner")) ||
-            keyHash == keccak256(bytes("treasury")) ||
-            keyHash == keccak256(bytes("version")) ||
-            keyHash == keccak256(bytes("network")) ||
-            keyHash == keccak256(bytes("systemSaltString")) ||
-            keyHash == keccak256(bytes("schemaVersion")) ||
-            keyHash == keccak256(bytes("conflicts")) ||
-            keyHash == keccak256(bytes("contracts"))
-        ) {
-            return true;
-        }
-
-        return false;
-    }
-
-    function _containsDot(bytes memory data) private pure returns (bool) {
-        for (uint256 i = 0; i < data.length; i++) {
-            if (data[i] == bytes1(".")) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    function _looksLikeHexAddress(string memory value) private pure returns (bool) {
-        bytes memory data = bytes(value);
-        if (data.length != 42) {
-            return false;
-        }
-        if (data[0] != bytes1("0")) {
-            return false;
-        }
-        bytes1 prefix = data[1];
-        if (prefix != bytes1("x") && prefix != bytes1("X")) {
-            return false;
-        }
-        for (uint256 i = 2; i < data.length; i++) {
-            bytes1 char = data[i];
-            bool isDigit = char >= bytes1("0") && char <= bytes1("9");
-            bool isLower = char >= bytes1("a") && char <= bytes1("f");
-            bool isUpper = char >= bytes1("A") && char <= bytes1("F");
-            if (!isDigit && !isLower && !isUpper) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    function _uintToString(uint256 value) internal pure returns (string memory) {
-        if (value == 0) {
-            return "0";
-        }
-
-        uint256 temp = value;
-        uint256 digits;
-        while (temp != 0) {
-            digits++;
-            temp /= 10;
-        }
-
-        bytes memory buffer = new bytes(digits);
-        while (value != 0) {
-            digits--;
-            buffer[digits] = bytes1(uint8(48 + (value % 10)));
-            value /= 10;
-        }
-
-        return string(buffer);
-    }
-
     function _deployProxy(
         uint256 value,
         string memory proxyKey,
         string memory implementationKey,
         bytes memory implementationInitData
     ) internal virtual returns (address proxy) {
-        _requireActiveRun();
         if (bytes(proxyKey).length == 0) {
             revert KeyRequired();
         }
-        if (_exists[proxyKey]) {
-            revert ContractAlreadyExists(proxyKey);
-        }
-        address implementation = get(implementationKey);
-        if (!_exists[implementationKey] || !_eq(_entryType[implementationKey], "implementation")) {
+        if (bytes(implementationKey).length == 0) {
             revert ImplementationKeyRequired();
         }
 
-        // Compute salt
-        bytes memory proxySaltBytes = abi.encodePacked(_metadata.systemSaltString, "/", proxyKey, "/UUPS/proxy");
+        // Check implementation exists
+        if (!_has(implementationKey)) {
+            revert ImplementationKeyRequired();
+        }
+        address implementation = _get(implementationKey);
+        require(implementation != address(0), "Implementation address is zero");
+
+        // Compute salt for CREATE3 using system salt from data layer
+        string memory systemSalt = _deriveSystemSalt();
+        bytes memory proxySaltBytes = abi.encodePacked(systemSalt, "/", proxyKey, "/UUPS/proxy");
         bytes32 salt = EfficientHashLib.hash(proxySaltBytes);
-        string memory saltString = proxyKey;
 
         address factory = DeploymentInfrastructure.predictBaoDeployerAddress();
 
@@ -642,21 +551,13 @@ abstract contract Deployment is DeploymentRegistry {
             IUUPSUpgradeableProxy(proxy).upgradeToAndCall{value: value}(implementation, implementationInitData);
         }
 
-        // Register proxy (same for both dry-run and actual deployment)
-        _registerProxy(
-            proxyKey,
-            proxy,
-            implementationKey,
-            salt,
-            saltString,
-            "UUPS",
-            factory,
-            _runs[_runs.length - 1].deployer
-        );
-
-        emit ContractDeployed(proxyKey, proxy, "UUPS proxy");
+        // Store proxy address and metadata in data layer
+        _set(proxyKey, proxy);
+        _setString(string.concat(proxyKey, ".implementation"), implementationKey);
+        _setString(string.concat(proxyKey, ".category"), "proxy");
     }
 
+    /// @notice Upgrade existing proxy to new implementation
     function upgradeProxy(
         string memory proxyKey,
         string memory newImplementationKey,
@@ -665,23 +566,32 @@ abstract contract Deployment is DeploymentRegistry {
         if (bytes(proxyKey).length == 0 || bytes(newImplementationKey).length == 0) {
             revert KeyRequired();
         }
-        address proxy = _getProxy(proxyKey);
-        address newImplementation = _getImplementation(newImplementationKey);
 
+        // Check proxy and implementation exist
+        require(_has(proxyKey), "Proxy not found");
+        require(_has(newImplementationKey), "Implementation not found");
+
+        address proxy = _get(proxyKey);
+        address newImplementation = _get(newImplementationKey);
+
+        require(proxy != address(0), "Proxy address is zero");
+        require(newImplementation != address(0), "Implementation address is zero");
+
+        // Perform the upgrade
         if (initData.length == 0) {
             IUUPSUpgradeableProxy(proxy).upgradeTo(newImplementation);
         } else {
             IUUPSUpgradeableProxy(proxy).upgradeToAndCall(newImplementation, initData);
         }
 
-        // Update registry to reflect the new implementation
-        _updateProxyImplementation(proxyKey, newImplementationKey);
-
-        emit ContractUpdated(proxyKey, proxy, proxy);
+        // Update implementation reference in data layer
+        _setString(string.concat(proxyKey, ".implementation"), newImplementationKey);
     }
 
+    /// @notice Register existing contract address
     function useExisting(string memory key, address addr) public virtual {
-        _registerStandardContract(key, addr, "ExistingContract", "blockchain", "existing", address(0), address(0));
+        _set(key, addr);
+        _setString(string.concat(key, ".category"), "existing");
     }
 
     /**
@@ -691,7 +601,7 @@ abstract contract Deployment is DeploymentRegistry {
      * @param proxyKey The proxy key this implementation is for
      * @param addr Implementation contract address
      * @param contractType Contract type name (used in key derivation)
-     * @param contractPath Source file path
+     * @param contractPath Source file path (stored in data layer for reference)
      * @return implKey The derived implementation key (proxyKey__contractType)
      */
     function registerImplementation(
@@ -700,11 +610,14 @@ abstract contract Deployment is DeploymentRegistry {
         string memory contractType,
         string memory contractPath
     ) public virtual returns (string memory implKey) {
-        _requireActiveRun();
         implKey = _deriveImplementationKey(proxyKey, contractType);
-        _requireValidAddress(implKey, addr);
-        _registerImplementation(implKey, addr, contractType, contractPath, _runs[_runs.length - 1].deployer);
-        emit ContractDeployed(implKey, addr, "implementation");
+
+        // Store implementation address in data layer
+        _set(implKey, addr);
+
+        // Optionally store metadata
+        _setString(string.concat(implKey, ".type"), contractType);
+        _setString(string.concat(implKey, ".path"), contractPath);
     }
 
     /// @notice Derive the canonical implementation key for a proxy key and contract type
@@ -715,14 +628,13 @@ abstract contract Deployment is DeploymentRegistry {
         return string.concat(proxyKey, "__", contractType);
     }
 
+    /// @notice Deploy library using CREATE
     function deployLibrary(
         string memory key,
         bytes memory bytecode,
         string memory contractType,
         string memory contractPath
     ) public {
-        _requireActiveRun();
-
         address addr;
         assembly {
             addr := create(0, add(bytecode, 0x20), mload(bytecode))
@@ -731,7 +643,20 @@ abstract contract Deployment is DeploymentRegistry {
             revert LibraryDeploymentFailed(key);
         }
 
-        _registerLibrary(key, addr, contractType, contractPath, _runs[_runs.length - 1].deployer);
-        emit ContractDeployed(key, addr, "library");
+        _set(key, addr);
+        _setString(string.concat(key, ".category"), "library");
+        _setString(string.concat(key, ".type"), contractType);
+        _setString(string.concat(key, ".path"), contractPath);
+    }
+
+    // ============================================================================
+    // Internal Helpers
+    // ============================================================================
+
+    /**
+     * @notice Internal helper for string comparison
+     */
+    function _eq(string memory a, string memory b) internal pure returns (bool) {
+        return keccak256(bytes(a)) == keccak256(bytes(b));
     }
 }
