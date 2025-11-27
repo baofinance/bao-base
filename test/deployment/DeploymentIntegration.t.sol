@@ -68,6 +68,11 @@ library ConfigLib {
 
 // Integration test harness
 contract MockDeploymentIntegration is DeploymentJsonTesting {
+    constructor() {
+        // Register all possible contract keys used in tests
+        // Note: Keys are registered dynamically, so we register common test keys here
+    }
+
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
         MockERC20 token = new MockERC20(name, symbol, 18);
         registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol");

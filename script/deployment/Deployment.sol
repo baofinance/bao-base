@@ -113,8 +113,9 @@ abstract contract Deployment is DeploymentKeys {
         if (_sessionActive) revert AlreadyInitialized();
 
         _data = _createDeploymentData(network, systemSaltString, startPoint);
-
+        // TODO: need to read the schema version and check for compatibility
         // Set global deployment configuration
+        _data.setUint(SCHEMA_VERSION, 1);
         _data.setString(SYSTEM_SALT_STRING, systemSaltString);
 
         // Initialize session metadata
@@ -185,133 +186,110 @@ abstract contract Deployment is DeploymentKeys {
     }
 
     // ============================================================================
-    // Data Layer Wrappers (add "contracts." prefix)
+    // Data Layer Wrappers
     // ============================================================================
 
-    function _contractsKey(string memory key) private pure returns (string memory) {
-        return string.concat(CONTRACTS_PREFIX, key);
-    }
-
     /// @notice Set contract address
-    /// @dev Adds "contracts." prefix: "pegged" → "contracts.pegged"
     function _set(string memory key, address value) internal {
-        _data.set(_contractsKey(key), value);
+        _data.set(key, value);
     }
 
     /// @notice Get contract address
-    /// @dev Adds "contracts." prefix: "pegged" → "contracts.pegged"
     function _get(string memory key) internal view returns (address) {
-        return _data.get(_contractsKey(key));
+        return _data.get(key);
     }
 
     /// @notice Check if contract key exists
-    /// @dev Adds "contracts." prefix
     function _has(string memory key) internal view returns (bool) {
-        return _data.has(_contractsKey(key));
+        return _data.has(key);
     }
 
     /// @notice Set string value
-    /// @dev Adds "contracts." prefix: "pegged.symbol" → "contracts.pegged.symbol"
     function _setString(string memory key, string memory value) internal {
-        _data.setString(_contractsKey(key), value);
+        _data.setString(key, value);
     }
 
     /// @notice Get string value
-    /// @dev Adds "contracts." prefix
     function _getString(string memory key) internal view returns (string memory) {
-        return _data.getString(_contractsKey(key));
+        return _data.getString(key);
     }
 
     /// @notice Set uint value
-    /// @dev Adds "contracts." prefix
     function _setUint(string memory key, uint256 value) internal {
-        _data.setUint(_contractsKey(key), value);
+        _data.setUint(key, value);
     }
 
     /// @notice Get uint value
-    /// @dev Adds "contracts." prefix
     function _getUint(string memory key) internal view returns (uint256) {
-        return _data.getUint(_contractsKey(key));
+        return _data.getUint(key);
     }
 
     /// @notice Set int value
-    /// @dev Adds "contracts." prefix
     function _setInt(string memory key, int256 value) internal {
-        _data.setInt(_contractsKey(key), value);
+        _data.setInt(key, value);
     }
 
     /// @notice Get int value
-    /// @dev Adds "contracts." prefix
     function _getInt(string memory key) internal view returns (int256) {
-        return _data.getInt(_contractsKey(key));
+        return _data.getInt(key);
     }
 
     /// @notice Set bool value
-    /// @dev Adds "contracts." prefix
     function _setBool(string memory key, bool value) internal {
-        _data.setBool(_contractsKey(key), value);
+        _data.setBool(key, value);
     }
 
     /// @notice Get bool value
-    /// @dev Adds "contracts." prefix
     function _getBool(string memory key) internal view returns (bool) {
-        return _data.getBool(_contractsKey(key));
+        return _data.getBool(key);
     }
 
     function _setAddress(string memory key, address value) internal {
-        _data.setAddress(_contractsKey(key), value);
+        _data.setAddress(key, value);
     }
 
     function _getAddress(string memory key) internal view returns (address) {
-        return _data.getAddress(_contractsKey(key));
+        return _data.getAddress(key);
     }
 
     /// @notice Set address array
-    /// @dev Adds "contracts." prefix
     function _setAddressArray(string memory key, address[] memory values) internal {
-        _data.setAddressArray(_contractsKey(key), values);
+        _data.setAddressArray(key, values);
     }
 
     /// @notice Get address array
-    /// @dev Adds "contracts." prefix
     function _getAddressArray(string memory key) internal view returns (address[] memory) {
-        return _data.getAddressArray(_contractsKey(key));
+        return _data.getAddressArray(key);
     }
 
     /// @notice Set string array
-    /// @dev Adds "contracts." prefix
     function _setStringArray(string memory key, string[] memory values) internal {
-        _data.setStringArray(_contractsKey(key), values);
+        _data.setStringArray(key, values);
     }
 
     /// @notice Get string array
-    /// @dev Adds "contracts." prefix
     function _getStringArray(string memory key) internal view returns (string[] memory) {
-        return _data.getStringArray(_contractsKey(key));
+        return _data.getStringArray(key);
     }
 
     /// @notice Set uint array
-    /// @dev Adds "contracts." prefix
     function _setUintArray(string memory key, uint256[] memory values) internal {
-        _data.setUintArray(_contractsKey(key), values);
+        _data.setUintArray(key, values);
     }
 
     /// @notice Get uint array
-    /// @dev Adds "contracts." prefix
     function _getUintArray(string memory key) internal view returns (uint256[] memory) {
-        return _data.getUintArray(_contractsKey(key));
+        return _data.getUintArray(key);
     }
 
     /// @notice Set int array
-    /// @dev Adds "contracts." prefix
     function _setIntArray(string memory key, int256[] memory values) internal {
-        _data.setIntArray(_contractsKey(key), values);
+        _data.setIntArray(key, values);
     }
 
     /// @notice Get int array
-    /// @dev Adds "contracts." prefix
     function _getIntArray(string memory key) internal view returns (int256[] memory) {
-        return _data.getIntArray(_contractsKey(key));
+        return _data.getIntArray(key);
     }
 
     /// @notice Derive system salt for deterministic address calculations
@@ -416,7 +394,7 @@ abstract contract Deployment is DeploymentKeys {
             IUUPSUpgradeableProxy(proxy).upgradeToAndCall{value: value}(implementation, implementationInitData);
         }
 
-        // Store proxy address and metadata in data layer
+        // Store proxy keys
         _set(proxyKey, proxy);
         _setString(string.concat(proxyKey, ".implementation"), implementationKey);
         _setString(string.concat(proxyKey, ".category"), "proxy");
@@ -465,7 +443,7 @@ abstract contract Deployment is DeploymentKeys {
         string memory contractType,
         string memory contractPath
     ) public {
-        // Store implementation address in data layer
+        // Store contract keys
         _set(key, addr);
 
         // Optionally store metadata
@@ -490,8 +468,7 @@ abstract contract Deployment is DeploymentKeys {
         string memory contractPath
     ) public returns (string memory implKey) {
         implKey = _deriveImplementationKey(proxyKey, contractType);
-
-        registerContract(proxyKey, addr, contractType, contractPath);
+        registerContract(implKey, addr, contractType, contractPath);
     }
 
     /// @notice Derive the canonical implementation key for a proxy key and contract type

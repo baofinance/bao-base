@@ -37,6 +37,10 @@ library TestLib {
 
 // Test harness
 contract MockDeploymentJson is DeploymentJsonTesting {
+    constructor() {
+        // Register all possible contract keys used in tests
+    }
+
     function deploySimpleContract(string memory key, string memory name) public returns (address) {
         SimpleContract c = new SimpleContract(name);
         registerContract(key, address(c), "SimpleContract", "test/SimpleContract.sol");

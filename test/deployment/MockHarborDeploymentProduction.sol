@@ -21,23 +21,23 @@ contract MockHarborDeploymentProduction is DeploymentTesting {
     // ============================================================================
 
     // Contract keys (top-level, no dots)
-    string constant PEGGED = "pegged";
-    string constant PEGGED_IMPLEMENTATION = "pegged__MintableBurnableERC20_v1";
+    string constant PEGGED = "contracts.pegged";
+    string constant PEGGED_IMPLEMENTATION = "contracts.pegged.implementation";
     string constant PEGGED_IMPLEMENTATION_LABEL = "pegged.implementation";
 
     // Pegged token configuration keys
-    string constant PEGGED_SYMBOL = "pegged.symbol";
-    string constant PEGGED_NAME = "pegged.name";
-    string constant PEGGED_OWNER = "pegged.owner";
+    string constant PEGGED_SYMBOL = "contracts.pegged.symbol";
+    string constant PEGGED_NAME = "contracts.pegged.name";
+    string constant PEGGED_OWNER = "contracts.pegged.owner";
 
     constructor() {
         addKey(PEGGED);
         addStringKey(string.concat(PEGGED, ".category"));
         addStringKey(string.concat(PEGGED_IMPLEMENTATION, ".type"));
         addStringKey(string.concat(PEGGED_IMPLEMENTATION, ".path"));
-        addStringKey(string.concat(CONTRACTS_PREFIX, PEGGED_SYMBOL));
-        addStringKey(string.concat(CONTRACTS_PREFIX, PEGGED_NAME));
-        addAddressKey(string.concat(CONTRACTS_PREFIX, PEGGED_OWNER));
+        addStringKey(PEGGED_SYMBOL);
+        addStringKey(PEGGED_NAME);
+        addAddressKey(PEGGED_OWNER);
     }
 
     // ============================================================================

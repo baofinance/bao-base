@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 1,
   "systemSaltString": "integration-test-salt",
   "session": {
     "network": "test-network",

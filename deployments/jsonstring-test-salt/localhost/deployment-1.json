@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 1,
   "systemSaltString": "jsonstring-test-salt",
   "session": {
     "network": "localhost",

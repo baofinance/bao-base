@@ -9,6 +9,10 @@ import {MockOracle, MockToken, MockMinter} from "../mocks/basic/MockDependencies
 
 // Test harness extends DeploymentTesting
 contract MockDeploymentDependency is DeploymentTesting {
+    constructor() {
+        // Register all possible contract keys used in tests
+    }
+
     function deployOracle(string memory key, uint256 price) public returns (address) {
         MockOracle oracle = new MockOracle(price);
         registerContract(key, address(oracle), "MockOracle", "test/mocks/basic/MockDependencies.sol");
@@ -81,7 +85,7 @@ contract DeploymentDependencyTest is BaoDeploymentTest {
     function test_RevertWhen_DependencyNotDeployed() public {
         // Try to deploy token without oracle
         vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, "contracts.oracle"));
-        deployment.deployToken("token", "oracle", "TestToken", 18);
+        deployment.deployToken("contracts.token", "contracts.oracle", "TestToken", 18);
     }
 
     function test_RevertWhen_ChainedDependencyMissing() public {
@@ -90,7 +94,7 @@ contract DeploymentDependencyTest is BaoDeploymentTest {
 
         // Try to deploy minter without token
         vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, "contracts.token"));
-        deployment.deployMinter("minter", "token", "oracle");
+        deployment.deployMinter("contracts.minter", "contracts.token", "oracle");
     }
 
     function test_MultipleDependentsOnSameContract() public {
@@ -116,7 +120,7 @@ contract DeploymentDependencyTest is BaoDeploymentTest {
 
         // Verify get() reverts for non-deployed
         vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, "contracts.token"));
-        deployment.get("token");
+        deployment.get("contracts.token");
     }
 
     function test_ComplexDependencyGraph() public {

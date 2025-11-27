@@ -70,35 +70,28 @@ abstract contract DeploymentKeys {
     string public constant SESSION_FINISH_BLOCK = "session.finishBlock";
     string public constant SESSION_NETWORK = "session.network";
 
-    // TODO: rationalise the contracts prefix in one place (maybe here?)
-    // Contracts namespace
-    string public constant CONTRACTS_ROOT = "contracts";
-    string public constant CONTRACTS_PREFIX = "contracts.";
-
     /**
      * @notice Initialize deployment keys with metadata keys
-     * @dev Automatically registers session.* namespace for all deployments
+     * @dev Use high-level registration methods (addProxy, addContract) to register contract keys
      */
     constructor() {
         // Top-level metadata
         _registerKey(SCHEMA_VERSION, DataType.UINT);
-
-        // Global deployment configuration
         _registerKey(OWNER, DataType.ADDRESS);
         _registerKey(SYSTEM_SALT_STRING, DataType.STRING);
 
         // Session metadata namespace
-        addKey(SESSION_ROOT);
-        addStringKey(SESSION_VERSION);
-        addAddressKey(SESSION_DEPLOYER);
-        addUintKey(SESSION_START_TIMESTAMP);
-        addUintKey(SESSION_FINISH_TIMESTAMP);
-        addUintKey(SESSION_START_BLOCK);
-        addUintKey(SESSION_FINISH_BLOCK);
-        addStringKey(SESSION_NETWORK);
+        _registerKey(SESSION_ROOT, DataType.CONTRACT);
+        _registerKey(SESSION_VERSION, DataType.STRING);
+        _registerKey(SESSION_DEPLOYER, DataType.ADDRESS);
+        _registerKey(SESSION_START_TIMESTAMP, DataType.UINT);
+        _registerKey(SESSION_FINISH_TIMESTAMP, DataType.UINT);
+        _registerKey(SESSION_START_BLOCK, DataType.UINT);
+        _registerKey(SESSION_FINISH_BLOCK, DataType.UINT);
+        _registerKey(SESSION_NETWORK, DataType.STRING);
 
-        // Contracts namespace (parent for all deployed contracts)
-        addKey(CONTRACTS_ROOT);
+        // Contracts namespace root
+        _registerKey("contracts", DataType.CONTRACT);
     }
 
     // ============ Key Registration ============
@@ -245,18 +238,67 @@ abstract contract DeploymentKeys {
     }
 
     /**
+     * @notice Register all keys for a proxy contract
+     * @dev Registers:
+     *      - {key} (CONTRACT)
+     *      - {key}.implementation (STRING)
+     *      - {key}.address (ADDRESS)
+     *      - {key}.category (STRING)
+     * @param key The full contract key (e.g., "contracts.pegged")
+     */
+    function addProxy(string memory key) public {
+        _registerKey(key, DataType.CONTRACT);
+        _registerKey(string.concat(key, ".implementation"), DataType.STRING);
+        _registerKey(string.concat(key, ".address"), DataType.ADDRESS);
+        _registerKey(string.concat(key, ".category"), DataType.STRING);
+    }
+
+    /**
+     * @notice Register all keys for a standalone contract
+     * @dev Registers:
+     *      - {key} (CONTRACT)
+     *      - {key}.address (ADDRESS)
+     *      - {key}.type (STRING)
+     *      - {key}.path (STRING)
+     *      - {key}.category (STRING)
+     * @param key The full contract key (e.g., "contracts.library")
+     */
+    function addContract(string memory key) public {
+        _registerKey(key, DataType.CONTRACT);
+        _registerKey(string.concat(key, ".address"), DataType.ADDRESS);
+        _registerKey(string.concat(key, ".type"), DataType.STRING);
+        _registerKey(string.concat(key, ".path"), DataType.STRING);
+        _registerKey(string.concat(key, ".category"), DataType.STRING);
+    }
+
+    /**
+     * @notice Register all keys for an implementation contract
+     * @dev Registers:
+     *      - {proxyKey}__{contractType} (CONTRACT)
+     *      - {proxyKey}__{contractType}.address (ADDRESS)
+     *      - {proxyKey}__{contractType}.type (STRING)
+     *      - {proxyKey}__{contractType}.path (STRING)
+     * @param proxyKey The full proxy key (e.g., "contracts.pegged")
+     * @param contractType The implementation type (e.g., "OracleV1")
+     */
+    function addImplementation(string memory proxyKey, string memory contractType) public {
+        string memory implKey = string.concat(proxyKey, "__", contractType);
+        _registerKey(implKey, DataType.CONTRACT);
+        _registerKey(string.concat(implKey, ".address"), DataType.ADDRESS);
+        _registerKey(string.concat(implKey, ".type"), DataType.STRING);
+        _registerKey(string.concat(implKey, ".path"), DataType.STRING);
+    }
+
+    /**
      * @notice Validate that a key has been registered and matches expected type
      * @dev Reverts with helpful error message if validation fails
      * @param key The key to validate
      * @param expectedType The expected type for this key
      */
     function validateKey(string memory key, DataType expectedType) public view {
-        // Check if key is registered
         if (!_keyRegistered[key]) {
             revert KeyNotRegistered(key);
         }
-
-        // Check type matches
         if (_keyTypes[key] != expectedType) {
             revert TypeMismatch(key, expectedType, _keyTypes[key]);
         }
@@ -378,14 +420,13 @@ abstract contract DeploymentKeys {
 
         while (true) {
             string memory candidate = _substring(keyBytes, dotPos);
-            if (
-                _keyRegistered[candidate] &&
-                _keyTypes[candidate] == DataType.CONTRACT &&
-                keccak256(bytes(candidate)) != keccak256(bytes(CONTRACTS_ROOT))
-            ) {
+
+            // Check if this parent is registered as a CONTRACT
+            if (_keyRegistered[candidate] && _keyTypes[candidate] == DataType.CONTRACT) {
                 return;
             }
 
+            // Try the next level up
             (bool foundAnother, uint256 nextDot) = _findPreviousDot(keyBytes, dotPos);
             if (!foundAnother) {
                 revert ParentContractNotRegistered(key, candidate);
