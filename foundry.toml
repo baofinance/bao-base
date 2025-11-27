@@ -24,6 +24,11 @@ ignored_warnings_from = [
   "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/utils/StorageSlot.sol",
 ]
 
+[lint]
+exclude_lints = ["mixed-case-function", "mixed-case-variable"]
+severity = ["gas"]
+
+
 gas_reports_ignore = [
   "ERC20Mock",
   "ERC1967Proxy",
