@@ -1,0 +1,7 @@
+{
+  "contracts": {
+    "pegged": {
+      "decimals": 18
+    }
+  }
+}

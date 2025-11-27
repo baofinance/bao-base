@@ -28,7 +28,7 @@ library DeploymentInfrastructure {
     }
 
     /// @notice Deploy BaoDeployer via Nick's Factory if it doesn't exist
-    function deployBaoDeployer() internal returns (address deployed) {
+    function ensureBaoDeployer() internal returns (address deployed) {
         deployed = predictBaoDeployerAddress();
 
         bytes32 expectedRuntimeHash = keccak256(type(BaoDeployer).runtimeCode);

@@ -2,14 +2,20 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {BaoDeployerSetOperator} from "@bao-script/deployment/BaoDeployerSetOperator.sol";
 
 /**
  * @title DeploymentTesting
  * @notice test-specific deployment
  * @dev Extends base Deployment with:
  *      - access to the underlying data structure for testing
+ *      - auto-configuration of BaoDeployer operator for testing
  */
-contract DeploymentTesting is Deployment {
+contract DeploymentTesting is Deployment, BaoDeployerSetOperator {
+    function _ensureBaoDeployerOperator() internal override {
+        _setUpBaoDeployerOperator();
+    }
+
     /// @notice Set contract address
     /// @dev Adds "contracts." prefix: "pegged" → "contracts.pegged"
     function set(string memory key, address value) public {

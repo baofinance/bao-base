@@ -11,9 +11,11 @@ import {MockImplementation} from "@bao-test/mocks/basic/MockImplementation.sol";
 
 // Test harness extends DeploymentJsonTesting with specific mock deployment methods
 contract MyDeploymentJsonTesting is DeploymentJsonTesting {
+    string constant MOCK_IMPLEMENTATION = "mockImplementation";
     string constant MOCK_IMPLEMENTATION_INIT_VALUE = "mockImplementation.initValue";
 
     constructor() {
+        addKey(MOCK_IMPLEMENTATION);
         addUintKey(MOCK_IMPLEMENTATION_INIT_VALUE);
     }
 
@@ -40,12 +42,11 @@ contract DeploymentBasicTest is BaoDeploymentTest {
     MyDeploymentJsonTesting public deployment;
     string constant TEST_NETWORK = "test";
     string constant TEST_SALT = "test-system-salt";
-    string constant TEST_VERSION = "v1.0.0";
 
     function setUp() public override {
         super.setUp();
         deployment = new MyDeploymentJsonTesting();
-        deployment.start(TEST_NETWORK, TEST_VERSION, TEST_SALT);
+        deployment.start(TEST_NETWORK, TEST_SALT, "");
     }
     /* TODO:
 
@@ -166,7 +167,7 @@ contract DeploymentBasicTest is BaoDeploymentTest {
 
     function test_RevertWhen_StartDeploymentTwice() public {
         vm.expectRevert(Deployment.AlreadyInitialized.selector);
-        deployment.start(TEST_NETWORK, TEST_VERSION, TEST_SALT);
+        deployment.start(TEST_NETWORK, TEST_SALT, "");
     }
 
     function test_RevertWhen_ActionWithoutInitialization() public {

@@ -17,7 +17,7 @@ import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrast
  * @dev For tests that don't need deployment infrastructure, extend BaoTest directly
  *
  * @dev NO DUPLICATION: Uses DeploymentTesting helpers which delegate to production
- *      Deployment._deployBaoDeployer() - tests and production share the same code.
+ *      Deployment._ensureBaoDeployer() - tests and production share the same code.
  *
  * @dev NOTE: This base class does NOT declare a `deployment` variable.
  *      Derived test classes should declare and create their own DeploymentTesting:
@@ -36,7 +36,7 @@ abstract contract BaoDeploymentTest is BaoTest {
      * @dev This runs once per test contract (not per test function)
      * @dev Uses MockDeployment helpers to deploy infrastructure:
      *      1. Nick's Factory (via etchNicksFactory)
-     *      2. BaoDeployer proxy + implementation (via deployBaoDeployer)
+     *      2. BaoDeployer proxy + implementation (via ensureBaoDeployer)
      * @dev All logic comes from Deployment.sol - no duplication here
      * @dev Derived classes MUST call super.setUp() first, then create their deployment
      */
@@ -50,10 +50,8 @@ abstract contract BaoDeploymentTest is BaoTest {
         _baoMultisig = DeploymentInfrastructure.BAOMULTISIG;
         vm.label(_baoMultisig, "_baoMultisig");
 
-        _baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
-        if (_baoDeployer.code.length == 0) {
-            DeploymentInfrastructure.deployBaoDeployer();
-        }
+        DeploymentInfrastructure.ensureBaoDeployer();
+
         vm.label(_baoDeployer, "_baoDeployer");
     }
 

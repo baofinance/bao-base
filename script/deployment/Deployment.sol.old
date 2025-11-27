@@ -145,8 +145,8 @@ abstract contract Deployment is DeploymentRegistry {
 
         _registerConfigParameters(config);
     }
-    function deployBaoDeployer() public returns (address deployed) {
-        deployed = DeploymentInfrastructure.deployBaoDeployer();
+    function ensureBaoDeployer() public returns (address deployed) {
+        deployed = DeploymentInfrastructure.ensureBaoDeployer();
         if (_runs.length > 0 && !_exists["BaoDeployer"]) {
             useExisting("BaoDeployer", deployed);
         }

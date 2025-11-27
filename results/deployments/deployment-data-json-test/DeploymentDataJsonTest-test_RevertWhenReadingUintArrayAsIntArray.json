@@ -1,0 +1,9 @@
+{
+  "contracts": {
+    "config": {
+      "limits": [
+        100
+      ]
+    }
+  }
+}

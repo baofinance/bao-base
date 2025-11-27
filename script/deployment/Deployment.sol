@@ -81,15 +81,17 @@ abstract contract Deployment is DeploymentKeys {
     /// @notice Require that this deployment harness is configured as BaoDeployer operator
     /// @dev Production check - reverts if operator not already configured by multisig
     ///      Testing classes override this to auto-setup operator via VM.prank
-    function _requireBaoDeployerOperator() internal virtual {
-        address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
-        if (baoDeployer.code.length == 0) {
-            revert FactoryDeploymentFailed("BaoDeployer missing code");
-        }
-        if (BaoDeployer(baoDeployer).operator() != address(this)) {
-            revert FactoryDeploymentFailed("BaoDeployer operator not configured for harness");
-        }
-    }
+    function _ensureBaoDeployerOperator() internal virtual;
+    // TODO: this really ought to have a default implementation but this causes downstream diamonds
+    //  {
+    //     address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
+    //     if (baoDeployer.code.length == 0) {
+    //         revert FactoryDeploymentFailed("BaoDeployer missing code");
+    //     }
+    //     if (BaoDeployer(baoDeployer).operator() != address(this)) {
+    //         revert FactoryDeploymentFailed("BaoDeployer operator not configured for this deployer");
+    //     }
+    // }
 
     // ============================================================================
     // Deployment Lifecycle
@@ -107,7 +109,7 @@ abstract contract Deployment is DeploymentKeys {
     /// @dev Subclasses must call _startWithDataLayer after creating data layer
     /// @param network Network name (e.g., "mainnet", "arbitrum", "anvil")
     /// @param systemSaltString System salt string for deterministic addresses
-    function start(string memory network, string memory systemSaltString, string memory startPoint) public {
+    function start(string memory network, string memory systemSaltString, string memory startPoint) public virtual {
         if (_sessionActive) revert AlreadyInitialized();
 
         _data = _createDeploymentData(network, systemSaltString, startPoint);
@@ -122,7 +124,7 @@ abstract contract Deployment is DeploymentKeys {
         _data.setUint(SESSION_START_BLOCK, block.number);
 
         // Set up deployment infrastructure
-        _requireBaoDeployerOperator();
+        _ensureBaoDeployerOperator();
         _stub = new UUPSProxyDeployStub();
 
         _sessionActive = true;
@@ -175,8 +177,8 @@ abstract contract Deployment is DeploymentKeys {
     /// @dev Production deployments should assume BaoDeployer already exists
     ///      This is here for test convenience only
     /// @return deployed BaoDeployer address
-    function deployBaoDeployer() public returns (address deployed) {
-        deployed = DeploymentInfrastructure.deployBaoDeployer();
+    function ensureBaoDeployer() public returns (address deployed) {
+        deployed = DeploymentInfrastructure.ensureBaoDeployer();
         if (_sessionActive) {
             useExisting("BaoDeployer", deployed);
         }

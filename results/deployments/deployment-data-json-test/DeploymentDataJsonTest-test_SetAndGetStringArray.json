@@ -1,0 +1,10 @@
+{
+  "contracts": {
+    "config": {
+      "tags": [
+        "stable",
+        "verified"
+      ]
+    }
+  }
+}

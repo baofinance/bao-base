@@ -1,0 +1,8 @@
+{
+  "owner": "0x0000000000000000000000000000000000001234",
+  "contracts": {
+    "config": {
+      "name": "Test Deployment"
+    }
+  }
+}

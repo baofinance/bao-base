@@ -81,11 +81,11 @@ abstract contract DeploymentKeys {
      */
     constructor() {
         // Top-level metadata
-        addUintKey(SCHEMA_VERSION);
+        _registerKey(SCHEMA_VERSION, DataType.UINT);
 
         // Global deployment configuration
-        addAddressKey(OWNER);
-        addStringKey(SYSTEM_SALT_STRING);
+        _registerKey(OWNER, DataType.ADDRESS);
+        _registerKey(SYSTEM_SALT_STRING, DataType.STRING);
 
         // Session metadata namespace
         addKey(SESSION_ROOT);

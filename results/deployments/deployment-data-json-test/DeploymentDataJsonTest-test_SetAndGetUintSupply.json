@@ -1,0 +1,7 @@
+{
+  "contracts": {
+    "pegged": {
+      "supply": 1000000
+    }
+  }
+}
