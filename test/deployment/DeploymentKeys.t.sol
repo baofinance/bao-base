@@ -39,13 +39,13 @@ contract DeploymentKeysTest is BaoTest {
     }
 
     function _assertKeyDelta(uint256 expectedDelta) internal view {
-        string[] memory allKeys = keys.getAllKeys();
+        string[] memory allKeys = keys.keys();
         assertEq(allKeys.length, baseKeyCount + expectedDelta);
     }
 
     function setUp() public {
         keys = new TestKeysForValidation();
-        baseKeyCount = keys.getAllKeys().length;
+        baseKeyCount = keys.keys().length;
     }
 
     // ============ Key Registration Tests ============
@@ -73,7 +73,7 @@ contract DeploymentKeysTest is BaoTest {
         keys.addTestStringKey(_ck("token.symbol"));
         keys.addTestUintKey(_ck("token.decimals"));
 
-        string[] memory allKeys = keys.getAllKeys();
+        string[] memory allKeys = keys.keys();
         assertEq(allKeys.length, baseKeyCount + 4);
         assertEq(allKeys[baseKeyCount + 0], _ck("owner"));
         assertEq(allKeys[baseKeyCount + 1], _ck("token"));
@@ -87,10 +87,10 @@ contract DeploymentKeysTest is BaoTest {
         keys.addTestStringKey(_ck("token.symbol"));
         keys.addTestUintKey(_ck("token.decimals"));
 
-        assertEq(uint256(keys.getKeyType(_ck("owner"))), uint256(DataType.CONTRACT));
-        assertEq(uint256(keys.getKeyType(_ck("token"))), uint256(DataType.CONTRACT));
-        assertEq(uint256(keys.getKeyType(_ck("token.symbol"))), uint256(DataType.STRING));
-        assertEq(uint256(keys.getKeyType(_ck("token.decimals"))), uint256(DataType.UINT));
+        assertEq(uint256(keys.keyType(_ck("owner"))), uint256(DataType.CONTRACT));
+        assertEq(uint256(keys.keyType(_ck("token"))), uint256(DataType.CONTRACT));
+        assertEq(uint256(keys.keyType(_ck("token.symbol"))), uint256(DataType.STRING));
+        assertEq(uint256(keys.keyType(_ck("token.decimals"))), uint256(DataType.UINT));
     }
 
     // ============ Key Validation Tests ============

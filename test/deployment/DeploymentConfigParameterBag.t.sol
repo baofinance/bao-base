@@ -16,7 +16,6 @@ contract DeploymentConfigParameterBagTest is BaoDeploymentTest {
     }
 
     function test_FlattensNestedConfigIntoParameters() public {
-        string memory configJson = _buildConfigJson();
         deployment.start("testnet", "test-salt", "");
 
         assertEq(deployment.getString("pegged.name"), "Bao USD");

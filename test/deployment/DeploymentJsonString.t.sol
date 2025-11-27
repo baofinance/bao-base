@@ -2,24 +2,23 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
+import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 
 /**
  * @title DeploymentJsonStringTest
  * @notice Tests for string-based JSON serialization (no filesystem access)
- * @dev Demonstrates toJsonString() and fromJson() methods that don't litter filesystem
+ * @dev Demonstrates toJson() and fromJson() methods that don't litter filesystem
  */
 contract DeploymentJsonStringTest is BaoDeploymentTest {
-    DeploymentTesting public deployment;
+    DeploymentJsonTesting public deployment;
 
     string constant TEST_NETWORK = "localhost";
     string constant TEST_SALT = "jsonstring-test-salt";
-    string constant TEST_VERSION = "1.0.0";
 
     function setUp() public override {
         super.setUp();
-        deployment = new DeploymentTesting();
-        startDeploymentSession(deployment, address(this), TEST_NETWORK, TEST_VERSION, TEST_SALT);
+        deployment = new DeploymentJsonTesting();
+        deployment.start(TEST_NETWORK, TEST_SALT, "");
     }
 
     function test_ToJsonReturnsValidString() public {
@@ -29,7 +28,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         deployment.setUint("decimals", 18);
 
         // Get JSON string without writing to file
-        string memory json = deployment.toJsonString();
+        string memory json = deployment.toJson();
 
         // Verify it's not empty
         assertTrue(bytes(json).length > 0, "JSON should not be empty");
@@ -50,14 +49,14 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         deployment.setString("name", "TestSystem");
         deployment.finish();
 
-        string memory json = deployment.toJsonString();
+        string memory json = deployment.toJson();
 
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Create new deployment and load from string
-        DeploymentTesting newDeployment = new DeploymentTesting();
-        newDeployment.fromJsonString(json);
+        DeploymentJsonTesting newDeployment = new DeploymentJsonTesting();
+        newDeployment.fromJson(json);
 
         // Verify loaded data
         assertEq(newDeployment.get("Token1"), address(0x1111), "Token1 address mismatch");
@@ -81,14 +80,14 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         deployment.finish();
 
         // Serialize to string
-        string memory json = deployment.toJsonString();
+        string memory json = deployment.toJson();
 
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Deserialize to new instance
-        DeploymentTesting restored = new DeploymentTesting();
-        restored.fromJsonString(json);
+        DeploymentJsonTesting restored = new DeploymentJsonTesting();
+        restored.fromJson(json);
 
         // Verify all contracts
         assertEq(restored.get("Admin"), address(0xABCD), "Admin address");
@@ -108,7 +107,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
     function test_EmptyDeploymentSerialization() public {
         deployment.finish();
 
-        string memory json = deployment.toJsonString();
+        string memory json = deployment.toJson();
 
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
@@ -134,13 +133,13 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
 
         deployment.finish();
 
-        string memory json = deployment.toJsonString();
+        string memory json = deployment.toJson();
 
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
-        DeploymentTesting loaded = new DeploymentTesting();
-        loaded.fromJsonString(json);
+        DeploymentJsonTesting loaded = new DeploymentJsonTesting();
+        loaded.fromJson(json);
 
         assertEq(loaded.keys().length, 3, "Should have 3 contracts");
         assertEq(loaded.get("Contract1"), address(0x1));
@@ -156,13 +155,13 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
 
         deployment.finish();
 
-        string memory json = deployment.toJsonString();
+        string memory json = deployment.toJson();
 
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
-        DeploymentTesting loaded = new DeploymentTesting();
-        loaded.fromJsonString(json);
+        DeploymentJsonTesting loaded = new DeploymentJsonTesting();
+        loaded.fromJson(json);
 
         assertEq(loaded.keys().length, 3, "Should have 3 parameters");
         assertEq(loaded.getString("param1"), "value1");
@@ -176,11 +175,11 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         deployment.setString("name", "SavedToken");
 
         deployment.finish();
-        string memory json = deployment.toJsonString();
+        string memory json = deployment.toJson();
 
         // Load from file - if this succeeds, schema is valid
-        DeploymentTesting loaded = new DeploymentTesting();
-        loaded.fromJsonString(json);
+        DeploymentJsonTesting loaded = new DeploymentJsonTesting();
+        loaded.fromJson(json);
 
         assertEq(loaded.get("Token"), address(0x5555));
         assertEq(loaded.getString("name"), "SavedToken");
@@ -192,11 +191,11 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         deployment.setUint("value", 42);
 
         deployment.finish();
-        string memory json = deployment.toJsonString();
+        string memory json = deployment.toJson();
 
         // Load using original method - if this succeeds, schema is valid
-        DeploymentTesting loaded = new DeploymentTesting();
-        loaded.fromJsonString(json);
+        DeploymentJsonTesting loaded = new DeploymentJsonTesting();
+        loaded.fromJson(json);
 
         assertEq(loaded.get("LoadTest"), address(0x9999));
         assertEq(loaded.getUint("value"), 42);

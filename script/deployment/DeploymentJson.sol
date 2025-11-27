@@ -132,10 +132,11 @@ abstract contract DeploymentJson is Deployment {
         string memory network,
         string memory systemSaltString,
         string memory startPoint
-    ) internal virtual override returns (IDeploymentDataWritable data) {
+    ) internal virtual override returns (IDeploymentDataWritable) {
         string memory inputPath = _resolveInputPath(network, systemSaltString, startPoint);
         string memory outputPath = _buildOutputPath(network, systemSaltString);
-        data = new DeploymentDataJson(this, inputPath);
-        DeploymentDataJson(address(data)).setOutputPath(outputPath);
+        DeploymentDataJson data = new DeploymentDataJson(this, inputPath);
+        data.setOutputPath(outputPath);
+        return data;
     }
 }

@@ -5,15 +5,7 @@ import {DeploymentKeys} from "@bao-script/deployment/DeploymentKeys.sol";
 import {IDeploymentDataWritable} from "@bao-script/deployment/interfaces/IDeploymentDataWritable.sol";
 import {DeploymentDataJsonTesting} from "@bao-script/deployment/DeploymentDataJsonTesting.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
-import {DeploymentTesting} from "./DeploymentTesting.sol";
-
-/**
- * @title HarborDeploymentKeys
- * @notice Key registry for Harbor protocol deployment
- */
-contract HarborDeploymentKeys is DeploymentKeys {
-
-}
+import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
 
 /**
  * @title MockHarborDeploymentProduction
@@ -27,19 +19,18 @@ contract MockHarborDeploymentProduction is DeploymentTesting {
     // ============================================================================
     // Abstract Method Implementations
     // ============================================================================
-    constructor() {
 
     // Contract keys (top-level, no dots)
-    string memory constant PEGGED = "pegged";
-    string memory constant PEGGED_IMPLEMENTATION = "pegged__MintableBurnableERC20_v1";
-    string memory constant PEGGED_IMPLEMENTATION_LABEL = "pegged.implementation";
+    string constant PEGGED = "pegged";
+    string constant PEGGED_IMPLEMENTATION = "pegged__MintableBurnableERC20_v1";
+    string constant PEGGED_IMPLEMENTATION_LABEL = "pegged.implementation";
 
     // Pegged token configuration keys
-    string memory constant PEGGED_SYMBOL = "pegged.symbol";
-    string memory constant PEGGED_NAME = "pegged.name";
-    string memory constant PEGGED_OWNER = "pegged.owner";
+    string constant PEGGED_SYMBOL = "pegged.symbol";
+    string constant PEGGED_NAME = "pegged.name";
+    string constant PEGGED_OWNER = "pegged.owner";
 
-
+    constructor() {
         addKey(PEGGED);
         addStringKey(string.concat(PEGGED, ".category"));
         addStringKey(string.concat(PEGGED_IMPLEMENTATION, ".type"));

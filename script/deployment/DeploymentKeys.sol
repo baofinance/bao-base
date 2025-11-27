@@ -266,7 +266,7 @@ abstract contract DeploymentKeys {
      * @notice Get all registered keys
      * @return keys Array of all configuration keys
      */
-    function keys() external view returns (string[] memory keys) {
+    function keys() external view returns (string[] memory) {
         return _allKeys;
     }
 
