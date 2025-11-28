@@ -10,11 +10,7 @@ import {IDeploymentDataWritable} from "@bao-script/deployment/interfaces/IDeploy
 /**
  * @title DeploymentJson
  * @notice JSON-specific deployment layer with file I/O
- * @dev Extends base Deployment with:
- *      - JSON file path resolution (input/output)
- *      - Timestamp-based file naming
- *      - DeploymentDataJson integration
- *      Subclasses implement _createDataLayer to choose specific JSON data implementation
+ * @dev Extends base Deployment with test accessor functions
  */
 contract DeploymentJsonTesting is DeploymentJson, DeploymentTesting {
     DeploymentDataJsonTesting _dataJson;

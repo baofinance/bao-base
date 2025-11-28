@@ -58,12 +58,15 @@ abstract contract DeploymentKeys {
     // Global metadata
     string internal constant SCHEMA_VERSION = "schemaVersion";
     string public constant OWNER = "owner";
+    string public constant DEPLOYER = "deployer";
     string public constant SYSTEM_SALT_STRING = "systemSaltString";
 
     // Session metadata
     string public constant SESSION_ROOT = "session";
     string public constant SESSION_VERSION = "session.version";
     string public constant SESSION_DEPLOYER = "session.deployer";
+    string public constant SESSION_STARTED = "session.startTimestamp";
+    string public constant SESSION_FINISHED = "session.finishTimestamp";
     string public constant SESSION_START_TIMESTAMP = "session.startTimestamp";
     string public constant SESSION_FINISH_TIMESTAMP = "session.finishTimestamp";
     string public constant SESSION_START_BLOCK = "session.startBlock";
@@ -78,12 +81,15 @@ abstract contract DeploymentKeys {
         // Top-level metadata
         _registerKey(SCHEMA_VERSION, DataType.UINT);
         _registerKey(OWNER, DataType.ADDRESS);
+        _registerKey(DEPLOYER, DataType.ADDRESS);
         _registerKey(SYSTEM_SALT_STRING, DataType.STRING);
 
         // Session metadata namespace
         _registerKey(SESSION_ROOT, DataType.CONTRACT);
         _registerKey(SESSION_VERSION, DataType.STRING);
         _registerKey(SESSION_DEPLOYER, DataType.ADDRESS);
+        _registerKey(SESSION_STARTED, DataType.STRING);
+        _registerKey(SESSION_FINISHED, DataType.STRING);
         _registerKey(SESSION_START_TIMESTAMP, DataType.UINT);
         _registerKey(SESSION_FINISH_TIMESTAMP, DataType.UINT);
         _registerKey(SESSION_START_BLOCK, DataType.UINT);
@@ -247,10 +253,9 @@ abstract contract DeploymentKeys {
      * @param key The full contract key (e.g., "contracts.pegged")
      */
     function addProxy(string memory key) public {
-        _registerKey(key, DataType.CONTRACT);
-        _registerKey(string.concat(key, ".implementation"), DataType.STRING);
-        _registerKey(string.concat(key, ".address"), DataType.ADDRESS);
-        _registerKey(string.concat(key, ".category"), DataType.STRING);
+        addContract(key);
+        string memory implementationKey = string.concat(key, ".implementation");
+        _addImplementation(implementationKey);
     }
 
     /**
@@ -264,10 +269,7 @@ abstract contract DeploymentKeys {
      * @param key The full contract key (e.g., "contracts.library")
      */
     function addContract(string memory key) public {
-        _registerKey(key, DataType.CONTRACT);
-        _registerKey(string.concat(key, ".address"), DataType.ADDRESS);
-        _registerKey(string.concat(key, ".type"), DataType.STRING);
-        _registerKey(string.concat(key, ".path"), DataType.STRING);
+        _addImplementation(key);
         _registerKey(string.concat(key, ".category"), DataType.STRING);
     }
 
@@ -278,15 +280,16 @@ abstract contract DeploymentKeys {
      *      - {proxyKey}__{contractType}.address (ADDRESS)
      *      - {proxyKey}__{contractType}.type (STRING)
      *      - {proxyKey}__{contractType}.path (STRING)
-     * @param proxyKey The full proxy key (e.g., "contracts.pegged")
-     * @param contractType The implementation type (e.g., "OracleV1")
+     * @param key The full proxy key (e.g., "contracts.pegged")
      */
-    function addImplementation(string memory proxyKey, string memory contractType) public {
-        string memory implKey = string.concat(proxyKey, "__", contractType);
-        _registerKey(implKey, DataType.CONTRACT);
-        _registerKey(string.concat(implKey, ".address"), DataType.ADDRESS);
-        _registerKey(string.concat(implKey, ".type"), DataType.STRING);
-        _registerKey(string.concat(implKey, ".path"), DataType.STRING);
+    function _addImplementation(string memory key) private {
+        _registerKey(key, DataType.CONTRACT);
+        _registerKey(string.concat(key, ".address"), DataType.ADDRESS);
+        _registerKey(string.concat(key, ".contractType"), DataType.STRING);
+        _registerKey(string.concat(key, ".contractPath"), DataType.STRING);
+        _registerKey(string.concat(key, ".deployer"), DataType.ADDRESS);
+        _registerKey(string.concat(key, ".transactionHash"), DataType.STRING);
+        _registerKey(string.concat(key, ".blockNumber"), DataType.UINT);
     }
 
     /**

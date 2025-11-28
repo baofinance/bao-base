@@ -15,6 +15,7 @@ import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.
 import {DeploymentKeys} from "@bao-script/deployment/DeploymentKeys.sol";
 
 interface IUUPSUpgradeableProxy {
+    function implementation() external view returns (address);
     function upgradeTo(address newImplementation) external;
     function upgradeToAndCall(address newImplementation, bytes memory data) external payable;
 }
@@ -58,10 +59,19 @@ abstract contract Deployment is DeploymentKeys {
     UUPSProxyDeployStub internal _stub;
 
     /// @notice Session started flag
-    bool internal _sessionActive;
+    enum State {
+        NONE,
+        STARTED,
+        FINISHED
+    }
+    State internal _sessionState;
 
-    /// @notice Session finished flag
-    bool internal _sessionFinished;
+    /**
+     * @notice Require that a run is active
+     */
+    function _requireActiveRun() internal view {
+        if (_sessionState != State.STARTED) revert SessionNotStarted();
+    }
 
     // ============================================================================
     // Factory Abstraction
@@ -110,7 +120,7 @@ abstract contract Deployment is DeploymentKeys {
     /// @param network Network name (e.g., "mainnet", "arbitrum", "anvil")
     /// @param systemSaltString System salt string for deterministic addresses
     function start(string memory network, string memory systemSaltString, string memory startPoint) public virtual {
-        if (_sessionActive) revert AlreadyInitialized();
+        if (_sessionState != State.NONE) revert AlreadyInitialized();
 
         _data = _createDeploymentData(network, systemSaltString, startPoint);
         // TODO: need to read the schema version and check for compatibility
@@ -128,15 +138,15 @@ abstract contract Deployment is DeploymentKeys {
         _ensureBaoDeployerOperator();
         _stub = new UUPSProxyDeployStub();
 
-        _sessionActive = true;
+        _sessionState = State.STARTED;
     }
 
     /// @notice Finish deployment session
     /// @dev Transfers ownership to final owner for all proxies, marks session complete
     /// @return transferred Number of proxies whose ownership was transferred
     function finish() public virtual returns (uint256 transferred) {
-        if (!_sessionActive) revert SessionNotStarted();
-        if (_sessionFinished) revert SessionAlreadyFinished();
+        if (_sessionState == State.NONE) revert SessionNotStarted();
+        if (_sessionState == State.FINISHED) revert SessionAlreadyFinished();
 
         // Transfer ownership for all deployed proxies
         // Note: This is a simplified implementation - production may need to track proxy list
@@ -145,7 +155,7 @@ abstract contract Deployment is DeploymentKeys {
         // Mark session finished using registered keys
         _data.setUint(SESSION_FINISH_TIMESTAMP, block.timestamp);
         _data.setUint(SESSION_FINISH_BLOCK, block.number);
-        _sessionFinished = true;
+        _sessionState = State.FINISHED;
 
         return transferred;
     }
@@ -180,7 +190,7 @@ abstract contract Deployment is DeploymentKeys {
     /// @return deployed BaoDeployer address
     function ensureBaoDeployer() public returns (address deployed) {
         deployed = DeploymentInfrastructure.ensureBaoDeployer();
-        if (_sessionActive) {
+        if (_sessionState == State.STARTED) {
             useExisting("BaoDeployer", deployed);
         }
     }
@@ -306,6 +316,7 @@ abstract contract Deployment is DeploymentKeys {
     /// @param proxyKey Key for the proxy deployment
     /// @return proxy Predicted proxy address
     function predictProxyAddress(string memory proxyKey) public view returns (address proxy) {
+        _requireActiveRun();
         if (bytes(proxyKey).length == 0) {
             revert KeyRequired();
         }
@@ -323,6 +334,7 @@ abstract contract Deployment is DeploymentKeys {
         string memory implementationKey,
         bytes memory implementationInitData
     ) external payable virtual returns (address proxy) {
+        _requireActiveRun();
         if (msg.value != value) {
             revert ValueMismatch(value, msg.value);
         }
@@ -346,12 +358,61 @@ abstract contract Deployment is DeploymentKeys {
         proxy = _deployProxy(0, proxyKey, implementationKey, implementationInitData);
     }
 
+    function predictableDeployContract(
+        uint256 value,
+        string memory key,
+        bytes memory initCode,
+        string memory contractType,
+        string memory contractPath
+    ) external payable virtual returns (address addr) {
+        if (msg.value != value) {
+            revert ValueMismatch(value, msg.value);
+        }
+        return _predictableDeployContract(value, key, initCode, contractType, contractPath);
+    }
+
+    function predictableDeployContract(
+        string memory key,
+        bytes memory initCode,
+        string memory contractType,
+        string memory contractPath
+    ) external virtual returns (address addr) {
+        return _predictableDeployContract(0, key, initCode, contractType, contractPath);
+    }
+
+    function _predictableDeployContract(
+        uint256 value,
+        string memory key,
+        bytes memory initCode,
+        string memory contractType,
+        string memory contractPath
+    ) internal virtual returns (address addr) {
+        _requireActiveRun();
+        if (bytes(key).length == 0) {
+            revert KeyRequired();
+        }
+
+        // Compute salt
+        bytes32 salt = EfficientHashLib.hash(abi.encodePacked(_getString(SYSTEM_SALT_STRING), "/", key, "/contract"));
+
+        // commit-reveal via to avoid front-running the deployment which could steal our address
+        address baoDeployerAddr = DeploymentInfrastructure.predictBaoDeployerAddress();
+        BaoDeployer baoDeployer = BaoDeployer(baoDeployerAddr);
+        baoDeployer.commit(DeploymentInfrastructure.commitment(address(this), value, salt, keccak256(initCode)));
+        addr = baoDeployer.reveal{value: value}(initCode, salt, value);
+
+        registerContract(key, addr, contractType, contractPath);
+        // TODO: remove all the return addresses
+        return addr;
+    }
+
     function _deployProxy(
         uint256 value,
         string memory proxyKey,
         string memory implementationKey,
         bytes memory implementationInitData
     ) internal virtual returns (address proxy) {
+        _requireActiveRun();
         if (bytes(proxyKey).length == 0) {
             revert KeyRequired();
         }
@@ -406,6 +467,7 @@ abstract contract Deployment is DeploymentKeys {
         string memory newImplementationKey,
         bytes memory initData
     ) external virtual {
+        _requireActiveRun();
         if (bytes(proxyKey).length == 0 || bytes(newImplementationKey).length == 0) {
             revert KeyRequired();
         }
@@ -433,6 +495,7 @@ abstract contract Deployment is DeploymentKeys {
 
     /// @notice Register existing contract address
     function useExisting(string memory key, address addr) public virtual {
+        _requireActiveRun();
         _set(key, addr);
         _setString(string.concat(key, ".category"), "existing");
     }
@@ -443,6 +506,7 @@ abstract contract Deployment is DeploymentKeys {
         string memory contractType,
         string memory contractPath
     ) public {
+        _requireActiveRun();
         // Store contract keys
         _set(key, addr);
 
@@ -467,6 +531,7 @@ abstract contract Deployment is DeploymentKeys {
         string memory contractType,
         string memory contractPath
     ) public returns (string memory implKey) {
+        _requireActiveRun();
         implKey = _deriveImplementationKey(proxyKey, contractType);
         registerContract(implKey, addr, contractType, contractPath);
     }
@@ -486,6 +551,8 @@ abstract contract Deployment is DeploymentKeys {
         string memory contractType,
         string memory contractPath
     ) public {
+        _requireActiveRun();
+
         address addr;
         assembly {
             addr := create(0, add(bytecode, 0x20), mload(bytecode))
