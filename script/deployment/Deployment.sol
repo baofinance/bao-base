@@ -44,6 +44,7 @@ abstract contract Deployment is DeploymentKeys {
     error SessionNotStarted();
     error SessionAlreadyFinished();
     error AlreadyInitialized();
+    error CannotSendValueToNonPayableFunction();
 
     // ============================================================================
     // Storage
@@ -80,11 +81,11 @@ abstract contract Deployment is DeploymentKeys {
     /// @notice Get the deployer address for CREATE3 operations
     /// @dev Returns BaoDeployer address - same on all chains (deployed via Nick's Factory)
     ///      This is used for both prediction and deployment
-    /// @return deployer BaoDeployer contract address
-    function _getCreate3Deployer() internal view virtual returns (address deployer) {
-        deployer = DeploymentInfrastructure.predictBaoDeployerAddress();
-        if (deployer == address(0)) {
-            revert FactoryDeploymentFailed("BaoDeployer owner not configured");
+    /// @return factory BaoDeployer contract address
+    function _getCreate3Deployer() internal view virtual returns (address factory) {
+        factory = DeploymentInfrastructure.predictBaoDeployerAddress();
+        if (factory == address(0)) {
+            revert FactoryDeploymentFailed("BaoDeployer not configured");
         }
     }
 
@@ -331,14 +332,25 @@ abstract contract Deployment is DeploymentKeys {
     function deployProxy(
         uint256 value,
         string memory proxyKey,
-        string memory implementationKey,
-        bytes memory implementationInitData
-    ) external payable virtual returns (address proxy) {
+        address implementation,
+        bytes memory implementationInitData,
+        string memory implementationContractType,
+        string memory implementationContractPath,
+        address deployer
+    ) public payable virtual returns (address proxy) {
         _requireActiveRun();
         if (msg.value != value) {
             revert ValueMismatch(value, msg.value);
         }
-        proxy = _deployProxy(value, proxyKey, implementationKey, implementationInitData);
+        proxy = _deployProxy(
+            value,
+            proxyKey,
+            implementation,
+            implementationInitData,
+            implementationContractType,
+            implementationContractPath,
+            deployer
+        );
     }
 
     /// @notice Deploy a UUPS proxy using bootstrap stub pattern
@@ -347,84 +359,41 @@ abstract contract Deployment is DeploymentKeys {
     ///      2. Call proxy.upgradeToAndCall(implementation, initData) to atomically upgrade and initialize
     ///      During initialization, msg.sender = this harness (via stub ownership), enabling BaoOwnable compatibility
     /// @param proxyKey Key for the proxy deployment
-    /// @param implementationKey Key of the implementation to use
+    /// @param implementation address of the implementation to use
     /// @param implementationInitData Initialization data to pass to implementation (includes owner if needed)
     /// @return proxy The deployed proxy address
     function deployProxy(
         string memory proxyKey,
-        string memory implementationKey,
-        bytes memory implementationInitData
-    ) external virtual returns (address proxy) {
-        proxy = _deployProxy(0, proxyKey, implementationKey, implementationInitData);
-    }
-
-    function predictableDeployContract(
-        uint256 value,
-        string memory key,
-        bytes memory initCode,
-        string memory contractType,
-        string memory contractPath
-    ) external payable virtual returns (address addr) {
-        if (msg.value != value) {
-            revert ValueMismatch(value, msg.value);
-        }
-        return _predictableDeployContract(value, key, initCode, contractType, contractPath);
-    }
-
-    function predictableDeployContract(
-        string memory key,
-        bytes memory initCode,
-        string memory contractType,
-        string memory contractPath
-    ) external virtual returns (address addr) {
-        return _predictableDeployContract(0, key, initCode, contractType, contractPath);
-    }
-
-    function _predictableDeployContract(
-        uint256 value,
-        string memory key,
-        bytes memory initCode,
-        string memory contractType,
-        string memory contractPath
-    ) internal virtual returns (address addr) {
-        _requireActiveRun();
-        if (bytes(key).length == 0) {
-            revert KeyRequired();
-        }
-
-        // Compute salt
-        bytes32 salt = EfficientHashLib.hash(abi.encodePacked(_getString(SYSTEM_SALT_STRING), "/", key, "/contract"));
-
-        // commit-reveal via to avoid front-running the deployment which could steal our address
-        address baoDeployerAddr = DeploymentInfrastructure.predictBaoDeployerAddress();
-        BaoDeployer baoDeployer = BaoDeployer(baoDeployerAddr);
-        baoDeployer.commit(DeploymentInfrastructure.commitment(address(this), value, salt, keccak256(initCode)));
-        addr = baoDeployer.reveal{value: value}(initCode, salt, value);
-
-        registerContract(key, addr, contractType, contractPath);
-        // TODO: remove all the return addresses
-        return addr;
+        address implementation,
+        bytes memory implementationInitData,
+        string memory implementationContractType,
+        string memory implementationContractPath,
+        address deployer
+    ) public virtual returns (address proxy) {
+        proxy = _deployProxy(
+            0,
+            proxyKey,
+            implementation,
+            implementationInitData,
+            implementationContractType,
+            implementationContractPath,
+            deployer
+        );
     }
 
     function _deployProxy(
         uint256 value,
         string memory proxyKey,
-        string memory implementationKey,
-        bytes memory implementationInitData
+        address implementation,
+        bytes memory implementationInitData,
+        string memory implementationContractType,
+        string memory implementationContractPath,
+        address deployer
     ) internal virtual returns (address proxy) {
         _requireActiveRun();
         if (bytes(proxyKey).length == 0) {
             revert KeyRequired();
         }
-        if (bytes(implementationKey).length == 0) {
-            revert ImplementationKeyRequired();
-        }
-
-        // Check implementation exists
-        if (!_has(implementationKey)) {
-            revert ImplementationKeyRequired();
-        }
-        address implementation = _get(implementationKey);
         require(implementation != address(0), "Implementation address is zero");
 
         // Compute salt for CREATE3 using system salt from data layer
@@ -439,58 +408,180 @@ abstract contract Deployment is DeploymentKeys {
             abi.encode(address(_stub), bytes(""))
         );
 
-        BaoDeployer deployer = BaoDeployer(factory);
+        BaoDeployer baoDeployer = BaoDeployer(factory);
+
         bytes32 commitment = DeploymentInfrastructure.commitment(
             address(this),
             0,
             salt,
             EfficientHashLib.hash(proxyCreationCode)
         );
-        deployer.commit(commitment);
-        proxy = deployer.reveal(proxyCreationCode, salt, 0);
+        baoDeployer.commit(commitment);
+        proxy = baoDeployer.reveal(proxyCreationCode, salt, 0);
 
-        if (value == 0) {
-            IUUPSUpgradeableProxy(proxy).upgradeToAndCall(implementation, implementationInitData);
-        } else {
-            IUUPSUpgradeableProxy(proxy).upgradeToAndCall{value: value}(implementation, implementationInitData);
-        }
+        // register keys
+        // the proxy
+        _registerImplementation(
+            proxyKey,
+            proxy,
+            "ERC1967Proxy",
+            "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+            deployer
+        );
+        // extra proxy keys
+        _setAddress(string.concat(proxyKey, ".factory"), factory);
+        _setString(string.concat(proxyKey, ".category"), "UUPS proxy");
 
-        // Store proxy keys
-        _set(proxyKey, proxy);
-        _setString(string.concat(proxyKey, ".implementation"), implementationKey);
-        _setString(string.concat(proxyKey, ".category"), "proxy");
+        _upgradeProxy(
+            value,
+            proxyKey,
+            implementation,
+            implementationInitData,
+            implementationContractType,
+            implementationContractPath,
+            deployer
+        );
     }
 
-    /// @notice Upgrade existing proxy to new implementation
+    /** @notice Upgrade existing proxy to new implementation
+     */
+
     function upgradeProxy(
         string memory proxyKey,
-        string memory newImplementationKey,
-        bytes memory initData
-    ) external virtual {
+        address newImplementation,
+        bytes memory implementationInitData,
+        string memory implementationContractType,
+        string memory implementationContractPath,
+        address deployer
+    ) public {
         _requireActiveRun();
-        if (bytes(proxyKey).length == 0 || bytes(newImplementationKey).length == 0) {
+        if (bytes(proxyKey).length == 0) {
             revert KeyRequired();
         }
+        _upgradeProxy(
+            0,
+            proxyKey,
+            newImplementation,
+            implementationInitData,
+            implementationContractType,
+            implementationContractPath,
+            deployer
+        );
+    }
 
-        // Check proxy and implementation exist
-        require(_has(proxyKey), "Proxy not found");
-        require(_has(newImplementationKey), "Implementation not found");
+    function upgradeProxy(
+        uint256 value,
+        string memory proxyKey,
+        address newImplementation,
+        bytes memory implementationInitData,
+        string memory implementationContractType,
+        string memory implementationContractPath,
+        address deployer
+    ) public payable {
+        _requireActiveRun();
+        if (bytes(proxyKey).length == 0) {
+            revert KeyRequired();
+        }
+        _upgradeProxy(
+            value,
+            proxyKey,
+            newImplementation,
+            implementationInitData,
+            implementationContractType,
+            implementationContractPath,
+            deployer
+        );
+    }
 
+    function _upgradeProxy(
+        uint256 value,
+        string memory proxyKey,
+        address newImplementation,
+        bytes memory implementationInitData,
+        string memory implementationContractType,
+        string memory implementationContractPath,
+        address deployer
+    ) private {
         address proxy = _get(proxyKey);
-        address newImplementation = _get(newImplementationKey);
 
         require(proxy != address(0), "Proxy address is zero");
         require(newImplementation != address(0), "Implementation address is zero");
 
         // Perform the upgrade
-        if (initData.length == 0) {
+        if ((implementationInitData.length == 0) && (value == 0)) {
             IUUPSUpgradeableProxy(proxy).upgradeTo(newImplementation);
-        } else {
-            IUUPSUpgradeableProxy(proxy).upgradeToAndCall(newImplementation, initData);
+        } else if ((implementationInitData.length == 0) && (value != 0)) {
+            revert CannotSendValueToNonPayableFunction();
+            // or upgrade and call
+        } else if ((implementationInitData.length != 0) && (value == 0)) {
+            IUUPSUpgradeableProxy(proxy).upgradeToAndCall(newImplementation, implementationInitData);
+        } else if ((implementationInitData.length == 0) && (value == 0)) {
+            IUUPSUpgradeableProxy(proxy).upgradeToAndCall{value: value}(newImplementation, implementationInitData);
         }
 
-        // Update implementation reference in data layer
-        _setString(string.concat(proxyKey, ".implementation"), newImplementationKey);
+        // implementation keys
+        string memory implementationKey = string.concat(proxyKey, ".implementation");
+        _registerImplementation(
+            implementationKey,
+            newImplementation,
+            implementationContractType,
+            implementationContractPath,
+            deployer
+        );
+    }
+
+    function predictableDeployContract(
+        uint256 value,
+        string memory key,
+        bytes memory initCode,
+        string memory contractType,
+        string memory contractPath,
+        address deployer
+    ) public payable virtual returns (address addr) {
+        if (msg.value != value) {
+            revert ValueMismatch(value, msg.value);
+        }
+        return _predictableDeployContract(value, key, initCode, contractType, contractPath, deployer);
+    }
+
+    function predictableDeployContract(
+        string memory key,
+        bytes memory initCode,
+        string memory contractType,
+        string memory contractPath,
+        address deployer
+    ) public virtual returns (address addr) {
+        return _predictableDeployContract(0, key, initCode, contractType, contractPath, deployer);
+    }
+
+    function _predictableDeployContract(
+        uint256 value,
+        string memory key,
+        bytes memory initCode,
+        string memory contractType,
+        string memory contractPath,
+        address deployer
+    ) internal virtual returns (address addr) {
+        _requireActiveRun();
+        if (bytes(key).length == 0) {
+            revert KeyRequired();
+        }
+
+        // Compute salt
+        bytes32 salt = EfficientHashLib.hash(abi.encodePacked(_getString(SYSTEM_SALT_STRING), "/", key, "/contract"));
+
+        // commit-reveal via to avoid front-running the deployment which could steal our address
+        address factory = DeploymentInfrastructure.predictBaoDeployerAddress();
+        BaoDeployer baoDeployer = BaoDeployer(factory);
+        baoDeployer.commit(DeploymentInfrastructure.commitment(address(this), value, salt, keccak256(initCode)));
+        addr = baoDeployer.reveal{value: value}(initCode, salt, value);
+
+        _registerImplementation(key, addr, contractType, contractPath, deployer);
+        _setString(string.concat(key, ".category"), "contract");
+        _setAddress(string.concat(key, ".factory"), factory);
+
+        // TODO: remove all the return addresses
+        return addr;
     }
 
     /// @notice Register existing contract address
@@ -504,44 +595,26 @@ abstract contract Deployment is DeploymentKeys {
         string memory key,
         address addr,
         string memory contractType,
-        string memory contractPath
+        string memory contractPath,
+        address deployer
     ) public {
         _requireActiveRun();
-        // Store contract keys
-        _set(key, addr);
-
-        // Optionally store metadata
-        _setString(string.concat(key, ".type"), contractType);
-        _setString(string.concat(key, ".path"), contractPath);
+        _registerImplementation(key, addr, contractType, contractPath, deployer);
+        _setString(string.concat(key, "..category"), "contract");
     }
 
-    /**
-     * @notice Register implementation with key derived from proxy key and contract type
-     * @dev Implementation key pattern: proxyKey__contractType
-     *      This ensures consistent implementation key generation across all deployers
-     * @param proxyKey The proxy key this implementation is for
-     * @param addr Implementation contract address
-     * @param contractType Contract type name (used in key derivation)
-     * @param contractPath Source file path (stored in data layer for reference)
-     * @return implKey The derived implementation key (proxyKey__contractType)
-     */
-    function registerImplementation(
-        string memory proxyKey,
+    function _registerImplementation(
+        string memory key,
         address addr,
         string memory contractType,
-        string memory contractPath
-    ) public returns (string memory implKey) {
-        _requireActiveRun();
-        implKey = _deriveImplementationKey(proxyKey, contractType);
-        registerContract(implKey, addr, contractType, contractPath);
-    }
-
-    /// @notice Derive the canonical implementation key for a proxy key and contract type
-    function _deriveImplementationKey(
-        string memory proxyKey,
-        string memory contractType
-    ) internal pure returns (string memory) {
-        return string.concat(proxyKey, "__", contractType);
+        string memory contractPath,
+        address deployer
+    ) private {
+        _set(key, addr);
+        _setString(string.concat(key, ".contractType"), contractType);
+        _setString(string.concat(key, ".contractPath"), contractPath);
+        _setAddress(string.concat(key, ".deployer"), deployer);
+        _setUint(string.concat(key, ".blockNumber"), block.number);
     }
 
     /// @notice Deploy library using CREATE
@@ -549,7 +622,8 @@ abstract contract Deployment is DeploymentKeys {
         string memory key,
         bytes memory bytecode,
         string memory contractType,
-        string memory contractPath
+        string memory contractPath,
+        address deployer
     ) public {
         _requireActiveRun();
 
@@ -561,10 +635,13 @@ abstract contract Deployment is DeploymentKeys {
             revert LibraryDeploymentFailed(key);
         }
 
+        // TODO: fix these keys
         _set(key, addr);
         _setString(string.concat(key, ".category"), "library");
-        _setString(string.concat(key, ".type"), contractType);
-        _setString(string.concat(key, ".path"), contractPath);
+        _setString(string.concat(key, ".contractType"), contractType);
+        _setString(string.concat(key, ".contractPath"), contractPath);
+        _setAddress(string.concat(key, ".deployer"), deployer);
+        _setUint(string.concat(key, ".blockNumber"), block.number);
     }
 
     // ============================================================================

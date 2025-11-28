@@ -17,20 +17,21 @@ import {LibString} from "@solady/utils/LibString.sol";
 contract MockDeploymentWorkflow is DeploymentTesting {
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
         MockERC20 token = new MockERC20(name, symbol, 18);
-        registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol");
+        registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol", address(this));
         return get(key);
     }
 
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
         OracleV1 impl = new OracleV1();
-        string memory implKey = registerImplementation(
+        bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
+        this.deployProxy(
             key,
             address(impl),
+            initData,
             "OracleV1",
-            "test/mocks/upgradeable/MockOracle.sol"
+            "test/mocks/upgradeable/MockOracle.sol",
+            address(this)
         );
-        bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
-        this.deployProxy(key, implKey, initData);
         return get(key);
     }
 
@@ -49,20 +50,22 @@ contract MockDeploymentWorkflow is DeploymentTesting {
 
         // Constructor parameters: immutable token addresses (rarely change)
         MockMinter impl = new MockMinter(collateral, pegged, leveraged);
-        string memory implKey = registerImplementation(
-            key,
-            address(impl),
-            "MockMinter",
-            "test/mocks/upgradeable/MockMinter.sol"
-        );
 
         // Initialize parameters: oracle (has update function), owner (two-step pattern)
-        return this.deployProxy(key, implKey, abi.encodeCall(MockMinter.initialize, (oracle, admin)));
+        return
+            this.deployProxy(
+                key,
+                address(impl),
+                abi.encodeCall(MockMinter.initialize, (oracle, admin)),
+                "MockMinter",
+                "test/mocks/upgradeable/MockMinter.sol",
+                address(this)
+            );
     }
 
     function deployMathLibrary(string memory key) public returns (address) {
         bytes memory bytecode = type(MathLib).creationCode;
-        deployLibrary(key, bytecode, "MathLib", "test/mocks/TestLibraries.sol");
+        deployLibrary(key, bytecode, "MathLib", "test/mocks/TestLibraries.sol", address(this));
         return get(key);
     }
 }

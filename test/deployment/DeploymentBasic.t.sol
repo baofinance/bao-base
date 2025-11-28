@@ -28,7 +28,13 @@ contract MyDeploymentJsonTesting is DeploymentJsonTesting {
     function deployMockImplementation(string memory key, uint256 initValue) public returns (address) {
         MockImplementation impl = new MockImplementation();
         impl.initialize(initValue);
-        registerImplementation(key, address(impl), "MockImplementation", "test/mocks/basic/MockImplementation.sol");
+        registerContract(
+            key,
+            address(impl),
+            "MockImplementation",
+            "test/mocks/basic/MockImplementation.sol",
+            address(this)
+        );
         setUint(MOCK_IMPLEMENTATION_INIT_VALUE, initValue);
         return get(key);
     }
@@ -51,7 +57,11 @@ contract DeploymentBasicTest is BaoDeploymentTest {
     function test_Initialize() public view {
         // Verify session metadata is set correctly after start()
         assertEq(deployment.getString(deployment.SESSION_NETWORK()), TEST_NETWORK, "Network should match");
-        assertEq(deployment.getAddress(deployment.SESSION_DEPLOYER()), address(deployment), "Deployer should be harness");
+        assertEq(
+            deployment.getAddress(deployment.SESSION_DEPLOYER()),
+            address(deployment),
+            "Deployer should be harness"
+        );
         assertGt(deployment.getUint(deployment.SESSION_START_TIMESTAMP()), 0, "Start timestamp should be set");
         assertGt(deployment.getUint(deployment.SESSION_START_BLOCK()), 0, "Start block should be set");
     }

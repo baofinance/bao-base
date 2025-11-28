@@ -14,6 +14,7 @@ import {IDeploymentDataWritable} from "@bao-script/deployment/interfaces/IDeploy
  */
 contract DeploymentJsonTesting is DeploymentJson, DeploymentTesting {
     DeploymentDataJsonTesting _dataJson;
+    string private _networkLabel; // Namespace for test suite outputs
 
     // TODO: get rid of this by creating a base deployment with deployment memory derived from it
     // TODO: factorize this as it's a copy of the super contract
@@ -35,5 +36,19 @@ contract DeploymentJsonTesting is DeploymentJson, DeploymentTesting {
 
     function fromJson(string memory json) public {
         _dataJson.fromJson(json);
+    }
+
+    /// @notice Set network label for test suite output namespace
+    /// @param label Network label (e.g., "mock-harbor", "test-suite-name")
+    function setNetworkLabel(string memory label) public {
+        _networkLabel = label;
+    }
+
+    /// @notice Set custom output filename for this test (prevents output collisions)
+    /// @param filename Custom filename without path or extension (e.g., "test_DeployProxy")
+    function setOutputFilename(string memory filename) public {
+        string memory network = bytes(_networkLabel).length > 0 ? _networkLabel : _dataJson.getString(SESSION_NETWORK);
+        string memory outputPath = string.concat("deployments/", network, "/", filename, ".json");
+        _dataJson.setOutputPath(outputPath);
     }
 }

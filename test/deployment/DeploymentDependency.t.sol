@@ -15,7 +15,7 @@ contract MockDeploymentDependency is DeploymentTesting {
 
     function deployOracle(string memory key, uint256 price) public returns (address) {
         MockOracle oracle = new MockOracle(price);
-        registerContract(key, address(oracle), "MockOracle", "test/mocks/basic/MockDependencies.sol");
+        registerContract(key, address(oracle), "MockOracle", "test/mocks/basic/MockDependencies.sol", address(this));
         return get(key);
     }
 
@@ -27,7 +27,7 @@ contract MockDeploymentDependency is DeploymentTesting {
     ) public returns (address) {
         address oracleAddr = get(oracleKey);
         MockToken token = new MockToken(oracleAddr, name, decimals);
-        registerContract(key, address(token), "MockToken", "test/mocks/basic/MockDependencies.sol");
+        registerContract(key, address(token), "MockToken", "test/mocks/basic/MockDependencies.sol", address(this));
         return get(key);
     }
 
@@ -35,7 +35,7 @@ contract MockDeploymentDependency is DeploymentTesting {
         address tokenAddr = get(tokenKey);
         address oracleAddr = get(oracleKey);
         MockMinter minter = new MockMinter(tokenAddr, oracleAddr);
-        registerContract(key, address(minter), "MockMinter", "test/MockMinter.sol");
+        registerContract(key, address(minter), "MockMinter", "test/MockMinter.sol", address(this));
         return get(key);
     }
 }

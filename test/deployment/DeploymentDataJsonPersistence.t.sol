@@ -184,7 +184,7 @@ contract DeploymentDataJsonPersistenceProxyTest is BaoDeploymentTest {
         MockHarborDeploymentDev harness = new MockHarborDeploymentDev();
 
         // Start deployment session with sequencing enabled
-        harness.start(address(this), PERSISTENCE_SUITE_LABEL, "proxy-workflow", "");
+        harness.start(PERSISTENCE_SUITE_LABEL, "proxy-workflow", "");
 
         // Enable sequencing on the data layer to capture each phase
         DeploymentDataJsonTesting dataLayer = DeploymentDataJsonTesting(harness.dataStore());
@@ -193,20 +193,20 @@ contract DeploymentDataJsonPersistenceProxyTest is BaoDeploymentTest {
         address admin = makeAddr("admin");
 
         // Phase 1: Set configuration for first token
-        harness.setString(HarborKeys.PEGGED_SYMBOL, "USD");
-        harness.setString(HarborKeys.PEGGED_NAME, "Harbor USD");
-        harness.setAddress(HarborKeys.PEGGED_OWNER, admin);
+        harness.setString(harness.PEGGED_SYMBOL(), "USD");
+        harness.setString(harness.PEGGED_NAME(), "Harbor USD");
+        harness.setAddress(harness.PEGGED_OWNER(), admin);
 
         // Phase 2: Deploy proxy using configuration
         address peggedProxy = harness.deployPegged();
         assertNotEq(peggedProxy, address(0), "Proxy should be deployed");
 
         // Phase 3: Verify deployment metadata was persisted
-        assertEq(harness.get(HarborKeys.PEGGED), peggedProxy, "Proxy address should be stored");
-        string memory implKey = harness.getString(string.concat(HarborKeys.PEGGED, ".implementation"));
+        assertEq(harness.get(harness.PEGGED()), peggedProxy, "Proxy address should be stored");
+        string memory implKey = harness.getString(string.concat(harness.PEGGED(), ".implementation"));
         assertEq(
             implKey,
-            string.concat(HarborKeys.PEGGED, "__MintableBurnableERC20_v1"),
+            string.concat(harness.PEGGED(), "__MintableBurnableERC20_v1"),
             "Implementation key should be stored"
         );
 

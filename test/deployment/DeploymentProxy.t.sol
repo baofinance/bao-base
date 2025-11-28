@@ -16,27 +16,26 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     address internal outsider;
     string constant TEST_NETWORK = "anvil";
     string constant TEST_SALT = "proxy-test";
-    string constant FILE_PREFIX = "DeploymentProxyTest-";
 
     function setUp() public override {
         super.setUp();
         deployment = new MockHarborDeploymentDev();
-        deployment.start(address(this), TEST_NETWORK, TEST_SALT, "");
+        deployment.start(TEST_NETWORK, TEST_SALT, "");
         admin = makeAddr("admin");
         outsider = makeAddr("outsider");
     }
 
     function test_DeployProxy() public {
-        deployment.setOutputFilename(string.concat(FILE_PREFIX, "test_DeployProxy"));
-        deployment.setString(HarborKeys.PEGGED_SYMBOL, "USD");
-        deployment.setString(HarborKeys.PEGGED_NAME, "Harbor USD");
-        deployment.setAddress(HarborKeys.PEGGED_OWNER, admin);
+        deployment.setOutputFilename("test_DeployProxy");
+        deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
+        deployment.setString(deployment.PEGGED_NAME(), "Harbor USD");
+        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
 
         address proxyAddr = deployment.deployPegged();
 
         assertTrue(proxyAddr != address(0), "Proxy should be deployed");
-        assertTrue(deployment.has(HarborKeys.PEGGED), "Proxy key should exist");
-        assertEq(deployment.get(HarborKeys.PEGGED), proxyAddr, "Stored address should match");
+        assertTrue(deployment.has(deployment.PEGGED()), "Proxy key should exist");
+        assertEq(deployment.get(deployment.PEGGED()), proxyAddr, "Stored address should match");
 
         // Verify proxy is working
         MintableBurnableERC20_v1 token = MintableBurnableERC20_v1(proxyAddr);
@@ -54,12 +53,12 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     }
 
     function test_PredictProxyAddress() public {
-        deployment.setOutputFilename(string.concat(FILE_PREFIX, "test_PredictProxyAddress"));
-        address predicted = deployment.predictProxyAddress(HarborKeys.PEGGED);
+        deployment.setOutputFilename("test_PredictProxyAddress");
+        address predicted = deployment.predictProxyAddress(deployment.PEGGED());
 
-        deployment.setString(HarborKeys.PEGGED_SYMBOL, "EUR");
-        deployment.setString(HarborKeys.PEGGED_NAME, "Harbor EUR");
-        deployment.setAddress(HarborKeys.PEGGED_OWNER, admin);
+        deployment.setString(deployment.PEGGED_SYMBOL(), "EUR");
+        deployment.setString(deployment.PEGGED_NAME(), "Harbor EUR");
+        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
 
         address actual = deployment.deployPegged();
 
@@ -67,87 +66,86 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     }
 
     function test_DeterministicProxyAddress() public {
-        deployment.setOutputFilename(string.concat(FILE_PREFIX, "test_DeterministicProxyAddress"));
+        deployment.setOutputFilename("test_DeterministicProxyAddress");
         // Same key with same salt should produce same address
-        address addr1 = deployment.predictProxyAddress(HarborKeys.PEGGED);
+        address addr1 = deployment.predictProxyAddress(deployment.PEGGED());
 
-        deployment.setString(HarborKeys.PEGGED_SYMBOL, "GBP");
-        deployment.setString(HarborKeys.PEGGED_NAME, "Harbor GBP");
-        deployment.setAddress(HarborKeys.PEGGED_OWNER, admin);
+        deployment.setString(deployment.PEGGED_SYMBOL(), "GBP");
+        deployment.setString(deployment.PEGGED_NAME(), "Harbor GBP");
+        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
 
         address deployed = deployment.deployPegged();
         assertEq(deployed, addr1, "Deployed address should match prediction");
 
         // Different deployment with different salt should produce different address
         MockHarborDeploymentDev deployment2 = new MockHarborDeploymentDev();
-        deployment2.start(address(this), TEST_NETWORK, "different-salt", "");
-        address addr2 = deployment2.predictProxyAddress(HarborKeys.PEGGED);
+        deployment2.start(TEST_NETWORK, "different-salt", "");
+        address addr2 = deployment2.predictProxyAddress(deployment2.PEGGED());
 
         assertNotEq(addr2, addr1, "Different salt should produce different address");
     }
 
     function test_MultipleProxies() public {
-        deployment.setOutputFilename(string.concat(FILE_PREFIX, "test_MultipleProxies"));
+        deployment.setOutputFilename("test_MultipleProxies");
         // Deploy first proxy
-        deployment.setString(HarborKeys.PEGGED_SYMBOL, "USD");
-        deployment.setString(HarborKeys.PEGGED_NAME, "Harbor USD");
-        deployment.setAddress(HarborKeys.PEGGED_OWNER, admin);
+        deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
+        deployment.setString(deployment.PEGGED_NAME(), "Harbor USD");
+        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
         address proxy1 = deployment.deployPegged();
 
         // To deploy a second proxy, we'd need a different key
         // The current Harbor deployment only has one pegged token
         // This test demonstrates that the first deployment works
-        assertTrue(deployment.has(HarborKeys.PEGGED), "First proxy should exist");
-        assertEq(deployment.get(HarborKeys.PEGGED), proxy1, "First proxy address should be stored");
+        assertTrue(deployment.has(deployment.PEGGED()), "First proxy should exist");
+        assertEq(deployment.get(deployment.PEGGED()), proxy1, "First proxy address should be stored");
 
         MintableBurnableERC20_v1 token1 = MintableBurnableERC20_v1(proxy1);
         assertEq(token1.symbol(), "USD", "First token symbol should be correct");
     }
 
     function test_RevertWhen_ProxyWithEmptyKey() public {
-        deployment.setOutputFilename(string.concat(FILE_PREFIX, "test_RevertWhen_ProxyWithEmptyKey"));
-
+        deployment.setOutputFilename("test_RevertWhen_ProxyWithEmptyKey");
         // Try to deploy with empty key - should revert with KeyRequired
         vm.expectRevert();
-        deployment.deployProxy("", "some-impl", "");
+        deployment.deployProxy("", address(this), "", "", "", address(this));
     }
 
     function test_RevertWhen_ProxyWithoutImplementation() public {
-        deployment.setOutputFilename(string.concat(FILE_PREFIX, "test_RevertWhen_ProxyWithoutImplementation"));
+        deployment.setOutputFilename("test_RevertWhen_ProxyWithoutImplementation");
         vm.expectRevert();
-        deployment.deployProxy(HarborKeys.PEGGED, "nonexistent_impl", "");
+        deployment.deployProxy(deployment.PEGGED(), address(0), "", "", "", address(this));
     }
 
     function test_ProxyMetadataStored() public {
-        deployment.setOutputFilename(string.concat(FILE_PREFIX, "test_ProxyMetadataStored"));
-        deployment.setString(HarborKeys.PEGGED_SYMBOL, "JPY");
-        deployment.setString(HarborKeys.PEGGED_NAME, "Harbor JPY");
-        deployment.setAddress(HarborKeys.PEGGED_OWNER, admin);
+        deployment.setOutputFilename("test_ProxyMetadataStored");
+        deployment.setString(deployment.PEGGED_SYMBOL(), "JPY");
+        deployment.setString(deployment.PEGGED_NAME(), "Harbor JPY");
+        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
 
         deployment.deployPegged();
 
         // Verify metadata is stored
-        string memory implKey = deployment.getString(string.concat(HarborKeys.PEGGED, ".implementation"));
+        string memory implKey = deployment.getString(string.concat(deployment.PEGGED(), ".implementation"));
         assertEq(
             implKey,
-            string.concat(HarborKeys.PEGGED, "__MintableBurnableERC20_v1"),
+            string.concat(deployment.PEGGED(), "__MintableBurnableERC20_v1"),
             "Implementation key should be stored"
         );
 
-        string memory category = deployment.getString(string.concat(HarborKeys.PEGGED, ".category"));
+        string memory category = deployment.getString(string.concat(deployment.PEGGED(), ".category"));
         assertEq(category, "proxy", "Category should be proxy");
     }
 
     function test_ImplementationReuse() public {
-        deployment.setOutputFilename(string.concat(FILE_PREFIX, "test_ImplementationReuse"));
+        deployment.setOutputFilename("test_ImplementationReuse");
         // Deploy pegged token
-        deployment.setString(HarborKeys.PEGGED_SYMBOL, "USD");
-        deployment.setString(HarborKeys.PEGGED_NAME, "Harbor USD");
-        deployment.setAddress(HarborKeys.PEGGED_OWNER, admin);
+        deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
+        deployment.setString(deployment.PEGGED_NAME(), "Harbor USD");
+        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
 
         deployment.deployPegged();
 
-        string memory implKey = string.concat(HarborKeys.PEGGED, "__MintableBurnableERC20_v1");
+        string memory implKey = string.concat(deployment.PEGGED(), "__MintableBurnableERC20_v1");
         address impl1 = deployment.get(implKey);
 
         assertNotEq(impl1, address(0), "Implementation should be deployed");

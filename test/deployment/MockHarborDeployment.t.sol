@@ -16,27 +16,25 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
 
     string internal constant TEST_NETWORK = "anvil";
     string internal constant TEST_SALT = "test";
-    string internal constant FILE_PREFIX = "MockHarborDeploymentTest-";
-    string internal constant HARBOR_SUITE_LABEL = "mock-harbor";
 
     function setUp() public override {
         super.setUp(); // Sets up deployment infrastructure (Nick's Factory + BaoDeployer)
         deployment = new MockHarborDeploymentDev();
-        deployment.setNetworkLabel(HARBOR_SUITE_LABEL); // No-op for backward compatibility
-        deployment.start(address(this), TEST_NETWORK, TEST_SALT, "");
+        deployment.setNetworkLabel("mock-harbor");
+        deployment.start(TEST_NETWORK, TEST_SALT, "");
         admin = makeAddr("admin");
     }
 
     /// @notice Test individual pegged token deployment
     function test_deployPegged() public {
-        deployment.setOutputFilename(string.concat(FILE_PREFIX, "test_deployPegged"));
+        deployment.setOutputFilename("test_deployPegged");
         // Pre-deployment configuration
-        deployment.setString(HarborKeys.PEGGED_SYMBOL, "USD");
-        deployment.setString(HarborKeys.PEGGED_NAME, "Harbor USD");
-        deployment.setAddress(HarborKeys.PEGGED_OWNER, admin);
+        deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
+        deployment.setString(deployment.PEGGED_NAME(), "Harbor USD");
+        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
 
         // Predict address before deployment
-        address predicted = deployment.predictProxyAddress(HarborKeys.PEGGED);
+        address predicted = deployment.predictProxyAddress(deployment.PEGGED());
 
         // Deploy
         address pegged = deployment.deployPegged();
@@ -44,7 +42,7 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
         // Verify deployment
         assertNotEq(pegged, address(0), "Pegged token should be deployed");
         assertEq(predicted, pegged, "Predicted address should match deployed");
-        assertEq(deployment.get(HarborKeys.PEGGED), pegged, "Stored address should match");
+        assertEq(deployment.get(deployment.PEGGED()), pegged, "Stored address should match");
 
         // Verify the token works
         MintableBurnableERC20_v1 token = MintableBurnableERC20_v1(pegged);
@@ -63,16 +61,16 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
 
     /// @notice Test that configuration is read from data layer
     function test_configurationFlow() public {
-        deployment.setOutputFilename(string.concat(FILE_PREFIX, "test_configurationFlow"));
+        deployment.setOutputFilename("test_configurationFlow");
         // Configure
-        deployment.setString(HarborKeys.PEGGED_SYMBOL, "EURO");
-        deployment.setString(HarborKeys.PEGGED_NAME, "Harbor Euro");
-        deployment.setAddress(HarborKeys.PEGGED_OWNER, admin);
+        deployment.setString(deployment.PEGGED_SYMBOL(), "EURO");
+        deployment.setString(deployment.PEGGED_NAME(), "Harbor Euro");
+        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
 
         // Verify configuration was stored
-        assertEq(deployment.getString(HarborKeys.PEGGED_SYMBOL), "EURO", "Symbol should be stored");
-        assertEq(deployment.getString(HarborKeys.PEGGED_NAME), "Harbor Euro", "Name should be stored");
-        assertEq(deployment.getAddress(HarborKeys.PEGGED_OWNER), admin, "Owner should be stored");
+        assertEq(deployment.getString(deployment.PEGGED_SYMBOL()), "EURO", "Symbol should be stored");
+        assertEq(deployment.getString(deployment.PEGGED_NAME()), "Harbor Euro", "Name should be stored");
+        assertEq(deployment.getAddress(deployment.PEGGED_OWNER()), admin, "Owner should be stored");
 
         // Deploy using that configuration
         address pegged = deployment.deployPegged();
@@ -84,15 +82,15 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
 
     /// @notice Test predictable addressing
     function test_predictableAddress() public {
-        deployment.setOutputFilename(string.concat(FILE_PREFIX, "test_predictableAddress"));
+        deployment.setOutputFilename("test_predictableAddress");
         // Predict address
-        address predicted = deployment.predictProxyAddress(HarborKeys.PEGGED);
+        address predicted = deployment.predictProxyAddress(deployment.PEGGED());
         assertTrue(predicted != address(0), "Predicted address should not be zero");
 
         // Configure and deploy
-        deployment.setString(HarborKeys.PEGGED_SYMBOL, "GBP");
-        deployment.setString(HarborKeys.PEGGED_NAME, "Harbor Pound");
-        deployment.setAddress(HarborKeys.PEGGED_OWNER, admin);
+        deployment.setString(deployment.PEGGED_SYMBOL(), "GBP");
+        deployment.setString(deployment.PEGGED_NAME(), "Harbor Pound");
+        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
 
         address deployed = deployment.deployPegged();
 
@@ -102,18 +100,18 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
 
     /// @notice Test that contract existence can be checked
     function test_checkContractExists() public {
-        deployment.setOutputFilename(string.concat(FILE_PREFIX, "test_checkContractExists"));
+        deployment.setOutputFilename("test_checkContractExists");
         // Before deployment
-        assertFalse(deployment.has(HarborKeys.PEGGED), "Pegged should not exist yet");
+        assertFalse(deployment.has(deployment.PEGGED()), "Pegged should not exist yet");
 
         // Configure and deploy
-        deployment.setString(HarborKeys.PEGGED_SYMBOL, "CHF");
-        deployment.setString(HarborKeys.PEGGED_NAME, "Harbor Franc");
-        deployment.setAddress(HarborKeys.PEGGED_OWNER, admin);
+        deployment.setString(deployment.PEGGED_SYMBOL(), "CHF");
+        deployment.setString(deployment.PEGGED_NAME(), "Harbor Franc");
+        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
         deployment.deployPegged();
 
         // After deployment
-        assertTrue(deployment.has(HarborKeys.PEGGED), "Pegged should exist now");
+        assertTrue(deployment.has(deployment.PEGGED()), "Pegged should exist now");
     }
 
     /// @notice Test that invalid keys are rejected

@@ -253,7 +253,10 @@ abstract contract DeploymentKeys {
      * @param key The full contract key (e.g., "contracts.pegged")
      */
     function addProxy(string memory key) public {
-        addContract(key);
+        _addImplementation(key);
+        _registerKey(string.concat(key, ".category"), DataType.STRING);
+        _registerKey(string.concat(key, ".factory"), DataType.ADDRESS);
+
         string memory implementationKey = string.concat(key, ".implementation");
         _addImplementation(implementationKey);
     }
@@ -288,7 +291,6 @@ abstract contract DeploymentKeys {
         _registerKey(string.concat(key, ".contractType"), DataType.STRING);
         _registerKey(string.concat(key, ".contractPath"), DataType.STRING);
         _registerKey(string.concat(key, ".deployer"), DataType.ADDRESS);
-        _registerKey(string.concat(key, ".transactionHash"), DataType.STRING);
         _registerKey(string.concat(key, ".blockNumber"), DataType.UINT);
     }
 

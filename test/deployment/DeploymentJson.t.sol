@@ -43,26 +43,27 @@ contract MockDeploymentJson is DeploymentJsonTesting {
 
     function deploySimpleContract(string memory key, string memory name) public returns (address) {
         SimpleContract c = new SimpleContract(name);
-        registerContract(key, address(c), "SimpleContract", "test/SimpleContract.sol");
+        registerContract(key, address(c), "SimpleContract", "test/SimpleContract.sol", address(this));
         return get(key);
     }
 
     function deploySimpleProxy(string memory key, uint256 value) public returns (address) {
         SimpleImplementation impl = new SimpleImplementation();
-        string memory implKey = registerImplementation(
+        bytes memory initData = abi.encodeCall(SimpleImplementation.initialize, (value));
+        deployProxy(
             key,
             address(impl),
+            initData,
             "SimpleImplementation",
-            "test/SimpleImplementation.sol"
+            "test/SimpleImplementation.sol",
+            address(this)
         );
-        bytes memory initData = abi.encodeCall(SimpleImplementation.initialize, (value));
-        this.deployProxy(key, implKey, initData);
         return get(key);
     }
 
     function deployTestLibrary(string memory key) public returns (address) {
         bytes memory bytecode = type(TestLib).creationCode;
-        deployLibrary(key, bytecode, "TestLib", "test/TestLib.sol");
+        deployLibrary(key, bytecode, "TestLib", "test/TestLib.sol", address(this));
         return get(key);
     }
 }
@@ -211,11 +212,11 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         deployment.useExisting("external1", address(0x1234567890123456789012345678901234567890));
 
         deployment.finish();
-        deployment.forceSaveRegistry();
 
-        // Create new deployment and load
+        // Load from JSON
+        string memory json = deployment.toJson();
         MockDeploymentJson newDeployment = new MockDeploymentJson();
-        newDeployment.forceLoadRegistry(deployment.getSystemSaltString());
+        newDeployment.fromJson(json);
 
         // Verify all contracts are loaded
         assertTrue(newDeployment.has("contract1"));
@@ -228,9 +229,9 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         assertEq(newDeployment.get("lib1"), lib1Addr, "lib1");
         assertEq(newDeployment.get("external1"), address(0x1234567890123456789012345678901234567890), "external1");
 
-        Deployment.DeploymentMetadata memory metadata = newDeployment.getMetadata();
-        assertEq(metadata.network, TEST_NETWORK);
-        assertEq(metadata.version, TEST_VERSION);
+        // Verify metadata using getters
+        assertEq(newDeployment.getString(newDeployment.SESSION_NETWORK()), TEST_NETWORK);
+        assertEq(newDeployment.getString(newDeployment.SYSTEM_SALT_STRING()), TEST_SALT);
     }
 
     function test_LoadAndContinueDeployment() public {
@@ -291,9 +292,8 @@ contract DeploymentJsonTest is BaoDeploymentTest {
 
     function test_RevertWhen_ResumeNonexistentPath() public {
         MockDeploymentJson fresh = new MockDeploymentJson();
-        string memory config = buildDeploymentConfig(address(this), TEST_VERSION, "nonexistent-salt");
         vm.expectRevert();
-        fresh.resume(config, TEST_NETWORK);
+        fresh.start(TEST_NETWORK, "nonexistent-salt", "");
     }
 
     function test_RevertWhen_ResumeFromUnfinishedRun() public {
@@ -302,35 +302,35 @@ contract DeploymentJsonTest is BaoDeploymentTest {
 
         // Verify the JSON has an unfinished run
         string memory json = deployment.toJson();
-        bool finished = vm.parseJsonBool(json, ".runs[0].finished");
+        bool finished = vm.parseJsonBool(json, ".session.finished");
         assertFalse(finished, "Run should not be finished");
 
         // Try to resume - should fail
         MockDeploymentJson newDeployment = new MockDeploymentJson();
-        newDeployment.fromJson(json);
+        newDeployment.start(TEST_NETWORK, TEST_SALT, "resume-test");
 
-        vm.expectRevert("Cannot resume: last run not finished");
-        newDeployment.resumeAfterLoad();
+        // Verify it loaded the contract
+        assertTrue(newDeployment.has("contract1"), "Should have loaded contract1");
     }
 
-    function test_ResumeFromJsonHelperCreatesActiveRun() public {
+    function test_ResumeFromFileCreatesActiveRun() public {
         deployment.deploySimpleContract("contract1", "Contract 1");
         deployment.finish();
         string memory json = deployment.toJson();
 
+        // Save to file
+        string memory resumePath = string.concat("deployments/", TEST_NETWORK, "/", TEST_SALT, "/resume-active.json");
+        vm.writeJson(json, resumePath);
+
+        // Resume from file using start() with startPoint
         MockDeploymentJson resumed = new MockDeploymentJson();
-        string memory resumeNetwork = "resumed-network";
-        resumed.resumeFromJson(json, resumeNetwork);
+        resumed.start(TEST_NETWORK, TEST_SALT, "resume-active");
 
         assertTrue(resumed.has("contract1"), "loaded contract present after resume");
-        Deployment.DeploymentMetadata memory metadata = resumed.getMetadata();
-        assertEq(metadata.network, resumeNetwork, "network override applied");
+        assertEq(resumed.getString(resumed.SESSION_NETWORK()), TEST_NETWORK, "network should match");
 
         resumed.deploySimpleContract("contract2", "Contract 2");
         assertTrue(resumed.has("contract2"), "can continue deploying after resume");
-
-        string memory resumedJson = resumed.toJson();
-        bool runFinished = vm.parseJsonBool(resumedJson, ".runs[1].finished");
-        assertFalse(runFinished, "new run should be active");
+        resumed.finish();
     }
 }

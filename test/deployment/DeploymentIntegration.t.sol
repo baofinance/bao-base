@@ -75,20 +75,21 @@ contract MockDeploymentIntegration is DeploymentJsonTesting {
 
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
         MockERC20 token = new MockERC20(name, symbol, 18);
-        registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol");
+        registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol", address(this));
         return get(key);
     }
 
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
         OracleV1 impl = new OracleV1();
-        string memory implKey = registerImplementation(
+        bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
+        this.deployProxy(
             key,
             address(impl),
+            initData,
             "OracleV1",
-            "test/mocks/upgradeable/MockOracle.sol"
+            "test/mocks/upgradeable/MockOracle.sol",
+            address(this)
         );
-        bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
-        this.deployProxy(key, implKey, initData);
         return get(key);
     }
 
@@ -105,21 +106,22 @@ contract MockDeploymentIntegration is DeploymentJsonTesting {
 
         // Constructor parameters: immutable token addresses (rarely change, require upgrade to modify)
         MockMinter impl = new MockMinter(collateral, pegged, oracle);
-        string memory implKey = registerImplementation(
-            key,
-            address(impl),
-            "MockMinter",
-            "test/mocks/upgradeable/MockMinter.sol"
-        );
-
         // Initialize parameters: oracle (has update function), owner (two-step pattern)
         bytes memory initData = abi.encodeCall(MockMinter.initialize, (oracle, admin));
-        return this.deployProxy(key, implKey, initData);
+        return
+            this.deployProxy(
+                key,
+                address(impl),
+                initData,
+                "MockMinter",
+                "test/mocks/upgradeable/MockMinter.sol",
+                address(this)
+            );
     }
 
     function deployConfigLibrary(string memory key) public returns (address) {
         bytes memory bytecode = type(ConfigLib).creationCode;
-        deployLibrary(key, bytecode, "ConfigLib", "test/ConfigLib.sol");
+        deployLibrary(key, bytecode, "ConfigLib", "test/ConfigLib.sol", address(this));
         return get(key);
     }
 }
@@ -284,21 +286,36 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
     function test_MultipleProxiesWithSameImplementation() public {
         // Deploy one implementation
         OracleV1 impl = new OracleV1();
-        string memory implKey = deployment.registerImplementation(
-            "oracle_impl",
-            address(impl),
-            "OracleV1",
-            "test/mocks/upgradeable/MockOracle.sol"
-        );
 
         // Deploy multiple proxies
         bytes memory initData1 = abi.encodeCall(OracleV1.initialize, (1000e18, admin));
         bytes memory initData2 = abi.encodeCall(OracleV1.initialize, (2000e18, admin));
         bytes memory initData3 = abi.encodeCall(OracleV1.initialize, (3000e18, admin));
 
-        address proxy1 = deployment.deployProxy("oracle1", implKey, initData1);
-        address proxy2 = deployment.deployProxy("oracle2", implKey, initData2);
-        address proxy3 = deployment.deployProxy("oracle3", implKey, initData3);
+        address proxy1 = deployment.deployProxy(
+            "oracle1",
+            address(impl),
+            initData1,
+            "OracleV1",
+            "test/mocks/upgradeable/MockOracle.sol",
+            address(this)
+        );
+        address proxy2 = deployment.deployProxy(
+            "oracle2",
+            address(impl),
+            initData2,
+            "OracleV1",
+            "test/mocks/upgradeable/MockOracle.sol",
+            address(this)
+        );
+        address proxy3 = deployment.deployProxy(
+            "oracle3",
+            address(impl),
+            initData3,
+            "OracleV1",
+            "test/mocks/upgradeable/MockOracle.sol",
+            address(this)
+        );
 
         // Verify each has different address but same implementation
         assertNotEq(proxy1, proxy2);
@@ -321,15 +338,16 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         // Now deploy minter2 that depends on minter1
         // Constructor: immutable token addresses
         MockMinter minter2Impl = new MockMinter(minter1, token2, oracle);
-        string memory implKey = deployment.registerImplementation(
-            "minter2_impl",
-            address(minter2Impl),
-            "MockMinter",
-            "test/mocks/upgradeable/MockMinter.sol"
-        );
         // Initialize: oracle (has update function), owner
         bytes memory initData = abi.encodeCall(MockMinter.initialize, (oracle, admin));
-        address minter2 = deployment.deployProxy("minter2", implKey, initData);
+        address minter2 = deployment.deployProxy(
+            "minter2",
+            address(minter2Impl),
+            initData,
+            "MockMinter",
+            "test/mocks/upgradeable/MockMinter.sol",
+            address(this)
+        );
 
         // Verify dependency chain
         MockMinter m2 = MockMinter(minter2);

@@ -5,7 +5,7 @@ import {DeploymentKeys} from "@bao-script/deployment/DeploymentKeys.sol";
 import {IDeploymentDataWritable} from "@bao-script/deployment/interfaces/IDeploymentDataWritable.sol";
 import {DeploymentDataJsonTesting} from "@bao-script/deployment/DeploymentDataJsonTesting.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
-import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
+import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 
 /**
  * @title MockHarborDeploymentProduction
@@ -15,7 +15,7 @@ import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
  *      - No public setString/setAddress methods
  *      - Choice of JSON vs Memory is runtime via _createDataLayer()
  */
-contract MockHarborDeploymentProduction is DeploymentTesting {
+contract MockHarborDeploymentProduction is DeploymentJsonTesting {
     // ============================================================================
     // Abstract Method Implementations
     // ============================================================================
@@ -50,15 +50,16 @@ contract MockHarborDeploymentProduction is DeploymentTesting {
         address owner = _getAddress(PEGGED_OWNER);
 
         MintableBurnableERC20_v1 impl = new MintableBurnableERC20_v1();
-        string memory implKey = registerImplementation(
-            PEGGED,
-            address(impl),
-            "MintableBurnableERC20_v1",
-            "src/MintableBurnableERC20_v1.sol"
-        );
 
         bytes memory initData = abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, name, symbol));
-        proxy = this.deployProxy(PEGGED, implKey, initData);
+        proxy = this.deployProxy(
+            PEGGED,
+            address(impl),
+            initData,
+            "MintableBurnableERC20_v1",
+            "src/MintableBurnableERC20_v1.sol",
+            address(this)
+        );
 
         return proxy;
     }
