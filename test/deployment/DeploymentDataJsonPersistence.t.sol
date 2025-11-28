@@ -177,52 +177,51 @@ contract DeploymentDataJsonPersistenceTest is DeploymentLogsTest {
  * @notice Tests proxy deployment workflow with sequenced file persistence
  * @dev Extends BaoDeploymentTest to get deployment infrastructure (BaoDeployer, etc.)
  */
-// TODO:
-// contract DeploymentDataJsonPersistenceProxyTest is BaoDeploymentTest {
-//     function test_MultipleWritesWithProxyDeployment() public {
-//         // This test demonstrates the full deployment workflow across sequenced phases
-//         // using the actual proxy deployment code path
-//         MockHarborDeploymentDev harness = new MockHarborDeploymentDev();
+contract DeploymentDataJsonPersistenceProxyTest is BaoDeploymentTest {
+    function test_MultipleWritesWithProxyDeployment() public {
+        // This test demonstrates the full deployment workflow across sequenced phases
+        // using the actual proxy deployment code path
+        MockHarborDeploymentDev harness = new MockHarborDeploymentDev();
 
-//         // Start deployment session with sequencing enabled
-//         harness.start(address(this), PERSISTENCE_SUITE_LABEL, "proxy-workflow", "");
+        // Start deployment session with sequencing enabled
+        harness.start(address(this), PERSISTENCE_SUITE_LABEL, "proxy-workflow", "");
 
-//         // Enable sequencing on the data layer to capture each phase
-//         DeploymentDataJsonTesting dataLayer = DeploymentDataJsonTesting(harness.dataStore());
-//         dataLayer.enableSequencing();
+        // Enable sequencing on the data layer to capture each phase
+        DeploymentDataJsonTesting dataLayer = DeploymentDataJsonTesting(harness.dataStore());
+        dataLayer.enableSequencing();
 
-//         address admin = makeAddr("admin");
+        address admin = makeAddr("admin");
 
-//         // Phase 1: Set configuration for first token
-//         harness.setString(HarborKeys.PEGGED_SYMBOL, "USD");
-//         harness.setString(HarborKeys.PEGGED_NAME, "Harbor USD");
-//         harness.setAddress(HarborKeys.PEGGED_OWNER, admin);
+        // Phase 1: Set configuration for first token
+        harness.setString(HarborKeys.PEGGED_SYMBOL, "USD");
+        harness.setString(HarborKeys.PEGGED_NAME, "Harbor USD");
+        harness.setAddress(HarborKeys.PEGGED_OWNER, admin);
 
-//         // Phase 2: Deploy proxy using configuration
-//         address peggedProxy = harness.deployPegged();
-//         assertNotEq(peggedProxy, address(0), "Proxy should be deployed");
+        // Phase 2: Deploy proxy using configuration
+        address peggedProxy = harness.deployPegged();
+        assertNotEq(peggedProxy, address(0), "Proxy should be deployed");
 
-//         // Phase 3: Verify deployment metadata was persisted
-//         assertEq(harness.get(HarborKeys.PEGGED), peggedProxy, "Proxy address should be stored");
-//         string memory implKey = harness.getString(string.concat(HarborKeys.PEGGED, ".implementation"));
-//         assertEq(
-//             implKey,
-//             string.concat(HarborKeys.PEGGED, "__MintableBurnableERC20_v1"),
-//             "Implementation key should be stored"
-//         );
+        // Phase 3: Verify deployment metadata was persisted
+        assertEq(harness.get(HarborKeys.PEGGED), peggedProxy, "Proxy address should be stored");
+        string memory implKey = harness.getString(string.concat(HarborKeys.PEGGED, ".implementation"));
+        assertEq(
+            implKey,
+            string.concat(HarborKeys.PEGGED, "__MintableBurnableERC20_v1"),
+            "Implementation key should be stored"
+        );
 
-//         // Phase 4: Verify proxy works correctly
-//         MintableBurnableERC20_v1 token = MintableBurnableERC20_v1(peggedProxy);
-//         assertEq(token.symbol(), "USD", "Symbol should match configuration");
-//         assertEq(token.name(), "Harbor USD", "Name should match configuration");
-//         assertEq(token.owner(), address(harness), "Harness should be initial owner");
+        // Phase 4: Verify proxy works correctly
+        MintableBurnableERC20_v1 token = MintableBurnableERC20_v1(peggedProxy);
+        assertEq(token.symbol(), "USD", "Symbol should match configuration");
+        assertEq(token.name(), "Harbor USD", "Name should match configuration");
+        assertEq(token.owner(), address(harness), "Harness should be initial owner");
 
-//         // Phase 5: Transfer ownership
-//         vm.prank(address(harness));
-//         token.transferOwnership(admin);
-//         assertEq(token.owner(), admin, "Ownership should be transferred");
+        // Phase 5: Transfer ownership
+        vm.prank(address(harness));
+        token.transferOwnership(admin);
+        assertEq(token.owner(), admin, "Ownership should be transferred");
 
-//         // All phases should be persisted in sequenced files (.001.json through .005.json)
-//         // Each file shows progression of deployment state
-//     }
-// }
+        // All phases should be persisted in sequenced files (.001.json through .005.json)
+        // Each file shows progression of deployment state
+    }
+}

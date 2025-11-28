@@ -48,18 +48,14 @@ contract DeploymentBasicTest is BaoDeploymentTest {
         deployment = new MyDeploymentJsonTesting();
         deployment.start(TEST_NETWORK, TEST_SALT, "");
     }
-    /* TODO:
-
     function test_Initialize() public view {
-        Deployment.DeploymentMetadata memory metadata = deployment.getMetadata();
-        assertEq(metadata.deployer, address(deployment)); // deployer is the harness
-        assertEq(metadata.owner, address(this)); // owner is the test
-        assertEq(metadata.network, "test");
-        assertEq(metadata.version, "v1.0.0");
-        assertTrue(metadata.startTimestamp > 0);
-        assertTrue(metadata.startBlock > 0);
+        // Verify session metadata is set correctly after start()
+        assertEq(deployment.getString(deployment.SESSION_NETWORK()), TEST_NETWORK, "Network should match");
+        assertEq(deployment.getAddress(deployment.SESSION_DEPLOYER()), address(deployment), "Deployer should be harness");
+        assertGt(deployment.getUint(deployment.SESSION_START_TIMESTAMP()), 0, "Start timestamp should be set");
+        assertGt(deployment.getUint(deployment.SESSION_START_BLOCK()), 0, "Start block should be set");
     }
-*/
+
     function test_DeployContract() public {
         address mockAddr = deployment.deployMockContract("mock1", "Mock Contract 1");
 
@@ -116,24 +112,11 @@ contract DeploymentBasicTest is BaoDeploymentTest {
         assertEq(keys[1], "mock2");
     }
 
-    /* TODO:
-    function test_RevertWhen_ContractNotFound() public {
-        vm.expectRevert(abi.encodeWithSelector(MyDeploymentJsonTesting.KeyNotRegistered.selector, "nonexistent"));
-        deployment.get("nonexistent");
-    }
-
-    function test_RevertWhen_ContractAlreadyExists() public {
-        deployment.deployMockContract("mock1", "Mock 1");
-
-        vm.expectRevert(abi.encodeWithSelector(MyDeploymentJsonTesting.ContractAlreadyExists.selector, "mock1"));
-        deployment.deployMockContract("mock1", "Mock 1");
-    }
-
     function test_RevertWhen_InvalidAddress() public {
-        vm.expectRevert(abi.encodeWithSelector(MyDeploymentJsonTesting.InvalidAddress.selector, "invalid"));
+        // useExisting should reject address(0)
+        vm.expectRevert();
         deployment.useExisting("invalid", address(0));
     }
-    */
 
     function test_Finish() public {
         deployment.finish();

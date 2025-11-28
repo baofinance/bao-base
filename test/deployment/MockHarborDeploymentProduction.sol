@@ -21,14 +21,14 @@ contract MockHarborDeploymentProduction is DeploymentTesting {
     // ============================================================================
 
     // Contract keys (top-level, no dots)
-    string constant PEGGED = "contracts.pegged";
-    string constant PEGGED_IMPLEMENTATION = "contracts.pegged.implementation";
-    string constant PEGGED_IMPLEMENTATION_LABEL = "pegged.implementation";
+    string public constant PEGGED = "contracts.pegged";
+    string public constant PEGGED_IMPLEMENTATION = "contracts.pegged.implementation";
+    string public constant PEGGED_IMPLEMENTATION_LABEL = "pegged.implementation";
 
     // Pegged token configuration keys
-    string constant PEGGED_SYMBOL = "contracts.pegged.symbol";
-    string constant PEGGED_NAME = "contracts.pegged.name";
-    string constant PEGGED_OWNER = "contracts.pegged.owner";
+    string public constant PEGGED_SYMBOL = "contracts.pegged.symbol";
+    string public constant PEGGED_NAME = "contracts.pegged.name";
+    string public constant PEGGED_OWNER = "contracts.pegged.owner";
 
     constructor() {
         addKey(PEGGED);
