@@ -83,17 +83,22 @@ contract MockDeploymentJson is DeploymentJsonTesting {
 contract DeploymentJsonTest is BaoDeploymentTest {
     MockDeploymentJson public deployment;
 
-    string constant TEST_NETWORK = "test-network";
-    string constant TEST_SALT = "json-test-salt";
+    string constant TEST_SALT = "DeploymentJsonTest";
 
     function setUp() public override {
         super.setUp();
         deployment = new MockDeploymentJson();
-        _resetDeploymentLogs(TEST_SALT, TEST_NETWORK, "{}");
-        deployment.start(TEST_NETWORK, TEST_SALT, "");
+    }
+
+    /// @notice Helper to start deployment with test-specific network name
+    function _startDeployment(string memory network) internal {
+        _resetDeploymentLogs(TEST_SALT, network, "{}");
+        deployment.start(network, TEST_SALT, "");
     }
 
     function test_SaveEmptyDeployment() public {
+        _startDeployment("test_SaveEmptyDeployment");
+        
         // Use toJson() for verification without saving file
         string memory json = deployment.toJson();
         assertTrue(bytes(json).length > 0);
@@ -106,10 +111,12 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         assertEq(deployer, address(deployment)); // deployer is the harness
 
         string memory network = vm.parseJsonString(json, ".session.network");
-        assertEq(network, TEST_NETWORK);
+        assertEq(network, "test_SaveEmptyDeployment");
     }
 
     function test_RunSerializationIncludesFinishFieldsWhenActive() public {
+        _startDeployment("test_RunSerializationIncludesFinishFieldsWhenActive");
+        
         string memory json = deployment.toJson();
 
         // All finish fields should NOT exist when session is active (cleaner JSON)
@@ -119,6 +126,8 @@ contract DeploymentJsonTest is BaoDeploymentTest {
     }
 
     function test_SaveContractToJson() public {
+        _startDeployment("test_SaveContractToJson");
+        
         deployment.deploySimpleContract("contract1", "Test Contract");
         deployment.finish();
 
@@ -140,7 +149,9 @@ contract DeploymentJsonTest is BaoDeploymentTest {
     }
 
     function test_SaveProxyToJson() public {
-        deployment.deploySimpleProxy("proxy1", 100);
+        _startDeployment("test_SaveProxyToJson");
+        
+        deployment.deploySimpleProxy("proxy1", 0);
         deployment.finish();
 
         // Use toJson() for verification without saving file
@@ -208,8 +219,10 @@ contract DeploymentJsonTest is BaoDeploymentTest {
     }
 
     function test_LoadFromJson() public {
+        _startDeployment("test_LoadFromJson");
+        
         // First, save a deployment
-        deployment.deploySimpleContract("contract1", "Contract 1");
+        deployment.deploySimpleContract("contract1", "Test Contract");
         deployment.deploySimpleProxy("proxy1", 10);
         deployment.deployTestLibrary("lib1");
         deployment.useExisting("contracts.external1", address(0x1234567890123456789012345678901234567890));
@@ -242,13 +255,15 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         );
 
         // Verify metadata using getters
-        assertEq(newDeployment.getString(newDeployment.SESSION_NETWORK()), TEST_NETWORK);
+        assertEq(newDeployment.getString(newDeployment.SESSION_NETWORK()), "test_LoadFromJson");
         assertEq(newDeployment.getString(newDeployment.SYSTEM_SALT_STRING()), TEST_SALT);
     }
 
     function test_LoadAndContinueDeployment() public {
+        _startDeployment("test_LoadAndContinueDeployment");
+        
         // Save initial deployment
-        deployment.deploySimpleContract("contract1", "Contract 1");
+        deployment.deploySimpleContract("contract1", "Test Contract");
         deployment.finish();
         string memory json = deployment.toJson();
 
@@ -270,6 +285,8 @@ contract DeploymentJsonTest is BaoDeploymentTest {
     }
 
     function test_JsonContainsBlockNumber() public {
+        _startDeployment("test_JsonContainsBlockNumber");
+        
         uint256 deployBlock = block.number;
 
         deployment.deploySimpleContract("contract1", "Contract 1");
@@ -305,10 +322,12 @@ contract DeploymentJsonTest is BaoDeploymentTest {
     function test_RevertWhen_ResumeNonexistentPath() public {
         MockDeploymentJson fresh = new MockDeploymentJson();
         vm.expectRevert();
-        fresh.start(TEST_NETWORK, "nonexistent-salt", "");
+        fresh.start("test_RevertWhen_ResumeNonexistentPath", "nonexistent-salt", "");
     }
 
     function test_RevertWhen_ResumeFromUnfinishedRun() public {
+        _startDeployment("test_RevertWhen_ResumeFromUnfinishedRun");
+        
         // Deploy contract but DON'T call finish()
         deployment.deploySimpleContract("contract1", "Contract 1");
 
@@ -318,27 +337,29 @@ contract DeploymentJsonTest is BaoDeploymentTest {
 
         // Try to resume - should fail
         MockDeploymentJson newDeployment = new MockDeploymentJson();
-        newDeployment.start(TEST_NETWORK, TEST_SALT, "resume-test");
+        newDeployment.start("test_RevertWhen_ResumeFromUnfinishedRun", TEST_SALT, "resume-test");
 
         // Verify it loaded the contract
         assertTrue(newDeployment.has("contract1"), "Should have loaded contract1");
     }
 
     function test_ResumeFromFileCreatesActiveRun() public {
+        _startDeployment("test_ResumeFromFileCreatesActiveRun");
+        
         deployment.deploySimpleContract("contract1", "Contract 1");
         deployment.finish();
         string memory json = deployment.toJson();
 
         // Save to file
-        string memory resumePath = string.concat("deployments/", TEST_NETWORK, "/", TEST_SALT, "/resume-active.json");
+        string memory resumePath = string.concat("deployments/", "test_ResumeFromFileCreatesActiveRun", "/", TEST_SALT, "/resume-active.json");
         vm.writeJson(json, resumePath);
 
         // Resume from file using start() with startPoint
         MockDeploymentJson resumed = new MockDeploymentJson();
-        resumed.start(TEST_NETWORK, TEST_SALT, "resume-active");
+        resumed.start("test_ResumeFromFileCreatesActiveRun", TEST_SALT, "resume-active");
 
         assertTrue(resumed.has("contracts.contract1"), "loaded contract present after resume");
-        assertEq(resumed.getString(resumed.SESSION_NETWORK()), TEST_NETWORK, "network should match");
+        assertEq(resumed.getString(resumed.SESSION_NETWORK()), "test_ResumeFromFileCreatesActiveRun", "network should match");
 
         resumed.deploySimpleContract("contract2", "Contract 2");
         assertTrue(resumed.has("contracts.contract2"), "can continue deploying after resume");

@@ -45,50 +45,56 @@ contract CounterV2 is CounterV1 {
  */
 contract MockDeploymentUpgrade is DeploymentJsonTesting {
     constructor() {
-        // Register all possible contract keys used in tests
-        addProxy("oz_proxy");
-        addProxy("counter");
-        addProxy("counterV2");
-        addProxy("Oracle");
-        addProxy("Oracle1");
-        addProxy("Oracle2");
-        addProxy("Counter");
+        // Register all possible contract keys used in tests with contracts. prefix
+        addProxy("contracts.oz_proxy");
+        addProxy("contracts.counter");
+        addProxy("contracts.counterV2");
+        addProxy("contracts.Oracle");
+        addProxy("contracts.Oracle1");
+        addProxy("contracts.Oracle2");
+        addProxy("contracts.Counter");
 
         // Register .type keys for metadata (addProxy registers .contractType but tests use .type)
-        addStringKey("Oracle.type");
-        addStringKey("Oracle1.type");
-        addStringKey("Oracle2.type");
-        addStringKey("Counter.type");
-        addStringKey("oz_proxy.type");
-        addStringKey("counter.type");
-        addStringKey("counterV2.type");
+        addStringKey("contracts.Oracle.type");
+        addStringKey("contracts.Oracle1.type");
+        addStringKey("contracts.Oracle2.type");
+        addStringKey("contracts.Counter.type");
+        addStringKey("contracts.oz_proxy.type");
+        addStringKey("contracts.counter.type");
+        addStringKey("contracts.counterV2.type");
     }
 
     function deployOracleProxy(string memory key, uint256 price, address admin) public {
         OracleV1 impl = new OracleV1();
         bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
+        string memory fullKey = string.concat("contracts.", key);
         this.deployProxy(
-            key,
+            fullKey,
             address(impl),
             initData,
             "OracleV1",
             "test/mocks/upgradeable/MockOracle.sol",
             address(this)
         );
+        // Set .type metadata for upgrade tracking
+        setString(string.concat(fullKey, ".type"), "proxy");
     }
 
     function deployCounterProxy(string memory key, uint256 initialValue, address admin) public {
         CounterV1 impl = new CounterV1();
 
         bytes memory initData = abi.encodeCall(CounterV1.initialize, (initialValue, admin));
+        string memory fullKey = string.concat("contracts.", key);
         this.deployProxy(
-            key,
+            fullKey,
             address(impl),
             initData,
             "CounterV1",
             "test/mocks/upgradeable/Counter.sol",
             address(this)
         );
+        // Set .type metadata for upgrade tracking
+        setString(string.concat(fullKey, ".type"), "proxy");
     }
 
     function upgradeOracle(string memory key, address newImplementation) public {
@@ -142,15 +148,18 @@ contract MockDeploymentUpgrade is DeploymentJsonTesting {
  */
 contract DeploymentUpgradeTest is BaoDeploymentTest {
     MockDeploymentUpgrade public deployment;
-    string constant TEST_NETWORK = "upgrade-test";
-    string constant TEST_SALT = "upgrade-test-salt";
+    string constant TEST_SALT = "DeploymentUpgradeTest";
 
     function setUp() public override {
         super.setUp();
         deployment = new MockDeploymentUpgrade();
+    }
+
+    /// @notice Helper to start deployment with test-specific network name
+    function _startDeployment(string memory network) internal {
         string memory config = string.concat('{"owner":"', vm.toString(address(0x1234)), '"}');
-        _resetDeploymentLogs(TEST_SALT, TEST_NETWORK, config);
-        deployment.start(TEST_NETWORK, TEST_SALT, "");
+        _resetDeploymentLogs(TEST_SALT, network, config);
+        deployment.start(network, TEST_SALT, "");
     }
 
     /// @notice Get the configured final owner from deployment data
@@ -159,6 +168,8 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
     }
 
     function test_BasicUpgrade() public {
+        _startDeployment("test_BasicUpgrade");
+        
         // Deploy initial proxy
         deployment.deployOracleProxy("Oracle", 1000e18, getConfiguredOwner());
 
@@ -175,7 +186,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         assertEq(stillOwned, 0, "Ownership should be transferred after finish");
 
         // Verify initial state
-        OracleV1 oracleV1 = OracleV1(deployment.get("Oracle"));
+        OracleV1 oracleV1 = OracleV1(deployment.get("contracts.Oracle"));
         assertEq(oracleV1.price(), 1000e18, "Initial price should be set");
         assertEq(oracleV1.owner(), getConfiguredOwner(), "Owner should be set");
 
@@ -183,10 +194,10 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         OracleV2 newImpl = new OracleV2();
 
         // Upgrade proxy (called from owner - this contract)
-        IUUPSUpgradeableProxy(deployment.get("Oracle")).upgradeTo(address(newImpl));
+        IUUPSUpgradeableProxy(deployment.get("contracts.Oracle")).upgradeTo(address(newImpl));
 
         // Verify upgrade worked
-        OracleV2 oracleV2 = OracleV2(deployment.get("Oracle"));
+        OracleV2 oracleV2 = OracleV2(deployment.get("contracts.Oracle"));
         assertEq(oracleV2.price(), 1000e18, "Price should persist after upgrade");
         assertEq(oracleV2.owner(), getConfiguredOwner(), "Owner should persist after upgrade");
         assertEq(oracleV2.getVersion(), 2, "Should be version 2");
@@ -198,6 +209,8 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
     }
 
     function test_MultipleProxyUpgrades() public {
+        _startDeployment("test_MultipleProxyUpgrades");
+        
         // Deploy multiple proxies
         deployment.deployOracleProxy("Oracle1", 1000e18, getConfiguredOwner());
         deployment.deployOracleProxy("Oracle2", 1500e18, getConfiguredOwner());
@@ -212,22 +225,22 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         CounterV2 newCounterImpl = new CounterV2();
 
         // Upgrade Oracle1 (called from owner - this contract)
-        IUUPSUpgradeableProxy(deployment.get("Oracle1")).upgradeTo(address(newOracleImpl));
+        IUUPSUpgradeableProxy(deployment.get("contracts.Oracle1")).upgradeTo(address(newOracleImpl));
 
         // Upgrade Counter (called from owner - this contract)
-        IUUPSUpgradeableProxy(deployment.get("Counter")).upgradeTo(address(newCounterImpl));
+        IUUPSUpgradeableProxy(deployment.get("contracts.Counter")).upgradeTo(address(newCounterImpl));
 
         // Verify Oracle1 upgrade
-        OracleV2 oracle1V2 = OracleV2(deployment.get("Oracle1"));
+        OracleV2 oracle1V2 = OracleV2(deployment.get("contracts.Oracle1"));
         assertEq(oracle1V2.getVersion(), 2, "Oracle1 should be version 2");
         assertEq(oracle1V2.price(), 1000e18, "Oracle1 price should persist");
 
         // Verify Oracle2 is still V1
-        OracleV1 oracle2V1 = OracleV1(deployment.get("Oracle2"));
+        OracleV1 oracle2V1 = OracleV1(deployment.get("contracts.Oracle2"));
         assertEq(oracle2V1.price(), 1500e18, "Oracle2 should maintain original price");
 
         // Verify Counter upgrade
-        CounterV2 counterV2 = CounterV2(deployment.get("Counter"));
+        CounterV2 counterV2 = CounterV2(deployment.get("contracts.Counter"));
         assertEq(counterV2.getVersion(), 2, "Counter should be version 2");
         assertEq(counterV2.value(), 10, "Counter value should persist");
 
@@ -238,6 +251,8 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
     }
 
     function test_UpgradeWithStateTransition() public {
+        _startDeployment("test_UpgradeWithStateTransition");
+        
         // Deploy counter proxy
         deployment.deployCounterProxy("Counter", 5, getConfiguredOwner());
 
@@ -246,17 +261,17 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         // Ownership transferred by finish()
 
         // Interact with V1
-        CounterV1 counterV1 = CounterV1(deployment.get("Counter"));
+        CounterV1 counterV1 = CounterV1(deployment.get("contracts.Counter"));
         counterV1.increment();
         counterV1.increment();
         assertEq(counterV1.value(), 7, "Should have incremented to 7");
 
         // Deploy and upgrade to V2 (called from owner - this contract)
         CounterV2 newImpl = new CounterV2();
-        IUUPSUpgradeableProxy(deployment.get("Counter")).upgradeTo(address(newImpl));
+        IUUPSUpgradeableProxy(deployment.get("contracts.Counter")).upgradeTo(address(newImpl));
 
         // Verify state persisted
-        CounterV2 counterV2 = CounterV2(deployment.get("Counter"));
+        CounterV2 counterV2 = CounterV2(deployment.get("contracts.Counter"));
         assertEq(counterV2.value(), 7, "Value should persist after upgrade");
         assertEq(counterV2.decrementCount(), 0, "New state should be initialized");
 
@@ -270,6 +285,8 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
     }
 
     function test_UpgradeAuthorization() public {
+        _startDeployment("test_UpgradeAuthorization");
+        
         // Deploy oracle with getConfiguredOwner()
         deployment.deployOracleProxy("Oracle", 1000e18, getConfiguredOwner());
 
@@ -284,16 +301,18 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         address unauthorized = address(0xBEEF);
         vm.prank(unauthorized);
         vm.expectRevert(abi.encodeWithSignature("Unauthorized()"));
-        IUUPSUpgradeableProxy(deployment.get("Oracle")).upgradeTo(address(newImpl));
+        IUUPSUpgradeableProxy(deployment.get("contracts.Oracle")).upgradeTo(address(newImpl));
 
         // Verify upgrade from authorized account works
         vm.prank(getConfiguredOwner());
-        IUUPSUpgradeableProxy(deployment.get("Oracle")).upgradeTo(address(newImpl));
-        OracleV2 oracleV2 = OracleV2(deployment.get("Oracle"));
+        IUUPSUpgradeableProxy(deployment.get("contracts.Oracle")).upgradeTo(address(newImpl));
+        OracleV2 oracleV2 = OracleV2(deployment.get("contracts.Oracle"));
         assertEq(oracleV2.getVersion(), 2, "Should be upgraded");
     }
 
     function test_UpgradeWithCall() public {
+        _startDeployment("test_UpgradeWithCall");
+        
         // Deploy oracle proxy
         deployment.deployOracleProxy("Oracle", 1000e18, getConfiguredOwner());
 
@@ -306,16 +325,18 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
 
         // Upgrade with call to set new price
         bytes memory upgradeCall = abi.encodeCall(OracleV2.setPrice, (3000e18));
-        IUUPSUpgradeableProxy(deployment.get("Oracle")).upgradeToAndCall(address(newImpl), upgradeCall);
+        IUUPSUpgradeableProxy(deployment.get("contracts.Oracle")).upgradeToAndCall(address(newImpl), upgradeCall);
 
         // Verify upgrade and call execution
-        OracleV2 oracleV2 = OracleV2(deployment.get("Oracle"));
+        OracleV2 oracleV2 = OracleV2(deployment.get("contracts.Oracle"));
         assertEq(oracleV2.getVersion(), 2, "Should be upgraded");
         assertEq(oracleV2.price(), 3000e18, "Price should be set by upgrade call");
         assertGt(oracleV2.lastUpdateTime(), 0, "Update time should be set");
     }
 
     function test_UpgradeTrackingInDeployment() public {
+        _startDeployment("test_UpgradeTrackingInDeployment");
+        
         // Deploy oracle proxy
         deployment.deployOracleProxy("Oracle", 1000e18, getConfiguredOwner());
 
@@ -324,27 +345,29 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         // Ownership transferred by finish()
 
         // Verify initial deployment tracking
-        assertEq(deployment.getString("Oracle.type"), "proxy", "Should be tracked as proxy");
-        assertTrue(deployment.has("Oracle"), "Should have Oracle entry");
+        assertEq(deployment.getString("contracts.Oracle.type"), "proxy", "Should be tracked as proxy");
+        assertTrue(deployment.has("contracts.Oracle"), "Should have Oracle entry");
 
         // Deploy new implementation
         OracleV2 newImpl = new OracleV2();
 
         // Upgrade proxy (called from owner - this contract)
-        address oracle = deployment.get("Oracle");
+        address oracle = deployment.get("contracts.Oracle");
         IUUPSUpgradeableProxy(oracle).upgradeTo(address(newImpl));
 
         // Verify deployment tracking persists
-        assertEq(deployment.getString("Oracle.type"), "proxy", "Should still be tracked as proxy");
-        assertTrue(deployment.has("Oracle"), "Should still have Oracle entry");
+        assertEq(deployment.getString("contracts.Oracle.type"), "proxy", "Should still be tracked as proxy");
+        assertTrue(deployment.has("contracts.Oracle"), "Should still have Oracle entry");
 
         // Address should remain the same (proxy address, not implementation)
-        address proxyAddr = deployment.get("Oracle");
+        address proxyAddr = deployment.get("contracts.Oracle");
         OracleV2 oracleV2 = OracleV2(proxyAddr);
         assertEq(oracleV2.getVersion(), 2, "Proxy should have new implementation");
     }
 
     function test_UpgradeJsonPersistence() public {
+        _startDeployment("test_UpgradeJsonPersistence");
+        
         // Deploy and upgrade
         deployment.deployOracleProxy("Oracle", 1000e18, getConfiguredOwner());
 
@@ -353,7 +376,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         // Ownership transferred by finish()
 
         OracleV2 newImpl = new OracleV2();
-        IUUPSUpgradeableProxy(deployment.get("Oracle")).upgradeTo(address(newImpl));
+        IUUPSUpgradeableProxy(deployment.get("contracts.Oracle")).upgradeTo(address(newImpl));
 
         // Test JSON serialization after upgrade
         string memory json = deployment.toJson();
@@ -363,7 +386,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         MockDeploymentUpgrade newDeployment = new MockDeploymentUpgrade();
         newDeployment.fromJson(json);
 
-        address restoredOracle = newDeployment.get("Oracle");
+        address restoredOracle = newDeployment.get("contracts.Oracle");
         assertTrue(restoredOracle != address(0), "Oracle should be restored from JSON");
 
         // Verify the restored proxy still has V2 functionality
@@ -372,9 +395,11 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
     }
 
     function test_UpgradeProxyWithNewImplementationKey() public {
+        _startDeployment("test_UpgradeProxyWithNewImplementationKey");
+        
         // Deploy counter with V1
         deployment.deployCounterProxy("Counter", 10, getConfiguredOwner());
-        CounterV1 counterV1 = CounterV1(deployment.get("Counter"));
+        CounterV1 counterV1 = CounterV1(deployment.get("contracts.Counter"));
         assertEq(counterV1.value(), 10, "Initial value should be 10");
 
         // Verify ownership still with harness (needed for upgrade)
@@ -397,7 +422,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         deployment.finish();
 
         // Verify it's now V2
-        CounterV2 counterV2 = CounterV2(deployment.get("Counter"));
+        CounterV2 counterV2 = CounterV2(deployment.get("contracts.Counter"));
         assertEq(counterV2.getVersion(), 2, "Should be version 2 after upgrade");
         assertEq(counterV2.value(), 10, "Value should persist");
 
@@ -408,12 +433,14 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
     }
 
     function test_UpgradeAfterFinish() public {
+        _startDeployment("test_UpgradeAfterFinish");
+        
         // Deploy and finish deployment
         deployment.deployCounterProxy("Counter", 100, getConfiguredOwner());
         deployment.finish();
 
         // Verify ownership transferred
-        CounterV1 counterV1 = CounterV1(deployment.get("Counter"));
+        CounterV1 counterV1 = CounterV1(deployment.get("contracts.Counter"));
         assertEq(counterV1.owner(), getConfiguredOwner(), "Owner should be getConfiguredOwner() after finish");
         assertEq(counterV1.value(), 100, "Initial value should be 100");
 
@@ -422,10 +449,10 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
 
         // Upgrade from getConfiguredOwner() (owner) using UUPS directly since deployment is finished
         vm.prank(getConfiguredOwner());
-        IUUPSUpgradeableProxy(deployment.get("Counter")).upgradeTo(address(v2Impl));
+        IUUPSUpgradeableProxy(deployment.get("contracts.Counter")).upgradeTo(address(v2Impl));
 
         // Verify upgrade worked
-        CounterV2 counterV2 = CounterV2(deployment.get("Counter"));
+        CounterV2 counterV2 = CounterV2(deployment.get("contracts.Counter"));
         assertEq(counterV2.getVersion(), 2, "Should be version 2");
         assertEq(counterV2.value(), 100, "Value should persist");
         assertEq(counterV2.owner(), getConfiguredOwner(), "Owner should still be getConfiguredOwner()");
@@ -438,10 +465,12 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
     }
 
     function test_Downgrade_V1_to_V2_to_V1() public {
+        _startDeployment("test_Downgrade_V1_to_V2_to_V1");
+        
         // Deploy V1
         deployment.deployCounterProxy("Counter", 50, getConfiguredOwner());
 
-        CounterV1 counterV1 = CounterV1(deployment.get("Counter"));
+        CounterV1 counterV1 = CounterV1(deployment.get("contracts.Counter"));
         assertEq(counterV1.value(), 50, "Initial V1 value");
 
         // Increment in V1
@@ -461,7 +490,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
             address(this)
         );
 
-        CounterV2 counterV2 = CounterV2(deployment.get("Counter"));
+        CounterV2 counterV2 = CounterV2(deployment.get("contracts.Counter"));
         assertEq(counterV2.getVersion(), 2, "Should be V2");
         assertEq(counterV2.value(), 51, "Value persists to V2");
 
@@ -482,7 +511,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
             address(this)
         );
 
-        CounterV1 counterV1Again = CounterV1(deployment.get("Counter"));
+        CounterV1 counterV1Again = CounterV1(deployment.get("contracts.Counter"));
         assertEq(counterV1Again.value(), 50, "Value persists to V1 again");
 
         // V1 doesn't have decrementCount, but value is preserved
@@ -502,19 +531,24 @@ import {MockImplementationOZOwnable} from "../mocks/MockImplementationOZOwnable.
 contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
     MockDeploymentUpgrade public deployment;
     address public admin;
-    string constant TEST_NETWORK = "non-bao-test";
-    string constant TEST_SALT = "non-bao-test-salt";
+    string constant TEST_SALT = "DeploymentNonBaoOwnableTest";
 
     function setUp() public override {
         super.setUp();
         deployment = new MockDeploymentUpgrade();
         admin = address(this);
+    }
+
+    /// @notice Helper to start deployment with test-specific network name
+    function _startDeployment(string memory network) internal {
         string memory config = string.concat('{"owner":"', vm.toString(address(0x1234)), '"}');
-        _resetDeploymentLogs(TEST_SALT, TEST_NETWORK, config);
-        deployment.start(TEST_NETWORK, TEST_SALT, "");
+        _resetDeploymentLogs(TEST_SALT, network, config);
+        deployment.start(network, TEST_SALT, "");
     }
 
     function test_OZOwnableWorks() public {
+        _startDeployment("test_OZOwnableWorks");
+        
         // Deploy proxy with OZ Ownable (not BaoOwnable)
         // This test verifies that OZ Ownable works with the deployment system
         MockImplementationOZOwnable ozImpl = new MockImplementationOZOwnable();
@@ -529,8 +563,8 @@ contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
             address(this)
         );
 
-        assertNotEq(deployment.get("oz_proxy"), address(0), "Proxy should deploy");
-        MockImplementationOZOwnable proxy = MockImplementationOZOwnable(deployment.get("oz_proxy"));
+        assertNotEq(deployment.get("contracts.oz_proxy"), address(0), "Proxy should deploy");
+        MockImplementationOZOwnable proxy = MockImplementationOZOwnable(deployment.get("contracts.oz_proxy"));
 
         // With OZ Ownable, owner is immediately the harness
         assertEq(proxy.owner(), address(deployment), "Owner should be harness");
@@ -543,6 +577,8 @@ contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
     }
 
     function test_OZOwnableDoesNotSupportPendingOwner() public {
+        _startDeployment("test_OZOwnableDoesNotSupportPendingOwner");
+        
         // Deploy proxy with OZ Ownable
         MockImplementationOZOwnable ozImpl = new MockImplementationOZOwnable();
         bytes memory initData = abi.encodeCall(MockImplementationOZOwnable.initialize, (address(deployment), 42));
@@ -556,7 +592,7 @@ contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
         );
 
         // OZ Ownable doesn't have pendingOwner() method
-        (bool success, ) = deployment.get("oz_proxy").staticcall(abi.encodeWithSignature("pendingOwner()"));
+        (bool success, ) = deployment.get("contracts.oz_proxy").staticcall(abi.encodeWithSignature("pendingOwner()"));
         assertFalse(success, "OZ Ownable should not support pendingOwner()");
 
         // BaoOwnable also doesn't expose pendingOwner() publicly (only BaoOwnableTransferrable does)
