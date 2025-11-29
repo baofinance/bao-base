@@ -4,20 +4,41 @@ pragma solidity >=0.8.28 <0.9.0;
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 
+// Test harness with registered keys
+contract DeploymentJsonStringTestHarness is DeploymentJsonTesting {
+    constructor() {
+        // Register keys used in tests
+        addContract("MockToken");
+        addStringKey("tokenName");
+        addUintKey("decimals");
+        addContract("Token");
+        addStringKey("symbol");
+        addContract("Token1");
+        addContract("Token2");
+        addContract("Contract1");
+        addContract("Contract2");
+        addContract("Contract3");
+        addStringKey("param1");
+        addStringKey("param2");
+        addContract("LoadTest");
+        addContract("Admin");
+    }
+}
+
 /**
  * @title DeploymentJsonStringTest
  * @notice Tests for string-based JSON serialization (no filesystem access)
  * @dev Demonstrates toJson() and fromJson() methods that don't litter filesystem
  */
 contract DeploymentJsonStringTest is BaoDeploymentTest {
-    DeploymentJsonTesting public deployment;
+    DeploymentJsonStringTestHarness public deployment;
 
     string constant TEST_NETWORK = "localhost";
     string constant TEST_SALT = "jsonstring-test-salt";
 
     function setUp() public override {
         super.setUp();
-        deployment = new DeploymentJsonTesting();
+        deployment = new DeploymentJsonStringTestHarness();
         _resetDeploymentLogs(TEST_SALT, TEST_NETWORK, "{}");
         deployment.start(TEST_NETWORK, TEST_SALT, "");
     }

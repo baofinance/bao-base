@@ -17,6 +17,15 @@ contract MyDeploymentJsonTesting is DeploymentJsonTesting {
     constructor() {
         addKey(MOCK_IMPLEMENTATION);
         addUintKey(MOCK_IMPLEMENTATION_INIT_VALUE);
+        // Keys used in tests
+        addContract("mock1");
+        addContract("mock2");
+        addContract("mock3");
+        addContract("existing1");
+        addContract("ExistingContract");
+        addContract("stETH");
+        addContract("invalid");
+        addContract("mock");
     }
 
     function deployMockContract(string memory key, string memory mockName) public returns (address) {

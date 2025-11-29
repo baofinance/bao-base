@@ -39,6 +39,11 @@ library TestLib {
 contract MockDeploymentJson is DeploymentJsonTesting {
     constructor() {
         // Register all possible contract keys used in tests
+        addContract("contract1");
+        addContract("contract2");
+        addProxy("proxy1");
+        addContract("lib1");
+        addContract("external1");
     }
 
     function deploySimpleContract(string memory key, string memory name) public returns (address) {

@@ -44,6 +44,13 @@ contract CounterV2 is CounterV1 {
  * @notice Test harness for proxy upgrade scenarios
  */
 contract MockDeploymentUpgrade is DeploymentJsonTesting {
+    constructor() {
+        // Register all possible contract keys used in tests
+        addProxy("oz_proxy");
+        addProxy("counter");
+        addProxy("counterV2");
+    }
+
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
         OracleV1 impl = new OracleV1();
         bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));

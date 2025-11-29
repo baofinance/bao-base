@@ -1,29 +1,21 @@
 {
   "schemaVersion": 1,
-  "systemSaltString": "proxy-test",
+  "systemSaltString": "DeploymentProxyWorkflowTest",
   "session": {
-    "network": "anvil",
+    "network": "MultipleWritesWithProxyDeployment",
     "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
     "startTimestamp": 1,
     "startBlock": 1
   },
   "contracts": {
     "pegged": {
-      "symbol": "GBP",
-      "name": "Harbor GBP",
+      "symbol": "USD",
+      "name": "Harbor USD",
       "owner": "0xaa10a84ce7d9ae517a52c6d5ca153b369af99ecf",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
-      "blockNumber": 1,
-      "factory": "0x336785a852b689a839c312522ea637917df3f932",
-      "category": "UUPS proxy",
-      "implementation": {
-        "contractType": "MintableBurnableERC20_v1",
-        "contractPath": "src/MintableBurnableERC20_v1.sol",
-        "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
-        "blockNumber": 1
-      }
+      "blockNumber": 1
     }
   }
 }

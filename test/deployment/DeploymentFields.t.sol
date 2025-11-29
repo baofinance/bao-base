@@ -33,6 +33,21 @@ library TestLib {
 
 // Test harness with helper methods
 contract MockDeploymentFields is DeploymentJsonTesting {
+    constructor() {
+        // Register all possible contract keys used in tests
+        addProxy("oracle1");
+        addContract("token1");
+        addProxy("vault_proxy_funded");
+        addProxy("vault_funded");
+        addProxy("vault_proxy_unfunded");
+        addProxy("vault_unfunded");
+        addProxy("proxy1");
+        addProxy("proxy2");
+        addProxy("proxy3");
+        addContract("lib1");
+        addContract("external1");
+    }
+
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
         MockERC20 token = new MockERC20(name, symbol, 18);
         registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol", address(this));

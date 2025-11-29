@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "systemSaltString": "json-test-salt",
+  "session": {
+    "network": "test-network",
+    "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+    "startTimestamp": 1,
+    "startBlock": 1
+  },
+  "contract1": {
+    "contractType": "SimpleContract",
+    "contractPath": "test/SimpleContract.sol",
+    "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+    "blockNumber": 1,
+    "category": "contract"
+  },
+  "proxy1": {
+    "contractType": "ERC1967Proxy",
+    "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+    "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+    "blockNumber": 1,
+    "factory": "0x336785a852b689a839c312522ea637917df3f932",
+    "category": "UUPS proxy",
+    "implementation": {
+      "contractType": "SimpleImplementation",
+      "contractPath": "test/SimpleImplementation.sol",
+      "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+      "blockNumber": 1
+    }
+  },
+  "lib1": {
+    "category": "library",
+    "contractType": "TestLib",
+    "contractPath": "test/TestLib.sol",
+    "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+    "blockNumber": 1
+  },
+  "external1": {
+    "category": "existing"
+  }
+}

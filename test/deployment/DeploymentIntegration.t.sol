@@ -70,7 +70,20 @@ library ConfigLib {
 contract MockDeploymentIntegration is DeploymentJsonTesting {
     constructor() {
         // Register all possible contract keys used in tests
-        // Note: Keys are registered dynamically, so we register common test keys here
+        addContract("collateral");
+        addContract("pegged");
+        addProxy("oracle");
+        addProxy("oracle1");
+        addProxy("oracle2");
+        addProxy("oracle3");
+        addProxy("minter");
+        addProxy("minter1");
+        addProxy("minter2");
+        addContract("configLib");
+        addContract("wstETH");
+        addContract("token1");
+        addContract("token2");
+        addProxy("proxy2");
     }
 
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {

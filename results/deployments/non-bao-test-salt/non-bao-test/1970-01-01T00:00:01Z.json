@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "systemSaltString": "non-bao-test-salt",
+  "session": {
+    "network": "non-bao-test",
+    "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+    "startTimestamp": 1,
+    "startBlock": 1
+  },
+  "oz_proxy": {
+    "contractType": "ERC1967Proxy",
+    "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+    "deployer": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
+    "blockNumber": 1,
+    "factory": "0x336785a852b689a839c312522ea637917df3f932",
+    "category": "UUPS proxy",
+    "implementation": {
+      "contractType": "MockImplementationOZOwnable",
+      "contractPath": "test/mocks/MockImplementationOZOwnable.sol",
+      "deployer": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
+      "blockNumber": 1
+    }
+  }
+}

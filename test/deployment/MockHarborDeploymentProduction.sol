@@ -31,10 +31,7 @@ contract MockHarborDeploymentProduction is DeploymentJsonTesting {
     string public constant PEGGED_OWNER = "contracts.pegged.owner";
 
     constructor() {
-        addKey(PEGGED);
-        addStringKey(string.concat(PEGGED, ".category"));
-        addStringKey(string.concat(PEGGED_IMPLEMENTATION, ".type"));
-        addStringKey(string.concat(PEGGED_IMPLEMENTATION, ".path"));
+        addProxy(PEGGED);
         addStringKey(PEGGED_SYMBOL);
         addStringKey(PEGGED_NAME);
         addAddressKey(PEGGED_OWNER);
