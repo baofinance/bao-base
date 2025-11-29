@@ -65,7 +65,7 @@ contract DeploymentDataTest is BaoTest {
 
     // ============ Address Tests ============
 
-    function test_SetAndGetAddress() public {
+    function test_SetAndGet() public {
         string[] memory allKeys = data.keys();
         assertEq(allKeys.length, 0);
 
@@ -84,35 +84,86 @@ contract DeploymentDataTest is BaoTest {
         assertEq(allKeys[0], OWNER_KEY);
     }
 
+    function test_SetAndGetAddress() public {
+        string[] memory allKeys = data.keys();
+        assertEq(allKeys.length, 0);
+
+        assertFalse(data.has(PEGGED_IMPL_KEY));
+        vm.expectRevert();
+        data.getAddress(PEGGED_IMPL_KEY);
+
+        address expected = address(0x5678);
+        data.setAddress(PEGGED_IMPL_KEY, expected);
+
+        assertTrue(data.has(PEGGED_IMPL_KEY));
+        assertEq(data.getAddress(PEGGED_IMPL_KEY), expected);
+
+        allKeys = data.keys();
+        assertEq(allKeys.length, 1);
+        assertEq(allKeys[0], PEGGED_IMPL_KEY);
+    }
+
     // ============ String Tests ============
 
     function test_SetAndGetString() public {
-        data.setString(PEGGED_SYMBOL_KEY, "BAO");
-        assertEq(data.getString(PEGGED_SYMBOL_KEY), "BAO");
-    }
+        string[] memory allKeys = data.keys();
+        assertEq(allKeys.length, 0);
 
-    function test_StringDefaultIsEmpty() public {
+        assertFalse(data.has(PEGGED_SYMBOL_KEY));
         vm.expectRevert();
         data.getString(PEGGED_SYMBOL_KEY);
+
+        string memory expected = "BAO";
+        data.setString(PEGGED_SYMBOL_KEY, expected);
+
+        assertTrue(data.has(PEGGED_SYMBOL_KEY));
+        assertEq(data.getString(PEGGED_SYMBOL_KEY), expected);
+
+        allKeys = data.keys();
+        assertEq(allKeys.length, 1);
+        assertEq(allKeys[0], PEGGED_SYMBOL_KEY);
     }
 
     // ============ Uint Tests ============
 
     function test_SetAndGetUint() public {
-        data.setUint(PEGGED_DECIMALS_KEY, 18);
-        assertEq(data.getUint(PEGGED_DECIMALS_KEY), 18);
-    }
+        string[] memory allKeys = data.keys();
+        assertEq(allKeys.length, 0);
 
-    function test_UintDefaultIsZero() public {
+        assertFalse(data.has(PEGGED_DECIMALS_KEY));
         vm.expectRevert();
         data.getUint(PEGGED_DECIMALS_KEY);
+
+        uint256 expected = 18;
+        data.setUint(PEGGED_DECIMALS_KEY, expected);
+
+        assertTrue(data.has(PEGGED_DECIMALS_KEY));
+        assertEq(data.getUint(PEGGED_DECIMALS_KEY), expected);
+
+        allKeys = data.keys();
+        assertEq(allKeys.length, 1);
+        assertEq(allKeys[0], PEGGED_DECIMALS_KEY);
     }
 
     // ============ Int Tests ============
 
     function test_SetAndGetInt() public {
-        data.setInt(CONFIG_TEMPERATURE_KEY, -273);
-        assertEq(data.getInt(CONFIG_TEMPERATURE_KEY), -273);
+        string[] memory allKeys = data.keys();
+        assertEq(allKeys.length, 0);
+
+        assertFalse(data.has(CONFIG_TEMPERATURE_KEY));
+        vm.expectRevert();
+        data.getInt(CONFIG_TEMPERATURE_KEY);
+
+        int256 expected = -273;
+        data.setInt(CONFIG_TEMPERATURE_KEY, expected);
+
+        assertTrue(data.has(CONFIG_TEMPERATURE_KEY));
+        assertEq(data.getInt(CONFIG_TEMPERATURE_KEY), expected);
+
+        allKeys = data.keys();
+        assertEq(allKeys.length, 1);
+        assertEq(allKeys[0], CONFIG_TEMPERATURE_KEY);
     }
 
     function test_SetAndGetIntPositive() public {
@@ -120,90 +171,133 @@ contract DeploymentDataTest is BaoTest {
         assertEq(data.getInt(CONFIG_TEMPERATURE_KEY), 100);
     }
 
-    function test_IntDefaultIsZero() public {
-        vm.expectRevert();
-        data.getInt(CONFIG_TEMPERATURE_KEY);
-    }
-
     // ============ Bool Tests ============
 
     function test_SetAndGetBool() public {
-        data.setBool(CONFIG_ENABLED_KEY, true);
-        assertTrue(data.getBool(CONFIG_ENABLED_KEY));
-    }
+        string[] memory allKeys = data.keys();
+        assertEq(allKeys.length, 0);
 
-    function test_BoolDefaultIsFalse() public {
+        assertFalse(data.has(CONFIG_ENABLED_KEY));
         vm.expectRevert();
         data.getBool(CONFIG_ENABLED_KEY);
+
+        bool expected = true;
+        data.setBool(CONFIG_ENABLED_KEY, expected);
+
+        assertTrue(data.has(CONFIG_ENABLED_KEY));
+        assertTrue(data.getBool(CONFIG_ENABLED_KEY));
+
+        allKeys = data.keys();
+        assertEq(allKeys.length, 1);
+        assertEq(allKeys[0], CONFIG_ENABLED_KEY);
     }
 
     // ============ Address Array Tests ============
 
     function test_SetAndGetAddressArray() public {
-        address[] memory addrs = new address[](2);
-        addrs[0] = address(0x1111);
-        addrs[1] = address(0x2222);
+        string[] memory allKeys = data.keys();
+        assertEq(allKeys.length, 0);
 
-        data.setAddressArray(CONFIG_VALIDATORS_KEY, addrs);
+        assertFalse(data.has(CONFIG_VALIDATORS_KEY));
+        vm.expectRevert();
+        data.getAddressArray(CONFIG_VALIDATORS_KEY);
+
+        address[] memory expected = new address[](2);
+        expected[0] = address(0x1111);
+        expected[1] = address(0x2222);
+        data.setAddressArray(CONFIG_VALIDATORS_KEY, expected);
+
+        assertTrue(data.has(CONFIG_VALIDATORS_KEY));
         address[] memory result = data.getAddressArray(CONFIG_VALIDATORS_KEY);
-
         assertEq(result.length, 2);
         assertEq(result[0], address(0x1111));
         assertEq(result[1], address(0x2222));
-    }
 
-    function test_AddressArrayDefaultIsEmpty() public {
-        vm.expectRevert();
-        data.getAddressArray(CONFIG_VALIDATORS_KEY);
+        allKeys = data.keys();
+        assertEq(allKeys.length, 1);
+        assertEq(allKeys[0], CONFIG_VALIDATORS_KEY);
     }
 
     // ============ String Array Tests ============
 
     function test_SetAndGetStringArray() public {
-        string[] memory tags = new string[](2);
-        tags[0] = "stable";
-        tags[1] = "verified";
+        string[] memory allKeys = data.keys();
+        assertEq(allKeys.length, 0);
 
-        data.setStringArray(CONFIG_TAGS_KEY, tags);
+        assertFalse(data.has(CONFIG_TAGS_KEY));
+        vm.expectRevert();
+        data.getStringArray(CONFIG_TAGS_KEY);
+
+        string[] memory expected = new string[](2);
+        expected[0] = "stable";
+        expected[1] = "verified";
+        data.setStringArray(CONFIG_TAGS_KEY, expected);
+
+        assertTrue(data.has(CONFIG_TAGS_KEY));
         string[] memory result = data.getStringArray(CONFIG_TAGS_KEY);
-
         assertEq(result.length, 2);
         assertEq(result[0], "stable");
         assertEq(result[1], "verified");
+
+        allKeys = data.keys();
+        assertEq(allKeys.length, 1);
+        assertEq(allKeys[0], CONFIG_TAGS_KEY);
     }
 
     // ============ Uint Array Tests ============
 
     function test_SetAndGetUintArray() public {
-        uint256[] memory limits = new uint256[](3);
-        limits[0] = 100;
-        limits[1] = 200;
-        limits[2] = 300;
+        string[] memory allKeys = data.keys();
+        assertEq(allKeys.length, 0);
 
-        data.setUintArray(CONFIG_LIMITS_KEY, limits);
+        assertFalse(data.has(CONFIG_LIMITS_KEY));
+        vm.expectRevert();
+        data.getUintArray(CONFIG_LIMITS_KEY);
+
+        uint256[] memory expected = new uint256[](3);
+        expected[0] = 100;
+        expected[1] = 200;
+        expected[2] = 300;
+        data.setUintArray(CONFIG_LIMITS_KEY, expected);
+
+        assertTrue(data.has(CONFIG_LIMITS_KEY));
         uint256[] memory result = data.getUintArray(CONFIG_LIMITS_KEY);
-
         assertEq(result.length, 3);
         assertEq(result[0], 100);
         assertEq(result[1], 200);
         assertEq(result[2], 300);
+
+        allKeys = data.keys();
+        assertEq(allKeys.length, 1);
+        assertEq(allKeys[0], CONFIG_LIMITS_KEY);
     }
 
     // ============ Int Array Tests ============
 
     function test_SetAndGetIntArray() public {
-        int256[] memory deltas = new int256[](3);
-        deltas[0] = -50;
-        deltas[1] = 0;
-        deltas[2] = 100;
+        string[] memory allKeys = data.keys();
+        assertEq(allKeys.length, 0);
 
-        data.setIntArray(CONFIG_DELTAS_KEY, deltas);
+        assertFalse(data.has(CONFIG_DELTAS_KEY));
+        vm.expectRevert();
+        data.getIntArray(CONFIG_DELTAS_KEY);
+
+        int256[] memory expected = new int256[](3);
+        expected[0] = -50;
+        expected[1] = 0;
+        expected[2] = 100;
+        data.setIntArray(CONFIG_DELTAS_KEY, expected);
+
+        assertTrue(data.has(CONFIG_DELTAS_KEY));
         int256[] memory result = data.getIntArray(CONFIG_DELTAS_KEY);
-
         assertEq(result.length, 3);
         assertEq(result[0], -50);
         assertEq(result[1], 0);
         assertEq(result[2], 100);
+
+        allKeys = data.keys();
+        assertEq(allKeys.length, 1);
+        assertEq(allKeys[0], CONFIG_DELTAS_KEY);
     }
 
     // ============ Multiple Keys Tests ============
@@ -263,7 +357,8 @@ contract DeploymentDataJsonTest is DeploymentDataTest {
     using stdJson for string;
     DeploymentDataJson dataJson;
 
-    function _createDeploymentData(TestKeys keys_) internal override returns (DeploymentDataMemory data_) {
+    function _createDeploymentData(TestKeys keys_) internal override returns (DeploymentDataMemory) {
         dataJson = new DeploymentDataJson(keys_);
+        return dataJson;
     }
 }
