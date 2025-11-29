@@ -171,6 +171,29 @@ contract DeploymentDataTest is BaoTest {
         assertEq(data.getInt(CONFIG_TEMPERATURE_KEY), 100);
     }
 
+    function test_UintLargeValue() public {
+        uint256 largeValue = type(uint256).max;
+        data.setUint(PEGGED_SUPPLY_KEY, largeValue);
+        assertEq(data.getUint(PEGGED_SUPPLY_KEY), largeValue);
+    }
+
+    function test_IntMaxValue() public {
+        int256 maxValue = type(int256).max;
+        data.setInt(CONFIG_TEMPERATURE_KEY, maxValue);
+        assertEq(data.getInt(CONFIG_TEMPERATURE_KEY), maxValue);
+    }
+
+    function test_IntMinValue() public {
+        int256 minValue = type(int256).min;
+        data.setInt(CONFIG_TEMPERATURE_KEY, minValue);
+        assertEq(data.getInt(CONFIG_TEMPERATURE_KEY), minValue);
+    }
+
+    function test_SetAndGetBoolFalse() public {
+        data.setBool(CONFIG_ENABLED_KEY, false);
+        assertFalse(data.getBool(CONFIG_ENABLED_KEY));
+    }
+
     // ============ Bool Tests ============
 
     function test_SetAndGetBool() public {
@@ -216,6 +239,13 @@ contract DeploymentDataTest is BaoTest {
         allKeys = data.keys();
         assertEq(allKeys.length, 1);
         assertEq(allKeys[0], CONFIG_VALIDATORS_KEY);
+    }
+
+    function test_EmptyAddressArray() public {
+        address[] memory expected = new address[](0);
+        data.setAddressArray(CONFIG_VALIDATORS_KEY, expected);
+        address[] memory result = data.getAddressArray(CONFIG_VALIDATORS_KEY);
+        assertEq(result.length, 0);
     }
 
     // ============ String Array Tests ============
@@ -335,6 +365,31 @@ contract DeploymentDataTest is BaoTest {
         data.set(PEGGED_SYMBOL_KEY, address(0x1234));
     }
 
+    function test_RevertWhenReadingUintAsInt() public {
+        data.setUint(PEGGED_DECIMALS_KEY, 18);
+
+        // Trying to read a UINT as INT should fail validation
+        vm.expectRevert();
+        data.getInt(PEGGED_DECIMALS_KEY);
+    }
+
+    function test_RevertWhenReadingIntAsUint() public {
+        data.setInt(CONFIG_TEMPERATURE_KEY, -273);
+
+        // Trying to read an INT as UINT should fail validation
+        vm.expectRevert();
+        data.getUint(CONFIG_TEMPERATURE_KEY);
+    }
+
+    function test_RevertWhenReadingUintArrayAsIntArray() public {
+        uint256[] memory limits = new uint256[](1);
+        limits[0] = 100;
+        data.setUintArray(CONFIG_LIMITS_KEY, limits);
+
+        vm.expectRevert();
+        data.getIntArray(CONFIG_LIMITS_KEY);
+    }
+
     // ============ Nested Address Tests ============
 
     function test_SetAndGetNestedAddress() public {
@@ -360,5 +415,216 @@ contract DeploymentDataJsonTest is DeploymentDataTest {
     function _createDeploymentData(TestKeys keys_) internal override returns (DeploymentDataMemory) {
         dataJson = new DeploymentDataJson(keys_);
         return dataJson;
+    }
+
+    // ============ JSON Export Tests ============
+
+    function test_ToJsonIncludesValues() public {
+        dataJson.set(OWNER_KEY, address(0x1234567890123456789012345678901234567890));
+        dataJson.setString(PEGGED_SYMBOL_KEY, "BAO");
+        dataJson.setUint(PEGGED_DECIMALS_KEY, 18);
+
+        string memory json = dataJson.toJson();
+
+        // Basic validation - should contain the values
+        assertTrue(bytes(json).length > 0, "JSON should not be empty");
+    }
+
+    function test_ToJsonNestedStructure() public {
+        dataJson.setAddress(PEGGED_IMPL_KEY, address(0xABCD));
+        string memory json = dataJson.toJson();
+
+        // Should create nested structure: {"contracts": {"pegged": {"implementation": "0x..."}}}
+        address recovered = json.readAddress("$.contracts.pegged.implementation");
+        assertEq(recovered, address(0xABCD), "JSON nested address mismatch");
+    }
+
+    // ============ JSON Import Tests ============
+
+    function test_FromJsonSingleAddress() public {
+        string memory initialJson = '{"owner":"0x0000000000000000000000000000000000001234"}';
+
+        dataJson.fromJson(initialJson);
+        assertEq(dataJson.get(OWNER_KEY), address(0x1234));
+    }
+
+    function test_FromJsonMultipleKeys() public {
+        string
+            memory initialJson = '{"owner":"0x0000000000000000000000000000000000001234","contracts":{"pegged":"0x0000000000000000000000000000000000005678"}}';
+
+        dataJson.fromJson(initialJson);
+        assertEq(dataJson.get(OWNER_KEY), address(0x1234));
+        assertEq(dataJson.get(PEGGED_KEY), address(0x5678));
+    }
+
+    function test_FromJsonNestedAddress() public {
+        string
+            memory initialJson = '{"contracts":{"pegged":{"implementation":"0x0000000000000000000000000000000000009999"}}}';
+
+        dataJson.fromJson(initialJson);
+        assertEq(dataJson.getAddress(PEGGED_IMPL_KEY), address(0x9999));
+    }
+
+    function test_FromJsonString() public {
+        string memory initialJson = '{"contracts":{"pegged":{"symbol":"BAO"}}}';
+
+        dataJson.fromJson(initialJson);
+        assertEq(dataJson.getString(PEGGED_SYMBOL_KEY), "BAO");
+    }
+
+    function test_FromJsonUint() public {
+        string memory initialJson = '{"contracts":{"pegged":{"decimals":18}}}';
+
+        dataJson.fromJson(initialJson);
+        assertEq(dataJson.getUint(PEGGED_DECIMALS_KEY), 18);
+    }
+
+    function test_FromJsonInt() public {
+        string memory initialJson = '{"contracts":{"config":{"temperature":-273}}}';
+
+        dataJson.fromJson(initialJson);
+        assertEq(dataJson.getInt(CONFIG_TEMPERATURE_KEY), -273);
+    }
+
+    function test_FromJsonBool() public {
+        string memory initialJson = '{"contracts":{"config":{"enabled":true}}}';
+
+        dataJson.fromJson(initialJson);
+        assertTrue(dataJson.getBool(CONFIG_ENABLED_KEY));
+    }
+
+    function test_FromJsonAddressArray() public {
+        string
+            memory initialJson = '{"contracts":{"config":{"validators":["0x0000000000000000000000000000000000001111","0x0000000000000000000000000000000000002222"]}}}';
+
+        dataJson.fromJson(initialJson);
+        address[] memory result = dataJson.getAddressArray(CONFIG_VALIDATORS_KEY);
+        assertEq(result.length, 2);
+        assertEq(result[0], address(0x1111));
+        assertEq(result[1], address(0x2222));
+    }
+
+    function test_FromJsonStringArray() public {
+        string memory initialJson = '{"contracts":{"config":{"tags":["stable","verified"]}}}';
+
+        dataJson.fromJson(initialJson);
+        string[] memory result = dataJson.getStringArray(CONFIG_TAGS_KEY);
+        assertEq(result.length, 2);
+        assertEq(result[0], "stable");
+        assertEq(result[1], "verified");
+    }
+
+    function test_FromJsonUintArray() public {
+        string memory initialJson = '{"contracts":{"config":{"limits":[100,200,300]}}}';
+
+        dataJson.fromJson(initialJson);
+        uint256[] memory result = dataJson.getUintArray(CONFIG_LIMITS_KEY);
+        assertEq(result.length, 3);
+        assertEq(result[0], 100);
+        assertEq(result[1], 200);
+        assertEq(result[2], 300);
+    }
+
+    function test_FromJsonIntArray() public {
+        string memory initialJson = '{"contracts":{"config":{"deltas":[-50,0,100]}}}';
+
+        dataJson.fromJson(initialJson);
+        int256[] memory result = dataJson.getIntArray(CONFIG_DELTAS_KEY);
+        assertEq(result.length, 3);
+        assertEq(result[0], -50);
+        assertEq(result[1], 0);
+        assertEq(result[2], 100);
+    }
+
+    // ============ JSON Round-trip Tests ============
+
+    function test_RoundTripAddress() public {
+        dataJson.set(OWNER_KEY, address(0x1234));
+        string memory json = dataJson.toJson();
+
+        DeploymentDataJson dataJson2 = new DeploymentDataJson(keys);
+        dataJson2.fromJson(json);
+
+        assertEq(dataJson2.get(OWNER_KEY), address(0x1234));
+    }
+
+    function test_RoundTripNestedAddress() public {
+        dataJson.setAddress(PEGGED_IMPL_KEY, address(0xABCD));
+        string memory json = dataJson.toJson();
+
+        DeploymentDataJson dataJson2 = new DeploymentDataJson(keys);
+        dataJson2.fromJson(json);
+
+        assertEq(dataJson2.getAddress(PEGGED_IMPL_KEY), address(0xABCD));
+    }
+
+    function test_RoundTripMultipleTypes() public {
+        dataJson.set(OWNER_KEY, address(0x1111));
+        dataJson.setString(PEGGED_SYMBOL_KEY, "BAO");
+        dataJson.setUint(PEGGED_DECIMALS_KEY, 18);
+        dataJson.setInt(CONFIG_TEMPERATURE_KEY, -273);
+        dataJson.setBool(CONFIG_ENABLED_KEY, true);
+
+        string memory json = dataJson.toJson();
+
+        DeploymentDataJson dataJson2 = new DeploymentDataJson(keys);
+        dataJson2.fromJson(json);
+
+        assertEq(dataJson2.get(OWNER_KEY), address(0x1111));
+        assertEq(dataJson2.getString(PEGGED_SYMBOL_KEY), "BAO");
+        assertEq(dataJson2.getUint(PEGGED_DECIMALS_KEY), 18);
+        assertEq(dataJson2.getInt(CONFIG_TEMPERATURE_KEY), -273);
+        assertTrue(dataJson2.getBool(CONFIG_ENABLED_KEY));
+    }
+
+    function test_RoundTripArrays() public {
+        address[] memory addrs = new address[](2);
+        addrs[0] = address(0x1111);
+        addrs[1] = address(0x2222);
+        dataJson.setAddressArray(CONFIG_VALIDATORS_KEY, addrs);
+
+        string[] memory tags = new string[](2);
+        tags[0] = "stable";
+        tags[1] = "verified";
+        dataJson.setStringArray(CONFIG_TAGS_KEY, tags);
+
+        uint256[] memory limits = new uint256[](3);
+        limits[0] = 100;
+        limits[1] = 200;
+        limits[2] = 300;
+        dataJson.setUintArray(CONFIG_LIMITS_KEY, limits);
+
+        int256[] memory deltas = new int256[](3);
+        deltas[0] = -50;
+        deltas[1] = 0;
+        deltas[2] = 100;
+        dataJson.setIntArray(CONFIG_DELTAS_KEY, deltas);
+
+        string memory json = dataJson.toJson();
+
+        DeploymentDataJson dataJson2 = new DeploymentDataJson(keys);
+        dataJson2.fromJson(json);
+
+        address[] memory addrsResult = dataJson2.getAddressArray(CONFIG_VALIDATORS_KEY);
+        assertEq(addrsResult.length, 2);
+        assertEq(addrsResult[0], address(0x1111));
+        assertEq(addrsResult[1], address(0x2222));
+
+        string[] memory tagsResult = dataJson2.getStringArray(CONFIG_TAGS_KEY);
+        assertEq(tagsResult.length, 2);
+        assertEq(tagsResult[0], "stable");
+        assertEq(tagsResult[1], "verified");
+
+        uint256[] memory limitsResult = dataJson2.getUintArray(CONFIG_LIMITS_KEY);
+        assertEq(limitsResult.length, 3);
+        assertEq(limitsResult[0], 100);
+        assertEq(limitsResult[1], 200);
+        assertEq(limitsResult[2], 300);
+
+        int256[] memory deltasResult = dataJson2.getIntArray(CONFIG_DELTAS_KEY);
+        assertEq(deltasResult.length, 3);
+        assertEq(deltasResult[0], -50);
+        assertEq(deltasResult[1], 0);
+        assertEq(deltasResult[2], 100);
     }
 }

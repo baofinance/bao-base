@@ -160,9 +160,9 @@ abstract contract Deployment is DeploymentKeys {
         return transferred;
     }
 
-    function dataStore() public view returns (address) {
-        return address(_data);
-    }
+    // function dataStore() public view returns (address) {
+    //     return address(_data);
+    // }
 
     /// @notice Transfer ownership of a proxy to final owner
     /// @dev Called by subclass during finish() for each proxy
