@@ -417,7 +417,7 @@ abstract contract Deployment is DeploymentKeys {
             // or upgrade and call
         } else if ((implementationInitData.length != 0) && (value == 0)) {
             IUUPSUpgradeableProxy(proxy).upgradeToAndCall(newImplementation, implementationInitData);
-        } else if ((implementationInitData.length == 0) && (value == 0)) {
+        } else if ((implementationInitData.length != 0) && (value != 0)) {
             IUUPSUpgradeableProxy(proxy).upgradeToAndCall{value: value}(newImplementation, implementationInitData);
         }
 

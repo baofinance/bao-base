@@ -12,7 +12,7 @@
       "symbol": "USD",
       "name": "Harbor USD",
       "owner": "0xaa10a84ce7d9ae517a52c6d5ca153b369af99ecf",
-      "contractType": "ERC1967Proxy"
+      "address": "0x490a4e6d6b444385bc0bf31948a71412542116fa"
     }
   }
 }
