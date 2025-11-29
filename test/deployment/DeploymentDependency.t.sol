@@ -5,7 +5,8 @@ import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentMemoryTesting} from "@bao-script/deployment/DeploymentMemoryTesting.sol";
 
 import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
-import {MockOracle, MockToken, MockMinter} from "../mocks/basic/MockDependencies.sol";
+import {MockOracle, MockToken} from "../mocks/basic/MockDependencies.sol";
+import {MockMinter} from "../mocks/upgradeable/MockMinter.sol";
 
 // Test harness extends DeploymentTesting
 contract MockDeploymentDependency is DeploymentMemoryTesting {
@@ -15,6 +16,7 @@ contract MockDeploymentDependency is DeploymentMemoryTesting {
     string public constant ORACLE2 = "oracle2";
     string public constant TOKEN = "token";
     string public constant TOKEN1 = "token1";
+    string public constant TOKEN2 = "token2";
     string public constant MINTER = "minter";
 
     constructor() {
@@ -24,7 +26,8 @@ contract MockDeploymentDependency is DeploymentMemoryTesting {
         addContract(ORACLE2);
         addContract(TOKEN);
         addContract(TOKEN1);
-        addContract(MINTER);
+        addContract(TOKEN2);
+        addProxy(MINTER); // MINTER is deployed as a proxy
     }
 
     function deployOracle(string memory key, uint256 price) public returns (address) {
@@ -48,9 +51,24 @@ contract MockDeploymentDependency is DeploymentMemoryTesting {
     function deployMinter(string memory key, string memory tokenKey, string memory oracleKey) public returns (address) {
         address tokenAddr = get(tokenKey);
         address oracleAddr = get(oracleKey);
-        MockMinter minter = new MockMinter(tokenAddr, oracleAddr);
-        registerContract(key, address(minter), "MockMinter", "test/MockMinter.sol", address(this));
-        return get(key);
+        
+        // Deploy implementation (use same token for all three parameters in test)
+        MockMinter implementation = new MockMinter(tokenAddr, tokenAddr, tokenAddr);
+        
+        // Encode initialization data: initialize(oracle, finalOwner)
+        bytes memory initData = abi.encodeWithSignature("initialize(address,address)", oracleAddr, address(this));
+        
+        // Deploy proxy
+        address proxy = deployProxy(
+            key,
+            address(implementation),
+            initData,
+            "MockMinter",
+            "test/mocks/upgradeable/MockMinter.sol",
+            address(this)
+        );
+        
+        return proxy;
     }
 }
 
@@ -92,7 +110,7 @@ contract DeploymentDependencyTest is BaoDeploymentTest {
         assertTrue(minterAddr != address(0));
 
         MockMinter minter = MockMinter(minterAddr);
-        assertEq(minter.token(), tokenAddr);
+        assertEq(minter.PEGGED_TOKEN(), tokenAddr);
         assertEq(minter.oracle(), oracleAddr);
     }
 
@@ -147,7 +165,7 @@ contract DeploymentDependencyTest is BaoDeploymentTest {
         address minter = deployment.deployMinter("minter", "token1", "oracle2");
 
         MockMinter m = MockMinter(minter);
-        assertEq(m.token(), token1);
+        assertEq(m.PEGGED_TOKEN(), token1);
         assertEq(m.oracle(), oracle2);
     }
 }
