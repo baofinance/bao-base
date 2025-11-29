@@ -151,8 +151,6 @@ contract DeploymentDataMemory is IDeploymentDataWritable {
 
     // ============ Hook ============
 
-    function _afterValueChanged(string memory /*key*/) internal virtual {}
-
     // ============ Shared Logic ============
 
     function _requireReadable(string memory key, DataType expected) private view {
@@ -167,31 +165,26 @@ contract DeploymentDataMemory is IDeploymentDataWritable {
     function _writeAddress(string memory key, address value, DataType expected) internal {
         _prepareKey(key, expected);
         _addresses[key] = value;
-        _afterValueChanged(key);
     }
 
     function _writeString(string memory key, string memory value, DataType expected) internal {
         _prepareKey(key, expected);
         _strings[key] = value;
-        _afterValueChanged(key);
     }
 
     function _writeUint(string memory key, uint256 value, DataType expected) internal {
         _prepareKey(key, expected);
         _uints[key] = value;
-        _afterValueChanged(key);
     }
 
     function _writeInt(string memory key, int256 value, DataType expected) internal {
         _prepareKey(key, expected);
         _ints[key] = value;
-        _afterValueChanged(key);
     }
 
     function _writeBool(string memory key, bool value, DataType expected) internal {
         _prepareKey(key, expected);
         _bools[key] = value;
-        _afterValueChanged(key);
     }
 
     function _writeAddressArray(string memory key, address[] memory values, DataType expected) internal {
@@ -200,7 +193,6 @@ contract DeploymentDataMemory is IDeploymentDataWritable {
         for (uint256 i = 0; i < values.length; i++) {
             _addressArrays[key].push(values[i]);
         }
-        _afterValueChanged(key);
     }
 
     function _writeStringArray(string memory key, string[] memory values, DataType expected) internal {
@@ -209,7 +201,6 @@ contract DeploymentDataMemory is IDeploymentDataWritable {
         for (uint256 i = 0; i < values.length; i++) {
             _stringArrays[key].push(values[i]);
         }
-        _afterValueChanged(key);
     }
 
     function _writeUintArray(string memory key, uint256[] memory values, DataType expected) internal {
@@ -218,7 +209,6 @@ contract DeploymentDataMemory is IDeploymentDataWritable {
         for (uint256 i = 0; i < values.length; i++) {
             _uintArrays[key].push(values[i]);
         }
-        _afterValueChanged(key);
     }
 
     function _writeIntArray(string memory key, int256[] memory values, DataType expected) internal {
@@ -227,7 +217,6 @@ contract DeploymentDataMemory is IDeploymentDataWritable {
         for (uint256 i = 0; i < values.length; i++) {
             _intArrays[key].push(values[i]);
         }
-        _afterValueChanged(key);
     }
 
     function _prepareKey(string memory key, DataType expected) private {

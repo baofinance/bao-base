@@ -15,32 +15,33 @@ contract DeploymentDataJsonTesting is DeploymentDataJson {
     uint256 private _sequenceNumber; // Incremented on each save
     bool private _sequencingEnabled; // Whether to append sequence numbers
 
-    constructor(DeploymentKeys keyRegistry, string memory inputPath) DeploymentDataJson(keyRegistry, inputPath) {}
+    constructor(DeploymentKeys keyRegistry) DeploymentDataJson(keyRegistry) {}
 
     /// @notice Enable sequence numbering for capturing update phases
     /// @dev Call this before writes to create .001, .002, .003 files instead of overwriting
-    function enableSequencing() external {
-        _sequencingEnabled = true;
-    }
+    // function enableSequencing() external {
+    //     _sequencingEnabled = true;
+    // }
 
-    /// @notice Override to track base path for sequencing
-    function setOutputPath(string memory outputPath) external override {
-        _baseOutputPath = outputPath;
-        _outputPath = outputPath;
-        _sequenceNumber = 1; // Start sequence at 1
-    }
+    // /// @notice Override to track base path for sequencing
+    // /// @dev Made public to satisfy interface, but should only be called by DeploymentJsonTesting
+    // function setOutputPath(string memory outputPath) public override {
+    //     _baseOutputPath = outputPath;
+    //     _outputPath = outputPath;
+    //     _sequenceNumber = 1; // Start sequence at 1
+    // }
 
-    /// @notice Override to add sequence numbers to all saves (if enabled)
-    function _saveToFile() internal override {
-        if (_sequencingEnabled) {
-            // Add sequence number to every save (starting from 1)
-            _outputPath = _appendSequence(_baseOutputPath, _sequenceNumber);
-            _sequenceNumber++;
-        }
+    // /// @notice Override to add sequence numbers to all saves (if enabled)
+    // function _saveToFile() internal override {
+    //     if (_sequencingEnabled) {
+    //         // Add sequence number to every save (starting from 1)
+    //         _outputPath = _appendSequence(_baseOutputPath, _sequenceNumber);
+    //         _sequenceNumber++;
+    //     }
 
-        // Call parent to do the actual save
-        super._saveToFile();
-    }
+    //     // Call parent to do the actual save
+    //     super._saveToFile();
+    // }
 
     /// @notice Append sequence number to filename (e.g., "file.json" -> "file.001.json")
     /// @param path Base file path
@@ -108,11 +109,11 @@ contract DeploymentDataJsonTesting is DeploymentDataJson {
         return string(buffer);
     }
 
-    function toJson() public returns (string memory) {
-        return _toJson();
-    }
+    // function toJson() public returns (string memory) {
+    //     return _toJson();
+    // }
 
-    function fromJson(string memory json) public {
-        _fromJson(json);
-    }
+    // function fromJson(string memory json) public {
+    //     _fromJson(json);
+    // }
 }

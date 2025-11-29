@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {stdJson} from "forge-std/StdJson.sol";
+
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
+import {DeploymentDataJson} from "@bao-script/deployment/DeploymentDataJson.sol";
 import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.sol";
 
 string constant OWNER_KEY = "owner";
@@ -47,47 +50,38 @@ contract TestKeys is DeploymentKeys {
  * @title DeploymentDataMemoryTest
  * @notice Tests for in-memory deployment data implementation
  */
-contract DeploymentDataMemoryTest is BaoTest {
+contract DeploymentDataTest is BaoTest {
     DeploymentDataMemory data;
     TestKeys keys;
 
+    function _createDeploymentData(TestKeys keys_) internal virtual returns (DeploymentDataMemory data_) {
+        data_ = new DeploymentDataMemory(keys_);
+    }
+
     function setUp() public {
         keys = new TestKeys();
-        data = new DeploymentDataMemory(keys);
+        data = _createDeploymentData(keys);
     }
 
     // ============ Address Tests ============
 
     function test_SetAndGetAddress() public {
-        address expected = address(0x1234);
-        data.set(OWNER_KEY, expected);
-        assertEq(data.get(OWNER_KEY), expected);
-    }
+        string[] memory allKeys = data.keys();
+        assertEq(allKeys.length, 0);
 
-    function test_AddressDefaultIsZero() public {
+        assertFalse(data.has(OWNER_KEY));
         vm.expectRevert();
         data.get(OWNER_KEY);
-    }
 
-    function test_HasReturnsTrueAfterSet() public {
-        data.set(OWNER_KEY, address(0x1234));
+        address expected = address(0x1234);
+        data.set(OWNER_KEY, expected);
+
         assertTrue(data.has(OWNER_KEY));
-    }
+        assertEq(data.get(OWNER_KEY), expected);
 
-    function test_HasReturnsFalseBeforeSet() public view {
-        assertFalse(data.has(OWNER_KEY));
-    }
-
-    function test_KeysIncludesSetAddress() public {
-        data.set(OWNER_KEY, address(0x1234));
-        string[] memory allKeys = data.keys();
+        allKeys = data.keys();
         assertEq(allKeys.length, 1);
         assertEq(allKeys[0], OWNER_KEY);
-    }
-
-    function test_RejectKeyEndingWithDotAddress() public {
-        // This should be caught at key registration time
-        // We can't test it with existing keys, but the validation is in DeploymentKeys
     }
 
     // ============ String Tests ============
@@ -262,5 +256,14 @@ contract DeploymentDataMemoryTest is BaoTest {
         // setAddress() is for ADDRESS type (nested, with dots)
         data.setAddress(PEGGED_IMPL_KEY, address(0x2222));
         assertEq(data.getAddress(PEGGED_IMPL_KEY), address(0x2222), "Nested ADDRESS mismatch");
+    }
+}
+
+contract DeploymentDataJsonTest is DeploymentDataTest {
+    using stdJson for string;
+    DeploymentDataJson dataJson;
+
+    function _createDeploymentData(TestKeys keys_) internal override returns (DeploymentDataMemory data_) {
+        dataJson = new DeploymentDataJson(keys_);
     }
 }

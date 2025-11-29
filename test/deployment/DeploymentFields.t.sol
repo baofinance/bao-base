@@ -128,7 +128,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
     }
 
     function test_ProxyHasFactoryAndDeployer() public {
-        deployment.setOutputFilename(string.concat(FILE_PREFIX, "test_ProxyHasFactoryAndDeployer"));
+        deployment.setFilename("test_ProxyHasFactoryAndDeployer");
         // Deploy a proxy
         deployment.deploySimpleProxy("proxy1", 100, admin);
         deployment.finish();

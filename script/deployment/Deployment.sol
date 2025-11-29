@@ -30,6 +30,7 @@ interface IUUPSUpgradeableProxy {
  *      - All state managed through IDeploymentDataWritable
  *      - Designed for specialization (e.g. Harbor overrides deployProxy)
  */
+
 abstract contract Deployment is DeploymentKeys {
     // ============================================================================
     // Errors
@@ -112,9 +113,7 @@ abstract contract Deployment is DeploymentKeys {
         string memory /*network*/,
         string memory /*systemSaltString*/,
         string memory /*inputTimestamp*/
-    ) internal virtual returns (IDeploymentDataWritable) {
-        return new DeploymentDataMemory(this);
-    }
+    ) internal virtual returns (IDeploymentDataWritable);
 
     /// @notice Start deployment session
     /// @dev Subclasses must call _startWithDataLayer after creating data layer
@@ -194,119 +193,6 @@ abstract contract Deployment is DeploymentKeys {
         if (_sessionState == State.STARTED) {
             useExisting("BaoDeployer", deployed);
         }
-    }
-
-    // ============================================================================
-    // Data Layer Wrappers
-    // ============================================================================
-
-    /// @notice Set contract address
-    function _set(string memory key, address value) internal {
-        _data.set(key, value);
-    }
-
-    /// @notice Get contract address
-    function _get(string memory key) internal view returns (address) {
-        return _data.get(key);
-    }
-
-    /// @notice Check if contract key exists
-    function _has(string memory key) internal view returns (bool) {
-        return _data.has(key);
-    }
-
-    /// @notice Set string value
-    function _setString(string memory key, string memory value) internal {
-        _data.setString(key, value);
-    }
-
-    /// @notice Get string value
-    function _getString(string memory key) internal view returns (string memory) {
-        return _data.getString(key);
-    }
-
-    /// @notice Set uint value
-    function _setUint(string memory key, uint256 value) internal {
-        _data.setUint(key, value);
-    }
-
-    /// @notice Get uint value
-    function _getUint(string memory key) internal view returns (uint256) {
-        return _data.getUint(key);
-    }
-
-    /// @notice Set int value
-    function _setInt(string memory key, int256 value) internal {
-        _data.setInt(key, value);
-    }
-
-    /// @notice Get int value
-    function _getInt(string memory key) internal view returns (int256) {
-        return _data.getInt(key);
-    }
-
-    /// @notice Set bool value
-    function _setBool(string memory key, bool value) internal {
-        _data.setBool(key, value);
-    }
-
-    /// @notice Get bool value
-    function _getBool(string memory key) internal view returns (bool) {
-        return _data.getBool(key);
-    }
-
-    function _setAddress(string memory key, address value) internal {
-        _data.setAddress(key, value);
-    }
-
-    function _getAddress(string memory key) internal view returns (address) {
-        return _data.getAddress(key);
-    }
-
-    /// @notice Set address array
-    function _setAddressArray(string memory key, address[] memory values) internal {
-        _data.setAddressArray(key, values);
-    }
-
-    /// @notice Get address array
-    function _getAddressArray(string memory key) internal view returns (address[] memory) {
-        return _data.getAddressArray(key);
-    }
-
-    /// @notice Set string array
-    function _setStringArray(string memory key, string[] memory values) internal {
-        _data.setStringArray(key, values);
-    }
-
-    /// @notice Get string array
-    function _getStringArray(string memory key) internal view returns (string[] memory) {
-        return _data.getStringArray(key);
-    }
-
-    /// @notice Set uint array
-    function _setUintArray(string memory key, uint256[] memory values) internal {
-        _data.setUintArray(key, values);
-    }
-
-    /// @notice Get uint array
-    function _getUintArray(string memory key) internal view returns (uint256[] memory) {
-        return _data.getUintArray(key);
-    }
-
-    /// @notice Set int array
-    function _setIntArray(string memory key, int256[] memory values) internal {
-        _data.setIntArray(key, values);
-    }
-
-    /// @notice Get int array
-    function _getIntArray(string memory key) internal view returns (int256[] memory) {
-        return _data.getIntArray(key);
-    }
-
-    /// @notice Derive system salt for deterministic address calculations
-    /// @dev Subclasses can override to customize salt derivation (e.g., network-specific tweaks)
-    function _deriveSystemSalt() internal view virtual returns (string memory) {
-        return _data.getString(SYSTEM_SALT_STRING);
     }
 
     // ============================================================================
@@ -642,6 +528,127 @@ abstract contract Deployment is DeploymentKeys {
         _setString(string.concat(key, ".contractPath"), contractPath);
         _setAddress(string.concat(key, ".deployer"), deployer);
         _setUint(string.concat(key, ".blockNumber"), block.number);
+    }
+
+    function _afterValueChanged(string memory key) internal virtual;
+
+    /// @notice Set contract address
+    function _set(string memory key, address value) internal {
+        _data.set(key, value);
+        _afterValueChanged(key);
+    }
+
+    /// @notice Get contract address
+    function _get(string memory key) internal view returns (address) {
+        return _data.get(key);
+    }
+
+    /// @notice Check if contract key exists
+    function _has(string memory key) internal view returns (bool) {
+        return _data.has(key);
+    }
+
+    /// @notice Set string value
+    function _setString(string memory key, string memory value) internal {
+        _data.setString(key, value);
+        _afterValueChanged(key);
+    }
+
+    /// @notice Get string value
+    function _getString(string memory key) internal view returns (string memory) {
+        return _data.getString(key);
+    }
+
+    /// @notice Set uint value
+    function _setUint(string memory key, uint256 value) internal {
+        _data.setUint(key, value);
+        _afterValueChanged(key);
+    }
+
+    /// @notice Get uint value
+    function _getUint(string memory key) internal view returns (uint256) {
+        return _data.getUint(key);
+    }
+
+    /// @notice Set int value
+    function _setInt(string memory key, int256 value) internal {
+        _data.setInt(key, value);
+        _afterValueChanged(key);
+    }
+
+    /// @notice Get int value
+    function _getInt(string memory key) internal view returns (int256) {
+        return _data.getInt(key);
+    }
+
+    /// @notice Set bool value
+    function _setBool(string memory key, bool value) internal {
+        _data.setBool(key, value);
+        _afterValueChanged(key);
+    }
+
+    /// @notice Get bool value
+    function _getBool(string memory key) internal view returns (bool) {
+        return _data.getBool(key);
+    }
+
+    function _setAddress(string memory key, address value) internal {
+        _data.setAddress(key, value);
+        _afterValueChanged(key);
+    }
+
+    function _getAddress(string memory key) internal view returns (address) {
+        return _data.getAddress(key);
+    }
+
+    /// @notice Set address array
+    function _setAddressArray(string memory key, address[] memory values) internal {
+        _data.setAddressArray(key, values);
+        _afterValueChanged(key);
+    }
+
+    /// @notice Get address array
+    function _getAddressArray(string memory key) internal view returns (address[] memory) {
+        return _data.getAddressArray(key);
+    }
+
+    /// @notice Set string array
+    function _setStringArray(string memory key, string[] memory values) internal {
+        _data.setStringArray(key, values);
+        _afterValueChanged(key);
+    }
+
+    /// @notice Get string array
+    function _getStringArray(string memory key) internal view returns (string[] memory) {
+        return _data.getStringArray(key);
+    }
+
+    /// @notice Set uint array
+    function _setUintArray(string memory key, uint256[] memory values) internal {
+        _data.setUintArray(key, values);
+        _afterValueChanged(key);
+    }
+
+    /// @notice Get uint array
+    function _getUintArray(string memory key) internal view returns (uint256[] memory) {
+        return _data.getUintArray(key);
+    }
+
+    /// @notice Set int array
+    function _setIntArray(string memory key, int256[] memory values) internal {
+        _data.setIntArray(key, values);
+        _afterValueChanged(key);
+    }
+
+    /// @notice Get int array
+    function _getIntArray(string memory key) internal view returns (int256[] memory) {
+        return _data.getIntArray(key);
+    }
+
+    /// @notice Derive system salt for deterministic address calculations
+    /// @dev Subclasses can override to customize salt derivation (e.g., network-specific tweaks)
+    function _deriveSystemSalt() internal view virtual returns (string memory) {
+        return _data.getString(SYSTEM_SALT_STRING);
     }
 
     // ============================================================================

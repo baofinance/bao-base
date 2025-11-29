@@ -51,7 +51,7 @@ contract DeploymentDataJsonPersistenceTest is DeploymentLogsTest {
         DeploymentDataJsonTesting instance = new DeploymentDataJsonTesting(keys, "");
 
         // Set output path based on network/salt, respecting BAO_DEPLOYMENT_LOGS_ROOT
-        string memory baseDir = _getDeploymentBaseDir();
+        string memory baseDir = _getPrefix();
         string memory outputPath = string.concat(
             baseDir,
             "/deployments/",
@@ -135,7 +135,7 @@ contract DeploymentDataJsonPersistenceTest is DeploymentLogsTest {
     function test_FilenameOverride() public {
         // Test explicit output path setting
         DeploymentDataJsonTesting data = new DeploymentDataJsonTesting(keys, "");
-        string memory baseDir = _getDeploymentBaseDir();
+        string memory baseDir = _getPrefix();
         string memory outputPath = string.concat(baseDir, "/deployments/persistence-test/test-deployment-001.json");
         data.setOutputPath(outputPath);
 
@@ -147,7 +147,7 @@ contract DeploymentDataJsonPersistenceTest is DeploymentLogsTest {
 
     function test_LatestFileFunctionality() public {
         // Create directory for test files
-        string memory baseDir = _getDeploymentBaseDir();
+        string memory baseDir = _getPrefix();
         string memory testDir = string.concat(baseDir, "/deployments/persistence-latest-test");
         if (!vm.exists(testDir)) {
             vm.createDir(testDir, true);

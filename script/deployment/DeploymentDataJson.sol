@@ -5,108 +5,35 @@ import {LibString} from "@solady/utils/LibString.sol";
 
 import {DeploymentKeys, DataType} from "./DeploymentKeys.sol";
 import {DeploymentDataMemory} from "./DeploymentDataMemory.sol";
-import {IDeploymentDataJson} from "./interfaces/IDeploymentDataJson.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 
 /**
  * @title DeploymentDataJson
- * @notice JSON-backed deployment data implementation built on top of DeploymentDataStore
+ * @notice JSON-backed deployment data implementation built on top of DeploymentDataMemory
  * @dev Pure persistence layer - caller provides all paths
  */
-contract DeploymentDataJson is DeploymentDataMemory, IDeploymentDataJson {
+contract DeploymentDataJson is DeploymentDataMemory {
     using stdJson for string;
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
-    string internal _outputPath;
-    bool internal _suppressPersistence = false;
+    // string internal _outputPath;
+    // bool internal _suppressPersistence = false;
+    constructor(DeploymentKeys keyRegistry) DeploymentDataMemory(keyRegistry) {}
 
-    constructor(DeploymentKeys keyRegistry, string memory inputPath) DeploymentDataMemory(keyRegistry) {
-        // Load input file if it exists
-        if (bytes(inputPath).length > 0 && VM.exists(inputPath)) {
-            string memory existingJson = VM.readFile(inputPath);
-            _fromJson(existingJson);
-        }
+    /// @notice Get base directory for deployment files
+    /// @dev Override in test classes to use results/ instead of ./
+    /// @return Base directory path
+    function _getPrefix() internal view virtual returns (string memory) {
+        return ".";
     }
 
-    // ============ Public API ============
-
-    /// @notice Load deployment data from JSON file
-    /// @param inputPath Absolute path to input JSON file
-    function loadFromFile(string memory inputPath) external {
-        if (VM.exists(inputPath)) {
-            string memory existingJson = VM.readFile(inputPath);
-            _fromJson(existingJson);
-        }
-    }
-
-    /// @notice Set output path and enable automatic persistence
-    /// @param outputPath Absolute path where JSON should be saved
-    function setOutputPath(string memory outputPath) external virtual {
-        _outputPath = outputPath;
-    }
-
-    /// @notice Get current output path
-    function getOutputPath() external view returns (string memory) {
-        return _outputPath;
-    }
-
-    // ============ Hooks ============
-
-    function _afterValueChanged(string memory) internal override {
-        if (_shouldPersist()) {
-            _saveToFile();
-        }
-    }
-
-    /// @notice Check if automatic persistence is enabled
-    /// @dev Virtual hook - override to disable persistence conditionally
-    /// @return True if values should be automatically saved to file
-    function _shouldPersist() internal view virtual returns (bool) {
-        return !_suppressPersistence && bytes(_outputPath).length > 0;
-    }
-
-    // ============ Persistence ============
-
-    function _saveToFile() internal virtual {
-        require(bytes(_outputPath).length > 0, "Output path not set");
-        // Extract directory from output path and ensure it exists
-        string memory dir = _dirname(_outputPath);
-        if (bytes(dir).length > 0) {
-            VM.createDir(dir, true);
-        }
-        VM.writeJson(_toJson(), _outputPath);
-    }
-
-    function _dirname(string memory path) internal pure returns (string memory) {
-        bytes memory pathBytes = bytes(path);
-        if (pathBytes.length == 0) return "";
-
-        uint256 lastSlash = 0;
-        bool foundSlash = false;
-        for (uint256 i = 0; i < pathBytes.length; i++) {
-            if (pathBytes[i] == 0x2F) {
-                lastSlash = i;
-                foundSlash = true;
-            }
-        }
-
-        if (!foundSlash) return "";
-
-        bytes memory result = new bytes(lastSlash);
-        for (uint256 i = 0; i < lastSlash; i++) {
-            result[i] = pathBytes[i];
-        }
-        return string(result);
-    }
-
-    function _fromJson(string memory existingJson) internal {
+    function fromJson(string memory existingJson) public {
         if (bytes(existingJson).length == 0) {
             return;
         }
 
         string[] memory registered = _deploymentKeys.keys();
-        _suppressPersistence = true;
         for (uint256 i = 0; i < registered.length; i++) {
             string memory key = registered[i];
             string memory pointer = string.concat("$.", key);
@@ -137,12 +64,11 @@ contract DeploymentDataJson is DeploymentDataMemory, IDeploymentDataJson {
                 _writeIntArray(key, existingJson.readIntArray(pointer), expected);
             }
         }
-        _suppressPersistence = false;
     }
 
     // ============ JSON Rendering ============
 
-    function _toJson() internal returns (string memory) {
+    function toJson() public returns (string memory) {
         uint256 keyCount = _allKeys.length;
         if (keyCount == 0) {
             return "{}";

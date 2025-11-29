@@ -5,6 +5,7 @@ import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentKeys} from "@bao-script/deployment/DeploymentKeys.sol";
 import {IDeploymentDataWritable} from "@bao-script/deployment/interfaces/IDeploymentDataWritable.sol";
 import {DeploymentDataJson} from "@bao-script/deployment/DeploymentDataJson.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 /**
  * @title DeploymentJson
@@ -16,85 +17,119 @@ import {DeploymentDataJson} from "@bao-script/deployment/DeploymentDataJson.sol"
  *      Subclasses implement _createDataLayer to choose specific JSON data implementation
  */
 abstract contract DeploymentJson is Deployment {
+    Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+
+    string private _systemSaltString;
+    string private _network;
+    string private _filename;
+    // TODO: thie below is a hack
+    DeploymentDataJson _dataJson;
+    bool _suppressPersistence = false;
+
     // ============================================================================
     // Abstract Methods for JSON Configuration
     // ============================================================================
 
-    /// @notice Get base directory for deployment files
-    /// @dev Override in test classes to use results/ instead of ./
-    /// @return Base directory path
-    function _getDeploymentBaseDir() internal view virtual returns (string memory) {
-        return ".";
-    }
-
-    /// @notice Whether to use system salt subdirectory in path
-    /// @dev Production uses salt subdirs, tests may override to false
-    /// @return True if paths should include system salt subdirectory
-    function _useSystemSaltSubdir() internal view virtual returns (bool) {
-        return true;
+    function _afterValueChanged(string memory /* key */) internal override {
+        if (!_suppressPersistence) {
+            string memory path = string.concat(_getRootPlusDir(), "/", _getFilename(), ".json");
+            VM.writeJson(_dataJson.toJson(), path);
+        }
     }
 
     // ============================================================================
     // Path Calculation
     // ============================================================================
 
-    /// @notice Build input file path from timestamp keyword
-    /// @param network Network name
-    /// @param systemSaltString System salt
-    /// @param inputTimestamp "first", "latest", ISO timestamp, or empty for config.json
-    /// @return Absolute path to input JSON file
-    function _resolveInputPath(
-        string memory network,
-        string memory systemSaltString,
-        string memory inputTimestamp
-    ) internal view returns (string memory) {
-        string memory baseTree = _buildBaseTree(systemSaltString);
+    /// @notice Get base directory for deployment files
+    /// @dev Override in test classes to use results/ instead of ./
+    /// @return Base directory path
+    function _getPrefix() internal virtual returns (string memory) {
+        return ".";
+    }
 
-        if (bytes(inputTimestamp).length == 0 || _streq(inputTimestamp, "first")) {
-            return string.concat(baseTree, "/config.json");
+    function _getRoot() private returns (string memory) {
+        return string.concat(_getPrefix(), "/deployments");
+    }
+
+    function _getDir() internal view virtual returns (string memory dir) {
+        dir = string.concat(_systemSaltString, "/", _network);
+    }
+
+    function _getRootPlusDir() internal returns (string memory rootPlusDir) {
+        rootPlusDir = _getRoot();
+        string memory dir = _getDir();
+        if (bytes(dir).length > 0) rootPlusDir = string.concat(rootPlusDir, "/", dir);
+    }
+
+    function _getFilename() internal view virtual returns (string memory filename) {
+        filename = _filename;
+    }
+    /**
+     * @notice Convert Unix timestamp to ISO 8601 date-time string
+     * @param timestamp Unix timestamp in seconds
+     * @return ISO 8601 formatted string (YYYY-MM-DDTHH:MM:SSZ)
+     */
+    function _formatTimestamp(uint256 timestamp) internal pure returns (string memory) {
+        if (timestamp == 0) return "";
+
+        // Calculate date components
+        uint256 z = timestamp / 86400 + 719468;
+        uint256 era = z / 146097;
+        uint256 doe = z - era * 146097;
+        uint256 yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        uint256 y = yoe + era * 400;
+        uint256 doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        uint256 mp = (5 * doy + 2) / 153;
+        uint256 d = doy - (153 * mp + 2) / 5 + 1;
+        uint256 m = mp < 10 ? mp + 3 : mp - 9;
+        y = m <= 2 ? y + 1 : y;
+
+        // Calculate time components
+        uint256 secondsInDay = timestamp % 86400;
+        uint256 hour = secondsInDay / 3600;
+        uint256 minute = (secondsInDay % 3600) / 60;
+        uint256 second = secondsInDay % 60;
+
+        // Format as ISO 8601: YYYY-MM-DDTHH:MM:SSZ
+        return
+            string(
+                abi.encodePacked(
+                    _padZero(y, 4),
+                    "-",
+                    _padZero(m, 2),
+                    "-",
+                    _padZero(d, 2),
+                    "T",
+                    _padZero(hour, 2),
+                    ":",
+                    _padZero(minute, 2),
+                    ":",
+                    _padZero(second, 2),
+                    "Z"
+                )
+            );
+    }
+
+    /**
+     * @notice Pad number with leading zeros
+     * @param num Number to pad
+     * @param width Target width
+     * @return Padded string
+     */
+    function _padZero(uint256 num, uint256 width) internal pure returns (string memory) {
+        bytes memory b = bytes(VM.toString(num));
+        if (b.length >= width) return string(b);
+
+        bytes memory padded = new bytes(width);
+        uint256 padLen = width - b.length;
+        for (uint256 i = 0; i < padLen; i++) {
+            padded[i] = "0";
         }
-
-        // "latest" and explicit timestamps need the network directory
-        string memory networkDir = string.concat(baseTree, "/", network);
-
-        if (_streq(inputTimestamp, "latest")) {
-            // TODO: implement latest file finding if needed
-            revert("Latest file resolution not yet implemented");
+        for (uint256 i = 0; i < b.length; i++) {
+            padded[padLen + i] = b[i];
         }
-
-        return string.concat(networkDir, "/", inputTimestamp, ".json");
-    }
-
-    /// @notice Build output file path
-    /// @param network Network name
-    /// @param systemSaltString System salt
-    /// @return Absolute path where JSON should be written
-    function _buildOutputPath(
-        string memory network,
-        string memory systemSaltString
-    ) internal view returns (string memory) {
-        string memory networkDir = string.concat(_buildBaseTree(systemSaltString), "/", network);
-        string memory timestamp = _generateTimestamp();
-        return string.concat(networkDir, "/", timestamp, ".json");
-    }
-
-    function _buildBaseTree(string memory systemSaltString) private view returns (string memory) {
-        string memory tree = string.concat(_getDeploymentBaseDir(), "/deployments");
-        if (_useSystemSaltSubdir() && bytes(systemSaltString).length != 0) {
-            tree = string.concat(tree, "/", systemSaltString);
-        }
-        return tree;
-    }
-
-    function _generateTimestamp() private view returns (string memory) {
-        // Simple ISO 8601 timestamp
-        uint256 ts = block.timestamp;
-        return _formatTimestamp(ts);
-    }
-
-    function _formatTimestamp(uint256 ts) private pure returns (string memory) {
-        // Simplified timestamp formatting
-        return string(abi.encodePacked("deployment-", _uint2str(ts)));
+        return string(padded);
     }
 
     function _uint2str(uint256 value) private pure returns (string memory) {
@@ -124,19 +159,34 @@ abstract contract DeploymentJson is Deployment {
 
     /// @notice Initialize data layer with JSON file paths
     /// @dev Implements abstract method from base Deployment
-    /// @param network Network name
-    /// @param systemSaltString System salt string
+    /// @param network_ Network name
+    /// @param systemSaltString_ System salt string
     /// @param startPoint Start point for input resolution
     /// @dev Subclasses choose: DeploymentDataJson, DeploymentDataJsonTesting, etc.
     function _createDeploymentData(
-        string memory network,
-        string memory systemSaltString,
+        string memory network_,
+        string memory systemSaltString_,
         string memory startPoint
     ) internal virtual override returns (IDeploymentDataWritable) {
-        string memory inputPath = _resolveInputPath(network, systemSaltString, startPoint);
-        string memory outputPath = _buildOutputPath(network, systemSaltString);
-        DeploymentDataJson data = new DeploymentDataJson(this, inputPath);
-        data.setOutputPath(outputPath);
-        return data;
+        _network = network_;
+        _systemSaltString = systemSaltString_;
+        _dataJson = new DeploymentDataJson(this);
+
+        // now load the data from the specified file
+        string memory path;
+        if (bytes(startPoint).length == 0 || _streq(startPoint, "first")) {
+            path = string.concat(_getRoot(), "/", _systemSaltString, "/config.json");
+        } else if (_streq(startPoint, "latest")) {
+            // TODO: implement latest file finding if needed
+            revert("Latest file resolution not yet implemented");
+        } else {
+            path = string.concat(_getRootPlusDir(), "/", startPoint, ".json");
+        }
+        _suppressPersistence = true;
+        _dataJson.fromJson(VM.readFile(path));
+        _suppressPersistence = false;
+
+        _filename = _formatTimestamp(block.timestamp);
+        return _dataJson;
     }
 }

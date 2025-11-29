@@ -20,7 +20,7 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp(); // Sets up deployment infrastructure (Nick's Factory + BaoDeployer)
         deployment = new MockHarborDeploymentDev();
-        deployment.setNetworkLabel("mock-harbor");
+        deployment.setDir("mock-harbor");
         deployment.start(TEST_NETWORK, TEST_SALT, "");
         admin = makeAddr("admin");
     }

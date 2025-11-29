@@ -2,13 +2,13 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
+import {DeploymentMemoryTesting} from "@bao-script/deployment/DeploymentMemoryTesting.sol";
 
 import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
 import {MockOracle, MockToken, MockMinter} from "../mocks/basic/MockDependencies.sol";
 
 // Test harness extends DeploymentTesting
-contract MockDeploymentDependency is DeploymentTesting {
+contract MockDeploymentDependency is DeploymentMemoryTesting {
     constructor() {
         // Register all possible contract keys used in tests
     }

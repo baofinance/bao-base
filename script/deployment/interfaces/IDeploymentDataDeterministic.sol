@@ -7,5 +7,5 @@ pragma solidity ^0.8.28;
  */
 interface IDeploymentDataDeterministic {
     function setFilename(string memory filename) external;
-    function setNetworkLabel(string memory label) external;
+    function setDir(string memory label) external;
 }

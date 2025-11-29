@@ -14,7 +14,7 @@ import {EfficientHashLib} from "@solady/utils/EfficientHashLib.sol";
  *      - access to the underlying data structure for testing
  *      - auto-configuration of BaoDeployer operator for testing
  */
-contract DeploymentTesting is Deployment, BaoDeployerSetOperator {
+abstract contract DeploymentTesting is Deployment, BaoDeployerSetOperator {
     function _ensureBaoDeployerOperator() internal override {
         _setUpBaoDeployerOperator();
     }
@@ -52,7 +52,7 @@ contract DeploymentTesting is Deployment, BaoDeployerSetOperator {
     }
 
     // ============================================================================
-    // access to keyed data
+    // Data Layer Wrappers
     // ============================================================================
 
     /// @notice Set contract address

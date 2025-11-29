@@ -10,4 +10,14 @@ import {IDeploymentDataWritable} from "@bao-script/deployment/interfaces/IDeploy
  * @title DeploymentJson
  * @dev Extends base Deployment with test accessor functions
  */
-contract DeploymentMemoryTesting is Deployment, DeploymentTesting {}
+contract DeploymentMemoryTesting is Deployment, DeploymentTesting {
+    function _afterValueChanged(string memory /* key */) internal pure override {}
+
+    function _createDeploymentData(
+        string memory /*network*/,
+        string memory /*systemSaltString*/,
+        string memory /*inputTimestamp*/
+    ) internal override returns (IDeploymentDataWritable) {
+        return new DeploymentDataMemory(this);
+    }
+}
