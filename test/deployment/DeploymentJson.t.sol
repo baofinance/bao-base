@@ -112,17 +112,10 @@ contract DeploymentJsonTest is BaoDeploymentTest {
     function test_RunSerializationIncludesFinishFieldsWhenActive() public {
         string memory json = deployment.toJson();
 
-        assertTrue(vm.keyExistsJson(json, ".session.finishTimestamp"));
-        uint256 finishTimestamp = vm.parseJsonUint(json, ".session.finishTimestamp");
-        assertEq(finishTimestamp, 0, "Should serialize zero finish timestamp");
-
-        // Note: ISO string conversion not implemented in current structure
-        // string memory finishIso = vm.parseJsonString(json, ".session.finishTimestampISO");
-        // assertEq(bytes(finishIso).length, 0, "Should serialize empty ISO string");
-
-        assertTrue(vm.keyExistsJson(json, ".session.finishBlock"));
-        uint256 finishBlock = vm.parseJsonUint(json, ".session.finishBlock");
-        assertEq(finishBlock, 0, "Should serialize zero finish block");
+        // All finish fields should NOT exist when session is active (cleaner JSON)
+        assertFalse(vm.keyExistsJson(json, ".session.finishTimestamp"), "finishTimestamp should not exist when active");
+        assertFalse(vm.keyExistsJson(json, ".session.finished"), "ISO finished should not exist when active");
+        assertFalse(vm.keyExistsJson(json, ".session.finishBlock"), "finishBlock should not exist when active");
     }
 
     function test_SaveContractToJson() public {
@@ -319,10 +312,9 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         // Deploy contract but DON'T call finish()
         deployment.deploySimpleContract("contract1", "Contract 1");
 
-        // Verify the JSON has an unfinished run
+        // Verify the JSON has an unfinished run (finished field should not exist)
         string memory json = deployment.toJson();
-        bool finished = vm.parseJsonBool(json, ".session.finished");
-        assertFalse(finished, "Run should not be finished");
+        assertFalse(vm.keyExistsJson(json, ".session.finished"), "ISO finished should not exist when not finished");
 
         // Try to resume - should fail
         MockDeploymentJson newDeployment = new MockDeploymentJson();

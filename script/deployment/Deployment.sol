@@ -133,7 +133,10 @@ abstract contract Deployment is DeploymentKeys {
         _data.setString(SESSION_NETWORK, network);
         _data.setAddress(SESSION_DEPLOYER, address(this));
         _data.setUint(SESSION_START_TIMESTAMP, block.timestamp);
+        _data.setString(SESSION_STARTED, _formatTimestamp(block.timestamp));
         _data.setUint(SESSION_START_BLOCK, block.number);
+        
+        // Don't initialize finish fields - they only appear when finish() is called
 
         // Set up deployment infrastructure
         _ensureBaoDeployerOperator();
@@ -155,6 +158,7 @@ abstract contract Deployment is DeploymentKeys {
 
         // Mark session finished using registered keys
         _data.setUint(SESSION_FINISH_TIMESTAMP, block.timestamp);
+        _data.setString(SESSION_FINISHED, _formatTimestamp(block.timestamp));
         _data.setUint(SESSION_FINISH_BLOCK, block.number);
         _sessionState = State.FINISHED;
 
@@ -694,5 +698,70 @@ abstract contract Deployment is DeploymentKeys {
     /// @dev Subclasses can override to customize salt derivation (e.g., network-specific tweaks)
     function _deriveSystemSalt() internal view virtual returns (string memory) {
         return _data.getString(SYSTEM_SALT_STRING);
+    }
+
+    /// @notice Format Unix timestamp as ISO 8601 string
+    /// @param timestamp Unix timestamp in seconds
+    /// @return ISO 8601 formatted string (YYYY-MM-DDTHH:MM:SSZ)
+    function _formatTimestamp(uint256 timestamp) internal pure returns (string memory) {
+        if (timestamp == 0) return "";
+
+        // Calculate date components
+        uint256 z = timestamp / 86400 + 719468;
+        uint256 era = z / 146097;
+        uint256 doe = z - era * 146097;
+        uint256 yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        uint256 y = yoe + era * 400;
+        uint256 doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        uint256 mp = (5 * doy + 2) / 153;
+        uint256 d = doy - (153 * mp + 2) / 5 + 1;
+        uint256 m = mp < 10 ? mp + 3 : mp - 9;
+        y = m <= 2 ? y + 1 : y;
+
+        // Calculate time components
+        uint256 secondsInDay = timestamp % 86400;
+        uint256 hour = secondsInDay / 3600;
+        uint256 minute = (secondsInDay % 3600) / 60;
+        uint256 second = secondsInDay % 60;
+
+        // Format as ISO 8601: YYYY-MM-DDTHH:MM:SSZ
+        return
+            string(
+                abi.encodePacked(
+                    _padZero(y, 4),
+                    "-",
+                    _padZero(m, 2),
+                    "-",
+                    _padZero(d, 2),
+                    "T",
+                    _padZero(hour, 2),
+                    ":",
+                    _padZero(minute, 2),
+                    ":",
+                    _padZero(second, 2),
+                    "Z"
+                )
+            );
+    }
+
+    /// @notice Pad number with leading zeros
+    /// @param num Number to pad
+    /// @param width Target width
+    /// @return Padded string
+    function _padZero(uint256 num, uint256 width) internal pure returns (string memory) {
+        bytes memory b = bytes(LibString.toString(num));
+        if (b.length >= width) return string(b);
+
+        bytes memory padded = new bytes(width);
+        uint256 paddingNeeded = width - b.length;
+
+        for (uint256 i = 0; i < paddingNeeded; i++) {
+            padded[i] = "0";
+        }
+        for (uint256 i = 0; i < b.length; i++) {
+            padded[paddingNeeded + i] = b[i];
+        }
+
+        return string(padded);
     }
 }

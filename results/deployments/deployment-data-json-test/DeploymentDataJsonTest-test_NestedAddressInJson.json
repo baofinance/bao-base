@@ -1,7 +1,0 @@
-{
-  "contracts": {
-    "pegged": {
-      "implementation": "0x000000000000000000000000000000000000abcd"
-    }
-  }
-}

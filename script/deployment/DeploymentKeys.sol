@@ -65,8 +65,8 @@ abstract contract DeploymentKeys {
     string public constant SESSION_ROOT = "session";
     string public constant SESSION_VERSION = "session.version";
     string public constant SESSION_DEPLOYER = "session.deployer";
-    string public constant SESSION_STARTED = "session.startTimestamp";
-    string public constant SESSION_FINISHED = "session.finishTimestamp";
+    string public constant SESSION_STARTED = "session.started";
+    string public constant SESSION_FINISHED = "session.finished";
     string public constant SESSION_START_TIMESTAMP = "session.startTimestamp";
     string public constant SESSION_FINISH_TIMESTAMP = "session.finishTimestamp";
     string public constant SESSION_START_BLOCK = "session.startBlock";
