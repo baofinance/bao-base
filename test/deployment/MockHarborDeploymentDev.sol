@@ -6,14 +6,18 @@ import {MockHarborDeploymentProduction} from "./MockHarborDeploymentProduction.s
 /**
  * @title MockHarborDeploymentDev
  * @notice Development version of Harbor deployment
- * @dev Just an alias for MockHarborDeploymentProduction
+ * @dev Extends MockHarborDeploymentProduction with additional test keys
  *      All public API methods (setString, setAddress, etc.) come from DeploymentTesting
  *      which is already in the inheritance chain via MockHarborDeploymentProduction
  */
 contract MockHarborDeploymentDev is MockHarborDeploymentProduction {
-    // No additional code needed!
-    // - deployPegged() inherited from MockHarborDeploymentProduction
-    // - setString/setAddress/etc. inherited from DeploymentTesting (via MockHarborDeploymentProduction)
-    // - _createDataLayer() inherited from MockHarborDeploymentProduction
-    // - All test configuration inherited from DeploymentTesting
+    // Additional keys for persistence testing
+    string public constant PEGGED_CONFIG = "contracts.pegged.config";
+    string public constant PEGGED_CONFIG_NAME = "contracts.pegged.config.name";
+
+    constructor() {
+        // Register persistence test keys
+        addStringKey(PEGGED_CONFIG);
+        addStringKey(PEGGED_CONFIG_NAME);
+    }
 }

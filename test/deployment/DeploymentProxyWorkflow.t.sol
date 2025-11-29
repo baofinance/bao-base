@@ -2,7 +2,6 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {DeploymentDataJsonTesting} from "@bao-script/deployment/DeploymentDataJsonTesting.sol";
 import {MockHarborDeploymentDev} from "./MockHarborDeploymentDev.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 
@@ -18,11 +17,10 @@ contract DeploymentProxyWorkflowTest is BaoDeploymentTest {
         MockHarborDeploymentDev harness = new MockHarborDeploymentDev();
 
         // Start deployment session with sequencing enabled
-        harness.start("proxy-workflow-suite", "proxy-workflow", "");
+        harness.start("MultipleWritesWithProxyDeployment", "DeploymentProxyWorkflowTest", "");
 
-        // Enable sequencing on the data layer to capture each phase
-        DeploymentDataJsonTesting dataLayer = DeploymentDataJsonTesting(harness.dataStore());
-        dataLayer.enableSequencing();
+        // Enable sequencing to capture each phase
+        harness.enableSequencing();
 
         address admin = makeAddr("admin");
 

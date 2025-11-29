@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {LibString} from "@solady/utils/LibString.sol";
 
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentKeys} from "@bao-script/deployment/DeploymentKeys.sol";
@@ -17,6 +18,8 @@ import {Vm} from "forge-std/Vm.sol";
  *      Subclasses implement _createDataLayer to choose specific JSON data implementation
  */
 abstract contract DeploymentJson is Deployment {
+    using LibString for string;
+
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     string private _systemSaltString;
@@ -30,7 +33,7 @@ abstract contract DeploymentJson is Deployment {
     // Abstract Methods for JSON Configuration
     // ============================================================================
 
-    function _afterValueChanged(string memory /* key */) internal override {
+    function _afterValueChanged(string memory /* key */) internal virtual override {
         if (!_suppressPersistence) {
             string memory path = string.concat(_getRootPlusDir(), "/", _getFilename(), ".json");
             VM.writeJson(_dataJson.toJson(), path);
@@ -118,7 +121,7 @@ abstract contract DeploymentJson is Deployment {
      * @return Padded string
      */
     function _padZero(uint256 num, uint256 width) internal pure returns (string memory) {
-        bytes memory b = bytes(VM.toString(num));
+        bytes memory b = bytes(LibString.toString(num));
         if (b.length >= width) return string(b);
 
         bytes memory padded = new bytes(width);
@@ -130,27 +133,6 @@ abstract contract DeploymentJson is Deployment {
             padded[padLen + i] = b[i];
         }
         return string(padded);
-    }
-
-    function _uint2str(uint256 value) private pure returns (string memory) {
-        if (value == 0) return "0";
-        uint256 temp = value;
-        uint256 digits = 0;
-        while (temp != 0) {
-            digits++;
-            temp /= 10;
-        }
-        bytes memory buffer = new bytes(digits);
-        while (value != 0) {
-            digits--;
-            buffer[digits] = bytes1(uint8(48 + (value % 10)));
-            value /= 10;
-        }
-        return string(buffer);
-    }
-
-    function _streq(string memory a, string memory b) private pure returns (bool) {
-        return keccak256(bytes(a)) == keccak256(bytes(b));
     }
 
     // ============================================================================
@@ -174,15 +156,15 @@ abstract contract DeploymentJson is Deployment {
 
         // now load the data from the specified file
         string memory path;
-        if (bytes(startPoint).length == 0 || _streq(startPoint, "first")) {
+        if (bytes(startPoint).length == 0 || startPoint.eq("first")) {
             path = string.concat(_getRoot(), "/", _systemSaltString, "/config.json");
-        } else if (_streq(startPoint, "latest")) {
+        } else if (startPoint.eq("latest")) {
             // TODO: implement latest file finding if needed
             revert("Latest file resolution not yet implemented");
         } else {
             path = string.concat(_getRootPlusDir(), "/", startPoint, ".json");
         }
-        _suppressPersistence = true;
+        _suppressPersistence = true; // we don't wan the loading to write out each change, on loading
         _dataJson.fromJson(VM.readFile(path));
         _suppressPersistence = false;
 

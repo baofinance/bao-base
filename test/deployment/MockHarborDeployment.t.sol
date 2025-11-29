@@ -27,7 +27,7 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
 
     /// @notice Test individual pegged token deployment
     function test_deployPegged() public {
-        deployment.setOutputFilename("test_deployPegged");
+        deployment.setFilename("test_deployPegged");
         // Pre-deployment configuration
         deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor USD");
@@ -61,7 +61,7 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
 
     /// @notice Test that configuration is read from data layer
     function test_configurationFlow() public {
-        deployment.setOutputFilename("test_configurationFlow");
+        deployment.setFilename("test_configurationFlow");
         // Configure
         deployment.setString(deployment.PEGGED_SYMBOL(), "EURO");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor Euro");
@@ -82,7 +82,7 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
 
     /// @notice Test predictable addressing
     function test_predictableAddress() public {
-        deployment.setOutputFilename("test_predictableAddress");
+        deployment.setFilename("test_predictableAddress");
         // Predict address
         address predicted = deployment.predictProxyAddress(deployment.PEGGED());
         assertTrue(predicted != address(0), "Predicted address should not be zero");
@@ -100,7 +100,7 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
 
     /// @notice Test that contract existence can be checked
     function test_checkContractExists() public {
-        deployment.setOutputFilename("test_checkContractExists");
+        deployment.setFilename("test_checkContractExists");
         // Before deployment
         assertFalse(deployment.has(deployment.PEGGED()), "Pegged should not exist yet");
 

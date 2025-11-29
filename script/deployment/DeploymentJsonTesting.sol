@@ -10,6 +10,7 @@ import {IDeploymentDataWritable} from "@bao-script/deployment/interfaces/IDeploy
 import {Vm} from "forge-std/Vm.sol";
 
 library DeploymentTestingOutput {
+
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     function _getPrefix() internal view returns (string memory) {
@@ -30,10 +31,28 @@ library DeploymentTestingOutput {
  * @dev Extends base Deployment with test accessor functions
  */
 contract DeploymentJsonTesting is DeploymentJson, DeploymentTesting {
+
     string private _dir; // Namespace for test suite outputs
     bool _dirIsSet;
     string private _filename;
     bool _filenameIsSet;
+    uint256 private _sequenceNumber; // Incremented on each save
+    string private _baseFilename;
+
+        /// @notice Enable sequence numbering for capturing update phases
+    /// @dev Call this before writes to create .001, .002, .003 files instead of overwriting
+    function enableSequencing() external {
+        _baseFilename = super._getFilename();
+        _sequenceNumber = 1;
+    }
+
+    function _afterValueChanged(string memory  key ) internal override (DeploymentJson, Deployment) {
+        if (_sequenceNumber > 0) {
+            setFilename(string.concat(_baseFilename, ".", _padZero(_sequenceNumber, 3)));
+            _sequenceNumber ++;
+        }
+        DeploymentJson._afterValueChanged(key);
+    }
 
     function _getPrefix() internal view override returns (string memory) {
         return DeploymentTestingOutput._getPrefix();
@@ -66,13 +85,4 @@ contract DeploymentJsonTesting is DeploymentJson, DeploymentTesting {
         _filename = fileName;
         _filenameIsSet = true;
     }
-
-    //     /// @notice Set custom output filename for this test (prevents output collisions)
-    //     /// @param filename Custom filename without path or extension (e.g., "test_DeployProxy")
-    //     function setOutputFilename(string memory filename) public {
-    //         string memory network = bytes(_networkLabel).length > 0 ? _networkLabel : _dataJson.getString(SESSION_NETWORK);
-    //         string memory baseDir = _getPrefix();
-    //         string memory outputPath = string.concat(baseDir, "/deployments/", network, "/", filename, ".json");
-    //         _dataJson.setOutputPath(outputPath);
-    //     }
 }
