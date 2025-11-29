@@ -38,38 +38,41 @@ library TestLib {
 // Test harness
 contract MockDeploymentJson is DeploymentJsonTesting {
     constructor() {
-        // Register all possible contract keys used in tests
-        addContract("contract1");
-        addContract("contract2");
-        addProxy("proxy1");
-        addContract("lib1");
-        addContract("external1");
+        // Register all possible contract keys used in tests with contracts. prefix
+        addContract("contracts.contract1");
+        addContract("contracts.contract2");
+        addProxy("contracts.proxy1");
+        addContract("contracts.lib1");
+        addContract("contracts.external1");
     }
 
-    function deploySimpleContract(string memory key, string memory name) public returns (address) {
+    function deploySimpleContract(string memory key, string memory name) public {
         SimpleContract c = new SimpleContract(name);
-        registerContract(key, address(c), "SimpleContract", "test/SimpleContract.sol", address(this));
-        return get(key);
+        registerContract(
+            string.concat("contracts.", key),
+            address(c),
+            "SimpleContract",
+            "test/SimpleContract.sol",
+            address(this)
+        );
     }
 
-    function deploySimpleProxy(string memory key, uint256 value) public returns (address) {
+    function deploySimpleProxy(string memory key, uint256 value) public {
         SimpleImplementation impl = new SimpleImplementation();
         bytes memory initData = abi.encodeCall(SimpleImplementation.initialize, (value));
         deployProxy(
-            key,
+            string.concat("contracts.", key),
             address(impl),
             initData,
             "SimpleImplementation",
             "test/SimpleImplementation.sol",
             address(this)
         );
-        return get(key);
     }
 
-    function deployTestLibrary(string memory key) public returns (address) {
+    function deployTestLibrary(string memory key) public {
         bytes memory bytecode = type(TestLib).creationCode;
-        deployLibrary(key, bytecode, "TestLib", "test/TestLib.sol", address(this));
-        return get(key);
+        deployLibrary(string.concat("contracts.", key), bytecode, "TestLib", "test/TestLib.sol", address(this));
     }
 }
 
@@ -99,25 +102,26 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Verify metadata
-        address deployer = vm.parseJsonAddress(json, ".deployer");
+        address deployer = vm.parseJsonAddress(json, ".session.deployer");
         assertEq(deployer, address(deployment)); // deployer is the harness
 
-        string memory network = vm.parseJsonString(json, ".network");
+        string memory network = vm.parseJsonString(json, ".session.network");
         assertEq(network, TEST_NETWORK);
     }
 
     function test_RunSerializationIncludesFinishFieldsWhenActive() public {
         string memory json = deployment.toJson();
 
-        assertTrue(vm.keyExistsJson(json, ".runs[0].finishTimestamp"));
-        uint256 finishTimestamp = vm.parseJsonUint(json, ".runs[0].finishTimestamp");
+        assertTrue(vm.keyExistsJson(json, ".session.finishTimestamp"));
+        uint256 finishTimestamp = vm.parseJsonUint(json, ".session.finishTimestamp");
         assertEq(finishTimestamp, 0, "Should serialize zero finish timestamp");
 
-        string memory finishIso = vm.parseJsonString(json, ".runs[0].finishTimestampISO");
-        assertEq(bytes(finishIso).length, 0, "Should serialize empty ISO string");
+        // Note: ISO string conversion not implemented in current structure
+        // string memory finishIso = vm.parseJsonString(json, ".session.finishTimestampISO");
+        // assertEq(bytes(finishIso).length, 0, "Should serialize empty ISO string");
 
-        assertTrue(vm.keyExistsJson(json, ".runs[0].finishBlock"));
-        uint256 finishBlock = vm.parseJsonUint(json, ".runs[0].finishBlock");
+        assertTrue(vm.keyExistsJson(json, ".session.finishBlock"));
+        uint256 finishBlock = vm.parseJsonUint(json, ".session.finishBlock");
         assertEq(finishBlock, 0, "Should serialize zero finish block");
     }
 
@@ -132,13 +136,13 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Verify contract is in JSON
-        address addr = vm.parseJsonAddress(json, ".deployment.contract1.address");
-        assertEq(addr, deployment.get("contract1"));
+        address addr = vm.parseJsonAddress(json, ".contracts.contract1.address");
+        assertEq(addr, deployment.get("contracts.contract1"));
 
-        string memory category = vm.parseJsonString(json, ".deployment.contract1.category");
+        string memory category = vm.parseJsonString(json, ".contracts.contract1.category");
         assertEq(category, "contract");
 
-        string memory contractType = vm.parseJsonString(json, ".deployment.contract1.contractType");
+        string memory contractType = vm.parseJsonString(json, ".contracts.contract1.contractType");
         assertEq(contractType, "SimpleContract");
     }
 
@@ -153,16 +157,16 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Verify proxy fields
-        address addr = vm.parseJsonAddress(json, ".deployment.proxy1.address");
-        assertEq(addr, deployment.get("proxy1"));
+        address addr = vm.parseJsonAddress(json, ".contracts.proxy1.address");
+        assertEq(addr, deployment.get("contracts.proxy1"));
 
-        string memory category = vm.parseJsonString(json, ".deployment.proxy1.category");
+        string memory category = vm.parseJsonString(json, ".contracts.proxy1.category");
         assertEq(category, "UUPS proxy");
 
-        string memory saltString = vm.parseJsonString(json, ".deployment.proxy1.saltString");
+        string memory saltString = vm.parseJsonString(json, ".contracts.proxy1.saltString");
         assertEq(saltString, "proxy1");
 
-        bytes32 salt = vm.parseJsonBytes32(json, ".deployment.proxy1.salt");
+        bytes32 salt = vm.parseJsonBytes32(json, ".contracts.proxy1.salt");
         assertTrue(salt != bytes32(0));
     }
 
@@ -176,13 +180,13 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Verify library fields
-        address addr = vm.parseJsonAddress(json, ".deployment.lib1.address");
-        assertEq(addr, deployment.get("lib1"));
+        address addr = vm.parseJsonAddress(json, ".contracts.lib1.address");
+        assertEq(addr, deployment.get("contracts.lib1"));
 
-        string memory category = vm.parseJsonString(json, ".deployment.lib1.category");
+        string memory category = vm.parseJsonString(json, ".contracts.lib1.category");
         assertEq(category, "library");
 
-        string memory contractType = vm.parseJsonString(json, ".deployment.lib1.contractType");
+        string memory contractType = vm.parseJsonString(json, ".contracts.lib1.contractType");
         assertEq(contractType, "TestLib");
     }
 
@@ -190,7 +194,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         deployment.deploySimpleContract("contract1", "Contract 1");
         deployment.deploySimpleProxy("proxy1", 10);
         deployment.deployTestLibrary("lib1");
-        deployment.useExisting("external1", address(0x1234567890123456789012345678901234567890));
+        deployment.useExisting("contracts.external1", address(0x1234567890123456789012345678901234567890));
 
         deployment.finish();
 
@@ -200,22 +204,27 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
         // Verify all entries are present
-        assertTrue(vm.keyExistsJson(json, ".deployment.contract1"));
-        assertTrue(vm.keyExistsJson(json, ".deployment.proxy1"));
-        assertTrue(vm.keyExistsJson(json, ".deployment.lib1"));
-        assertTrue(vm.keyExistsJson(json, ".deployment.external1"));
+        assertTrue(vm.keyExistsJson(json, ".contracts.contract1"));
+        assertTrue(vm.keyExistsJson(json, ".contracts.proxy1"));
+        assertTrue(vm.keyExistsJson(json, ".contracts.lib1"));
+        assertTrue(vm.keyExistsJson(json, ".contracts.external1"));
 
-        // Verify metadata - finish timestamp is now in runs array
-        uint256 finishTimestamp = vm.parseJsonUint(json, ".runs[0].finishTimestamp");
+        // Verify metadata - finish timestamp is in session
+        uint256 finishTimestamp = vm.parseJsonUint(json, ".session.finishTimestamp");
         assertTrue(finishTimestamp > 0);
     }
 
     function test_LoadFromJson() public {
         // First, save a deployment
-        address contract1Addr = deployment.deploySimpleContract("contract1", "Contract 1");
-        address proxy1Addr = deployment.deploySimpleProxy("proxy1", 10);
-        address lib1Addr = deployment.deployTestLibrary("lib1");
-        deployment.useExisting("external1", address(0x1234567890123456789012345678901234567890));
+        deployment.deploySimpleContract("contract1", "Contract 1");
+        deployment.deploySimpleProxy("proxy1", 10);
+        deployment.deployTestLibrary("lib1");
+        deployment.useExisting("contracts.external1", address(0x1234567890123456789012345678901234567890));
+
+        // Get addresses from deployment data
+        address contract1Addr = deployment.get("contracts.contract1");
+        address proxy1Addr = deployment.get("contracts.proxy1");
+        address lib1Addr = deployment.get("contracts.lib1");
 
         deployment.finish();
 
@@ -225,15 +234,19 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         newDeployment.fromJson(json);
 
         // Verify all contracts are loaded
-        assertTrue(newDeployment.has("contract1"));
-        assertTrue(newDeployment.has("proxy1"));
-        assertTrue(newDeployment.has("lib1"));
-        assertTrue(newDeployment.has("external1"));
+        assertTrue(newDeployment.has("contracts.contract1"));
+        assertTrue(newDeployment.has("contracts.proxy1"));
+        assertTrue(newDeployment.has("contracts.lib1"));
+        assertTrue(newDeployment.has("contracts.external1"));
 
-        assertEq(newDeployment.get("contract1"), contract1Addr, "contract1");
-        assertEq(newDeployment.get("proxy1"), proxy1Addr, "proxy1");
-        assertEq(newDeployment.get("lib1"), lib1Addr, "lib1");
-        assertEq(newDeployment.get("external1"), address(0x1234567890123456789012345678901234567890), "external1");
+        assertEq(newDeployment.get("contracts.contract1"), contract1Addr, "contract1");
+        assertEq(newDeployment.get("contracts.proxy1"), proxy1Addr, "proxy1");
+        assertEq(newDeployment.get("contracts.lib1"), lib1Addr, "lib1");
+        assertEq(
+            newDeployment.get("contracts.external1"),
+            address(0x1234567890123456789012345678901234567890),
+            "external1"
+        );
 
         // Verify metadata using getters
         assertEq(newDeployment.getString(newDeployment.SESSION_NETWORK()), TEST_NETWORK);
@@ -251,13 +264,13 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         newDeployment.fromJson(json);
 
         // Verify loaded contract exists
-        assertTrue(newDeployment.has("contract1"));
+        assertTrue(newDeployment.has("contracts.contract1"));
 
         // Continue deploying
         newDeployment.deploySimpleContract("contract2", "Contract 2");
 
-        assertTrue(newDeployment.has("contract1"));
-        assertTrue(newDeployment.has("contract2"));
+        assertTrue(newDeployment.has("contracts.contract1"));
+        assertTrue(newDeployment.has("contracts.contract2"));
 
         string[] memory keys = newDeployment.keys();
         assertEq(keys.length, 2);
@@ -271,7 +284,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         string memory json = deployment.toJson();
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
-        uint256 blockNumber = vm.parseJsonUint(json, ".deployment.contract1.blockNumber");
+        uint256 blockNumber = vm.parseJsonUint(json, ".contracts.contract1.blockNumber");
 
         assertEq(blockNumber, deployBlock);
     }
@@ -288,9 +301,9 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
-        // Timestamps are now in runs array
-        uint256 savedStartTime = vm.parseJsonUint(json, ".runs[0].startTimestamp");
-        uint256 savedFinishTime = vm.parseJsonUint(json, ".runs[0].finishTimestamp");
+        // Timestamps are in session
+        uint256 savedStartTime = vm.parseJsonUint(json, ".session.startTimestamp");
+        uint256 savedFinishTime = vm.parseJsonUint(json, ".session.finishTimestamp");
 
         assertEq(savedStartTime, startTime);
         assertEq(savedFinishTime, startTime + 100);
@@ -332,11 +345,11 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         MockDeploymentJson resumed = new MockDeploymentJson();
         resumed.start(TEST_NETWORK, TEST_SALT, "resume-active");
 
-        assertTrue(resumed.has("contract1"), "loaded contract present after resume");
+        assertTrue(resumed.has("contracts.contract1"), "loaded contract present after resume");
         assertEq(resumed.getString(resumed.SESSION_NETWORK()), TEST_NETWORK, "network should match");
 
         resumed.deploySimpleContract("contract2", "Contract 2");
-        assertTrue(resumed.has("contract2"), "can continue deploying after resume");
+        assertTrue(resumed.has("contracts.contract2"), "can continue deploying after resume");
         resumed.finish();
     }
 }

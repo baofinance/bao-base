@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {CREATE3} from "@solady/utils/CREATE3.sol";
 import {EfficientHashLib} from "@solady/utils/EfficientHashLib.sol";
+import {LibString} from "@solady/utils/LibString.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
@@ -304,6 +305,29 @@ abstract contract Deployment is DeploymentKeys {
         baoDeployer.commit(commitment);
         address proxy = baoDeployer.reveal(proxyCreationCode, salt, 0);
 
+        // Register proxy with all metadata (extracted to avoid stack too deep)
+        _registerProxy(proxyKey, proxy, factory, salt, deployer);
+
+        _upgradeProxy(
+            value,
+            proxyKey,
+            implementation,
+            implementationInitData,
+            implementationContractType,
+            implementationContractPath,
+            deployer
+        );
+    }
+
+    /// @notice Register proxy metadata
+    /// @dev Extracted to separate function to avoid stack too deep errors
+    function _registerProxy(
+        string memory proxyKey,
+        address proxy,
+        address factory,
+        bytes32 salt,
+        address deployer
+    ) private {
         // register keys
         // the proxy
         _registerImplementation(
@@ -316,16 +340,8 @@ abstract contract Deployment is DeploymentKeys {
         // extra proxy keys
         _setAddress(string.concat(proxyKey, ".factory"), factory);
         _setString(string.concat(proxyKey, ".category"), "UUPS proxy");
-
-        _upgradeProxy(
-            value,
-            proxyKey,
-            implementation,
-            implementationInitData,
-            implementationContractType,
-            implementationContractPath,
-            deployer
-        );
+        _setString(string.concat(proxyKey, ".saltString"), _extractSaltString(proxyKey));
+        _setString(string.concat(proxyKey, ".salt"), LibString.toHexString(uint256(salt)));
     }
 
     /** @notice Upgrade existing proxy to new implementation
@@ -498,6 +514,7 @@ abstract contract Deployment is DeploymentKeys {
         address deployer
     ) private {
         _set(key, addr);
+        _setAddress(string.concat(key, ".address"), addr);
         _setString(string.concat(key, ".contractType"), contractType);
         _setString(string.concat(key, ".contractPath"), contractPath);
         _setAddress(string.concat(key, ".deployer"), deployer);
@@ -524,6 +541,7 @@ abstract contract Deployment is DeploymentKeys {
 
         // TODO: fix these keys
         _set(key, addr);
+        _setAddress(string.concat(key, ".address"), addr);
         _setString(string.concat(key, ".category"), "library");
         _setString(string.concat(key, ".contractType"), contractType);
         _setString(string.concat(key, ".contractPath"), contractPath);
@@ -542,6 +560,32 @@ abstract contract Deployment is DeploymentKeys {
     /// @notice Get contract address
     function _get(string memory key) internal view returns (address) {
         return _data.get(key);
+    }
+
+    /// @notice Extract salt string from key (everything after last dot)
+    function _extractSaltString(string memory key) internal pure returns (string memory) {
+        bytes memory keyBytes = bytes(key);
+        uint256 lastDotIndex = 0;
+
+        // Find the last dot
+        for (uint256 i = 0; i < keyBytes.length; i++) {
+            if (keyBytes[i] == ".") {
+                lastDotIndex = i;
+            }
+        }
+
+        // If no dot found, return the whole key
+        if (lastDotIndex == 0) {
+            return key;
+        }
+
+        // Extract substring after last dot
+        bytes memory result = new bytes(keyBytes.length - lastDotIndex - 1);
+        for (uint256 i = 0; i < result.length; i++) {
+            result[i] = keyBytes[lastDotIndex + 1 + i];
+        }
+
+        return string(result);
     }
 
     /// @notice Check if contract key exists

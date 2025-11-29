@@ -257,6 +257,8 @@ abstract contract DeploymentKeys {
         _registerKey(string.concat(key, ".category"), DataType.STRING);
         _registerKey(string.concat(key, ".factory"), DataType.ADDRESS);
         _registerKey(string.concat(key, ".value"), DataType.UINT);
+        _registerKey(string.concat(key, ".saltString"), DataType.STRING);
+        _registerKey(string.concat(key, ".salt"), DataType.STRING); // Store as hex string
 
         string memory implementationKey = string.concat(key, ".implementation");
         _addImplementation(implementationKey);
