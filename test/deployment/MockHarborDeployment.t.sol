@@ -14,19 +14,24 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
     MockHarborDeploymentDev public deployment;
     address public admin;
 
-    string internal constant TEST_NETWORK = "anvil";
     string internal constant TEST_SALT = "MockHarborDeploymentTest";
 
     function setUp() public override {
         super.setUp(); // Sets up deployment infrastructure (Nick's Factory + BaoDeployer)
         deployment = new MockHarborDeploymentDev();
-        _resetDeploymentLogs("MockHarborDeploymentTest", TEST_NETWORK, "{}");
-        deployment.start(TEST_NETWORK, "MockHarborDeploymentTest", "");
+        _resetDeploymentLogs("MockHarborDeploymentTest", "{}");
         admin = makeAddr("admin");
+    }
+
+    function _startDeployment(string memory network) internal {
+        _prepareTestNetwork(TEST_SALT, network);
+        deployment.start(network, TEST_SALT, "");
     }
 
     /// @notice Test individual pegged token deployment
     function test_deployPegged() public {
+        _startDeployment("test_deployPegged");
+        
         deployment.setFilename("test_deployPegged");
         // Pre-deployment configuration
         deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
@@ -65,6 +70,8 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
 
     /// @notice Test that configuration is read from data layer
     function test_configurationFlow() public {
+        _startDeployment("test_configurationFlow");
+        
         deployment.setFilename("test_configurationFlow");
         // Configure
         deployment.setString(deployment.PEGGED_SYMBOL(), "EURO");
@@ -86,6 +93,8 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
 
     /// @notice Test predictable addressing
     function test_predictableAddress() public {
+        _startDeployment("test_predictableAddress");
+        
         deployment.setFilename("test_predictableAddress");
         // Predict address
         address predicted = deployment.predictProxyAddress(deployment.PEGGED());
@@ -104,6 +113,8 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
 
     /// @notice Test that contract existence can be checked
     function test_checkContractExists() public {
+        _startDeployment("test_checkContractExists");
+        
         deployment.setFilename("test_checkContractExists");
         // Before deployment
         assertFalse(deployment.has(deployment.PEGGED()), "Pegged should not exist yet");
@@ -120,6 +131,8 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
 
     /// @notice Test that invalid keys are rejected
     function test_invalidKeyRejected() public {
+        _startDeployment("test_invalidKeyRejected");
+        
         // Try to set an unregistered key
         vm.expectRevert();
         deployment.setString("invalid.key", "value");

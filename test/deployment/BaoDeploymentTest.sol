@@ -58,21 +58,22 @@ abstract contract BaoDeploymentTest is BaoTest {
         vm.label(_baoDeployer, "_baoDeployer");
     }
 
-    /// @notice Prepare a clean deployments directory for the current test suite
-    function _resetDeploymentLogs(string memory salt, string memory network, string memory configJson) internal {
+    /// @notice Clean the deployment directory for a salt (called once in setUp)
+    function _resetDeploymentLogs(string memory salt, string memory configJson) internal {
         string memory baseDir = DeploymentTestingOutput._getPrefix();
         string memory deploymentDir_ = string.concat(baseDir, "/deployments/", salt);
-        if (!alreadyReset[deploymentDir_]) {
-            alreadyReset[deploymentDir_] = true;
-            if (vm.exists(deploymentDir_)) {
-                vm.removeDir(deploymentDir_, true);
-            }
-            vm.createDir(deploymentDir_, true);
+        if (vm.exists(deploymentDir_)) {
+            vm.removeDir(deploymentDir_, true);
         }
-        if (bytes(network).length > 0) {
-            vm.createDir(string.concat(deploymentDir_, "/", network), true);
-        }
+        vm.createDir(deploymentDir_, true);
         vm.writeJson(configJson, string.concat(deploymentDir_, "/config.json"));
+    }
+
+    /// @notice Create network subdirectory for a specific test
+    function _prepareTestNetwork(string memory salt, string memory network) internal {
+        string memory baseDir = DeploymentTestingOutput._getPrefix();
+        string memory networkDir = string.concat(baseDir, "/deployments/", salt, "/", network);
+        vm.createDir(networkDir, true);
     }
 
     /*

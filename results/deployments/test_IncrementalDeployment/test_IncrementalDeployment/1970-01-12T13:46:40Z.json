@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "systemSaltString": "test_IncrementalDeployment",
+  "session": {
+    "network": "test_IncrementalDeployment",
+    "deployer": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
+    "startTimestamp": 1000000,
+    "started": "1970-01-12T13:46:40Z",
+    "startBlock": 100
+  },
+  "collateral": {
+    "address": "0x3c8ca53ee5661d29d3d3c0732689a4b86947eaf0",
+    "contractType": "MockERC20",
+    "contractPath": "test/mocks/tokens/MockERC20.sol",
+    "deployer": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
+    "blockNumber": 100,
+    "category": "contract"
+  },
+  "pegged": {
+    "address": "0x76006c4471fb6add17728e9c9c8b67d5af06cda0",
+    "contractType": "MockERC20",
+    "contractPath": "test/mocks/tokens/MockERC20.sol",
+    "deployer": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
+    "blockNumber": 100,
+    "category": "contract"
+  }
+}

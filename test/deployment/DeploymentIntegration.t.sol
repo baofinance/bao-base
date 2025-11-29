@@ -151,18 +151,23 @@ contract MockDeploymentPhase is MockDeploymentIntegration {
 contract DeploymentIntegrationTest is BaoDeploymentTest {
     MockDeploymentIntegration public deployment;
     address public admin;
-    string constant TEST_NETWORK = "test-network";
-    string constant TEST_SALT = "integration-test-salt";
+    string constant TEST_SALT = "DeploymentIntegrationTest";
 
     function setUp() public override {
         super.setUp();
         admin = address(this);
         deployment = new MockDeploymentIntegration();
-        _resetDeploymentLogs(TEST_SALT, TEST_NETWORK, "{}");
-        deployment.start(TEST_NETWORK, TEST_SALT, "");
+        _resetDeploymentLogs(TEST_SALT, "{}");
+    }
+
+    function _startDeployment(string memory network) internal {
+        _prepareTestNetwork(TEST_SALT, network);
+        deployment.start(network, TEST_SALT, "");
     }
 
     function test_DeployFullSystem() public {
+        _startDeployment("test_DeployFullSystem");
+        
         // Deploy tokens
         deployment.deployMockERC20("collateral", "Wrapped ETH", "wETH");
         deployment.deployMockERC20("pegged", "USD Stablecoin", "USD");
@@ -198,6 +203,8 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
     }
 
     function test_SaveAndLoadFullSystem() public {
+        _startDeployment("test_SaveAndLoadFullSystem");
+        
         // Deploy full system (auto-save is automatic)
         deployment.deployMockERC20("collateral", "wETH", "wETH");
         deployment.deployMockERC20("pegged", "USD", "USD");
@@ -209,7 +216,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
 
         // Load into new deployment using 'latest' startPoint
         MockDeploymentIntegration newDeployment = new MockDeploymentIntegration();
-        newDeployment.start(TEST_NETWORK, TEST_SALT, "latest");
+        newDeployment.start("test_SaveAndLoadFullSystem", TEST_SALT, "latest");
 
         // Verify all loaded correctly
         assertTrue(newDeployment.has("collateral"));
@@ -230,6 +237,8 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
     }
 
     function test_DeploymentWithExistingContracts() public {
+        _startDeployment("test_DeploymentWithExistingContracts");
+        
         // Use existing mainnet contracts (simulated)
         address wstEth = address(0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
         deployment.useExisting("wstETH", wstEth);
@@ -256,13 +265,15 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
 
     function test_IncrementalDeployment() public {
         // Use unique salt to avoid conflicts with other tests
-        string memory incrementalSalt = "integration-incremental-salt";
-        _resetDeploymentLogs(incrementalSalt, TEST_NETWORK, "{}");
+        string memory incrementalSalt = "test_IncrementalDeployment";
+        string memory network = "test_IncrementalDeployment";
+        _resetDeploymentLogs(incrementalSalt, "{}");
+        _prepareTestNetwork(incrementalSalt, network);
         // Phase 1: Deploy tokens with autosave
         vm.warp(1000000); // Set initial timestamp
         vm.roll(100); // Set initial block number
         MockDeploymentPhase phase1 = new MockDeploymentPhase();
-        phase1.start(TEST_NETWORK, incrementalSalt, "");
+        phase1.start(network, incrementalSalt, "");
         phase1.deployMockERC20("collateral", "wETH", "wETH");
         phase1.deployMockERC20("pegged", "USD", "USD");
         phase1.finish(); // autosaves
@@ -271,7 +282,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         vm.warp(2000000); // Advance timestamp by 1M seconds
         vm.roll(200); // Advance by 100 blocks
         MockDeploymentPhase phase2 = new MockDeploymentPhase();
-        phase2.start(TEST_NETWORK, incrementalSalt, "latest");
+        phase2.start(network, incrementalSalt, "latest");
         phase2.deployOracleProxy("oracle", 2000e18, admin);
         phase2.finish(); // autosaves
 
@@ -279,13 +290,13 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         vm.warp(3000000); // Advance timestamp by another 1M seconds
         vm.roll(300); // Advance by another 100 blocks
         MockDeploymentPhase phase3 = new MockDeploymentPhase();
-        phase3.start(TEST_NETWORK, incrementalSalt, "latest");
+        phase3.start(network, incrementalSalt, "latest");
         phase3.deployMinterProxy("minter", "collateral", "pegged", "oracle", admin);
         phase3.finish(); // autosaves
 
         // Verify final state
         MockDeploymentIntegration finalDeployment = new MockDeploymentPhase();
-        finalDeployment.start(TEST_NETWORK, incrementalSalt, "latest");
+        finalDeployment.start(network, incrementalSalt, "latest");
 
         assertTrue(finalDeployment.has("collateral"));
         assertTrue(finalDeployment.has("pegged"));

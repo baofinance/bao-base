@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "systemSaltString": "DeploymentFieldsTest",
+  "session": {
+    "network": "test_ImplementationHasDeployerNoFactory",
+    "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+    "startTimestamp": 1,
+    "started": "1970-01-01T00:00:01Z",
+    "startBlock": 1
+  },
+  "contracts": {
+    "proxy1": {
+      "address": "0x0960caf46efb8fd1c207cae4142e31097312fcb4",
+      "contractType": "ERC1967Proxy",
+      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+      "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+      "blockNumber": 1,
+      "factory": "0x336785a852b689a839c312522ea637917df3f932",
+      "category": "UUPS proxy",
+      "saltString": "proxy1",
+      "salt": "0xae819964217bc1643556604c9287d4b8b94566c949728143cd958b20821f0060",
+      "implementation": {
+        "address": "0xddc10602782af652bb913f7bde1fd82981db7dd9",
+        "contractType": "SimpleImplementation",
+        "contractPath": "test/SimpleImplementation.sol",
+        "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+        "blockNumber": 1
+      }
+    }
+  }
+}

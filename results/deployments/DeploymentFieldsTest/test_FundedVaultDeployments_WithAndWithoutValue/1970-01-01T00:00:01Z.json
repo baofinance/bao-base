@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "systemSaltString": "DeploymentFieldsTest",
+  "session": {
+    "network": "test_FundedVaultDeployments_WithAndWithoutValue",
+    "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+    "startTimestamp": 1,
+    "started": "1970-01-01T00:00:01Z",
+    "startBlock": 1
+  },
+  "contracts": {
+    "vault_funded": {
+      "address": "0xafc1713e8ad2ceba709a1de03ba877142e7d8d22",
+      "contractType": "FundedVault",
+      "contractPath": "test/mocks/deployment/FundedVault.sol",
+      "deployer": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
+      "blockNumber": 1,
+      "category": "contract",
+      "factory": "0x336785a852b689a839c312522ea637917df3f932",
+      "value": 5000000000000000000
+    },
+    "vault_unfunded": {
+      "address": "0xc00b1d2223a27ba51101780aca93aff043fff144",
+      "contractType": "FundedVault",
+      "contractPath": "test/mocks/deployment/FundedVault.sol",
+      "deployer": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
+      "blockNumber": 1,
+      "category": "contract",
+      "factory": "0x336785a852b689a839c312522ea637917df3f932"
+    }
+  }
+}

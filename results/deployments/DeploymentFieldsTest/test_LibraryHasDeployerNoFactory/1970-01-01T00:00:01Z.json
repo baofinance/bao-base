@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "systemSaltString": "DeploymentFieldsTest",
+  "session": {
+    "network": "test_LibraryHasDeployerNoFactory",
+    "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+    "startTimestamp": 1,
+    "started": "1970-01-01T00:00:01Z",
+    "startBlock": 1
+  },
+  "contracts": {
+    "lib1": {
+      "address": "0xddc10602782af652bb913f7bde1fd82981db7dd9",
+      "category": "library",
+      "contractType": "TestLib",
+      "contractPath": "test/TestLib.sol",
+      "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+      "blockNumber": 1
+    }
+  }
+}

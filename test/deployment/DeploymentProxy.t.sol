@@ -14,19 +14,24 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     MockHarborDeploymentDev public deployment;
     address internal admin;
     address internal outsider;
-    string constant TEST_NETWORK = "anvil";
-    string constant TEST_SALT = "proxy-test";
+    string constant TEST_SALT = "DeploymentProxyTest";
 
     function setUp() public override {
         super.setUp();
         deployment = new MockHarborDeploymentDev();
-        _resetDeploymentLogs(TEST_SALT, TEST_NETWORK, "{}");
-        deployment.start(TEST_NETWORK, TEST_SALT, "");
+        _resetDeploymentLogs(TEST_SALT, "{}");
         admin = makeAddr("admin");
         outsider = makeAddr("outsider");
     }
 
+    function _startDeployment(string memory network) internal {
+        _prepareTestNetwork(TEST_SALT, network);
+        deployment.start(network, TEST_SALT, "");
+    }
+
     function test_DeployProxy() public {
+        _startDeployment("test_DeployProxy");
+        
         deployment.setFilename("test_DeployProxy");
         deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor USD");
@@ -58,6 +63,8 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     }
 
     function test_PredictProxyAddress() public {
+        _startDeployment("test_PredictProxyAddress");
+        
         deployment.setFilename("test_PredictProxyAddress");
         address predicted = deployment.predictProxyAddress(deployment.PEGGED());
 
@@ -71,6 +78,8 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     }
 
     function test_DeterministicProxyAddress() public {
+        _startDeployment("test_DeterministicProxyAddress");
+        
         deployment.setFilename("test_DeterministicProxyAddress");
         // Same key with same salt should produce same address
         address addr1 = deployment.predictProxyAddress(deployment.PEGGED());
@@ -84,14 +93,17 @@ contract DeploymentProxyTest is BaoDeploymentTest {
 
         // Different deployment with different salt should produce different address
         MockHarborDeploymentDev deployment2 = new MockHarborDeploymentDev();
-        _resetDeploymentLogs("different-salt", TEST_NETWORK, "{}");
-        deployment2.start(TEST_NETWORK, "different-salt", "");
+        _resetDeploymentLogs("different-salt", "{}");
+        _prepareTestNetwork("different-salt", "test_DeterministicProxyAddress");
+        deployment2.start("test_DeterministicProxyAddress", "different-salt", "");
         address addr2 = deployment2.predictProxyAddress(deployment2.PEGGED());
 
         assertNotEq(addr2, addr1, "Different salt should produce different address");
     }
 
     function test_MultipleProxies() public {
+        _startDeployment("test_MultipleProxies");
+        
         deployment.setFilename("test_MultipleProxies");
         // Deploy first proxy
         deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
@@ -114,6 +126,8 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     }
 
     function test_RevertWhen_ProxyWithEmptyKey() public {
+        _startDeployment("test_RevertWhen_ProxyWithEmptyKey");
+        
         deployment.setFilename("test_RevertWhen_ProxyWithEmptyKey");
         // Try to deploy with empty key - should revert with KeyRequired
         vm.expectRevert();
@@ -121,12 +135,16 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     }
 
     function test_RevertWhen_ProxyWithoutImplementation() public {
+        _startDeployment("test_RevertWhen_ProxyWithoutImplementation");
+        
         deployment.setFilename("test_RevertWhen_ProxyWithoutImplementation");
         vm.expectRevert();
         deployment.deployProxy(deployment.PEGGED(), address(0), "", "", "", address(this));
     }
 
     function test_ProxyMetadataStored() public {
+        _startDeployment("test_ProxyMetadataStored");
+        
         deployment.setFilename("test_ProxyMetadataStored");
         deployment.setString(deployment.PEGGED_SYMBOL(), "JPY");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor JPY");
@@ -147,6 +165,8 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     }
 
     function test_ImplementationReuse() public {
+        _startDeployment("test_ImplementationReuse");
+        
         deployment.setFilename("test_ImplementationReuse");
         // Deploy pegged token
         deployment.setString(deployment.PEGGED_SYMBOL(), "USD");

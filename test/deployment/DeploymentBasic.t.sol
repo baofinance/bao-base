@@ -55,19 +55,22 @@ contract MyDeploymentJsonTesting is DeploymentJsonTesting {
  */
 contract DeploymentBasicTest is BaoDeploymentTest {
     MyDeploymentJsonTesting public deployment;
-    string constant TEST_NETWORK = "test";
-    string constant TEST_SALT = "test-system-salt";
+    string constant TEST_SALT = "DeploymentBasicTest";
 
     function setUp() public override {
         super.setUp();
         deployment = new MyDeploymentJsonTesting();
-        _resetDeploymentLogs(TEST_SALT, TEST_NETWORK, "{}");
-        deployment.start(TEST_NETWORK, TEST_SALT, "");
+        _resetDeploymentLogs(TEST_SALT, "{}");
+    }
+
+    function _startDeployment(string memory network) internal {
+        _prepareTestNetwork(TEST_SALT, network);
+        deployment.start(network, TEST_SALT, "");
     }
 
     function test_Initialize() public view {
         // Verify session metadata is set correctly after start()
-        assertEq(deployment.getString(deployment.SESSION_NETWORK()), TEST_NETWORK, "Network should match");
+        assertEq(deployment.getString(deployment.SESSION_NETWORK()), "test_Initialize", "Network should match");
         assertEq(
             deployment.getAddress(deployment.SESSION_DEPLOYER()),
             address(deployment),
@@ -78,6 +81,8 @@ contract DeploymentBasicTest is BaoDeploymentTest {
     }
 
     function test_DeployContract() public {
+        _startDeployment("test_DeployContract");
+        
         address mockAddr = deployment.deployMockContract("mock1", "Mock Contract 1");
 
         assertTrue(mockAddr != address(0));
@@ -87,6 +92,8 @@ contract DeploymentBasicTest is BaoDeploymentTest {
     }
 
     function test_DeployMultipleContracts() public {
+        _startDeployment("test_DeployMultipleContracts");
+        
         address mock1 = deployment.deployMockContract("mock1", "Mock 1");
         address mock2 = deployment.deployMockContract("mock2", "Mock 2");
         address mock3 = deployment.deployMockContract("mock3", "Mock 3");
@@ -103,6 +110,8 @@ contract DeploymentBasicTest is BaoDeploymentTest {
     }
 
     function test_UseExistingContract() public {
+        _startDeployment("test_UseExistingContract");
+        
         address mock = address(new MockContract("Existing Mock"));
         deployment.useExisting("existing1", mock);
 
@@ -112,6 +121,8 @@ contract DeploymentBasicTest is BaoDeploymentTest {
     }
 
     function test_Has() public {
+        _startDeployment("test_Has");
+        
         assertFalse(deployment.has("nonexistent"));
 
         deployment.deployMockContract("mock1", "Mock 1");
@@ -121,6 +132,8 @@ contract DeploymentBasicTest is BaoDeploymentTest {
     }
 
     function test_Keys() public {
+        _startDeployment("test_Keys");
+        
         string[] memory keys = deployment.keys();
         assertEq(keys.length, 0);
 
@@ -134,12 +147,16 @@ contract DeploymentBasicTest is BaoDeploymentTest {
     }
 
     function test_RevertWhen_InvalidAddress() public {
+        _startDeployment("test_RevertWhen_InvalidAddress");
+        
         // useExisting should reject address(0)
         vm.expectRevert();
         deployment.useExisting("invalid", address(0));
     }
 
     function test_Finish() public {
+        _startDeployment("test_Finish");
+        
         deployment.finish();
 
         assertGt(deployment.getUint(deployment.SESSION_FINISH_TIMESTAMP()), 0);
@@ -150,6 +167,8 @@ contract DeploymentBasicTest is BaoDeploymentTest {
     }
 
     function test_RegisterExisting() public {
+        _startDeployment("test_RegisterExisting");
+        
         address existingContract = address(0x1234567890123456789012345678901234567890);
 
         deployment.useExisting("ExistingContract", existingContract);
@@ -159,6 +178,8 @@ contract DeploymentBasicTest is BaoDeploymentTest {
     }
 
     function test_RegisterExistingJsonSerialization() public {
+        _startDeployment("test_RegisterExistingJsonSerialization");
+        
         address existingContract = address(0x1234567890123456789012345678901234567890);
 
         deployment.useExisting("stETH", existingContract);
@@ -170,11 +191,15 @@ contract DeploymentBasicTest is BaoDeploymentTest {
     }
 
     function test_RevertWhen_StartDeploymentTwice() public {
+        _startDeployment("test_RevertWhen_StartDeploymentTwice");
+        
         vm.expectRevert(Deployment.AlreadyInitialized.selector);
-        deployment.start(TEST_NETWORK, TEST_SALT, "");
+        deployment.start("test_RevertWhen_StartDeploymentTwice", TEST_SALT, "");
     }
 
     function test_RevertWhen_ActionWithoutInitialization() public {
+        _startDeployment("test_RevertWhen_ActionWithoutInitialization");
+        
         MyDeploymentJsonTesting fresh = new MyDeploymentJsonTesting();
         // Actions without initialization should fail (no active run)
         vm.expectRevert("No active run");

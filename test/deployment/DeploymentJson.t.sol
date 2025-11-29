@@ -88,11 +88,12 @@ contract DeploymentJsonTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new MockDeploymentJson();
+        _resetDeploymentLogs(TEST_SALT, "{}");
     }
 
     /// @notice Helper to start deployment with test-specific network name
     function _startDeployment(string memory network) internal {
-        _resetDeploymentLogs(TEST_SALT, network, "{}");
+        _prepareTestNetwork(TEST_SALT, network);
         deployment.start(network, TEST_SALT, "");
     }
 
@@ -350,8 +351,8 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         deployment.finish();
         string memory json = deployment.toJson();
 
-        // Save to file
-        string memory resumePath = string.concat("deployments/", "test_ResumeFromFileCreatesActiveRun", "/", TEST_SALT, "/resume-active.json");
+        // Save to file (path structure: results/deployments/{salt}/{network}/{filename})
+        string memory resumePath = string.concat("results/deployments/", TEST_SALT, "/", "test_ResumeFromFileCreatesActiveRun", "/resume-active.json");
         vm.writeJson(json, resumePath);
 
         // Resume from file using start() with startPoint

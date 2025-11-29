@@ -33,17 +33,22 @@ contract DeploymentJsonStringTestHarness is DeploymentJsonTesting {
 contract DeploymentJsonStringTest is BaoDeploymentTest {
     DeploymentJsonStringTestHarness public deployment;
 
-    string constant TEST_NETWORK = "localhost";
-    string constant TEST_SALT = "jsonstring-test-salt";
+    string constant TEST_SALT = "DeploymentJsonStringTest";
 
     function setUp() public override {
         super.setUp();
         deployment = new DeploymentJsonStringTestHarness();
-        _resetDeploymentLogs(TEST_SALT, TEST_NETWORK, "{}");
-        deployment.start(TEST_NETWORK, TEST_SALT, "");
+        _resetDeploymentLogs(TEST_SALT, "{}");
+    }
+
+    function _startDeployment(string memory network) internal {
+        _prepareTestNetwork(TEST_SALT, network);
+        deployment.start(network, TEST_SALT, "");
     }
 
     function test_ToJsonReturnsValidString() public {
+        _startDeployment("test_ToJsonReturnsValidString");
+        
         // Deploy some contracts
         deployment.useExisting("MockToken", address(0x1234));
         deployment.setString("tokenName", "Test Token");
@@ -65,6 +70,8 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
     }
 
     function test_FromJsonLoadsFromString() public {
+        _startDeployment("test_FromJsonLoadsFromString");
+        
         // Deploy and serialize
         deployment.useExisting("Token1", address(0x1111));
         deployment.useExisting("Token2", address(0x2222));
@@ -90,6 +97,8 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
     }
 
     function test_RoundTripWithoutFilesystem() public {
+        _startDeployment("test_RoundTripWithoutFilesystem");
+        
         // Create complex deployment state
         deployment.useExisting("Admin", address(0xABCD));
         deployment.useExisting("Treasury", address(0xDEAD));
@@ -127,6 +136,8 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
     }
 
     function test_EmptyDeploymentSerialization() public {
+        _startDeployment("test_EmptyDeploymentSerialization");
+        
         deployment.finish();
 
         string memory json = deployment.toJson();
@@ -148,6 +159,8 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
     }
 
     function test_OnlyContractsNoFiles() public {
+        _startDeployment("test_OnlyContractsNoFiles");
+        
         // Deploy multiple contracts without touching filesystem
         deployment.useExisting("Contract1", address(0x1));
         deployment.useExisting("Contract2", address(0x2));
@@ -170,6 +183,8 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
     }
 
     function test_OnlyParametersNoFiles() public {
+        _startDeployment("test_OnlyParametersNoFiles");
+        
         // Only parameters, no contracts
         deployment.setString("param1", "value1");
         deployment.setUint("param2", 100);
@@ -192,6 +207,8 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
     }
 
     function test_PreservesSaveToJsonCompatibility() public {
+        _startDeployment("test_PreservesSaveToJsonCompatibility");
+        
         // Ensure saveToJson still works (uses toJson internally)
         deployment.useExisting("Token", address(0x5555));
         deployment.setString("name", "SavedToken");
@@ -208,6 +225,8 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
     }
 
     function test_PreservesLoadFromJsonCompatibility() public {
+        _startDeployment("test_PreservesLoadFromJsonCompatibility");
+        
         // Test that loadFromJson still works (uses fromJson internally)
         deployment.useExisting("LoadTest", address(0x9999));
         deployment.setUint("value", 42);

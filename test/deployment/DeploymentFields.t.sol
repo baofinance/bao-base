@@ -129,19 +129,26 @@ contract MockDeploymentFields is DeploymentJsonTesting {
 contract DeploymentFieldsTest is BaoDeploymentTest {
     MockDeploymentFields public deployment;
     address public admin;
-    string constant TEST_NETWORK = "test-network";
-    string constant TEST_SALT = "fields-test-salt";
+    string constant TEST_SALT = "DeploymentFieldsTest";
     string constant FILE_PREFIX = "DeploymentFieldsTest-";
 
     function setUp() public override {
         super.setUp();
         deployment = new MockDeploymentFields();
         admin = address(this);
-        _resetDeploymentLogs(TEST_SALT, TEST_NETWORK, "{}");
-        deployment.start(TEST_NETWORK, TEST_SALT, "");
+        _resetDeploymentLogs(TEST_SALT, "{}");
+    }
+
+    function _startDeployment(string memory network) internal {
+        _prepareTestNetwork(TEST_SALT, network);
+        deployment.start(network, TEST_SALT, "");
     }
 
     function test_ProxyHasFactoryAndDeployer() public {
+        _startDeployment("test_ProxyHasFactoryAndDeployer");
+        
+        _startDeployment("test_ProxyHasFactoryAndDeployer");
+        
         deployment.setFilename("test_ProxyHasFactoryAndDeployer");
         // Deploy a proxy
         deployment.deploySimpleProxy("contracts.proxy1", 100, admin);
@@ -171,6 +178,8 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
     }
 
     function test_ImplementationHasDeployerNoFactory() public {
+        _startDeployment("test_ImplementationHasDeployerNoFactory");
+        
         // Deploy implementation (via proxy deployment which creates implementation entry)
         deployment.deploySimpleProxy("contracts.proxy1", 100, admin);
         deployment.finish();
@@ -200,6 +209,8 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
     }
 
     function test_RegularContractHasDeployerNoFactory() public {
+        _startDeployment("test_RegularContractHasDeployerNoFactory");
+        
         // Deploy regular contract
         deployment.deployMockERC20("contracts.token1", "Token1", "TK1");
         deployment.finish();
@@ -216,6 +227,8 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
     }
 
     function test_ExistingContractHasNoDeployerNoFactory() public {
+        _startDeployment("test_ExistingContractHasNoDeployerNoFactory");
+        
         // Register existing contract
         address existing = address(0x1234567890123456789012345678901234567890);
         deployment.useExisting("contracts.external1", existing);
@@ -233,6 +246,8 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
     }
 
     function test_LibraryHasDeployerNoFactory() public {
+        _startDeployment("test_LibraryHasDeployerNoFactory");
+        
         // Deploy library
         deployment.deployTestLibrary("contracts.lib1");
         deployment.finish();
@@ -249,6 +264,8 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
     }
 
     function test_FactoryAndDeployerUseDistinctRoles() public {
+        _startDeployment("test_FactoryAndDeployerUseDistinctRoles");
+        
         // Deploy a proxy and verify factory != deployer
         deployment.deploySimpleProxy("contracts.proxy1", 100, admin);
         deployment.finish();
@@ -266,6 +283,8 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
     }
 
     function test_MultipleProxiesHaveSameFactoryAndDeployer() public {
+        _startDeployment("test_MultipleProxiesHaveSameFactoryAndDeployer");
+        
         // Deploy multiple proxies
         deployment.deploySimpleProxy("contracts.proxy1", 100, admin);
         deployment.deploySimpleProxy("contracts.proxy2", 200, admin);
@@ -294,6 +313,8 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
 
     // TODO: do this with proxy deployment too
     function test_FundedVaultDeployments_WithAndWithoutValue() public {
+        _startDeployment("test_FundedVaultDeployments_WithAndWithoutValue");
+        
         // Deploy funded vault with value
         bytes memory fundedCode = type(FundedVault).creationCode;
 
@@ -359,6 +380,8 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
     }
 
     function test_FundedVaultProxyDeployments_WithAndWithoutValue() public {
+        _startDeployment("test_FundedVaultProxyDeployments_WithAndWithoutValue");
+        
         vm.deal(address(deployment), 10 ether);
 
         deployment.deployFundedVaultProxy("contracts.vault_proxy_funded", admin, 5 ether);
@@ -401,6 +424,8 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
     }
 
     function test_RevertWhen_FundingNonPayableContract() public {
+        _startDeployment("test_RevertWhen_FundingNonPayableContract");
+        
         vm.deal(address(deployment), 1 ether);
 
         bytes memory nonPayableCode = abi.encodePacked(type(NonPayableVault).creationCode, abi.encode(uint256(123)));
@@ -417,6 +442,8 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
     }
 
     function test_RevertWhen_UnderfundingPredictableDeploy() public {
+        _startDeployment("test_RevertWhen_UnderfundingPredictableDeploy");
+        
         bytes memory fundedCode = type(FundedVault).creationCode;
 
         vm.deal(address(deployment), 0);
@@ -432,6 +459,8 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
     }
 
     function test_RevertWhen_FundingNonPayableProxy() public {
+        _startDeployment("test_RevertWhen_FundingNonPayableProxy");
+        
         vm.deal(address(deployment), 1 ether);
 
         vm.expectRevert();
@@ -439,6 +468,8 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
     }
 
     function test_RevertWhen_UnderfundingProxyDeployment() public {
+        _startDeployment("test_RevertWhen_UnderfundingProxyDeployment");
+        
         FundedVaultUUPS impl = new FundedVaultUUPS(admin);
         bytes memory initData = abi.encodeCall(FundedVaultUUPS.initialize, ());
 
