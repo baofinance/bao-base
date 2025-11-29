@@ -14,43 +14,47 @@ contract DeploymentProxyWorkflowTest is BaoDeploymentTest {
     function test_MultipleWritesWithProxyDeployment() public {
         // This test demonstrates the full deployment workflow across sequenced phases
         // using the actual proxy deployment code path
-        MockHarborDeploymentDev harness = new MockHarborDeploymentDev();
+        MockHarborDeploymentDev deployment = new MockHarborDeploymentDev();
 
         // Start deployment session with sequencing enabled
         _resetDeploymentLogs("DeploymentProxyWorkflowTest", "MultipleWritesWithProxyDeployment", "{}");
-        harness.start("MultipleWritesWithProxyDeployment", "DeploymentProxyWorkflowTest", "");
+        deployment.start("MultipleWritesWithProxyDeployment", "DeploymentProxyWorkflowTest", "");
 
         // Enable sequencing to capture each phase
-        harness.enableSequencing();
+        deployment.enableSequencing();
 
         address admin = makeAddr("admin");
 
         // Phase 1: Set configuration for first token
-        harness.setString(harness.PEGGED_SYMBOL(), "USD");
-        harness.setString(harness.PEGGED_NAME(), "Harbor USD");
-        harness.setAddress(harness.PEGGED_OWNER(), admin);
+        deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
+        deployment.setString(deployment.PEGGED_NAME(), "Harbor USD");
+        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
 
         // Phase 2: Deploy proxy using configuration
-        address peggedProxy = harness.deployPegged();
-        assertNotEq(peggedProxy, address(0), "Proxy should be deployed");
+        deployment.deployPegged();
+        assertNotEq(deployment.get(deployment.PEGGED()), address(0), "Proxy should be deployed");
 
         // Phase 3: Verify deployment metadata was persisted
-        assertEq(harness.get(harness.PEGGED()), peggedProxy, "Proxy address should be stored");
-        string memory implKey = harness.getString(string.concat(harness.PEGGED(), ".implementation"));
+        assertEq(
+            deployment.get(deployment.PEGGED()),
+            deployment.get(deployment.PEGGED()),
+            "Proxy address should be stored"
+        );
+        string memory implKey = deployment.getString(string.concat(deployment.PEGGED(), ".implementation"));
         assertEq(
             implKey,
-            string.concat(harness.PEGGED(), "__MintableBurnableERC20_v1"),
+            string.concat(deployment.PEGGED(), "__MintableBurnableERC20_v1"),
             "Implementation key should be stored"
         );
 
         // Phase 4: Verify proxy works correctly
-        MintableBurnableERC20_v1 token = MintableBurnableERC20_v1(peggedProxy);
+        MintableBurnableERC20_v1 token = MintableBurnableERC20_v1(deployment.get(deployment.PEGGED()));
         assertEq(token.symbol(), "USD", "Symbol should match configuration");
         assertEq(token.name(), "Harbor USD", "Name should match configuration");
-        assertEq(token.owner(), address(harness), "Harness should be initial owner");
+        assertEq(token.owner(), address(deployment), "Harness should be initial owner");
 
         // Phase 5: Transfer ownership
-        vm.prank(address(harness));
+        vm.prank(address(deployment));
         token.transferOwnership(admin);
         assertEq(token.owner(), admin, "Ownership should be transferred");
 

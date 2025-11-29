@@ -48,18 +48,18 @@ contract MockDeploymentDependency is DeploymentMemoryTesting {
         return get(key);
     }
 
-    function deployMinter(string memory key, string memory tokenKey, string memory oracleKey) public returns (address) {
+    function deployMinter(string memory key, string memory tokenKey, string memory oracleKey) public {
         address tokenAddr = get(tokenKey);
         address oracleAddr = get(oracleKey);
-        
+
         // Deploy implementation (use same token for all three parameters in test)
         MockMinter implementation = new MockMinter(tokenAddr, tokenAddr, tokenAddr);
-        
+
         // Encode initialization data: initialize(oracle, finalOwner)
         bytes memory initData = abi.encodeWithSignature("initialize(address,address)", oracleAddr, address(this));
-        
+
         // Deploy proxy
-        address proxy = deployProxy(
+        deployProxy(
             key,
             address(implementation),
             initData,
@@ -67,8 +67,6 @@ contract MockDeploymentDependency is DeploymentMemoryTesting {
             "test/mocks/upgradeable/MockMinter.sol",
             address(this)
         );
-        
-        return proxy;
     }
 }
 
@@ -105,9 +103,9 @@ contract DeploymentDependencyTest is BaoDeploymentTest {
         // Deploy in correct order: oracle -> token -> minter
         address oracleAddr = deployment.deployOracle("oracle", 100);
         address tokenAddr = deployment.deployToken("token", "oracle", "TestToken", 18);
-        address minterAddr = deployment.deployMinter("minter", "token", "oracle");
-
-        assertTrue(minterAddr != address(0));
+        deployment.deployMinter("minter", "token", "oracle");
+        address minterAddr = deployment.get("minter");
+        assertNotEq(minterAddr, address(0));
 
         MockMinter minter = MockMinter(minterAddr);
         assertEq(minter.PEGGED_TOKEN(), tokenAddr);
@@ -162,7 +160,8 @@ contract DeploymentDependencyTest is BaoDeploymentTest {
         deployment.deployOracle("oracle1", 100);
         address oracle2 = deployment.deployOracle("oracle2", 200);
         address token1 = deployment.deployToken("token1", "oracle1", "Token1", 18);
-        address minter = deployment.deployMinter("minter", "token1", "oracle2");
+        deployment.deployMinter("minter", "token1", "oracle2");
+        address minter = deployment.get("minter");
 
         MockMinter m = MockMinter(minter);
         assertEq(m.PEGGED_TOKEN(), token1);

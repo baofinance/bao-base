@@ -187,9 +187,8 @@ abstract contract Deployment is DeploymentKeys {
     /// @notice Deploy BaoDeployer if needed (primarily for tests)
     /// @dev Production deployments should assume BaoDeployer already exists
     ///      This is here for test convenience only
-    /// @return deployed BaoDeployer address
-    function ensureBaoDeployer() public returns (address deployed) {
-        deployed = DeploymentInfrastructure.ensureBaoDeployer();
+    function ensureBaoDeployer() public {
+        address deployed = DeploymentInfrastructure.ensureBaoDeployer();
         if (_sessionState == State.STARTED) {
             useExisting("BaoDeployer", deployed);
         }
@@ -223,12 +222,12 @@ abstract contract Deployment is DeploymentKeys {
         string memory implementationContractType,
         string memory implementationContractPath,
         address deployer
-    ) public payable virtual returns (address proxy) {
+    ) public payable {
         _requireActiveRun();
         if (msg.value != value) {
             revert ValueMismatch(value, msg.value);
         }
-        proxy = _deployProxy(
+        _deployProxy(
             value,
             proxyKey,
             implementation,
@@ -237,6 +236,7 @@ abstract contract Deployment is DeploymentKeys {
             implementationContractPath,
             deployer
         );
+        _setUint(string.concat(proxyKey, ".value"), value);
     }
 
     /// @notice Deploy a UUPS proxy using bootstrap stub pattern
@@ -247,7 +247,6 @@ abstract contract Deployment is DeploymentKeys {
     /// @param proxyKey Key for the proxy deployment
     /// @param implementation address of the implementation to use
     /// @param implementationInitData Initialization data to pass to implementation (includes owner if needed)
-    /// @return proxy The deployed proxy address
     function deployProxy(
         string memory proxyKey,
         address implementation,
@@ -255,8 +254,8 @@ abstract contract Deployment is DeploymentKeys {
         string memory implementationContractType,
         string memory implementationContractPath,
         address deployer
-    ) public virtual returns (address proxy) {
-        proxy = _deployProxy(
+    ) public {
+        _deployProxy(
             0,
             proxyKey,
             implementation,
@@ -275,7 +274,7 @@ abstract contract Deployment is DeploymentKeys {
         string memory implementationContractType,
         string memory implementationContractPath,
         address deployer
-    ) internal virtual returns (address proxy) {
+    ) internal {
         _requireActiveRun();
         if (bytes(proxyKey).length == 0) {
             revert KeyRequired();
@@ -303,7 +302,7 @@ abstract contract Deployment is DeploymentKeys {
             EfficientHashLib.hash(proxyCreationCode)
         );
         baoDeployer.commit(commitment);
-        proxy = baoDeployer.reveal(proxyCreationCode, salt, 0);
+        address proxy = baoDeployer.reveal(proxyCreationCode, salt, 0);
 
         // register keys
         // the proxy
@@ -377,6 +376,7 @@ abstract contract Deployment is DeploymentKeys {
             implementationContractPath,
             deployer
         );
+        _setUint(string.concat(proxyKey, ".value"), value);
     }
 
     function _upgradeProxy(
@@ -423,11 +423,12 @@ abstract contract Deployment is DeploymentKeys {
         string memory contractType,
         string memory contractPath,
         address deployer
-    ) public payable virtual returns (address addr) {
+    ) public payable {
         if (msg.value != value) {
             revert ValueMismatch(value, msg.value);
         }
-        return _predictableDeployContract(value, key, initCode, contractType, contractPath, deployer);
+        _predictableDeployContract(value, key, initCode, contractType, contractPath, deployer);
+        _setUint(string.concat(key, ".value"), value);
     }
 
     function predictableDeployContract(
@@ -436,7 +437,7 @@ abstract contract Deployment is DeploymentKeys {
         string memory contractType,
         string memory contractPath,
         address deployer
-    ) public virtual returns (address addr) {
+    ) public {
         return _predictableDeployContract(0, key, initCode, contractType, contractPath, deployer);
     }
 
@@ -447,7 +448,7 @@ abstract contract Deployment is DeploymentKeys {
         string memory contractType,
         string memory contractPath,
         address deployer
-    ) internal virtual returns (address addr) {
+    ) internal {
         _requireActiveRun();
         if (bytes(key).length == 0) {
             revert KeyRequired();
@@ -460,14 +461,14 @@ abstract contract Deployment is DeploymentKeys {
         address factory = DeploymentInfrastructure.predictBaoDeployerAddress();
         BaoDeployer baoDeployer = BaoDeployer(factory);
         baoDeployer.commit(DeploymentInfrastructure.commitment(address(this), value, salt, keccak256(initCode)));
-        addr = baoDeployer.reveal{value: value}(initCode, salt, value);
+        address addr = baoDeployer.reveal{value: value}(initCode, salt, value);
 
         _registerImplementation(key, addr, contractType, contractPath, deployer);
         _setString(string.concat(key, ".category"), "contract");
         _setAddress(string.concat(key, ".factory"), factory);
-
-        // TODO: remove all the return addresses
-        return addr;
+        if (value > 0) {
+            _setUint(string.concat(key, ".value"), value);
+        }
     }
 
     /// @notice Register existing contract address
@@ -649,16 +650,5 @@ abstract contract Deployment is DeploymentKeys {
     /// @dev Subclasses can override to customize salt derivation (e.g., network-specific tweaks)
     function _deriveSystemSalt() internal view virtual returns (string memory) {
         return _data.getString(SYSTEM_SALT_STRING);
-    }
-
-    // ============================================================================
-    // Internal Helpers
-    // ============================================================================
-
-    /**
-     * @notice Internal helper for string comparison
-     */
-    function _eq(string memory a, string memory b) internal pure returns (bool) {
-        return keccak256(bytes(a)) == keccak256(bytes(b));
     }
 }

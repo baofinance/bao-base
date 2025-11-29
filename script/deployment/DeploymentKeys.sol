@@ -256,6 +256,7 @@ abstract contract DeploymentKeys {
         _addImplementation(key);
         _registerKey(string.concat(key, ".category"), DataType.STRING);
         _registerKey(string.concat(key, ".factory"), DataType.ADDRESS);
+        _registerKey(string.concat(key, ".value"), DataType.UINT);
 
         string memory implementationKey = string.concat(key, ".implementation");
         _addImplementation(implementationKey);
@@ -271,9 +272,15 @@ abstract contract DeploymentKeys {
      *      - {key}.category (STRING)
      * @param key The full contract key (e.g., "contracts.library")
      */
+    // TODO: do we need this - shouln't all contracts be predictable?
     function addContract(string memory key) public {
         _addImplementation(key);
         _registerKey(string.concat(key, ".category"), DataType.STRING);
+    }
+
+    function addPredictableContract(string memory key) public {
+        addContract(key);
+        _registerKey(string.concat(key, ".value"), DataType.UINT);
     }
 
     /**

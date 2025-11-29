@@ -48,7 +48,6 @@ library DeploymentInfrastructure {
             } catch {
                 revert BaoDeployerProbeFailed();
             }
-            return deployed;
         }
 
         address factory = _NICKS_FACTORY;

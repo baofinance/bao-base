@@ -37,15 +37,19 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
         address predicted = deployment.predictProxyAddress(deployment.PEGGED());
 
         // Deploy
-        address pegged = deployment.deployPegged();
+        deployment.deployPegged();
 
         // Verify deployment
-        assertNotEq(pegged, address(0), "Pegged token should be deployed");
-        assertEq(predicted, pegged, "Predicted address should match deployed");
-        assertEq(deployment.get(deployment.PEGGED()), pegged, "Stored address should match");
+        assertNotEq(deployment.get(deployment.PEGGED()), address(0), "Pegged token should be deployed");
+        assertEq(predicted, deployment.get(deployment.PEGGED()), "Predicted address should match deployed");
+        assertEq(
+            deployment.get(deployment.PEGGED()),
+            deployment.get(deployment.PEGGED()),
+            "Stored address should match"
+        );
 
         // Verify the token works
-        MintableBurnableERC20_v1 token = MintableBurnableERC20_v1(pegged);
+        MintableBurnableERC20_v1 token = MintableBurnableERC20_v1(deployment.get(deployment.PEGGED()));
         assertEq(token.symbol(), "USD", "Symbol should be correct");
         assertEq(token.name(), "Harbor USD", "Name should be correct");
         assertEq(token.decimals(), 18, "Decimals should be 18");
@@ -73,9 +77,9 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
         assertEq(deployment.getAddress(deployment.PEGGED_OWNER()), admin, "Owner should be stored");
 
         // Deploy using that configuration
-        address pegged = deployment.deployPegged();
+        deployment.deployPegged();
 
-        MintableBurnableERC20_v1 token = MintableBurnableERC20_v1(pegged);
+        MintableBurnableERC20_v1 token = MintableBurnableERC20_v1(deployment.get(deployment.PEGGED()));
         assertEq(token.symbol(), "EURO", "Deployed token should use configured symbol");
         assertEq(token.name(), "Harbor Euro", "Deployed token should use configured name");
     }
@@ -92,10 +96,10 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
         deployment.setString(deployment.PEGGED_NAME(), "Harbor Pound");
         deployment.setAddress(deployment.PEGGED_OWNER(), admin);
 
-        address deployed = deployment.deployPegged();
+        deployment.deployPegged();
 
         // Addresses should match
-        assertEq(deployed, predicted, "Deployed address should match prediction");
+        assertEq(deployment.get(deployment.PEGGED()), predicted, "Deployed address should match prediction");
     }
 
     /// @notice Test that contract existence can be checked

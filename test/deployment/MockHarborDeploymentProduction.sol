@@ -41,7 +41,7 @@ contract MockHarborDeploymentProduction is DeploymentJsonTesting {
     // Harbor-Specific Deployment Logic
     // ============================================================================
 
-    function deployPegged() public returns (address proxy) {
+    function deployPegged() public {
         string memory symbol = _getString(PEGGED_SYMBOL);
         string memory name = _getString(PEGGED_NAME);
         address owner = _getAddress(PEGGED_OWNER);
@@ -49,7 +49,7 @@ contract MockHarborDeploymentProduction is DeploymentJsonTesting {
         MintableBurnableERC20_v1 impl = new MintableBurnableERC20_v1();
 
         bytes memory initData = abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, name, symbol));
-        proxy = this.deployProxy(
+        this.deployProxy(
             PEGGED,
             address(impl),
             initData,
@@ -57,7 +57,5 @@ contract MockHarborDeploymentProduction is DeploymentJsonTesting {
             "src/MintableBurnableERC20_v1.sol",
             address(this)
         );
-
-        return proxy;
     }
 }

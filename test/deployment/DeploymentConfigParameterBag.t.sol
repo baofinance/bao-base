@@ -5,18 +5,53 @@ import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentMemoryTesting} from "@bao-script/deployment/DeploymentMemoryTesting.sol";
 import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
 
+contract DeploymentConfigParameterBagTestHarness is DeploymentMemoryTesting {
+    constructor() {
+        // Register all keys that will be used in the test
+        // Register parent keys first
+        addContract("pegged");
+        addContract("collateral");
+        addContract("minter");
+        addContract("minter.bands");
+        addContract("minter.ratios");
+
+        // Then register nested keys
+        addStringKey("pegged.name");
+        addStringKey("pegged.symbol");
+        addUintKey("pegged.decimals");
+        addContract("collateral"); // collateral is actually a contract key
+        addUintKey("minter.bands.0");
+        addUintKey("minter.bands.1");
+        addIntKey("minter.ratios.0");
+        addUintKey("minter.ratios.1");
+    }
+
+    function populateTestData() external {
+        // Populate test data after start() is called
+        setString("pegged.name", "Bao USD");
+        setString("pegged.symbol", "BAOUSD");
+        setUint("pegged.decimals", 18);
+        set("collateral", 0x0000000000000000000000000000000000000002);
+        setUint("minter.bands.0", 100);
+        setUint("minter.bands.1", 200);
+        setInt("minter.ratios.0", -1);
+        setUint("minter.ratios.1", 2);
+    }
+}
+
 contract DeploymentConfigParameterBagTest is BaoDeploymentTest {
-    DeploymentMemoryTesting internal deployment;
+    DeploymentConfigParameterBagTestHarness internal deployment;
     string constant OWNER_ADDRESS = "0x0000000000000000000000000000000000000001";
     string constant COLLATERAL_ADDRESS = "0x0000000000000000000000000000000000000002";
 
     function setUp() public override {
         super.setUp();
-        deployment = new DeploymentMemoryTesting();
+        deployment = new DeploymentConfigParameterBagTestHarness();
     }
 
     function test_FlattensNestedConfigIntoParameters() public {
         deployment.start("testnet", "test-salt", "");
+        deployment.populateTestData();
 
         assertEq(deployment.getString("pegged.name"), "Bao USD");
         assertEq(deployment.getString("pegged.symbol"), "BAOUSD");

@@ -14,5 +14,4 @@ contract DeploymentDataJsonTesting is DeploymentDataJson {
     string private _baseOutputPath; // Path without sequence suffix
 
     constructor(DeploymentKeys keyRegistry) DeploymentDataJson(keyRegistry) {}
-
 }

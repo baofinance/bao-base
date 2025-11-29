@@ -42,7 +42,7 @@ contract MockDeploymentWorkflow is DeploymentJsonTesting {
         string memory leveragedKey,
         string memory oracleKey,
         address admin
-    ) public returns (address) {
+    ) public {
         address collateral = get(collateralKey);
         address pegged = get(peggedKey);
         address leveraged = get(leveragedKey);
@@ -52,15 +52,14 @@ contract MockDeploymentWorkflow is DeploymentJsonTesting {
         MockMinter impl = new MockMinter(collateral, pegged, leveraged);
 
         // Initialize parameters: oracle (has update function), owner (two-step pattern)
-        return
-            this.deployProxy(
-                key,
-                address(impl),
-                abi.encodeCall(MockMinter.initialize, (oracle, admin)),
-                "MockMinter",
-                "test/mocks/upgradeable/MockMinter.sol",
-                address(this)
-            );
+        this.deployProxy(
+            key,
+            address(impl),
+            abi.encodeCall(MockMinter.initialize, (oracle, admin)),
+            "MockMinter",
+            "test/mocks/upgradeable/MockMinter.sol",
+            address(this)
+        );
     }
 
     function deployMathLibrary(string memory key) public returns (address) {

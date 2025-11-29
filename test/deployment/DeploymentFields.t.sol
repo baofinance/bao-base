@@ -34,18 +34,20 @@ library TestLib {
 // Test harness with helper methods
 contract MockDeploymentFields is DeploymentJsonTesting {
     constructor() {
-        // Register all possible contract keys used in tests
-        addProxy("oracle1");
-        addContract("token1");
-        addProxy("vault_proxy_funded");
-        addProxy("vault_funded");
-        addProxy("vault_proxy_unfunded");
-        addProxy("vault_unfunded");
-        addProxy("proxy1");
-        addProxy("proxy2");
-        addProxy("proxy3");
-        addContract("lib1");
-        addContract("external1");
+        // Register all possible contract keys used in tests (with contracts. prefix for JSON output)
+        addProxy("contracts.oracle1");
+        addContract("contracts.token1");
+        addProxy("contracts.vault_proxy_funded");
+        addPredictableContract("contracts.vault_funded"); // Predictable contract with funding
+        addAddressKey("contracts.vault_funded.factory"); // CREATE3 contracts have factory field
+        addProxy("contracts.vault_proxy_unfunded");
+        addPredictableContract("contracts.vault_unfunded"); // Predictable contract without funding
+        addAddressKey("contracts.vault_unfunded.factory"); // CREATE3 contracts have factory field
+        addProxy("contracts.proxy1");
+        addProxy("contracts.proxy2");
+        addProxy("contracts.proxy3");
+        addContract("contracts.lib1");
+        addContract("contracts.external1");
     }
 
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
@@ -54,11 +56,11 @@ contract MockDeploymentFields is DeploymentJsonTesting {
         return get(key);
     }
 
-    function deploySimpleProxy(string memory key, uint256 value, address admin) public returns (address) {
+    function deploySimpleProxy(string memory key, uint256 value, address admin) public {
         SimpleImplementation impl = new SimpleImplementation();
 
         bytes memory initData = abi.encodeCall(SimpleImplementation.initialize, (value, admin));
-        address proxy = this.deployProxy(
+        this.deployProxy(
             key,
             address(impl),
             initData,
@@ -66,7 +68,6 @@ contract MockDeploymentFields is DeploymentJsonTesting {
             "test/SimpleImplementation.sol",
             address(this)
         );
-        return proxy;
     }
 
     function deployTestLibrary(string memory key) public returns (address) {
@@ -75,32 +76,30 @@ contract MockDeploymentFields is DeploymentJsonTesting {
         return get(key);
     }
 
-    function deployFundedVault(string memory key, uint256 value) public returns (address) {
+    function deployFundedVault(string memory key, uint256 value) public {
         bytes memory fundedCode = type(FundedVault).creationCode;
-        return
-            this.predictableDeployContract{value: value}(
-                value,
-                key,
-                fundedCode,
-                "FundedVault",
-                "test/mocks/deployment/FundedVault.sol",
-                address(this)
-            );
+        this.predictableDeployContract{value: value}(
+            value,
+            key,
+            fundedCode,
+            "FundedVault",
+            "test/mocks/deployment/FundedVault.sol",
+            address(this)
+        );
     }
 
-    function deployFundedVaultProxy(string memory key, address owner, uint256 value) public returns (address) {
+    function deployFundedVaultProxy(string memory key, address owner, uint256 value) public {
         FundedVaultUUPS impl = new FundedVaultUUPS(owner);
         bytes memory initData = abi.encodeCall(FundedVaultUUPS.initialize, ());
-        return
-            this.deployProxy{value: value}(
-                value,
-                key,
-                address(impl),
-                initData,
-                "FundedVaultUUPS",
-                "test/mocks/deployment/FundedVault.sol",
-                address(this)
-            );
+        this.deployProxy{value: value}(
+            value,
+            key,
+            address(impl),
+            initData,
+            "FundedVaultUUPS",
+            "test/mocks/deployment/FundedVault.sol",
+            address(this)
+        );
     }
 
     function deployNonPayableVaultProxy(
@@ -108,19 +107,18 @@ contract MockDeploymentFields is DeploymentJsonTesting {
         address owner,
         uint256 value,
         uint256 initializerValue
-    ) public returns (address) {
+    ) public {
         NonPayableVaultUUPS impl = new NonPayableVaultUUPS(owner);
         bytes memory initData = abi.encodeCall(NonPayableVaultUUPS.initialize, (initializerValue));
-        return
-            this.deployProxy{value: value}(
-                value,
-                key,
-                address(impl),
-                initData,
-                "NonPayableVaultUUPS",
-                "test/mocks/deployment/FundedVault.sol",
-                address(this)
-            );
+        this.deployProxy{value: value}(
+            value,
+            key,
+            address(impl),
+            initData,
+            "NonPayableVaultUUPS",
+            "test/mocks/deployment/FundedVault.sol",
+            address(this)
+        );
     }
 }
 
@@ -146,18 +144,18 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
     function test_ProxyHasFactoryAndDeployer() public {
         deployment.setFilename("test_ProxyHasFactoryAndDeployer");
         // Deploy a proxy
-        deployment.deploySimpleProxy("proxy1", 100, admin);
+        deployment.deploySimpleProxy("contracts.proxy1", 100, admin);
         deployment.finish();
 
         // Use toJson() for verification without saving file
         string memory json = deployment.toJson();
 
         // Verify proxy has both factory and deployer
-        address factory = vm.parseJsonAddress(json, ".deployment.proxy1.factory");
-        address deployer = vm.parseJsonAddress(json, ".deployment.proxy1.deployer");
+        address factory = vm.parseJsonAddress(json, ".contracts.proxy1.factory");
+        address deployer = vm.parseJsonAddress(json, ".contracts.proxy1.deployer");
 
         // Get implementation address directly from proxy and verify it matches stored key
-        address proxyAddr = deployment.get("proxy1");
+        address proxyAddr = deployment.get("contracts.proxy1");
         address implementation = IUUPSUpgradeableProxy(proxyAddr).implementation();
 
         // Get the implementation key from proxy metadata
@@ -174,7 +172,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
 
     function test_ImplementationHasDeployerNoFactory() public {
         // Deploy implementation (via proxy deployment which creates implementation entry)
-        deployment.deploySimpleProxy("proxy1", 100, admin);
+        deployment.deploySimpleProxy("contracts.proxy1", 100, admin);
         deployment.finish();
 
         // Use toJson() for verification
@@ -197,21 +195,21 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
             "Implementation should have deployer field"
         );
 
-        address deployer = vm.parseJsonAddress(json, string.concat(".deployment.", implKey, ".deployer"));
+        address deployer = vm.parseJsonAddress(json, string.concat(".contracts.", implKey, ".deployer"));
         assertEq(deployer, address(deployment), "Implementation deployer should be deployment contract");
     }
 
     function test_RegularContractHasDeployerNoFactory() public {
         // Deploy regular contract
-        deployment.deployMockERC20("token1", "Token1", "TK1");
+        deployment.deployMockERC20("contracts.token1", "Token1", "TK1");
         deployment.finish();
 
         // Use toJson() for verification without saving file
         string memory json = deployment.toJson();
 
         // Regular contract should have deployer but no factory
-        bool hasFactory = vm.keyExistsJson(json, ".deployment.token1.factory");
-        address deployer = vm.parseJsonAddress(json, ".deployment.token1.deployer");
+        bool hasFactory = vm.keyExistsJson(json, ".contracts.token1.factory");
+        address deployer = vm.parseJsonAddress(json, ".contracts.token1.deployer");
 
         assertFalse(hasFactory, "Regular contract should not have factory field");
         assertEq(deployer, address(deployment), "Regular contract deployer should be deployment contract");
@@ -220,15 +218,15 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
     function test_ExistingContractHasNoDeployerNoFactory() public {
         // Register existing contract
         address existing = address(0x1234567890123456789012345678901234567890);
-        deployment.useExisting("external1", existing);
+        deployment.useExisting("contracts.external1", existing);
         deployment.finish();
 
         // Use toJson() for verification without saving file
         string memory json = deployment.toJson();
 
         // Existing contract should have neither factory nor deployer
-        bool hasFactory = vm.keyExistsJson(json, ".deployment.external1.factory");
-        bool hasDeployer = vm.keyExistsJson(json, ".deployment.external1.deployer");
+        bool hasFactory = vm.keyExistsJson(json, ".contracts.external1.factory");
+        bool hasDeployer = vm.keyExistsJson(json, ".contracts.external1.deployer");
 
         assertFalse(hasFactory, "Existing contract should not have factory field");
         assertFalse(hasDeployer, "Existing contract should not have deployer field");
@@ -236,15 +234,15 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
 
     function test_LibraryHasDeployerNoFactory() public {
         // Deploy library
-        deployment.deployTestLibrary("lib1");
+        deployment.deployTestLibrary("contracts.lib1");
         deployment.finish();
 
         // Use toJson() for verification without saving file
         string memory json = deployment.toJson();
 
         // Library should have deployer but no factory
-        bool hasFactory = vm.keyExistsJson(json, ".deployment.lib1.factory");
-        address deployer = vm.parseJsonAddress(json, ".deployment.lib1.deployer");
+        bool hasFactory = vm.keyExistsJson(json, ".contracts.lib1.factory");
+        address deployer = vm.parseJsonAddress(json, ".contracts.lib1.deployer");
 
         assertFalse(hasFactory, "Library should not have factory field");
         assertEq(deployer, address(deployment), "Library deployer should be deployment contract");
@@ -252,14 +250,14 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
 
     function test_FactoryAndDeployerUseDistinctRoles() public {
         // Deploy a proxy and verify factory != deployer
-        deployment.deploySimpleProxy("proxy1", 100, admin);
+        deployment.deploySimpleProxy("contracts.proxy1", 100, admin);
         deployment.finish();
 
         // Use toJson() for verification without saving file
         string memory json = deployment.toJson();
 
-        address factory = vm.parseJsonAddress(json, ".deployment.proxy1.factory");
-        address deployer = vm.parseJsonAddress(json, ".deployment.proxy1.deployer");
+        address factory = vm.parseJsonAddress(json, ".contracts.proxy1.factory");
+        address deployer = vm.parseJsonAddress(json, ".contracts.proxy1.deployer");
 
         // Factory should be CREATE3 deployer while deployer remains the harness
         assertEq(factory, DeploymentInfrastructure.predictBaoDeployerAddress(), "Factory should be BaoDeployer");
@@ -269,9 +267,9 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
 
     function test_MultipleProxiesHaveSameFactoryAndDeployer() public {
         // Deploy multiple proxies
-        deployment.deploySimpleProxy("proxy1", 100, admin);
-        deployment.deploySimpleProxy("proxy2", 200, admin);
-        deployment.deploySimpleProxy("proxy3", 300, admin);
+        deployment.deploySimpleProxy("contracts.proxy1", 100, admin);
+        deployment.deploySimpleProxy("contracts.proxy2", 200, admin);
+        deployment.deploySimpleProxy("contracts.proxy3", 300, admin);
 
         deployment.finish();
 
@@ -279,12 +277,12 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         string memory json = deployment.toJson();
 
         // All should have same factory and deployer
-        address factory1 = vm.parseJsonAddress(json, ".deployment.proxy1.factory");
-        address deployer1 = vm.parseJsonAddress(json, ".deployment.proxy1.deployer");
-        address factory2 = vm.parseJsonAddress(json, ".deployment.proxy2.factory");
-        address deployer2 = vm.parseJsonAddress(json, ".deployment.proxy2.deployer");
-        address factory3 = vm.parseJsonAddress(json, ".deployment.proxy3.factory");
-        address deployer3 = vm.parseJsonAddress(json, ".deployment.proxy3.deployer");
+        address factory1 = vm.parseJsonAddress(json, ".contracts.proxy1.factory");
+        address deployer1 = vm.parseJsonAddress(json, ".contracts.proxy1.deployer");
+        address factory2 = vm.parseJsonAddress(json, ".contracts.proxy2.factory");
+        address deployer2 = vm.parseJsonAddress(json, ".contracts.proxy2.deployer");
+        address factory3 = vm.parseJsonAddress(json, ".contracts.proxy3.factory");
+        address deployer3 = vm.parseJsonAddress(json, ".contracts.proxy3.deployer");
 
         assertEq(factory1, factory2, "All proxies should have same factory");
         assertEq(factory2, factory3, "All proxies should have same factory");
@@ -302,7 +300,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         vm.deal(address(deployment), 10 ether);
         deployment.predictableDeployContract{value: 5 ether}(
             5 ether,
-            "vault_funded",
+            "contracts.vault_funded",
             fundedCode,
             "FundedVault",
             "test/mocks/deployment/FundedVault.sol",
@@ -312,7 +310,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         // TODO: test that a non-payable contract can be deployed with value?
         // Deploy unfunded vault (same contract type, zero value)
         deployment.predictableDeployContract(
-            "vault_unfunded",
+            "contracts.vault_unfunded",
             fundedCode,
             "FundedVault",
             "test/mocks/deployment/FundedVault.sol",
@@ -325,18 +323,15 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         string memory json = deployment.toJson();
 
         // Verify both vaults have factory field (CREATE3 deployments)
+        assertTrue(vm.keyExistsJson(json, ".contracts.vault_funded.factory"), "Funded vault should have factory field");
         assertTrue(
-            vm.keyExistsJson(json, ".deployment.vault_funded.factory"),
-            "Funded vault should have factory field"
-        );
-        assertTrue(
-            vm.keyExistsJson(json, ".deployment.vault_unfunded.factory"),
+            vm.keyExistsJson(json, ".contracts.vault_unfunded.factory"),
             "Unfunded vault should have factory field"
         );
 
         // Verify factory is BaoDeployer address
-        address fundedFactory = vm.parseJsonAddress(json, ".deployment.vault_funded.factory");
-        address unfundedFactory = vm.parseJsonAddress(json, ".deployment.vault_unfunded.factory");
+        address fundedFactory = vm.parseJsonAddress(json, ".contracts.vault_funded.factory");
+        address unfundedFactory = vm.parseJsonAddress(json, ".contracts.vault_unfunded.factory");
 
         // Factory should be the BaoDeployer (not deployment contract, which is just the executor)
         assertTrue(fundedFactory != address(0), "Funded vault factory should not be zero");
@@ -345,27 +340,38 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         assertEq(fundedFactory, DeploymentInfrastructure.predictBaoDeployerAddress(), "Factory should be BaoDeployer");
 
         // Verify both vaults are deployed and have correct balance
-        address fundedVault = vm.parseJsonAddress(json, ".deployment.vault_funded.address");
-        address unfundedVault = vm.parseJsonAddress(json, ".deployment.vault_unfunded.address");
+        address fundedVault = deployment.get("contracts.vault_funded");
+        address unfundedVault = deployment.get("contracts.vault_unfunded");
 
         assertEq(fundedVault.balance, 5 ether, "Funded vault should have 5 ETH");
         assertEq(unfundedVault.balance, 0, "Unfunded vault should have 0 ETH");
+
+        // Verify value field in JSON for funded contracts
+        assertTrue(vm.keyExistsJson(json, ".contracts.vault_funded.value"), "Funded vault should have value field");
+        uint256 fundedValue = vm.parseJsonUint(json, ".contracts.vault_funded.value");
+        assertEq(fundedValue, 5 ether, "Funded vault value should be 5 ETH");
+
+        // Unfunded vault should not have value field (or have zero value)
+        if (vm.keyExistsJson(json, ".contracts.vault_unfunded.value")) {
+            uint256 unfundedValue = vm.parseJsonUint(json, ".contracts.vault_unfunded.value");
+            assertEq(unfundedValue, 0, "Unfunded vault value should be 0");
+        }
     }
 
     function test_FundedVaultProxyDeployments_WithAndWithoutValue() public {
         vm.deal(address(deployment), 10 ether);
 
-        address fundedProxy = deployment.deployFundedVaultProxy("vault_proxy_funded", admin, 5 ether);
-        address unfundedProxy = deployment.deployFundedVaultProxy("vault_proxy_unfunded", admin, 0);
+        deployment.deployFundedVaultProxy("contracts.vault_proxy_funded", admin, 5 ether);
+        deployment.deployFundedVaultProxy("contracts.vault_proxy_unfunded", admin, 0);
 
         deployment.finish();
 
         string memory json = deployment.toJson();
 
-        address factoryFunded = vm.parseJsonAddress(json, ".deployment.vault_proxy_funded.factory");
-        address factoryUnfunded = vm.parseJsonAddress(json, ".deployment.vault_proxy_unfunded.factory");
-        address deployerFunded = vm.parseJsonAddress(json, ".deployment.vault_proxy_funded.deployer");
-        address deployerUnfunded = vm.parseJsonAddress(json, ".deployment.vault_proxy_unfunded.deployer");
+        address factoryFunded = vm.parseJsonAddress(json, ".contracts.vault_proxy_funded.factory");
+        address factoryUnfunded = vm.parseJsonAddress(json, ".contracts.vault_proxy_unfunded.factory");
+        address deployerFunded = vm.parseJsonAddress(json, ".contracts.vault_proxy_funded.deployer");
+        address deployerUnfunded = vm.parseJsonAddress(json, ".contracts.vault_proxy_unfunded.deployer");
 
         address expectedFactory = DeploymentInfrastructure.predictBaoDeployerAddress();
         assertEq(factoryFunded, expectedFactory, "Proxy factory should be BaoDeployer");
@@ -373,11 +379,19 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         assertEq(deployerFunded, address(deployment), "Proxy deployer should be deployment contract");
         assertEq(deployerUnfunded, address(deployment), "Proxy deployer should be deployment contract");
 
-        address recordedFunded = vm.parseJsonAddress(json, ".deployment.vault_proxy_funded.address");
-        address recordedUnfunded = vm.parseJsonAddress(json, ".deployment.vault_proxy_unfunded.address");
+        address recordedFunded = vm.parseJsonAddress(json, ".contracts.vault_proxy_funded.address");
+        address recordedUnfunded = vm.parseJsonAddress(json, ".contracts.vault_proxy_unfunded.address");
 
-        assertEq(recordedFunded, fundedProxy, "Recorded funded proxy address mismatch");
-        assertEq(recordedUnfunded, unfundedProxy, "Recorded unfunded proxy address mismatch");
+        assertEq(
+            recordedFunded,
+            deployment.get("contracts.vault_proxy_funded"),
+            "Recorded funded proxy address mismatch"
+        );
+        assertEq(
+            recordedUnfunded,
+            deployment.get("contracts.vault_proxy_unfunded"),
+            "Recorded unfunded proxy address mismatch"
+        );
 
         assertEq(recordedFunded.balance, 5 ether, "Funded proxy should hold 5 ETH");
         assertEq(recordedUnfunded.balance, 0, "Unfunded proxy should hold 0 ETH");
@@ -394,7 +408,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         vm.expectRevert();
         deployment.predictableDeployContract(
             1 ether,
-            "vault_nonpayable",
+            "contracts.vault_nonpayable",
             nonPayableCode,
             "NonPayableVault",
             "test/mocks/deployment/FundedVault.sol",
@@ -421,7 +435,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         vm.deal(address(deployment), 1 ether);
 
         vm.expectRevert();
-        deployment.deployNonPayableVaultProxy("vault_nonpayable_proxy", admin, 1 ether, uint256(123));
+        deployment.deployNonPayableVaultProxy("contracts.vault_nonpayable_proxy", admin, 1 ether, uint256(123));
     }
 
     function test_RevertWhen_UnderfundingProxyDeployment() public {
