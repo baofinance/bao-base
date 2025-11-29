@@ -486,7 +486,7 @@ abstract contract Deployment is DeploymentKeys {
     ) public {
         _requireActiveRun();
         _registerImplementation(key, addr, contractType, contractPath, deployer);
-        _setString(string.concat(key, "..category"), "contract");
+        _setString(string.concat(key, ".category"), "contract");
     }
 
     function _registerImplementation(

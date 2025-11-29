@@ -9,8 +9,22 @@ import {MockOracle, MockToken, MockMinter} from "../mocks/basic/MockDependencies
 
 // Test harness extends DeploymentTesting
 contract MockDeploymentDependency is DeploymentMemoryTesting {
+    // Contract keys used in tests
+    string public constant ORACLE = "oracle";
+    string public constant ORACLE1 = "oracle1";
+    string public constant ORACLE2 = "oracle2";
+    string public constant TOKEN = "token";
+    string public constant TOKEN1 = "token1";
+    string public constant MINTER = "minter";
+
     constructor() {
         // Register all possible contract keys used in tests
+        addContract(ORACLE);
+        addContract(ORACLE1);
+        addContract(ORACLE2);
+        addContract(TOKEN);
+        addContract(TOKEN1);
+        addContract(MINTER);
     }
 
     function deployOracle(string memory key, uint256 price) public returns (address) {
