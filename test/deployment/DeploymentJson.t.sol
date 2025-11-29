@@ -336,12 +336,12 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         string memory json = deployment.toJson();
         assertFalse(vm.keyExistsJson(json, ".session.finished"), "ISO finished should not exist when not finished");
 
-        // Try to resume - should fail
+        // Try to resume from latest - should work even though not finished
         MockDeploymentJson newDeployment = new MockDeploymentJson();
-        newDeployment.start("test_RevertWhen_ResumeFromUnfinishedRun", TEST_SALT, "resume-test");
+        newDeployment.start("test_RevertWhen_ResumeFromUnfinishedRun", TEST_SALT, "latest");
 
-        // Verify it loaded the contract
-        assertTrue(newDeployment.has("contract1"), "Should have loaded contract1");
+        // Verify it loaded the contract from the unfinished run
+        assertTrue(newDeployment.has("contracts.contract1"), "Should have loaded contract1");
     }
 
     function test_ResumeFromFileCreatesActiveRun() public {
