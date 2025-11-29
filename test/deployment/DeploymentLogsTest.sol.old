@@ -2,7 +2,6 @@
 pragma solidity ^0.8.28;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {DeploymentTestingOutput} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 
 /// @title DeploymentLogsTest
 /// @notice Provides deterministic filesystem scaffolding for deployment-oriented tests
@@ -13,9 +12,9 @@ abstract contract DeploymentLogsTest is BaoTest {
     mapping(string => bool) private alreadyReset;
 
     /// @notice Prepare a clean deployments directory for the current test suite
-    function _resetDeploymentLogs(string memory suiteLabel) internal {
+    function _resetDeploymentLogs(string memory salt) internal {
         string memory baseDir = DeploymentTestingOutput._getPrefix();
-        deploymentLogsDir_ = string.concat(baseDir, "/deployments/", suiteLabel);
+        deploymentLogsDir_ = string.concat(baseDir, "/deployments/", salt);
         if (!alreadyReset[deploymentLogsDir_]) {
             alreadyReset[deploymentLogsDir_] = true;
             if (vm.exists(deploymentLogsDir_)) {

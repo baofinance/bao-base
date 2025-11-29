@@ -18,6 +18,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new DeploymentJsonTesting();
+        _resetDeploymentLogs(TEST_SALT, TEST_NETWORK, "{}");
         deployment.start(TEST_NETWORK, TEST_SALT, "");
     }
 

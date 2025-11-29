@@ -130,6 +130,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new MockDeploymentUpgrade();
+        _resetDeploymentLogs(TEST_SALT, TEST_NETWORK, "{}");
         deployment.start(TEST_NETWORK, TEST_SALT, "");
     }
 
@@ -490,6 +491,7 @@ contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
         super.setUp();
         deployment = new MockDeploymentUpgrade();
         admin = address(this);
+        _resetDeploymentLogs(TEST_SALT, TEST_NETWORK, "{}");
         deployment.start(TEST_NETWORK, TEST_SALT, "");
     }
 

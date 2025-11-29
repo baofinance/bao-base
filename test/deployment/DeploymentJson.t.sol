@@ -81,6 +81,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new MockDeploymentJson();
+        _resetDeploymentLogs(TEST_SALT, TEST_NETWORK, "{}");
         deployment.start(TEST_NETWORK, TEST_SALT, "");
     }
 

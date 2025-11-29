@@ -149,6 +149,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         super.setUp();
         admin = address(this);
         deployment = new MockDeploymentIntegration();
+        _resetDeploymentLogs(TEST_SALT, TEST_NETWORK, "{}");
         deployment.start(TEST_NETWORK, TEST_SALT, "");
     }
 
@@ -248,6 +249,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
     function test_IncrementalDeployment() public {
         // Use unique salt to avoid conflicts with other tests
         string memory incrementalSalt = "integration-incremental-salt";
+        _resetDeploymentLogs(incrementalSalt, TEST_NETWORK, "{}");
         // Phase 1: Deploy tokens with autosave
         vm.warp(1000000); // Set initial timestamp
         vm.roll(100); // Set initial block number

@@ -35,7 +35,7 @@ abstract contract DeploymentJson is Deployment {
 
     function _afterValueChanged(string memory /* key */) internal virtual override {
         if (!_suppressPersistence) {
-            string memory path = string.concat(_getRootPlusDir(), "/", _getFilename(), ".json");
+            string memory path = string.concat(_getOutputConfigDir(), "/", _getFilename(), ".json");
             VM.writeJson(_dataJson.toJson(), path);
         }
     }
@@ -55,14 +55,13 @@ abstract contract DeploymentJson is Deployment {
         return string.concat(_getPrefix(), "/deployments");
     }
 
-    function _getDir() internal view virtual returns (string memory dir) {
-        dir = string.concat(_systemSaltString, "/", _network);
+    function _getStartConfigDir() internal returns (string memory) {
+        return string.concat(_getRoot(), "/", _systemSaltString);
     }
 
-    function _getRootPlusDir() internal returns (string memory rootPlusDir) {
-        rootPlusDir = _getRoot();
-        string memory dir = _getDir();
-        if (bytes(dir).length > 0) rootPlusDir = string.concat(rootPlusDir, "/", dir);
+    function _getOutputConfigDir() internal returns (string memory) {
+        if (bytes(_network).length > 0) return string.concat(_getRoot(), "/", _systemSaltString, "/", _network);
+        else return string.concat(_getRoot(), "/", _systemSaltString);
     }
 
     function _getFilename() internal view virtual returns (string memory filename) {
@@ -138,6 +137,9 @@ abstract contract DeploymentJson is Deployment {
     // ============================================================================
     // Lifecycle Override with JSON Support
     // ============================================================================
+    function _requireNetwork(string memory network_) internal virtual {
+        require(bytes(network_).length > 0, "cannot have a null network string");
+    }
 
     /// @notice Initialize data layer with JSON file paths
     /// @dev Implements abstract method from base Deployment
@@ -150,6 +152,8 @@ abstract contract DeploymentJson is Deployment {
         string memory systemSaltString_,
         string memory startPoint
     ) internal virtual override returns (IDeploymentDataWritable) {
+        _requireNetwork(network_);
+        require(bytes(systemSaltString_).length > 0, "cannot have a null system salt string");
         _network = network_;
         _systemSaltString = systemSaltString_;
         _dataJson = new DeploymentDataJson(this);
@@ -157,14 +161,14 @@ abstract contract DeploymentJson is Deployment {
         // now load the data from the specified file
         string memory path;
         if (bytes(startPoint).length == 0 || startPoint.eq("first")) {
-            path = string.concat(_getRoot(), "/", _systemSaltString, "/config.json");
+            path = string.concat(_getStartConfigDir(), "/config.json");
         } else if (startPoint.eq("latest")) {
             // TODO: implement latest file finding if needed
             revert("Latest file resolution not yet implemented");
         } else {
-            path = string.concat(_getRootPlusDir(), "/", startPoint, ".json");
+            path = string.concat(_getOutputConfigDir(), "/", startPoint, ".json");
         }
-        _suppressPersistence = true; // we don't wan the loading to write out each change, on loading
+        _suppressPersistence = true; // we don't want the loading to write out each change, on loading
         _dataJson.fromJson(VM.readFile(path));
         _suppressPersistence = false;
 

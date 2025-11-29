@@ -52,8 +52,10 @@ contract DeploymentBasicTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new MyDeploymentJsonTesting();
+        _resetDeploymentLogs(TEST_SALT, TEST_NETWORK, "{}");
         deployment.start(TEST_NETWORK, TEST_SALT, "");
     }
+
     function test_Initialize() public view {
         // Verify session metadata is set correctly after start()
         assertEq(deployment.getString(deployment.SESSION_NETWORK()), TEST_NETWORK, "Network should match");

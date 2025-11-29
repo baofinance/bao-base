@@ -15,13 +15,13 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
     address public admin;
 
     string internal constant TEST_NETWORK = "anvil";
-    string internal constant TEST_SALT = "test";
+    string internal constant TEST_SALT = "MockHarborDeploymentTest";
 
     function setUp() public override {
         super.setUp(); // Sets up deployment infrastructure (Nick's Factory + BaoDeployer)
         deployment = new MockHarborDeploymentDev();
-        deployment.setDir("mock-harbor");
-        deployment.start(TEST_NETWORK, TEST_SALT, "");
+        _resetDeploymentLogs("MockHarborDeploymentTest", TEST_NETWORK, "{}");
+        deployment.start(TEST_NETWORK, "MockHarborDeploymentTest", "");
         admin = makeAddr("admin");
     }
 

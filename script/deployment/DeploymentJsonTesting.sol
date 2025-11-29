@@ -10,7 +10,6 @@ import {IDeploymentDataWritable} from "@bao-script/deployment/interfaces/IDeploy
 import {Vm} from "forge-std/Vm.sol";
 
 library DeploymentTestingOutput {
-
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     function _getPrefix() internal view returns (string memory) {
@@ -31,25 +30,22 @@ library DeploymentTestingOutput {
  * @dev Extends base Deployment with test accessor functions
  */
 contract DeploymentJsonTesting is DeploymentJson, DeploymentTesting {
-
-    string private _dir; // Namespace for test suite outputs
-    bool _dirIsSet;
     string private _filename;
     bool _filenameIsSet;
     uint256 private _sequenceNumber; // Incremented on each save
     string private _baseFilename;
 
-        /// @notice Enable sequence numbering for capturing update phases
+    /// @notice Enable sequence numbering for capturing update phases
     /// @dev Call this before writes to create .001, .002, .003 files instead of overwriting
     function enableSequencing() external {
         _baseFilename = super._getFilename();
         _sequenceNumber = 1;
     }
 
-    function _afterValueChanged(string memory  key ) internal override (DeploymentJson, Deployment) {
+    function _afterValueChanged(string memory key) internal override(DeploymentJson, Deployment) {
         if (_sequenceNumber > 0) {
             setFilename(string.concat(_baseFilename, ".", _padZero(_sequenceNumber, 3)));
-            _sequenceNumber ++;
+            _sequenceNumber++;
         }
         DeploymentJson._afterValueChanged(key);
     }
@@ -66,19 +62,9 @@ contract DeploymentJsonTesting is DeploymentJson, DeploymentTesting {
         _dataJson.fromJson(json);
     }
 
-    function _getDir() internal view override returns (string memory) {
-        if (_dirIsSet) return _dir;
-        return super._getDir();
-    }
-
     function _getFilename() internal view override returns (string memory) {
         if (_filenameIsSet) return _filename;
         return super._getFilename();
-    }
-
-    function setDir(string memory dir) public {
-        _dir = dir;
-        _dirIsSet = true;
     }
 
     function setFilename(string memory fileName) public {

@@ -5,6 +5,7 @@ import {BaoTest} from "@bao-test/BaoTest.sol";
 import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
+import {DeploymentTestingOutput} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 
 /**
  * @title BaoDeploymentTest
@@ -31,6 +32,8 @@ abstract contract BaoDeploymentTest is BaoTest {
     address internal _baoDeployer;
     address internal _baoMultisig;
 
+    mapping(string => bool) private alreadyReset;
+
     /**
      * @notice Set up deployment infrastructure for tests
      * @dev This runs once per test contract (not per test function)
@@ -53,6 +56,23 @@ abstract contract BaoDeploymentTest is BaoTest {
         DeploymentInfrastructure.ensureBaoDeployer();
 
         vm.label(_baoDeployer, "_baoDeployer");
+    }
+
+    /// @notice Prepare a clean deployments directory for the current test suite
+    function _resetDeploymentLogs(string memory salt, string memory network, string memory configJson) internal {
+        string memory baseDir = DeploymentTestingOutput._getPrefix();
+        string memory deploymentDir_ = string.concat(baseDir, "/deployments/", salt);
+        if (!alreadyReset[deploymentDir_]) {
+            alreadyReset[deploymentDir_] = true;
+            if (vm.exists(deploymentDir_)) {
+                vm.removeDir(deploymentDir_, true);
+            }
+            vm.createDir(deploymentDir_, true);
+        }
+        if (bytes(network).length > 0) {
+            vm.createDir(string.concat(deploymentDir_, "/", network), true);
+        }
+        vm.writeJson(configJson, string.concat(deploymentDir_, "/config.json"));
     }
 
     /*

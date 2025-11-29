@@ -20,6 +20,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new MockHarborDeploymentDev();
+        _resetDeploymentLogs(TEST_SALT, TEST_NETWORK, "{}");
         deployment.start(TEST_NETWORK, TEST_SALT, "");
         admin = makeAddr("admin");
         outsider = makeAddr("outsider");
@@ -79,6 +80,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
 
         // Different deployment with different salt should produce different address
         MockHarborDeploymentDev deployment2 = new MockHarborDeploymentDev();
+        _resetDeploymentLogs("different-salt", TEST_NETWORK, "{}");
         deployment2.start(TEST_NETWORK, "different-salt", "");
         address addr2 = deployment2.predictProxyAddress(deployment2.PEGGED());
 
