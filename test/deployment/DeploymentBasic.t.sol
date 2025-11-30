@@ -69,7 +69,8 @@ contract DeploymentBasicTest is BaoDeploymentTest {
         deployment.start(network, TEST_SALT, "");
     }
 
-    function test_Initialize() public view {
+    function test_Initialize() public {
+        _startDeployment("test_Initialize");
         // Verify session metadata is set correctly after start()
         assertEq(deployment.getString(deployment.SESSION_NETWORK()), "test_Initialize", "Network should match");
         assertEq(
@@ -135,16 +136,24 @@ contract DeploymentBasicTest is BaoDeploymentTest {
     function test_Keys() public {
         _startDeployment("test_Keys");
         
+        // After start(), keys() returns only keys that have values
+        // Session metadata is set automatically, but no contracts deployed yet
         string[] memory keys = deployment.keys();
-        assertEq(keys.length, 0);
+        uint256 sessionKeyCount = keys.length;
+        assertGt(sessionKeyCount, 0, "Session metadata keys should exist");
+        
+        // Verify no contract keys yet
+        assertFalse(deployment.has("mock1"), "mock1 should not exist before deployment");
+        assertFalse(deployment.has("mock2"), "mock2 should not exist before deployment");
 
         deployment.deployMockContract("mock1", "Mock 1");
         deployment.deployMockContract("mock2", "Mock 2");
 
+        // After deploying contracts, keys should include the new contract keys
         keys = deployment.keys();
-        assertEq(keys.length, 2);
-        assertEq(keys[0], "mock1");
-        assertEq(keys[1], "mock2");
+        assertGt(keys.length, sessionKeyCount, "Should have more keys after deploying contracts");
+        assertTrue(deployment.has("mock1"), "mock1 should exist after deployment");
+        assertTrue(deployment.has("mock2"), "mock2 should exist after deployment");
     }
 
     function test_RevertWhen_InvalidAddress() public {

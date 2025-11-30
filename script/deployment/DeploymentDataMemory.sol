@@ -113,7 +113,26 @@ contract DeploymentDataMemory is IDeploymentDataWritable {
         return false;
     }
 
-    function keys() external view override returns (string[] memory allKeys) {
+    function keys() external view override returns (string[] memory activeKeys) {
+        // Count keys with values first
+        uint256 count = 0;
+        for (uint256 i = 0; i < _allKeys.length; i++) {
+            if (_hasKey[_allKeys[i]]) {
+                count++;
+            }
+        }
+
+        // Collect keys with values
+        activeKeys = new string[](count);
+        uint256 j = 0;
+        for (uint256 i = 0; i < _allKeys.length; i++) {
+            if (_hasKey[_allKeys[i]]) {
+                activeKeys[j++] = _allKeys[i];
+            }
+        }
+    }
+
+    function schemaKeys() external view returns (string[] memory allKeys) {
         return _allKeys;
     }
 

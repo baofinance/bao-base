@@ -33,7 +33,7 @@ contract DeploymentDataJson is DeploymentDataMemory {
             return;
         }
 
-        string[] memory registered = _deploymentKeys.keys();
+        string[] memory registered = _deploymentKeys.schemaKeys();
         for (uint256 i = 0; i < registered.length; i++) {
             string memory key = registered[i];
             string memory pointer = string.concat("$.", key);

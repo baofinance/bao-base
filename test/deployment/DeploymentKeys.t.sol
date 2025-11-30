@@ -39,13 +39,13 @@ contract DeploymentKeysTest is BaoTest {
     }
 
     function _assertKeyDelta(uint256 expectedDelta) internal view {
-        string[] memory allKeys = keys.keys();
+        string[] memory allKeys = keys.schemaKeys();
         assertEq(allKeys.length, baseKeyCount + expectedDelta);
     }
 
     function setUp() public {
         keys = new TestKeysForValidation();
-        baseKeyCount = keys.keys().length;
+        baseKeyCount = keys.schemaKeys().length;
     }
 
     // ============ Key Registration Tests ============
@@ -73,7 +73,7 @@ contract DeploymentKeysTest is BaoTest {
         keys.addTestStringKey(_ck("token.symbol"));
         keys.addTestUintKey(_ck("token.decimals"));
 
-        string[] memory allKeys = keys.keys();
+        string[] memory allKeys = keys.schemaKeys();
         assertEq(allKeys.length, baseKeyCount + 4);
         assertEq(allKeys[baseKeyCount + 0], _ck("owner"));
         assertEq(allKeys[baseKeyCount + 1], _ck("token"));

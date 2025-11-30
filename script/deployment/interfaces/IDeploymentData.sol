@@ -98,8 +98,10 @@ interface IDeploymentData {
     function has(string memory key) external view returns (bool exists);
 
     /**
-     * @notice Get all keys that have been set
-     * @return allKeys Array of all configuration keys
+     * @notice Get all keys that have values
+     * @dev Returns only keys with set values, not the full schema
+     *      Useful for serialization and iteration over deployed contracts
+     * @return activeKeys Array of keys that have values
      */
-    function keys() external view returns (string[] memory allKeys);
+    function keys() external view returns (string[] memory activeKeys);
 }

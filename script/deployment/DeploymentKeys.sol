@@ -320,10 +320,12 @@ abstract contract DeploymentKeys {
     }
 
     /**
-     * @notice Get all registered keys
-     * @return keys Array of all configuration keys
+     * @notice Get all registered schema keys
+     * @dev Returns the complete schema - all keys that CAN be used
+     *      For keys that HAVE values, use keys() on the data layer
+     * @return schemaKeys Array of all registered configuration keys
      */
-    function keys() external view returns (string[] memory) {
+    function schemaKeys() external view returns (string[] memory) {
         return _allKeys;
     }
 

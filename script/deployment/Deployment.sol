@@ -585,6 +585,14 @@ abstract contract Deployment is DeploymentKeys {
 
     function _afterValueChanged(string memory key) internal virtual;
 
+    /// @notice Get all keys that have values
+    /// @dev Delegates to data layer - returns only keys with set values
+    ///      For schema keys (all possible keys), use schemaKeys()
+    /// @return activeKeys Array of keys that have values
+    function keys() external view returns (string[] memory activeKeys) {
+        return _data.keys();
+    }
+
     /// @notice Set contract address (key.address)
     function _set(string memory key, address value) internal {
         _data.setAddress(string.concat(key, ".address"), value);

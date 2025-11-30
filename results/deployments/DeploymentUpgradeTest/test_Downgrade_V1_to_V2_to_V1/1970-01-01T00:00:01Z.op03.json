@@ -20,7 +20,7 @@
       "category": "UUPS proxy",
       "saltString": "Counter",
       "salt": "0x667edb9477d894922d0eeaacb805a80ba5a801201349ec94a5a6e80ec9885e62",
-      "ownershipModel": "transferred-after-deploy",
+      "ownershipModel": "transfer-after-deploy",
       "implementation": {
         "address": "0xf62849f9a0b5bf2913b396098f7c7019b51a820a",
         "contractType": "CounterV1",

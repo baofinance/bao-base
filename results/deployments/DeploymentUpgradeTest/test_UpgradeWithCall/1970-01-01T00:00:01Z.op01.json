@@ -20,7 +20,7 @@
       "category": "UUPS proxy",
       "saltString": "Oracle",
       "salt": "0x12a91dadb1f9ad87e388c9ae0917d14d12630bd6d009169def18936be94ed844",
-      "ownershipModel": "transferred-after-deploy",
+      "ownershipModel": "transfer-after-deploy",
       "implementation": {
         "address": "0xddc10602782af652bb913f7bde1fd82981db7dd9",
         "contractType": "OracleV1",
