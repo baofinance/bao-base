@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {LibString} from "@solady/utils/LibString.sol";
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 import {DeploymentKeys} from "@bao-script/deployment/DeploymentKeys.sol";
+import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {OracleV1} from "../mocks/upgradeable/MockOracle.sol";
 
 import {CounterV1} from "../mocks/upgradeable/MockCounter.sol";
@@ -97,33 +97,10 @@ contract MockDeploymentUpgrade is DeploymentJsonTesting {
         IUUPSUpgradeableProxy(proxy).upgradeTo(newImplementation);
     }
 
-    /// @notice Count how many proxies are still owned by this harness (for testing)
-    /// @dev Useful for verifying ownership transfer behavior in tests
+    /// @notice Count how many proxies still need ownership transfer
+    /// @dev _getTransferrableProxies() already filters to only those needing transfer
     function countTransferrableProxies(address /* newOwner */) public view returns (uint256) {
-        uint256 stillOwned = 0;
-        string[] memory allKeysList = this.keys();
-
-        for (uint256 i = 0; i < allKeysList.length; i++) {
-            string memory key = allKeysList[i];
-
-            // Check if this is a proxy by looking for .ownershipModel metadata
-            string memory ownershipKey = string.concat(key, ".ownershipModel");
-            if (!has(ownershipKey)) continue;
-
-            string memory ownershipModel = getString(ownershipKey);
-            if (LibString.eq(ownershipModel, "transfer-after-deploy")) {
-                address proxy = get(key);
-                (bool success, bytes memory data) = proxy.staticcall(abi.encodeWithSignature("owner()"));
-                if (success && data.length == 32) {
-                    address currentOwner = abi.decode(data, (address));
-                    if (currentOwner == address(this)) {
-                        ++stillOwned;
-                    }
-                }
-            }
-        }
-
-        return stillOwned;
+        return _getTransferrableProxies().length;
     }
 
     /// @notice Helper for tests to compute implementation keys

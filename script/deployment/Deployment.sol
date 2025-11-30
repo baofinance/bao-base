@@ -49,6 +49,19 @@ abstract contract Deployment is DeploymentKeys {
     error CannotSendValueToNonPayableFunction();
 
     // ============================================================================
+    // Types
+    // ============================================================================
+
+    /// @notice Proxy needing ownership transfer
+    /// @dev Used by _getTransferrableProxies() and finish()
+    struct TransferrableProxy {
+        address proxy;
+        string parentKey;
+        address currentOwner;
+        address configuredOwner;
+    }
+
+    // ============================================================================
     // Storage
     // ============================================================================
 
@@ -148,45 +161,19 @@ abstract contract Deployment is DeploymentKeys {
     /// @notice Finish deployment session
     /// @dev Transfers ownership to final owner for all proxies if current owner != configured owner
     /// @dev Uses runtime owner() check - only transfers if currentOwner != finalOwner
+    ///      Looks for keys ending in ".ownershipModel" with value "transfer-after-deploy"
     /// @return transferred Number of proxies whose ownership was transferred
     function finish() public virtual returns (uint256 transferred) {
         if (_sessionState == State.NONE) revert SessionNotStarted();
         if (_sessionState == State.FINISHED) revert SessionAlreadyFinished();
 
-        address globalOwner = _getAddress(OWNER);
-        string[] memory allKeys = this.keys();
-        uint256 length = allKeys.length;
+        TransferrableProxy[] memory proxies = _getTransferrableProxies();
+        transferred = proxies.length;
 
-        for (uint256 i; i < length; i++) {
-            string memory key = allKeys[i];
-            string memory ownershipKey = string.concat(key, ".ownershipModel");
-
-            if (!_has(ownershipKey)) continue;
-
-            string memory ownershipModel = _getString(ownershipKey);
-            if (LibString.eq(ownershipModel, "transfer-after-deploy")) {
-                address proxy = _get(key);
-
-                // Runtime ownership check - query current owner from blockchain
-                (bool success, bytes memory data) = proxy.staticcall(abi.encodeWithSignature("owner()"));
-                if (!success || data.length != 32) {
-                    // Contract doesn't support BaoOwnable, skip
-                    continue;
-                }
-
-                address currentOwner = abi.decode(data, (address));
-
-                // Check for configured owner for this specific proxy, fall back to global owner
-                string memory ownerKey = string.concat(key, ".owner");
-                address configuredOwner = _has(ownerKey) ? _getAddress(ownerKey) : globalOwner;
-
-                // Only transfer if current owner != configured owner
-                if (currentOwner != configuredOwner) {
-                    IBaoOwnable(proxy).transferOwnership(configuredOwner);
-                    _setString(ownershipKey, "transferred-after-deploy");
-                    ++transferred;
-                }
-            }
+        for (uint256 i; i < proxies.length; i++) {
+            TransferrableProxy memory tp = proxies[i];
+            IBaoOwnable(tp.proxy).transferOwnership(tp.configuredOwner);
+            _setString(string.concat(tp.parentKey, ".ownershipModel"), "transferred-after-deploy");
         }
 
         // Mark session finished
@@ -196,6 +183,46 @@ abstract contract Deployment is DeploymentKeys {
         _sessionState = State.FINISHED;
 
         return transferred;
+    }
+
+    /// @notice Get list of proxies needing ownership transfer
+    /// @dev Finds all keys ending in ".ownershipModel" with value "transfer-after-deploy"
+    ///      Performs runtime ownership check - only returns proxies where currentOwner != configuredOwner
+    /// @return proxies Array of TransferrableProxy structs (only those actually needing transfer)
+    function _getTransferrableProxies() internal view returns (TransferrableProxy[] memory proxies) {
+        address globalOwner = _getAddress(OWNER);
+        string[] memory allKeys = this.keys();
+        string memory suffix = ".ownershipModel";
+        uint256 suffixLen = bytes(suffix).length;
+
+        // Allocate max-size array, populate, then truncate via assembly
+        proxies = new TransferrableProxy[](allKeys.length);
+        uint256 count = 0;
+
+        for (uint256 i; i < allKeys.length; i++) {
+            string memory key = allKeys[i];
+            if (!LibString.endsWith(key, suffix)) continue;
+            if (!LibString.eq(_getString(key), "transfer-after-deploy")) continue;
+
+            string memory parentKey = LibString.slice(key, 0, bytes(key).length - suffixLen);
+            address proxy = _get(parentKey);
+
+            (bool success, bytes memory data) = proxy.staticcall(abi.encodeWithSignature("owner()"));
+            if (!success || data.length != 32) continue;
+
+            address currentOwner = abi.decode(data, (address));
+            string memory ownerKey = string.concat(parentKey, ".owner");
+            address configuredOwner = _has(ownerKey) ? _getAddress(ownerKey) : globalOwner;
+
+            if (currentOwner != configuredOwner) {
+                proxies[count++] = TransferrableProxy(proxy, parentKey, currentOwner, configuredOwner);
+            }
+        }
+
+        // Truncate array to actual size
+        assembly {
+            mstore(proxies, count)
+        }
     }
 
     // function dataStore() public view returns (address) {
