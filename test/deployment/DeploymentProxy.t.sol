@@ -19,7 +19,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new MockHarborDeploymentDev();
-        _resetDeploymentLogs(TEST_SALT, "{}");
+        _resetDeploymentLogs(TEST_SALT, "");
         admin = makeAddr("admin");
         outsider = makeAddr("outsider");
     }
@@ -31,7 +31,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
 
     function test_DeployProxy() public {
         _startDeployment("test_DeployProxy");
-        
+
         deployment.setFilename("test_DeployProxy");
         deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor USD");
@@ -64,7 +64,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
 
     function test_PredictProxyAddress() public {
         _startDeployment("test_PredictProxyAddress");
-        
+
         deployment.setFilename("test_PredictProxyAddress");
         address predicted = deployment.predictProxyAddress(deployment.PEGGED());
 
@@ -79,7 +79,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
 
     function test_DeterministicProxyAddress() public {
         _startDeployment("test_DeterministicProxyAddress");
-        
+
         deployment.setFilename("test_DeterministicProxyAddress");
         // Same key with same salt should produce same address
         address addr1 = deployment.predictProxyAddress(deployment.PEGGED());
@@ -93,7 +93,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
 
         // Different deployment with different salt should produce different address
         MockHarborDeploymentDev deployment2 = new MockHarborDeploymentDev();
-        _resetDeploymentLogs("different-salt", "{}");
+        _resetDeploymentLogs("different-salt", "");
         _prepareTestNetwork("different-salt", "test_DeterministicProxyAddress");
         deployment2.start("test_DeterministicProxyAddress", "different-salt", "");
         address addr2 = deployment2.predictProxyAddress(deployment2.PEGGED());
@@ -103,7 +103,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
 
     function test_MultipleProxies() public {
         _startDeployment("test_MultipleProxies");
-        
+
         deployment.setFilename("test_MultipleProxies");
         // Deploy first proxy
         deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
@@ -127,7 +127,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
 
     function test_RevertWhen_ProxyWithEmptyKey() public {
         _startDeployment("test_RevertWhen_ProxyWithEmptyKey");
-        
+
         deployment.setFilename("test_RevertWhen_ProxyWithEmptyKey");
         // Try to deploy with empty key - should revert with KeyRequired
         vm.expectRevert();
@@ -136,15 +136,16 @@ contract DeploymentProxyTest is BaoDeploymentTest {
 
     function test_RevertWhen_ProxyWithoutImplementation() public {
         _startDeployment("test_RevertWhen_ProxyWithoutImplementation");
-        
+
         deployment.setFilename("test_RevertWhen_ProxyWithoutImplementation");
+        string memory proxyKey = deployment.PEGGED();
         vm.expectRevert();
-        deployment.deployProxy(deployment.PEGGED(), address(0), "", "", "", address(this));
+        deployment.deployProxy(proxyKey, address(0), "", "", "", address(this));
     }
 
     function test_ProxyMetadataStored() public {
         _startDeployment("test_ProxyMetadataStored");
-        
+
         deployment.setFilename("test_ProxyMetadataStored");
         deployment.setString(deployment.PEGGED_SYMBOL(), "JPY");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor JPY");
@@ -153,20 +154,18 @@ contract DeploymentProxyTest is BaoDeploymentTest {
         deployment.deployPegged();
 
         // Verify metadata is stored
-        string memory implType = deployment.getString(string.concat(deployment.PEGGED(), ".implementation.contractType"));
-        assertEq(
-            implType,
-            "MintableBurnableERC20_v1",
-            "Implementation type should be stored"
+        string memory implType = deployment.getString(
+            string.concat(deployment.PEGGED(), ".implementation.contractType")
         );
+        assertEq(implType, "MintableBurnableERC20_v1", "Implementation type should be stored");
 
         string memory category = deployment.getString(string.concat(deployment.PEGGED(), ".category"));
-        assertEq(category, "proxy", "Category should be proxy");
+        assertEq(category, "UUPS proxy", "Category should be UUPS proxy");
     }
 
     function test_ImplementationReuse() public {
         _startDeployment("test_ImplementationReuse");
-        
+
         deployment.setFilename("test_ImplementationReuse");
         // Deploy pegged token
         deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
@@ -175,13 +174,14 @@ contract DeploymentProxyTest is BaoDeploymentTest {
 
         deployment.deployPegged();
 
-        string memory implKey = string.concat(deployment.PEGGED(), "__MintableBurnableERC20_v1");
-        address impl1 = deployment.get(implKey);
+        // Implementation is stored as a nested object under the proxy key
+        string memory implKey = string.concat(deployment.PEGGED(), ".implementation");
+        address impl1 = deployment.getAddress(string.concat(implKey, ".address"));
 
         assertNotEq(impl1, address(0), "Implementation should be deployed");
 
         // Verify implementation metadata
-        string memory implType = deployment.getString(string.concat(implKey, ".type"));
+        string memory implType = deployment.getString(string.concat(implKey, ".contractType"));
         assertEq(implType, "MintableBurnableERC20_v1", "Implementation type should be stored");
     }
 }

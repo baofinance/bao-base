@@ -10,6 +10,7 @@ import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.so
 
 string constant OWNER_KEY = "owner";
 string constant PEGGED_KEY = "contracts.pegged";
+string constant PEGGED_ADDRESS_KEY = "contracts.pegged.address";
 string constant CONFIG_KEY = "contracts.config";
 string constant PEGGED_IMPL_KEY = "contracts.pegged.implementation";
 string constant PEGGED_SYMBOL_KEY = "contracts.pegged.symbol";
@@ -26,6 +27,7 @@ string constant CONFIG_DELTAS_KEY = "contracts.config.deltas";
 /**
  * @title TestKeys
  * @notice Key registry for testing
+ * @dev Note: OWNER is already registered in base DeploymentKeys as ADDRESS type
  */
 contract TestKeys is DeploymentKeys {
     constructor() {
@@ -64,23 +66,23 @@ contract DeploymentDataTest is BaoTest {
 
     // ============ Address Tests ============
 
-    function test_SetAndGet() public {
+    function test_SetAndGetContractAddress() public {
         string[] memory allKeys = data.keys();
         assertEq(allKeys.length, 0);
 
-        assertFalse(data.has(OWNER_KEY));
+        assertFalse(data.has(PEGGED_ADDRESS_KEY));
         vm.expectRevert();
-        data.get(OWNER_KEY);
+        data.get(PEGGED_KEY);
 
         address expected = address(0x1234);
-        data.set(OWNER_KEY, expected);
+        data.setAddress(PEGGED_ADDRESS_KEY, expected);
 
-        assertTrue(data.has(OWNER_KEY));
-        assertEq(data.get(OWNER_KEY), expected);
+        assertTrue(data.has(PEGGED_ADDRESS_KEY));
+        assertEq(data.get(PEGGED_KEY), expected);
 
         allKeys = data.keys();
         assertEq(allKeys.length, 1);
-        assertEq(allKeys[0], OWNER_KEY);
+        assertEq(allKeys[0], PEGGED_ADDRESS_KEY);
     }
 
     function test_SetAndGetAddress() public {
@@ -332,7 +334,7 @@ contract DeploymentDataTest is BaoTest {
     // ============ Multiple Keys Tests ============
 
     function test_MultipleKeysTracked() public {
-        data.set(OWNER_KEY, address(0x1111));
+        data.setAddress(PEGGED_ADDRESS_KEY, address(0x1111));
         data.setString(PEGGED_SYMBOL_KEY, "BAO");
         data.setUint(PEGGED_DECIMALS_KEY, 18);
 
@@ -341,10 +343,10 @@ contract DeploymentDataTest is BaoTest {
     }
 
     function test_OverwriteValue() public {
-        data.set(OWNER_KEY, address(0x1111));
-        data.set(OWNER_KEY, address(0x2222));
+        data.setAddress(PEGGED_ADDRESS_KEY, address(0x1111));
+        data.setAddress(PEGGED_ADDRESS_KEY, address(0x2222));
 
-        assertEq(data.get(OWNER_KEY), address(0x2222));
+        assertEq(data.get(PEGGED_KEY), address(0x2222));
 
         // Keys should not duplicate
         string[] memory allKeys = data.keys();
@@ -355,13 +357,13 @@ contract DeploymentDataTest is BaoTest {
 
     function test_RevertWhenKeyNotRegistered() public {
         vm.expectRevert();
-        data.set("unregistered", address(0x1234));
+        data.setAddress("unregistered", address(0x1234));
     }
 
     function test_RevertWhenTypeMismatch() public {
-        // Try to set string value with address setter
+        // Try to set address value on a string key
         vm.expectRevert();
-        data.set(PEGGED_SYMBOL_KEY, address(0x1234));
+        data.setAddress(PEGGED_SYMBOL_KEY, address(0x1234));
     }
 
     function test_RevertWhenReadingUintAsInt() public {
@@ -397,11 +399,11 @@ contract DeploymentDataTest is BaoTest {
     }
 
     function test_ContractVsNestedAddress() public {
-        // set() is for CONTRACT type (top-level, no dots)
-        data.set(OWNER_KEY, address(0x1111));
-        assertEq(data.get(OWNER_KEY), address(0x1111), "CONTRACT address mismatch");
+        // setAddress() on .address key, get() shorthand reads it
+        data.setAddress(PEGGED_ADDRESS_KEY, address(0x1111));
+        assertEq(data.get(PEGGED_KEY), address(0x1111), "Contract address mismatch");
 
-        // setAddress() is for ADDRESS type (nested, with dots)
+        // setAddress() for nested ADDRESS type
         data.setAddress(PEGGED_IMPL_KEY, address(0x2222));
         assertEq(data.getAddress(PEGGED_IMPL_KEY), address(0x2222), "Nested ADDRESS mismatch");
     }
@@ -419,7 +421,7 @@ contract DeploymentDataJsonTest is DeploymentDataTest {
     // ============ JSON Export Tests ============
 
     function test_ToJsonIncludesValues() public {
-        dataJson.set(OWNER_KEY, address(0x1234567890123456789012345678901234567890));
+        dataJson.setAddress(PEGGED_ADDRESS_KEY, address(0x1234567890123456789012345678901234567890));
         dataJson.setString(PEGGED_SYMBOL_KEY, "BAO");
         dataJson.setUint(PEGGED_DECIMALS_KEY, 18);
 
@@ -444,15 +446,15 @@ contract DeploymentDataJsonTest is DeploymentDataTest {
         string memory initialJson = '{"owner":"0x0000000000000000000000000000000000001234"}';
 
         dataJson.fromJson(initialJson);
-        assertEq(dataJson.get(OWNER_KEY), address(0x1234));
+        assertEq(dataJson.getAddress(OWNER_KEY), address(0x1234));
     }
 
     function test_FromJsonMultipleKeys() public {
         string
-            memory initialJson = '{"owner":"0x0000000000000000000000000000000000001234","contracts":{"pegged":"0x0000000000000000000000000000000000005678"}}';
+            memory initialJson = '{"owner":"0x0000000000000000000000000000000000001234","contracts":{"pegged":{"address":"0x0000000000000000000000000000000000005678"}}}';
 
         dataJson.fromJson(initialJson);
-        assertEq(dataJson.get(OWNER_KEY), address(0x1234));
+        assertEq(dataJson.getAddress(OWNER_KEY), address(0x1234));
         assertEq(dataJson.get(PEGGED_KEY), address(0x5678));
     }
 
@@ -538,13 +540,13 @@ contract DeploymentDataJsonTest is DeploymentDataTest {
     // ============ JSON Round-trip Tests ============
 
     function test_RoundTripAddress() public {
-        dataJson.set(OWNER_KEY, address(0x1234));
+        dataJson.setAddress(PEGGED_ADDRESS_KEY, address(0x1234));
         string memory json = dataJson.toJson();
 
         DeploymentDataJson dataJson2 = new DeploymentDataJson(keys);
         dataJson2.fromJson(json);
 
-        assertEq(dataJson2.get(OWNER_KEY), address(0x1234));
+        assertEq(dataJson2.get(PEGGED_KEY), address(0x1234));
     }
 
     function test_RoundTripNestedAddress() public {
@@ -558,7 +560,7 @@ contract DeploymentDataJsonTest is DeploymentDataTest {
     }
 
     function test_RoundTripMultipleTypes() public {
-        dataJson.set(OWNER_KEY, address(0x1111));
+        dataJson.setAddress(PEGGED_ADDRESS_KEY, address(0x1111));
         dataJson.setString(PEGGED_SYMBOL_KEY, "BAO");
         dataJson.setUint(PEGGED_DECIMALS_KEY, 18);
         dataJson.setInt(CONFIG_TEMPERATURE_KEY, -273);
@@ -569,7 +571,7 @@ contract DeploymentDataJsonTest is DeploymentDataTest {
         DeploymentDataJson dataJson2 = new DeploymentDataJson(keys);
         dataJson2.fromJson(json);
 
-        assertEq(dataJson2.get(OWNER_KEY), address(0x1111));
+        assertEq(dataJson2.get(PEGGED_KEY), address(0x1111));
         assertEq(dataJson2.getString(PEGGED_SYMBOL_KEY), "BAO");
         assertEq(dataJson2.getUint(PEGGED_DECIMALS_KEY), 18);
         assertEq(dataJson2.getInt(CONFIG_TEMPERATURE_KEY), -273);

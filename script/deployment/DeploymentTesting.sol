@@ -55,8 +55,8 @@ abstract contract DeploymentTesting is Deployment, BaoDeployerSetOperator {
     // Data Layer Wrappers
     // ============================================================================
 
-    /// @notice Set contract address
-    function set(string memory key, address value) public {
+    /// @notice Set contract address (key.address)
+    function setContractAddress(string memory key, address value) public {
         _set(key, value);
     }
 

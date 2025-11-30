@@ -1,4 +1,5 @@
 {
+  "owner": "0x0000000000000000000000000000000000001234",
   "schemaVersion": 1,
   "systemSaltString": "DeploymentProxyWorkflowTest",
   "session": {
@@ -12,7 +13,8 @@
     "pegged": {
       "symbol": "USD",
       "name": "Harbor USD",
-      "owner": "0xaa10a84ce7d9ae517a52c6d5ca153b369af99ecf"
+      "owner": "0xaa10a84ce7d9ae517a52c6d5ca153b369af99ecf",
+      "address": "0x490a4e6d6b444385bc0bf31948a71412542116fa"
     }
   }
 }

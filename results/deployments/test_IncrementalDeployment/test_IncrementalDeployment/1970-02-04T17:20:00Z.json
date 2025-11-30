@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "owner": "0x0000000000000000000000000000000000001234",
+  "systemSaltString": "test_IncrementalDeployment",
+  "session": {
+    "deployer": "0x5991a2df15a8f6a256d3ec51e99254cd3fb576a9",
+    "started": "1970-02-04T17:20:00Z",
+    "startTimestamp": 3000000,
+    "startBlock": 300,
+    "network": "test_IncrementalDeployment"
+  },
+  "collateral": {
+    "address": "0x3c8ca53ee5661d29d3d3c0732689a4b86947eaf0",
+    "contractType": "MockERC20",
+    "contractPath": "test/mocks/tokens/MockERC20.sol",
+    "deployer": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
+    "blockNumber": 100,
+    "category": "contract"
+  },
+  "pegged": {
+    "address": "0x76006c4471fb6add17728e9c9c8b67d5af06cda0",
+    "contractType": "MockERC20",
+    "contractPath": "test/mocks/tokens/MockERC20.sol",
+    "deployer": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
+    "blockNumber": 100,
+    "category": "contract"
+  },
+  "oracle": {
+    "address": "0x96abee8a6c310131c3151936c709b596fc53749c",
+    "contractType": "ERC1967Proxy",
+    "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+    "deployer": "0xf62849f9a0b5bf2913b396098f7c7019b51a820a",
+    "blockNumber": 200,
+    "category": "UUPS proxy",
+    "factory": "0x336785a852b689a839c312522ea637917df3f932",
+    "saltString": "oracle",
+    "salt": "0x3498e55103dced15f28a322f57564d9f8b01624feba535b2e413c7a29c4e82e5",
+    "ownershipModel": "transfer-after-deploy",
+    "implementation": {
+      "address": "0xa11d35fe4b9ca9979f2ff84283a9ce190f60cd00",
+      "contractType": "OracleV1",
+      "contractPath": "test/mocks/upgradeable/MockOracle.sol",
+      "deployer": "0xf62849f9a0b5bf2913b396098f7c7019b51a820a",
+      "blockNumber": 200
+    }
+  },
+  "minter": {
+    "address": "0x253140b80a5e069e946b217375534a49e6b599c0",
+    "contractType": "ERC1967Proxy",
+    "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+    "deployer": "0x5991a2df15a8f6a256d3ec51e99254cd3fb576a9",
+    "blockNumber": 300,
+    "factory": "0x336785a852b689a839c312522ea637917df3f932",
+    "category": "UUPS proxy",
+    "saltString": "minter",
+    "salt": "0x18ef44fa31e8857c34528c0eb3c37bf46cc052d74a8a4613bb15e2e74d8e9535",
+    "ownershipModel": "transfer-after-deploy",
+    "implementation": {
+      "address": "0x7ff9c67c93d9f7318219faacb5c619a773afef6a",
+      "contractType": "MockMinter",
+      "contractPath": "test/mocks/upgradeable/MockMinter.sol",
+      "deployer": "0x5991a2df15a8f6a256d3ec51e99254cd3fb576a9",
+      "blockNumber": 300
+    }
+  }
+}

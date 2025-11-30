@@ -113,8 +113,8 @@ contract DeploymentDependencyTest is BaoDeploymentTest {
     }
 
     function test_RevertWhen_DependencyNotDeployed() public {
-        // Try to deploy token without oracle
-        vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, "contracts.oracle"));
+        // Try to deploy token without oracle (get() appends .address to key)
+        vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, "contracts.oracle.address"));
         deployment.deployToken("contracts.token", "contracts.oracle", "TestToken", 18);
     }
 
@@ -122,8 +122,8 @@ contract DeploymentDependencyTest is BaoDeploymentTest {
         // Deploy only oracle, skip token
         deployment.deployOracle("oracle", 100);
 
-        // Try to deploy minter without token
-        vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, "contracts.token"));
+        // Try to deploy minter without token (get() appends .address to key)
+        vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, "contracts.token.address"));
         deployment.deployMinter("contracts.minter", "contracts.token", "oracle");
     }
 
@@ -148,8 +148,8 @@ contract DeploymentDependencyTest is BaoDeploymentTest {
         address addr = deployment.get("oracle");
         assertTrue(addr != address(0));
 
-        // Verify get() reverts for non-deployed
-        vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, "contracts.token"));
+        // Verify get() reverts for non-deployed (get() appends .address to key)
+        vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, "contracts.token.address"));
         deployment.get("contracts.token");
     }
 

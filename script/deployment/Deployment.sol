@@ -585,9 +585,9 @@ abstract contract Deployment is DeploymentKeys {
 
     function _afterValueChanged(string memory key) internal virtual;
 
-    /// @notice Set contract address
+    /// @notice Set contract address (key.address)
     function _set(string memory key, address value) internal {
-        _data.set(key, value);
+        _data.setAddress(string.concat(key, ".address"), value);
         _afterValueChanged(key);
     }
 

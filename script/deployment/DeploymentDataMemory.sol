@@ -97,8 +97,20 @@ contract DeploymentDataMemory is IDeploymentDataWritable {
 
     // ============ Introspection ============
 
+    /// @notice Check if a key has a value set
+    /// @dev For OBJECT type keys (contracts), checks if .address child is set (consistent with get() shorthand)
+    /// TODO: Consider setting _hasKey[parentKey] = true when any child is written, which would
+    /// eliminate the need for this OBJECT-specific check and make has() purely check _hasKey[key].
     function has(string memory key) external view override returns (bool exists) {
-        return _hasKey[key];
+        if (_hasKey[key]) {
+            return true;
+        }
+        // For OBJECT type keys (contract entries), check if .address child is set
+        // This mirrors get() which is a shorthand for getAddress(key + ".address")
+        if (_deploymentKeys.keyType(key) == DataType.OBJECT) {
+            return _hasKey[string.concat(key, ".address")];
+        }
+        return false;
     }
 
     function keys() external view override returns (string[] memory allKeys) {
@@ -106,12 +118,6 @@ contract DeploymentDataMemory is IDeploymentDataWritable {
     }
 
     // ============ Scalar Setters ============
-
-    function set(string memory key, address value) external override {
-        // Mark this key as a parent/object node (for JSON rendering)
-        _prepareKey(key, DataType.OBJECT); // New type for parent nodes
-        this.setAddress(string.concat(key, ".address"), value);
-    }
 
     function setAddress(string memory key, address value) external override {
         _writeAddress(key, value, DataType.ADDRESS);

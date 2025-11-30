@@ -13,17 +13,9 @@ interface IDeploymentDataWritable is IDeploymentData {
     // ============ Scalar Setters ============
 
     /**
-     * @notice Set deployed contract address (CONTRACT type)
-     * @dev For top-level deployed contracts (no dots in key)
-     * @param key The configuration key (e.g., "owner", "token")
-     * @param value The contract address to set
-     */
-    function set(string memory key, address value) external;
-
-    /**
-     * @notice Set nested address value (ADDRESS type)
-     * @dev For addresses within config hierarchy (keys contain dots)
-     * @param key The configuration key (e.g., "pegged.implementation")
+     * @notice Set address value
+     * @dev For addresses in the deployment data
+     * @param key The configuration key (e.g., "owner", "contracts.pegged.address")
      * @param value The address value to set
      */
     function setAddress(string memory key, address value) external;

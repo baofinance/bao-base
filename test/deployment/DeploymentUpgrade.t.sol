@@ -595,7 +595,7 @@ contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
         // Initialize with harness as owner
         bytes memory initData = abi.encodeCall(MockImplementationOZOwnable.initialize, (address(deployment), 42));
         deployment.deployProxy(
-            "oz_proxy",
+            "contracts.oz_proxy",
             address(ozImpl),
             initData,
             "MockImplementationOZOwnable",
@@ -613,7 +613,7 @@ contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
         uint256 transferred = deployment.finish();
 
         assertEq(transferred, 1, "OZ Ownable ownership transfer succeeds");
-        assertEq(proxy.owner(), admin, "Owner transferred to admin");
+        assertEq(proxy.owner(), address(0x1234), "Owner transferred to admin");
     }
 
     function test_OZOwnableDoesNotSupportPendingOwner() public {
@@ -623,7 +623,7 @@ contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
         MockImplementationOZOwnable ozImpl = new MockImplementationOZOwnable();
         bytes memory initData = abi.encodeCall(MockImplementationOZOwnable.initialize, (address(deployment), 42));
         deployment.deployProxy(
-            "oz_proxy",
+            "contracts.oz_proxy",
             address(ozImpl),
             initData,
             "MockImplementationOZOwnable",

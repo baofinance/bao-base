@@ -157,7 +157,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         super.setUp();
         admin = address(this);
         deployment = new MockDeploymentIntegration();
-        _resetDeploymentLogs(TEST_SALT, "{}");
+        _resetDeploymentLogs(TEST_SALT, "");
     }
 
     function _startDeployment(string memory network) internal {
@@ -267,7 +267,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         // Use unique salt to avoid conflicts with other tests
         string memory incrementalSalt = "test_IncrementalDeployment";
         string memory network = "test_IncrementalDeployment";
-        _resetDeploymentLogs(incrementalSalt, "{}");
+        _resetDeploymentLogs(incrementalSalt, "");
         _prepareTestNetwork(incrementalSalt, network);
         // Phase 1: Deploy tokens with autosave
         vm.warp(1000000); // Set initial timestamp
@@ -305,6 +305,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
     }
 
     function test_MultipleProxiesWithSameImplementation() public {
+        _startDeployment("test_MultipleProxiesWithSameImplementation");
         // Deploy one implementation
         OracleV1 impl = new OracleV1();
 
@@ -349,6 +350,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
     }
 
     function test_ComplexDependencyChain() public {
+        _startDeployment("test_ComplexDependencyChain");
         // Build: tokens -> oracle -> minter1 -> minter2 (uses minter1 as collateral)
 
         deployment.deployMockERC20("token1", "Token1", "TK1");

@@ -1,4 +1,5 @@
 {
+  "owner": "0x0000000000000000000000000000000000001234",
   "schemaVersion": 1,
   "systemSaltString": "MockHarborDeploymentTest",
   "session": {
@@ -22,6 +23,7 @@
       "category": "UUPS proxy",
       "saltString": "pegged",
       "salt": "0x7cd720c5d320d8885cd6ebd3fa6bdd3f7a4e88daba1ede59b4c3562e8872a6e1",
+      "ownershipModel": "transfer-after-deploy",
       "implementation": {
         "address": "0xddc10602782af652bb913f7bde1fd82981db7dd9",
         "contractType": "MintableBurnableERC20_v1",

@@ -50,7 +50,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new DeploymentJsonStringTestHarness();
-        _resetDeploymentLogs(TEST_SALT, "{}");
+        _resetDeploymentLogs(TEST_SALT, "");
     }
 
     function _startDeployment(string memory network) internal {

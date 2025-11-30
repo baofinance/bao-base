@@ -88,7 +88,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new MockDeploymentJson();
-        _resetDeploymentLogs(TEST_SALT, "{}");
+        _resetDeploymentLogs(TEST_SALT, "");
     }
 
     /// @notice Helper to start deployment with test-specific network name
@@ -176,6 +176,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
     }
 
     function test_SaveLibraryToJson() public {
+        _startDeployment("test_SaveLibraryToJson");
         deployment.deployTestLibrary("lib1");
         deployment.finish();
 
@@ -196,6 +197,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
     }
 
     function test_SaveMultipleEntriesToJson() public {
+        _startDeployment("test_SaveMultipleEntriesToJson");
         deployment.deploySimpleContract("contract1", "Contract 1");
         deployment.deploySimpleProxy("proxy1", 10);
         deployment.deployTestLibrary("lib1");
@@ -301,6 +303,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
     }
 
     function test_JsonContainsTimestamps() public {
+        _startDeployment("test_JsonContainsTimestamps");
         uint256 startTime = block.timestamp;
 
         deployment.deploySimpleContract("contract1", "Contract 1");

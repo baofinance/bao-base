@@ -31,7 +31,7 @@ contract DeploymentConfigParameterBagTestHarness is DeploymentMemoryTesting {
         setString("pegged.name", "Bao USD");
         setString("pegged.symbol", "BAOUSD");
         setUint("pegged.decimals", 18);
-        set("collateral", 0x0000000000000000000000000000000000000002);
+        setContractAddress("collateral", 0x0000000000000000000000000000000000000002);
         setUint("minter.bands.0", 100);
         setUint("minter.bands.1", 200);
         setInt("minter.ratios.0", -1);
@@ -57,7 +57,7 @@ contract DeploymentConfigParameterBagTest is BaoDeploymentTest {
         assertEq(deployment.getString("pegged.symbol"), "BAOUSD");
         assertEq(deployment.getUint("pegged.decimals"), 18);
 
-        assertEq(deployment.getString("collateral.address"), COLLATERAL_ADDRESS);
+        assertEq(deployment.getAddress("collateral.address"), address(0x0000000000000000000000000000000000000002));
 
         assertEq(deployment.getUint("minter.bands.0"), 100);
         assertEq(deployment.getUint("minter.bands.1"), 200);

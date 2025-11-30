@@ -6,6 +6,7 @@ import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTestin
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {DeploymentTestingOutput} from "@bao-script/deployment/DeploymentJsonTesting.sol";
+import {LibString} from "@solady/utils/LibString.sol";
 
 /**
  * @title BaoDeploymentTest
@@ -29,6 +30,8 @@ import {DeploymentTestingOutput} from "@bao-script/deployment/DeploymentJsonTest
  *          }
  */
 abstract contract BaoDeploymentTest is BaoTest {
+    using LibString for string;
+
     address internal _baoDeployer;
     address internal _baoMultisig;
 
@@ -58,21 +61,32 @@ abstract contract BaoDeploymentTest is BaoTest {
         vm.label(_baoDeployer, "_baoDeployer");
     }
 
+    /// @notice Default test owner address
+    address internal constant DEFAULT_TEST_OWNER = address(0x1234);
+
+    /// @notice Build a default config JSON with owner
+    function _defaultConfigJson() internal pure returns (string memory) {
+        return '{"owner":"0x0000000000000000000000000000000000001234"}';
+    }
+
     /// @notice Clean the deployment directory for a salt (called once in setUp)
+    /// @dev If configJson is empty "", uses default config with owner
     function _resetDeploymentLogs(string memory salt, string memory configJson) internal {
         string memory baseDir = DeploymentTestingOutput._getPrefix();
-        string memory deploymentDir_ = string.concat(baseDir, "/deployments/", salt);
+        string memory deploymentDir_ = baseDir.concat("/deployments/").concat(salt);
         if (vm.exists(deploymentDir_)) {
             vm.removeDir(deploymentDir_, true);
         }
         vm.createDir(deploymentDir_, true);
-        vm.writeJson(configJson, string.concat(deploymentDir_, "/config.json"));
+        // Use default config if empty string
+        string memory actualConfig = bytes(configJson).length == 0 ? _defaultConfigJson() : configJson;
+        vm.writeJson(actualConfig, deploymentDir_.concat("/config.json"));
     }
 
     /// @notice Create network subdirectory for a specific test
     function _prepareTestNetwork(string memory salt, string memory network) internal {
         string memory baseDir = DeploymentTestingOutput._getPrefix();
-        string memory networkDir = string.concat(baseDir, "/deployments/", salt, "/", network);
+        string memory networkDir = baseDir.concat("/deployments/").concat(salt).concat("/").concat(network);
         vm.createDir(networkDir, true);
     }
 

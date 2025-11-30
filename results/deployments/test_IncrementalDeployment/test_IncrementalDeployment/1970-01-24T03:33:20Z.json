@@ -1,5 +1,6 @@
 {
   "schemaVersion": 1,
+  "owner": "0x0000000000000000000000000000000000001234",
   "systemSaltString": "test_IncrementalDeployment",
   "session": {
     "deployer": "0xf62849f9a0b5bf2913b396098f7c7019b51a820a",
@@ -34,6 +35,7 @@
     "category": "UUPS proxy",
     "saltString": "oracle",
     "salt": "0x3498e55103dced15f28a322f57564d9f8b01624feba535b2e413c7a29c4e82e5",
+    "ownershipModel": "transfer-after-deploy",
     "implementation": {
       "address": "0xa11d35fe4b9ca9979f2ff84283a9ce190f60cd00",
       "contractType": "OracleV1",

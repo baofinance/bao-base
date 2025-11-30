@@ -5,6 +5,7 @@ import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 
 import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.sol";
+import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {MockContract} from "@bao-test/mocks/basic/MockContract.sol";
 import {MockImplementation} from "@bao-test/mocks/basic/MockImplementation.sol";
@@ -60,7 +61,7 @@ contract DeploymentBasicTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new MyDeploymentJsonTesting();
-        _resetDeploymentLogs(TEST_SALT, "{}");
+        _resetDeploymentLogs(TEST_SALT, "");
     }
 
     function _startDeployment(string memory network) internal {
@@ -201,8 +202,26 @@ contract DeploymentBasicTest is BaoDeploymentTest {
         _startDeployment("test_RevertWhen_ActionWithoutInitialization");
         
         MyDeploymentJsonTesting fresh = new MyDeploymentJsonTesting();
-        // Actions without initialization should fail (no active run)
-        vm.expectRevert("No active run");
+        // Actions without initialization should fail (session not started)
+        vm.expectRevert(Deployment.SessionNotStarted.selector);
         fresh.deployMockContract("mock", "Mock Contract");
+    }
+
+    // ============ Config Validation Tests ============
+
+    function test_RevertWhen_ConfigMissingOwner() public {
+        // Pass explicit empty config - no default owner
+        _resetDeploymentLogs("MissingOwnerTest", "{}");
+        _prepareTestNetwork("MissingOwnerTest", "test_RevertWhen_ConfigMissingOwner");
+        
+        MyDeploymentJsonTesting fresh = new MyDeploymentJsonTesting();
+        fresh.start("test_RevertWhen_ConfigMissingOwner", "MissingOwnerTest", "");
+        
+        // Get the key before expectRevert to avoid it consuming the OWNER() call
+        string memory ownerKey = fresh.OWNER();
+        
+        // Accessing owner should revert since it's not in the config
+        vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, "owner"));
+        fresh.getAddress(ownerKey);
     }
 }
