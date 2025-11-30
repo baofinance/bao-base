@@ -20,13 +20,13 @@
       "category": "UUPS proxy",
       "saltString": "Counter",
       "salt": "0x667edb9477d894922d0eeaacb805a80ba5a801201349ec94a5a6e80ec9885e62",
-      "ownershipModel": "transfer-after-deploy",
       "implementation": {
         "address": "0xddc10602782af652bb913f7bde1fd82981db7dd9",
         "contractType": "CounterV1",
         "contractPath": "test/mocks/upgradeable/Counter.sol",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
-        "blockNumber": 1
+        "blockNumber": 1,
+        "ownershipModel": "transfer-after-deploy"
       }
     }
   }

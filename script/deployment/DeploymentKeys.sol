@@ -254,6 +254,11 @@ abstract contract DeploymentKeys {
      *      - {key}.address (ADDRESS)
      *      - {key}.category (STRING)
      * @param key The full contract key (e.g., "contracts.pegged")
+     *
+     * TODO: Future enhancement - make implementation an array to preserve upgrade history.
+     * Each call to registerImplementation/upgradeProxy would append to the array instead of
+     * overwriting. Current implementation = last element. This would provide full audit trail
+     * of all implementation versions with their deployment metadata.
      */
     function addProxy(string memory key) public {
         _requireContractsPrefix(key);
@@ -263,10 +268,11 @@ abstract contract DeploymentKeys {
         _registerKey(string.concat(key, ".value"), DataType.UINT);
         _registerKey(string.concat(key, ".saltString"), DataType.STRING);
         _registerKey(string.concat(key, ".salt"), DataType.STRING); // Store as hex string
-        _registerKey(string.concat(key, ".ownershipModel"), DataType.STRING);
 
         string memory implementationKey = string.concat(key, ".implementation");
         _addImplementation(implementationKey);
+        // ownershipModel is a property of the implementation, not the proxy
+        _registerKey(string.concat(implementationKey, ".ownershipModel"), DataType.STRING);
     }
 
     /**

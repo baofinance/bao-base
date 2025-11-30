@@ -32,13 +32,13 @@
       "category": "UUPS proxy",
       "saltString": "oracle",
       "salt": "0x96d52fdb4a275a6221c446f1b9dabb4ed13cad1d0dbdcf5580a1602ed764e4cc",
-      "ownershipModel": "transfer-after-deploy",
       "implementation": {
         "address": "0x7fdb3132ff7d02d8b9e221c61cc895ce9a4bb773",
         "contractType": "OracleV1",
         "contractPath": "test/mocks/upgradeable/MockOracle.sol",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
-        "blockNumber": 1
+        "blockNumber": 1,
+        "ownershipModel": "transfer-after-deploy"
       }
     }
   }

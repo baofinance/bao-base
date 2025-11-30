@@ -173,7 +173,7 @@ abstract contract Deployment is DeploymentKeys {
         for (uint256 i; i < proxies.length; i++) {
             TransferrableProxy memory tp = proxies[i];
             IBaoOwnable(tp.proxy).transferOwnership(tp.configuredOwner);
-            _setString(string.concat(tp.parentKey, ".ownershipModel"), "transferred-after-deploy");
+            _setString(string.concat(tp.parentKey, ".implementation.ownershipModel"), "transferred-after-deploy");
         }
 
         // Mark session finished
@@ -186,13 +186,13 @@ abstract contract Deployment is DeploymentKeys {
     }
 
     /// @notice Get list of proxies needing ownership transfer
-    /// @dev Finds all keys ending in ".ownershipModel" with value "transfer-after-deploy"
+    /// @dev Finds all keys ending in ".implementation.ownershipModel" with value "transfer-after-deploy"
     ///      Performs runtime ownership check - only returns proxies where currentOwner != configuredOwner
     /// @return proxies Array of TransferrableProxy structs (only those actually needing transfer)
     function _getTransferrableProxies() internal view returns (TransferrableProxy[] memory proxies) {
         address globalOwner = _getAddress(OWNER);
         string[] memory allKeys = this.keys();
-        string memory suffix = ".ownershipModel";
+        string memory suffix = ".implementation.ownershipModel";
         uint256 suffixLen = bytes(suffix).length;
 
         // Allocate max-size array, populate, then truncate via assembly
@@ -204,6 +204,7 @@ abstract contract Deployment is DeploymentKeys {
             if (!LibString.endsWith(key, suffix)) continue;
             if (!LibString.eq(_getString(key), "transfer-after-deploy")) continue;
 
+            // parentKey is the proxy key (strip ".implementation.ownershipModel")
             string memory parentKey = LibString.slice(key, 0, bytes(key).length - suffixLen);
             address proxy = _get(parentKey);
 
@@ -385,6 +386,7 @@ abstract contract Deployment is DeploymentKeys {
 
     /// @notice Register proxy metadata
     /// @dev Extracted to separate function to avoid stack too deep errors
+    ///      Note: ownershipModel is set via registerImplementation, not here
     function _registerProxy(
         string memory proxyKey,
         address proxy,
@@ -394,7 +396,7 @@ abstract contract Deployment is DeploymentKeys {
     ) private {
         // register keys
         // the proxy
-        _registerImplementation(
+        _recordContractFields(
             proxyKey,
             proxy,
             "ERC1967Proxy",
@@ -406,7 +408,6 @@ abstract contract Deployment is DeploymentKeys {
         _setString(string.concat(proxyKey, ".category"), "UUPS proxy");
         _setString(string.concat(proxyKey, ".saltString"), _extractSaltString(proxyKey));
         _setString(string.concat(proxyKey, ".salt"), LibString.toHexString(uint256(salt)));
-        _setString(string.concat(proxyKey, ".ownershipModel"), "transfer-after-deploy");
     }
 
     /** @notice Upgrade existing proxy to new implementation
@@ -487,13 +488,19 @@ abstract contract Deployment is DeploymentKeys {
         }
 
         // implementation keys
-        _registerImplementation(
-            string.concat(proxyKey, ".implementation"),
+        string memory implKey = string.concat(proxyKey, ".implementation");
+        _recordContractFields(
+            implKey,
             newImplementation,
             implementationContractType,
             implementationContractPath,
             deployer
         );
+        // Set default ownershipModel if not already set by registerImplementation
+        string memory ownershipModelKey = string.concat(implKey, ".ownershipModel");
+        if (!_has(ownershipModelKey)) {
+            _setString(ownershipModelKey, "transfer-after-deploy");
+        }
     }
 
     function predictableDeployContract(
@@ -543,7 +550,7 @@ abstract contract Deployment is DeploymentKeys {
         baoDeployer.commit(DeploymentInfrastructure.commitment(address(this), value, salt, keccak256(initCode)));
         address addr = baoDeployer.reveal{value: value}(initCode, salt, value);
 
-        _registerImplementation(key, addr, contractType, contractPath, deployer);
+        _recordContractFields(key, addr, contractType, contractPath, deployer);
         _setString(string.concat(key, ".category"), "contract");
         _setAddress(string.concat(key, ".factory"), factory);
         if (value > 0) {
@@ -558,6 +565,7 @@ abstract contract Deployment is DeploymentKeys {
         _setString(string.concat(key, ".category"), "existing");
     }
 
+    /// @notice Register a standalone contract (non-proxy)
     function registerContract(
         string memory key,
         address addr,
@@ -566,11 +574,34 @@ abstract contract Deployment is DeploymentKeys {
         address deployer
     ) public {
         _requireActiveRun();
-        _registerImplementation(key, addr, contractType, contractPath, deployer);
+        _recordContractFields(key, addr, contractType, contractPath, deployer);
         _setString(string.concat(key, ".category"), "contract");
     }
 
-    function _registerImplementation(
+    /// @notice Register implementation for a proxy before calling deployProxy
+    /// @dev Must be called before deployProxy. Sets the implementation address and ownership model.
+    /// @param proxyKey The proxy key (e.g., "contracts.Oracle")
+    /// @param implAddress The implementation contract address
+    /// @param contractType The implementation contract type (e.g., "OracleV1")
+    /// @param contractPath The source file path
+    /// @param ownershipModel The ownership transfer model:
+    ///        - "transfer-after-deploy": finish() will call transferOwnership (BaoOwnable)
+    ///        - "transferred-on-timeout": ownership transfers automatically after timeout (BaoOwnable_v2)
+    function registerImplementation(
+        string memory proxyKey,
+        address implAddress,
+        string memory contractType,
+        string memory contractPath,
+        string memory ownershipModel
+    ) public {
+        _requireActiveRun();
+        string memory implKey = string.concat(proxyKey, ".implementation");
+        _recordContractFields(implKey, implAddress, contractType, contractPath, address(this));
+        _setString(string.concat(implKey, ".ownershipModel"), ownershipModel);
+    }
+
+    /// @dev Record common contract metadata fields
+    function _recordContractFields(
         string memory key,
         address addr,
         string memory contractType,

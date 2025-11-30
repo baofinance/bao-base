@@ -20,13 +20,13 @@
       "category": "UUPS proxy",
       "saltString": "proxy1",
       "salt": "0xec1c718817d23f12b7b5633e57a0a9bf5c0d0969cda5dd991a4ed65aed8e67ed",
-      "ownershipModel": "transfer-after-deploy",
       "implementation": {
         "address": "0xddc10602782af652bb913f7bde1fd82981db7dd9",
         "contractType": "SimpleImplementation",
         "contractPath": "test/SimpleImplementation.sol",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
-        "blockNumber": 1
+        "blockNumber": 1,
+        "ownershipModel": "transfer-after-deploy"
       }
     }
   }

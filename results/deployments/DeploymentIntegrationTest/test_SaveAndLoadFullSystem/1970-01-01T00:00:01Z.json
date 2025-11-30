@@ -36,13 +36,13 @@
       "category": "UUPS proxy",
       "saltString": "oracle",
       "salt": "0x96d52fdb4a275a6221c446f1b9dabb4ed13cad1d0dbdcf5580a1602ed764e4cc",
-      "ownershipModel": "transfer-after-deploy",
       "implementation": {
         "address": "0xfd07c974e33dd1626640ba3a5acf0418faacca7a",
         "contractType": "OracleV1",
         "contractPath": "test/mocks/upgradeable/MockOracle.sol",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
-        "blockNumber": 1
+        "blockNumber": 1,
+        "ownershipModel": "transfer-after-deploy"
       }
     },
     "minter": {
@@ -55,13 +55,13 @@
       "category": "UUPS proxy",
       "saltString": "minter",
       "salt": "0x43bcaa65f19f847a24c7655bfe6794125ae2882d77e8ce9007d1bad710edac0f",
-      "ownershipModel": "transfer-after-deploy",
       "implementation": {
         "address": "0xd76ffbd1eff76c510c3a509fe22864688ac3a588",
         "contractType": "MockMinter",
         "contractPath": "test/mocks/upgradeable/MockMinter.sol",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
-        "blockNumber": 1
+        "blockNumber": 1,
+        "ownershipModel": "transfer-after-deploy"
       }
     },
     "configLib": {

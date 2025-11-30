@@ -11,6 +11,14 @@
   },
   "contracts": {
     "vault_proxy_funded": {
+      "implementation": {
+        "address": "0xddc10602782af652bb913f7bde1fd82981db7dd9",
+        "contractType": "FundedVaultUUPS",
+        "contractPath": "test/mocks/deployment/FundedVault.sol",
+        "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+        "blockNumber": 1,
+        "ownershipModel": "transferred-on-timeout"
+      },
       "address": "0x7e2f29fe308a63914829038a42b602be5bdc34b8",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
@@ -20,17 +28,17 @@
       "category": "UUPS proxy",
       "saltString": "vault_proxy_funded",
       "salt": "0x68fb9badbfea85b91f018ba2210e0d53eea101b84152bd46a6842d21a63b6ad0",
-      "ownershipModel": "transfer-after-deploy",
-      "implementation": {
-        "address": "0xddc10602782af652bb913f7bde1fd82981db7dd9",
-        "contractType": "FundedVaultUUPS",
-        "contractPath": "test/mocks/deployment/FundedVault.sol",
-        "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
-        "blockNumber": 1
-      },
       "value": 5000000000000000000
     },
     "vault_proxy_unfunded": {
+      "implementation": {
+        "address": "0x7fdb3132ff7d02d8b9e221c61cc895ce9a4bb773",
+        "contractType": "FundedVaultUUPS",
+        "contractPath": "test/mocks/deployment/FundedVault.sol",
+        "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+        "blockNumber": 1,
+        "ownershipModel": "transferred-on-timeout"
+      },
       "address": "0xbe97d1138c02aa1c8ceb56fdaf54847a4eb69b07",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
@@ -40,14 +48,6 @@
       "category": "UUPS proxy",
       "saltString": "vault_proxy_unfunded",
       "salt": "0x408f9b4cb82e55566200767d045794dca973236954f05ea1cf39c77d8819313a",
-      "ownershipModel": "transfer-after-deploy",
-      "implementation": {
-        "address": "0x7fdb3132ff7d02d8b9e221c61cc895ce9a4bb773",
-        "contractType": "FundedVaultUUPS",
-        "contractPath": "test/mocks/deployment/FundedVault.sol",
-        "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
-        "blockNumber": 1
-      },
       "value": 0
     }
   }

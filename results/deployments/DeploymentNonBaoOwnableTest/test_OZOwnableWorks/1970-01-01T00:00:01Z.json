@@ -20,13 +20,13 @@
       "category": "UUPS proxy",
       "saltString": "oz_proxy",
       "salt": "0x6870980d18c6af52db4111e16b91a4e98fee1390baa57324d03ab47d3175f747",
-      "ownershipModel": "transfer-after-deploy",
       "implementation": {
         "address": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
         "contractType": "MockImplementationOZOwnable",
         "contractPath": "test/mocks/MockImplementationOZOwnable.sol",
         "deployer": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
-        "blockNumber": 1
+        "blockNumber": 1,
+        "ownershipModel": "transferred-after-deploy"
       }
     }
   }

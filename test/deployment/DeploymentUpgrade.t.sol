@@ -333,7 +333,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         deployment.deployOracleProxy("Oracle", 1000e18, getConfiguredOwner());
 
         assertEq(
-            deployment.getString("contracts.Oracle.ownershipModel"),
+            deployment.getString("contracts.Oracle.implementation.ownershipModel"),
             "transfer-after-deploy",
             "Should show ownership was not transferred"
         );
@@ -343,7 +343,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
 
         // Verify deployment tracking after finish
         assertEq(
-            deployment.getString("contracts.Oracle.ownershipModel"),
+            deployment.getString("contracts.Oracle.implementation.ownershipModel"),
             "transferred-after-deploy",
             "Should show ownership was transferred"
         );
@@ -359,7 +359,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
 
         // Verify deployment tracking persists
         assertEq(
-            deployment.getString("contracts.Oracle.ownershipModel"),
+            deployment.getString("contracts.Oracle.implementation.ownershipModel"),
             "transferred-after-deploy",
             "Should still show ownership was transferred"
         );

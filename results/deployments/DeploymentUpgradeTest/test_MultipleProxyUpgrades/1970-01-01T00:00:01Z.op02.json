@@ -23,13 +23,13 @@
       "category": "UUPS proxy",
       "saltString": "Oracle1",
       "salt": "0xb0350514d722b42ae4c083aa90127a37b1c8ea465ea3491977801caa02c1c6c1",
-      "ownershipModel": "transfer-after-deploy",
       "implementation": {
         "address": "0xddc10602782af652bb913f7bde1fd82981db7dd9",
         "contractType": "OracleV1",
         "contractPath": "test/mocks/upgradeable/MockOracle.sol",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
-        "blockNumber": 1
+        "blockNumber": 1,
+        "ownershipModel": "transferred-after-deploy"
       }
     },
     "Oracle2": {
@@ -42,13 +42,13 @@
       "category": "UUPS proxy",
       "saltString": "Oracle2",
       "salt": "0x675a34a8ff4f61c40fec70eb5ec1157f4e8dd0970338c3231d07c7752100f904",
-      "ownershipModel": "transfer-after-deploy",
       "implementation": {
         "address": "0x7fdb3132ff7d02d8b9e221c61cc895ce9a4bb773",
         "contractType": "OracleV1",
         "contractPath": "test/mocks/upgradeable/MockOracle.sol",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
-        "blockNumber": 1
+        "blockNumber": 1,
+        "ownershipModel": "transferred-after-deploy"
       }
     },
     "Counter": {
@@ -61,13 +61,13 @@
       "category": "UUPS proxy",
       "saltString": "Counter",
       "salt": "0x667edb9477d894922d0eeaacb805a80ba5a801201349ec94a5a6e80ec9885e62",
-      "ownershipModel": "transfer-after-deploy",
       "implementation": {
         "address": "0xfd07c974e33dd1626640ba3a5acf0418faacca7a",
         "contractType": "CounterV1",
         "contractPath": "test/mocks/upgradeable/Counter.sol",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
-        "blockNumber": 1
+        "blockNumber": 1,
+        "ownershipModel": "transferred-after-deploy"
       }
     }
   }
