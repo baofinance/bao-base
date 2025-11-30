@@ -29,8 +29,7 @@ string constant CONFIG_DELTAS_KEY = "contracts.config.deltas";
  */
 contract TestKeys is DeploymentKeys {
     constructor() {
-        addKey(OWNER_KEY);
-        addKey(PEGGED_KEY);
+        addContract(PEGGED_KEY); // Registers PEGGED_KEY as OBJECT + .address, .contractType, etc.
         addKey(CONFIG_KEY); // Parent for scalar attributes
         addAddressKey(PEGGED_IMPL_KEY);
         addStringKey(PEGGED_SYMBOL_KEY);
