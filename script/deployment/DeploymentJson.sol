@@ -35,9 +35,13 @@ abstract contract DeploymentJson is Deployment {
 
     function _afterValueChanged(string memory /* key */) internal virtual override {
         if (!_suppressPersistence) {
-            string memory path = string.concat(_getOutputConfigDir(), "/", _getFilename(), ".json");
-            VM.writeJson(_dataJson.toJson(), path);
+            save();
         }
+    }
+
+    function save() internal virtual {
+        string memory path = string.concat(_getOutputConfigDir(), "/", _getFilename(), ".json");
+        VM.writeJson(_dataJson.toJson(), path);
     }
 
     // ============================================================================
@@ -114,37 +118,37 @@ abstract contract DeploymentJson is Deployment {
     function _findLatestFile() private returns (string memory) {
         string memory dir = _getOutputConfigDir();
         Vm.DirEntry[] memory entries = VM.readDir(dir, 1); // maxDepth=1, no recursion
-        
+
         string memory latestFile;
         string memory latestName;
-        
+
         for (uint256 i = 0; i < entries.length; i++) {
             // Skip directories, symlinks, and errors
             if (entries[i].isDir || entries[i].isSymlink || bytes(entries[i].errorMessage).length > 0) {
                 continue;
             }
-            
+
             // Extract filename from path
             string memory fullPath = entries[i].path;
             string memory filename = _extractFilename(fullPath);
-            
+
             // Skip config.json
             if (filename.eq("config.json")) {
                 continue;
             }
-            
+
             // Only consider .json files
             if (!filename.endsWith(".json")) {
                 continue;
             }
-            
+
             // Compare filenames (ISO 8601 timestamps sort lexicographically)
             if (bytes(latestName).length == 0 || _isGreater(filename, latestName)) {
                 latestName = filename;
                 latestFile = fullPath;
             }
         }
-        
+
         require(bytes(latestFile).length > 0, "No deployment files found in directory");
         return latestFile;
     }
@@ -152,19 +156,19 @@ abstract contract DeploymentJson is Deployment {
     /// @notice Extract filename from a full path
     function _extractFilename(string memory path) private pure returns (string memory) {
         uint256 lastSlashIndex = path.lastIndexOf("/");
-        
+
         // If not found, return whole path
         if (lastSlashIndex == type(uint256).max) {
             return path;
         }
-        
+
         // Extract substring after last slash (lastIndexOf returns byte index)
         bytes memory pathBytes = bytes(path);
         bytes memory result = new bytes(pathBytes.length - lastSlashIndex - 1);
         for (uint256 i = 0; i < result.length; i++) {
             result[i] = pathBytes[lastSlashIndex + 1 + i];
         }
-        
+
         return string(result);
     }
 
@@ -172,9 +176,9 @@ abstract contract DeploymentJson is Deployment {
     function _isGreater(string memory a, string memory b) private pure returns (bool) {
         bytes memory aBytes = bytes(a);
         bytes memory bBytes = bytes(b);
-        
+
         uint256 minLen = aBytes.length < bBytes.length ? aBytes.length : bBytes.length;
-        
+
         for (uint256 i = 0; i < minLen; i++) {
             if (aBytes[i] > bBytes[i]) {
                 return true;
@@ -182,7 +186,7 @@ abstract contract DeploymentJson is Deployment {
                 return false;
             }
         }
-        
+
         // If all compared bytes are equal, longer string is greater
         return aBytes.length > bBytes.length;
     }

@@ -34,17 +34,43 @@ contract DeploymentJsonTesting is DeploymentJson, DeploymentTesting {
     bool _filenameIsSet;
     uint256 private _sequenceNumber; // Incremented on each save
     string private _baseFilename;
+    bool private _manualSequencing; // If true, only increment on explicit nextSequence() calls
 
-    /// @notice Enable sequence numbering for capturing update phases
+    /// @notice Enable automatic sequence numbering for capturing update phases
     /// @dev Call this before writes to create .001, .002, .003 files instead of overwriting
+    ///      Automatically increments sequence on every change
     function enableSequencing() external {
         _baseFilename = super._getFilename();
         _sequenceNumber = 1;
+        _manualSequencing = false;
+    }
+
+    /// @notice Enable manual sequence numbering for before/after snapshots
+    /// @dev Call nextSequence() explicitly to advance sequence number
+    ///      Use this when you want to capture only specific states (e.g., before/after upgrade)
+    function enableManualSequencing() external {
+        _baseFilename = super._getFilename();
+        _sequenceNumber = 1;
+        _manualSequencing = true;
+    }
+
+    /// @notice Advance to next sequence number and save current state (manual mode only)
+    /// @dev Only has effect if enableManualSequencing() was called
+    ///      Saves current state to current sequence file, then advances sequence number
+    ///      This captures the current state before moving to the next sequence
+    function nextSequence() external {
+        if (_manualSequencing && _sequenceNumber > 0) {
+            // Save current state to current sequence file
+            setFilename(string.concat(_baseFilename, ".op", _padZero(_sequenceNumber, 2)));
+            save();
+            _sequenceNumber++;
+        }
     }
 
     function _afterValueChanged(string memory key) internal override(DeploymentJson, Deployment) {
-        if (_sequenceNumber > 0) {
-            setFilename(string.concat(_baseFilename, ".", _padZero(_sequenceNumber, 3)));
+        // Only auto-increment if sequencing is enabled AND not in manual mode
+        if (_sequenceNumber > 0 && !_manualSequencing) {
+            setFilename(string.concat(_baseFilename, ".", _padZero(_sequenceNumber, 3), "-", key));
             _sequenceNumber++;
         }
         DeploymentJson._afterValueChanged(key);
