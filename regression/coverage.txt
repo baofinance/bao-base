@@ -11,7 +11,7 @@
 | script/deployment/DeploymentKeys.sol            | X  98% (171/174)   | X  98% (178/181)   | X  73% (24/33)   | ✓ 100% (25/25)   |
 | script/deployment/DeploymentTesting.sol         | X  57% (4/7)       | X  50% (2/4)       | ✓ 100% (0/0)     | X  50% (2/4)     |
 | script/deployment/DeploymentTestingEnablers.sol | X  92% (24/26)     | X  88% (15/17)     | X   0% (0/2)     | ✓ 100% (10/10)   |
-| script/deployment/JsonArrays.sol                | X   0% (0/16)      | X   0% (0/16)      | ✓ 100% (0/0)     | X   0% (0/8)     |
+| script/deployment/JsonArrays.sol                | ✓ 100% (16/16)     | ✓ 100% (16/16)     | ✓ 100% (0/0)     | ✓ 100% (8/8)     |
 | script/deployment/UUPSProxyDeployStub.sol       | X  93% (25/27)     | X  80% (20/25)     | X  33% (2/6)     | ✓ 100% (8/8)     |
 | src/BaoOwnable.sol                              | ✓ 100% (27/27)     | ✓ 100% (24/24)     | ✓ 100% (3/3)     | ✓ 100% (6/6)     |
 | src/BaoOwnableRoles.sol                         | ✓ 100% (2/2)       | ✓ 100% (4/4)       | ✓ 100% (0/0)     | ✓ 100% (1/1)     |
@@ -29,4 +29,4 @@
 | src/internal/BaoCheckOwner_v2.sol               | ✓ 100% (13/13)     | ✓ 100% (10/10)     | ✓ 100% (1/1)     | ✓ 100% (4/4)     |
 | src/internal/BaoRoles.sol                       | ✓ 100% (56/56)     | ✓ 100% (49/49)     | ✓ 100% (6/6)     | ✓ 100% (16/16)   |
 | src/internal/BaoRoles_v2.sol                    | ✓ 100% (47/47)     | X  98% (42/43)     | ✓ 100% (4/4)     | ✓ 100% (14/14)   |
-| Total                                           | X  79% (1921/2427) | X  81% (1855/2280) | X  56% (152/273) | X  70% (421/600) |
+| Total                                           | X  80% (1937/2427) | X  82% (1871/2280) | X  56% (152/273) | X  72% (429/600) |

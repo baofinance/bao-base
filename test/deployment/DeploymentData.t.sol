@@ -8,6 +8,7 @@ import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
 import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 import {DeploymentTestingEnablers} from "@bao-script/deployment/DeploymentTestingEnablers.sol";
 import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.sol";
+import {JsonArrays} from "@bao-script/deployment/JsonArrays.sol";
 
 string constant OWNER_KEY = "owner";
 string constant PEGGED_KEY = "contracts.pegged";
@@ -275,6 +276,22 @@ contract DeploymentDataTest is BaoTest {
         assertEq(result.length, 0);
     }
 
+    function test_AddressArrayOverwriteShrinksLength() public {
+        address[] memory validators = new address[](3);
+        validators[0] = address(0xAAA1);
+        validators[1] = address(0xAAA2);
+        validators[2] = address(0xAAA3);
+        data.setAddressArray(CONFIG_VALIDATORS_KEY, validators);
+
+        address[] memory shortlist = new address[](1);
+        shortlist[0] = address(0xBEEF);
+        data.setAddressArray(CONFIG_VALIDATORS_KEY, shortlist);
+
+        address[] memory result = data.getAddressArray(CONFIG_VALIDATORS_KEY);
+        assertEq(result.length, 1, "overwrite should drop stale entries");
+        assertEq(result[0], address(0xBEEF));
+    }
+
     // ============ String Array Tests ============
 
     function test_SetAndGetStringArray() public {
@@ -299,6 +316,20 @@ contract DeploymentDataTest is BaoTest {
         allKeys = data.keys();
         assertEq(allKeys.length, 1);
         assertEq(allKeys[0], CONFIG_TAGS_KEY);
+    }
+
+    function test_StringArrayInputMutationDoesNotAffectStorage() public {
+        string[] memory original = new string[](2);
+        original[0] = "stable";
+        original[1] = "verified";
+        data.setStringArray(CONFIG_TAGS_KEY, original);
+
+        original[0] = "mutated";
+
+        string[] memory stored = data.getStringArray(CONFIG_TAGS_KEY);
+        assertEq(stored.length, 2);
+        assertEq(stored[0], "stable");
+        assertEq(stored[1], "verified");
     }
 
     // ============ Uint Array Tests ============
@@ -466,6 +497,50 @@ contract DeploymentDataJsonTest is DeploymentDataTest {
         assertEq(recovered, address(0xABCD), "JSON nested address mismatch");
     }
 
+    function test_ToJsonArraysReadableViaJsonHelpers() public {
+        address[] memory validators = new address[](2);
+        validators[0] = address(0x1111);
+        validators[1] = address(0x2222);
+        dataJson.setAddressArray(CONFIG_VALIDATORS_KEY, validators);
+
+        string[] memory tags = new string[](2);
+        tags[0] = "stable";
+        tags[1] = "reviewed";
+        dataJson.setStringArray(CONFIG_TAGS_KEY, tags);
+
+        uint256[] memory limits = new uint256[](2);
+        limits[0] = 10;
+        limits[1] = 20;
+        dataJson.setUintArray(CONFIG_LIMITS_KEY, limits);
+
+        int256[] memory deltas = new int256[](2);
+        deltas[0] = -1;
+        deltas[1] = 1;
+        dataJson.setIntArray(CONFIG_DELTAS_KEY, deltas);
+
+        string memory json = dataJson.toJson();
+
+        address[] memory parsedValidators = JsonArrays.readAddressArray(json, "$.contracts.config.validators");
+        assertEq(parsedValidators.length, 2);
+        assertEq(parsedValidators[0], address(0x1111));
+        assertEq(parsedValidators[1], address(0x2222));
+
+        string[] memory parsedTags = JsonArrays.readStringArray(json, "$.contracts.config.tags");
+        assertEq(parsedTags.length, 2);
+        assertEq(parsedTags[0], "stable");
+        assertEq(parsedTags[1], "reviewed");
+
+        uint256[] memory parsedLimits = JsonArrays.readUintArray(json, "$.contracts.config.limits");
+        assertEq(parsedLimits.length, 2);
+        assertEq(parsedLimits[0], 10);
+        assertEq(parsedLimits[1], 20);
+
+        int256[] memory parsedDeltas = JsonArrays.readIntArray(json, "$.contracts.config.deltas");
+        assertEq(parsedDeltas.length, 2);
+        assertEq(parsedDeltas[0], -1);
+        assertEq(parsedDeltas[1], 1);
+    }
+
     // ============ JSON Import Tests ============
 
     function test_FromJsonSingleAddress() public {
@@ -561,6 +636,53 @@ contract DeploymentDataJsonTest is DeploymentDataTest {
         assertEq(result[0], -50);
         assertEq(result[1], 0);
         assertEq(result[2], 100);
+    }
+
+    function test_FromJsonArraysSerializedViaJsonHelpers() public {
+        address[] memory validators = new address[](2);
+        validators[0] = address(0xAAAA);
+        validators[1] = address(0xBBBB);
+
+        string[] memory tags = new string[](2);
+        tags[0] = "alpha";
+        tags[1] = "beta";
+
+        uint256[] memory limits = new uint256[](2);
+        limits[0] = 500;
+        limits[1] = 1000;
+
+        int256[] memory deltas = new int256[](2);
+        deltas[0] = -10;
+        deltas[1] = 10;
+
+        string memory configKey = "__bao_config_arrays";
+        string memory configJson = JsonArrays.serializeAddressArray(configKey, "validators", validators);
+        configJson = JsonArrays.serializeStringArray(configKey, "tags", tags);
+        configJson = JsonArrays.serializeUintArray(configKey, "limits", limits);
+        configJson = JsonArrays.serializeIntArray(configKey, "deltas", deltas);
+
+        string memory wrappedJson = string.concat('{"contracts":{"config":', configJson, "}}");
+        dataJson.fromJson(wrappedJson);
+
+        address[] memory validatorsResult = dataJson.getAddressArray(CONFIG_VALIDATORS_KEY);
+        assertEq(validatorsResult.length, 2);
+        assertEq(validatorsResult[0], address(0xAAAA));
+        assertEq(validatorsResult[1], address(0xBBBB));
+
+        string[] memory tagsResult = dataJson.getStringArray(CONFIG_TAGS_KEY);
+        assertEq(tagsResult.length, 2);
+        assertEq(tagsResult[0], "alpha");
+        assertEq(tagsResult[1], "beta");
+
+        uint256[] memory limitsResult = dataJson.getUintArray(CONFIG_LIMITS_KEY);
+        assertEq(limitsResult.length, 2);
+        assertEq(limitsResult[0], 500);
+        assertEq(limitsResult[1], 1000);
+
+        int256[] memory deltasResult = dataJson.getIntArray(CONFIG_DELTAS_KEY);
+        assertEq(deltasResult.length, 2);
+        assertEq(deltasResult[0], -10);
+        assertEq(deltasResult[1], 10);
     }
 
     // ============ JSON Round-trip Tests ============
