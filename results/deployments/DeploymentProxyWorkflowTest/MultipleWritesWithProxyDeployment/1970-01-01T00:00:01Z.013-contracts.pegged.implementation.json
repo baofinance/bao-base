@@ -23,10 +23,8 @@
       "category": "UUPS proxy",
       "saltString": "pegged",
       "salt": "0xff1e54a4f31142f9de588035124db9934073effec01fe581fe76dca5bdd0c78c",
-      "ownershipModel": "transfer-after-deploy",
       "implementation": {
-        "address": "0xddc10602782af652bb913f7bde1fd82981db7dd9",
-        "contractType": "MintableBurnableERC20_v1"
+        "address": "0xddc10602782af652bb913f7bde1fd82981db7dd9"
       }
     }
   }
