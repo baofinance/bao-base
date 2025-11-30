@@ -1,0 +1,74 @@
+{
+  "owner": "0x0000000000000000000000000000000000001234",
+  "schemaVersion": 1,
+  "systemSaltString": "DeploymentUpgradeTest",
+  "session": {
+    "network": "test_MultipleProxyUpgrades",
+    "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+    "startTimestamp": 1,
+    "started": "1970-01-01T00:00:01Z",
+    "startBlock": 1,
+    "finishTimestamp": 1,
+    "finished": "1970-01-01T00:00:01Z",
+    "finishBlock": 1
+  },
+  "contracts": {
+    "Oracle1": {
+      "address": "0x690d6cfb55912aa46c361a8c6c0fb6fe61e8521b",
+      "contractType": "ERC1967Proxy",
+      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+      "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+      "blockNumber": 1,
+      "factory": "0x336785a852b689a839c312522ea637917df3f932",
+      "category": "UUPS proxy",
+      "saltString": "Oracle1",
+      "salt": "0xb0350514d722b42ae4c083aa90127a37b1c8ea465ea3491977801caa02c1c6c1",
+      "implementation": {
+        "address": "0xddc10602782af652bb913f7bde1fd82981db7dd9",
+        "contractType": "OracleV1",
+        "contractPath": "test/mocks/upgradeable/MockOracle.sol",
+        "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+        "blockNumber": 1
+      },
+      "type": "proxy"
+    },
+    "Oracle2": {
+      "address": "0x07b1c3993f983ff62b23cb08427b47cffb574503",
+      "contractType": "ERC1967Proxy",
+      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+      "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+      "blockNumber": 1,
+      "factory": "0x336785a852b689a839c312522ea637917df3f932",
+      "category": "UUPS proxy",
+      "saltString": "Oracle2",
+      "salt": "0x675a34a8ff4f61c40fec70eb5ec1157f4e8dd0970338c3231d07c7752100f904",
+      "implementation": {
+        "address": "0x7fdb3132ff7d02d8b9e221c61cc895ce9a4bb773",
+        "contractType": "OracleV1",
+        "contractPath": "test/mocks/upgradeable/MockOracle.sol",
+        "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+        "blockNumber": 1
+      },
+      "type": "proxy"
+    },
+    "Counter": {
+      "address": "0x6f8cca41079fa470e1679a52bcc4917496a72688",
+      "contractType": "ERC1967Proxy",
+      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+      "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+      "blockNumber": 1,
+      "factory": "0x336785a852b689a839c312522ea637917df3f932",
+      "category": "UUPS proxy",
+      "saltString": "Counter",
+      "salt": "0x667edb9477d894922d0eeaacb805a80ba5a801201349ec94a5a6e80ec9885e62",
+      "implementation": {
+        "address": "0xfd07c974e33dd1626640ba3a5acf0418faacca7a",
+        "contractType": "CounterV1",
+        "contractPath": "test/mocks/upgradeable/Counter.sol",
+        "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+        "blockNumber": 1
+      },
+      "type": "proxy"
+    }
+  }
+}

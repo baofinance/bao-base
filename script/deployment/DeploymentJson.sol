@@ -29,6 +29,10 @@ abstract contract DeploymentJson is Deployment {
     DeploymentDataJson _dataJson;
     bool _suppressPersistence = false;
 
+    constructor() {
+        _filename = _formatTimestamp(block.timestamp);
+    }
+
     // ============================================================================
     // Abstract Methods for JSON Configuration
     // ============================================================================
@@ -108,7 +112,6 @@ abstract contract DeploymentJson is Deployment {
         _dataJson.fromJson(VM.readFile(path));
         _suppressPersistence = false;
 
-        _filename = _formatTimestamp(block.timestamp);
         return _dataJson;
     }
 

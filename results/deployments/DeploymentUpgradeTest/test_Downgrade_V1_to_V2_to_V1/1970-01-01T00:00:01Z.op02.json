@@ -3,7 +3,7 @@
   "schemaVersion": 1,
   "systemSaltString": "DeploymentUpgradeTest",
   "session": {
-    "network": "test_UpgradeProxyWithNewImplementationKey",
+    "network": "test_Downgrade_V1_to_V2_to_V1",
     "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
     "startTimestamp": 1,
     "started": "1970-01-01T00:00:01Z",
