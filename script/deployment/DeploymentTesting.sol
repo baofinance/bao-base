@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {DeploymentTestingEnablers} from "@bao-script/deployment/DeploymentTestingEnablers.sol";
 import {BaoDeployerSetOperator} from "@bao-script/deployment/BaoDeployerSetOperator.sol";
-import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
-import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
-import {EfficientHashLib} from "@solady/utils/EfficientHashLib.sol";
 
 /**
  * @title DeploymentTesting
@@ -14,7 +11,7 @@ import {EfficientHashLib} from "@solady/utils/EfficientHashLib.sol";
  *      - access to the underlying data structure for testing
  *      - auto-configuration of BaoDeployer operator for testing
  */
-abstract contract DeploymentTesting is Deployment, BaoDeployerSetOperator {
+abstract contract DeploymentTesting is DeploymentTestingEnablers, BaoDeployerSetOperator {
     function _ensureBaoDeployerOperator() internal override {
         _setUpBaoDeployerOperator();
     }
@@ -33,22 +30,7 @@ abstract contract DeploymentTesting is Deployment, BaoDeployerSetOperator {
         string memory /* contractType */,
         string memory /* contractPath */
     ) external virtual returns (address addr) {
-        _requireActiveRun();
-        if (bytes(key).length == 0) {
-            revert KeyRequired();
-        }
-        if (_has(key)) {
-            revert(); // ContractAlreadyExists - would need to import the error
-        }
-
-        bytes32 salt = EfficientHashLib.hash(abi.encodePacked(_getString(SYSTEM_SALT_STRING), "/", key, "/contract"));
-        address baoDeployerAddr = DeploymentInfrastructure.predictBaoDeployerAddress();
-        BaoDeployer baoDeployer = BaoDeployer(baoDeployerAddr);
-        bytes32 commitment = DeploymentInfrastructure.commitment(address(this), value, salt, keccak256(initCode));
-        baoDeployer.commit(commitment);
-
-        // Call reveal with value=0 instead of the required value - this will trigger ValueMismatch
-        addr = baoDeployer.reveal{value: 0}(initCode, salt, value);
+        return _simulatePredictableDeployWithoutFundingInternal(value, key, initCode);
     }
 
     // ============================================================================

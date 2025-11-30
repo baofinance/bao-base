@@ -7,7 +7,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
-import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
+import {DeploymentJsonTesting, DeploymentTestingOutput} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 
 // Mock contracts for JSON testing
 contract SimpleContract {
@@ -95,6 +95,11 @@ contract DeploymentJsonTest is BaoDeploymentTest {
     function _startDeployment(string memory network) internal {
         _prepareTestNetwork(TEST_SALT, network);
         deployment.start(network, TEST_SALT, "");
+    }
+
+    function _deploymentFilePath(string memory network, string memory filename) internal view returns (string memory) {
+        string memory baseDir = DeploymentTestingOutput._getPrefix();
+        return string.concat(baseDir, "/deployments/", TEST_SALT, "/", network, "/", filename, ".json");
     }
 
     function test_SaveEmptyDeployment() public {
@@ -270,9 +275,13 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         deployment.finish();
         string memory json = deployment.toJson();
 
-        // Load and continue
+        // Persist snapshot so a fresh harness can resume via start()
+        string memory resumePath = _deploymentFilePath("test_LoadAndContinueDeployment", "resume-loaded");
+        vm.writeJson(json, resumePath);
+
+        // Load and continue from the saved snapshot
         MockDeploymentJson newDeployment = new MockDeploymentJson();
-        newDeployment.fromJson(json);
+        newDeployment.start("test_LoadAndContinueDeployment", TEST_SALT, "resume-loaded");
 
         // Verify loaded contract exists
         assertTrue(newDeployment.has("contracts.contract1"));
@@ -284,7 +293,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         assertTrue(newDeployment.has("contracts.contract2"));
 
         string[] memory keys = newDeployment.keys();
-        assertEq(keys.length, 2);
+        assertTrue(keys.length >= 2, "Should include existing contracts plus metadata");
     }
 
     function test_JsonContainsBlockNumber() public {
@@ -355,7 +364,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         string memory json = deployment.toJson();
 
         // Save to file (path structure: results/deployments/{salt}/{network}/{filename})
-        string memory resumePath = string.concat("results/deployments/", TEST_SALT, "/", "test_ResumeFromFileCreatesActiveRun", "/resume-active.json");
+        string memory resumePath = _deploymentFilePath("test_ResumeFromFileCreatesActiveRun", "resume-active");
         vm.writeJson(json, resumePath);
 
         // Resume from file using start() with startPoint

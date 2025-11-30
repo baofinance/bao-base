@@ -14,7 +14,7 @@
   },
   "contracts": {
     "contract1": {
-      "address": "0xddc10602782af652bb913f7bde1fd82981db7dd9",
+      "address": "0x037eda3adb1198021a9b2e88c22b464fd38db3f3",
       "contractType": "SimpleContract",
       "contractPath": "test/SimpleContract.sol",
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
@@ -22,7 +22,7 @@
       "category": "contract"
     },
     "contract2": {
-      "address": "0x3c8ca53ee5661d29d3d3c0732689a4b86947eaf0",
+      "address": "0x8d2c17fad02b7bb64139109c6533b7c2b9cadb81",
       "contractType": "SimpleContract",
       "contractPath": "test/SimpleContract.sol",
       "deployer": "0x2e234dae75c793f67a35089c9d99245e1c58470b",

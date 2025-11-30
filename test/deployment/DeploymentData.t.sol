@@ -6,6 +6,7 @@ import {stdJson} from "forge-std/StdJson.sol";
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
 import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
+import {DeploymentTestingEnablers} from "@bao-script/deployment/DeploymentTestingEnablers.sol";
 import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.sol";
 
 string constant OWNER_KEY = "owner";
@@ -68,6 +69,10 @@ contract TestDataJsonHarness is DeploymentJsonTesting {
         addUintArrayKey(CONFIG_LIMITS_KEY);
         addIntArrayKey(CONFIG_DELTAS_KEY);
     }
+
+    function save() internal override {
+        // Skip persistence in unit tests; deployment harnesses cover file I/O
+    }
 }
 
 /**
@@ -75,9 +80,9 @@ contract TestDataJsonHarness is DeploymentJsonTesting {
  * @notice Tests for in-memory deployment data implementation
  */
 contract DeploymentDataTest is BaoTest {
-    TestDataHarness data;
+    DeploymentTestingEnablers data;
 
-    function _createDeploymentData() internal virtual returns (TestDataHarness data_) {
+    function _createDeploymentData() internal virtual returns (DeploymentTestingEnablers data_) {
         data_ = new TestDataHarness();
     }
 
@@ -432,10 +437,10 @@ contract DeploymentDataTest is BaoTest {
 
 contract DeploymentDataJsonTest is DeploymentDataTest {
     using stdJson for string;
-    DeploymentDataJson dataJson;
+    TestDataJsonHarness dataJson;
 
-    function _createDeploymentData(TestKeys keys_) internal override returns (DeploymentDataMemory) {
-        dataJson = new DeploymentDataJson(keys_);
+    function _createDeploymentData() internal override returns (DeploymentTestingEnablers) {
+        dataJson = new TestDataJsonHarness();
         return dataJson;
     }
 
@@ -564,7 +569,7 @@ contract DeploymentDataJsonTest is DeploymentDataTest {
         dataJson.setAddress(PEGGED_ADDRESS_KEY, address(0x1234));
         string memory json = dataJson.toJson();
 
-        DeploymentDataJson dataJson2 = new DeploymentDataJson(keys);
+        TestDataJsonHarness dataJson2 = new TestDataJsonHarness();
         dataJson2.fromJson(json);
 
         assertEq(dataJson2.get(PEGGED_KEY), address(0x1234));
@@ -574,7 +579,7 @@ contract DeploymentDataJsonTest is DeploymentDataTest {
         dataJson.setAddress(PEGGED_IMPL_KEY, address(0xABCD));
         string memory json = dataJson.toJson();
 
-        DeploymentDataJson dataJson2 = new DeploymentDataJson(keys);
+        TestDataJsonHarness dataJson2 = new TestDataJsonHarness();
         dataJson2.fromJson(json);
 
         assertEq(dataJson2.getAddress(PEGGED_IMPL_KEY), address(0xABCD));
@@ -589,7 +594,7 @@ contract DeploymentDataJsonTest is DeploymentDataTest {
 
         string memory json = dataJson.toJson();
 
-        DeploymentDataJson dataJson2 = new DeploymentDataJson(keys);
+        TestDataJsonHarness dataJson2 = new TestDataJsonHarness();
         dataJson2.fromJson(json);
 
         assertEq(dataJson2.get(PEGGED_KEY), address(0x1111));
@@ -624,7 +629,7 @@ contract DeploymentDataJsonTest is DeploymentDataTest {
 
         string memory json = dataJson.toJson();
 
-        DeploymentDataJson dataJson2 = new DeploymentDataJson(keys);
+        TestDataJsonHarness dataJson2 = new TestDataJsonHarness();
         dataJson2.fromJson(json);
 
         address[] memory addrsResult = dataJson2.getAddressArray(CONFIG_VALIDATORS_KEY);

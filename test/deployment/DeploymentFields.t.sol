@@ -53,7 +53,7 @@ contract MockDeploymentFields is DeploymentJsonTesting {
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
         MockERC20 token = new MockERC20(name, symbol, 18);
         registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol", address(this));
-        return get(key);
+        return _get(key);
     }
 
     function deploySimpleProxy(string memory key, uint256 value, address admin) public {
@@ -73,7 +73,7 @@ contract MockDeploymentFields is DeploymentJsonTesting {
     function deployTestLibrary(string memory key) public returns (address) {
         bytes memory libBytecode = type(TestLib).creationCode;
         deployLibrary(key, libBytecode, "TestLib", "test/TestLib.sol", address(this));
-        return get(key);
+        return _get(key);
     }
 
     function deployFundedVault(string memory key, uint256 value) public {

@@ -18,7 +18,7 @@ contract MockDeploymentWorkflow is DeploymentJsonTesting {
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
         MockERC20 token = new MockERC20(name, symbol, 18);
         registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol", address(this));
-        return get(key);
+        return _get(key);
     }
 
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
@@ -32,7 +32,7 @@ contract MockDeploymentWorkflow is DeploymentJsonTesting {
             "test/mocks/upgradeable/MockOracle.sol",
             address(this)
         );
-        return get(key);
+        return _get(key);
     }
 
     function deployMinterProxy(
@@ -43,10 +43,10 @@ contract MockDeploymentWorkflow is DeploymentJsonTesting {
         string memory oracleKey,
         address admin
     ) public {
-        address collateral = get(collateralKey);
-        address pegged = get(peggedKey);
-        address leveraged = get(leveragedKey);
-        address oracle = get(oracleKey);
+        address collateral = _get(collateralKey);
+        address pegged = _get(peggedKey);
+        address leveraged = _get(leveragedKey);
+        address oracle = _get(oracleKey);
 
         // Constructor parameters: immutable token addresses (rarely change)
         MockMinter impl = new MockMinter(collateral, pegged, leveraged);
@@ -65,7 +65,7 @@ contract MockDeploymentWorkflow is DeploymentJsonTesting {
     function deployMathLibrary(string memory key) public returns (address) {
         bytes memory bytecode = type(MathLib).creationCode;
         deployLibrary(key, bytecode, "MathLib", "test/mocks/TestLibraries.sol", address(this));
-        return get(key);
+        return _get(key);
     }
 }
 

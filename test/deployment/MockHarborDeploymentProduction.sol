@@ -2,8 +2,6 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {DeploymentKeys} from "@bao-script/deployment/DeploymentKeys.sol";
-import {IDeploymentDataWritable} from "@bao-script/deployment/interfaces/IDeploymentDataWritable.sol";
-import {DeploymentDataJsonTesting} from "@bao-script/deployment/DeploymentDataJsonTesting.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
 import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 

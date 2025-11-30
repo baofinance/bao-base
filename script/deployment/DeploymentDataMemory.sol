@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IDeploymentDataWritable} from "./interfaces/IDeploymentDataWritable.sol";
+import {IDeploymentData} from "./interfaces/IDeploymentData.sol";
 import {DeploymentKeys, DataType} from "./DeploymentKeys.sol";
 
 /**
@@ -10,7 +10,7 @@ import {DeploymentKeys, DataType} from "./DeploymentKeys.sol";
  * @dev Extends DeploymentKeys to be its own key registry.
  *      Provides type-safe value storage plus deterministic JSON rendering.
  */
-abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentDataWritable {
+abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
     error ValueNotSet(string key);
     error ReadTypeMismatch(string key, DataType expectedType, DataType actualType);
 
@@ -128,46 +128,6 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentDataWritabl
     }
 
     // Note: schemaKeys() is inherited from DeploymentKeys
-
-    // ============ Scalar Setters ============
-
-    function setAddress(string memory key, address value) external virtual override {
-        _writeAddress(key, value, DataType.ADDRESS);
-    }
-
-    function setString(string memory key, string memory value) external virtual override {
-        _writeString(key, value, DataType.STRING);
-    }
-
-    function setUint(string memory key, uint256 value) external virtual override {
-        _writeUint(key, value, DataType.UINT);
-    }
-
-    function setInt(string memory key, int256 value) external virtual override {
-        _writeInt(key, value, DataType.INT);
-    }
-
-    function setBool(string memory key, bool value) external virtual override {
-        _writeBool(key, value, DataType.BOOL);
-    }
-
-    // ============ Array Setters ============
-
-    function setAddressArray(string memory key, address[] memory values) external virtual override {
-        _writeAddressArray(key, values, DataType.ADDRESS_ARRAY);
-    }
-
-    function setStringArray(string memory key, string[] memory values) external virtual override {
-        _writeStringArray(key, values, DataType.STRING_ARRAY);
-    }
-
-    function setUintArray(string memory key, uint256[] memory values) external virtual override {
-        _writeUintArray(key, values, DataType.UINT_ARRAY);
-    }
-
-    function setIntArray(string memory key, int256[] memory values) external virtual override {
-        _writeIntArray(key, values, DataType.INT_ARRAY);
-    }
 
     // ============ Shared Logic ============
 

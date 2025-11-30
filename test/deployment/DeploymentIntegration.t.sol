@@ -111,9 +111,9 @@ contract MockDeploymentIntegration is DeploymentJsonTesting {
         string memory oracleKey,
         address admin
     ) public {
-        address collateral = get(collateralKey);
-        address pegged = get(peggedKey);
-        address oracle = get(oracleKey);
+        address collateral = _get(collateralKey);
+        address pegged = _get(peggedKey);
+        address oracle = _get(oracleKey);
 
         // Constructor parameters: immutable token addresses (rarely change, require upgrade to modify)
         MockMinter impl = new MockMinter(collateral, pegged, oracle);

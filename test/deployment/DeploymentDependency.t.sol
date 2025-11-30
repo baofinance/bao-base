@@ -33,7 +33,7 @@ contract MockDeploymentDependency is DeploymentMemoryTesting {
     function deployOracle(string memory key, uint256 price) public returns (address) {
         MockOracle oracle = new MockOracle(price);
         registerContract(key, address(oracle), "MockOracle", "test/mocks/basic/MockDependencies.sol", address(this));
-        return get(key);
+        return _get(key);
     }
 
     function deployToken(
@@ -42,15 +42,15 @@ contract MockDeploymentDependency is DeploymentMemoryTesting {
         string memory name,
         uint8 decimals
     ) public returns (address) {
-        address oracleAddr = get(oracleKey);
+        address oracleAddr = _get(oracleKey);
         MockToken token = new MockToken(oracleAddr, name, decimals);
         registerContract(key, address(token), "MockToken", "test/mocks/basic/MockDependencies.sol", address(this));
-        return get(key);
+        return _get(key);
     }
 
     function deployMinter(string memory key, string memory tokenKey, string memory oracleKey) public {
-        address tokenAddr = get(tokenKey);
-        address oracleAddr = get(oracleKey);
+        address tokenAddr = _get(tokenKey);
+        address oracleAddr = _get(oracleKey);
 
         // Deploy implementation (use same token for all three parameters in test)
         MockMinter implementation = new MockMinter(tokenAddr, tokenAddr, tokenAddr);

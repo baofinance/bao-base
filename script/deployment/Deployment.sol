@@ -11,9 +11,9 @@ import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
-import {IDeploymentDataWritable} from "@bao-script/deployment/interfaces/IDeploymentDataWritable.sol";
 import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
 import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.sol";
+import {Create3CommitFlow} from "@bao-script/deployment/Create3CommitFlow.sol";
 
 interface IUUPSUpgradeableProxy {
     function implementation() external view returns (address);
@@ -77,7 +77,7 @@ abstract contract Deployment is DeploymentDataMemory {
         STARTED,
         FINISHED
     }
-    State internal _sessionState;
+    State private _sessionState;
 
     /**
      * @notice Require that a run is active
@@ -124,15 +124,13 @@ abstract contract Deployment is DeploymentDataMemory {
     /// @dev Subclasses can override for custom initialization (e.g., JSON loading)
     /// @param network Network name (e.g., "mainnet", "arbitrum", "anvil")
     /// @param systemSaltString System salt string for deterministic addresses
-    function start(string memory network, string memory systemSaltString, string memory startPoint) public virtual {
+    function start(
+        string memory network,
+        string memory systemSaltString,
+        string memory /* startPoint */
+    ) public virtual {
         if (_sessionState != State.NONE) revert AlreadyInitialized();
 
-        _startSession(network, systemSaltString, startPoint);
-    }
-
-    /// @notice Internal session initialization - called by start() and subclasses
-    /// @dev Sets up session metadata and deployment infrastructure
-    function _startSession(string memory network, string memory systemSaltString, string memory /*startPoint*/) internal {
         // TODO: need to read the schema version and check for compatibility
         // Set global deployment configuration
         _writeUint(SCHEMA_VERSION, 1, DataType.UINT);
@@ -537,14 +535,18 @@ abstract contract Deployment is DeploymentDataMemory {
             revert KeyRequired();
         }
 
-        // Compute salt
-        bytes32 salt = EfficientHashLib.hash(abi.encodePacked(_getString(SYSTEM_SALT_STRING), "/", key, "/contract"));
+        Create3CommitFlow.Request memory request = Create3CommitFlow.Request({
+            operator: address(this),
+            systemSaltString: _getString(SYSTEM_SALT_STRING),
+            key: key,
+            initCode: initCode,
+            value: value
+        });
 
-        // commit-reveal via to avoid front-running the deployment which could steal our address
-        address factory = DeploymentInfrastructure.predictBaoDeployerAddress();
-        BaoDeployer baoDeployer = BaoDeployer(factory);
-        baoDeployer.commit(DeploymentInfrastructure.commitment(address(this), value, salt, keccak256(initCode)));
-        address addr = baoDeployer.reveal{value: value}(initCode, salt, value);
+        (address addr, , address factory) = Create3CommitFlow.commitAndReveal(
+            request,
+            Create3CommitFlow.RevealMode.MatchValue
+        );
 
         _recordContractFields(key, addr, contractType, contractPath, deployer);
         _setString(string.concat(key, ".category"), "contract");

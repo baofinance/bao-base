@@ -11,7 +11,7 @@
   },
   "contracts": {
     "collateral": {
-      "address": "0x3c8ca53ee5661d29d3d3c0732689a4b86947eaf0",
+      "address": "0x8d2c17fad02b7bb64139109c6533b7c2b9cadb81",
       "contractType": "MockERC20",
       "contractPath": "test/mocks/tokens/MockERC20.sol",
       "deployer": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
@@ -19,7 +19,7 @@
       "category": "contract"
     },
     "pegged": {
-      "address": "0x76006c4471fb6add17728e9c9c8b67d5af06cda0",
+      "address": "0x3c8ca53ee5661d29d3d3c0732689a4b86947eaf0",
       "contractType": "MockERC20",
       "contractPath": "test/mocks/tokens/MockERC20.sol",
       "deployer": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
@@ -37,7 +37,7 @@
       "saltString": "oracle",
       "salt": "0x5f8b75fc15bc0f53952a08ee32389b43286bf7238a80a4e592139cc87ad5d25a",
       "implementation": {
-        "address": "0xa11d35fe4b9ca9979f2ff84283a9ce190f60cd00",
+        "address": "0xcb6f5076b5bbae81d7643bfbf57897e8e3fb1db9",
         "contractType": "OracleV1",
         "contractPath": "test/mocks/upgradeable/MockOracle.sol",
         "deployer": "0xf62849f9a0b5bf2913b396098f7c7019b51a820a",

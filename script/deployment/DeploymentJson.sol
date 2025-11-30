@@ -70,55 +70,6 @@ contract DeploymentJson is Deployment {
     }
 
     // ============================================================================
-    // Setter Overrides - Call hook to persist changes
-    // ============================================================================
-
-    function setAddress(string memory key, address value) external virtual override {
-        _writeAddress(key, value, DataType.ADDRESS);
-        _afterValueChanged(key);
-    }
-
-    function setString(string memory key, string memory value) external virtual override {
-        _writeString(key, value, DataType.STRING);
-        _afterValueChanged(key);
-    }
-
-    function setUint(string memory key, uint256 value) external virtual override {
-        _writeUint(key, value, DataType.UINT);
-        _afterValueChanged(key);
-    }
-
-    function setInt(string memory key, int256 value) external virtual override {
-        _writeInt(key, value, DataType.INT);
-        _afterValueChanged(key);
-    }
-
-    function setBool(string memory key, bool value) external virtual override {
-        _writeBool(key, value, DataType.BOOL);
-        _afterValueChanged(key);
-    }
-
-    function setAddressArray(string memory key, address[] memory values) external virtual override {
-        _writeAddressArray(key, values, DataType.ADDRESS_ARRAY);
-        _afterValueChanged(key);
-    }
-
-    function setStringArray(string memory key, string[] memory values) external virtual override {
-        _writeStringArray(key, values, DataType.STRING_ARRAY);
-        _afterValueChanged(key);
-    }
-
-    function setUintArray(string memory key, uint256[] memory values) external virtual override {
-        _writeUintArray(key, values, DataType.UINT_ARRAY);
-        _afterValueChanged(key);
-    }
-
-    function setIntArray(string memory key, int256[] memory values) external virtual override {
-        _writeIntArray(key, values, DataType.INT_ARRAY);
-        _afterValueChanged(key);
-    }
-
-    // ============================================================================
     // Path Calculation
     // ============================================================================
 
@@ -162,8 +113,6 @@ contract DeploymentJson is Deployment {
         string memory systemSaltString_,
         string memory startPoint
     ) public virtual override {
-        if (_sessionState != State.NONE) revert AlreadyInitialized();
-
         _requireNetwork(network_);
         require(bytes(systemSaltString_).length > 0, "cannot have a null system salt string");
         _network = network_;
@@ -183,7 +132,7 @@ contract DeploymentJson is Deployment {
         _suppressPersistence = false;
 
         // Now call parent to set up session metadata
-        _startSession(network_, systemSaltString_, startPoint);
+        super.start(network_, systemSaltString_, startPoint);
     }
 
     /// @notice Find the latest JSON file in the output directory

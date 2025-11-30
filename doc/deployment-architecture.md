@@ -58,9 +58,9 @@ Solidity’s C3 linearization lets us stack multiple bases as long as every over
 ### Public Setter Surface
 
 - `DeploymentDataMemory.sol` owns storage and the internal `_write*` helpers.
-- `DeploymentWritable.sol` extends `Deployment` and re-exposes the `external` getters/setters while still calling `_afterValueChanged()` so persistence hooks run.
-- **Production path:** `DeploymentJsonProduction` and downstream prod harnesses inherit `Deployment` directly, skipping `DeploymentWritable`, so they have no publicly callable setters. All field changes come from the JSON config at `start()` or high-level functions like `deployProxy()` that use the internal writers.
-- **Testing paths:** `DeploymentTesting` and `DeploymentJsonTesting` inherit `DeploymentWritable`, so fuzzing and fixtures keep the public surface (plus sequencing/operator mixins).
+- `DeploymentTestingEnablers.sol` extends `Deployment` and re-exposes the `external` getters/setters while still calling `_afterValueChanged()` so persistence hooks run.
+- **Production path:** `DeploymentJsonProduction` and downstream prod harnesses inherit `Deployment` directly, skipping `DeploymentTestingEnablers`, so they have no publicly callable setters. All field changes come from the JSON config at `start()` or high-level functions like `deployProxy()` that use the internal writers.
+- **Testing paths:** `DeploymentTesting` and `DeploymentJsonTesting` inherit `DeploymentTestingEnablers`, so fuzzing and fixtures keep the public surface (plus sequencing/operator mixins).
 - Read-only views (`get*`) remain universally accessible through `Deployment`’s interface so scripts can inspect deployment state without mutability.
 
 ```mermaid
@@ -71,13 +71,13 @@ flowchart TB
 
     DK["DeploymentKeys<br>(schema definitions)"]:::abstract --> DDM["DeploymentDataMemory<br>(storage + internal writers)"]:::abstract --> D["Deployment<br>hooks defined:<br>_setUpBaoDeployerOperator (abstract)<br>_baoDeployerCreationCode (abstract)<br>_afterValueChanged (virtual)"]:::abstract
 
-    D --> DW["DeploymentWritable<br>re-exposes public setters/getters"]:::abstract
+    D --> DW["DeploymentTestingEnablers<br>re-exposes public setters/getters"]:::abstract
     D --> DJB["DeploymentJsonBase<br>JSON IO + persistence<br>Overrides _afterValueChanged -> save()<br>Leaves other hooks abstract"]:::abstract
 
     DW --> DT["DeploymentTesting<br>Overrides:<br>_setUpBaoDeployerOperator via mixin<br>_baoDeployerCreationCode = compiled bytecode<br>_afterValueChanged = no-op"]:::concrete
     DJB --> DJP["DeploymentJsonProduction<br>Overrides:<br>_setUpBaoDeployerOperator = assert-only<br>_baoDeployerCreationCode = fixed hex<br>_afterValueChanged persists config"]:::concrete
 
-    %% Multiple inheritance order: DeploymentJsonTesting is DeploymentWritable, DeploymentJsonBase
+    %% Multiple inheritance order: DeploymentJsonTesting is DeploymentTestingEnablers, DeploymentJsonBase
     DW --> DJT
     DJB --> DJT["DeploymentJsonTesting<br>Overrides:<br>_setUpBaoDeployerOperator via mixin<br>_baoDeployerCreationCode = compiled bytecode<br>_afterValueChanged = sequencing + save"]:::concrete
 
@@ -147,7 +147,7 @@ Only testing classes consume the vm.prank mixin; production stays on the linear 
 script/deployment/
 ├── DeploymentKeys.sol               # Schema definitions (abstract)
 ├── DeploymentDataMemory.sol         # Storage layer + internal writers (abstract)
-├── DeploymentWritable.sol           # Public setter surface (inherits Deployment)
+├── DeploymentTestingEnablers.sol    # Public setter & testing helpers (inherits Deployment)
 ├── Deployment.sol                   # Core operations + hooks (abstract)
 ├── DeploymentJsonBase.sol           # JSON persistence base (abstract)
 ├── DeploymentJsonProduction.sol     # Concrete production JSON deployment (new)
@@ -195,7 +195,7 @@ flowchart LR
 
 1. **Merged data storage into inheritance chain** - No separate data layer instance via `_data` pointer
 2. **Abstract production base** - `DeploymentJsonBase` is abstract; concrete production/testing classes implement the hooks differently
-3. **Testing-only setter layer** - `DeploymentWritable` extends `Deployment` to reintroduce public setters/getters for tests while production omits it entirely
+3. **Testing-only setter layer** - `DeploymentTestingEnablers` extends `Deployment` to reintroduce public setters/getters for tests while production omits it entirely
 4. **Visibility control via override** - `_afterValueChanged` persists JSON in production, sequencing in tests; public writes only exist on the testing chain
 5. **Config-driven production writes** - Production harness loads its entire mutable state from the JSON config in `start()` plus high-level deployment methods; there is no field-level mutability afterward
-6. **C3-compliant inheritance** - Multiple inheritance is allowed (e.g., `DeploymentJsonTesting` is `DeploymentWritable, DeploymentJsonBase`) but override order never forms a conflicting diamond
+6. **C3-compliant inheritance** - Multiple inheritance is allowed (e.g., `DeploymentJsonTesting` is `DeploymentTestingEnablers, DeploymentJsonBase`) but override order never forms a conflicting diamond

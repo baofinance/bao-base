@@ -88,12 +88,12 @@ contract MockDeploymentUpgrade is DeploymentJsonTesting {
     }
 
     function upgradeOracle(string memory key, address newImplementation) public {
-        address proxy = get(key);
+        address proxy = _get(key);
         IUUPSUpgradeableProxy(proxy).upgradeTo(newImplementation);
     }
 
     function upgradeCounter(string memory key, address newImplementation) public {
-        address proxy = get(key);
+        address proxy = _get(key);
         IUUPSUpgradeableProxy(proxy).upgradeTo(newImplementation);
     }
 

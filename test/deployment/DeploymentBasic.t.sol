@@ -33,7 +33,7 @@ contract MyDeploymentJsonTesting is DeploymentJsonTesting {
         MockContract mock = new MockContract(mockName);
         string memory fullKey = string.concat("contracts.", key);
         useExisting(fullKey, address(mock));
-        return get(fullKey);
+        return _get(fullKey);
     }
 
     function deployMockImplementation(string memory key, uint256 initValue) public returns (address) {
@@ -47,8 +47,8 @@ contract MyDeploymentJsonTesting is DeploymentJsonTesting {
             "test/mocks/basic/MockImplementation.sol",
             address(this)
         );
-        setUint(MOCK_IMPLEMENTATION_INIT_VALUE, initValue);
-        return get(fullKey);
+        _setUint(MOCK_IMPLEMENTATION_INIT_VALUE, initValue);
+        return _get(fullKey);
     }
 }
 

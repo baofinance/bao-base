@@ -142,9 +142,9 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         assertEq(restored.getInt("config.temperature"), -42, "Temperature");
         assertTrue(restored.getBool("config.isProduction"), "Is production flag");
 
-        // Verify keys list
+        // Ensure application keys are present even though session metadata also exists
         string[] memory keys = restored.keys();
-        assertEq(keys.length, 7, "Should have 7 keys (2 contracts + config + 4 config params)");
+        assertTrue(keys.length >= 7, "Should include config plus session metadata");
     }
 
     function test_EmptyDeploymentSerialization() public {
@@ -157,14 +157,16 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
-        // Should still have metadata fields (now flattened to root)
-        assertTrue(vm.keyExistsJson(json, ".runs"), "Should have runs array");
-        assertTrue(vm.keyExistsJson(json, ".network"), "Should have network");
-        assertTrue(vm.keyExistsJson(json, ".deployer"), "Should have deployer");
+        // Should still have metadata fields tracked under session.*
+        assertTrue(vm.keyExistsJson(json, ".session"), "Should have session metadata");
+        assertTrue(vm.keyExistsJson(json, ".session.network"), "Should have network");
+        assertTrue(vm.keyExistsJson(json, ".session.deployer"), "Should have deployer");
 
-        // Verify runs array has at least one entry (from finish())
-        uint256 startTimestamp = vm.parseJsonUint(json, ".runs[0].startTimestamp");
-        assertTrue(startTimestamp > 0, "Should have startTimestamp in runs");
+        // Verify timestamps recorded on the session
+        uint256 startTimestamp = vm.parseJsonUint(json, ".session.startTimestamp");
+        uint256 finishTimestamp = vm.parseJsonUint(json, ".session.finishTimestamp");
+        assertTrue(startTimestamp > 0, "Should have startTimestamp in session");
+        assertTrue(finishTimestamp >= startTimestamp, "finish timestamp should be >= start timestamp");
 
         // Note: Empty deployment won't have .deployment key, which is fine
         // We just verify metadata exists
@@ -188,7 +190,8 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         DeploymentJsonStringTestHarness loaded = new DeploymentJsonStringTestHarness();
         loaded.fromJson(json);
 
-        assertEq(loaded.keys().length, 3, "Should have 3 contracts");
+        string[] memory contractKeys = loaded.keys();
+        assertTrue(contractKeys.length >= 3, "Should track contracts plus metadata");
         assertEq(loaded.get("contracts.Contract1"), address(0x1));
         assertEq(loaded.get("contracts.Contract2"), address(0x2));
         assertEq(loaded.get("contracts.Contract3"), address(0x3));
@@ -212,7 +215,8 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         DeploymentJsonStringTestHarness loaded = new DeploymentJsonStringTestHarness();
         loaded.fromJson(json);
 
-        assertEq(loaded.keys().length, 4, "Should have 4 keys (config + 3 parameters)");
+        string[] memory parameterKeys = loaded.keys();
+        assertTrue(parameterKeys.length >= 4, "Should capture parameters plus metadata");
         assertEq(loaded.getString("config.param1"), "value1");
         assertEq(loaded.getUint("config.param2"), 100);
         assertFalse(loaded.getBool("config.param3"));

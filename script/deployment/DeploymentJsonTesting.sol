@@ -2,7 +2,10 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
+import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {DeploymentTestingEnablers} from "@bao-script/deployment/DeploymentTestingEnablers.sol";
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
+import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {BaoDeployerSetOperator} from "@bao-script/deployment/BaoDeployerSetOperator.sol";
 
 import {Vm} from "forge-std/Vm.sol";
@@ -22,7 +25,7 @@ import {Vm} from "forge-std/Vm.sol";
  * - Automatic/manual sequencing for capturing deployment phases
  * - setContractAddress() for test injection via vm.prank
  */
-contract DeploymentJsonTesting is DeploymentJson, BaoDeployerSetOperator {
+contract DeploymentJsonTesting is DeploymentJson, DeploymentTestingEnablers, BaoDeployerSetOperator {
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     string private _filename;
@@ -31,19 +34,20 @@ contract DeploymentJsonTesting is DeploymentJson, BaoDeployerSetOperator {
     string private _baseFilename;
     bool private _manualSequencing; // If true, only increment on explicit nextSequence() calls
 
+    function start(
+        string memory network_,
+        string memory systemSaltString_,
+        string memory startPoint
+    ) public override(DeploymentJson, Deployment) {
+        DeploymentJson.start(network_, systemSaltString_, startPoint);
+    }
+
     // ============================================================================
     // Test Output Configuration
     // ============================================================================
 
     function _getPrefix() internal view override returns (string memory) {
-        try VM.envString("BAO_DEPLOYMENT_LOGS_ROOT") returns (string memory customRoot) {
-            if (bytes(customRoot).length > 0) {
-                return customRoot;
-            }
-        } catch {
-            // Environment variable not set, use default
-        }
-        return "results";
+        return DeploymentTestingOutput._getPrefix();
     }
 
     function _getFilename() internal view override returns (string memory) {
@@ -91,7 +95,7 @@ contract DeploymentJsonTesting is DeploymentJson, BaoDeployerSetOperator {
         }
     }
 
-    function _afterValueChanged(string memory key) internal override {
+    function _afterValueChanged(string memory key) internal override(DeploymentJson, Deployment) {
         // Only auto-increment if sequencing is enabled AND not in manual mode
         if (_sequenceNumber > 0 && !_manualSequencing) {
             setFilename(string.concat(_baseFilename, ".", _padZero(_sequenceNumber, 3), "-", key));
@@ -106,8 +110,19 @@ contract DeploymentJsonTesting is DeploymentJson, BaoDeployerSetOperator {
 
     /// @notice Set up BaoDeployer operator using vm.prank (testing only)
     /// @dev Overrides DeploymentJson production check with mixin-based setup
-    function _ensureBaoDeployerOperator() internal override {
+    function _ensureBaoDeployerOperator() internal override(DeploymentJson, Deployment) {
         _setUpBaoDeployerOperator();
+    }
+
+    /// @notice Simulate predictable deploys with insufficient value to validate ValueMismatch paths
+    function simulatePredictableDeployWithoutFunding(
+        uint256 value,
+        string memory key,
+        bytes memory initCode,
+        string memory /* contractType */,
+        string memory /* contractPath */
+    ) external returns (address addr) {
+        return _simulatePredictableDeployWithoutFundingInternal(value, key, initCode);
     }
 
     // ============================================================================
@@ -119,7 +134,23 @@ contract DeploymentJsonTesting is DeploymentJson, BaoDeployerSetOperator {
     /// @param key The contract key
     /// @param addr The contract address to set
     function setContractAddress(string memory key, address addr) public {
-        VM.prank(BaoDeployer(_deployer()).operator());
+        address operator = BaoDeployer(DeploymentInfrastructure.predictBaoDeployerAddress()).operator();
+        VM.prank(operator);
         this.setAddress(key, addr);
+    }
+}
+
+library DeploymentTestingOutput {
+    Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+
+    function _getPrefix() internal view returns (string memory) {
+        try VM.envString("BAO_DEPLOYMENT_LOGS_ROOT") returns (string memory customRoot) {
+            if (bytes(customRoot).length > 0) {
+                return customRoot;
+            }
+        } catch {
+            // Environment variable not set, use default
+        }
+        return "results";
     }
 }
