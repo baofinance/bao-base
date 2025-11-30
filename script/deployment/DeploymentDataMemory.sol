@@ -5,11 +5,12 @@ import {IDeploymentDataWritable} from "./interfaces/IDeploymentDataWritable.sol"
 import {DeploymentKeys, DataType} from "./DeploymentKeys.sol";
 
 /**
- * @title DeploymentDataStore
- * @notice Canonical in-memory data store shared by all deployment data layers
- * @dev Provides type-safe value storage plus deterministic JSON rendering
+ * @title DeploymentDataMemory
+ * @notice In-memory data store for deployment state
+ * @dev Extends DeploymentKeys to be its own key registry.
+ *      Provides type-safe value storage plus deterministic JSON rendering.
  */
-contract DeploymentDataMemory is IDeploymentDataWritable {
+abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentDataWritable {
     error ValueNotSet(string key);
     error ReadTypeMismatch(string key, DataType expectedType, DataType actualType);
 
@@ -19,8 +20,6 @@ contract DeploymentDataMemory is IDeploymentDataWritable {
         string valueJson;
         bool hasValue;
     }
-
-    DeploymentKeys internal immutable _deploymentKeys;
 
     mapping(string => address) internal _addresses;
     mapping(string => string) internal _strings;
@@ -35,11 +34,7 @@ contract DeploymentDataMemory is IDeploymentDataWritable {
 
     mapping(string => DataType) internal _types;
     mapping(string => bool) internal _hasKey;
-    string[] internal _allKeys;
-
-    constructor(DeploymentKeys keyRegistry) {
-        _deploymentKeys = keyRegistry;
-    }
+    string[] internal _dataKeys;
 
     // ============ Scalar Getters ============
 
@@ -107,7 +102,7 @@ contract DeploymentDataMemory is IDeploymentDataWritable {
         }
         // For OBJECT type keys (contract entries), check if .address child is set
         // This mirrors get() which is a shorthand for getAddress(key + ".address")
-        if (_deploymentKeys.keyType(key) == DataType.OBJECT) {
+        if (this.keyType(key) == DataType.OBJECT) {
             return _hasKey[string.concat(key, ".address")];
         }
         return false;
@@ -116,8 +111,8 @@ contract DeploymentDataMemory is IDeploymentDataWritable {
     function keys() external view override returns (string[] memory activeKeys) {
         // Count keys with values first
         uint256 count = 0;
-        for (uint256 i = 0; i < _allKeys.length; i++) {
-            if (_hasKey[_allKeys[i]]) {
+        for (uint256 i = 0; i < _dataKeys.length; i++) {
+            if (_hasKey[_dataKeys[i]]) {
                 count++;
             }
         }
@@ -125,16 +120,14 @@ contract DeploymentDataMemory is IDeploymentDataWritable {
         // Collect keys with values
         activeKeys = new string[](count);
         uint256 j = 0;
-        for (uint256 i = 0; i < _allKeys.length; i++) {
-            if (_hasKey[_allKeys[i]]) {
-                activeKeys[j++] = _allKeys[i];
+        for (uint256 i = 0; i < _dataKeys.length; i++) {
+            if (_hasKey[_dataKeys[i]]) {
+                activeKeys[j++] = _dataKeys[i];
             }
         }
     }
 
-    function schemaKeys() external view returns (string[] memory allKeys) {
-        return _allKeys;
-    }
+    // Note: schemaKeys() is inherited from DeploymentKeys
 
     // ============ Scalar Setters ============
 
@@ -188,6 +181,55 @@ contract DeploymentDataMemory is IDeploymentDataWritable {
             revert ReadTypeMismatch(key, expected, _types[key]);
         }
     }
+
+    // ============ Internal Getters ============
+
+    function _readAddress(string memory key) internal view returns (address) {
+        _requireReadable(key, DataType.ADDRESS);
+        return _addresses[key];
+    }
+
+    function _readString(string memory key) internal view returns (string memory) {
+        _requireReadable(key, DataType.STRING);
+        return _strings[key];
+    }
+
+    function _readUint(string memory key) internal view returns (uint256) {
+        _requireReadable(key, DataType.UINT);
+        return _uints[key];
+    }
+
+    function _readInt(string memory key) internal view returns (int256) {
+        _requireReadable(key, DataType.INT);
+        return _ints[key];
+    }
+
+    function _readBool(string memory key) internal view returns (bool) {
+        _requireReadable(key, DataType.BOOL);
+        return _bools[key];
+    }
+
+    function _readAddressArray(string memory key) internal view returns (address[] memory) {
+        _requireReadable(key, DataType.ADDRESS_ARRAY);
+        return _addressArrays[key];
+    }
+
+    function _readStringArray(string memory key) internal view returns (string[] memory) {
+        _requireReadable(key, DataType.STRING_ARRAY);
+        return _stringArrays[key];
+    }
+
+    function _readUintArray(string memory key) internal view returns (uint256[] memory) {
+        _requireReadable(key, DataType.UINT_ARRAY);
+        return _uintArrays[key];
+    }
+
+    function _readIntArray(string memory key) internal view returns (int256[] memory) {
+        _requireReadable(key, DataType.INT_ARRAY);
+        return _intArrays[key];
+    }
+
+    // ============ Internal Writers ============
 
     function _writeAddress(string memory key, address value, DataType expected) internal {
         _prepareKey(key, expected);
@@ -247,10 +289,10 @@ contract DeploymentDataMemory is IDeploymentDataWritable {
     }
 
     function _prepareKey(string memory key, DataType expected) private {
-        _deploymentKeys.validateKey(key, expected);
+        validateKey(key, expected);
         if (!_hasKey[key]) {
             _hasKey[key] = true;
-            _allKeys.push(key);
+            _dataKeys.push(key);
         }
         _types[key] = expected;
     }

@@ -13,7 +13,7 @@ import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.so
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {IDeploymentDataWritable} from "@bao-script/deployment/interfaces/IDeploymentDataWritable.sol";
 import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
-import {DeploymentKeys} from "@bao-script/deployment/DeploymentKeys.sol";
+import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.sol";
 
 interface IUUPSUpgradeableProxy {
     function implementation() external view returns (address);
@@ -23,16 +23,16 @@ interface IUUPSUpgradeableProxy {
 
 /**
  * @title Deployment
- * @notice Deployment operations using composition-based data layer
+ * @notice Deployment operations with integrated data storage
  * @dev Responsibilities:
  *      - Deterministic proxy deployment via CREATE3
  *      - Library deployment via CREATE
  *      - Existing contract registration helpers
- *      - All state managed through IDeploymentDataWritable
+ *      - In-memory data storage (inherited from DeploymentDataMemory)
  *      - Designed for specialization (e.g. Harbor overrides deployProxy)
  */
 
-abstract contract Deployment is DeploymentKeys {
+abstract contract Deployment is DeploymentDataMemory {
     // ============================================================================
     // Errors
     // ============================================================================
@@ -65,10 +65,7 @@ abstract contract Deployment is DeploymentKeys {
     // Storage
     // ============================================================================
 
-    /// @notice Data layer holding all configuration and deployment state
-    /// @dev Composition pattern: allows swapping implementations (JSON, Memory, etc.)
-    ///      Protected to allow subclass access while enforcing wrapper methods for contracts.
-    IDeploymentDataWritable internal _data;
+    // Note: Data storage (maps, getters, setters) inherited from DeploymentDataMemory
 
     /// @notice Bootstrap stub used as initial implementation for all proxies
     /// @dev Deployed once per session, owned by this harness, enables BaoOwnable compatibility with CREATE3
@@ -123,31 +120,30 @@ abstract contract Deployment is DeploymentKeys {
     // Deployment Lifecycle
     // ============================================================================
 
-    function _createDeploymentData(
-        string memory /*network*/,
-        string memory /*systemSaltString*/,
-        string memory /*inputTimestamp*/
-    ) internal virtual returns (IDeploymentDataWritable);
-
     /// @notice Start deployment session
-    /// @dev Subclasses must call _startWithDataLayer after creating data layer
+    /// @dev Subclasses can override for custom initialization (e.g., JSON loading)
     /// @param network Network name (e.g., "mainnet", "arbitrum", "anvil")
     /// @param systemSaltString System salt string for deterministic addresses
     function start(string memory network, string memory systemSaltString, string memory startPoint) public virtual {
         if (_sessionState != State.NONE) revert AlreadyInitialized();
 
-        _data = _createDeploymentData(network, systemSaltString, startPoint);
+        _startSession(network, systemSaltString, startPoint);
+    }
+
+    /// @notice Internal session initialization - called by start() and subclasses
+    /// @dev Sets up session metadata and deployment infrastructure
+    function _startSession(string memory network, string memory systemSaltString, string memory /*startPoint*/) internal {
         // TODO: need to read the schema version and check for compatibility
         // Set global deployment configuration
-        _data.setUint(SCHEMA_VERSION, 1);
-        _data.setString(SYSTEM_SALT_STRING, systemSaltString);
+        _writeUint(SCHEMA_VERSION, 1, DataType.UINT);
+        _writeString(SYSTEM_SALT_STRING, systemSaltString, DataType.STRING);
 
         // Initialize session metadata
-        _data.setString(SESSION_NETWORK, network);
-        _data.setAddress(SESSION_DEPLOYER, address(this));
-        _data.setUint(SESSION_START_TIMESTAMP, block.timestamp);
-        _data.setString(SESSION_STARTED, _formatTimestamp(block.timestamp));
-        _data.setUint(SESSION_START_BLOCK, block.number);
+        _writeString(SESSION_NETWORK, network, DataType.STRING);
+        _writeAddress(SESSION_DEPLOYER, address(this), DataType.ADDRESS);
+        _writeUint(SESSION_START_TIMESTAMP, block.timestamp, DataType.UINT);
+        _writeString(SESSION_STARTED, _formatTimestamp(block.timestamp), DataType.STRING);
+        _writeUint(SESSION_START_BLOCK, block.number, DataType.UINT);
 
         // Don't initialize finish fields - they only appear when finish() is called
 
@@ -177,9 +173,9 @@ abstract contract Deployment is DeploymentKeys {
         }
 
         // Mark session finished
-        _data.setUint(SESSION_FINISH_TIMESTAMP, block.timestamp);
-        _data.setString(SESSION_FINISHED, _formatTimestamp(block.timestamp));
-        _data.setUint(SESSION_FINISH_BLOCK, block.number);
+        _writeUint(SESSION_FINISH_TIMESTAMP, block.timestamp, DataType.UINT);
+        _writeString(SESSION_FINISHED, _formatTimestamp(block.timestamp), DataType.STRING);
+        _writeUint(SESSION_FINISH_BLOCK, block.number, DataType.UINT);
         _sessionState = State.FINISHED;
 
         return transferred;
@@ -242,7 +238,7 @@ abstract contract Deployment is DeploymentKeys {
         }
 
         address currentOwner = abi.decode(data, (address));
-        address finalOwner = _data.getAddress(OWNER);
+        address finalOwner = _readAddress(OWNER);
 
         // Only transfer if current owner is this harness (temporary owner from stub pattern)
         if (currentOwner == address(this)) {
@@ -643,23 +639,18 @@ abstract contract Deployment is DeploymentKeys {
 
     function _afterValueChanged(string memory key) internal virtual;
 
-    /// @notice Get all keys that have values
-    /// @dev Delegates to data layer - returns only keys with set values
-    ///      For schema keys (all possible keys), use schemaKeys()
-    /// @return activeKeys Array of keys that have values
-    function keys() external view returns (string[] memory activeKeys) {
-        return _data.keys();
-    }
+    // Note: keys() and schemaKeys() are inherited from DeploymentDataMemory/DeploymentKeys
 
     /// @notice Set contract address (key.address)
     function _set(string memory key, address value) internal {
-        _data.setAddress(string.concat(key, ".address"), value);
+        _writeAddress(string.concat(key, ".address"), value, DataType.ADDRESS);
         _afterValueChanged(key);
     }
 
-    /// @notice Get contract address
+    /// @notice Get contract address (shorthand for key.address)
     function _get(string memory key) internal view returns (address) {
-        return _data.get(key);
+        // get(key) returns the address at key.address
+        return _readAddress(string.concat(key, ".address"));
     }
 
     /// @notice Extract salt string from key (everything after last dot)
@@ -689,111 +680,112 @@ abstract contract Deployment is DeploymentKeys {
     }
 
     /// @notice Check if contract key exists
+    /// @dev Uses external has() which handles OBJECT type checks (key.address)
     function _has(string memory key) internal view returns (bool) {
-        return _data.has(key);
+        return this.has(key);
     }
 
     /// @notice Set string value
     function _setString(string memory key, string memory value) internal {
-        _data.setString(key, value);
+        _writeString(key, value, DataType.STRING);
         _afterValueChanged(key);
     }
 
     /// @notice Get string value
     function _getString(string memory key) internal view returns (string memory) {
-        return _data.getString(key);
+        return _readString(key);
     }
 
     /// @notice Set uint value
     function _setUint(string memory key, uint256 value) internal {
-        _data.setUint(key, value);
+        _writeUint(key, value, DataType.UINT);
         _afterValueChanged(key);
     }
 
     /// @notice Get uint value
     function _getUint(string memory key) internal view returns (uint256) {
-        return _data.getUint(key);
+        return _readUint(key);
     }
 
     /// @notice Set int value
     function _setInt(string memory key, int256 value) internal {
-        _data.setInt(key, value);
+        _writeInt(key, value, DataType.INT);
         _afterValueChanged(key);
     }
 
     /// @notice Get int value
     function _getInt(string memory key) internal view returns (int256) {
-        return _data.getInt(key);
+        return _readInt(key);
     }
 
     /// @notice Set bool value
     function _setBool(string memory key, bool value) internal {
-        _data.setBool(key, value);
+        _writeBool(key, value, DataType.BOOL);
         _afterValueChanged(key);
     }
 
     /// @notice Get bool value
     function _getBool(string memory key) internal view returns (bool) {
-        return _data.getBool(key);
+        return _readBool(key);
     }
 
     function _setAddress(string memory key, address value) internal {
-        _data.setAddress(key, value);
+        _writeAddress(key, value, DataType.ADDRESS);
         _afterValueChanged(key);
     }
 
     function _getAddress(string memory key) internal view returns (address) {
-        return _data.getAddress(key);
+        return _readAddress(key);
     }
 
     /// @notice Set address array
     function _setAddressArray(string memory key, address[] memory values) internal {
-        _data.setAddressArray(key, values);
+        _writeAddressArray(key, values, DataType.ADDRESS_ARRAY);
         _afterValueChanged(key);
     }
 
     /// @notice Get address array
     function _getAddressArray(string memory key) internal view returns (address[] memory) {
-        return _data.getAddressArray(key);
+        return _readAddressArray(key);
     }
 
     /// @notice Set string array
     function _setStringArray(string memory key, string[] memory values) internal {
-        _data.setStringArray(key, values);
+        _writeStringArray(key, values, DataType.STRING_ARRAY);
         _afterValueChanged(key);
     }
 
     /// @notice Get string array
     function _getStringArray(string memory key) internal view returns (string[] memory) {
-        return _data.getStringArray(key);
+        return _readStringArray(key);
     }
 
     /// @notice Set uint array
     function _setUintArray(string memory key, uint256[] memory values) internal {
-        _data.setUintArray(key, values);
+        _writeUintArray(key, values, DataType.UINT_ARRAY);
         _afterValueChanged(key);
     }
 
     /// @notice Get uint array
     function _getUintArray(string memory key) internal view returns (uint256[] memory) {
-        return _data.getUintArray(key);
+        return _readUintArray(key);
     }
 
     /// @notice Set int array
     function _setIntArray(string memory key, int256[] memory values) internal {
-        _data.setIntArray(key, values);
+        _writeIntArray(key, values, DataType.INT_ARRAY);
         _afterValueChanged(key);
     }
 
     /// @notice Get int array
     function _getIntArray(string memory key) internal view returns (int256[] memory) {
-        return _data.getIntArray(key);
+        return _readIntArray(key);
     }
 
     /// @notice Derive system salt for deterministic address calculations
     /// @dev Subclasses can override to customize salt derivation (e.g., network-specific tweaks)
     function _deriveSystemSalt() internal view virtual returns (string memory) {
-        return _data.getString(SYSTEM_SALT_STRING);
+        return _readString(SYSTEM_SALT_STRING);
     }
 
     /// @notice Format Unix timestamp as ISO 8601 string

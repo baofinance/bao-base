@@ -10,16 +10,12 @@ import {stdJson} from "forge-std/StdJson.sol";
 
 /**
  * @title DeploymentDataJson
- * @notice JSON-backed deployment data implementation built on top of DeploymentDataMemory
- * @dev Pure persistence layer - caller provides all paths
+ * @notice JSON serialization/deserialization for deployment data
+ * @dev Extends DeploymentDataMemory with JSON capabilities
  */
-contract DeploymentDataJson is DeploymentDataMemory {
+abstract contract DeploymentDataJson is DeploymentDataMemory {
     using stdJson for string;
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
-
-    // string internal _outputPath;
-    // bool internal _suppressPersistence = false;
-    constructor(DeploymentKeys keyRegistry) DeploymentDataMemory(keyRegistry) {}
 
     /// @notice Get base directory for deployment files
     /// @dev Override in test classes to use results/ instead of ./
@@ -33,14 +29,14 @@ contract DeploymentDataJson is DeploymentDataMemory {
             return;
         }
 
-        string[] memory registered = _deploymentKeys.schemaKeys();
+        string[] memory registered = this.schemaKeys();
         for (uint256 i = 0; i < registered.length; i++) {
             string memory key = registered[i];
             string memory pointer = string.concat("$.", key);
             if (!existingJson.keyExists(pointer)) {
                 continue;
             }
-            DataType expected = _deploymentKeys.keyType(key);
+            DataType expected = this.keyType(key);
             if (_shouldSkipComposite(existingJson, pointer, expected)) {
                 continue;
             }
@@ -73,14 +69,14 @@ contract DeploymentDataJson is DeploymentDataMemory {
     // ============ JSON Rendering ============
 
     function toJson() public returns (string memory) {
-        uint256 keyCount = _allKeys.length;
+        uint256 keyCount = _dataKeys.length;
         if (keyCount == 0) {
             return "{}";
         }
 
         uint256 maxSegments = 1;
         for (uint256 i = 0; i < keyCount; i++) {
-            maxSegments += _segmentCount(_allKeys[i]);
+            maxSegments += _segmentCount(_dataKeys[i]);
         }
 
         TempNode[] memory nodes = new TempNode[](maxSegments);
@@ -88,7 +84,7 @@ contract DeploymentDataJson is DeploymentDataMemory {
         uint256 nodeCount = 1;
 
         for (uint256 i = 0; i < keyCount; i++) {
-            string memory key = _allKeys[i];
+            string memory key = _dataKeys[i];
             if (!_hasKey[key]) {
                 continue;
             }

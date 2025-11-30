@@ -25,12 +25,16 @@ abstract contract DeploymentJson is Deployment {
     string private _systemSaltString;
     string private _network;
     string private _filename;
-    // TODO: thie below is a hack
+    // TODO: this is a hack - _data (from Deployment) and _dataJson should be unified
+    // The issue is: Memory and Json implementations are at different levels (Json extends Memory)
+    // Ideally they'd be peers implementing the same interface, with Deployment holding just _data
     DeploymentDataJson _dataJson;
     bool _suppressPersistence = false;
 
     constructor() {
         _filename = _formatTimestamp(block.timestamp);
+        _dataJson = new DeploymentDataJson(this);
+        _data = _dataJson; // Ensure _data always points to the same object
     }
 
     // ============================================================================
@@ -97,7 +101,6 @@ abstract contract DeploymentJson is Deployment {
         require(bytes(systemSaltString_).length > 0, "cannot have a null system salt string");
         _network = network_;
         _systemSaltString = systemSaltString_;
-        _dataJson = new DeploymentDataJson(this);
 
         // now load the data from the specified file
         string memory path;

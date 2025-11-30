@@ -95,8 +95,8 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
-        // Create new deployment and load from string
-        DeploymentJsonTesting newDeployment = new DeploymentJsonTesting();
+        // Create new deployment with same key registry and load from string
+        DeploymentJsonStringTestHarness newDeployment = new DeploymentJsonStringTestHarness();
         newDeployment.fromJson(json);
 
         // Verify loaded data
@@ -128,8 +128,8 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
-        // Deserialize to new instance
-        DeploymentJsonTesting restored = new DeploymentJsonTesting();
+        // Deserialize to new instance (must use same harness type for key registry)
+        DeploymentJsonStringTestHarness restored = new DeploymentJsonStringTestHarness();
         restored.fromJson(json);
 
         // Verify all contracts
@@ -185,7 +185,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
-        DeploymentJsonTesting loaded = new DeploymentJsonTesting();
+        DeploymentJsonStringTestHarness loaded = new DeploymentJsonStringTestHarness();
         loaded.fromJson(json);
 
         assertEq(loaded.keys().length, 3, "Should have 3 contracts");
@@ -209,7 +209,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
 
-        DeploymentJsonTesting loaded = new DeploymentJsonTesting();
+        DeploymentJsonStringTestHarness loaded = new DeploymentJsonStringTestHarness();
         loaded.fromJson(json);
 
         assertEq(loaded.keys().length, 4, "Should have 4 keys (config + 3 parameters)");
@@ -229,7 +229,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         string memory json = deployment.toJson();
 
         // Load from file - if this succeeds, schema is valid
-        DeploymentJsonTesting loaded = new DeploymentJsonTesting();
+        DeploymentJsonStringTestHarness loaded = new DeploymentJsonStringTestHarness();
         loaded.fromJson(json);
 
         assertEq(loaded.get("contracts.Token"), address(0x5555));
@@ -247,7 +247,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         string memory json = deployment.toJson();
 
         // Load using original method - if this succeeds, schema is valid
-        DeploymentJsonTesting loaded = new DeploymentJsonTesting();
+        DeploymentJsonStringTestHarness loaded = new DeploymentJsonStringTestHarness();
         loaded.fromJson(json);
 
         assertEq(loaded.get("contracts.LoadTest"), address(0x9999));
