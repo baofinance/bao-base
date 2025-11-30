@@ -460,9 +460,8 @@ abstract contract Deployment is DeploymentKeys {
         }
 
         // implementation keys
-        string memory implementationKey = string.concat(proxyKey, ".implementation");
         _registerImplementation(
-            implementationKey,
+            string.concat(proxyKey, ".implementation"),
             newImplementation,
             implementationContractType,
             implementationContractPath,

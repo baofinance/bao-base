@@ -21,7 +21,7 @@ contract OracleV1 is Initializable, UUPSUpgradeable, BaoOwnable {
         _initializeOwner(_finalOwner);
     }
 
-    function setPrice(uint256 _price) external virtual onlyOwner {
+    function setPrice(uint256 _price) external virtual {
         price = _price;
     }
 

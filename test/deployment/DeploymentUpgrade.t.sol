@@ -14,7 +14,7 @@ import {IUUPSUpgradeableProxy} from "@bao-script/deployment/Deployment.sol";
 contract OracleV2 is OracleV1 {
     uint256 public lastUpdateTime;
 
-    function setPrice(uint256 _price) external override onlyOwner {
+    function setPrice(uint256 _price) external override {
         price = _price;
         lastUpdateTime = block.timestamp;
     }
@@ -154,8 +154,6 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         _prepareTestNetwork(TEST_SALT, network);
         deployment.enableManualSequencing(); // Enable manual sequencing for before/after snapshots
         deployment.start(network, TEST_SALT, "");
-        // Explicitly set owner to ensure it's available (should be loaded from config.json)
-        deployment.setAddress("owner", address(0x1234));
         deployment.saveSequence();
     }
 
