@@ -5,7 +5,7 @@ pragma solidity ^0.8.28;
  * @title DataType
  * @notice Enum for deployment data types
  * @dev Maps to JSON types with uint/int distinction for validation
- *      CONTRACT: Top-level deployed contracts (no dots in key)
+ *      OBJECT: Parent node marker (no value, establishes hierarchy for child keys)
  *      ADDRESS: Nested addresses (keys contain dots, e.g., "pegged.implementation")
  *      STRING: String values (keys contain dots, e.g., "token.symbol")
  *      UINT: Unsigned integer values (keys contain dots, e.g., "token.decimals")
@@ -17,7 +17,7 @@ pragma solidity ^0.8.28;
  *      INT_ARRAY: Array of signed integers (keys contain dots, e.g., "config.deltas")
  */
 enum DataType {
-    CONTRACT,
+    OBJECT,
     ADDRESS,
     STRING,
     UINT,
@@ -85,7 +85,7 @@ abstract contract DeploymentKeys {
         _registerKey(SYSTEM_SALT_STRING, DataType.STRING);
 
         // Session metadata namespace
-        _registerKey(SESSION_ROOT, DataType.CONTRACT);
+        _registerKey(SESSION_ROOT, DataType.OBJECT);
         _registerKey(SESSION_VERSION, DataType.STRING);
         _registerKey(SESSION_DEPLOYER, DataType.ADDRESS);
         _registerKey(SESSION_STARTED, DataType.STRING);
@@ -97,21 +97,21 @@ abstract contract DeploymentKeys {
         _registerKey(SESSION_NETWORK, DataType.STRING);
 
         // Contracts namespace root
-        _registerKey("contracts", DataType.CONTRACT);
+        _registerKey("contracts", DataType.OBJECT);
     }
 
     // ============ Key Registration ============
 
     /**
      * @notice Register a contract address key (top-level, no dots)
-     * @dev Called in derived contract constructors to register CONTRACT type keys
+     * @dev Called in derived contract constructors to register OBJECT type keys
      *      This creates a top-level namespace that nested keys can attach to
      * @param key The key name (e.g., "owner", "pegged") - must NOT contain dots
      * @return key Returns the key for use in constant declarations
      */
     function addKey(string memory key) internal returns (string memory) {
         _validateKeyFormat(key);
-        _registerKey(key, DataType.CONTRACT);
+        _registerKey(key, DataType.OBJECT);
         return key;
     }
 
@@ -259,6 +259,7 @@ abstract contract DeploymentKeys {
         _registerKey(string.concat(key, ".value"), DataType.UINT);
         _registerKey(string.concat(key, ".saltString"), DataType.STRING);
         _registerKey(string.concat(key, ".salt"), DataType.STRING); // Store as hex string
+        _registerKey(string.concat(key, ".ownershipModel"), DataType.STRING);
 
         string memory implementationKey = string.concat(key, ".implementation");
         _addImplementation(implementationKey);
@@ -295,7 +296,7 @@ abstract contract DeploymentKeys {
      * @param key The full proxy key (e.g., "contracts.pegged")
      */
     function _addImplementation(string memory key) private {
-        _registerKey(key, DataType.CONTRACT);
+        _registerKey(key, DataType.OBJECT);
         _registerKey(string.concat(key, ".address"), DataType.ADDRESS);
         _registerKey(string.concat(key, ".contractType"), DataType.STRING);
         _registerKey(string.concat(key, ".contractPath"), DataType.STRING);
@@ -435,8 +436,8 @@ abstract contract DeploymentKeys {
         while (true) {
             string memory candidate = _substring(keyBytes, dotPos);
 
-            // Check if this parent is registered as a CONTRACT
-            if (_keyRegistered[candidate] && _keyTypes[candidate] == DataType.CONTRACT) {
+            // Check if this parent is registered as an OBJECT (parent node marker)
+            if (_keyRegistered[candidate] && _keyTypes[candidate] == DataType.OBJECT) {
                 return;
             }
 

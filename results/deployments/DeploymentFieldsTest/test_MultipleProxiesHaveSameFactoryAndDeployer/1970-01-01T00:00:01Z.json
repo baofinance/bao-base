@@ -19,6 +19,7 @@
       "category": "UUPS proxy",
       "saltString": "proxy1",
       "salt": "0xae819964217bc1643556604c9287d4b8b94566c949728143cd958b20821f0060",
+      "ownershipModel": "transfer-after-deploy",
       "implementation": {
         "address": "0xddc10602782af652bb913f7bde1fd82981db7dd9",
         "contractType": "SimpleImplementation",
@@ -37,6 +38,7 @@
       "category": "UUPS proxy",
       "saltString": "proxy2",
       "salt": "0xf67205144c79913a85adbf11333601eb55cce8d9e8ff0fab6d6a051163ff1b49",
+      "ownershipModel": "transfer-after-deploy",
       "implementation": {
         "address": "0x7fdb3132ff7d02d8b9e221c61cc895ce9a4bb773",
         "contractType": "SimpleImplementation",
@@ -55,6 +57,7 @@
       "category": "UUPS proxy",
       "saltString": "proxy3",
       "salt": "0xb3fb9817938edbff996bb2959648880a0b61de0844cc172b84a1b730e592318c",
+      "ownershipModel": "transfer-after-deploy",
       "implementation": {
         "address": "0xfd07c974e33dd1626640ba3a5acf0418faacca7a",
         "contractType": "SimpleImplementation",

@@ -153,11 +153,11 @@ contract DeploymentProxyTest is BaoDeploymentTest {
         deployment.deployPegged();
 
         // Verify metadata is stored
-        string memory implKey = deployment.getString(string.concat(deployment.PEGGED(), ".implementation"));
+        string memory implType = deployment.getString(string.concat(deployment.PEGGED(), ".implementation.contractType"));
         assertEq(
-            implKey,
-            string.concat(deployment.PEGGED(), "__MintableBurnableERC20_v1"),
-            "Implementation key should be stored"
+            implType,
+            "MintableBurnableERC20_v1",
+            "Implementation type should be stored"
         );
 
         string memory category = deployment.getString(string.concat(deployment.PEGGED(), ".category"));

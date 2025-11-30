@@ -10,9 +10,11 @@
   },
   "contracts": {
     "Token1": {
+      "address": "0x0000000000000000000000000000000000001111",
       "category": "existing"
     },
     "Token2": {
+      "address": "0x0000000000000000000000000000000000002222",
       "category": "existing"
     }
   },

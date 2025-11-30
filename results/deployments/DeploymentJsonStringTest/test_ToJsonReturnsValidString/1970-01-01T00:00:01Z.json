@@ -10,6 +10,7 @@
   },
   "contracts": {
     "MockToken": {
+      "address": "0x0000000000000000000000000000000000001234",
       "category": "existing",
       "tokenName": "Test Token",
       "decimals": 18

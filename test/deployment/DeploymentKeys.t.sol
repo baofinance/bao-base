@@ -87,8 +87,8 @@ contract DeploymentKeysTest is BaoTest {
         keys.addTestStringKey(_ck("token.symbol"));
         keys.addTestUintKey(_ck("token.decimals"));
 
-        assertEq(uint256(keys.keyType(_ck("owner"))), uint256(DataType.CONTRACT));
-        assertEq(uint256(keys.keyType(_ck("token"))), uint256(DataType.CONTRACT));
+        assertEq(uint256(keys.keyType(_ck("owner"))), uint256(DataType.OBJECT));
+        assertEq(uint256(keys.keyType(_ck("token"))), uint256(DataType.OBJECT));
         assertEq(uint256(keys.keyType(_ck("token.symbol"))), uint256(DataType.STRING));
         assertEq(uint256(keys.keyType(_ck("token.decimals"))), uint256(DataType.UINT));
     }
@@ -97,13 +97,13 @@ contract DeploymentKeysTest is BaoTest {
 
     function test_ValidateRegisteredKey() public {
         keys.addTestKey(_ck("owner"));
-        keys.validateKey(_ck("owner"), DataType.CONTRACT);
+        keys.validateKey(_ck("owner"), DataType.OBJECT);
         // Should not revert
     }
 
     function test_RevertValidateUnregisteredKey() public {
         vm.expectRevert();
-        keys.validateKey(_ck("unregistered"), DataType.CONTRACT);
+        keys.validateKey(_ck("unregistered"), DataType.OBJECT);
     }
 
     function test_RevertValidateTypeMismatch() public {

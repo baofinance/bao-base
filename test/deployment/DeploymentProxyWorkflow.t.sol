@@ -41,11 +41,11 @@ contract DeploymentProxyWorkflowTest is BaoDeploymentTest {
             deployment.get(deployment.PEGGED()),
             "Proxy address should be stored"
         );
-        string memory implKey = deployment.getString(string.concat(deployment.PEGGED(), ".implementation"));
+        string memory implType = deployment.getString(string.concat(deployment.PEGGED(), ".implementation.contractType"));
         assertEq(
-            implKey,
-            string.concat(deployment.PEGGED(), "__MintableBurnableERC20_v1"),
-            "Implementation key should be stored"
+            implType,
+            "MintableBurnableERC20_v1",
+            "Implementation type should be stored"
         );
 
         // Phase 4: Verify proxy works correctly

@@ -1,4 +1,35 @@
-Test File Consolidation Analysis
+resume has not been deprecated - its functionality is now in start and so tests that test the resumption of deployments are still valid: they just start from a different input file.
+
+I'm not doing "data layer consolidation" I'm doing test consolidation and some tests have "harbor specifics" but these are just mocks to test functionality that will be used  by other projects (e.g. harbor) so these are very relevant. They should be in their own test files, of course, but I want to ensure we don't lose them.
+
+So:
+* test_MultipleWritesWithProxyDeployment is moved into the harbor mock tests - it can go in it's own file for now, commented out
+* test_LoadFromJson can go
+* test_RevertWhen_ResumeNonexistentPath needs to be added to the data layer tests but using start(, , <non-existing start point>)
+* test_RevertWhen_ResumeFromUnfinishedRun this should be retained using start
+* test_ResumeFromJsonHelperCreatesActiveRun should be retained
+
+I think we have four layers/categories of testing:
+* data layer - Does DeploymentData* work (no persistence, just json strings)
+* deployment persistence - Do the start/finish features work, are new files created for each network, etc.
+* deployment - do simple deploys work - including using the CREATE3 deployment and the operator setup
+* mock harbor layer - where we actually do a mock of what harbor might use - more complex deployments with intersharing of addresses between contracts etc.
+
+Test files should not have more than one layer in them
+
+I want to start by bringing back, in-situ, the commented out tests, other than the ones I agreed above that can be removed
+
+
+
+
+
+abstract test + concrete for json and memory, for data layer
+some persistence but minor
+
+
+
+
+Test File Consolidation Analysis52
 Based on my review, here's my brutal assessment and consolidation recommendations:
 
 

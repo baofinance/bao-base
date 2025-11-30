@@ -10,6 +10,7 @@
   },
   "contracts": {
     "Token": {
+      "address": "0x0000000000000000000000000000000000005555",
       "category": "existing",
       "name": "SavedToken"
     }

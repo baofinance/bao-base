@@ -10,6 +10,7 @@
   },
   "contracts": {
     "LoadTest": {
+      "address": "0x0000000000000000000000000000000000009999",
       "category": "existing",
       "value": 42
     }

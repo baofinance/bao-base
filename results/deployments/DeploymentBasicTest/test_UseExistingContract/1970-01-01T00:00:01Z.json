@@ -9,6 +9,7 @@
     "startBlock": 1
   },
   "existing1": {
+    "address": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
     "category": "existing"
   }
 }

@@ -9,6 +9,7 @@
     "startBlock": 1
   },
   "invalid": {
+    "address": "0x0000000000000000000000000000000000000000",
     "category": "existing"
   }
 }

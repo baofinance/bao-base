@@ -44,8 +44,8 @@ contract DeploymentDataMemory is IDeploymentDataWritable {
     // ============ Scalar Getters ============
 
     function get(string memory key) external view override returns (address value) {
-        _requireReadable(key, DataType.CONTRACT);
-        return _addresses[key];
+        // Shorthand: contracts.Oracle → contracts.Oracle.address
+        return this.getAddress(string.concat(key, ".address"));
     }
 
     function getAddress(string memory key) external view override returns (address value) {
@@ -108,7 +108,9 @@ contract DeploymentDataMemory is IDeploymentDataWritable {
     // ============ Scalar Setters ============
 
     function set(string memory key, address value) external override {
-        _writeAddress(key, value, DataType.CONTRACT);
+        // Mark this key as a parent/object node (for JSON rendering)
+        _prepareKey(key, DataType.OBJECT); // New type for parent nodes
+        this.setAddress(string.concat(key, ".address"), value);
     }
 
     function setAddress(string memory key, address value) external override {

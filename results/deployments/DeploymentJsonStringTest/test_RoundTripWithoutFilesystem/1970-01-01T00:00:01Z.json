@@ -10,9 +10,11 @@
   },
   "contracts": {
     "Admin": {
+      "address": "0x000000000000000000000000000000000000abcd",
       "category": "existing"
     },
     "Treasury": {
+      "address": "0x000000000000000000000000000000000000dead",
       "category": "existing"
     }
   },

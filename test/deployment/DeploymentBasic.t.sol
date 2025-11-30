@@ -88,7 +88,7 @@ contract DeploymentBasicTest is BaoDeploymentTest {
         assertTrue(mockAddr != address(0));
         assertTrue(deployment.has("mock1"));
         assertEq(deployment.get("mock1"), mockAddr);
-        assertEq(uint(deployment.keyType("mock1")), uint(DataType.CONTRACT));
+        assertEq(uint(deployment.keyType("mock1")), uint(DataType.OBJECT));
     }
 
     function test_DeployMultipleContracts() public {
@@ -117,7 +117,7 @@ contract DeploymentBasicTest is BaoDeploymentTest {
 
         assertTrue(deployment.has("existing1"));
         assertEq(deployment.get("existing1"), mock);
-        assertEq(uint(deployment.keyType("existing1")), uint(DataType.CONTRACT));
+        assertEq(uint(deployment.keyType("existing1")), uint(DataType.OBJECT));
     }
 
     function test_Has() public {
@@ -174,7 +174,7 @@ contract DeploymentBasicTest is BaoDeploymentTest {
         deployment.useExisting("ExistingContract", existingContract);
 
         assertEq(deployment.get("ExistingContract"), existingContract);
-        assertEq(uint(deployment.keyType("ExistingContract")), uint(DataType.CONTRACT));
+        assertEq(uint(deployment.keyType("ExistingContract")), uint(DataType.OBJECT));
     }
 
     function test_RegisterExistingJsonSerialization() public {

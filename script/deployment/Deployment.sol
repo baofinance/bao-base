@@ -135,7 +135,7 @@ abstract contract Deployment is DeploymentKeys {
         _data.setUint(SESSION_START_TIMESTAMP, block.timestamp);
         _data.setString(SESSION_STARTED, _formatTimestamp(block.timestamp));
         _data.setUint(SESSION_START_BLOCK, block.number);
-        
+
         // Don't initialize finish fields - they only appear when finish() is called
 
         // Set up deployment infrastructure
@@ -146,17 +146,50 @@ abstract contract Deployment is DeploymentKeys {
     }
 
     /// @notice Finish deployment session
-    /// @dev Transfers ownership to final owner for all proxies, marks session complete
+    /// @dev Transfers ownership to final owner for all proxies if current owner != configured owner
+    /// @dev Uses runtime owner() check - only transfers if currentOwner != finalOwner
     /// @return transferred Number of proxies whose ownership was transferred
     function finish() public virtual returns (uint256 transferred) {
         if (_sessionState == State.NONE) revert SessionNotStarted();
         if (_sessionState == State.FINISHED) revert SessionAlreadyFinished();
 
-        // Transfer ownership for all deployed proxies
-        // Note: This is a simplified implementation - production may need to track proxy list
-        // For now, we rely on subclasses to call _transferProxyOwnership for each proxy
+        address globalOwner = _getAddress(OWNER);
+        string[] memory allKeys = this.keys();
+        uint256 length = allKeys.length;
 
-        // Mark session finished using registered keys
+        for (uint256 i; i < length; i++) {
+            string memory key = allKeys[i];
+            string memory ownershipKey = string.concat(key, ".ownershipModel");
+
+            if (!_has(ownershipKey)) continue;
+
+            string memory ownershipModel = _getString(ownershipKey);
+            if (LibString.eq(ownershipModel, "transfer-after-deploy")) {
+                address proxy = _get(key);
+
+                // Runtime ownership check - query current owner from blockchain
+                (bool success, bytes memory data) = proxy.staticcall(abi.encodeWithSignature("owner()"));
+                if (!success || data.length != 32) {
+                    // Contract doesn't support BaoOwnable, skip
+                    continue;
+                }
+
+                address currentOwner = abi.decode(data, (address));
+
+                // Check for configured owner for this specific proxy, fall back to global owner
+                string memory ownerKey = string.concat(key, ".owner");
+                address configuredOwner = _has(ownerKey) ? _getAddress(ownerKey) : globalOwner;
+
+                // Only transfer if current owner != configured owner
+                if (currentOwner != configuredOwner) {
+                    IBaoOwnable(proxy).transferOwnership(configuredOwner);
+                    _setString(ownershipKey, "transferred-after-deploy");
+                    ++transferred;
+                }
+            }
+        }
+
+        // Mark session finished
         _data.setUint(SESSION_FINISH_TIMESTAMP, block.timestamp);
         _data.setString(SESSION_FINISHED, _formatTimestamp(block.timestamp));
         _data.setUint(SESSION_FINISH_BLOCK, block.number);
@@ -346,6 +379,7 @@ abstract contract Deployment is DeploymentKeys {
         _setString(string.concat(proxyKey, ".category"), "UUPS proxy");
         _setString(string.concat(proxyKey, ".saltString"), _extractSaltString(proxyKey));
         _setString(string.concat(proxyKey, ".salt"), LibString.toHexString(uint256(salt)));
+        _setString(string.concat(proxyKey, ".ownershipModel"), "transfer-after-deploy");
     }
 
     /** @notice Upgrade existing proxy to new implementation
@@ -518,7 +552,6 @@ abstract contract Deployment is DeploymentKeys {
         address deployer
     ) private {
         _set(key, addr);
-        _setAddress(string.concat(key, ".address"), addr);
         _setString(string.concat(key, ".contractType"), contractType);
         _setString(string.concat(key, ".contractPath"), contractPath);
         _setAddress(string.concat(key, ".deployer"), deployer);
@@ -543,9 +576,7 @@ abstract contract Deployment is DeploymentKeys {
             revert LibraryDeploymentFailed(key);
         }
 
-        // TODO: fix these keys
         _set(key, addr);
-        _setAddress(string.concat(key, ".address"), addr);
         _setString(string.concat(key, ".category"), "library");
         _setString(string.concat(key, ".contractType"), contractType);
         _setString(string.concat(key, ".contractPath"), contractPath);

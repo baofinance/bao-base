@@ -9,6 +9,7 @@
     "startBlock": 1
   },
   "wstETH": {
+    "address": "0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0",
     "category": "existing"
   },
   "pegged": {
@@ -29,6 +30,7 @@
     "category": "UUPS proxy",
     "saltString": "oracle",
     "salt": "0xb0f42b2245a43e298e5c00cb351793e43c40184698a6d0478ef13d4727d8175e",
+    "ownershipModel": "transfer-after-deploy",
     "implementation": {
       "address": "0x7fdb3132ff7d02d8b9e221c61cc895ce9a4bb773",
       "contractType": "OracleV1",

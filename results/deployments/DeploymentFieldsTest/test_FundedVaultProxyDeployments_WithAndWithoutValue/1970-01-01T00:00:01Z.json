@@ -19,6 +19,7 @@
       "category": "UUPS proxy",
       "saltString": "vault_proxy_funded",
       "salt": "0x68fb9badbfea85b91f018ba2210e0d53eea101b84152bd46a6842d21a63b6ad0",
+      "ownershipModel": "transfer-after-deploy",
       "implementation": {
         "address": "0xddc10602782af652bb913f7bde1fd82981db7dd9",
         "contractType": "FundedVaultUUPS",
@@ -38,6 +39,7 @@
       "category": "UUPS proxy",
       "saltString": "vault_proxy_unfunded",
       "salt": "0x408f9b4cb82e55566200767d045794dca973236954f05ea1cf39c77d8819313a",
+      "ownershipModel": "transfer-after-deploy",
       "implementation": {
         "address": "0x7fdb3132ff7d02d8b9e221c61cc895ce9a4bb773",
         "contractType": "FundedVaultUUPS",

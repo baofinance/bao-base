@@ -58,7 +58,7 @@ contract DeploymentJsonTesting is DeploymentJson, DeploymentTesting {
     /// @dev Only has effect if enableManualSequencing() was called
     ///      Saves current state to current sequence file, then advances sequence number
     ///      This captures the current state before moving to the next sequence
-    function nextSequence() external {
+    function saveSequence() external {
         if (_manualSequencing && _sequenceNumber > 0) {
             // Save current state to current sequence file
             setFilename(string.concat(_baseFilename, ".op", _padZero(_sequenceNumber, 2)));

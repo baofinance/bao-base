@@ -34,6 +34,7 @@
     "category": "UUPS proxy",
     "saltString": "oracle",
     "salt": "0xb0f42b2245a43e298e5c00cb351793e43c40184698a6d0478ef13d4727d8175e",
+    "ownershipModel": "transfer-after-deploy",
     "implementation": {
       "address": "0xfd07c974e33dd1626640ba3a5acf0418faacca7a",
       "contractType": "OracleV1",
@@ -52,6 +53,7 @@
     "category": "UUPS proxy",
     "saltString": "minter",
     "salt": "0x6fdedd71c37c2f4efd9c98cd20d68fd9ac8d75e6a510bbfcb1962fd0f3de66b4",
+    "ownershipModel": "transfer-after-deploy",
     "implementation": {
       "address": "0xd76ffbd1eff76c510c3a509fe22864688ac3a588",
       "contractType": "MockMinter",

@@ -44,7 +44,11 @@ contract DeploymentDataJson is DeploymentDataMemory {
             if (_shouldSkipComposite(existingJson, pointer, expected)) {
                 continue;
             }
-            if (expected == DataType.CONTRACT || expected == DataType.ADDRESS) {
+            // Skip OBJECT type - it's a parent marker with no value
+            if (expected == DataType.OBJECT) {
+                continue;
+            }
+            if (expected == DataType.ADDRESS) {
                 _writeAddress(key, existingJson.readAddress(pointer), expected);
             } else if (expected == DataType.STRING) {
                 _writeString(key, existingJson.readString(pointer), expected);
@@ -100,8 +104,11 @@ contract DeploymentDataJson is DeploymentDataMemory {
                 }
                 current = child;
             }
-            nodes[current].hasValue = true;
-            nodes[current].valueJson = _encodeValue(key, _types[key]);
+            // OBJECT type nodes are parent markers with no value
+            if (_types[key] != DataType.OBJECT) {
+                nodes[current].hasValue = true;
+                nodes[current].valueJson = _encodeValue(key, _types[key]);
+            }
         }
 
         return _renderNode(0, nodes, nodeCount);
@@ -178,7 +185,11 @@ contract DeploymentDataJson is DeploymentDataMemory {
     }
 
     function _encodeValue(string memory key, DataType valueType) private returns (string memory) {
-        if (valueType == DataType.CONTRACT || valueType == DataType.ADDRESS) {
+        // Skip OBJECT type - it's a parent marker with no value
+        if (valueType == DataType.OBJECT) {
+            return "";
+        }
+        if (valueType == DataType.ADDRESS) {
             return _encodeAddressValue(_addresses[key]);
         }
         if (valueType == DataType.STRING) {

@@ -10,12 +10,15 @@
   },
   "contracts": {
     "Contract1": {
+      "address": "0x0000000000000000000000000000000000000001",
       "category": "existing"
     },
     "Contract2": {
+      "address": "0x0000000000000000000000000000000000000002",
       "category": "existing"
     },
     "Contract3": {
+      "address": "0x0000000000000000000000000000000000000003",
       "category": "existing"
     }
   }
