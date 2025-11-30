@@ -4,38 +4,39 @@ This document describes the bao-base deployment framework architecture, showing 
 
 ## Use Cases
 
-There are three deployment class chains, each for a specific use case:
+There are three deployment class chains, each for a specific use case. The base classes are abstract; downstream concrete classes provide environment-specific behavior.
 
-| Use Case                | Base Class              | Concrete         | Storage   | Public Setters | BaoDeployer                                   |
-| ----------------------- | ----------------------- | ---------------- | --------- | -------------- | --------------------------------------------- |
-| **Production**          | `DeploymentJson`        | HarborDeployment | JSON file | No             | Fixed hex bytecode, production operator check |
-| **Testing with JSON**   | `DeploymentJsonTesting` | (is concrete)    | JSON file | Yes            | Compiled bytecode, vm.prank operator          |
-| **Testing memory-only** | `DeploymentTesting`     | (is concrete)    | In-memory | Yes            | Compiled bytecode, vm.prank operator          |
+| Use Case                | Base Class                            | Concrete Example             | Storage   | Public Setters     | BaoDeployer Path                                  |
+| ----------------------- | ------------------------------------- | ---------------------------- | --------- | ------------------ | ------------------------------------------------- |
+| **Production**          | `DeploymentJsonBase`                  | `DeploymentJsonProduction`\* | JSON file | No (config-driven) | Fixed hex bytecode + multisig-configured operator |
+| **Testing with JSON**   | `DeploymentJsonBase`                  | `DeploymentJsonTesting`      | JSON file | Yes                | Compiled bytecode + vm.prank operator (mixin)     |
+| **Testing memory-only** | `DeploymentDataMemory` → `Deployment` | `DeploymentTesting`          | In-memory | Yes                | Compiled bytecode + vm.prank operator (mixin)     |
+
+\*Downstream projects (e.g. Harbor) inherit from `DeploymentJsonProduction` to inject protocol-specific keys while keeping production guardrails.
 
 ### Production vs Testing: BaoDeployer Differences
 
-**BaoDeployer Bytecode:**
+**BaoDeployer Bytecode (`_baoDeployerCreationCode()` hook):**
 
-- **Testing:** Uses `type(BaoDeployer).creationCode` - compiled from source during tests
-- **Production:** Should use fixed hex bytecode to ensure deploying exactly what was audited
+- **Testing implementations** return `type(BaoDeployer).creationCode`
+- **Production implementation** returns a fixed hex literal that never changes unless the audited artifact changes
 
-**BaoDeployer Operator:**
+**BaoDeployer Operator (`_setUpBaoDeployerOperator()` hook):**
 
-- **Testing:** Uses vm.prank to set `address(this)` as operator
-- **Production:** Verifies operator is already set (done by multisig transaction)
+- **Testing implementations** call the `BaoDeployerSetOperator` mixin which uses vm.prank to set `address(this)` as operator
+- **Production implementation** simply asserts the operator is already configured by the multisig (no prank, no writes)
 
-### Production (`DeploymentJson` - abstract)
+### Production (`DeploymentJsonBase` + `DeploymentJsonProduction`)
 
-- Persists deployment state to JSON files
-- No public setters - all configuration comes from loading existing JSON files
-- Production deployment flow: load config → deploy → save results
-- **Abstract functions downstream must implement:**
-  - `_ensureBaoDeployerOperator()` - verify operator is set by multisig
-  - Optionally override `DeploymentInfrastructure` to use fixed hex bytecode
+- `DeploymentJsonBase` handles persistence (file paths, serialization) and inherits storage from `Deployment`
+- `DeploymentJsonProduction` is the smallest concrete class that:
+  - verifies BaoDeployer operator via `_setUpBaoDeployerOperator()` (no vm.prank, only assertions)
+  - overrides `_baoDeployerCreationCode()` to return the audited hex literal
+- All production field changes must come from the initial JSON config loaded in `start()`; there is no public setter surface on this path.
+- Downstream projects extend `DeploymentJsonProduction` to add domain-specific keys and workflows
 
 ### Testing with JSON (`DeploymentJsonTesting` - concrete)
 
-- Persists deployment state to JSON files (in test output directory)
 - Public setters for test setup (inherited from `DeploymentDataMemory`)
 - Sequencing support for capturing deployment phases
 - Uses `BaoDeployerSetOperator` mixin for vm.prank setup
@@ -50,57 +51,38 @@ There are three deployment class chains, each for a specific use case:
 
 1. **Linear core inheritance** - The main chain is strictly linear to avoid diamond inheritance issues
 2. **Single override per virtual** - Each virtual function is overridden on exactly one path to any concrete class
-3. **Visibility control via inheritance** - `DeploymentJson` makes setters internal; testing variants inherit public setters
+3. **Visibility control via inheritance** - `DeploymentJsonBase` makes setters call the persistence hook; testing variants inherit the external surface
 
-## Core Inheritance Hierarchy
+Solidity’s C3 linearization lets us stack multiple bases as long as every override order stays consistent. The requirement here is not “perfectly linear inheritance” but “no conflicting overrides of the same virtual function on any path,” so we focus on avoiding true diamond override patterns rather than banning multiple inheritance entirely.
+
+### Public Setter Surface
+
+- `DeploymentDataMemory.sol` owns storage and the internal `_write*` helpers.
+- `DeploymentWritable.sol` extends `Deployment` and re-exposes the `external` getters/setters while still calling `_afterValueChanged()` so persistence hooks run.
+- **Production path:** `DeploymentJsonProduction` and downstream prod harnesses inherit `Deployment` directly, skipping `DeploymentWritable`, so they have no publicly callable setters. All field changes come from the JSON config at `start()` or high-level functions like `deployProxy()` that use the internal writers.
+- **Testing paths:** `DeploymentTesting` and `DeploymentJsonTesting` inherit `DeploymentWritable`, so fuzzing and fixtures keep the public surface (plus sequencing/operator mixins).
+- Read-only views (`get*`) remain universally accessible through `Deployment`’s interface so scripts can inspect deployment state without mutability.
 
 ```mermaid
 flowchart TB
     classDef abstract fill:#fff3e0,stroke:#f57c00,color:#e65100,stroke-width:2px;
     classDef concrete fill:#e8f5e9,stroke:#388e3c,color:#1b5e20,stroke-width:2px;
     classDef mixin fill:#e1bee7,stroke:#7b1fa2,color:#4a148c,stroke-width:1px,stroke-dasharray:5,5;
-    classDef interface fill:#e3f2fd,stroke:#1976d2,color:#0d47a1,stroke-width:1px,stroke-dasharray:5,5;
 
-    subgraph legend["Legend"]
-        L1["Abstract Class"]:::abstract
-        L2["Concrete Class"]:::concrete
-        L3["Mixin"]:::mixin
-        L4["Interface"]:::interface
-    end
+    DK["DeploymentKeys<br>(schema definitions)"]:::abstract --> DDM["DeploymentDataMemory<br>(storage + internal writers)"]:::abstract --> D["Deployment<br>hooks defined:<br>_setUpBaoDeployerOperator (abstract)<br>_baoDeployerCreationCode (abstract)<br>_afterValueChanged (virtual)"]:::abstract
 
-    subgraph core["Abstract Classes"]
-        DK["DeploymentKeys<br/><i>Key registry, schema validation</i><br/><br/><b>Defines:</b><br/>• addContract(), addKey(), etc."]:::abstract
+    D --> DW["DeploymentWritable<br>re-exposes public setters/getters"]:::abstract
+    D --> DJB["DeploymentJsonBase<br>JSON IO + persistence<br>Overrides _afterValueChanged -> save()<br>Leaves other hooks abstract"]:::abstract
 
-        DDM["DeploymentDataMemory<br/><i>In-memory storage maps</i><br/><br/><b>Implements:</b> IDeploymentDataWritable<br/><b>Declares virtual:</b><br/>• get/set*(key) - external"]:::abstract
+    DW --> DT["DeploymentTesting<br>Overrides:<br>_setUpBaoDeployerOperator via mixin<br>_baoDeployerCreationCode = compiled bytecode<br>_afterValueChanged = no-op"]:::concrete
+    DJB --> DJP["DeploymentJsonProduction<br>Overrides:<br>_setUpBaoDeployerOperator = assert-only<br>_baoDeployerCreationCode = fixed hex<br>_afterValueChanged persists config"]:::concrete
 
-        D["Deployment<br/><i>Core deployment operations</i><br/><br/><b>Declares abstract:</b><br/>• _ensureBaoDeployerOperator()<br/>• _afterValueChanged(key)<br/><br/><b>Declares virtual:</b><br/>• start(), finish()<br/>• _deriveSystemSalt()"]:::abstract
+    %% Multiple inheritance order: DeploymentJsonTesting is DeploymentWritable, DeploymentJsonBase
+    DW --> DJT
+    DJB --> DJT["DeploymentJsonTesting<br>Overrides:<br>_setUpBaoDeployerOperator via mixin<br>_baoDeployerCreationCode = compiled bytecode<br>_afterValueChanged = sequencing + save"]:::concrete
 
-        DJ["DeploymentJson<br/><i>JSON persistence, production base</i><br/><br/><b>Overrides:</b><br/>• _afterValueChanged() → save()<br/>• set*(key, value) → adds hook call<br/>• start() → load JSON first<br/><br/><b>Declares virtual:</b><br/>• _getPrefix(), _getFilename()<br/><br/><b>Still abstract:</b><br/>• _ensureBaoDeployerOperator()"]:::abstract
-    end
-
-    subgraph mixins["Mixins"]
-        BDSO["BaoDeployerSetOperator<br/><i>vm.prank operator setup</i><br/><br/><b>Provides:</b><br/>• _setUpBaoDeployerOperator()"]:::mixin
-    end
-
-    subgraph concretes["Concrete Classes"]
-        DT["DeploymentTesting<br/><i>Memory-only testing</i><br/><br/><b>Inherits:</b> Deployment, BaoDeployerSetOperator<br/><br/><b>Overrides:</b><br/>• _ensureBaoDeployerOperator() → mixin<br/>• _afterValueChanged() → no-op<br/><br/><b>Adds:</b><br/>• setContractAddress() - test helper"]:::concrete
-
-        DJT["DeploymentJsonTesting<br/><i>JSON + testing features</i><br/><br/><b>Inherits:</b> DeploymentJson, BaoDeployerSetOperator<br/><br/><b>Overrides:</b><br/>• _ensureBaoDeployerOperator() → mixin<br/>• _getPrefix() → results/<br/>• _afterValueChanged() → sequencing<br/><br/><b>Adds:</b><br/>• setContractAddress() - test helper<br/>• enableSequencing() - phase capture"]:::concrete
-    end
-
-    IW["IDeploymentDataWritable<br/><i>External getter/setter interface</i>"]:::interface
-
-    DK --> DDM
-    DDM --> D
-    IW -.->|implements| DDM
-    D --> DJ
-    D --> DT
-    DJ --> DJT
-    BDSO -.->|mixes into| DT
-    BDSO -.->|mixes into| DJT
-
-    class DK,DDM,D,DJ abstract
-    class DT,DJT concrete
+    BDSO["BaoDeployerSetOperator<br>implements _setUpBaoDeployerOperator via vm.prank"]:::mixin -.-> DT
+    BDSO -.-> DJT
 ```
 
 ## Virtual Function Override Paths
@@ -109,90 +91,88 @@ Each virtual function has exactly one override on the path to each concrete clas
 
 ### From `Deployment` (abstract functions)
 
-| Function                       | Purpose                        | DeploymentJson     | DeploymentTesting | DeploymentJsonTesting |
-| ------------------------------ | ------------------------------ | ------------------ | ----------------- | --------------------- |
-| `_ensureBaoDeployerOperator()` | Set up BaoDeployer for CREATE3 | **still abstract** | mixin (vm.prank)  | mixin (vm.prank)      |
-| `_afterValueChanged(key)`      | Hook after value write         | save()             | no-op             | sequencing + super    |
+| Function                        | Purpose                     | DeploymentJsonBase | DeploymentTesting | DeploymentJsonProduction | DeploymentJsonTesting |
+| ------------------------------- | --------------------------- | ------------------ | ----------------- | ------------------------ | --------------------- |
+| `_setUpBaoDeployerOperator()`\* | Configure/verify operator   | **abstract hook**  | vm.prank mixin    | assert-only (no writes)  | vm.prank mixin        |
+| `_baoDeployerCreationCode()`\*  | Return BaoDeployer bytecode | **abstract hook**  | compiled bytecode | fixed hex literal        | compiled bytecode     |
+| `_afterValueChanged(key)`       | Hook after value write      | save()             | no-op             | inherited                | sequencing + super    |
+
+\*Implementations call these hooks from within `Deployment` lifecycle methods; having both hooks ensures production/test parity without diamonds.
 
 ### From `Deployment` (virtual functions with default impl)
 
-| Function              | Default            | DeploymentJson              | DeploymentTesting | DeploymentJsonTesting           |
-| --------------------- | ------------------ | --------------------------- | ----------------- | ------------------------------- |
-| `start()`             | Set session state  | Load JSON first, then super | _inherited_       | _inherited from DeploymentJson_ |
-| `finish()`            | Transfer ownership | _inherited_                 | _inherited_       | _inherited_                     |
-| `_deriveSystemSalt()` | Return system salt | _inherited_                 | _inherited_       | _inherited_                     |
+| Function | Default | DeploymentJsonBase | DeploymentTesting | DeploymentJsonProduction | DeploymentJsonTesting |
+| `start()` | Set session state | Load JSON first, then super | _inherited_ | _inherited_ | _inherited_ |
+| `finish()` | Transfer ownership | _inherited_ | _inherited_ | _inherited_ | _inherited_ |
+| `_deriveSystemSalt()` | Return system salt | _inherited_ | _inherited_ | _inherited_ | _inherited_ |
 
 ### From `DeploymentDataMemory` (virtual external, implements interface)
 
-| Function                 | Visibility | DeploymentJson      | DeploymentTesting | DeploymentJsonTesting           |
-| ------------------------ | ---------- | ------------------- | ----------------- | ------------------------------- |
-| `get(key)`               | external   | _inherited_         | _inherited_       | _inherited_                     |
-| `getAddress(key)`        | external   | _inherited_         | _inherited_       | _inherited_                     |
-| `setAddress(key, value)` | external   | override: adds hook | _inherited_       | _inherited from DeploymentJson_ |
-| _(all other setters)_    | external   | override: adds hook | _inherited_       | _inherited from DeploymentJson_ |
+| Function                 | Visibility | DeploymentJsonBase  | DeploymentTesting | DeploymentJsonProduction | DeploymentJsonTesting |
+| ------------------------ | ---------- | ------------------- | ----------------- | ------------------------ | --------------------- |
+| `get(key)`               | external   | _inherited_         | _inherited_       | _inherited_              | _inherited_           |
+| `getAddress(key)`        | external   | _inherited_         | _inherited_       | _inherited_              | _inherited_           |
+| `setAddress(key, value)` | external   | override: adds hook | _inherited_       | inherited                | inherited             |
+| _(all other setters)_    | external   | override: adds hook | _inherited_       | inherited                | inherited             |
 
-### From `DeploymentJson` (virtual functions)
+### From `DeploymentJsonBase` (virtual functions)
 
-| Function               | Default     | DeploymentJsonTesting   |
-| ---------------------- | ----------- | ----------------------- |
-| `_getPrefix()`         | "." (cwd)   | "results" or env var    |
-| `_getFilename()`       | `_filename` | Override for sequencing |
-| `_afterValueChanged()` | save()      | sequencing + super      |
+| Function               | Default     | DeploymentJsonProduction | DeploymentJsonTesting   |
+| ---------------------- | ----------- | ------------------------ | ----------------------- |
+| `_getPrefix()`         | "." (cwd)   | inherited                | "results" or env var    |
+| `_getFilename()`       | `_filename` | inherited                | Override for sequencing |
+| `_afterValueChanged()` | save()      | inherited                | sequencing + super      |
 
 ## No Diamond Inheritance
 
 With this design, there are no diamonds. The mixin is used only for the abstract function implementation:
 
 ```
-                           BaoDeployerSetOperator (mixin)
-                                      │
-                     ┌────────────────┼────────────────┐
-                     │                │                │
-DeploymentKeys → DeploymentDataMemory → Deployment     │
-                                            │          │
-               ┌────────────────────────────┼──────────┤
-               │                            │          │
-               ▼                            ▼          │
-    DeploymentTesting (concrete)     DeploymentJson    │
-                                       (abstract)      │
-                                            │          │
-                                            ▼          │
-                                DeploymentJsonTesting ─┘
-                                     (concrete)
+DeploymentKeys → DeploymentDataMemory → Deployment
+                        │                │
+                        │                ├─────────→ DeploymentJsonBase (abstract)
+                        │                                      │
+                        │                                      ├→ DeploymentJsonProduction (concrete)
+                        │                                      └→ DeploymentJsonTesting (concrete)
+                        │                                                         ▲
+                        │                                                         ║ (BaoDeployerSetOperator mixin)
+                        └────────────→ DeploymentTesting (concrete) ───────────────┘
 ```
 
-Each concrete class has exactly one path from `Deployment`, and the mixin provides `_ensureBaoDeployerOperator()` without creating a diamond (it has no shared base with the main chain).
+Only testing classes consume the vm.prank mixin; production stays on the linear chain with no additional inheritance edges.
 
 ## File Layout
 
 ```
 script/deployment/
-├── DeploymentKeys.sol              # Key registry (abstract)
-├── DeploymentDataMemory.sol        # Storage layer (abstract, extends Keys)
-├── Deployment.sol                  # Core operations (abstract, extends DataMemory)
-├── DeploymentJson.sol              # JSON persistence (abstract, extends Deployment)
-├── DeploymentTesting.sol           # Concrete: Memory-only testing
-├── DeploymentJsonTesting.sol       # Concrete: JSON + Testing (extends DeploymentJson)
-├── BaoDeployerSetOperator.sol      # Mixin: vm.prank operator setup for testing
-└── BaoDeployer.sol                 # CREATE3 factory
+├── DeploymentKeys.sol               # Schema definitions (abstract)
+├── DeploymentDataMemory.sol         # Storage layer + internal writers (abstract)
+├── DeploymentWritable.sol           # Public setter surface (inherits Deployment)
+├── Deployment.sol                   # Core operations + hooks (abstract)
+├── DeploymentJsonBase.sol           # JSON persistence base (abstract)
+├── DeploymentJsonProduction.sol     # Concrete production JSON deployment (new)
+├── DeploymentTesting.sol            # Concrete: Memory-only testing
+├── DeploymentJsonTesting.sol        # Concrete: JSON + Testing (extends base)
+├── BaoDeployerSetOperator.sol       # Mixin: vm.prank operator setup for testing
+└── BaoDeployer.sol                  # CREATE3 factory
 ```
 
 ## Downstream Usage (Harbor example)
 
 ```mermaid
-flowchart TB
+flowchart LR
     classDef baobase fill:#e3f2fd,stroke:#1976d2,color:#0d47a1;
     classDef harbor fill:#fff3e0,stroke:#f57c00,color:#e65100;
     classDef usage fill:#e8f5e9,stroke:#388e3c,color:#1b5e20;
 
     subgraph baobase["bao-base"]
-        DeploymentJson["DeploymentJson<br/><i>(abstract)</i>"]
-        DeploymentJsonTesting["DeploymentJsonTesting<br/><i>(concrete)</i>"]
+        DJP["DeploymentJsonProduction"]
+        DJT["DeploymentJsonTesting"]
     end
 
     subgraph harbor["harbor"]
-        HarborDeployment["HarborDeployment<br/><i>Harbor-specific keys & operations</i><br/><i>Implements _ensureBaoDeployerOperator()</i>"]
-        HarborDeploymentTesting["HarborDeploymentTesting<br/><i>Extends DeploymentJsonTesting</i><br/><i>Harbor-specific keys</i>"]
+        HarborProd["HarborDeployment<br/><small>extends DeploymentJsonProduction</small>"]
+        HarborTest["HarborDeploymentTesting<br/><small>extends DeploymentJsonTesting</small>"]
     end
 
     subgraph usage["Usage"]
@@ -200,21 +180,22 @@ flowchart TB
         TestSuite[["test/*.t.sol"]]
     end
 
-    DeploymentJson --> HarborDeployment
-    DeploymentJsonTesting --> HarborDeploymentTesting
+    DJP --> HarborProd
+    DJT --> HarborTest
 
-    HarborDeployment -.-> ProdScript
-    HarborDeploymentTesting -.-> TestSuite
+    HarborProd -.-> ProdScript
+    HarborTest -.-> TestSuite
 
-    class DeploymentJson,DeploymentJsonTesting baobase
-    class HarborDeployment,HarborDeploymentTesting harbor
+    class DJP,DJT baobase
+    class HarborProd,HarborTest harbor
     class ProdScript,TestSuite usage
 ```
 
 ## Key Design Decisions
 
 1. **Merged data storage into inheritance chain** - No separate data layer instance via `_data` pointer
-2. **Abstract production base** - `DeploymentJson` is abstract; downstream projects implement `_ensureBaoDeployerOperator()`
-3. **Mixin for testing** - `BaoDeployerSetOperator` provides vm.prank setup without creating diamond inheritance
-4. **Visibility control via override** - `DeploymentJson` overrides setters to add persistence hook; testing classes inherit public setters from `DeploymentDataMemory`
-5. **No diamonds** - Linear paths from `Deployment` to each class; mixin has no shared base with main chain
+2. **Abstract production base** - `DeploymentJsonBase` is abstract; concrete production/testing classes implement the hooks differently
+3. **Testing-only setter layer** - `DeploymentWritable` extends `Deployment` to reintroduce public setters/getters for tests while production omits it entirely
+4. **Visibility control via override** - `_afterValueChanged` persists JSON in production, sequencing in tests; public writes only exist on the testing chain
+5. **Config-driven production writes** - Production harness loads its entire mutable state from the JSON config in `start()` plus high-level deployment methods; there is no field-level mutability afterward
+6. **C3-compliant inheritance** - Multiple inheritance is allowed (e.g., `DeploymentJsonTesting` is `DeploymentWritable, DeploymentJsonBase`) but override order never forms a conflicting diamond
