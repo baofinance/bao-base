@@ -411,7 +411,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
 
         // Upgrade proxy to V2 using deployment system (harness is owner)
         deployment.upgradeProxy(
-            "Counter",
+            "contracts.Counter",
             address(v2Impl),
             "",
             "CounterV2",
@@ -483,7 +483,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         CounterV2 v2Impl = new CounterV2();
 
         deployment.upgradeProxy(
-            "Counter",
+            "contracts.Counter",
             address(v2Impl),
             "",
             "CounterV2",
@@ -504,7 +504,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         // Downgrade back to V1
         CounterV1 v1ImplNew = new CounterV1();
         deployment.upgradeProxy(
-            "Counter",
+            "contracts.Counter",
             address(v1ImplNew),
             "",
             "CounterV1",
