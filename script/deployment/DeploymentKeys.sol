@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {LibString} from "@solady/utils/LibString.sol";
+
 /**
  * @title DataType
  * @notice Enum for deployment data types
@@ -52,6 +54,7 @@ abstract contract DeploymentKeys {
     error TypeMismatch(string key, DataType expectedType, DataType actualType);
     error KeyNotRegistered(string key);
     error ParentContractNotRegistered(string key, string parentKey);
+    error ContractKeyMustStartWithContracts(string key);
 
     // ============ Constructor ============
 
@@ -253,6 +256,7 @@ abstract contract DeploymentKeys {
      * @param key The full contract key (e.g., "contracts.pegged")
      */
     function addProxy(string memory key) public {
+        _requireContractsPrefix(key);
         _addImplementation(key);
         _registerKey(string.concat(key, ".category"), DataType.STRING);
         _registerKey(string.concat(key, ".factory"), DataType.ADDRESS);
@@ -277,12 +281,13 @@ abstract contract DeploymentKeys {
      */
     // TODO: do we need this - shouln't all contracts be predictable?
     function addContract(string memory key) public {
+        _requireContractsPrefix(key);
         _addImplementation(key);
         _registerKey(string.concat(key, ".category"), DataType.STRING);
     }
 
     function addPredictableContract(string memory key) public {
-        addContract(key);
+        addContract(key); // addContract already validates prefix
         _registerKey(string.concat(key, ".value"), DataType.UINT);
     }
 
@@ -421,6 +426,17 @@ abstract contract DeploymentKeys {
             if (keyBytes[i] == 0x2E) return true; // '.'
         }
         return false;
+    }
+
+    /**
+     * @notice Require key starts with "contracts." prefix
+     * @dev All contract/proxy keys must be under the contracts namespace
+     * @param key The key to validate
+     */
+    function _requireContractsPrefix(string memory key) private pure {
+        if (!LibString.startsWith(key, "contracts.")) {
+            revert ContractKeyMustStartWithContracts(key);
+        }
     }
 
     /**

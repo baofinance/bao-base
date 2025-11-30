@@ -9,33 +9,33 @@ contract DeploymentConfigParameterBagTestHarness is DeploymentMemoryTesting {
     constructor() {
         // Register all keys that will be used in the test
         // Register parent keys first
-        addContract("pegged");
-        addContract("collateral");
-        addContract("minter");
-        addContract("minter.bands");
-        addContract("minter.ratios");
+        addContract("contracts.pegged");
+        addContract("contracts.collateral");
+        addContract("contracts.minter");
+        addContract("contracts.minter.bands");
+        addContract("contracts.minter.ratios");
 
         // Then register nested keys
-        addStringKey("pegged.name");
-        addStringKey("pegged.symbol");
-        addUintKey("pegged.decimals");
-        addContract("collateral"); // collateral is actually a contract key
-        addUintKey("minter.bands.0");
-        addUintKey("minter.bands.1");
-        addIntKey("minter.ratios.0");
-        addUintKey("minter.ratios.1");
+        addStringKey("contracts.pegged.name");
+        addStringKey("contracts.pegged.symbol");
+        addUintKey("contracts.pegged.decimals");
+        addContract("contracts.collateral"); // collateral is actually a contract key
+        addUintKey("contracts.minter.bands.0");
+        addUintKey("contracts.minter.bands.1");
+        addIntKey("contracts.minter.ratios.0");
+        addUintKey("contracts.minter.ratios.1");
     }
 
     function populateTestData() external {
         // Populate test data after start() is called
-        setString("pegged.name", "Bao USD");
-        setString("pegged.symbol", "BAOUSD");
-        setUint("pegged.decimals", 18);
-        setContractAddress("collateral", 0x0000000000000000000000000000000000000002);
-        setUint("minter.bands.0", 100);
-        setUint("minter.bands.1", 200);
-        setInt("minter.ratios.0", -1);
-        setUint("minter.ratios.1", 2);
+        setString("contracts.pegged.name", "Bao USD");
+        setString("contracts.pegged.symbol", "BAOUSD");
+        setUint("contracts.pegged.decimals", 18);
+        setContractAddress("contracts.collateral", 0x0000000000000000000000000000000000000002);
+        setUint("contracts.minter.bands.0", 100);
+        setUint("contracts.minter.bands.1", 200);
+        setInt("contracts.minter.ratios.0", -1);
+        setUint("contracts.minter.ratios.1", 2);
     }
 }
 
@@ -53,16 +53,19 @@ contract DeploymentConfigParameterBagTest is BaoDeploymentTest {
         deployment.start("testnet", "test-salt", "");
         deployment.populateTestData();
 
-        assertEq(deployment.getString("pegged.name"), "Bao USD");
-        assertEq(deployment.getString("pegged.symbol"), "BAOUSD");
-        assertEq(deployment.getUint("pegged.decimals"), 18);
+        assertEq(deployment.getString("contracts.pegged.name"), "Bao USD");
+        assertEq(deployment.getString("contracts.pegged.symbol"), "BAOUSD");
+        assertEq(deployment.getUint("contracts.pegged.decimals"), 18);
 
-        assertEq(deployment.getAddress("collateral.address"), address(0x0000000000000000000000000000000000000002));
+        assertEq(
+            deployment.getAddress("contracts.collateral.address"),
+            address(0x0000000000000000000000000000000000000002)
+        );
 
-        assertEq(deployment.getUint("minter.bands.0"), 100);
-        assertEq(deployment.getUint("minter.bands.1"), 200);
-        assertEq(deployment.getInt("minter.ratios.0"), -1);
-        assertEq(deployment.getUint("minter.ratios.1"), 2);
+        assertEq(deployment.getUint("contracts.minter.bands.0"), 100);
+        assertEq(deployment.getUint("contracts.minter.bands.1"), 200);
+        assertEq(deployment.getInt("contracts.minter.ratios.0"), -1);
+        assertEq(deployment.getUint("contracts.minter.ratios.1"), 2);
 
         vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, "owner"));
         deployment.getString("owner");

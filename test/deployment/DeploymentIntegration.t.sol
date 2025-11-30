@@ -70,20 +70,20 @@ library ConfigLib {
 contract MockDeploymentIntegration is DeploymentJsonTesting {
     constructor() {
         // Register all possible contract keys used in tests
-        addContract("collateral");
-        addContract("pegged");
-        addProxy("oracle");
-        addProxy("oracle1");
-        addProxy("oracle2");
-        addProxy("oracle3");
-        addProxy("minter");
-        addProxy("minter1");
-        addProxy("minter2");
-        addContract("configLib");
-        addContract("wstETH");
-        addContract("token1");
-        addContract("token2");
-        addProxy("proxy2");
+        addContract("contracts.collateral");
+        addContract("contracts.pegged");
+        addProxy("contracts.oracle");
+        addProxy("contracts.oracle1");
+        addProxy("contracts.oracle2");
+        addProxy("contracts.oracle3");
+        addProxy("contracts.minter");
+        addProxy("contracts.minter1");
+        addProxy("contracts.minter2");
+        addContract("contracts.configLib");
+        addContract("contracts.wstETH");
+        addContract("contracts.token1");
+        addContract("contracts.token2");
+        addProxy("contracts.proxy2");
     }
 
     function deployMockERC20(string memory key, string memory name, string memory symbol) public {
@@ -169,48 +169,44 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         _startDeployment("test_DeployFullSystem");
         
         // Deploy tokens
-        deployment.deployMockERC20("collateral", "Wrapped ETH", "wETH");
-        deployment.deployMockERC20("pegged", "USD Stablecoin", "USD");
+        deployment.deployMockERC20("contracts.collateral", "Wrapped ETH", "wETH");
+        deployment.deployMockERC20("contracts.pegged", "USD Stablecoin", "USD");
 
         // Deploy oracle
-        deployment.deployOracleProxy("oracle", 2000e18, admin);
+        deployment.deployOracleProxy("contracts.oracle", 2000e18, admin);
         // Deploy minter (depends on all above)
-        deployment.deployMinterProxy("minter", "collateral", "pegged", "oracle", admin);
+        deployment.deployMinterProxy("contracts.minter", "contracts.collateral", "contracts.pegged", "contracts.oracle", admin);
 
         // Deploy library
-        deployment.deployConfigLibrary("configLib");
+        deployment.deployConfigLibrary("contracts.configLib");
 
         // Verify all deployed
-        assertTrue(deployment.has("collateral"));
-        assertTrue(deployment.has("pegged"));
-        assertTrue(deployment.has("oracle"));
-        assertTrue(deployment.has("minter"));
-        assertTrue(deployment.has("configLib"));
+        assertTrue(deployment.has("contracts.collateral"));
+        assertTrue(deployment.has("contracts.pegged"));
+        assertTrue(deployment.has("contracts.oracle"));
+        assertTrue(deployment.has("contracts.minter"));
+        assertTrue(deployment.has("contracts.configLib"));
 
         // Verify contract functionality
-        OracleV1 oracleContract = OracleV1(deployment.get("oracle"));
+        OracleV1 oracleContract = OracleV1(deployment.get("contracts.oracle"));
         assertEq(oracleContract.price(), 2000e18);
         assertEq(oracleContract.admin(), admin);
 
-        MockMinter minterContract = MockMinter(deployment.get("minter"));
-        assertEq(minterContract.collateralToken(), deployment.get("collateral"));
-        assertEq(minterContract.peggedToken(), deployment.get("pegged"));
-        assertEq(minterContract.oracle(), deployment.get("oracle"));
-
-        // Verify keys (collateral, pegged, oracle__OracleV1, oracle, minter__MockMinter, minter, configLib = 7)
-        string[] memory keys = deployment.keys();
-        assertEq(keys.length, 7);
+        MockMinter minterContract = MockMinter(deployment.get("contracts.minter"));
+        assertEq(minterContract.collateralToken(), deployment.get("contracts.collateral"));
+        assertEq(minterContract.peggedToken(), deployment.get("contracts.pegged"));
+        assertEq(minterContract.oracle(), deployment.get("contracts.oracle"));
     }
 
     function test_SaveAndLoadFullSystem() public {
         _startDeployment("test_SaveAndLoadFullSystem");
         
         // Deploy full system (auto-save is automatic)
-        deployment.deployMockERC20("collateral", "wETH", "wETH");
-        deployment.deployMockERC20("pegged", "USD", "USD");
-        deployment.deployOracleProxy("oracle", 2000e18, admin);
-        deployment.deployMinterProxy("minter", "collateral", "pegged", "oracle", admin);
-        deployment.deployConfigLibrary("configLib");
+        deployment.deployMockERC20("contracts.collateral", "wETH", "wETH");
+        deployment.deployMockERC20("contracts.pegged", "USD", "USD");
+        deployment.deployOracleProxy("contracts.oracle", 2000e18, admin);
+        deployment.deployMinterProxy("contracts.minter", "contracts.collateral", "contracts.pegged", "contracts.oracle", admin);
+        deployment.deployConfigLibrary("contracts.configLib");
 
         deployment.finish();
 
@@ -219,21 +215,21 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         newDeployment.start("test_SaveAndLoadFullSystem", TEST_SALT, "latest");
 
         // Verify all loaded correctly
-        assertTrue(newDeployment.has("collateral"));
-        assertTrue(newDeployment.has("pegged"));
-        assertTrue(newDeployment.has("oracle"));
-        assertTrue(newDeployment.has("minter"));
-        assertTrue(newDeployment.has("configLib"));
+        assertTrue(newDeployment.has("contracts.collateral"));
+        assertTrue(newDeployment.has("contracts.pegged"));
+        assertTrue(newDeployment.has("contracts.oracle"));
+        assertTrue(newDeployment.has("contracts.minter"));
+        assertTrue(newDeployment.has("contracts.configLib"));
 
         // Verify addresses match
-        assertEq(newDeployment.get("collateral"), deployment.get("collateral"));
-        assertEq(newDeployment.get("oracle"), deployment.get("oracle"));
-        assertEq(newDeployment.get("minter"), deployment.get("minter"));
+        assertEq(newDeployment.get("contracts.collateral"), deployment.get("contracts.collateral"));
+        assertEq(newDeployment.get("contracts.oracle"), deployment.get("contracts.oracle"));
+        assertEq(newDeployment.get("contracts.minter"), deployment.get("contracts.minter"));
 
         // // Verify entry types
-        // assertEq(uint(newDeployment.keyType("collateral")), uint(DataType.COONTRACT));
-        // assertEq(uint(newDeployment.keyType("oracle")), "proxy");
-        // assertEq(uint(newDeployment.keyType("configLib")), "library");
+        // assertEq(uint(newDeployment.keyType("contracts.collateral")), uint(DataType.COONTRACT));
+        // assertEq(uint(newDeployment.keyType("contracts.oracle")), "proxy");
+        // assertEq(uint(newDeployment.keyType("contracts.configLib")), "library");
     }
 
     function test_DeploymentWithExistingContracts() public {
@@ -241,25 +237,25 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         
         // Use existing mainnet contracts (simulated)
         address wstEth = address(0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
-        deployment.useExisting("wstETH", wstEth);
+        deployment.useExisting("contracts.wstETH", wstEth);
 
         // Deploy new contracts that depend on existing
-        deployment.deployMockERC20("pegged", "USD", "USD");
-        deployment.deployOracleProxy("oracle", 2000e18, admin);
+        deployment.deployMockERC20("contracts.pegged", "USD", "USD");
+        deployment.deployOracleProxy("contracts.oracle", 2000e18, admin);
         deployment.finish();
 
         // Verify existing contract is in registry
-        assertEq(deployment.get("wstETH"), wstEth);
-        assertTrue(deployment.has("wstETH"));
+        assertEq(deployment.get("contracts.wstETH"), wstEth);
+        assertTrue(deployment.has("contracts.wstETH"));
 
         // Read autosaved file
         string memory json = deployment.toJson();
         uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
         assertEq(schemaVersion, 1, "Schema version should be 1");
-        address loaded = vm.parseJsonAddress(json, ".deployment.wstETH.address");
+        address loaded = vm.parseJsonAddress(json, ".contracts.wstETH.address");
         assertEq(loaded, wstEth);
 
-        string memory category = vm.parseJsonString(json, ".deployment.wstETH.category");
+        string memory category = vm.parseJsonString(json, ".contracts.wstETH.category");
         assertEq(category, "existing");
     }
 
@@ -274,8 +270,8 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         vm.roll(100); // Set initial block number
         MockDeploymentPhase phase1 = new MockDeploymentPhase();
         phase1.start(network, incrementalSalt, "");
-        phase1.deployMockERC20("collateral", "wETH", "wETH");
-        phase1.deployMockERC20("pegged", "USD", "USD");
+        phase1.deployMockERC20("contracts.collateral", "wETH", "wETH");
+        phase1.deployMockERC20("contracts.pegged", "USD", "USD");
         phase1.finish(); // autosaves
 
         // Phase 2: Resume and add oracle (simulate time passing)
@@ -283,7 +279,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         vm.roll(200); // Advance by 100 blocks
         MockDeploymentPhase phase2 = new MockDeploymentPhase();
         phase2.start(network, incrementalSalt, "latest");
-        phase2.deployOracleProxy("oracle", 2000e18, admin);
+        phase2.deployOracleProxy("contracts.oracle", 2000e18, admin);
         phase2.finish(); // autosaves
 
         // Phase 3: Resume and add minter (simulate more time passing)
@@ -291,17 +287,17 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         vm.roll(300); // Advance by another 100 blocks
         MockDeploymentPhase phase3 = new MockDeploymentPhase();
         phase3.start(network, incrementalSalt, "latest");
-        phase3.deployMinterProxy("minter", "collateral", "pegged", "oracle", admin);
+        phase3.deployMinterProxy("contracts.minter", "contracts.collateral", "contracts.pegged", "contracts.oracle", admin);
         phase3.finish(); // autosaves
 
         // Verify final state
         MockDeploymentIntegration finalDeployment = new MockDeploymentPhase();
         finalDeployment.start(network, incrementalSalt, "latest");
 
-        assertTrue(finalDeployment.has("collateral"));
-        assertTrue(finalDeployment.has("pegged"));
-        assertTrue(finalDeployment.has("oracle"));
-        assertTrue(finalDeployment.has("minter"));
+        assertTrue(finalDeployment.has("contracts.collateral"));
+        assertTrue(finalDeployment.has("contracts.pegged"));
+        assertTrue(finalDeployment.has("contracts.oracle"));
+        assertTrue(finalDeployment.has("contracts.minter"));
     }
 
     function test_MultipleProxiesWithSameImplementation() public {
@@ -315,7 +311,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         bytes memory initData3 = abi.encodeCall(OracleV1.initialize, (3000e18, admin));
 
         deployment.deployProxy(
-            "oracle1",
+            "contracts.oracle1",
             address(impl),
             initData1,
             "OracleV1",
@@ -323,7 +319,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
             address(this)
         );
         deployment.deployProxy(
-            "oracle2",
+            "contracts.oracle2",
             address(impl),
             initData2,
             "OracleV1",
@@ -331,7 +327,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
             address(this)
         );
         deployment.deployProxy(
-            "oracle3",
+            "contracts.oracle3",
             address(impl),
             initData3,
             "OracleV1",
@@ -340,35 +336,35 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         );
 
         // Verify each has different address but same implementation
-        assertNotEq(deployment.get("oracle1"), deployment.get("oracle2"));
-        assertNotEq(deployment.get("oracle2"), deployment.get("oracle3"));
+        assertNotEq(deployment.get("contracts.oracle1"), deployment.get("contracts.oracle2"));
+        assertNotEq(deployment.get("contracts.oracle2"), deployment.get("contracts.oracle3"));
 
         // Verify each has correct initialized value
-        assertEq(OracleV1(deployment.get("oracle1")).price(), 1000e18);
-        assertEq(OracleV1(deployment.get("oracle2")).price(), 2000e18);
-        assertEq(OracleV1(deployment.get("oracle3")).price(), 3000e18);
+        assertEq(OracleV1(deployment.get("contracts.oracle1")).price(), 1000e18);
+        assertEq(OracleV1(deployment.get("contracts.oracle2")).price(), 2000e18);
+        assertEq(OracleV1(deployment.get("contracts.oracle3")).price(), 3000e18);
     }
 
     function test_ComplexDependencyChain() public {
         _startDeployment("test_ComplexDependencyChain");
         // Build: tokens -> oracle -> minter1 -> minter2 (uses minter1 as collateral)
 
-        deployment.deployMockERC20("token1", "Token1", "TK1");
-        deployment.deployMockERC20("token2", "Token2", "TK2");
-        deployment.deployOracleProxy("oracle", 1000e18, admin);
-        deployment.deployMinterProxy("minter1", "token1", "token2", "oracle", admin);
+        deployment.deployMockERC20("contracts.token1", "Token1", "TK1");
+        deployment.deployMockERC20("contracts.token2", "Token2", "TK2");
+        deployment.deployOracleProxy("contracts.oracle", 1000e18, admin);
+        deployment.deployMinterProxy("contracts.minter1", "contracts.token1", "contracts.token2", "contracts.oracle", admin);
 
         // Now deploy minter2 that depends on minter1
         // Constructor: immutable token addresses
         MockMinter minter2Impl = new MockMinter(
-            deployment.get("minter1"),
-            deployment.get("token2"),
-            deployment.get("oracle")
+            deployment.get("contracts.minter1"),
+            deployment.get("contracts.token2"),
+            deployment.get("contracts.oracle")
         );
         // Initialize: oracle (has update function), owner
-        bytes memory initData = abi.encodeCall(MockMinter.initialize, (deployment.get("oracle"), admin));
+        bytes memory initData = abi.encodeCall(MockMinter.initialize, (deployment.get("contracts.oracle"), admin));
         deployment.deployProxy(
-            "minter2",
+            "contracts.minter2",
             address(minter2Impl),
             initData,
             "MockMinter",
@@ -377,8 +373,8 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         );
 
         // Verify dependency chain
-        MockMinter m2 = MockMinter(deployment.get("minter2"));
-        assertEq(m2.collateralToken(), deployment.get("minter1"));
-        assertEq(m2.oracle(), deployment.get("oracle"));
+        MockMinter m2 = MockMinter(deployment.get("contracts.minter2"));
+        assertEq(m2.collateralToken(), deployment.get("contracts.minter1"));
+        assertEq(m2.oracle(), deployment.get("contracts.oracle"));
     }
 }

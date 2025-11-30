@@ -388,7 +388,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
 
         // Test JSON serialization after upgrade
         string memory json = deployment.toJson();
-        assertTrue(vm.keyExistsJson(json, ".deployment.Oracle"), "Should contain Oracle in JSON");
+        assertTrue(vm.keyExistsJson(json, ".contracts.Oracle"), "Should contain Oracle in JSON");
 
         // Test JSON round-trip
         MockDeploymentUpgrade newDeployment = new MockDeploymentUpgrade();

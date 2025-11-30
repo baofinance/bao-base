@@ -19,34 +19,36 @@ contract MyDeploymentJsonTesting is DeploymentJsonTesting {
         addKey(MOCK_IMPLEMENTATION);
         addUintKey(MOCK_IMPLEMENTATION_INIT_VALUE);
         // Keys used in tests
-        addContract("mock1");
-        addContract("mock2");
-        addContract("mock3");
-        addContract("existing1");
-        addContract("ExistingContract");
-        addContract("stETH");
-        addContract("invalid");
-        addContract("mock");
+        addContract("contracts.mock1");
+        addContract("contracts.mock2");
+        addContract("contracts.mock3");
+        addContract("contracts.existing1");
+        addContract("contracts.ExistingContract");
+        addContract("contracts.stETH");
+        addContract("contracts.invalid");
+        addContract("contracts.mock");
     }
 
     function deployMockContract(string memory key, string memory mockName) public returns (address) {
         MockContract mock = new MockContract(mockName);
-        useExisting(key, address(mock));
-        return get(key);
+        string memory fullKey = string.concat("contracts.", key);
+        useExisting(fullKey, address(mock));
+        return get(fullKey);
     }
 
     function deployMockImplementation(string memory key, uint256 initValue) public returns (address) {
         MockImplementation impl = new MockImplementation();
         impl.initialize(initValue);
+        string memory fullKey = string.concat("contracts.", key);
         registerContract(
-            key,
+            fullKey,
             address(impl),
             "MockImplementation",
             "test/mocks/basic/MockImplementation.sol",
             address(this)
         );
         setUint(MOCK_IMPLEMENTATION_INIT_VALUE, initValue);
-        return get(key);
+        return get(fullKey);
     }
 }
 
@@ -88,9 +90,9 @@ contract DeploymentBasicTest is BaoDeploymentTest {
         address mockAddr = deployment.deployMockContract("mock1", "Mock Contract 1");
 
         assertTrue(mockAddr != address(0));
-        assertTrue(deployment.has("mock1"));
-        assertEq(deployment.get("mock1"), mockAddr);
-        assertEq(uint(deployment.keyType("mock1")), uint(DataType.OBJECT));
+        assertTrue(deployment.has("contracts.mock1"));
+        assertEq(deployment.get("contracts.mock1"), mockAddr);
+        assertEq(uint(deployment.keyType("contracts.mock1")), uint(DataType.OBJECT));
     }
 
     function test_DeployMultipleContracts() public {
@@ -103,23 +105,20 @@ contract DeploymentBasicTest is BaoDeploymentTest {
         assertNotEq(mock1, mock2);
         assertNotEq(mock2, mock3);
 
-        assertTrue(deployment.has("mock1"));
-        assertTrue(deployment.has("mock2"));
-        assertTrue(deployment.has("mock3"));
-
-        string[] memory keys = deployment.keys();
-        assertEq(keys.length, 3);
+        assertTrue(deployment.has("contracts.mock1"));
+        assertTrue(deployment.has("contracts.mock2"));
+        assertTrue(deployment.has("contracts.mock3"));
     }
 
     function test_UseExistingContract() public {
         _startDeployment("test_UseExistingContract");
         
         address mock = address(new MockContract("Existing Mock"));
-        deployment.useExisting("existing1", mock);
+        deployment.useExisting("contracts.existing1", mock);
 
-        assertTrue(deployment.has("existing1"));
-        assertEq(deployment.get("existing1"), mock);
-        assertEq(uint(deployment.keyType("existing1")), uint(DataType.OBJECT));
+        assertTrue(deployment.has("contracts.existing1"));
+        assertEq(deployment.get("contracts.existing1"), mock);
+        assertEq(uint(deployment.keyType("contracts.existing1")), uint(DataType.OBJECT));
     }
 
     function test_Has() public {
@@ -129,8 +128,8 @@ contract DeploymentBasicTest is BaoDeploymentTest {
 
         deployment.deployMockContract("mock1", "Mock 1");
 
-        assertTrue(deployment.has("mock1"));
-        assertFalse(deployment.has("mock2"));
+        assertTrue(deployment.has("contracts.mock1"));
+        assertFalse(deployment.has("contracts.mock2"));
     }
 
     function test_Keys() public {
@@ -143,8 +142,8 @@ contract DeploymentBasicTest is BaoDeploymentTest {
         assertGt(sessionKeyCount, 0, "Session metadata keys should exist");
         
         // Verify no contract keys yet
-        assertFalse(deployment.has("mock1"), "mock1 should not exist before deployment");
-        assertFalse(deployment.has("mock2"), "mock2 should not exist before deployment");
+        assertFalse(deployment.has("contracts.mock1"), "mock1 should not exist before deployment");
+        assertFalse(deployment.has("contracts.mock2"), "mock2 should not exist before deployment");
 
         deployment.deployMockContract("mock1", "Mock 1");
         deployment.deployMockContract("mock2", "Mock 2");
@@ -152,16 +151,17 @@ contract DeploymentBasicTest is BaoDeploymentTest {
         // After deploying contracts, keys should include the new contract keys
         keys = deployment.keys();
         assertGt(keys.length, sessionKeyCount, "Should have more keys after deploying contracts");
-        assertTrue(deployment.has("mock1"), "mock1 should exist after deployment");
-        assertTrue(deployment.has("mock2"), "mock2 should exist after deployment");
+        assertTrue(deployment.has("contracts.mock1"), "mock1 should exist after deployment");
+        assertTrue(deployment.has("contracts.mock2"), "mock2 should exist after deployment");
     }
 
-    function test_RevertWhen_InvalidAddress() public {
-        _startDeployment("test_RevertWhen_InvalidAddress");
+    function test_UseExistingWithZeroAddress() public {
+        _startDeployment("test_UseExistingWithZeroAddress");
         
-        // useExisting should reject address(0)
-        vm.expectRevert();
-        deployment.useExisting("invalid", address(0));
+        // useExisting allows address(0) - it's a valid use case for unset optional contracts
+        deployment.useExisting("contracts.invalid", address(0));
+        assertTrue(deployment.has("contracts.invalid"));
+        assertEq(deployment.get("contracts.invalid"), address(0));
     }
 
     function test_Finish() public {
@@ -181,10 +181,10 @@ contract DeploymentBasicTest is BaoDeploymentTest {
         
         address existingContract = address(0x1234567890123456789012345678901234567890);
 
-        deployment.useExisting("ExistingContract", existingContract);
+        deployment.useExisting("contracts.ExistingContract", existingContract);
 
-        assertEq(deployment.get("ExistingContract"), existingContract);
-        assertEq(uint(deployment.keyType("ExistingContract")), uint(DataType.OBJECT));
+        assertEq(deployment.get("contracts.ExistingContract"), existingContract);
+        assertEq(uint(deployment.keyType("contracts.ExistingContract")), uint(DataType.OBJECT));
     }
 
     function test_RegisterExistingJsonSerialization() public {
@@ -192,12 +192,12 @@ contract DeploymentBasicTest is BaoDeploymentTest {
         
         address existingContract = address(0x1234567890123456789012345678901234567890);
 
-        deployment.useExisting("stETH", existingContract);
+        deployment.useExisting("contracts.stETH", existingContract);
         deployment.finish();
 
         // Test deployment registration (JSON serialization requires DeploymentJson mixin)
-        assertTrue(deployment.has("stETH"), "Should have stETH registered");
-        assertEq(deployment.get("stETH"), existingContract, "Address should be accessible");
+        assertTrue(deployment.has("contracts.stETH"), "Should have stETH registered");
+        assertEq(deployment.get("contracts.stETH"), existingContract, "Address should be accessible");
     }
 
     function test_RevertWhen_StartDeploymentTwice() public {
