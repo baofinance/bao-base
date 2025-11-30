@@ -1,18 +1,41 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
-import {DeploymentDataJsonTesting} from "@bao-script/deployment/DeploymentDataJsonTesting.sol";
-import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
-import {IDeploymentDataWritable} from "@bao-script/deployment/interfaces/IDeploymentDataWritable.sol";
+import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
+import {BaoDeployerSetOperator} from "@bao-script/deployment/BaoDeployerSetOperator.sol";
 
 import {Vm} from "forge-std/Vm.sol";
 
-library DeploymentTestingOutput {
+/**
+ * @title DeploymentJsonTesting
+ * @notice JSON deployment layer extended for test environments
+ * @dev Adds test output directory, filename overrides, sequencing, and vm.prank support
+ *
+ * Inherits:
+ * - DeploymentJson: Full JSON persistence with setter hooks
+ * - BaoDeployerSetOperator: vm.prank operator setup for testing
+ *
+ * Provides:
+ * - Test output directory (BAO_DEPLOYMENT_LOGS_ROOT or "results")
+ * - Filename override for custom output paths
+ * - Automatic/manual sequencing for capturing deployment phases
+ * - setContractAddress() for test injection via vm.prank
+ */
+contract DeploymentJsonTesting is DeploymentJson, BaoDeployerSetOperator {
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
-    function _getPrefix() internal view returns (string memory) {
+    string private _filename;
+    bool _filenameIsSet;
+    uint256 private _sequenceNumber; // Incremented on each save
+    string private _baseFilename;
+    bool private _manualSequencing; // If true, only increment on explicit nextSequence() calls
+
+    // ============================================================================
+    // Test Output Configuration
+    // ============================================================================
+
+    function _getPrefix() internal view override returns (string memory) {
         try VM.envString("BAO_DEPLOYMENT_LOGS_ROOT") returns (string memory customRoot) {
             if (bytes(customRoot).length > 0) {
                 return customRoot;
@@ -22,19 +45,20 @@ library DeploymentTestingOutput {
         }
         return "results";
     }
-}
 
-/**
- * @title DeploymentJson
- * @notice JSON-specific deployment layer with file I/O
- * @dev Extends base Deployment with test accessor functions
- */
-contract DeploymentJsonTesting is DeploymentJson, DeploymentTesting {
-    string private _filename;
-    bool _filenameIsSet;
-    uint256 private _sequenceNumber; // Incremented on each save
-    string private _baseFilename;
-    bool private _manualSequencing; // If true, only increment on explicit nextSequence() calls
+    function _getFilename() internal view override returns (string memory) {
+        if (_filenameIsSet) return _filename;
+        return super._getFilename();
+    }
+
+    function setFilename(string memory fileName) public {
+        _filename = fileName;
+        _filenameIsSet = true;
+    }
+
+    // ============================================================================
+    // Sequencing for Capturing Deployment Phases
+    // ============================================================================
 
     /// @notice Enable automatic sequence numbering for capturing update phases
     /// @dev Call this before writes to create .001, .002, .003 files instead of overwriting
@@ -67,34 +91,35 @@ contract DeploymentJsonTesting is DeploymentJson, DeploymentTesting {
         }
     }
 
-    function _afterValueChanged(string memory key) internal override(DeploymentJson, Deployment) {
+    function _afterValueChanged(string memory key) internal override {
         // Only auto-increment if sequencing is enabled AND not in manual mode
         if (_sequenceNumber > 0 && !_manualSequencing) {
             setFilename(string.concat(_baseFilename, ".", _padZero(_sequenceNumber, 3), "-", key));
             _sequenceNumber++;
         }
-        DeploymentJson._afterValueChanged(key);
+        super._afterValueChanged(key);
     }
 
-    function _getPrefix() internal view override returns (string memory) {
-        return DeploymentTestingOutput._getPrefix();
+    // ============================================================================
+    // BaoDeployer Operator Setup (Testing)
+    // ============================================================================
+
+    /// @notice Set up BaoDeployer operator using vm.prank (testing only)
+    /// @dev Overrides DeploymentJson production check with mixin-based setup
+    function _ensureBaoDeployerOperator() internal override {
+        _setUpBaoDeployerOperator();
     }
 
-    function toJson() public returns (string memory) {
-        return _dataJson.toJson();
-    }
+    // ============================================================================
+    // Test Contract Address Injection
+    // ============================================================================
 
-    function fromJson(string memory json) public {
-        _dataJson.fromJson(json);
-    }
-
-    function _getFilename() internal view override returns (string memory) {
-        if (_filenameIsSet) return _filename;
-        return super._getFilename();
-    }
-
-    function setFilename(string memory fileName) public {
-        _filename = fileName;
-        _filenameIsSet = true;
+    /// @notice Set a contract address in the deployment data via vm.prank
+    /// @dev Uses vm.prank to make the call appear to come from the BaoDeployer operator
+    /// @param key The contract key
+    /// @param addr The contract address to set
+    function setContractAddress(string memory key, address addr) public {
+        VM.prank(BaoDeployer(_deployer()).operator());
+        this.setAddress(key, addr);
     }
 }

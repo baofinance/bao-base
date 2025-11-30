@@ -1,40 +1,45 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+
 import {LibString} from "@solady/utils/LibString.sol";
+import {Vm} from "forge-std/Vm.sol";
+import {stdJson} from "forge-std/StdJson.sol";
 
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
-import {DeploymentKeys} from "@bao-script/deployment/DeploymentKeys.sol";
-import {IDeploymentDataWritable} from "@bao-script/deployment/interfaces/IDeploymentDataWritable.sol";
-import {DeploymentDataJson} from "@bao-script/deployment/DeploymentDataJson.sol";
-import {Vm} from "forge-std/Vm.sol";
+import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
+import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
+import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.sol";
 
 /**
  * @title DeploymentJson
- * @notice JSON-specific deployment layer with file I/O
+ * @notice JSON-specific deployment layer with file I/O and serialization
  * @dev Extends base Deployment with:
  *      - JSON file path resolution (input/output)
  *      - Timestamp-based file naming
- *      - DeploymentDataJson integration
- *      Subclasses implement _createDataLayer to choose specific JSON data implementation
+ *      - JSON serialization/deserialization (merged from DeploymentDataJson)
+ *      - Production BaoDeployer operator verification
+ *
+ * This file is structured in two sections for easy verification:
+ * 1. FROM DeploymentJson.sol - File I/O, path resolution, lifecycle
+ * 2. FROM DeploymentDataJson.sol - JSON serialization/deserialization
  */
-abstract contract DeploymentJson is Deployment {
+contract DeploymentJson is Deployment {
     using LibString for string;
+    using stdJson for string;
 
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+
+    // ============================================================================
+    // ============ FROM DeploymentJson.sol ============
+    // ============================================================================
 
     string private _systemSaltString;
     string private _network;
     string private _filename;
-    // TODO: this is a hack - _data (from Deployment) and _dataJson should be unified
-    // The issue is: Memory and Json implementations are at different levels (Json extends Memory)
-    // Ideally they'd be peers implementing the same interface, with Deployment holding just _data
-    DeploymentDataJson _dataJson;
     bool _suppressPersistence = false;
 
     constructor() {
         _filename = _formatTimestamp(block.timestamp);
-        _dataJson = new DeploymentDataJson(this);
-        _data = _dataJson; // Ensure _data always points to the same object
     }
 
     // ============================================================================
@@ -47,9 +52,70 @@ abstract contract DeploymentJson is Deployment {
         }
     }
 
+    /// @notice Verify that this deployment harness is configured as BaoDeployer operator
+    /// @dev Production check - reverts if operator not already configured by multisig
+    function _ensureBaoDeployerOperator() internal virtual override {
+        address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
+        if (baoDeployer.code.length == 0) {
+            revert FactoryDeploymentFailed("BaoDeployer missing code");
+        }
+        if (BaoDeployer(baoDeployer).operator() != address(this)) {
+            revert FactoryDeploymentFailed("BaoDeployer operator not configured for this deployer");
+        }
+    }
+
     function save() internal virtual {
         string memory path = string.concat(_getOutputConfigDir(), "/", _getFilename(), ".json");
-        VM.writeJson(_dataJson.toJson(), path);
+        VM.writeJson(toJson(), path);
+    }
+
+    // ============================================================================
+    // Setter Overrides - Call hook to persist changes
+    // ============================================================================
+
+    function setAddress(string memory key, address value) external virtual override {
+        _writeAddress(key, value, DataType.ADDRESS);
+        _afterValueChanged(key);
+    }
+
+    function setString(string memory key, string memory value) external virtual override {
+        _writeString(key, value, DataType.STRING);
+        _afterValueChanged(key);
+    }
+
+    function setUint(string memory key, uint256 value) external virtual override {
+        _writeUint(key, value, DataType.UINT);
+        _afterValueChanged(key);
+    }
+
+    function setInt(string memory key, int256 value) external virtual override {
+        _writeInt(key, value, DataType.INT);
+        _afterValueChanged(key);
+    }
+
+    function setBool(string memory key, bool value) external virtual override {
+        _writeBool(key, value, DataType.BOOL);
+        _afterValueChanged(key);
+    }
+
+    function setAddressArray(string memory key, address[] memory values) external virtual override {
+        _writeAddressArray(key, values, DataType.ADDRESS_ARRAY);
+        _afterValueChanged(key);
+    }
+
+    function setStringArray(string memory key, string[] memory values) external virtual override {
+        _writeStringArray(key, values, DataType.STRING_ARRAY);
+        _afterValueChanged(key);
+    }
+
+    function setUintArray(string memory key, uint256[] memory values) external virtual override {
+        _writeUintArray(key, values, DataType.UINT_ARRAY);
+        _afterValueChanged(key);
+    }
+
+    function setIntArray(string memory key, int256[] memory values) external virtual override {
+        _writeIntArray(key, values, DataType.INT_ARRAY);
+        _afterValueChanged(key);
     }
 
     // ============================================================================
@@ -86,23 +152,24 @@ abstract contract DeploymentJson is Deployment {
         require(bytes(network_).length > 0, "cannot have a null network string");
     }
 
-    /// @notice Initialize data layer with JSON file paths
-    /// @dev Implements abstract method from base Deployment
+    /// @notice Start deployment session with JSON file loading
+    /// @dev Overrides Deployment.start() to load initial state from JSON
     /// @param network_ Network name
     /// @param systemSaltString_ System salt string
-    /// @param startPoint Start point for input resolution
-    /// @dev Subclasses choose: DeploymentDataJson, DeploymentDataJsonTesting, etc.
-    function _createDeploymentData(
+    /// @param startPoint Start point for input resolution ("first", "latest", or timestamp)
+    function start(
         string memory network_,
         string memory systemSaltString_,
         string memory startPoint
-    ) internal virtual override returns (IDeploymentDataWritable) {
+    ) public virtual override {
+        if (_sessionState != State.NONE) revert AlreadyInitialized();
+
         _requireNetwork(network_);
         require(bytes(systemSaltString_).length > 0, "cannot have a null system salt string");
         _network = network_;
         _systemSaltString = systemSaltString_;
 
-        // now load the data from the specified file
+        // Load initial data from the specified file
         string memory path;
         if (bytes(startPoint).length == 0 || startPoint.eq("first")) {
             path = string.concat(_getStartConfigDir(), "/config.json");
@@ -112,10 +179,11 @@ abstract contract DeploymentJson is Deployment {
             path = string.concat(_getOutputConfigDir(), "/", startPoint, ".json");
         }
         _suppressPersistence = true; // we don't want the loading to write out each change, on loading
-        _dataJson.fromJson(VM.readFile(path));
+        fromJson(VM.readFile(path));
         _suppressPersistence = false;
 
-        return _dataJson;
+        // Now call parent to set up session metadata
+        _startSession(network_, systemSaltString_, startPoint);
     }
 
     /// @notice Find the latest JSON file in the output directory
@@ -149,7 +217,7 @@ abstract contract DeploymentJson is Deployment {
             }
 
             // Compare filenames (ISO 8601 timestamps sort lexicographically)
-            if (bytes(latestName).length == 0 || _isGreater(filename, latestName)) {
+            if (bytes(latestName).length == 0 || filename.cmp(latestName) > 0) {
                 latestName = filename;
                 latestFile = fullPath;
             }
@@ -162,38 +230,276 @@ abstract contract DeploymentJson is Deployment {
     /// @notice Extract filename from a full path
     function _extractFilename(string memory path) private pure returns (string memory) {
         uint256 lastSlashIndex = path.lastIndexOf("/");
-
-        // If not found, return whole path
-        if (lastSlashIndex == type(uint256).max) {
-            return path;
-        }
-
-        // Extract substring after last slash (lastIndexOf returns byte index)
-        bytes memory pathBytes = bytes(path);
-        bytes memory result = new bytes(pathBytes.length - lastSlashIndex - 1);
-        for (uint256 i = 0; i < result.length; i++) {
-            result[i] = pathBytes[lastSlashIndex + 1 + i];
-        }
-
-        return string(result);
+        // If not found, return whole path; otherwise slice from after the slash
+        return lastSlashIndex == LibString.NOT_FOUND ? path : path.slice(lastSlashIndex + 1);
     }
 
-    /// @notice Compare two strings lexicographically (a > b)
-    function _isGreater(string memory a, string memory b) private pure returns (bool) {
-        bytes memory aBytes = bytes(a);
-        bytes memory bBytes = bytes(b);
+    // ============================================================================
+    // ============ FROM DeploymentDataJson.sol ============
+    // ============================================================================
 
-        uint256 minLen = aBytes.length < bBytes.length ? aBytes.length : bBytes.length;
+    // Note: _getPrefix() is already defined above in DeploymentJson section
 
-        for (uint256 i = 0; i < minLen; i++) {
-            if (aBytes[i] > bBytes[i]) {
-                return true;
-            } else if (aBytes[i] < bBytes[i]) {
-                return false;
+    function fromJson(string memory existingJson) public {
+        if (bytes(existingJson).length == 0) {
+            return;
+        }
+
+        string[] memory registered = this.schemaKeys();
+        for (uint256 i = 0; i < registered.length; i++) {
+            string memory key = registered[i];
+            string memory pointer = string.concat("$.", key);
+            if (!existingJson.keyExists(pointer)) {
+                continue;
+            }
+            DataType expected = this.keyType(key);
+            if (_shouldSkipComposite(existingJson, pointer, expected)) {
+                continue;
+            }
+            // Skip OBJECT type - it's a parent marker with no value
+            if (expected == DataType.OBJECT) {
+                continue;
+            }
+            if (expected == DataType.ADDRESS) {
+                _writeAddress(key, existingJson.readAddress(pointer), expected);
+            } else if (expected == DataType.STRING) {
+                _writeString(key, existingJson.readString(pointer), expected);
+            } else if (expected == DataType.UINT) {
+                _writeUint(key, existingJson.readUint(pointer), expected);
+            } else if (expected == DataType.INT) {
+                _writeInt(key, existingJson.readInt(pointer), expected);
+            } else if (expected == DataType.BOOL) {
+                _writeBool(key, existingJson.readBool(pointer), expected);
+            } else if (expected == DataType.ADDRESS_ARRAY) {
+                _writeAddressArray(key, existingJson.readAddressArray(pointer), expected);
+            } else if (expected == DataType.STRING_ARRAY) {
+                _writeStringArray(key, existingJson.readStringArray(pointer), expected);
+            } else if (expected == DataType.UINT_ARRAY) {
+                _writeUintArray(key, existingJson.readUintArray(pointer), expected);
+            } else if (expected == DataType.INT_ARRAY) {
+                _writeIntArray(key, existingJson.readIntArray(pointer), expected);
+            }
+        }
+    }
+
+    // ============ JSON Rendering ============
+
+    function toJson() public returns (string memory) {
+        uint256 keyCount = _dataKeys.length;
+        if (keyCount == 0) {
+            return "{}";
+        }
+
+        uint256 maxSegments = 1;
+        for (uint256 i = 0; i < keyCount; i++) {
+            maxSegments += _dataKeys[i].split(".").length;
+        }
+
+        TempNode[] memory nodes = new TempNode[](maxSegments);
+        nodes[0].parent = type(uint256).max;
+        uint256 nodeCount = 1;
+
+        for (uint256 i = 0; i < keyCount; i++) {
+            string memory key = _dataKeys[i];
+            if (!_hasKey[key]) {
+                continue;
+            }
+            string[] memory segments = key.split(".");
+            uint256 current = 0;
+            for (uint256 j = 0; j < segments.length; j++) {
+                uint256 child = _findChild(nodes, nodeCount, current, segments[j]);
+                if (child == type(uint256).max) {
+                    child = nodeCount;
+                    nodes[child].name = segments[j];
+                    nodes[child].parent = current;
+                    nodeCount++;
+                }
+                current = child;
+            }
+            // OBJECT type nodes are parent markers with no value
+            if (_types[key] != DataType.OBJECT) {
+                nodes[current].hasValue = true;
+                nodes[current].valueJson = _encodeValue(key, _types[key]);
             }
         }
 
-        // If all compared bytes are equal, longer string is greater
-        return aBytes.length > bBytes.length;
+        return _renderNode(0, nodes, nodeCount);
+    }
+
+    function _renderNode(uint256 index, TempNode[] memory nodes, uint256 nodeCount) private returns (string memory) {
+        bool hasChild = false;
+        string memory json = "{";
+        bool first = true;
+        for (uint256 i = 1; i < nodeCount; i++) {
+            if (nodes[i].parent == index) {
+                hasChild = true;
+                string memory childJson = _renderNode(i, nodes, nodeCount);
+                json = string.concat(json, first ? "" : ",", '"', nodes[i].name, '"', ":", childJson);
+                first = false;
+            }
+        }
+
+        if (!hasChild) {
+            if (index == 0) {
+                return "{}";
+            }
+            return nodes[index].valueJson;
+        }
+
+        json = string.concat(json, "}");
+        return json;
+    }
+
+    function _findChild(
+        TempNode[] memory nodes,
+        uint256 nodeCount,
+        uint256 parent,
+        string memory name
+    ) private pure returns (uint256) {
+        for (uint256 i = 1; i < nodeCount; i++) {
+            if (nodes[i].parent == parent && nodes[i].name.eq(name)) {
+                return i;
+            }
+        }
+        return type(uint256).max;
+    }
+
+    function _encodeValue(string memory key, DataType valueType) private returns (string memory) {
+        // Skip OBJECT type - it's a parent marker with no value
+        if (valueType == DataType.OBJECT) {
+            return "";
+        }
+        if (valueType == DataType.ADDRESS) {
+            return _encodeAddressValue(_addresses[key]);
+        }
+        if (valueType == DataType.STRING) {
+            return _encodeStringValue(_strings[key]);
+        }
+        if (valueType == DataType.UINT) {
+            return LibString.toString(_uints[key]);
+        }
+        if (valueType == DataType.INT) {
+            return LibString.toString(_ints[key]);
+        }
+        if (valueType == DataType.BOOL) {
+            return _bools[key] ? "true" : "false";
+        }
+        if (valueType == DataType.ADDRESS_ARRAY) {
+            return _encodeAddressArrayValue(_addressArrays[key]);
+        }
+        if (valueType == DataType.STRING_ARRAY) {
+            return _encodeStringArrayValue(_stringArrays[key]);
+        }
+        if (valueType == DataType.UINT_ARRAY) {
+            return _encodeUintArrayValue(_uintArrays[key]);
+        }
+        if (valueType == DataType.INT_ARRAY) {
+            return _encodeIntArrayValue(_intArrays[key]);
+        }
+        revert("DeploymentDataStore: unsupported type");
+    }
+
+    function _encodeAddressValue(address value) private pure returns (string memory) {
+        return string.concat('"', LibString.toHexString(uint160(value), 20), '"');
+    }
+
+    function _encodeStringValue(string memory value) private returns (string memory) {
+        string memory tmp = VM.serializeString("__bao_string", "value", value);
+        return _extractSerializedValue(tmp);
+    }
+
+    function _encodeAddressArrayValue(address[] storage values) private view returns (string memory) {
+        if (values.length == 0) {
+            return "[]";
+        }
+        string memory json = "[";
+        for (uint256 i = 0; i < values.length; i++) {
+            json = string.concat(json, i == 0 ? "" : ",", _encodeAddressValue(values[i]));
+        }
+        return string.concat(json, "]");
+    }
+
+    function _encodeStringArrayValue(string[] storage values) private returns (string memory) {
+        if (values.length == 0) {
+            return "[]";
+        }
+        string memory json = "[";
+        for (uint256 i = 0; i < values.length; i++) {
+            json = string.concat(json, i == 0 ? "" : ",", _encodeStringValue(values[i]));
+        }
+        return string.concat(json, "]");
+    }
+
+    function _encodeUintArrayValue(uint256[] storage values) private view returns (string memory) {
+        if (values.length == 0) {
+            return "[]";
+        }
+        string memory json = "[";
+        for (uint256 i = 0; i < values.length; i++) {
+            json = string.concat(json, i == 0 ? "" : ",", LibString.toString(values[i]));
+        }
+        return string.concat(json, "]");
+    }
+
+    function _encodeIntArrayValue(int256[] storage values) private view returns (string memory) {
+        if (values.length == 0) {
+            return "[]";
+        }
+        string memory json = "[";
+        for (uint256 i = 0; i < values.length; i++) {
+            json = string.concat(json, i == 0 ? "" : ",", LibString.toString(values[i]));
+        }
+        return string.concat(json, "]");
+    }
+
+    function _extractSerializedValue(string memory valueJson) private pure returns (string memory) {
+        bytes memory json = bytes(valueJson);
+        uint256 colonPos = 0;
+        for (uint256 i = 0; i < json.length; i++) {
+            if (json[i] == 0x3A) {
+                colonPos = i;
+                break;
+            }
+        }
+        uint256 valueStart = colonPos + 1;
+        while (valueStart < json.length && (json[valueStart] == 0x20 || json[valueStart] == 0x09)) {
+            valueStart++;
+        }
+        uint256 valueEnd = json.length - 1;
+        while (valueEnd > valueStart && (json[valueEnd] == 0x7D || json[valueEnd] == 0x20)) {
+            valueEnd--;
+        }
+        valueEnd++;
+        bytes memory valueBytes = new bytes(valueEnd - valueStart);
+        for (uint256 i = valueStart; i < valueEnd; i++) {
+            valueBytes[i - valueStart] = json[i];
+        }
+        return string(valueBytes);
+    }
+
+    function _shouldSkipComposite(
+        string memory json,
+        string memory pointer,
+        DataType expected
+    ) private pure returns (bool) {
+        if (!_isJsonObject(json, pointer)) {
+            return false;
+        }
+
+        bool isArrayType = expected == DataType.ADDRESS_ARRAY ||
+            expected == DataType.STRING_ARRAY ||
+            expected == DataType.UINT_ARRAY ||
+            expected == DataType.INT_ARRAY;
+
+        // Objects are only meaningful for namespace containers; skip unless an array was explicitly expected
+        return !isArrayType;
+    }
+
+    function _isJsonObject(string memory json, string memory pointer) private pure returns (bool) {
+        try VM.parseJsonKeys(json, pointer) returns (string[] memory) {
+            return true;
+        } catch {
+            return false;
+        }
     }
 }

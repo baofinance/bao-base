@@ -4,8 +4,8 @@ pragma solidity ^0.8.28;
 import {stdJson} from "forge-std/StdJson.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
-import {DeploymentDataJson} from "@bao-script/deployment/DeploymentDataJson.sol";
+import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
+import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.sol";
 
 string constant OWNER_KEY = "owner";
@@ -25,11 +25,11 @@ string constant CONFIG_LIMITS_KEY = "contracts.config.limits";
 string constant CONFIG_DELTAS_KEY = "contracts.config.deltas";
 
 /**
- * @title TestKeys
- * @notice Key registry for testing
- * @dev Note: OWNER is already registered in base DeploymentKeys as ADDRESS type
+ * @title TestDataHarness
+ * @notice Concrete test harness for deployment data testing
+ * @dev Extends DeploymentTesting with test-specific keys
  */
-contract TestKeys is DeploymentKeys {
+contract TestDataHarness is DeploymentTesting {
     constructor() {
         addContract(PEGGED_KEY); // Registers PEGGED_KEY as OBJECT + .address, .contractType, etc.
         addKey(CONFIG_KEY); // Parent for scalar attributes
@@ -48,20 +48,41 @@ contract TestKeys is DeploymentKeys {
 }
 
 /**
- * @title DeploymentDataMemoryTest
+ * @title TestDataJsonHarness
+ * @notice Concrete test harness for JSON deployment data testing
+ * @dev Extends DeploymentJsonTesting with test-specific keys
+ */
+contract TestDataJsonHarness is DeploymentJsonTesting {
+    constructor() {
+        addContract(PEGGED_KEY);
+        addKey(CONFIG_KEY);
+        addAddressKey(PEGGED_IMPL_KEY);
+        addStringKey(PEGGED_SYMBOL_KEY);
+        addStringKey(PEGGED_NAME_KEY);
+        addUintKey(PEGGED_DECIMALS_KEY);
+        addUintKey(PEGGED_SUPPLY_KEY);
+        addIntKey(CONFIG_TEMPERATURE_KEY);
+        addBoolKey(CONFIG_ENABLED_KEY);
+        addAddressArrayKey(CONFIG_VALIDATORS_KEY);
+        addStringArrayKey(CONFIG_TAGS_KEY);
+        addUintArrayKey(CONFIG_LIMITS_KEY);
+        addIntArrayKey(CONFIG_DELTAS_KEY);
+    }
+}
+
+/**
+ * @title DeploymentDataTest
  * @notice Tests for in-memory deployment data implementation
  */
 contract DeploymentDataTest is BaoTest {
-    DeploymentDataMemory data;
-    TestKeys keys;
+    TestDataHarness data;
 
-    function _createDeploymentData(TestKeys keys_) internal virtual returns (DeploymentDataMemory data_) {
-        data_ = new DeploymentDataMemory(keys_);
+    function _createDeploymentData() internal virtual returns (TestDataHarness data_) {
+        data_ = new TestDataHarness();
     }
 
     function setUp() public {
-        keys = new TestKeys();
-        data = _createDeploymentData(keys);
+        data = _createDeploymentData();
     }
 
     // ============ Address Tests ============

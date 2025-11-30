@@ -38,54 +38,54 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentDataWritabl
 
     // ============ Scalar Getters ============
 
-    function get(string memory key) external view override returns (address value) {
+    function get(string memory key) external view virtual override returns (address value) {
         // Shorthand: contracts.Oracle → contracts.Oracle.address
         return this.getAddress(string.concat(key, ".address"));
     }
 
-    function getAddress(string memory key) external view override returns (address value) {
+    function getAddress(string memory key) external view virtual override returns (address value) {
         _requireReadable(key, DataType.ADDRESS);
         return _addresses[key];
     }
 
-    function getString(string memory key) external view override returns (string memory value) {
+    function getString(string memory key) external view virtual override returns (string memory value) {
         _requireReadable(key, DataType.STRING);
         return _strings[key];
     }
 
-    function getUint(string memory key) external view override returns (uint256 value) {
+    function getUint(string memory key) external view virtual override returns (uint256 value) {
         _requireReadable(key, DataType.UINT);
         return _uints[key];
     }
 
-    function getInt(string memory key) external view override returns (int256 value) {
+    function getInt(string memory key) external view virtual override returns (int256 value) {
         _requireReadable(key, DataType.INT);
         return _ints[key];
     }
 
-    function getBool(string memory key) external view override returns (bool value) {
+    function getBool(string memory key) external view virtual override returns (bool value) {
         _requireReadable(key, DataType.BOOL);
         return _bools[key];
     }
 
     // ============ Array Getters ============
 
-    function getAddressArray(string memory key) external view override returns (address[] memory values) {
+    function getAddressArray(string memory key) external view virtual override returns (address[] memory values) {
         _requireReadable(key, DataType.ADDRESS_ARRAY);
         return _addressArrays[key];
     }
 
-    function getStringArray(string memory key) external view override returns (string[] memory values) {
+    function getStringArray(string memory key) external view virtual override returns (string[] memory values) {
         _requireReadable(key, DataType.STRING_ARRAY);
         return _stringArrays[key];
     }
 
-    function getUintArray(string memory key) external view override returns (uint256[] memory values) {
+    function getUintArray(string memory key) external view virtual override returns (uint256[] memory values) {
         _requireReadable(key, DataType.UINT_ARRAY);
         return _uintArrays[key];
     }
 
-    function getIntArray(string memory key) external view override returns (int256[] memory values) {
+    function getIntArray(string memory key) external view virtual override returns (int256[] memory values) {
         _requireReadable(key, DataType.INT_ARRAY);
         return _intArrays[key];
     }
@@ -96,7 +96,7 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentDataWritabl
     /// @dev For OBJECT type keys (contracts), checks if .address child is set (consistent with get() shorthand)
     /// TODO: Consider setting _hasKey[parentKey] = true when any child is written, which would
     /// eliminate the need for this OBJECT-specific check and make has() purely check _hasKey[key].
-    function has(string memory key) external view override returns (bool exists) {
+    function has(string memory key) external view virtual override returns (bool exists) {
         if (_hasKey[key]) {
             return true;
         }
@@ -108,7 +108,7 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentDataWritabl
         return false;
     }
 
-    function keys() external view override returns (string[] memory activeKeys) {
+    function keys() external view virtual override returns (string[] memory activeKeys) {
         // Count keys with values first
         uint256 count = 0;
         for (uint256 i = 0; i < _dataKeys.length; i++) {
@@ -131,45 +131,43 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentDataWritabl
 
     // ============ Scalar Setters ============
 
-    function setAddress(string memory key, address value) external override {
+    function setAddress(string memory key, address value) external virtual override {
         _writeAddress(key, value, DataType.ADDRESS);
     }
 
-    function setString(string memory key, string memory value) external override {
+    function setString(string memory key, string memory value) external virtual override {
         _writeString(key, value, DataType.STRING);
     }
 
-    function setUint(string memory key, uint256 value) external override {
+    function setUint(string memory key, uint256 value) external virtual override {
         _writeUint(key, value, DataType.UINT);
     }
 
-    function setInt(string memory key, int256 value) external override {
+    function setInt(string memory key, int256 value) external virtual override {
         _writeInt(key, value, DataType.INT);
     }
 
-    function setBool(string memory key, bool value) external override {
+    function setBool(string memory key, bool value) external virtual override {
         _writeBool(key, value, DataType.BOOL);
     }
 
     // ============ Array Setters ============
 
-    function setAddressArray(string memory key, address[] memory values) external override {
+    function setAddressArray(string memory key, address[] memory values) external virtual override {
         _writeAddressArray(key, values, DataType.ADDRESS_ARRAY);
     }
 
-    function setStringArray(string memory key, string[] memory values) external override {
+    function setStringArray(string memory key, string[] memory values) external virtual override {
         _writeStringArray(key, values, DataType.STRING_ARRAY);
     }
 
-    function setUintArray(string memory key, uint256[] memory values) external override {
+    function setUintArray(string memory key, uint256[] memory values) external virtual override {
         _writeUintArray(key, values, DataType.UINT_ARRAY);
     }
 
-    function setIntArray(string memory key, int256[] memory values) external override {
+    function setIntArray(string memory key, int256[] memory values) external virtual override {
         _writeIntArray(key, values, DataType.INT_ARRAY);
     }
-
-    // ============ Hook ============
 
     // ============ Shared Logic ============
 
