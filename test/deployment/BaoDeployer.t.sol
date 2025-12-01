@@ -49,6 +49,11 @@ contract BaoDeployerTest is Test {
         assertEq(deployer.owner(), owner);
     }
 
+    function testRevertWhenOwnerIsZero() public {
+        vm.expectRevert(BaoDeployer.OwnerRequired.selector);
+        new BaoDeployer(address(0));
+    }
+
     function testSetOperatorOnlyOwner() public {
         address newOperator = makeAddr("new operator");
         vm.expectEmit(true, true, false, false);
@@ -59,6 +64,12 @@ contract BaoDeployerTest is Test {
         vm.prank(outsider);
         vm.expectRevert();
         deployer.setOperator(makeAddr("forbidden"));
+    }
+
+    function testCommitRevertWhenCommitmentZero() public {
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSelector(BaoDeployer.CommitmentMismatch.selector, bytes32(0), bytes32(0)));
+        deployer.commit(bytes32(0));
     }
 
     function testCommitRevealDeploysContract() public {
@@ -72,9 +83,22 @@ contract BaoDeployerTest is Test {
         assertEq(deployedAddr, predicted);
         assertFalse(deployer.isCommitted(commitment));
 
+        uint40 committedTimestamp = deployer.committedAt(commitment);
+        assertEq(committedTimestamp, 0, "committedAt should return zero after reveal");
+
         SimpleContract simple = SimpleContract(deployedAddr);
         assertEq(simple.value(), 42);
         assertTrue(simple.deployer() != address(deployer));
+    }
+
+    function testCommittedAtReturnsTimestampBeforeReveal() public {
+        bytes memory initCode = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(77)));
+        bytes32 salt = keccak256("commit.reveal.timestamp");
+        bytes32 commitment = _commit(initCode, salt, 0);
+
+        uint40 committedTimestamp = deployer.committedAt(commitment);
+        assertGt(committedTimestamp, 0, "committedAt should expose timestamp while committed");
+        assertEq(deployer.isCommitted(commitment), true, "isCommitted should report true while commitment active");
     }
 
     function testCommitRevealWithValue() public {
@@ -191,6 +215,28 @@ contract BaoDeployerTest is Test {
         SimpleContract viaOwner = SimpleContract(ownerAddr);
         assertEq(viaOwner.value(), 55);
         assertEq(keccak256(commitAddr.code), keccak256(ownerAddr.code));
+    }
+
+    function testOwnerDeployWithValue() public {
+        uint256 value = 2 ether;
+        bytes memory initCode = type(FundedVault).creationCode;
+        bytes32 salt = keccak256("owner.value");
+        vm.deal(owner, value);
+
+        address deployedAddr = deployer.deployDeterministic{value: value}(value, initCode, salt);
+
+        FundedVault vault = FundedVault(payable(deployedAddr));
+        assertEq(address(vault).balance, value, "owner deploy should transfer value");
+        assertEq(vault.initialBalance(), value, "constructor should see funded value");
+    }
+
+    function testOwnerDeployValueMismatchReverts() public {
+        uint256 value = 1 ether;
+        bytes memory initCode = type(FundedVault).creationCode;
+        bytes32 salt = keccak256("owner.value.mismatch");
+
+        vm.expectRevert(abi.encodeWithSelector(BaoDeployer.ValueMismatch.selector, value, uint256(0)));
+        deployer.deployDeterministic(value, initCode, salt);
     }
 
     function testCommitRevealSupportsProxyPayload() public {

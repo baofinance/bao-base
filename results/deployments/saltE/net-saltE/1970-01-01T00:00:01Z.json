@@ -1,0 +1,22 @@
+{
+  "owner": "0x0000000000000000000000000000000000001234",
+  "schemaVersion": 1,
+  "systemSaltString": "saltE",
+  "session": {
+    "network": "net-saltE",
+    "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+    "startTimestamp": 1,
+    "started": "1970-01-01T00:00:01Z",
+    "startBlock": 1
+  },
+  "contracts": {
+    "safeLibrary": {
+      "address": "0x037eda3adb1198021a9b2e88c22b464fd38db3f3",
+      "category": "library",
+      "contractType": "SimpleBaoOwnable",
+      "contractPath": "test/SimpleBaoOwnable.sol",
+      "deployer": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
+      "blockNumber": 1
+    }
+  }
+}

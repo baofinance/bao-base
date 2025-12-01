@@ -456,6 +456,38 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         );
     }
 
+    function test_RevertWhen_PredictableDeployKeyMissing() public {
+        _startDeployment("test_RevertWhen_PredictableDeployKeyMissing");
+
+        bytes memory fundedCode = type(FundedVault).creationCode;
+
+        vm.expectRevert(Deployment.KeyRequired.selector);
+        deployment.simulatePredictableDeployWithoutFunding(
+            0,
+            "",
+            fundedCode,
+            "FundedVault",
+            "test/mocks/deployment/FundedVault.sol"
+        );
+    }
+
+    function test_RevertWhen_PredictableDeployKeyAlreadyUsed() public {
+        _startDeployment("test_RevertWhen_PredictableDeployKeyAlreadyUsed");
+
+        deployment.setAddress("contracts.vault_unfunded.address", address(0xABCD));
+
+        bytes memory fundedCode = type(FundedVault).creationCode;
+
+        vm.expectRevert();
+        deployment.simulatePredictableDeployWithoutFunding(
+            0,
+            "contracts.vault_unfunded",
+            fundedCode,
+            "FundedVault",
+            "test/mocks/deployment/FundedVault.sol"
+        );
+    }
+
     function test_RevertWhen_FundingNonPayableProxy() public {
         _startDeployment("test_RevertWhen_FundingNonPayableProxy");
 

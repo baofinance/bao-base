@@ -1,0 +1,22 @@
+{
+  "owner": "0x0000000000000000000000000000000000001234",
+  "schemaVersion": 1,
+  "systemSaltString": "saltD",
+  "session": {
+    "network": "net-saltD",
+    "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+    "startTimestamp": 1,
+    "started": "1970-01-01T00:00:01Z",
+    "startBlock": 1
+  },
+  "contracts": {
+    "alpha": {
+      "address": "0x000000000000000000000000000000000000cafe",
+      "contractType": "Alpha",
+      "contractPath": "src/Alpha.sol",
+      "deployer": "0x00000000000000000000000000000000000000d1",
+      "blockNumber": 1,
+      "category": "contract"
+    }
+  }
+}
