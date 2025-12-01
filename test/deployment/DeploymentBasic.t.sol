@@ -86,7 +86,7 @@ contract DeploymentBasicTest is BaoDeploymentTest {
 
     function test_DeployContract() public {
         _startDeployment("test_DeployContract");
-        
+
         address mockAddr = deployment.deployMockContract("mock1", "Mock Contract 1");
 
         assertTrue(mockAddr != address(0));
@@ -97,7 +97,7 @@ contract DeploymentBasicTest is BaoDeploymentTest {
 
     function test_DeployMultipleContracts() public {
         _startDeployment("test_DeployMultipleContracts");
-        
+
         address mock1 = deployment.deployMockContract("mock1", "Mock 1");
         address mock2 = deployment.deployMockContract("mock2", "Mock 2");
         address mock3 = deployment.deployMockContract("mock3", "Mock 3");
@@ -112,7 +112,7 @@ contract DeploymentBasicTest is BaoDeploymentTest {
 
     function test_UseExistingContract() public {
         _startDeployment("test_UseExistingContract");
-        
+
         address mock = address(new MockContract("Existing Mock"));
         deployment.useExisting("contracts.existing1", mock);
 
@@ -123,7 +123,7 @@ contract DeploymentBasicTest is BaoDeploymentTest {
 
     function test_Has() public {
         _startDeployment("test_Has");
-        
+
         assertFalse(deployment.has("nonexistent"));
 
         deployment.deployMockContract("mock1", "Mock 1");
@@ -134,13 +134,13 @@ contract DeploymentBasicTest is BaoDeploymentTest {
 
     function test_Keys() public {
         _startDeployment("test_Keys");
-        
+
         // After start(), keys() returns only keys that have values
         // Session metadata is set automatically, but no contracts deployed yet
         string[] memory keys = deployment.keys();
         uint256 sessionKeyCount = keys.length;
         assertGt(sessionKeyCount, 0, "Session metadata keys should exist");
-        
+
         // Verify no contract keys yet
         assertFalse(deployment.has("contracts.mock1"), "mock1 should not exist before deployment");
         assertFalse(deployment.has("contracts.mock2"), "mock2 should not exist before deployment");
@@ -157,7 +157,7 @@ contract DeploymentBasicTest is BaoDeploymentTest {
 
     function test_UseExistingWithZeroAddress() public {
         _startDeployment("test_UseExistingWithZeroAddress");
-        
+
         // useExisting allows address(0) - it's a valid use case for unset optional contracts
         deployment.useExisting("contracts.invalid", address(0));
         assertTrue(deployment.has("contracts.invalid"));
@@ -166,7 +166,7 @@ contract DeploymentBasicTest is BaoDeploymentTest {
 
     function test_Finish() public {
         _startDeployment("test_Finish");
-        
+
         deployment.finish();
 
         assertGt(deployment.getUint(deployment.SESSION_FINISH_TIMESTAMP()), 0);
@@ -178,7 +178,7 @@ contract DeploymentBasicTest is BaoDeploymentTest {
 
     function test_RegisterExisting() public {
         _startDeployment("test_RegisterExisting");
-        
+
         address existingContract = address(0x1234567890123456789012345678901234567890);
 
         deployment.useExisting("contracts.ExistingContract", existingContract);
@@ -189,7 +189,7 @@ contract DeploymentBasicTest is BaoDeploymentTest {
 
     function test_RegisterExistingJsonSerialization() public {
         _startDeployment("test_RegisterExistingJsonSerialization");
-        
+
         address existingContract = address(0x1234567890123456789012345678901234567890);
 
         deployment.useExisting("contracts.stETH", existingContract);
@@ -202,14 +202,14 @@ contract DeploymentBasicTest is BaoDeploymentTest {
 
     function test_RevertWhen_StartDeploymentTwice() public {
         _startDeployment("test_RevertWhen_StartDeploymentTwice");
-        
+
         vm.expectRevert(Deployment.AlreadyInitialized.selector);
         deployment.start("test_RevertWhen_StartDeploymentTwice", TEST_SALT, "");
     }
 
     function test_RevertWhen_ActionWithoutInitialization() public {
         _startDeployment("test_RevertWhen_ActionWithoutInitialization");
-        
+
         MyDeploymentJsonTesting fresh = new MyDeploymentJsonTesting();
         // Actions without initialization should fail (session not started)
         vm.expectRevert(Deployment.SessionNotStarted.selector);
@@ -222,13 +222,13 @@ contract DeploymentBasicTest is BaoDeploymentTest {
         // Pass explicit empty config - no default owner
         _resetDeploymentLogs("MissingOwnerTest", "{}");
         _prepareTestNetwork("MissingOwnerTest", "test_RevertWhen_ConfigMissingOwner");
-        
+
         MyDeploymentJsonTesting fresh = new MyDeploymentJsonTesting();
         fresh.start("test_RevertWhen_ConfigMissingOwner", "MissingOwnerTest", "");
-        
+
         // Get the key before expectRevert to avoid it consuming the OWNER() call
         string memory ownerKey = fresh.OWNER();
-        
+
         // Accessing owner should revert since it's not in the config
         vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, "owner"));
         fresh.getAddress(ownerKey);

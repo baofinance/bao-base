@@ -126,7 +126,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
 
     function test_SaveEmptyDeployment() public {
         _startDeployment("test_SaveEmptyDeployment");
-        
+
         // Use toJson() for verification without saving file
         string memory json = deployment.toJson();
         assertTrue(bytes(json).length > 0);
@@ -144,7 +144,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
 
     function test_RunSerializationIncludesFinishFieldsWhenActive() public {
         _startDeployment("test_RunSerializationIncludesFinishFieldsWhenActive");
-        
+
         string memory json = deployment.toJson();
 
         // All finish fields should NOT exist when session is active (cleaner JSON)
@@ -155,7 +155,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
 
     function test_SaveContractToJson() public {
         _startDeployment("test_SaveContractToJson");
-        
+
         deployment.deploySimpleContract("contract1", "Test Contract");
         deployment.finish();
 
@@ -178,7 +178,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
 
     function test_SaveProxyToJson() public {
         _startDeployment("test_SaveProxyToJson");
-        
+
         deployment.deploySimpleProxy("proxy1", 0);
         deployment.finish();
 
@@ -250,7 +250,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
 
     function test_LoadFromJson() public {
         _startDeployment("test_LoadFromJson");
-        
+
         // First, save a deployment
         deployment.deploySimpleContract("contract1", "Test Contract");
         deployment.deploySimpleProxy("proxy1", 10);
@@ -291,7 +291,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
 
     function test_LoadAndContinueDeployment() public {
         _startDeployment("test_LoadAndContinueDeployment");
-        
+
         // Save initial deployment
         deployment.deploySimpleContract("contract1", "Test Contract");
         deployment.finish();
@@ -320,7 +320,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
 
     function test_JsonContainsBlockNumber() public {
         _startDeployment("test_JsonContainsBlockNumber");
-        
+
         uint256 deployBlock = block.number;
 
         deployment.deploySimpleContract("contract1", "Contract 1");
@@ -362,7 +362,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
 
     function test_RevertWhen_ResumeFromUnfinishedRun() public {
         _startDeployment("test_RevertWhen_ResumeFromUnfinishedRun");
-        
+
         // Deploy contract but DON'T call finish()
         deployment.deploySimpleContract("contract1", "Contract 1");
 
@@ -380,7 +380,7 @@ contract DeploymentJsonTest is BaoDeploymentTest {
 
     function test_ResumeFromFileCreatesActiveRun() public {
         _startDeployment("test_ResumeFromFileCreatesActiveRun");
-        
+
         deployment.deploySimpleContract("contract1", "Contract 1");
         deployment.finish();
         string memory json = deployment.toJson();
@@ -394,7 +394,11 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         resumed.start("test_ResumeFromFileCreatesActiveRun", TEST_SALT, "resume-active");
 
         assertTrue(resumed.has("contracts.contract1"), "loaded contract present after resume");
-        assertEq(resumed.getString(resumed.SESSION_NETWORK()), "test_ResumeFromFileCreatesActiveRun", "network should match");
+        assertEq(
+            resumed.getString(resumed.SESSION_NETWORK()),
+            "test_ResumeFromFileCreatesActiveRun",
+            "network should match"
+        );
 
         resumed.deploySimpleContract("contract2", "Contract 2");
         assertTrue(resumed.has("contracts.contract2"), "can continue deploying after resume");
@@ -417,7 +421,11 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         string memory filePath = _deploymentFilePath(network, "scalar-values");
         string memory persisted = vm.readFile(filePath);
 
-        assertEq(vm.parseJsonAddress(persisted, ".contracts.config.guardian"), address(0x1111), "scalar guardian persisted");
+        assertEq(
+            vm.parseJsonAddress(persisted, ".contracts.config.guardian"),
+            address(0x1111),
+            "scalar guardian persisted"
+        );
         assertEq(vm.parseJsonString(persisted, ".contracts.config.symbol"), "BAO-JSON", "scalar symbol persisted");
         assertEq(vm.parseJsonUint(persisted, ".contracts.config.supply"), 42_000, "scalar supply persisted");
         assertEq(vm.parseJsonInt(persisted, ".contracts.config.threshold"), -77, "scalar threshold persisted");

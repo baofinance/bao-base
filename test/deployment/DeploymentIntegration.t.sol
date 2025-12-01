@@ -167,7 +167,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
 
     function test_DeployFullSystem() public {
         _startDeployment("test_DeployFullSystem");
-        
+
         // Deploy tokens
         deployment.deployMockERC20("contracts.collateral", "Wrapped ETH", "wETH");
         deployment.deployMockERC20("contracts.pegged", "USD Stablecoin", "USD");
@@ -175,7 +175,13 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         // Deploy oracle
         deployment.deployOracleProxy("contracts.oracle", 2000e18, admin);
         // Deploy minter (depends on all above)
-        deployment.deployMinterProxy("contracts.minter", "contracts.collateral", "contracts.pegged", "contracts.oracle", admin);
+        deployment.deployMinterProxy(
+            "contracts.minter",
+            "contracts.collateral",
+            "contracts.pegged",
+            "contracts.oracle",
+            admin
+        );
 
         // Deploy library
         deployment.deployConfigLibrary("contracts.configLib");
@@ -200,12 +206,18 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
 
     function test_SaveAndLoadFullSystem() public {
         _startDeployment("test_SaveAndLoadFullSystem");
-        
+
         // Deploy full system (auto-save is automatic)
         deployment.deployMockERC20("contracts.collateral", "wETH", "wETH");
         deployment.deployMockERC20("contracts.pegged", "USD", "USD");
         deployment.deployOracleProxy("contracts.oracle", 2000e18, admin);
-        deployment.deployMinterProxy("contracts.minter", "contracts.collateral", "contracts.pegged", "contracts.oracle", admin);
+        deployment.deployMinterProxy(
+            "contracts.minter",
+            "contracts.collateral",
+            "contracts.pegged",
+            "contracts.oracle",
+            admin
+        );
         deployment.deployConfigLibrary("contracts.configLib");
 
         deployment.finish();
@@ -234,7 +246,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
 
     function test_DeploymentWithExistingContracts() public {
         _startDeployment("test_DeploymentWithExistingContracts");
-        
+
         // Use existing mainnet contracts (simulated)
         address wstEth = address(0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0);
         deployment.useExisting("contracts.wstETH", wstEth);
@@ -287,7 +299,13 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         vm.roll(300); // Advance by another 100 blocks
         MockDeploymentPhase phase3 = new MockDeploymentPhase();
         phase3.start(network, incrementalSalt, "latest");
-        phase3.deployMinterProxy("contracts.minter", "contracts.collateral", "contracts.pegged", "contracts.oracle", admin);
+        phase3.deployMinterProxy(
+            "contracts.minter",
+            "contracts.collateral",
+            "contracts.pegged",
+            "contracts.oracle",
+            admin
+        );
         phase3.finish(); // autosaves
 
         // Verify final state
@@ -352,7 +370,13 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         deployment.deployMockERC20("contracts.token1", "Token1", "TK1");
         deployment.deployMockERC20("contracts.token2", "Token2", "TK2");
         deployment.deployOracleProxy("contracts.oracle", 1000e18, admin);
-        deployment.deployMinterProxy("contracts.minter1", "contracts.token1", "contracts.token2", "contracts.oracle", admin);
+        deployment.deployMinterProxy(
+            "contracts.minter1",
+            "contracts.token1",
+            "contracts.token2",
+            "contracts.oracle",
+            admin
+        );
 
         // Now deploy minter2 that depends on minter1
         // Constructor: immutable token addresses

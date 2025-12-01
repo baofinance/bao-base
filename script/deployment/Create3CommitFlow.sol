@@ -32,10 +32,9 @@ library Create3CommitFlow {
 
     /// @notice Commit a CREATE3 deployment and return derived values
     /// @dev Commits via BaoDeployer and exposes the salt/factory for callers that only need the commit leg
-    function commitOnly(Request memory req)
-        internal
-        returns (bytes32 salt, bytes32 commitment, address factory, BaoDeployer deployer)
-    {
+    function commitOnly(
+        Request memory req
+    ) internal returns (bytes32 salt, bytes32 commitment, address factory, BaoDeployer deployer) {
         _validateRequest(req);
         salt = _deriveContractSalt(req.systemSaltString, req.key);
         factory = DeploymentInfrastructure.predictBaoDeployerAddress();
@@ -47,12 +46,12 @@ library Create3CommitFlow {
 
     /// @notice Commit and reveal a CREATE3 deployment
     /// @dev RevealMode.ForceZeroValue allows tests to simulate underfunded reveals
-    function commitAndReveal(Request memory req, RevealMode mode)
-        internal
-        returns (address deployed, bytes32 salt, address factory)
-    {
+    function commitAndReveal(
+        Request memory req,
+        RevealMode mode
+    ) internal returns (address deployed, bytes32 salt, address factory) {
         BaoDeployer deployer;
-        (salt,,factory,deployer) = commitOnly(req);
+        (salt, , factory, deployer) = commitOnly(req);
         uint256 revealValue = mode == RevealMode.MatchValue ? req.value : 0;
         deployed = deployer.reveal{value: revealValue}(req.initCode, salt, req.value);
     }
@@ -67,5 +66,4 @@ library Create3CommitFlow {
     function _deriveContractSalt(string memory systemSaltString, string memory key) private pure returns (bytes32) {
         return EfficientHashLib.hash(abi.encodePacked(systemSaltString, "/", key, "/contract"));
     }
-
 }
