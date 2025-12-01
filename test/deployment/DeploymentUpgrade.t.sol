@@ -542,27 +542,33 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
 
 // Import for non-BaoOwnable test
 import {MockImplementationOZOwnable} from "../mocks/MockImplementationOZOwnable.sol";
+import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
+
+/// @notice Memory-only harness for OZ Ownable tests (no file I/O)
+contract MockDeploymentOZOwnable is DeploymentTesting {
+    constructor() {
+        addProxy("contracts.oz_proxy");
+    }
+}
 
 contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
-    MockDeploymentUpgrade public deployment;
+    MockDeploymentOZOwnable public deployment;
     address public admin;
-    string constant TEST_SALT = "DeploymentNonBaoOwnableTest";
 
     function setUp() public override {
         super.setUp();
-        deployment = new MockDeploymentUpgrade();
-        admin = address(this);
+        deployment = new MockDeploymentOZOwnable();
+        admin = address(0x1234);
     }
 
-    /// @notice Helper to start deployment with test-specific network name
-    function _startDeployment(string memory network) internal {
-        string memory config = string.concat('{"owner":"', vm.toString(address(0x1234)), '"}');
-        _initDeploymentTest(TEST_SALT, network, config);
-        deployment.start(network, TEST_SALT, "");
+    /// @notice Start deployment in memory-only mode
+    function _startDeployment() internal {
+        deployment.start("test", "DeploymentNonBaoOwnableTest", "");
+        deployment.setAddress("owner", admin);
     }
 
     function test_OZOwnableWorks() public {
-        _startDeployment("test_OZOwnableWorks");
+        _startDeployment();
 
         // Deploy proxy with OZ Ownable (not BaoOwnable)
         // This test verifies that OZ Ownable works with the deployment system
@@ -588,11 +594,11 @@ contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
         uint256 transferred = deployment.finish();
 
         assertEq(transferred, 1, "OZ Ownable ownership transfer succeeds");
-        assertEq(proxy.owner(), address(0x1234), "Owner transferred to admin");
+        assertEq(proxy.owner(), admin, "Owner transferred to admin");
     }
 
     function test_OZOwnableDoesNotSupportPendingOwner() public {
-        _startDeployment("test_OZOwnableDoesNotSupportPendingOwner");
+        _startDeployment();
 
         // Deploy proxy with OZ Ownable
         MockImplementationOZOwnable ozImpl = new MockImplementationOZOwnable();

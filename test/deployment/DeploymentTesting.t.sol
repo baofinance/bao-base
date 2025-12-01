@@ -45,4 +45,29 @@ contract DeploymentTestingTest is BaoDeploymentTest {
         vm.expectRevert(abi.encodeWithSelector(BaoDeployer.ValueMismatch.selector, 1 ether, 0));
         deployment.simulatePredictableDeployWithoutFunding(1 ether, "contracts.predictable", initCode, "", "");
     }
+
+    function test_SimulatePredictableDeployWithZeroValueSucceeds_() public {
+        deployment.addContract("contracts.zerovalue");
+        deployment.startSession("net-zerovalue", "salt-zerovalue");
+        // Init code that deploys a contract returning a single STOP opcode (0x00)
+        // PUSH1 0x01, PUSH1 0x00, PUSH1 0x00, CODECOPY, PUSH1 0x01, PUSH1 0x00, RETURN, STOP
+        // This copies 1 byte from offset 0 and returns it as runtime code
+        // Actually simpler: runtime code = 0x00 (STOP), init returns it
+        // PUSH1 1, PUSH1 7, PUSH1 0, CODECOPY, PUSH1 1, PUSH1 0, RETURN, STOP
+        // 60 01 60 07 60 00 39 60 01 60 00 f3 00
+        bytes memory initCode = hex"6001600760003960016000f300";
+
+        // With value=0, ForceZeroValue mode matches, so deployment succeeds
+        address deployed = deployment.simulatePredictableDeployWithoutFunding(
+            0,
+            "contracts.zerovalue",
+            initCode,
+            "TestContract",
+            "test/TestContract.sol"
+        );
+
+        // Verify deterministic address was returned and contract has code
+        assertNotEq(deployed, address(0), "Should return deployed address");
+        assertGt(deployed.code.length, 0, "Deployed contract should have code");
+    }
 }
