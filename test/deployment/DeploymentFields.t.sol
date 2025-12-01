@@ -144,11 +144,10 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         super.setUp();
         deployment = new MockDeploymentFields();
         admin = address(this);
-        _resetDeploymentLogs(TEST_SALT, "");
     }
 
     function _startDeployment(string memory network) internal {
-        _prepareTestNetwork(TEST_SALT, network);
+        _initDeploymentTest(TEST_SALT, network);
         deployment.start(network, TEST_SALT, "");
     }
 

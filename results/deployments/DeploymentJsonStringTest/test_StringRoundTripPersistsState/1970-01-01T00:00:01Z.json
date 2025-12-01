@@ -3,23 +3,29 @@
   "schemaVersion": 1,
   "systemSaltString": "DeploymentJsonStringTest",
   "session": {
-    "network": "test_FromJsonLoadsFromString",
+    "network": "test_StringRoundTripPersistsState",
     "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
     "startTimestamp": 1,
     "started": "1970-01-01T00:00:01Z",
     "startBlock": 1
   },
   "contracts": {
-    "Token1": {
-      "address": "0x0000000000000000000000000000000000001111",
+    "Admin": {
+      "address": "0x000000000000000000000000000000000000abcd",
       "category": "existing"
     },
-    "Token2": {
-      "address": "0x0000000000000000000000000000000000002222",
+    "Treasury": {
+      "address": "0x000000000000000000000000000000000000dead",
       "category": "existing"
+    },
+    "LoadTest": {
+      "value": 99
     }
   },
   "config": {
-    "name": "TestSystem"
+    "networkName": "Ethereum",
+    "chainId": 1,
+    "temperature": -42,
+    "isProduction": true
   }
 }

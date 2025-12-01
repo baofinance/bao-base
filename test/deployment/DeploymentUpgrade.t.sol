@@ -122,13 +122,12 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new MockDeploymentUpgrade();
-        string memory config = string.concat('{"owner":"', vm.toString(address(0x1234)), '"}');
-        _resetDeploymentLogs(TEST_SALT, config);
     }
 
     /// @notice Helper to start deployment with test-specific network name
     function _startDeployment(string memory network) internal {
-        _prepareTestNetwork(TEST_SALT, network);
+        string memory config = string.concat('{"owner":"', vm.toString(address(0x1234)), '"}');
+        _initDeploymentTest(TEST_SALT, network, config);
         deployment.enableManualSequencing(); // Enable manual sequencing for before/after snapshots
         deployment.start(network, TEST_SALT, "");
         deployment.saveSequence();
@@ -553,13 +552,12 @@ contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
         super.setUp();
         deployment = new MockDeploymentUpgrade();
         admin = address(this);
-        string memory config = string.concat('{"owner":"', vm.toString(address(0x1234)), '"}');
-        _resetDeploymentLogs(TEST_SALT, config);
     }
 
     /// @notice Helper to start deployment with test-specific network name
     function _startDeployment(string memory network) internal {
-        _prepareTestNetwork(TEST_SALT, network);
+        string memory config = string.concat('{"owner":"', vm.toString(address(0x1234)), '"}');
+        _initDeploymentTest(TEST_SALT, network, config);
         deployment.start(network, TEST_SALT, "");
     }
 

@@ -157,11 +157,10 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         super.setUp();
         admin = address(this);
         deployment = new MockDeploymentIntegration();
-        _resetDeploymentLogs(TEST_SALT, "");
     }
 
     function _startDeployment(string memory network) internal {
-        _prepareTestNetwork(TEST_SALT, network);
+        _initDeploymentTest(TEST_SALT, network);
         deployment.start(network, TEST_SALT, "");
     }
 
@@ -272,11 +271,10 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
     }
 
     function test_IncrementalDeployment() public {
-        // Use unique salt to avoid conflicts with other tests
-        string memory incrementalSalt = "test_IncrementalDeployment";
+        // Reuse the contract salt but isolate via a dedicated network folder
+        string memory incrementalSalt = TEST_SALT;
         string memory network = "test_IncrementalDeployment";
-        _resetDeploymentLogs(incrementalSalt, "");
-        _prepareTestNetwork(incrementalSalt, network);
+        _initDeploymentTest(incrementalSalt, network);
         // Phase 1: Deploy tokens with autosave
         vm.warp(1000000); // Set initial timestamp
         vm.roll(100); // Set initial block number

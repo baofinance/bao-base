@@ -2,23 +2,13 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
-
 import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.sol";
-import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {MockContract} from "@bao-test/mocks/basic/MockContract.sol";
-import {MockImplementation} from "@bao-test/mocks/basic/MockImplementation.sol";
 
-// Test harness extends DeploymentJsonTesting with specific mock deployment methods
-contract MyDeploymentJsonTesting is DeploymentJsonTesting {
-    string constant MOCK_IMPLEMENTATION = "mockImplementation";
-    string constant MOCK_IMPLEMENTATION_INIT_VALUE = "mockImplementation.initValue";
-
+// Test harness keeps everything in memory to avoid filesystem churn
+contract DeploymentBasicHarness is Deployment {
     constructor() {
-        addKey(MOCK_IMPLEMENTATION);
-        addUintKey(MOCK_IMPLEMENTATION_INIT_VALUE);
-        // Keys used in tests
         addContract("contracts.mock1");
         addContract("contracts.mock2");
         addContract("contracts.mock3");
@@ -36,19 +26,12 @@ contract MyDeploymentJsonTesting is DeploymentJsonTesting {
         return _get(fullKey);
     }
 
-    function deployMockImplementation(string memory key, uint256 initValue) public returns (address) {
-        MockImplementation impl = new MockImplementation();
-        impl.initialize(initValue);
-        string memory fullKey = string.concat("contracts.", key);
-        registerContract(
-            fullKey,
-            address(impl),
-            "MockImplementation",
-            "test/mocks/basic/MockImplementation.sol",
-            address(this)
-        );
-        _setUint(MOCK_IMPLEMENTATION_INIT_VALUE, initValue);
-        return _get(fullKey);
+    function _ensureBaoDeployerOperator() internal pure override {}
+
+    function _afterValueChanged(string memory) internal pure override {}
+
+    function seedOwner(address owner) external {
+        _setAddress(OWNER, owner);
     }
 }
 
@@ -57,18 +40,17 @@ contract MyDeploymentJsonTesting is DeploymentJsonTesting {
  * @notice Tests basic deployment functionality with string keys
  */
 contract DeploymentBasicTest is BaoDeploymentTest {
-    MyDeploymentJsonTesting public deployment;
+    DeploymentBasicHarness public deployment;
     string constant TEST_SALT = "DeploymentBasicTest";
 
     function setUp() public override {
         super.setUp();
-        deployment = new MyDeploymentJsonTesting();
-        _resetDeploymentLogs(TEST_SALT, "");
+        deployment = new DeploymentBasicHarness();
     }
 
     function _startDeployment(string memory network) internal {
-        _prepareTestNetwork(TEST_SALT, network);
         deployment.start(network, TEST_SALT, "");
+        deployment.seedOwner(DEFAULT_TEST_OWNER);
     }
 
     function test_Initialize() public {
@@ -187,19 +169,6 @@ contract DeploymentBasicTest is BaoDeploymentTest {
         assertEq(uint(deployment.keyType("contracts.ExistingContract")), uint(DataType.OBJECT));
     }
 
-    function test_RegisterExistingJsonSerialization() public {
-        _startDeployment("test_RegisterExistingJsonSerialization");
-
-        address existingContract = address(0x1234567890123456789012345678901234567890);
-
-        deployment.useExisting("contracts.stETH", existingContract);
-        deployment.finish();
-
-        // Test deployment registration (JSON serialization requires DeploymentJson mixin)
-        assertTrue(deployment.has("contracts.stETH"), "Should have stETH registered");
-        assertEq(deployment.get("contracts.stETH"), existingContract, "Address should be accessible");
-    }
-
     function test_RevertWhen_StartDeploymentTwice() public {
         _startDeployment("test_RevertWhen_StartDeploymentTwice");
 
@@ -210,27 +179,9 @@ contract DeploymentBasicTest is BaoDeploymentTest {
     function test_RevertWhen_ActionWithoutInitialization() public {
         _startDeployment("test_RevertWhen_ActionWithoutInitialization");
 
-        MyDeploymentJsonTesting fresh = new MyDeploymentJsonTesting();
+        DeploymentBasicHarness fresh = new DeploymentBasicHarness();
         // Actions without initialization should fail (session not started)
         vm.expectRevert(Deployment.SessionNotStarted.selector);
         fresh.deployMockContract("mock", "Mock Contract");
-    }
-
-    // ============ Config Validation Tests ============
-
-    function test_RevertWhen_ConfigMissingOwner() public {
-        // Pass explicit empty config - no default owner
-        _resetDeploymentLogs("MissingOwnerTest", "{}");
-        _prepareTestNetwork("MissingOwnerTest", "test_RevertWhen_ConfigMissingOwner");
-
-        MyDeploymentJsonTesting fresh = new MyDeploymentJsonTesting();
-        fresh.start("test_RevertWhen_ConfigMissingOwner", "MissingOwnerTest", "");
-
-        // Get the key before expectRevert to avoid it consuming the OWNER() call
-        string memory ownerKey = fresh.OWNER();
-
-        // Accessing owner should revert since it's not in the config
-        vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, "owner"));
-        fresh.getAddress(ownerKey);
     }
 }

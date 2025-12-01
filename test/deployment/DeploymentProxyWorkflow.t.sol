@@ -17,8 +17,7 @@ contract DeploymentProxyWorkflowTest is BaoDeploymentTest {
         MockHarborDeploymentDev deployment = new MockHarborDeploymentDev();
 
         // Start deployment session with sequencing enabled
-        _resetDeploymentLogs("DeploymentProxyWorkflowTest", "");
-        _prepareTestNetwork("DeploymentProxyWorkflowTest", "MultipleWritesWithProxyDeployment");
+        _initDeploymentTest("DeploymentProxyWorkflowTest", "MultipleWritesWithProxyDeployment");
         deployment.start("MultipleWritesWithProxyDeployment", "DeploymentProxyWorkflowTest", "");
 
         // Enable sequencing to capture each phase

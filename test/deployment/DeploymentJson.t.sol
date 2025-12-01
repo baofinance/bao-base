@@ -7,6 +7,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
 import {DeploymentJsonTesting, DeploymentTestingOutput} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 
 string constant JSON_CONFIG_ROOT = "contracts.config";
@@ -106,16 +107,16 @@ contract DeploymentJsonTest is BaoDeploymentTest {
     MockDeploymentJson public deployment;
 
     string constant TEST_SALT = "DeploymentJsonTest";
+    string constant MISSING_OWNER_SALT = "DeploymentJsonMissingOwner";
 
     function setUp() public override {
         super.setUp();
         deployment = new MockDeploymentJson();
-        _resetDeploymentLogs(TEST_SALT, "");
     }
 
     /// @notice Helper to start deployment with test-specific network name
     function _startDeployment(string memory network) internal {
-        _prepareTestNetwork(TEST_SALT, network);
+        _initDeploymentTest(TEST_SALT, network);
         deployment.start(network, TEST_SALT, "");
     }
 
@@ -248,6 +249,22 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         assertTrue(finishTimestamp > 0);
     }
 
+    function test_RegisterExistingPersistsInJson() public {
+        _startDeployment("test_RegisterExistingPersistsInJson");
+
+        address existingContract = address(0x1234567890123456789012345678901234567890);
+        deployment.useExisting("contracts.external1", existingContract);
+        deployment.finish();
+
+        string memory json = deployment.toJson();
+        assertEq(
+            vm.parseJsonAddress(json, ".contracts.external1.address"),
+            existingContract,
+            "existing address persisted"
+        );
+        assertEq(vm.parseJsonString(json, ".contracts.external1.category"), "existing", "category persisted");
+    }
+
     function test_LoadFromJson() public {
         _startDeployment("test_LoadFromJson");
 
@@ -376,6 +393,18 @@ contract DeploymentJsonTest is BaoDeploymentTest {
 
         // Verify it loaded the contract from the unfinished run
         assertTrue(newDeployment.has("contracts.contract1"), "Should have loaded contract1");
+    }
+
+    function test_RevertWhen_ConfigMissingOwner() public {
+        string memory network = "test_RevertWhen_ConfigMissingOwner";
+        _initDeploymentTest(MISSING_OWNER_SALT, network, "{}");
+
+        MockDeploymentJson fresh = new MockDeploymentJson();
+        fresh.start(network, MISSING_OWNER_SALT, "");
+
+        string memory ownerKey = fresh.OWNER();
+        vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, "owner"));
+        fresh.getAddress(ownerKey);
     }
 
     function test_ResumeFromFileCreatesActiveRun() public {

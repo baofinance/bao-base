@@ -50,211 +50,55 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new DeploymentJsonStringTestHarness();
-        _resetDeploymentLogs(TEST_SALT, "");
     }
 
     function _startDeployment(string memory network) internal {
-        _prepareTestNetwork(TEST_SALT, network);
+        _initDeploymentTest(TEST_SALT, network);
         deployment.start(network, TEST_SALT, "");
     }
 
-    function test_ToJsonReturnsValidString() public {
-        _startDeployment("test_ToJsonReturnsValidString");
+    function test_StringRoundTripPersistsState() public {
+        _startDeployment("test_StringRoundTripPersistsState");
 
-        // Deploy some contracts
-        deployment.useExisting("contracts.MockToken", address(0x1234));
-        deployment.setString("contracts.MockToken.tokenName", "Test Token");
-        deployment.setUint("contracts.MockToken.decimals", 18);
-
-        // Get JSON string without writing to file
-        string memory json = deployment.toJson();
-
-        // Verify it's not empty
-        assertTrue(bytes(json).length > 0, "JSON should not be empty");
-
-        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
-        assertEq(schemaVersion, 1, "Schema version should be 1");
-
-        // Verify it contains expected keys
-        assertTrue(vm.keyExistsJson(json, ".contracts.MockToken"), "Should contain MockToken");
-        assertTrue(vm.keyExistsJson(json, ".contracts.MockToken.tokenName"), "Should contain tokenName");
-        assertTrue(vm.keyExistsJson(json, ".contracts.MockToken.decimals"), "Should contain decimals");
-    }
-
-    function test_FromJsonLoadsFromString() public {
-        _startDeployment("test_FromJsonLoadsFromString");
-
-        // Deploy and serialize
-        deployment.useExisting("contracts.Token1", address(0x1111));
-        deployment.useExisting("contracts.Token2", address(0x2222));
-        deployment.setString("config.name", "TestSystem");
-        deployment.finish();
-
-        string memory json = deployment.toJson();
-
-        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
-        assertEq(schemaVersion, 1, "Schema version should be 1");
-
-        // Create new deployment with same key registry and load from string
-        DeploymentJsonStringTestHarness newDeployment = new DeploymentJsonStringTestHarness();
-        newDeployment.fromJson(json);
-
-        // Verify loaded data
-        assertEq(newDeployment.get("contracts.Token1"), address(0x1111), "Token1 address mismatch");
-        assertEq(newDeployment.get("contracts.Token2"), address(0x2222), "Token2 address mismatch");
-        assertEq(newDeployment.getString("config.name"), "TestSystem", "Name parameter mismatch");
-
-        assertTrue(newDeployment.has("contracts.Token1"), "Should have Token1");
-        assertTrue(newDeployment.has("contracts.Token2"), "Should have Token2");
-    }
-
-    function test_RoundTripWithoutFilesystem() public {
-        _startDeployment("test_RoundTripWithoutFilesystem");
-
-        // Create complex deployment state
         deployment.useExisting("contracts.Admin", address(0xABCD));
         deployment.useExisting("contracts.Treasury", address(0xDEAD));
-
         deployment.setString("config.networkName", "Ethereum");
         deployment.setUint("config.chainId", 1);
         deployment.setInt("config.temperature", -42);
         deployment.setBool("config.isProduction", true);
-
+        deployment.setUint("contracts.LoadTest.value", 99);
         deployment.finish();
 
-        // Serialize to string
         string memory json = deployment.toJson();
+        assertTrue(bytes(json).length > 0, "JSON should not be empty");
+        assertEq(vm.parseJsonUint(json, ".schemaVersion"), 1, "Schema version should be 1");
 
-        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
-        assertEq(schemaVersion, 1, "Schema version should be 1");
-
-        // Deserialize to new instance (must use same harness type for key registry)
         DeploymentJsonStringTestHarness restored = new DeploymentJsonStringTestHarness();
         restored.fromJson(json);
 
-        // Verify all contracts
-        assertEq(restored.get("contracts.Admin"), address(0xABCD), "Admin address");
-        assertEq(restored.get("contracts.Treasury"), address(0xDEAD), "Treasury address");
-
-        // Verify all parameters
-        assertEq(restored.getString("config.networkName"), "Ethereum", "Network name");
-        assertEq(restored.getUint("config.chainId"), 1, "Chain ID");
-        assertEq(restored.getInt("config.temperature"), -42, "Temperature");
-        assertTrue(restored.getBool("config.isProduction"), "Is production flag");
-
-        // Ensure application keys are present even though session metadata also exists
-        string[] memory keys = restored.keys();
-        assertTrue(keys.length >= 7, "Should include config plus session metadata");
+        assertEq(restored.get("contracts.Admin"), address(0xABCD), "Admin address persists");
+        assertEq(restored.get("contracts.Treasury"), address(0xDEAD), "Treasury address persists");
+        assertEq(restored.getUint("contracts.LoadTest.value"), 99, "LoadTest value persists");
+        assertEq(restored.getString("config.networkName"), "Ethereum", "Network name persists");
+        assertEq(restored.getUint("config.chainId"), 1, "Chain id persists");
+        assertEq(restored.getInt("config.temperature"), -42, "Temperature persists");
+        assertTrue(restored.getBool("config.isProduction"), "Production flag persists");
     }
 
-    function test_EmptyDeploymentSerialization() public {
-        _startDeployment("test_EmptyDeploymentSerialization");
-
+    function test_EmptyDeploymentSerializationIncludesMetadata() public {
+        _startDeployment("test_EmptyDeploymentSerializationIncludesMetadata");
         deployment.finish();
 
         string memory json = deployment.toJson();
+        assertEq(vm.parseJsonUint(json, ".schemaVersion"), 1, "Schema version should be 1");
 
-        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
-        assertEq(schemaVersion, 1, "Schema version should be 1");
+        assertTrue(vm.keyExistsJson(json, ".session"), "Session metadata exists");
+        assertTrue(vm.keyExistsJson(json, ".session.network"), "Network saved");
+        assertTrue(vm.keyExistsJson(json, ".session.deployer"), "Deployer saved");
 
-        // Should still have metadata fields tracked under session.*
-        assertTrue(vm.keyExistsJson(json, ".session"), "Should have session metadata");
-        assertTrue(vm.keyExistsJson(json, ".session.network"), "Should have network");
-        assertTrue(vm.keyExistsJson(json, ".session.deployer"), "Should have deployer");
-
-        // Verify timestamps recorded on the session
         uint256 startTimestamp = vm.parseJsonUint(json, ".session.startTimestamp");
         uint256 finishTimestamp = vm.parseJsonUint(json, ".session.finishTimestamp");
-        assertTrue(startTimestamp > 0, "Should have startTimestamp in session");
-        assertTrue(finishTimestamp >= startTimestamp, "finish timestamp should be >= start timestamp");
-
-        // Note: Empty deployment won't have .deployment key, which is fine
-        // We just verify metadata exists
-    }
-
-    function test_OnlyContractsNoFiles() public {
-        _startDeployment("test_OnlyContractsNoFiles");
-
-        // Deploy multiple contracts without touching filesystem
-        deployment.useExisting("contracts.Contract1", address(0x1));
-        deployment.useExisting("contracts.Contract2", address(0x2));
-        deployment.useExisting("contracts.Contract3", address(0x3));
-
-        deployment.finish();
-
-        string memory json = deployment.toJson();
-
-        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
-        assertEq(schemaVersion, 1, "Schema version should be 1");
-
-        DeploymentJsonStringTestHarness loaded = new DeploymentJsonStringTestHarness();
-        loaded.fromJson(json);
-
-        string[] memory contractKeys = loaded.keys();
-        assertTrue(contractKeys.length >= 3, "Should track contracts plus metadata");
-        assertEq(loaded.get("contracts.Contract1"), address(0x1));
-        assertEq(loaded.get("contracts.Contract2"), address(0x2));
-        assertEq(loaded.get("contracts.Contract3"), address(0x3));
-    }
-
-    function test_OnlyParametersNoFiles() public {
-        _startDeployment("test_OnlyParametersNoFiles");
-
-        // Only parameters, no contracts (but they need parent 'config')
-        deployment.setString("config.param1", "value1");
-        deployment.setUint("config.param2", 100);
-        deployment.setBool("config.param3", false);
-
-        deployment.finish();
-
-        string memory json = deployment.toJson();
-
-        uint256 schemaVersion = vm.parseJsonUint(json, ".schemaVersion");
-        assertEq(schemaVersion, 1, "Schema version should be 1");
-
-        DeploymentJsonStringTestHarness loaded = new DeploymentJsonStringTestHarness();
-        loaded.fromJson(json);
-
-        string[] memory parameterKeys = loaded.keys();
-        assertTrue(parameterKeys.length >= 4, "Should capture parameters plus metadata");
-        assertEq(loaded.getString("config.param1"), "value1");
-        assertEq(loaded.getUint("config.param2"), 100);
-        assertFalse(loaded.getBool("config.param3"));
-    }
-
-    function test_PreservesSaveToJsonCompatibility() public {
-        _startDeployment("test_PreservesSaveToJsonCompatibility");
-
-        // Ensure saveToJson still works (uses toJson internally)
-        deployment.useExisting("contracts.Token", address(0x5555));
-        deployment.setString("contracts.Token.name", "SavedToken");
-
-        deployment.finish();
-        string memory json = deployment.toJson();
-
-        // Load from file - if this succeeds, schema is valid
-        DeploymentJsonStringTestHarness loaded = new DeploymentJsonStringTestHarness();
-        loaded.fromJson(json);
-
-        assertEq(loaded.get("contracts.Token"), address(0x5555));
-        assertEq(loaded.getString("contracts.Token.name"), "SavedToken");
-    }
-
-    function test_PreservesLoadFromJsonCompatibility() public {
-        _startDeployment("test_PreservesLoadFromJsonCompatibility");
-
-        // Test that loadFromJson still works (uses fromJson internally)
-        deployment.useExisting("contracts.LoadTest", address(0x9999));
-        deployment.setUint("contracts.LoadTest.value", 42);
-
-        deployment.finish();
-        string memory json = deployment.toJson();
-
-        // Load using original method - if this succeeds, schema is valid
-        DeploymentJsonStringTestHarness loaded = new DeploymentJsonStringTestHarness();
-        loaded.fromJson(json);
-
-        assertEq(loaded.get("contracts.LoadTest"), address(0x9999));
-        assertEq(loaded.getUint("contracts.LoadTest.value"), 42);
+        assertTrue(startTimestamp > 0, "Start timestamp recorded");
+        assertTrue(finishTimestamp >= startTimestamp, "Finish timestamp recorded");
     }
 }

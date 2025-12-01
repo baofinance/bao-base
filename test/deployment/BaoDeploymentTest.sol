@@ -35,8 +35,6 @@ abstract contract BaoDeploymentTest is BaoTest {
     address internal _baoDeployer;
     address internal _baoMultisig;
 
-    mapping(string => bool) private alreadyReset;
-
     /**
      * @notice Set up deployment infrastructure for tests
      * @dev This runs once per test contract (not per test function)
@@ -69,25 +67,35 @@ abstract contract BaoDeploymentTest is BaoTest {
         return '{"owner":"0x0000000000000000000000000000000000001234"}';
     }
 
-    /// @notice Clean the deployment directory for a salt (called once in setUp)
+    /// @notice Initialize deployment test directory for a salt and network
+    /// @dev Idempotent - only writes config.json if it doesn't exist
+    ///      Directory cleaning should be done externally (e.g., rm -rf results/deployments before forge test)
     /// @dev If configJson is empty "", uses default config with owner
-    function _resetDeploymentLogs(string memory salt, string memory configJson) internal {
+    /// @param salt The deployment salt (typically the test contract name)
+    /// @param network The network/test name (creates a subdirectory for this test's output)
+    /// @param configJson Optional config JSON; empty string uses default with owner
+    function _initDeploymentTest(string memory salt, string memory network, string memory configJson) internal {
         string memory baseDir = DeploymentTestingOutput._getPrefix();
         string memory deploymentDir_ = baseDir.concat("/deployments/").concat(salt);
-        if (vm.exists(deploymentDir_)) {
-            vm.removeDir(deploymentDir_, true);
-        }
+        string memory configPath = deploymentDir_.concat("/config.json");
+
+        // Ensure base directory exists
         vm.createDir(deploymentDir_, true);
-        // Use default config if empty string
-        string memory actualConfig = bytes(configJson).length == 0 ? _defaultConfigJson() : configJson;
-        vm.writeJson(actualConfig, deploymentDir_.concat("/config.json"));
+
+        // Only write config if it doesn't exist - makes this idempotent for parallel tests
+        if (!vm.exists(configPath)) {
+            string memory actualConfig = bytes(configJson).length == 0 ? _defaultConfigJson() : configJson;
+            vm.writeJson(actualConfig, configPath);
+        }
+
+        // Create network subdirectory for this test's output
+        string memory networkDir = deploymentDir_.concat("/").concat(network);
+        vm.createDir(networkDir, true);
     }
 
-    /// @notice Create network subdirectory for a specific test
-    function _prepareTestNetwork(string memory salt, string memory network) internal {
-        string memory baseDir = DeploymentTestingOutput._getPrefix();
-        string memory networkDir = baseDir.concat("/deployments/").concat(salt).concat("/").concat(network);
-        vm.createDir(networkDir, true);
+    /// @notice Convenience overload with default config
+    function _initDeploymentTest(string memory salt, string memory network) internal {
+        _initDeploymentTest(salt, network, "");
     }
 
     /*

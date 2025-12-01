@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "owner": "0x0000000000000000000000000000000000001234",
-  "systemSaltString": "test_IncrementalDeployment",
+  "systemSaltString": "DeploymentIntegrationTest",
   "session": {
     "deployer": "0x5991a2df15a8f6a256d3ec51e99254cd3fb576a9",
     "started": "1970-02-04T17:20:00Z",
@@ -27,7 +27,7 @@
       "category": "contract"
     },
     "oracle": {
-      "address": "0x19a2db7b92025e3c41aaaccb2f20101730b339e8",
+      "address": "0xeae0a44b9ef5926097ee4a527e5a81a45b53a6e0",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "deployer": "0xf62849f9a0b5bf2913b396098f7c7019b51a820a",
@@ -35,7 +35,7 @@
       "category": "UUPS proxy",
       "factory": "0x336785a852b689a839c312522ea637917df3f932",
       "saltString": "oracle",
-      "salt": "0x5f8b75fc15bc0f53952a08ee32389b43286bf7238a80a4e592139cc87ad5d25a",
+      "salt": "0x96d52fdb4a275a6221c446f1b9dabb4ed13cad1d0dbdcf5580a1602ed764e4cc",
       "implementation": {
         "address": "0xcb6f5076b5bbae81d7643bfbf57897e8e3fb1db9",
         "contractType": "OracleV1",
@@ -46,7 +46,7 @@
       }
     },
     "minter": {
-      "address": "0xa9cb3ef53c0f7df0d472acc5331b76db7d325bba",
+      "address": "0x2a5718f9d36a713d56b08388460b174846e80dba",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "deployer": "0x5991a2df15a8f6a256d3ec51e99254cd3fb576a9",
@@ -54,7 +54,7 @@
       "factory": "0x336785a852b689a839c312522ea637917df3f932",
       "category": "UUPS proxy",
       "saltString": "minter",
-      "salt": "0x25047e4c3f8d5f5dfc353f3dd5762f7f87d71975bdf32a7f87087db436cb0ce6",
+      "salt": "0x43bcaa65f19f847a24c7655bfe6794125ae2882d77e8ce9007d1bad710edac0f",
       "implementation": {
         "address": "0xdd4c722d1614128933d6dc7efa50a6913e804e12",
         "contractType": "MockMinter",

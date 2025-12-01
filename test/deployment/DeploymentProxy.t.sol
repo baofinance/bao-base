@@ -19,13 +19,12 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         deployment = new MockHarborDeploymentDev();
-        _resetDeploymentLogs(TEST_SALT, "");
         admin = makeAddr("admin");
         outsider = makeAddr("outsider");
     }
 
     function _startDeployment(string memory network) internal {
-        _prepareTestNetwork(TEST_SALT, network);
+        _initDeploymentTest(TEST_SALT, network);
         deployment.start(network, TEST_SALT, "");
     }
 
@@ -91,11 +90,12 @@ contract DeploymentProxyTest is BaoDeploymentTest {
         deployment.deployPegged();
         assertEq(deployment.get(deployment.PEGGED()), addr1, "Deployed address should match prediction");
 
-        // Different deployment with different salt should produce different address
+        // Different deployment with different salt should produce different address.
+        // Override the in-memory salt so we don't mint another filesystem root.
         MockHarborDeploymentDev deployment2 = new MockHarborDeploymentDev();
-        _resetDeploymentLogs("different-salt", "");
-        _prepareTestNetwork("different-salt", "test_DeterministicProxyAddress");
-        deployment2.start("test_DeterministicProxyAddress", "different-salt", "");
+        _initDeploymentTest(TEST_SALT, "test_DeterministicProxyAddressDifferentSalt");
+        deployment2.start("test_DeterministicProxyAddressDifferentSalt", TEST_SALT, "");
+        deployment2.setString(deployment2.SYSTEM_SALT_STRING(), "DeploymentProxyTestDifferentSalt");
         address addr2 = deployment2.predictProxyAddress(deployment2.PEGGED());
 
         assertNotEq(addr2, addr1, "Different salt should produce different address");
