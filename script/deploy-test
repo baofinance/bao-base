@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+#
+# Deploy test script - starts anvil and runs DeployTest.s.sol
+#
+# Usage: bin/deploy-test
+#
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+cd "$PROJECT_ROOT"
+
+# Start anvil in background with --auto-impersonate to allow broadcasting from any address
+echo "Starting anvil with --auto-impersonate..."
+anvil --auto-impersonate &
+ANVIL_PID=$!
+
+# Cleanup on exit
+cleanup() {
+  echo "Stopping anvil (PID: $ANVIL_PID)..."
+  kill "$ANVIL_PID" 2>/dev/null || true
+  wait "$ANVIL_PID" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+# Wait for anvil to be ready
+echo "Waiting for anvil to be ready..."
+for i in {1..30}; do
+  if curl -s -X POST -H "Content-Type: application/json" \
+    --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
+    http://localhost:8545 >/dev/null 2>&1; then
+    echo "Anvil is ready"
+    break
+  fi
+  if [ "$i" -eq 30 ]; then
+    echo "Timeout waiting for anvil"
+    exit 1
+  fi
+  sleep 0.1
+done
+
+# Run the deployment script
+echo "Running deployment..."
+forge script script/DeployTest.s.sol:DeployTest \
+  --sig "run()" \
+  --broadcast \
+  --rpc-url http://localhost:8545 \
+  -vvvv
+
+echo "Deployment complete!"

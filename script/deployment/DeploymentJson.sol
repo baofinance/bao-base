@@ -65,7 +65,9 @@ contract DeploymentJson is Deployment {
     }
 
     function save() internal virtual {
-        string memory path = string.concat(_getOutputConfigDir(), "/", _getFilename(), ".json");
+        string memory dir = _getOutputConfigDir();
+        VM.createDir(dir, true); // recursive=true, creates parent dirs if needed
+        string memory path = string.concat(dir, "/", _getFilename(), ".json");
         VM.writeJson(toJson(), path);
     }
 

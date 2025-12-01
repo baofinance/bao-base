@@ -54,8 +54,7 @@ abstract contract BaoDeploymentTest is BaoTest {
         _baoMultisig = DeploymentInfrastructure.BAOMULTISIG;
         vm.label(_baoMultisig, "_baoMultisig");
 
-        DeploymentInfrastructure.ensureBaoDeployer();
-
+        _baoDeployer = DeploymentInfrastructure.ensureBaoDeployer();
         vm.label(_baoDeployer, "_baoDeployer");
     }
 

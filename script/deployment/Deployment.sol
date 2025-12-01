@@ -70,6 +70,9 @@ abstract contract Deployment is DeploymentDataMemory {
     /// @notice Bootstrap stub used as initial implementation for all proxies
     /// @dev Deployed once per session, owned by this harness, enables BaoOwnable compatibility with CREATE3
     UUPSProxyDeployStub internal _stub;
+    string internal _stubContractType;
+    string internal _stubContractPath;
+    uint256 internal _stubBlockNumber;
 
     /// @notice Session started flag
     enum State {
@@ -147,7 +150,11 @@ abstract contract Deployment is DeploymentDataMemory {
 
         // Set up deployment infrastructure
         _ensureBaoDeployerOperator();
+
         _stub = new UUPSProxyDeployStub();
+        _stubContractType = "UUPSProxyDeployStub";
+        _stubContractPath = "script/deployment/UUPSProxyDeployStub.sol";
+        _stubBlockNumber = block.number;
 
         _sessionState = State.STARTED;
     }
@@ -345,7 +352,16 @@ abstract contract Deployment is DeploymentDataMemory {
         address proxy = baoDeployer.reveal(proxyCreationCode, salt, 0);
 
         // Register proxy with all metadata (extracted to avoid stack too deep)
-        _registerProxy(proxyKey, proxy, factory, salt, deployer);
+        _recordProxy(proxyKey, proxy, factory, salt, deployer, block.number);
+
+        _recordContractFields(
+            string.concat(proxyKey, ".implementation"),
+            address(_stub),
+            _stubContractType,
+            _stubContractPath,
+            address(this),
+            _stubBlockNumber
+        );
 
         _upgradeProxy(
             value,
@@ -361,12 +377,13 @@ abstract contract Deployment is DeploymentDataMemory {
     /// @notice Register proxy metadata
     /// @dev Extracted to separate function to avoid stack too deep errors
     ///      Note: ownershipModel is set via registerImplementation, not here
-    function _registerProxy(
+    function _recordProxy(
         string memory proxyKey,
         address proxy,
         address factory,
         bytes32 salt,
-        address deployer
+        address deployer,
+        uint256 blockNumber
     ) private {
         // register keys
         // the proxy
@@ -375,7 +392,8 @@ abstract contract Deployment is DeploymentDataMemory {
             proxy,
             "ERC1967Proxy",
             "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
-            deployer
+            deployer,
+            blockNumber
         );
         // extra proxy keys
         _setAddress(string.concat(proxyKey, ".factory"), factory);
@@ -468,7 +486,8 @@ abstract contract Deployment is DeploymentDataMemory {
             newImplementation,
             implementationContractType,
             implementationContractPath,
-            deployer
+            deployer,
+            block.number
         );
         // Set default ownershipModel if not already set by registerImplementation
         string memory ownershipModelKey = string.concat(implKey, ".ownershipModel");
@@ -528,7 +547,7 @@ abstract contract Deployment is DeploymentDataMemory {
             Create3CommitFlow.RevealMode.MatchValue
         );
 
-        _recordContractFields(key, addr, contractType, contractPath, deployer);
+        _recordContractFields(key, addr, contractType, contractPath, deployer, block.number);
         _setString(string.concat(key, ".category"), "contract");
         _setAddress(string.concat(key, ".factory"), factory);
         if (value > 0) {
@@ -552,7 +571,7 @@ abstract contract Deployment is DeploymentDataMemory {
         address deployer
     ) public {
         _requireActiveRun();
-        _recordContractFields(key, addr, contractType, contractPath, deployer);
+        _recordContractFields(key, addr, contractType, contractPath, deployer, block.number);
         _setString(string.concat(key, ".category"), "contract");
     }
 
@@ -574,7 +593,7 @@ abstract contract Deployment is DeploymentDataMemory {
     ) public {
         _requireActiveRun();
         string memory implKey = string.concat(proxyKey, ".implementation");
-        _recordContractFields(implKey, implAddress, contractType, contractPath, address(this));
+        _recordContractFields(implKey, implAddress, contractType, contractPath, address(this), block.number);
         _setString(string.concat(implKey, ".ownershipModel"), ownershipModel);
     }
 
@@ -584,13 +603,14 @@ abstract contract Deployment is DeploymentDataMemory {
         address addr,
         string memory contractType,
         string memory contractPath,
-        address deployer
+        address deployer,
+        uint256 blockNumber
     ) private {
         _set(key, addr);
         _setString(string.concat(key, ".contractType"), contractType);
         _setString(string.concat(key, ".contractPath"), contractPath);
         _setAddress(string.concat(key, ".deployer"), deployer);
-        _setUint(string.concat(key, ".blockNumber"), block.number);
+        _setUint(string.concat(key, ".blockNumber"), blockNumber);
     }
 
     /// @notice Deploy library using CREATE
