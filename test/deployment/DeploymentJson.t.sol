@@ -9,6 +9,17 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentJsonTesting, DeploymentTestingOutput} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 
+string constant JSON_CONFIG_ROOT = "contracts.config";
+string constant JSON_CONFIG_GUARDIAN_KEY = "contracts.config.guardian";
+string constant JSON_CONFIG_SYMBOL_KEY = "contracts.config.symbol";
+string constant JSON_CONFIG_SUPPLY_KEY = "contracts.config.supply";
+string constant JSON_CONFIG_THRESHOLD_KEY = "contracts.config.threshold";
+string constant JSON_CONFIG_ENABLED_KEY = "contracts.config.enabled";
+string constant JSON_CONFIG_VALIDATORS_KEY = "contracts.config.validators";
+string constant JSON_CONFIG_TAGS_KEY = "contracts.config.tags";
+string constant JSON_CONFIG_LIMITS_KEY = "contracts.config.limits";
+string constant JSON_CONFIG_DELTAS_KEY = "contracts.config.deltas";
+
 // Mock contracts for JSON testing
 contract SimpleContract {
     string public name;
@@ -44,6 +55,17 @@ contract MockDeploymentJson is DeploymentJsonTesting {
         addProxy("contracts.proxy1");
         addContract("contracts.lib1");
         addContract("contracts.external1");
+
+        addKey(JSON_CONFIG_ROOT);
+        addAddressKey(JSON_CONFIG_GUARDIAN_KEY);
+        addStringKey(JSON_CONFIG_SYMBOL_KEY);
+        addUintKey(JSON_CONFIG_SUPPLY_KEY);
+        addIntKey(JSON_CONFIG_THRESHOLD_KEY);
+        addBoolKey(JSON_CONFIG_ENABLED_KEY);
+        addAddressArrayKey(JSON_CONFIG_VALIDATORS_KEY);
+        addStringArrayKey(JSON_CONFIG_TAGS_KEY);
+        addUintArrayKey(JSON_CONFIG_LIMITS_KEY);
+        addIntArrayKey(JSON_CONFIG_DELTAS_KEY);
     }
 
     function deploySimpleContract(string memory key, string memory name) public {
@@ -377,5 +399,83 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         resumed.deploySimpleContract("contract2", "Contract 2");
         assertTrue(resumed.has("contracts.contract2"), "can continue deploying after resume");
         resumed.finish();
+    }
+
+    function test_SaveScalarValuesToFile() public {
+        string memory network = "test_SaveScalarValuesToFile";
+        _startDeployment(network);
+        deployment.setFilename("scalar-values");
+
+        deployment.setAddress(JSON_CONFIG_GUARDIAN_KEY, address(0x1111));
+        deployment.setString(JSON_CONFIG_SYMBOL_KEY, "BAO-JSON");
+        deployment.setUint(JSON_CONFIG_SUPPLY_KEY, 42_000);
+        deployment.setInt(JSON_CONFIG_THRESHOLD_KEY, -77);
+        deployment.setBool(JSON_CONFIG_ENABLED_KEY, true);
+
+        deployment.finish();
+
+        string memory filePath = _deploymentFilePath(network, "scalar-values");
+        string memory persisted = vm.readFile(filePath);
+
+        assertEq(vm.parseJsonAddress(persisted, ".contracts.config.guardian"), address(0x1111), "scalar guardian persisted");
+        assertEq(vm.parseJsonString(persisted, ".contracts.config.symbol"), "BAO-JSON", "scalar symbol persisted");
+        assertEq(vm.parseJsonUint(persisted, ".contracts.config.supply"), 42_000, "scalar supply persisted");
+        assertEq(vm.parseJsonInt(persisted, ".contracts.config.threshold"), -77, "scalar threshold persisted");
+        assertEq(vm.parseJsonBool(persisted, ".contracts.config.enabled"), true, "scalar enabled persisted");
+    }
+
+    function test_SaveArrayValuesToFile() public {
+        string memory network = "test_SaveArrayValuesToFile";
+        _startDeployment(network);
+        deployment.setFilename("array-values");
+
+        address[] memory validators = new address[](2);
+        validators[0] = address(0xAAAA);
+        validators[1] = address(0xBBBB);
+        deployment.setAddressArray(JSON_CONFIG_VALIDATORS_KEY, validators);
+
+        string[] memory tags = new string[](2);
+        tags[0] = "alpha";
+        tags[1] = "beta";
+        deployment.setStringArray(JSON_CONFIG_TAGS_KEY, tags);
+
+        uint256[] memory limits = new uint256[](3);
+        limits[0] = 5;
+        limits[1] = 15;
+        limits[2] = 25;
+        deployment.setUintArray(JSON_CONFIG_LIMITS_KEY, limits);
+
+        int256[] memory deltas = new int256[](3);
+        deltas[0] = -9;
+        deltas[1] = 0;
+        deltas[2] = 11;
+        deployment.setIntArray(JSON_CONFIG_DELTAS_KEY, deltas);
+
+        deployment.finish();
+
+        string memory filePath = _deploymentFilePath(network, "array-values");
+        string memory persisted = vm.readFile(filePath);
+
+        address[] memory parsedValidators = vm.parseJsonAddressArray(persisted, ".contracts.config.validators");
+        assertEq(parsedValidators.length, 2, "array validators length persisted");
+        assertEq(parsedValidators[0], address(0xAAAA), "array validators first persisted");
+        assertEq(parsedValidators[1], address(0xBBBB), "array validators second persisted");
+
+        string[] memory parsedTags = vm.parseJsonStringArray(persisted, ".contracts.config.tags");
+        assertEq(parsedTags.length, 2, "array tags length persisted");
+        assertEq(parsedTags[0], "alpha", "array tags first persisted");
+        assertEq(parsedTags[1], "beta", "array tags second persisted");
+
+        uint256[] memory parsedLimits = vm.parseJsonUintArray(persisted, ".contracts.config.limits");
+        assertEq(parsedLimits.length, 3, "array limits length persisted");
+        assertEq(parsedLimits[0], 5, "array limits first persisted");
+        assertEq(parsedLimits[1], 15, "array limits second persisted");
+        assertEq(parsedLimits[2], 25, "array limits third persisted");
+
+        int256[] memory parsedDeltas = vm.parseJsonIntArray(persisted, ".contracts.config.deltas");
+        assertEq(parsedDeltas.length, 3, "array deltas length persisted");
+        assertEq(parsedDeltas[0], -9, "array deltas first persisted");
+        assertEq(parsedDeltas[1], 0, "array deltas second persisted");
+        assertEq(parsedDeltas[2], 11, "array deltas third persisted");
     }
 }

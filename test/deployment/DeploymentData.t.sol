@@ -332,6 +332,14 @@ contract DeploymentDataTest is BaoTest {
         assertEq(stored[1], "verified");
     }
 
+    function test_EmptyStringArray() public {
+        string[] memory emptyStrings = new string[](0);
+        data.setStringArray(CONFIG_TAGS_KEY, emptyStrings);
+
+        string[] memory result = data.getStringArray(CONFIG_TAGS_KEY);
+        assertEq(result.length, 0, "zero-length string array should stay empty");
+    }
+
     // ============ Uint Array Tests ============
 
     function test_SetAndGetUintArray() public {
@@ -360,6 +368,14 @@ contract DeploymentDataTest is BaoTest {
         assertEq(allKeys[0], CONFIG_LIMITS_KEY);
     }
 
+    function test_EmptyUintArray() public {
+        uint256[] memory emptyUints = new uint256[](0);
+        data.setUintArray(CONFIG_LIMITS_KEY, emptyUints);
+
+        uint256[] memory result = data.getUintArray(CONFIG_LIMITS_KEY);
+        assertEq(result.length, 0, "zero-length uint array should stay empty");
+    }
+
     // ============ Int Array Tests ============
 
     function test_SetAndGetIntArray() public {
@@ -386,6 +402,14 @@ contract DeploymentDataTest is BaoTest {
         allKeys = data.keys();
         assertEq(allKeys.length, 1);
         assertEq(allKeys[0], CONFIG_DELTAS_KEY);
+    }
+
+    function test_EmptyIntArray() public {
+        int256[] memory emptyInts = new int256[](0);
+        data.setIntArray(CONFIG_DELTAS_KEY, emptyInts);
+
+        int256[] memory result = data.getIntArray(CONFIG_DELTAS_KEY);
+        assertEq(result.length, 0, "zero-length int array should stay empty");
     }
 
     // ============ Multiple Keys Tests ============
@@ -541,6 +565,34 @@ contract DeploymentDataJsonTest is DeploymentDataTest {
         assertEq(parsedDeltas[1], 1);
     }
 
+    function test_ToJsonZeroLengthArrays() public {
+        address[] memory validators = new address[](0);
+        dataJson.setAddressArray(CONFIG_VALIDATORS_KEY, validators);
+
+        string[] memory tags = new string[](0);
+        dataJson.setStringArray(CONFIG_TAGS_KEY, tags);
+
+        uint256[] memory limits = new uint256[](0);
+        dataJson.setUintArray(CONFIG_LIMITS_KEY, limits);
+
+        int256[] memory deltas = new int256[](0);
+        dataJson.setIntArray(CONFIG_DELTAS_KEY, deltas);
+
+        string memory json = dataJson.toJson();
+
+        address[] memory parsedValidators = JsonArrays.readAddressArray(json, "$.contracts.config.validators");
+        assertEq(parsedValidators.length, 0, "address array should remain empty");
+
+        string[] memory parsedTags = JsonArrays.readStringArray(json, "$.contracts.config.tags");
+        assertEq(parsedTags.length, 0, "string array should remain empty");
+
+        uint256[] memory parsedLimits = JsonArrays.readUintArray(json, "$.contracts.config.limits");
+        assertEq(parsedLimits.length, 0, "uint array should remain empty");
+
+        int256[] memory parsedDeltas = JsonArrays.readIntArray(json, "$.contracts.config.deltas");
+        assertEq(parsedDeltas.length, 0, "int array should remain empty");
+    }
+
     // ============ JSON Import Tests ============
 
     function test_FromJsonSingleAddress() public {
@@ -636,6 +688,24 @@ contract DeploymentDataJsonTest is DeploymentDataTest {
         assertEq(result[0], -50);
         assertEq(result[1], 0);
         assertEq(result[2], 100);
+    }
+
+    function test_FromJsonZeroLengthArrays() public {
+        string memory initialJson = '{"contracts":{"config":{"validators":[],"tags":[],"limits":[],"deltas":[]}}}';
+
+        dataJson.fromJson(initialJson);
+
+        address[] memory validators = dataJson.getAddressArray(CONFIG_VALIDATORS_KEY);
+        assertEq(validators.length, 0, "validators array should stay empty");
+
+        string[] memory tags = dataJson.getStringArray(CONFIG_TAGS_KEY);
+        assertEq(tags.length, 0, "tags array should stay empty");
+
+        uint256[] memory limits = dataJson.getUintArray(CONFIG_LIMITS_KEY);
+        assertEq(limits.length, 0, "limits array should stay empty");
+
+        int256[] memory deltas = dataJson.getIntArray(CONFIG_DELTAS_KEY);
+        assertEq(deltas.length, 0, "deltas array should stay empty");
     }
 
     function test_FromJsonArraysSerializedViaJsonHelpers() public {
