@@ -271,32 +271,38 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
     }
 
     function test_IncrementalDeployment() public {
-        // Reuse the contract salt but isolate via a dedicated network folder
-        string memory incrementalSalt = TEST_SALT;
+        // This test demonstrates incremental deployment across multiple phases
+        // Each phase uses setFilename BEFORE start() to get its own output file
+        // Phases resume from previous phase's output using the startPoint parameter
+
         string memory network = "test_IncrementalDeployment";
-        _initDeploymentTest(incrementalSalt, network);
-        // Phase 1: Deploy tokens with autosave
-        vm.warp(1000000); // Set initial timestamp
-        vm.roll(100); // Set initial block number
+        _initDeploymentTest(TEST_SALT, network);
+
+        // Phase 1: Deploy tokens
+        vm.warp(1000000);
+        vm.roll(100);
         MockDeploymentPhase phase1 = new MockDeploymentPhase();
-        phase1.start(network, incrementalSalt, "");
+        phase1.setFilename("phase1"); // Set filename BEFORE start
+        phase1.start(network, TEST_SALT, "");
         phase1.deployMockERC20("contracts.collateral", "wETH", "wETH");
         phase1.deployMockERC20("contracts.pegged", "USD", "USD");
-        phase1.finish(); // autosaves
+        phase1.finish();
 
-        // Phase 2: Resume and add oracle (simulate time passing)
-        vm.warp(2000000); // Advance timestamp by 1M seconds
-        vm.roll(200); // Advance by 100 blocks
+        // Phase 2: Resume from phase1 and add oracle
+        vm.warp(2000000);
+        vm.roll(200);
         MockDeploymentPhase phase2 = new MockDeploymentPhase();
-        phase2.start(network, incrementalSalt, "latest");
+        phase2.setFilename("phase2"); // Set filename BEFORE start
+        phase2.start(network, TEST_SALT, "phase1"); // Resume from phase1.json
         phase2.deployOracleProxy("contracts.oracle", 2000e18, admin);
-        phase2.finish(); // autosaves
+        phase2.finish();
 
-        // Phase 3: Resume and add minter (simulate more time passing)
-        vm.warp(3000000); // Advance timestamp by another 1M seconds
-        vm.roll(300); // Advance by another 100 blocks
+        // Phase 3: Resume from phase2 and add minter
+        vm.warp(3000000);
+        vm.roll(300);
         MockDeploymentPhase phase3 = new MockDeploymentPhase();
-        phase3.start(network, incrementalSalt, "latest");
+        phase3.setFilename("phase3"); // Set filename BEFORE start
+        phase3.start(network, TEST_SALT, "phase2"); // Resume from phase2.json
         phase3.deployMinterProxy(
             "contracts.minter",
             "contracts.collateral",
@@ -304,11 +310,11 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
             "contracts.oracle",
             admin
         );
-        phase3.finish(); // autosaves
+        phase3.finish();
 
-        // Verify final state
+        // Verify final state by loading phase3
         MockDeploymentIntegration finalDeployment = new MockDeploymentPhase();
-        finalDeployment.start(network, incrementalSalt, "latest");
+        finalDeployment.start(network, TEST_SALT, "phase3");
 
         assertTrue(finalDeployment.has("contracts.collateral"));
         assertTrue(finalDeployment.has("contracts.pegged"));
