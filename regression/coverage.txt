@@ -3,7 +3,7 @@
 | script/deployment/BaoDeployer.sol               | ✓ 100% (37/37)     | X  92% (34/37)     | X  67% (6/9)     | ✓ 100% (11/11)   |
 | script/deployment/BaoDeployerSetOperator.sol    | ✓ 100% (6/6)       | ✓ 100% (9/9)       | ✓ 100% (1/1)     | ✓ 100% (1/1)     |
 | script/deployment/Create3CommitFlow.sol         | ✓ 100% (20/20)     | ✓ 100% (23/23)     | ✓ 100% (4/4)     | ✓ 100% (4/4)     |
-| script/deployment/Deployment.sol                | X  97% (265/274)   | X  97% (305/316)   | X  72% (28/39)   | X  98% (47/48)   |
+| script/deployment/Deployment.sol                | X  97% (258/266)   | X  97% (294/304)   | X  73% (27/37)   | X  98% (46/47)   |
 | script/deployment/DeploymentDataMemory.sol      | ✓ 100% (114/114)   | ✓ 100% (93/93)     | ✓ 100% (7/7)     | ✓ 100% (32/32)   |
 | script/deployment/DeploymentInfrastructure.sol  | X  94% (30/32)     | X  94% (32/34)     | X  70% (7/10)    | ✓ 100% (3/3)     |
 | script/deployment/DeploymentJson.sol            | X  92% (213/231)   | X  93% (266/285)   | X  80% (53/66)   | X  93% (25/27)   |
@@ -29,4 +29,4 @@
 | src/internal/BaoCheckOwner_v2.sol               | ✓ 100% (13/13)     | ✓ 100% (10/10)     | ✓ 100% (1/1)     | ✓ 100% (4/4)     |
 | src/internal/BaoRoles.sol                       | ✓ 100% (56/56)     | ✓ 100% (49/49)     | ✓ 100% (6/6)     | ✓ 100% (16/16)   |
 | src/internal/BaoRoles_v2.sol                    | ✓ 100% (47/47)     | X  98% (42/43)     | ✓ 100% (4/4)     | ✓ 100% (14/14)   |
-| Total                                           | X  84% (2140/2563) | X  86% (2039/2381) | X  64% (176/275) | X  77% (505/658) |
+| Total                                           | X  83% (2126/2553) | X  85% (2023/2367) | X  64% (174/273) | X  76% (502/657) |

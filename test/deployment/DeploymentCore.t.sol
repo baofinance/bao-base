@@ -3,7 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
-import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
@@ -32,17 +31,9 @@ contract FailingLibrary {
     }
 }
 
-contract DeploymentCoreHarness is DeploymentJsonTesting {
+contract DeploymentCoreHarness is Deployment {
     function startSession(string memory network, string memory salt) external {
         start(network, salt, "");
-    }
-
-    function setConfiguredOwner(address owner_) external {
-        _setAddress(OWNER, owner_);
-    }
-
-    function transferProxyOwnership(address proxy) external {
-        _transferProxyOwnership(proxy);
     }
 
     function ensureBaoDeployerExternal() external {
@@ -156,35 +147,23 @@ contract DeploymentCoreHarness is DeploymentJsonTesting {
     function registerAddressKey(string memory key) external {
         addAddressKey(key);
     }
+
+    function _afterValueChanged(string memory) internal override {}
+
+    function _ensureBaoDeployerOperator() internal override {}
 }
 
 contract DeploymentCoreTest is BaoDeploymentTest {
     DeploymentCoreHarness public deployment;
+    string internal constant TEST_SALT = "DeploymentCoreTest";
 
     function setUp() public override {
         super.setUp();
         deployment = new DeploymentCoreHarness();
     }
 
-    function test_TransferProxyOwnershipSkipsWhenNotHarnessOwner_() public {
-        _initSession("saltB");
-        deployment.setConfiguredOwner(address(0xBAD));
-        SimpleBaoOwnable proxy = new SimpleBaoOwnable(address(0x1111));
-        deployment.transferProxyOwnership(address(proxy));
-        assertEq(proxy.owner(), address(0x1111), "Proxy ownership unchanged when harness not owner");
-    }
-
-    function test_TransferProxyOwnershipUpdatesWhenHarnessOwnsProxy_() public {
-        _initSession("saltC");
-        address finalOwner = address(0xBEEF);
-        deployment.setConfiguredOwner(finalOwner);
-        SimpleBaoOwnable proxy = new SimpleBaoOwnable(address(deployment));
-        deployment.transferProxyOwnership(address(proxy));
-        assertEq(proxy.owner(), finalOwner, "Proxy ownership transferred to configured owner");
-    }
-
     function test_RegisterContractRecordsMetadata_() public {
-        _initSession("saltD");
+        _initSession("test_RegisterContractRecordsMetadata_");
         deployment.addContract("contracts.alpha");
         address deployerAddress = address(0xD1);
         deployment.registerContract("contracts.alpha", address(0xCAFE), "Alpha", "src/Alpha.sol", deployerAddress);
@@ -202,7 +181,7 @@ contract DeploymentCoreTest is BaoDeploymentTest {
     }
 
     function test_DeployLibrarySuccessRecordsMetadata_() public {
-        _initSession("saltE");
+        _initSession("test_DeployLibrarySuccessRecordsMetadata_");
         deployment.addContract("contracts.safeLibrary");
         bytes memory bytecode = type(DeployableLibrary).creationCode;
         deployment.deployLibrary(
@@ -224,7 +203,7 @@ contract DeploymentCoreTest is BaoDeploymentTest {
     }
 
     function test_RevertWhen_DeployLibraryFails_() public {
-        _initSession("saltF");
+        _initSession("test_RevertWhen_DeployLibraryFails_");
         deployment.addContract("contracts.failLibrary");
         vm.expectRevert(abi.encodeWithSelector(Deployment.LibraryDeploymentFailed.selector, "contracts.failLibrary"));
         deployment.deployLibrary(
@@ -237,7 +216,7 @@ contract DeploymentCoreTest is BaoDeploymentTest {
     }
 
     function test_InternalScalarAccessorsRoundTrip_() public {
-        _initSession("saltG");
+        _initSession("test_InternalScalarAccessorsRoundTrip_");
         deployment.addContract("contracts.metrics");
         deployment.registerUintKey("contracts.metrics.count");
         deployment.registerIntKey("contracts.metrics.delta");
@@ -251,7 +230,7 @@ contract DeploymentCoreTest is BaoDeploymentTest {
     }
 
     function test_InternalArrayAccessorsRoundTrip_() public {
-        _initSession("saltH");
+        _initSession("test_InternalArrayAccessorsRoundTrip_");
         deployment.addContract("contracts.lists");
         deployment.registerAddressArrayKey("contracts.lists.addresses");
         deployment.registerStringArrayKey("contracts.lists.names");
@@ -284,26 +263,25 @@ contract DeploymentCoreTest is BaoDeploymentTest {
     }
 
     function test_PredictProxyAddressRequiresKey_() public {
-        _initSession("saltI");
+        _initSession("test_PredictProxyAddressRequiresKey_");
         vm.expectRevert(Deployment.KeyRequired.selector);
         deployment.predictProxyAddress("");
     }
 
     function test_UpgradeProxyValueRequiresKey_() public {
-        _initSession("saltJ");
+        _initSession("test_UpgradeProxyValueRequiresKey_");
         vm.expectRevert(Deployment.KeyRequired.selector);
         deployment.upgradeProxy{value: 0}(0, "", address(0), bytes(""), "Mock", "test/Mock.sol", address(this));
     }
 
-    function _initSession(string memory salt) internal {
-        _resetDeploymentLogs(salt, "");
-        _prepareTestNetwork(salt, string.concat("net-", salt));
-        deployment.startSession(string.concat("net-", salt), salt);
+    function _initSession(string memory testName) internal {
+        deployment.startSession(testName, TEST_SALT);
     }
 }
 
 contract DeploymentEnsureBaoDeployerTest is BaoDeploymentTest {
     DeploymentCoreHarness public deployment;
+    string internal constant TEST_SALT = "DeploymentEnsureBaoDeployerTest";
 
     function setUp() public override {
         // Install Nick's factory but skip DeploymentInfrastructure.ensureBaoDeployer to simulate missing deployer
@@ -323,15 +301,13 @@ contract DeploymentEnsureBaoDeployerTest is BaoDeploymentTest {
     }
 
     function test_EnsureBaoDeployerRequiresSchemaDuringSession_() public {
-        _initSessionEnsure("saltEnsure");
+        _initSessionEnsure("test_EnsureBaoDeployerRequiresSchemaDuringSession_");
         deployment.registerTopLevelKey("BaoDeployer");
         vm.expectRevert(abi.encodeWithSignature("KeyNotRegistered(string)", "BaoDeployer.address"));
         deployment.ensureBaoDeployerExternal();
     }
 
-    function _initSessionEnsure(string memory salt) internal {
-        _resetDeploymentLogs(salt, "");
-        _prepareTestNetwork(salt, string.concat("net-", salt));
-        deployment.startSession(string.concat("net-", salt), salt);
+    function _initSessionEnsure(string memory testName) internal {
+        deployment.startSession(testName, TEST_SALT);
     }
 }

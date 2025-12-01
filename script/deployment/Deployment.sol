@@ -224,26 +224,6 @@ abstract contract Deployment is DeploymentDataMemory {
     //     return address(_data);
     // }
 
-    /// @notice Transfer ownership of a proxy to final owner
-    /// @dev Called by subclass during finish() for each proxy
-    /// @param proxy Proxy address
-    function _transferProxyOwnership(address proxy) internal {
-        // Check if proxy supports owner() method (BaoOwnable pattern)
-        (bool success, bytes memory data) = proxy.staticcall(abi.encodeWithSignature("owner()"));
-        if (!success || data.length != 32) {
-            // Contract doesn't support BaoOwnable, skip
-            return;
-        }
-
-        address currentOwner = abi.decode(data, (address));
-        address finalOwner = _readAddress(OWNER);
-
-        // Only transfer if current owner is this harness (temporary owner from stub pattern)
-        if (currentOwner == address(this)) {
-            IBaoOwnable(proxy).transferOwnership(finalOwner);
-        }
-    }
-
     /// @notice Deploy BaoDeployer if needed (primarily for tests)
     /// @dev Production deployments should assume BaoDeployer already exists
     ///      This is here for test convenience only
