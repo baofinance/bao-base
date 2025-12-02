@@ -1,24 +1,43 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Script} from "forge-std/Script.sol";
 import {console} from "forge-std/console.sol";
-import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
+import {DeploymentJsonScript} from "@bao-script/deployment/DeploymentJsonScript.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
+import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 import {ERC20WithData} from "test/mocks/deployment/ERC20WithData.sol";
 
 /**
- * @title DeployTestHarness
- * @notice Deployment harness for ERC20WithData
- * @dev Extends DeploymentJson for JSON persistence (production paths)
+ * @title DeployTest
+ * @notice Deployment script for ERC20WithData
+ * @dev Run with: script/deploy-test
+ *
+ * Demonstrates using DeploymentJsonScript for production deployments.
+ * Output JSON is written to deployments/<salt>/<network>/
+ *
+ * Infrastructure setup (BaoDeployer) is explicit in run().
+ * On anvil with --auto-impersonate, we can broadcast as multisig.
+ * On mainnet, multisig would sign the setOperator transaction.
  */
-contract DeployTestHarness is DeploymentJson {
+contract DeployTest is DeploymentJsonScript {
+    // ============================================================================
+    // Deployment Keys
+    // ============================================================================
+
     string public constant TOKEN = "contracts.token";
     string public constant NAME = "contracts.token.name";
     string public constant SYMBOL = "contracts.token.symbol";
     string public constant STORAGE_UINT = "contracts.token.storageUint";
     string public constant STORAGE_UINT_ARRAY = "contracts.token.storageUintArray";
+
+    // Anvil default accounts - account 0 is the deployer/operator
+    uint256 constant ANVIL_ACCOUNT_0_PK = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
+    address constant ANVIL_ACCOUNT_0 = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
+
+    // ============================================================================
+    // Constructor - Schema Registration
+    // ============================================================================
 
     constructor() {
         addStringKey(NAME);
@@ -28,49 +47,9 @@ contract DeployTestHarness is DeploymentJson {
         addUintKey(STORAGE_UINT);
     }
 
-    /// @notice Deploy ERC20WithData as a proxy
-    /// @param key Contract key (e.g., "contracts.token")
-    function deployERC20WithData(string memory key) public {
-        // Deploy implementation with constructor arg
-        ERC20WithData impl = new ERC20WithData(address(0));
-
-        address owner = _getAddress(OWNER);
-        string memory name = _getString(NAME);
-        string memory symbol = _getString(SYMBOL);
-        uint256 aUint = _getUint(STORAGE_UINT);
-
-        // Encode initializer call
-        bytes memory initData = abi.encodeCall(ERC20WithData.initialize, (owner, name, symbol, aUint));
-
-        // Deploy proxy via CREATE3
-        this.deployProxy(
-            key,
-            address(impl),
-            initData,
-            "ERC20WithData",
-            "test/mocks/deployment/ERC20WithData.sol",
-
-        );
-    }
-}
-
-/**
- * @title DeployTest
- * @notice Script to deploy ERC20WithData using DeploymentJson (production)
- * @dev Run with: script/deploy-test
- *
- * This demonstrates using the deployment harness in a script context.
- * Output JSON is written to deployments/<salt>/<network>/
- *
- * Uses real multisig address as BaoDeployer owner.
- * On anvil with --auto-impersonate, we can broadcast from any address.
- * On mainnet, multisig would sign these transactions.
- */
-contract DeployTest is Script {
-    // Anvil default account (used as deployment operator)
-    uint256 constant ANVIL_ACCOUNT_0_PK = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
-
-    DeployTestHarness public deployment;
+    // ============================================================================
+    // Main Entry Point
+    // ============================================================================
 
     function run() public {
         string memory network = "anvil";
@@ -89,9 +68,9 @@ contract DeployTest is Script {
 
         address baoDeployerAddr = DeploymentInfrastructure.predictBaoDeployerAddress();
 
-        // Deploy BaoDeployer if missing (broadcast from multisig - works on anvil with --unlocked)
+        // Deploy BaoDeployer if missing
         if (baoDeployerAddr.code.length == 0) {
-            console.log("Deploying BaoDeployer (as multisig)...");
+            console.log("Deploying BaoDeployer...");
             vm.startBroadcast(ANVIL_ACCOUNT_0_PK);
             DeploymentInfrastructure.ensureBaoDeployer();
             vm.stopBroadcast();
@@ -100,40 +79,75 @@ contract DeployTest is Script {
             console.log("BaoDeployer already exists at:", baoDeployerAddr);
         }
 
-        // Create harness (will be the operator)
-        deployment = new DeployTestHarness();
-        console.log("Deployment harness created at:", address(deployment));
-
-        // Set operator to the harness (as multisig, which is BaoDeployer owner)
+        // Set operator to anvil account 0 (as multisig owner)
         BaoDeployer baoDeployer = BaoDeployer(baoDeployerAddr);
-        if (baoDeployer.operator() != address(deployment)) {
-            console.log("Setting BaoDeployer operator to harness (as multisig)...");
+        if (baoDeployer.operator() != ANVIL_ACCOUNT_0) {
+            console.log("Setting BaoDeployer operator (as multisig)...");
             vm.startBroadcast(DeploymentInfrastructure.BAOMULTISIG);
-            baoDeployer.setOperator(address(deployment));
+            baoDeployer.setOperator(ANVIL_ACCOUNT_0);
             vm.stopBroadcast();
-            console.log("Operator set to:", address(deployment));
+            console.log("Operator set to:", ANVIL_ACCOUNT_0);
         }
 
         // ========================================
-        // Phase 2: Deployment (as account 1)
+        // Phase 2: Deployment
         // ========================================
+
+        // Set private key for broadcasts
+        setDeployerPk(ANVIL_ACCOUNT_0_PK);
+
+        // Deploy bootstrap stub
+        console.log("Deploying bootstrap stub...");
+        vm.startBroadcast(ANVIL_ACCOUNT_0_PK);
+        UUPSProxyDeployStub stub = new UUPSProxyDeployStub();
+        vm.stopBroadcast();
+        setStub(address(stub));
+        console.log("Stub deployed at:", address(stub));
 
         console.log("Starting deployment on network:", network);
 
         // Start deployment session
-        deployment.start(network, salt, "");
+        start(network, salt, ANVIL_ACCOUNT_0, "");
 
-        // Deploy the token (as anvil account 0 - the deployment operator)
-        vm.startBroadcast(ANVIL_ACCOUNT_0_PK);
-        deployment.deployERC20WithData(deployment.TOKEN());
-        vm.stopBroadcast();
+        // Deploy the token
+        deployERC20WithData(TOKEN);
 
         // Get deployed address
-        address tokenAddr = deployment.get(deployment.TOKEN());
+        address tokenAddr = _get(TOKEN);
         console.log("Deployed ERC20WithData proxy at:", tokenAddr);
 
         // Finish and save
-        deployment.finish();
+        finish();
         console.log("Deployment complete");
+    }
+
+    // ============================================================================
+    // Deployment Functions
+    // ============================================================================
+
+    /// @notice Deploy ERC20WithData as a proxy
+    /// @param key Contract key (e.g., "contracts.token")
+    function deployERC20WithData(string memory key) internal {
+        // Deploy implementation with constructor arg
+        ERC20WithData impl = new ERC20WithData(address(0));
+
+        address owner = _getAddress(OWNER);
+        string memory name = _getString(NAME);
+        string memory symbol = _getString(SYMBOL);
+        uint256 aUint = _getUint(STORAGE_UINT);
+
+        // Encode initializer call
+        bytes memory initData = abi.encodeCall(ERC20WithData.initialize, (owner, name, symbol, aUint));
+
+        // Deploy proxy via CREATE3
+        // Note: deployProxy internally handles broadcast via hooks
+        deployProxy(
+            key,
+            address(impl),
+            initData,
+            "ERC20WithData",
+            "test/mocks/deployment/ERC20WithData.sol",
+            _deployer
+        );
     }
 }

@@ -52,14 +52,16 @@ contract DeploymentJson is Deployment {
         }
     }
 
-    /// @notice Verify that this deployment harness is configured as BaoDeployer operator
+    /// @notice Verify that the deployer is configured as BaoDeployer operator
     /// @dev Production check - reverts if operator not already configured by multisig
+    ///      Uses _deployer (set via start()) as the expected operator
     function _ensureBaoDeployerOperator() internal virtual override {
         address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
         if (baoDeployer.code.length == 0) {
             revert FactoryDeploymentFailed("BaoDeployer missing code");
         }
-        if (BaoDeployer(baoDeployer).operator() != address(this)) {
+        address currentOperator = BaoDeployer(baoDeployer).operator();
+        if (currentOperator != _deployer) {
             revert FactoryDeploymentFailed("BaoDeployer operator not configured for this deployer");
         }
     }
@@ -109,10 +111,12 @@ contract DeploymentJson is Deployment {
     /// @dev Overrides Deployment.start() to load initial state from JSON
     /// @param network_ Network name
     /// @param systemSaltString_ System salt string
+    /// @param deployer Address that will sign transactions (EOA for scripts, harness for tests)
     /// @param startPoint Start point for input resolution ("first", "latest", or timestamp)
     function start(
         string memory network_,
         string memory systemSaltString_,
+        address deployer,
         string memory startPoint
     ) public virtual override {
         _requireNetwork(network_);
@@ -134,7 +138,7 @@ contract DeploymentJson is Deployment {
         _suppressPersistence = false;
 
         // Now call parent to set up session metadata
-        super.start(network_, systemSaltString_, startPoint);
+        super.start(network_, systemSaltString_, deployer, startPoint);
     }
 
     /// @notice Find the latest JSON file in the output directory
@@ -196,14 +200,14 @@ contract DeploymentJson is Deployment {
             return;
         }
 
-        string[] memory registered = this.schemaKeys();
+        string[] memory registered = schemaKeys();
         for (uint256 i = 0; i < registered.length; i++) {
             string memory key = registered[i];
             string memory pointer = string.concat("$.", key);
             if (!existingJson.keyExists(pointer)) {
                 continue;
             }
-            DataType expected = this.keyType(key);
+            DataType expected = keyType(key);
             if (_shouldSkipComposite(existingJson, pointer, expected)) {
                 continue;
             }

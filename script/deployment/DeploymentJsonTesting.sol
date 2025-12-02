@@ -7,6 +7,7 @@ import {DeploymentTestingEnablers} from "@bao-script/deployment/DeploymentTestin
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {BaoDeployerSetOperator} from "@bao-script/deployment/BaoDeployerSetOperator.sol";
+import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 import {Vm} from "forge-std/Vm.sol";
 
@@ -34,12 +35,33 @@ contract DeploymentJsonTesting is DeploymentJson, DeploymentTestingEnablers, Bao
     string private _baseFilename;
     bool private _manualSequencing; // If true, only increment on explicit nextSequence() calls
 
+    /// @notice Start deployment session with deployer defaulting to address(this)
+    /// @dev Convenience overload for tests where the harness is the deployer
     function start(
         string memory network_,
         string memory systemSaltString_,
         string memory startPoint
+    ) public {
+        start(network_, systemSaltString_, address(this), startPoint);
+    }
+
+    /// @notice Start deployment session with explicit deployer
+    function start(
+        string memory network_,
+        string memory systemSaltString_,
+        address deployer,
+        string memory startPoint
     ) public override(DeploymentJson, Deployment) {
-        DeploymentJson.start(network_, systemSaltString_, startPoint);
+        DeploymentJson.start(network_, systemSaltString_, deployer, startPoint);
+    }
+
+    /// @notice Deploy stub for testing
+    /// @dev Override of Deployment._deployStub() - deploys fresh stub for each test
+    function _deployStub() internal override {
+        _stub = new UUPSProxyDeployStub();
+        _stubContractType = "UUPSProxyDeployStub";
+        _stubContractPath = "script/deployment/UUPSProxyDeployStub.sol";
+        _stubBlockNumber = block.number;
     }
 
     // ============================================================================
@@ -136,7 +158,7 @@ contract DeploymentJsonTesting is DeploymentJson, DeploymentTestingEnablers, Bao
     function setContractAddress(string memory key, address addr) public {
         address operator = BaoDeployer(DeploymentInfrastructure.predictBaoDeployerAddress()).operator();
         VM.prank(operator);
-        this.setAddress(key, addr);
+        _set(key, addr);
     }
 }
 

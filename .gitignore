@@ -43,6 +43,8 @@ results/*.png
 /broadcast/**/dry-run/
 /broadcast
 
+deployments/*/anvil/*.json
+
 # Docs
 docs/
 

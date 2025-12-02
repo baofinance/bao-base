@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
@@ -31,7 +32,7 @@ contract FailingLibrary {
     }
 }
 
-contract DeploymentCoreHarness is Deployment {
+contract DeploymentCoreHarness is DeploymentTesting {
     function startSession(string memory network, string memory salt) external {
         start(network, salt, "");
     }
@@ -147,10 +148,6 @@ contract DeploymentCoreHarness is Deployment {
     function registerAddressKey(string memory key) external {
         addAddressKey(key);
     }
-
-    function _afterValueChanged(string memory) internal override {}
-
-    function _ensureBaoDeployerOperator() internal override {}
 }
 
 contract DeploymentCoreTest is BaoDeploymentTest {

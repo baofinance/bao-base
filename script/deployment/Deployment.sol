@@ -67,6 +67,10 @@ abstract contract Deployment is DeploymentDataMemory {
 
     // Note: Data storage (maps, getters, setters) inherited from DeploymentDataMemory
 
+    /// @notice Deployer address for this session
+    /// @dev Set via start(), used for metadata recording and broadcast hooks
+    address internal _deployer;
+
     /// @notice Bootstrap stub used as initial implementation for all proxies
     /// @dev Deployed once per session, owned by this harness, enables BaoOwnable compatibility with CREATE3
     UUPSProxyDeployStub internal _stub;
@@ -120,6 +124,40 @@ abstract contract Deployment is DeploymentDataMemory {
     // }
 
     // ============================================================================
+    // Stub Configuration
+    // ============================================================================
+
+    /// @notice Set the bootstrap stub address (for scripts using pre-deployed stub)
+    /// @param stub Address of a deployed UUPSProxyDeployStub
+    function setStub(address stub) public {
+        require(stub != address(0), "Stub address is zero");
+        require(stub.code.length > 0, "Stub has no code");
+        _stub = UUPSProxyDeployStub(stub);
+        _stubContractType = "UUPSProxyDeployStub";
+        _stubContractPath = "script/deployment/UUPSProxyDeployStub.sol";
+        _stubBlockNumber = block.number;
+    }
+
+    /// @notice Deploy stub - override in testing classes
+    /// @dev Default is no-op (scripts must call setStub before start)
+    ///      Testing classes override to deploy fresh stub
+    function _deployStub() internal virtual {}
+
+    // ============================================================================
+    // Broadcast Hooks
+    // ============================================================================
+
+    /// @notice Hook called before blockchain operations
+    /// @dev Override in script classes to call vm.startBroadcast()
+    ///      Default is no-op (works for tests where no broadcast is needed)
+    function _startBroadcast() internal virtual {}
+
+    /// @notice Hook called after blockchain operations
+    /// @dev Override in script classes to call vm.stopBroadcast()
+    ///      Default is no-op (works for tests where no broadcast is needed)
+    function _stopBroadcast() internal virtual {}
+
+    // ============================================================================
     // Deployment Lifecycle
     // ============================================================================
 
@@ -127,12 +165,17 @@ abstract contract Deployment is DeploymentDataMemory {
     /// @dev Subclasses can override for custom initialization (e.g., JSON loading)
     /// @param network Network name (e.g., "mainnet", "arbitrum", "anvil")
     /// @param systemSaltString System salt string for deterministic addresses
+    /// @param deployer Address that will sign transactions (EOA for scripts, harness for tests)
     function start(
         string memory network,
         string memory systemSaltString,
+        address deployer,
         string memory /* startPoint */
     ) public virtual {
         if (_sessionState != State.NONE) revert AlreadyInitialized();
+
+        // Store deployer for use in broadcasts and metadata
+        _deployer = deployer;
 
         // TODO: need to read the schema version and check for compatibility
         // Set global deployment configuration
@@ -141,7 +184,7 @@ abstract contract Deployment is DeploymentDataMemory {
 
         // Initialize session metadata
         _writeString(SESSION_NETWORK, network, DataType.STRING);
-        _writeAddress(SESSION_DEPLOYER, address(this), DataType.ADDRESS);
+        _writeAddress(SESSION_DEPLOYER, deployer, DataType.ADDRESS);
         _writeUint(SESSION_START_TIMESTAMP, block.timestamp, DataType.UINT);
         _writeString(SESSION_STARTED, _formatTimestamp(block.timestamp), DataType.STRING);
         _writeUint(SESSION_START_BLOCK, block.number, DataType.UINT);
@@ -151,10 +194,11 @@ abstract contract Deployment is DeploymentDataMemory {
         // Set up deployment infrastructure
         _ensureBaoDeployerOperator();
 
-        _stub = new UUPSProxyDeployStub();
-        _stubContractType = "UUPSProxyDeployStub";
-        _stubContractPath = "script/deployment/UUPSProxyDeployStub.sol";
-        _stubBlockNumber = block.number;
+        // Deploy stub (testing classes override, scripts use setStub before start)
+        _deployStub();
+
+        // Verify stub is configured
+        require(address(_stub) != address(0), "Stub not configured - call setStub() before start()");
 
         _sessionState = State.STARTED;
     }
@@ -171,9 +215,17 @@ abstract contract Deployment is DeploymentDataMemory {
         TransferrableProxy[] memory proxies = _getTransferrableProxies();
         transferred = proxies.length;
 
+        // Transfer ownership (needs broadcast in script context)
+        _startBroadcast();
         for (uint256 i; i < proxies.length; i++) {
             TransferrableProxy memory tp = proxies[i];
             IBaoOwnable(tp.proxy).transferOwnership(tp.configuredOwner);
+        }
+        _stopBroadcast();
+
+        // Update metadata after blockchain operations
+        for (uint256 i; i < proxies.length; i++) {
+            TransferrableProxy memory tp = proxies[i];
             _setString(string.concat(tp.parentKey, ".implementation.ownershipModel"), "transferred-after-deploy");
         }
 
@@ -192,7 +244,7 @@ abstract contract Deployment is DeploymentDataMemory {
     /// @return proxies Array of TransferrableProxy structs (only those actually needing transfer)
     function _getTransferrableProxies() internal view returns (TransferrableProxy[] memory proxies) {
         address globalOwner = _getAddress(OWNER);
-        string[] memory allKeys = this.keys();
+        string[] memory allKeys = keys();
         string memory suffix = ".implementation.ownershipModel";
         uint256 suffixLen = bytes(suffix).length;
 
@@ -343,13 +395,17 @@ abstract contract Deployment is DeploymentDataMemory {
         BaoDeployer baoDeployer = BaoDeployer(factory);
 
         bytes32 commitment = DeploymentInfrastructure.commitment(
-            address(this),
+            _deployer,
             0,
             salt,
             EfficientHashLib.hash(proxyCreationCode)
         );
+
+        // Deploy proxy via CREATE3 (needs broadcast in script context)
+        _startBroadcast();
         baoDeployer.commit(commitment);
         address proxy = baoDeployer.reveal(proxyCreationCode, salt, 0);
+        _stopBroadcast();
 
         // Register proxy with all metadata (extracted to avoid stack too deep)
         _recordProxy(proxyKey, proxy, factory, salt, deployer, block.number);
@@ -359,7 +415,7 @@ abstract contract Deployment is DeploymentDataMemory {
             address(_stub),
             _stubContractType,
             _stubContractPath,
-            address(this),
+            _deployer,
             _stubBlockNumber
         );
 
@@ -467,10 +523,12 @@ abstract contract Deployment is DeploymentDataMemory {
         require(proxy != address(0), "Proxy address is zero");
         require(newImplementation != address(0), "Implementation address is zero");
 
-        // Perform the upgrade
+        // Perform the upgrade (needs broadcast in script context)
+        _startBroadcast();
         if ((implementationInitData.length == 0) && (value == 0)) {
             IUUPSUpgradeableProxy(proxy).upgradeTo(newImplementation);
         } else if ((implementationInitData.length == 0) && (value != 0)) {
+            _stopBroadcast();
             revert CannotSendValueToNonPayableFunction();
             // or upgrade and call
         } else if ((implementationInitData.length != 0) && (value == 0)) {
@@ -478,6 +536,7 @@ abstract contract Deployment is DeploymentDataMemory {
         } else if ((implementationInitData.length != 0) && (value != 0)) {
             IUUPSUpgradeableProxy(proxy).upgradeToAndCall{value: value}(newImplementation, implementationInitData);
         }
+        _stopBroadcast();
 
         // implementation keys
         string memory implKey = string.concat(proxyKey, ".implementation");
@@ -535,17 +594,20 @@ abstract contract Deployment is DeploymentDataMemory {
         }
 
         Create3CommitFlow.Request memory request = Create3CommitFlow.Request({
-            operator: address(this),
+            operator: _deployer,
             systemSaltString: _getString(SYSTEM_SALT_STRING),
             key: key,
             initCode: initCode,
             value: value
         });
 
+        // Deploy via CREATE3 (needs broadcast in script context)
+        _startBroadcast();
         (address addr, , address factory) = Create3CommitFlow.commitAndReveal(
             request,
             Create3CommitFlow.RevealMode.MatchValue
         );
+        _stopBroadcast();
 
         _recordContractFields(key, addr, contractType, contractPath, deployer, block.number);
         _setString(string.concat(key, ".category"), "contract");
@@ -593,7 +655,7 @@ abstract contract Deployment is DeploymentDataMemory {
     ) public {
         _requireActiveRun();
         string memory implKey = string.concat(proxyKey, ".implementation");
-        _recordContractFields(implKey, implAddress, contractType, contractPath, address(this), block.number);
+        _recordContractFields(implKey, implAddress, contractType, contractPath, _deployer, block.number);
         _setString(string.concat(implKey, ".ownershipModel"), ownershipModel);
     }
 
@@ -623,10 +685,14 @@ abstract contract Deployment is DeploymentDataMemory {
     ) public {
         _requireActiveRun();
 
+        // Deploy library (needs broadcast in script context)
+        _startBroadcast();
         address addr;
         assembly {
             addr := create(0, add(bytecode, 0x20), mload(bytecode))
         }
+        _stopBroadcast();
+
         if (addr == address(0)) {
             revert LibraryDeploymentFailed(key);
         }
@@ -682,9 +748,16 @@ abstract contract Deployment is DeploymentDataMemory {
     }
 
     /// @notice Check if contract key exists
-    /// @dev Uses external has() which handles OBJECT type checks (key.address)
+    /// @dev Checks _hasKey directly, and for OBJECT types also checks key.address
     function _has(string memory key) internal view returns (bool) {
-        return this.has(key);
+        if (_hasKey[key]) {
+            return true;
+        }
+        // For OBJECT type keys (contract entries), check if .address child is set
+        if (keyType(key) == DataType.OBJECT) {
+            return _hasKey[string.concat(key, ".address")];
+        }
+        return false;
     }
 
     /// @notice Set string value

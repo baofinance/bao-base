@@ -4,10 +4,11 @@ pragma solidity >=0.8.28 <0.9.0;
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
 import {MockContract} from "@bao-test/mocks/basic/MockContract.sol";
 
 // Test harness keeps everything in memory to avoid filesystem churn
-contract DeploymentBasicHarness is Deployment {
+contract DeploymentBasicHarness is DeploymentTesting {
     constructor() {
         addContract("contracts.mock1");
         addContract("contracts.mock2");
@@ -25,10 +26,6 @@ contract DeploymentBasicHarness is Deployment {
         useExisting(fullKey, address(mock));
         return _get(fullKey);
     }
-
-    function _ensureBaoDeployerOperator() internal pure override {}
-
-    function _afterValueChanged(string memory) internal pure override {}
 
     function seedOwner(address owner) external {
         _setAddress(OWNER, owner);

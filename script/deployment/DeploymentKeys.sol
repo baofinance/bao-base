@@ -336,7 +336,7 @@ abstract contract DeploymentKeys {
      *      For keys that HAVE values, use keys() on the data layer
      * @return schemaKeys Array of all registered configuration keys
      */
-    function schemaKeys() external view returns (string[] memory) {
+    function schemaKeys() public view returns (string[] memory) {
         return _allKeys;
     }
 
@@ -345,7 +345,7 @@ abstract contract DeploymentKeys {
      * @param key The key to look up
      * @return expectedType The registered type for this key
      */
-    function keyType(string memory key) external view returns (DataType expectedType) {
+    function keyType(string memory key) public view returns (DataType expectedType) {
         return _keyTypes[key];
     }
 

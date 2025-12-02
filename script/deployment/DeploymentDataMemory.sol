@@ -40,7 +40,9 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
 
     function get(string memory key) external view virtual override returns (address value) {
         // Shorthand: contracts.Oracle → contracts.Oracle.address
-        return this.getAddress(string.concat(key, ".address"));
+        string memory addressKey = string.concat(key, ".address");
+        _requireReadable(addressKey, DataType.ADDRESS);
+        return _addresses[addressKey];
     }
 
     function getAddress(string memory key) external view virtual override returns (address value) {
@@ -102,13 +104,13 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
         }
         // For OBJECT type keys (contract entries), check if .address child is set
         // This mirrors get() which is a shorthand for getAddress(key + ".address")
-        if (this.keyType(key) == DataType.OBJECT) {
+        if (keyType(key) == DataType.OBJECT) {
             return _hasKey[string.concat(key, ".address")];
         }
         return false;
     }
 
-    function keys() external view virtual override returns (string[] memory activeKeys) {
+    function keys() public view virtual override returns (string[] memory activeKeys) {
         // Count keys with values first
         uint256 count = 0;
         for (uint256 i = 0; i < _dataKeys.length; i++) {
@@ -126,8 +128,6 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
             }
         }
     }
-
-    // Note: schemaKeys() is inherited from DeploymentKeys
 
     // ============ Shared Logic ============
 
