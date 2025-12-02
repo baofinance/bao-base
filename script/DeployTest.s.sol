@@ -32,7 +32,7 @@ contract DeployTest is DeploymentJsonScript {
     string public constant STORAGE_UINT_ARRAY = "contracts.token.storageUintArray";
 
     // Anvil default accounts - account 0 is the deployer/operator
-    uint256 constant ANVIL_ACCOUNT_0_PK = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
+    uint256 constant PRIVATE_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
     address constant ANVIL_ACCOUNT_0 = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
 
     // ============================================================================
@@ -56,68 +56,58 @@ contract DeployTest is DeploymentJsonScript {
         string memory salt = "DeployTest";
 
         // ========================================
-        // Phase 1: Infrastructure Setup
+        // Phase 1: Verify Infrastructure
         // ========================================
 
-        // Check Nick's Factory exists
-        require(
-            DeploymentInfrastructure._NICKS_FACTORY.code.length > 0,
-            "Nick's Factory not deployed. Start anvil with: anvil"
-        );
-        console.log("Nick's Factory found at:", DeploymentInfrastructure._NICKS_FACTORY);
+        // // Check Nick's Factory exists
+        // require(
+        //     DeploymentInfrastructure._NICKS_FACTORY.code.length > 0,
+        //     "Nick's Factory not deployed. Start anvil with: anvil"
+        // );
+        // console.log("Nick's Factory found at:", DeploymentInfrastructure._NICKS_FACTORY);
 
-        address baoDeployerAddr = DeploymentInfrastructure.predictBaoDeployerAddress();
+        // address baoDeployerAddr = DeploymentInfrastructure.predictBaoDeployerAddress();
+        // require(baoDeployerAddr.code.length > 0, "BaoDeployer not deployed - run infrastructure setup first");
+        // console.log("BaoDeployer at:", baoDeployerAddr);
 
-        // Deploy BaoDeployer if missing
-        if (baoDeployerAddr.code.length == 0) {
-            console.log("Deploying BaoDeployer...");
-            vm.startBroadcast(ANVIL_ACCOUNT_0_PK);
-            DeploymentInfrastructure.ensureBaoDeployer();
-            vm.stopBroadcast();
-            console.log("BaoDeployer deployed at:", baoDeployerAddr);
-        } else {
-            console.log("BaoDeployer already exists at:", baoDeployerAddr);
-        }
-
-        // Set operator to anvil account 0 (as multisig owner)
-        BaoDeployer baoDeployer = BaoDeployer(baoDeployerAddr);
-        if (baoDeployer.operator() != ANVIL_ACCOUNT_0) {
-            console.log("Setting BaoDeployer operator (as multisig)...");
-            vm.startBroadcast(DeploymentInfrastructure.BAOMULTISIG);
-            baoDeployer.setOperator(ANVIL_ACCOUNT_0);
-            vm.stopBroadcast();
-            console.log("Operator set to:", ANVIL_ACCOUNT_0);
-        }
+        // BaoDeployer baoDeployer = BaoDeployer(baoDeployerAddr);
+        // require(
+        //     baoDeployer.operator() == ANVIL_ACCOUNT_0,
+        //     "BaoDeployer operator not set - run infrastructure setup first"
+        // );
+        // console.log("BaoDeployer operator:", ANVIL_ACCOUNT_0);
 
         // ========================================
         // Phase 2: Deployment
         // ========================================
 
         // Set private key for broadcasts
-        setDeployerPk(ANVIL_ACCOUNT_0_PK);
-
-        // Deploy bootstrap stub
-        console.log("Deploying bootstrap stub...");
-        vm.startBroadcast(ANVIL_ACCOUNT_0_PK);
-        UUPSProxyDeployStub stub = new UUPSProxyDeployStub();
-        vm.stopBroadcast();
-        setStub(address(stub));
-        console.log("Stub deployed at:", address(stub));
+        setDeployerPk(PRIVATE_KEY);
 
         console.log("Starting deployment on network:", network);
-
         // Start deployment session
-        start(network, salt, ANVIL_ACCOUNT_0, "");
+        require(vm.addr(PRIVATE_KEY) == ANVIL_ACCOUNT_0, "private key not correct");
+        start(network, salt, vm.addr(PRIVATE_KEY), "");
+
+        // Deploy bootstrap stub
+        // console.log("Deploying bootstrap stub...");
+        // UUPSProxyDeployStub stub = new UUPSProxyDeployStub();
+        // console.log("Stub deployed at:", _get(SESSION_STUB));
 
         // Deploy the token
         deployERC20WithData(TOKEN);
 
+        // Finish and save
+        finish();
+
         // Get deployed address
         address tokenAddr = _get(TOKEN);
         console.log("Deployed ERC20WithData proxy at:", tokenAddr);
+        console.log(
+            string.concat("   '", ERC20WithData(tokenAddr).name(), "' (", ERC20WithData(tokenAddr).symbol(), ")")
+        );
+        console.log("   owner:", ERC20WithData(tokenAddr).owner());
 
-        // Finish and save
-        finish();
         console.log("Deployment complete");
     }
 
@@ -147,7 +137,7 @@ contract DeployTest is DeploymentJsonScript {
             initData,
             "ERC20WithData",
             "test/mocks/deployment/ERC20WithData.sol",
-            _deployer
+            _getAddress(SESSION_DEPLOYER)
         );
     }
 }

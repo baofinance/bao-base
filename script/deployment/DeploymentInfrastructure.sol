@@ -29,14 +29,17 @@ library DeploymentInfrastructure {
 
     /// @notice Deploy BaoDeployer via Nick's Factory if it doesn't exist
     function ensureBaoDeployer() internal returns (address deployed) {
-        deployed = predictBaoDeployerAddress();
+        // check nicks factory is there. It should be everywhere, even on a fresh anvil
+        require(_NICKS_FACTORY.code.length > 0, "Nick's factory must be installed in this chain");
 
+        // check the deployer is there
+        deployed = predictBaoDeployerAddress();
         bytes32 expectedRuntimeHash = keccak256(type(BaoDeployer).runtimeCode);
         bytes32 existingCodeHash;
         assembly {
             existingCodeHash := extcodehash(deployed)
         }
-
+        // if it isn't there we deploy it - there isn't a scenario we shouldn't do that
         if (existingCodeHash != bytes32(0)) {
             if (existingCodeHash != expectedRuntimeHash) {
                 revert BaoDeployerCodeMismatch(expectedRuntimeHash, existingCodeHash);

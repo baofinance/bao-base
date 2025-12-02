@@ -8,6 +8,45 @@ pragma solidity >=0.8.28 <0.9.0;
 import {CREATE3} from "@solady/utils/CREATE3.sol";
 import {Ownable} from "@solady/auth/Ownable.sol";
 
+/// @title Bao Deployer Bootstrap
+/// @notice Deterministic CREATE3 wrapper deployed via Nick's Factory
+/// @dev No constructor args ensures deterministic address independent of deployer/owner.
+///      Authorization is via tx.origin recorded at construction time.
+contract BaoDeployerBootstrap {
+    error Unauthorized();
+    error ValueMismatch(uint256 expected, uint256 received);
+
+    /// @notice The EOA that deployed this contract (recorded via tx.origin)
+    address public immutable DEPLOYER;
+
+    /// @dev Records tx.origin as the authorized deployer. No constructor args keeps bytecode constant.
+    constructor() {
+        DEPLOYER = tx.origin;
+    }
+
+    modifier onlyDeployer() {
+        if (tx.origin != DEPLOYER) revert Unauthorized();
+        _;
+    }
+
+    function deploy(bytes32 salt, bytes calldata initCode) external onlyDeployer returns (address deployed) {
+        deployed = CREATE3.deployDeterministic(initCode, salt);
+    }
+
+    function deploy(
+        bytes32 salt,
+        bytes calldata initCode,
+        uint256 value
+    ) external payable onlyDeployer returns (address deployed) {
+        if (msg.value != value) revert ValueMismatch(value, msg.value);
+        deployed = CREATE3.deployDeterministic(value, initCode, salt);
+    }
+
+    function predict(bytes32 salt) external view returns (address predicted) {
+        predicted = CREATE3.predictDeterministicAddress(salt);
+    }
+}
+
 /// @title Bao Deterministic Deployer
 /// @notice Non-upgradeable CREATE3 deployer with commit-reveal protection
 /// @dev Owner is baked into the constructor (part of CREATE2 address derivation)
@@ -59,6 +98,7 @@ contract BaoDeployer is Ownable {
     constructor(address owner_) {
         if (owner_ == address(0)) revert OwnerRequired();
         _initializeOwner(owner_);
+        operator = tx.origin;
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -162,3 +202,19 @@ contract BaoDeployer is Ownable {
         _;
     }
 }
+
+/*
+Example deterministic deployment flow (address depends only on salt + Nick's factory):
+    // 1. Deploy BaoDeployerBootstrap via Nick's Factory using CREATE2.
+    //    No constructor args → bytecode is constant → address is deterministic.
+    //    tx.origin becomes the authorized DEPLOYER.
+    bytes memory bootstrapCode = type(BaoDeployerBootstrap).creationCode;
+    // factory.call(abi.encodePacked(salt, bootstrapCode));
+
+    // 2. Use the bootstrapper to CREATE3 the BaoDeployer with any owner address.
+    //    The BaoDeployer address depends only on (bootstrap_address, salt), not on owner.
+    address deployed = BaoDeployerBootstrap(bootstrap).deploy(
+        keccak256("bao.deployer"),
+        abi.encodePacked(type(BaoDeployer).creationCode, abi.encode(environmentOwner))
+    );
+*/

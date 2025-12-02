@@ -45,6 +45,7 @@ abstract contract BaoDeploymentTest is BaoTest {
      * @dev Derived classes MUST call super.setUp() first, then create their deployment
      */
     function setUp() public virtual {
+        // TODO: all this should go other than the labelling
         // install Nick's factory if not present
         if (DeploymentInfrastructure._NICKS_FACTORY.code.length == 0) {
             vm.etch(DeploymentInfrastructure._NICKS_FACTORY, DeploymentInfrastructure._NICKS_FACTORY_BYTECODE);
@@ -106,43 +107,4 @@ abstract contract BaoDeploymentTest is BaoTest {
         // Finished ISO string must be non-empty
         assertGt(bytes(finished).length, 0, "finished ISO string should be set");
     }
-
-    /*
-    function buildDeploymentConfig(
-        address owner,
-        string memory version,
-        string memory systemSalt
-    ) internal pure returns (string memory) {
-        string memory json = string.concat('{"owner":"', vm.toString(owner), '","version":"', version, '"');
-
-        if (bytes(systemSalt).length != 0) {
-            json = string.concat(json, ',"systemSaltString":"', systemSalt, '"');
-        }
-
-        json = string.concat(json, "}");
-        return json;
-    }
-
-    function startDeploymentSession(
-        Deployment deployment,
-        address owner,
-        string memory network,
-        string memory version,
-        string memory systemSalt
-    ) internal {
-        string memory config = buildDeploymentConfig(owner, version, systemSalt);
-        deployment.start(config, network);
-    }
-
-    function resumeDeploymentSession(
-        Deployment deployment,
-        address owner,
-        string memory network,
-        string memory version,
-        string memory systemSalt
-    ) internal {
-        string memory config = buildDeploymentConfig(owner, version, systemSalt);
-        deployment.resume(config, network);
-    }
-*/
 }

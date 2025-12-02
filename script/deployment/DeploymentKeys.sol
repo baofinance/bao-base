@@ -61,13 +61,18 @@ abstract contract DeploymentKeys {
     // Global metadata
     string internal constant SCHEMA_VERSION = "schemaVersion";
     string public constant OWNER = "owner";
-    string public constant DEPLOYER = "deployer";
     string public constant SYSTEM_SALT_STRING = "systemSaltString";
+    string public constant BAO_FACTORY = "BaoFactory";
 
     // Session metadata
-    string public constant SESSION_ROOT = "session";
+    string public constant SESSION = "session";
     string public constant SESSION_VERSION = "session.version";
     string public constant SESSION_DEPLOYER = "session.deployer";
+    string public constant SESSION_STUB = "session.stub";
+    string public constant SESSION_STUB_ADDRESS = "session.stub.address";
+    string public constant SESSION_STUB_CONTRACT_TYPE = "session.stub.contractType";
+    string public constant SESSION_STUB_CONTRACT_PATH = "session.stub.contractPath";
+    string public constant SESSION_STUB_BLOCK_NUMBER = "session.stub.blockNumber";
     string public constant SESSION_STARTED = "session.started";
     string public constant SESSION_FINISHED = "session.finished";
     string public constant SESSION_START_TIMESTAMP = "session.startTimestamp";
@@ -84,13 +89,22 @@ abstract contract DeploymentKeys {
         // Top-level metadata
         _registerKey(SCHEMA_VERSION, DataType.UINT);
         _registerKey(OWNER, DataType.ADDRESS);
-        _registerKey(DEPLOYER, DataType.ADDRESS);
+        _registerKey(BAO_FACTORY, DataType.ADDRESS);
         _registerKey(SYSTEM_SALT_STRING, DataType.STRING);
 
         // Session metadata namespace
-        _registerKey(SESSION_ROOT, DataType.OBJECT);
+        _registerKey(SESSION, DataType.OBJECT);
         _registerKey(SESSION_VERSION, DataType.STRING);
         _registerKey(SESSION_DEPLOYER, DataType.ADDRESS);
+
+        // stub info TODO: this should be a contract
+        _registerKey(SESSION_STUB, DataType.OBJECT);
+        _registerKey(SESSION_STUB_ADDRESS, DataType.ADDRESS);
+        _registerKey(SESSION_STUB_CONTRACT_TYPE, DataType.STRING);
+        _registerKey(SESSION_STUB_CONTRACT_PATH, DataType.STRING);
+        _registerKey(SESSION_STUB_BLOCK_NUMBER, DataType.UINT);
+
+        // stamps
         _registerKey(SESSION_STARTED, DataType.STRING);
         _registerKey(SESSION_FINISHED, DataType.STRING);
         _registerKey(SESSION_START_TIMESTAMP, DataType.UINT);

@@ -3,7 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {DeploymentTestingEnablers} from "@bao-script/deployment/DeploymentTestingEnablers.sol";
 import {BaoDeployerSetOperator} from "@bao-script/deployment/BaoDeployerSetOperator.sol";
-import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 /**
  * @title DeploymentTesting
@@ -18,19 +17,6 @@ abstract contract DeploymentTesting is DeploymentTestingEnablers, BaoDeployerSet
     /// @dev Convenience overload for tests where the harness is the deployer
     function start(string memory network, string memory systemSaltString, string memory startPoint) public {
         start(network, systemSaltString, address(this), startPoint);
-    }
-
-    /// @notice Deploy stub for testing
-    /// @dev Override of Deployment._deployStub() - deploys fresh stub for each test
-    function _deployStub() internal override {
-        _stub = new UUPSProxyDeployStub();
-        _stubContractType = "UUPSProxyDeployStub";
-        _stubContractPath = "script/deployment/UUPSProxyDeployStub.sol";
-        _stubBlockNumber = block.number;
-    }
-
-    function _ensureBaoDeployerOperator() internal override {
-        _setUpBaoDeployerOperator();
     }
 
     /// @notice Simulate predictable deploy without providing the required value (for testing underfunding scenarios)

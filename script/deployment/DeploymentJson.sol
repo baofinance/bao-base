@@ -52,20 +52,6 @@ contract DeploymentJson is Deployment {
         }
     }
 
-    /// @notice Verify that the deployer is configured as BaoDeployer operator
-    /// @dev Production check - reverts if operator not already configured by multisig
-    ///      Uses _deployer (set via start()) as the expected operator
-    function _ensureBaoDeployerOperator() internal virtual override {
-        address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
-        if (baoDeployer.code.length == 0) {
-            revert FactoryDeploymentFailed("BaoDeployer missing code");
-        }
-        address currentOperator = BaoDeployer(baoDeployer).operator();
-        if (currentOperator != _deployer) {
-            revert FactoryDeploymentFailed("BaoDeployer operator not configured for this deployer");
-        }
-    }
-
     function _save() internal virtual {
         VM.createDir(_getOutputConfigDir(), true); // recursive=true, creates parent dirs if needed
         VM.writeJson(toJson(), _getOutputConfigPath());
@@ -123,6 +109,7 @@ contract DeploymentJson is Deployment {
     ) public virtual override {
         _requireNetwork(network_);
         require(bytes(systemSaltString_).length > 0, "cannot have a null system salt string");
+
         _network = network_;
         _systemSaltString = systemSaltString_;
 

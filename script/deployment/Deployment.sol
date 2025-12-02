@@ -5,9 +5,11 @@ import {CREATE3} from "@solady/utils/CREATE3.sol";
 import {EfficientHashLib} from "@solady/utils/EfficientHashLib.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+
+import {console2} from "forge-std/console2.sol";
 
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
+import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
@@ -65,19 +67,6 @@ abstract contract Deployment is DeploymentDataMemory {
     // Storage
     // ============================================================================
 
-    // Note: Data storage (maps, getters, setters) inherited from DeploymentDataMemory
-
-    /// @notice Deployer address for this session
-    /// @dev Set via start(), used for metadata recording and broadcast hooks
-    address internal _deployer;
-
-    /// @notice Bootstrap stub used as initial implementation for all proxies
-    /// @dev Deployed once per session, owned by this harness, enables BaoOwnable compatibility with CREATE3
-    UUPSProxyDeployStub internal _stub;
-    string internal _stubContractType;
-    string internal _stubContractPath;
-    uint256 internal _stubBlockNumber;
-
     /// @notice Session started flag
     enum State {
         NONE,
@@ -94,62 +83,11 @@ abstract contract Deployment is DeploymentDataMemory {
     }
 
     // ============================================================================
-    // Factory Abstraction
-    // ============================================================================
-
-    /// @notice Get the deployer address for CREATE3 operations
-    /// @dev Returns BaoDeployer address - same on all chains (deployed via Nick's Factory)
-    ///      This is used for both prediction and deployment
-    /// @return factory BaoDeployer contract address
-    function _getCreate3Deployer() internal view virtual returns (address factory) {
-        factory = DeploymentInfrastructure.predictBaoDeployerAddress();
-        if (factory == address(0)) {
-            revert FactoryDeploymentFailed("BaoDeployer not configured");
-        }
-    }
-
-    /// @notice Require that this deployment harness is configured as BaoDeployer operator
-    /// @dev Production check - reverts if operator not already configured by multisig
-    ///      Testing classes override this to auto-setup operator via VM.prank
-    function _ensureBaoDeployerOperator() internal virtual;
-    // TODO: this really ought to have a default implementation but this causes downstream diamonds
-    //  {
-    //     address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
-    //     if (baoDeployer.code.length == 0) {
-    //         revert FactoryDeploymentFailed("BaoDeployer missing code");
-    //     }
-    //     if (BaoDeployer(baoDeployer).operator() != address(this)) {
-    //         revert FactoryDeploymentFailed("BaoDeployer operator not configured for this deployer");
-    //     }
-    // }
-
-    // ============================================================================
-    // Stub Configuration
-    // ============================================================================
-
-    /// @notice Set the bootstrap stub address (for scripts using pre-deployed stub)
-    /// @param stub Address of a deployed UUPSProxyDeployStub
-    function setStub(address stub) public {
-        require(stub != address(0), "Stub address is zero");
-        require(stub.code.length > 0, "Stub has no code");
-        _stub = UUPSProxyDeployStub(stub);
-        _stubContractType = "UUPSProxyDeployStub";
-        _stubContractPath = "script/deployment/UUPSProxyDeployStub.sol";
-        _stubBlockNumber = block.number;
-    }
-
-    /// @notice Deploy stub - override in testing classes
-    /// @dev Default is no-op (scripts must call setStub before start)
-    ///      Testing classes override to deploy fresh stub
-    function _deployStub() internal virtual {}
-
-    // ============================================================================
     // Broadcast Hooks
     // ============================================================================
 
     /// @notice Hook called before blockchain operations
     /// @dev Override in script classes to call vm.startBroadcast()
-    ///      Default is no-op (works for tests where no broadcast is needed)
     function _startBroadcast() internal virtual {}
 
     /// @notice Hook called after blockchain operations
@@ -174,9 +112,6 @@ abstract contract Deployment is DeploymentDataMemory {
     ) public virtual {
         if (_sessionState != State.NONE) revert AlreadyInitialized();
 
-        // Store deployer for use in broadcasts and metadata
-        _deployer = deployer;
-
         // TODO: need to read the schema version and check for compatibility
         // Set global deployment configuration
         _setUint(SCHEMA_VERSION, 1);
@@ -185,20 +120,33 @@ abstract contract Deployment is DeploymentDataMemory {
         // Initialize session metadata
         _setString(SESSION_NETWORK, network);
         _setAddress(SESSION_DEPLOYER, deployer);
+        console2.log("deployer = %s", deployer);
         _setUint(SESSION_START_TIMESTAMP, block.timestamp);
         _setString(SESSION_STARTED, _formatTimestamp(block.timestamp));
         _setUint(SESSION_START_BLOCK, block.number);
 
-        // Don't initialize finish fields - they only appear when finish() is called
-
+        _startBroadcast();
         // Set up deployment infrastructure
-        _ensureBaoDeployerOperator();
+        // in all scenarios we can deploy it
+        address baoDeployer = DeploymentInfrastructure.ensureBaoDeployer();
+        console2.log("BaoDeployer = %s", baoDeployer);
+        _setAddress(BAO_FACTORY, baoDeployer);
+        // if it is not set up sometimes we can't continue
+        // in dev we can prank and setOperator
+        // in prod we can't so we fail here
+        console2.log("BaoDeployer operator = %s", BaoDeployer(baoDeployer).operator());
+        if (BaoDeployer(baoDeployer).operator() != _getAddress(SESSION_DEPLOYER)) {
+            revert FactoryDeploymentFailed("BaoDeployer operator not configured for this deployer");
+        }
 
         // Deploy stub (testing classes override, scripts use setStub before start)
-        _deployStub();
-
-        // Verify stub is configured
-        require(address(_stub) != address(0), "Stub not configured - call setStub() before start()");
+        UUPSProxyDeployStub stub = new UUPSProxyDeployStub();
+        console2.log("UUPSProxyDeployStub = %s", address(stub));
+        console2.log("UUPSProxyDeployStub.owner() = %s", stub.owner());
+        _set(SESSION_STUB, address(stub));
+        _setString(SESSION_STUB_CONTRACT_TYPE, "UUPSProxyDeployStub");
+        _setString(SESSION_STUB_CONTRACT_PATH, "script/deployment/UUPSProxyDeployStub.sol");
+        _setUint(SESSION_STUB_BLOCK_NUMBER, block.number);
 
         _sessionState = State.STARTED;
     }
@@ -216,12 +164,10 @@ abstract contract Deployment is DeploymentDataMemory {
         transferred = proxies.length;
 
         // Transfer ownership (needs broadcast in script context)
-        _startBroadcast();
         for (uint256 i; i < proxies.length; i++) {
             TransferrableProxy memory tp = proxies[i];
             IBaoOwnable(tp.proxy).transferOwnership(tp.configuredOwner);
         }
-        _stopBroadcast();
 
         // Update metadata after blockchain operations
         for (uint256 i; i < proxies.length; i++) {
@@ -234,6 +180,8 @@ abstract contract Deployment is DeploymentDataMemory {
         _setString(SESSION_FINISHED, _formatTimestamp(block.timestamp));
         _setUint(SESSION_FINISH_BLOCK, block.number);
         _sessionState = State.FINISHED;
+
+        _stopBroadcast();
 
         return transferred;
     }
@@ -308,8 +256,8 @@ abstract contract Deployment is DeploymentDataMemory {
         string memory systemSalt = _deriveSystemSalt();
         bytes memory proxySaltBytes = abi.encodePacked(systemSalt, "/", proxyKey, "/UUPS/proxy");
         bytes32 salt = EfficientHashLib.hash(proxySaltBytes);
-        address deployer = _getCreate3Deployer();
-        proxy = CREATE3.predictDeterministicAddress(salt, deployer);
+        address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
+        proxy = CREATE3.predictDeterministicAddress(salt, baoDeployer);
     }
 
     /// @notice Deploy a UUPS proxy using bootstrap stub pattern (with value)
@@ -389,34 +337,32 @@ abstract contract Deployment is DeploymentDataMemory {
 
         bytes memory proxyCreationCode = abi.encodePacked(
             type(ERC1967Proxy).creationCode,
-            abi.encode(address(_stub), bytes(""))
+            abi.encode(_get(SESSION_STUB), bytes(""))
         );
 
         BaoDeployer baoDeployer = BaoDeployer(factory);
 
         bytes32 commitment = DeploymentInfrastructure.commitment(
-            _deployer,
+            _getAddress(SESSION_DEPLOYER),
             0,
             salt,
             EfficientHashLib.hash(proxyCreationCode)
         );
 
         // Deploy proxy via CREATE3 (needs broadcast in script context)
-        _startBroadcast();
         baoDeployer.commit(commitment);
         address proxy = baoDeployer.reveal(proxyCreationCode, salt, 0);
-        _stopBroadcast();
 
         // Register proxy with all metadata (extracted to avoid stack too deep)
         _recordProxy(proxyKey, proxy, factory, salt, deployer, block.number);
 
         _recordContractFields(
             string.concat(proxyKey, ".implementation"),
-            address(_stub),
-            _stubContractType,
-            _stubContractPath,
-            _deployer,
-            _stubBlockNumber
+            _get(SESSION_STUB),
+            _getString(SESSION_STUB_CONTRACT_TYPE),
+            _getString(SESSION_STUB_CONTRACT_PATH),
+            _getAddress(SESSION_DEPLOYER),
+            _getUint(SESSION_STUB_BLOCK_NUMBER)
         );
 
         _upgradeProxy(
@@ -524,7 +470,6 @@ abstract contract Deployment is DeploymentDataMemory {
         require(newImplementation != address(0), "Implementation address is zero");
 
         // Perform the upgrade (needs broadcast in script context)
-        _startBroadcast();
         if ((implementationInitData.length == 0) && (value == 0)) {
             IUUPSUpgradeableProxy(proxy).upgradeTo(newImplementation);
         } else if ((implementationInitData.length == 0) && (value != 0)) {
@@ -536,7 +481,6 @@ abstract contract Deployment is DeploymentDataMemory {
         } else if ((implementationInitData.length != 0) && (value != 0)) {
             IUUPSUpgradeableProxy(proxy).upgradeToAndCall{value: value}(newImplementation, implementationInitData);
         }
-        _stopBroadcast();
 
         // implementation keys
         string memory implKey = string.concat(proxyKey, ".implementation");
@@ -594,7 +538,7 @@ abstract contract Deployment is DeploymentDataMemory {
         }
 
         Create3CommitFlow.Request memory request = Create3CommitFlow.Request({
-            operator: _deployer,
+            operator: _getAddress(SESSION_DEPLOYER),
             systemSaltString: _getString(SYSTEM_SALT_STRING),
             key: key,
             initCode: initCode,
@@ -602,7 +546,6 @@ abstract contract Deployment is DeploymentDataMemory {
         });
 
         // Deploy via CREATE3 (needs broadcast in script context)
-        _startBroadcast();
         (address addr, , address factory) = Create3CommitFlow.commitAndReveal(
             request,
             Create3CommitFlow.RevealMode.MatchValue
@@ -655,7 +598,14 @@ abstract contract Deployment is DeploymentDataMemory {
     ) public {
         _requireActiveRun();
         string memory implKey = string.concat(proxyKey, ".implementation");
-        _recordContractFields(implKey, implAddress, contractType, contractPath, _deployer, block.number);
+        _recordContractFields(
+            implKey,
+            implAddress,
+            contractType,
+            contractPath,
+            _getAddress(SESSION_DEPLOYER),
+            block.number
+        );
         _setString(string.concat(implKey, ".ownershipModel"), ownershipModel);
     }
 
@@ -686,7 +636,6 @@ abstract contract Deployment is DeploymentDataMemory {
         _requireActiveRun();
 
         // Deploy library (needs broadcast in script context)
-        _startBroadcast();
         address addr;
         assembly {
             addr := create(0, add(bytecode, 0x20), mload(bytecode))
