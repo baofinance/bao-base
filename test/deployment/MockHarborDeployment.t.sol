@@ -61,10 +61,15 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
         // Verify ownership - deployment contract is initial owner (via BaoOwnable pattern)
         assertEq(token.owner(), address(deployment), "Deployment should be initial owner");
 
-        // Complete ownership transfer
-        vm.prank(address(deployment));
-        token.transferOwnership(admin);
-        assertEq(token.owner(), admin, "Admin should be owner after transfer");
+        // Finish deployment (transfers ownership)
+        deployment.finish();
+        assertEq(token.owner(), admin, "Admin should be owner after finish");
+
+        // Verify ownershipModel was updated
+        string memory ownershipModel = deployment.getString(
+            string.concat(deployment.PEGGED(), ".implementation.ownershipModel")
+        );
+        assertEq(ownershipModel, "transferred-after-deploy", "Ownership model should be updated");
     }
 
     /// @notice Test that configuration is read from data layer

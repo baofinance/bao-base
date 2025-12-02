@@ -55,10 +55,15 @@ contract DeploymentProxyTest is BaoDeploymentTest {
         // Verify ownership - deployment contract is initial owner (via BaoOwnable pattern)
         assertEq(token.owner(), address(deployment), "Deployment should be initial owner");
 
-        // Transfer ownership to admin
-        vm.prank(address(deployment));
-        token.transferOwnership(admin);
-        assertEq(token.owner(), admin, "Owner should be admin");
+        // Finish deployment (transfers ownership)
+        deployment.finish();
+        assertEq(token.owner(), admin, "Owner should be admin after finish");
+
+        // Verify ownershipModel was updated
+        string memory ownershipModel = deployment.getString(
+            string.concat(deployment.PEGGED(), ".implementation.ownershipModel")
+        );
+        assertEq(ownershipModel, "transferred-after-deploy", "Ownership model should be updated");
     }
 
     function test_PredictProxyAddress() public {

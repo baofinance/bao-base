@@ -51,12 +51,17 @@ contract DeploymentProxyWorkflowTest is BaoDeploymentTest {
         assertEq(token.name(), "Harbor USD", "Name should match configuration");
         assertEq(token.owner(), address(deployment), "Harness should be initial owner");
 
-        // Phase 5: Transfer ownership
-        vm.prank(address(deployment));
-        token.transferOwnership(admin);
-        assertEq(token.owner(), admin, "Ownership should be transferred");
+        // Phase 5: Finish deployment (transfers ownership via finish())
+        deployment.finish();
+        assertEq(token.owner(), admin, "Ownership should be transferred to configured owner");
 
-        // All phases should be persisted in sequenced files (.001.json through .005.json)
+        // Verify ownershipModel was updated
+        string memory ownershipModel = deployment.getString(
+            string.concat(deployment.PEGGED(), ".implementation.ownershipModel")
+        );
+        assertEq(ownershipModel, "transferred-after-deploy", "Ownership model should be updated after finish");
+
+        // All phases should be persisted in sequenced files
         // Each file shows progression of deployment state
     }
 }

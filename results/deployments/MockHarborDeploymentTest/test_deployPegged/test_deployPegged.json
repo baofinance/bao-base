@@ -29,7 +29,7 @@
         "contractPath": "src/MintableBurnableERC20_v1.sol",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
         "blockNumber": 1,
-        "ownershipModel": "transfer-after-deploy"
+        "ownershipModel": "transferred-after-deploy"
       }
     }
   }
