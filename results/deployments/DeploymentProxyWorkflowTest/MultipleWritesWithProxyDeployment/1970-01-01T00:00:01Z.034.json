@@ -1,32 +1,38 @@
 {
   "owner": "0x0000000000000000000000000000000000001234",
   "schemaVersion": 1,
-  "systemSaltString": "DeploymentFieldsTest",
+  "systemSaltString": "DeploymentProxyWorkflowTest",
   "session": {
-    "network": "test_ProxyHasFactoryAndDeployer",
+    "network": "MultipleWritesWithProxyDeployment",
     "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
     "startTimestamp": 1,
     "started": "1970-01-01T00:00:01Z",
-    "startBlock": 1
+    "startBlock": 1,
+    "finishTimestamp": 1,
+    "finished": "1970-01-01T00:00:01Z",
+    "finishBlock": 1
   },
   "contracts": {
-    "proxy1": {
-      "address": "0x0960caf46efb8fd1c207cae4142e31097312fcb4",
+    "pegged": {
+      "symbol": "USD",
+      "name": "Harbor USD",
+      "owner": "0xaa10a84ce7d9ae517a52c6d5ca153b369af99ecf",
+      "address": "0x490a4e6d6b444385bc0bf31948a71412542116fa",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "blockNumber": 1,
       "factory": "0x336785a852b689a839c312522ea637917df3f932",
       "category": "UUPS proxy",
-      "saltString": "proxy1",
-      "salt": "0xae819964217bc1643556604c9287d4b8b94566c949728143cd958b20821f0060",
+      "saltString": "pegged",
+      "salt": "0xff1e54a4f31142f9de588035124db9934073effec01fe581fe76dca5bdd0c78c",
       "implementation": {
         "address": "0x037eda3adb1198021a9b2e88c22b464fd38db3f3",
-        "contractType": "SimpleImplementation",
-        "contractPath": "test/SimpleImplementation.sol",
+        "contractType": "MintableBurnableERC20_v1",
+        "contractPath": "src/MintableBurnableERC20_v1.sol",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
         "blockNumber": 1,
-        "ownershipModel": "transfer-after-deploy"
+        "ownershipModel": "transferred-after-deploy"
       }
     }
   }

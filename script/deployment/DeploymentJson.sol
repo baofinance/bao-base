@@ -36,7 +36,7 @@ contract DeploymentJson is Deployment {
     string private _systemSaltString;
     string private _network;
     string private _filename;
-    bool _suppressPersistence = false;
+    bool private _suppressIncrementalPersistence = false;
 
     constructor() {
         _filename = _formatTimestamp(block.timestamp);
@@ -47,8 +47,8 @@ contract DeploymentJson is Deployment {
     // ============================================================================
 
     function _afterValueChanged(string memory /* key */) internal virtual override {
-        if (!_suppressPersistence) {
-            save();
+        if (!_suppressIncrementalPersistence) {
+            _save();
         }
     }
 
@@ -66,11 +66,9 @@ contract DeploymentJson is Deployment {
         }
     }
 
-    function save() internal virtual {
-        string memory dir = _getOutputConfigDir();
-        VM.createDir(dir, true); // recursive=true, creates parent dirs if needed
-        string memory path = string.concat(dir, "/", _getFilename(), ".json");
-        VM.writeJson(toJson(), path);
+    function _save() internal virtual {
+        VM.createDir(_getOutputConfigDir(), true); // recursive=true, creates parent dirs if needed
+        VM.writeJson(toJson(), _getOutputConfigPath());
     }
 
     // ============================================================================
@@ -95,6 +93,10 @@ contract DeploymentJson is Deployment {
     function _getOutputConfigDir() internal returns (string memory) {
         if (bytes(_network).length > 0) return string.concat(_getRoot(), "/", _systemSaltString, "/", _network);
         else return string.concat(_getRoot(), "/", _systemSaltString);
+    }
+
+    function _getOutputConfigPath() internal returns (string memory) {
+        return string.concat(_getOutputConfigDir(), "/", _getFilename(), ".json");
     }
 
     function _getFilename() internal view virtual returns (string memory filename) {
@@ -133,9 +135,7 @@ contract DeploymentJson is Deployment {
         } else {
             path = string.concat(_getOutputConfigDir(), "/", startPoint, ".json");
         }
-        _suppressPersistence = true; // we don't want the loading to write out each change, on loading
         fromJson(VM.readFile(path));
-        _suppressPersistence = false;
 
         // Now call parent to set up session metadata
         super.start(network_, systemSaltString_, deployer, startPoint);
@@ -195,10 +195,12 @@ contract DeploymentJson is Deployment {
 
     // Note: _getPrefix() is already defined above in DeploymentJson section
 
-    function fromJson(string memory existingJson) public {
+    function _fromJsonNoSave(string memory existingJson) internal {
         if (bytes(existingJson).length == 0) {
             return;
         }
+
+        _suppressIncrementalPersistence = true; // we don't want the loading to write out each change, on loading
 
         string[] memory registered = schemaKeys();
         for (uint256 i = 0; i < registered.length; i++) {
@@ -216,25 +218,31 @@ contract DeploymentJson is Deployment {
                 continue;
             }
             if (expected == DataType.ADDRESS) {
-                _writeAddress(key, existingJson.readAddress(pointer), expected);
+                _setAddress(key, existingJson.readAddress(pointer));
             } else if (expected == DataType.STRING) {
-                _writeString(key, existingJson.readString(pointer), expected);
+                _setString(key, existingJson.readString(pointer));
             } else if (expected == DataType.UINT) {
-                _writeUint(key, existingJson.readUint(pointer), expected);
+                _setUint(key, existingJson.readUint(pointer));
             } else if (expected == DataType.INT) {
-                _writeInt(key, existingJson.readInt(pointer), expected);
+                _setInt(key, existingJson.readInt(pointer));
             } else if (expected == DataType.BOOL) {
-                _writeBool(key, existingJson.readBool(pointer), expected);
+                _setBool(key, existingJson.readBool(pointer));
             } else if (expected == DataType.ADDRESS_ARRAY) {
-                _writeAddressArray(key, existingJson.readAddressArray(pointer), expected);
+                _setAddressArray(key, existingJson.readAddressArray(pointer));
             } else if (expected == DataType.STRING_ARRAY) {
-                _writeStringArray(key, existingJson.readStringArray(pointer), expected);
+                _setStringArray(key, existingJson.readStringArray(pointer));
             } else if (expected == DataType.UINT_ARRAY) {
-                _writeUintArray(key, existingJson.readUintArray(pointer), expected);
+                _setUintArray(key, existingJson.readUintArray(pointer));
             } else if (expected == DataType.INT_ARRAY) {
-                _writeIntArray(key, existingJson.readIntArray(pointer), expected);
+                _setIntArray(key, existingJson.readIntArray(pointer));
             }
         }
+        _suppressIncrementalPersistence = false;
+    }
+
+    function fromJson(string memory existingJson) public virtual {
+        _fromJsonNoSave(existingJson);
+        _save();
     }
 
     // ============ JSON Rendering ============
@@ -272,9 +280,10 @@ contract DeploymentJson is Deployment {
                 current = child;
             }
             // OBJECT type nodes are parent markers with no value
-            if (_types[key] != DataType.OBJECT) {
+            DataType valueType = keyType(key);
+            if (valueType != DataType.OBJECT) {
                 nodes[current].hasValue = true;
-                nodes[current].valueJson = _encodeValue(key, _types[key]);
+                nodes[current].valueJson = _encodeValue(key, valueType);
             }
         }
 

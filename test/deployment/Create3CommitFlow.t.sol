@@ -17,7 +17,10 @@ contract Create3CommitFlowTest is BaoDeploymentTest, BaoDeployerSetOperator {
         _setUpBaoDeployerOperator();
     }
 
-    function _buildRequest(string memory key, uint256 value) internal view returns (Create3CommitFlow.Request memory req) {
+    function _buildRequest(
+        string memory key,
+        uint256 value
+    ) internal view returns (Create3CommitFlow.Request memory req) {
         req.operator = address(this);
         req.systemSaltString = "test-system";
         req.key = key;
@@ -38,7 +41,10 @@ contract Create3CommitFlowTest is BaoDeploymentTest, BaoDeployerSetOperator {
     function testCommitAndRevealDeploysContract_() public {
         Create3CommitFlow.Request memory req = _buildRequest("contracts.deployed", 0);
 
-        (address deployed, bytes32 salt, address factory) = Create3CommitFlow.commitAndReveal(req, Create3CommitFlow.RevealMode.MatchValue);
+        (address deployed, bytes32 salt, address factory) = Create3CommitFlow.commitAndReveal(
+            req,
+            Create3CommitFlow.RevealMode.MatchValue
+        );
 
         assertEq(factory, DeploymentInfrastructure.predictBaoDeployerAddress(), "factory should match prediction");
         assertGt(uint256(salt), 0, "salt should be non-zero from reveal");
@@ -84,11 +90,10 @@ contract Create3CommitFlowTest is BaoDeploymentTest, BaoDeployerSetOperator {
         Create3CommitFlow.commitOnly(req);
     }
 
-    function callCommitAndReveal(Create3CommitFlow.Request memory req, Create3CommitFlow.RevealMode mode)
-        external
-        payable
-        returns (address deployed)
-    {
+    function callCommitAndReveal(
+        Create3CommitFlow.Request memory req,
+        Create3CommitFlow.RevealMode mode
+    ) external payable returns (address deployed) {
         (deployed, , ) = Create3CommitFlow.commitAndReveal(req, mode);
     }
 }

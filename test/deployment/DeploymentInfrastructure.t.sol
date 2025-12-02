@@ -17,8 +17,7 @@ contract DeploymentInfrastructureHarness {
 }
 
 contract DeploymentInfrastructureTest is BaoDeploymentTest {
-    bytes32 internal constant OWNABLE_OWNER_SLOT =
-        0xffffffffffffffffffffffffffffffffffffffffffffffffffffffff74873927; // mirrors Ownable._OWNER_SLOT
+    bytes32 internal constant OWNABLE_OWNER_SLOT = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffff74873927; // mirrors Ownable._OWNER_SLOT
     address internal predicted;
     DeploymentInfrastructureHarness internal harness;
 

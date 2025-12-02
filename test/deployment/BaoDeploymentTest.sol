@@ -61,19 +61,13 @@ abstract contract BaoDeploymentTest is BaoTest {
     /// @notice Default test owner address
     address internal constant DEFAULT_TEST_OWNER = address(0x1234);
 
-    /// @notice Build a default config JSON with owner
-    function _defaultConfigJson() internal pure returns (string memory) {
-        return '{"owner":"0x0000000000000000000000000000000000001234"}';
-    }
-
     /// @notice Initialize deployment test directory for a salt and network
     /// @dev Idempotent - only writes config.json if it doesn't exist
     ///      Directory cleaning should be done externally (e.g., rm -rf results/deployments before forge test)
     /// @dev If configJson is empty "", uses default config with owner
     /// @param salt The deployment salt (typically the test contract name)
     /// @param network The network/test name (creates a subdirectory for this test's output)
-    /// @param configJson Optional config JSON; empty string uses default with owner
-    function _initDeploymentTest(string memory salt, string memory network, string memory configJson) internal {
+    function _initDeploymentTest(string memory salt, string memory network) internal {
         string memory baseDir = DeploymentTestingOutput._getPrefix();
         string memory deploymentDir_ = baseDir.concat("/deployments/").concat(salt);
         string memory configPath = deploymentDir_.concat("/config.json");
@@ -83,8 +77,7 @@ abstract contract BaoDeploymentTest is BaoTest {
 
         // Only write config if it doesn't exist - makes this idempotent for parallel tests
         if (!vm.exists(configPath)) {
-            string memory actualConfig = bytes(configJson).length == 0 ? _defaultConfigJson() : configJson;
-            vm.writeJson(actualConfig, configPath);
+            vm.writeJson('{"owner":"0x0000000000000000000000000000000000001234"}', configPath);
         }
 
         // Create network subdirectory for this test's output
@@ -92,9 +85,26 @@ abstract contract BaoDeploymentTest is BaoTest {
         vm.createDir(networkDir, true);
     }
 
-    /// @notice Convenience overload with default config
-    function _initDeploymentTest(string memory salt, string memory network) internal {
-        _initDeploymentTest(salt, network, "");
+    /// @notice Verify that finish() properly recorded session completion metadata
+    /// @dev Checks finishTimestamp, finishBlock, and finished (ISO string) are sensible
+    /// @param deployment The deployment instance to check
+    function _assertFinishState(Deployment deployment) internal view {
+        uint256 startTimestamp = deployment.getUint(deployment.SESSION_START_TIMESTAMP());
+        uint256 finishTimestamp = deployment.getUint(deployment.SESSION_FINISH_TIMESTAMP());
+        uint256 startBlock = deployment.getUint(deployment.SESSION_START_BLOCK());
+        uint256 finishBlock = deployment.getUint(deployment.SESSION_FINISH_BLOCK());
+        string memory finished = deployment.getString(deployment.SESSION_FINISHED());
+
+        // Finish timestamp must be set and >= start
+        assertGt(finishTimestamp, 0, "finishTimestamp should be set");
+        assertGe(finishTimestamp, startTimestamp, "finishTimestamp should be >= startTimestamp");
+
+        // Finish block must be set and >= start
+        assertGt(finishBlock, 0, "finishBlock should be set");
+        assertGe(finishBlock, startBlock, "finishBlock should be >= startBlock");
+
+        // Finished ISO string must be non-empty
+        assertGt(bytes(finished).length, 0, "finished ISO string should be set");
     }
 
     /*

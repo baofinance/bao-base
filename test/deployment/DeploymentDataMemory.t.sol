@@ -19,76 +19,42 @@ contract DeploymentDataMemoryHarness is DeploymentDataMemory {
         addIntArrayKey("config.deltas");
     }
 
-    function writeAddress(string memory key, address value) external {
-        _writeAddress(key, value, DataType.ADDRESS);
+    function _afterValueChanged(string memory) internal override {}
+
+    function setAddress(string memory key, address value) external {
+        _setAddress(key, value);
     }
 
-    function writeString(string memory key, string memory value) external {
-        _writeString(key, value, DataType.STRING);
+    function setString(string memory key, string memory value) external {
+        _setString(key, value);
     }
 
-    function writeUint(string memory key, uint256 value) external {
-        _writeUint(key, value, DataType.UINT);
+    function setUint(string memory key, uint256 value) external {
+        _setUint(key, value);
     }
 
-    function writeInt(string memory key, int256 value) external {
-        _writeInt(key, value, DataType.INT);
+    function setInt(string memory key, int256 value) external {
+        _setInt(key, value);
     }
 
-    function writeBool(string memory key, bool value) external {
-        _writeBool(key, value, DataType.BOOL);
+    function setBool(string memory key, bool value) external {
+        _setBool(key, value);
     }
 
-    function writeAddressArray(string memory key, address[] memory values) external {
-        _writeAddressArray(key, values, DataType.ADDRESS_ARRAY);
+    function setAddressArray(string memory key, address[] memory values) external {
+        _setAddressArray(key, values);
     }
 
-    function writeStringArray(string memory key, string[] memory values) external {
-        _writeStringArray(key, values, DataType.STRING_ARRAY);
+    function setStringArray(string memory key, string[] memory values) external {
+        _setStringArray(key, values);
     }
 
-    function writeUintArray(string memory key, uint256[] memory values) external {
-        _writeUintArray(key, values, DataType.UINT_ARRAY);
+    function setUintArray(string memory key, uint256[] memory values) external {
+        _setUintArray(key, values);
     }
 
-    function writeIntArray(string memory key, int256[] memory values) external {
-        _writeIntArray(key, values, DataType.INT_ARRAY);
-    }
-
-    function readAddress(string memory key) external view returns (address) {
-        return _readAddress(key);
-    }
-
-    function readString(string memory key) external view returns (string memory) {
-        return _readString(key);
-    }
-
-    function readUint(string memory key) external view returns (uint256) {
-        return _readUint(key);
-    }
-
-    function readInt(string memory key) external view returns (int256) {
-        return _readInt(key);
-    }
-
-    function readBool(string memory key) external view returns (bool) {
-        return _readBool(key);
-    }
-
-    function readAddressArray(string memory key) external view returns (address[] memory) {
-        return _readAddressArray(key);
-    }
-
-    function readStringArray(string memory key) external view returns (string[] memory) {
-        return _readStringArray(key);
-    }
-
-    function readUintArray(string memory key) external view returns (uint256[] memory) {
-        return _readUintArray(key);
-    }
-
-    function readIntArray(string memory key) external view returns (int256[] memory) {
-        return _readIntArray(key);
+    function setIntArray(string memory key, int256[] memory values) external {
+        _setIntArray(key, values);
     }
 }
 
@@ -102,34 +68,34 @@ contract DeploymentDataMemorySetup is BaoTest {
 
 contract DeploymentDataMemoryTest is DeploymentDataMemorySetup {
     function test_WriteAndReadAddress_() public {
-        data.writeAddress("contracts.asset.address", address(0xBEEF));
-        assertEq(data.readAddress("contracts.asset.address"), address(0xBEEF), "address read matches stored");
+        data.setAddress("contracts.asset.address", address(0xBEEF));
+        assertEq(data.getAddress("contracts.asset.address"), address(0xBEEF), "address read matches stored");
     }
 
     function test_ReadUnsetStringReverts_() public {
         string memory key = "config.name";
         vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, key));
-        data.readString(key);
+        data.getString(key);
     }
 
     function test_ReadTypeMismatchReverts_() public {
         string memory key = "config.limit";
-        data.writeUint(key, 99);
+        data.setUint(key, 99);
         vm.expectRevert(
             abi.encodeWithSelector(DeploymentDataMemory.ReadTypeMismatch.selector, key, DataType.INT, DataType.UINT)
         );
-        data.readInt(key);
+        data.getInt(key);
     }
 
     function test_HasRecognizesObjectChild_() public {
         assertEq(data.has("contracts.asset"), false, "object has should be false before child set");
-        data.writeAddress("contracts.asset.address", address(this));
+        data.setAddress("contracts.asset.address", address(this));
         assertEq(data.has("contracts.asset"), true, "object has should be true after child set");
     }
 
     function test_KeysDoNotDuplicateOnOverwrite_() public {
-        data.writeString("config.name", "first");
-        data.writeString("config.name", "second");
+        data.setString("config.name", "first");
+        data.setString("config.name", "second");
 
         string[] memory keysList = data.keys();
         assertEq(keysList.length, 1, "keys array should not duplicate entries");
@@ -140,13 +106,13 @@ contract DeploymentDataMemoryTest is DeploymentDataMemorySetup {
         address[] memory first = new address[](2);
         first[0] = address(0xCAFE);
         first[1] = address(0xF00D);
-        data.writeAddressArray("config.validators", first);
+        data.setAddressArray("config.validators", first);
 
         address[] memory second = new address[](1);
         second[0] = address(0x1234);
-        data.writeAddressArray("config.validators", second);
+        data.setAddressArray("config.validators", second);
 
-        address[] memory stored = data.readAddressArray("config.validators");
+        address[] memory stored = data.getAddressArray("config.validators");
         assertEq(stored.length, 1, "address array overwrite should drop stale entries");
         assertEq(stored[0], address(0x1234), "address array overwrite should keep new entry");
     }
@@ -155,13 +121,13 @@ contract DeploymentDataMemoryTest is DeploymentDataMemorySetup {
         string[] memory first = new string[](2);
         first[0] = "alpha";
         first[1] = "beta";
-        data.writeStringArray("config.tags", first);
+        data.setStringArray("config.tags", first);
 
         string[] memory second = new string[](1);
         second[0] = "latest";
-        data.writeStringArray("config.tags", second);
+        data.setStringArray("config.tags", second);
 
-        string[] memory stored = data.readStringArray("config.tags");
+        string[] memory stored = data.getStringArray("config.tags");
         assertEq(stored.length, 1, "string array overwrite should drop stale entries");
         assertEq(stored[0], "latest", "string array overwrite should keep new entry");
     }
@@ -171,9 +137,9 @@ contract DeploymentDataMemoryTest is DeploymentDataMemorySetup {
         values[0] = 1;
         values[1] = 2;
         values[2] = 3;
-        data.writeUintArray("config.limits", values);
+        data.setUintArray("config.limits", values);
 
-        uint256[] memory stored = data.readUintArray("config.limits");
+        uint256[] memory stored = data.getUintArray("config.limits");
         assertEq(stored.length, 3, "uint array length should match writes");
         assertEq(stored[2], 3, "uint array value should persist");
     }
@@ -182,15 +148,15 @@ contract DeploymentDataMemoryTest is DeploymentDataMemorySetup {
         int256[] memory values = new int256[](2);
         values[0] = -5;
         values[1] = 42;
-        data.writeIntArray("config.deltas", values);
+        data.setIntArray("config.deltas", values);
 
-        int256[] memory stored = data.readIntArray("config.deltas");
+        int256[] memory stored = data.getIntArray("config.deltas");
         assertEq(stored.length, 2, "int array length should match writes");
         assertEq(stored[0], -5, "int array value should persist");
     }
 
     function test_BoolReadWrite_() public {
-        data.writeBool("config.enabled", true);
-        assertEq(data.readBool("config.enabled"), true, "bool setter should persist value");
+        data.setBool("config.enabled", true);
+        assertEq(data.getBool("config.enabled"), true, "bool setter should persist value");
     }
 }

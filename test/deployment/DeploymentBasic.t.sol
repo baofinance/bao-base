@@ -148,11 +148,8 @@ contract DeploymentBasicTest is BaoDeploymentTest {
 
         deployment.finish();
 
-        assertGt(deployment.getUint(deployment.SESSION_FINISH_TIMESTAMP()), 0);
-        assertGe(
-            deployment.getUint(deployment.SESSION_FINISH_TIMESTAMP()),
-            deployment.getUint(deployment.SESSION_START_TIMESTAMP())
-        );
+        // Use shared helper for comprehensive finish state validation
+        _assertFinishState(deployment);
     }
 
     function test_RegisterExisting() public {

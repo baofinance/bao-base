@@ -31,7 +31,6 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
     function test_deployPegged() public {
         _startDeployment("test_deployPegged");
 
-        deployment.setFilename("test_deployPegged");
         // Pre-deployment configuration
         deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor USD");
@@ -70,13 +69,15 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
             string.concat(deployment.PEGGED(), ".implementation.ownershipModel")
         );
         assertEq(ownershipModel, "transferred-after-deploy", "Ownership model should be updated");
+
+        // Verify session finish metadata was recorded
+        _assertFinishState(deployment);
     }
 
     /// @notice Test that configuration is read from data layer
     function test_configurationFlow() public {
         _startDeployment("test_configurationFlow");
 
-        deployment.setFilename("test_configurationFlow");
         // Configure
         deployment.setString(deployment.PEGGED_SYMBOL(), "EURO");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor Euro");
@@ -99,7 +100,6 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
     function test_predictableAddress() public {
         _startDeployment("test_predictableAddress");
 
-        deployment.setFilename("test_predictableAddress");
         // Predict address
         address predicted = deployment.predictProxyAddress(deployment.PEGGED());
         assertTrue(predicted != address(0), "Predicted address should not be zero");
@@ -119,7 +119,6 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
     function test_checkContractExists() public {
         _startDeployment("test_checkContractExists");
 
-        deployment.setFilename("test_checkContractExists");
         // Before deployment
         assertFalse(deployment.has(deployment.PEGGED()), "Pegged should not exist yet");
 

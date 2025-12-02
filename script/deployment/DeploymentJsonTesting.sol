@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
 import {DeploymentTestingEnablers} from "@bao-script/deployment/DeploymentTestingEnablers.sol";
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
@@ -29,19 +30,15 @@ import {Vm} from "forge-std/Vm.sol";
 contract DeploymentJsonTesting is DeploymentJson, DeploymentTestingEnablers, BaoDeployerSetOperator {
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
-    string private _filename;
-    bool _filenameIsSet;
-    uint256 private _sequenceNumber; // Incremented on each save
-    string private _baseFilename;
-    bool private _manualSequencing; // If true, only increment on explicit nextSequence() calls
+    // string private _filename;
+    // bool _filenameIsSet;
+    // uint256 private _sequenceNumber; // Incremented on each save
+    // string private _baseFilename;
+    // bool private _manualSequencing; // If true, only increment on explicit nextSequence() calls
 
     /// @notice Start deployment session with deployer defaulting to address(this)
     /// @dev Convenience overload for tests where the harness is the deployer
-    function start(
-        string memory network_,
-        string memory systemSaltString_,
-        string memory startPoint
-    ) public {
+    function start(string memory network_, string memory systemSaltString_, string memory startPoint) public {
         start(network_, systemSaltString_, address(this), startPoint);
     }
 
@@ -72,15 +69,15 @@ contract DeploymentJsonTesting is DeploymentJson, DeploymentTestingEnablers, Bao
         return DeploymentTestingOutput._getPrefix();
     }
 
-    function _getFilename() internal view override returns (string memory) {
-        if (_filenameIsSet) return _filename;
-        return super._getFilename();
-    }
+    // function _getFilename() internal view virtual override returns (string memory) {
+    //     if (_filenameIsSet) return _filename;
+    //     return super._getFilename();
+    // }
 
-    function setFilename(string memory fileName) public {
-        _filename = fileName;
-        _filenameIsSet = true;
-    }
+    // function setFilename(string memory fileName) public {
+    //     _filename = fileName;
+    //     _filenameIsSet = true;
+    // }
 
     // ============================================================================
     // Sequencing for Capturing Deployment Phases
@@ -89,42 +86,41 @@ contract DeploymentJsonTesting is DeploymentJson, DeploymentTestingEnablers, Bao
     /// @notice Enable automatic sequence numbering for capturing update phases
     /// @dev Call this before writes to create .001, .002, .003 files instead of overwriting
     ///      Automatically increments sequence on every change
-    function enableSequencing() external {
-        _baseFilename = super._getFilename();
-        _sequenceNumber = 1;
-        _manualSequencing = false;
-    }
+    // function enableSequencing() external {
+    //     // _baseFilename = super._getFilename();
+    //     _sequenceNumber = 1;
+    // }
 
-    /// @notice Enable manual sequence numbering for before/after snapshots
-    /// @dev Call nextSequence() explicitly to advance sequence number
-    ///      Use this when you want to capture only specific states (e.g., before/after upgrade)
-    function enableManualSequencing() external {
-        _baseFilename = super._getFilename();
-        _sequenceNumber = 1;
-        _manualSequencing = true;
-    }
+    // /// @notice Enable manual sequence numbering for before/after snapshots
+    // /// @dev Call nextSequence() explicitly to advance sequence number
+    // ///      Use this when you want to capture only specific states (e.g., before/after upgrade)
+    // function enableManualSequencing() external {
+    //     _baseFilename = super._getFilename();
+    //     _sequenceNumber = 1;
+    //     _manualSequencing = true;
+    // }
 
-    /// @notice Advance to next sequence number and save current state (manual mode only)
-    /// @dev Only has effect if enableManualSequencing() was called
-    ///      Saves current state to current sequence file, then advances sequence number
-    ///      This captures the current state before moving to the next sequence
-    function saveSequence() external {
-        if (_manualSequencing && _sequenceNumber > 0) {
-            // Save current state to current sequence file
-            setFilename(string.concat(_baseFilename, ".op", _padZero(_sequenceNumber, 2)));
-            save();
-            _sequenceNumber++;
-        }
-    }
+    // /// @notice Advance to next sequence number and save current state (manual mode only)
+    // /// @dev Only has effect if enableManualSequencing() was called
+    // ///      Saves current state to current sequence file, then advances sequence number
+    // ///      This captures the current state before moving to the next sequence
+    // function saveSequence() external {
+    //     if (_manualSequencing && _sequenceNumber > 0) {
+    //         // Save current state to current sequence file
+    //         setFilename(string.concat(_baseFilename, ".op", _padZero(_sequenceNumber, 2)));
+    //         save();
+    //         _sequenceNumber++;
+    //     }
+    // }
 
-    function _afterValueChanged(string memory key) internal override(DeploymentJson, Deployment) {
-        // Only auto-increment if sequencing is enabled AND not in manual mode
-        if (_sequenceNumber > 0 && !_manualSequencing) {
-            setFilename(string.concat(_baseFilename, ".", _padZero(_sequenceNumber, 3), "-", key));
-            _sequenceNumber++;
-        }
-        super._afterValueChanged(key);
-    }
+    // function _afterValueChanged(string memory key) internal override(DeploymentJson, DeploymentDataMemory) {
+    //     // Only auto-increment if sequencing is enabled AND not in manual mode
+    //     if (_sequenceNumber > 0 ) {
+    //         setFilename(string.concat(_baseFilename, ".", _padZero(_sequenceNumber, 3), "-", key));
+    //         _sequenceNumber++;
+    //     }
+    //     super._afterValueChanged(key);
+    // }
 
     // ============================================================================
     // BaoDeployer Operator Setup (Testing)

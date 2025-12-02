@@ -35,6 +35,10 @@ contract DeploymentJsonStringTestHarness is DeploymentJsonTesting {
         addBoolKey("config.isProduction");
         addUintKey("contracts.LoadTest.value");
     }
+
+    function fromJsonNoSave(string memory json) public {
+        _fromJsonNoSave(json);
+    }
 }
 
 /**
@@ -74,7 +78,7 @@ contract DeploymentJsonStringTest is BaoDeploymentTest {
         assertEq(vm.parseJsonUint(json, ".schemaVersion"), 1, "Schema version should be 1");
 
         DeploymentJsonStringTestHarness restored = new DeploymentJsonStringTestHarness();
-        restored.fromJson(json);
+        restored.fromJsonNoSave(json);
 
         assertEq(restored.get("contracts.Admin"), address(0xABCD), "Admin address persists");
         assertEq(restored.get("contracts.Treasury"), address(0xDEAD), "Treasury address persists");

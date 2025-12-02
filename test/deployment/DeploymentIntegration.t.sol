@@ -141,7 +141,14 @@ contract MockDeploymentIntegration is DeploymentJsonTesting {
  * @dev Used for test_IncrementalDeployment without snapshot functionality
  */
 contract MockDeploymentPhase is MockDeploymentIntegration {
-    // Phase snapshots removed - rely on autosave functionality instead
+    string private _filename;
+    constructor(string memory phase) {
+        _filename = phase;
+    }
+
+    function _getFilename() internal view virtual override returns (string memory) {
+        return _filename;
+    }
 }
 
 /**
@@ -281,8 +288,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         // Phase 1: Deploy tokens
         vm.warp(1000000);
         vm.roll(100);
-        MockDeploymentPhase phase1 = new MockDeploymentPhase();
-        phase1.setFilename("phase1"); // Set filename BEFORE start
+        MockDeploymentPhase phase1 = new MockDeploymentPhase("phase1of3"); // Set filename BEFORE start
         phase1.start(network, TEST_SALT, "");
         phase1.deployMockERC20("contracts.collateral", "wETH", "wETH");
         phase1.deployMockERC20("contracts.pegged", "USD", "USD");
@@ -291,18 +297,16 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         // Phase 2: Resume from phase1 and add oracle
         vm.warp(2000000);
         vm.roll(200);
-        MockDeploymentPhase phase2 = new MockDeploymentPhase();
-        phase2.setFilename("phase2"); // Set filename BEFORE start
-        phase2.start(network, TEST_SALT, "phase1"); // Resume from phase1.json
+        MockDeploymentPhase phase2 = new MockDeploymentPhase("phase2of3"); // Set filename BEFORE start
+        phase2.start(network, TEST_SALT, "phase1of3"); // Resume from phase1.json
         phase2.deployOracleProxy("contracts.oracle", 2000e18, admin);
         phase2.finish();
 
         // Phase 3: Resume from phase2 and add minter
         vm.warp(3000000);
         vm.roll(300);
-        MockDeploymentPhase phase3 = new MockDeploymentPhase();
-        phase3.setFilename("phase3"); // Set filename BEFORE start
-        phase3.start(network, TEST_SALT, "phase2"); // Resume from phase2.json
+        MockDeploymentPhase phase3 = new MockDeploymentPhase("phase3of3"); // Set filename BEFORE start
+        phase3.start(network, TEST_SALT, "phase2of3"); // Resume from phase2.json
         phase3.deployMinterProxy(
             "contracts.minter",
             "contracts.collateral",
@@ -313,13 +317,15 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         phase3.finish();
 
         // Verify final state by loading phase3
-        MockDeploymentIntegration finalDeployment = new MockDeploymentPhase();
-        finalDeployment.start(network, TEST_SALT, "phase3");
+        MockDeploymentIntegration finalDeployment = new MockDeploymentPhase("phase4of3");
+        finalDeployment.start(network, TEST_SALT, "phase3of3");
 
         assertTrue(finalDeployment.has("contracts.collateral"));
         assertTrue(finalDeployment.has("contracts.pegged"));
         assertTrue(finalDeployment.has("contracts.oracle"));
         assertTrue(finalDeployment.has("contracts.minter"));
+
+        // finalDeployment.finish();
     }
 
     function test_MultipleProxiesWithSameImplementation() public {

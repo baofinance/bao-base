@@ -3,13 +3,14 @@
 | script/deployment/BaoDeployer.sol               | ✓ 100% (37/37)     | X  92% (34/37)     | X  67% (6/9)     | ✓ 100% (11/11)   |
 | script/deployment/BaoDeployerSetOperator.sol    | ✓ 100% (6/6)       | ✓ 100% (9/9)       | ✓ 100% (1/1)     | ✓ 100% (1/1)     |
 | script/deployment/Create3CommitFlow.sol         | ✓ 100% (20/20)     | ✓ 100% (23/23)     | ✓ 100% (4/4)     | ✓ 100% (4/4)     |
-| script/deployment/Deployment.sol                | X  97% (258/266)   | X  97% (294/304)   | X  73% (27/37)   | X  98% (46/47)   |
-| script/deployment/DeploymentDataMemory.sol      | ✓ 100% (114/114)   | ✓ 100% (93/93)     | ✓ 100% (7/7)     | ✓ 100% (32/32)   |
+| script/deployment/Deployment.sol                | X  93% (223/240)   | X  94% (269/286)   | X  65% (28/43)   | X  90% (27/30)   |
+| script/deployment/DeploymentDataMemory.sol      | ✓ 100% (140/140)   | ✓ 100% (119/119)   | ✓ 100% (9/9)     | ✓ 100% (35/35)   |
 | script/deployment/DeploymentInfrastructure.sol  | X  94% (30/32)     | X  94% (32/34)     | X  70% (7/10)    | ✓ 100% (3/3)     |
-| script/deployment/DeploymentJson.sol            | X  92% (213/231)   | X  93% (264/285)   | X  80% (53/66)   | X  93% (25/27)   |
-| script/deployment/DeploymentJsonTesting.sol     | X  88% (36/41)     | X  86% (31/36)     | ✓ 100% (5/5)     | X  92% (11/12)   |
+| script/deployment/DeploymentJson.sol            | X  92% (217/235)   | X  93% (271/291)   | X  82% (54/66)   | X  93% (25/27)   |
+| script/deployment/DeploymentJsonScript.sol      | X   0% (0/6)       | X   0% (0/3)       | ✓ 100% (0/0)     | X   0% (0/3)     |
+| script/deployment/DeploymentJsonTesting.sol     | X  88% (42/48)     | X  88% (36/41)     | ✓ 100% (5/5)     | X  86% (12/14)   |
 | script/deployment/DeploymentKeys.sol            | X  98% (171/174)   | X  98% (178/181)   | X  73% (24/33)   | ✓ 100% (25/25)   |
-| script/deployment/DeploymentTesting.sol         | ✓ 100% (7/7)       | ✓ 100% (4/4)       | ✓ 100% (0/0)     | ✓ 100% (4/4)     |
+| script/deployment/DeploymentTesting.sol         | ✓ 100% (14/14)     | ✓ 100% (9/9)       | ✓ 100% (0/0)     | ✓ 100% (6/6)     |
 | script/deployment/DeploymentTestingEnablers.sol | ✓ 100% (26/26)     | ✓ 100% (17/17)     | ✓ 100% (2/2)     | ✓ 100% (10/10)   |
 | script/deployment/JsonArrays.sol                | ✓ 100% (16/16)     | ✓ 100% (16/16)     | ✓ 100% (0/0)     | ✓ 100% (8/8)     |
 | script/deployment/UUPSProxyDeployStub.sol       | X  93% (25/27)     | X  80% (20/25)     | X  33% (2/6)     | ✓ 100% (8/8)     |
@@ -29,4 +30,4 @@
 | src/internal/BaoCheckOwner_v2.sol               | ✓ 100% (13/13)     | ✓ 100% (10/10)     | ✓ 100% (1/1)     | ✓ 100% (4/4)     |
 | src/internal/BaoRoles.sol                       | ✓ 100% (56/56)     | ✓ 100% (49/49)     | ✓ 100% (6/6)     | ✓ 100% (16/16)   |
 | src/internal/BaoRoles_v2.sol                    | ✓ 100% (47/47)     | X  98% (42/43)     | ✓ 100% (4/4)     | ✓ 100% (14/14)   |
-| Total                                           | X  82% (2131/2595) | X  84% (2022/2400) | X  63% (175/278) | X  76% (506/670) |
+| Total                                           | X  81% (2131/2629) | X  83% (2039/2452) | X  62% (179/289) | X  74% (483/651) |

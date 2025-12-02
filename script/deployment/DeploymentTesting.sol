@@ -16,11 +16,7 @@ import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.so
 abstract contract DeploymentTesting is DeploymentTestingEnablers, BaoDeployerSetOperator {
     /// @notice Start deployment session with deployer defaulting to address(this)
     /// @dev Convenience overload for tests where the harness is the deployer
-    function start(
-        string memory network,
-        string memory systemSaltString,
-        string memory startPoint
-    ) public {
+    function start(string memory network, string memory systemSaltString, string memory startPoint) public {
         start(network, systemSaltString, address(this), startPoint);
     }
 

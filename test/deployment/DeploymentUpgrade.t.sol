@@ -5,6 +5,8 @@ import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 import {DeploymentKeys} from "@bao-script/deployment/DeploymentKeys.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
+import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
 import {OracleV1} from "../mocks/upgradeable/MockOracle.sol";
 
 import {CounterV1} from "../mocks/upgradeable/MockCounter.sol";
@@ -45,6 +47,8 @@ contract CounterV2 is CounterV1 {
  * @notice Test harness for proxy upgrade scenarios
  */
 contract MockDeploymentUpgrade is DeploymentJsonTesting {
+    uint private _sequenceNumber;
+
     constructor() {
         // Register all possible contract keys used in tests with contracts. prefix
         addProxy("contracts.oz_proxy");
@@ -55,6 +59,7 @@ contract MockDeploymentUpgrade is DeploymentJsonTesting {
         addProxy("contracts.Oracle2");
         addProxy("contracts.Counter");
 
+        _sequenceNumber = 1;
         // Register .type keys for metadata (addProxy registers .contractType but tests use .type)
     }
 
@@ -103,12 +108,21 @@ contract MockDeploymentUpgrade is DeploymentJsonTesting {
         return _getTransferrableProxies().length;
     }
 
-    /// @notice Helper for tests to compute implementation keys
-    function implementationKey(string memory proxyKey, string memory contractType) public pure returns (string memory) {
-        return string.concat(proxyKey, "__", contractType);
+    // no increemental changes
+    function _afterValueChanged(string memory key) internal override(DeploymentJson, DeploymentDataMemory) {}
+
+    function _getFilename() internal view override returns (string memory) {
+        return string.concat(super._getFilename(), ".op", _padZero(_sequenceNumber, 2));
     }
 
-    /// @notice Override finish to transfer ownership of all deployed proxies
+    function save() public {
+        _save();
+        _sequenceNumber++;
+    }
+
+    function fromJsonNoSave(string memory json) public {
+        _fromJsonNoSave(json);
+    }
 }
 
 /**
@@ -126,11 +140,9 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
 
     /// @notice Helper to start deployment with test-specific network name
     function _startDeployment(string memory network) internal {
-        string memory config = string.concat('{"owner":"', vm.toString(address(0x1234)), '"}');
-        _initDeploymentTest(TEST_SALT, network, config);
-        deployment.enableManualSequencing(); // Enable manual sequencing for before/after snapshots
+        _initDeploymentTest(TEST_SALT, network);
         deployment.start(network, TEST_SALT, "");
-        deployment.saveSequence();
+        deployment.save();
     }
 
     /// @notice Get the configured final owner from deployment data
@@ -162,7 +174,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         assertEq(oracleV1.owner(), getConfiguredOwner(), "Owner should be set");
 
         // Capture BEFORE state
-        deployment.saveSequence(); // Advances to .002 for AFTER state
+        deployment.save(); // Advances to .002 for AFTER state
 
         // Deploy new implementation
         OracleV2 newImpl = new OracleV2();
@@ -197,7 +209,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         // Ownership transferred by finish()
 
         // Capture BEFORE state (all proxies at V1)
-        deployment.saveSequence(); // Advances to .002
+        deployment.save(); // Advances to .002
 
         // Deploy new implementations
         OracleV2 newOracleImpl = new OracleV2();
@@ -209,7 +221,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         IUUPSUpgradeableProxy(oracle1Proxy).upgradeTo(address(newOracleImpl));
 
         // Capture intermediate state (Oracle1 upgraded, Counter still V1)
-        deployment.saveSequence(); // Advances to .003
+        deployment.save(); // Advances to .003
 
         // Upgrade Counter (called from owner - getConfiguredOwner)
         address counterProxy = deployment.get("contracts.Counter");
@@ -391,7 +403,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
 
         // Test JSON round-trip
         MockDeploymentUpgrade newDeployment = new MockDeploymentUpgrade();
-        newDeployment.fromJson(json);
+        newDeployment.fromJsonNoSave(json);
 
         address restoredOracle = newDeployment.get("contracts.Oracle");
         assertTrue(restoredOracle != address(0), "Oracle should be restored from JSON");
@@ -488,7 +500,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         assertEq(counterV1.value(), 51, "After increment");
 
         // Capture BEFORE first upgrade (V1 state)
-        deployment.saveSequence(); // Advances to .002
+        deployment.save(); // Advances to .002
 
         // Upgrade to V2
         CounterV2 v2Impl = new CounterV2();
@@ -513,7 +525,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         assertEq(counterV2.decrementCount(), 1, "Decrement count");
 
         // Capture AFTER first upgrade (V2 state)
-        deployment.saveSequence(); // Advances to .003
+        deployment.save(); // Advances to .003
 
         // Downgrade back to V1
         CounterV1 v1ImplNew = new CounterV1();

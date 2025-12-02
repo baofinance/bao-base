@@ -31,7 +31,6 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     function test_DeployProxy() public {
         _startDeployment("test_DeployProxy");
 
-        deployment.setFilename("test_DeployProxy");
         deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor USD");
         deployment.setAddress(deployment.PEGGED_OWNER(), admin);
@@ -64,12 +63,14 @@ contract DeploymentProxyTest is BaoDeploymentTest {
             string.concat(deployment.PEGGED(), ".implementation.ownershipModel")
         );
         assertEq(ownershipModel, "transferred-after-deploy", "Ownership model should be updated");
+
+        // Verify session finish metadata was recorded
+        _assertFinishState(deployment);
     }
 
     function test_PredictProxyAddress() public {
         _startDeployment("test_PredictProxyAddress");
 
-        deployment.setFilename("test_PredictProxyAddress");
         address predicted = deployment.predictProxyAddress(deployment.PEGGED());
 
         deployment.setString(deployment.PEGGED_SYMBOL(), "EUR");
@@ -84,7 +85,6 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     function test_DeterministicProxyAddress() public {
         _startDeployment("test_DeterministicProxyAddress");
 
-        deployment.setFilename("test_DeterministicProxyAddress");
         // Same key with same salt should produce same address
         address addr1 = deployment.predictProxyAddress(deployment.PEGGED());
 
@@ -109,7 +109,6 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     function test_MultipleProxies() public {
         _startDeployment("test_MultipleProxies");
 
-        deployment.setFilename("test_MultipleProxies");
         // Deploy first proxy
         deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor USD");
@@ -133,7 +132,6 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     function test_RevertWhen_ProxyWithEmptyKey() public {
         _startDeployment("test_RevertWhen_ProxyWithEmptyKey");
 
-        deployment.setFilename("test_RevertWhen_ProxyWithEmptyKey");
         // Try to deploy with empty key - should revert with KeyRequired
         vm.expectRevert();
         deployment.deployProxy("", address(this), "", "", "", address(this));
@@ -142,7 +140,6 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     function test_RevertWhen_ProxyWithoutImplementation() public {
         _startDeployment("test_RevertWhen_ProxyWithoutImplementation");
 
-        deployment.setFilename("test_RevertWhen_ProxyWithoutImplementation");
         string memory proxyKey = deployment.PEGGED();
         vm.expectRevert();
         deployment.deployProxy(proxyKey, address(0), "", "", "", address(this));
@@ -151,7 +148,6 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     function test_ProxyMetadataStored() public {
         _startDeployment("test_ProxyMetadataStored");
 
-        deployment.setFilename("test_ProxyMetadataStored");
         deployment.setString(deployment.PEGGED_SYMBOL(), "JPY");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor JPY");
         deployment.setAddress(deployment.PEGGED_OWNER(), admin);
@@ -171,7 +167,6 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     function test_ImplementationReuse() public {
         _startDeployment("test_ImplementationReuse");
 
-        deployment.setFilename("test_ImplementationReuse");
         // Deploy pegged token
         deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor USD");

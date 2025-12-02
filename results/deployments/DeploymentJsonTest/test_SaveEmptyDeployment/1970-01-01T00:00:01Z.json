@@ -3,19 +3,10 @@
   "schemaVersion": 1,
   "systemSaltString": "DeploymentJsonTest",
   "session": {
-    "network": "test_SaveScalarValuesToFile",
+    "network": "test_SaveEmptyDeployment",
     "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
     "startTimestamp": 1,
     "started": "1970-01-01T00:00:01Z",
     "startBlock": 1
-  },
-  "contracts": {
-    "config": {
-      "guardian": "0x0000000000000000000000000000000000001111",
-      "symbol": "BAO-JSON",
-      "supply": 42000,
-      "threshold": -77,
-      "enabled": true
-    }
   }
 }

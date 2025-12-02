@@ -1,0 +1,9 @@
+{
+  "owner": "0x0000000000000000000000000000000000001234",
+  "schemaVersion": 1,
+  "systemSaltString": "DeploymentProxyWorkflowTest",
+  "session": {
+    "network": "MultipleWritesWithProxyDeployment",
+    "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f"
+  }
+}

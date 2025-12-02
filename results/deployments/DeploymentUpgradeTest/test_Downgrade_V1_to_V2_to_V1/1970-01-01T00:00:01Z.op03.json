@@ -21,12 +21,12 @@
       "saltString": "Counter",
       "salt": "0x667edb9477d894922d0eeaacb805a80ba5a801201349ec94a5a6e80ec9885e62",
       "implementation": {
-        "address": "0xf62849f9a0b5bf2913b396098f7c7019b51a820a",
-        "contractType": "CounterV1",
+        "address": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
+        "contractType": "CounterV2",
         "contractPath": "test/mocks/upgradeable/MockCounter.sol",
         "deployer": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
         "blockNumber": 1,
-        "ownershipModel": "transferred-after-deploy"
+        "ownershipModel": "transfer-after-deploy"
       }
     }
   }

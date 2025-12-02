@@ -4,6 +4,21 @@ pragma solidity >=0.8.28 <0.9.0;
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {MockHarborDeploymentDev} from "./MockHarborDeploymentDev.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
+import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
+import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
+
+contract MockHarborDeploymentSequenced is MockHarborDeploymentDev {
+    uint private _sequenceNumber;
+
+    function _afterValueChanged(string memory key) internal override(DeploymentDataMemory, DeploymentJson) {
+        super._afterValueChanged(key);
+        _sequenceNumber++;
+    }
+
+    function _getFilename() internal view override returns (string memory) {
+        return string.concat(super._getFilename(), ".", _padZero(_sequenceNumber, 3));
+    }
+}
 
 /**
  * @title DeploymentProxyWorkflowTest
@@ -14,14 +29,11 @@ contract DeploymentProxyWorkflowTest is BaoDeploymentTest {
     function test_MultipleWritesWithProxyDeployment() public {
         // This test demonstrates the full deployment workflow across sequenced phases
         // using the actual proxy deployment code path
-        MockHarborDeploymentDev deployment = new MockHarborDeploymentDev();
+        MockHarborDeploymentSequenced deployment = new MockHarborDeploymentSequenced();
 
         // Start deployment session with sequencing enabled
         _initDeploymentTest("DeploymentProxyWorkflowTest", "MultipleWritesWithProxyDeployment");
         deployment.start("MultipleWritesWithProxyDeployment", "DeploymentProxyWorkflowTest", "");
-
-        // Enable sequencing to capture each phase
-        deployment.enableSequencing();
 
         address admin = makeAddr("admin");
 
@@ -60,6 +72,9 @@ contract DeploymentProxyWorkflowTest is BaoDeploymentTest {
             string.concat(deployment.PEGGED(), ".implementation.ownershipModel")
         );
         assertEq(ownershipModel, "transferred-after-deploy", "Ownership model should be updated after finish");
+
+        // Verify session finish metadata was recorded
+        _assertFinishState(deployment);
 
         // All phases should be persisted in sequenced files
         // Each file shows progression of deployment state

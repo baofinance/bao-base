@@ -7,7 +7,10 @@
     "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
     "startTimestamp": 1,
     "started": "1970-01-01T00:00:01Z",
-    "startBlock": 1
+    "startBlock": 1,
+    "finishTimestamp": 1,
+    "finished": "1970-01-01T00:00:01Z",
+    "finishBlock": 1
   },
   "contracts": {
     "wstETH": {

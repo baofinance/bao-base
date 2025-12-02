@@ -71,7 +71,7 @@ contract TestDataJsonHarness is DeploymentJsonTesting {
         addIntArrayKey(CONFIG_DELTAS_KEY);
     }
 
-    function save() internal override {
+    function _save() internal override {
         // Skip persistence in unit tests; deployment harnesses cover file I/O
     }
 }

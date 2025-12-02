@@ -179,15 +179,15 @@ abstract contract Deployment is DeploymentDataMemory {
 
         // TODO: need to read the schema version and check for compatibility
         // Set global deployment configuration
-        _writeUint(SCHEMA_VERSION, 1, DataType.UINT);
-        _writeString(SYSTEM_SALT_STRING, systemSaltString, DataType.STRING);
+        _setUint(SCHEMA_VERSION, 1);
+        _setString(SYSTEM_SALT_STRING, systemSaltString);
 
         // Initialize session metadata
-        _writeString(SESSION_NETWORK, network, DataType.STRING);
-        _writeAddress(SESSION_DEPLOYER, deployer, DataType.ADDRESS);
-        _writeUint(SESSION_START_TIMESTAMP, block.timestamp, DataType.UINT);
-        _writeString(SESSION_STARTED, _formatTimestamp(block.timestamp), DataType.STRING);
-        _writeUint(SESSION_START_BLOCK, block.number, DataType.UINT);
+        _setString(SESSION_NETWORK, network);
+        _setAddress(SESSION_DEPLOYER, deployer);
+        _setUint(SESSION_START_TIMESTAMP, block.timestamp);
+        _setString(SESSION_STARTED, _formatTimestamp(block.timestamp));
+        _setUint(SESSION_START_BLOCK, block.number);
 
         // Don't initialize finish fields - they only appear when finish() is called
 
@@ -229,10 +229,10 @@ abstract contract Deployment is DeploymentDataMemory {
             _setString(string.concat(tp.parentKey, ".implementation.ownershipModel"), "transferred-after-deploy");
         }
 
-        // Mark session finished
-        _writeUint(SESSION_FINISH_TIMESTAMP, block.timestamp, DataType.UINT);
-        _writeString(SESSION_FINISHED, _formatTimestamp(block.timestamp), DataType.STRING);
-        _writeUint(SESSION_FINISH_BLOCK, block.number, DataType.UINT);
+        // Mark session finished (use _set* to trigger _afterValueChanged for persistence)
+        _setUint(SESSION_FINISH_TIMESTAMP, block.timestamp);
+        _setString(SESSION_FINISHED, _formatTimestamp(block.timestamp));
+        _setUint(SESSION_FINISH_BLOCK, block.number);
         _sessionState = State.FINISHED;
 
         return transferred;
@@ -705,21 +705,7 @@ abstract contract Deployment is DeploymentDataMemory {
         _setUint(string.concat(key, ".blockNumber"), block.number);
     }
 
-    function _afterValueChanged(string memory key) internal virtual;
-
     // Note: keys() and schemaKeys() are inherited from DeploymentDataMemory/DeploymentKeys
-
-    /// @notice Set contract address (key.address)
-    function _set(string memory key, address value) internal {
-        _writeAddress(string.concat(key, ".address"), value, DataType.ADDRESS);
-        _afterValueChanged(key);
-    }
-
-    /// @notice Get contract address (shorthand for key.address)
-    function _get(string memory key) internal view returns (address) {
-        // get(key) returns the address at key.address
-        return _readAddress(string.concat(key, ".address"));
-    }
 
     /// @notice Extract salt string from key (everything after last dot)
     function _extractSaltString(string memory key) internal pure returns (string memory) {
@@ -747,120 +733,10 @@ abstract contract Deployment is DeploymentDataMemory {
         return string(result);
     }
 
-    /// @notice Check if contract key exists
-    /// @dev Checks _hasKey directly, and for OBJECT types also checks key.address
-    function _has(string memory key) internal view returns (bool) {
-        if (_hasKey[key]) {
-            return true;
-        }
-        // For OBJECT type keys (contract entries), check if .address child is set
-        if (keyType(key) == DataType.OBJECT) {
-            return _hasKey[string.concat(key, ".address")];
-        }
-        return false;
-    }
-
-    /// @notice Set string value
-    function _setString(string memory key, string memory value) internal {
-        _writeString(key, value, DataType.STRING);
-        _afterValueChanged(key);
-    }
-
-    /// @notice Get string value
-    function _getString(string memory key) internal view returns (string memory) {
-        return _readString(key);
-    }
-
-    /// @notice Set uint value
-    function _setUint(string memory key, uint256 value) internal {
-        _writeUint(key, value, DataType.UINT);
-        _afterValueChanged(key);
-    }
-
-    /// @notice Get uint value
-    function _getUint(string memory key) internal view returns (uint256) {
-        return _readUint(key);
-    }
-
-    /// @notice Set int value
-    function _setInt(string memory key, int256 value) internal {
-        _writeInt(key, value, DataType.INT);
-        _afterValueChanged(key);
-    }
-
-    /// @notice Get int value
-    function _getInt(string memory key) internal view returns (int256) {
-        return _readInt(key);
-    }
-
-    /// @notice Set bool value
-    function _setBool(string memory key, bool value) internal {
-        _writeBool(key, value, DataType.BOOL);
-        _afterValueChanged(key);
-    }
-
-    /// @notice Get bool value
-    function _getBool(string memory key) internal view returns (bool) {
-        return _readBool(key);
-    }
-
-    function _setAddress(string memory key, address value) internal {
-        _writeAddress(key, value, DataType.ADDRESS);
-        _afterValueChanged(key);
-    }
-
-    function _getAddress(string memory key) internal view returns (address) {
-        return _readAddress(key);
-    }
-
-    /// @notice Set address array
-    function _setAddressArray(string memory key, address[] memory values) internal {
-        _writeAddressArray(key, values, DataType.ADDRESS_ARRAY);
-        _afterValueChanged(key);
-    }
-
-    /// @notice Get address array
-    function _getAddressArray(string memory key) internal view returns (address[] memory) {
-        return _readAddressArray(key);
-    }
-
-    /// @notice Set string array
-    function _setStringArray(string memory key, string[] memory values) internal {
-        _writeStringArray(key, values, DataType.STRING_ARRAY);
-        _afterValueChanged(key);
-    }
-
-    /// @notice Get string array
-    function _getStringArray(string memory key) internal view returns (string[] memory) {
-        return _readStringArray(key);
-    }
-
-    /// @notice Set uint array
-    function _setUintArray(string memory key, uint256[] memory values) internal {
-        _writeUintArray(key, values, DataType.UINT_ARRAY);
-        _afterValueChanged(key);
-    }
-
-    /// @notice Get uint array
-    function _getUintArray(string memory key) internal view returns (uint256[] memory) {
-        return _readUintArray(key);
-    }
-
-    /// @notice Set int array
-    function _setIntArray(string memory key, int256[] memory values) internal {
-        _writeIntArray(key, values, DataType.INT_ARRAY);
-        _afterValueChanged(key);
-    }
-
-    /// @notice Get int array
-    function _getIntArray(string memory key) internal view returns (int256[] memory) {
-        return _readIntArray(key);
-    }
-
     /// @notice Derive system salt for deterministic address calculations
     /// @dev Subclasses can override to customize salt derivation (e.g., network-specific tweaks)
     function _deriveSystemSalt() internal view virtual returns (string memory) {
-        return _readString(SYSTEM_SALT_STRING);
+        return _getString(SYSTEM_SALT_STRING);
     }
 
     /// @notice Format Unix timestamp as ISO 8601 string
