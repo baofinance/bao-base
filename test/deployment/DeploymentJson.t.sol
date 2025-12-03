@@ -2,13 +2,10 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import {Deployment} from "@bao-script/deployment/Deployment.sol";
-import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
-import {DeploymentJsonTesting, DeploymentTestingOutput} from "@bao-script/deployment/DeploymentJsonTesting.sol";
+import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 
 string constant JSON_CONFIG_ROOT = "contracts.config";
 string constant JSON_CONFIG_GUARDIAN_KEY = "contracts.config.guardian";

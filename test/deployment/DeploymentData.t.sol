@@ -6,7 +6,6 @@ import {stdJson} from "forge-std/StdJson.sol";
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
 import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
-import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.sol";
 import {JsonArrays} from "@bao-script/deployment/JsonArrays.sol";
 
 string constant OWNER_KEY = "owner";

@@ -4,8 +4,6 @@ pragma solidity >=0.8.28 <0.9.0;
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {MockHarborDeploymentDev} from "./MockHarborDeploymentDev.sol";
 import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
-import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
-import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
 
 contract MockHarborDeploymentSequenced is MockHarborDeploymentDev {
     uint private _sequenceNumber;

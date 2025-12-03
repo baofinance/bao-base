@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.sol";
+import {DataType} from "@bao-script/deployment/DeploymentKeys.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
 import {MockContract} from "@bao-test/mocks/basic/MockContract.sol";
