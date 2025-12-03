@@ -1,10 +1,23 @@
+script/deployment/BaoDeployer.sol:BaoDeployer
+| function name               |       max |
+|-----------------------------|-----------|
+| clearCommitment             | 2.604e+04 |
+| commit                      | 4.837e+04 |
+| committedAt                 | 2.539e+03 |
+| isCommitted                 | 2.466e+03 |
+| operator                    | 2.402e+03 |
+| owner                       | 2.360e+03 |
+| predictDeterministicAddress | 5.850e+02 |
+| reveal                      | 2.193e+05 |
+| setOperator                 | 3.047e+04 |
+
 script/deployment/UUPSProxyDeployStub.sol:UUPSProxyDeployStub
 | function name    |       max |
 |------------------|-----------|
-| deployer         | 2.445e+03 |
-| initialize       | 4.763e+04 |
-| setDeployer      | 3.018e+04 |
-| upgradeToAndCall | 1.200e+05 |
+| owner            | 2.380e+02 |
+| proxiableUUID    | 1.870e+02 |
+| upgradeTo        | 4.718e+04 |
+| upgradeToAndCall | 1.709e+05 |
 
 src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1
 | function name     |       max |
@@ -72,354 +85,63 @@ src/Token.sol:Token
 |-------------------------------------|-----------|
 | hasNonMutatingParameterlessFunction | 4.190e+03 |
 
-test/BaoAccessControl.t.sol:MockBaoAccessControl
-| function name           |       max |
-|-------------------------|-----------|
-| ANOTHER_ROLE            | 2.390e+02 |
-| ANOTHER_ROLE_ADMIN_ROLE | 2.160e+02 |
-| grantRoles              | 2.636e+04 |
-| hasAllRoles             | 2.636e+03 |
-| hasAnyRole              | 2.635e+03 |
-| initialize              | 7.042e+04 |
-| owner                   | 2.396e+03 |
-| transferOwnership       | 1.212e+04 |
+test/mocks/MockImplementationOZOwnable.sol:MockImplementationOZOwnable
+| function name     |       max |
+|-------------------|-----------|
+| initialize        | 7.077e+04 |
+| owner             | 2.412e+03 |
+| pendingOwner      | 1.860e+02 |
+| transferOwnership | 5.287e+03 |
 
-test/PermittableERC20.t.sol:PermittableERC20_v2
-| function name    |       max |
-|------------------|-----------|
-| DOMAIN_SEPARATOR | 6.500e+03 |
-| proxiableUUID    | 3.490e+02 |
-| version          | 3.188e+03 |
-
-test/Solidity.t.sol:ReturnGas
-| function name   |       max |
-|-----------------|-----------|
-| doReturn        | 4.840e+02 |
-| doVariable      | 5.060e+02 |
-
-test/Token.t.sol:MockERC20
-| function name   |       max |
-|-----------------|-----------|
-| balanceOf       | 2.559e+03 |
-| decimals        | 2.377e+03 |
-| mint            | 6.821e+04 |
-| name            | 3.086e+03 |
-| symbol          | 3.129e+03 |
-| totalSupply     | 2.325e+03 |
-
-test/Token.t.sol:MockFunctions
-| function name      |       max |
-|--------------------|-----------|
-| noParamsNoReturn   | 1.630e+02 |
-| noParamsWithReturn | 2.450e+02 |
-
-test/Token.t.sol:MockNonERC20
-| function name   |       max |
-|-----------------|-----------|
-| name            | 1.230e+02 |
-
-test/Token.t.sol:TokenLibraryWrapper
-| function name                       |       max |
-|-------------------------------------|-----------|
-| allOf                               | 6.048e+03 |
-| allOfQuiet                          | 6.066e+03 |
-| ensureContract                      | 3.078e+03 |
-| ensureNonZeroAddress                | 4.820e+02 |
-| hasNonMutatingParameterlessFunction | 8.001e+03 |
-
-test/deployment/DeploymentBasic.t.sol:DeploymentHarness
-| function name       |       max |
-|---------------------|-----------|
-| deployMockContract  | 4.089e+05 |
-| finishDeployment    | 4.870e+04 |
-| getByString         | 8.639e+03 |
-| getEntryType        | 6.295e+03 |
-| getMetadata         | 2.328e+04 |
-| hasByString         | 3.233e+03 |
-| keys                | 1.195e+04 |
-| startDeployment     | 9.172e+05 |
-| useExistingByString | 2.132e+05 |
-
-test/deployment/DeploymentDependency.t.sol:DependencyTestHarness
-| function name   |       max |
-|-----------------|-----------|
-| deployMinter    | 4.250e+05 |
-| deployOracle    | 4.398e+05 |
-| deployToken     | 5.000e+05 |
-| getByString     | 8.683e+03 |
-| hasByString     | 3.233e+03 |
-| startDeployment | 9.173e+05 |
-
-test/deployment/DeploymentIntegration.t.sol:IntegrationTestHarness
-| function name       |       max |
-|---------------------|-----------|
-| deployConfigLibrary | 2.650e+05 |
-| deployMinterProxy   | 1.195e+06 |
-| deployOracleProxy   | 1.117e+06 |
-| deployProxy         | 6.802e+05 |
-| finishDeployment    | 4.879e+04 |
-| getByString         | 8.820e+03 |
-| getDeployStub       | 2.386e+03 |
-| getEntryType        | 6.295e+03 |
-| hasByString         | 3.167e+03 |
-| keys                | 1.824e+04 |
-| loadFromJson        | 1.553e+06 |
-| resumeDeployment    | 6.523e+04 |
-| saveToJson          | 2.763e+05 |
-| startDeployment     | 9.174e+05 |
-| useExistingByString | 2.130e+05 |
-
-test/deployment/DeploymentIntegration.t.sol:MockMinter
-| function name   |       max |
-|-----------------|-----------|
-| collateralToken | 2.346e+03 |
-| initialize      | 1.132e+05 |
-| oracle          | 2.392e+03 |
-| peggedToken     | 2.326e+03 |
-| proxiableUUID   | 3.480e+02 |
-
-test/deployment/DeploymentIntegration.t.sol:OracleV1
-| function name   |       max |
-|-----------------|-----------|
-| admin           | 2.402e+03 |
-| initialize      | 6.858e+04 |
-| price           | 2.282e+03 |
-| proxiableUUID   | 3.150e+02 |
-
-test/deployment/DeploymentJson.t.sol:JsonTestHarness
-| function name        |       max |
-|----------------------|-----------|
-| deploySimpleContract | 3.645e+05 |
-| deploySimpleProxy    | 1.038e+06 |
-| deployTestLibrary    | 2.822e+05 |
-| finishDeployment     | 4.879e+04 |
-| fromJson             | 1.608e+05 |
-| getByString          | 9.079e+03 |
-| getDeployStub        | 2.386e+03 |
-| getMetadata          | 2.328e+04 |
-| hasByString          | 3.233e+03 |
-| keys                 | 8.839e+03 |
-| loadFromJson         | 1.018e+06 |
-| resumeDeployment     | 6.523e+04 |
-| saveToJson           | 2.176e+05 |
-| startDeployment      | 9.173e+05 |
-| useExistingByString  | 1.960e+05 |
-
-test/deployment/DeploymentJson.t.sol:SimpleImplementation
-| function name   |       max |
-|-----------------|-----------|
-| initialize      | 4.634e+04 |
-| proxiableUUID   | 3.140e+02 |
-
-test/deployment/DeploymentJsonRoundTrip.t.sol:RoundTripTestHarness
-| function name       |       max |
-|---------------------|-----------|
-| deployMockLibrary   | 2.650e+05 |
-| deployMockProxy     | 1.287e+06 |
-| finishDeployment    | 4.870e+04 |
-| fromJson            | 2.557e+06 |
-| getBoolByKey        | 8.740e+03 |
-| getByString         | 9.079e+03 |
-| getDeployStub       | 2.408e+03 |
-| getEntryType        | 6.295e+03 |
-| getIntByKey         | 8.662e+03 |
-| getMetadata         | 2.328e+04 |
-| getStringByKey      | 9.454e+03 |
-| getUintByKey        | 8.729e+03 |
-| keys                | 4.929e+04 |
-| setBoolByKey        | 1.225e+05 |
-| setIntByKey         | 1.228e+05 |
-| setStringByKey      | 1.238e+05 |
-| setUintByKey        | 1.224e+05 |
-| startDeployment     | 9.174e+05 |
-| toJson              | 4.850e+05 |
-| useExistingByString | 2.131e+05 |
-
-test/deployment/DeploymentLibrary.t.sol:LibraryTestHarness
-| function name       |       max |
-|---------------------|-----------|
-| deployMathLibrary   | 2.821e+05 |
-| deployStringLibrary | 2.650e+05 |
-| finishDeployment    | 4.870e+04 |
-| fromJson            | 4.943e+05 |
-| getByString         | 9.123e+03 |
-| getDeployStub       | 2.408e+03 |
-| getEntryType        | 6.295e+03 |
-| hasByString         | 3.233e+03 |
-| keys                | 8.839e+03 |
-| startDeployment     | 9.173e+05 |
-| toJson              | 9.309e+04 |
-
-test/deployment/DeploymentParameter.t.sol:ParameterTestHarness
-| function name      |       max |
-|--------------------|-----------|
-| deployMockContract | 3.644e+05 |
-| getBoolByKey       | 8.740e+03 |
-| getByString        | 8.661e+03 |
-| getDeployStub      | 2.408e+03 |
-| getEntryType       | 6.295e+03 |
-| getIntByKey        | 8.662e+03 |
-| getStringByKey     | 9.454e+03 |
-| getUintByKey       | 8.729e+03 |
-| keys               | 1.195e+04 |
-| loadFromJson       | 7.489e+05 |
-| saveToJson         | 1.352e+05 |
-| setBoolByKey       | 1.396e+05 |
-| setIntByKey        | 1.399e+05 |
-| setStringByKey     | 1.407e+05 |
-| setUintByKey       | 1.395e+05 |
-| startDeployment    | 9.173e+05 |
-
-test/deployment/DeploymentProxy.t.sol:ProxyTestHarness
-| function name       |       max |
-|---------------------|-----------|
-| deployCounterProxy  | 1.262e+06 |
-| deployProxy         | 2.864e+04 |
-| fromJson            | 6.161e+05 |
-| getByString         | 8.820e+03 |
-| getDeployStub       | 2.408e+03 |
-| getEntryType        | 6.295e+03 |
-| hasByString         | 3.233e+03 |
-| predictProxyAddress | 3.773e+03 |
-| resumeDeployment    | 6.803e+04 |
-| startDeployment     | 9.172e+05 |
-| toJson              | 1.154e+05 |
-
-test/deployment/DeploymentUpgrade.t.sol:CounterV2
-| function name   |       max |
-|-----------------|-----------|
-| decrement       | 2.757e+04 |
-| decrementCount  | 2.316e+03 |
-| getVersion      | 2.030e+02 |
-| increment       | 5.272e+03 |
-| proxiableUUID   | 3.260e+02 |
-| value           | 2.382e+03 |
-
-test/deployment/DeploymentUpgrade.t.sol:OracleV2
-| function name   |       max |
-|-----------------|-----------|
-| getVersion      | 2.030e+02 |
-| lastUpdateTime  | 2.360e+03 |
-| owner           | 2.440e+03 |
-| price           | 2.315e+03 |
-| proxiableUUID   | 3.920e+02 |
-| setPrice        | 2.950e+04 |
-
-test/deployment/DeploymentUpgrade.t.sol:UpgradeTestHarness
-| function name      |       max |
-|--------------------|-----------|
-| deployCounterProxy | 1.262e+06 |
-| deployOracleProxy  | 1.260e+06 |
-| finalizeOwnership  | 1.010e+05 |
-| finishDeployment   | 4.870e+04 |
-| fromJson           | 6.395e+05 |
-| getByString        | 8.776e+03 |
-| getDeployStub      | 2.408e+03 |
-| getEntryType       | 6.295e+03 |
-| hasByString        | 3.255e+03 |
-| startDeployment    | 9.173e+05 |
-| toJson             | 1.167e+05 |
-
-test/deployment/DeploymentWorkflow.t.sol:WorkflowTestHarness
-| function name       |       max |
-|---------------------|-----------|
-| deployMathLibrary   | 2.821e+05 |
-| deployMinterProxy   | 1.437e+06 |
-| deployOracleProxy   | 1.260e+06 |
-| finalizeOwnership   | 1.005e+05 |
-| finishDeployment    | 4.870e+04 |
-| fromJson            | 9.351e+05 |
-| getBoolByKey        | 8.762e+03 |
-| getByString         | 9.123e+03 |
-| getDeployStub       | 2.408e+03 |
-| getEntryType        | 6.295e+03 |
-| getMetadata         | 2.330e+04 |
-| getStringByKey      | 9.476e+03 |
-| getUintByKey        | 8.640e+03 |
-| keys                | 3.066e+04 |
-| predictProxyAddress | 3.804e+03 |
-| setBoolByKey        | 1.225e+05 |
-| setStringByKey      | 1.237e+05 |
-| setUintByKey        | 1.224e+05 |
-| startDeployment     | 9.174e+05 |
-| toJson              | 1.643e+05 |
-| useExistingByString | 2.131e+05 |
-
-test/deployment/TestDeployment.sol:TestDeployment
-| function name       |       max |
-|---------------------|-----------|
-| finishDeployment    | 4.879e+04 |
-| fromJson            | 1.038e+06 |
-| getBoolByKey        | 8.718e+03 |
-| getByString         | 8.661e+03 |
-| getDeployStub       | 2.386e+03 |
-| getIntByKey         | 8.662e+03 |
-| getStringByKey      | 9.454e+03 |
-| getUintByKey        | 8.729e+03 |
-| hasByString         | 3.233e+03 |
-| keys                | 2.128e+04 |
-| loadFromJson        | 5.632e+05 |
-| saveToJson          | 1.092e+05 |
-| setBoolByKey        | 1.226e+05 |
-| setIntByKey         | 1.228e+05 |
-| setStringByKey      | 1.406e+05 |
-| setUintByKey        | 1.224e+05 |
-| startDeployment     | 9.173e+05 |
-| toJson              | 1.852e+05 |
-| useExistingByString | 2.129e+05 |
-
-test/deployment/UUPSProxyDeployStub.t.sol:UUPSProxyDeployStubHarness
-| function name              |       max |
-|----------------------------|-----------|
-| authorizeUpgrade           | 2.684e+03 |
-| completeOwnershipHandover  | 2.875e+04 |
-| deployer                   | 2.445e+03 |
-| handoverTimeout            | 2.650e+02 |
-| initialize                 | 4.763e+04 |
-| owner                      | 2.393e+03 |
-| ownershipHandoverExpiresAt | 2.596e+03 |
-| requestOwnershipHandover   | 4.452e+04 |
-| setDeployer                | 3.018e+04 |
-
-test/mocks/basic/MockDependencies.sol:MockMinter
-| function name   |       max |
-|-----------------|-----------|
-| oracle          | 2.324e+03 |
-| token           | 2.367e+03 |
+test/mocks/MockImplementationWithState.sol:MockImplementationWithState
+| function name             |       max |
+|---------------------------|-----------|
+| UPGRADE_INTERFACE_VERSION | 4.580e+02 |
+| implementationType        | 3.250e+02 |
+| owner                     | 2.423e+03 |
+| postUpgradeSetup          | 3.723e+04 |
+| proxiableUUID             | 3.920e+02 |
+| setValue                  | 8.943e+03 |
+| stableValue               | 2.357e+03 |
+| transferOwnership         | 2.515e+03 |
+| upgradeToAndCall          | 4.890e+04 |
+| value                     | 2.377e+03 |
 
 test/mocks/basic/MockDependencies.sol:MockToken
 | function name   |       max |
 |-----------------|-----------|
 | oracle          | 2.357e+03 |
 
+test/mocks/deployment/FundedVault.sol:FundedVault
+| function name   |       max |
+|-----------------|-----------|
+| currentBalance  | 1.820e+02 |
+| initialBalance  | 2.260e+03 |
+
+test/mocks/deployment/FundedVault.sol:FundedVaultUUPS
+| function name   |       max |
+|-----------------|-----------|
+| initialBalance  | 2.316e+03 |
+| initialize      | 6.830e+04 |
+| owner           | 3.340e+02 |
+
 test/mocks/upgradeable/MockCounter.sol:CounterV1
 | function name     |       max |
 |-------------------|-----------|
 | increment         | 5.271e+03 |
-| initialize        | 9.235e+04 |
+| initialize        | 9.239e+04 |
 | owner             | 2.329e+03 |
 | proxiableUUID     | 3.920e+02 |
-| transferOwnership | 1.012e+04 |
+| transferOwnership | 1.064e+04 |
 | upgradeTo         | 1.070e+04 |
 | value             | 2.338e+03 |
 
-test/mocks/upgradeable/MockGeneric.sol:MockUpgradeableContract
+test/mocks/upgradeable/MockMinter.sol:MockMinter
 | function name   |       max |
 |-----------------|-----------|
-| initialize      | 9.144e+04 |
-| proxiableUUID   | 3.030e+02 |
-
-test/mocks/upgradeable/MockMinter.sol:MockMinter
-| function name            |       max |
-|--------------------------|-----------|
-| LEVERAGED_TOKEN          | 2.600e+02 |
-| PEGGED_TOKEN             | 3.260e+02 |
-| WRAPPED_COLLATERAL_TOKEN | 2.590e+02 |
-| initialize               | 9.249e+04 |
-| oracle                   | 2.357e+03 |
-| owner                    | 2.407e+03 |
-| proxiableUUID            | 3.920e+02 |
-| transferOwnership        | 1.014e+04 |
+| PEGGED_TOKEN    | 3.260e+02 |
+| initialize      | 9.249e+04 |
+| oracle          | 2.357e+03 |
 
 test/mocks/upgradeable/MockOracle.sol:OracleV1
 | function name     |       max |
@@ -427,7 +149,6 @@ test/mocks/upgradeable/MockOracle.sol:OracleV1
 | initialize        | 9.235e+04 |
 | owner             | 2.418e+03 |
 | price             | 2.315e+03 |
-| proxiableUUID     | 3.700e+02 |
 | transferOwnership | 1.012e+04 |
 | upgradeTo         | 1.077e+04 |
-| upgradeToAndCall  | 3.909e+04 |
+| upgradeToAndCall  | 3.890e+04 |

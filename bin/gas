@@ -3,6 +3,14 @@ set -e
 set -o pipefail
 
 [[ "${BAO_BASE_VERBOSITY}" -gt 0 ]] && set -x
-forge clean # we don't trust that the --isolate and --gas-report options will work with the cache
+# separate build output & cache
+FOUNDRY_OUT=out/_gas
+export FOUNDRY_CACHE_PATH=cache/_gas
+
+# temp deployment scripts dir
+mkdir -p tmp
+export BAO_DEPLOYMENT_LOGS_ROOT=$(mktemp -d -p tmp)
+trap 'rm -rf "${BAO_DEPLOYMENT_LOGS_ROOT}"' EXIT
+
 forge test --nmp script/**/*.t.sol --isolate --gas-report --gas-limit 1500000000 "$@"
 { set +x; } 2>/dev/null

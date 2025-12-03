@@ -49,7 +49,7 @@ def toStr(
 
 
 def process(
-    toNamedDataFrame: Callable[[str], tuple[pd.DataFrame, str]],
+    toNamedDataFrame: Callable[[str], tuple[pd.DataFrame, str] | None],
     *,
     floatfmt: str | dict[str, str],
     intfmt: str,
@@ -57,8 +57,11 @@ def process(
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     first = True
     for table in extract(sys.stdin.read()):
-        # Parse the table
-        parsed_df, path = toNamedDataFrame(table)
+        # Parse the table (may return None to skip)
+        result = toNamedDataFrame(table)
+        if result is None:
+            continue
+        parsed_df, path = result
 
         # Write the formatted table to stdout
         if first:

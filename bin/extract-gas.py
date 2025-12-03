@@ -4,10 +4,35 @@ import re
 import forge_tables
 import pandas as pd
 
+# Paths to include in gas regression (prefix match)
+INCLUDE_PATHS = [
+    "src/",
+    "script/",
+    "test/mocks/",
+]
 
-def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str]:
+# Suffixes to exclude (applied after include filter)
+EXCLUDE_SUFFIXES = [
+    ".s.sol",  # script files
+    ".t.sol",  # test files
+]
+
+
+def should_include(file_path: str) -> bool:
+    """Check if a file path should be included in the gas report."""
+    # First check if it matches an include path
+    if not any(file_path.startswith(prefix) for prefix in INCLUDE_PATHS):
+        return False
+    # Then check it doesn't match any exclude suffix
+    if any(file_path.endswith(suffix) for suffix in EXCLUDE_SUFFIXES):
+        return False
+    return True
+
+
+def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str] | None:
     """
     Parse the table from the input data.
+    Returns None if the file path should be filtered out.
     """
     # Extract the header line
     path_match = re.search(r"(\S+)\s*:\s*(\S+)", input_data)
@@ -16,6 +41,10 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str]:
 
     file = path_match.group(1)
     contract = path_match.group(2)
+
+    # Filter out paths not in INCLUDE_PATHS
+    if not should_include(file):
+        return None
 
     header_match = re.search(r"^\| Function Name\s+\|.+\|$", input_data, re.MULTILINE)
     if not header_match:
