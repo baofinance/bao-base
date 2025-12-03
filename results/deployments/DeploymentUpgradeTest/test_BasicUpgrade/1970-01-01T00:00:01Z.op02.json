@@ -33,7 +33,7 @@
       "implementation": {
         "address": "0x037eda3adb1198021a9b2e88c22b464fd38db3f3",
         "contractType": "OracleV1",
-        "contractPath": "test/mocks/upgradeable/MockOracle.sol",
+        "contractPath": "out/OracleV1.sol/OracleV1.json: not found",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
         "blockNumber": 1,
         "ownershipModel": "transferred-after-deploy"

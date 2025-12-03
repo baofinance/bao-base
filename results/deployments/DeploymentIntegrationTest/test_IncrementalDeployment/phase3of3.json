@@ -23,7 +23,7 @@
     "collateral": {
       "address": "0x8d2c17fad02b7bb64139109c6533b7c2b9cadb81",
       "contractType": "MockERC20",
-      "contractPath": "test/mocks/tokens/MockERC20.sol",
+      "contractPath": "test/mocks/MockERC20.sol",
       "deployer": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
       "blockNumber": 100,
       "category": "contract"
@@ -31,7 +31,7 @@
     "pegged": {
       "address": "0x3c8ca53ee5661d29d3d3c0732689a4b86947eaf0",
       "contractType": "MockERC20",
-      "contractPath": "test/mocks/tokens/MockERC20.sol",
+      "contractPath": "test/mocks/MockERC20.sol",
       "deployer": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
       "blockNumber": 100,
       "category": "contract"
@@ -49,7 +49,7 @@
       "implementation": {
         "address": "0xcb6f5076b5bbae81d7643bfbf57897e8e3fb1db9",
         "contractType": "OracleV1",
-        "contractPath": "test/mocks/upgradeable/MockOracle.sol",
+        "contractPath": "out/OracleV1.sol/OracleV1.json: not found",
         "deployer": "0xf62849f9a0b5bf2913b396098f7c7019b51a820a",
         "blockNumber": 200,
         "ownershipModel": "transfer-after-deploy"

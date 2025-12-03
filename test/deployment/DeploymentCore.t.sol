@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
-import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
+import {DeploymentMemoryTesting} from "@bao-script/deployment/DeploymentMemoryTesting.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
@@ -32,7 +32,7 @@ contract FailingLibrary {
     }
 }
 
-contract DeploymentCoreHarness is DeploymentTesting {
+contract DeploymentCoreHarness is DeploymentMemoryTesting {
     function startSession(string memory network, string memory salt) external {
         start(network, salt, "");
     }
@@ -163,7 +163,7 @@ contract DeploymentCoreTest is BaoDeploymentTest {
         _initSession("test_RegisterContractRecordsMetadata_");
         deployment.addContract("contracts.alpha");
         address deployerAddress = address(0xD1);
-        deployment.registerContract("contracts.alpha", address(0xCAFE), "Alpha", "src/Alpha.sol", deployerAddress);
+        deployment.registerContract("contracts.alpha", address(0xCAFE), "Alpha", deployerAddress);
         assertEq(deployment.readStoredAddress("contracts.alpha"), address(0xCAFE), "Contract address stored for alpha");
         assertEq(
             deployment.readStringValue("contracts.alpha.category"),
@@ -181,13 +181,7 @@ contract DeploymentCoreTest is BaoDeploymentTest {
         _initSession("test_DeployLibrarySuccessRecordsMetadata_");
         deployment.addContract("contracts.safeLibrary");
         bytes memory bytecode = type(DeployableLibrary).creationCode;
-        deployment.deployLibrary(
-            "contracts.safeLibrary",
-            bytecode,
-            "SimpleBaoOwnable",
-            "test/SimpleBaoOwnable.sol",
-            address(this)
-        );
+        deployment.deployLibrary("contracts.safeLibrary", bytecode, "SimpleBaoOwnable", address(this));
         assertTrue(
             deployment.readStoredAddress("contracts.safeLibrary") != address(0),
             "Library address stored for safe"
@@ -203,13 +197,7 @@ contract DeploymentCoreTest is BaoDeploymentTest {
         _initSession("test_RevertWhen_DeployLibraryFails_");
         deployment.addContract("contracts.failLibrary");
         vm.expectRevert(abi.encodeWithSelector(Deployment.LibraryDeploymentFailed.selector, "contracts.failLibrary"));
-        deployment.deployLibrary(
-            "contracts.failLibrary",
-            type(FailingLibrary).creationCode,
-            "Broken",
-            "test/Broken.sol",
-            address(this)
-        );
+        deployment.deployLibrary("contracts.failLibrary", type(FailingLibrary).creationCode, "Broken", address(this));
     }
 
     function test_InternalScalarAccessorsRoundTrip_() public {
@@ -268,7 +256,7 @@ contract DeploymentCoreTest is BaoDeploymentTest {
     function test_UpgradeProxyValueRequiresKey_() public {
         _initSession("test_UpgradeProxyValueRequiresKey_");
         vm.expectRevert(Deployment.KeyRequired.selector);
-        deployment.upgradeProxy{value: 0}(0, "", address(0), bytes(""), "Mock", "test/Mock.sol", address(this));
+        deployment.upgradeProxy{value: 0}(0, "", address(0), bytes(""), "Mock", address(this));
     }
 
     function _initSession(string memory testName) internal {

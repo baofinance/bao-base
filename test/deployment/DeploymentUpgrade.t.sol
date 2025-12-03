@@ -63,14 +63,7 @@ contract MockDeploymentUpgrade is DeploymentJsonTesting {
         OracleV1 impl = new OracleV1();
         bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
         string memory fullKey = string.concat("contracts.", key);
-        this.deployProxy(
-            fullKey,
-            address(impl),
-            initData,
-            "OracleV1",
-            "test/mocks/upgradeable/MockOracle.sol",
-            address(this)
-        );
+        this.deployProxy(fullKey, address(impl), initData, "OracleV1", address(this));
     }
 
     function deployCounterProxy(string memory key, uint256 initialValue, address admin) public {
@@ -78,14 +71,7 @@ contract MockDeploymentUpgrade is DeploymentJsonTesting {
 
         bytes memory initData = abi.encodeCall(CounterV1.initialize, (initialValue, admin));
         string memory fullKey = string.concat("contracts.", key);
-        this.deployProxy(
-            fullKey,
-            address(impl),
-            initData,
-            "CounterV1",
-            "test/mocks/upgradeable/Counter.sol",
-            address(this)
-        );
+        this.deployProxy(fullKey, address(impl), initData, "CounterV1", address(this));
     }
 
     function upgradeOracle(string memory key, address newImplementation) public {
@@ -424,14 +410,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         CounterV2 v2Impl = new CounterV2();
 
         // Upgrade proxy to V2 using deployment system (harness is owner)
-        deployment.upgradeProxy(
-            "contracts.Counter",
-            address(v2Impl),
-            "",
-            "CounterV2",
-            "test/mocks/upgradeable/MockCounter.sol",
-            address(this)
-        );
+        deployment.upgradeProxy("contracts.Counter", address(v2Impl), "", "CounterV2", address(this));
 
         // Now transfer ownership
         deployment.finish();
@@ -501,14 +480,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
         // Upgrade to V2
         CounterV2 v2Impl = new CounterV2();
 
-        deployment.upgradeProxy(
-            "contracts.Counter",
-            address(v2Impl),
-            "",
-            "CounterV2",
-            "test/mocks/upgradeable/MockCounter.sol",
-            address(this)
-        );
+        deployment.upgradeProxy("contracts.Counter", address(v2Impl), "", "CounterV2", address(this));
 
         CounterV2 counterV2 = CounterV2(deployment.get("contracts.Counter"));
         assertEq(counterV2.getVersion(), 2, "Should be V2");
@@ -525,14 +497,7 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
 
         // Downgrade back to V1
         CounterV1 v1ImplNew = new CounterV1();
-        deployment.upgradeProxy(
-            "contracts.Counter",
-            address(v1ImplNew),
-            "",
-            "CounterV1",
-            "test/mocks/upgradeable/MockCounter.sol",
-            address(this)
-        );
+        deployment.upgradeProxy("contracts.Counter", address(v1ImplNew), "", "CounterV1", address(this));
 
         CounterV1 counterV1Again = CounterV1(deployment.get("contracts.Counter"));
         assertEq(counterV1Again.value(), 50, "Value persists to V1 again");
@@ -550,10 +515,10 @@ contract DeploymentUpgradeTest is BaoDeploymentTest {
 
 // Import for non-BaoOwnable test
 import {MockImplementationOZOwnable} from "../mocks/MockImplementationOZOwnable.sol";
-import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
+import {DeploymentMemoryTesting} from "@bao-script/deployment/DeploymentMemoryTesting.sol";
 
 /// @notice Memory-only harness for OZ Ownable tests (no file I/O)
-contract MockDeploymentOZOwnable is DeploymentTesting {
+contract MockDeploymentOZOwnable is DeploymentMemoryTesting {
     constructor() {
         addProxy("contracts.oz_proxy");
     }
@@ -588,7 +553,6 @@ contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
             address(ozImpl),
             initData,
             "MockImplementationOZOwnable",
-            "test/mocks/MockImplementationOZOwnable.sol",
             address(this)
         );
 
@@ -616,7 +580,6 @@ contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
             address(ozImpl),
             initData,
             "MockImplementationOZOwnable",
-            "test/mocks/MockImplementationOZOwnable.sol",
             address(this)
         );
 

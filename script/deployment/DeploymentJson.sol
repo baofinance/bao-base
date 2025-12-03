@@ -88,6 +88,23 @@ contract DeploymentJson is Deployment {
     function _getFilename() internal view virtual returns (string memory filename) {
         filename = _filename;
     }
+
+    function _lookupContractPath(
+        string memory contractType
+    ) internal view override returns (string memory contractPath) {
+        // the path of the output file expected to be there
+        contractPath = string.concat("out/", contractType, ".sol/", contractType, ".json");
+        string memory outFilePath = string.concat(VM.projectRoot(), "/", contractPath);
+        if (VM.exists(outFilePath)) {
+            string memory json = VM.readFile(outFilePath);
+            // Get the compilationTarget object keys (there's only one)
+            string[] memory keys = VM.parseJsonKeys(json, ".metadata.settings.compilationTarget");
+            contractPath = keys[0]; // e.g., "lib/bao-base-audit-2025-07/src/MintableBurnableERC20_v1.sol"
+        } else {
+            contractPath = string.concat(contractPath, ": not found");
+        }
+    }
+
     // ============================================================================
     // Lifecycle Override with JSON Support
     // ============================================================================
@@ -121,6 +138,7 @@ contract DeploymentJson is Deployment {
         } else {
             path = string.concat(_getOutputConfigDir(), "/", startPoint, ".json");
         }
+        require(VM.exists(path), string.concat("startPoint file does not exist: ", path));
         fromJson(VM.readFile(path));
     }
 

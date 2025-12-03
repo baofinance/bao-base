@@ -68,31 +68,18 @@ contract MockDeploymentJson is DeploymentJsonTesting {
 
     function deploySimpleContract(string memory key, string memory name) public {
         SimpleContract c = new SimpleContract(name);
-        registerContract(
-            string.concat("contracts.", key),
-            address(c),
-            "SimpleContract",
-            "test/SimpleContract.sol",
-            address(this)
-        );
+        registerContract(string.concat("contracts.", key), address(c), "SimpleContract", address(this));
     }
 
     function deploySimpleProxy(string memory key, uint256 value) public {
         SimpleImplementation impl = new SimpleImplementation();
         bytes memory initData = abi.encodeCall(SimpleImplementation.initialize, (value));
-        deployProxy(
-            string.concat("contracts.", key),
-            address(impl),
-            initData,
-            "SimpleImplementation",
-            "test/SimpleImplementation.sol",
-            address(this)
-        );
+        deployProxy(string.concat("contracts.", key), address(impl), initData, "SimpleImplementation", address(this));
     }
 
     function deployTestLibrary(string memory key) public {
         bytes memory bytecode = type(TestLib).creationCode;
-        deployLibrary(string.concat("contracts.", key), bytecode, "TestLib", "test/TestLib.sol", address(this));
+        deployLibrary(string.concat("contracts.", key), bytecode, "TestLib", address(this));
     }
 
     function getOutputConfigPath() public returns (string memory) {

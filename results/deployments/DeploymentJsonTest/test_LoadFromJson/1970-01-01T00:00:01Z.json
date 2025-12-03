@@ -23,7 +23,7 @@
     "contract1": {
       "address": "0x037eda3adb1198021a9b2e88c22b464fd38db3f3",
       "contractType": "SimpleContract",
-      "contractPath": "test/SimpleContract.sol",
+      "contractPath": "out/SimpleContract.sol/SimpleContract.json: not found",
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "blockNumber": 1,
       "category": "contract"
@@ -41,7 +41,7 @@
       "implementation": {
         "address": "0xddc10602782af652bb913f7bde1fd82981db7dd9",
         "contractType": "SimpleImplementation",
-        "contractPath": "test/SimpleImplementation.sol",
+        "contractPath": "out/SimpleImplementation.sol/SimpleImplementation.json: not found",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
         "blockNumber": 1,
         "ownershipModel": "transfer-after-deploy"
@@ -49,11 +49,11 @@
     },
     "lib1": {
       "address": "0x7fdb3132ff7d02d8b9e221c61cc895ce9a4bb773",
-      "category": "library",
       "contractType": "TestLib",
-      "contractPath": "test/TestLib.sol",
+      "contractPath": "out/TestLib.sol/TestLib.json: not found",
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
-      "blockNumber": 1
+      "blockNumber": 1,
+      "category": "library"
     },
     "external1": {
       "address": "0x1234567890123456789012345678901234567890",

@@ -5,6 +5,7 @@ import {stdJson} from "forge-std/StdJson.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
+import {DeploymentMemoryTesting} from "@bao-script/deployment/DeploymentMemoryTesting.sol";
 import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 import {JsonArrays} from "@bao-script/deployment/JsonArrays.sol";
 
@@ -29,7 +30,7 @@ string constant CONFIG_DELTAS_KEY = "contracts.config.deltas";
  * @notice Concrete test harness for deployment data testing
  * @dev Extends DeploymentTesting with test-specific keys
  */
-contract TestDataHarness is DeploymentTesting {
+contract TestDataHarness is DeploymentMemoryTesting {
     constructor() {
         addContract(PEGGED_KEY); // Registers PEGGED_KEY as OBJECT + .address, .contractType, etc.
         addKey(CONFIG_KEY); // Parent for scalar attributes

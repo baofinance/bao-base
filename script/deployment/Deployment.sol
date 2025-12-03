@@ -254,6 +254,8 @@ abstract contract Deployment is DeploymentDataMemory {
         }
     }
 
+    function _lookupContractPath(string memory contractType) internal view virtual returns (string memory path);
+
     // ============================================================================
     // Proxy Deployment / Upgrades
     // ============================================================================
@@ -280,22 +282,13 @@ abstract contract Deployment is DeploymentDataMemory {
         address implementation,
         bytes memory implementationInitData,
         string memory implementationContractType,
-        string memory implementationContractPath,
         address deployer
     ) public payable {
         _requireActiveRun();
         if (msg.value != value) {
             revert ValueMismatch(value, msg.value);
         }
-        _deployProxy(
-            value,
-            proxyKey,
-            implementation,
-            implementationInitData,
-            implementationContractType,
-            implementationContractPath,
-            deployer
-        );
+        _deployProxy(value, proxyKey, implementation, implementationInitData, implementationContractType, deployer);
         _setUint(string.concat(proxyKey, ".value"), value);
     }
 
@@ -312,18 +305,9 @@ abstract contract Deployment is DeploymentDataMemory {
         address implementation,
         bytes memory implementationInitData,
         string memory implementationContractType,
-        string memory implementationContractPath,
         address deployer
     ) public {
-        _deployProxy(
-            0,
-            proxyKey,
-            implementation,
-            implementationInitData,
-            implementationContractType,
-            implementationContractPath,
-            deployer
-        );
+        _deployProxy(0, proxyKey, implementation, implementationInitData, implementationContractType, deployer);
     }
 
     function _deployProxy(
@@ -332,7 +316,6 @@ abstract contract Deployment is DeploymentDataMemory {
         address implementation,
         bytes memory implementationInitData,
         string memory implementationContractType,
-        string memory implementationContractPath,
         address deployer
     ) internal {
         _requireActiveRun();
@@ -373,20 +356,11 @@ abstract contract Deployment is DeploymentDataMemory {
             string.concat(proxyKey, ".implementation"),
             _get(SESSION_STUB),
             _getString(SESSION_STUB_CONTRACT_TYPE),
-            _getString(SESSION_STUB_CONTRACT_PATH),
             _getAddress(SESSION_DEPLOYER),
             _getUint(SESSION_STUB_BLOCK_NUMBER)
         );
 
-        _upgradeProxy(
-            value,
-            proxyKey,
-            implementation,
-            implementationInitData,
-            implementationContractType,
-            implementationContractPath,
-            deployer
-        );
+        _upgradeProxy(value, proxyKey, implementation, implementationInitData, implementationContractType, deployer);
     }
 
     /// @notice Register proxy metadata
@@ -406,7 +380,7 @@ abstract contract Deployment is DeploymentDataMemory {
             proxyKey,
             proxy,
             "ERC1967Proxy",
-            "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+            /*             "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol", */
             deployer,
             blockNumber
         );
@@ -425,22 +399,13 @@ abstract contract Deployment is DeploymentDataMemory {
         address newImplementation,
         bytes memory implementationInitData,
         string memory implementationContractType,
-        string memory implementationContractPath,
         address deployer
     ) public {
         _requireActiveRun();
         if (bytes(proxyKey).length == 0) {
             revert KeyRequired();
         }
-        _upgradeProxy(
-            0,
-            proxyKey,
-            newImplementation,
-            implementationInitData,
-            implementationContractType,
-            implementationContractPath,
-            deployer
-        );
+        _upgradeProxy(0, proxyKey, newImplementation, implementationInitData, implementationContractType, deployer);
     }
 
     function upgradeProxy(
@@ -449,22 +414,13 @@ abstract contract Deployment is DeploymentDataMemory {
         address newImplementation,
         bytes memory implementationInitData,
         string memory implementationContractType,
-        string memory implementationContractPath,
         address deployer
     ) public payable {
         _requireActiveRun();
         if (bytes(proxyKey).length == 0) {
             revert KeyRequired();
         }
-        _upgradeProxy(
-            value,
-            proxyKey,
-            newImplementation,
-            implementationInitData,
-            implementationContractType,
-            implementationContractPath,
-            deployer
-        );
+        _upgradeProxy(value, proxyKey, newImplementation, implementationInitData, implementationContractType, deployer);
         _setUint(string.concat(proxyKey, ".value"), value);
     }
 
@@ -474,7 +430,6 @@ abstract contract Deployment is DeploymentDataMemory {
         address newImplementation,
         bytes memory implementationInitData,
         string memory implementationContractType,
-        string memory implementationContractPath,
         address deployer
     ) private {
         address proxy = _get(proxyKey);
@@ -497,14 +452,7 @@ abstract contract Deployment is DeploymentDataMemory {
 
         // implementation keys
         string memory implKey = string.concat(proxyKey, ".implementation");
-        _recordContractFields(
-            implKey,
-            newImplementation,
-            implementationContractType,
-            implementationContractPath,
-            deployer,
-            block.number
-        );
+        _recordContractFields(implKey, newImplementation, implementationContractType, deployer, block.number);
         // Set default ownershipModel if not already set by registerImplementation
         string memory ownershipModelKey = string.concat(implKey, ".ownershipModel");
         if (!_has(ownershipModelKey)) {
@@ -517,13 +465,12 @@ abstract contract Deployment is DeploymentDataMemory {
         string memory key,
         bytes memory initCode,
         string memory contractType,
-        string memory contractPath,
         address deployer
     ) public payable {
         if (msg.value != value) {
             revert ValueMismatch(value, msg.value);
         }
-        _predictableDeployContract(value, key, initCode, contractType, contractPath, deployer);
+        _predictableDeployContract(value, key, initCode, contractType, deployer);
         _setUint(string.concat(key, ".value"), value);
     }
 
@@ -531,10 +478,9 @@ abstract contract Deployment is DeploymentDataMemory {
         string memory key,
         bytes memory initCode,
         string memory contractType,
-        string memory contractPath,
         address deployer
     ) public {
-        return _predictableDeployContract(0, key, initCode, contractType, contractPath, deployer);
+        return _predictableDeployContract(0, key, initCode, contractType, deployer);
     }
 
     function _predictableDeployContract(
@@ -542,7 +488,6 @@ abstract contract Deployment is DeploymentDataMemory {
         string memory key,
         bytes memory initCode,
         string memory contractType,
-        string memory contractPath,
         address deployer
     ) internal {
         _requireActiveRun();
@@ -565,7 +510,7 @@ abstract contract Deployment is DeploymentDataMemory {
         );
         _stopBroadcast();
 
-        _recordContractFields(key, addr, contractType, contractPath, deployer, block.number);
+        _recordContractFields(key, addr, contractType, deployer, block.number);
         _setString(string.concat(key, ".category"), "contract");
         _setAddress(string.concat(key, ".factory"), factory);
         if (value > 0) {
@@ -581,15 +526,9 @@ abstract contract Deployment is DeploymentDataMemory {
     }
 
     /// @notice Register a standalone contract (non-proxy)
-    function registerContract(
-        string memory key,
-        address addr,
-        string memory contractType,
-        string memory contractPath,
-        address deployer
-    ) public {
+    function registerContract(string memory key, address addr, string memory contractType, address deployer) public {
         _requireActiveRun();
-        _recordContractFields(key, addr, contractType, contractPath, deployer, block.number);
+        _recordContractFields(key, addr, contractType, deployer, block.number);
         _setString(string.concat(key, ".category"), "contract");
     }
 
@@ -598,7 +537,6 @@ abstract contract Deployment is DeploymentDataMemory {
     /// @param proxyKey The proxy key (e.g., "contracts.Oracle")
     /// @param implAddress The implementation contract address
     /// @param contractType The implementation contract type (e.g., "OracleV1")
-    /// @param contractPath The source file path
     /// @param ownershipModel The ownership transfer model:
     ///        - "transfer-after-deploy": finish() will call transferOwnership (BaoOwnable)
     ///        - "transferred-on-timeout": ownership transfers automatically after timeout (BaoOwnable_v2)
@@ -606,19 +544,11 @@ abstract contract Deployment is DeploymentDataMemory {
         string memory proxyKey,
         address implAddress,
         string memory contractType,
-        string memory contractPath,
         string memory ownershipModel
     ) public {
         _requireActiveRun();
         string memory implKey = string.concat(proxyKey, ".implementation");
-        _recordContractFields(
-            implKey,
-            implAddress,
-            contractType,
-            contractPath,
-            _getAddress(SESSION_DEPLOYER),
-            block.number
-        );
+        _recordContractFields(implKey, implAddress, contractType, _getAddress(SESSION_DEPLOYER), block.number);
         _setString(string.concat(implKey, ".ownershipModel"), ownershipModel);
     }
 
@@ -627,13 +557,12 @@ abstract contract Deployment is DeploymentDataMemory {
         string memory key,
         address addr,
         string memory contractType,
-        string memory contractPath,
         address deployer,
         uint256 blockNumber
     ) private {
         _set(key, addr);
         _setString(string.concat(key, ".contractType"), contractType);
-        _setString(string.concat(key, ".contractPath"), contractPath);
+        _setString(string.concat(key, ".contractPath"), _lookupContractPath(contractType));
         _setAddress(string.concat(key, ".deployer"), deployer);
         _setUint(string.concat(key, ".blockNumber"), blockNumber);
     }
@@ -643,7 +572,6 @@ abstract contract Deployment is DeploymentDataMemory {
         string memory key,
         bytes memory bytecode,
         string memory contractType,
-        string memory contractPath,
         address deployer
     ) public {
         _requireActiveRun();
@@ -658,13 +586,9 @@ abstract contract Deployment is DeploymentDataMemory {
         if (addr == address(0)) {
             revert LibraryDeploymentFailed(key);
         }
+        _recordContractFields(key, addr, contractType, deployer, block.number);
 
-        _set(key, addr);
         _setString(string.concat(key, ".category"), "library");
-        _setString(string.concat(key, ".contractType"), contractType);
-        _setString(string.concat(key, ".contractPath"), contractPath);
-        _setAddress(string.concat(key, ".deployer"), deployer);
-        _setUint(string.concat(key, ".blockNumber"), block.number);
     }
 
     // Note: keys() and schemaKeys() are inherited from DeploymentDataMemory/DeploymentKeys

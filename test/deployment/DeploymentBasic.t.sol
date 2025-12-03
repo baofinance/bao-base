@@ -4,11 +4,11 @@ pragma solidity >=0.8.28 <0.9.0;
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DataType} from "@bao-script/deployment/DeploymentKeys.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
-import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
+import {DeploymentMemoryTesting} from "@bao-script/deployment/DeploymentMemoryTesting.sol";
 import {MockContract} from "@bao-test/mocks/basic/MockContract.sol";
 
 // Test harness keeps everything in memory to avoid filesystem churn
-contract DeploymentBasicHarness is DeploymentTesting {
+contract DeploymentBasicHarness is DeploymentMemoryTesting {
     constructor() {
         addContract("contracts.mock1");
         addContract("contracts.mock2");

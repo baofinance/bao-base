@@ -87,20 +87,13 @@ contract MockDeploymentIntegration is DeploymentJsonTesting {
 
     function deployMockERC20(string memory key, string memory name, string memory symbol) public {
         MockERC20 token = new MockERC20(name, symbol, 18);
-        registerContract(key, address(token), "MockERC20", "test/mocks/tokens/MockERC20.sol", address(this));
+        registerContract(key, address(token), "MockERC20", address(this));
     }
 
     function deployOracleProxy(string memory key, uint256 price, address admin) public {
         OracleV1 impl = new OracleV1();
         bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
-        this.deployProxy(
-            key,
-            address(impl),
-            initData,
-            "OracleV1",
-            "test/mocks/upgradeable/MockOracle.sol",
-            address(this)
-        );
+        this.deployProxy(key, address(impl), initData, "OracleV1", address(this));
     }
 
     function deployMinterProxy(
@@ -118,19 +111,12 @@ contract MockDeploymentIntegration is DeploymentJsonTesting {
         MockMinter impl = new MockMinter(collateral, pegged, oracle);
         // Initialize parameters: oracle (has update function), owner (two-step pattern)
         bytes memory initData = abi.encodeCall(MockMinter.initialize, (oracle, admin));
-        this.deployProxy(
-            key,
-            address(impl),
-            initData,
-            "MockMinter",
-            "test/mocks/upgradeable/MockMinter.sol",
-            address(this)
-        );
+        this.deployProxy(key, address(impl), initData, "MockMinter", address(this));
     }
 
     function deployConfigLibrary(string memory key) public {
         bytes memory bytecode = type(ConfigLib).creationCode;
-        deployLibrary(key, bytecode, "ConfigLib", "test/ConfigLib.sol", address(this));
+        deployLibrary(key, bytecode, "ConfigLib", address(this));
     }
 }
 
@@ -337,30 +323,9 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         bytes memory initData2 = abi.encodeCall(OracleV1.initialize, (2000e18, admin));
         bytes memory initData3 = abi.encodeCall(OracleV1.initialize, (3000e18, admin));
 
-        deployment.deployProxy(
-            "contracts.oracle1",
-            address(impl),
-            initData1,
-            "OracleV1",
-            "test/mocks/upgradeable/MockOracle.sol",
-            address(this)
-        );
-        deployment.deployProxy(
-            "contracts.oracle2",
-            address(impl),
-            initData2,
-            "OracleV1",
-            "test/mocks/upgradeable/MockOracle.sol",
-            address(this)
-        );
-        deployment.deployProxy(
-            "contracts.oracle3",
-            address(impl),
-            initData3,
-            "OracleV1",
-            "test/mocks/upgradeable/MockOracle.sol",
-            address(this)
-        );
+        deployment.deployProxy("contracts.oracle1", address(impl), initData1, "OracleV1", address(this));
+        deployment.deployProxy("contracts.oracle2", address(impl), initData2, "OracleV1", address(this));
+        deployment.deployProxy("contracts.oracle3", address(impl), initData3, "OracleV1", address(this));
 
         // Verify each has different address but same implementation
         assertNotEq(deployment.get("contracts.oracle1"), deployment.get("contracts.oracle2"));
@@ -396,14 +361,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         );
         // Initialize: oracle (has update function), owner
         bytes memory initData = abi.encodeCall(MockMinter.initialize, (deployment.get("contracts.oracle"), admin));
-        deployment.deployProxy(
-            "contracts.minter2",
-            address(minter2Impl),
-            initData,
-            "MockMinter",
-            "test/mocks/upgradeable/MockMinter.sol",
-            address(this)
-        );
+        deployment.deployProxy("contracts.minter2", address(minter2Impl), initData, "MockMinter", address(this));
 
         // Verify dependency chain
         MockMinter m2 = MockMinter(deployment.get("contracts.minter2"));

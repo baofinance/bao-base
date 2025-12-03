@@ -22,11 +22,11 @@
   "contracts": {
     "lib1": {
       "address": "0x037eda3adb1198021a9b2e88c22b464fd38db3f3",
-      "category": "library",
       "contractType": "TestLib",
-      "contractPath": "test/TestLib.sol",
+      "contractPath": "out/TestLib.sol/TestLib.json: not found",
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
-      "blockNumber": 1
+      "blockNumber": 1,
+      "category": "library"
     }
   }
 }

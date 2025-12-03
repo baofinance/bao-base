@@ -6,7 +6,7 @@ import {DeploymentJsonScript} from "@bao-script/deployment/DeploymentJsonScript.
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
-import {ERC20WithData} from "test/mocks/deployment/ERC20WithData.sol";
+import {ERC20WithData} from "@bao-test/mocks/deployment/ERC20WithData.sol";
 
 /**
  * @title DeployTest
@@ -17,7 +17,7 @@ import {ERC20WithData} from "test/mocks/deployment/ERC20WithData.sol";
  * Output JSON is written to deployments/<salt>/<network>/
  *
  * Infrastructure setup (BaoDeployer) is explicit in run().
- * On anvil with --auto-impersonate, we can broadcast as multisig.
+ * On anvil with --auto-impersonate, we can broadcast as multisig.S
  * On mainnet, multisig would sign the setOperator transaction.
  */
 contract DeployTest is DeploymentJsonScript {
@@ -131,13 +131,6 @@ contract DeployTest is DeploymentJsonScript {
 
         // Deploy proxy via CREATE3
         // Note: deployProxy internally handles broadcast via hooks
-        deployProxy(
-            key,
-            address(impl),
-            initData,
-            "ERC20WithData",
-            "test/mocks/deployment/ERC20WithData.sol",
-            _getAddress(SESSION_DEPLOYER)
-        );
+        deployProxy(key, address(impl), initData, "ERC20WithData", _getAddress(SESSION_DEPLOYER));
     }
 }

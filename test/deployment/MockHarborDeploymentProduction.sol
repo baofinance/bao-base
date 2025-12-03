@@ -46,13 +46,6 @@ contract MockHarborDeploymentProduction is DeploymentJsonTesting {
         MintableBurnableERC20_v1 impl = new MintableBurnableERC20_v1();
 
         bytes memory initData = abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, name, symbol));
-        this.deployProxy(
-            PEGGED,
-            address(impl),
-            initData,
-            "MintableBurnableERC20_v1",
-            "src/MintableBurnableERC20_v1.sol",
-            address(this)
-        );
+        this.deployProxy(PEGGED, address(impl), initData, "MintableBurnableERC20_v1", address(this));
     }
 }

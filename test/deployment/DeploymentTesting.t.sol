@@ -2,11 +2,11 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
+import {DeploymentMemoryTesting} from "@bao-script/deployment/DeploymentMemoryTesting.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 
-contract DeploymentTestingHarness is DeploymentTesting {
+contract DeploymentTestingHarness is DeploymentMemoryTesting {
     function startSession(string memory network, string memory salt) external {
         start(network, salt, "");
     }
