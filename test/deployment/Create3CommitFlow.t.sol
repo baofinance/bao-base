@@ -2,7 +2,6 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {BaoDeployerSetOperator} from "@bao-script/deployment/BaoDeployerSetOperator.sol";
 import {Create3CommitFlow} from "@bao-script/deployment/Create3CommitFlow.sol";
 import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
@@ -11,10 +10,15 @@ contract Create3Target {
     uint256 public constant MAGIC = 0xBEEF;
 }
 
-contract Create3CommitFlowTest is BaoDeploymentTest, BaoDeployerSetOperator {
+contract Create3CommitFlowTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
-        _setUpBaoDeployerOperator();
+        // Set operator to this test contract so it can call commit/reveal
+        address baoDeployer = DeploymentInfrastructure._ensureBaoDeployer();
+        if (BaoDeployer(baoDeployer).operator() != address(this)) {
+            vm.prank(DeploymentInfrastructure.BAOMULTISIG);
+            BaoDeployer(baoDeployer).setOperator(address(this));
+        }
     }
 
     function _buildRequest(

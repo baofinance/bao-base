@@ -8,10 +8,17 @@
     "startTimestamp": 1000000,
     "started": "1970-01-12T13:46:40Z",
     "startBlock": 100,
+    "stub": {
+      "address": "0xffd4505b3452dc22f8473616d50503ba9e1710ac",
+      "contractType": "UUPSProxyDeployStub",
+      "contractPath": "script/deployment/UUPSProxyDeployStub.sol",
+      "blockNumber": 100
+    },
     "finishTimestamp": 1000000,
     "finished": "1970-01-12T13:46:40Z",
     "finishBlock": 100
   },
+  "BaoFactory": "0x9d27691421bd705805f68eaaab19de0dd5217bf6",
   "contracts": {
     "collateral": {
       "address": "0x8d2c17fad02b7bb64139109c6533b7c2b9cadb81",

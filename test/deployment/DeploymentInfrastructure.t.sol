@@ -10,20 +10,20 @@ interface IOwnableReader {
     function owner() external view returns (address);
 }
 
-contract DeploymentInfrastructureHarness {
+contract DeploymentInfrastructureExternal {
     function ensureBaoDeployer() external returns (address) {
-        return DeploymentInfrastructure.ensureBaoDeployer();
+        return DeploymentInfrastructure._ensureBaoDeployer();
     }
 }
 
 contract DeploymentInfrastructureTest is BaoDeploymentTest {
     bytes32 internal constant OWNABLE_OWNER_SLOT = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffff74873927; // mirrors Ownable._OWNER_SLOT
     address internal predicted;
-    DeploymentInfrastructureHarness internal harness;
+    DeploymentInfrastructureExternal internal harness;
 
     function setUp() public override {
         super.setUp();
-        harness = new DeploymentInfrastructureHarness();
+        harness = new DeploymentInfrastructureExternal();
         predicted = DeploymentInfrastructure.predictBaoDeployerAddress();
         vm.label(predicted, "predictedBaoDeployer");
     }
@@ -42,6 +42,7 @@ contract DeploymentInfrastructureTest is BaoDeploymentTest {
     }
 
     function test_RevertWhen_BaoDeployerOwnerMismatch_() public {
+        harness.ensureBaoDeployer();
         assertGt(predicted.code.length, 0, "BaoDeployer code exists before owner mutation");
         address wrongOwner = address(0xBEEF);
         vm.store(predicted, OWNABLE_OWNER_SLOT, bytes32(uint256(uint160(wrongOwner))));
@@ -61,6 +62,7 @@ contract DeploymentInfrastructureTest is BaoDeploymentTest {
     }
 
     function test_RevertWhen_BaoDeployerProbeFails_() public {
+        harness.ensureBaoDeployer();
         assertGt(predicted.code.length, 0, "BaoDeployer code should exist before probe");
         bytes memory revertData = abi.encodeWithSignature("ownerProbeFailed()");
         vm.mockCallRevert(predicted, abi.encodeWithSelector(Ownable.owner.selector), revertData);

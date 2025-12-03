@@ -10,7 +10,7 @@ import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.
 contract MockHarborDeploymentSequenced is MockHarborDeploymentDev {
     uint private _sequenceNumber;
 
-    function _afterValueChanged(string memory key) internal override(DeploymentDataMemory, DeploymentJson) {
+    function _afterValueChanged(string memory key) internal override {
         super._afterValueChanged(key);
         _sequenceNumber++;
     }

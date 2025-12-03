@@ -31,7 +31,7 @@ contract DeploymentConfigParameterBagTestHarness is DeploymentMemoryTesting {
         setString("contracts.pegged.name", "Bao USD");
         setString("contracts.pegged.symbol", "BAOUSD");
         setUint("contracts.pegged.decimals", 18);
-        setContractAddress("contracts.collateral", 0x0000000000000000000000000000000000000002);
+        _set("contracts.collateral", 0x0000000000000000000000000000000000000002);
         setUint("contracts.minter.bands.0", 100);
         setUint("contracts.minter.bands.1", 200);
         setInt("contracts.minter.ratios.0", -1);

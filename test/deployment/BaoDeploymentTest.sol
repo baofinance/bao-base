@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+import {console2} from "forge-std/console2.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
@@ -18,9 +19,6 @@ import {LibString} from "@solady/utils/LibString.sol";
  *             └─ MyDeploymentTest (creates DeploymentTesting as needed)
  * @dev For tests that don't need deployment infrastructure, extend BaoTest directly
  *
- * @dev NO DUPLICATION: Uses DeploymentTesting helpers which delegate to production
- *      Deployment._ensureBaoDeployer() - tests and production share the same code.
- *
  * @dev NOTE: This base class does NOT declare a `deployment` variable.
  *      Derived test classes should declare and create their own DeploymentTesting:
  *          DeploymentTesting public deployment;
@@ -38,24 +36,23 @@ abstract contract BaoDeploymentTest is BaoTest {
     /**
      * @notice Set up deployment infrastructure for tests
      * @dev This runs once per test contract (not per test function)
-     * @dev Uses MockDeployment helpers to deploy infrastructure:
-     *      1. Nick's Factory (via etchNicksFactory)
-     *      2. BaoDeployer proxy + implementation (via ensureBaoDeployer)
-     * @dev All logic comes from Deployment.sol - no duplication here
-     * @dev Derived classes MUST call super.setUp() first, then create their deployment
+     * @dev Nick's Factory set up if needed (via etchNicksFactory)
      */
     function setUp() public virtual {
         // TODO: all this should go other than the labelling
         // install Nick's factory if not present
         if (DeploymentInfrastructure._NICKS_FACTORY.code.length == 0) {
             vm.etch(DeploymentInfrastructure._NICKS_FACTORY, DeploymentInfrastructure._NICKS_FACTORY_BYTECODE);
+            console2.log("etched Nick's factory");
         }
         vm.label(DeploymentInfrastructure._NICKS_FACTORY, "Nick's factory");
 
         _baoMultisig = DeploymentInfrastructure.BAOMULTISIG;
         vm.label(_baoMultisig, "_baoMultisig");
 
-        _baoDeployer = DeploymentInfrastructure.ensureBaoDeployer();
+        // don't deploy it - that is the job of start()
+        // _baoDeployer = DeploymentInfrastructure._ensureBaoDeployer();
+        _baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
         vm.label(_baoDeployer, "_baoDeployer");
     }
 

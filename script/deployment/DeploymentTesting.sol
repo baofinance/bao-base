@@ -1,22 +1,85 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {DeploymentTestingEnablers} from "@bao-script/deployment/DeploymentTestingEnablers.sol";
-import {BaoDeployerSetOperator} from "@bao-script/deployment/BaoDeployerSetOperator.sol";
+import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
+import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
+import {Create3CommitFlow} from "@bao-script/deployment/Create3CommitFlow.sol";
+
+import {Vm} from "forge-std/Vm.sol";
 
 /**
  * @title DeploymentTesting
  * @notice test-specific deployment
  * @dev Extends base Deployment with:
  *      - access to the underlying data structure for testing
- *      - auto-configuration of BaoDeployer operator for testing
+ *      - auto-configuration of BaoDeployer operator for testing (via tx.origin prank)
  *      - automatic stub deployment
  */
-abstract contract DeploymentTesting is DeploymentTestingEnablers, BaoDeployerSetOperator {
+abstract contract DeploymentTesting is Deployment {
+    Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+
     /// @notice Start deployment session with deployer defaulting to address(this)
     /// @dev Convenience overload for tests where the harness is the deployer
-    function start(string memory network, string memory systemSaltString, string memory startPoint) public {
-        start(network, systemSaltString, address(this), startPoint);
+    function start(string memory network_, string memory systemSaltString_, string memory startPoint) public {
+        start(network_, systemSaltString_, address(this), startPoint);
+    }
+
+    function _ensureBaoDeployer() internal virtual override returns (address baoDeployer) {
+        // Prank tx.origin so new BaoDeployer gets operator = address(this)
+        VM.startPrank(address(this), address(this));
+        baoDeployer = super._ensureBaoDeployer();
+        VM.stopPrank();
+
+        // Always reset operator to this harness (handles resume/continue scenarios with different harness instances)
+        if (BaoDeployer(baoDeployer).operator() != address(this)) {
+            VM.prank(DeploymentInfrastructure.BAOMULTISIG);
+            BaoDeployer(baoDeployer).setOperator(address(this));
+        }
+    }
+
+    // ============ Scalar Setters ============
+
+    function set(string memory key, address value) public virtual {
+        _set(key, value);
+    }
+
+    function setAddress(string memory key, address value) public virtual {
+        _setAddress(key, value);
+    }
+
+    function setString(string memory key, string memory value) public virtual {
+        _setString(key, value);
+    }
+
+    function setUint(string memory key, uint256 value) public virtual {
+        _setUint(key, value);
+    }
+
+    function setInt(string memory key, int256 value) public virtual {
+        _setInt(key, value);
+    }
+
+    function setBool(string memory key, bool value) public virtual {
+        _setBool(key, value);
+    }
+
+    // ============ Array Setters ============
+
+    function setAddressArray(string memory key, address[] memory values) public virtual {
+        _setAddressArray(key, values);
+    }
+
+    function setStringArray(string memory key, string[] memory values) public virtual {
+        _setStringArray(key, values);
+    }
+
+    function setUintArray(string memory key, uint256[] memory values) public virtual {
+        _setUintArray(key, values);
+    }
+
+    function setIntArray(string memory key, int256[] memory values) public virtual {
+        _setIntArray(key, values);
     }
 
     /// @notice Simulate predictable deploy without providing the required value (for testing underfunding scenarios)
@@ -33,23 +96,22 @@ abstract contract DeploymentTesting is DeploymentTestingEnablers, BaoDeployerSet
         string memory /* contractType */,
         string memory /* contractPath */
     ) external virtual returns (address addr) {
-        return _simulatePredictableDeployWithoutFundingInternal(value, key, initCode);
-    }
+        _requireActiveRun();
+        if (bytes(key).length == 0) {
+            revert KeyRequired();
+        }
+        if (_has(key)) {
+            revert(); // Preserve legacy behavior for tests expecting bare revert
+        }
 
-    // ============================================================================
-    // Hook Implementation - No-op for memory-only testing
-    // ============================================================================
+        Create3CommitFlow.Request memory request = Create3CommitFlow.Request({
+            operator: address(this),
+            systemSaltString: _getString(SYSTEM_SALT_STRING),
+            key: key,
+            initCode: initCode,
+            value: value
+        });
 
-    function _afterValueChanged(string memory /* key */) internal virtual override {
-        // No persistence needed for memory-only testing
-    }
-
-    // ============================================================================
-    // Convenience Methods
-    // ============================================================================
-
-    /// @notice Set contract address (key.address) - convenience for tests
-    function setContractAddress(string memory key, address value) public {
-        _set(key, value);
+        (addr, , ) = Create3CommitFlow.commitAndReveal(request, Create3CommitFlow.RevealMode.ForceZeroValue);
     }
 }

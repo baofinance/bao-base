@@ -7,21 +7,23 @@
     "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
     "startTimestamp": 1,
     "started": "1970-01-01T00:00:01Z",
-    "startBlock": 1
+    "startBlock": 1,
+    "stub": {
+      "address": "0x104fbc016f4bb334d775a19e8a6510109ac63e00",
+      "contractType": "UUPSProxyDeployStub",
+      "contractPath": "script/deployment/UUPSProxyDeployStub.sol",
+      "blockNumber": 1
+    }
   },
+  "BaoFactory": "0x9d27691421bd705805f68eaaab19de0dd5217bf6",
   "contracts": {
     "pegged": {
       "symbol": "USD",
       "name": "Harbor USD",
       "owner": "0xaa10a84ce7d9ae517a52c6d5ca153b369af99ecf",
-      "address": "0x490a4e6d6b444385bc0bf31948a71412542116fa",
+      "address": "0x44b3ff22a2fcc856d89239975f0cc8e22124b4ae",
       "contractType": "ERC1967Proxy",
-      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
-      "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
-      "blockNumber": 1,
-      "factory": "0x336785a852b689a839c312522ea637917df3f932",
-      "category": "UUPS proxy",
-      "saltString": "pegged"
+      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol"
     }
   }
 }

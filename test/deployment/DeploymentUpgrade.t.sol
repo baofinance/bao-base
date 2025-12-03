@@ -109,7 +109,7 @@ contract MockDeploymentUpgrade is DeploymentJsonTesting {
     }
 
     // no increemental changes
-    function _afterValueChanged(string memory key) internal override(DeploymentJson, DeploymentDataMemory) {}
+    function _afterValueChanged(string memory key) internal override {}
 
     function _getFilename() internal view override returns (string memory) {
         return string.concat(super._getFilename(), ".op", _padZero(_sequenceNumber, 2));

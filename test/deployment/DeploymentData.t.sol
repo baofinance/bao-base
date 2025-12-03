@@ -6,7 +6,6 @@ import {stdJson} from "forge-std/StdJson.sol";
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
 import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
-import {DeploymentTestingEnablers} from "@bao-script/deployment/DeploymentTestingEnablers.sol";
 import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.sol";
 import {JsonArrays} from "@bao-script/deployment/JsonArrays.sol";
 
@@ -81,9 +80,9 @@ contract TestDataJsonHarness is DeploymentJsonTesting {
  * @notice Tests for in-memory deployment data implementation
  */
 contract DeploymentDataTest is BaoTest {
-    DeploymentTestingEnablers data;
+    DeploymentTesting data;
 
-    function _createDeploymentData() internal virtual returns (DeploymentTestingEnablers data_) {
+    function _createDeploymentData() internal virtual returns (DeploymentTesting data_) {
         data_ = new TestDataHarness();
     }
 
@@ -494,7 +493,7 @@ contract DeploymentDataJsonTest is DeploymentDataTest {
     using stdJson for string;
     TestDataJsonHarness dataJson;
 
-    function _createDeploymentData() internal override returns (DeploymentTestingEnablers) {
+    function _createDeploymentData() internal override returns (DeploymentTesting) {
         dataJson = new TestDataJsonHarness();
         return dataJson;
     }

@@ -19,8 +19,6 @@ contract DeploymentDataMemoryHarness is DeploymentDataMemory {
         addIntArrayKey("config.deltas");
     }
 
-    function _afterValueChanged(string memory) internal override {}
-
     function setAddress(string memory key, address value) external {
         _setAddress(key, value);
     }

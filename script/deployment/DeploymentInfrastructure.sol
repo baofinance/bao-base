@@ -27,8 +27,13 @@ library DeploymentInfrastructure {
         return address(uint160(uint256(hash)));
     }
 
+    /// @notice external version for expectRevert tracking
+    function ensureBaoDeployer() external returns (address deployed) {
+        deployed = _ensureBaoDeployer();
+    }
+
     /// @notice Deploy BaoDeployer via Nick's Factory if it doesn't exist
-    function ensureBaoDeployer() internal returns (address deployed) {
+    function _ensureBaoDeployer() internal returns (address deployed) {
         // check nicks factory is there. It should be everywhere, even on a fresh anvil
         require(_NICKS_FACTORY.code.length > 0, "Nick's factory must be installed in this chain");
 
@@ -40,37 +45,36 @@ library DeploymentInfrastructure {
             existingCodeHash := extcodehash(deployed)
         }
         // if it isn't there we deploy it - there isn't a scenario we shouldn't do that
-        if (existingCodeHash != bytes32(0)) {
-            if (existingCodeHash != expectedRuntimeHash) {
-                revert BaoDeployerCodeMismatch(expectedRuntimeHash, existingCodeHash);
-            }
-            try BaoDeployer(deployed).owner() returns (address currentOwner) {
-                if (currentOwner != BAOMULTISIG) {
-                    revert BaoDeployerOwnerMismatch(BAOMULTISIG, currentOwner);
+        if (existingCodeHash == bytes32(0)) {
+            address factory = _NICKS_FACTORY;
+            bytes memory creationCode = abi.encodePacked(type(BaoDeployer).creationCode, abi.encode(BAOMULTISIG));
+            bytes32 salt = _BAO_DEPLOYER_SALT;
+
+            /// @solidity memory-safe-assembly
+            assembly {
+                let codeLength := mload(creationCode)
+                mstore(creationCode, salt)
+                if iszero(call(gas(), factory, 0, creationCode, add(codeLength, 0x20), 0x00, 0x20)) {
+                    returndatacopy(creationCode, 0x00, returndatasize())
+                    revert(creationCode, returndatasize())
                 }
-            } catch {
-                revert BaoDeployerProbeFailed();
+                mstore(creationCode, codeLength)
+                deployed := shr(96, mload(0x00))
             }
+            require(deployed == predictBaoDeployerAddress(), "BaoDeployer deployed to unexpected address");
+            require(deployed.code.length > 0, "BaoDeployer missing code");
+            // We just deployed known code, skip hash check
+        } else if (existingCodeHash != expectedRuntimeHash) {
+            // Only check hash for pre-existing contracts
+            revert BaoDeployerCodeMismatch(expectedRuntimeHash, existingCodeHash);
         }
-
-        address factory = _NICKS_FACTORY;
-        bytes memory creationCode = abi.encodePacked(type(BaoDeployer).creationCode, abi.encode(BAOMULTISIG));
-        bytes32 salt = _BAO_DEPLOYER_SALT;
-
-        /// @solidity memory-safe-assembly
-        assembly {
-            let codeLength := mload(creationCode)
-            mstore(creationCode, salt)
-            if iszero(call(gas(), factory, 0, creationCode, add(codeLength, 0x20), 0x00, 0x20)) {
-                returndatacopy(creationCode, 0x00, returndatasize())
-                revert(creationCode, returndatasize())
+        try BaoDeployer(deployed).owner() returns (address currentOwner) {
+            if (currentOwner != BAOMULTISIG) {
+                revert BaoDeployerOwnerMismatch(BAOMULTISIG, currentOwner);
             }
-            mstore(creationCode, codeLength)
-            deployed := shr(96, mload(0x00))
+        } catch {
+            revert BaoDeployerProbeFailed();
         }
-
-        require(deployed == predictBaoDeployerAddress(), "BaoDeployer deployed to unexpected address");
-        require(deployed.code.length > 0, "BaoDeployer missing code");
     }
 
     function commitment(

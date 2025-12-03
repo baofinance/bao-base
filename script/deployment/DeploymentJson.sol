@@ -99,14 +99,13 @@ contract DeploymentJson is Deployment {
     /// @dev Overrides Deployment.start() to load initial state from JSON
     /// @param network_ Network name
     /// @param systemSaltString_ System salt string
-    /// @param deployer Address that will sign transactions (EOA for scripts, harness for tests)
     /// @param startPoint Start point for input resolution ("first", "latest", or timestamp)
-    function start(
+    function _beforeStart(
         string memory network_,
         string memory systemSaltString_,
-        address deployer,
+        address /* deployer */,
         string memory startPoint
-    ) public virtual override {
+    ) internal virtual override {
         _requireNetwork(network_);
         require(bytes(systemSaltString_).length > 0, "cannot have a null system salt string");
 
@@ -123,9 +122,6 @@ contract DeploymentJson is Deployment {
             path = string.concat(_getOutputConfigDir(), "/", startPoint, ".json");
         }
         fromJson(VM.readFile(path));
-
-        // Now call parent to set up session metadata
-        super.start(network_, systemSaltString_, deployer, startPoint);
     }
 
     /// @notice Find the latest JSON file in the output directory

@@ -34,8 +34,8 @@ contract DeploymentTestingTest is BaoDeploymentTest {
         deployment.addContract("contracts.fixture");
         deployment.startSession("net-fixture", "salt-fixture");
         address stored = address(0xFEE);
-        deployment.setContractAddress("contracts.fixture", stored);
-        assertEq(deployment.readContractAddress("contracts.fixture"), stored, "setContractAddress wires value");
+        deployment.set("contracts.fixture", stored);
+        assertEq(deployment.readContractAddress("contracts.fixture"), stored, "setAddress wires value");
     }
 
     function test_SimulatePredictableDeployWithoutFundingRevertsValueMismatch_() public {

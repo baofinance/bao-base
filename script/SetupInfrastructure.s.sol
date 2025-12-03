@@ -23,7 +23,7 @@ contract SetupInfrastructure is Script {
         if (baoDeployerAddr.code.length == 0) {
             console.log("Deploying BaoDeployer...");
             vm.startBroadcast();
-            DeploymentInfrastructure.ensureBaoDeployer();
+            DeploymentInfrastructure._ensureBaoDeployer();
             vm.stopBroadcast();
             console.log("BaoDeployer deployed at:", baoDeployerAddr);
         } else {

@@ -99,6 +99,17 @@ abstract contract Deployment is DeploymentDataMemory {
     // Deployment Lifecycle
     // ============================================================================
 
+    function _ensureBaoDeployer() internal virtual returns (address deployer) {
+        deployer = DeploymentInfrastructure._ensureBaoDeployer();
+    }
+
+    function _beforeStart(
+        string memory /* network */,
+        string memory /* systemSaltString */,
+        address /* deployer */,
+        string memory /* startPoint */
+    ) internal virtual {}
+
     /// @notice Start deployment session
     /// @dev Subclasses can override for custom initialization (e.g., JSON loading)
     /// @param network Network name (e.g., "mainnet", "arbitrum", "anvil")
@@ -108,9 +119,11 @@ abstract contract Deployment is DeploymentDataMemory {
         string memory network,
         string memory systemSaltString,
         address deployer,
-        string memory /* startPoint */
+        string memory startPoint
     ) public virtual {
         if (_sessionState != State.NONE) revert AlreadyInitialized();
+
+        _beforeStart(network, systemSaltString, deployer, startPoint);
 
         // TODO: need to read the schema version and check for compatibility
         // Set global deployment configuration
@@ -128,7 +141,7 @@ abstract contract Deployment is DeploymentDataMemory {
         _startBroadcast();
         // Set up deployment infrastructure
         // in all scenarios we can deploy it
-        address baoDeployer = DeploymentInfrastructure.ensureBaoDeployer();
+        address baoDeployer = _ensureBaoDeployer();
         console2.log("BaoDeployer = %s", baoDeployer);
         _setAddress(BAO_FACTORY, baoDeployer);
         // if it is not set up sometimes we can't continue
@@ -235,7 +248,7 @@ abstract contract Deployment is DeploymentDataMemory {
     /// @dev Production deployments should assume BaoDeployer already exists
     ///      This is here for test convenience only
     function ensureBaoDeployer() public {
-        address deployed = DeploymentInfrastructure.ensureBaoDeployer();
+        address deployed = DeploymentInfrastructure._ensureBaoDeployer();
         if (_sessionState == State.STARTED) {
             useExisting("BaoDeployer", deployed);
         }

@@ -140,7 +140,7 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
         }
     }
 
-    function _afterValueChanged(string memory key) internal virtual;
+    function _afterValueChanged(string memory key) internal virtual {}
 
     // ============ Internal Setters ============
 
