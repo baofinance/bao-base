@@ -82,12 +82,9 @@ contract DeployTest is DeploymentJsonScript {
         // ========================================
 
         // Set private key for broadcasts
-        setDeployerPk(PRIVATE_KEY);
-
         console.log("Starting deployment on network:", network);
         // Start deployment session
-        require(vm.addr(PRIVATE_KEY) == ANVIL_ACCOUNT_0, "private key not correct");
-        start(network, salt, vm.addr(PRIVATE_KEY), "");
+        start(network, salt, "");
 
         // Deploy bootstrap stub
         // console.log("Deploying bootstrap stub...");

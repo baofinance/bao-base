@@ -38,15 +38,6 @@ contract DeploymentJsonTesting is DeploymentJson, DeploymentTesting {
     function _ensureBaoDeployer() internal override(Deployment, DeploymentTesting) returns (address deployer) {
         deployer = DeploymentTesting._ensureBaoDeployer();
     }
-
-    function _beforeStart(
-        string memory network_,
-        string memory systemSaltString_,
-        address deployer,
-        string memory startPoint
-    ) internal override(Deployment, DeploymentJson) {
-        DeploymentJson._beforeStart(network_, systemSaltString_, deployer, startPoint);
-    }
 }
 
 library DeploymentTestingOutput {

@@ -19,12 +19,6 @@ import {Vm} from "forge-std/Vm.sol";
 abstract contract DeploymentTesting is Deployment {
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
-    /// @notice Start deployment session with deployer defaulting to address(this)
-    /// @dev Convenience overload for tests where the harness is the deployer
-    function start(string memory network_, string memory systemSaltString_, string memory startPoint) public {
-        start(network_, systemSaltString_, address(this), startPoint);
-    }
-
     function _ensureBaoDeployer() internal virtual override returns (address baoDeployer) {
         // Prank tx.origin so new BaoDeployer gets operator = address(this)
         VM.startPrank(address(this), address(this));
@@ -37,6 +31,16 @@ abstract contract DeploymentTesting is Deployment {
             BaoDeployer(baoDeployer).setOperator(address(this));
         }
     }
+
+    /// @notice Start broadcasting transactions
+    /// @dev Called by Deployment before blockchain operations
+    function _startBroadcast() internal view override returns (address deployer) {
+        deployer = address(this);
+    }
+
+    /// @notice Stop broadcasting transactions
+    /// @dev Called by Deployment after blockchain operations
+    function _stopBroadcast() internal override {}
 
     // ============ Scalar Setters ============
 

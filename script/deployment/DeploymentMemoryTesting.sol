@@ -9,4 +9,10 @@ contract DeploymentMemoryTesting is DeploymentTesting {
     function _lookupContractPath(string memory /* contractType */) internal pure override returns (string memory path) {
         return "";
     }
+
+    function _beforeStart(
+        string memory /* network */,
+        string memory /* systemSaltString */,
+        string memory /* startPoint */
+    ) internal override {}
 }

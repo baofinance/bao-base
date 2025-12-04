@@ -31,22 +31,13 @@ import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
  */
 abstract contract DeploymentJsonScript is DeploymentJson, Script {
     /// @notice Private key used for broadcasting transactions
-    uint256 private _deployerPk;
-
-    /// @notice Set the deployer private key for broadcast operations
-    /// @param pk Private key to use for vm.startBroadcast()
-    function setDeployerPk(uint256 pk) internal {
-        console2.log("set the private key");
-        _deployerPk = pk;
-    }
 
     /// @notice Start broadcasting transactions
     /// @dev Called by Deployment before blockchain operations
-    function _startBroadcast() internal override {
-        // TODO: sort out private key/ public key issue here
-        require(_deployerPk != 0, "private key not set");
-        console2.log("startBoradcast(%s)", vm.addr(_deployerPk));
-        vm.startBroadcast(_deployerPk);
+    function _startBroadcast() internal override returns (address deployer) {
+        vm.startBroadcast();
+        deployer = msg.sender;
+        console2.log("startBroadcast with %s ...", deployer);
     }
 
     /// @notice Stop broadcasting transactions

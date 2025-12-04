@@ -23,7 +23,7 @@ import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.so
  * 1. FROM DeploymentJson.sol - File I/O, path resolution, lifecycle
  * 2. FROM DeploymentDataJson.sol - JSON serialization/deserialization
  */
-contract DeploymentJson is Deployment {
+abstract contract DeploymentJson is Deployment {
     using LibString for string;
     using stdJson for string;
 
@@ -37,6 +37,7 @@ contract DeploymentJson is Deployment {
     string private _network;
     string private _filename;
     bool private _suppressIncrementalPersistence = false;
+    bool private _suppressPersistence = false;
 
     constructor() {
         _filename = _formatTimestamp(block.timestamp);
@@ -53,8 +54,14 @@ contract DeploymentJson is Deployment {
     }
 
     function _save() internal virtual {
-        VM.createDir(_getOutputConfigDir(), true); // recursive=true, creates parent dirs if needed
-        VM.writeJson(toJson(), _getOutputConfigPath());
+        if (!_suppressPersistence) {
+            VM.createDir(_getOutputConfigDir(), true); // recursive=true, creates parent dirs if needed
+            VM.writeJson(toJson(), _getOutputConfigPath());
+        }
+    }
+
+    function _disableLogging() internal {
+        _suppressPersistence = true;
     }
 
     // ============================================================================
@@ -120,7 +127,6 @@ contract DeploymentJson is Deployment {
     function _beforeStart(
         string memory network_,
         string memory systemSaltString_,
-        address /* deployer */,
         string memory startPoint
     ) internal virtual override {
         _requireNetwork(network_);
@@ -201,6 +207,7 @@ contract DeploymentJson is Deployment {
             return;
         }
 
+        bool previousSuppressIncrementalPersistence = _suppressIncrementalPersistence;
         _suppressIncrementalPersistence = true; // we don't want the loading to write out each change, on loading
 
         string[] memory registered = schemaKeys();
@@ -238,7 +245,7 @@ contract DeploymentJson is Deployment {
                 _setIntArray(key, existingJson.readIntArray(pointer));
             }
         }
-        _suppressIncrementalPersistence = false;
+        _suppressIncrementalPersistence = previousSuppressIncrementalPersistence;
     }
 
     function fromJson(string memory existingJson) public virtual {

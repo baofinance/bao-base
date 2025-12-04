@@ -88,12 +88,12 @@ abstract contract Deployment is DeploymentDataMemory {
 
     /// @notice Hook called before blockchain operations
     /// @dev Override in script classes to call vm.startBroadcast()
-    function _startBroadcast() internal virtual {}
+    function _startBroadcast() internal virtual returns (address deployer);
 
     /// @notice Hook called after blockchain operations
     /// @dev Override in script classes to call vm.stopBroadcast()
     ///      Default is no-op (works for tests where no broadcast is needed)
-    function _stopBroadcast() internal virtual {}
+    function _stopBroadcast() internal virtual;
 
     // ============================================================================
     // Deployment Lifecycle
@@ -106,29 +106,24 @@ abstract contract Deployment is DeploymentDataMemory {
     function _beforeStart(
         string memory /* network */,
         string memory /* systemSaltString */,
-        address /* deployer */,
         string memory /* startPoint */
-    ) internal virtual {}
+    ) internal virtual;
 
     /// @notice Start deployment session
     /// @dev Subclasses can override for custom initialization (e.g., JSON loading)
     /// @param network Network name (e.g., "mainnet", "arbitrum", "anvil")
     /// @param systemSaltString System salt string for deterministic addresses
-    /// @param deployer Address that will sign transactions (EOA for scripts, harness for tests)
-    function start(
-        string memory network,
-        string memory systemSaltString,
-        address deployer,
-        string memory startPoint
-    ) public virtual {
+    function start(string memory network, string memory systemSaltString, string memory startPoint) public virtual {
         if (_sessionState != State.NONE) revert AlreadyInitialized();
 
-        _beforeStart(network, systemSaltString, deployer, startPoint);
+        _beforeStart(network, systemSaltString, startPoint);
 
         // TODO: need to read the schema version and check for compatibility
         // Set global deployment configuration
         _setUint(SCHEMA_VERSION, 1);
         _setString(SYSTEM_SALT_STRING, systemSaltString);
+
+        address deployer = _startBroadcast();
 
         // Initialize session metadata
         _setString(SESSION_NETWORK, network);
@@ -138,7 +133,6 @@ abstract contract Deployment is DeploymentDataMemory {
         _setString(SESSION_STARTED, _formatTimestamp(block.timestamp));
         _setUint(SESSION_START_BLOCK, block.number);
 
-        _startBroadcast();
         // Set up deployment infrastructure
         // in all scenarios we can deploy it
         address baoDeployer = _ensureBaoDeployer();
@@ -688,5 +682,41 @@ abstract contract Deployment is DeploymentDataMemory {
         }
 
         return string(padded);
+    }
+
+    // ============================================================================
+    // Deployment verification helpers
+    // ============================================================================
+
+    function _expect(string memory actual, string memory expected, string memory key) internal pure {
+        if (LibString.eq(actual, expected)) {
+            console2.log(string.concat(unicode"✓ ", key, " = %s"), actual);
+        } else {
+            console2.log(string.concat("*** ERROR *** ", key, " = %s; expected = %s", actual, expected));
+        }
+    }
+
+    function _expect(string memory actual, string memory key) internal view {
+        _expect(actual, _getString(key), key);
+    }
+
+    function _expect(address actual, string memory key) internal view {
+        _expect(LibString.toHexStringChecksummed(actual), LibString.toHexStringChecksummed(_getAddress(key)), key);
+    }
+
+    function _expect(uint256 actual, string memory key) internal view {
+        _expect(LibString.toString(actual), LibString.toString(_getUint(key)), key);
+    }
+
+    function _expect(int256 actual, string memory key) internal view {
+        _expect(LibString.toString(actual), LibString.toString(_getInt(key)), key);
+    }
+
+    function toString(bool value) internal pure returns (string memory) {
+        return value ? "true" : "false";
+    }
+
+    function _expect(bool actual, string memory key) internal view {
+        _expect(toString(actual), toString(_getBool(key)), key);
     }
 }
