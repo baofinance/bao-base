@@ -732,7 +732,7 @@ abstract contract Deployment is DeploymentDataMemory {
         }
     }
 
-    function _expectUintArray(uint256[] memory actual, string memory key) internal view {
+    function _expect(uint256[] memory actual, string memory key) internal view {
         uint256[] memory expected = _getUintArray(key);
         if (actual.length != expected.length) {
             console2.log(
@@ -756,7 +756,7 @@ abstract contract Deployment is DeploymentDataMemory {
         console2.log(string.concat(unicode"✓ ", key, " matches (%d elements)"), actual.length);
     }
 
-    function _expectIntArray(int256[] memory actual, string memory key) internal view {
+    function _expect(int256[] memory actual, string memory key) internal view {
         int256[] memory expected = _getIntArray(key);
         if (actual.length != expected.length) {
             console2.log(
@@ -777,10 +777,19 @@ abstract contract Deployment is DeploymentDataMemory {
 
     /// @notice Verify on-chain roles match recorded role grants
     /// @dev Computes expected bitmap from recorded grants and compares with actual
+    /// @param actualValue The actual roles bitmap from the contract (e.g., contract.rolesOf(grantee))
+    /// @param contractKey The contract where roles are defined (e.g., "contracts.pegged")
+    /// @param roleName The grantee whose roles are being verified (e.g., "contracts.minter")
+    function _expectRoleValue(uint256 actualValue, string memory contractKey, string memory roleName) internal view {
+        _expect(actualValue, string.concat(contractKey, ".roles.", roleName, ".value"));
+    }
+
+    /// @notice Verify on-chain roles match recorded role grants
+    /// @dev Computes expected bitmap from recorded grants and compares with actual
     /// @param actualBitmap The actual roles bitmap from the contract (e.g., contract.rolesOf(grantee))
     /// @param contractKey The contract where roles are defined (e.g., "contracts.pegged")
     /// @param granteeKey The grantee whose roles are being verified (e.g., "contracts.minter")
-    function _expectRoles(uint256 actualBitmap, string memory contractKey, string memory granteeKey) internal view {
+    function _expectRolesOf(uint256 actualBitmap, string memory contractKey, string memory granteeKey) internal view {
         uint256 expectedBitmap = _computeExpectedRoles(contractKey, granteeKey);
         string memory label = string.concat(granteeKey, " roles on ", contractKey);
 
