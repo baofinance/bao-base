@@ -38,7 +38,7 @@
       "category": "UUPS proxy",
       "saltString": "vault_proxy_funded",
       "salt": "0x68fb9badbfea85b91f018ba2210e0d53eea101b84152bd46a6842d21a63b6ad0",
-      "value": 5e18
+      "value": 5000000000000000000
     },
     "vault_proxy_unfunded": {
       "implementation": {

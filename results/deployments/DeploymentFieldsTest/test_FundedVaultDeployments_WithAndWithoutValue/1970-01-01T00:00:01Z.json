@@ -28,7 +28,7 @@
       "blockNumber": 1,
       "category": "contract",
       "factory": "0x9d27691421bd705805f68eaaab19de0dd5217bf6",
-      "value": 5e18
+      "value": 5000000000000000000
     },
     "vault_unfunded": {
       "address": "0x55e2f51ceb6275634089ad527628492159f6d733",

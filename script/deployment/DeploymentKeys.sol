@@ -45,8 +45,15 @@ abstract contract DeploymentKeys {
     /// @dev Mapping to track if key is registered
     mapping(string => bool) private _keyRegistered;
 
+    /// @dev Mapping from key name to decimals for numeric formatting
+    /// type(uint256).max means "auto" (printf %g style), other values are fixed scale
+    mapping(string => uint256) internal _keyDecimals;
+
     /// @dev Array of all registered keys
-    string[] private _allKeys;
+    string[] private _schemaKeys;
+
+    /// @dev Sentinel value meaning "use auto-scaling" for numeric formatting
+    uint256 internal constant DECIMALS_AUTO = type(uint256).max;
 
     // ============ Errors ============
 
@@ -163,30 +170,54 @@ abstract contract DeploymentKeys {
     }
 
     /**
-     * @notice Register a uint key
+     * @notice Register a uint key with auto-scaling
      * @dev UINT keys MUST have dots and belong to a parent CONTRACT
      * @param key The key name (e.g., "pegged.decimals") - must contain dots
      * @return key Returns the key for use in constant declarations
      */
     function addUintKey(string memory key) internal returns (string memory) {
+        return addUintKey(key, DECIMALS_AUTO);
+    }
+
+    /**
+     * @notice Register a uint key with fixed decimal scaling
+     * @dev UINT keys MUST have dots and belong to a parent CONTRACT
+     * @param key The key name (e.g., "pegged.totalSupply") - must contain dots
+     * @param decimals The decimal places for formatting (e.g., 18 for token amounts)
+     * @return key Returns the key for use in constant declarations
+     */
+    function addUintKey(string memory key, uint256 decimals) internal returns (string memory) {
         _validateKeyFormat(key);
         require(_hasDots(key), "UINT keys must contain dots");
         _validateParentContract(key);
         _registerKey(key, DataType.UINT);
+        _keyDecimals[key] = decimals;
         return key;
     }
 
     /**
-     * @notice Register an int key
+     * @notice Register an int key with auto-scaling
      * @dev INT keys MUST have dots and belong to a parent CONTRACT
      * @param key The key name (e.g., "pegged.offset") - must contain dots
      * @return key Returns the key for use in constant declarations
      */
     function addIntKey(string memory key) internal returns (string memory) {
+        return addIntKey(key, DECIMALS_AUTO);
+    }
+
+    /**
+     * @notice Register an int key with fixed decimal scaling
+     * @dev INT keys MUST have dots and belong to a parent CONTRACT
+     * @param key The key name (e.g., "config.delta") - must contain dots
+     * @param decimals The decimal places for formatting (e.g., 18 for token amounts)
+     * @return key Returns the key for use in constant declarations
+     */
+    function addIntKey(string memory key, uint256 decimals) internal returns (string memory) {
         _validateKeyFormat(key);
         require(_hasDots(key), "INT keys must contain dots");
         _validateParentContract(key);
         _registerKey(key, DataType.INT);
+        _keyDecimals[key] = decimals;
         return key;
     }
 
@@ -233,30 +264,54 @@ abstract contract DeploymentKeys {
     }
 
     /**
-     * @notice Register a uint array key
+     * @notice Register a uint array key with auto-scaling
      * @dev UINT_ARRAY keys MUST have dots and belong to a parent CONTRACT
      * @param key The key name (e.g., "token.limits") - must contain dots
      * @return key Returns the key for use in constant declarations
      */
     function addUintArrayKey(string memory key) internal returns (string memory) {
+        return addUintArrayKey(key, DECIMALS_AUTO);
+    }
+
+    /**
+     * @notice Register a uint array key with fixed decimal scaling
+     * @dev UINT_ARRAY keys MUST have dots and belong to a parent CONTRACT
+     * @param key The key name (e.g., "token.amounts") - must contain dots
+     * @param decimals The decimal places for formatting (e.g., 18 for token amounts)
+     * @return key Returns the key for use in constant declarations
+     */
+    function addUintArrayKey(string memory key, uint256 decimals) internal returns (string memory) {
         _validateKeyFormat(key);
         require(_hasDots(key), "UINT_ARRAY keys must contain dots");
         _validateParentContract(key);
         _registerKey(key, DataType.UINT_ARRAY);
+        _keyDecimals[key] = decimals;
         return key;
     }
 
     /**
-     * @notice Register an int array key
+     * @notice Register an int array key with auto-scaling
      * @dev INT_ARRAY keys MUST have dots and belong to a parent CONTRACT
      * @param key The key name (e.g., "token.deltas") - must contain dots
      * @return key Returns the key for use in constant declarations
      */
     function addIntArrayKey(string memory key) internal returns (string memory) {
+        return addIntArrayKey(key, DECIMALS_AUTO);
+    }
+
+    /**
+     * @notice Register an int array key with fixed decimal scaling
+     * @dev INT_ARRAY keys MUST have dots and belong to a parent CONTRACT
+     * @param key The key name (e.g., "config.offsets") - must contain dots
+     * @param decimals The decimal places for formatting (e.g., 18 for token amounts)
+     * @return key Returns the key for use in constant declarations
+     */
+    function addIntArrayKey(string memory key, uint256 decimals) internal returns (string memory) {
         _validateKeyFormat(key);
         require(_hasDots(key), "INT_ARRAY keys must contain dots");
         _validateParentContract(key);
         _registerKey(key, DataType.INT_ARRAY);
+        _keyDecimals[key] = decimals;
         return key;
     }
 
@@ -299,7 +354,6 @@ abstract contract DeploymentKeys {
      *      - {key}.category (STRING)
      * @param key The full contract key (e.g., "contracts.library")
      */
-    // TODO: do we need this - shouln't all contracts be predictable?
     function addContract(string memory key) public {
         _requireContractsPrefix(key);
         _addImplementation(key);
@@ -351,7 +405,7 @@ abstract contract DeploymentKeys {
      * @return schemaKeys Array of all registered configuration keys
      */
     function schemaKeys() public view returns (string[] memory) {
-        return _allKeys;
+        return _schemaKeys;
     }
 
     /**
@@ -374,7 +428,7 @@ abstract contract DeploymentKeys {
     function _registerKey(string memory key, DataType expectedType) private {
         _keyTypes[key] = expectedType;
         _keyRegistered[key] = true;
-        _allKeys.push(key);
+        _schemaKeys.push(key);
     }
 
     /**

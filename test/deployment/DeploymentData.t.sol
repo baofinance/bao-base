@@ -74,30 +74,22 @@ contract TestDataJsonHarness is DeploymentJsonTesting {
         // Skip persistence in unit tests; deployment harnesses cover file I/O
     }
 
-    /// @notice Expose fixed-exponent encoding for testing
+    /// @notice Expose encoding for testing - auto mode (no decimals)
     function encodeUint(uint256 value) external pure returns (string memory) {
-        return _encodeUintValue(value);
-    }
-
-    function encodeUintWithDecimals(uint256 value, uint8 decimals) external pure returns (string memory) {
-        return _encodeUintValue(value, decimals);
+        return _encodeNumeric(value);
     }
 
     function encodeInt(int256 value) external pure returns (string memory) {
-        return _encodeIntValue(value);
+        return _encodeNumeric(value);
     }
 
-    function encodeIntWithDecimals(int256 value, uint8 decimals) external pure returns (string memory) {
-        return _encodeIntValue(value, decimals);
+    /// @notice Expose encoding for testing - fixed scale mode
+    function encodeUintWithDecimals(uint256 value, uint256 decimals) external pure returns (string memory) {
+        return _encodeNumeric(value, decimals);
     }
 
-    /// @notice Expose auto-exponent encoding for testing
-    function encodeUintAuto(uint256 value) external pure returns (string memory) {
-        return _encodeUintAuto(value);
-    }
-
-    function encodeIntAuto(int256 value) external pure returns (string memory) {
-        return _encodeIntAuto(value);
+    function encodeIntWithDecimals(int256 value, uint256 decimals) external pure returns (string memory) {
+        return _encodeNumeric(value, decimals);
     }
 }
 
@@ -873,111 +865,138 @@ contract DeploymentDataJsonTest is DeploymentDataTest {
     }
 
     // ============ Scientific Notation Encoding Tests ============
+    //
+    // Two modes:
+    // 1. Auto mode (encodeUint/encodeInt): printf %g style, dynamic exponent
+    // 2. Fixed scale mode (encodeUintWithDecimals/encodeIntWithDecimals): token-style, fixed exponent
+    //
 
-    function test_EncodeUint_Zero() public view {
+    // ============ Auto Mode Tests ============
+
+    function test_EncodeAuto_Zero() public view {
         assertEq(dataJson.encodeUint(0), "0");
-    }
-
-    function test_EncodeUint_SmallValue() public view {
-        // Values below threshold (< 1e12 for 18 decimals) stay as plain decimal
-        assertEq(dataJson.encodeUint(123), "123");
-        assertEq(dataJson.encodeUint(999999999999), "999999999999"); // just under 1e12
-    }
-
-    function test_EncodeUint_AboveThreshold() public view {
-        // Values >= 1e12 (0.000001 tokens) use scientific notation
-        assertEq(dataJson.encodeUint(1e12), "0.000001e18");
-        assertEq(dataJson.encodeUint(999999999999999999), "0.999999999999999999e18"); // almost 1 token
-    }
-
-    function test_EncodeUint_ExactMultiple() public view {
-        // Clean multiples of 1e18
-        assertEq(dataJson.encodeUint(1e18), "1e18");
-        assertEq(dataJson.encodeUint(5e18), "5e18");
-        assertEq(dataJson.encodeUint(100e18), "100e18");
-    }
-
-    function test_EncodeUint_WithFraction() public view {
-        // Values with fractional parts
-        assertEq(dataJson.encodeUint(1.5e18), "1.5e18");
-        assertEq(dataJson.encodeUint(0.05e18), "0.05e18");
-        assertEq(dataJson.encodeUint(0.001e18), "0.001e18");
-        assertEq(dataJson.encodeUint(123.456e18), "123.456e18");
-    }
-
-    function test_EncodeInt_Zero() public view {
         assertEq(dataJson.encodeInt(0), "0");
     }
 
-    function test_EncodeInt_SmallValue() public view {
-        assertEq(dataJson.encodeInt(123), "123");
+    function test_EncodeAuto_SmallValues() public view {
+        // Below threshold (1e6), stay as plain decimal
+        assertEq(dataJson.encodeUint(1), "1");
+        assertEq(dataJson.encodeUint(123), "123");
+        assertEq(dataJson.encodeUint(999999), "999999");
         assertEq(dataJson.encodeInt(-123), "-123");
     }
 
-    function test_EncodeInt_ExactMultiple() public view {
-        assertEq(dataJson.encodeInt(1e18), "1e18");
-        assertEq(dataJson.encodeInt(-1e18), "-1e18");
-        assertEq(dataJson.encodeInt(5e18), "5e18");
-        assertEq(dataJson.encodeInt(-5e18), "-5e18");
+    function test_EncodeAuto_AtThreshold() public view {
+        // At/above 1e6, switch to scientific notation
+        assertEq(dataJson.encodeUint(1000000), "1e6");
+        assertEq(dataJson.encodeUint(1000001), "1.000001e6");
+        assertEq(dataJson.encodeUint(1500000), "1.5e6");
+        assertEq(dataJson.encodeInt(-1000000), "-1e6");
+        assertEq(dataJson.encodeInt(-1500000), "-1.5e6");
     }
 
-    function test_EncodeInt_WithFraction() public view {
-        assertEq(dataJson.encodeInt(1.5e18), "1.5e18");
-        assertEq(dataJson.encodeInt(-1.5e18), "-1.5e18");
-        assertEq(dataJson.encodeInt(0.05e18), "0.05e18");
-        assertEq(dataJson.encodeInt(-0.05e18), "-0.05e18");
+    function test_EncodeAuto_LargeValues() public view {
+        assertEq(dataJson.encodeUint(10000000), "1e7");
+        assertEq(dataJson.encodeUint(12300000), "1.23e7");
+        assertEq(dataJson.encodeUint(1000000000), "1e9");
+        assertEq(dataJson.encodeUint(1234567890), "1.23456789e9");
+        assertEq(dataJson.encodeUint(1e18), "1e18");
     }
 
-    function test_EncodeUint_CustomDecimals() public view {
-        // 6 decimals (USDC style)
-        assertEq(dataJson.encodeUintWithDecimals(1e6, 6), "1e6");
-        assertEq(dataJson.encodeUintWithDecimals(1.5e6, 6), "1.5e6");
-        assertEq(dataJson.encodeUintWithDecimals(0.05e6, 6), "0.05e6");
+    function test_EncodeAuto_RoundTrip() public view {
+        string memory json1e6 = string.concat('{"value":', dataJson.encodeUint(1000000), "}");
+        assertEq(json1e6.readUint("$.value"), 1000000);
 
-        // 8 decimals (BTC style)
-        assertEq(dataJson.encodeUintWithDecimals(1e8, 8), "1e8");
-        assertEq(dataJson.encodeUintWithDecimals(0.001e8, 8), "0.001e8");
+        string memory json1_5e6 = string.concat('{"value":', dataJson.encodeUint(1500000), "}");
+        assertEq(json1_5e6.readUint("$.value"), 1500000);
 
-        // 0 decimals (no scientific notation)
-        assertEq(dataJson.encodeUintWithDecimals(1000000, 0), "1000000");
+        string memory jsonNeg = string.concat('{"value":', dataJson.encodeInt(-1500000), "}");
+        assertEq(jsonNeg.readInt("$.value"), -1500000);
     }
 
-    function test_EncodeInt_CustomDecimals() public view {
-        assertEq(dataJson.encodeIntWithDecimals(-1e6, 6), "-1e6");
-        assertEq(dataJson.encodeIntWithDecimals(-0.05e6, 6), "-0.05e6");
-        assertEq(dataJson.encodeIntWithDecimals(-1000000, 0), "-1000000");
+    // ============ Fixed Scale Mode Tests (18 decimals) ============
+
+    function test_EncodeScaled18_Zero() public view {
+        assertEq(dataJson.encodeUintWithDecimals(0, 18), "0");
+        assertEq(dataJson.encodeIntWithDecimals(0, 18), "0");
     }
 
-    function test_ScientificNotation_RoundTrip() public view {
-        // Test that forge can parse our scientific notation output
-        string memory json1e18 = string.concat('{"value":', dataJson.encodeUint(1e18), "}");
+    function test_EncodeScaled18_SmallValue() public view {
+        // Values below threshold (< scale/1e6 = 1e12) stay as plain decimal
+        assertEq(dataJson.encodeUintWithDecimals(123, 18), "123");
+        assertEq(dataJson.encodeUintWithDecimals(999999999999, 18), "999999999999");
+        assertEq(dataJson.encodeIntWithDecimals(-123, 18), "-123");
+    }
+
+    function test_EncodeScaled18_AboveThreshold() public view {
+        // Values >= 1e12 (0.000001 tokens) use scientific notation
+        assertEq(dataJson.encodeUintWithDecimals(1e12, 18), "0.000001e18");
+        assertEq(dataJson.encodeUintWithDecimals(999999999999999999, 18), "0.999999999999999999e18");
+    }
+
+    function test_EncodeScaled18_ExactMultiple() public view {
+        assertEq(dataJson.encodeUintWithDecimals(1e18, 18), "1e18");
+        assertEq(dataJson.encodeUintWithDecimals(5e18, 18), "5e18");
+        assertEq(dataJson.encodeUintWithDecimals(100e18, 18), "100e18");
+        assertEq(dataJson.encodeIntWithDecimals(-1e18, 18), "-1e18");
+    }
+
+    function test_EncodeScaled18_WithFraction() public view {
+        assertEq(dataJson.encodeUintWithDecimals(1.5e18, 18), "1.5e18");
+        assertEq(dataJson.encodeUintWithDecimals(0.05e18, 18), "0.05e18");
+        assertEq(dataJson.encodeUintWithDecimals(0.001e18, 18), "0.001e18");
+        assertEq(dataJson.encodeIntWithDecimals(-0.05e18, 18), "-0.05e18");
+    }
+
+    function test_EncodeScaled18_RoundTrip() public view {
+        string memory json1e18 = string.concat('{"value":', dataJson.encodeUintWithDecimals(1e18, 18), "}");
         assertEq(json1e18.readUint("$.value"), 1e18);
 
-        string memory json1_5e18 = string.concat('{"value":', dataJson.encodeUint(1.5e18), "}");
-        assertEq(json1_5e18.readUint("$.value"), 1.5e18);
-
-        string memory json0_05e18 = string.concat('{"value":', dataJson.encodeUint(0.05e18), "}");
+        string memory json0_05e18 = string.concat('{"value":', dataJson.encodeUintWithDecimals(0.05e18, 18), "}");
         assertEq(json0_05e18.readUint("$.value"), 0.05e18);
 
-        string memory jsonNeg = string.concat('{"value":', dataJson.encodeInt(-0.05e18), "}");
+        string memory jsonNeg = string.concat('{"value":', dataJson.encodeIntWithDecimals(-0.05e18, 18), "}");
         assertEq(jsonNeg.readInt("$.value"), -0.05e18);
     }
 
+    // ============ Other Decimal Scales ============
+
+    function test_EncodeScaled6_USDC() public view {
+        assertEq(dataJson.encodeUintWithDecimals(1e6, 6), "1e6");
+        assertEq(dataJson.encodeUintWithDecimals(1.5e6, 6), "1.5e6");
+        assertEq(dataJson.encodeUintWithDecimals(0.05e6, 6), "0.05e6");
+        assertEq(dataJson.encodeIntWithDecimals(-1e6, 6), "-1e6");
+    }
+
+    function test_EncodeScaled8_BTC() public view {
+        assertEq(dataJson.encodeUintWithDecimals(1e8, 8), "1e8");
+        assertEq(dataJson.encodeUintWithDecimals(0.001e8, 8), "0.001e8");
+    }
+
+    function test_EncodeScaled0_NoScientific() public view {
+        // 0 decimals means no scientific notation
+        assertEq(dataJson.encodeUintWithDecimals(1000000, 0), "1000000");
+        assertEq(dataJson.encodeIntWithDecimals(-1000000, 0), "-1000000");
+    }
+
+    // ============ JSON Output Integration Tests ============
+
     function test_ScientificNotation_InJsonOutput() public {
         // Verify that toJson() produces scientific notation for large values
+        // Note: PEGGED_SUPPLY_KEY uses auto mode (no decimals specified)
         dataJson.setUint(PEGGED_SUPPLY_KEY, 1000000e18);
         string memory json = dataJson.toJson();
 
-        // The JSON should contain scientific notation
-        assertTrue(_containsSubstring(json, "1000000e18"), "JSON should contain scientific notation for large values");
+        // Auto mode: 1000000e18 = 1e24, formatted as "1e24"
+        assertTrue(_containsSubstring(json, "1e24"), "JSON should contain scientific notation for large values");
     }
 
     function test_ScientificNotation_ArrayRoundTrip() public {
-        // Set array with large values
+        // Set array with large values (auto mode)
         uint256[] memory supplies = new uint256[](3);
-        supplies[0] = 1e18;
-        supplies[1] = 1.5e18;
-        supplies[2] = 0.05e18;
+        supplies[0] = 1000000;
+        supplies[1] = 1500000;
+        supplies[2] = 2000000;
         dataJson.setUintArray(CONFIG_LIMITS_KEY, supplies);
 
         string memory json = dataJson.toJson();
@@ -988,9 +1007,9 @@ contract DeploymentDataJsonTest is DeploymentDataTest {
 
         uint256[] memory result = dataJson2.getUintArray(CONFIG_LIMITS_KEY);
         assertEq(result.length, 3);
-        assertEq(result[0], 1e18);
-        assertEq(result[1], 1.5e18);
-        assertEq(result[2], 0.05e18);
+        assertEq(result[0], 1000000);
+        assertEq(result[1], 1500000);
+        assertEq(result[2], 2000000);
     }
 
     /// @notice Helper to check if a string contains a substring
@@ -1009,54 +1028,5 @@ contract DeploymentDataJsonTest is DeploymentDataTest {
             if (found) return true;
         }
         return false;
-    }
-
-    // ============ Auto-Exponent Mode Tests (printf %g style) ============
-
-    function test_EncodeUintAuto_Zero() public view {
-        assertEq(dataJson.encodeUintAuto(0), "0");
-    }
-
-    function test_EncodeUintAuto_SmallValues() public view {
-        // Below threshold (1e6), stay as plain decimal
-        assertEq(dataJson.encodeUintAuto(1), "1");
-        assertEq(dataJson.encodeUintAuto(123), "123");
-        assertEq(dataJson.encodeUintAuto(999999), "999999");
-    }
-
-    function test_EncodeUintAuto_AtThreshold() public view {
-        // At/above 1e6, switch to scientific notation
-        assertEq(dataJson.encodeUintAuto(1000000), "1e6");
-        assertEq(dataJson.encodeUintAuto(1000001), "1.000001e6");
-        assertEq(dataJson.encodeUintAuto(1500000), "1.5e6");
-    }
-
-    function test_EncodeUintAuto_LargeValues() public view {
-        assertEq(dataJson.encodeUintAuto(10000000), "1e7");
-        assertEq(dataJson.encodeUintAuto(12300000), "1.23e7");
-        assertEq(dataJson.encodeUintAuto(1000000000), "1e9");
-        assertEq(dataJson.encodeUintAuto(1234567890), "1.23456789e9");
-        assertEq(dataJson.encodeUintAuto(1e18), "1e18");
-    }
-
-    function test_EncodeIntAuto_Negative() public view {
-        assertEq(dataJson.encodeIntAuto(-123), "-123");
-        assertEq(dataJson.encodeIntAuto(-1000000), "-1e6");
-        assertEq(dataJson.encodeIntAuto(-1500000), "-1.5e6");
-    }
-
-    function test_EncodeAuto_RoundTrip() public view {
-        // Test that forge can parse our auto scientific notation
-        string memory json1e6 = string.concat('{"value":', dataJson.encodeUintAuto(1000000), "}");
-        assertEq(json1e6.readUint("$.value"), 1000000);
-
-        string memory json1_5e6 = string.concat('{"value":', dataJson.encodeUintAuto(1500000), "}");
-        assertEq(json1_5e6.readUint("$.value"), 1500000);
-
-        string memory json1_23e9 = string.concat('{"value":', dataJson.encodeUintAuto(1230000000), "}");
-        assertEq(json1_23e9.readUint("$.value"), 1230000000);
-
-        string memory jsonNeg = string.concat('{"value":', dataJson.encodeIntAuto(-1500000), "}");
-        assertEq(jsonNeg.readInt("$.value"), -1500000);
     }
 }

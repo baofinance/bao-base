@@ -348,10 +348,10 @@ abstract contract DeploymentJson is Deployment {
             return _encodeStringValue(_strings[key]);
         }
         if (valueType == DataType.UINT) {
-            return _encodeUintValue(_uints[key]);
+            return _encodeNumeric(_uints[key], _keyDecimals[key]);
         }
         if (valueType == DataType.INT) {
-            return _encodeIntValue(_ints[key]);
+            return _encodeNumeric(_ints[key], _keyDecimals[key]);
         }
         if (valueType == DataType.BOOL) {
             return _bools[key] ? "true" : "false";
@@ -363,10 +363,10 @@ abstract contract DeploymentJson is Deployment {
             return _encodeStringArrayValue(_stringArrays[key]);
         }
         if (valueType == DataType.UINT_ARRAY) {
-            return _encodeUintArrayValue(_uintArrays[key]);
+            return _encodeUintArrayValue(_uintArrays[key], _keyDecimals[key]);
         }
         if (valueType == DataType.INT_ARRAY) {
-            return _encodeIntArrayValue(_intArrays[key]);
+            return _encodeIntArrayValue(_intArrays[key], _keyDecimals[key]);
         }
         revert("DeploymentDataStore: unsupported type");
     }
@@ -384,19 +384,13 @@ abstract contract DeploymentJson is Deployment {
     // Scientific Notation Encoding
     // ============================================================================
     //
-    // Two modes are supported:
-    // 1. Fixed exponent: For token amounts where the scale is known (e.g., 18 decimals)
-    //    - _encodeUintScaled(value, 18) → "1.5e18", "0.05e18"
-    // 2. Auto exponent: For general large numbers (printf %g style)
-    //    - _encodeUintAuto(value) → "123", "1.5e6", "1.23e12"
+    // Two modes controlled by decimals parameter from key registration:
+    // 1. Fixed scale (decimals < DECIMALS_AUTO): For token amounts
+    //    - _encodeNumeric(value, 18) → "1.5e18", "0.05e18"
+    // 2. Auto exponent (decimals == DECIMALS_AUTO): For general numbers (printf %g style)
+    //    - _encodeNumeric(value) → "123", "1.5e6", "1.23e12"
     //
     // ============================================================================
-
-    /// @notice Default decimals for fixed-exponent encoding
-    /// @dev Override to change the default scale (e.g., 6 for USDC)
-    function _defaultDecimals() internal pure virtual returns (uint8) {
-        return 18;
-    }
 
     /// @notice Threshold for auto-exponent mode (switch to scientific above this)
     /// @dev Default 1e6 means 1000000 stays decimal, 10000000 becomes 1e7
@@ -414,10 +408,6 @@ abstract contract DeploymentJson is Deployment {
 
     /// @notice Format a value with a specific exponent
     /// @dev Core function used by both fixed and auto modes
-    /// @param integerPart The integer part (value / 10^exponent)
-    /// @param fractionalPart The fractional part (value % 10^exponent)
-    /// @param exponent The exponent to display
-    /// @param maxFractionalDigits Maximum digits for fractional part (for normalization)
     function _formatScientific(
         uint256 integerPart,
         uint256 fractionalPart,
@@ -425,7 +415,6 @@ abstract contract DeploymentJson is Deployment {
         uint256 maxFractionalDigits
     ) private pure returns (string memory) {
         if (fractionalPart == 0) {
-            // Clean integer: 1e18, 5e6, etc.
             return string.concat(LibString.toString(integerPart), "e", LibString.toString(exponent));
         }
 
@@ -447,55 +436,15 @@ abstract contract DeploymentJson is Deployment {
             zeros = string.concat(zeros, "0");
         }
 
-        return
-            string.concat(
-                LibString.toString(integerPart),
-                ".",
-                zeros,
-                fractionalStr,
-                "e",
-                LibString.toString(exponent)
-            );
+        return string.concat(
+            LibString.toString(integerPart),
+            ".",
+            zeros,
+            fractionalStr,
+            "e",
+            LibString.toString(exponent)
+        );
     }
-
-    // ============ Fixed exponent mode (for token amounts) ============
-
-    /// @notice Encode uint256 with fixed exponent (for token amounts)
-    /// @dev Use when value represents tokens with known decimals
-    /// @param value The raw value (e.g., 1.5e18 for 1.5 tokens)
-    /// @param decimals The token decimals (e.g., 18)
-    /// @return "1.5e18", "0.05e18", etc.
-    function _encodeUintScaled(uint256 value, uint8 decimals) internal pure returns (string memory) {
-        if (value == 0) return "0";
-        if (decimals == 0) return LibString.toString(value);
-
-        uint256 scale = 10 ** decimals;
-        uint256 threshold = _minScaledThreshold();
-
-        // Very small values stay as plain decimal
-        if (threshold > 0 && value < scale / threshold) {
-            return LibString.toString(value);
-        }
-
-        uint256 integerPart = value / scale;
-        uint256 fractionalPart = value % scale;
-
-        return _formatScientific(integerPart, fractionalPart, decimals, decimals);
-    }
-
-    /// @notice Encode int256 with fixed exponent
-    function _encodeIntScaled(int256 value, uint8 decimals) internal pure returns (string memory) {
-        if (value == 0) return "0";
-        if (decimals == 0) return LibString.toString(value);
-
-        bool negative = value < 0;
-        uint256 absValue = negative ? uint256(-value) : uint256(value);
-        string memory encoded = _encodeUintScaled(absValue, decimals);
-
-        return negative ? string.concat("-", encoded) : encoded;
-    }
-
-    // ============ Auto exponent mode (printf %g style) ============
 
     /// @notice Count digits in a number
     function _countDigits(uint256 value) private pure returns (uint8) {
@@ -508,64 +457,71 @@ abstract contract DeploymentJson is Deployment {
         return digits;
     }
 
-    /// @notice Encode uint256 with automatic exponent selection
-    /// @dev Switches to scientific notation for large numbers (like printf %g)
+    // ============ Numeric Encoding (overloaded for uint256/int256) ============
+
+    /// @notice Encode uint256 with auto exponent (printf %g style)
     /// @param value The value to encode
     /// @return "123", "1.5e6", "1.23e12", etc.
-    function _encodeUintAuto(uint256 value) internal pure returns (string memory) {
+    function _encodeNumeric(uint256 value) internal pure returns (string memory) {
         if (value == 0) return "0";
 
         uint256 threshold = _autoExponentThreshold();
-
-        // Below threshold, use plain decimal
         if (value < threshold) {
             return LibString.toString(value);
         }
 
-        // Find the exponent (number of digits - 1)
         uint8 digits = _countDigits(value);
         uint8 exponent = digits - 1;
-
-        // Calculate scale for this exponent
         uint256 scale = 10 ** exponent;
-        uint256 integerPart = value / scale;
-        uint256 fractionalPart = value % scale;
 
-        return _formatScientific(integerPart, fractionalPart, exponent, exponent);
+        return _formatScientific(value / scale, value % scale, exponent, exponent);
     }
 
-    /// @notice Encode int256 with automatic exponent selection
-    function _encodeIntAuto(int256 value) internal pure returns (string memory) {
+    /// @notice Encode uint256 with specified decimals
+    /// @param value The raw value
+    /// @param decimals The decimal scale, or DECIMALS_AUTO for auto mode
+    /// @return Formatted string
+    function _encodeNumeric(uint256 value, uint256 decimals) internal pure returns (string memory) {
+        if (decimals == DECIMALS_AUTO) {
+            return _encodeNumeric(value);
+        }
+        if (value == 0) return "0";
+        if (decimals == 0) return LibString.toString(value);
+
+        uint256 scale = 10 ** decimals;
+        uint256 threshold = _minScaledThreshold();
+
+        // Very small values stay as plain decimal
+        if (threshold > 0 && value < scale / threshold) {
+            return LibString.toString(value);
+        }
+
+        return _formatScientific(value / scale, value % scale, decimals, decimals);
+    }
+
+    /// @notice Encode int256 with auto exponent (printf %g style)
+    function _encodeNumeric(int256 value) internal pure returns (string memory) {
         if (value == 0) return "0";
 
         bool negative = value < 0;
         uint256 absValue = negative ? uint256(-value) : uint256(value);
-        string memory encoded = _encodeUintAuto(absValue);
+        string memory encoded = _encodeNumeric(absValue);
 
         return negative ? string.concat("-", encoded) : encoded;
     }
 
-    // ============ Default encoding (uses fixed exponent with default decimals) ============
+    /// @notice Encode int256 with specified decimals
+    function _encodeNumeric(int256 value, uint256 decimals) internal pure returns (string memory) {
+        if (value == 0) return "0";
 
-    /// @notice Encode uint256 using default decimals (fixed exponent mode)
-    function _encodeUintValue(uint256 value) internal pure returns (string memory) {
-        return _encodeUintScaled(value, _defaultDecimals());
+        bool negative = value < 0;
+        uint256 absValue = negative ? uint256(-value) : uint256(value);
+        string memory encoded = _encodeNumeric(absValue, decimals);
+
+        return negative ? string.concat("-", encoded) : encoded;
     }
 
-    /// @notice Encode uint256 with specified decimals (fixed exponent mode)
-    function _encodeUintValue(uint256 value, uint8 decimals) internal pure returns (string memory) {
-        return _encodeUintScaled(value, decimals);
-    }
-
-    /// @notice Encode int256 using default decimals (fixed exponent mode)
-    function _encodeIntValue(int256 value) internal pure returns (string memory) {
-        return _encodeIntScaled(value, _defaultDecimals());
-    }
-
-    /// @notice Encode int256 with specified decimals (fixed exponent mode)
-    function _encodeIntValue(int256 value, uint8 decimals) internal pure returns (string memory) {
-        return _encodeIntScaled(value, decimals);
-    }
+    // ============ Array Encoding ============
 
     function _encodeAddressArrayValue(address[] storage values) private view returns (string memory) {
         if (values.length == 0) {
@@ -589,24 +545,24 @@ abstract contract DeploymentJson is Deployment {
         return string.concat(json, "]");
     }
 
-    function _encodeUintArrayValue(uint256[] storage values) private view returns (string memory) {
+    function _encodeUintArrayValue(uint256[] storage values, uint256 decimals) private view returns (string memory) {
         if (values.length == 0) {
             return "[]";
         }
         string memory json = "[";
         for (uint256 i = 0; i < values.length; i++) {
-            json = string.concat(json, i == 0 ? "" : ",", _encodeUintValue(values[i]));
+            json = string.concat(json, i == 0 ? "" : ",", _encodeNumeric(values[i], decimals));
         }
         return string.concat(json, "]");
     }
 
-    function _encodeIntArrayValue(int256[] storage values) private view returns (string memory) {
+    function _encodeIntArrayValue(int256[] storage values, uint256 decimals) private view returns (string memory) {
         if (values.length == 0) {
             return "[]";
         }
         string memory json = "[";
         for (uint256 i = 0; i < values.length; i++) {
-            json = string.concat(json, i == 0 ? "" : ",", _encodeIntValue(values[i]));
+            json = string.concat(json, i == 0 ? "" : ",", _encodeNumeric(values[i], decimals));
         }
         return string.concat(json, "]");
     }
