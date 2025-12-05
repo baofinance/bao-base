@@ -471,7 +471,9 @@ abstract contract DeploymentJson is Deployment {
         string memory contractKey,
         string memory roleName
     ) private view returns (uint256) {
-        string memory roleKey = _roleKey(contractKey, roleName);
+        // Schema keys: {contractKey}.roles.{roleName}.value and {contractKey}.roles.{roleName}.grantees
+        string memory valueKey = string.concat(contractKey, ".roles.", roleName, ".value");
+        string memory granteesKey = string.concat(contractKey, ".roles.", roleName, ".grantees");
 
         // Add role name node under "roles"
         uint256 roleNode = nodeCount++;
@@ -483,20 +485,20 @@ abstract contract DeploymentJson is Deployment {
         nodes[valueNode].name = "value";
         nodes[valueNode].parent = roleNode;
         nodes[valueNode].hasValue = true;
-        nodes[valueNode].valueJson = LibString.toString(_roleValues[roleKey]);
+        nodes[valueNode].valueJson = LibString.toString(_getUint(valueKey));
 
         // Add "grantees" node
         uint256 granteesNode = nodeCount++;
         nodes[granteesNode].name = "grantees";
         nodes[granteesNode].parent = roleNode;
         nodes[granteesNode].hasValue = true;
-        nodes[granteesNode].valueJson = _encodeStringArray(_roleGrantees[roleKey]);
+        nodes[granteesNode].valueJson = _encodeStringArray(_getStringArray(granteesKey));
 
         return nodeCount;
     }
 
     /// @notice Encode a string array for JSON (helper for grantees)
-    function _encodeStringArray(string[] storage values) private view returns (string memory) {
+    function _encodeStringArray(string[] memory values) private pure returns (string memory) {
         if (values.length == 0) {
             return "[]";
         }

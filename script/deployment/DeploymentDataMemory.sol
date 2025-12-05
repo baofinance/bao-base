@@ -39,16 +39,10 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
     string[] internal _dataKeys;
 
     // ============ Role Storage ============
-    // Keyed by "{contractKey}.{roleName}" (e.g., "contracts.pegged.MINTER_ROLE")
-
-    /// @dev Role value (the uint256 bitmask value for each role name)
-    mapping(string => uint256) internal _roleValues;
-
-    /// @dev Whether a role value has been set (to distinguish 0 from unset)
-    mapping(string => bool) internal _roleValueSet;
-
-    /// @dev Grantees for each role, stored as contract keys (e.g., "contracts.minter")
-    mapping(string => string[]) internal _roleGrantees;
+    // Role values and grantees are stored via schema keys:
+    //   - "{contractKey}.roles.{roleName}.value" (UINT)
+    //   - "{contractKey}.roles.{roleName}.grantees" (STRING_ARRAY)
+    // Only _contractRoleNames is kept for enumeration during serialization.
 
     /// @dev Role names registered for each contract (for enumeration during serialization)
     mapping(string => string[]) internal _contractRoleNames;
@@ -318,28 +312,39 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
     }
 
     /// @notice Register a role's value for a contract
-    /// @dev Reverts if a different value is already registered for this role
+    /// @dev Reverts if a different value is already registered for this role.
+    ///      Dynamically registers schema keys for the role value and grantees.
     /// @param contractKey The contract key (e.g., "contracts.pegged")
     /// @param roleName The role name (e.g., "MINTER_ROLE")
     /// @param value The role's uint256 bitmask value
     function _registerRole(string memory contractKey, string memory roleName, uint256 value) internal {
-        string memory key = _roleKey(contractKey, roleName);
+        string memory roleKey = _roleKey(contractKey, roleName);
+        string memory valueKey = string.concat(roleKey, ".value");
+        string memory granteesKey = string.concat(roleKey, ".grantees");
 
-        if (_roleValueSet[key]) {
-            if (_roleValues[key] != value) {
-                revert RoleValueMismatch(key, _roleValues[key], value);
+        // Check if already registered with different value
+        if (_hasKey[valueKey]) {
+            uint256 existingValue = _uints[valueKey];
+            if (existingValue != value) {
+                revert RoleValueMismatch(roleKey, existingValue, value);
             }
             // Same value, no-op
             return;
         }
 
-        _roleValues[key] = value;
-        _roleValueSet[key] = true;
+        // Dynamically register schema keys for this role
+        addUintKey(valueKey);
+        addStringArrayKey(granteesKey);
+
+        // Set the value
+        _setUint(valueKey, value);
+
+        // Initialize empty grantees array
+        string[] memory emptyArray = new string[](0);
+        _setStringArray(granteesKey, emptyArray);
 
         // Track role name for this contract (for enumeration during serialization)
         _contractRoleNames[contractKey].push(roleName);
-
-        _afterValueChanged(key);
     }
 
     /// @notice Register a grantee for a role
@@ -348,18 +353,22 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
     /// @param contractKey The contract key where the role is defined (e.g., "contracts.pegged")
     /// @param roleName The role name (e.g., "MINTER_ROLE")
     function _registerGrantee(string memory granteeKey, string memory contractKey, string memory roleName) internal {
-        string memory key = _roleKey(contractKey, roleName);
+        string memory roleKey = _roleKey(contractKey, roleName);
+        string memory granteesKey = string.concat(roleKey, ".grantees");
+
+        // Get current grantees
+        string[] memory currentGrantees = _stringArrays[granteesKey];
 
         // Check for duplicate grantee
-        string[] storage grantees = _roleGrantees[key];
-        for (uint256 i = 0; i < grantees.length; i++) {
-            if (LibString.eq(grantees[i], granteeKey)) {
-                revert DuplicateGrantee(key, granteeKey);
+        for (uint256 i = 0; i < currentGrantees.length; i++) {
+            if (LibString.eq(currentGrantees[i], granteeKey)) {
+                revert DuplicateGrantee(roleKey, granteeKey);
             }
         }
 
-        _roleGrantees[key].push(granteeKey);
-        _afterValueChanged(key);
+        // Append to grantees array
+        _stringArrays[granteesKey].push(granteeKey);
+        _afterValueChanged(granteesKey);
     }
 
     /// @notice Get the role value for a contract's role
@@ -367,14 +376,14 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
     /// @param roleName The role name (e.g., "MINTER_ROLE")
     /// @return value The role's uint256 bitmask value
     function _getRoleValue(string memory contractKey, string memory roleName) internal view returns (uint256 value) {
-        string memory key = _roleKey(contractKey, roleName);
-        require(_roleValueSet[key], string.concat("Role not set: ", key));
-        return _roleValues[key];
+        string memory valueKey = string.concat(_roleKey(contractKey, roleName), ".value");
+        return _getUint(valueKey);
     }
 
     /// @notice Check if a role value is set
     function _hasRoleValue(string memory contractKey, string memory roleName) internal view returns (bool) {
-        return _roleValueSet[_roleKey(contractKey, roleName)];
+        string memory valueKey = string.concat(_roleKey(contractKey, roleName), ".value");
+        return _hasKey[valueKey];
     }
 
     /// @notice Get the grantees for a contract's role
@@ -385,7 +394,8 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
         string memory contractKey,
         string memory roleName
     ) internal view returns (string[] memory grantees) {
-        return _roleGrantees[_roleKey(contractKey, roleName)];
+        string memory granteesKey = string.concat(_roleKey(contractKey, roleName), ".grantees");
+        return _getStringArray(granteesKey);
     }
 
     /// @notice Get all role names registered for a contract
@@ -406,11 +416,13 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
     ) internal view returns (uint256 bitmap) {
         string[] memory roleNames = _contractRoleNames[contractKey];
         for (uint256 i = 0; i < roleNames.length; i++) {
-            string memory key = _roleKey(contractKey, roleNames[i]);
-            string[] storage grantees = _roleGrantees[key];
+            string memory roleKey = _roleKey(contractKey, roleNames[i]);
+            string memory granteesKey = string.concat(roleKey, ".grantees");
+            string[] memory grantees = _stringArrays[granteesKey];
             for (uint256 j = 0; j < grantees.length; j++) {
                 if (LibString.eq(grantees[j], granteeKey)) {
-                    bitmap |= _roleValues[key];
+                    string memory valueKey = string.concat(roleKey, ".value");
+                    bitmap |= _uints[valueKey];
                     break;
                 }
             }

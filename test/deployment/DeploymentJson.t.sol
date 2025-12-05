@@ -626,5 +626,41 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         // Grantees are in registration order
         assertEq(burnerGrantees[0], "contracts.minter", "BURNER_ROLE first grantee should be contracts.minter");
         assertEq(burnerGrantees[1], "contracts.burner", "BURNER_ROLE second grantee should be contracts.burner");
+
+        // ========================================================================
+        // Test JSON round-trip: load into new deployment and verify roles accessible
+        // This tests that getUint() works for role values after loading from JSON
+        // ========================================================================
+        MockDeploymentJson reloaded = new MockDeploymentJson();
+        reloaded.fromJsonNoSave(json);
+
+        // Verify role values are accessible via getUint() after reload
+        assertEq(
+            reloaded.getUint("contracts.rolesContract.roles.MINTER_ROLE.value"),
+            minterRole,
+            "MINTER_ROLE value should be accessible via getUint after reload"
+        );
+        assertEq(
+            reloaded.getUint("contracts.rolesContract.roles.BURNER_ROLE.value"),
+            burnerRole,
+            "BURNER_ROLE value should be accessible via getUint after reload"
+        );
+        assertEq(
+            reloaded.getUint("contracts.rolesContract.roles.ADMIN_ROLE.value"),
+            adminRole,
+            "ADMIN_ROLE value should be accessible via getUint after reload"
+        );
+
+        // Verify grantees are accessible via getStringArray() after reload
+        string[] memory reloadedMinterGrantees = reloaded.getStringArray(
+            "contracts.rolesContract.roles.MINTER_ROLE.grantees"
+        );
+        assertEq(reloadedMinterGrantees.length, 1, "MINTER_ROLE grantees length after reload");
+        assertEq(reloadedMinterGrantees[0], "contracts.minter", "MINTER_ROLE grantee after reload");
+
+        string[] memory reloadedBurnerGrantees = reloaded.getStringArray(
+            "contracts.rolesContract.roles.BURNER_ROLE.grantees"
+        );
+        assertEq(reloadedBurnerGrantees.length, 2, "BURNER_ROLE grantees length after reload");
     }
 }
