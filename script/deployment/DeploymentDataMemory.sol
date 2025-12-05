@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {LibString} from "@solady/utils/LibString.sol";
 import {IDeploymentData} from "./interfaces/IDeploymentData.sol";
 import {DeploymentKeys, DataType} from "./DeploymentKeys.sol";
 
@@ -13,6 +14,8 @@ import {DeploymentKeys, DataType} from "./DeploymentKeys.sol";
 abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
     error ValueNotSet(string key);
     error ReadTypeMismatch(string key, DataType expectedType, DataType actualType);
+    error RoleValueMismatch(string roleKey, uint256 existingValue, uint256 newValue);
+    error DuplicateGrantee(string roleKey, string granteeKey);
 
     struct TempNode {
         string name;
@@ -34,6 +37,21 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
 
     mapping(string => bool) internal _hasKey;
     string[] internal _dataKeys;
+
+    // ============ Role Storage ============
+    // Keyed by "{contractKey}.{roleName}" (e.g., "contracts.pegged.MINTER_ROLE")
+
+    /// @dev Role value (the uint256 bitmask value for each role name)
+    mapping(string => uint256) internal _roleValues;
+
+    /// @dev Whether a role value has been set (to distinguish 0 from unset)
+    mapping(string => bool) internal _roleValueSet;
+
+    /// @dev Grantees for each role, stored as contract keys (e.g., "contracts.minter")
+    mapping(string => string[]) internal _roleGrantees;
+
+    /// @dev Role names registered for each contract (for enumeration during serialization)
+    mapping(string => string[]) internal _contractRoleNames;
 
     // ============ Scalar Getters ============
 
@@ -288,6 +306,114 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
         if (!_hasKey[key]) {
             _hasKey[key] = true;
             _dataKeys.push(key);
+        }
+    }
+
+    // ============ Role Functions ============
+
+    /// @notice Build the role key from contract key and role name
+    /// @dev Returns "{contractKey}.roles.{roleName}" (e.g., "contracts.pegged.roles.MINTER_ROLE")
+    function _roleKey(string memory contractKey, string memory roleName) internal pure returns (string memory) {
+        return string.concat(contractKey, ".roles.", roleName);
+    }
+
+    /// @notice Register a role's value for a contract
+    /// @dev Reverts if a different value is already registered for this role
+    /// @param contractKey The contract key (e.g., "contracts.pegged")
+    /// @param roleName The role name (e.g., "MINTER_ROLE")
+    /// @param value The role's uint256 bitmask value
+    function _registerRole(string memory contractKey, string memory roleName, uint256 value) internal {
+        string memory key = _roleKey(contractKey, roleName);
+
+        if (_roleValueSet[key]) {
+            if (_roleValues[key] != value) {
+                revert RoleValueMismatch(key, _roleValues[key], value);
+            }
+            // Same value, no-op
+            return;
+        }
+
+        _roleValues[key] = value;
+        _roleValueSet[key] = true;
+
+        // Track role name for this contract (for enumeration during serialization)
+        _contractRoleNames[contractKey].push(roleName);
+
+        _afterValueChanged(key);
+    }
+
+    /// @notice Register a grantee for a role
+    /// @dev Reverts if the grantee is already registered for this role
+    /// @param granteeKey The grantee's contract key (e.g., "contracts.minter")
+    /// @param contractKey The contract key where the role is defined (e.g., "contracts.pegged")
+    /// @param roleName The role name (e.g., "MINTER_ROLE")
+    function _registerGrantee(string memory granteeKey, string memory contractKey, string memory roleName) internal {
+        string memory key = _roleKey(contractKey, roleName);
+
+        // Check for duplicate grantee
+        string[] storage grantees = _roleGrantees[key];
+        for (uint256 i = 0; i < grantees.length; i++) {
+            if (LibString.eq(grantees[i], granteeKey)) {
+                revert DuplicateGrantee(key, granteeKey);
+            }
+        }
+
+        _roleGrantees[key].push(granteeKey);
+        _afterValueChanged(key);
+    }
+
+    /// @notice Get the role value for a contract's role
+    /// @param contractKey The contract key (e.g., "contracts.pegged")
+    /// @param roleName The role name (e.g., "MINTER_ROLE")
+    /// @return value The role's uint256 bitmask value
+    function _getRoleValue(string memory contractKey, string memory roleName) internal view returns (uint256 value) {
+        string memory key = _roleKey(contractKey, roleName);
+        require(_roleValueSet[key], string.concat("Role not set: ", key));
+        return _roleValues[key];
+    }
+
+    /// @notice Check if a role value is set
+    function _hasRoleValue(string memory contractKey, string memory roleName) internal view returns (bool) {
+        return _roleValueSet[_roleKey(contractKey, roleName)];
+    }
+
+    /// @notice Get the grantees for a contract's role
+    /// @param contractKey The contract key (e.g., "contracts.pegged")
+    /// @param roleName The role name (e.g., "MINTER_ROLE")
+    /// @return grantees Array of grantee contract keys
+    function _getRoleGrantees(
+        string memory contractKey,
+        string memory roleName
+    ) internal view returns (string[] memory grantees) {
+        return _roleGrantees[_roleKey(contractKey, roleName)];
+    }
+
+    /// @notice Get all role names registered for a contract
+    /// @param contractKey The contract key (e.g., "contracts.pegged")
+    /// @return roleNames Array of role names
+    function _getContractRoleNames(string memory contractKey) internal view returns (string[] memory roleNames) {
+        return _contractRoleNames[contractKey];
+    }
+
+    /// @notice Compute the expected role bitmap for a grantee on a contract
+    /// @dev Iterates all roles on contractKey and ORs values where granteeKey is a grantee
+    /// @param contractKey The contract key (e.g., "contracts.pegged")
+    /// @param granteeKey The grantee's contract key (e.g., "contracts.minter")
+    /// @return bitmap The combined role bitmap
+    function _computeExpectedRoles(
+        string memory contractKey,
+        string memory granteeKey
+    ) internal view returns (uint256 bitmap) {
+        string[] memory roleNames = _contractRoleNames[contractKey];
+        for (uint256 i = 0; i < roleNames.length; i++) {
+            string memory key = _roleKey(contractKey, roleNames[i]);
+            string[] storage grantees = _roleGrantees[key];
+            for (uint256 j = 0; j < grantees.length; j++) {
+                if (LibString.eq(grantees[j], granteeKey)) {
+                    bitmap |= _roleValues[key];
+                    break;
+                }
+            }
         }
     }
 }

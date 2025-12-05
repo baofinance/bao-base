@@ -774,4 +774,24 @@ abstract contract Deployment is DeploymentDataMemory {
         }
         console2.log(string.concat(unicode"✓ ", key, " matches (%d elements)"), actual.length);
     }
+
+    /// @notice Verify on-chain roles match recorded role grants
+    /// @dev Computes expected bitmap from recorded grants and compares with actual
+    /// @param actualBitmap The actual roles bitmap from the contract (e.g., contract.rolesOf(grantee))
+    /// @param contractKey The contract where roles are defined (e.g., "contracts.pegged")
+    /// @param granteeKey The grantee whose roles are being verified (e.g., "contracts.minter")
+    function _expectRoles(uint256 actualBitmap, string memory contractKey, string memory granteeKey) internal view {
+        uint256 expectedBitmap = _computeExpectedRoles(contractKey, granteeKey);
+        string memory label = string.concat(granteeKey, " roles on ", contractKey);
+
+        if (actualBitmap == expectedBitmap) {
+            console2.log(string.concat(unicode"✓ ", label, " = 0x%x"), actualBitmap);
+        } else {
+            console2.log(
+                string.concat("*** ERROR *** ", label, " = 0x%x; expected = 0x%x"),
+                actualBitmap,
+                expectedBitmap
+            );
+        }
+    }
 }
