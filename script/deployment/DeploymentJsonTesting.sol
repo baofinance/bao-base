@@ -27,6 +27,8 @@ contract DeploymentJsonTesting is DeploymentJson, DeploymentTesting {
     // Test Output Configuration
     // ============================================================================
 
+    constructor() DeploymentJson(block.timestamp) {}
+
     function _getPrefix() internal view override returns (string memory) {
         return DeploymentTestingOutput._getPrefix();
     }

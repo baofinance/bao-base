@@ -692,7 +692,7 @@ abstract contract Deployment is DeploymentDataMemory {
         if (LibString.eq(actual, expected)) {
             console2.log(string.concat(unicode"✓ ", key, " = %s"), actual);
         } else {
-            console2.log(string.concat("*** ERROR *** ", key, " = %s; expected = %s", actual, expected));
+            console2.log(string.concat("*** ERROR *** ", key, " = ", actual, "; expected = ", expected));
         }
     }
 
@@ -718,5 +718,60 @@ abstract contract Deployment is DeploymentDataMemory {
 
     function _expect(bool actual, string memory key) internal view {
         _expect(toString(actual), toString(_getBool(key)), key);
+    }
+
+    function _expectCode(address addr) internal view {
+        uint256 size;
+        assembly {
+            size := extcodesize(addr)
+        }
+        if (size > 0) {
+            console2.log(string.concat(unicode"✓ Code exists at %s", LibString.toHexStringChecksummed(addr)));
+        } else {
+            console2.log(string.concat("*** ERROR *** No code at %s", LibString.toHexStringChecksummed(addr)));
+        }
+    }
+
+    function _expectUintArray(uint256[] memory actual, string memory key) internal view {
+        uint256[] memory expected = _getUintArray(key);
+        if (actual.length != expected.length) {
+            console2.log(
+                string.concat("*** ERROR *** ", key, " length = %d; expected = %d"),
+                actual.length,
+                expected.length
+            );
+            return;
+        }
+        for (uint256 i = 0; i < actual.length; i++) {
+            if (actual[i] != expected[i]) {
+                console2.log(
+                    string.concat("*** ERROR *** ", key, "[%d] = %d; expected = %d"),
+                    i,
+                    actual[i],
+                    expected[i]
+                );
+                return;
+            }
+        }
+        console2.log(string.concat(unicode"✓ ", key, " matches (%d elements)"), actual.length);
+    }
+
+    function _expectIntArray(int256[] memory actual, string memory key) internal view {
+        int256[] memory expected = _getIntArray(key);
+        if (actual.length != expected.length) {
+            console2.log(
+                string.concat("*** ERROR *** ", key, " length = %d; expected = %d"),
+                uint256(int256(actual.length)),
+                uint256(int256(expected.length))
+            );
+            return;
+        }
+        for (uint256 i = 0; i < actual.length; i++) {
+            if (actual[i] != expected[i]) {
+                console2.log(string.concat("*** ERROR *** ", key, "[%d] mismatch"), i);
+                return;
+            }
+        }
+        console2.log(string.concat(unicode"✓ ", key, " matches (%d elements)"), actual.length);
     }
 }

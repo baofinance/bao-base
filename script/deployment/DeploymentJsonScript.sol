@@ -32,6 +32,8 @@ import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
 abstract contract DeploymentJsonScript is DeploymentJson, Script {
     /// @notice Private key used for broadcasting transactions
 
+    constructor() DeploymentJson(vm.unixTime() / 1000) {}
+
     /// @notice Start broadcasting transactions
     /// @dev Called by Deployment before blockchain operations
     function _startBroadcast() internal override returns (address deployer) {

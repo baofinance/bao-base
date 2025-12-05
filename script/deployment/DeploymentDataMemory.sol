@@ -218,8 +218,13 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
     }
 
     function _getAddress(string memory key) internal view returns (address) {
-        _requireReadable(key, DataType.ADDRESS);
-        return _addresses[key];
+        string memory lookup = key;
+        if (keyType(key) == DataType.OBJECT) {
+            lookup = string.concat(key, ".address");
+        }
+
+        _requireReadable(lookup, DataType.ADDRESS);
+        return _addresses[lookup];
     }
 
     function _setAddressArray(string memory key, address[] memory values) internal {

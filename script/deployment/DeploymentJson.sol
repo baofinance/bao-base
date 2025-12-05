@@ -39,8 +39,8 @@ abstract contract DeploymentJson is Deployment {
     bool private _suppressIncrementalPersistence = false;
     bool private _suppressPersistence = false;
 
-    constructor() {
-        _filename = _formatTimestamp(block.timestamp);
+    constructor(uint256 time) {
+        _filename = _formatTimestamp(time);
     }
 
     // ============================================================================
@@ -348,10 +348,10 @@ abstract contract DeploymentJson is Deployment {
             return _encodeStringValue(_strings[key]);
         }
         if (valueType == DataType.UINT) {
-            return LibString.toString(_uints[key]);
+            return _encodeUintValue(_uints[key]);
         }
         if (valueType == DataType.INT) {
-            return LibString.toString(_ints[key]);
+            return _encodeIntValue(_ints[key]);
         }
         if (valueType == DataType.BOOL) {
             return _bools[key] ? "true" : "false";
@@ -378,6 +378,193 @@ abstract contract DeploymentJson is Deployment {
     function _encodeStringValue(string memory value) private returns (string memory) {
         string memory tmp = VM.serializeString("__bao_string", "value", value);
         return _extractSerializedValue(tmp);
+    }
+
+    // ============================================================================
+    // Scientific Notation Encoding
+    // ============================================================================
+    //
+    // Two modes are supported:
+    // 1. Fixed exponent: For token amounts where the scale is known (e.g., 18 decimals)
+    //    - _encodeUintScaled(value, 18) → "1.5e18", "0.05e18"
+    // 2. Auto exponent: For general large numbers (printf %g style)
+    //    - _encodeUintAuto(value) → "123", "1.5e6", "1.23e12"
+    //
+    // ============================================================================
+
+    /// @notice Default decimals for fixed-exponent encoding
+    /// @dev Override to change the default scale (e.g., 6 for USDC)
+    function _defaultDecimals() internal pure virtual returns (uint8) {
+        return 18;
+    }
+
+    /// @notice Threshold for auto-exponent mode (switch to scientific above this)
+    /// @dev Default 1e6 means 1000000 stays decimal, 10000000 becomes 1e7
+    function _autoExponentThreshold() internal pure virtual returns (uint256) {
+        return 1e6;
+    }
+
+    /// @notice Minimum value threshold for fixed-exponent mode
+    /// @dev Values below scale/threshold stay as plain decimals
+    function _minScaledThreshold() internal pure virtual returns (uint256) {
+        return 1e6; // Require at least 0.000001 of the unit
+    }
+
+    // ============ Core formatting (shared logic) ============
+
+    /// @notice Format a value with a specific exponent
+    /// @dev Core function used by both fixed and auto modes
+    /// @param integerPart The integer part (value / 10^exponent)
+    /// @param fractionalPart The fractional part (value % 10^exponent)
+    /// @param exponent The exponent to display
+    /// @param maxFractionalDigits Maximum digits for fractional part (for normalization)
+    function _formatScientific(
+        uint256 integerPart,
+        uint256 fractionalPart,
+        uint256 exponent,
+        uint256 maxFractionalDigits
+    ) private pure returns (string memory) {
+        if (fractionalPart == 0) {
+            // Clean integer: 1e18, 5e6, etc.
+            return string.concat(LibString.toString(integerPart), "e", LibString.toString(exponent));
+        }
+
+        // Normalize fractional part by removing trailing zeros
+        uint256 fractionalDigits = maxFractionalDigits;
+        while (fractionalPart % 10 == 0 && fractionalDigits > 0) {
+            fractionalPart /= 10;
+            fractionalDigits--;
+        }
+
+        // Build fractional string with leading zeros if needed
+        string memory fractionalStr = LibString.toString(fractionalPart);
+        uint256 leadingZeros = fractionalDigits > bytes(fractionalStr).length
+            ? fractionalDigits - bytes(fractionalStr).length
+            : 0;
+
+        string memory zeros = "";
+        for (uint256 i = 0; i < leadingZeros; i++) {
+            zeros = string.concat(zeros, "0");
+        }
+
+        return
+            string.concat(
+                LibString.toString(integerPart),
+                ".",
+                zeros,
+                fractionalStr,
+                "e",
+                LibString.toString(exponent)
+            );
+    }
+
+    // ============ Fixed exponent mode (for token amounts) ============
+
+    /// @notice Encode uint256 with fixed exponent (for token amounts)
+    /// @dev Use when value represents tokens with known decimals
+    /// @param value The raw value (e.g., 1.5e18 for 1.5 tokens)
+    /// @param decimals The token decimals (e.g., 18)
+    /// @return "1.5e18", "0.05e18", etc.
+    function _encodeUintScaled(uint256 value, uint8 decimals) internal pure returns (string memory) {
+        if (value == 0) return "0";
+        if (decimals == 0) return LibString.toString(value);
+
+        uint256 scale = 10 ** decimals;
+        uint256 threshold = _minScaledThreshold();
+
+        // Very small values stay as plain decimal
+        if (threshold > 0 && value < scale / threshold) {
+            return LibString.toString(value);
+        }
+
+        uint256 integerPart = value / scale;
+        uint256 fractionalPart = value % scale;
+
+        return _formatScientific(integerPart, fractionalPart, decimals, decimals);
+    }
+
+    /// @notice Encode int256 with fixed exponent
+    function _encodeIntScaled(int256 value, uint8 decimals) internal pure returns (string memory) {
+        if (value == 0) return "0";
+        if (decimals == 0) return LibString.toString(value);
+
+        bool negative = value < 0;
+        uint256 absValue = negative ? uint256(-value) : uint256(value);
+        string memory encoded = _encodeUintScaled(absValue, decimals);
+
+        return negative ? string.concat("-", encoded) : encoded;
+    }
+
+    // ============ Auto exponent mode (printf %g style) ============
+
+    /// @notice Count digits in a number
+    function _countDigits(uint256 value) private pure returns (uint8) {
+        if (value == 0) return 1;
+        uint8 digits = 0;
+        while (value > 0) {
+            digits++;
+            value /= 10;
+        }
+        return digits;
+    }
+
+    /// @notice Encode uint256 with automatic exponent selection
+    /// @dev Switches to scientific notation for large numbers (like printf %g)
+    /// @param value The value to encode
+    /// @return "123", "1.5e6", "1.23e12", etc.
+    function _encodeUintAuto(uint256 value) internal pure returns (string memory) {
+        if (value == 0) return "0";
+
+        uint256 threshold = _autoExponentThreshold();
+
+        // Below threshold, use plain decimal
+        if (value < threshold) {
+            return LibString.toString(value);
+        }
+
+        // Find the exponent (number of digits - 1)
+        uint8 digits = _countDigits(value);
+        uint8 exponent = digits - 1;
+
+        // Calculate scale for this exponent
+        uint256 scale = 10 ** exponent;
+        uint256 integerPart = value / scale;
+        uint256 fractionalPart = value % scale;
+
+        return _formatScientific(integerPart, fractionalPart, exponent, exponent);
+    }
+
+    /// @notice Encode int256 with automatic exponent selection
+    function _encodeIntAuto(int256 value) internal pure returns (string memory) {
+        if (value == 0) return "0";
+
+        bool negative = value < 0;
+        uint256 absValue = negative ? uint256(-value) : uint256(value);
+        string memory encoded = _encodeUintAuto(absValue);
+
+        return negative ? string.concat("-", encoded) : encoded;
+    }
+
+    // ============ Default encoding (uses fixed exponent with default decimals) ============
+
+    /// @notice Encode uint256 using default decimals (fixed exponent mode)
+    function _encodeUintValue(uint256 value) internal pure returns (string memory) {
+        return _encodeUintScaled(value, _defaultDecimals());
+    }
+
+    /// @notice Encode uint256 with specified decimals (fixed exponent mode)
+    function _encodeUintValue(uint256 value, uint8 decimals) internal pure returns (string memory) {
+        return _encodeUintScaled(value, decimals);
+    }
+
+    /// @notice Encode int256 using default decimals (fixed exponent mode)
+    function _encodeIntValue(int256 value) internal pure returns (string memory) {
+        return _encodeIntScaled(value, _defaultDecimals());
+    }
+
+    /// @notice Encode int256 with specified decimals (fixed exponent mode)
+    function _encodeIntValue(int256 value, uint8 decimals) internal pure returns (string memory) {
+        return _encodeIntScaled(value, decimals);
     }
 
     function _encodeAddressArrayValue(address[] storage values) private view returns (string memory) {
@@ -408,7 +595,7 @@ abstract contract DeploymentJson is Deployment {
         }
         string memory json = "[";
         for (uint256 i = 0; i < values.length; i++) {
-            json = string.concat(json, i == 0 ? "" : ",", LibString.toString(values[i]));
+            json = string.concat(json, i == 0 ? "" : ",", _encodeUintValue(values[i]));
         }
         return string.concat(json, "]");
     }
@@ -419,7 +606,7 @@ abstract contract DeploymentJson is Deployment {
         }
         string memory json = "[";
         for (uint256 i = 0; i < values.length; i++) {
-            json = string.concat(json, i == 0 ? "" : ",", LibString.toString(values[i]));
+            json = string.concat(json, i == 0 ? "" : ",", _encodeIntValue(values[i]));
         }
         return string.concat(json, "]");
     }
