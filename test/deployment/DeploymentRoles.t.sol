@@ -16,6 +16,7 @@ contract MockDeploymentRoles is DeploymentJsonTesting {
     string public constant HUB = "contracts.hub";
 
     constructor() {
+        _disableLogging(); // Prevent file writes during unit tests
         addContract(PEGGED);
         addContract(MINTER);
         addContract(HUB);

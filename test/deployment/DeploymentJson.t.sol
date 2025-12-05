@@ -6,6 +6,8 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
+import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
+import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 
 string constant JSON_CONFIG_ROOT = "contracts.config";
 string constant JSON_CONFIG_GUARDIAN_KEY = "contracts.config.guardian";
@@ -44,6 +46,18 @@ library TestLib {
     }
 }
 
+// Contract with roles for testing role serialization
+contract RolesContract is Initializable, UUPSUpgradeable, BaoOwnableRoles {
+    uint256 public constant MINTER_ROLE = _ROLE_0;
+    uint256 public constant BURNER_ROLE = _ROLE_1;
+
+    function initialize(address owner_) external initializer {
+        _initializeOwner(owner_);
+    }
+
+    function _authorizeUpgrade(address) internal override onlyOwner {}
+}
+
 // Test harness
 contract MockDeploymentJson is DeploymentJsonTesting {
     constructor() {
@@ -53,6 +67,10 @@ contract MockDeploymentJson is DeploymentJsonTesting {
         addProxy("contracts.proxy1");
         addContract("contracts.lib1");
         addContract("contracts.external1");
+        addProxy("contracts.rolesContract");
+        addContract("contracts.minter");
+        addContract("contracts.burner");
+        addContract("contracts.admin");
 
         addKey(JSON_CONFIG_ROOT);
         addAddressKey(JSON_CONFIG_GUARDIAN_KEY);
@@ -80,6 +98,21 @@ contract MockDeploymentJson is DeploymentJsonTesting {
     function deployTestLibrary(string memory key) public {
         bytes memory bytecode = type(TestLib).creationCode;
         deployLibrary(string.concat("contracts.", key), bytecode, "TestLib", address(this));
+    }
+
+    function deployRolesContract(string memory key, address owner_) public returns (address) {
+        RolesContract impl = new RolesContract();
+        bytes memory initData = abi.encodeCall(RolesContract.initialize, (owner_));
+        deployProxy(string.concat("contracts.", key), address(impl), initData, "RolesContract", address(this));
+        return _get(string.concat("contracts.", key));
+    }
+
+    function registerRole(string memory contractKey, string memory roleName, uint256 value) public {
+        _registerRole(contractKey, roleName, value);
+    }
+
+    function registerGrantee(string memory granteeKey, string memory contractKey, string memory roleName) public {
+        _registerGrantee(granteeKey, contractKey, roleName);
     }
 
     function getOutputConfigPath() public returns (string memory) {
@@ -495,5 +528,103 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         assertEq(parsedDeltas[0], -9, "array deltas first persisted");
         assertEq(parsedDeltas[1], 0, "array deltas second persisted");
         assertEq(parsedDeltas[2], 11, "array deltas third persisted");
+    }
+
+    /// @notice Test roles are persisted with 0, 1, and 2+ grantees
+    /// @dev Covers:
+    ///   - ADMIN_ROLE: 0 grantees (role registered but not granted)
+    ///   - MINTER_ROLE: 1 grantee (contracts.minter)
+    ///   - BURNER_ROLE: 2 grantees (contracts.minter, contracts.burner)
+    function test_SaveRolesToFile() public {
+        _startDeployment("test_SaveRolesToFile");
+
+        // Deploy a contract with roles
+        address rolesAddr = deployment.deployRolesContract("rolesContract", address(deployment));
+
+        // Deploy contracts that will be granted roles
+        deployment.deploySimpleContract("minter", "Minter");
+        deployment.deploySimpleContract("burner", "Burner");
+        deployment.deploySimpleContract("admin", "Admin"); // Not granted any roles
+
+        address minterAddr = deployment.get("contracts.minter");
+        address burnerAddr = deployment.get("contracts.burner");
+
+        // Cache role values
+        uint256 minterRole = RolesContract(rolesAddr).MINTER_ROLE();
+        uint256 burnerRole = RolesContract(rolesAddr).BURNER_ROLE();
+        uint256 adminRole = 1 << 255; // Custom role value for admin (not a real role on RolesContract)
+
+        // Register the role values (this is what gets persisted to JSON)
+        // ADMIN_ROLE: 0 grantees - registered but never granted
+        deployment.registerRole("contracts.rolesContract", "ADMIN_ROLE", adminRole);
+        // MINTER_ROLE: 1 grantee
+        deployment.registerRole("contracts.rolesContract", "MINTER_ROLE", minterRole);
+        // BURNER_ROLE: 2 grantees
+        deployment.registerRole("contracts.rolesContract", "BURNER_ROLE", burnerRole);
+
+        // Register grantees
+        // ADMIN_ROLE: no grantees registered (0 grantees case)
+        // MINTER_ROLE: 1 grantee
+        deployment.registerGrantee("contracts.minter", "contracts.rolesContract", "MINTER_ROLE");
+        // BURNER_ROLE: 2 grantees
+        deployment.registerGrantee("contracts.minter", "contracts.rolesContract", "BURNER_ROLE");
+        deployment.registerGrantee("contracts.burner", "contracts.rolesContract", "BURNER_ROLE");
+
+        // Grant roles on-chain (owner is deployment contract until finish())
+        vm.startPrank(address(deployment));
+        IBaoRoles(rolesAddr).grantRoles(minterAddr, minterRole | burnerRole);
+        IBaoRoles(rolesAddr).grantRoles(burnerAddr, burnerRole);
+        vm.stopPrank();
+
+        // Verify on-chain state before finish
+        assertTrue(
+            IBaoRoles(rolesAddr).hasAllRoles(minterAddr, minterRole | burnerRole),
+            "minter should have both roles"
+        );
+        assertTrue(IBaoRoles(rolesAddr).hasAllRoles(burnerAddr, burnerRole), "burner should have burner role");
+
+        // Get JSON before finish (to test serialization without ownership transfer issues)
+        string memory json = deployment.toJson();
+
+        // Check roles structure exists in JSON
+        assertTrue(vm.keyExistsJson(json, ".contracts.rolesContract.roles"), "roles object should exist");
+        assertTrue(vm.keyExistsJson(json, ".contracts.rolesContract.roles.ADMIN_ROLE"), "ADMIN_ROLE should exist");
+        assertTrue(vm.keyExistsJson(json, ".contracts.rolesContract.roles.MINTER_ROLE"), "MINTER_ROLE should exist");
+        assertTrue(vm.keyExistsJson(json, ".contracts.rolesContract.roles.BURNER_ROLE"), "BURNER_ROLE should exist");
+
+        // Verify role values
+        uint256 adminRoleValue = vm.parseJsonUint(json, ".contracts.rolesContract.roles.ADMIN_ROLE.value");
+        assertEq(adminRoleValue, adminRole, "ADMIN_ROLE value should match");
+
+        uint256 minterRoleValue = vm.parseJsonUint(json, ".contracts.rolesContract.roles.MINTER_ROLE.value");
+        assertEq(minterRoleValue, minterRole, "MINTER_ROLE value should match");
+
+        uint256 burnerRoleValue = vm.parseJsonUint(json, ".contracts.rolesContract.roles.BURNER_ROLE.value");
+        assertEq(burnerRoleValue, burnerRole, "BURNER_ROLE value should match");
+
+        // Verify grantees - 0 grantees case (ADMIN_ROLE)
+        string[] memory adminGrantees = vm.parseJsonStringArray(
+            json,
+            ".contracts.rolesContract.roles.ADMIN_ROLE.grantees"
+        );
+        assertEq(adminGrantees.length, 0, "ADMIN_ROLE should have 0 grantees");
+
+        // Verify grantees - 1 grantee case (MINTER_ROLE)
+        string[] memory minterGrantees = vm.parseJsonStringArray(
+            json,
+            ".contracts.rolesContract.roles.MINTER_ROLE.grantees"
+        );
+        assertEq(minterGrantees.length, 1, "MINTER_ROLE should have 1 grantee");
+        assertEq(minterGrantees[0], "contracts.minter", "MINTER_ROLE grantee should be contracts.minter");
+
+        // Verify grantees - 2 grantees case (BURNER_ROLE)
+        string[] memory burnerGrantees = vm.parseJsonStringArray(
+            json,
+            ".contracts.rolesContract.roles.BURNER_ROLE.grantees"
+        );
+        assertEq(burnerGrantees.length, 2, "BURNER_ROLE should have 2 grantees");
+        // Grantees are in registration order
+        assertEq(burnerGrantees[0], "contracts.minter", "BURNER_ROLE first grantee should be contracts.minter");
+        assertEq(burnerGrantees[1], "contracts.burner", "BURNER_ROLE second grantee should be contracts.burner");
     }
 }
