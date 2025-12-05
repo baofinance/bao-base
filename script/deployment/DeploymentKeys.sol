@@ -148,10 +148,7 @@ abstract contract DeploymentKeys {
      * @return key Returns the key for use in constant declarations
      */
     function addAddressKey(string memory key) internal returns (string memory) {
-        _validateKeyFormat(key);
-        require(_hasDots(key), "ADDRESS keys must contain dots");
-        _validateParentContract(key);
-        _registerKey(key, DataType.ADDRESS);
+        _validateNestedKey(key, DataType.ADDRESS, "ADDRESS");
         return key;
     }
 
@@ -162,10 +159,7 @@ abstract contract DeploymentKeys {
      * @return key Returns the key for use in constant declarations
      */
     function addStringKey(string memory key) internal returns (string memory) {
-        _validateKeyFormat(key);
-        require(_hasDots(key), "STRING keys must contain dots");
-        _validateParentContract(key);
-        _registerKey(key, DataType.STRING);
+        _validateNestedKey(key, DataType.STRING, "STRING");
         return key;
     }
 
@@ -187,10 +181,7 @@ abstract contract DeploymentKeys {
      * @return key Returns the key for use in constant declarations
      */
     function addUintKey(string memory key, uint256 decimals) internal returns (string memory) {
-        _validateKeyFormat(key);
-        require(_hasDots(key), "UINT keys must contain dots");
-        _validateParentContract(key);
-        _registerKey(key, DataType.UINT);
+        _validateNestedKey(key, DataType.UINT, "UINT");
         _keyDecimals[key] = decimals;
         return key;
     }
@@ -213,10 +204,7 @@ abstract contract DeploymentKeys {
      * @return key Returns the key for use in constant declarations
      */
     function addIntKey(string memory key, uint256 decimals) internal returns (string memory) {
-        _validateKeyFormat(key);
-        require(_hasDots(key), "INT keys must contain dots");
-        _validateParentContract(key);
-        _registerKey(key, DataType.INT);
+        _validateNestedKey(key, DataType.INT, "INT");
         _keyDecimals[key] = decimals;
         return key;
     }
@@ -228,10 +216,7 @@ abstract contract DeploymentKeys {
      * @return key Returns the key for use in constant declarations
      */
     function addBoolKey(string memory key) internal returns (string memory) {
-        _validateKeyFormat(key);
-        require(_hasDots(key), "BOOL keys must contain dots");
-        _validateParentContract(key);
-        _registerKey(key, DataType.BOOL);
+        _validateNestedKey(key, DataType.BOOL, "BOOL");
         return key;
     }
 
@@ -242,10 +227,7 @@ abstract contract DeploymentKeys {
      * @return key Returns the key for use in constant declarations
      */
     function addAddressArrayKey(string memory key) internal returns (string memory) {
-        _validateKeyFormat(key);
-        require(_hasDots(key), "ADDRESS_ARRAY keys must contain dots");
-        _validateParentContract(key);
-        _registerKey(key, DataType.ADDRESS_ARRAY);
+        _validateNestedKey(key, DataType.ADDRESS_ARRAY, "ADDRESS_ARRAY");
         return key;
     }
 
@@ -256,10 +238,7 @@ abstract contract DeploymentKeys {
      * @return key Returns the key for use in constant declarations
      */
     function addStringArrayKey(string memory key) internal returns (string memory) {
-        _validateKeyFormat(key);
-        require(_hasDots(key), "STRING_ARRAY keys must contain dots");
-        _validateParentContract(key);
-        _registerKey(key, DataType.STRING_ARRAY);
+        _validateNestedKey(key, DataType.STRING_ARRAY, "STRING_ARRAY");
         return key;
     }
 
@@ -281,10 +260,7 @@ abstract contract DeploymentKeys {
      * @return key Returns the key for use in constant declarations
      */
     function addUintArrayKey(string memory key, uint256 decimals) internal returns (string memory) {
-        _validateKeyFormat(key);
-        require(_hasDots(key), "UINT_ARRAY keys must contain dots");
-        _validateParentContract(key);
-        _registerKey(key, DataType.UINT_ARRAY);
+        _validateNestedKey(key, DataType.UINT_ARRAY, "UINT_ARRAY");
         _keyDecimals[key] = decimals;
         return key;
     }
@@ -307,10 +283,7 @@ abstract contract DeploymentKeys {
      * @return key Returns the key for use in constant declarations
      */
     function addIntArrayKey(string memory key, uint256 decimals) internal returns (string memory) {
-        _validateKeyFormat(key);
-        require(_hasDots(key), "INT_ARRAY keys must contain dots");
-        _validateParentContract(key);
-        _registerKey(key, DataType.INT_ARRAY);
+        _validateNestedKey(key, DataType.INT_ARRAY, "INT_ARRAY");
         _keyDecimals[key] = decimals;
         return key;
     }
@@ -429,6 +402,20 @@ abstract contract DeploymentKeys {
         _keyTypes[key] = expectedType;
         _keyRegistered[key] = true;
         _schemaKeys.push(key);
+    }
+
+    /**
+     * @notice Validate and register a nested key (must contain dots)
+     * @dev Common pattern for ADDRESS, STRING, UINT, INT, BOOL, and array types
+     * @param key The key name (must contain dots)
+     * @param expectedType The expected type for this key
+     * @param typeName The type name for error messages
+     */
+    function _validateNestedKey(string memory key, DataType expectedType, string memory typeName) private {
+        _validateKeyFormat(key);
+        require(_hasDots(key), string.concat(typeName, " keys must contain dots"));
+        _validateParentContract(key);
+        _registerKey(key, expectedType);
     }
 
     /**

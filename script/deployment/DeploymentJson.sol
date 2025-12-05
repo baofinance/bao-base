@@ -363,10 +363,10 @@ abstract contract DeploymentJson is Deployment {
             return _encodeStringArrayValue(_stringArrays[key]);
         }
         if (valueType == DataType.UINT_ARRAY) {
-            return _encodeUintArrayValue(_uintArrays[key], _keyDecimals[key]);
+            return _encodeNumericArrayValue(_uintArrays[key], _keyDecimals[key]);
         }
         if (valueType == DataType.INT_ARRAY) {
-            return _encodeIntArrayValue(_intArrays[key], _keyDecimals[key]);
+            return _encodeNumericArrayValue(_intArrays[key], _keyDecimals[key]);
         }
         revert("DeploymentDataStore: unsupported type");
     }
@@ -446,17 +446,6 @@ abstract contract DeploymentJson is Deployment {
         );
     }
 
-    /// @notice Count digits in a number
-    function _countDigits(uint256 value) private pure returns (uint8) {
-        if (value == 0) return 1;
-        uint8 digits = 0;
-        while (value > 0) {
-            digits++;
-            value /= 10;
-        }
-        return digits;
-    }
-
     // ============ Numeric Encoding (overloaded for uint256/int256) ============
 
     /// @notice Encode uint256 with auto exponent (printf %g style)
@@ -470,7 +459,15 @@ abstract contract DeploymentJson is Deployment {
             return LibString.toString(value);
         }
 
-        uint8 digits = _countDigits(value);
+        // Count digits inline
+        uint8 digits = 0;
+        {
+            uint256 tmp = value;
+            while (tmp > 0) {
+                digits++;
+                tmp /= 10;
+            }
+        }
         uint8 exponent = digits - 1;
         uint256 scale = 10 ** exponent;
 
@@ -545,7 +542,7 @@ abstract contract DeploymentJson is Deployment {
         return string.concat(json, "]");
     }
 
-    function _encodeUintArrayValue(uint256[] storage values, uint256 decimals) private view returns (string memory) {
+    function _encodeNumericArrayValue(uint256[] storage values, uint256 decimals) private view returns (string memory) {
         if (values.length == 0) {
             return "[]";
         }
@@ -556,7 +553,7 @@ abstract contract DeploymentJson is Deployment {
         return string.concat(json, "]");
     }
 
-    function _encodeIntArrayValue(int256[] storage values, uint256 decimals) private view returns (string memory) {
+    function _encodeNumericArrayValue(int256[] storage values, uint256 decimals) private view returns (string memory) {
         if (values.length == 0) {
             return "[]";
         }
