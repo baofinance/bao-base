@@ -202,6 +202,32 @@ abstract contract DeploymentJson is Deployment {
 
     // Note: _getPrefix() is already defined above in DeploymentJson section
 
+    /// @notice Resolve a string value that may be a JSON pointer reference
+    /// @dev If the value starts with "$.", treat it as a JSON pointer and resolve it
+    /// @param existingJson The JSON document to resolve references against
+    /// @param value The string value that may be a reference
+    /// @return The resolved value (original if not a reference)
+    function _resolveReference(string memory existingJson, string memory value) private pure returns (string memory) {
+        if (value.startsWith("$.")) {
+            return existingJson.readString(value);
+        }
+        return value;
+    }
+
+    /// @notice Resolve an array of string values that may contain JSON pointer references
+    /// @param existingJson The JSON document to resolve references against
+    /// @param values The string array that may contain references
+    /// @return resolved The array with all references resolved
+    function _resolveReferences(
+        string memory existingJson,
+        string[] memory values
+    ) private pure returns (string[] memory resolved) {
+        resolved = new string[](values.length);
+        for (uint256 i = 0; i < values.length; i++) {
+            resolved[i] = _resolveReference(existingJson, values[i]);
+        }
+    }
+
     function _fromJsonNoSave(string memory existingJson) internal {
         if (bytes(existingJson).length == 0) {
             return;
@@ -226,9 +252,13 @@ abstract contract DeploymentJson is Deployment {
                 continue;
             }
             if (expected == DataType.ADDRESS) {
-                _setAddress(key, existingJson.readAddress(pointer));
+                // Address stored as string in JSON - resolve reference if present
+                string memory rawValue = existingJson.readString(pointer);
+                string memory resolved = _resolveReference(existingJson, rawValue);
+                _setAddress(key, VM.parseAddress(resolved));
             } else if (expected == DataType.STRING) {
-                _setString(key, existingJson.readString(pointer));
+                string memory rawValue = existingJson.readString(pointer);
+                _setString(key, _resolveReference(existingJson, rawValue));
             } else if (expected == DataType.UINT) {
                 _setUint(key, existingJson.readUint(pointer));
             } else if (expected == DataType.INT) {
@@ -236,9 +266,17 @@ abstract contract DeploymentJson is Deployment {
             } else if (expected == DataType.BOOL) {
                 _setBool(key, existingJson.readBool(pointer));
             } else if (expected == DataType.ADDRESS_ARRAY) {
-                _setAddressArray(key, existingJson.readAddressArray(pointer));
+                // Address array stored as string array - resolve references
+                string[] memory rawValues = existingJson.readStringArray(pointer);
+                string[] memory resolved = _resolveReferences(existingJson, rawValues);
+                address[] memory addresses = new address[](resolved.length);
+                for (uint256 j = 0; j < resolved.length; j++) {
+                    addresses[j] = VM.parseAddress(resolved[j]);
+                }
+                _setAddressArray(key, addresses);
             } else if (expected == DataType.STRING_ARRAY) {
-                _setStringArray(key, existingJson.readStringArray(pointer));
+                string[] memory rawValues = existingJson.readStringArray(pointer);
+                _setStringArray(key, _resolveReferences(existingJson, rawValues));
             } else if (expected == DataType.UINT_ARRAY) {
                 _setUintArray(key, existingJson.readUintArray(pointer));
             } else if (expected == DataType.INT_ARRAY) {
@@ -647,14 +685,15 @@ abstract contract DeploymentJson is Deployment {
             zeros = string.concat(zeros, "0");
         }
 
-        return string.concat(
-            LibString.toString(integerPart),
-            ".",
-            zeros,
-            fractionalStr,
-            "e",
-            LibString.toString(exponent)
-        );
+        return
+            string.concat(
+                LibString.toString(integerPart),
+                ".",
+                zeros,
+                fractionalStr,
+                "e",
+                LibString.toString(exponent)
+            );
     }
 
     // ============ Numeric Encoding (overloaded for uint256/int256) ============

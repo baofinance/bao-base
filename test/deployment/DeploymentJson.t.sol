@@ -663,4 +663,49 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         );
         assertEq(reloadedBurnerGrantees.length, 2, "BURNER_ROLE grantees length after reload");
     }
+
+    /// @notice Test that JSON pointer references are resolved when loading
+    /// @dev References like "$.contracts.minter.address" should resolve to the actual value
+    function test_LoadJsonWithPointerReferences() public {
+        // Create JSON with pointer references
+        // The guardian address references the minter's address
+        // The tags array contains a reference to the symbol
+        string memory jsonWithRefs = "{"
+        '"owner": "0xFC69e0a5823E2AfCBEb8a35d33588360F1496a00",'
+        '"contracts": {'
+        '"minter": {'
+        '"address": "0x1234567890123456789012345678901234567890",'
+        '"contractType": "Minter",'
+        '"contractPath": "src/Minter.sol"'
+        "},"
+        '"config": {'
+        '"guardian": "$.contracts.minter.address",'
+        '"symbol": "TEST",'
+        '"tags": ["tag1", "$.contracts.config.symbol", "tag3"]'
+        "}"
+        "}"
+        "}";
+
+        MockDeploymentJson loader = new MockDeploymentJson();
+        loader.fromJsonNoSave(jsonWithRefs);
+
+        // Verify the address reference was resolved
+        address guardian = loader.getAddress(JSON_CONFIG_GUARDIAN_KEY);
+        assertEq(
+            guardian,
+            address(0x1234567890123456789012345678901234567890),
+            "Guardian should resolve to minter address"
+        );
+
+        // Verify the symbol was loaded directly
+        string memory symbol = loader.getString(JSON_CONFIG_SYMBOL_KEY);
+        assertEq(symbol, "TEST", "Symbol should be TEST");
+
+        // Verify the string array with reference was resolved
+        string[] memory tags = loader.getStringArray(JSON_CONFIG_TAGS_KEY);
+        assertEq(tags.length, 3, "Tags should have 3 elements");
+        assertEq(tags[0], "tag1", "First tag should be tag1");
+        assertEq(tags[1], "TEST", "Second tag should resolve to symbol value");
+        assertEq(tags[2], "tag3", "Third tag should be tag3");
+    }
 }
