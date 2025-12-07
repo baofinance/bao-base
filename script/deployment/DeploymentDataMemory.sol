@@ -28,7 +28,7 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
         bytes memory b = bytes(s);
         require(b.length == 42, "Invalid address length");
         require(b[0] == "0" && (b[1] == "x" || b[1] == "X"), "Missing 0x prefix");
-        
+
         uint160 result = 0;
         for (uint256 i = 2; i < 42; i++) {
             uint8 digit = _hexCharToUint8(b[i]);
@@ -199,12 +199,6 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
             return _getAddress(string.concat(key, ".address"));
         }
         return _getAddress(key);
-    }
-
-    /// @notice Get address array, resolving STRING_ARRAY keys as references
-    function _getArray(string memory key) internal view returns (address[] memory result) {
-        // TODO: need to have the ability to lookup contracts*.address here
-        result = _getAddressArray(key);
     }
 
     function _has(string memory key) internal view returns (bool) {

@@ -211,7 +211,7 @@ contract DeploymentAddressStorageTest is BaoTest {
 
     function test_SetAddress_StoresAsChecksummedHex() public {
         harness.setAddress("treasury", TREASURY);
-        
+
         string memory raw = harness.getAddressRaw("treasury");
         // Should be checksummed hex string
         assertEq(bytes(raw).length, 42, "Should be 42 chars (0x + 40 hex)");
@@ -220,7 +220,7 @@ contract DeploymentAddressStorageTest is BaoTest {
 
     function test_SetAddress_ResolvesToOriginal() public {
         harness.setAddress("treasury", TREASURY);
-        
+
         address resolved = harness.getAddressResolved("treasury");
         assertEq(resolved, TREASURY);
     }
@@ -229,7 +229,7 @@ contract DeploymentAddressStorageTest is BaoTest {
 
     function test_SetAddressFromString_LiteralAddress() public {
         harness.setAddressFromString("treasury", "0x3dFc49e5112005179Da613BdE5973229082dAc35");
-        
+
         address resolved = harness.getAddressResolved("treasury");
         assertEq(resolved, TREASURY);
     }
@@ -237,7 +237,7 @@ contract DeploymentAddressStorageTest is BaoTest {
     function test_SetAddressFromString_LiteralAddressRawPreserved() public {
         string memory input = "0x3dFc49e5112005179Da613BdE5973229082dAc35";
         harness.setAddressFromString("treasury", input);
-        
+
         string memory raw = harness.getAddressRaw("treasury");
         assertEq(raw, input, "Raw value should be preserved exactly");
     }
@@ -247,14 +247,14 @@ contract DeploymentAddressStorageTest is BaoTest {
     function test_SetAddressFromString_KeyReference() public {
         // First set the referenced key
         harness.setAddress("treasury", TREASURY);
-        
+
         // Now set another key as a reference
         harness.setAddressFromString("contracts.minter.feeReceiver", "treasury");
-        
+
         // Raw should be the reference string
         string memory raw = harness.getAddressRaw("contracts.minter.feeReceiver");
         assertEq(raw, "treasury");
-        
+
         // Resolved should be the treasury address
         address resolved = harness.getAddressResolved("contracts.minter.feeReceiver");
         assertEq(resolved, TREASURY);
@@ -263,10 +263,10 @@ contract DeploymentAddressStorageTest is BaoTest {
     function test_SetAddressFromString_ChainedReference_SingleLevel() public {
         // treasury -> actual address
         harness.setAddress("treasury", TREASURY);
-        
+
         // feeReceiver -> treasury (reference)
         harness.setAddressFromString("contracts.minter.feeReceiver", "treasury");
-        
+
         // Resolution should work
         address resolved = harness.getAddressResolved("contracts.minter.feeReceiver");
         assertEq(resolved, TREASURY);
@@ -281,7 +281,7 @@ contract DeploymentAddressStorageTest is BaoTest {
 
     function test_ResolveAddressValue_KeyReference() public {
         harness.setAddress("treasury", TREASURY);
-        
+
         address result = harness.resolveAddressValue("treasury");
         assertEq(result, TREASURY);
     }
@@ -294,7 +294,7 @@ contract DeploymentAddressStorageTest is BaoTest {
 
     function test_TryResolveAddressValue_ReferenceSuccess() public {
         harness.setAddress("treasury", TREASURY);
-        
+
         (bool success, address result) = harness.tryResolveAddressValue("treasury");
         assertTrue(success);
         assertEq(result, TREASURY);
@@ -310,7 +310,7 @@ contract DeploymentAddressStorageTest is BaoTest {
         // Set up: a -> b -> actual (but we only support single level)
         harness.setAddress("treasury", TREASURY);
         harness.setAddressFromString("contracts.minter.feeReceiver", "treasury");
-        
+
         // This should work - single level lookup
         (bool success, address result) = harness.tryResolveAddressValue("contracts.minter.feeReceiver");
         assertTrue(success);
@@ -338,9 +338,9 @@ contract DeploymentAddressArrayTest is BaoTest {
         address[] memory addrs = new address[](2);
         addrs[0] = ADDR1;
         addrs[1] = ADDR2;
-        
+
         harness.setAddressArray("contracts.validators", addrs);
-        
+
         string[] memory raw = harness.getAddressArrayRaw("contracts.validators");
         assertEq(raw.length, 2);
         assertEq(bytes(raw[0]).length, 42);
@@ -351,9 +351,9 @@ contract DeploymentAddressArrayTest is BaoTest {
         address[] memory addrs = new address[](2);
         addrs[0] = ADDR1;
         addrs[1] = ADDR2;
-        
+
         harness.setAddressArray("contracts.validators", addrs);
-        
+
         address[] memory resolved = harness.getAddressArrayResolved("contracts.validators");
         assertEq(resolved.length, 2);
         assertEq(resolved[0], ADDR1);
@@ -366,9 +366,9 @@ contract DeploymentAddressArrayTest is BaoTest {
         string[] memory strs = new string[](2);
         strs[0] = "0x1111111111111111111111111111111111111111";
         strs[1] = "0x2222222222222222222222222222222222222222";
-        
+
         harness.setAddressArrayFromStrings("contracts.validators", strs);
-        
+
         address[] memory resolved = harness.getAddressArrayResolved("contracts.validators");
         assertEq(resolved.length, 2);
         assertEq(resolved[0], ADDR1);
@@ -381,19 +381,19 @@ contract DeploymentAddressArrayTest is BaoTest {
         // Set up referenced keys
         harness.setAddress("treasury", TREASURY);
         harness.setAddress("owner", ADDR1);
-        
+
         // Array with references
         string[] memory strs = new string[](2);
         strs[0] = "treasury";
         strs[1] = "owner";
-        
+
         harness.setAddressArrayFromStrings("contracts.recipients", strs);
-        
+
         // Raw should preserve references
         string[] memory raw = harness.getAddressArrayRaw("contracts.recipients");
         assertEq(raw[0], "treasury");
         assertEq(raw[1], "owner");
-        
+
         // Resolved should be actual addresses
         address[] memory resolved = harness.getAddressArrayResolved("contracts.recipients");
         assertEq(resolved[0], TREASURY);
@@ -403,15 +403,15 @@ contract DeploymentAddressArrayTest is BaoTest {
     function test_SetAddressArrayFromStrings_MixedLiteralsAndReferences() public {
         // Set up referenced key
         harness.setAddress("treasury", TREASURY);
-        
+
         // Array with mix of literal and reference
         string[] memory strs = new string[](3);
-        strs[0] = "0x1111111111111111111111111111111111111111";  // literal
-        strs[1] = "treasury";                                     // reference
-        strs[2] = "0x2222222222222222222222222222222222222222";  // literal
-        
+        strs[0] = "0x1111111111111111111111111111111111111111"; // literal
+        strs[1] = "treasury"; // reference
+        strs[2] = "0x2222222222222222222222222222222222222222"; // literal
+
         harness.setAddressArrayFromStrings("contracts.recipients", strs);
-        
+
         address[] memory resolved = harness.getAddressArrayResolved("contracts.recipients");
         assertEq(resolved.length, 3);
         assertEq(resolved[0], ADDR1);
@@ -424,7 +424,7 @@ contract DeploymentAddressArrayTest is BaoTest {
     function test_SetAddressArray_Empty() public {
         address[] memory addrs = new address[](0);
         harness.setAddressArray("contracts.validators", addrs);
-        
+
         address[] memory resolved = harness.getAddressArrayResolved("contracts.validators");
         assertEq(resolved.length, 0);
     }
@@ -437,11 +437,11 @@ contract DeploymentAddressArrayTest is BaoTest {
         first[1] = ADDR2;
         first[2] = TREASURY;
         harness.setAddressArray("contracts.validators", first);
-        
+
         address[] memory second = new address[](1);
         second[0] = TREASURY;
         harness.setAddressArray("contracts.validators", second);
-        
+
         address[] memory resolved = harness.getAddressArrayResolved("contracts.validators");
         assertEq(resolved.length, 1);
         assertEq(resolved[0], TREASURY);
@@ -467,14 +467,14 @@ contract DeploymentAddressEdgeCasesTest is BaoTest {
     function test_ResolveReferenceToUnsetKeyReverts() public {
         // Set a reference to a key that doesn't exist
         harness.setAddressFromString("contracts.minter.feeReceiver", "nonexistent");
-        
+
         // Try to resolve should revert when looking up the reference
         vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, "nonexistent"));
         harness.getAddressResolved("contracts.minter.feeReceiver");
     }
 
     function test_TryResolve_DoesNotRevert_OnMissingKey() public view {
-        (bool success,) = harness.tryResolveAddressValue("missing.key");
+        (bool success, ) = harness.tryResolveAddressValue("missing.key");
         assertFalse(success);
     }
 
@@ -485,10 +485,10 @@ contract DeploymentAddressEdgeCasesTest is BaoTest {
 
     function test_SetAndGetSameAddressMultipleTimes() public {
         address expected = 0xcafE000000000000000000000000000000000001;
-        
+
         harness.setAddress("treasury", expected);
         assertEq(harness.getAddressResolved("treasury"), expected);
-        
+
         // Overwrite
         address expected2 = 0xdEaD000000000000000000000000000000000002;
         harness.setAddress("treasury", expected2);
@@ -498,17 +498,17 @@ contract DeploymentAddressEdgeCasesTest is BaoTest {
     function test_ReferenceUpdatesProperly() public {
         address treasury1 = 0x1111111111111111111111111111111111111111;
         address treasury2 = 0x2222222222222222222222222222222222222222;
-        
+
         // Set treasury
         harness.setAddress("treasury", treasury1);
-        
+
         // Set feeReceiver as reference to treasury
         harness.setAddressFromString("contracts.minter.feeReceiver", "treasury");
         assertEq(harness.getAddressResolved("contracts.minter.feeReceiver"), treasury1);
-        
+
         // Update treasury
         harness.setAddress("treasury", treasury2);
-        
+
         // feeReceiver should now resolve to new treasury
         assertEq(harness.getAddressResolved("contracts.minter.feeReceiver"), treasury2);
     }
