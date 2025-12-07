@@ -142,33 +142,32 @@ abstract contract DeploymentKeys {
     }
 
     /**
-     * @notice Register a nested address key (contains dots)
+     * @notice Register an address key
      * @dev For addresses in hierarchical configs like "pegged.implementation"
-     *      Requires parent CONTRACT key to be registered first
-     *      ADDRESS type keys MUST contain dots to distinguish from CONTRACT type
-     * @param key The key name (e.g., "pegged.implementation") - must contain dots
+     *      If nested (contains dots), requires parent CONTRACT key to be registered first
+     * @param key The key name (e.g., "treasury" or "pegged.implementation")
      * @return key Returns the key for use in constant declarations
      */
     function addAddressKey(string memory key) internal returns (string memory) {
-        _validateNestedKey(key, DataType.ADDRESS, "ADDRESS");
+        _validateDataKey(key, DataType.ADDRESS);
         return key;
     }
 
     /**
      * @notice Register a string key
-     * @dev String keys MUST have dots and belong to a parent CONTRACT
-     * @param key The key name (e.g., "pegged.symbol") - must contain dots
+     * @dev If nested (contains dots), requires parent CONTRACT key to be registered first
+     * @param key The key name (e.g., "pegged.symbol")
      * @return key Returns the key for use in constant declarations
      */
     function addStringKey(string memory key) internal returns (string memory) {
-        _validateNestedKey(key, DataType.STRING, "STRING");
+        _validateDataKey(key, DataType.STRING);
         return key;
     }
 
     /**
      * @notice Register a uint key with auto-scaling
-     * @dev UINT keys MUST have dots and belong to a parent CONTRACT
-     * @param key The key name (e.g., "pegged.decimals") - must contain dots
+     * @dev If nested (contains dots), requires parent CONTRACT key to be registered first
+     * @param key The key name (e.g., "pegged.decimals")
      * @return key Returns the key for use in constant declarations
      */
     function addUintKey(string memory key) internal returns (string memory) {
@@ -177,21 +176,21 @@ abstract contract DeploymentKeys {
 
     /**
      * @notice Register a uint key with fixed decimal scaling
-     * @dev UINT keys MUST have dots and belong to a parent CONTRACT
-     * @param key The key name (e.g., "pegged.totalSupply") - must contain dots
+     * @dev If nested (contains dots), requires parent CONTRACT key to be registered first
+     * @param key The key name (e.g., "pegged.totalSupply")
      * @param decimals The decimal places for formatting (e.g., 18 for token amounts)
      * @return key Returns the key for use in constant declarations
      */
     function addUintKey(string memory key, uint256 decimals) internal returns (string memory) {
-        _validateNestedKey(key, DataType.UINT, "UINT");
+        _validateDataKey(key, DataType.UINT);
         _keyDecimals[key] = decimals;
         return key;
     }
 
     /**
      * @notice Register an int key with auto-scaling
-     * @dev INT keys MUST have dots and belong to a parent CONTRACT
-     * @param key The key name (e.g., "pegged.offset") - must contain dots
+     * @dev If nested (contains dots), requires parent CONTRACT key to be registered first
+     * @param key The key name (e.g., "pegged.offset")
      * @return key Returns the key for use in constant declarations
      */
     function addIntKey(string memory key) internal returns (string memory) {
@@ -200,54 +199,54 @@ abstract contract DeploymentKeys {
 
     /**
      * @notice Register an int key with fixed decimal scaling
-     * @dev INT keys MUST have dots and belong to a parent CONTRACT
-     * @param key The key name (e.g., "config.delta") - must contain dots
+     * @dev If nested (contains dots), requires parent CONTRACT key to be registered first
+     * @param key The key name (e.g., "config.delta")
      * @param decimals The decimal places for formatting (e.g., 18 for token amounts)
      * @return key Returns the key for use in constant declarations
      */
     function addIntKey(string memory key, uint256 decimals) internal returns (string memory) {
-        _validateNestedKey(key, DataType.INT, "INT");
+        _validateDataKey(key, DataType.INT);
         _keyDecimals[key] = decimals;
         return key;
     }
 
     /**
      * @notice Register a bool key
-     * @dev BOOL keys MUST have dots and belong to a parent CONTRACT
-     * @param key The key name (e.g., "pegged.enabled") - must contain dots
+     * @dev If nested (contains dots), requires parent CONTRACT key to be registered first
+     * @param key The key name (e.g., "pegged.enabled")
      * @return key Returns the key for use in constant declarations
      */
     function addBoolKey(string memory key) internal returns (string memory) {
-        _validateNestedKey(key, DataType.BOOL, "BOOL");
+        _validateDataKey(key, DataType.BOOL);
         return key;
     }
 
     /**
      * @notice Register an address array key
-     * @dev ADDRESS_ARRAY keys MUST have dots and belong to a parent CONTRACT
-     * @param key The key name (e.g., "token.validators") - must contain dots
+     * @dev If nested (contains dots), requires parent CONTRACT key to be registered first
+     * @param key The key name (e.g., "token.validators")
      * @return key Returns the key for use in constant declarations
      */
     function addAddressArrayKey(string memory key) internal returns (string memory) {
-        _validateNestedKey(key, DataType.ADDRESS_ARRAY, "ADDRESS_ARRAY");
+        _validateDataKey(key, DataType.ADDRESS_ARRAY);
         return key;
     }
 
     /**
      * @notice Register a string array key
-     * @dev STRING_ARRAY keys MUST have dots and belong to a parent CONTRACT
-     * @param key The key name (e.g., "token.tags") - must contain dots
+     * @dev If nested (contains dots), requires parent CONTRACT key to be registered first
+     * @param key The key name (e.g., "token.tags")
      * @return key Returns the key for use in constant declarations
      */
     function addStringArrayKey(string memory key) internal returns (string memory) {
-        _validateNestedKey(key, DataType.STRING_ARRAY, "STRING_ARRAY");
+        _validateDataKey(key, DataType.STRING_ARRAY);
         return key;
     }
 
     /**
      * @notice Register a uint array key with auto-scaling
-     * @dev UINT_ARRAY keys MUST have dots and belong to a parent CONTRACT
-     * @param key The key name (e.g., "token.limits") - must contain dots
+     * @dev If nested (contains dots), requires parent CONTRACT key to be registered first
+     * @param key The key name (e.g., "token.limits")
      * @return key Returns the key for use in constant declarations
      */
     function addUintArrayKey(string memory key) internal returns (string memory) {
@@ -256,21 +255,21 @@ abstract contract DeploymentKeys {
 
     /**
      * @notice Register a uint array key with fixed decimal scaling
-     * @dev UINT_ARRAY keys MUST have dots and belong to a parent CONTRACT
-     * @param key The key name (e.g., "token.amounts") - must contain dots
+     * @dev If nested (contains dots), requires parent CONTRACT key to be registered first
+     * @param key The key name (e.g., "token.amounts")
      * @param decimals The decimal places for formatting (e.g., 18 for token amounts)
      * @return key Returns the key for use in constant declarations
      */
     function addUintArrayKey(string memory key, uint256 decimals) internal returns (string memory) {
-        _validateNestedKey(key, DataType.UINT_ARRAY, "UINT_ARRAY");
+        _validateDataKey(key, DataType.UINT_ARRAY);
         _keyDecimals[key] = decimals;
         return key;
     }
 
     /**
      * @notice Register an int array key with auto-scaling
-     * @dev INT_ARRAY keys MUST have dots and belong to a parent CONTRACT
-     * @param key The key name (e.g., "token.deltas") - must contain dots
+     * @dev If nested (contains dots), requires parent CONTRACT key to be registered first
+     * @param key The key name (e.g., "token.deltas")
      * @return key Returns the key for use in constant declarations
      */
     function addIntArrayKey(string memory key) internal returns (string memory) {
@@ -279,13 +278,13 @@ abstract contract DeploymentKeys {
 
     /**
      * @notice Register an int array key with fixed decimal scaling
-     * @dev INT_ARRAY keys MUST have dots and belong to a parent CONTRACT
-     * @param key The key name (e.g., "config.offsets") - must contain dots
+     * @dev If nested (contains dots), requires parent CONTRACT key to be registered first
+     * @param key The key name (e.g., "config.offsets")
      * @param decimals The decimal places for formatting (e.g., 18 for token amounts)
      * @return key Returns the key for use in constant declarations
      */
     function addIntArrayKey(string memory key, uint256 decimals) internal returns (string memory) {
-        _validateNestedKey(key, DataType.INT_ARRAY, "INT_ARRAY");
+        _validateDataKey(key, DataType.INT_ARRAY);
         _keyDecimals[key] = decimals;
         return key;
     }
@@ -407,16 +406,17 @@ abstract contract DeploymentKeys {
     }
 
     /**
-     * @notice Validate and register a nested key (must contain dots)
+     * @notice Validate and register a data key
      * @dev Common pattern for ADDRESS, STRING, UINT, INT, BOOL, and array types
-     * @param key The key name (must contain dots)
+     *      If the key contains dots (nested), validates parent CONTRACT exists
+     * @param key The key name (e.g., "treasury" or "pegged.symbol")
      * @param expectedType The expected type for this key
-     * @param typeName The type name for error messages
      */
-    function _validateNestedKey(string memory key, DataType expectedType, string memory typeName) private {
+    function _validateDataKey(string memory key, DataType expectedType) private {
         _validateKeyFormat(key);
-        require(_hasDots(key), string.concat(typeName, " keys must contain dots"));
-        _validateParentContract(key);
+        if (_hasDots(key)) {
+            _validateParentContract(key);
+        }
         _registerKey(key, expectedType);
     }
 

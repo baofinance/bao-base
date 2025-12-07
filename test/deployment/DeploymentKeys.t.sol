@@ -232,31 +232,30 @@ contract DeploymentKeysTest is BaoTest {
         assertEq(key, "contracts.token");
     }
 
-    // ============ Non-CONTRACT Keys Must Have Dots Tests ============
+    // ============ Top-Level Data Keys (Without Dots) Tests ============
 
-    function test_RevertStringKeyWithoutDots() public {
-        vm.expectRevert("STRING keys must contain dots");
-        keys.addTestStringKey("symbol");
+    function test_StringKeyWithoutDots() public {
+        // STRING keys can be top-level (no dots)
+        string memory key = keys.addTestStringKey("symbol");
+        assertEq(key, "symbol");
     }
 
-    function test_RevertUintKeyWithoutDots() public {
-        vm.expectRevert("UINT keys must contain dots");
-        keys.addTestUintKey("decimals");
+    function test_UintKeyWithoutDots() public {
+        // UINT keys can be top-level (no dots)
+        string memory key = keys.addTestUintKey("decimals");
+        assertEq(key, "decimals");
     }
 
-    function test_RevertAddressKeyWithoutDots() public {
-        vm.expectRevert("ADDRESS keys must contain dots");
-        keys.addTestAddressKey("implementation");
+    function test_AddressKeyWithoutDots() public {
+        // ADDRESS keys can be top-level (no dots)
+        string memory key = keys.addTestAddressKey("treasury");
+        assertEq(key, "treasury");
     }
 
     // ============ Parent Type Validation Tests ============
 
     function test_RevertWhenParentIsNotContract() public {
-        // Add a STRING key (not CONTRACT) as root
-        // This should fail because we can't add "symbol" as STRING (must have dots)
-        // So instead, test adding nested key when root is not registered
-
-        // Try to add nested key where root parent doesn't exist at all
+        // Try to add nested key where parent doesn't exist
         vm.expectRevert();
         keys.addTestStringKey(_ck("nonexistent.symbol"));
     }
