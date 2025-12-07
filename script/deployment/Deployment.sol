@@ -702,7 +702,7 @@ abstract contract Deployment is DeploymentDataMemory {
     }
 
     function _expect(address actual, string memory key) internal view {
-        _expect(LibString.toHexStringChecksummed(actual), LibString.toHexStringChecksummed(_getAddress(key)), key);
+        _expect(LibString.toHexStringChecksummed(actual), LibString.toHexStringChecksummed(_get(key)), key);
     }
 
     function _expect(uint256 actual, string memory key) internal view {

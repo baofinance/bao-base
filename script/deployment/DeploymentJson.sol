@@ -252,10 +252,9 @@ abstract contract DeploymentJson is Deployment {
                 continue;
             }
             if (expected == DataType.ADDRESS) {
-                // Address stored as string in JSON - resolve reference if present
+                // Store raw string (either "0x..." literal or key reference) - resolution happens on read
                 string memory rawValue = existingJson.readString(pointer);
-                string memory resolved = _resolveReference(existingJson, rawValue);
-                _setAddress(key, VM.parseAddress(resolved));
+                _setAddressFromString(key, rawValue);
             } else if (expected == DataType.STRING) {
                 string memory rawValue = existingJson.readString(pointer);
                 _setString(key, _resolveReference(existingJson, rawValue));
@@ -266,14 +265,8 @@ abstract contract DeploymentJson is Deployment {
             } else if (expected == DataType.BOOL) {
                 _setBool(key, existingJson.readBool(pointer));
             } else if (expected == DataType.ADDRESS_ARRAY) {
-                // Address array stored as string array - resolve references
-                string[] memory rawValues = existingJson.readStringArray(pointer);
-                string[] memory resolved = _resolveReferences(existingJson, rawValues);
-                address[] memory addresses = new address[](resolved.length);
-                for (uint256 j = 0; j < resolved.length; j++) {
-                    addresses[j] = VM.parseAddress(resolved[j]);
-                }
-                _setAddressArray(key, addresses);
+                // Store raw string array - resolution happens on read
+                _setAddressArrayFromStrings(key, existingJson.readStringArray(pointer));
             } else if (expected == DataType.STRING_ARRAY) {
                 string[] memory rawValues = existingJson.readStringArray(pointer);
                 _setStringArray(key, _resolveReferences(existingJson, rawValues));
@@ -591,7 +584,7 @@ abstract contract DeploymentJson is Deployment {
             return "";
         }
         if (valueType == DataType.ADDRESS) {
-            return _encodeAddressValue(_addresses[key]);
+            return _encodeAddressKey(key);
         }
         if (valueType == DataType.STRING) {
             return _encodeStringValue(_strings[key]);
@@ -606,7 +599,7 @@ abstract contract DeploymentJson is Deployment {
             return _bools[key] ? "true" : "false";
         }
         if (valueType == DataType.ADDRESS_ARRAY) {
-            return _encodeAddressArrayValue(_addressArrays[key]);
+            return _encodeAddressArrayKey(key);
         }
         if (valueType == DataType.STRING_ARRAY) {
             return _encodeStringArrayValue(_stringArrays[key]);
@@ -622,6 +615,40 @@ abstract contract DeploymentJson is Deployment {
 
     function _encodeAddressValue(address value) private pure returns (string memory) {
         return string.concat('"', LibString.toHexString(uint160(value), 20), '"');
+    }
+
+    /// @notice Encode address key with lenient resolution
+    /// @dev Tries to resolve to actual address; falls back to raw string if lookup fails
+    function _encodeAddressKey(string memory key) private view returns (string memory) {
+        string memory raw = _getAddressRaw(key);
+        (bool success, address resolved) = _tryResolveAddressValue(raw);
+        if (success) {
+            return _encodeAddressValue(resolved);
+        }
+        // Fallback: output the raw reference string
+        return string.concat('"', raw, '"');
+    }
+
+    /// @notice Encode address array key with lenient resolution
+    /// @dev Tries to resolve each element; falls back to raw string if lookup fails
+    function _encodeAddressArrayKey(string memory key) private view returns (string memory) {
+        string[] memory raw = _getAddressArrayRaw(key);
+        if (raw.length == 0) {
+            return "[]";
+        }
+        string memory json = "[";
+        for (uint256 i = 0; i < raw.length; i++) {
+            (bool success, address resolved) = _tryResolveAddressValue(raw[i]);
+            string memory encoded;
+            if (success) {
+                encoded = _encodeAddressValue(resolved);
+            } else {
+                // Fallback: output the raw reference string
+                encoded = string.concat('"', raw[i], '"');
+            }
+            json = string.concat(json, i == 0 ? "" : ",", encoded);
+        }
+        return string.concat(json, "]");
     }
 
     function _encodeStringValue(string memory value) private returns (string memory) {
