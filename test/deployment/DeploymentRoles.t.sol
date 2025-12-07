@@ -61,6 +61,33 @@ contract MockDeploymentRoles is DeploymentJsonTesting {
     function setContractAddress(string memory key, address addr) external {
         _set(key, addr);
     }
+
+    /// @notice Expose _expectRolesOf for testing
+    function expectRolesOf(
+        uint256 actualBitmap,
+        string memory contractKey,
+        string[] memory roleNames,
+        string memory granteeKey
+    ) external view {
+        _expectRolesOf(actualBitmap, contractKey, roleNames, granteeKey);
+    }
+
+    /// @notice Expose _roles helpers for testing
+    function roles(string memory role1) external pure returns (string[] memory) {
+        return _roles(role1);
+    }
+
+    function roles(string memory role1, string memory role2) external pure returns (string[] memory) {
+        return _roles(role1, role2);
+    }
+
+    function roles(
+        string memory role1,
+        string memory role2,
+        string memory role3
+    ) external pure returns (string[] memory) {
+        return _roles(role1, role2, role3);
+    }
 }
 
 // ============================================================================
@@ -328,5 +355,128 @@ contract DeploymentRolesRoundTripTest is DeploymentRolesSetup {
             newDeployment.computeExpectedRoles("contracts.pegged", "contracts.hub"),
             1 // MINTER_ROLE only
         );
+    }
+}
+
+// ============================================================================
+// _expectRolesOf Verification Tests
+// ============================================================================
+
+contract DeploymentRolesExpectTest is DeploymentRolesSetup {
+    /// @notice Test that _expectRolesOf passes when bitmap matches expected roles
+    function test_ExpectRolesOf_PassesWhenMatches() public {
+        // Setup: register roles and grantees
+        deployment.registerRole("contracts.pegged", "MINTER_ROLE", 1);
+        deployment.registerRole("contracts.pegged", "BURNER_ROLE", 2);
+        deployment.registerGrantee("contracts.minter", "contracts.pegged", "MINTER_ROLE");
+        deployment.registerGrantee("contracts.minter", "contracts.pegged", "BURNER_ROLE");
+
+        // Simulate on-chain bitmap (MINTER_ROLE | BURNER_ROLE = 1 | 2 = 3)
+        uint256 actualBitmap = 3;
+
+        // This should pass (log success, not revert)
+        // We can't easily assert console2.log output, but we verify it doesn't revert
+        deployment.expectRolesOf(
+            actualBitmap,
+            "contracts.pegged",
+            deployment.roles("MINTER_ROLE", "BURNER_ROLE"),
+            "contracts.minter"
+        );
+    }
+
+    /// @notice Test with single role
+    function test_ExpectRolesOf_SingleRole() public {
+        deployment.registerRole("contracts.pegged", "MINTER_ROLE", 1);
+        deployment.registerGrantee("contracts.minter", "contracts.pegged", "MINTER_ROLE");
+
+        uint256 actualBitmap = 1;
+
+        deployment.expectRolesOf(actualBitmap, "contracts.pegged", deployment.roles("MINTER_ROLE"), "contracts.minter");
+    }
+
+    /// @notice Test with three roles
+    function test_ExpectRolesOf_ThreeRoles() public {
+        deployment.registerRole("contracts.pegged", "MINTER_ROLE", 1);
+        deployment.registerRole("contracts.pegged", "BURNER_ROLE", 2);
+        deployment.registerRole("contracts.pegged", "ADMIN_ROLE", 4);
+        deployment.registerGrantee("contracts.minter", "contracts.pegged", "MINTER_ROLE");
+        deployment.registerGrantee("contracts.minter", "contracts.pegged", "BURNER_ROLE");
+        deployment.registerGrantee("contracts.minter", "contracts.pegged", "ADMIN_ROLE");
+
+        uint256 actualBitmap = 7; // 1 | 2 | 4
+
+        deployment.expectRolesOf(
+            actualBitmap,
+            "contracts.pegged",
+            deployment.roles("MINTER_ROLE", "BURNER_ROLE", "ADMIN_ROLE"),
+            "contracts.minter"
+        );
+    }
+
+    /// @notice Test that _expectRolesOf logs error when bitmap doesn't match
+    /// @dev We can't assert console2.log output, but we verify it doesn't revert
+    ///      and the function completes (it logs errors instead of reverting)
+    function test_ExpectRolesOf_LogsErrorWhenBitmapMismatch() public {
+        deployment.registerRole("contracts.pegged", "MINTER_ROLE", 1);
+        deployment.registerRole("contracts.pegged", "BURNER_ROLE", 2);
+        deployment.registerGrantee("contracts.minter", "contracts.pegged", "MINTER_ROLE");
+        deployment.registerGrantee("contracts.minter", "contracts.pegged", "BURNER_ROLE");
+
+        // Wrong bitmap - actual has extra role bit set
+        uint256 wrongBitmap = 7; // Expected 3 (1 | 2)
+
+        // This logs an error but doesn't revert
+        deployment.expectRolesOf(
+            wrongBitmap,
+            "contracts.pegged",
+            deployment.roles("MINTER_ROLE", "BURNER_ROLE"),
+            "contracts.minter"
+        );
+    }
+
+    /// @notice Test that _expectRolesOf logs error when grantee not recorded
+    function test_ExpectRolesOf_LogsErrorWhenGranteeNotRecorded() public {
+        deployment.registerRole("contracts.pegged", "MINTER_ROLE", 1);
+        deployment.registerRole("contracts.pegged", "BURNER_ROLE", 2);
+        // Only register MINTER_ROLE grantee, not BURNER_ROLE
+        deployment.registerGrantee("contracts.minter", "contracts.pegged", "MINTER_ROLE");
+
+        // Correct bitmap
+        uint256 actualBitmap = 3;
+
+        // This logs an error (grantee not recorded for BURNER_ROLE) but doesn't revert
+        deployment.expectRolesOf(
+            actualBitmap,
+            "contracts.pegged",
+            deployment.roles("MINTER_ROLE", "BURNER_ROLE"),
+            "contracts.minter"
+        );
+    }
+}
+
+// ============================================================================
+// _roles Helper Tests
+// ============================================================================
+
+contract DeploymentRolesHelperTest is DeploymentRolesSetup {
+    function test_Roles_SingleElement() public view {
+        string[] memory arr = deployment.roles("MINTER_ROLE");
+        assertEq(arr.length, 1);
+        assertEq(arr[0], "MINTER_ROLE");
+    }
+
+    function test_Roles_TwoElements() public view {
+        string[] memory arr = deployment.roles("MINTER_ROLE", "BURNER_ROLE");
+        assertEq(arr.length, 2);
+        assertEq(arr[0], "MINTER_ROLE");
+        assertEq(arr[1], "BURNER_ROLE");
+    }
+
+    function test_Roles_ThreeElements() public view {
+        string[] memory arr = deployment.roles("MINTER_ROLE", "BURNER_ROLE", "ADMIN_ROLE");
+        assertEq(arr.length, 3);
+        assertEq(arr[0], "MINTER_ROLE");
+        assertEq(arr[1], "BURNER_ROLE");
+        assertEq(arr[2], "ADMIN_ROLE");
     }
 }

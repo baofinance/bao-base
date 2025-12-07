@@ -784,23 +784,91 @@ abstract contract Deployment is DeploymentDataMemory {
         _expect(actualValue, string.concat(contractKey, ".roles.", roleName, ".value"));
     }
 
-    /// @notice Verify on-chain roles match recorded role grants
-    /// @dev Computes expected bitmap from recorded grants and compares with actual
+    /// @notice Verify grantee has exactly the specified roles on a contract
+    /// @dev Performs two checks:
+    ///      1. On-chain bitmap matches the expected roles (from role names)
+    ///      2. Recorded grantees in memory match (granteeKey is in grantees list for each role)
     /// @param actualBitmap The actual roles bitmap from the contract (e.g., contract.rolesOf(grantee))
     /// @param contractKey The contract where roles are defined (e.g., "contracts.pegged")
+    /// @param roleNames Array of role names the grantee should have (e.g., ["MINTER_ROLE", "BURNER_ROLE"])
     /// @param granteeKey The grantee whose roles are being verified (e.g., "contracts.minter")
-    function _expectRolesOf(uint256 actualBitmap, string memory contractKey, string memory granteeKey) internal view {
-        uint256 expectedBitmap = _computeExpectedRoles(contractKey, granteeKey);
+    function _expectRolesOf(
+        uint256 actualBitmap,
+        string memory contractKey,
+        string[] memory roleNames,
+        string memory granteeKey
+    ) internal view {
+        // Compute expected bitmap from the provided role names
+        uint256 expectedBitmap = 0;
+        for (uint256 i = 0; i < roleNames.length; i++) {
+            expectedBitmap |= _getRoleValue(contractKey, roleNames[i]);
+        }
+
         string memory label = string.concat(granteeKey, " roles on ", contractKey);
 
-        if (actualBitmap == expectedBitmap) {
-            console2.log(string.concat(unicode"✓ ", label, " = 0x%x"), actualBitmap);
-        } else {
+        // Check 1: On-chain bitmap matches expected roles
+        if (actualBitmap != expectedBitmap) {
             console2.log(
-                string.concat("*** ERROR *** ", label, " = 0x%x; expected = 0x%x"),
+                string.concat("*** ERROR *** ", label, " = %x; expected = %x"),
                 actualBitmap,
                 expectedBitmap
             );
+            return;
         }
+
+        // Check 2: Verify recorded grantees match for each role
+        for (uint256 i = 0; i < roleNames.length; i++) {
+            string[] memory grantees = _getRoleGrantees(contractKey, roleNames[i]);
+            bool found = false;
+            for (uint256 j = 0; j < grantees.length; j++) {
+                if (LibString.eq(grantees[j], granteeKey)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                console2.log(
+                    string.concat(
+                        "*** ERROR *** ",
+                        granteeKey,
+                        " not recorded as grantee of ",
+                        roleNames[i],
+                        " on ",
+                        contractKey
+                    )
+                );
+                return;
+            }
+        }
+
+        console2.log(string.concat(unicode"✓ ", label, " = %x"), actualBitmap);
+    }
+
+    /// @notice Helper to create a single-element role names array
+    function _roles(string memory role1) internal pure returns (string[] memory) {
+        string[] memory roles = new string[](1);
+        roles[0] = role1;
+        return roles;
+    }
+
+    /// @notice Helper to create a two-element role names array
+    function _roles(string memory role1, string memory role2) internal pure returns (string[] memory) {
+        string[] memory roles = new string[](2);
+        roles[0] = role1;
+        roles[1] = role2;
+        return roles;
+    }
+
+    /// @notice Helper to create a three-element role names array
+    function _roles(
+        string memory role1,
+        string memory role2,
+        string memory role3
+    ) internal pure returns (string[] memory) {
+        string[] memory roles = new string[](3);
+        roles[0] = role1;
+        roles[1] = role2;
+        roles[2] = role3;
+        return roles;
     }
 }
