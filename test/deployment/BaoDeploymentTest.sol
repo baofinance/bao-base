@@ -66,20 +66,20 @@ abstract contract BaoDeploymentTest is BaoTest {
     /// @param network The network/test name (creates a subdirectory for this test's output)
     function _initDeploymentTest(string memory salt, string memory network) internal {
         string memory baseDir = DeploymentTestingOutput._getPrefix();
-        string memory deploymentDir_ = baseDir.concat("/deployments/").concat(salt);
-        string memory configPath = deploymentDir_.concat("/config.json");
+        string memory deploymentsDir = baseDir.concat("/deployments");
+        string memory configPath = deploymentsDir.concat("/").concat(salt).concat(".json");
 
         // Ensure base directory exists
-        vm.createDir(deploymentDir_, true);
+        vm.createDir(deploymentsDir, true);
 
         // Only write config if it doesn't exist - makes this idempotent for parallel tests
         if (!vm.exists(configPath)) {
             vm.writeJson('{"owner":"0x0000000000000000000000000000000000001234"}', configPath);
         }
 
-        // Create network subdirectory for this test's output
-        string memory networkDir = deploymentDir_.concat("/").concat(network);
-        vm.createDir(networkDir, true);
+        // Create output directory for this test's output (salt/network)
+        string memory outputDir = deploymentsDir.concat("/").concat(salt).concat("/").concat(network);
+        vm.createDir(outputDir, true);
     }
 
     /// @notice Verify that finish() properly recorded session completion metadata

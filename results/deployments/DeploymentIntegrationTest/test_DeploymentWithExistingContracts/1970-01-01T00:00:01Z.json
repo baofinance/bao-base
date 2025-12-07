@@ -4,6 +4,7 @@
   "systemSaltString": "DeploymentIntegrationTest",
   "session": {
     "network": "test_DeploymentWithExistingContracts",
+    "chainId": 31337,
     "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
     "startTimestamp": 1,
     "started": "1970-01-01T00:00:01Z",

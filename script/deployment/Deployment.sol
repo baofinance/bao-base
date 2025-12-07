@@ -127,6 +127,7 @@ abstract contract Deployment is DeploymentDataMemory {
 
         // Initialize session metadata
         _setString(SESSION_NETWORK, network);
+        _setUint(SESSION_CHAIN_ID, block.chainid);
         _setAddress(SESSION_DEPLOYER, deployer);
         console2.log("deployer = %s", deployer);
         _setUint(SESSION_START_TIMESTAMP, block.timestamp);
@@ -808,11 +809,7 @@ abstract contract Deployment is DeploymentDataMemory {
 
         // Check 1: On-chain bitmap matches expected roles
         if (actualBitmap != expectedBitmap) {
-            console2.log(
-                string.concat("*** ERROR *** ", label, " = %x; expected = %x"),
-                actualBitmap,
-                expectedBitmap
-            );
+            console2.log(string.concat("*** ERROR *** ", label, " = %x; expected = %x"), actualBitmap, expectedBitmap);
             return;
         }
 

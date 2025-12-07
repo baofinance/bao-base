@@ -17,7 +17,8 @@
     "finishTimestamp": 2000000,
     "startBlock": 200,
     "finishBlock": 200,
-    "network": "test_IncrementalDeployment"
+    "network": "test_IncrementalDeployment",
+    "chainId": 31337
   },
   "contracts": {
     "collateral": {

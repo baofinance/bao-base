@@ -79,8 +79,8 @@ abstract contract DeploymentJson is Deployment {
         return string.concat(_getPrefix(), "/deployments");
     }
 
-    function _getStartConfigDir() internal returns (string memory) {
-        return string.concat(_getRoot(), "/", _systemSaltString);
+    function _getConfigPath() internal returns (string memory) {
+        return string.concat(_getRoot(), "/", _systemSaltString, ".json");
     }
 
     function _getOutputConfigDir() internal returns (string memory) {
@@ -138,7 +138,7 @@ abstract contract DeploymentJson is Deployment {
         // Load initial data from the specified file
         string memory path;
         if (bytes(startPoint).length == 0 || startPoint.eq("first")) {
-            path = string.concat(_getStartConfigDir(), "/config.json");
+            path = _getConfigPath();
         } else if (startPoint.eq("latest")) {
             path = _findLatestFile();
         } else {

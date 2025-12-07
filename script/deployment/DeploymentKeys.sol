@@ -87,6 +87,7 @@ abstract contract DeploymentKeys {
     string public constant SESSION_START_BLOCK = "session.startBlock";
     string public constant SESSION_FINISH_BLOCK = "session.finishBlock";
     string public constant SESSION_NETWORK = "session.network";
+    string public constant SESSION_CHAIN_ID = "session.chainId";
 
     /**
      * @notice Initialize deployment keys with metadata keys
@@ -119,6 +120,7 @@ abstract contract DeploymentKeys {
         _registerKey(SESSION_START_BLOCK, DataType.UINT);
         _registerKey(SESSION_FINISH_BLOCK, DataType.UINT);
         _registerKey(SESSION_NETWORK, DataType.STRING);
+        _registerKey(SESSION_CHAIN_ID, DataType.UINT);
 
         // Contracts namespace root
         _registerKey("contracts", DataType.OBJECT);

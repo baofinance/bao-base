@@ -4,6 +4,7 @@
   "systemSaltString": "DeploymentProxyWorkflowTest",
   "session": {
     "network": "MultipleWritesWithProxyDeployment",
+    "chainId": 31337,
     "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
     "startTimestamp": 1,
     "started": "1970-01-01T00:00:01Z",
@@ -13,8 +14,7 @@
       "contractType": "UUPSProxyDeployStub",
       "contractPath": "script/deployment/UUPSProxyDeployStub.sol",
       "blockNumber": 1
-    },
-    "finishTimestamp": 1
+    }
   },
   "BaoFactory": "0x9d27691421bd705805f68eaaab19de0dd5217bf6",
   "contracts": {

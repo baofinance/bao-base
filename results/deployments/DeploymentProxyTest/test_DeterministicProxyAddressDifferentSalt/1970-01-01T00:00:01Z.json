@@ -4,6 +4,7 @@
   "systemSaltString": "DeploymentProxyTestDifferentSalt",
   "session": {
     "network": "test_DeterministicProxyAddressDifferentSalt",
+    "chainId": 31337,
     "deployer": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
     "startTimestamp": 1,
     "started": "1970-01-01T00:00:01Z",

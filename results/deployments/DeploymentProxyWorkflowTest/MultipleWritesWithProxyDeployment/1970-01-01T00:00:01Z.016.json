@@ -4,6 +4,7 @@
   "systemSaltString": "DeploymentProxyWorkflowTest",
   "session": {
     "network": "MultipleWritesWithProxyDeployment",
+    "chainId": 31337,
     "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
     "startTimestamp": 1,
     "started": "1970-01-01T00:00:01Z",
@@ -20,8 +21,7 @@
     "pegged": {
       "symbol": "USD",
       "name": "Harbor USD",
-      "owner": "0xaa10a84ce7d9ae517a52c6d5ca153b369af99ecf",
-      "address": "0x44b3ff22a2fcc856d89239975f0cc8e22124b4ae"
+      "owner": "0xaa10a84ce7d9ae517a52c6d5ca153b369af99ecf"
     }
   }
 }
