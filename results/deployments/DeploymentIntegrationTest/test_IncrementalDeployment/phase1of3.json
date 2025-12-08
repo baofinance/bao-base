@@ -19,7 +19,7 @@
     "finished": "1970-01-12T13:46:40Z",
     "finishBlock": 100
   },
-  "BaoFactory": "0x4b9196066225e2baaeb89128a6463a5845d14c72",
+  "BaoFactory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5",
   "contracts": {
     "collateral": {
       "address": "0x8d2c17fad02b7bb64139109c6533b7c2b9cadb81",

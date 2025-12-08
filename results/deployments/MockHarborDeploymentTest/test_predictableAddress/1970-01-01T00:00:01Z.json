@@ -16,18 +16,18 @@
       "blockNumber": 1
     }
   },
-  "BaoFactory": "0x4b9196066225e2baaeb89128a6463a5845d14c72",
+  "BaoFactory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5",
   "contracts": {
     "pegged": {
       "symbol": "GBP",
       "name": "Harbor Pound",
       "owner": "0xaa10a84ce7d9ae517a52c6d5ca153b369af99ecf",
-      "address": "0xac504e5f27a563f91de65588652b2207f4ab7727",
+      "address": "0xf0843f04e3c0fc9bc764ab0979dcd734eb8188ab",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "blockNumber": 1,
-      "factory": "0x4b9196066225e2baaeb89128a6463a5845d14c72",
+      "factory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5",
       "category": "UUPS proxy",
       "saltString": "pegged",
       "salt": "0x7cd720c5d320d8885cd6ebd3fa6bdd3f7a4e88daba1ede59b4c3562e8872a6e1",

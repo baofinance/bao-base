@@ -19,15 +19,15 @@
     "finished": "1970-01-01T00:00:01Z",
     "finishBlock": 1
   },
-  "BaoFactory": "0x4b9196066225e2baaeb89128a6463a5845d14c72",
+  "BaoFactory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5",
   "contracts": {
     "proxy1": {
-      "address": "0x62d461e5f440768e009b85f5d770a00a023482da",
+      "address": "0x2ec6eba70aa84c04e7b9dab815de68eff04c9867",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "blockNumber": 1,
-      "factory": "0x4b9196066225e2baaeb89128a6463a5845d14c72",
+      "factory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5",
       "category": "UUPS proxy",
       "saltString": "proxy1",
       "salt": "0xae819964217bc1643556604c9287d4b8b94566c949728143cd958b20821f0060",
@@ -41,12 +41,12 @@
       }
     },
     "proxy2": {
-      "address": "0x96b3d784fb7cf114ae8f1150203e1b32c43fa349",
+      "address": "0x450f7cb572080a55aee2b7b17df74f419dd4f115",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "blockNumber": 1,
-      "factory": "0x4b9196066225e2baaeb89128a6463a5845d14c72",
+      "factory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5",
       "category": "UUPS proxy",
       "saltString": "proxy2",
       "salt": "0xf67205144c79913a85adbf11333601eb55cce8d9e8ff0fab6d6a051163ff1b49",
@@ -60,12 +60,12 @@
       }
     },
     "proxy3": {
-      "address": "0xed1d3a4febd7c7622883223bab6524cea3807d7d",
+      "address": "0x9d8da4c153bcdb24bf39e5e7e6d219a5c44df2b3",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "blockNumber": 1,
-      "factory": "0x4b9196066225e2baaeb89128a6463a5845d14c72",
+      "factory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5",
       "category": "UUPS proxy",
       "saltString": "proxy3",
       "salt": "0xb3fb9817938edbff996bb2959648880a0b61de0844cc172b84a1b730e592318c",

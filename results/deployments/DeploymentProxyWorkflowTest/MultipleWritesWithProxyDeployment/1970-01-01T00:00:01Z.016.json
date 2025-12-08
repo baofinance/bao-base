@@ -16,7 +16,7 @@
       "blockNumber": 1
     }
   },
-  "BaoFactory": "0x4b9196066225e2baaeb89128a6463a5845d14c72",
+  "BaoFactory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5",
   "contracts": {
     "pegged": {
       "symbol": "USD",
