@@ -25,5 +25,7 @@
   "10": "optimism",
   "420": "optimism-goerli",
   "11155420": "optimism-sepolia",
-  "100": "xdai"
+  "100": "xdai",
+  "31337": "local"
 }
+
