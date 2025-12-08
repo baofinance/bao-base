@@ -11,7 +11,7 @@ import {LibString} from "@solady/utils/LibString.sol";
 /**
  * @title BaoDeploymentTest
  * @notice Base test class for deployment-related tests
- * @dev Extends BaoTest and sets up deployment infrastructure (Nick's Factory + BaoDeployer)
+ * @dev Extends BaoTest and sets up deployment infrastructure (Nick's Factory + BaoFactory)
  * @dev Test hierarchy:
  *      BaoTest (utility assertions)
  *        └─ BaoDeploymentTest (deployment infrastructure only)
@@ -29,7 +29,7 @@ import {LibString} from "@solady/utils/LibString.sol";
 abstract contract BaoDeploymentTest is BaoTest {
     using LibString for string;
 
-    address internal _baoDeployer;
+    address internal _baoFactory;
     address internal _baoMultisig;
 
     /**
@@ -50,9 +50,9 @@ abstract contract BaoDeploymentTest is BaoTest {
         vm.label(_baoMultisig, "_baoMultisig");
 
         // don't deploy it - that is the job of start()
-        // _baoDeployer = DeploymentInfrastructure._ensureBaoDeployer();
-        _baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
-        vm.label(_baoDeployer, "_baoDeployer");
+        // _baoFactory = DeploymentInfrastructure._ensureBaoFactory();
+        _baoFactory = DeploymentInfrastructure.predictBaoFactoryAddress();
+        vm.label(_baoFactory, "_baoFactory");
     }
 
     /// @notice Default test owner address

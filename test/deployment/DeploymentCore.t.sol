@@ -37,8 +37,8 @@ contract DeploymentCoreHarness is DeploymentMemoryTesting {
         start(network, salt, "");
     }
 
-    function ensureBaoDeployerExternal() external {
-        ensureBaoDeployer();
+    function ensureBaoFactoryExternal() external {
+        ensureBaoFactory();
     }
 
     function hasKey(string memory key) external view returns (bool) {
@@ -264,12 +264,12 @@ contract DeploymentCoreTest is BaoDeploymentTest {
     }
 }
 
-contract DeploymentEnsureBaoDeployerTest is BaoDeploymentTest {
+contract DeploymentEnsureBaoFactoryTest is BaoDeploymentTest {
     DeploymentCoreHarness public deployment;
-    string internal constant TEST_SALT = "DeploymentEnsureBaoDeployerTest";
+    string internal constant TEST_SALT = "DeploymentEnsureBaoFactoryTest";
 
     function setUp() public override {
-        // Install Nick's factory but skip DeploymentInfrastructure.ensureBaoDeployer to simulate missing deployer
+        // Install Nick's factory but skip DeploymentInfrastructure.ensureBaoFactory to simulate missing deployer
         if (DeploymentInfrastructure._NICKS_FACTORY.code.length == 0) {
             vm.etch(DeploymentInfrastructure._NICKS_FACTORY, DeploymentInfrastructure._NICKS_FACTORY_BYTECODE);
         }
@@ -279,17 +279,17 @@ contract DeploymentEnsureBaoDeployerTest is BaoDeploymentTest {
         deployment = new DeploymentCoreHarness();
     }
 
-    function test_EnsureBaoDeployerWithoutSession_() public {
-        deployment.registerTopLevelKey("BaoDeployer");
-        deployment.ensureBaoDeployerExternal();
-        assertFalse(deployment.hasKey("BaoDeployer"), "BaoDeployer stays unset off-session");
+    function test_EnsureBaoFactoryWithoutSession_() public {
+        deployment.registerTopLevelKey("BaoFactory");
+        deployment.ensureBaoFactoryExternal();
+        assertFalse(deployment.hasKey("BaoFactory"), "BaoFactory stays unset off-session");
     }
 
-    function test_EnsureBaoDeployerRequiresSchemaDuringSession_() public {
-        _initSessionEnsure("test_EnsureBaoDeployerRequiresSchemaDuringSession_");
-        deployment.registerTopLevelKey("BaoDeployer");
-        vm.expectRevert(abi.encodeWithSignature("KeyNotRegistered(string)", "BaoDeployer.address"));
-        deployment.ensureBaoDeployerExternal();
+    function test_EnsureBaoFactoryRequiresSchemaDuringSession_() public {
+        _initSessionEnsure("test_EnsureBaoFactoryRequiresSchemaDuringSession_");
+        deployment.registerTopLevelKey("BaoFactory");
+        vm.expectRevert(abi.encodeWithSignature("KeyNotRegistered(string)", "BaoFactory.address"));
+        deployment.ensureBaoFactoryExternal();
     }
 
     function _initSessionEnsure(string memory testName) internal {

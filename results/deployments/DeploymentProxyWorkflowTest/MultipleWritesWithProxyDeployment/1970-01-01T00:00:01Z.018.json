@@ -16,13 +16,13 @@
       "blockNumber": 1
     }
   },
-  "BaoFactory": "0x9d27691421bd705805f68eaaab19de0dd5217bf6",
+  "BaoFactory": "0x4b9196066225e2baaeb89128a6463a5845d14c72",
   "contracts": {
     "pegged": {
       "symbol": "USD",
       "name": "Harbor USD",
       "owner": "0xaa10a84ce7d9ae517a52c6d5ca153b369af99ecf",
-      "address": "0x44b3ff22a2fcc856d89239975f0cc8e22124b4ae",
+      "address": "0x3d4bbd2957cee04afbf22eca9ad23e394f3dc193",
       "contractType": "ERC1967Proxy"
     }
   }

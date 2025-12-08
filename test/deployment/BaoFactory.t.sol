@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
+import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
 import {FundedVault, NonPayableVault, FundedVaultUUPS} from "@bao-test/mocks/deployment/FundedVault.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 
@@ -18,8 +18,8 @@ contract SimpleContract {
     }
 }
 /*  */
-contract BaoDeployerTest is Test {
-    BaoDeployer internal deployer;
+contract BaoFactoryTest is Test {
+    BaoFactory internal deployer;
     address internal owner;
     address internal operator;
     address internal outsider;
@@ -29,7 +29,7 @@ contract BaoDeployerTest is Test {
         operator = makeAddr("operator");
         outsider = makeAddr("outsider");
 
-        deployer = new BaoDeployer(owner);
+        deployer = new BaoFactory(owner);
         deployer.setOperator(operator);
     }
 
@@ -50,14 +50,14 @@ contract BaoDeployerTest is Test {
     }
 
     function testRevertWhenOwnerIsZero() public {
-        vm.expectRevert(BaoDeployer.OwnerRequired.selector);
-        new BaoDeployer(address(0));
+        vm.expectRevert(BaoFactory.OwnerRequired.selector);
+        new BaoFactory(address(0));
     }
 
     function testSetOperatorOnlyOwner() public {
         address newOperator = makeAddr("new operator");
         vm.expectEmit(true, true, false, false);
-        emit BaoDeployer.OperatorUpdated(operator, newOperator);
+        emit BaoFactory.OperatorUpdated(operator, newOperator);
         deployer.setOperator(newOperator);
         assertEq(deployer.operator(), newOperator);
 
@@ -68,7 +68,7 @@ contract BaoDeployerTest is Test {
 
     function testCommitRevertWhenCommitmentZero() public {
         vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(BaoDeployer.CommitmentMismatch.selector, bytes32(0), bytes32(0)));
+        vm.expectRevert(abi.encodeWithSelector(BaoFactory.CommitmentMismatch.selector, bytes32(0), bytes32(0)));
         deployer.commit(bytes32(0));
     }
 
@@ -124,7 +124,7 @@ contract BaoDeployerTest is Test {
         bytes32 commitment = _commit(initCode, salt, 0);
 
         vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(BaoDeployer.CommitmentAlreadyExists.selector, commitment));
+        vm.expectRevert(abi.encodeWithSelector(BaoFactory.CommitmentAlreadyExists.selector, commitment));
         deployer.commit(commitment);
     }
 
@@ -137,7 +137,7 @@ contract BaoDeployerTest is Test {
         bytes32 expected = DeploymentInfrastructure.commitment(operator, 0, badSalt, keccak256(initCode));
 
         vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(BaoDeployer.UnknownCommitment.selector, expected));
+        vm.expectRevert(abi.encodeWithSelector(BaoFactory.UnknownCommitment.selector, expected));
         deployer.reveal(initCode, badSalt, 0);
     }
 
@@ -147,7 +147,7 @@ contract BaoDeployerTest is Test {
         bytes32 expected = DeploymentInfrastructure.commitment(operator, 0, salt, keccak256(initCode));
 
         vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(BaoDeployer.UnknownCommitment.selector, expected));
+        vm.expectRevert(abi.encodeWithSelector(BaoFactory.UnknownCommitment.selector, expected));
         deployer.reveal(initCode, salt, 0);
     }
 
@@ -161,7 +161,7 @@ contract BaoDeployerTest is Test {
         assertFalse(deployer.isCommitted(commitment));
 
         vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(BaoDeployer.UnknownCommitment.selector, commitment));
+        vm.expectRevert(abi.encodeWithSelector(BaoFactory.UnknownCommitment.selector, commitment));
         deployer.reveal(initCode, salt, 0);
     }
 
@@ -171,7 +171,7 @@ contract BaoDeployerTest is Test {
         bytes32 salt = keccak256("operator.unset");
         bytes32 commitment = DeploymentInfrastructure.commitment(address(0), 0, salt, keccak256(initCode));
 
-        vm.expectRevert(abi.encodeWithSelector(BaoDeployer.OperatorRequired.selector));
+        vm.expectRevert(abi.encodeWithSelector(BaoFactory.OperatorRequired.selector));
         vm.prank(address(0));
         deployer.commit(commitment);
     }
@@ -182,7 +182,7 @@ contract BaoDeployerTest is Test {
         bytes32 commitment = DeploymentInfrastructure.commitment(operator, 0, salt, keccak256(initCode));
 
         vm.prank(outsider);
-        vm.expectRevert(abi.encodeWithSelector(BaoDeployer.UnauthorizedOperator.selector, outsider));
+        vm.expectRevert(abi.encodeWithSelector(BaoFactory.UnauthorizedOperator.selector, outsider));
         deployer.commit(commitment);
     }
 
@@ -194,7 +194,7 @@ contract BaoDeployerTest is Test {
         assertTrue(deployer.isCommitted(commitment));
 
         vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(BaoDeployer.ValueMismatch.selector, value, uint256(0)));
+        vm.expectRevert(abi.encodeWithSelector(BaoFactory.ValueMismatch.selector, value, uint256(0)));
         deployer.reveal(initCode, salt, value);
     }
 
@@ -235,7 +235,7 @@ contract BaoDeployerTest is Test {
         bytes memory initCode = type(FundedVault).creationCode;
         bytes32 salt = keccak256("owner.value.mismatch");
 
-        vm.expectRevert(abi.encodeWithSelector(BaoDeployer.ValueMismatch.selector, value, uint256(0)));
+        vm.expectRevert(abi.encodeWithSelector(BaoFactory.ValueMismatch.selector, value, uint256(0)));
         deployer.deployDeterministic(value, initCode, salt);
     }
 

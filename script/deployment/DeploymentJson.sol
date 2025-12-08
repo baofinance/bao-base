@@ -7,7 +7,7 @@ import {stdJson} from "forge-std/StdJson.sol";
 
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
-import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
+import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
 import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.sol";
 
 /**
@@ -17,7 +17,7 @@ import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.so
  *      - JSON file path resolution (input/output)
  *      - Timestamp-based file naming
  *      - JSON serialization/deserialization (merged from DeploymentDataJson)
- *      - Production BaoDeployer operator verification
+ *      - Production BaoFactory operator verification
  *
  * This file is structured in two sections for easy verification:
  * 1. FROM DeploymentJson.sol - File I/O, path resolution, lifecycle

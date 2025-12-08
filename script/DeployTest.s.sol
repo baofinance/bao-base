@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {console} from "forge-std/console.sol";
 import {DeploymentJsonScript} from "@bao-script/deployment/DeploymentJsonScript.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
-import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
+import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 import {ERC20WithData} from "@bao-test/mocks/deployment/ERC20WithData.sol";
 
@@ -16,7 +16,7 @@ import {ERC20WithData} from "@bao-test/mocks/deployment/ERC20WithData.sol";
  * Demonstrates using DeploymentJsonScript for production deployments.
  * Output JSON is written to deployments/<salt>/<network>/
  *
- * Infrastructure setup (BaoDeployer) is explicit in run().
+ * Infrastructure setup (BaoFactory) is explicit in run().
  * On anvil with --auto-impersonate, we can broadcast as multisig.S
  * On mainnet, multisig would sign the setOperator transaction.
  */
@@ -66,16 +66,16 @@ contract DeployTest is DeploymentJsonScript {
         // );
         // console.log("Nick's Factory found at:", DeploymentInfrastructure._NICKS_FACTORY);
 
-        // address baoDeployerAddr = DeploymentInfrastructure.predictBaoDeployerAddress();
-        // require(baoDeployerAddr.code.length > 0, "BaoDeployer not deployed - run infrastructure setup first");
-        // console.log("BaoDeployer at:", baoDeployerAddr);
+        // address baoFactoryAddr = DeploymentInfrastructure.predictBaoFactoryAddress();
+        // require(baoFactoryAddr.code.length > 0, "BaoFactory not deployed - run infrastructure setup first");
+        // console.log("BaoFactory at:", baoFactoryAddr);
 
-        // BaoDeployer baoDeployer = BaoDeployer(baoDeployerAddr);
+        // BaoFactory baoFactory = BaoFactory(baoFactoryAddr);
         // require(
-        //     baoDeployer.operator() == ANVIL_ACCOUNT_0,
-        //     "BaoDeployer operator not set - run infrastructure setup first"
+        //     baoFactory.operator() == ANVIL_ACCOUNT_0,
+        //     "BaoFactory operator not set - run infrastructure setup first"
         // );
-        // console.log("BaoDeployer operator:", ANVIL_ACCOUNT_0);
+        // console.log("BaoFactory operator:", ANVIL_ACCOUNT_0);
 
         // ========================================
         // Phase 2: Deployment

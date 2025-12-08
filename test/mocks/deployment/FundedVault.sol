@@ -13,7 +13,7 @@ contract FundedVault {
     address public deployer;
 
     /// @notice Constructor that accepts ETH
-    /// @dev msg.sender will be the CREATE3 proxy, not the BaoDeployer
+    /// @dev msg.sender will be the CREATE3 proxy, not the BaoFactory
     constructor() payable {
         initialBalance = msg.value;
         deployer = msg.sender;

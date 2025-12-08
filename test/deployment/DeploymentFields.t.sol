@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
-import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
+import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -133,7 +133,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         address storedImpl = deployment.get("contracts.proxy1.implementation");
 
         // Factory should be the CREATE3 deployer, deployer should be the harness executor
-        assertEq(factory, DeploymentInfrastructure.predictBaoDeployerAddress(), "Proxy factory should be BaoDeployer");
+        assertEq(factory, DeploymentInfrastructure.predictBaoFactoryAddress(), "Proxy factory should be BaoFactory");
         assertEq(deployer, address(deployment), "Proxy deployer should be deployment contract");
         assertTrue(factory != address(0), "Factory should not be zero");
         assertTrue(deployer != address(0), "Deployer should not be zero");
@@ -237,7 +237,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         address deployer = vm.parseJsonAddress(json, ".contracts.proxy1.deployer");
 
         // Factory should be CREATE3 deployer while deployer remains the harness
-        assertEq(factory, DeploymentInfrastructure.predictBaoDeployerAddress(), "Factory should be BaoDeployer");
+        assertEq(factory, DeploymentInfrastructure.predictBaoFactoryAddress(), "Factory should be BaoFactory");
         assertEq(deployer, address(deployment), "Deployer should remain the deployment harness");
         assertNotEq(factory, deployer, "Factory and deployer should be distinct roles");
     }
@@ -267,7 +267,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         assertEq(factory2, factory3, "All proxies should have same factory");
         assertEq(deployer1, deployer2, "All proxies should have same deployer");
         assertEq(deployer2, deployer3, "All proxies should have same deployer");
-        assertEq(factory1, DeploymentInfrastructure.predictBaoDeployerAddress(), "Factory should be BaoDeployer");
+        assertEq(factory1, DeploymentInfrastructure.predictBaoFactoryAddress(), "Factory should be BaoFactory");
         assertEq(deployer1, address(deployment), "Deployer should be deployment contract");
     }
 
@@ -303,15 +303,15 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
             "Unfunded vault should have factory field"
         );
 
-        // Verify factory is BaoDeployer address
+        // Verify factory is BaoFactory address
         address fundedFactory = vm.parseJsonAddress(json, ".contracts.vault_funded.factory");
         address unfundedFactory = vm.parseJsonAddress(json, ".contracts.vault_unfunded.factory");
 
-        // Factory should be the BaoDeployer (not deployment contract, which is just the executor)
+        // Factory should be the BaoFactory (not deployment contract, which is just the executor)
         assertTrue(fundedFactory != address(0), "Funded vault factory should not be zero");
         assertTrue(unfundedFactory != address(0), "Unfunded vault factory should not be zero");
-        assertEq(fundedFactory, unfundedFactory, "Both vaults should use same factory (BaoDeployer)");
-        assertEq(fundedFactory, DeploymentInfrastructure.predictBaoDeployerAddress(), "Factory should be BaoDeployer");
+        assertEq(fundedFactory, unfundedFactory, "Both vaults should use same factory (BaoFactory)");
+        assertEq(fundedFactory, DeploymentInfrastructure.predictBaoFactoryAddress(), "Factory should be BaoFactory");
 
         // Verify both vaults are deployed and have correct balance
         address fundedVault = deployment.get("contracts.vault_funded");
@@ -349,9 +349,9 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         address deployerFunded = vm.parseJsonAddress(json, ".contracts.vault_proxy_funded.deployer");
         address deployerUnfunded = vm.parseJsonAddress(json, ".contracts.vault_proxy_unfunded.deployer");
 
-        address expectedFactory = DeploymentInfrastructure.predictBaoDeployerAddress();
-        assertEq(factoryFunded, expectedFactory, "Proxy factory should be BaoDeployer");
-        assertEq(factoryUnfunded, expectedFactory, "Proxy factory should be BaoDeployer");
+        address expectedFactory = DeploymentInfrastructure.predictBaoFactoryAddress();
+        assertEq(factoryFunded, expectedFactory, "Proxy factory should be BaoFactory");
+        assertEq(factoryUnfunded, expectedFactory, "Proxy factory should be BaoFactory");
         assertEq(deployerFunded, address(deployment), "Proxy deployer should be deployment contract");
         assertEq(deployerUnfunded, address(deployment), "Proxy deployer should be deployment contract");
 
@@ -400,7 +400,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
 
         vm.deal(address(deployment), 0);
 
-        vm.expectRevert(abi.encodeWithSelector(BaoDeployer.ValueMismatch.selector, 1 ether, 0));
+        vm.expectRevert(abi.encodeWithSelector(BaoFactory.ValueMismatch.selector, 1 ether, 0));
         deployment.simulatePredictableDeployWithoutFunding(
             1 ether,
             "vault_underfunded",

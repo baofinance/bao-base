@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
-import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
+import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {Create3CommitFlow} from "@bao-script/deployment/Create3CommitFlow.sol";
 
@@ -13,22 +13,22 @@ import {Vm} from "forge-std/Vm.sol";
  * @notice test-specific deployment
  * @dev Extends base Deployment with:
  *      - access to the underlying data structure for testing
- *      - auto-configuration of BaoDeployer operator for testing (via tx.origin prank)
+ *      - auto-configuration of BaoFactory operator for testing (via tx.origin prank)
  *      - automatic stub deployment
  */
 abstract contract DeploymentTesting is Deployment {
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
-    function _ensureBaoDeployer() internal virtual override returns (address baoDeployer) {
-        // Prank tx.origin so new BaoDeployer gets operator = address(this)
+    function _ensureBaoFactory() internal virtual override returns (address baoFactory) {
+        // Prank tx.origin so new BaoFactory gets operator = address(this)
         VM.startPrank(address(this), address(this));
-        baoDeployer = super._ensureBaoDeployer();
+        baoFactory = super._ensureBaoFactory();
         VM.stopPrank();
 
         // Always reset operator to this harness (handles resume/continue scenarios with different harness instances)
-        if (BaoDeployer(baoDeployer).operator() != address(this)) {
+        if (BaoFactory(baoFactory).operator() != address(this)) {
             VM.prank(DeploymentInfrastructure.BAOMULTISIG);
-            BaoDeployer(baoDeployer).setOperator(address(this));
+            BaoFactory(baoFactory).setOperator(address(this));
         }
     }
 

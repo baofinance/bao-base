@@ -15,7 +15,7 @@ import {Vm} from "forge-std/Vm.sol";
  *
  * Inherits:
  * - DeploymentJson: Full JSON persistence with setter hooks
- * - DeploymentTesting: Operator setup via _ensureBaoDeployer() override
+ * - DeploymentTesting: Operator setup via _ensureBaoFactory() override
  *
  * Provides:
  * - Test output directory (BAO_DEPLOYMENT_LOGS_ROOT or "results")
@@ -37,8 +37,8 @@ contract DeploymentJsonTesting is DeploymentJson, DeploymentTesting {
         DeploymentJson._afterValueChanged(key);
     }
 
-    function _ensureBaoDeployer() internal override(Deployment, DeploymentTesting) returns (address deployer) {
-        deployer = DeploymentTesting._ensureBaoDeployer();
+    function _ensureBaoFactory() internal override(Deployment, DeploymentTesting) returns (address deployer) {
+        deployer = DeploymentTesting._ensureBaoFactory();
     }
 }
 

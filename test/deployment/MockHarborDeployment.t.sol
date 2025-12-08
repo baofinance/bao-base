@@ -17,7 +17,7 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
     string internal constant TEST_SALT = "MockHarborDeploymentTest";
 
     function setUp() public override {
-        super.setUp(); // Sets up deployment infrastructure (Nick's Factory + BaoDeployer)
+        super.setUp(); // Sets up deployment infrastructure (Nick's Factory + BaoFactory)
         deployment = new MockHarborDeploymentDev();
         admin = makeAddr("admin");
     }

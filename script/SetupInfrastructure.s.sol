@@ -4,35 +4,35 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Script} from "forge-std/Script.sol";
 import {console} from "forge-std/console.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
-import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
+import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
 
 /**
  * @title SetupInfrastructure
- * @notice Deploys BaoDeployer infrastructure
+ * @notice Deploys BaoFactory infrastructure
  * @dev Run with: forge script script/SetupInfrastructure.s.sol --broadcast --rpc-url $RPC
  *
- * This script deploys BaoDeployer. The setOperator call must be done
+ * This script deploys BaoFactory. The setOperator call must be done
  * separately by the multisig owner.
  */
 contract SetupInfrastructure is Script {
     function run() public {
-        // Deploy BaoDeployer if missing
-        address baoDeployerAddr = DeploymentInfrastructure.predictBaoDeployerAddress();
-        console.log("Predicted BaoDeployer address:", baoDeployerAddr);
+        // Deploy BaoFactory if missing
+        address baoFactoryAddr = DeploymentInfrastructure.predictBaoFactoryAddress();
+        console.log("Predicted BaoFactory address:", baoFactoryAddr);
 
-        if (baoDeployerAddr.code.length == 0) {
-            console.log("Deploying BaoDeployer...");
+        if (baoFactoryAddr.code.length == 0) {
+            console.log("Deploying BaoFactory...");
             vm.startBroadcast();
-            DeploymentInfrastructure._ensureBaoDeployer();
+            DeploymentInfrastructure._ensureBaoFactory();
             vm.stopBroadcast();
-            console.log("BaoDeployer deployed at:", baoDeployerAddr);
+            console.log("BaoFactory deployed at:", baoFactoryAddr);
         } else {
-            console.log("BaoDeployer already exists at:", baoDeployerAddr);
+            console.log("BaoFactory already exists at:", baoFactoryAddr);
         }
 
         // Log current operator
-        BaoDeployer baoDeployer = BaoDeployer(baoDeployerAddr);
-        console.log("Current operator:", baoDeployer.operator());
-        console.log("Owner (multisig):", baoDeployer.owner());
+        BaoFactory baoFactory = BaoFactory(baoFactoryAddr);
+        console.log("Current operator:", baoFactory.operator());
+        console.log("Owner (multisig):", baoFactory.owner());
     }
 }

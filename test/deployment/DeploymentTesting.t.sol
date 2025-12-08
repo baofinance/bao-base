@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentMemoryTesting} from "@bao-script/deployment/DeploymentMemoryTesting.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
-import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
+import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
 
 contract DeploymentTestingHarness is DeploymentMemoryTesting {
     function startSession(string memory network, string memory salt) external {
@@ -24,10 +24,10 @@ contract DeploymentTestingTest is BaoDeploymentTest {
         deployment = new DeploymentTestingHarness();
     }
 
-    function test_StartConfiguresBaoDeployerOperator_() public {
+    function test_StartConfiguresBaoFactoryOperator_() public {
         deployment.startSession("net-operator", "salt-operator");
-        address factory = DeploymentInfrastructure.predictBaoDeployerAddress();
-        assertEq(BaoDeployer(factory).operator(), address(deployment), "BaoDeployer operator updated to test harness");
+        address factory = DeploymentInfrastructure.predictBaoFactoryAddress();
+        assertEq(BaoFactory(factory).operator(), address(deployment), "BaoFactory operator updated to test harness");
     }
 
     function test_SetContractAddressStoresValue_() public {
@@ -42,7 +42,7 @@ contract DeploymentTestingTest is BaoDeploymentTest {
         deployment.addContract("contracts.predictable");
         deployment.startSession("net-predictable", "salt-predictable");
         bytes memory initCode = hex"6000600055"; // minimal init code
-        vm.expectRevert(abi.encodeWithSelector(BaoDeployer.ValueMismatch.selector, 1 ether, 0));
+        vm.expectRevert(abi.encodeWithSelector(BaoFactory.ValueMismatch.selector, 1 ether, 0));
         deployment.simulatePredictableDeployWithoutFunding(1 ether, "contracts.predictable", initCode, "", "");
     }
 

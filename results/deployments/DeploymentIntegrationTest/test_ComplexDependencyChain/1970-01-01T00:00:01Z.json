@@ -16,7 +16,7 @@
       "blockNumber": 1
     }
   },
-  "BaoFactory": "0x9d27691421bd705805f68eaaab19de0dd5217bf6",
+  "BaoFactory": "0x4b9196066225e2baaeb89128a6463a5845d14c72",
   "contracts": {
     "token1": {
       "address": "0x037eda3adb1198021a9b2e88c22b464fd38db3f3",
@@ -35,12 +35,12 @@
       "category": "contract"
     },
     "oracle": {
-      "address": "0x836a9713f5a00c53b01eaa167ca4aa74350cd926",
+      "address": "0x85b6ec9896945be36b76e1192a768f2e056aa092",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "blockNumber": 1,
-      "factory": "0x9d27691421bd705805f68eaaab19de0dd5217bf6",
+      "factory": "0x4b9196066225e2baaeb89128a6463a5845d14c72",
       "category": "UUPS proxy",
       "saltString": "oracle",
       "salt": "0x96d52fdb4a275a6221c446f1b9dabb4ed13cad1d0dbdcf5580a1602ed764e4cc",
@@ -54,12 +54,12 @@
       }
     },
     "minter1": {
-      "address": "0x47cafba36933e1b32430ed695919e35346a14928",
+      "address": "0x96c04692d8472984dd19bba253a5aa83ec68db23",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "blockNumber": 1,
-      "factory": "0x9d27691421bd705805f68eaaab19de0dd5217bf6",
+      "factory": "0x4b9196066225e2baaeb89128a6463a5845d14c72",
       "category": "UUPS proxy",
       "saltString": "minter1",
       "salt": "0xa7da8c54e697775636b261a376ef06aeecb9b947d76cd144bedea1d295855e9b",
@@ -73,12 +73,12 @@
       }
     },
     "minter2": {
-      "address": "0x36f4024c8b8cd31ee9faf9e051bc6f8d13408d6f",
+      "address": "0xc559db3b32b9cb45a2e27122e888b26f291e8179",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "deployer": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
       "blockNumber": 1,
-      "factory": "0x9d27691421bd705805f68eaaab19de0dd5217bf6",
+      "factory": "0x4b9196066225e2baaeb89128a6463a5845d14c72",
       "category": "UUPS proxy",
       "saltString": "minter2",
       "salt": "0xd4886801bf090d801647e2fafc8afdfd47856c54c3cc1130fe7662b0ddfb4078",

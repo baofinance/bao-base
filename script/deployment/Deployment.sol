@@ -8,7 +8,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {console2} from "forge-std/console2.sol";
 
-import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
+import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
@@ -99,8 +99,8 @@ abstract contract Deployment is DeploymentDataMemory {
     // Deployment Lifecycle
     // ============================================================================
 
-    function _ensureBaoDeployer() internal virtual returns (address deployer) {
-        deployer = DeploymentInfrastructure._ensureBaoDeployer();
+    function _ensureBaoFactory() internal virtual returns (address deployer) {
+        deployer = DeploymentInfrastructure._ensureBaoFactory();
     }
 
     function _beforeStart(
@@ -136,15 +136,15 @@ abstract contract Deployment is DeploymentDataMemory {
 
         // Set up deployment infrastructure
         // in all scenarios we can deploy it
-        address baoDeployer = _ensureBaoDeployer();
-        console2.log("BaoDeployer = %s", baoDeployer);
-        _setAddress(BAO_FACTORY, baoDeployer);
+        address baoFactory = _ensureBaoFactory();
+        console2.log("BaoFactory = %s", baoFactory);
+        _setAddress(BAO_FACTORY, baoFactory);
         // if it is not set up sometimes we can't continue
         // in dev we can prank and setOperator
         // in prod we can't so we fail here
-        console2.log("BaoDeployer operator = %s", BaoDeployer(baoDeployer).operator());
-        if (BaoDeployer(baoDeployer).operator() != _getAddress(SESSION_DEPLOYER)) {
-            revert FactoryDeploymentFailed("BaoDeployer operator not configured for this deployer");
+        console2.log("BaoFactory operator = %s", BaoFactory(baoFactory).operator());
+        if (BaoFactory(baoFactory).operator() != _getAddress(SESSION_DEPLOYER)) {
+            revert FactoryDeploymentFailed("BaoFactory operator not configured for this deployer");
         }
 
         // Deploy stub (testing classes override, scripts use setStub before start)
@@ -239,13 +239,13 @@ abstract contract Deployment is DeploymentDataMemory {
     //     return address(_data);
     // }
 
-    /// @notice Deploy BaoDeployer if needed (primarily for tests)
-    /// @dev Production deployments should assume BaoDeployer already exists
+    /// @notice Deploy BaoFactory if needed (primarily for tests)
+    /// @dev Production deployments should assume BaoFactory already exists
     ///      This is here for test convenience only
-    function ensureBaoDeployer() public {
-        address deployed = DeploymentInfrastructure._ensureBaoDeployer();
+    function ensureBaoFactory() public {
+        address deployed = DeploymentInfrastructure._ensureBaoFactory();
         if (_sessionState == State.STARTED) {
-            useExisting("BaoDeployer", deployed);
+            useExisting("BaoFactory", deployed);
         }
     }
 
@@ -266,8 +266,8 @@ abstract contract Deployment is DeploymentDataMemory {
         string memory systemSalt = _deriveSystemSalt();
         bytes memory proxySaltBytes = abi.encodePacked(systemSalt, "/", proxyKey, "/UUPS/proxy");
         bytes32 salt = EfficientHashLib.hash(proxySaltBytes);
-        address baoDeployer = DeploymentInfrastructure.predictBaoDeployerAddress();
-        proxy = CREATE3.predictDeterministicAddress(salt, baoDeployer);
+        address baoFactory = DeploymentInfrastructure.predictBaoFactoryAddress();
+        proxy = CREATE3.predictDeterministicAddress(salt, baoFactory);
     }
 
     /// @notice Deploy a UUPS proxy using bootstrap stub pattern (with value)
@@ -324,14 +324,14 @@ abstract contract Deployment is DeploymentDataMemory {
         bytes memory proxySaltBytes = abi.encodePacked(systemSalt, "/", proxyKey, "/UUPS/proxy");
         bytes32 salt = EfficientHashLib.hash(proxySaltBytes);
 
-        address factory = DeploymentInfrastructure.predictBaoDeployerAddress();
+        address factory = DeploymentInfrastructure.predictBaoFactoryAddress();
 
         bytes memory proxyCreationCode = abi.encodePacked(
             type(ERC1967Proxy).creationCode,
             abi.encode(_get(SESSION_STUB), bytes(""))
         );
 
-        BaoDeployer baoDeployer = BaoDeployer(factory);
+        BaoFactory baoFactory = BaoFactory(factory);
 
         bytes32 commitment = DeploymentInfrastructure.commitment(
             _getAddress(SESSION_DEPLOYER),
@@ -341,8 +341,8 @@ abstract contract Deployment is DeploymentDataMemory {
         );
 
         // Deploy proxy via CREATE3 (needs broadcast in script context)
-        baoDeployer.commit(commitment);
-        address proxy = baoDeployer.reveal(proxyCreationCode, salt, 0);
+        baoFactory.commit(commitment);
+        address proxy = baoFactory.reveal(proxyCreationCode, salt, 0);
 
         // Register proxy with all metadata (extracted to avoid stack too deep)
         _recordProxy(proxyKey, proxy, factory, salt, deployer, block.number);

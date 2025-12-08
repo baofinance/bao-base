@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {Create3CommitFlow} from "@bao-script/deployment/Create3CommitFlow.sol";
-import {BaoDeployer} from "@bao-script/deployment/BaoDeployer.sol";
+import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 
 contract Create3Target {
@@ -14,10 +14,10 @@ contract Create3CommitFlowTest is BaoDeploymentTest {
     function setUp() public override {
         super.setUp();
         // Set operator to this test contract so it can call commit/reveal
-        address baoDeployer = DeploymentInfrastructure._ensureBaoDeployer();
-        if (BaoDeployer(baoDeployer).operator() != address(this)) {
+        address baoFactory = DeploymentInfrastructure._ensureBaoFactory();
+        if (BaoFactory(baoFactory).operator() != address(this)) {
             vm.prank(DeploymentInfrastructure.BAOMULTISIG);
-            BaoDeployer(baoDeployer).setOperator(address(this));
+            BaoFactory(baoFactory).setOperator(address(this));
         }
     }
 
@@ -34,9 +34,9 @@ contract Create3CommitFlowTest is BaoDeploymentTest {
 
     function testCommitOnlyRecordsCommitment_() public {
         Create3CommitFlow.Request memory req = _buildRequest("contracts.target", 0);
-        (bytes32 salt, bytes32 commitment, address factory, BaoDeployer deployer) = Create3CommitFlow.commitOnly(req);
+        (bytes32 salt, bytes32 commitment, address factory, BaoFactory deployer) = Create3CommitFlow.commitOnly(req);
 
-        assertEq(factory, DeploymentInfrastructure.predictBaoDeployerAddress(), "factory should match prediction");
+        assertEq(factory, DeploymentInfrastructure.predictBaoFactoryAddress(), "factory should match prediction");
         assertEq(address(deployer), factory, "deployer reference should match factory");
         assertEq(deployer.isCommitted(commitment), true, "commitment should be recorded");
         assertGt(uint256(salt), 0, "salt should be non-zero");
@@ -50,7 +50,7 @@ contract Create3CommitFlowTest is BaoDeploymentTest {
             Create3CommitFlow.RevealMode.MatchValue
         );
 
-        assertEq(factory, DeploymentInfrastructure.predictBaoDeployerAddress(), "factory should match prediction");
+        assertEq(factory, DeploymentInfrastructure.predictBaoFactoryAddress(), "factory should match prediction");
         assertGt(uint256(salt), 0, "salt should be non-zero from reveal");
         assertEq(Create3Target(deployed).MAGIC(), 0xBEEF, "deployed contract should match target");
     }
@@ -58,7 +58,7 @@ contract Create3CommitFlowTest is BaoDeploymentTest {
     function testCommitAndRevealForceZeroValueReverts_() public {
         Create3CommitFlow.Request memory req = _buildRequest("contracts.forceZero", 1 ether);
         assertEq(req.value, 1 ether, "value should remain configured");
-        vm.expectRevert(abi.encodeWithSelector(BaoDeployer.ValueMismatch.selector, 1 ether, uint256(0)));
+        vm.expectRevert(abi.encodeWithSelector(BaoFactory.ValueMismatch.selector, 1 ether, uint256(0)));
         this.callCommitAndReveal(req, Create3CommitFlow.RevealMode.ForceZeroValue);
     }
 

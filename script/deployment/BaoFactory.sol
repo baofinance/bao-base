@@ -12,7 +12,7 @@ import {Ownable} from "@solady/auth/Ownable.sol";
 /// @notice Deterministic CREATE3 wrapper deployed via Nick's Factory
 /// @dev No constructor args ensures deterministic address independent of deployer/owner.
 ///      Authorization is via tx.origin recorded at construction time.
-contract BaoDeployerBootstrap {
+contract BaoFactoryBootstrap {
     error Unauthorized();
     error ValueMismatch(uint256 expected, uint256 received);
 
@@ -51,7 +51,7 @@ contract BaoDeployerBootstrap {
 /// @notice Non-upgradeable CREATE3 deployer with commit-reveal protection
 /// @dev Owner is baked into the constructor (part of CREATE2 address derivation)
 /// @dev Operator executes commit → reveal, owner retains direct deploy access for migrations/tests
-contract BaoDeployer is Ownable {
+contract BaoFactory is Ownable {
     /*//////////////////////////////////////////////////////////////////////////
                                     EVENTS
     //////////////////////////////////////////////////////////////////////////*/
@@ -205,16 +205,16 @@ contract BaoDeployer is Ownable {
 
 /*
 Example deterministic deployment flow (address depends only on salt + Nick's factory):
-    // 1. Deploy BaoDeployerBootstrap via Nick's Factory using CREATE2.
+    // 1. Deploy BaoFactoryBootstrap via Nick's Factory using CREATE2.
     //    No constructor args → bytecode is constant → address is deterministic.
     //    tx.origin becomes the authorized DEPLOYER.
-    bytes memory bootstrapCode = type(BaoDeployerBootstrap).creationCode;
+    bytes memory bootstrapCode = type(BaoFactoryBootstrap).creationCode;
     // factory.call(abi.encodePacked(salt, bootstrapCode));
 
-    // 2. Use the bootstrapper to CREATE3 the BaoDeployer with any owner address.
-    //    The BaoDeployer address depends only on (bootstrap_address, salt), not on owner.
-    address deployed = BaoDeployerBootstrap(bootstrap).deploy(
+    // 2. Use the bootstrapper to CREATE3 the BaoFactory with any owner address.
+    //    The BaoFactory address depends only on (bootstrap_address, salt), not on owner.
+    address deployed = BaoFactoryBootstrap(bootstrap).deploy(
         keccak256("bao.deployer"),
-        abi.encodePacked(type(BaoDeployer).creationCode, abi.encode(environmentOwner))
+        abi.encodePacked(type(BaoFactory).creationCode, abi.encode(environmentOwner))
     );
 */
