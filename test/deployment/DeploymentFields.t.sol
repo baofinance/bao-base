@@ -53,7 +53,7 @@ contract MockDeploymentFields is DeploymentJsonTesting {
 
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
         MockERC20 token = new MockERC20(name, symbol, 18);
-        registerContract(key, address(token), "MockERC20", address(this));
+        registerContract(key, address(token), "MockERC20", type(MockERC20).creationCode, address(this));
         return _get(key);
     }
 
@@ -63,7 +63,14 @@ contract MockDeploymentFields is DeploymentJsonTesting {
         // owner will be msg.sender (deployment harness), finish() transfers to pendingOwner
         address finalOwner = _getAddress(OWNER);
         bytes memory initData = abi.encodeCall(SimpleImplementation.initialize, (value, finalOwner));
-        this.deployProxy(key, address(impl), initData, "SimpleImplementation", address(this));
+        this.deployProxy(
+            key,
+            address(impl),
+            initData,
+            "SimpleImplementation",
+            type(SimpleImplementation).creationCode,
+            address(this)
+        );
     }
 
     function deployTestLibrary(string memory key) public returns (address) {
@@ -74,7 +81,7 @@ contract MockDeploymentFields is DeploymentJsonTesting {
 
     function deployFundedVault(string memory key, uint256 value) public {
         bytes memory fundedCode = type(FundedVault).creationCode;
-        this.predictableDeployContract{value: value}(value, key, fundedCode, "FundedVault", address(this));
+        this.predictableDeployContract{value: value}(value, key, fundedCode, "FundedVault", fundedCode, address(this));
     }
 
     function deployFundedVaultProxy(string memory key, uint256 value) public {
@@ -83,8 +90,22 @@ contract MockDeploymentFields is DeploymentJsonTesting {
         FundedVaultUUPS impl = new FundedVaultUUPS(finalOwner);
         bytes memory initData = abi.encodeCall(FundedVaultUUPS.initialize, ());
         // BaoOwnable_v2 uses timeout-based ownership transfer, not explicit transferOwnership
-        this.registerImplementation(key, address(impl), "FundedVaultUUPS", "transferred-on-timeout");
-        this.deployProxy{value: value}(value, key, address(impl), initData, "FundedVaultUUPS", address(this));
+        this.registerImplementation(
+            key,
+            address(impl),
+            "FundedVaultUUPS",
+            type(FundedVaultUUPS).creationCode,
+            "transferred-on-timeout"
+        );
+        this.deployProxy{value: value}(
+            value,
+            key,
+            address(impl),
+            initData,
+            "FundedVaultUUPS",
+            type(FundedVaultUUPS).creationCode,
+            address(this)
+        );
     }
 
     function deployNonPayableVaultProxy(
@@ -95,7 +116,15 @@ contract MockDeploymentFields is DeploymentJsonTesting {
     ) public {
         NonPayableVaultUUPS impl = new NonPayableVaultUUPS(owner);
         bytes memory initData = abi.encodeCall(NonPayableVaultUUPS.initialize, (initializerValue));
-        this.deployProxy{value: value}(value, key, address(impl), initData, "NonPayableVaultUUPS", address(this));
+        this.deployProxy{value: value}(
+            value,
+            key,
+            address(impl),
+            initData,
+            "NonPayableVaultUUPS",
+            type(NonPayableVaultUUPS).creationCode,
+            address(this)
+        );
     }
 }
 
@@ -289,12 +318,19 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
             "contracts.vault_funded",
             fundedCode,
             "FundedVault",
+            fundedCode,
             address(this)
         );
 
         // TODO: test that a non-payable contract can be deployed with value?
         // Deploy unfunded vault (same contract type, zero value)
-        deployment.predictableDeployContract("contracts.vault_unfunded", fundedCode, "FundedVault", address(this));
+        deployment.predictableDeployContract(
+            "contracts.vault_unfunded",
+            fundedCode,
+            "FundedVault",
+            fundedCode,
+            address(this)
+        );
 
         deployment.finish();
 
@@ -395,11 +431,12 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         bytes memory nonPayableCode = abi.encodePacked(type(NonPayableVault).creationCode, abi.encode(uint256(123)));
 
         vm.expectRevert();
-        deployment.predictableDeployContract(
+        deployment.predictableDeployContract{value: 1 ether}(
             1 ether,
             "contracts.vault_nonpayable",
             nonPayableCode,
             "NonPayableVault",
+            nonPayableCode,
             address(this)
         );
     }
@@ -475,6 +512,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
             address(impl),
             initData,
             "FundedVaultUUPS",
+            type(FundedVaultUUPS).creationCode,
             address(this)
         );
     }

@@ -25,7 +25,7 @@
       "implementation": {
         "address": "0x037eda3adb1198021a9b2e88c22b464fd38db3f3",
         "contractType": "FundedVaultUUPS",
-        "contractPath": "out/FundedVaultUUPS.sol/FundedVaultUUPS.json: not found",
+        "contractPath": "test/mocks/deployment/FundedVault.sol",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
         "blockNumber": 1,
         "ownershipModel": "transferred-on-timeout"
@@ -46,7 +46,7 @@
       "implementation": {
         "address": "0xddc10602782af652bb913f7bde1fd82981db7dd9",
         "contractType": "FundedVaultUUPS",
-        "contractPath": "out/FundedVaultUUPS.sol/FundedVaultUUPS.json: not found",
+        "contractPath": "test/mocks/deployment/FundedVault.sol",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
         "blockNumber": 1,
         "ownershipModel": "transferred-on-timeout"

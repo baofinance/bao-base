@@ -128,6 +128,13 @@ contract DeployTest is DeploymentJsonScript {
 
         // Deploy proxy via CREATE3
         // Note: deployProxy internally handles broadcast via hooks
-        deployProxy(key, address(impl), initData, "ERC20WithData", _getAddress(SESSION_DEPLOYER));
+        deployProxy(
+            key,
+            address(impl),
+            initData,
+            "ERC20WithData",
+            type(ERC20WithData).creationCode,
+            _getAddress(SESSION_DEPLOYER)
+        );
     }
 }

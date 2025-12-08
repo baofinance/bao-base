@@ -32,7 +32,7 @@
       "implementation": {
         "address": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
         "contractType": "OracleV1",
-        "contractPath": "out/OracleV1.sol/OracleV1.json: not found",
+        "contractPath": "test/deployment/DeploymentIntegration.t.sol",
         "deployer": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
         "blockNumber": 1,
         "ownershipModel": "transfer-after-deploy"
@@ -52,7 +52,7 @@
       "implementation": {
         "address": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
         "contractType": "OracleV1",
-        "contractPath": "out/OracleV1.sol/OracleV1.json: not found",
+        "contractPath": "test/deployment/DeploymentIntegration.t.sol",
         "deployer": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
         "blockNumber": 1,
         "ownershipModel": "transfer-after-deploy"
@@ -72,7 +72,7 @@
       "implementation": {
         "address": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
         "contractType": "OracleV1",
-        "contractPath": "out/OracleV1.sol/OracleV1.json: not found",
+        "contractPath": "test/deployment/DeploymentIntegration.t.sol",
         "deployer": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
         "blockNumber": 1,
         "ownershipModel": "transfer-after-deploy"

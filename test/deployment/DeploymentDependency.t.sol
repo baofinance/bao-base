@@ -32,7 +32,7 @@ contract MockDeploymentDependency is DeploymentMemoryTesting {
 
     function deployOracle(string memory key, uint256 price) public returns (address) {
         MockOracle oracle = new MockOracle(price);
-        registerContract(key, address(oracle), "MockOracle", address(this));
+        registerContract(key, address(oracle), "MockOracle", type(MockOracle).creationCode, address(this));
         return _get(key);
     }
 
@@ -44,7 +44,7 @@ contract MockDeploymentDependency is DeploymentMemoryTesting {
     ) public returns (address) {
         address oracleAddr = _get(oracleKey);
         MockToken token = new MockToken(oracleAddr, name, decimals);
-        registerContract(key, address(token), "MockToken", address(this));
+        registerContract(key, address(token), "MockToken", type(MockToken).creationCode, address(this));
         return _get(key);
     }
 
@@ -59,7 +59,7 @@ contract MockDeploymentDependency is DeploymentMemoryTesting {
         bytes memory initData = abi.encodeWithSignature("initialize(address,address)", oracleAddr, address(this));
 
         // Deploy proxy
-        deployProxy(key, address(implementation), initData, "MockMinter", address(this));
+        deployProxy(key, address(implementation), initData, "MockMinter", type(MockMinter).creationCode, address(this));
     }
 }
 

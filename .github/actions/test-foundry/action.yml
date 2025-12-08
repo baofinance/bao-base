@@ -148,6 +148,7 @@ runs:
         cd ${{ inputs.cwd }}
         if ! git diff --quiet || [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
           git status --short
+          git diff | head -100
           echo "Git repo has changed, either correctly fix those files locally or .gitignore them"; exit 1;
         fi
       id: git-diffs

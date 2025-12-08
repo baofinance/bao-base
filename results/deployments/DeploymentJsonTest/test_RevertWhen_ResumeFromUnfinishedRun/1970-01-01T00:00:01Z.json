@@ -21,7 +21,7 @@
     "contract1": {
       "address": "0x037eda3adb1198021a9b2e88c22b464fd38db3f3",
       "contractType": "SimpleContract",
-      "contractPath": "out/SimpleContract.sol/SimpleContract.json: not found",
+      "contractPath": "test/deployment/DeploymentJson.t.sol",
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "blockNumber": 1,
       "category": "contract"

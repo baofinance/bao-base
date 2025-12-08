@@ -149,7 +149,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
 
         // Try to deploy with empty key - should revert with KeyRequired
         vm.expectRevert();
-        deployment.deployProxy("", address(this), "", "", address(this));
+        deployment.deployProxy("", address(this), "", "", "", address(this));
     }
 
     function test_RevertWhen_ProxyWithoutImplementation() public {
@@ -157,7 +157,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
 
         string memory proxyKey = deployment.PEGGED();
         vm.expectRevert();
-        deployment.deployProxy(proxyKey, address(0), "", "", address(this));
+        deployment.deployProxy(proxyKey, address(0), "", "", "", address(this));
     }
 
     function test_ProxyMetadataStored() public {

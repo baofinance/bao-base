@@ -48,7 +48,7 @@
       "implementation": {
         "address": "0x7fdb3132ff7d02d8b9e221c61cc895ce9a4bb773",
         "contractType": "OracleV1",
-        "contractPath": "out/OracleV1.sol/OracleV1.json: not found",
+        "contractPath": "test/deployment/DeploymentIntegration.t.sol",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
         "blockNumber": 1,
         "ownershipModel": "transfer-after-deploy"
@@ -68,7 +68,7 @@
       "implementation": {
         "address": "0xfd07c974e33dd1626640ba3a5acf0418faacca7a",
         "contractType": "MockMinter",
-        "contractPath": "test/mocks/upgradeable/MockMinter.sol",
+        "contractPath": "test/deployment/DeploymentIntegration.t.sol",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
         "blockNumber": 1,
         "ownershipModel": "transfer-after-deploy"
@@ -77,7 +77,7 @@
     "configLib": {
       "address": "0xd76ffbd1eff76c510c3a509fe22864688ac3a588",
       "contractType": "ConfigLib",
-      "contractPath": "out/ConfigLib.sol/ConfigLib.json: not found",
+      "contractPath": "test/deployment/DeploymentIntegration.t.sol",
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "blockNumber": 1,
       "category": "library"

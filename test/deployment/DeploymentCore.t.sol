@@ -163,7 +163,7 @@ contract DeploymentCoreTest is BaoDeploymentTest {
         _initSession("test_RegisterContractRecordsMetadata_");
         deployment.addContract("contracts.alpha");
         address deployerAddress = address(0xD1);
-        deployment.registerContract("contracts.alpha", address(0xCAFE), "Alpha", deployerAddress);
+        deployment.registerContract("contracts.alpha", address(0xCAFE), "Alpha", "", deployerAddress);
         assertEq(deployment.readStoredAddress("contracts.alpha"), address(0xCAFE), "Contract address stored for alpha");
         assertEq(
             deployment.readStringValue("contracts.alpha.category"),
@@ -256,7 +256,7 @@ contract DeploymentCoreTest is BaoDeploymentTest {
     function test_UpgradeProxyValueRequiresKey_() public {
         _initSession("test_UpgradeProxyValueRequiresKey_");
         vm.expectRevert(Deployment.KeyRequired.selector);
-        deployment.upgradeProxy{value: 0}(0, "", address(0), bytes(""), "Mock", address(this));
+        deployment.upgradeProxy{value: 0}(0, "", address(0), bytes(""), "Mock", "", address(this));
     }
 
     function _initSession(string memory testName) internal {

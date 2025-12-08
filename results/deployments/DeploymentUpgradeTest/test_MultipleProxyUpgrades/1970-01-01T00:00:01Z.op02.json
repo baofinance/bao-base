@@ -35,7 +35,7 @@
       "implementation": {
         "address": "0x037eda3adb1198021a9b2e88c22b464fd38db3f3",
         "contractType": "OracleV1",
-        "contractPath": "out/OracleV1.sol/OracleV1.json: not found",
+        "contractPath": "test/mocks/upgradeable/MockOracle.sol",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
         "blockNumber": 1,
         "ownershipModel": "transferred-after-deploy"
@@ -55,7 +55,7 @@
       "implementation": {
         "address": "0xddc10602782af652bb913f7bde1fd82981db7dd9",
         "contractType": "OracleV1",
-        "contractPath": "out/OracleV1.sol/OracleV1.json: not found",
+        "contractPath": "test/mocks/upgradeable/MockOracle.sol",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
         "blockNumber": 1,
         "ownershipModel": "transferred-after-deploy"
@@ -75,7 +75,7 @@
       "implementation": {
         "address": "0x7fdb3132ff7d02d8b9e221c61cc895ce9a4bb773",
         "contractType": "CounterV1",
-        "contractPath": "out/CounterV1.sol/CounterV1.json: not found",
+        "contractPath": "test/mocks/upgradeable/MockCounter.sol",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
         "blockNumber": 1,
         "ownershipModel": "transferred-after-deploy"

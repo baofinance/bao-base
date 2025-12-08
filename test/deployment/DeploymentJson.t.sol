@@ -88,14 +88,27 @@ contract MockDeploymentJson is DeploymentJsonTesting {
 
     function deploySimpleContract(string memory key, string memory name) public {
         SimpleContract c = new SimpleContract(name);
-        registerContract(string.concat("contracts.", key), address(c), "SimpleContract", address(this));
+        registerContract(
+            string.concat("contracts.", key),
+            address(c),
+            "SimpleContract",
+            type(SimpleContract).creationCode,
+            address(this)
+        );
     }
 
     function deploySimpleProxy(string memory key, uint256 value) public {
         SimpleImplementation impl = new SimpleImplementation();
         address finalOwner = _getAddress(OWNER);
         bytes memory initData = abi.encodeCall(SimpleImplementation.initialize, (value, finalOwner));
-        deployProxy(string.concat("contracts.", key), address(impl), initData, "SimpleImplementation", address(this));
+        deployProxy(
+            string.concat("contracts.", key),
+            address(impl),
+            initData,
+            "SimpleImplementation",
+            type(SimpleImplementation).creationCode,
+            address(this)
+        );
     }
 
     function deployTestLibrary(string memory key) public {
@@ -106,7 +119,14 @@ contract MockDeploymentJson is DeploymentJsonTesting {
     function deployRolesContract(string memory key, address owner_) public returns (address) {
         RolesContract impl = new RolesContract();
         bytes memory initData = abi.encodeCall(RolesContract.initialize, (owner_));
-        deployProxy(string.concat("contracts.", key), address(impl), initData, "RolesContract", address(this));
+        deployProxy(
+            string.concat("contracts.", key),
+            address(impl),
+            initData,
+            "RolesContract",
+            type(RolesContract).creationCode,
+            address(this)
+        );
         return _get(string.concat("contracts.", key));
     }
 

@@ -51,7 +51,7 @@
       "implementation": {
         "address": "0xcb6f5076b5bbae81d7643bfbf57897e8e3fb1db9",
         "contractType": "OracleV1",
-        "contractPath": "out/OracleV1.sol/OracleV1.json: not found",
+        "contractPath": "test/deployment/DeploymentIntegration.t.sol",
         "deployer": "0xf62849f9a0b5bf2913b396098f7c7019b51a820a",
         "blockNumber": 200,
         "ownershipModel": "transferred-after-deploy"

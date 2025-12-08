@@ -96,19 +96,70 @@ abstract contract DeploymentJson is Deployment {
         filename = _filename;
     }
 
+    /// @dev Look up source path by scanning artifacts and matching creation bytecode
+    /// @param contractType The contract name to search for
+    /// @param creationCode The contract's creation bytecode from type(Contract).creationCode for disambiguation
     function _lookupContractPath(
-        string memory contractType
+        string memory contractType,
+        bytes memory creationCode
     ) internal view override returns (string memory contractPath) {
-        // the path of the output file expected to be there
-        contractPath = string.concat("out/", contractType, ".sol/", contractType, ".json");
-        string memory outFilePath = string.concat(VM.projectRoot(), "/", contractPath);
-        if (VM.exists(outFilePath)) {
-            string memory json = VM.readFile(outFilePath);
-            // Get the compilationTarget object keys (there's only one)
+        // Scan the out/ directory recursively for any {contractType}.json files
+        string memory outDir = string.concat(VM.projectRoot(), "/out");
+        string memory targetFilename = string.concat(contractType, ".json");
+
+        Vm.DirEntry[] memory entries = VM.readDir(outDir, 3); // depth 3 covers out/X/Y/Z.json
+
+        string memory foundPath;
+        uint256 foundCount;
+        bool useBytecodeMatch = creationCode.length > 0;
+        bytes32 targetHash = useBytecodeMatch ? keccak256(creationCode) : bytes32(0);
+
+        for (uint256 i = 0; i < entries.length; i++) {
+            // Check if this is a file ending with our target filename
+            string memory path = entries[i].path;
+            if (!path.endsWith(targetFilename)) continue;
+
+            // Read the artifact
+            string memory json = VM.readFile(path);
+
+            // Get source path from compilation target
             string[] memory keys = VM.parseJsonKeys(json, ".metadata.settings.compilationTarget");
-            contractPath = keys[0]; // e.g., "lib/bao-base-audit-2025-07/src/MintableBurnableERC20_v1.sol"
+            if (keys.length == 0) continue;
+            string memory sourcePath = keys[0];
+
+            if (useBytecodeMatch) {
+                // Match by creation bytecode
+                bytes memory artifactCode = VM.parseJsonBytes(json, ".bytecode.object");
+                if (keccak256(artifactCode) != targetHash) continue;
+                // Bytecode match found - this is definitely the right one
+                return sourcePath;
+            }
+
+            // Name-only matching - track for ambiguity detection
+            if (foundCount == 0) {
+                foundPath = sourcePath;
+                foundCount = 1;
+            } else if (keccak256(bytes(foundPath)) != keccak256(bytes(sourcePath))) {
+                // Multiple different source files found - ambiguous
+                revert(
+                    string.concat(
+                        "Ambiguous contract '",
+                        contractType,
+                        "': found in both '",
+                        foundPath,
+                        "' and '",
+                        sourcePath,
+                        "'. Pass creationCode to disambiguate."
+                    )
+                );
+            }
+            // Same source path found again (duplicate artifacts) - that's fine
+        }
+
+        if (foundCount > 0) {
+            contractPath = foundPath;
         } else {
-            contractPath = string.concat(contractPath, ": not found");
+            contractPath = string.concat(contractType, ": no matching artifact found");
         }
     }
 

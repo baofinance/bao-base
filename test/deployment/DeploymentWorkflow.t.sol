@@ -14,14 +14,14 @@ import {MathLib} from "@bao-test/mocks/TestLibraries.sol";
 contract MockDeploymentWorkflow is DeploymentJsonTesting {
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
         MockERC20 token = new MockERC20(name, symbol, 18);
-        registerContract(key, address(token), "MockERC20", address(this));
+        registerContract(key, address(token), "MockERC20", type(MockERC20).creationCode, address(this));
         return _get(key);
     }
 
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
         OracleV1 impl = new OracleV1();
         bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
-        this.deployProxy(key, address(impl), initData, "OracleV1", address(this));
+        this.deployProxy(key, address(impl), initData, "OracleV1", type(OracleV1).creationCode, address(this));
         return _get(key);
     }
 
@@ -47,6 +47,7 @@ contract MockDeploymentWorkflow is DeploymentJsonTesting {
             address(impl),
             abi.encodeCall(MockMinter.initialize, (oracle, admin)),
             "MockMinter",
+            type(MockMinter).creationCode,
             address(this)
         );
     }
