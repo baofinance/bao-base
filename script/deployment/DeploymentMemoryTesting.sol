@@ -7,7 +7,7 @@ import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
 /// @notice Legacy alias providing a concrete DeploymentTesting harness
 contract DeploymentMemoryTesting is DeploymentTesting {
     function _lookupContractPath(
-        string memory, /* contractType */
+        string memory /* contractType */,
         bytes memory /* creationCode */
     ) internal pure override returns (string memory path) {
         return "";
