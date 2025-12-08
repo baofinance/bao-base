@@ -3,7 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
-import {DataType} from "@bao-script/deployment/DeploymentKeys.sol";
 
 /**
  * @title AddressResolutionHarness

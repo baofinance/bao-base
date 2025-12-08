@@ -4,7 +4,6 @@ pragma solidity >=0.8.28 <0.9.0;
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
-import {DataType} from "@bao-script/deployment/DeploymentKeys.sol";
 
 // ============================================================================
 // Test Harness
