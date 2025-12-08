@@ -42,6 +42,7 @@ abstract contract Deployment is DeploymentDataMemory {
     error ImplementationKeyRequired();
     error LibraryDeploymentFailed(string key);
     error OwnershipTransferFailed(address proxy);
+    error MissingOwnerFunction(string proxyKey, address proxy);
     error FactoryDeploymentFailed(string reason);
     error ValueMismatch(uint256 expected, uint256 received);
     error KeyRequired();
@@ -60,6 +61,13 @@ abstract contract Deployment is DeploymentDataMemory {
         address proxy;
         string parentKey;
         address currentOwner;
+        address configuredOwner;
+    }
+
+    /// @notice Proxy with timeout-based ownership transfer
+    /// @dev Used by _getTimeoutProxies() and finish()
+    struct TimeoutProxy {
+        string parentKey;
         address configuredOwner;
     }
 
@@ -163,6 +171,7 @@ abstract contract Deployment is DeploymentDataMemory {
     /// @dev Transfers ownership to final owner for all proxies if current owner != configured owner
     /// @dev Uses runtime owner() check - only transfers if currentOwner != finalOwner
     ///      Looks for keys ending in ".ownershipModel" with value "transfer-after-deploy"
+    ///      Also updates metadata for "transferred-on-timeout" proxies (no transferOwnership call needed)
     /// @return transferred Number of proxies whose ownership was transferred
     function finish() public virtual returns (uint256 transferred) {
         if (_sessionState == State.NONE) revert SessionNotStarted();
@@ -177,10 +186,18 @@ abstract contract Deployment is DeploymentDataMemory {
             IBaoOwnable(tp.proxy).transferOwnership(tp.configuredOwner);
         }
 
-        // Update metadata after blockchain operations
+        // Update metadata after blockchain operations for transfer-after-deploy proxies
         for (uint256 i; i < proxies.length; i++) {
             TransferrableProxy memory tp = proxies[i];
+            _setAddress(string.concat(tp.parentKey, ".owner"), tp.configuredOwner);
             _setString(string.concat(tp.parentKey, ".implementation.ownershipModel"), "transferred-after-deploy");
+        }
+
+        // Update metadata for timeout-based proxies (no transferOwnership call, but update owner field)
+        TimeoutProxy[] memory timeoutProxies = _getTimeoutProxies();
+        for (uint256 i; i < timeoutProxies.length; i++) {
+            TimeoutProxy memory tp = timeoutProxies[i];
+            _setAddress(string.concat(tp.parentKey, ".owner"), tp.configuredOwner);
         }
 
         // Mark session finished (use _set* to trigger _afterValueChanged for persistence)
@@ -199,10 +216,8 @@ abstract contract Deployment is DeploymentDataMemory {
     ///      Performs runtime ownership check - only returns proxies where currentOwner != configuredOwner
     /// @return proxies Array of TransferrableProxy structs (only those actually needing transfer)
     function _getTransferrableProxies() internal view returns (TransferrableProxy[] memory proxies) {
-        address globalOwner = _getAddress(OWNER);
         string[] memory allKeys = keys();
         string memory suffix = ".implementation.ownershipModel";
-        uint256 suffixLen = bytes(suffix).length;
 
         // Allocate max-size array, populate, then truncate via assembly
         proxies = new TransferrableProxy[](allKeys.length);
@@ -214,19 +229,48 @@ abstract contract Deployment is DeploymentDataMemory {
             if (!LibString.eq(_getString(key), "transfer-after-deploy")) continue;
 
             // parentKey is the proxy key (strip ".implementation.ownershipModel")
-            string memory parentKey = LibString.slice(key, 0, bytes(key).length - suffixLen);
+            string memory parentKey = LibString.slice(key, 0, bytes(key).length - bytes(suffix).length);
             address proxy = _get(parentKey);
 
             (bool success, bytes memory data) = proxy.staticcall(abi.encodeWithSignature("owner()"));
-            if (!success || data.length != 32) continue;
+            // Contracts marked transfer-after-deploy MUST have owner() function
+            if (!success || data.length != 32) {
+                revert MissingOwnerFunction(parentKey, proxy);
+            }
 
             address currentOwner = abi.decode(data, (address));
-            string memory ownerKey = string.concat(parentKey, ".owner");
-            address configuredOwner = _has(ownerKey) ? _getAddress(ownerKey) : globalOwner;
-
-            if (currentOwner != configuredOwner) {
-                proxies[count++] = TransferrableProxy(proxy, parentKey, currentOwner, configuredOwner);
+            // Always transfer to the global configured owner
+            if (currentOwner != _getAddress(OWNER)) {
+                proxies[count++] = TransferrableProxy(proxy, parentKey, currentOwner, _getAddress(OWNER));
             }
+        }
+
+        // Truncate array to actual size
+        assembly {
+            mstore(proxies, count)
+        }
+    }
+
+    /// @notice Get list of proxies with timeout-based ownership transfer
+    /// @dev Finds all keys ending in ".implementation.ownershipModel" with value "transferred-on-timeout"
+    ///      These proxies don't need explicit transferOwnership call, but their metadata should be updated
+    /// @return proxies Array of TimeoutProxy structs
+    function _getTimeoutProxies() internal view returns (TimeoutProxy[] memory proxies) {
+        string[] memory allKeys = keys();
+        string memory suffix = ".implementation.ownershipModel";
+
+        // Allocate max-size array, populate, then truncate via assembly
+        proxies = new TimeoutProxy[](allKeys.length);
+        uint256 count = 0;
+
+        for (uint256 i; i < allKeys.length; i++) {
+            string memory key = allKeys[i];
+            if (!LibString.endsWith(key, suffix)) continue;
+            if (!LibString.eq(_getString(key), "transferred-on-timeout")) continue;
+
+            // parentKey is the proxy key (strip ".implementation.ownershipModel")
+            string memory parentKey = LibString.slice(key, 0, bytes(key).length - bytes(suffix).length);
+            proxies[count++] = TimeoutProxy(parentKey, _getAddress(OWNER));
         }
 
         // Truncate array to actual size
@@ -381,6 +425,7 @@ abstract contract Deployment is DeploymentDataMemory {
         );
         // extra proxy keys
         _setAddress(string.concat(proxyKey, ".factory"), factory);
+        _setAddress(string.concat(proxyKey, ".owner"), deployer);
         _setString(string.concat(proxyKey, ".category"), "UUPS proxy");
         _setString(string.concat(proxyKey, ".saltString"), _extractSaltString(proxyKey));
         _setString(string.concat(proxyKey, ".salt"), LibString.toHexString(uint256(salt)));
@@ -450,6 +495,7 @@ abstract contract Deployment is DeploymentDataMemory {
         _recordContractFields(implKey, newImplementation, implementationContractType, deployer, block.number);
         // Set default ownershipModel if not already set by registerImplementation
         string memory ownershipModelKey = string.concat(implKey, ".ownershipModel");
+        // TODO: fix the ownership transfer models - we only have one right now so it's not a problem atm
         if (!_has(ownershipModelKey)) {
             _setString(ownershipModelKey, "transfer-after-deploy");
         }
@@ -544,7 +590,7 @@ abstract contract Deployment is DeploymentDataMemory {
         _requireActiveRun();
         string memory implKey = string.concat(proxyKey, ".implementation");
         _recordContractFields(implKey, implAddress, contractType, _getAddress(SESSION_DEPLOYER), block.number);
-        _setString(string.concat(implKey, ".ownershipModel"), ownershipModel);
+        if (bytes(ownershipModel).length > 0) _setString(string.concat(implKey, ".ownershipModel"), ownershipModel);
     }
 
     /// @dev Record common contract metadata fields

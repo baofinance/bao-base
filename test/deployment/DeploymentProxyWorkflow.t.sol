@@ -38,7 +38,7 @@ contract DeploymentProxyWorkflowTest is BaoDeploymentTest {
         // Phase 1: Set configuration for first token
         deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor USD");
-        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
+        deployment.setAddress(deployment.OWNER(), admin);
 
         // Phase 2: Deploy proxy using configuration
         deployment.deployPegged();

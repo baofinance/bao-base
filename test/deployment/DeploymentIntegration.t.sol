@@ -5,37 +5,33 @@ import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {BaoOwnable} from "@bao/BaoOwnable.sol";
 
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 
-contract OracleV1 is Initializable, UUPSUpgradeable {
+contract OracleV1 is Initializable, UUPSUpgradeable, BaoOwnable {
     uint256 public price;
-    address public admin;
 
-    function initialize(uint256 _price, address _admin) external initializer {
-        price = _price;
-        admin = _admin;
-    }
-
-    function setPrice(uint256 _price) external {
-        require(msg.sender == admin, "Not admin");
+    function initialize(uint256 _price, address _finalOwner) external initializer {
+        _initializeOwner(_finalOwner);
         price = _price;
     }
 
-    function _authorizeUpgrade(address) internal view override {
-        require(msg.sender == admin, "Not admin");
+    function setPrice(uint256 _price) external onlyOwner {
+        price = _price;
     }
+
+    function _authorizeUpgrade(address) internal view override onlyOwner {}
 }
 
-contract MockMinter is Initializable, UUPSUpgradeable {
+contract MockMinter is Initializable, UUPSUpgradeable, BaoOwnable {
     // Constructor parameters: immutable token addresses (rarely change, require upgrade to modify)
     address public immutable collateralToken;
     address public immutable peggedToken;
     address public immutable leveragedToken;
 
-    // Initialize parameters: oracle (has update function), admin (owner)
+    // Initialize parameters: oracle (has update function)
     address public oracle;
-    address public admin;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(address _collateral, address _pegged, address _leveraged) {
@@ -44,14 +40,12 @@ contract MockMinter is Initializable, UUPSUpgradeable {
         leveragedToken = _leveraged;
     }
 
-    function initialize(address _oracle, address _admin) external initializer {
+    function initialize(address _oracle, address _finalOwner) external initializer {
+        _initializeOwner(_finalOwner);
         oracle = _oracle;
-        admin = _admin;
     }
 
-    function _authorizeUpgrade(address) internal view override {
-        require(msg.sender == admin, "Not admin");
-    }
+    function _authorizeUpgrade(address) internal view override onlyOwner {}
 }
 
 library ConfigLib {
@@ -90,9 +84,10 @@ contract MockDeploymentIntegration is DeploymentJsonTesting {
         registerContract(key, address(token), "MockERC20", address(this));
     }
 
-    function deployOracleProxy(string memory key, uint256 price, address admin) public {
+    function deployOracleProxy(string memory key, uint256 price) public {
         OracleV1 impl = new OracleV1();
-        bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
+        address finalOwner = _getAddress(OWNER);
+        bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, finalOwner));
         this.deployProxy(key, address(impl), initData, "OracleV1", address(this));
     }
 
@@ -100,17 +95,17 @@ contract MockDeploymentIntegration is DeploymentJsonTesting {
         string memory key,
         string memory collateralKey,
         string memory peggedKey,
-        string memory oracleKey,
-        address admin
+        string memory oracleKey
     ) public {
         address collateral = _get(collateralKey);
         address pegged = _get(peggedKey);
         address oracle = _get(oracleKey);
+        address finalOwner = _getAddress(OWNER);
 
         // Constructor parameters: immutable token addresses (rarely change, require upgrade to modify)
         MockMinter impl = new MockMinter(collateral, pegged, oracle);
-        // Initialize parameters: oracle (has update function), owner (two-step pattern)
-        bytes memory initData = abi.encodeCall(MockMinter.initialize, (oracle, admin));
+        // Initialize parameters: oracle (has update function), owner (two-step pattern via BaoOwnable)
+        bytes memory initData = abi.encodeCall(MockMinter.initialize, (oracle, finalOwner));
         this.deployProxy(key, address(impl), initData, "MockMinter", address(this));
     }
 
@@ -164,14 +159,13 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         deployment.deployMockERC20("contracts.pegged", "USD Stablecoin", "USD");
 
         // Deploy oracle
-        deployment.deployOracleProxy("contracts.oracle", 2000e18, admin);
+        deployment.deployOracleProxy("contracts.oracle", 2000e18);
         // Deploy minter (depends on all above)
         deployment.deployMinterProxy(
             "contracts.minter",
             "contracts.collateral",
             "contracts.pegged",
-            "contracts.oracle",
-            admin
+            "contracts.oracle"
         );
 
         // Deploy library
@@ -187,7 +181,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         // Verify contract functionality
         OracleV1 oracleContract = OracleV1(deployment.get("contracts.oracle"));
         assertEq(oracleContract.price(), 2000e18);
-        assertEq(oracleContract.admin(), admin);
+        assertEq(oracleContract.owner(), address(deployment));
 
         MockMinter minterContract = MockMinter(deployment.get("contracts.minter"));
         assertEq(minterContract.collateralToken(), deployment.get("contracts.collateral"));
@@ -201,13 +195,12 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         // Deploy full system (auto-save is automatic)
         deployment.deployMockERC20("contracts.collateral", "wETH", "wETH");
         deployment.deployMockERC20("contracts.pegged", "USD", "USD");
-        deployment.deployOracleProxy("contracts.oracle", 2000e18, admin);
+        deployment.deployOracleProxy("contracts.oracle", 2000e18);
         deployment.deployMinterProxy(
             "contracts.minter",
             "contracts.collateral",
             "contracts.pegged",
-            "contracts.oracle",
-            admin
+            "contracts.oracle"
         );
         deployment.deployConfigLibrary("contracts.configLib");
 
@@ -244,7 +237,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
 
         // Deploy new contracts that depend on existing
         deployment.deployMockERC20("contracts.pegged", "USD", "USD");
-        deployment.deployOracleProxy("contracts.oracle", 2000e18, admin);
+        deployment.deployOracleProxy("contracts.oracle", 2000e18);
         deployment.finish();
 
         // Verify existing contract is in registry
@@ -284,7 +277,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         vm.roll(200);
         MockDeploymentPhase phase2 = new MockDeploymentPhase("phase2of3"); // Set filename BEFORE start
         phase2.start(network, TEST_SALT, "phase1of3"); // Resume from phase1.json
-        phase2.deployOracleProxy("contracts.oracle", 2000e18, admin);
+        phase2.deployOracleProxy("contracts.oracle", 2000e18);
         phase2.finish();
 
         // Phase 3: Resume from phase2 and add minter
@@ -292,13 +285,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         vm.roll(300);
         MockDeploymentPhase phase3 = new MockDeploymentPhase("phase3of3"); // Set filename BEFORE start
         phase3.start(network, TEST_SALT, "phase2of3"); // Resume from phase2.json
-        phase3.deployMinterProxy(
-            "contracts.minter",
-            "contracts.collateral",
-            "contracts.pegged",
-            "contracts.oracle",
-            admin
-        );
+        phase3.deployMinterProxy("contracts.minter", "contracts.collateral", "contracts.pegged", "contracts.oracle");
         phase3.finish();
 
         // Verify final state by loading phase3
@@ -317,11 +304,12 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         _startDeployment("test_MultipleProxiesWithSameImplementation");
         // Deploy one implementation
         OracleV1 impl = new OracleV1();
+        address finalOwner = deployment.getAddress(deployment.OWNER());
 
         // Deploy multiple proxies
-        bytes memory initData1 = abi.encodeCall(OracleV1.initialize, (1000e18, admin));
-        bytes memory initData2 = abi.encodeCall(OracleV1.initialize, (2000e18, admin));
-        bytes memory initData3 = abi.encodeCall(OracleV1.initialize, (3000e18, admin));
+        bytes memory initData1 = abi.encodeCall(OracleV1.initialize, (1000e18, finalOwner));
+        bytes memory initData2 = abi.encodeCall(OracleV1.initialize, (2000e18, finalOwner));
+        bytes memory initData3 = abi.encodeCall(OracleV1.initialize, (3000e18, finalOwner));
 
         deployment.deployProxy("contracts.oracle1", address(impl), initData1, "OracleV1", address(this));
         deployment.deployProxy("contracts.oracle2", address(impl), initData2, "OracleV1", address(this));
@@ -343,14 +331,9 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
 
         deployment.deployMockERC20("contracts.token1", "Token1", "TK1");
         deployment.deployMockERC20("contracts.token2", "Token2", "TK2");
-        deployment.deployOracleProxy("contracts.oracle", 1000e18, admin);
-        deployment.deployMinterProxy(
-            "contracts.minter1",
-            "contracts.token1",
-            "contracts.token2",
-            "contracts.oracle",
-            admin
-        );
+        deployment.deployOracleProxy("contracts.oracle", 1000e18);
+        deployment.deployMinterProxy("contracts.minter1", "contracts.token1", "contracts.token2", "contracts.oracle");
+        address finalOwner = deployment.getAddress(deployment.OWNER());
 
         // Now deploy minter2 that depends on minter1
         // Constructor: immutable token addresses
@@ -359,8 +342,8 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
             deployment.get("contracts.token2"),
             deployment.get("contracts.oracle")
         );
-        // Initialize: oracle (has update function), owner
-        bytes memory initData = abi.encodeCall(MockMinter.initialize, (deployment.get("contracts.oracle"), admin));
+        // Initialize: oracle (has update function), owner via BaoOwnable
+        bytes memory initData = abi.encodeCall(MockMinter.initialize, (deployment.get("contracts.oracle"), finalOwner));
         deployment.deployProxy("contracts.minter2", address(minter2Impl), initData, "MockMinter", address(this));
 
         // Verify dependency chain

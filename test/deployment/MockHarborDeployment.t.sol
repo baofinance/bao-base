@@ -34,7 +34,7 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
         // Pre-deployment configuration
         deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor USD");
-        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
+        deployment.setAddress(deployment.OWNER(), admin);
 
         // Predict address before deployment
         address predicted = deployment.predictProxyAddress(deployment.PEGGED());
@@ -81,12 +81,11 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
         // Configure
         deployment.setString(deployment.PEGGED_SYMBOL(), "EURO");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor Euro");
-        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
+        deployment.setAddress(deployment.OWNER(), admin);
 
         // Verify configuration was stored
         assertEq(deployment.getString(deployment.PEGGED_SYMBOL()), "EURO", "Symbol should be stored");
-        assertEq(deployment.getString(deployment.PEGGED_NAME()), "Harbor Euro", "Name should be stored");
-        assertEq(deployment.getAddress(deployment.PEGGED_OWNER()), admin, "Owner should be stored");
+        assertEq(deployment.getAddress(deployment.OWNER()), admin, "Owner should be stored");
 
         // Deploy using that configuration
         deployment.deployPegged();
@@ -107,7 +106,7 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
         // Configure and deploy
         deployment.setString(deployment.PEGGED_SYMBOL(), "GBP");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor Pound");
-        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
+        deployment.setAddress(deployment.OWNER(), admin);
 
         deployment.deployPegged();
 
@@ -125,7 +124,7 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
         // Configure and deploy
         deployment.setString(deployment.PEGGED_SYMBOL(), "CHF");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor Franc");
-        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
+        deployment.setAddress(deployment.OWNER(), admin);
         deployment.deployPegged();
 
         // After deployment

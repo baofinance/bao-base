@@ -45,6 +45,7 @@
       "blockNumber": 1,
       "category": "UUPS proxy",
       "factory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5",
+      "owner": "0x0000000000000000000000000000000000001234",
       "saltString": "oracle",
       "salt": "0x96d52fdb4a275a6221c446f1b9dabb4ed13cad1d0dbdcf5580a1602ed764e4cc",
       "implementation": {
@@ -53,7 +54,7 @@
         "contractPath": "out/OracleV1.sol/OracleV1.json: not found",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
         "blockNumber": 1,
-        "ownershipModel": "transfer-after-deploy"
+        "ownershipModel": "transferred-after-deploy"
       }
     },
     "minter": {
@@ -64,6 +65,7 @@
       "blockNumber": 1,
       "category": "UUPS proxy",
       "factory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5",
+      "owner": "0x0000000000000000000000000000000000001234",
       "saltString": "minter",
       "salt": "0x43bcaa65f19f847a24c7655bfe6794125ae2882d77e8ce9007d1bad710edac0f",
       "implementation": {
@@ -72,7 +74,7 @@
         "contractPath": "test/mocks/upgradeable/MockMinter.sol",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
         "blockNumber": 1,
-        "ownershipModel": "transfer-after-deploy"
+        "ownershipModel": "transferred-after-deploy"
       }
     },
     "configLib": {

@@ -1,5 +1,5 @@
 {
-  "owner": "0x0000000000000000000000000000000000001234",
+  "owner": "0xaa10a84ce7d9ae517a52c6d5ca153b369af99ecf",
   "schemaVersion": 1,
   "systemSaltString": "DeploymentProxyWorkflowTest",
   "session": {
@@ -20,8 +20,7 @@
   "contracts": {
     "pegged": {
       "symbol": "USD",
-      "name": "Harbor USD",
-      "owner": "0xaa10a84ce7d9ae517a52c6d5ca153b369af99ecf"
+      "name": "Harbor USD"
     }
   }
 }

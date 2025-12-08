@@ -25,13 +25,11 @@ contract MockHarborDeploymentProduction is DeploymentJsonTesting {
     // Pegged token configuration keys
     string public constant PEGGED_SYMBOL = "contracts.pegged.symbol";
     string public constant PEGGED_NAME = "contracts.pegged.name";
-    string public constant PEGGED_OWNER = "contracts.pegged.owner";
 
     constructor() {
         addProxy(PEGGED);
         addStringKey(PEGGED_SYMBOL);
         addStringKey(PEGGED_NAME);
-        addAddressKey(PEGGED_OWNER);
     }
 
     // ============================================================================
@@ -41,7 +39,7 @@ contract MockHarborDeploymentProduction is DeploymentJsonTesting {
     function deployPegged() public {
         string memory symbol = _getString(PEGGED_SYMBOL);
         string memory name = _getString(PEGGED_NAME);
-        address owner = _getAddress(PEGGED_OWNER);
+        address owner = _getAddress(OWNER);
 
         MintableBurnableERC20_v1 impl = new MintableBurnableERC20_v1();
 

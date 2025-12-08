@@ -60,6 +60,7 @@ abstract contract DeploymentKeys {
     error InvalidKeyFormat(string key, string reason);
     error TypeMismatch(string key, DataType expectedType, DataType actualType);
     error KeyNotRegistered(string key);
+    error KeyAlreadyRegistered(string key);
     error ParentContractNotRegistered(string key, string parentKey);
     error ContractKeyMustStartWithContracts(string key);
 
@@ -308,6 +309,7 @@ abstract contract DeploymentKeys {
         _addImplementation(key);
         _registerKey(string.concat(key, ".category"), DataType.STRING);
         _registerKey(string.concat(key, ".factory"), DataType.ADDRESS);
+        _registerKey(string.concat(key, ".owner"), DataType.ADDRESS);
         _registerKey(string.concat(key, ".value"), DataType.UINT);
         _registerKey(string.concat(key, ".saltString"), DataType.STRING);
         _registerKey(string.concat(key, ".salt"), DataType.STRING); // Store as hex string
@@ -400,6 +402,9 @@ abstract contract DeploymentKeys {
      * @param expectedType The expected type
      */
     function _registerKey(string memory key, DataType expectedType) private {
+        if (_keyRegistered[key]) {
+            revert KeyAlreadyRegistered(key);
+        }
         _keyTypes[key] = expectedType;
         _keyRegistered[key] = true;
         _schemaKeys.push(key);

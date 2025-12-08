@@ -44,6 +44,7 @@
       "deployer": "0xf62849f9a0b5bf2913b396098f7c7019b51a820a",
       "blockNumber": 200,
       "factory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5",
+      "owner": "0x0000000000000000000000000000000000001234",
       "category": "UUPS proxy",
       "saltString": "oracle",
       "salt": "0x96d52fdb4a275a6221c446f1b9dabb4ed13cad1d0dbdcf5580a1602ed764e4cc",
@@ -53,7 +54,7 @@
         "contractPath": "out/OracleV1.sol/OracleV1.json: not found",
         "deployer": "0xf62849f9a0b5bf2913b396098f7c7019b51a820a",
         "blockNumber": 200,
-        "ownershipModel": "transfer-after-deploy"
+        "ownershipModel": "transferred-after-deploy"
       }
     }
   }

@@ -280,14 +280,15 @@ contract DeploymentEnsureBaoFactoryTest is BaoDeploymentTest {
     }
 
     function test_EnsureBaoFactoryWithoutSession_() public {
-        deployment.registerTopLevelKey("BaoFactory");
+        // BaoFactory is already registered by DeploymentKeys constructor
         deployment.ensureBaoFactoryExternal();
         assertFalse(deployment.hasKey("BaoFactory"), "BaoFactory stays unset off-session");
     }
 
     function test_EnsureBaoFactoryRequiresSchemaDuringSession_() public {
         _initSessionEnsure("test_EnsureBaoFactoryRequiresSchemaDuringSession_");
-        deployment.registerTopLevelKey("BaoFactory");
+        // BaoFactory is already registered by DeploymentKeys constructor
+        // but BaoFactory.address is NOT registered, so this should still revert
         vm.expectRevert(abi.encodeWithSignature("KeyNotRegistered(string)", "BaoFactory.address"));
         deployment.ensureBaoFactoryExternal();
     }

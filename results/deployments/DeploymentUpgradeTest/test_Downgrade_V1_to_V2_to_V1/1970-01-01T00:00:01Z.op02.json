@@ -25,6 +25,7 @@
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "blockNumber": 1,
       "factory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5",
+      "owner": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "category": "UUPS proxy",
       "saltString": "Counter",
       "salt": "0x667edb9477d894922d0eeaacb805a80ba5a801201349ec94a5a6e80ec9885e62",

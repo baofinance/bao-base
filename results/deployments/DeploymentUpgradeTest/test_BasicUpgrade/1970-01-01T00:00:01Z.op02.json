@@ -28,6 +28,7 @@
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "blockNumber": 1,
       "factory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5",
+      "owner": "0x0000000000000000000000000000000000001234",
       "category": "UUPS proxy",
       "saltString": "Oracle",
       "salt": "0x12a91dadb1f9ad87e388c9ae0917d14d12630bd6d009169def18936be94ed844",

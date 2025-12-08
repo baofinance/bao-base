@@ -28,6 +28,7 @@
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "blockNumber": 1,
       "factory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5",
+      "owner": "0x0000000000000000000000000000000000001234",
       "category": "UUPS proxy",
       "saltString": "proxy1",
       "salt": "0xae819964217bc1643556604c9287d4b8b94566c949728143cd958b20821f0060",
@@ -37,7 +38,7 @@
         "contractPath": "out/SimpleImplementation.sol/SimpleImplementation.json: not found",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
         "blockNumber": 1,
-        "ownershipModel": "transfer-after-deploy"
+        "ownershipModel": "transferred-after-deploy"
       }
     },
     "proxy2": {
@@ -47,6 +48,7 @@
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "blockNumber": 1,
       "factory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5",
+      "owner": "0x0000000000000000000000000000000000001234",
       "category": "UUPS proxy",
       "saltString": "proxy2",
       "salt": "0xf67205144c79913a85adbf11333601eb55cce8d9e8ff0fab6d6a051163ff1b49",
@@ -56,7 +58,7 @@
         "contractPath": "out/SimpleImplementation.sol/SimpleImplementation.json: not found",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
         "blockNumber": 1,
-        "ownershipModel": "transfer-after-deploy"
+        "ownershipModel": "transferred-after-deploy"
       }
     },
     "proxy3": {
@@ -66,6 +68,7 @@
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "blockNumber": 1,
       "factory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5",
+      "owner": "0x0000000000000000000000000000000000001234",
       "category": "UUPS proxy",
       "saltString": "proxy3",
       "salt": "0xb3fb9817938edbff996bb2959648880a0b61de0844cc172b84a1b730e592318c",
@@ -75,7 +78,7 @@
         "contractPath": "out/SimpleImplementation.sol/SimpleImplementation.json: not found",
         "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
         "blockNumber": 1,
-        "ownershipModel": "transfer-after-deploy"
+        "ownershipModel": "transferred-after-deploy"
       }
     }
   }

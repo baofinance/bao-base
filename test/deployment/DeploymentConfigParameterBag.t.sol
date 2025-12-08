@@ -19,7 +19,6 @@ contract DeploymentConfigParameterBagTestHarness is DeploymentMemoryTesting {
         addStringKey("contracts.pegged.name");
         addStringKey("contracts.pegged.symbol");
         addUintKey("contracts.pegged.decimals");
-        addContract("contracts.collateral"); // collateral is actually a contract key
         addUintKey("contracts.minter.bands.0");
         addUintKey("contracts.minter.bands.1");
         addIntKey("contracts.minter.ratios.0");

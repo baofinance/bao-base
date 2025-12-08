@@ -8,21 +8,22 @@ import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {BaoOwnable} from "@bao/BaoOwnable.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {FundedVault, FundedVaultUUPS, NonPayableVault, NonPayableVaultUUPS} from "@bao-test/mocks/deployment/FundedVault.sol";
 
-contract SimpleImplementation is Initializable, UUPSUpgradeable {
+/// @dev Simple UUPS proxy implementation using BaoOwnable for transfer-after-deploy pattern
+/// BaoOwnable sets owner=msg.sender and pendingOwner=finalOwner during init
+/// finish() calls transferOwnership(pendingOwner) to complete the transfer
+contract SimpleImplementation is Initializable, UUPSUpgradeable, BaoOwnable {
     uint256 public value;
-    address public admin;
 
-    function initialize(uint256 _value, address _admin) external initializer {
+    function initialize(uint256 _value, address _finalOwner) external initializer {
+        _initializeOwner(_finalOwner);
         value = _value;
-        admin = _admin;
     }
 
-    function _authorizeUpgrade(address) internal view override {
-        require(msg.sender == admin, "Not admin");
-    }
+    function _authorizeUpgrade(address) internal view override onlyOwner {}
 }
 
 library TestLib {
@@ -56,10 +57,12 @@ contract MockDeploymentFields is DeploymentJsonTesting {
         return _get(key);
     }
 
-    function deploySimpleProxy(string memory key, uint256 value, address admin) public {
+    function deploySimpleProxy(string memory key, uint256 value) public {
         SimpleImplementation impl = new SimpleImplementation();
-
-        bytes memory initData = abi.encodeCall(SimpleImplementation.initialize, (value, admin));
+        // Pass global OWNER as finalOwner - BaoOwnable sets pendingOwner to this
+        // owner will be msg.sender (deployment harness), finish() transfers to pendingOwner
+        address finalOwner = _getAddress(OWNER);
+        bytes memory initData = abi.encodeCall(SimpleImplementation.initialize, (value, finalOwner));
         this.deployProxy(key, address(impl), initData, "SimpleImplementation", address(this));
     }
 
@@ -74,8 +77,10 @@ contract MockDeploymentFields is DeploymentJsonTesting {
         this.predictableDeployContract{value: value}(value, key, fundedCode, "FundedVault", address(this));
     }
 
-    function deployFundedVaultProxy(string memory key, address owner, uint256 value) public {
-        FundedVaultUUPS impl = new FundedVaultUUPS(owner);
+    function deployFundedVaultProxy(string memory key, uint256 value) public {
+        // Use global OWNER for consistency with deployment system - finish() will record this as the owner
+        address finalOwner = _getAddress(OWNER);
+        FundedVaultUUPS impl = new FundedVaultUUPS(finalOwner);
         bytes memory initData = abi.encodeCall(FundedVaultUUPS.initialize, ());
         // BaoOwnable_v2 uses timeout-based ownership transfer, not explicit transferOwnership
         this.registerImplementation(key, address(impl), "FundedVaultUUPS", "transferred-on-timeout");
@@ -119,7 +124,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         _startDeployment("test_ProxyHasFactoryAndDeployer");
 
         // Deploy a proxy
-        deployment.deploySimpleProxy("contracts.proxy1", 100, admin);
+        deployment.deploySimpleProxy("contracts.proxy1", 100);
         deployment.finish();
 
         // Use toJson() for verification without saving file
@@ -144,7 +149,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         _startDeployment("test_ImplementationHasDeployerNoFactory");
 
         // Deploy implementation (via proxy deployment which creates implementation entry)
-        deployment.deploySimpleProxy("contracts.proxy1", 100, admin);
+        deployment.deploySimpleProxy("contracts.proxy1", 100);
         deployment.finish();
 
         // Use toJson() for verification
@@ -227,7 +232,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         _startDeployment("test_FactoryAndDeployerUseDistinctRoles");
 
         // Deploy a proxy and verify factory != deployer
-        deployment.deploySimpleProxy("contracts.proxy1", 100, admin);
+        deployment.deploySimpleProxy("contracts.proxy1", 100);
         deployment.finish();
 
         // Use toJson() for verification without saving file
@@ -246,9 +251,9 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         _startDeployment("test_MultipleProxiesHaveSameFactoryAndDeployer");
 
         // Deploy multiple proxies
-        deployment.deploySimpleProxy("contracts.proxy1", 100, admin);
-        deployment.deploySimpleProxy("contracts.proxy2", 200, admin);
-        deployment.deploySimpleProxy("contracts.proxy3", 300, admin);
+        deployment.deploySimpleProxy("contracts.proxy1", 100);
+        deployment.deploySimpleProxy("contracts.proxy2", 200);
+        deployment.deploySimpleProxy("contracts.proxy3", 300);
 
         deployment.finish();
 
@@ -337,8 +342,8 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
 
         vm.deal(address(deployment), 10 ether);
 
-        deployment.deployFundedVaultProxy("contracts.vault_proxy_funded", admin, 5 ether);
-        deployment.deployFundedVaultProxy("contracts.vault_proxy_unfunded", admin, 0);
+        deployment.deployFundedVaultProxy("contracts.vault_proxy_funded", 5 ether);
+        deployment.deployFundedVaultProxy("contracts.vault_proxy_unfunded", 0);
 
         deployment.finish();
 
@@ -374,6 +379,12 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
 
         assertEq(FundedVaultUUPS(recordedFunded).initialBalance(), 5 ether, "Initializer should record funded balance");
         assertEq(FundedVaultUUPS(recordedUnfunded).initialBalance(), 0, "Initializer should record zero balance");
+
+        // Verify owner field is set to global OWNER (not deployer) for timeout proxies after finish()
+        address ownerFunded = vm.parseJsonAddress(json, ".contracts.vault_proxy_funded.owner");
+        address ownerUnfunded = vm.parseJsonAddress(json, ".contracts.vault_proxy_unfunded.owner");
+        assertEq(ownerFunded, DEFAULT_TEST_OWNER, "Funded proxy owner should be global OWNER after finish");
+        assertEq(ownerUnfunded, DEFAULT_TEST_OWNER, "Unfunded proxy owner should be global OWNER after finish");
     }
 
     function test_RevertWhen_FundingNonPayableContract() public {

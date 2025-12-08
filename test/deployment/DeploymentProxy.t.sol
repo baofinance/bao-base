@@ -33,7 +33,8 @@ contract DeploymentProxyTest is BaoDeploymentTest {
 
         deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor USD");
-        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
+        // Set global OWNER - this is the intended final owner for all contracts
+        deployment.setAddress(deployment.OWNER(), admin);
 
         deployment.deployPegged();
 
@@ -54,9 +55,23 @@ contract DeploymentProxyTest is BaoDeploymentTest {
         // Verify ownership - deployment contract is initial owner (via BaoOwnable pattern)
         assertEq(token.owner(), address(deployment), "Deployment should be initial owner");
 
+        // Verify .owner field tracks actual owner (deployer) before finish
+        assertEq(
+            deployment.getAddress(string.concat(deployment.PEGGED(), ".owner")),
+            address(deployment),
+            ".owner should be deployer before finish"
+        );
+
         // Finish deployment (transfers ownership)
         deployment.finish();
         assertEq(token.owner(), admin, "Owner should be admin after finish");
+
+        // Verify .owner field was updated to final owner
+        assertEq(
+            deployment.getAddress(string.concat(deployment.PEGGED(), ".owner")),
+            admin,
+            ".owner should be admin after finish"
+        );
 
         // Verify ownershipModel was updated
         string memory ownershipModel = deployment.getString(
@@ -75,7 +90,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
 
         deployment.setString(deployment.PEGGED_SYMBOL(), "EUR");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor EUR");
-        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
+        deployment.setAddress(deployment.OWNER(), admin);
 
         deployment.deployPegged();
 
@@ -90,7 +105,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
 
         deployment.setString(deployment.PEGGED_SYMBOL(), "GBP");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor GBP");
-        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
+        deployment.setAddress(deployment.OWNER(), admin);
 
         deployment.deployPegged();
         assertEq(deployment.get(deployment.PEGGED()), addr1, "Deployed address should match prediction");
@@ -112,7 +127,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
         // Deploy first proxy
         deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor USD");
-        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
+        deployment.setAddress(deployment.OWNER(), admin);
         deployment.deployPegged();
 
         // To deploy a second proxy, we'd need a different key
@@ -150,7 +165,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
 
         deployment.setString(deployment.PEGGED_SYMBOL(), "JPY");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor JPY");
-        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
+        deployment.setAddress(deployment.OWNER(), admin);
 
         deployment.deployPegged();
 
@@ -170,7 +185,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
         // Deploy pegged token
         deployment.setString(deployment.PEGGED_SYMBOL(), "USD");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor USD");
-        deployment.setAddress(deployment.PEGGED_OWNER(), admin);
+        deployment.setAddress(deployment.OWNER(), admin);
 
         deployment.deployPegged();
 

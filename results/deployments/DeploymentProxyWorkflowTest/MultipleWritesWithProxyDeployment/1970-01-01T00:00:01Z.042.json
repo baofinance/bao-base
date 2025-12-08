@@ -15,7 +15,9 @@
       "contractPath": "script/deployment/UUPSProxyDeployStub.sol",
       "blockNumber": 1
     },
-    "finishTimestamp": 1
+    "finishTimestamp": 1,
+    "finished": "1970-01-01T00:00:01Z",
+    "finishBlock": 1
   },
   "BaoFactory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5",
   "contracts": {

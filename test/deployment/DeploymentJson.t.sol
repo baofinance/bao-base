@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {BaoOwnable} from "@bao/BaoOwnable.sol";
 
 import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
@@ -29,14 +30,15 @@ contract SimpleContract {
     }
 }
 
-contract SimpleImplementation is Initializable, UUPSUpgradeable {
+contract SimpleImplementation is Initializable, UUPSUpgradeable, BaoOwnable {
     uint256 public value;
 
-    function initialize(uint256 _value) external initializer {
+    function initialize(uint256 _value, address _finalOwner) external initializer {
+        _initializeOwner(_finalOwner);
         value = _value;
     }
 
-    function _authorizeUpgrade(address) internal override {}
+    function _authorizeUpgrade(address) internal view override onlyOwner {}
 }
 
 // Library for testing
@@ -91,7 +93,8 @@ contract MockDeploymentJson is DeploymentJsonTesting {
 
     function deploySimpleProxy(string memory key, uint256 value) public {
         SimpleImplementation impl = new SimpleImplementation();
-        bytes memory initData = abi.encodeCall(SimpleImplementation.initialize, (value));
+        address finalOwner = _getAddress(OWNER);
+        bytes memory initData = abi.encodeCall(SimpleImplementation.initialize, (value, finalOwner));
         deployProxy(string.concat("contracts.", key), address(impl), initData, "SimpleImplementation", address(this));
     }
 

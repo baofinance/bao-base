@@ -11,8 +11,8 @@ import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.
 contract AddressResolutionHarness is DeploymentDataMemory {
     constructor() {
         // Register keys for testing
+        // Note: "owner" is already registered by DeploymentKeys base constructor
         addAddressKey("treasury");
-        addAddressKey("owner");
         addContract("contracts.token");
         addContract("contracts.minter");
         addAddressKey("contracts.minter.feeReceiver");
