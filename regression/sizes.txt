@@ -6,8 +6,8 @@
 | Create3CommitFlow              |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | Deployed                       |                408 |               24,168 |                 460 |       86,200 |              8.62 |
 | DeploymentInfrastructure       |              7,835 |               16,741 |               7,887 |    1,645,870 |            164.59 |
-| DeploymentJsonTesting          |             54,073 |              -29,497 |              57,132 |   11,385,920 |           1138.59 |
-| DeploymentMemoryTesting        |             33,695 |               -9,119 |              35,379 |    7,092,790 |            709.28 |
+| DeploymentJsonTesting          |             54,798 |              -30,222 |              57,986 |   11,539,460 |           1153.95 |
+| DeploymentMemoryTesting        |             34,458 |               -9,882 |              36,271 |    7,254,310 |            725.43 |
 | DeploymentTestingOutput        |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | DerivedBaoOwnable              |                874 |               23,702 |                 902 |      183,820 |             18.38 |
 | DerivedBaoOwnableRoles         |              1,757 |               22,819 |               1,799 |      369,390 |             36.94 |
