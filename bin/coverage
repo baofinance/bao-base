@@ -4,7 +4,7 @@ set -o pipefail
 
 [[ "${BAO_BASE_VERBOSITY}" -gt 0 ]] && set -x
 # separate build output & cache
-FOUNDRY_OUT=out/_coverage
+export FOUNDRY_OUT=out/_coverage
 export FOUNDRY_CACHE_PATH=cache/_coverage
 
 # temp deployment scripts dir
@@ -13,5 +13,5 @@ export BAO_DEPLOYMENT_LOGS_ROOT=$(mktemp -d -p tmp)
 trap 'rm -rf "${BAO_DEPLOYMENT_LOGS_ROOT}"' EXIT
 
 # run the coverage
-forge coverage --out ${FOUNDRY_OUT} --nmp script/**/*.t.sol --report summary --report lcov
+forge coverage --nmp 'script/**/*.t.sol' --report summary --report lcov
 { set +x; } 2>/dev/null

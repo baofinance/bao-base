@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # pyright: reportMissingImports=false
+import json
+import os
 import re
+from pathlib import Path
 from typing import cast
 
 import forge_tables
@@ -9,6 +12,34 @@ import pandas as pd  # type: ignore[reportMissingImports]
 GAS_PER_BYTE = 200
 INITCODE_AVG_GAS_PER_BYTE = 10  # Half of the init bytes are assumed zero (4 gas) and half non-zero (16 gas).
 USD_PER_GAS = 0.10 / 1_000  # $0.10 per 1k gas
+
+
+def get_contract_source_path(contract_name: str) -> str | None:
+    """Look up source path from compiled artifact metadata."""
+    out_dir = Path("out")
+    # Artifact is at out/**/{SourceFile}.sol/{ContractName}.json
+    # The directory name is the source file (may differ from contract name),
+    # but the JSON file is always named after the contract.
+    pattern = f"**/*.sol/{contract_name}.json"
+    matches = list(out_dir.glob(pattern))
+    if not matches:
+        return None
+    artifact_path = matches[0]
+    try:
+        with open(artifact_path) as f:
+            artifact = json.load(f)
+        targets = artifact.get("metadata", {}).get("settings", {}).get("compilationTarget", {})
+        if targets:
+            return next(iter(targets.keys()))
+    except (json.JSONDecodeError, KeyError, StopIteration):
+        pass
+    return None
+
+
+def is_lib_contract(contract_name: str) -> bool:
+    """Check if contract source is from lib/ directory."""
+    source_path = get_contract_source_path(contract_name)
+    return source_path is not None and source_path.startswith("lib/")
 
 
 def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str]:
@@ -35,6 +66,10 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str]:
 
     # Create the DataFrame using the cleaned and validated data
     df = pd.DataFrame(data, columns=header)
+
+    # Filter out contracts from lib/ dependencies
+    df = df[~df["Contract"].apply(is_lib_contract)]
+
     df["Runtime Size (B)"] = [int(value.replace(",", "")) for value in df["Runtime Size (B)"]]
     df["Runtime Margin (B)"] = [int(value.replace(",", "")) for value in df["Runtime Margin (B)"]]
     df["Initcode Size (B)"] = [int(value.replace(",", "")) for value in df["Initcode Size (B)"]]
