@@ -352,11 +352,6 @@ abstract contract DeploymentJson is Deployment {
         for (uint256 i = 0; i < registered.length; i++) {
             string memory key = registered[i];
 
-            // Skip role-related keys - they're handled by _loadRolesFromJson
-            if (key.contains(".roles.")) {
-                continue;
-            }
-
             string memory pointer = string.concat("$.", key);
             if (!existingJson.keyExists(pointer)) {
                 continue;
@@ -395,58 +390,7 @@ abstract contract DeploymentJson is Deployment {
             }
         }
 
-        // Load roles from JSON
-        _loadRolesFromJson(existingJson, registered);
-
         _suppressIncrementalPersistence = previousSuppressIncrementalPersistence;
-    }
-
-    /// @notice Load roles from JSON for all contract keys
-    /// @dev Discovers roles dynamically using vm.parseJsonKeys
-    function _loadRolesFromJson(string memory existingJson, string[] memory registered) private {
-        for (uint256 i = 0; i < registered.length; i++) {
-            string memory key = registered[i];
-            // Only process OBJECT type keys (contracts)
-            if (keyType(key) != DataType.OBJECT) {
-                continue;
-            }
-
-            // Check if this contract has a "roles" object
-            string memory rolesPointer = string.concat("$.", key, ".roles");
-            if (!existingJson.keyExists(rolesPointer)) {
-                continue;
-            }
-
-            // Discover role names using parseJsonKeys
-            string[] memory roleNames;
-            try VM.parseJsonKeys(existingJson, rolesPointer) returns (string[] memory keys) {
-                roleNames = keys;
-            } catch {
-                continue; // Not an object, skip
-            }
-
-            // Load each role
-            for (uint256 r = 0; r < roleNames.length; r++) {
-                string memory roleName = roleNames[r];
-                string memory rolePointer = string.concat(rolesPointer, ".", roleName);
-
-                // Load value
-                string memory valuePointer = string.concat(rolePointer, ".value");
-                if (existingJson.keyExists(valuePointer)) {
-                    uint256 value = existingJson.readUint(valuePointer);
-                    _setRole(key, roleName, value);
-                }
-
-                // Load grantees
-                string memory granteesPointer = string.concat(rolePointer, ".grantees");
-                if (existingJson.keyExists(granteesPointer)) {
-                    string[] memory grantees = existingJson.readStringArray(granteesPointer);
-                    for (uint256 g = 0; g < grantees.length; g++) {
-                        _setGrantee(grantees[g], key, roleName);
-                    }
-                }
-            }
-        }
     }
 
     function fromJson(string memory existingJson) public virtual {
@@ -459,10 +403,7 @@ abstract contract DeploymentJson is Deployment {
     function toJson() public returns (string memory) {
         uint256 keyCount = _dataKeys.length;
 
-        // Count role entries to allocate enough nodes
-        uint256 roleNodeCount = _countRoleNodes();
-
-        if (keyCount == 0 && roleNodeCount == 0) {
+        if (keyCount == 0) {
             return "{}";
         }
 
@@ -470,8 +411,6 @@ abstract contract DeploymentJson is Deployment {
         for (uint256 i = 0; i < keyCount; i++) {
             maxSegments += _dataKeys[i].split(".").length;
         }
-        // Add space for role nodes (each role needs: roles node + role name node + value node + grantees node)
-        maxSegments += roleNodeCount;
 
         TempNode[] memory nodes = new TempNode[](maxSegments);
         nodes[0].parent = type(uint256).max;
@@ -502,160 +441,7 @@ abstract contract DeploymentJson is Deployment {
             }
         }
 
-        // Add roles to the tree
-        nodeCount = _addRolesToTree(nodes, nodeCount);
-
         return _renderNode(0, nodes, nodeCount);
-    }
-
-    /// @notice Count nodes needed for roles serialization
-    /// @dev Each role needs: "roles" parent + role name + "value" + "grantees"
-    function _countRoleNodes() private view returns (uint256 count) {
-        string[] memory contractKeys = _getContractKeysWithRoles();
-        for (uint256 i = 0; i < contractKeys.length; i++) {
-            string[] memory roleNames = _contractRoleNames[contractKeys[i]];
-            if (roleNames.length > 0) {
-                // For each contract with roles: "roles" node
-                count += 1;
-                // For each role: role name node + value node + grantees node
-                count += roleNames.length * 3;
-            }
-        }
-    }
-
-    /// @notice Get all contract keys that have roles registered
-    function _getContractKeysWithRoles() private view returns (string[] memory) {
-        // Use schemaKeys() which includes contract keys like "contracts.pegged"
-        string[] memory keys = schemaKeys();
-
-        // Count contracts with roles
-        uint256 count = 0;
-        for (uint256 i = 0; i < keys.length; i++) {
-            string memory key = keys[i];
-            if (_contractRoleNames[key].length > 0) {
-                count++;
-            }
-        }
-
-        // Collect them
-        string[] memory result = new string[](count);
-        uint256 j = 0;
-        for (uint256 i = 0; i < keys.length; i++) {
-            string memory key = keys[i];
-            if (_contractRoleNames[key].length > 0) {
-                result[j++] = key;
-            }
-        }
-        return result;
-    }
-
-    /// @notice Add role entries to the JSON tree
-    /// @dev Adds roles.{roleName}.{value,grantees} under each contract with roles
-    function _addRolesToTree(TempNode[] memory nodes, uint256 nodeCount) private view returns (uint256) {
-        string[] memory contractKeys = _getContractKeysWithRoles();
-
-        for (uint256 c = 0; c < contractKeys.length; c++) {
-            nodeCount = _addContractRolesToTree(nodes, nodeCount, contractKeys[c]);
-        }
-
-        return nodeCount;
-    }
-
-    /// @notice Add roles for a single contract to the tree
-    function _addContractRolesToTree(
-        TempNode[] memory nodes,
-        uint256 nodeCount,
-        string memory contractKey
-    ) private view returns (uint256) {
-        string[] memory roleNames = _contractRoleNames[contractKey];
-        if (roleNames.length == 0) {
-            return nodeCount;
-        }
-
-        // Find the contract node in the tree
-        uint256 contractNode = _findContractNode(nodes, nodeCount, contractKey);
-        if (contractNode == type(uint256).max) {
-            return nodeCount;
-        }
-
-        // Add "roles" node under contract
-        uint256 rolesNode = _findChild(nodes, nodeCount, contractNode, "roles");
-        if (rolesNode == type(uint256).max) {
-            rolesNode = nodeCount;
-            nodes[rolesNode].name = "roles";
-            nodes[rolesNode].parent = contractNode;
-            nodeCount++;
-        }
-
-        // Add each role
-        for (uint256 r = 0; r < roleNames.length; r++) {
-            nodeCount = _addSingleRoleToTree(nodes, nodeCount, rolesNode, contractKey, roleNames[r]);
-        }
-
-        return nodeCount;
-    }
-
-    /// @notice Find a contract node in the tree by walking the segments
-    function _findContractNode(
-        TempNode[] memory nodes,
-        uint256 nodeCount,
-        string memory contractKey
-    ) private pure returns (uint256) {
-        string[] memory segments = contractKey.split(".");
-        uint256 current = 0;
-        for (uint256 j = 0; j < segments.length; j++) {
-            current = _findChild(nodes, nodeCount, current, segments[j]);
-            if (current == type(uint256).max) {
-                return type(uint256).max;
-            }
-        }
-        return current;
-    }
-
-    /// @notice Add a single role (with value and grantees) to the tree
-    function _addSingleRoleToTree(
-        TempNode[] memory nodes,
-        uint256 nodeCount,
-        uint256 rolesNode,
-        string memory contractKey,
-        string memory roleName
-    ) private view returns (uint256) {
-        // Schema keys: {contractKey}.roles.{roleName}.value and {contractKey}.roles.{roleName}.grantees
-        string memory valueKey = string.concat(contractKey, ".roles.", roleName, ".value");
-        string memory granteesKey = string.concat(contractKey, ".roles.", roleName, ".grantees");
-
-        // Add role name node under "roles"
-        uint256 roleNode = nodeCount++;
-        nodes[roleNode].name = roleName;
-        nodes[roleNode].parent = rolesNode;
-
-        // Add "value" node
-        uint256 valueNode = nodeCount++;
-        nodes[valueNode].name = "value";
-        nodes[valueNode].parent = roleNode;
-        nodes[valueNode].hasValue = true;
-        nodes[valueNode].valueJson = LibString.toString(_getUint(valueKey));
-
-        // Add "grantees" node
-        uint256 granteesNode = nodeCount++;
-        nodes[granteesNode].name = "grantees";
-        nodes[granteesNode].parent = roleNode;
-        nodes[granteesNode].hasValue = true;
-        nodes[granteesNode].valueJson = _encodeStringArray(_getStringArray(granteesKey));
-
-        return nodeCount;
-    }
-
-    /// @notice Encode a string array for JSON (helper for grantees)
-    function _encodeStringArray(string[] memory values) private pure returns (string memory) {
-        if (values.length == 0) {
-            return "[]";
-        }
-        string memory json = "[";
-        for (uint256 i = 0; i < values.length; i++) {
-            json = string.concat(json, i == 0 ? "" : ",", '"', values[i], '"');
-        }
-        return string.concat(json, "]");
     }
 
     function _renderNode(uint256 index, TempNode[] memory nodes, uint256 nodeCount) private returns (string memory) {

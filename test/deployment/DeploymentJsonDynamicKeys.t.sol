@@ -220,11 +220,7 @@ contract DeploymentJsonPatternKeysTest is Test {
 
         assertTrue(vm.keyExistsJson(json, "$.networks.mainnet.chainId"), "chainId should exist in JSON");
         assertEq(vm.parseJsonUint(json, "$.networks.mainnet.chainId"), 1, "chainId value should be 1");
-        assertEq(
-            vm.parseJsonAddress(json, "$.networks.mainnet.collateral"),
-            STETH,
-            "collateral should be STETH"
-        );
+        assertEq(vm.parseJsonAddress(json, "$.networks.mainnet.collateral"), STETH, "collateral should be STETH");
     }
 
     /// @notice PASSING TEST: Pattern-registered keys round-trip correctly
@@ -247,7 +243,11 @@ contract DeploymentJsonPatternKeysTest is Test {
         // This should PASS - patterns discover "networks.mainnet.*" keys from JSON
         assertEq(newDeployment.getNetworkChainId("mainnet"), 1, "Phase 2: chainId should be 1 after round-trip");
         assertEq(newDeployment.getNetworkCollateral("mainnet"), STETH, "Phase 2: collateral should be STETH");
-        assertEq(newDeployment.getNetworkWrappedCollateral("mainnet"), WSTETH, "Phase 2: wrappedCollateral should be WSTETH");
+        assertEq(
+            newDeployment.getNetworkWrappedCollateral("mainnet"),
+            WSTETH,
+            "Phase 2: wrappedCollateral should be WSTETH"
+        );
     }
 
     /// @notice Multiple networks round-trip correctly with patterns
@@ -273,7 +273,7 @@ contract DeploymentJsonPatternKeysTest is Test {
 /// @notice Test harness for explicit role registration
 contract RolePatternDeployment is DeploymentJsonTesting {
     string public constant CONTRACTS_PEGGED = "contracts.pegged";
-    
+
     constructor() {
         // Register the contract and its explicit roles
         addProxy(CONTRACTS_PEGGED);
@@ -344,7 +344,12 @@ contract DeploymentJsonRolePatternTest is Test {
     /// @dev This validates that explicit role registration provides validation
     function test_RevertWhen_UnregisteredRoleUsed() public {
         // UNKNOWN_ROLE was not in the addRoles array, so this should revert
-        vm.expectRevert(abi.encodeWithSelector(DeploymentKeys.KeyNotRegistered.selector, "contracts.pegged.roles.UNKNOWN_ROLE.value"));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                DeploymentKeys.KeyNotRegistered.selector,
+                "contracts.pegged.roles.UNKNOWN_ROLE.value"
+            )
+        );
         deployment.setRole("UNKNOWN_ROLE", 99);
     }
 }

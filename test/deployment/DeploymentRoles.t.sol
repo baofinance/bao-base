@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
-import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
+import {Deployment} from "@bao-script/deployment/Deployment.sol";
 
 // ============================================================================
 // Test Harness
@@ -19,7 +19,7 @@ contract MockDeploymentRoles is DeploymentJsonTesting {
         addContract(PEGGED);
         addContract(MINTER);
         addContract(HUB);
-        
+
         // Register roles for each contract
         string[] memory roleNames = new string[](3);
         roleNames[0] = "MINTER_ROLE";
@@ -142,12 +142,7 @@ contract DeploymentRolesRegistrationTest is DeploymentRolesSetup {
         deployment.registerRole("contracts.pegged", "MINTER_ROLE", 1);
 
         vm.expectRevert(
-            abi.encodeWithSelector(
-                DeploymentDataMemory.RoleValueMismatch.selector,
-                "contracts.pegged.roles.MINTER_ROLE",
-                1,
-                2
-            )
+            abi.encodeWithSelector(Deployment.RoleValueMismatch.selector, "contracts.pegged.roles.MINTER_ROLE", 1, 2)
         );
         deployment.registerRole("contracts.pegged", "MINTER_ROLE", 2);
     }
@@ -184,7 +179,7 @@ contract DeploymentRolesGranteeTest is DeploymentRolesSetup {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                DeploymentDataMemory.DuplicateGrantee.selector,
+                Deployment.DuplicateGrantee.selector,
                 "contracts.pegged.roles.MINTER_ROLE",
                 "contracts.minter"
             )

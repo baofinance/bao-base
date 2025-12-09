@@ -48,6 +48,8 @@ abstract contract Deployment is DeploymentDataMemory {
     error KeyRequired();
     error SessionNotStarted();
     error SessionAlreadyFinished();
+    error RoleValueMismatch(string roleKey, uint256 existingValue, uint256 newValue);
+    error DuplicateGrantee(string roleKey, string granteeKey);
     error AlreadyInitialized();
     error CannotSendValueToNonPayableFunction();
 
@@ -998,6 +1000,145 @@ abstract contract Deployment is DeploymentDataMemory {
         }
 
         console2.log(string.concat(unicode"✓ ", label, " = %x"), actualBitmap);
+    }
+
+    // ============================================================================
+    // Role Management
+    // ============================================================================
+
+    /// @notice Build the role key from contract key and role name
+    /// @dev Returns "{contractKey}.roles.{roleName}" (e.g., "contracts.pegged.roles.MINTER_ROLE")
+    function _roleKey(string memory contractKey, string memory roleName) internal pure returns (string memory) {
+        return string.concat(contractKey, ".roles.", roleName);
+    }
+
+    /// @notice Set a role's value for a contract
+    /// @dev Reverts if key not registered (explicit). Reverts if a different value is already set.
+    /// @param contractKey The contract key (e.g., "contracts.pegged")
+    /// @param roleName The role name (e.g., "MINTER_ROLE")
+    /// @param value The role's uint256 bitmask value
+    function _setRole(string memory contractKey, string memory roleName, uint256 value) internal {
+        string memory roleKey = _roleKey(contractKey, roleName);
+        string memory valueKey = string.concat(roleKey, ".value");
+
+        // Check if already has a value with different value
+        if (_hasKey[valueKey]) {
+            uint256 existingValue = _uints[valueKey];
+            if (existingValue != value) {
+                revert RoleValueMismatch(roleKey, existingValue, value);
+            }
+            // Same value, no-op
+            return;
+        }
+
+        // Set value and initialize empty grantees (validateKey happens in _setUint/_setStringArray)
+        _setUint(valueKey, value);
+        _setStringArray(string.concat(roleKey, ".grantees"), new string[](0));
+    }
+
+    /// @notice Add a grantee for a role
+    /// @dev Reverts if the grantee is already registered for this role
+    /// @param granteeKey The grantee's contract key (e.g., "contracts.minter")
+    /// @param contractKey The contract key where the role is defined (e.g., "contracts.pegged")
+    /// @param roleName The role name (e.g., "MINTER_ROLE")
+    function _setGrantee(string memory granteeKey, string memory contractKey, string memory roleName) internal {
+        string memory roleKey = _roleKey(contractKey, roleName);
+        string memory granteesKey = string.concat(roleKey, ".grantees");
+
+        // Get current grantees
+        string[] memory currentGrantees = _stringArrays[granteesKey];
+
+        // Check for duplicate grantee
+        for (uint256 i = 0; i < currentGrantees.length; i++) {
+            if (LibString.eq(currentGrantees[i], granteeKey)) {
+                revert DuplicateGrantee(roleKey, granteeKey);
+            }
+        }
+
+        // Append to grantees array
+        _stringArrays[granteesKey].push(granteeKey);
+        _afterValueChanged(granteesKey);
+    }
+
+    /// @notice Get the role value for a contract's role
+    /// @param contractKey The contract key (e.g., "contracts.pegged")
+    /// @param roleName The role name (e.g., "MINTER_ROLE")
+    /// @return value The role's uint256 bitmask value
+    function _getRoleValue(string memory contractKey, string memory roleName) internal view returns (uint256) {
+        return _getUint(string.concat(_roleKey(contractKey, roleName), ".value"));
+    }
+
+    /// @notice Check if a role value is set
+    function _hasRole(string memory contractKey, string memory roleName) internal view returns (bool) {
+        return _hasKey[string.concat(_roleKey(contractKey, roleName), ".value")];
+    }
+
+    /// @notice Get the grantees for a contract's role
+    /// @param contractKey The contract key (e.g., "contracts.pegged")
+    /// @param roleName The role name (e.g., "MINTER_ROLE")
+    /// @return grantees Array of grantee contract keys
+    function _getRoleGrantees(
+        string memory contractKey,
+        string memory roleName
+    ) internal view returns (string[] memory) {
+        return _getStringArray(string.concat(_roleKey(contractKey, roleName), ".grantees"));
+    }
+
+    /// @notice Get role names for a contract by scanning data keys
+    /// @dev Scans keys() for keys matching {contractKey}.roles.*.value and extracts role names
+    /// @param contractKey The contract key (e.g., "contracts.pegged")
+    /// @return roleNames Array of role names with values set for this contract
+    function _getContractRoleNames(string memory contractKey) internal view returns (string[] memory) {
+        string memory prefix = string.concat(contractKey, ".roles.");
+        string memory suffix = ".value";
+        string[] memory allKeys = keys(); // Use data keys, not schema keys
+
+        // Count matching keys
+        uint256 count = 0;
+        for (uint256 i = 0; i < allKeys.length; i++) {
+            if (LibString.startsWith(allKeys[i], prefix) && LibString.endsWith(allKeys[i], suffix)) {
+                count++;
+            }
+        }
+
+        // Extract role names
+        string[] memory roleNames = new string[](count);
+        uint256 j = 0;
+        for (uint256 i = 0; i < allKeys.length; i++) {
+            string memory key = allKeys[i];
+            if (LibString.startsWith(key, prefix) && LibString.endsWith(key, suffix)) {
+                // Extract role name: remove prefix and suffix
+                // key = "contracts.pegged.roles.MINTER_ROLE.value"
+                // prefix = "contracts.pegged.roles."
+                // suffix = ".value"
+                uint256 prefixLen = bytes(prefix).length;
+                uint256 suffixLen = bytes(suffix).length;
+                uint256 keyLen = bytes(key).length;
+                roleNames[j++] = LibString.slice(key, prefixLen, keyLen - suffixLen);
+            }
+        }
+        return roleNames;
+    }
+
+    /// @notice Compute the expected role bitmap for a grantee on a contract
+    /// @dev Iterates all roles on contractKey and ORs values where granteeKey is a grantee
+    /// @param contractKey The contract key (e.g., "contracts.pegged")
+    /// @param granteeKey The grantee's contract key (e.g., "contracts.minter")
+    /// @return bitmap The combined role bitmap
+    function _computeExpectedRoles(
+        string memory contractKey,
+        string memory granteeKey
+    ) internal view returns (uint256 bitmap) {
+        string[] memory roleNames = _getContractRoleNames(contractKey);
+        for (uint256 i = 0; i < roleNames.length; i++) {
+            string[] memory grantees = _getRoleGrantees(contractKey, roleNames[i]);
+            for (uint256 j = 0; j < grantees.length; j++) {
+                if (LibString.eq(grantees[j], granteeKey)) {
+                    bitmap |= _getRoleValue(contractKey, roleNames[i]);
+                    break;
+                }
+            }
+        }
     }
 
     /// @notice Helper to create a single-element role names array

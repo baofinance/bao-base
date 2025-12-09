@@ -1,11 +1,12 @@
 | Contract                       |   Runtime Size (B) |   Runtime Margin (B) |   Initcode Size (B) |   Deploy Gas |   Deploy Cost ($) |
 |--------------------------------|--------------------|----------------------|---------------------|--------------|-------------------|
+| Array                          |                 62 |               24,514 |                  88 |       13,280 |              1.33 |
 | BaoFactory                     |              2,969 |               21,607 |               3,194 |      625,740 |             62.57 |
 | Create3CommitFlow              |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | Deployed                       |                408 |               24,168 |                 460 |       86,200 |              8.62 |
 | DeploymentInfrastructure       |              7,835 |               16,741 |               7,887 |    1,645,870 |            164.59 |
-| DeploymentJsonTesting          |             56,470 |              -31,894 |              59,658 |   11,890,580 |           1189.06 |
-| DeploymentMemoryTesting        |             34,763 |              -10,187 |              36,576 |    7,318,360 |            731.84 |
+| DeploymentJsonTesting          |             52,999 |              -28,423 |              56,187 |   11,161,670 |           1116.17 |
+| DeploymentMemoryTesting        |             37,040 |              -12,464 |              38,853 |    7,796,530 |            779.65 |
 | DeploymentTestingOutput        |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | DerivedBaoOwnable              |                874 |               23,702 |                 902 |      183,820 |             18.38 |
 | DerivedBaoOwnableRoles         |              1,757 |               22,819 |               1,799 |      369,390 |             36.94 |
