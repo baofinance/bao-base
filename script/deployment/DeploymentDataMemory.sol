@@ -6,6 +6,7 @@ import {console2} from "forge-std/console2.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 import {IDeploymentData} from "./interfaces/IDeploymentData.sol";
 import {DeploymentKeys, DataType} from "./DeploymentKeys.sol";
+import {Array} from "@bao-script/utils/Array.sol";
 
 /**
  * @title DeploymentDataMemory
@@ -13,7 +14,7 @@ import {DeploymentKeys, DataType} from "./DeploymentKeys.sol";
  * @dev Extends DeploymentKeys to be its own key registry.
  *      Provides type-safe value storage plus deterministic JSON rendering.
  */
-abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
+abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData, Array {
     using LibString for string;
 
     error ValueNotSet(string key);
@@ -407,8 +408,8 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
     }
 
     /// @notice Register a role's value for a contract
-    /// @dev Reverts if a different value is already registered for this role.
-    ///      Dynamically registers schema keys for the role value and grantees.
+    /// @dev Reverts if key not registered (explicit or pattern).
+    ///      Reverts if a different value is already registered for this role.
     /// @param contractKey The contract key (e.g., "contracts.pegged")
     /// @param roleName The role name (e.g., "MINTER_ROLE")
     /// @param value The role's uint256 bitmask value
@@ -417,7 +418,7 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
         string memory valueKey = string.concat(roleKey, ".value");
         string memory granteesKey = string.concat(roleKey, ".grantees");
 
-        // Check if already registered with different value
+        // Check if already has a value with different value
         if (_hasKey[valueKey]) {
             uint256 existingValue = _uints[valueKey];
             if (existingValue != value) {
@@ -427,16 +428,16 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
             return;
         }
 
-        // Dynamically register schema keys for this role
-        addUintKey(valueKey);
-        addStringArrayKey(granteesKey);
+        // Validate keys are registered (explicit or pattern-matched)
+        // This reverts with KeyNotRegistered if not registered
+        validateKey(valueKey, DataType.UINT);
+        validateKey(granteesKey, DataType.STRING_ARRAY);
 
         // Set the value
         _setUint(valueKey, value);
 
         // Initialize empty grantees array
-        string[] memory emptyArray = new string[](0);
-        _setStringArray(granteesKey, emptyArray);
+        _setStringArray(granteesKey, Array.sa());
 
         // Track role name for this contract (for enumeration during serialization)
         _contractRoleNames[contractKey].push(roleName);

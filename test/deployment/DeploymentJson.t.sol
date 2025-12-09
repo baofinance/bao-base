@@ -74,6 +74,13 @@ contract MockDeploymentJson is DeploymentJsonTesting {
         addContract("contracts.burner");
         addContract("contracts.admin");
 
+        // Register roles for rolesContract
+        string[] memory roles = new string[](3);
+        roles[0] = "MINTER_ROLE";
+        roles[1] = "BURNER_ROLE";
+        roles[2] = "ADMIN_ROLE";
+        addRoles("contracts.rolesContract", roles);
+
         addKey(JSON_CONFIG_ROOT);
         addAddressKey(JSON_CONFIG_GUARDIAN_KEY);
         addStringKey(JSON_CONFIG_SYMBOL_KEY);

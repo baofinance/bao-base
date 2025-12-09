@@ -19,6 +19,14 @@ contract MockDeploymentRoles is DeploymentJsonTesting {
         addContract(PEGGED);
         addContract(MINTER);
         addContract(HUB);
+        
+        // Register roles for each contract
+        string[] memory roleNames = new string[](3);
+        roleNames[0] = "MINTER_ROLE";
+        roleNames[1] = "BURNER_ROLE";
+        roleNames[2] = "ADMIN_ROLE";
+        addRoles(PEGGED, roleNames);
+        addRoles(HUB, roleNames);
     }
 
     function registerRole(string memory contractKey, string memory roleName, uint256 value) external {

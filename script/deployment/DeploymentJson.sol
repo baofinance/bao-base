@@ -8,7 +8,7 @@ import {stdJson} from "forge-std/StdJson.sol";
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
-import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.sol";
+import {DeploymentKeys, DataType, KeyPattern} from "@bao-script/deployment/DeploymentKeys.sol";
 
 /**
  * @title DeploymentJson
@@ -310,9 +310,53 @@ abstract contract DeploymentJson is Deployment {
         bool previousSuppressIncrementalPersistence = _suppressIncrementalPersistence;
         _suppressIncrementalPersistence = true; // we don't want the loading to write out each change, on loading
 
+        // Expand patterns - for each pattern (prefix.*.suffix), find matching keys in JSON and register them
+        // TODO: remove patterns() it just returns _patterns
+        for (uint256 p = 0; p < _patterns.length; p++) {
+            KeyPattern memory pat = _patterns[p];
+            string memory prefixPointer = string.concat("$.", pat.prefix);
+
+            // Check if prefix exists in JSON
+            if (!existingJson.keyExists(prefixPointer)) {
+                continue;
+            }
+
+            // Get children of prefix using parseJsonKeys
+            string[] memory children;
+            try VM.parseJsonKeys(existingJson, prefixPointer) returns (string[] memory keys) {
+                children = keys;
+            } catch {
+                continue; // Not an object, skip
+            }
+
+            // For each child, check if child.suffix exists and register the concrete key
+            for (uint256 c = 0; c < children.length; c++) {
+                string memory child = children[c];
+                string memory concreteKey = string.concat(pat.prefix, ".", child, ".", pat.suffix);
+                string memory concretePointer = string.concat("$.", concreteKey);
+
+                if (existingJson.keyExists(concretePointer)) {
+                    // Register intermediate object (prefix.child) - _registerKeyFromPattern is idempotent
+                    string memory intermediateKey = string.concat(pat.prefix, ".", child);
+                    _registerKeyFromPattern(
+                        intermediateKey,
+                        KeyPattern({prefix: pat.prefix, suffix: child, dtype: DataType.OBJECT, decimals: DECIMALS_AUTO})
+                    );
+                    // Register the concrete key
+                    _registerKeyFromPattern(concreteKey, pat);
+                }
+            }
+        }
+
         string[] memory registered = schemaKeys();
         for (uint256 i = 0; i < registered.length; i++) {
             string memory key = registered[i];
+
+            // Skip role-related keys - they're handled by _loadRolesFromJson
+            if (key.contains(".roles.")) {
+                continue;
+            }
+
             string memory pointer = string.concat("$.", key);
             if (!existingJson.keyExists(pointer)) {
                 continue;

@@ -32,13 +32,29 @@ enum DataType {
 }
 
 /**
+ * @title KeyPattern
+ * @notice Represents a single-level wildcard pattern: prefix.*.suffix
+ * @dev Used to match keys like "networks.mainnet.chainId" with pattern "networks.*.chainId"
+ */
+struct KeyPattern {
+    string prefix; // e.g., "networks"
+    string suffix; // e.g., "chainId"
+    DataType dtype; // The data type for matched keys
+    uint256 decimals; // Decimal places for numeric types (DECIMALS_AUTO for auto)
+}
+
+/**
  * @title DeploymentKeys
  * @notice Abstract contract for registering and validating deployment configuration keys
- * @dev Projects extend this to define their configuration keys with type safety
+ * @dev Projects extend this to define their configuration keys with type safety.
+ *      Supports single-level wildcard patterns (prefix.*.suffix) for dynamic keys.
  */
 abstract contract DeploymentKeys {
+    using LibString for string;
+
     // ============ Storage ============
 
+    // TODO: look at making all this data private and provide access functions if needed
     /// @dev Mapping from key name to expected type
     mapping(string => DataType) private _keyTypes;
 
@@ -51,6 +67,9 @@ abstract contract DeploymentKeys {
 
     /// @dev Array of all registered keys
     string[] private _schemaKeys;
+
+    /// @dev Array of registered patterns for single-level wildcards
+    KeyPattern[] internal _patterns;
 
     /// @dev Sentinel value meaning "use auto-scaling" for numeric formatting
     uint256 internal constant DECIMALS_AUTO = type(uint256).max;
@@ -290,6 +309,241 @@ abstract contract DeploymentKeys {
         return key;
     }
 
+    // ============ Pattern Registration (Single-Level Wildcards) ============
+
+    /**
+     * @notice Register a pattern for object keys: prefix.*.suffix
+     * @dev When JSON is loaded, all keys matching this pattern are auto-registered
+     * @param prefix The prefix before the wildcard (e.g., "networks")
+     * @param suffix The suffix after the wildcard (e.g., "config")
+     */
+    function addAnyKeySuffix(string memory prefix, string memory suffix) internal {
+        _addPattern(prefix, suffix, DataType.OBJECT, DECIMALS_AUTO);
+    }
+
+    /**
+     * @notice Register a pattern for uint keys: prefix.*.suffix
+     * @param prefix The prefix before the wildcard
+     * @param suffix The suffix after the wildcard
+     */
+    function addAnyUintKeySuffix(string memory prefix, string memory suffix) internal {
+        addAnyUintKeySuffix(prefix, suffix, DECIMALS_AUTO);
+    }
+
+    /**
+     * @notice Register a pattern for uint keys with decimals: prefix.*.suffix
+     * @param prefix The prefix before the wildcard
+     * @param suffix The suffix after the wildcard
+     * @param decimals The decimal places for formatting
+     */
+    function addAnyUintKeySuffix(string memory prefix, string memory suffix, uint256 decimals) internal {
+        _addPattern(prefix, suffix, DataType.UINT, decimals);
+    }
+
+    /**
+     * @notice Register a pattern for int keys: prefix.*.suffix
+     * @param prefix The prefix before the wildcard
+     * @param suffix The suffix after the wildcard
+     */
+    function addAnyIntKeySuffix(string memory prefix, string memory suffix) internal {
+        addAnyIntKeySuffix(prefix, suffix, DECIMALS_AUTO);
+    }
+
+    /**
+     * @notice Register a pattern for int keys with decimals: prefix.*.suffix
+     * @param prefix The prefix before the wildcard
+     * @param suffix The suffix after the wildcard
+     * @param decimals The decimal places for formatting
+     */
+    function addAnyIntKeySuffix(string memory prefix, string memory suffix, uint256 decimals) internal {
+        _addPattern(prefix, suffix, DataType.INT, decimals);
+    }
+
+    /**
+     * @notice Register a pattern for address keys: prefix.*.suffix
+     * @param prefix The prefix before the wildcard
+     * @param suffix The suffix after the wildcard
+     */
+    function addAnyAddressKeySuffix(string memory prefix, string memory suffix) internal {
+        _addPattern(prefix, suffix, DataType.ADDRESS, DECIMALS_AUTO);
+    }
+
+    /**
+     * @notice Register a pattern for string keys: prefix.*.suffix
+     * @param prefix The prefix before the wildcard
+     * @param suffix The suffix after the wildcard
+     */
+    function addAnyStringKeySuffix(string memory prefix, string memory suffix) internal {
+        _addPattern(prefix, suffix, DataType.STRING, DECIMALS_AUTO);
+    }
+
+    /**
+     * @notice Register a pattern for bool keys: prefix.*.suffix
+     * @param prefix The prefix before the wildcard
+     * @param suffix The suffix after the wildcard
+     */
+    function addAnyBoolKeySuffix(string memory prefix, string memory suffix) internal {
+        _addPattern(prefix, suffix, DataType.BOOL, DECIMALS_AUTO);
+    }
+
+    /**
+     * @notice Register a pattern for address array keys: prefix.*.suffix
+     * @param prefix The prefix before the wildcard
+     * @param suffix The suffix after the wildcard
+     */
+    function addAnyAddressArrayKeySuffix(string memory prefix, string memory suffix) internal {
+        _addPattern(prefix, suffix, DataType.ADDRESS_ARRAY, DECIMALS_AUTO);
+    }
+
+    /**
+     * @notice Register a pattern for string array keys: prefix.*.suffix
+     * @param prefix The prefix before the wildcard
+     * @param suffix The suffix after the wildcard
+     */
+    function addAnyStringArrayKeySuffix(string memory prefix, string memory suffix) internal {
+        _addPattern(prefix, suffix, DataType.STRING_ARRAY, DECIMALS_AUTO);
+    }
+
+    /**
+     * @notice Register a pattern for uint array keys: prefix.*.suffix
+     * @param prefix The prefix before the wildcard
+     * @param suffix The suffix after the wildcard
+     */
+    function addAnyUintArrayKeySuffix(string memory prefix, string memory suffix) internal {
+        addAnyUintArrayKeySuffix(prefix, suffix, DECIMALS_AUTO);
+    }
+
+    /**
+     * @notice Register a pattern for uint array keys with decimals: prefix.*.suffix
+     * @param prefix The prefix before the wildcard
+     * @param suffix The suffix after the wildcard
+     * @param decimals The decimal places for formatting
+     */
+    function addAnyUintArrayKeySuffix(string memory prefix, string memory suffix, uint256 decimals) internal {
+        _addPattern(prefix, suffix, DataType.UINT_ARRAY, decimals);
+    }
+
+    /**
+     * @notice Register a pattern for int array keys: prefix.*.suffix
+     * @param prefix The prefix before the wildcard
+     * @param suffix The suffix after the wildcard
+     */
+    function addAnyIntArrayKeySuffix(string memory prefix, string memory suffix) internal {
+        addAnyIntArrayKeySuffix(prefix, suffix, DECIMALS_AUTO);
+    }
+
+    /**
+     * @notice Register a pattern for int array keys with decimals: prefix.*.suffix
+     * @param prefix The prefix before the wildcard
+     * @param suffix The suffix after the wildcard
+     * @param decimals The decimal places for formatting
+     */
+    function addAnyIntArrayKeySuffix(string memory prefix, string memory suffix, uint256 decimals) internal {
+        _addPattern(prefix, suffix, DataType.INT_ARRAY, decimals);
+    }
+
+    /**
+     * @notice Check if a key is registered (either explicitly or would match a pattern)
+     * @param key The key to check
+     * @return True if the key is registered or matches a pattern
+     */
+    function isKeyRegisteredOrMatchesPattern(string memory key) public view returns (bool) {
+        if (_keyRegistered[key]) return true;
+
+        // Check if it matches any pattern
+        for (uint256 i = 0; i < _patterns.length; i++) {
+            if (_matchesPattern(key, _patterns[i])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @notice Register a concrete key that matches a pattern
+     * @dev Called during JSON loading when a pattern match is found
+     * @param key The concrete key to register (e.g., "networks.mainnet.chainId")
+     * @param pattern The pattern it matches
+     */
+    function _registerKeyFromPattern(string memory key, KeyPattern memory pattern) internal {
+        if (_keyRegistered[key]) return; // Already registered
+
+        _keyTypes[key] = pattern.dtype;
+        _keyRegistered[key] = true;
+        _schemaKeys.push(key);
+        if (pattern.decimals != DECIMALS_AUTO) {
+            _keyDecimals[key] = pattern.decimals;
+        }
+    }
+
+    /**
+     * @notice Internal helper to add a pattern
+     * @dev Validates prefix is registered as OBJECT
+     */
+    function _addPattern(string memory prefix, string memory suffix, DataType dtype, uint256 decimals) private {
+        // Validate prefix is registered as OBJECT
+        if (!_keyRegistered[prefix] || _keyTypes[prefix] != DataType.OBJECT) {
+            revert ParentContractNotRegistered(string.concat(prefix, ".*.", suffix), prefix);
+        }
+        _patterns.push(KeyPattern({prefix: prefix, suffix: suffix, dtype: dtype, decimals: decimals}));
+    }
+
+    /**
+     * @notice Check if a key matches a pattern
+     * @param key The key to check (e.g., "networks.mainnet.chainId")
+     * @param pattern The pattern to match against
+     * @return True if the key matches the pattern
+     */
+    function _matchesPattern(string memory key, KeyPattern memory pattern) internal pure returns (bool) {
+        // Key must start with prefix.
+        string memory prefixWithDot = string.concat(pattern.prefix, ".");
+        if (!LibString.startsWith(key, prefixWithDot)) {
+            return false;
+        }
+
+        // Key must end with .suffix
+        string memory dotSuffix = string.concat(".", pattern.suffix);
+        if (!LibString.endsWith(key, dotSuffix)) {
+            return false;
+        }
+
+        // The middle part (wildcard) must be a single segment (no dots)
+        uint256 prefixLen = bytes(prefixWithDot).length;
+        uint256 suffixLen = bytes(dotSuffix).length;
+        uint256 keyLen = bytes(key).length;
+
+        // Ensure there's something in the middle
+        if (keyLen <= prefixLen + suffixLen) {
+            return false;
+        }
+
+        // Extract middle part and check it has no dots
+        bytes memory keyBytes = bytes(key);
+        for (uint256 i = prefixLen; i < keyLen - suffixLen; i++) {
+            if (keyBytes[i] == 0x2E) {
+                // '.'
+                return false; // Middle has a dot, not a single-level wildcard match
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @notice Extract the wildcard segment from a key that matches a pattern
+     * @param key The key (e.g., "networks.mainnet.chainId")
+     * @param pattern The pattern it matches
+     * @return The wildcard segment (e.g., "mainnet")
+     */
+    function _extractWildcard(string memory key, KeyPattern memory pattern) internal pure returns (string memory) {
+        uint256 prefixLen = bytes(pattern.prefix).length + 1; // +1 for the dot after prefix
+        uint256 suffixLen = bytes(pattern.suffix).length + 1; // +1 for the dot before suffix
+        uint256 keyLen = bytes(key).length;
+
+        // Extract: key[prefixLen : keyLen - suffixLen]
+        return key.slice(prefixLen, keyLen - suffixLen);
+    }
+
     /**
      * @notice Register all keys for a proxy contract
      * @dev Registers:
@@ -318,6 +572,29 @@ abstract contract DeploymentKeys {
         _addImplementation(implementationKey);
         // ownershipModel is a property of the implementation, not the proxy
         _registerKey(string.concat(implementationKey, ".ownershipModel"), DataType.STRING);
+    }
+
+    /**
+     * @notice Register explicit roles for a contract
+     * @dev Registers specific role keys (no wildcards):
+     *      - {key}.roles (OBJECT) - parent for all roles
+     *      - {key}.roles.{roleName}.value (UINT) - for each role
+     *      - {key}.roles.{roleName}.grantees (STRING_ARRAY) - for each role
+     *
+     *      Usage: addRoles("contracts.pegged", ["MINTER_ROLE", "BURNER_ROLE"])
+     *
+     * @param key The full contract key (e.g., "contracts.pegged")
+     * @param roleNames Array of role names to register
+     */
+    function addRoles(string memory key, string[] memory roleNames) public {
+        string memory rolesKey = string.concat(key, ".roles");
+        _registerKey(rolesKey, DataType.OBJECT);
+        for (uint256 i = 0; i < roleNames.length; i++) {
+            string memory roleKey = string.concat(rolesKey, ".", roleNames[i]);
+            _registerKey(roleKey, DataType.OBJECT);
+            _registerKey(string.concat(roleKey, ".value"), DataType.UINT);
+            _registerKey(string.concat(roleKey, ".grantees"), DataType.STRING_ARRAY);
+        }
     }
 
     /**
@@ -360,18 +637,48 @@ abstract contract DeploymentKeys {
     }
 
     /**
-     * @notice Validate that a key has been registered and matches expected type
-     * @dev Reverts with helpful error message if validation fails
+     * @notice Validate that a key has been registered (or matches a pattern) and matches expected type
+     * @dev If the key matches a pattern, it is automatically registered.
+     *      Reverts with helpful error message if validation fails.
      * @param key The key to validate
      * @param expectedType The expected type for this key
      */
-    function validateKey(string memory key, DataType expectedType) public view {
-        if (!_keyRegistered[key]) {
-            revert KeyNotRegistered(key);
+    function validateKey(string memory key, DataType expectedType) public {
+        // If already registered, just check type
+        if (_keyRegistered[key]) {
+            if (_keyTypes[key] != expectedType) {
+                revert TypeMismatch(key, expectedType, _keyTypes[key]);
+            }
+            return;
         }
-        if (_keyTypes[key] != expectedType) {
-            revert TypeMismatch(key, expectedType, _keyTypes[key]);
+
+        // Check if it matches a pattern with the expected type
+        for (uint256 i = 0; i < _patterns.length; i++) {
+            KeyPattern memory pattern = _patterns[i];
+            if (pattern.dtype == expectedType && _matchesPattern(key, pattern)) {
+                // Auto-register the intermediate object and the concrete key
+                uint256 prefixLen = bytes(pattern.prefix).length + 1; // +1 for the dot after prefix
+                uint256 suffixLen = bytes(pattern.suffix).length + 1; // +1 for the dot before suffix
+                uint256 keyLen = bytes(key).length;
+
+                // Extract: key[prefixLen : keyLen - suffixLen]
+                string memory wildcardValue = key.slice(prefixLen, keyLen - suffixLen);
+                string memory intermediateKey = string.concat(pattern.prefix, ".", wildcardValue);
+
+                // Register intermediate object if not already registered
+                if (!_keyRegistered[intermediateKey]) {
+                    _keyTypes[intermediateKey] = DataType.OBJECT;
+                    _keyRegistered[intermediateKey] = true;
+                    _schemaKeys.push(intermediateKey);
+                }
+
+                // Register the concrete key
+                _registerKeyFromPattern(key, pattern);
+                return;
+            }
         }
+
+        revert KeyNotRegistered(key);
     }
 
     /**
