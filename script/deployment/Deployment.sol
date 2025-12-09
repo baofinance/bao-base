@@ -1140,32 +1140,4 @@ abstract contract Deployment is DeploymentDataMemory {
             }
         }
     }
-
-    /// @notice Helper to create a single-element role names array
-    function _roles(string memory role1) internal pure returns (string[] memory) {
-        string[] memory roles = new string[](1);
-        roles[0] = role1;
-        return roles;
-    }
-
-    /// @notice Helper to create a two-element role names array
-    function _roles(string memory role1, string memory role2) internal pure returns (string[] memory) {
-        string[] memory roles = new string[](2);
-        roles[0] = role1;
-        roles[1] = role2;
-        return roles;
-    }
-
-    /// @notice Helper to create a three-element role names array
-    function _roles(
-        string memory role1,
-        string memory role2,
-        string memory role3
-    ) internal pure returns (string[] memory) {
-        string[] memory roles = new string[](3);
-        roles[0] = role1;
-        roles[1] = role2;
-        roles[2] = role3;
-        return roles;
-    }
 }

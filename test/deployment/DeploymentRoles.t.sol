@@ -79,13 +79,13 @@ contract MockDeploymentRoles is DeploymentJsonTesting {
         _expectRolesOf(actualBitmap, contractKey, roleNames, granteeKey);
     }
 
-    /// @notice Expose _roles helpers for testing
+    /// @notice Expose sa helpers for testing (renamed from _roles)
     function roles(string memory role1) external pure returns (string[] memory) {
-        return _roles(role1);
+        return sa(role1);
     }
 
     function roles(string memory role1, string memory role2) external pure returns (string[] memory) {
-        return _roles(role1, role2);
+        return sa(role1, role2);
     }
 
     function roles(
@@ -93,7 +93,7 @@ contract MockDeploymentRoles is DeploymentJsonTesting {
         string memory role2,
         string memory role3
     ) external pure returns (string[] memory) {
-        return _roles(role1, role2, role3);
+        return sa(role1, role2, role3);
     }
 }
 
