@@ -64,6 +64,14 @@ abstract contract DeploymentJson is Deployment {
         _suppressPersistence = true;
     }
 
+    function _disableIncrementalLogging() internal {
+        _suppressIncrementalPersistence = true;
+    }
+
+    function _saveDeployment() internal {
+        _save();
+    }
+
     // ============================================================================
     // Path Calculation
     // ============================================================================
@@ -103,64 +111,79 @@ abstract contract DeploymentJson is Deployment {
         string memory contractType,
         bytes memory creationCode
     ) internal view override returns (string memory contractPath) {
-        // Scan the out/ directory recursively for any {contractType}.json files
         string memory outDir = string.concat(VM.projectRoot(), "/out");
         string memory targetFilename = string.concat(contractType, ".json");
 
-        Vm.DirEntry[] memory entries = VM.readDir(outDir, 3); // depth 3 covers out/X/Y/Z.json
-
-        string memory foundPath;
-        uint256 foundCount;
-        bool useBytecodeMatch = creationCode.length > 0;
-        bytes32 targetHash = useBytecodeMatch ? keccak256(creationCode) : bytes32(0);
+        Vm.DirEntry[] memory entries = VM.readDir(outDir, 3);
+        string[] memory artifactJsons = new string[](entries.length);
+        string[] memory sourcePaths = new string[](entries.length);
+        uint256 candidateCount;
 
         for (uint256 i = 0; i < entries.length; i++) {
-            // Check if this is a file ending with our target filename
             string memory path = entries[i].path;
             if (!path.endsWith(targetFilename)) continue;
 
-            // Read the artifact
             string memory json = VM.readFile(path);
-
-            // Get source path from compilation target
             string[] memory keys = VM.parseJsonKeys(json, ".metadata.settings.compilationTarget");
             if (keys.length == 0) continue;
-            string memory sourcePath = keys[0];
 
-            if (useBytecodeMatch) {
-                // Match by creation bytecode
-                bytes memory artifactCode = VM.parseJsonBytes(json, ".bytecode.object");
-                if (keccak256(artifactCode) != targetHash) continue;
-                // Bytecode match found - this is definitely the right one
-                return sourcePath;
-            }
-
-            // Name-only matching - track for ambiguity detection
-            if (foundCount == 0) {
-                foundPath = sourcePath;
-                foundCount = 1;
-            } else if (keccak256(bytes(foundPath)) != keccak256(bytes(sourcePath))) {
-                // Multiple different source files found - ambiguous
-                revert(
-                    string.concat(
-                        "Ambiguous contract '",
-                        contractType,
-                        "': found in both '",
-                        foundPath,
-                        "' and '",
-                        sourcePath,
-                        "'. Pass creationCode to disambiguate."
-                    )
-                );
-            }
-            // Same source path found again (duplicate artifacts) - that's fine
+            artifactJsons[candidateCount] = json;
+            sourcePaths[candidateCount] = keys[0];
+            candidateCount++;
         }
 
-        if (foundCount > 0) {
-            contractPath = foundPath;
-        } else {
-            contractPath = string.concat(contractType, ": no matching artifact found");
+        if (candidateCount == 0) {
+            return string.concat(contractType, ": no matching artifact found");
         }
+
+        if (candidateCount == 1) {
+            return sourcePaths[0];
+        }
+
+        string[] memory uniquePaths = new string[](candidateCount);
+        uint256 uniqueCount;
+        for (uint256 i = 0; i < candidateCount; i++) {
+            bool duplicate;
+            for (uint256 j = 0; j < uniqueCount; j++) {
+                if (keccak256(bytes(uniquePaths[j])) == keccak256(bytes(sourcePaths[i]))) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (duplicate) continue;
+            uniquePaths[uniqueCount] = sourcePaths[i];
+            uniqueCount++;
+        }
+
+        if (creationCode.length == 0) {
+            return _formatCandidatePaths(uniquePaths, uniqueCount);
+        }
+
+        bytes32 targetHash = keccak256(creationCode);
+        for (uint256 i = 0; i < candidateCount; i++) {
+            try VM.parseJsonBytes(artifactJsons[i], ".bytecode.object") returns (bytes memory artifactCode) {
+                if (keccak256(artifactCode) == targetHash) {
+                    return sourcePaths[i];
+                }
+            } catch {
+                return _formatCandidatePaths(uniquePaths, uniqueCount);
+            }
+        }
+
+        return _formatCandidatePaths(uniquePaths, uniqueCount);
+    }
+
+    function _formatCandidatePaths(string[] memory paths, uint256 count) private pure returns (string memory) {
+        string memory joined;
+        for (uint256 i = 0; i < count; i++) {
+            if (bytes(paths[i]).length == 0) continue;
+            if (bytes(joined).length == 0) {
+                joined = paths[i];
+            } else {
+                joined = string.concat(joined, " | ", paths[i]);
+            }
+        }
+        return joined;
     }
 
     // ============================================================================
