@@ -131,11 +131,11 @@ contract MockDeploymentJson is DeploymentJsonTesting {
     }
 
     function registerRole(string memory contractKey, string memory roleName, uint256 value) public {
-        _registerRole(contractKey, roleName, value);
+        _setRole(contractKey, roleName, value);
     }
 
     function registerGrantee(string memory granteeKey, string memory contractKey, string memory roleName) public {
-        _registerGrantee(granteeKey, contractKey, roleName);
+        _setGrantee(granteeKey, contractKey, roleName);
     }
 
     function getOutputConfigPath() public returns (string memory) {

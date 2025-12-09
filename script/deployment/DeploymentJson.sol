@@ -390,7 +390,7 @@ abstract contract DeploymentJson is Deployment {
                 string memory valuePointer = string.concat(rolePointer, ".value");
                 if (existingJson.keyExists(valuePointer)) {
                     uint256 value = existingJson.readUint(valuePointer);
-                    _registerRole(key, roleName, value);
+                    _setRole(key, roleName, value);
                 }
 
                 // Load grantees
@@ -398,7 +398,7 @@ abstract contract DeploymentJson is Deployment {
                 if (existingJson.keyExists(granteesPointer)) {
                     string[] memory grantees = existingJson.readStringArray(granteesPointer);
                     for (uint256 g = 0; g < grantees.length; g++) {
-                        _registerGrantee(grantees[g], key, roleName);
+                        _setGrantee(grantees[g], key, roleName);
                     }
                 }
             }

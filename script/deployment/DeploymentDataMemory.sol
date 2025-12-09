@@ -412,7 +412,7 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
     /// @param contractKey The contract key (e.g., "contracts.pegged")
     /// @param roleName The role name (e.g., "MINTER_ROLE")
     /// @param value The role's uint256 bitmask value
-    function _registerRole(string memory contractKey, string memory roleName, uint256 value) internal {
+    function _setRole(string memory contractKey, string memory roleName, uint256 value) internal {
         string memory roleKey = _roleKey(contractKey, roleName);
         string memory valueKey = string.concat(roleKey, ".value");
         string memory granteesKey = string.concat(roleKey, ".grantees");
@@ -447,7 +447,7 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
     /// @param granteeKey The grantee's contract key (e.g., "contracts.minter")
     /// @param contractKey The contract key where the role is defined (e.g., "contracts.pegged")
     /// @param roleName The role name (e.g., "MINTER_ROLE")
-    function _registerGrantee(string memory granteeKey, string memory contractKey, string memory roleName) internal {
+    function _setGrantee(string memory granteeKey, string memory contractKey, string memory roleName) internal {
         string memory roleKey = _roleKey(contractKey, roleName);
         string memory granteesKey = string.concat(roleKey, ".grantees");
 
@@ -476,7 +476,7 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData {
     }
 
     /// @notice Check if a role value is set
-    function _hasRoleValue(string memory contractKey, string memory roleName) internal view returns (bool) {
+    function _hasRole(string memory contractKey, string memory roleName) internal view returns (bool) {
         string memory valueKey = string.concat(_roleKey(contractKey, roleName), ".value");
         return _hasKey[valueKey];
     }

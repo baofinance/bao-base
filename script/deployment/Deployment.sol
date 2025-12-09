@@ -868,6 +868,30 @@ abstract contract Deployment is DeploymentDataMemory {
         }
     }
 
+    function _expect(address[] memory actual, string memory key) internal view {
+        address[] memory expected = _getAddressArray(key);
+        if (actual.length != expected.length) {
+            console2.log(
+                string.concat("*** ERROR *** ", key, " length = %d; expected = %d"),
+                actual.length,
+                expected.length
+            );
+            return;
+        }
+        for (uint256 i = 0; i < actual.length; i++) {
+            if (actual[i] != expected[i]) {
+                console2.log(
+                    string.concat("*** ERROR *** ", key, "[%d] = %s; expected = %s"),
+                    i,
+                    LibString.toHexStringChecksummed(actual[i]),
+                    LibString.toHexStringChecksummed(expected[i])
+                );
+                return;
+            }
+        }
+        console2.log(string.concat(unicode"✓ ", key, " matches (%d elements)"), actual.length);
+    }
+
     function _expect(uint256[] memory actual, string memory key) internal view {
         uint256[] memory expected = _getUintArray(key);
         if (actual.length != expected.length) {

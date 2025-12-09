@@ -22,19 +22,19 @@ contract MockDeploymentRoles is DeploymentJsonTesting {
     }
 
     function registerRole(string memory contractKey, string memory roleName, uint256 value) external {
-        _registerRole(contractKey, roleName, value);
+        _setRole(contractKey, roleName, value);
     }
 
     function registerGrantee(string memory granteeKey, string memory contractKey, string memory roleName) external {
-        _registerGrantee(granteeKey, contractKey, roleName);
+        _setGrantee(granteeKey, contractKey, roleName);
     }
 
     function getRoleValue(string memory contractKey, string memory roleName) external view returns (uint256) {
         return _getRoleValue(contractKey, roleName);
     }
 
-    function hasRoleValue(string memory contractKey, string memory roleName) external view returns (bool) {
-        return _hasRoleValue(contractKey, roleName);
+    function hasRole(string memory contractKey, string memory roleName) external view returns (bool) {
+        return _hasRole(contractKey, roleName);
     }
 
     function getRoleGrantees(
@@ -110,7 +110,7 @@ contract DeploymentRolesRegistrationTest is DeploymentRolesSetup {
         deployment.registerRole("contracts.pegged", "MINTER_ROLE", 1);
 
         assertEq(deployment.getRoleValue("contracts.pegged", "MINTER_ROLE"), 1);
-        assertTrue(deployment.hasRoleValue("contracts.pegged", "MINTER_ROLE"));
+        assertTrue(deployment.hasRole("contracts.pegged", "MINTER_ROLE"));
     }
 
     function test_RegisterRole_TracksRoleName() public {
@@ -286,7 +286,7 @@ contract DeploymentRolesJsonTest is DeploymentRolesSetup {
 
         deployment.fromJsonNoSave(json);
 
-        assertTrue(deployment.hasRoleValue("contracts.pegged", "MINTER_ROLE"));
+        assertTrue(deployment.hasRole("contracts.pegged", "MINTER_ROLE"));
         assertEq(deployment.getRoleValue("contracts.pegged", "MINTER_ROLE"), 1);
 
         string[] memory grantees = deployment.getRoleGrantees("contracts.pegged", "MINTER_ROLE");
