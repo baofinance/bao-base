@@ -23,16 +23,20 @@ contract SetupInfrastructure is Script {
         if (baoFactoryAddr.code.length == 0) {
             console.log("Deploying BaoFactory...");
             vm.startBroadcast();
-            DeploymentInfrastructure._ensureBaoFactory();
+            DeploymentInfrastructure._ensureBaoFactoryProduction();
             vm.stopBroadcast();
             console.log("BaoFactory deployed at:", baoFactoryAddr);
         } else {
             console.log("BaoFactory already exists at:", baoFactoryAddr);
         }
 
-        // Log current operator
+        // Log current operators
         BaoFactory baoFactory = BaoFactory(baoFactoryAddr);
-        console.log("Current operator:", baoFactory.operator());
+        (address[] memory ops, uint40[] memory expiries) = baoFactory.operators();
+        console.log("Operators count:", ops.length);
+        for (uint256 i = 0; i < ops.length; i++) {
+            console.log("  Operator:", ops[i], "expires:", expiries[i]);
+        }
         console.log("Owner (multisig):", baoFactory.owner());
     }
 }

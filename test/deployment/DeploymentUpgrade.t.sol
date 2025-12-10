@@ -6,7 +6,7 @@ import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTestin
 import {OracleV1} from "../mocks/upgradeable/MockOracle.sol";
 
 import {CounterV1} from "../mocks/upgradeable/MockCounter.sol";
-import {IUUPSUpgradeableProxy} from "@bao-script/deployment/Deployment.sol";
+import {IUUPSUpgradeableProxy} from "@bao-script/deployment/DeploymentBase.sol";
 
 // Upgraded version of Oracle for testing
 contract OracleV2 is OracleV1 {

@@ -3,14 +3,16 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
-import {Deployment} from "@bao-script/deployment/Deployment.sol";
-import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
+import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
+import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
+import {IBaoFactory, BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {BaoOwnable} from "@bao/BaoOwnable.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 import {FundedVault, FundedVaultUUPS, NonPayableVault, NonPayableVaultUUPS} from "@bao-test/mocks/deployment/FundedVault.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 /// @dev Simple UUPS proxy implementation using BaoOwnable for transfer-after-deploy pattern
 /// BaoOwnable sets owner=msg.sender and pendingOwner=finalOwner during init
@@ -33,7 +35,10 @@ library TestLib {
 }
 
 // Test harness with helper methods
+// Uses production bytecode for BaoFactory so addresses are stable under coverage instrumentation
 contract MockDeploymentFields is DeploymentJsonTesting {
+    Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+
     constructor() {
         // Register all possible contract keys used in tests (with contracts. prefix for JSON output)
         addProxy("contracts.oracle1");
@@ -49,6 +54,16 @@ contract MockDeploymentFields is DeploymentJsonTesting {
         addProxy("contracts.proxy3");
         addContract("contracts.lib1");
         addContract("contracts.external1");
+    }
+
+    /// @dev Use production bytecode for stable addresses (works with coverage instrumentation)
+    function _ensureBaoFactory() internal override(DeploymentBase, DeploymentTesting) returns (address baoFactory) {
+        baoFactory = DeploymentInfrastructure._ensureBaoFactoryProduction();
+        // Always reset operator to this harness
+        if (!BaoFactory(baoFactory).isCurrentOperator(address(this))) {
+            VM.prank(BaoFactory(baoFactory).owner());
+            BaoFactory(baoFactory).setOperator(address(this), 365 days);
+        }
     }
 
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
@@ -448,7 +463,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
 
         vm.deal(address(deployment), 0);
 
-        vm.expectRevert(abi.encodeWithSelector(BaoFactory.ValueMismatch.selector, 1 ether, 0));
+        vm.expectRevert(abi.encodeWithSelector(IBaoFactory.ValueMismatch.selector, 1 ether, 0));
         deployment.simulatePredictableDeployWithoutFunding(
             1 ether,
             "vault_underfunded",
@@ -463,7 +478,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
 
         bytes memory fundedCode = type(FundedVault).creationCode;
 
-        vm.expectRevert(Deployment.KeyRequired.selector);
+        vm.expectRevert(DeploymentBase.KeyRequired.selector);
         deployment.simulatePredictableDeployWithoutFunding(
             0,
             "",
@@ -505,7 +520,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         FundedVaultUUPS impl = new FundedVaultUUPS(admin);
         bytes memory initData = abi.encodeCall(FundedVaultUUPS.initialize, ());
 
-        vm.expectRevert(abi.encodeWithSelector(Deployment.ValueMismatch.selector, 5 ether, 0));
+        vm.expectRevert(abi.encodeWithSelector(DeploymentBase.ValueMismatch.selector, 5 ether, 0));
         deployment.deployProxy{value: 0}(
             5 ether,
             "vault_proxy_underfunded",

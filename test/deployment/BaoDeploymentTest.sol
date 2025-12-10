@@ -3,7 +3,8 @@ pragma solidity >=0.8.28 <0.9.0;
 import {console2} from "forge-std/console2.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
-import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
+import {BaoFactoryLib} from "@bao-script/deployment/BaoFactory.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {DeploymentTestingOutput} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 import {LibString} from "@solady/utils/LibString.sol";
@@ -46,7 +47,8 @@ abstract contract BaoDeploymentTest is BaoTest {
         }
         vm.label(DeploymentInfrastructure._NICKS_FACTORY, "Nick's factory");
 
-        _baoMultisig = DeploymentInfrastructure.BAOMULTISIG;
+        // Get owner from BaoFactoryLib constant (avoids call to non-contract address)
+        _baoMultisig = BaoFactoryLib.PRODUCTION_OWNER;
         vm.label(_baoMultisig, "_baoMultisig");
 
         // don't deploy it - that is the job of start()
@@ -85,7 +87,7 @@ abstract contract BaoDeploymentTest is BaoTest {
     /// @notice Verify that finish() properly recorded session completion metadata
     /// @dev Checks finishTimestamp, finishBlock, and finished (ISO string) are sensible
     /// @param deployment The deployment instance to check
-    function _assertFinishState(Deployment deployment) internal view {
+    function _assertFinishState(DeploymentBase deployment) internal view {
         uint256 startTimestamp = deployment.getUint(deployment.SESSION_START_TIMESTAMP());
         uint256 finishTimestamp = deployment.getUint(deployment.SESSION_FINISH_TIMESTAMP());
         uint256 startBlock = deployment.getUint(deployment.SESSION_START_BLOCK());

@@ -5,10 +5,10 @@
   "session": {
     "network": "test_RevertWhen_UnderfundingProxyDeployment",
     "chainId": 31337,
-    "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
     "startTimestamp": 1,
     "started": "1970-01-01T00:00:01Z",
     "startBlock": 1,
+    "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
     "stub": {
       "address": "0x104fbc016f4bb334d775a19e8a6510109ac63e00",
       "contractType": "UUPSProxyDeployStub",
@@ -16,5 +16,5 @@
       "blockNumber": 1
     }
   },
-  "BaoFactory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5"
+  "BaoFactory": "0x5e79aedf55f702ba5df228b5163de60c0da7000f"
 }

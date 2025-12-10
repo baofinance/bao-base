@@ -627,7 +627,7 @@ contract Array {
         result[12] = m;
     }
 
-    function cons(uint car, uint[] memory cdr) private pure returns (uint[] memory list) {
+    function cons(uint car, uint[] memory cdr) internal pure returns (uint[] memory list) {
         list = new uint[](cdr.length + 1);
         list[0] = car;
         for (uint i = 0; i < cdr.length; i++) {
@@ -635,7 +635,7 @@ contract Array {
         }
     }
 
-    function cons(int car, int[] memory cdr) private pure returns (int[] memory list) {
+    function cons(int car, int[] memory cdr) internal pure returns (int[] memory list) {
         list = new int[](cdr.length + 1);
         list[0] = car;
         for (uint i = 0; i < cdr.length; i++) {
@@ -643,7 +643,7 @@ contract Array {
         }
     }
 
-    function cons(address car, address[] memory cdr) private pure returns (address[] memory list) {
+    function cons(address car, address[] memory cdr) internal pure returns (address[] memory list) {
         list = new address[](cdr.length + 1);
         list[0] = car;
         for (uint i = 0; i < cdr.length; i++) {

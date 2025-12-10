@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Test} from "forge-std/Test.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {Test, Vm} from "forge-std/Test.sol";
+import {LibClone} from "@solady/utils/LibClone.sol";
+import {UUPSUpgradeable} from "@solady/utils/UUPSUpgradeable.sol";
 
-import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
+import {BaoFactory, BaoFactoryLib, IBaoFactory} from "@bao-script/deployment/BaoFactory.sol";
 import {FundedVault, NonPayableVault, FundedVaultUUPS} from "@bao-test/mocks/deployment/FundedVault.sol";
-import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
+import {BaoFactoryV2, BaoFactoryNonUUPS} from "@bao-test/mocks/deployment/BaoFactoryV2.sol";
 
+/// @dev Simple contract used for deployment tests
 contract SimpleContract {
     uint256 public value;
     address public deployer;
@@ -17,253 +19,509 @@ contract SimpleContract {
         deployer = msg.sender;
     }
 }
-/*  */
+
+/// @title BaoFactoryTest
+/// @notice Tests for the BaoFactory deterministic deployer
+/// @dev Uses vm.prank to impersonate the hardcoded owner for privileged operations
 contract BaoFactoryTest is Test {
-    BaoFactory internal deployer;
+    BaoFactory internal factory;
+    BaoFactory internal implementation;
     address internal owner;
     address internal operator;
     address internal outsider;
 
+    uint256 internal constant OPERATOR_DELAY = 1 days;
+
     function setUp() public {
-        owner = address(this);
+        owner = BaoFactoryLib.PRODUCTION_OWNER; // Get the hardcoded owner constant from library
         operator = makeAddr("operator");
         outsider = makeAddr("outsider");
 
-        deployer = new BaoFactory(owner);
-        deployer.setOperator(operator);
+        // Deploy implementation (constructor also deploys proxy and emits event)
+        vm.recordLogs();
+        implementation = new BaoFactory();
+
+        // Extract proxy address from BaoFactoryDeployed event
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        address proxyAddr;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].topics[0] == IBaoFactory.BaoFactoryDeployed.selector) {
+                proxyAddr = address(uint160(uint256(logs[i].topics[1])));
+                break;
+            }
+        }
+        require(proxyAddr != address(0), "BaoFactoryDeployed event not found");
+
+        factory = BaoFactory(proxyAddr);
+
+        // Set up an operator with 1 day expiry
+        vm.prank(owner);
+        factory.setOperator(operator, OPERATOR_DELAY);
     }
 
-    function _commit(bytes memory initCode, bytes32 salt, uint256 value) internal returns (bytes32 commitment) {
-        commitment = keccak256(abi.encode(operator, value, salt, keccak256(initCode)));
-        vm.prank(operator);
-        deployer.commit(commitment);
+    /*//////////////////////////////////////////////////////////////////////////
+                               CONSTRUCTOR TESTS
+    //////////////////////////////////////////////////////////////////////////*/
+
+    function testConstructorDeploysProxyAndEmitsEvent() public {
+        vm.recordLogs();
+        BaoFactory impl = new BaoFactory();
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bool foundEvent = false;
+        address eventProxy;
+        address eventImpl;
+
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].topics[0] == IBaoFactory.BaoFactoryDeployed.selector) {
+                eventProxy = address(uint160(uint256(logs[i].topics[1])));
+                eventImpl = address(uint160(uint256(logs[i].topics[2])));
+                foundEvent = true;
+                break;
+            }
+        }
+
+        assertTrue(foundEvent, "BaoFactoryDeployed event not emitted");
+        assertEq(eventImpl, address(impl), "Implementation address mismatch in event");
+        assertTrue(eventProxy != address(0), "Proxy address should be non-zero");
+        assertTrue(eventProxy.code.length > 0, "Proxy should have code");
     }
 
-    function _reveal(bytes memory initCode, bytes32 salt, uint256 value) internal returns (address deployedAddr) {
-        vm.deal(operator, value);
-        vm.prank(operator);
-        deployedAddr = deployer.reveal{value: value}(initCode, salt, value);
+    function testProxyAddressPrediction() public view {
+        // Verify BaoFactoryLib.predictProxy matches actual deployment
+        address predictedProxy = BaoFactoryLib.predictProxy(address(implementation));
+        assertEq(address(factory), predictedProxy, "Proxy address prediction mismatch");
     }
 
-    function testConstructorSetsOwner() public view {
-        assertEq(deployer.owner(), owner);
+    function testOwnerIsHardcodedConstant() public view {
+        assertEq(factory.owner(), 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2);
+        // Verify implementation and proxy return same owner
+        assertEq(implementation.owner(), factory.owner());
     }
 
-    function testRevertWhenOwnerIsZero() public {
-        vm.expectRevert(BaoFactory.OwnerRequired.selector);
-        new BaoFactory(address(0));
-    }
+    /*//////////////////////////////////////////////////////////////////////////
+                            OPERATOR MANAGEMENT TESTS
+    //////////////////////////////////////////////////////////////////////////*/
 
     function testSetOperatorOnlyOwner() public {
         address newOperator = makeAddr("new operator");
-        vm.expectEmit(true, true, false, false);
-        emit BaoFactory.OperatorUpdated(operator, newOperator);
-        deployer.setOperator(newOperator);
-        assertEq(deployer.operator(), newOperator);
 
+        vm.expectEmit(true, false, false, true);
+        emit IBaoFactory.OperatorSet(newOperator, uint40(block.timestamp + OPERATOR_DELAY));
+
+        vm.prank(owner);
+        factory.setOperator(newOperator, OPERATOR_DELAY);
+
+        assertTrue(factory.isCurrentOperator(newOperator));
+    }
+
+    function testSetOperatorRevertUnauthorized() public {
         vm.prank(outsider);
-        vm.expectRevert();
-        deployer.setOperator(makeAddr("forbidden"));
+        vm.expectRevert(IBaoFactory.Unauthorized.selector);
+        factory.setOperator(makeAddr("forbidden"), OPERATOR_DELAY);
     }
 
-    function testCommitRevertWhenCommitmentZero() public {
-        vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(BaoFactory.CommitmentMismatch.selector, bytes32(0), bytes32(0)));
-        deployer.commit(bytes32(0));
+    function testRemoveOperator() public {
+        assertTrue(factory.isCurrentOperator(operator), "operator should be valid initially");
+
+        vm.expectEmit(true, false, false, false);
+        emit IBaoFactory.OperatorRemoved(operator);
+
+        vm.prank(owner);
+        factory.setOperator(operator, 0); // delay=0 removes
+
+        assertFalse(factory.isCurrentOperator(operator), "operator should be removed");
     }
 
-    function testCommitRevealDeploysContract() public {
+    function testOperatorExpiry() public {
+        assertTrue(factory.isCurrentOperator(operator), "operator should be valid initially");
+
+        // Warp past expiry
+        vm.warp(block.timestamp + OPERATOR_DELAY + 1);
+
+        assertFalse(factory.isCurrentOperator(operator), "operator should be expired");
+    }
+
+    function testOperatorsEnumeration() public {
+        address op2 = makeAddr("operator2");
+        vm.prank(owner);
+        factory.setOperator(op2, 2 days);
+
+        (address[] memory addrs, uint40[] memory expiries) = factory.operators();
+
+        assertEq(addrs.length, 2);
+        assertEq(expiries.length, 2);
+
+        // Order not guaranteed, check both are present
+        bool foundOp1 = false;
+        bool foundOp2 = false;
+        for (uint256 i = 0; i < addrs.length; i++) {
+            if (addrs[i] == operator) {
+                foundOp1 = true;
+                assertEq(expiries[i], uint40(block.timestamp + OPERATOR_DELAY));
+            }
+            if (addrs[i] == op2) {
+                foundOp2 = true;
+                assertEq(expiries[i], uint40(block.timestamp + 2 days));
+            }
+        }
+        assertTrue(foundOp1, "operator not found in enumeration");
+        assertTrue(foundOp2, "operator2 not found in enumeration");
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                               DEPLOYMENT TESTS
+    //////////////////////////////////////////////////////////////////////////*/
+
+    function testOwnerCanDeploy() public {
         bytes memory initCode = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(42)));
-        bytes32 salt = keccak256("commit.reveal.zero");
-        bytes32 commitment = _commit(initCode, salt, 0);
-        address predicted = deployer.predictDeterministicAddress(salt);
+        bytes32 salt = keccak256("owner.deploy");
+        address predicted = factory.predictAddress(salt);
 
-        address deployedAddr = _reveal(initCode, salt, 0);
+        vm.prank(owner);
+        address deployed = factory.deploy(initCode, salt);
 
-        assertEq(deployedAddr, predicted);
-        assertFalse(deployer.isCommitted(commitment));
-
-        uint40 committedTimestamp = deployer.committedAt(commitment);
-        assertEq(committedTimestamp, 0, "committedAt should return zero after reveal");
-
-        SimpleContract simple = SimpleContract(deployedAddr);
+        assertEq(deployed, predicted);
+        SimpleContract simple = SimpleContract(deployed);
         assertEq(simple.value(), 42);
-        assertTrue(simple.deployer() != address(deployer));
     }
 
-    function testCommittedAtReturnsTimestampBeforeReveal() public {
+    function testOperatorCanDeploy() public {
         bytes memory initCode = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(77)));
-        bytes32 salt = keccak256("commit.reveal.timestamp");
-        bytes32 commitment = _commit(initCode, salt, 0);
-
-        uint40 committedTimestamp = deployer.committedAt(commitment);
-        assertGt(committedTimestamp, 0, "committedAt should expose timestamp while committed");
-        assertEq(deployer.isCommitted(commitment), true, "isCommitted should report true while commitment active");
-    }
-
-    function testCommitRevealWithValue() public {
-        uint256 value = 5 ether;
-        bytes memory initCode = type(FundedVault).creationCode;
-        bytes32 salt = keccak256("commit.reveal.value");
-        bytes32 commitment = _commit(initCode, salt, value);
-        address predicted = deployer.predictDeterministicAddress(salt);
-
-        address deployedAddr = _reveal(initCode, salt, value);
-
-        assertEq(deployedAddr, predicted);
-        assertFalse(deployer.isCommitted(commitment));
-
-        FundedVault vault = FundedVault(payable(deployedAddr));
-        assertEq(vault.initialBalance(), value);
-        assertEq(vault.currentBalance(), value);
-    }
-
-    function testCommitTwiceReverts() public {
-        bytes memory initCode = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(1)));
-        bytes32 salt = keccak256("double.commit");
-        bytes32 commitment = _commit(initCode, salt, 0);
+        bytes32 salt = keccak256("operator.deploy");
+        address predicted = factory.predictAddress(salt);
 
         vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(BaoFactory.CommitmentAlreadyExists.selector, commitment));
-        deployer.commit(commitment);
+        address deployed = factory.deploy(initCode, salt);
+
+        assertEq(deployed, predicted);
+        SimpleContract simple = SimpleContract(deployed);
+        assertEq(simple.value(), 77);
     }
 
-    function testRevealWithWrongSaltReverts() public {
-        bytes memory initCode = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(7)));
-        bytes32 salt = keccak256("good.salt");
-        bytes32 badSalt = keccak256("bad.salt");
-        _commit(initCode, salt, 0);
+    function testDeployEmitsEvent() public {
+        bytes memory initCode = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(99)));
+        bytes32 salt = keccak256("emit.deploy");
+        address predicted = factory.predictAddress(salt);
 
-        bytes32 expected = DeploymentInfrastructure.commitment(operator, 0, badSalt, keccak256(initCode));
+        vm.expectEmit(true, true, false, true);
+        emit IBaoFactory.Deployed(predicted, salt, 0);
 
-        vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(BaoFactory.UnknownCommitment.selector, expected));
-        deployer.reveal(initCode, badSalt, 0);
+        vm.prank(owner);
+        factory.deploy(initCode, salt);
     }
 
-    function testRevealWithoutCommitReverts() public {
-        bytes memory initCode = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(9)));
-        bytes32 salt = keccak256("no.commit");
-        bytes32 expected = DeploymentInfrastructure.commitment(operator, 0, salt, keccak256(initCode));
-
-        vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(BaoFactory.UnknownCommitment.selector, expected));
-        deployer.reveal(initCode, salt, 0);
-    }
-
-    function testClearCommitment() public {
-        bytes memory initCode = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(3)));
-        bytes32 salt = keccak256("clear.commitment");
-        bytes32 commitment = _commit(initCode, salt, 0);
-        assertTrue(deployer.isCommitted(commitment));
-
-        deployer.clearCommitment(commitment);
-        assertFalse(deployer.isCommitted(commitment));
-
-        vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(BaoFactory.UnknownCommitment.selector, commitment));
-        deployer.reveal(initCode, salt, 0);
-    }
-
-    function testOperatorUnsetReverts() public {
-        deployer.setOperator(address(0));
-        bytes memory initCode = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(5)));
-        bytes32 salt = keccak256("operator.unset");
-        bytes32 commitment = DeploymentInfrastructure.commitment(address(0), 0, salt, keccak256(initCode));
-
-        vm.expectRevert(abi.encodeWithSelector(BaoFactory.OperatorRequired.selector));
-        vm.prank(address(0));
-        deployer.commit(commitment);
-    }
-
-    function testUnauthorizedCallerCannotCommit() public {
-        bytes memory initCode = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(11)));
-        bytes32 salt = keccak256("unauthorized");
-        bytes32 commitment = DeploymentInfrastructure.commitment(operator, 0, salt, keccak256(initCode));
-
-        vm.prank(outsider);
-        vm.expectRevert(abi.encodeWithSelector(BaoFactory.UnauthorizedOperator.selector, outsider));
-        deployer.commit(commitment);
-    }
-
-    function testRevealValueMismatchReverts() public {
-        uint256 value = 1 ether;
-        bytes memory initCode = type(FundedVault).creationCode;
-        bytes32 salt = keccak256("value.mismatch");
-        bytes32 commitment = _commit(initCode, salt, value);
-        assertTrue(deployer.isCommitted(commitment));
-
-        vm.prank(operator);
-        vm.expectRevert(abi.encodeWithSelector(BaoFactory.ValueMismatch.selector, value, uint256(0)));
-        deployer.reveal(initCode, salt, value);
-    }
-
-    function testOwnerDirectDeployMatchesCommitReveal() public {
-        bytes memory initCode = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(55)));
-
-        bytes32 saltCommit = keccak256("flow.commit");
-        _commit(initCode, saltCommit, 0);
-        address commitAddr = _reveal(initCode, saltCommit, 0);
-        SimpleContract viaCommit = SimpleContract(commitAddr);
-        assertEq(viaCommit.value(), 55);
-
-        bytes32 saltOwner = keccak256("flow.owner");
-        address predicted = deployer.predictDeterministicAddress(saltOwner);
-        address ownerAddr = deployer.deployDeterministic(initCode, saltOwner);
-        assertEq(ownerAddr, predicted);
-
-        SimpleContract viaOwner = SimpleContract(ownerAddr);
-        assertEq(viaOwner.value(), 55);
-        assertEq(keccak256(commitAddr.code), keccak256(ownerAddr.code));
-    }
-
-    function testOwnerDeployWithValue() public {
+    function testDeployWithValue() public {
         uint256 value = 2 ether;
         bytes memory initCode = type(FundedVault).creationCode;
-        bytes32 salt = keccak256("owner.value");
+        bytes32 salt = keccak256("value.deploy");
+
         vm.deal(owner, value);
+        vm.prank(owner);
+        address deployed = factory.deploy{value: value}(value, initCode, salt);
 
-        address deployedAddr = deployer.deployDeterministic{value: value}(value, initCode, salt);
-
-        FundedVault vault = FundedVault(payable(deployedAddr));
-        assertEq(address(vault).balance, value, "owner deploy should transfer value");
+        FundedVault vault = FundedVault(payable(deployed));
+        assertEq(address(vault).balance, value, "should transfer ETH to deployed contract");
         assertEq(vault.initialBalance(), value, "constructor should see funded value");
     }
 
-    function testOwnerDeployValueMismatchReverts() public {
-        uint256 value = 1 ether;
+    function testDeployValueMismatchReverts() public {
+        uint256 declaredValue = 1 ether;
         bytes memory initCode = type(FundedVault).creationCode;
-        bytes32 salt = keccak256("owner.value.mismatch");
+        bytes32 salt = keccak256("value.mismatch");
 
-        vm.expectRevert(abi.encodeWithSelector(BaoFactory.ValueMismatch.selector, value, uint256(0)));
-        deployer.deployDeterministic(value, initCode, salt);
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(IBaoFactory.ValueMismatch.selector, declaredValue, 0));
+        factory.deploy(declaredValue, initCode, salt);
     }
 
-    function testCommitRevealSupportsProxyPayload() public {
-        FundedVaultUUPS implementation = new FundedVaultUUPS(owner);
-        bytes memory initData = abi.encodeCall(FundedVaultUUPS.initialize, ());
-        bytes memory proxyInit = abi.encodePacked(
-            type(ERC1967Proxy).creationCode,
-            abi.encode(address(implementation), initData)
-        );
-        bytes32 salt = keccak256("uups.proxy");
-        _commit(proxyInit, salt, 0);
+    function testDeployRevertUnauthorized() public {
+        bytes memory initCode = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(1)));
+        bytes32 salt = keccak256("unauthorized");
 
-        address deployedAddr = _reveal(proxyInit, salt, 0);
-        FundedVaultUUPS proxy = FundedVaultUUPS(payable(deployedAddr));
+        vm.prank(outsider);
+        vm.expectRevert(IBaoFactory.Unauthorized.selector);
+        factory.deploy(initCode, salt);
+    }
+
+    function testExpiredOperatorCannotDeploy() public {
+        bytes memory initCode = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(1)));
+        bytes32 salt = keccak256("expired.operator");
+
+        // Warp past operator expiry
+        vm.warp(block.timestamp + OPERATOR_DELAY + 1);
+
+        vm.prank(operator);
+        vm.expectRevert(IBaoFactory.Unauthorized.selector);
+        factory.deploy(initCode, salt);
+    }
+
+    function testDeployProxyPayload() public {
+        FundedVaultUUPS vaultImpl = new FundedVaultUUPS(owner);
+        // Use LibClone to create ERC1967 proxy initcode
+        bytes memory proxyInit = LibClone.initCodeERC1967(address(vaultImpl));
+        bytes32 salt = keccak256("uups.proxy");
+
+        vm.prank(owner);
+        address deployed = factory.deploy(proxyInit, salt);
+
+        // Initialize the proxy after deployment
+        FundedVaultUUPS proxy = FundedVaultUUPS(payable(deployed));
+        proxy.initialize();
         assertTrue(address(proxy) != address(0));
         assertEq(proxy.owner(), owner);
     }
 
-    function testCommitRevealNonPayableTargetReverts() public {
+    function testDeployNonPayableTargetReverts() public {
         uint256 value = 1 ether;
         bytes memory initCode = abi.encodePacked(type(NonPayableVault).creationCode, abi.encode(uint256(1)));
         bytes32 salt = keccak256("nonpayable");
-        _commit(initCode, salt, value);
 
-        vm.deal(operator, value);
-        vm.prank(operator);
+        vm.deal(owner, value);
+        vm.prank(owner);
         vm.expectRevert();
-        deployer.reveal{value: value}(initCode, salt, value);
+        factory.deploy{value: value}(value, initCode, salt);
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                            ADDRESS PREDICTION TESTS
+    //////////////////////////////////////////////////////////////////////////*/
+
+    function testPredictAddressIndependentOfInitCode() public {
+        bytes32 salt = keccak256("prediction.test");
+        address predicted = factory.predictAddress(salt);
+
+        // Deploy with one initCode
+        bytes memory initCode1 = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(1)));
+        vm.prank(owner);
+        address deployed = factory.deploy(initCode1, salt);
+
+        assertEq(deployed, predicted, "deployed address should match prediction");
+    }
+
+    function testMultipleDeploymentsHaveDifferentAddresses() public {
+        bytes memory initCode = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(1)));
+        bytes32 salt1 = keccak256("deploy.1");
+        bytes32 salt2 = keccak256("deploy.2");
+
+        vm.startPrank(owner);
+        address addr1 = factory.deploy(initCode, salt1);
+        address addr2 = factory.deploy(initCode, salt2);
+        vm.stopPrank();
+
+        assertTrue(addr1 != addr2, "same initCode with different salts should give different addresses");
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                           BAOFACTORYLIB TESTS
+    //////////////////////////////////////////////////////////////////////////*/
+
+    function testBaoFactoryLibPredictImplementation() public pure {
+        bytes32 mockCreationCodeHash = keccak256("mock.creation.code");
+        string memory salt = BaoFactoryLib.PRODUCTION_SALT;
+        address predicted = BaoFactoryLib.predictImplementation(salt, mockCreationCodeHash);
+
+        // Verify CREATE2 address formula
+        bytes32 hash = keccak256(
+            abi.encodePacked(bytes1(0xff), BaoFactoryLib.NICKS_FACTORY, keccak256(bytes(salt)), mockCreationCodeHash)
+        );
+        address expected = address(uint160(uint256(hash)));
+        assertEq(predicted, expected);
+    }
+
+    function testBaoFactoryLibPredictAddresses() public pure {
+        bytes32 mockCreationCodeHash = keccak256("mock.creation.code");
+        string memory salt = BaoFactoryLib.PRODUCTION_SALT;
+        (address impl, address proxy) = BaoFactoryLib.predictAddresses(salt, mockCreationCodeHash);
+
+        assertEq(impl, BaoFactoryLib.predictImplementation(salt, mockCreationCodeHash));
+        assertEq(proxy, BaoFactoryLib.predictProxy(impl));
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                              UUPS UPGRADE TESTS
+    //////////////////////////////////////////////////////////////////////////*/
+
+    function testUpgradeToV2MaintainsProxyAddress() public {
+        address proxyBefore = address(factory);
+
+        // Deploy V2 implementation
+        BaoFactoryV2 v2Impl = new BaoFactoryV2();
+
+        // Upgrade via owner
+        vm.prank(owner);
+        factory.upgradeToAndCall(address(v2Impl), "");
+
+        // Proxy address should be unchanged
+        assertEq(address(factory), proxyBefore, "proxy address should not change after upgrade");
+
+        // Should now report version 2
+        BaoFactoryV2 upgraded = BaoFactoryV2(address(factory));
+        assertEq(upgraded.version(), 2, "should be version 2 after upgrade");
+    }
+
+    function testUpgradeRetainsOperatorState() public {
+        // Set up an operator before upgrade
+        address testOperator = makeAddr("testOperator");
+        vm.prank(owner);
+        factory.setOperator(testOperator, 7 days);
+        assertTrue(factory.isCurrentOperator(testOperator), "operator should be valid before upgrade");
+
+        // Upgrade to V2
+        BaoFactoryV2 v2Impl = new BaoFactoryV2();
+        vm.prank(owner);
+        factory.upgradeToAndCall(address(v2Impl), "");
+
+        // Operator should still be valid after upgrade
+        BaoFactoryV2 upgraded = BaoFactoryV2(address(factory));
+        assertTrue(upgraded.isCurrentOperator(testOperator), "operator should still be valid after upgrade");
+
+        // Verify we can still enumerate operators
+        (address[] memory addrs, ) = upgraded.operators();
+        assertEq(addrs.length, 2, "should have 2 operators (original + testOperator)");
+    }
+
+    function testUpgradeUnauthorizedReverts() public {
+        BaoFactoryV2 v2Impl = new BaoFactoryV2();
+
+        // Non-owner cannot upgrade
+        vm.prank(outsider);
+        vm.expectRevert(IBaoFactory.Unauthorized.selector);
+        factory.upgradeToAndCall(address(v2Impl), "");
+
+        // Operator cannot upgrade (only owner can)
+        vm.prank(operator);
+        vm.expectRevert(IBaoFactory.Unauthorized.selector);
+        factory.upgradeToAndCall(address(v2Impl), "");
+    }
+
+    function testUpgradeToNonUUPSReverts() public {
+        BaoFactoryNonUUPS nonUupsImpl = new BaoFactoryNonUUPS();
+
+        // Attempt to upgrade to non-UUPS implementation should revert
+        vm.prank(owner);
+        vm.expectRevert(UUPSUpgradeable.UpgradeFailed.selector);
+        factory.upgradeToAndCall(address(nonUupsImpl), "");
+    }
+
+    function testUpgradeWithInitializationCall() public {
+        BaoFactoryV2 v2Impl = new BaoFactoryV2();
+
+        // Upgrade and call version() in the same transaction
+        bytes memory initData = abi.encodeCall(BaoFactoryV2.version, ());
+
+        vm.prank(owner);
+        factory.upgradeToAndCall(address(v2Impl), initData);
+
+        // Should be upgraded
+        BaoFactoryV2 upgraded = BaoFactoryV2(address(factory));
+        assertEq(upgraded.version(), 2);
+    }
+
+    function testUpgradedContractCanStillDeploy() public {
+        // Upgrade to V2
+        BaoFactoryV2 v2Impl = new BaoFactoryV2();
+        vm.prank(owner);
+        factory.upgradeToAndCall(address(v2Impl), "");
+
+        // Deploy via upgraded factory
+        BaoFactoryV2 upgraded = BaoFactoryV2(address(factory));
+        bytes memory initCode = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(123)));
+        bytes32 salt = keccak256("v2.deploy");
+        address predicted = upgraded.predictAddress(salt);
+
+        vm.prank(owner);
+        address deployed = upgraded.deploy(initCode, salt);
+
+        assertEq(deployed, predicted, "deployed address should match prediction");
+        assertEq(SimpleContract(deployed).value(), 123, "deployed contract should work");
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                        SECURITY ATTACK VECTOR TESTS
+    //////////////////////////////////////////////////////////////////////////*/
+
+    /// @notice Test 1c.1: Implementation cannot be called directly for privileged ops
+    /// @dev The implementation has same owner constant but calling deploy() directly
+    ///      would bypass the proxy pattern. The key is that deployed contracts from
+    ///      impl would have different addresses than proxy deployments.
+    function testImplementationDirectCallsHaveDifferentAddresses() public view {
+        bytes32 salt = keccak256("direct.vs.proxy");
+
+        // Predict address from proxy (the canonical factory)
+        address proxyPredicted = factory.predictAddress(salt);
+
+        // Predict address from implementation (would be different CREATE3 deployer)
+        address implPredicted = implementation.predictAddress(salt);
+
+        // Different deployers (proxy vs implementation) produce different addresses
+        assertTrue(
+            proxyPredicted != implPredicted,
+            "implementation and proxy should produce different addresses for same salt"
+        );
+    }
+
+    /// @notice Test 1c.3: Verify Nick's Factory produces deterministic addresses
+    /// @dev The BaoFactory proxy address is deterministic based on impl address
+    function testNicksFactoryDeploymentIsDeterministic() public pure {
+        // Get the creation code hash for BaoFactory
+        bytes32 creationCodeHash = keccak256(type(BaoFactory).creationCode);
+        string memory salt = BaoFactoryLib.PRODUCTION_SALT;
+
+        // Predict addresses using the library
+        (address predictedImpl, address predictedProxy) = BaoFactoryLib.predictAddresses(salt, creationCodeHash);
+
+        // These should be constant across runs (same salt + same initcode = same address)
+        // The implementation was deployed at a specific address via Nick's Factory
+        // Verify the prediction matches the library's prediction (self-consistent)
+        assertEq(
+            BaoFactoryLib.predictImplementation(salt, creationCodeHash),
+            predictedImpl,
+            "implementation prediction should be consistent"
+        );
+        assertEq(BaoFactoryLib.predictProxy(predictedImpl), predictedProxy, "proxy prediction should be consistent");
+
+        // Also verify the actual deployment matches the prediction
+        // Note: our test deployment may not match production prediction because
+        // we use `new BaoFactory()` not Nick's Factory. The key test is that
+        // the prediction formula is deterministic and self-consistent.
+    }
+
+    /// @notice Test 1c.5: Removed operator cannot deploy
+    function testRemovedOperatorCannotDeploy() public {
+        // Verify operator can deploy initially
+        assertTrue(factory.isCurrentOperator(operator), "operator should be valid initially");
+
+        // Remove the operator (delay=0)
+        vm.prank(owner);
+        factory.setOperator(operator, 0);
+        assertFalse(factory.isCurrentOperator(operator), "operator should be removed");
+
+        // Attempt to deploy should fail
+        bytes memory initCode = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(1)));
+        bytes32 salt = keccak256("removed.operator");
+
+        vm.prank(operator);
+        vm.expectRevert(IBaoFactory.Unauthorized.selector);
+        factory.deploy(initCode, salt);
+    }
+
+    /// @notice Test 1c.7: Deploying same salt twice reverts (CREATE3 collision)
+    /// @dev CREATE3 uses CREATE2 to deploy a proxy that does CREATE for the actual contract.
+    ///      Same salt means same CREATE2 address for proxy, which will fail on redeployment.
+    function testDeploySameSaltTwiceReverts() public {
+        bytes memory initCode1 = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(1)));
+        bytes memory initCode2 = abi.encodePacked(type(SimpleContract).creationCode, abi.encode(uint256(2)));
+        bytes32 salt = keccak256("collision.test");
+
+        // First deployment succeeds
+        vm.prank(owner);
+        address deployed = factory.deploy(initCode1, salt);
+        assertTrue(deployed != address(0), "first deployment should succeed");
+
+        // Second deployment with same salt should revert (regardless of initCode)
+        vm.prank(owner);
+        vm.expectRevert();
+        factory.deploy(initCode2, salt);
     }
 }

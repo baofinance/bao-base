@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTesting.sol";
-import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
 
 // ============================================================================
 // Test Harness
@@ -142,7 +142,12 @@ contract DeploymentRolesRegistrationTest is DeploymentRolesSetup {
         deployment.registerRole("contracts.pegged", "MINTER_ROLE", 1);
 
         vm.expectRevert(
-            abi.encodeWithSelector(Deployment.RoleValueMismatch.selector, "contracts.pegged.roles.MINTER_ROLE", 1, 2)
+            abi.encodeWithSelector(
+                DeploymentBase.RoleValueMismatch.selector,
+                "contracts.pegged.roles.MINTER_ROLE",
+                1,
+                2
+            )
         );
         deployment.registerRole("contracts.pegged", "MINTER_ROLE", 2);
     }
@@ -179,7 +184,7 @@ contract DeploymentRolesGranteeTest is DeploymentRolesSetup {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                Deployment.DuplicateGrantee.selector,
+                DeploymentBase.DuplicateGrantee.selector,
                 "contracts.pegged.roles.MINTER_ROLE",
                 "contracts.minter"
             )

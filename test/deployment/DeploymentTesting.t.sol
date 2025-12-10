@@ -4,15 +4,29 @@ pragma solidity >=0.8.28 <0.9.0;
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentMemoryTesting} from "@bao-script/deployment/DeploymentMemoryTesting.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
-import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
+import {BaoFactory, IBaoFactory} from "@bao-script/deployment/BaoFactory.sol";
+import {Vm} from "forge-std/Vm.sol";
 
+/// @dev Test harness using production bytecode for stable addresses under coverage
 contract DeploymentTestingHarness is DeploymentMemoryTesting {
+    Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+
     function startSession(string memory network, string memory salt) external {
         start(network, salt, "");
     }
 
     function readContractAddress(string memory key) external view returns (address) {
         return _get(key);
+    }
+
+    /// @dev Use production bytecode for stable addresses (works with coverage instrumentation)
+    function _ensureBaoFactory() internal override returns (address baoFactory) {
+        baoFactory = DeploymentInfrastructure._ensureBaoFactoryProduction();
+        // Always reset operator to this harness
+        if (!BaoFactory(baoFactory).isCurrentOperator(address(this))) {
+            VM.prank(BaoFactory(baoFactory).owner());
+            BaoFactory(baoFactory).setOperator(address(this), 365 days);
+        }
     }
 }
 
@@ -27,7 +41,10 @@ contract DeploymentTestingTest is BaoDeploymentTest {
     function test_StartConfiguresBaoFactoryOperator_() public {
         deployment.startSession("net-operator", "salt-operator");
         address factory = DeploymentInfrastructure.predictBaoFactoryAddress();
-        assertEq(BaoFactory(factory).operator(), address(deployment), "BaoFactory operator updated to test harness");
+        assertTrue(
+            BaoFactory(factory).isCurrentOperator(address(deployment)),
+            "BaoFactory operator configured for test harness"
+        );
     }
 
     function test_SetContractAddressStoresValue_() public {
@@ -42,7 +59,7 @@ contract DeploymentTestingTest is BaoDeploymentTest {
         deployment.addContract("contracts.predictable");
         deployment.startSession("net-predictable", "salt-predictable");
         bytes memory initCode = hex"6000600055"; // minimal init code
-        vm.expectRevert(abi.encodeWithSelector(BaoFactory.ValueMismatch.selector, 1 ether, 0));
+        vm.expectRevert(abi.encodeWithSelector(IBaoFactory.ValueMismatch.selector, 1 ether, 0));
         deployment.simulatePredictableDeployWithoutFunding(1 ether, "contracts.predictable", initCode, "", "");
     }
 

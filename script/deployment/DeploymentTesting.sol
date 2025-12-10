@@ -1,34 +1,38 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {EfficientHashLib} from "@solady/utils/EfficientHashLib.sol";
+
+import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
 import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
-import {Create3CommitFlow} from "@bao-script/deployment/Create3CommitFlow.sol";
 
 import {Vm} from "forge-std/Vm.sol";
 
 /**
  * @title DeploymentTesting
- * @notice test-specific deployment
- * @dev Extends base Deployment with:
+ * @notice Mixin for test-specific deployment
+ * @dev Extends DeploymentBase with:
  *      - access to the underlying data structure for testing
  *      - auto-configuration of BaoFactory operator for testing (via tx.origin prank)
  *      - automatic stub deployment
+ *      - uses current build bytecode (not captured) for BaoFactory
+ *
+ *      This is a mixin - use it with DeploymentJson for JSON-based tests:
+ *      contract MyTest is DeploymentJson, DeploymentTesting { ... }
  */
-abstract contract DeploymentTesting is Deployment {
+abstract contract DeploymentTesting is DeploymentBase {
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     function _ensureBaoFactory() internal virtual override returns (address baoFactory) {
-        // Prank tx.origin so new BaoFactory gets operator = address(this)
-        VM.startPrank(address(this), address(this));
-        baoFactory = super._ensureBaoFactory();
-        VM.stopPrank();
+        // Use current build bytecode (not captured) so tests work with code changes
+        baoFactory = DeploymentInfrastructure._ensureBaoFactoryCurrentBuild();
 
         // Always reset operator to this harness (handles resume/continue scenarios with different harness instances)
-        if (BaoFactory(baoFactory).operator() != address(this)) {
-            VM.prank(DeploymentInfrastructure.BAOMULTISIG);
-            BaoFactory(baoFactory).setOperator(address(this));
+        // Owner is a compile-time constant in BaoFactory
+        if (!BaoFactory(baoFactory).isCurrentOperator(address(this))) {
+            VM.prank(BaoFactory(baoFactory).owner());
+            BaoFactory(baoFactory).setOperator(address(this), 365 days);
         }
     }
 
@@ -87,7 +91,7 @@ abstract contract DeploymentTesting is Deployment {
     }
 
     /// @notice Simulate predictable deploy without providing the required value (for testing underfunding scenarios)
-    /// @dev This commits but calls reveal with value=0, triggering ValueMismatch error
+    /// @dev Calls deploy with msg.value=0 but value parameter != 0, triggering ValueMismatch error
     ///      contractType and contractPath parameters kept for API compatibility but unused
     /// @param value The value required for deployment
     /// @param key The contract key
@@ -108,14 +112,14 @@ abstract contract DeploymentTesting is Deployment {
             revert(); // Preserve legacy behavior for tests expecting bare revert
         }
 
-        Create3CommitFlow.Request memory request = Create3CommitFlow.Request({
-            operator: address(this),
-            systemSaltString: _getString(SYSTEM_SALT_STRING),
-            key: key,
-            initCode: initCode,
-            value: value
-        });
+        // Compute salt from system salt + key
+        string memory systemSaltString = _getString(SYSTEM_SALT_STRING);
+        bytes memory saltBytes = abi.encodePacked(systemSaltString, "/", key);
+        bytes32 salt = EfficientHashLib.hash(saltBytes);
 
-        (addr, , ) = Create3CommitFlow.commitAndReveal(request, Create3CommitFlow.RevealMode.ForceZeroValue);
+        // Deploy via CREATE3 with value mismatch (msg.value=0, expected=value)
+        address factory = DeploymentInfrastructure.predictBaoFactoryAddress();
+        BaoFactory baoFactory = BaoFactory(factory);
+        addr = baoFactory.deploy(value, initCode, salt); // Will revert: ValueMismatch(value, 0)
     }
 }

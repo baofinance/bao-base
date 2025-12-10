@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DataType} from "@bao-script/deployment/DeploymentKeys.sol";
-import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
 import {DeploymentMemoryTesting} from "@bao-script/deployment/DeploymentMemoryTesting.sol";
 import {MockContract} from "@bao-test/mocks/basic/MockContract.sol";
 
@@ -166,7 +166,7 @@ contract DeploymentBasicTest is BaoDeploymentTest {
     function test_RevertWhen_StartDeploymentTwice() public {
         _startDeployment("test_RevertWhen_StartDeploymentTwice");
 
-        vm.expectRevert(Deployment.AlreadyInitialized.selector);
+        vm.expectRevert(DeploymentBase.AlreadyInitialized.selector);
         deployment.start("test_RevertWhen_StartDeploymentTwice", TEST_SALT, "");
     }
 
@@ -175,7 +175,7 @@ contract DeploymentBasicTest is BaoDeploymentTest {
 
         DeploymentBasicHarness fresh = new DeploymentBasicHarness();
         // Actions without initialization should fail (session not started)
-        vm.expectRevert(Deployment.SessionNotStarted.selector);
+        vm.expectRevert(DeploymentBase.SessionNotStarted.selector);
         fresh.deployMockContract("mock", "Mock Contract");
     }
 }

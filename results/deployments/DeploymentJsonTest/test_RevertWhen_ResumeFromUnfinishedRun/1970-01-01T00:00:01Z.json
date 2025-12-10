@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "owner": "0x0000000000000000000000000000000000001234",
-  "BaoFactory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5",
+  "BaoFactory": "0x5e79aedf55f702ba5df228b5163de60c0da7000f",
   "systemSaltString": "DeploymentJsonTest",
   "session": {
     "deployer": "0x2e234dae75c793f67a35089c9d99245e1c58470b",

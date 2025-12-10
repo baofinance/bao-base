@@ -7,6 +7,9 @@ set -o pipefail
 export FOUNDRY_OUT=out/_coverage
 export FOUNDRY_CACHE_PATH=cache/_coverage
 
+# signal to Solidity code that we're in coverage mode
+export BAO_COVERAGE_RUN=true
+
 # temp deployment scripts dir
 mkdir -p tmp
 export BAO_DEPLOYMENT_LOGS_ROOT=$(mktemp -d -p tmp)

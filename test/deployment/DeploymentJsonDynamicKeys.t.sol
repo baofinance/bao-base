@@ -24,6 +24,7 @@ string constant NETWORKS = "networks";
 /// @dev This demonstrates the BROKEN approach - dynamic registration without patterns
 contract DynamicKeysDeployment is DeploymentJsonTesting {
     constructor() {
+        _disableIncrementalLogging(); // Don't write to orphaned file path (no salt/network set)
         // Register the parent NETWORKS key as an object
         addKey(NETWORKS);
         // NOTE: We do NOT register networks.*.chainId etc here - that's the problem
@@ -67,6 +68,7 @@ contract DynamicKeysDeployment is DeploymentJsonTesting {
 /// @dev This demonstrates the CORRECT approach - patterns registered in constructor
 contract PatternKeysDeployment is DeploymentJsonTesting {
     constructor() {
+        _disableIncrementalLogging(); // Don't write to orphaned file path (no salt/network set)
         // Register the parent NETWORKS key as an object
         addKey(NETWORKS);
         // Register patterns for network-specific keys
@@ -275,6 +277,7 @@ contract RolePatternDeployment is DeploymentJsonTesting {
     string public constant CONTRACTS_PEGGED = "contracts.pegged";
 
     constructor() {
+        _disableIncrementalLogging(); // Don't write to orphaned file path (no salt/network set)
         // Register the contract and its explicit roles
         addProxy(CONTRACTS_PEGGED);
         string[] memory roles = new string[](3);

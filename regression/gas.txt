@@ -1,15 +1,12 @@
-script/deployment/BaoDeployer.sol:BaoDeployer
-| function name               |       max |
-|-----------------------------|-----------|
-| clearCommitment             | 2.604e+04 |
-| commit                      | 4.837e+04 |
-| committedAt                 | 2.539e+03 |
-| isCommitted                 | 2.466e+03 |
-| operator                    | 2.402e+03 |
-| owner                       | 2.360e+03 |
-| predictDeterministicAddress | 5.850e+02 |
-| reveal                      | 2.193e+05 |
-| setOperator                 | 3.047e+04 |
+script/deployment/BaoFactory.sol:BaoFactory
+| function name     |       max |
+|-------------------|-----------|
+| isCurrentOperator | 9.370e+03 |
+| operators         | 1.452e+04 |
+| owner             | 2.590e+02 |
+| predictAddress    | 6.280e+02 |
+| setOperator       | 1.366e+05 |
+| upgradeToAndCall  | 8.061e+03 |
 
 script/deployment/UUPSProxyDeployStub.sol:UUPSProxyDeployStub
 | function name    |       max |
@@ -112,10 +109,24 @@ test/mocks/basic/MockDependencies.sol:MockToken
 |-----------------|-----------|
 | oracle          | 2.357e+03 |
 
+test/mocks/deployment/BaoFactoryV2.sol:BaoFactoryNonUUPS
+| function name   |       max |
+|-----------------|-----------|
+| proxiableUUID   | 1.230e+02 |
+
+test/mocks/deployment/BaoFactoryV2.sol:BaoFactoryV2
+| function name     |       max |
+|-------------------|-----------|
+| deploy            | 1.478e+05 |
+| isCurrentOperator | 2.687e+03 |
+| operators         | 1.452e+04 |
+| predictAddress    | 6.280e+02 |
+| proxiableUUID     | 3.070e+02 |
+| version           | 2.800e+02 |
+
 test/mocks/deployment/FundedVault.sol:FundedVault
 | function name   |       max |
 |-----------------|-----------|
-| currentBalance  | 1.820e+02 |
 | initialBalance  | 2.260e+03 |
 
 test/mocks/deployment/FundedVault.sol:FundedVaultUUPS

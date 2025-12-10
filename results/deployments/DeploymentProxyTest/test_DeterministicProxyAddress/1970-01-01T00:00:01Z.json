@@ -5,10 +5,10 @@
   "session": {
     "network": "test_DeterministicProxyAddress",
     "chainId": 31337,
-    "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
     "startTimestamp": 1,
     "started": "1970-01-01T00:00:01Z",
     "startBlock": 1,
+    "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
     "stub": {
       "address": "0x104fbc016f4bb334d775a19e8a6510109ac63e00",
       "contractType": "UUPSProxyDeployStub",
@@ -16,17 +16,17 @@
       "blockNumber": 1
     }
   },
-  "BaoFactory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5",
+  "BaoFactory": "0x5e79aedf55f702ba5df228b5163de60c0da7000f",
   "contracts": {
     "pegged": {
       "symbol": "GBP",
       "name": "Harbor GBP",
-      "address": "0xcd81e0546e2335061964e319ead2ed97af383e6b",
+      "address": "0x2bf407965f92868e6823e046031307b33a786008",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "blockNumber": 1,
-      "factory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5",
+      "factory": "0x5e79aedf55f702ba5df228b5163de60c0da7000f",
       "owner": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "category": "UUPS proxy",
       "saltString": "pegged",

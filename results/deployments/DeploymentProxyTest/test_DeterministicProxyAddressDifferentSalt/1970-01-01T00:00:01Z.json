@@ -5,10 +5,10 @@
   "session": {
     "network": "test_DeterministicProxyAddressDifferentSalt",
     "chainId": 31337,
-    "deployer": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
     "startTimestamp": 1,
     "started": "1970-01-01T00:00:01Z",
     "startBlock": 1,
+    "deployer": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
     "stub": {
       "address": "0xffd4505b3452dc22f8473616d50503ba9e1710ac",
       "contractType": "UUPSProxyDeployStub",
@@ -16,5 +16,5 @@
       "blockNumber": 1
     }
   },
-  "BaoFactory": "0x2d88ff4c486388ccb04c11e6f5df5a22c560c1f5"
+  "BaoFactory": "0x5e79aedf55f702ba5df228b5163de60c0da7000f"
 }

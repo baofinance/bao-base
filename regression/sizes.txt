@@ -1,12 +1,13 @@
 | Contract                       |   Runtime Size (B) |   Runtime Margin (B) |   Initcode Size (B) |   Deploy Gas |   Deploy Cost ($) |
 |--------------------------------|--------------------|----------------------|---------------------|--------------|-------------------|
 | Array                          |                 62 |               24,514 |                  88 |       13,280 |              1.33 |
-| BaoFactory                     |              2,969 |               21,607 |               3,194 |      625,740 |             62.57 |
-| Create3CommitFlow              |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| BaoFactory                     |              4,011 |               20,565 |               4,289 |      845,090 |             84.51 |
+| BaoFactoryBytecode             |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| BaoFactoryLib                  |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | Deployed                       |                408 |               24,168 |                 460 |       86,200 |              8.62 |
-| DeploymentInfrastructure       |              7,835 |               16,741 |               7,887 |    1,645,870 |            164.59 |
-| DeploymentJsonTesting          |             52,999 |              -28,423 |              56,187 |   11,161,670 |           1116.17 |
-| DeploymentMemoryTesting        |             37,040 |              -12,464 |              38,853 |    7,796,530 |            779.65 |
+| DeploymentInfrastructure       |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| DeploymentJsonTesting          |             50,502 |              -25,926 |              53,690 |   10,637,300 |           1063.73 |
+| DeploymentMemoryTesting        |             34,232 |               -9,656 |              36,045 |    7,206,850 |            720.69 |
 | DeploymentTestingOutput        |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | DerivedBaoOwnable              |                874 |               23,702 |                 902 |      183,820 |             18.38 |
 | DerivedBaoOwnableRoles         |              1,757 |               22,819 |               1,799 |      369,390 |             36.94 |

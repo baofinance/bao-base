@@ -2,7 +2,8 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
-import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
+import {BaoFactoryLib} from "@bao-script/deployment/BaoFactory.sol";
 import {DeploymentMemoryTesting} from "@bao-script/deployment/DeploymentMemoryTesting.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
@@ -196,7 +197,9 @@ contract DeploymentCoreTest is BaoDeploymentTest {
     function test_RevertWhen_DeployLibraryFails_() public {
         _initSession("test_RevertWhen_DeployLibraryFails_");
         deployment.addContract("contracts.failLibrary");
-        vm.expectRevert(abi.encodeWithSelector(Deployment.LibraryDeploymentFailed.selector, "contracts.failLibrary"));
+        vm.expectRevert(
+            abi.encodeWithSelector(DeploymentBase.LibraryDeploymentFailed.selector, "contracts.failLibrary")
+        );
         deployment.deployLibrary("contracts.failLibrary", type(FailingLibrary).creationCode, "Broken", address(this));
     }
 
@@ -249,13 +252,13 @@ contract DeploymentCoreTest is BaoDeploymentTest {
 
     function test_PredictProxyAddressRequiresKey_() public {
         _initSession("test_PredictProxyAddressRequiresKey_");
-        vm.expectRevert(Deployment.KeyRequired.selector);
+        vm.expectRevert(DeploymentBase.KeyRequired.selector);
         deployment.predictProxyAddress("");
     }
 
     function test_UpgradeProxyValueRequiresKey_() public {
         _initSession("test_UpgradeProxyValueRequiresKey_");
-        vm.expectRevert(Deployment.KeyRequired.selector);
+        vm.expectRevert(DeploymentBase.KeyRequired.selector);
         deployment.upgradeProxy{value: 0}(0, "", address(0), bytes(""), "Mock", "", address(this));
     }
 
@@ -274,7 +277,7 @@ contract DeploymentEnsureBaoFactoryTest is BaoDeploymentTest {
             vm.etch(DeploymentInfrastructure._NICKS_FACTORY, DeploymentInfrastructure._NICKS_FACTORY_BYTECODE);
         }
         vm.label(DeploymentInfrastructure._NICKS_FACTORY, "Nick's factory");
-        _baoMultisig = DeploymentInfrastructure.BAOMULTISIG;
+        _baoMultisig = BaoFactoryLib.PRODUCTION_OWNER;
         vm.label(_baoMultisig, "_baoMultisig");
         deployment = new DeploymentCoreHarness();
     }

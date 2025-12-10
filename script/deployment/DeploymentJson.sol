@@ -5,7 +5,7 @@ import {LibString} from "@solady/utils/LibString.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 
-import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
 import {DeploymentKeys, DataType, KeyPattern} from "@bao-script/deployment/DeploymentKeys.sol";
@@ -13,17 +13,20 @@ import {DeploymentKeys, DataType, KeyPattern} from "@bao-script/deployment/Deplo
 /**
  * @title DeploymentJson
  * @notice JSON-specific deployment layer with file I/O and serialization
- * @dev Extends base Deployment with:
+ * @dev Extends DeploymentBase with:
  *      - JSON file path resolution (input/output)
  *      - Timestamp-based file naming
  *      - JSON serialization/deserialization (merged from DeploymentDataJson)
  *      - Production BaoFactory operator verification
  *
+ *      Note: This extends DeploymentBase (not Deployment) to enable mixin pattern.
+ *      Concrete classes must provide _ensureBaoFactory() via a mixin or direct implementation.
+ *
  * This file is structured in two sections for easy verification:
  * 1. FROM DeploymentJson.sol - File I/O, path resolution, lifecycle
  * 2. FROM DeploymentDataJson.sol - JSON serialization/deserialization
  */
-abstract contract DeploymentJson is Deployment {
+abstract contract DeploymentJson is DeploymentBase {
     using LibString for string;
     using stdJson for string;
 
@@ -56,8 +59,17 @@ abstract contract DeploymentJson is Deployment {
     function _save() internal virtual {
         if (!_suppressPersistence) {
             VM.createDir(_getOutputConfigDir(), true); // recursive=true, creates parent dirs if needed
-            VM.writeJson(toJson(), _getOutputConfigPath());
+            string memory json = toJson();
+            VM.writeJson(json, _getOutputConfigPath());
+            // Also write to latest.json for easy tracking during deployment
+            if (_saveLatestLogToo()) {
+                VM.writeJson(json, string.concat(_getOutputConfigDir(), "/latest.json"));
+            }
         }
+    }
+
+    function _saveLatestLogToo() internal pure virtual returns (bool) {
+        return true;
     }
 
     function _disableLogging() internal {
@@ -110,7 +122,15 @@ abstract contract DeploymentJson is Deployment {
     function _lookupContractPath(
         string memory contractType,
         bytes memory creationCode
-    ) internal view override returns (string memory contractPath) {
+    ) internal view virtual override returns (string memory contractPath) {
+        // Skip expensive directory iteration during coverage runs
+        // This ensures consistent coverage metrics regardless of out/ directory state
+        try VM.envBool("BAO_COVERAGE_RUN") returns (bool isCoverage) {
+            if (isCoverage) {
+                return "";
+            }
+        } catch {}
+
         string memory outDir = string.concat(VM.projectRoot(), "/out");
         string memory targetFilename = string.concat(contractType, ".json");
 
