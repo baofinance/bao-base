@@ -30,7 +30,7 @@
       "factory": "0x5e79aedf55f702ba5df228b5163de60c0da7000f",
       "owner": "0x0000000000000000000000000000000000001234",
       "category": "UUPS proxy",
-      "saltString": "proxy1",
+      "saltString": "DeploymentFieldsTest/contracts.proxy1/UUPS/proxy",
       "salt": "0xae819964217bc1643556604c9287d4b8b94566c949728143cd958b20821f0060",
       "implementation": {
         "address": "0x037eda3adb1198021a9b2e88c22b464fd38db3f3",
@@ -50,7 +50,7 @@
       "factory": "0x5e79aedf55f702ba5df228b5163de60c0da7000f",
       "owner": "0x0000000000000000000000000000000000001234",
       "category": "UUPS proxy",
-      "saltString": "proxy2",
+      "saltString": "DeploymentFieldsTest/contracts.proxy2/UUPS/proxy",
       "salt": "0xf67205144c79913a85adbf11333601eb55cce8d9e8ff0fab6d6a051163ff1b49",
       "implementation": {
         "address": "0xddc10602782af652bb913f7bde1fd82981db7dd9",
@@ -70,7 +70,7 @@
       "factory": "0x5e79aedf55f702ba5df228b5163de60c0da7000f",
       "owner": "0x0000000000000000000000000000000000001234",
       "category": "UUPS proxy",
-      "saltString": "proxy3",
+      "saltString": "DeploymentFieldsTest/contracts.proxy3/UUPS/proxy",
       "salt": "0xb3fb9817938edbff996bb2959648880a0b61de0844cc172b84a1b730e592318c",
       "implementation": {
         "address": "0x7fdb3132ff7d02d8b9e221c61cc895ce9a4bb773",

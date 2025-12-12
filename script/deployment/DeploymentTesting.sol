@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {EfficientHashLib} from "@solady/utils/EfficientHashLib.sol";
 
 import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
-import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
+import {BaoFactory} from "@bao/factory/BaoFactory.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 
 import {Vm} from "forge-std/Vm.sol";

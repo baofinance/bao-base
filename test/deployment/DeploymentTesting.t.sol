@@ -4,7 +4,8 @@ pragma solidity >=0.8.28 <0.9.0;
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentMemoryTesting} from "@bao-script/deployment/DeploymentMemoryTesting.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
-import {BaoFactory, IBaoFactory} from "@bao-script/deployment/BaoFactory.sol";
+import {BaoFactory} from "@bao/factory/BaoFactory.sol";
+import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {Vm} from "forge-std/Vm.sol";
 
 /// @dev Test harness using production bytecode for stable addresses under coverage

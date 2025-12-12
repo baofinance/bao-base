@@ -16,20 +16,20 @@
       "blockNumber": 1
     }
   },
-  "BaoFactory": "0x5e79aedf55f702ba5df228b5163de60c0da7000f",
+  "BaoFactory": "0xd4be7365cb7919f80702d80c874964a5080dc2e2",
   "contracts": {
     "pegged": {
       "symbol": "JPY",
       "name": "Harbor JPY",
-      "address": "0x2bf407965f92868e6823e046031307b33a786008",
+      "address": "0x093d3f3ee7a3f765fa3ebaba2d5d37209b6e7e8c",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "blockNumber": 1,
-      "factory": "0x5e79aedf55f702ba5df228b5163de60c0da7000f",
+      "factory": "0xd4be7365cb7919f80702d80c874964a5080dc2e2",
       "owner": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "category": "UUPS proxy",
-      "saltString": "pegged",
+      "saltString": "DeploymentProxyTest/contracts.pegged/UUPS/proxy",
       "salt": "0x9f6682382cdc9a803083354143a4df32736563cca04f0e6df132fb02a82fec91",
       "implementation": {
         "address": "0x037eda3adb1198021a9b2e88c22b464fd38db3f3",

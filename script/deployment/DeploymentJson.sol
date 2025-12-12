@@ -7,7 +7,7 @@ import {stdJson} from "forge-std/StdJson.sol";
 
 import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
-import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
+import {BaoFactory} from "@bao-factory/BaoFactory.sol";
 import {DeploymentKeys, DataType, KeyPattern} from "@bao-script/deployment/DeploymentKeys.sol";
 
 /**

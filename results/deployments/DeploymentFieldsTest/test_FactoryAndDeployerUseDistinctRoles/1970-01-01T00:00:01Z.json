@@ -30,7 +30,7 @@
       "factory": "0x5e79aedf55f702ba5df228b5163de60c0da7000f",
       "owner": "0x0000000000000000000000000000000000001234",
       "category": "UUPS proxy",
-      "saltString": "proxy1",
+      "saltString": "DeploymentFieldsTest/contracts.proxy1/UUPS/proxy",
       "salt": "0xae819964217bc1643556604c9287d4b8b94566c949728143cd958b20821f0060",
       "implementation": {
         "address": "0x037eda3adb1198021a9b2e88c22b464fd38db3f3",

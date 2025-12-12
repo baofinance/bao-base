@@ -8,7 +8,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {console2} from "forge-std/console2.sol";
 
-import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
+import {BaoFactory} from "@bao-factory/BaoFactory.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
@@ -310,19 +310,22 @@ abstract contract DeploymentBase is DeploymentDataMemory {
     // Proxy Deployment / Upgrades
     // ============================================================================
 
-    /// @notice Predict proxy address without deploying
-    /// @param proxyKey Key for the proxy deployment
-    /// @return proxy Predicted proxy address
-    function predictProxyAddress(string memory proxyKey) public view returns (address proxy) {
+    function _proxySalt(string memory proxyKey) private view returns (string memory saltString, bytes32 salt) {
         _requireActiveRun();
         if (bytes(proxyKey).length == 0) {
             revert KeyRequired();
         }
-        string memory systemSalt = _deriveSystemSalt();
-        bytes memory proxySaltBytes = abi.encodePacked(systemSalt, "/", proxyKey, "/UUPS/proxy");
-        bytes32 salt = EfficientHashLib.hash(proxySaltBytes);
-        address baoFactory = _getAddress(BAO_FACTORY);
-        proxy = CREATE3.predictDeterministicAddress(salt, baoFactory);
+        string memory systemSalt = _getString(SYSTEM_SALT_STRING);
+        saltString = string.concat(systemSalt, "/", proxyKey, "/UUPS/proxy");
+        salt = EfficientHashLib.hash(abi.encodePacked(saltString));
+    }
+
+    /// @notice Predict proxy address without deploying
+    /// @param proxyKey Key for the proxy deployment
+    /// @return proxy Predicted proxy address
+    function predictProxyAddress(string memory proxyKey) public view returns (address proxy) {
+        (, bytes32 salt) = _proxySalt(proxyKey);
+        proxy = CREATE3.predictDeterministicAddress(salt, _getAddress(BAO_FACTORY));
     }
 
     /// @notice Deploy a UUPS proxy using bootstrap stub pattern (with value)
@@ -395,24 +398,35 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         require(implementation != address(0), "Implementation address is zero");
 
         // Compute salt for CREATE3 using system salt from data layer
-        string memory systemSalt = _deriveSystemSalt();
-        bytes memory proxySaltBytes = abi.encodePacked(systemSalt, "/", proxyKey, "/UUPS/proxy");
-        bytes32 salt = EfficientHashLib.hash(proxySaltBytes);
-
-        address factory = _getAddress(BAO_FACTORY);
+        (string memory saltString, bytes32 salt) = _proxySalt(proxyKey);
 
         bytes memory proxyCreationCode = abi.encodePacked(
             type(ERC1967Proxy).creationCode,
             abi.encode(_get(SESSION_STUB), bytes(""))
         );
 
+        address factory = _getAddress(BAO_FACTORY);
         BaoFactory baoFactory = BaoFactory(factory);
 
         // Deploy proxy via CREATE3 (needs broadcast in script context)
         address proxy = baoFactory.deploy(proxyCreationCode, salt);
 
         // Register proxy with all metadata (extracted to avoid stack too deep)
-        _recordProxy(proxyKey, proxy, factory, salt, deployer, block.number);
+        // the proxy - use ERC1967Proxy's creation code for path lookup
+        _recordContractFields(
+            proxyKey,
+            proxy,
+            type(ERC1967Proxy).name,
+            type(ERC1967Proxy).creationCode,
+            deployer,
+            block.number
+        );
+        // extra proxy keys
+        _setAddress(string.concat(proxyKey, ".factory"), factory);
+        _setAddress(string.concat(proxyKey, ".owner"), deployer);
+        _setString(string.concat(proxyKey, ".category"), "UUPS proxy");
+        _setString(string.concat(proxyKey, ".saltString"), saltString);
+        _setString(string.concat(proxyKey, ".salt"), LibString.toHexString(uint256(salt)));
 
         // Record stub implementation (use empty bytecode - stub is internal, path not important)
         _recordContractFields(
@@ -442,26 +456,12 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         string memory proxyKey,
         address proxy,
         address factory,
+        string memory saltString,
         bytes32 salt,
         address deployer,
         uint256 blockNumber
     ) private {
         // register keys
-        // the proxy - use ERC1967Proxy's creation code for path lookup
-        _recordContractFields(
-            proxyKey,
-            proxy,
-            type(ERC1967Proxy).name,
-            type(ERC1967Proxy).creationCode,
-            deployer,
-            blockNumber
-        );
-        // extra proxy keys
-        _setAddress(string.concat(proxyKey, ".factory"), factory);
-        _setAddress(string.concat(proxyKey, ".owner"), deployer);
-        _setString(string.concat(proxyKey, ".category"), "UUPS proxy");
-        _setString(string.concat(proxyKey, ".saltString"), _extractSaltString(proxyKey));
-        _setString(string.concat(proxyKey, ".salt"), LibString.toHexString(uint256(salt)));
     }
 
     /** @notice Upgrade existing proxy to new implementation
@@ -712,40 +712,6 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         _recordContractFields(key, addr, contractType, bytecode, deployer, block.number);
 
         _setString(string.concat(key, ".category"), "library");
-    }
-
-    // Note: keys() and schemaKeys() are inherited from DeploymentDataMemory/DeploymentKeys
-
-    /// @notice Extract salt string from key (everything after last dot)
-    function _extractSaltString(string memory key) internal pure returns (string memory) {
-        bytes memory keyBytes = bytes(key);
-        uint256 lastDotIndex = 0;
-
-        // Find the last dot
-        for (uint256 i = 0; i < keyBytes.length; i++) {
-            if (keyBytes[i] == ".") {
-                lastDotIndex = i;
-            }
-        }
-
-        // If no dot found, return the whole key
-        if (lastDotIndex == 0) {
-            return key;
-        }
-
-        // Extract substring after last dot
-        bytes memory result = new bytes(keyBytes.length - lastDotIndex - 1);
-        for (uint256 i = 0; i < result.length; i++) {
-            result[i] = keyBytes[lastDotIndex + 1 + i];
-        }
-
-        return string(result);
-    }
-
-    /// @notice Derive system salt for deterministic address calculations
-    /// @dev Subclasses can override to customize salt derivation (e.g., network-specific tweaks)
-    function _deriveSystemSalt() internal view virtual returns (string memory) {
-        return _getString(SYSTEM_SALT_STRING);
     }
 
     /// @notice Format Unix timestamp as ISO 8601 string

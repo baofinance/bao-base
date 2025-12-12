@@ -19,18 +19,18 @@
     "finished": "1970-01-01T00:00:01Z",
     "finishBlock": 1
   },
-  "BaoFactory": "0x5e79aedf55f702ba5df228b5163de60c0da7000f",
+  "BaoFactory": "0xd4be7365cb7919f80702d80c874964a5080dc2e2",
   "contracts": {
     "Oracle": {
-      "address": "0xa420e341942a07ec3cf9a1c785edbe69a34ece48",
+      "address": "0xab3c4de05c41016bff30a16402d2238ff49ca03a",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "blockNumber": 1,
-      "factory": "0x5e79aedf55f702ba5df228b5163de60c0da7000f",
+      "factory": "0xd4be7365cb7919f80702d80c874964a5080dc2e2",
       "owner": "0x0000000000000000000000000000000000001234",
       "category": "UUPS proxy",
-      "saltString": "Oracle",
+      "saltString": "DeploymentUpgradeTest/contracts.Oracle/UUPS/proxy",
       "salt": "0x12a91dadb1f9ad87e388c9ae0917d14d12630bd6d009169def18936be94ed844",
       "implementation": {
         "address": "0x037eda3adb1198021a9b2e88c22b464fd38db3f3",

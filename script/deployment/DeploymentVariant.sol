@@ -5,7 +5,7 @@ import {console2} from "forge-std/console2.sol";
 
 import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
 import {BaoFactoryBytecode} from "@bao-script/deployment/BaoFactoryBytecode.sol";
-import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
+import {BaoFactory} from "@bao-factory/BaoFactory.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {Vm} from "forge-std/Vm.sol";
 

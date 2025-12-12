@@ -1,0 +1,23 @@
+{
+  "generated": "2025-12-11 19:52:09 UTC",
+  "compiler": {
+    "solcVersion": "0.8.30",
+    "evmVersion": "prague",
+    "optimizer": true,
+    "optimizerRuns": 10000,
+    "viaIr": true,
+    "bytecodeHash": "none",
+    "cborMetadata": false
+  },
+  "bytecode": {
+    "size": 3925,
+    "hash": "0x708fd62a3e71e66208deb9f52352b33b82d1ea746aa339d5302f9b2326b7007f"
+  },
+  "deployment": {
+    "owner": "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2",
+    "defaultSalt": "Bao.BaoFactory.harbor",
+    "saltBytes32": "0x06e67d2b2c11c4d10ee000eb59a7f3fdd196441d4158baa45b387f0ec0baf3be",
+    "predictedImplementation": "0x294b0a9babfa713811f1df1e49e9ec850cd6a1b8",
+    "predictedProxy": "0x765a30d65ba81a8faa46064b156ad00ae7192b68"
+  }
+}

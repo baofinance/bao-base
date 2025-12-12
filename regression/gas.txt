@@ -1,20 +1,10 @@
-script/deployment/BaoFactory.sol:BaoFactory
-| function name     |       max |
-|-------------------|-----------|
-| isCurrentOperator | 9.370e+03 |
-| operators         | 1.452e+04 |
-| owner             | 2.590e+02 |
-| predictAddress    | 6.280e+02 |
-| setOperator       | 1.366e+05 |
-| upgradeToAndCall  | 8.061e+03 |
-
 script/deployment/UUPSProxyDeployStub.sol:UUPSProxyDeployStub
 | function name    |       max |
 |------------------|-----------|
 | owner            | 2.380e+02 |
 | proxiableUUID    | 1.870e+02 |
-| upgradeTo        | 4.718e+04 |
-| upgradeToAndCall | 1.709e+05 |
+| upgradeTo        | 4.405e+04 |
+| upgradeToAndCall | 1.678e+05 |
 
 src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1
 | function name     |       max |
@@ -81,6 +71,16 @@ src/Token.sol:Token
 | function name                       |       max |
 |-------------------------------------|-----------|
 | hasNonMutatingParameterlessFunction | 4.190e+03 |
+
+src/factory/BaoFactory.sol:BaoFactory
+| function name     |       max |
+|-------------------|-----------|
+| isCurrentOperator | 9.370e+03 |
+| operators         | 1.448e+04 |
+| owner             | 2.590e+02 |
+| predictAddress    | 6.280e+02 |
+| setOperator       | 1.366e+05 |
+| upgradeToAndCall  | 8.085e+03 |
 
 test/mocks/MockImplementationOZOwnable.sol:MockImplementationOZOwnable
 | function name     |       max |

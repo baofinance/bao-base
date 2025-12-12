@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {BaoFactory, BaoFactoryLib} from "@bao-script/deployment/BaoFactory.sol";
+import {BaoFactory} from "@bao-factory/BaoFactory.sol";
+import {BaoFactoryLib} from "@bao-factory/BaoFactoryLib.sol";
 import {BaoFactoryBytecode} from "@bao-script/deployment/BaoFactoryBytecode.sol";
 import {LibClone} from "@solady/utils/LibClone.sol";
 

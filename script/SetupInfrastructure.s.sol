@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Script} from "forge-std/Script.sol";
 import {console} from "forge-std/console.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
-import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
+import {BaoFactory} from "@bao/factory/BaoFactory.sol";
 
 /**
  * @title SetupInfrastructure
@@ -32,7 +32,7 @@ contract SetupInfrastructure is Script {
 
         // Log current operators
         BaoFactory baoFactory = BaoFactory(baoFactoryAddr);
-        (address[] memory ops, uint40[] memory expiries) = baoFactory.operators();
+        (address[] memory ops, uint256[] memory expiries) = baoFactory.operators();
         console.log("Operators count:", ops.length);
         for (uint256 i = 0; i < ops.length; i++) {
             console.log("  Operator:", ops[i], "expires:", expiries[i]);

@@ -25,7 +25,11 @@ ignored_warnings_from = [
 ]
 
 [lint]
-exclude_lints = ["mixed-case-function", "mixed-case-variable"]
+exclude_lints = [
+  "mixed-case-function",
+  "mixed-case-variable",
+  "screaming-snake-case-constant",
+]
 severity = ["gas"]
 
 

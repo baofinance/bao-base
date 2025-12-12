@@ -1,9 +1,8 @@
 | File                                           | % Lines            | % Statements       | % Branches       | % Funcs          |
 |------------------------------------------------|--------------------|--------------------|------------------|------------------|
-| script/deployment/BaoFactory.sol               | ✓ 100% (51/51)     | ✓ 100% (51/51)     | ✓ 100% (6/6)     | ✓ 100% (14/14)   |
 | script/deployment/BaoFactoryBytecode.sol       | X   0% (0/13)      | X   0% (0/19)      | X   0% (0/4)     | X   0% (0/2)     |
 | script/deployment/Deployment.sol               | X   0% (0/2)       | X   0% (0/1)       | ✓ 100% (0/0)     | X   0% (0/1)     |
-| script/deployment/DeploymentBase.sol           | X  83% (304/368)   | X  86% (388/453)   | X  64% (37/58)   | X  72% (34/47)   |
+| script/deployment/DeploymentBase.sol           | X  82% (288/352)   | X  85% (364/428)   | X  64% (36/56)   | X  70% (32/46)   |
 | script/deployment/DeploymentDataMemory.sol     | X  99% (181/182)   | X  99% (180/182)   | ✓ 100% (20/20)   | ✓ 100% (44/44)   |
 | script/deployment/DeploymentInfrastructure.sol | X  85% (33/39)     | X  88% (30/34)     | X  67% (8/12)    | X  71% (5/7)     |
 | script/deployment/DeploymentJson.sol           | X  80% (319/397)   | X  79% (407/515)   | X  70% (71/101)  | X  89% (40/45)   |
@@ -14,7 +13,7 @@
 | script/deployment/DeploymentTesting.sol        | ✓ 100% (40/40)     | ✓ 100% (31/31)     | ✓ 100% (3/3)     | ✓ 100% (14/14)   |
 | script/deployment/DeploymentVariant.sol        | X   0% (0/8)       | X   0% (0/9)       | X   0% (0/1)     | X   0% (0/1)     |
 | script/deployment/JsonArrays.sol               | ✓ 100% (16/16)     | ✓ 100% (16/16)     | ✓ 100% (0/0)     | ✓ 100% (8/8)     |
-| script/deployment/UUPSProxyDeployStub.sol      | X  93% (28/30)     | X  82% (23/28)     | X  33% (2/6)     | ✓ 100% (8/8)     |
+| script/deployment/UUPSProxyDeployStub.sol      | X  93% (25/27)     | X  80% (20/25)     | X  33% (2/6)     | ✓ 100% (8/8)     |
 | script/utils/Array.sol                         | X   3% (12/389)    | X   3% (9/334)     | ✓ 100% (0/0)     | X   5% (3/61)    |
 | src/BaoOwnable.sol                             | ✓ 100% (27/27)     | ✓ 100% (24/24)     | ✓ 100% (3/3)     | ✓ 100% (6/6)     |
 | src/BaoOwnableRoles.sol                        | ✓ 100% (2/2)       | ✓ 100% (4/4)       | ✓ 100% (0/0)     | ✓ 100% (1/1)     |
@@ -28,8 +27,10 @@
 | src/Stem_v1.sol                                | ✓ 100% (5/5)       | ✓ 100% (2/2)       | ✓ 100% (0/0)     | ✓ 100% (3/3)     |
 | src/Token.sol                                  | ✓ 100% (30/30)     | ✓ 100% (30/30)     | ✓ 100% (8/8)     | ✓ 100% (7/7)     |
 | src/TokenHolder.sol                            | ✓ 100% (12/12)     | ✓ 100% (8/8)       | ✓ 100% (1/1)     | ✓ 100% (4/4)     |
+| src/factory/BaoFactory.sol                     | X  98% (47/48)     | X  98% (48/49)     | X  88% (7/8)     | ✓ 100% (11/11)   |
+| src/factory/BaoFactoryLib.sol                  | ✓ 100% (9/9)       | ✓ 100% (8/8)       | ✓ 100% (0/0)     | ✓ 100% (3/3)     |
 | src/internal/BaoCheckOwner.sol                 | ✓ 100% (6/6)       | ✓ 100% (4/4)       | ✓ 100% (1/1)     | ✓ 100% (2/2)     |
 | src/internal/BaoCheckOwner_v2.sol              | ✓ 100% (13/13)     | ✓ 100% (10/10)     | ✓ 100% (1/1)     | ✓ 100% (4/4)     |
 | src/internal/BaoRoles.sol                      | ✓ 100% (56/56)     | ✓ 100% (49/49)     | ✓ 100% (6/6)     | ✓ 100% (16/16)   |
 | src/internal/BaoRoles_v2.sol                   | ✓ 100% (47/47)     | X  98% (42/43)     | ✓ 100% (4/4)     | ✓ 100% (14/14)   |
-| Total                                          | X  71% (2583/3647) | X  73% (2571/3515) | X  61% (204/336) | X  69% (590/854) |
+| Total                                          | X  71% (2569/3634) | X  73% (2549/3493) | X  61% (204/336) | X  69% (588/853) |

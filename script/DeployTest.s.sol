@@ -7,7 +7,7 @@ import {DeploymentVariant} from "@bao-script/deployment/DeploymentVariant.sol";
 import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
 import {DeploymentJsonScript} from "@bao-script/deployment/DeploymentJsonScript.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
-import {BaoFactory} from "@bao-script/deployment/BaoFactory.sol";
+import {BaoFactory} from "@bao/factory/BaoFactory.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 import {ERC20WithData} from "@bao-test/mocks/deployment/ERC20WithData.sol";
 

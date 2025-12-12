@@ -38,7 +38,7 @@
       "factory": "0x5e79aedf55f702ba5df228b5163de60c0da7000f",
       "owner": "0x0000000000000000000000000000000000001234",
       "category": "UUPS proxy",
-      "saltString": "vault_proxy_funded",
+      "saltString": "DeploymentFieldsTest/contracts.vault_proxy_funded/UUPS/proxy",
       "salt": "0x68fb9badbfea85b91f018ba2210e0d53eea101b84152bd46a6842d21a63b6ad0",
       "value": 5000000000000000000
     },
@@ -59,7 +59,7 @@
       "factory": "0x5e79aedf55f702ba5df228b5163de60c0da7000f",
       "owner": "0x0000000000000000000000000000000000001234",
       "category": "UUPS proxy",
-      "saltString": "vault_proxy_unfunded",
+      "saltString": "DeploymentFieldsTest/contracts.vault_proxy_unfunded/UUPS/proxy",
       "salt": "0x408f9b4cb82e55566200767d045794dca973236954f05ea1cf39c77d8819313a",
       "value": 0
     }

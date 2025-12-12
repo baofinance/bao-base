@@ -251,7 +251,8 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         assertEq(category, "UUPS proxy");
 
         string memory saltString = vm.parseJsonString(json, ".contracts.proxy1.saltString");
-        assertEq(saltString, "proxy1");
+        // saltString contains the full CREATE3 salt: systemSalt/proxyKey/UUPS/proxy
+        assertEq(saltString, string.concat(TEST_SALT, "/contracts.proxy1/UUPS/proxy"));
 
         bytes32 salt = vm.parseJsonBytes32(json, ".contracts.proxy1.salt");
         assertTrue(salt != bytes32(0));

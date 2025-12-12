@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {console2} from "forge-std/console2.sol";
-
 /// @title UUPSProxyDeployStub
 /// @notice Bare-bones UUPS bootstrap contract. The deploying harness becomes the immutable owner.
 /// @dev The contract provides only the upgrade surface plus an `owner()` getter. Ownership cannot
@@ -28,7 +26,6 @@ contract UUPSProxyDeployStub {
         address sender = msg.sender;
         if (sender == address(0)) revert ZeroAddress();
         _OWNER = sender;
-        console2.log("UUPSProxyDeployStub._OWNER = %s", _OWNER);
     }
 
     // ---------------------------------------------------------------------
@@ -44,13 +41,11 @@ contract UUPSProxyDeployStub {
     // ---------------------------------------------------------------------
 
     function upgradeTo(address newImplementation) external {
-        console2.log("UUPSProxyDeployStub.upgradeTo, msg.sender() = %s", msg.sender);
         _requireOwner();
         _upgradeToAndCall(newImplementation, bytes(""), false);
     }
 
     function upgradeToAndCall(address newImplementation, bytes calldata data) external payable {
-        console2.log("UUPSProxyDeployStub.upgradeToAndCall, msg.sender() = %s", msg.sender);
         _requireOwner();
         _upgradeToAndCall(newImplementation, data, true);
     }
