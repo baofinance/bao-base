@@ -4,7 +4,6 @@ import {console2} from "forge-std/console2.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
-import {BaoFactoryLib} from "@bao-factory/BaoFactoryLib.sol";
 import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
 import {BaoFactoryBytecode} from "@bao-factory/BaoFactoryBytecode.sol";
 import {DeploymentTestingOutput} from "@bao-script/deployment/DeploymentJsonTesting.sol";

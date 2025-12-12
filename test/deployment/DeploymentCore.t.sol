@@ -3,9 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
-import {BaoFactoryLib} from "@bao-factory/BaoFactoryLib.sol";
 import {DeploymentMemoryTesting} from "@bao-script/deployment/DeploymentMemoryTesting.sol";
-import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
 import {BaoFactoryBytecode} from "@bao-factory/BaoFactoryBytecode.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 

@@ -192,10 +192,13 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData, Array
     }
 
     function _has(string memory key) internal view returns (bool) {
+        console2.log("checking for key '%s'...", key);
         if (_hasKey[key]) {
+            console2.log("found '%s'.", key);
             return true;
         }
         if (keyType(key) == DataType.OBJECT) {
+            console2.log("found OBJECT '%s'.", string.concat(key, ".address"));
             return _hasKey[string.concat(key, ".address")];
         }
         return false;

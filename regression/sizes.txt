@@ -1,13 +1,9 @@
 | Contract                       |   Runtime Size (B) |   Runtime Margin (B) |   Initcode Size (B) |   Deploy Gas |   Deploy Cost ($) |
 |--------------------------------|--------------------|----------------------|---------------------|--------------|-------------------|
 | Array                          |                 62 |               24,514 |                  88 |       13,280 |              1.33 |
-| BaoFactory                     |              3,917 |               20,659 |               4,195 |      825,350 |             82.54 |
-| BaoFactoryBytecode             |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
-| BaoFactoryLib                  |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | Deployed                       |                408 |               24,168 |                 460 |       86,200 |              8.62 |
-| DeploymentInfrastructure       |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
-| DeploymentJsonTesting          |             49,411 |              -24,835 |              52,599 |   10,408,190 |           1040.82 |
-| DeploymentMemoryTesting        |             33,140 |               -8,564 |              34,953 |    6,977,530 |            697.75 |
+| DeploymentJsonTesting          |             49,430 |              -24,854 |              52,618 |   10,412,180 |           1041.22 |
+| DeploymentMemoryTesting        |             33,190 |               -8,614 |              35,003 |    6,988,030 |            698.80 |
 | DeploymentTestingOutput        |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | DerivedBaoOwnable              |                874 |               23,702 |                 902 |      183,820 |             18.38 |
 | DerivedBaoOwnableRoles         |              1,757 |               22,819 |               1,799 |      369,390 |             36.94 |
