@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
-import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
+import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
 
 /**
  * @title Deployment
@@ -20,6 +20,6 @@ abstract contract Deployment is DeploymentBase {
     /// @notice Ensure BaoFactory is deployed using production bytecode
     /// @dev This is the production default - uses captured bytecode
     function _ensureBaoFactory() internal virtual override returns (address factory) {
-        factory = DeploymentInfrastructure._ensureBaoFactoryProduction();
+        factory = BaoFactoryDeployment.ensureBaoFactoryProduction();
     }
 }

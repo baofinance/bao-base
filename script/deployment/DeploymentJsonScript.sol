@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {console2} from "forge-std/console2.sol";
 import {Script} from "forge-std/Script.sol";
-import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
+import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
 import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
 
 /**
@@ -54,6 +54,6 @@ abstract contract DeploymentJsonScript is DeploymentJson, Script {
     /// @dev DeploymentJson does not implement _ensureBaoFactory(), so production scripts
     ///      get the canonical behavior directly from this base.
     function _ensureBaoFactory() internal virtual override returns (address factory) {
-        factory = DeploymentInfrastructure._ensureBaoFactoryProduction();
+        factory = BaoFactoryDeployment.ensureBaoFactoryProduction();
     }
 }

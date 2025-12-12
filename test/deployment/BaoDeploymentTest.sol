@@ -5,7 +5,8 @@ import {console2} from "forge-std/console2.sol";
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
 import {BaoFactoryLib} from "@bao-factory/BaoFactoryLib.sol";
-import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
+import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
+import {BaoFactoryBytecode} from "@bao-factory/BaoFactoryBytecode.sol";
 import {DeploymentTestingOutput} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
@@ -41,19 +42,19 @@ abstract contract BaoDeploymentTest is BaoTest {
     function setUp() public virtual {
         // TODO: all this should go other than the labelling
         // install Nick's factory if not present
-        if (DeploymentInfrastructure._NICKS_FACTORY.code.length == 0) {
-            vm.etch(DeploymentInfrastructure._NICKS_FACTORY, DeploymentInfrastructure._NICKS_FACTORY_BYTECODE);
+        if (BaoFactoryBytecode.NICKS_FACTORY.code.length == 0) {
+            vm.etch(BaoFactoryBytecode.NICKS_FACTORY, BaoFactoryBytecode.NICKS_FACTORY_BYTECODE);
             console2.log("etched Nick's factory");
         }
-        vm.label(DeploymentInfrastructure._NICKS_FACTORY, "Nick's factory");
+        vm.label(BaoFactoryBytecode.NICKS_FACTORY, "Nick's factory");
 
         // Get owner from BaoFactoryLib constant (avoids call to non-contract address)
-        _baoMultisig = BaoFactoryLib.PRODUCTION_OWNER;
+        _baoMultisig = BaoFactoryBytecode.OWNER;
         vm.label(_baoMultisig, "_baoMultisig");
 
         // don't deploy it - that is the job of start()
         // _baoFactory = DeploymentInfrastructure._ensureBaoFactory();
-        _baoFactory = DeploymentInfrastructure.predictBaoFactoryAddress();
+        _baoFactory = BaoFactoryDeployment.predictBaoFactoryAddress();
         vm.label(_baoFactory, "_baoFactory");
     }
 

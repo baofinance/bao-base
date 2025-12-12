@@ -16,12 +16,12 @@
       "blockNumber": 1
     }
   },
-  "BaoFactory": "0xd4be7365cb7919f80702d80c874964a5080dc2e2",
+  "BaoFactory": "0xf32856d36675fd32346f00ed0f89f57ed7e233a5",
   "contracts": {
     "pegged": {
       "symbol": "USD",
       "name": "Harbor USD",
-      "address": "0x8a0c47ca0f0b5f8207d4f7527195ff0fb1ebec71",
+      "address": "0xd1c53a426a756912f9c12c9b2e9890729fc2d228",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol"
     }

@@ -4,6 +4,7 @@
   ],
   "rules": {
     "private-vars-leading-underscore": "error",
+    "import-path-check": "off",
     "interface-starts-with-i": "error",
     "func-param-name-mixedcase": "error",
     "modifier-name-mixedcase": "error",

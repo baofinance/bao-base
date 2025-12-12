@@ -5,7 +5,8 @@ import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
 import {BaoFactoryLib} from "@bao-factory/BaoFactoryLib.sol";
 import {DeploymentMemoryTesting} from "@bao-script/deployment/DeploymentMemoryTesting.sol";
-import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
+import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
+import {BaoFactoryBytecode} from "@bao-factory/BaoFactoryBytecode.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
 contract SimpleBaoOwnable is IBaoOwnable {
@@ -272,12 +273,12 @@ contract DeploymentEnsureBaoFactoryTest is BaoDeploymentTest {
     string internal constant TEST_SALT = "DeploymentEnsureBaoFactoryTest";
 
     function setUp() public override {
-        // Install Nick's factory but skip DeploymentInfrastructure.ensureBaoFactory to simulate missing deployer
-        if (DeploymentInfrastructure._NICKS_FACTORY.code.length == 0) {
-            vm.etch(DeploymentInfrastructure._NICKS_FACTORY, DeploymentInfrastructure._NICKS_FACTORY_BYTECODE);
+        // Install Nick's factory but skip BaoFactoryDeployment helpers to simulate missing deployer
+        if (BaoFactoryBytecode.NICKS_FACTORY.code.length == 0) {
+            vm.etch(BaoFactoryBytecode.NICKS_FACTORY, BaoFactoryBytecode.NICKS_FACTORY_BYTECODE);
         }
-        vm.label(DeploymentInfrastructure._NICKS_FACTORY, "Nick's factory");
-        _baoMultisig = BaoFactoryLib.PRODUCTION_OWNER;
+        vm.label(BaoFactoryBytecode.NICKS_FACTORY, "Nick's factory");
+        _baoMultisig = BaoFactoryBytecode.OWNER;
         vm.label(_baoMultisig, "_baoMultisig");
         deployment = new DeploymentCoreHarness();
     }

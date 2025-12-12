@@ -12,7 +12,6 @@ import {BaoFactory} from "@bao-factory/BaoFactory.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
-import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
 import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
 import {DeploymentKeys, DataType} from "@bao-script/deployment/DeploymentKeys.sol";
 

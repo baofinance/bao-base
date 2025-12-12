@@ -5,7 +5,7 @@ import {EfficientHashLib} from "@solady/utils/EfficientHashLib.sol";
 
 import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
 import {BaoFactory} from "@bao-factory/BaoFactory.sol";
-import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
+import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
 
 import {Vm} from "forge-std/Vm.sol";
 
@@ -26,7 +26,7 @@ abstract contract DeploymentTesting is DeploymentBase {
 
     function _ensureBaoFactory() internal virtual override returns (address baoFactory) {
         // Use current build bytecode (not captured) so tests work with code changes
-        baoFactory = DeploymentInfrastructure._ensureBaoFactoryCurrentBuild();
+        baoFactory = BaoFactoryDeployment.ensureBaoFactoryCurrentBuild();
 
         // Always reset operator to this harness (handles resume/continue scenarios with different harness instances)
         // Owner is a compile-time constant in BaoFactory
@@ -118,7 +118,7 @@ abstract contract DeploymentTesting is DeploymentBase {
         bytes32 salt = EfficientHashLib.hash(saltBytes);
 
         // Deploy via CREATE3 with value mismatch (msg.value=0, expected=value)
-        address factory = DeploymentInfrastructure.predictBaoFactoryAddress();
+        address factory = BaoFactoryDeployment.predictBaoFactoryAddress();
         BaoFactory baoFactory = BaoFactory(factory);
         addr = baoFactory.deploy(value, initCode, salt); // Will revert: ValueMismatch(value, 0)
     }

@@ -47,11 +47,11 @@ Add tests demonstrating UUPS upgrades work correctly with the Solady proxy.
 
 | ID   | Task                                                          | Files                                    | Status  |
 | ---- | ------------------------------------------------------------- | ---------------------------------------- | ------- |
-| 1b.1 | Create `BaoFactoryV2` mock for upgrade testing                | `test/mocks/deployment/BaoFactoryV2.sol` | ✅ Done |
-| 1b.2 | Test upgrade via `upgradeToAndCall()` maintains proxy address | `BaoFactory.t.sol`                       | ✅ Done |
-| 1b.3 | Test upgraded contract retains state (operators, etc.)        | `BaoFactory.t.sol`                       | ✅ Done |
-| 1b.4 | Test unauthorized upgrade reverts                             | `BaoFactory.t.sol`                       | ✅ Done |
-| 1b.5 | Test upgrade to non-UUPS implementation reverts               | `BaoFactory.t.sol`                       | ✅ Done |
+| 1b.1 | Create `BaoFactoryV2` mock for upgrade testing                | `lib/bao-factory/test/mocks/BaoFactoryV2.sol` | ✅ Done |
+| 1b.2 | Test upgrade via `upgradeToAndCall()` maintains proxy address | `lib/bao-factory/test/BaoFactory.t.sol`       | ✅ Done |
+| 1b.3 | Test upgraded contract retains state (operators, etc.)        | `lib/bao-factory/test/BaoFactory.t.sol`       | ✅ Done |
+| 1b.4 | Test unauthorized upgrade reverts                             | `lib/bao-factory/test/BaoFactory.t.sol`       | ✅ Done |
+| 1b.5 | Test upgrade to non-UUPS implementation reverts               | `lib/bao-factory/test/BaoFactory.t.sol`       | ✅ Done |
 
 ### Phase 1c: Security Attack Vector Tests
 

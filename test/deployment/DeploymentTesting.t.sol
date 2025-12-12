@@ -3,8 +3,9 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentMemoryTesting} from "@bao-script/deployment/DeploymentMemoryTesting.sol";
-import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
+import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
+import {BaoFactory} from "@bao-factory/BaoFactory.sol";
 import {Vm} from "forge-std/Vm.sol";
 
 /// @dev Test harness using production bytecode for stable addresses under coverage
@@ -21,7 +22,7 @@ contract DeploymentTestingHarness is DeploymentMemoryTesting {
 
     /// @dev Use production bytecode for stable addresses (works with coverage instrumentation)
     function _ensureBaoFactory() internal override returns (address baoFactory) {
-        baoFactory = DeploymentInfrastructure._ensureBaoFactoryProduction();
+        baoFactory = BaoFactoryDeployment.ensureBaoFactoryProduction();
         // Always reset operator to this harness
         if (!IBaoFactory(baoFactory).isCurrentOperator(address(this))) {
             VM.prank(BaoFactory(baoFactory).owner());
@@ -40,7 +41,7 @@ contract DeploymentTestingTest is BaoDeploymentTest {
 
     function test_StartConfiguresBaoFactoryOperator_() public {
         deployment.startSession("net-operator", "salt-operator");
-        address factory = DeploymentInfrastructure.predictBaoFactoryAddress();
+        address factory = BaoFactoryDeployment.predictBaoFactoryAddress();
         assertTrue(
             BaoFactory(factory).isCurrentOperator(address(deployment)),
             "BaoFactory operator configured for test harness"
