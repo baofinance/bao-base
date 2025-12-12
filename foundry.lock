@@ -1,4 +1,7 @@
 {
+  "lib/bao-factory": {
+    "rev": "332edff85cabcc066c47f8848213ae6b2b38a5ac"
+  },
   "lib/forge-std": {
     "rev": "b93cf4bc34ff214c099dc970b153f85ade8c9f66"
   },
