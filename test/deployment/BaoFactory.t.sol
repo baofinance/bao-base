@@ -5,8 +5,8 @@ import {Test, Vm} from "forge-std/Test.sol";
 import {LibClone} from "@solady/utils/LibClone.sol";
 import {UUPSUpgradeable} from "@solady/utils/UUPSUpgradeable.sol";
 
-import {BaoFactory} from "@bao/factory/BaoFactory.sol";
-import {BaoFactoryLib} from "@bao/factory/BaoFactoryLib.sol";
+import {BaoFactory} from "@bao-factory/BaoFactory.sol";
+import {BaoFactoryLib} from "@bao-factory/BaoFactoryLib.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {FundedVault, NonPayableVault, FundedVaultUUPS} from "@bao-test/mocks/deployment/FundedVault.sol";
 import {BaoFactoryV2, BaoFactoryNonUUPS} from "@bao-test/mocks/deployment/BaoFactoryV2.sol";

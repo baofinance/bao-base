@@ -13,9 +13,8 @@ import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrast
  *      - You want production BaoFactory bytecode
  *      - You don't need mixin flexibility
  *
- *      For mixin support, extend DeploymentBase directly and mix in:
- *      - DeploymentTesting: current build bytecode + operator setup
- *      - DeploymentVariant: env var selection
+ *      For specialized behavior (e.g., tests), extend DeploymentBase directly and
+ *      mix in `DeploymentTesting` or provide a custom `_ensureBaoFactory()` override.
  */
 abstract contract Deployment is DeploymentBase {
     /// @notice Ensure BaoFactory is deployed using production bytecode

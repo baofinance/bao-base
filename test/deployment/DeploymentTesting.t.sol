@@ -4,7 +4,6 @@ pragma solidity >=0.8.28 <0.9.0;
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentMemoryTesting} from "@bao-script/deployment/DeploymentMemoryTesting.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
-import {BaoFactory} from "@bao/factory/BaoFactory.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {Vm} from "forge-std/Vm.sol";
 
@@ -24,9 +23,9 @@ contract DeploymentTestingHarness is DeploymentMemoryTesting {
     function _ensureBaoFactory() internal override returns (address baoFactory) {
         baoFactory = DeploymentInfrastructure._ensureBaoFactoryProduction();
         // Always reset operator to this harness
-        if (!BaoFactory(baoFactory).isCurrentOperator(address(this))) {
+        if (!IBaoFactory(baoFactory).isCurrentOperator(address(this))) {
             VM.prank(BaoFactory(baoFactory).owner());
-            BaoFactory(baoFactory).setOperator(address(this), 365 days);
+            IBaoFactory(baoFactory).setOperator(address(this), 365 days);
         }
     }
 }

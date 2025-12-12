@@ -12,6 +12,24 @@ fuzz.gas_report_samples = 64       # gas report doesn't need so many test cases
 
 deny = "warnings"
 
+
+remappings = [
+  "ds-test/=lib/forge-std/lib/ds-test/src/",
+  "forge-std/=lib/forge-std/src/",
+  "@openzeppelin/contracts/=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
+  "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+  "@solady/=lib/solady/src/",
+  "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
+  "solidity-stringutils/=lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils/",
+  "@bao/=src/",
+  "@bao-test/=test/",
+  "@bao-script/=script/",
+  "@bao-factory/=lib/bao-factory/src/",
+  "src/=src/",
+  "test/=test/",
+]
+
+
 fs_permissions = [
   { access = "read", path = "./" },
   { access = "read-write", path = "./results" },
@@ -48,7 +66,6 @@ gas_reports_ignore = [
   "BaoOwnableAdapter",
   "MockImplementationWithState",
 ]
-
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_KEY}" }

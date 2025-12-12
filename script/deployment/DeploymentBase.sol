@@ -36,7 +36,7 @@ interface IUUPSUpgradeableProxy {
  *      Concrete classes must either:
  *      - Extend Deployment (which provides production default)
  *      - Mix in DeploymentTesting (for tests with current build bytecode)
- *      - Mix in DeploymentVariant (for env var selection)
+ *      - Provide a custom `_ensureBaoFactory()` (e.g., DeploymentTesting for dev bytecode)
  */
 
 abstract contract DeploymentBase is DeploymentDataMemory {
@@ -119,7 +119,7 @@ abstract contract DeploymentBase is DeploymentDataMemory {
     /// @dev ABSTRACT - must be implemented by mixins:
     ///      - Deployment: production bytecode (default)
     ///      - DeploymentTesting: current build + operator setup
-    ///      - DeploymentVariant: env var selection
+    ///      - Any contract that overrides `_ensureBaoFactory()` for alternative bytecode
     function _ensureBaoFactory() internal virtual returns (address factory);
 
     function _beforeStart(

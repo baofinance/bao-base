@@ -6,7 +6,6 @@
     "upgrade:yarn": "yarn set version stable",
     "upgrade": "[ $# -gt 0 ] && yarn up \"${0}\"; [ $# -eq 0 ] && yarn up \"*\"",
     "clean": "./run clean",
-    "extract-bytecode-baofactory": "./script/extract-bytecode-baofactory",
     "gas": "./run regression-of gas",
     "sizes": "./run regression-of sizes",
     "prettier": "prettier --log-level warn --ignore-path .gitignore \"{src,test,interfaces,script}/**/*.sol\"",

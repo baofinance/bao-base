@@ -188,13 +188,13 @@ Instead of a separate `BaoFactoryVariants.sol`, variant selection is integrated 
 | 3.3 | `_ensureBaoFactoryWithConfig()` - core logic with explicit config | ✅ Done |
 | 3.4 | `DeploymentTesting._ensureBaoFactory()` - calls CurrentBuild      | ✅ Done |
 | 3.5 | `Deployment._ensureBaoFactory()` - calls Production               | ✅ Done |
-| 3.6 | `DeploymentVariant._ensureBaoFactory()` - reads env var           | ✅ Done |
+| 3.6 | `DeploymentJsonScript._ensureBaoFactory()` - calls Production     | ✅ Done |
 
 **Mode separation:**
 
 - `DeploymentTesting`: Uses current build, no vm dependency (pranks owner)
 - `Deployment` (production): Uses captured bytecode, no vm dependency
-- `DeploymentVariant`: Reads `BAO_FACTORY_VARIANT` env var, requires vm
+- `DeploymentJsonScript`: Uses production bytecode by default for scripts
 
 ### Phase 4: Update DeploymentInfrastructure
 

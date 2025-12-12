@@ -3,11 +3,9 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {console} from "forge-std/console.sol";
 import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
-import {DeploymentVariant} from "@bao-script/deployment/DeploymentVariant.sol";
 import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
 import {DeploymentJsonScript} from "@bao-script/deployment/DeploymentJsonScript.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
-import {BaoFactory} from "@bao/factory/BaoFactory.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 import {ERC20WithData} from "@bao-test/mocks/deployment/ERC20WithData.sol";
 
@@ -23,7 +21,7 @@ import {ERC20WithData} from "@bao-test/mocks/deployment/ERC20WithData.sol";
  * On anvil with --auto-impersonate, we can broadcast as multisig.S
  * On mainnet, multisig would sign the setOperator transaction.
  */
-contract DeployTest is DeploymentJsonScript, DeploymentVariant {
+contract DeployTest is DeploymentJsonScript {
     // TODO: resolve this diamond
     /// @dev Resolve _afterValueChanged - use DeploymentJson's implementation for JSON persistence
     function _afterValueChanged(string memory key) internal virtual override(DeploymentDataMemory, DeploymentJson) {

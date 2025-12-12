@@ -3,8 +3,8 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentInfrastructure} from "@bao-script/deployment/DeploymentInfrastructure.sol";
-import {BaoFactoryLib} from "@bao/factory/BaoFactoryLib.sol";
-import {BaoFactoryBytecode} from "@bao-script/deployment/BaoFactoryBytecode.sol";
+import {BaoFactoryLib} from "@bao-factory/BaoFactoryLib.sol";
+import {BaoFactoryBytecode} from "@bao-factory/BaoFactoryBytecode.sol";
 import {LibClone} from "@solady/utils/LibClone.sol";
 
 /// @dev Interface for external calls to library functions
