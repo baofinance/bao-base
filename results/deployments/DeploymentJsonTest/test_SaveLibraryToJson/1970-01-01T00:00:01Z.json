@@ -19,7 +19,7 @@
     "finished": "1970-01-01T00:00:01Z",
     "finishBlock": 1
   },
-  "BaoFactory": "0xf32856d36675fd32346f00ed0f89f57ed7e233a5",
+  "BaoFactory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458",
   "contracts": {
     "lib1": {
       "address": "0x037eda3adb1198021a9b2e88c22b464fd38db3f3",

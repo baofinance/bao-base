@@ -6,20 +6,23 @@ import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
 
 /**
  * @title Deployment
- * @notice Production deployment with default BaoFactory (production bytecode)
+ * @notice Production deployment requiring pre-deployed BaoFactory
  * @dev Extends DeploymentBase with production default for _ensureBaoFactory().
  *
  *      Use this when:
- *      - You want production BaoFactory bytecode
+ *      - BaoFactory is already deployed and upgraded to v1
  *      - You don't need mixin flexibility
  *
  *      For specialized behavior (e.g., tests), extend DeploymentBase directly and
  *      mix in `DeploymentTesting` or provide a custom `_ensureBaoFactory()` override.
+ *
+ *      Production assumes infrastructure is in place - reverts if not functional.
  */
 abstract contract Deployment is DeploymentBase {
-    /// @notice Ensure BaoFactory is deployed using production bytecode
-    /// @dev This is the production default - uses captured bytecode
+    /// @notice Require BaoFactory is deployed and functional
+    /// @dev Reverts if BaoFactory is not deployed or not upgraded to v1
     function _ensureBaoFactory() internal virtual override returns (address factory) {
-        factory = BaoFactoryDeployment.ensureBaoFactoryProduction();
+        BaoFactoryDeployment.requireFunctionalBaoFactory();
+        factory = BaoFactoryDeployment.predictBaoFactoryAddress();
     }
 }

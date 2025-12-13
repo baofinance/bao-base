@@ -8,7 +8,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {console2} from "forge-std/console2.sol";
 
-import {BaoFactory} from "@bao-factory/BaoFactory.sol";
+import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
@@ -309,14 +309,21 @@ abstract contract DeploymentBase is DeploymentDataMemory {
     // Proxy Deployment / Upgrades
     // ============================================================================
 
-    function _proxySalt(string memory proxyKey) private view returns (string memory saltString, bytes32 salt) {
+    function _contractSalt(
+        string memory key,
+        string memory contractType
+    ) private view returns (string memory saltString, bytes32 salt) {
         _requireActiveRun();
-        if (bytes(proxyKey).length == 0) {
+        if (bytes(key).length == 0) {
             revert KeyRequired();
         }
         string memory systemSalt = _getString(SYSTEM_SALT_STRING);
-        saltString = string.concat(systemSalt, "/", proxyKey, "/UUPS/proxy");
+        saltString = string.concat(systemSalt, "/", key, contractType);
         salt = EfficientHashLib.hash(abi.encodePacked(saltString));
+    }
+
+    function _proxySalt(string memory proxyKey) private view returns (string memory saltString, bytes32 salt) {
+        return _contractSalt(proxyKey, "/UUPS/proxy");
     }
 
     /// @notice Predict proxy address without deploying
@@ -405,7 +412,7 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         );
 
         address factory = _getAddress(BAO_FACTORY);
-        BaoFactory baoFactory = BaoFactory(factory);
+        IBaoFactory baoFactory = IBaoFactory(factory);
 
         // Deploy proxy via CREATE3 (needs broadcast in script context)
         address proxy = baoFactory.deploy(proxyCreationCode, salt);
@@ -598,15 +605,12 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         }
 
         // Compute salt from system salt + key
-        string memory systemSaltString = _getString(SYSTEM_SALT_STRING);
-        bytes memory saltBytes = abi.encodePacked(systemSaltString, "/", key);
-        bytes32 salt = EfficientHashLib.hash(saltBytes);
+        (, bytes32 salt) = _contractSalt(key, "");
 
         // Deploy via CREATE3 (needs broadcast in script context)
         address factory = _getAddress(BAO_FACTORY);
-        BaoFactory baoFactory = BaoFactory(factory);
+        IBaoFactory baoFactory = IBaoFactory(factory);
         address addr = baoFactory.deploy{value: value}(value, initCode, salt);
-        _stopBroadcast();
 
         _recordContractFields(key, addr, contractType, creationCode, deployer, block.number);
         _setString(string.concat(key, ".category"), "contract");

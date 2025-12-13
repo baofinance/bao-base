@@ -21,12 +21,6 @@ import {ERC20WithData} from "@bao-test/mocks/deployment/ERC20WithData.sol";
  * On mainnet, multisig would sign the setOperator transaction.
  */
 contract DeployTest is DeploymentJsonScript {
-    // TODO: resolve this diamond
-    /// @dev Resolve _afterValueChanged - use DeploymentJson's implementation for JSON persistence
-    function _afterValueChanged(string memory key) internal virtual override(DeploymentJson) {
-        DeploymentJson._afterValueChanged(key);
-    }
-
     // ============================================================================
     // Deployment Keys
     // ============================================================================

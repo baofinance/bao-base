@@ -4,8 +4,8 @@ pragma solidity >=0.8.28 <0.9.0;
 import {EfficientHashLib} from "@solady/utils/EfficientHashLib.sol";
 
 import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
-import {BaoFactory} from "@bao-factory/BaoFactory.sol";
 import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
+import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 
 import {Vm} from "forge-std/Vm.sol";
 
@@ -25,14 +25,21 @@ abstract contract DeploymentTesting is DeploymentBase {
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     function _ensureBaoFactory() internal virtual override returns (address baoFactory) {
-        // Use current build bytecode (not captured) so tests work with code changes
-        baoFactory = BaoFactoryDeployment.ensureBaoFactoryCurrentBuild();
+        // Deploy bootstrap (permissionless, idempotent)
+        baoFactory = BaoFactoryDeployment.deployBaoFactory();
 
-        // Always reset operator to this harness (handles resume/continue scenarios with different harness instances)
-        // Owner is a compile-time constant in BaoFactory
-        if (!BaoFactory(baoFactory).isCurrentOperator(address(this))) {
-            VM.prank(BaoFactory(baoFactory).owner());
-            BaoFactory(baoFactory).setOperator(address(this), 365 days);
+        // Upgrade to v1 if not already functional (requires owner)
+        if (!BaoFactoryDeployment.isBaoFactoryFunctional()) {
+            VM.startPrank(IBaoFactory(baoFactory).owner());
+            BaoFactoryDeployment.upgradeBaoFactoryToV1();
+            VM.stopPrank();
+        }
+
+        // Set operator to this test harness (handles resume/continue scenarios)
+        IBaoFactory factory = IBaoFactory(baoFactory);
+        if (!factory.isCurrentOperator(address(this))) {
+            VM.prank(factory.owner());
+            factory.setOperator(address(this), 365 days);
         }
     }
 
@@ -119,7 +126,7 @@ abstract contract DeploymentTesting is DeploymentBase {
 
         // Deploy via CREATE3 with value mismatch (msg.value=0, expected=value)
         address factory = BaoFactoryDeployment.predictBaoFactoryAddress();
-        BaoFactory baoFactory = BaoFactory(factory);
+        IBaoFactory baoFactory = IBaoFactory(factory);
         addr = baoFactory.deploy(value, initCode, salt); // Will revert: ValueMismatch(value, 0)
     }
 }

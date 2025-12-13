@@ -3,13 +3,15 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {console2} from "forge-std/console2.sol";
 import {Script} from "forge-std/Script.sol";
-import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
+import {Deployment} from "@bao-script/deployment/Deployment.sol";
+import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
+import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
 import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
 
 /**
  * @title DeploymentJsonScript
  * @notice Base contract for production deployment scripts
- * @dev Extends DeploymentJson with broadcast hooks for forge scripts.
+ * @dev Combines Deployment (BaoFactory policy), DeploymentJson (persistence), and Script (broadcast).
  *
  *      Usage:
  *      1. Extend this contract for your deployment script
@@ -29,14 +31,17 @@ import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
  *          }
  *      }
  *      ```
+ *
+ *      Inheritance:
+ *      - Deployment: _ensureBaoFactory (production: require functional)
+ *      - DeploymentJson: JSON persistence, _beforeStart, _lookupContractPath
+ *      - Script: forge script utilities
  */
-abstract contract DeploymentJsonScript is DeploymentJson, Script {
-    /// @notice Private key used for broadcasting transactions
-
+abstract contract DeploymentJsonScript is Deployment, DeploymentJson, Script {
     constructor() DeploymentJson(vm.unixTime() / 1000) {}
 
     /// @notice Start broadcasting transactions
-    /// @dev Called by Deployment before blockchain operations
+    /// @dev Called by DeploymentBase before blockchain operations
     function _startBroadcast() internal override returns (address deployer) {
         vm.startBroadcast();
         deployer = msg.sender;
@@ -44,16 +49,19 @@ abstract contract DeploymentJsonScript is DeploymentJson, Script {
     }
 
     /// @notice Stop broadcasting transactions
-    /// @dev Called by Deployment after blockchain operations
+    /// @dev Called by DeploymentBase after blockchain operations
     function _stopBroadcast() internal override {
         console2.log("stopBroadcast.");
         vm.stopBroadcast();
     }
 
-    /// @notice Deploy BaoFactory using the production bytecode captured in bao-factory
-    /// @dev DeploymentJson does not implement _ensureBaoFactory(), so production scripts
-    ///      get the canonical behavior directly from this base.
-    function _ensureBaoFactory() internal virtual override returns (address factory) {
-        factory = BaoFactoryDeployment.ensureBaoFactoryProduction();
+    /// @dev Resolve diamond: use Deployment's implementation (production: require functional)
+    function _ensureBaoFactory() internal virtual override(DeploymentBase, Deployment) returns (address factory) {
+        return Deployment._ensureBaoFactory();
+    }
+
+    /// @dev Resolve diamond: use DeploymentJson's implementation (auto-save on change)
+    function _afterValueChanged(string memory key) internal virtual override(DeploymentDataMemory, DeploymentJson) {
+        DeploymentJson._afterValueChanged(key);
     }
 }

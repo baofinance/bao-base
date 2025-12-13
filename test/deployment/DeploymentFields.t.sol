@@ -6,7 +6,6 @@ import {DeploymentJsonTesting} from "@bao-script/deployment/DeploymentJsonTestin
 import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
 import {DeploymentTesting} from "@bao-script/deployment/DeploymentTesting.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
-import {BaoFactory} from "@bao-factory/BaoFactory.sol";
 import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -59,11 +58,21 @@ contract MockDeploymentFields is DeploymentJsonTesting {
 
     /// @dev Use production bytecode for stable addresses (works with coverage instrumentation)
     function _ensureBaoFactory() internal override(DeploymentBase, DeploymentTesting) returns (address baoFactory) {
-        baoFactory = BaoFactoryDeployment.ensureBaoFactoryProduction();
-        // Always reset operator to this harness
-        if (!BaoFactory(baoFactory).isCurrentOperator(address(this))) {
-            VM.prank(BaoFactory(baoFactory).owner());
-            BaoFactory(baoFactory).setOperator(address(this), 365 days);
+        // Deploy bootstrap (permissionless, idempotent)
+        baoFactory = BaoFactoryDeployment.deployBaoFactory();
+
+        // Upgrade to v1 if not already functional (requires owner)
+        IBaoFactory factory = IBaoFactory(baoFactory);
+        if (!BaoFactoryDeployment.isBaoFactoryFunctional()) {
+            VM.startPrank(factory.owner());
+            BaoFactoryDeployment.upgradeBaoFactoryToV1();
+            VM.stopPrank();
+        }
+
+        // Set operator to this test harness
+        if (!factory.isCurrentOperator(address(this))) {
+            VM.prank(factory.owner());
+            factory.setOperator(address(this), 365 days);
         }
     }
 

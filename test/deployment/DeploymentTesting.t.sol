@@ -5,7 +5,6 @@ import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentMemoryTesting} from "@bao-script/deployment/DeploymentMemoryTesting.sol";
 import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
-import {BaoFactory} from "@bao-factory/BaoFactory.sol";
 import {Vm} from "forge-std/Vm.sol";
 
 /// @dev Test harness using production bytecode for stable addresses under coverage
@@ -22,11 +21,21 @@ contract DeploymentTestingHarness is DeploymentMemoryTesting {
 
     /// @dev Use production bytecode for stable addresses (works with coverage instrumentation)
     function _ensureBaoFactory() internal override returns (address baoFactory) {
-        baoFactory = BaoFactoryDeployment.ensureBaoFactoryProduction();
-        // Always reset operator to this harness
-        if (!IBaoFactory(baoFactory).isCurrentOperator(address(this))) {
-            VM.prank(BaoFactory(baoFactory).owner());
-            IBaoFactory(baoFactory).setOperator(address(this), 365 days);
+        // Deploy bootstrap (permissionless, idempotent)
+        baoFactory = BaoFactoryDeployment.deployBaoFactory();
+
+        // Upgrade to v1 if not already functional (requires owner)
+        IBaoFactory factory = IBaoFactory(baoFactory);
+        if (!BaoFactoryDeployment.isBaoFactoryFunctional()) {
+            VM.startPrank(factory.owner());
+            BaoFactoryDeployment.upgradeBaoFactoryToV1();
+            VM.stopPrank();
+        }
+
+        // Set operator to this test harness
+        if (!factory.isCurrentOperator(address(this))) {
+            VM.prank(factory.owner());
+            factory.setOperator(address(this), 365 days);
         }
     }
 }
@@ -43,7 +52,7 @@ contract DeploymentTestingTest is BaoDeploymentTest {
         deployment.startSession("net-operator", "salt-operator");
         address factory = BaoFactoryDeployment.predictBaoFactoryAddress();
         assertTrue(
-            BaoFactory(factory).isCurrentOperator(address(deployment)),
+            IBaoFactory(factory).isCurrentOperator(address(deployment)),
             "BaoFactory operator configured for test harness"
         );
     }
