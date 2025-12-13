@@ -25,8 +25,11 @@ abstract contract DeploymentTesting is DeploymentBase {
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     function _ensureBaoFactory() internal virtual override returns (address baoFactory) {
-        // Deploy bootstrap (permissionless, idempotent)
-        baoFactory = BaoFactoryDeployment.deployBaoFactory();
+        // Deploy bootstrap if not already deployed (permissionless)
+        baoFactory = BaoFactoryDeployment.predictBaoFactoryAddress();
+        if (!BaoFactoryDeployment.isBaoFactoryDeployed()) {
+            BaoFactoryDeployment.deployBaoFactory();
+        }
 
         // Upgrade to v1 if not already functional (requires owner)
         if (!BaoFactoryDeployment.isBaoFactoryFunctional()) {

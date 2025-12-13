@@ -21,8 +21,11 @@ contract DeploymentTestingHarness is DeploymentMemoryTesting {
 
     /// @dev Use production bytecode for stable addresses (works with coverage instrumentation)
     function _ensureBaoFactory() internal override returns (address baoFactory) {
-        // Deploy bootstrap (permissionless, idempotent)
-        baoFactory = BaoFactoryDeployment.deployBaoFactory();
+        // Deploy bootstrap if not already deployed (permissionless)
+        baoFactory = BaoFactoryDeployment.predictBaoFactoryAddress();
+        if (!BaoFactoryDeployment.isBaoFactoryDeployed()) {
+            BaoFactoryDeployment.deployBaoFactory();
+        }
 
         // Upgrade to v1 if not already functional (requires owner)
         IBaoFactory factory = IBaoFactory(baoFactory);
