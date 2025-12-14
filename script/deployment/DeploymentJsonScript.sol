@@ -55,11 +55,6 @@ abstract contract DeploymentJsonScript is Deployment, DeploymentJson, Script {
         vm.stopBroadcast();
     }
 
-    /// @dev Resolve diamond: use Deployment's implementation (production: require functional)
-    function _ensureBaoFactory() internal virtual override(DeploymentBase, Deployment) returns (address factory) {
-        return Deployment._ensureBaoFactory();
-    }
-
     /// @dev Resolve diamond: use DeploymentJson's implementation (auto-save on change)
     function _afterValueChanged(string memory key) internal virtual override(DeploymentDataMemory, DeploymentJson) {
         DeploymentJson._afterValueChanged(key);

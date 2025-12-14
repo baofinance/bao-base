@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+#
+# Ensure BaoFactory is ready for local development
+#
+# This script ensures BaoFactory is fully operational on a local anvil fork:
+# - Deploys factory if not deployed
+# - Upgrades to BaoFactory_v1 if still bootstrap
+# - Sets operator via impersonation if not already set
+#
+# For production deployments, use bao-factory script directly (includes --verify).
+#
+# Usage:
+#   ensure-bao-factory --operator 0x... [--delay 86400] [--salt SALT]
+#
+
+set -euo pipefail
+
+error() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+log() {
+  echo "==> $*" >&2
+}
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BAO_BASE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BAO_FACTORY_ROOT="$BAO_BASE_ROOT/lib/bao-factory"
+BAO_FACTORY_SCRIPT="$BAO_FACTORY_ROOT/script/bao-factory"
+
+# Defaults
+NETWORK="local"
+SALT="Bao.BaoFactory.harbor"
+OPERATOR="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"  # Default anvil account
+DELAY="86400"  # 1 day
+
+# Default anvil key for local network
+ANVIL_PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+
+usage() {
+  cat <<EOF
+Usage: ensure-bao-factory [OPTIONS]
+
+Ensure BaoFactory is fully operational for local development.
+
+Options:
+  --operator ADDRESS    Address to grant operator permissions (default: anvil account 0)
+  --delay SECONDS       Operator permission duration (default: 86400 = 1 day)
+  --salt SALT           Salt string (default: Bao.BaoFactory.harbor)
+  -h, --help            Show this help
+
+This script is for local anvil forks only. It:
+  - Deploys factory via Nick's Factory if not deployed
+  - Upgrades to BaoFactory_v1 if still bootstrap
+  - Sets operator via impersonation if not already set
+
+For production deployments, use bao-factory script directly (includes --verify).
+
+Examples:
+  ensure-bao-factory
+  ensure-bao-factory --operator 0x... --delay 604800 --salt custom.salt
+EOF
+  exit "${1:-0}"
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --salt)
+      SALT="$2"
+      shift 2
+      ;;
+    --operator)
+      OPERATOR="$2"
+      shift 2
+      ;;
+    --delay)
+      DELAY="$2"
+      shift 2
+      ;;
+    -h | --help)
+      usage 0
+      ;;
+    *)
+      error "Unknown option: $1"
+      ;;
+  esac
+done
+
+# Check bao-factory script exists
+if [[ ! -x "$BAO_FACTORY_SCRIPT" ]]; then
+  error "bao-factory script not found at $BAO_FACTORY_SCRIPT"
+fi
+
+# Get current status
+log "Checking BaoFactory status on $NETWORK..."
+STATUS_JSON=$("$BAO_FACTORY_SCRIPT" --status --network "$NETWORK" --salt "$SALT" 2>/dev/null)
+STATUS=$(echo "$STATUS_JSON" | jq -r '.status')
+PROXY=$(echo "$STATUS_JSON" | jq -r '.proxy')
+OWNER=$(echo "$STATUS_JSON" | jq -r '.owner')
+
+log "Status: $STATUS"
+log "Proxy: $PROXY"
+
+# ============================================================================
+# STEP 1: Deploy if not deployed
+# ============================================================================
+if [[ "$STATUS" == "not_deployed" ]]; then
+  log "Factory not deployed, deploying..."
+  "$BAO_FACTORY_SCRIPT" --deploy --network "$NETWORK" --salt "$SALT"
+
+  # Re-check status
+  STATUS_JSON=$("$BAO_FACTORY_SCRIPT" --status --network "$NETWORK" --salt "$SALT" 2>/dev/null)
+  STATUS=$(echo "$STATUS_JSON" | jq -r '.status')
+  log "New status: $STATUS"
+fi
+
+# ============================================================================
+# STEP 2: Upgrade if bootstrap
+# ============================================================================
+if [[ "$STATUS" == "bootstrap" ]]; then
+  log "Factory is bootstrap, upgrading to BaoFactory_v1..."
+
+  # Deploy BaoFactory_v1 implementation
+  log "Deploying BaoFactory_v1 implementation..."
+  # Build first to avoid compilation output polluting the JSON
+  forge build --root "$BAO_FACTORY_ROOT" --quiet
+  IMPL=$(forge create "$BAO_FACTORY_ROOT/src/BaoFactory_v1.sol:BaoFactory_v1" \
+    --rpc-url "$NETWORK" \
+    --private-key "$ANVIL_PRIVATE_KEY" \
+    --broadcast \
+    --json | jq -r '.deployedTo')
+
+  if [[ -z "$IMPL" || "$IMPL" == "null" ]]; then
+    error "Failed to deploy BaoFactory_v1 implementation"
+  fi
+  log "BaoFactory_v1 implementation at: $IMPL"
+
+  # Upgrade via owner impersonation
+  log "Upgrading proxy to BaoFactory_v1..."
+  cast send --rpc-url "$NETWORK" \
+    --from "$OWNER" --unlocked \
+    "$PROXY" "upgradeToAndCall(address,bytes)" "$IMPL" "0x" >/dev/null
+
+  log "Upgrade complete"
+  STATUS="upgraded"
+fi
+
+# ============================================================================
+# STEP 3: Set operator if needed
+# ============================================================================
+# Re-fetch status to get operator list
+STATUS_JSON=$("$BAO_FACTORY_SCRIPT" --status --network "$NETWORK" --salt "$SALT" 2>/dev/null)
+
+# Check if operator is already set and active
+OPERATOR_ACTIVE=$(echo "$STATUS_JSON" | jq -r --arg op "$OPERATOR" \
+  '.operators[] | select(.address == $op and .active == true) | .address' 2>/dev/null || echo "")
+
+if [[ -n "$OPERATOR_ACTIVE" ]]; then
+  log "Operator $OPERATOR is already active"
+else
+  log "Setting operator $OPERATOR with delay $DELAY..."
+  cast send --rpc-url "$NETWORK" \
+    --from "$OWNER" --unlocked \
+    "$PROXY" "setOperator(address,uint256)" "$OPERATOR" "$DELAY" >/dev/null
+  log "Operator set successfully"
+fi
+
+# Final status
+log "BaoFactory setup complete"
+STATUS_JSON=$("$BAO_FACTORY_SCRIPT" --status --network "$NETWORK" --salt "$SALT" 2>/dev/null)
+echo "$STATUS_JSON" | jq .
