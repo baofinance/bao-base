@@ -321,6 +321,14 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         string memory key,
         string memory contractSaltKey
     ) private view returns (string memory saltString, bytes32 salt) {
+        return _contractSalt(key, contractSaltKey, "");
+    }
+
+    function _contractSalt(
+        string memory key,
+        string memory contractSaltKey,
+        string memory contractVariant
+    ) private view returns (string memory saltString, bytes32 salt) {
         _requireActiveRun();
         string memory fixedKey = key;
         if (fixedKey.startsWith("contracts.")) {
@@ -329,7 +337,12 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         if (bytes(fixedKey).length == 0) {
             revert KeyRequired();
         }
-        saltString = string.concat(_getString(contractSaltKey), "::", fixedKey);
+
+        saltString = _getString(contractSaltKey);
+        if (bytes(contractVariant).length > 0) {
+            saltString = string.concat(saltString, "::", contractVariant);
+        }
+        saltString = string.concat(saltString, "::", fixedKey);
         salt = EfficientHashLib.hash(abi.encodePacked(saltString));
     }
 
@@ -338,6 +351,15 @@ abstract contract DeploymentBase is DeploymentDataMemory {
     /// @return proxy Predicted proxy address
     function predictAddress(string memory proxyKey, string memory contractSaltKey) public view returns (address proxy) {
         (, bytes32 salt) = _contractSalt(proxyKey, contractSaltKey);
+        proxy = CREATE3.predictDeterministicAddress(salt, _getAddress(BAO_FACTORY));
+    }
+
+    function predictAddress(
+        string memory proxyKey,
+        string memory contractSaltKey,
+        string memory contractVariant
+    ) public view returns (address proxy) {
+        (, bytes32 salt) = _contractSalt(proxyKey, contractSaltKey, contractVariant);
         proxy = CREATE3.predictDeterministicAddress(salt, _getAddress(BAO_FACTORY));
     }
 
