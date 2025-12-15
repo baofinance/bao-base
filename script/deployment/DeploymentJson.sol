@@ -71,11 +71,11 @@ abstract contract DeploymentJson is DeploymentBase {
         return true;
     }
 
-    function _disableLogging() internal {
+    function disableLogging() public {
         _suppressPersistence = true;
     }
 
-    function _disableIncrementalLogging() internal {
+    function disableIncrementalLogging() public {
         _suppressIncrementalPersistence = true;
     }
 
