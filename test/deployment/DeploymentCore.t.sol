@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
 import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
+import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
 import {DeploymentMemoryTesting} from "@bao-script/deployment/DeploymentMemoryTesting.sol";
 import {BaoFactoryBytecode} from "@bao-factory/BaoFactoryBytecode.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
@@ -249,10 +250,14 @@ contract DeploymentCoreTest is BaoDeploymentTest {
         assertEq(storedDeltas[0], -1, "Int array preserves negatives");
     }
 
-    function test_PredictProxyAddressRequiresKey_() public {
-        _initSession("test_PredictProxyAddressRequiresKey_");
+    function test_PredictAddressRequiresKey_() public {
+        _initSession("test_PredictAddressRequiresKey_");
+        // Empty salt key fails with ValueNotSet
+        vm.expectRevert(abi.encodeWithSelector(DeploymentDataMemory.ValueNotSet.selector, ""));
+        deployment.predictAddress("hay", "");
+        // Empty proxy key fails with KeyRequired
         vm.expectRevert(DeploymentBase.KeyRequired.selector);
-        deployment.predictProxyAddress("");
+        deployment.predictAddress("", "ho");
     }
 
     function test_UpgradeProxyValueRequiresKey_() public {

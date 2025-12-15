@@ -79,6 +79,26 @@ contract MockDeploymentFields is DeploymentJsonTesting {
         }
     }
 
+    function registerImplementation(
+        string memory proxyKey,
+        address implAddress,
+        string memory contractType,
+        bytes memory creationCode,
+        string memory ownershipModel
+    ) public {
+        _requireActiveRun();
+        string memory implKey = string.concat(proxyKey, ".implementation");
+        _recordContractFields(
+            implKey,
+            implAddress,
+            contractType,
+            creationCode,
+            _getAddress(SESSION_DEPLOYER),
+            block.number
+        );
+        if (bytes(ownershipModel).length > 0) _setString(string.concat(implKey, ".ownershipModel"), ownershipModel);
+    }
+
     function deployMockERC20(string memory key, string memory name, string memory symbol) public returns (address) {
         MockERC20 token = new MockERC20(name, symbol, 18);
         registerContract(key, address(token), "MockERC20", type(MockERC20).creationCode, address(this));
@@ -93,6 +113,7 @@ contract MockDeploymentFields is DeploymentJsonTesting {
         bytes memory initData = abi.encodeCall(SimpleImplementation.initialize, (value, finalOwner));
         this.deployProxy(
             key,
+            SYSTEM_SALT_STRING,
             address(impl),
             initData,
             "SimpleImplementation",
@@ -109,7 +130,15 @@ contract MockDeploymentFields is DeploymentJsonTesting {
 
     function deployFundedVault(string memory key, uint256 value) public {
         bytes memory fundedCode = type(FundedVault).creationCode;
-        this.predictableDeployContract{value: value}(value, key, fundedCode, "FundedVault", fundedCode, address(this));
+        this.predictableDeployContract{value: value}(
+            value,
+            key,
+            SYSTEM_SALT_STRING,
+            fundedCode,
+            "FundedVault",
+            fundedCode,
+            address(this)
+        );
     }
 
     function deployFundedVaultProxy(string memory key, uint256 value) public {
@@ -128,6 +157,7 @@ contract MockDeploymentFields is DeploymentJsonTesting {
         this.deployProxy{value: value}(
             value,
             key,
+            SYSTEM_SALT_STRING,
             address(impl),
             initData,
             "FundedVaultUUPS",
@@ -147,6 +177,7 @@ contract MockDeploymentFields is DeploymentJsonTesting {
         this.deployProxy{value: value}(
             value,
             key,
+            SYSTEM_SALT_STRING,
             address(impl),
             initData,
             "NonPayableVaultUUPS",
@@ -344,6 +375,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         deployment.predictableDeployContract{value: 5 ether}(
             5 ether,
             "contracts.vault_funded",
+            deployment.SYSTEM_SALT_STRING(),
             fundedCode,
             "FundedVault",
             fundedCode,
@@ -354,6 +386,7 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         // Deploy unfunded vault (same contract type, zero value)
         deployment.predictableDeployContract(
             "contracts.vault_unfunded",
+            deployment.SYSTEM_SALT_STRING(),
             fundedCode,
             "FundedVault",
             fundedCode,
@@ -457,11 +490,13 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
         vm.deal(address(deployment), 1 ether);
 
         bytes memory nonPayableCode = abi.encodePacked(type(NonPayableVault).creationCode, abi.encode(uint256(123)));
+        string memory saltKey = deployment.SYSTEM_SALT_STRING();
 
         vm.expectRevert();
         deployment.predictableDeployContract{value: 1 ether}(
             1 ether,
             "contracts.vault_nonpayable",
+            saltKey,
             nonPayableCode,
             "NonPayableVault",
             nonPayableCode,
@@ -532,11 +567,13 @@ contract DeploymentFieldsTest is BaoDeploymentTest {
 
         FundedVaultUUPS impl = new FundedVaultUUPS(admin);
         bytes memory initData = abi.encodeCall(FundedVaultUUPS.initialize, ());
+        string memory saltKey = deployment.SYSTEM_SALT_STRING();
 
         vm.expectRevert(abi.encodeWithSelector(DeploymentBase.ValueMismatch.selector, 5 ether, 0));
         deployment.deployProxy{value: 0}(
             5 ether,
             "vault_proxy_underfunded",
+            saltKey,
             address(impl),
             initData,
             "FundedVaultUUPS",

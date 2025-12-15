@@ -59,7 +59,15 @@ contract MockDeploymentDependency is DeploymentMemoryTesting {
         bytes memory initData = abi.encodeWithSignature("initialize(address,address)", oracleAddr, address(this));
 
         // Deploy proxy
-        deployProxy(key, address(implementation), initData, "MockMinter", type(MockMinter).creationCode, address(this));
+        deployProxy(
+            key,
+            SYSTEM_SALT_STRING,
+            address(implementation),
+            initData,
+            "MockMinter",
+            type(MockMinter).creationCode,
+            address(this)
+        );
     }
 }
 

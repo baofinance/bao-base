@@ -86,7 +86,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
     function test_PredictProxyAddress() public {
         _startDeployment("test_PredictProxyAddress");
 
-        address predicted = deployment.predictProxyAddress(deployment.PEGGED());
+        address predicted = deployment.predictAddress(deployment.PEGGED(), deployment.SYSTEM_SALT_STRING());
 
         deployment.setString(deployment.PEGGED_SYMBOL(), "EUR");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor EUR");
@@ -101,7 +101,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
         _startDeployment("test_DeterministicProxyAddress");
 
         // Same key with same salt should produce same address
-        address addr1 = deployment.predictProxyAddress(deployment.PEGGED());
+        address addr1 = deployment.predictAddress(deployment.PEGGED(), deployment.SYSTEM_SALT_STRING());
 
         deployment.setString(deployment.PEGGED_SYMBOL(), "GBP");
         deployment.setString(deployment.PEGGED_NAME(), "Harbor GBP");
@@ -116,7 +116,7 @@ contract DeploymentProxyTest is BaoDeploymentTest {
         _initDeploymentTest(TEST_SALT, "test_DeterministicProxyAddressDifferentSalt");
         deployment2.start("test_DeterministicProxyAddressDifferentSalt", TEST_SALT, "");
         deployment2.setString(deployment2.SYSTEM_SALT_STRING(), "DeploymentProxyTestDifferentSalt");
-        address addr2 = deployment2.predictProxyAddress(deployment2.PEGGED());
+        address addr2 = deployment2.predictAddress(deployment2.PEGGED(), deployment2.SYSTEM_SALT_STRING());
 
         assertNotEq(addr2, addr1, "Different salt should produce different address");
     }
@@ -148,16 +148,18 @@ contract DeploymentProxyTest is BaoDeploymentTest {
         _startDeployment("test_RevertWhen_ProxyWithEmptyKey");
 
         // Try to deploy with empty key - should revert with KeyRequired
+        string memory saltKey = deployment.SYSTEM_SALT_STRING();
         vm.expectRevert();
-        deployment.deployProxy("", address(this), "", "", "", address(this));
+        deployment.deployProxy("", saltKey, address(this), "", "", "", address(this));
     }
 
     function test_RevertWhen_ProxyWithoutImplementation() public {
         _startDeployment("test_RevertWhen_ProxyWithoutImplementation");
 
         string memory proxyKey = deployment.PEGGED();
+        string memory saltKey = deployment.SYSTEM_SALT_STRING();
         vm.expectRevert();
-        deployment.deployProxy(proxyKey, address(0), "", "", "", address(this));
+        deployment.deployProxy(proxyKey, saltKey, address(0), "", "", "", address(this));
     }
 
     function test_ProxyMetadataStored() public {

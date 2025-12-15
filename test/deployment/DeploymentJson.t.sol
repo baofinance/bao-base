@@ -110,6 +110,7 @@ contract MockDeploymentJson is DeploymentJsonTesting {
         bytes memory initData = abi.encodeCall(SimpleImplementation.initialize, (value, finalOwner));
         deployProxy(
             string.concat("contracts.", key),
+            SYSTEM_SALT_STRING,
             address(impl),
             initData,
             "SimpleImplementation",
@@ -128,6 +129,7 @@ contract MockDeploymentJson is DeploymentJsonTesting {
         bytes memory initData = abi.encodeCall(RolesContract.initialize, (owner_));
         deployProxy(
             string.concat("contracts.", key),
+            SYSTEM_SALT_STRING,
             address(impl),
             initData,
             "RolesContract",
@@ -251,8 +253,8 @@ contract DeploymentJsonTest is BaoDeploymentTest {
         assertEq(category, "UUPS proxy");
 
         string memory saltString = vm.parseJsonString(json, ".contracts.proxy1.saltString");
-        // saltString contains the full CREATE3 salt: systemSalt/proxyKey/UUPS/proxy
-        assertEq(saltString, string.concat(TEST_SALT, "/contracts.proxy1/UUPS/proxy"));
+        // saltString contains the full CREATE3 salt: systemSalt::proxyKey (with contracts. prefix stripped)
+        assertEq(saltString, string.concat(TEST_SALT, "::proxy1"));
 
         bytes32 salt = vm.parseJsonBytes32(json, ".contracts.proxy1.salt");
         assertTrue(salt != bytes32(0));

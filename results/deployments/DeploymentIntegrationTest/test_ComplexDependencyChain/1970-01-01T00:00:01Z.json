@@ -35,7 +35,7 @@
       "category": "contract"
     },
     "oracle": {
-      "address": "0x074ba4cf7d583a63957e6ae1d8b7ef94acc20846",
+      "address": "0x09d2bfe879c238b5924b0eab9c0c2d7274f2143d",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
@@ -43,8 +43,8 @@
       "factory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458",
       "owner": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "category": "UUPS proxy",
-      "saltString": "DeploymentIntegrationTest/contracts.oracle/UUPS/proxy",
-      "salt": "0x96d52fdb4a275a6221c446f1b9dabb4ed13cad1d0dbdcf5580a1602ed764e4cc",
+      "saltString": "DeploymentIntegrationTest::oracle",
+      "salt": "0xb84861122f6d88645e4e5748fecdf23e35e5d3d7021156e8b6bd6561f5bc8feb",
       "implementation": {
         "address": "0x7fdb3132ff7d02d8b9e221c61cc895ce9a4bb773",
         "contractType": "OracleV1",
@@ -55,7 +55,7 @@
       }
     },
     "minter1": {
-      "address": "0xb736b318a65d2b489989fc2e77ad45c4e42d8116",
+      "address": "0x895d7e3043308495124c48d7dea389e67612e86b",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
@@ -63,8 +63,8 @@
       "factory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458",
       "owner": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
       "category": "UUPS proxy",
-      "saltString": "DeploymentIntegrationTest/contracts.minter1/UUPS/proxy",
-      "salt": "0xa7da8c54e697775636b261a376ef06aeecb9b947d76cd144bedea1d295855e9b",
+      "saltString": "DeploymentIntegrationTest::minter1",
+      "salt": "0x9490e8646e78f78d0eb3b3e6dbb95c382280c2d27c72697848bfead690698ae9",
       "implementation": {
         "address": "0xfd07c974e33dd1626640ba3a5acf0418faacca7a",
         "contractType": "MockMinter",
@@ -75,7 +75,7 @@
       }
     },
     "minter2": {
-      "address": "0xf9701bb807453bf25cd67999eece9a4c6da025be",
+      "address": "0x1601169092214dd6ddbfa46860221255027c5e95",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "deployer": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
@@ -83,8 +83,8 @@
       "factory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458",
       "owner": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
       "category": "UUPS proxy",
-      "saltString": "DeploymentIntegrationTest/contracts.minter2/UUPS/proxy",
-      "salt": "0xd4886801bf090d801647e2fafc8afdfd47856c54c3cc1130fe7662b0ddfb4078",
+      "saltString": "DeploymentIntegrationTest::minter2",
+      "salt": "0x2db7cecc6aa4765ee9a8218592080c82ac2e50029946e7f41d472511a0413579",
       "implementation": {
         "address": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
         "contractType": "MockMinter",

@@ -22,7 +22,7 @@
   "BaoFactory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458",
   "contracts": {
     "vault_funded": {
-      "address": "0x6f7e02dda2eea18c6f363632c9c771b0f4180840",
+      "address": "0x8c6c840eb3ecc964d280b9b5e5de98c3555b62aa",
       "contractType": "FundedVault",
       "contractPath": "lib/bao-factory/test/mocks/FundedVault.sol",
       "deployer": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
@@ -32,7 +32,7 @@
       "value": 5000000000000000000
     },
     "vault_unfunded": {
-      "address": "0x0ffefb96f3915843829bbc066347e8dc5c91ff98",
+      "address": "0xe5280ddd1349288e0687e0f67b3fc992ebfb4f7b",
       "contractType": "FundedVault",
       "contractPath": "lib/bao-factory/test/mocks/FundedVault.sol",
       "deployer": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",

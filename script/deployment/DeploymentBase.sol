@@ -39,6 +39,8 @@ interface IUUPSUpgradeableProxy {
  */
 
 abstract contract DeploymentBase is DeploymentDataMemory {
+    using LibString for string;
+
     // ============================================================================
     // Errors
     // ============================================================================
@@ -314,10 +316,14 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         string memory contractSaltKey
     ) private view returns (string memory saltString, bytes32 salt) {
         _requireActiveRun();
-        if (bytes(key).length == 0) {
+        string memory fixedKey = key;
+        if (fixedKey.startsWith("contracts.")) {
+            fixedKey = fixedKey.slice(10);
+        }
+        if (bytes(fixedKey).length == 0) {
             revert KeyRequired();
         }
-        saltString = string.concat(_getString(contractSaltKey), "/", key);
+        saltString = string.concat(_getString(contractSaltKey), "::", fixedKey);
         salt = EfficientHashLib.hash(abi.encodePacked(saltString));
     }
 
@@ -641,7 +647,7 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         bytes memory creationCode,
         address deployer,
         uint256 blockNumber
-    ) private {
+    ) internal {
         _set(key, addr);
         _setString(string.concat(key, ".contractType"), contractType);
         _setString(string.concat(key, ".contractPath"), _lookupContractPath(contractType, creationCode));

@@ -63,7 +63,15 @@ contract MockDeploymentUpgrade is DeploymentJsonTesting {
         OracleV1 impl = new OracleV1();
         bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
         string memory fullKey = string.concat("contracts.", key);
-        this.deployProxy(fullKey, address(impl), initData, "OracleV1", type(OracleV1).creationCode, address(this));
+        this.deployProxy(
+            fullKey,
+            SYSTEM_SALT_STRING,
+            address(impl),
+            initData,
+            "OracleV1",
+            type(OracleV1).creationCode,
+            address(this)
+        );
     }
 
     function deployCounterProxy(string memory key, uint256 initialValue, address admin) public {
@@ -71,7 +79,15 @@ contract MockDeploymentUpgrade is DeploymentJsonTesting {
 
         bytes memory initData = abi.encodeCall(CounterV1.initialize, (initialValue, admin));
         string memory fullKey = string.concat("contracts.", key);
-        this.deployProxy(fullKey, address(impl), initData, "CounterV1", type(CounterV1).creationCode, address(this));
+        this.deployProxy(
+            fullKey,
+            SYSTEM_SALT_STRING,
+            address(impl),
+            initData,
+            "CounterV1",
+            type(CounterV1).creationCode,
+            address(this)
+        );
     }
 
     function upgradeOracle(string memory key, address newImplementation) public {
@@ -571,6 +587,7 @@ contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
         bytes memory initData = abi.encodeCall(MockImplementationOZOwnable.initialize, (address(deployment), 42));
         deployment.deployProxy(
             "contracts.oz_proxy",
+            deployment.SYSTEM_SALT_STRING(),
             address(ozImpl),
             initData,
             "MockImplementationOZOwnable",
@@ -599,6 +616,7 @@ contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {
         bytes memory initData = abi.encodeCall(MockImplementationOZOwnable.initialize, (address(deployment), 42));
         deployment.deployProxy(
             "contracts.oz_proxy",
+            deployment.SYSTEM_SALT_STRING(),
             address(ozImpl),
             initData,
             "MockImplementationOZOwnable",

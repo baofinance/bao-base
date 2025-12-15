@@ -88,7 +88,15 @@ contract MockDeploymentIntegration is DeploymentJsonTesting {
         OracleV1 impl = new OracleV1();
         address finalOwner = _getAddress(OWNER);
         bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, finalOwner));
-        this.deployProxy(key, address(impl), initData, "OracleV1", type(OracleV1).creationCode, address(this));
+        this.deployProxy(
+            key,
+            SYSTEM_SALT_STRING,
+            address(impl),
+            initData,
+            "OracleV1",
+            type(OracleV1).creationCode,
+            address(this)
+        );
     }
 
     function deployMinterProxy(
@@ -106,7 +114,15 @@ contract MockDeploymentIntegration is DeploymentJsonTesting {
         MockMinter impl = new MockMinter(collateral, pegged, oracle);
         // Initialize parameters: oracle (has update function), owner (two-step pattern via BaoOwnable)
         bytes memory initData = abi.encodeCall(MockMinter.initialize, (oracle, finalOwner));
-        this.deployProxy(key, address(impl), initData, "MockMinter", type(MockMinter).creationCode, address(this));
+        this.deployProxy(
+            key,
+            SYSTEM_SALT_STRING,
+            address(impl),
+            initData,
+            "MockMinter",
+            type(MockMinter).creationCode,
+            address(this)
+        );
     }
 
     function deployConfigLibrary(string memory key) public {
@@ -314,6 +330,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         bytes memory oracleCreationCode = type(OracleV1).creationCode;
         deployment.deployProxy(
             "contracts.oracle1",
+            deployment.SYSTEM_SALT_STRING(),
             address(impl),
             initData1,
             "OracleV1",
@@ -322,6 +339,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         );
         deployment.deployProxy(
             "contracts.oracle2",
+            deployment.SYSTEM_SALT_STRING(),
             address(impl),
             initData2,
             "OracleV1",
@@ -330,6 +348,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         );
         deployment.deployProxy(
             "contracts.oracle3",
+            deployment.SYSTEM_SALT_STRING(),
             address(impl),
             initData3,
             "OracleV1",
@@ -368,6 +387,7 @@ contract DeploymentIntegrationTest is BaoDeploymentTest {
         bytes memory initData = abi.encodeCall(MockMinter.initialize, (deployment.get("contracts.oracle"), finalOwner));
         deployment.deployProxy(
             "contracts.minter2",
+            deployment.SYSTEM_SALT_STRING(),
             address(minter2Impl),
             initData,
             "MockMinter",

@@ -21,7 +21,7 @@ contract MockDeploymentWorkflow is DeploymentJsonTesting {
     function deployOracleProxy(string memory key, uint256 price, address admin) public returns (address) {
         OracleV1 impl = new OracleV1();
         bytes memory initData = abi.encodeCall(OracleV1.initialize, (price, admin));
-        this.deployProxy(key, address(impl), initData, "OracleV1", type(OracleV1).creationCode, address(this));
+        this.deployProxy(key, SYSTEM_SALT_STRING, address(impl), initData, "OracleV1", type(OracleV1).creationCode, address(this));
         return _get(key);
     }
 
@@ -44,6 +44,7 @@ contract MockDeploymentWorkflow is DeploymentJsonTesting {
         // Initialize parameters: oracle (has update function), owner (two-step pattern)
         this.deployProxy(
             key,
+            SYSTEM_SALT_STRING,
             address(impl),
             abi.encodeCall(MockMinter.initialize, (oracle, admin)),
             "MockMinter",

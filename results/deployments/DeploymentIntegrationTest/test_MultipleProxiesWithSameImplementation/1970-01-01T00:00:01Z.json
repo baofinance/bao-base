@@ -19,7 +19,7 @@
   "BaoFactory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458",
   "contracts": {
     "oracle1": {
-      "address": "0x3fea0f0b1379c4aabc3f7b75b3497827e5830724",
+      "address": "0xba740a57b81a5f7844d2e715455741c643008656",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "deployer": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
@@ -27,8 +27,8 @@
       "factory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458",
       "owner": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
       "category": "UUPS proxy",
-      "saltString": "DeploymentIntegrationTest/contracts.oracle1/UUPS/proxy",
-      "salt": "0x0f5725ea9140345914431c8e2a51c16ec6af3384fbe22333ac30ebac6556475f",
+      "saltString": "DeploymentIntegrationTest::oracle1",
+      "salt": "0x33bbefe8a0ea55e601afbd49ca427645cdd0d88bde54ca2b4c0b49c988e362a1",
       "implementation": {
         "address": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
         "contractType": "OracleV1",
@@ -39,7 +39,7 @@
       }
     },
     "oracle2": {
-      "address": "0x4f0ae9ddedeba409aa927d146ce8bad5b750fd4f",
+      "address": "0x037e84217e67cafffcc779b502b44bcbce453dd7",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "deployer": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
@@ -47,8 +47,8 @@
       "factory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458",
       "owner": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
       "category": "UUPS proxy",
-      "saltString": "DeploymentIntegrationTest/contracts.oracle2/UUPS/proxy",
-      "salt": "0x2ec5e4f4521a0b0965b204419afa0cb415852f17dc3f6816966ac58e43ce9f46",
+      "saltString": "DeploymentIntegrationTest::oracle2",
+      "salt": "0xc344f93589c1ada5f68ff63e6c5334d674d2552720a072c6e7ca7d138515f203",
       "implementation": {
         "address": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
         "contractType": "OracleV1",
@@ -59,7 +59,7 @@
       }
     },
     "oracle3": {
-      "address": "0xd36834ac5f25601723246d9e0ae5656542abb85c",
+      "address": "0xe1de0438a9df0ee0eba9e08ce75aeb5c447f74c3",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
       "deployer": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
@@ -67,8 +67,8 @@
       "factory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458",
       "owner": "0x7fa9385be102ac3eac297483dd6233d62b3e1496",
       "category": "UUPS proxy",
-      "saltString": "DeploymentIntegrationTest/contracts.oracle3/UUPS/proxy",
-      "salt": "0x47f087e351aeb3fb6523a084f4853d0c98a8566f5bc8e2c6f49efc2d39351512",
+      "saltString": "DeploymentIntegrationTest::oracle3",
+      "salt": "0x79c1c7f58ef7b6a22005ada66c196fc764fc8f77a0806447a06ec08e0919d884",
       "implementation": {
         "address": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
         "contractType": "OracleV1",

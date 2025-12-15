@@ -130,6 +130,7 @@ contract DeployTest is DeploymentJsonScript {
         // Note: deployProxy internally handles broadcast via hooks
         deployProxy(
             key,
+            "eek",
             address(impl),
             initData,
             "ERC20WithData",

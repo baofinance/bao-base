@@ -37,7 +37,7 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
         deployment.setAddress(deployment.OWNER(), admin);
 
         // Predict address before deployment
-        address predicted = deployment.predictProxyAddress(deployment.PEGGED());
+        address predicted = deployment.predictAddress(deployment.PEGGED(), deployment.SYSTEM_SALT_STRING());
 
         // Deploy
         deployment.deployPegged();
@@ -100,7 +100,7 @@ contract MockHarborDeploymentTest is BaoDeploymentTest {
         _startDeployment("test_predictableAddress");
 
         // Predict address
-        address predicted = deployment.predictProxyAddress(deployment.PEGGED());
+        address predicted = deployment.predictAddress(deployment.PEGGED(), deployment.SYSTEM_SALT_STRING());
         assertTrue(predicted != address(0), "Predicted address should not be zero");
 
         // Configure and deploy
