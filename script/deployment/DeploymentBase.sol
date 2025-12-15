@@ -311,26 +311,21 @@ abstract contract DeploymentBase is DeploymentDataMemory {
 
     function _contractSalt(
         string memory key,
-        string memory contractType
+        string memory contractSaltKey
     ) private view returns (string memory saltString, bytes32 salt) {
         _requireActiveRun();
         if (bytes(key).length == 0) {
             revert KeyRequired();
         }
-        string memory systemSalt = _getString(SYSTEM_SALT_STRING);
-        saltString = string.concat(systemSalt, "/", key, contractType);
+        saltString = string.concat(_getString(contractSaltKey), "/", key);
         salt = EfficientHashLib.hash(abi.encodePacked(saltString));
-    }
-
-    function _proxySalt(string memory proxyKey) private view returns (string memory saltString, bytes32 salt) {
-        return _contractSalt(proxyKey, "/UUPS/proxy");
     }
 
     /// @notice Predict proxy address without deploying
     /// @param proxyKey Key for the proxy deployment
     /// @return proxy Predicted proxy address
-    function predictProxyAddress(string memory proxyKey) public view returns (address proxy) {
-        (, bytes32 salt) = _proxySalt(proxyKey);
+    function predictAddress(string memory proxyKey, string memory contractSaltKey) public view returns (address proxy) {
+        (, bytes32 salt) = _contractSalt(proxyKey, contractSaltKey);
         proxy = CREATE3.predictDeterministicAddress(salt, _getAddress(BAO_FACTORY));
     }
 
@@ -338,6 +333,7 @@ abstract contract DeploymentBase is DeploymentDataMemory {
     function deployProxy(
         uint256 value,
         string memory proxyKey,
+        string memory contractSaltKey,
         address implementation,
         bytes memory implementationInitData,
         string memory implementationContractType,
@@ -351,6 +347,7 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         _deployProxy(
             value,
             proxyKey,
+            contractSaltKey,
             implementation,
             implementationInitData,
             implementationContractType,
@@ -371,6 +368,7 @@ abstract contract DeploymentBase is DeploymentDataMemory {
     /// @param implementationCreationCode The creation bytecode from type(Implementation).creationCode
     function deployProxy(
         string memory proxyKey,
+        string memory contractSaltKey,
         address implementation,
         bytes memory implementationInitData,
         string memory implementationContractType,
@@ -380,6 +378,7 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         _deployProxy(
             0,
             proxyKey,
+            contractSaltKey,
             implementation,
             implementationInitData,
             implementationContractType,
@@ -391,6 +390,7 @@ abstract contract DeploymentBase is DeploymentDataMemory {
     function _deployProxy(
         uint256 value,
         string memory proxyKey,
+        string memory contractSaltKey,
         address implementation,
         bytes memory implementationInitData,
         string memory implementationContractType,
@@ -404,7 +404,7 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         require(implementation != address(0), "Implementation address is zero");
 
         // Compute salt for CREATE3 using system salt from data layer
-        (string memory saltString, bytes32 salt) = _proxySalt(proxyKey);
+        (string memory saltString, bytes32 salt) = _contractSalt(proxyKey, contractSaltKey);
 
         bytes memory proxyCreationCode = abi.encodePacked(
             type(ERC1967Proxy).creationCode,
@@ -416,6 +416,10 @@ abstract contract DeploymentBase is DeploymentDataMemory {
 
         // Deploy proxy via CREATE3 (needs broadcast in script context)
         address proxy = baoFactory.deploy(proxyCreationCode, salt);
+        require(
+            proxy == predictAddress(proxyKey, contractSaltKey),
+            string.concat("proxy, '", proxyKey, "' predicted vs deployed address mismatch")
+        );
 
         // Register proxy with all metadata (extracted to avoid stack too deep)
         // the proxy - use ERC1967Proxy's creation code for path lookup
@@ -455,21 +459,6 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         );
     }
 
-    /// @notice Register proxy metadata
-    /// @dev Extracted to separate function to avoid stack too deep errors
-    ///      Note: ownershipModel is set via registerImplementation, not here
-    function _recordProxy(
-        string memory proxyKey,
-        address proxy,
-        address factory,
-        string memory saltString,
-        bytes32 salt,
-        address deployer,
-        uint256 blockNumber
-    ) private {
-        // register keys
-    }
-
     /** @notice Upgrade existing proxy to new implementation
      */
 
@@ -481,10 +470,6 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         bytes memory implementationCreationCode,
         address deployer
     ) public {
-        _requireActiveRun();
-        if (bytes(proxyKey).length == 0) {
-            revert KeyRequired();
-        }
         _upgradeProxy(
             0,
             proxyKey,
@@ -558,7 +543,7 @@ abstract contract DeploymentBase is DeploymentDataMemory {
             deployer,
             block.number
         );
-        // Set default ownershipModel if not already set by registerImplementation
+        // Set default ownershipModel if not already set
         string memory ownershipModelKey = string.concat(implKey, ".ownershipModel");
         // TODO: fix the ownership transfer models - we only have one right now so it's not a problem atm
         if (!_has(ownershipModelKey)) {
@@ -569,6 +554,7 @@ abstract contract DeploymentBase is DeploymentDataMemory {
     function predictableDeployContract(
         uint256 value,
         string memory key,
+        string memory contractSaltKey,
         bytes memory initCode,
         string memory contractType,
         bytes memory creationCode,
@@ -577,23 +563,25 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         if (msg.value != value) {
             revert ValueMismatch(value, msg.value);
         }
-        _predictableDeployContract(value, key, initCode, contractType, creationCode, deployer);
+        _predictableDeployContract(value, key, contractSaltKey, initCode, contractType, creationCode, deployer);
         _setUint(string.concat(key, ".value"), value);
     }
 
     function predictableDeployContract(
         string memory key,
+        string memory contractSaltKey,
         bytes memory initCode,
         string memory contractType,
         bytes memory creationCode,
         address deployer
     ) public {
-        return _predictableDeployContract(0, key, initCode, contractType, creationCode, deployer);
+        return _predictableDeployContract(0, key, contractSaltKey, initCode, contractType, creationCode, deployer);
     }
 
     function _predictableDeployContract(
         uint256 value,
         string memory key,
+        string memory contractSaltKey,
         bytes memory initCode,
         string memory contractType,
         bytes memory creationCode,
@@ -605,9 +593,8 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         }
 
         // Compute salt from system salt + key
-        (, bytes32 salt) = _contractSalt(key, "");
+        (, bytes32 salt) = _contractSalt(key, contractSaltKey);
 
-        // Deploy via CREATE3 (needs broadcast in script context)
         address factory = _getAddress(BAO_FACTORY);
         IBaoFactory baoFactory = IBaoFactory(factory);
         address addr = baoFactory.deploy{value: value}(value, initCode, salt);
@@ -643,35 +630,6 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         _requireActiveRun();
         _recordContractFields(key, addr, contractType, creationCode, deployer, block.number);
         _setString(string.concat(key, ".category"), "contract");
-    }
-
-    /// @notice Register implementation for a proxy before calling deployProxy
-    /// @dev Must be called before deployProxy. Sets the implementation address and ownership model.
-    /// @param proxyKey The proxy key (e.g., "contracts.Oracle")
-    /// @param implAddress The implementation contract address
-    /// @param contractType The implementation contract type (e.g., "OracleV1")
-    /// @param creationCode The creation bytecode from type(Contract).creationCode for path disambiguation
-    /// @param ownershipModel The ownership transfer model:
-    ///        - "transfer-after-deploy": finish() will call transferOwnership (BaoOwnable)
-    ///        - "transferred-on-timeout": ownership transfers automatically after timeout (BaoOwnable_v2)
-    function registerImplementation(
-        string memory proxyKey,
-        address implAddress,
-        string memory contractType,
-        bytes memory creationCode,
-        string memory ownershipModel
-    ) public {
-        _requireActiveRun();
-        string memory implKey = string.concat(proxyKey, ".implementation");
-        _recordContractFields(
-            implKey,
-            implAddress,
-            contractType,
-            creationCode,
-            _getAddress(SESSION_DEPLOYER),
-            block.number
-        );
-        if (bytes(ownershipModel).length > 0) _setString(string.concat(implKey, ".ownershipModel"), ownershipModel);
     }
 
     /// @dev Record common contract metadata fields

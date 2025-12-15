@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+// import {console2} from "forge-std/console2.sol";
+
 import {LibString} from "@solady/utils/LibString.sol";
 
 /**
@@ -51,6 +53,7 @@ struct KeyPattern {
  */
 abstract contract DeploymentKeys {
     using LibString for string;
+    using LibString for uint256;
 
     // ============ Storage ============
 
@@ -709,6 +712,7 @@ abstract contract DeploymentKeys {
      * @param expectedType The expected type
      */
     function _registerKey(string memory key, DataType expectedType) private {
+        // console2.log("_registerKey(", string.concat(key, ", ", uint256(expectedType).toString()), ")");
         if (_keyRegistered[key]) {
             revert KeyAlreadyRegistered(key);
         }

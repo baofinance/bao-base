@@ -178,7 +178,7 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData, Array
     function _set(string memory key, address value) internal {
         string memory addressKey = string.concat(key, ".address");
         _prepareKey(addressKey, DataType.ADDRESS);
-        _addresses[addressKey] = LibString.toHexString(uint160(value), 20);
+        _addresses[addressKey] = LibString.toHexStringChecksummed(value);
         _afterValueChanged(key);
     }
 
@@ -310,7 +310,7 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData, Array
         _prepareKey(key, DataType.ADDRESS_ARRAY);
         delete _addressArrays[key];
         for (uint256 i = 0; i < values.length; i++) {
-            _addressArrays[key].push(LibString.toHexString(uint160(values[i]), 20));
+            _addressArrays[key].push(LibString.toHexStringChecksummed(values[i]));
         }
         _afterValueChanged(key);
     }
