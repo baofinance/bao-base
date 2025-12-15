@@ -3,6 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {console2} from "forge-std/console2.sol";
 import {Script} from "forge-std/Script.sol";
+
 import {Deployment} from "@bao-script/deployment/Deployment.sol";
 import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
 import {DeploymentDataMemory} from "@bao-script/deployment/DeploymentDataMemory.sol";
@@ -42,6 +43,12 @@ abstract contract DeploymentJsonScript is Deployment, DeploymentJson, Script {
 
     /// @notice Start broadcasting transactions
     /// @dev Called by DeploymentBase before blockchain operations
+    function _deployer() internal view override returns (address deployer) {
+        deployer = msg.sender;
+    }
+
+    /// @notice Start broadcasting transactions
+    /// @dev Called by DeploymentBase before blockchain operations
     function _startBroadcast() internal override returns (address deployer) {
         vm.startBroadcast();
         deployer = msg.sender;
@@ -53,10 +60,5 @@ abstract contract DeploymentJsonScript is Deployment, DeploymentJson, Script {
     function _stopBroadcast() internal override {
         console2.log("stopBroadcast.");
         vm.stopBroadcast();
-    }
-
-    /// @dev Resolve diamond: use DeploymentJson's implementation (auto-save on change)
-    function _afterValueChanged(string memory key) internal virtual override(DeploymentDataMemory, DeploymentJson) {
-        DeploymentJson._afterValueChanged(key);
     }
 }

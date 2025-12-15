@@ -105,6 +105,10 @@ abstract contract DeploymentBase is DeploymentDataMemory {
 
     /// @notice Hook called before blockchain operations
     /// @dev Override in script classes to call vm.startBroadcast()
+    function _deployer() internal virtual returns (address deployer);
+
+    /// @notice Hook called before blockchain operations
+    /// @dev Override in script classes to call vm.startBroadcast()
     function _startBroadcast() internal virtual returns (address deployer);
 
     /// @notice Hook called after blockchain operations
@@ -171,6 +175,8 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         _setUint(SESSION_STUB_BLOCK_NUMBER, block.number);
 
         _sessionState = State.STARTED;
+
+        _save();
     }
 
     /// @notice Finish deployment session
@@ -530,7 +536,6 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         if ((implementationInitData.length == 0) && (value == 0)) {
             IUUPSUpgradeableProxy(proxy).upgradeTo(newImplementation);
         } else if ((implementationInitData.length == 0) && (value != 0)) {
-            _stopBroadcast();
             revert CannotSendValueToNonPayableFunction();
             // or upgrade and call
         } else if ((implementationInitData.length != 0) && (value == 0)) {
@@ -670,14 +675,11 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         assembly {
             addr := create(0, add(bytecode, 0x20), mload(bytecode))
         }
-        _stopBroadcast();
-
         if (addr == address(0)) {
             revert LibraryDeploymentFailed(key);
         }
         // Pass bytecode as creationCode for path lookup disambiguation
         _recordContractFields(key, addr, contractType, bytecode, deployer, block.number);
-
         _setString(string.concat(key, ".category"), "library");
     }
 

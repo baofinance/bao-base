@@ -55,7 +55,7 @@ abstract contract DeploymentJson is DeploymentBase {
         }
     }
 
-    function _save() internal virtual {
+    function _save() internal override {
         if (!_suppressPersistence) {
             VM.createDir(_getOutputConfigDir(), true); // recursive=true, creates parent dirs if needed
             string memory json = toJson();
@@ -77,10 +77,6 @@ abstract contract DeploymentJson is DeploymentBase {
 
     function disableIncrementalLogging() public {
         _suppressIncrementalPersistence = true;
-    }
-
-    function _saveDeployment() internal {
-        _save();
     }
 
     // ============================================================================

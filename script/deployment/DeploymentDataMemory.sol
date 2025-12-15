@@ -169,7 +169,9 @@ abstract contract DeploymentDataMemory is DeploymentKeys, IDeploymentData, Array
         }
     }
 
-    function _afterValueChanged(string memory key) internal virtual {}
+    function _afterValueChanged(string memory key) internal virtual;
+
+    function _save() internal virtual;
 
     // ============ Internal Setters ============
 

@@ -48,6 +48,11 @@ abstract contract DeploymentTesting is DeploymentBase {
 
     /// @notice Start broadcasting transactions
     /// @dev Called by Deployment before blockchain operations
+    function _deployer() internal view override returns (address deployer) {
+        deployer = address(this);
+    }
+    /// @notice Start broadcasting transactions
+    /// @dev Called by Deployment before blockchain operations
     function _startBroadcast() internal view override returns (address deployer) {
         deployer = address(this);
     }
