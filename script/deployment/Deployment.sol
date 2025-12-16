@@ -21,8 +21,8 @@ import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
 abstract contract Deployment is DeploymentBase {
     /// @notice Require BaoFactory is deployed and functional
     /// @dev Reverts if BaoFactory is not deployed or not upgraded to v1
-    function _ensureBaoFactory() internal virtual override returns (address factory) {
-        BaoFactoryDeployment.requireFunctionalBaoFactory();
-        factory = BaoFactoryDeployment.predictBaoFactoryAddress();
-    }
+    // function _ensureBaoFactory() internal virtual override returns (address factory) {
+    //     BaoFactoryDeployment.requireFunctionalBaoFactory();
+    //     factory = BaoFactoryDeployment.predictBaoFactoryAddress();
+    // }
 }
