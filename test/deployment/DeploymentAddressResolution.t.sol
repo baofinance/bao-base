@@ -20,6 +20,10 @@ contract AddressResolutionHarness is DeploymentDataMemory {
         addAddressArrayKey("contracts.recipients");
     }
 
+    function _afterValueChanged(string memory key) internal override {}
+
+    function _save() internal override {}
+
     // ========== Address parsing ==========
 
     function parseAddress(string memory s) external pure returns (address) {

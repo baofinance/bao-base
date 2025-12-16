@@ -13,6 +13,10 @@ contract DeploymentMemoryTesting is DeploymentTesting {
         return "";
     }
 
+    function _afterValueChanged(string memory key) internal virtual override {}
+
+    function _save() internal virtual override {}
+
     function _beforeStart(
         string memory /* network */,
         string memory /* systemSaltString */,

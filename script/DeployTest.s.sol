@@ -47,6 +47,8 @@ contract DeployTest is DeploymentJsonScript {
         addUintKey(STORAGE_UINT);
     }
 
+    function _ensureBaoFactory() internal override returns (address factory) {}
+
     // ============================================================================
     // Main Entry Point
     // ============================================================================

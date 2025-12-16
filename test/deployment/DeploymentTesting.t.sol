@@ -15,6 +15,9 @@ contract DeploymentTestingHarness is DeploymentMemoryTesting {
         start(network, salt, "");
     }
 
+    function _afterValueChanged(string memory key) internal override {}
+    function _save() internal override {}
+
     function readContractAddress(string memory key) external view returns (address) {
         return _get(key);
     }

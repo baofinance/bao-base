@@ -55,7 +55,7 @@ abstract contract DeploymentJson is DeploymentBase {
         }
     }
 
-    function _save() internal override {
+    function _save() internal virtual override {
         if (!_suppressPersistence) {
             VM.createDir(_getOutputConfigDir(), true); // recursive=true, creates parent dirs if needed
             string memory json = toJson();
