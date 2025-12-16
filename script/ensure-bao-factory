@@ -110,9 +110,11 @@ if [[ "$STATUS" == "not_deployed" ]]; then
   log "Factory not deployed, deploying..."
   "$BAO_FACTORY_SCRIPT" --deploy --network "$NETWORK" --salt "$SALT"
 
-  # Re-check status
+  # Re-check status and update all variables
   STATUS_JSON=$("$BAO_FACTORY_SCRIPT" --status --network "$NETWORK" --salt "$SALT" 2>/dev/null)
   STATUS=$(echo "$STATUS_JSON" | jq -r '.status')
+  PROXY=$(echo "$STATUS_JSON" | jq -r '.proxy')
+  OWNER=$(echo "$STATUS_JSON" | jq -r '.owner')
   log "New status: $STATUS"
 fi
 
@@ -139,9 +141,11 @@ if [[ "$STATUS" == "bootstrap" ]]; then
 
   # Upgrade via owner impersonation
   log "Upgrading proxy to BaoFactory_v1..."
+  cast rpc anvil_impersonateAccount "$OWNER" --rpc-url "$NETWORK" >/dev/null
   cast send --rpc-url "$NETWORK" \
     --from "$OWNER" --unlocked \
     "$PROXY" "upgradeToAndCall(address,bytes)" "$IMPL" "0x" >/dev/null
+  cast rpc anvil_stopImpersonatingAccount "$OWNER" --rpc-url "$NETWORK" >/dev/null
 
   log "Upgrade complete"
   STATUS="upgraded"
@@ -161,9 +165,11 @@ if [[ -n "$OPERATOR_ACTIVE" ]]; then
   log "Operator $OPERATOR is already active"
 else
   log "Setting operator $OPERATOR with delay $DELAY..."
+  cast rpc anvil_impersonateAccount "$OWNER" --rpc-url "$NETWORK" >/dev/null
   cast send --rpc-url "$NETWORK" \
     --from "$OWNER" --unlocked \
     "$PROXY" "setOperator(address,uint256)" "$OPERATOR" "$DELAY" >/dev/null
+  cast rpc anvil_stopImpersonatingAccount "$OWNER" --rpc-url "$NETWORK" >/dev/null
   log "Operator set successfully"
 fi
 
