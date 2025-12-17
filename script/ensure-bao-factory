@@ -32,8 +32,8 @@ BAO_FACTORY_SCRIPT="$BAO_FACTORY_ROOT/script/bao-factory"
 # Defaults
 NETWORK="local"
 SALT="Bao.BaoFactory.harbor"
-OPERATOR="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"  # Default anvil account
-DELAY="86400"  # 1 day
+OPERATOR="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" # Default anvil account
+DELAY="86400"                                         # 1 day
 
 # Default anvil key for local network
 ANVIL_PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
@@ -142,6 +142,7 @@ if [[ "$STATUS" == "bootstrap" ]]; then
   # Upgrade via owner impersonation
   log "Upgrading proxy to BaoFactory_v1..."
   cast rpc anvil_impersonateAccount "$OWNER" --rpc-url "$NETWORK" >/dev/null
+  cast rpc anvil_setBalance "$OWNER" "0x56BC75E2D63100000" --rpc-url "$NETWORK" >/dev/null # 100 ETH
   cast send --rpc-url "$NETWORK" \
     --from "$OWNER" --unlocked \
     "$PROXY" "upgradeToAndCall(address,bytes)" "$IMPL" "0x" >/dev/null
@@ -166,6 +167,7 @@ if [[ -n "$OPERATOR_ACTIVE" ]]; then
 else
   log "Setting operator $OPERATOR with delay $DELAY..."
   cast rpc anvil_impersonateAccount "$OWNER" --rpc-url "$NETWORK" >/dev/null
+  cast rpc anvil_setBalance "$OWNER" "0x56BC75E2D63100000" --rpc-url "$NETWORK" >/dev/null # 100 ETH
   cast send --rpc-url "$NETWORK" \
     --from "$OWNER" --unlocked \
     "$PROXY" "setOperator(address,uint256)" "$OPERATOR" "$DELAY" >/dev/null

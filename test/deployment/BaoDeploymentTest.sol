@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
-import {console2} from "forge-std/console2.sol";
+// import {console2} from "forge-std/console2.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
@@ -39,14 +39,6 @@ abstract contract BaoDeploymentTest is BaoTest {
      * @dev Nick's Factory set up if needed (via etchNicksFactory)
      */
     function setUp() public virtual {
-        // TODO: all this should go other than the labelling
-        // install Nick's factory if not present
-        if (BaoFactoryBytecode.NICKS_FACTORY.code.length == 0) {
-            vm.etch(BaoFactoryBytecode.NICKS_FACTORY, BaoFactoryBytecode.NICKS_FACTORY_BYTECODE);
-            console2.log("etched Nick's factory");
-        }
-        vm.label(BaoFactoryBytecode.NICKS_FACTORY, "Nick's factory");
-
         // Get owner from BaoFactoryLib constant (avoids call to non-contract address)
         _baoMultisig = BaoFactoryBytecode.OWNER;
         vm.label(_baoMultisig, "_baoMultisig");
