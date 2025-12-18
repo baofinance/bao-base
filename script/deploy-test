@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+#
+# Deploy test script - starts anvil and runs DeployTest.s.sol
+#
+# Usage: bin/deploy-test
+#
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+cd "$PROJECT_ROOT"
+
+usage() {
+  cat <<'USAGE'
+Usage: bin/deploy-test [--anvil-url URL] [--no-anvil]
+
+Options:
+  --anvil-url URL  Use an existing Anvil/JSON-RPC endpoint and skip starting a local Anvil.
+  -h, --help       Show this help.
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --anvil-url)
+      if [[ $# -lt 2 || -z ${2:-} ]]; then
+        echo "Error: --anvil-url requires a URL argument" >&2
+        usage
+        exit 1
+      fi
+      ANVIL_URL="$2"
+      shift 2
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Error: Unknown argument: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+# Anvil account 0 (deployer)
+DEPLOYER="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+DEPLOYER_PK="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+
+# Multisig address - used as BaoDeployer owner
+MULTISIG="0xFC69e0a5823E2AfCBEb8a35d33588360F1496a00"
+
+if ([ -z "${ANVIL_URL:-}" ]); then
+  ANVIL_URL="http://127.0.0.1:8545"
+
+  # Start anvil in background
+  echo "Starting anvil..."
+  anvil &
+  ANVIL_PID=$!
+
+  # Cleanup on exit
+  cleanup() {
+    echo "Stopping anvil (PID: $ANVIL_PID)..."
+    kill "$ANVIL_PID" 2>/dev/null || true
+    wait "$ANVIL_PID" 2>/dev/null || true
+  }
+  trap cleanup EXIT
+
+  # Wait for anvil to be ready
+  echo "Waiting for anvil to be ready..."
+  for i in {1..30}; do
+    if curl -s -X POST -H "Content-Type: application/json" \
+      --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
+      "$ANVIL_URL" >/dev/null 2>&1; then
+      echo "Anvil is ready"
+      break
+    fi
+    if [ "$i" -eq 30 ]; then
+      echo "Timeout waiting for anvil"
+      exit 1
+    fi
+    sleep 0.1
+  done
+elif [[ "${ANVIL_URL}" == "local" ]]; then
+  ANVIL_URL="http://127.0.0.1:8545"
+fi
+
+RPC_URL="${ANVIL_URL}"
+echo "RPC_URL=${RPC_URL}"
+
+# Fund the multisig with ETH so it can pay for gas
+echo "Funding multisig with ETH..."
+cast send --rpc-url "$RPC_URL" \
+  --private-key "$DEPLOYER_PK" \
+  "$MULTISIG" \
+  --value 1ether >/dev/null
+
+# ============================================================================
+# Infrastructure Setup (BaoDeployer + operator)
+# ============================================================================
+
+# # Deploy BaoDeployer
+# echo "Deploying BaoDeployer..."
+# forge script script/SetupInfrastructure.s.sol:SetupInfrastructure \
+#   --sig "run()" \
+#   --rpc-url "$RPC_URL" \
+#   --broadcast \
+#   --private-key "$DEPLOYER_PK" \
+#   2>&1 | grep -E "(BaoDeployer|operator|Owner)" || true
+
+# # Set operator via impersonation (multisig action)
+# BAODEPLOYER_ADDR="0x336785A852B689A839C312522Ea637917dF3F932"
+# BAODEPLOYER_ADDR="0x9d27691421bD705805f68EAAab19de0DD5217BF6"
+# echo "Setting BaoDeployer operator (as multisig via impersonation)..."
+
+# # Use anvil_impersonateAccount to act as multisig
+# curl -s -X POST -H "Content-Type: application/json" \
+#   --data "{\"jsonrpc\":\"2.0\",\"method\":\"anvil_impersonateAccount\",\"params\":[\"$MULTISIG\"],\"id\":1}" \
+#   "$RPC_URL" >/dev/null
+
+# cast send --rpc-url "$RPC_URL" \
+#   --from "$MULTISIG" \
+#   --unlocked \
+#   "$BAODEPLOYER_ADDR" \
+#   "setOperator(address)" \
+#   "$DEPLOYER" 2>/dev/null || echo "Operator may already be set"
+
+# curl -s -X POST -H "Content-Type: application/json" \
+#   --data "{\"jsonrpc\":\"2.0\",\"method\":\"anvil_stopImpersonatingAccount\",\"params\":[\"$MULTISIG\"],\"id\":1}" \
+#   "$RPC_URL" >/dev/null
+
+# echo "Operator set to: $DEPLOYER"
+
+# ============================================================================
+# Run the deployment script
+# ============================================================================
+echo ""
+echo "Running deployment..."
+forge script script/DeployTest.s.sol:DeployTest \
+  --sig "run()" \
+  --rpc-url "$RPC_URL" \
+  --broadcast \
+  --private-key "$DEPLOYER_PK" \
+  -vvvv
+
+# ============================================================================
+# Verify deployment
+# ============================================================================
+echo ""
+echo "Verifying deployment..."
+
+# Find the latest deployment JSON file
+DEPLOY_DIR="$PROJECT_ROOT/deployments/DeployTest/anvil"
+LATEST_JSON=$(ls -1 "$DEPLOY_DIR"/*.json 2>/dev/null | sort | tail -1)
+
+if [[ -z "$LATEST_JSON" ]]; then
+  echo "*** ERROR: No deployment JSON found in $DEPLOY_DIR"
+  exit 1
+fi
+echo "Using deployment file: $LATEST_JSON"
+
+# Extract addresses from JSON
+BAODEPLOYER_ADDR=$(jq -r '.BaoFactory' "$LATEST_JSON")
+PROXY_ADDR=$(jq -r '.contracts.token.address' "$LATEST_JSON")
+EXPECTED_OWNER=$(jq -r '.owner' "$LATEST_JSON")
+
+echo "BaoDeployer: $BAODEPLOYER_ADDR"
+echo "Proxy: $PROXY_ADDR"
+echo "Expected owner: $EXPECTED_OWNER"
+
+errors=0
+
+BAODEPLOYER_CODE=$(cast code --rpc-url "$RPC_URL" "$BAODEPLOYER_ADDR" 2>/dev/null || echo "0x")
+if [ "$BAODEPLOYER_CODE" = "0x" ]; then
+  echo "*** ERROR: BaoDeployer at $BAODEPLOYER_ADDR has no code!"
+  errors=$((errors + 1))
+else
+  echo "✓ BaoDeployer deployed at: $BAODEPLOYER_ADDR"
+fi
+OPERATOR=$(cast call --rpc-url "$RPC_URL" "$BAODEPLOYER_ADDR" "operator()(address)" 2>/dev/null || echo "")
+if [ "${OPERATOR,,}" != "${DEPLOYER,,}" ]; then
+  echo "*** ERROR: BaoDeployer operator is $OPERATOR, expected $DEPLOYER"
+  errors=$((errors + 1))
+else
+  echo "✓ BaoDeployer operator is deployer: $OPERATOR"
+fi
+
+errors=0
+# Check proxy has code
+PROXY_CODE=$(cast code --rpc-url "$RPC_URL" "$PROXY_ADDR" 2>/dev/null || echo "0x")
+if [ "$PROXY_CODE" = "0x" ]; then
+  echo "*** ERROR: Proxy at $PROXY_ADDR has no code!"
+  errors=$((errors + 1))
+else
+  echo "✓ Proxy deployed at: $PROXY_ADDR"
+fi
+
+# Check owner is multisig
+OWNER=$(cast call --rpc-url "$RPC_URL" "$PROXY_ADDR" "owner()(address)" 2>/dev/null || echo "")
+if [ "${OWNER,,}" != "${EXPECTED_OWNER,,}" ]; then
+  echo "*** ERROR: Proxy owner is $OWNER, expected $EXPECTED_OWNER"
+  errors=$((errors + 1))
+else
+  echo "✓ Proxy owner is: $OWNER"
+fi
+
+# Check token metadata
+NAME=$(cast call --rpc-url "$RPC_URL" "$PROXY_ADDR" "name()(string)" 2>/dev/null || echo "")
+SYMBOL=$(cast call --rpc-url "$RPC_URL" "$PROXY_ADDR" "symbol()(string)" 2>/dev/null || echo "")
+if [[ "$NAME" == "" || "$SYMBOL" == "" ]]; then
+  echo "*** ERROR: Missing token name or symbol"
+  echo " Token: $NAME ($SYMBOL)"
+  errors=$((errors + 1))
+else
+  echo "✓ Token: $NAME ($SYMBOL)"
+fi
+
+echo ""
+if [[ $errors -gt 0 ]]; then
+  echo "Deployment complete but has errors!"
+else
+  echo "Deployment complete and verified!"
+fi
+echo "-----------------------------------"
+echo ""
+
+exit $errors

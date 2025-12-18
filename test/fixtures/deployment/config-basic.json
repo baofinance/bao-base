@@ -1,0 +1,24 @@
+{
+  "network": "testnet",
+  "version": "1.0.0",
+  "owner": "0x0000000000000000000000000000000000aaaa01",
+  "treasury": "0x0000000000000000000000000000000000aaaa02",
+  "pegged": {
+    "owner": "0x0000000000000000000000000000000000bbbb01",
+    "name": "Bao USD",
+    "symbol": "cUSD",
+    "decimals": 18
+  },
+  "stabilityPoolCollateral": {
+    "minDeposit": 2000000000000000000
+  },
+  "minter": {
+    "feeBps": 25
+  },
+  "conflicts": {
+    "owner": "prefer-config",
+    "minter": {
+      "owner": "prefer-log"
+    }
+  }
+}

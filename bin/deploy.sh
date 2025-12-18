@@ -47,7 +47,8 @@ while [[ ${#myargs[@]} -gt 0 ]]; do
       PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
       PUBLIC_KEY="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
       RPC_URL="local"
-      CHAIN_ID=1                # this is used for address lookup
+      # Use actual chain ID from Anvil (31337) for address lookup to use bcinfo.local.json
+      CHAIN_ID=${CHAIN_ID:-31337}  # Allow override, but default to 31337 for local
       myargs=("${myargs[@]:1}") # shift 1
       ;;
     --rpc-url)
@@ -122,3 +123,4 @@ if [[ "${SCRIPT}" != "BATS" ]]; then
   record deployment.USD_used "${USD_used}"
   log "$ spent: ${USD_used}"
 fi
+

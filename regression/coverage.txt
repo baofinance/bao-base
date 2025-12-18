@@ -1,18 +1,30 @@
-| File                                 | % Lines        | % Statements   | % Branches   | % Funcs        |
-|--------------------------------------|----------------|----------------|--------------|----------------|
-| src/BaoOwnable.sol                   | ✓ 100% (27/27) | ✓ 100% (24/24) | ✓ 100% (3/3) | ✓ 100% (6/6)   |
-| src/BaoOwnableRoles.sol              | ✓ 100% (2/2)   | ✓ 100% (4/4)   | ✓ 100% (0/0) | ✓ 100% (1/1)   |
-| src/BaoOwnableRoles_v2.sol           | ✓ 100% (2/2)   | ✓ 100% (4/4)   | ✓ 100% (0/0) | ✓ 100% (1/1)   |
-| src/BaoOwnableTransferrable.sol      | ✓ 100% (57/57) | ✓ 100% (48/48) | ✓ 100% (5/5) | ✓ 100% (12/12) |
-| src/BaoOwnableTransferrableRoles.sol | ✓ 100% (2/2)   | ✓ 100% (4/4)   | ✓ 100% (0/0) | ✓ 100% (1/1)   |
-| src/BaoOwnable_v2.sol                | ✓ 100% (4/4)   | ✓ 100% (5/5)   | ✓ 100% (0/0) | ✓ 100% (2/2)   |
-| src/ERC165.sol                       | ✓ 100% (2/2)   | ✓ 100% (2/2)   | ✓ 100% (0/0) | ✓ 100% (1/1)   |
-| src/MintableBurnableERC20_v1.sol     | ✓ 100% (25/25) | ✓ 100% (26/26) | ✓ 100% (0/0) | ✓ 100% (7/7)   |
-| src/PermittableERC20_v1.sol          | ✓ 100% (16/16) | ✓ 100% (14/14) | ✓ 100% (0/0) | ✓ 100% (5/5)   |
-| src/Stem_v1.sol                      | ✓ 100% (5/5)   | ✓ 100% (2/2)   | ✓ 100% (0/0) | ✓ 100% (3/3)   |
-| src/Token.sol                        | ✓ 100% (30/30) | ✓ 100% (30/30) | ✓ 100% (8/8) | ✓ 100% (7/7)   |
-| src/TokenHolder.sol                  | ✓ 100% (12/12) | ✓ 100% (8/8)   | ✓ 100% (1/1) | ✓ 100% (4/4)   |
-| src/internal/BaoCheckOwner.sol       | ✓ 100% (6/6)   | ✓ 100% (4/4)   | ✓ 100% (1/1) | ✓ 100% (2/2)   |
-| src/internal/BaoCheckOwner_v2.sol    | ✓ 100% (13/13) | ✓ 100% (10/10) | ✓ 100% (1/1) | ✓ 100% (4/4)   |
-| src/internal/BaoRoles.sol            | ✓ 100% (56/56) | ✓ 100% (49/49) | ✓ 100% (6/6) | ✓ 100% (16/16) |
-| src/internal/BaoRoles_v2.sol         | ✓ 100% (47/47) | X  98% (42/43) | ✓ 100% (4/4) | ✓ 100% (14/14) |
+| File                                          | % Lines            | % Statements       | % Branches       | % Funcs          |
+|-----------------------------------------------|--------------------|--------------------|------------------|------------------|
+| script/deployment/DeploymentBase.sol          | X  81% (285/350)   | X  84% (357/423)   | X  64% (37/58)   | X  70% (32/46)   |
+| script/deployment/DeploymentDataMemory.sol    | X  99% (183/184)   | X  99% (183/185)   | ✓ 100% (20/20)   | ✓ 100% (43/43)   |
+| script/deployment/DeploymentJson.sol          | X  81% (319/395)   | X  79% (407/514)   | X  70% (71/101)  | X  91% (40/44)   |
+| script/deployment/DeploymentJsonScript.sol    | X   0% (0/9)       | X   0% (0/6)       | ✓ 100% (0/0)     | X   0% (0/3)     |
+| script/deployment/DeploymentJsonTesting.sol   | X  91% (10/11)     | X  88% (7/8)       | ✓ 100% (2/2)     | ✓ 100% (4/4)     |
+| script/deployment/DeploymentKeys.sol          | X  83% (217/263)   | X  86% (235/272)   | X  57% (16/28)   | X  74% (37/50)   |
+| script/deployment/DeploymentMemoryTesting.sol | ✓ 100% (5/5)       | ✓ 100% (1/1)       | ✓ 100% (0/0)     | ✓ 100% (4/4)     |
+| script/deployment/DeploymentTesting.sol       | X  96% (47/49)     | X  98% (39/40)     | ✓ 100% (5/5)     | X  93% (14/15)   |
+| script/deployment/JsonArrays.sol              | ✓ 100% (16/16)     | ✓ 100% (16/16)     | ✓ 100% (0/0)     | ✓ 100% (8/8)     |
+| script/deployment/UUPSProxyDeployStub.sol     | X  93% (25/27)     | X  80% (20/25)     | X  33% (2/6)     | ✓ 100% (8/8)     |
+| script/utils/Array.sol                        | X   3% (12/389)    | X   3% (9/334)     | ✓ 100% (0/0)     | X   5% (3/61)    |
+| src/BaoOwnable.sol                            | ✓ 100% (27/27)     | ✓ 100% (24/24)     | ✓ 100% (3/3)     | ✓ 100% (6/6)     |
+| src/BaoOwnableRoles.sol                       | ✓ 100% (2/2)       | ✓ 100% (4/4)       | ✓ 100% (0/0)     | ✓ 100% (1/1)     |
+| src/BaoOwnableRoles_v2.sol                    | ✓ 100% (2/2)       | ✓ 100% (4/4)       | ✓ 100% (0/0)     | ✓ 100% (1/1)     |
+| src/BaoOwnableTransferrable.sol               | ✓ 100% (57/57)     | ✓ 100% (48/48)     | ✓ 100% (5/5)     | ✓ 100% (12/12)   |
+| src/BaoOwnableTransferrableRoles.sol          | ✓ 100% (2/2)       | ✓ 100% (4/4)       | ✓ 100% (0/0)     | ✓ 100% (1/1)     |
+| src/BaoOwnable_v2.sol                         | ✓ 100% (4/4)       | ✓ 100% (5/5)       | ✓ 100% (0/0)     | ✓ 100% (2/2)     |
+| src/ERC165.sol                                | ✓ 100% (2/2)       | ✓ 100% (2/2)       | ✓ 100% (0/0)     | ✓ 100% (1/1)     |
+| src/MintableBurnableERC20_v1.sol              | ✓ 100% (25/25)     | ✓ 100% (26/26)     | ✓ 100% (0/0)     | ✓ 100% (7/7)     |
+| src/PermittableERC20_v1.sol                   | ✓ 100% (16/16)     | ✓ 100% (14/14)     | ✓ 100% (0/0)     | ✓ 100% (5/5)     |
+| src/Stem_v1.sol                               | ✓ 100% (5/5)       | ✓ 100% (2/2)       | ✓ 100% (0/0)     | ✓ 100% (3/3)     |
+| src/Token.sol                                 | ✓ 100% (30/30)     | ✓ 100% (30/30)     | ✓ 100% (8/8)     | ✓ 100% (7/7)     |
+| src/TokenHolder.sol                           | ✓ 100% (12/12)     | ✓ 100% (8/8)       | ✓ 100% (1/1)     | ✓ 100% (4/4)     |
+| src/internal/BaoCheckOwner.sol                | ✓ 100% (6/6)       | ✓ 100% (4/4)       | ✓ 100% (1/1)     | ✓ 100% (2/2)     |
+| src/internal/BaoCheckOwner_v2.sol             | ✓ 100% (13/13)     | ✓ 100% (10/10)     | ✓ 100% (1/1)     | ✓ 100% (4/4)     |
+| src/internal/BaoRoles.sol                     | ✓ 100% (56/56)     | ✓ 100% (49/49)     | ✓ 100% (6/6)     | ✓ 100% (16/16)   |
+| src/internal/BaoRoles_v2.sol                  | ✓ 100% (47/47)     | X  98% (42/43)     | ✓ 100% (4/4)     | ✓ 100% (14/14)   |
+| Total                                         | X  72% (2471/3437) | X  74% (2453/3296) | X  64% (197/307) | X  69% (562/809) |

@@ -8,11 +8,49 @@ optimizer = true
 optimizer_runs = 200
 # via_ir = true
 gas_limit = "18446744073709551615"
+fuzz.gas_report_samples = 64       # gas report doesn't need so many test cases
+
+deny = "warnings"
+
+
+remappings = [
+  "ds-test/=lib/forge-std/lib/ds-test/src/",
+  "forge-std/=lib/forge-std/src/",
+  "@openzeppelin/contracts/=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
+  "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+  "@solady/=lib/solady/src/",
+  "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
+  "solidity-stringutils/=lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils/",
+  "@bao/=src/",
+  "@bao-test/=test/",
+  "@bao-script/=script/",
+  "@bao-factory/=lib/bao-factory/src/",
+  "@bao-factory-test/=lib/bao-factory/test/",
+  "src/=src/",
+  "test/=test/",
+]
+
+
+fs_permissions = [
+  { access = "read", path = "./" },
+  { access = "read-write", path = "./results" },
+  { access = "read-write", path = "./deployments" },
+  { access = "read-write", path = "./tmp" },
+]
 
 #ignored_error_codes=["transient-storage"]
 ignored_warnings_from = [
   "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/utils/StorageSlot.sol",
 ]
+
+[lint]
+exclude_lints = [
+  "mixed-case-function",
+  "mixed-case-variable",
+  "screaming-snake-case-constant",
+]
+severity = ["gas"]
+
 
 gas_reports_ignore = [
   "ERC20Mock",
@@ -29,7 +67,6 @@ gas_reports_ignore = [
   "BaoOwnableAdapter",
   "MockImplementationWithState",
 ]
-
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_KEY}" }

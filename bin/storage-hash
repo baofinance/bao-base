@@ -19,6 +19,6 @@ case $KEY in
 esac
 
 echo using KEY="$KEY"
-echo chisel eval "'"'keccak256(abi.encode(uint256(keccak256("'"$KEY"'")) - 1)) & ~bytes32(uint256(0xff))'"'"
-# run the chisel command, extract the hash on the second line
-chisel eval 'keccak256(abi.encode(uint256(keccak256("'"$KEY"'")) - 1)) & ~bytes32(uint256(0xff))' | sed -n 's/.*Hex:\s*//p'
+echo chisel --deny never eval "'"'keccak256(abi.encode(uint256(keccak256("'"$KEY"'")) - 1)) & ~bytes32(uint256(0xff))'"'"
+# run the chisel command with --deny never to allow warnings, extract the hash
+chisel --deny never eval 'keccak256(abi.encode(uint256(keccak256("'"$KEY"'")) - 1)) & ~bytes32(uint256(0xff))' | sed -n 's/.*Hex:\s*//p'

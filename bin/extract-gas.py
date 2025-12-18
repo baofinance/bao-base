@@ -4,10 +4,35 @@ import re
 import forge_tables
 import pandas as pd
 
+# Paths to include in gas regression (prefix match)
+INCLUDE_PATHS = [
+    "src/",
+    "script/",
+    "test/mocks/",
+]
 
-def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str]:
+# Suffixes to exclude (applied after include filter)
+EXCLUDE_SUFFIXES = [
+    ".s.sol",  # script files
+    ".t.sol",  # test files
+]
+
+
+def should_include(file_path: str) -> bool:
+    """Check if a file path should be included in the gas report."""
+    # First check if it matches an include path
+    if not any(file_path.startswith(prefix) for prefix in INCLUDE_PATHS):
+        return False
+    # Then check it doesn't match any exclude suffix
+    if any(file_path.endswith(suffix) for suffix in EXCLUDE_SUFFIXES):
+        return False
+    return True
+
+
+def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str] | None:
     """
     Parse the table from the input data.
+    Returns None if the file path should be filtered out.
     """
     # Extract the header line
     path_match = re.search(r"(\S+)\s*:\s*(\S+)", input_data)
@@ -17,17 +42,22 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str]:
     file = path_match.group(1)
     contract = path_match.group(2)
 
-    header_match = re.search(r"^\| Function Name\s+\|.+\|$", input_data, re.MULTILINE).group(0)
+    # Filter out paths not in INCLUDE_PATHS
+    if not should_include(file):
+        return None
+
+    header_match = re.search(r"^\| Function Name\s+\|.+\|$", input_data, re.MULTILINE)
     if not header_match:
         raise ValueError("Input data does not contain a valid table header.")
-    header = [col.strip().lower() for col in re.split(r"\s+\|\s+", header_match.strip("| "))]
+    header_line = header_match.group(0)
+    header = [col.strip().lower() for col in re.split(r"\s+\|\s+", header_line.strip("| "))]
 
     # Extract rows containing 'src/' and clean them
     rows_match = re.findall(r"^\| [A-Za-z$_][A-Za-z$_]+\s+\|.+\|$", input_data, re.MULTILINE)
     if not rows_match:
         raise ValueError("Input data does not contain valid table rows.")
 
-    data = []
+    data: list[list[str]] = []
     for row_line in rows_match:
         # Split by '|' separator and strip whitespace from each cell
         columns = [col.strip() for col in re.split(r"\s+\|\s+", row_line.strip("| "))]
@@ -53,4 +83,4 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str]:
 
 
 if __name__ == "__main__":
-    forge_tables.process(toNamedDataFrame)
+    forge_tables.process(toNamedDataFrame, floatfmt=".3e", intfmt=",")

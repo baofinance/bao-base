@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "owner": "0x0000000000000000000000000000000000001234",
+  "BaoFactory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458",
+  "systemSaltString": "DeploymentIntegrationTest",
+  "session": {
+    "deployer": "0x5991a2df15a8f6a256d3ec51e99254cd3fb576a9",
+    "stub": {
+      "address": "0x5b0091f49210e7b2a57b03dfe1ab9d08289d9294",
+      "contractType": "UUPSProxyDeployStub",
+      "contractPath": "script/deployment/UUPSProxyDeployStub.sol",
+      "blockNumber": 300
+    },
+    "started": "1970-02-04T17:20:00Z",
+    "finished": "1970-02-04T17:20:00Z",
+    "startTimestamp": 3000000,
+    "finishTimestamp": 3000000,
+    "startBlock": 300,
+    "finishBlock": 300,
+    "network": "test_IncrementalDeployment",
+    "chainId": 31337
+  },
+  "contracts": {
+    "collateral": {
+      "address": "0x8d2c17fad02b7bb64139109c6533b7c2b9cadb81",
+      "contractType": "MockERC20",
+      "contractPath": "test/mocks/MockERC20.sol",
+      "deployer": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
+      "blockNumber": 100,
+      "category": "contract"
+    },
+    "pegged": {
+      "address": "0x3c8ca53ee5661d29d3d3c0732689a4b86947eaf0",
+      "contractType": "MockERC20",
+      "contractPath": "test/mocks/MockERC20.sol",
+      "deployer": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
+      "blockNumber": 100,
+      "category": "contract"
+    },
+    "oracle": {
+      "address": "0x09d2bfe879c238b5924b0eab9c0c2d7274f2143d",
+      "contractType": "ERC1967Proxy",
+      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+      "deployer": "0xf62849f9a0b5bf2913b396098f7c7019b51a820a",
+      "blockNumber": 200,
+      "category": "UUPS proxy",
+      "factory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458",
+      "owner": "0x0000000000000000000000000000000000001234",
+      "saltString": "DeploymentIntegrationTest::oracle",
+      "salt": "0xb84861122f6d88645e4e5748fecdf23e35e5d3d7021156e8b6bd6561f5bc8feb",
+      "implementation": {
+        "address": "0xcb6f5076b5bbae81d7643bfbf57897e8e3fb1db9",
+        "contractType": "OracleV1",
+        "contractPath": "test/deployment/DeploymentIntegration.t.sol",
+        "deployer": "0xf62849f9a0b5bf2913b396098f7c7019b51a820a",
+        "blockNumber": 200,
+        "ownershipModel": "transferred-after-deploy"
+      }
+    },
+    "minter": {
+      "address": "0xa512055bdbea39f47735ef3861949903a2582862",
+      "contractType": "ERC1967Proxy",
+      "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
+      "deployer": "0x5991a2df15a8f6a256d3ec51e99254cd3fb576a9",
+      "blockNumber": 300,
+      "factory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458",
+      "owner": "0x0000000000000000000000000000000000001234",
+      "category": "UUPS proxy",
+      "saltString": "DeploymentIntegrationTest::minter",
+      "salt": "0x390fae916b70055fb83d1ba48c4f6ae39f779727859582ad9fe0085c49607fba",
+      "implementation": {
+        "address": "0xdd4c722d1614128933d6dc7efa50a6913e804e12",
+        "contractType": "MockMinter",
+        "contractPath": "test/deployment/DeploymentIntegration.t.sol",
+        "deployer": "0x5991a2df15a8f6a256d3ec51e99254cd3fb576a9",
+        "blockNumber": 300,
+        "ownershipModel": "transferred-after-deploy"
+      }
+    }
+  }
+}

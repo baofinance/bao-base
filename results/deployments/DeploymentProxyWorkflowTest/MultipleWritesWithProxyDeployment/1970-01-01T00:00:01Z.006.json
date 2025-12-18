@@ -1,0 +1,11 @@
+{
+  "owner": "0x0000000000000000000000000000000000001234",
+  "schemaVersion": 1,
+  "systemSaltString": "DeploymentProxyWorkflowTest",
+  "session": {
+    "network": "MultipleWritesWithProxyDeployment",
+    "chainId": 31337,
+    "startTimestamp": 1,
+    "started": "1970-01-01T00:00:01Z"
+  }
+}

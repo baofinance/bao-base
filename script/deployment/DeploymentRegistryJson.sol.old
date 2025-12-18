@@ -1,0 +1,842 @@
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.28 <0.9.0;
+
+import {DeploymentRegistry} from "./DeploymentRegistry.sol";
+import {DeploymentFoundryVm} from "./DeploymentFoundryVm.sol";
+
+/**
+ * @title DeploymentRegistryJson
+ * @notice JSON persistence mixin for Foundry-based deployments
+ * @dev FOUNDRY-ONLY: This contract uses Foundry's VM cheat codes for JSON operations
+ * @dev Usage: Mix into Foundry deployment/test contracts to add JSON persistence
+ */
+abstract contract DeploymentRegistryJson is DeploymentRegistry, DeploymentFoundryVm {
+    /**
+     * @notice Get base directory prefix for deployment files
+     * @dev Default for production: "." (current directory)
+     *      Override in testing variant to use "results/"
+     * @return Base directory path
+     */
+    function _getBaseDirPrefix() internal view virtual returns (string memory) {
+        return ".";
+    }
+
+    /**
+     * @notice Check if network subdirectory should be used
+     * @dev Default for production: true (use network subdirs)
+     *      Override in testing variant to return false (flat structure)
+     * @return True for production (use network subdir), false for tests (flat)
+     */
+    function _useNetworkSubdir() internal view virtual returns (bool) {
+        return true;
+    }
+
+    // ============================================================================
+    // JSON Public API
+    // ============================================================================
+
+    function _dir(string memory network) internal view returns (string memory dir) {
+        dir = string.concat(_getBaseDirPrefix(), "/deployments");
+        if (_useNetworkSubdir() && bytes(network).length > 0) {
+            dir = string.concat(dir, "/", network);
+        }
+    }
+
+    function _createDir(string memory network) internal {
+        VM.createDir(_dir(network), true);
+    }
+
+    function _filesuffix() internal view virtual returns (string memory) {
+        return "";
+    }
+
+    function _filename(string memory systemSaltString) internal view returns (string memory name) {
+        name = string.concat(systemSaltString, _filesuffix(), ".json");
+    }
+
+    function _filepath(
+        string memory network,
+        string memory systemSaltString
+    ) internal view returns (string memory path) {
+        path = string.concat(_dir(network), "/", _filename(systemSaltString));
+    }
+
+    function _filepath() internal view returns (string memory path) {
+        path = _filepath(_metadata.network, _metadata.systemSaltString);
+    }
+
+    function _loadRegistry(string memory network, string memory systemSaltString) internal override {
+        _fromJson(VM.readFile(_filepath(network, systemSaltString)));
+    }
+
+    function _saveRegistry() internal virtual override {
+        _updateFinishedAt();
+        _createDir(_metadata.network);
+        VM.writeJson(_toJson(), _filepath(_metadata.network, _metadata.systemSaltString));
+    }
+
+    /**
+     * @notice Serialize deployment to JSON string (without writing to file)
+     * @dev Useful for tests to avoid littering filesystem
+     * @return JSON string representation of the deployment
+     */
+    function _toJson() internal virtual returns (string memory) {
+        // Serialize all entries and capture final JSON
+        string memory deploymentsJson = "{}";
+        if (_keys.length > 0) {
+            for (uint256 i = 0; i < _keys.length; i++) {
+                string memory key = _keys[i];
+                string memory entryType = _entryType[key];
+
+                if (_eq(entryType, "contract")) {
+                    string memory serialized = _serializeContractToObject(key, false);
+                    deploymentsJson = VM.serializeString("deployment", key, serialized);
+                } else if (_eq(entryType, "proxy")) {
+                    string memory serialized = _serializeProxyToObject(key);
+                    deploymentsJson = VM.serializeString("deployment", key, serialized);
+                } else if (_eq(entryType, "implementation")) {
+                    string memory serialized = _serializeContractToObject(key, true); // Include proxies array
+                    deploymentsJson = VM.serializeString("deployment", key, serialized);
+                } else if (_eq(entryType, "library")) {
+                    string memory serialized = _serializeLibraryToObject(key);
+                    deploymentsJson = VM.serializeString("deployment", key, serialized);
+                } else if (
+                    _eq(entryType, "string") ||
+                    _eq(entryType, "uint256") ||
+                    _eq(entryType, "int256") ||
+                    _eq(entryType, "bool")
+                ) {
+                    deploymentsJson = _serializeParameterEntry(key);
+                }
+            }
+        }
+
+        // Build root JSON with flattened metadata - serialize in order (last one finalizes)
+        string memory rootJson = "";
+        uint256 schemaVersion = _schemaVersion;
+        if (schemaVersion == 0) {
+            schemaVersion = DEPLOYMENT_SCHEMA_VERSION;
+        }
+        rootJson = VM.serializeUint("root", "schemaVersion", schemaVersion);
+        rootJson = VM.serializeAddress("root", "deployer", _metadata.deployer);
+        rootJson = VM.serializeAddress("root", "owner", _metadata.owner);
+        rootJson = VM.serializeString("root", "saltString", _metadata.systemSaltString);
+        rootJson = VM.serializeString("root", "network", _metadata.network);
+        rootJson = VM.serializeString("root", "version", _metadata.version);
+
+        // Always include deployment field (empty object if no entries)
+        rootJson = VM.serializeString("root", "deployment", _keys.length > 0 ? deploymentsJson : "{}");
+
+        // Inject runs array AFTER all VM.serialize calls (they would overwrite manual injection)
+        rootJson = _serializeRunsToRoot(rootJson);
+
+        return rootJson;
+    }
+
+    function _deploymentBasePath(string memory key) private pure returns (string memory) {
+        return string.concat(".deployment.", key);
+    }
+
+    function _entryNamespace(string memory key) private pure returns (string memory) {
+        return string.concat("deployment:", key);
+    }
+
+    function _splitParameterKey(
+        string memory key
+    ) private pure returns (string memory baseKey, string memory fieldKey) {
+        bytes memory keyBytes = bytes(key);
+        for (uint256 i = 0; i < keyBytes.length; i++) {
+            if (keyBytes[i] == bytes1(".")) {
+                baseKey = _substring(key, 0, i);
+                fieldKey = _substring(key, i + 1, keyBytes.length);
+                return (baseKey, fieldKey);
+            }
+        }
+        baseKey = key;
+        fieldKey = "";
+    }
+
+    /**
+     * @notice Load deployment from JSON string (without reading from file)
+     * @dev Useful for tests to avoid littering filesystem
+     * @param json JSON string to parse
+     */
+    function _fromJson(string memory json) internal {
+        if (_metadata.startTimestamp != 0) {
+            revert AlreadyInitialized();
+        }
+        if (VM.keyExistsJson(json, ".schemaVersion")) {
+            _schemaVersion = VM.parseJsonUint(json, ".schemaVersion");
+        } else {
+            _schemaVersion = DEPLOYMENT_SCHEMA_VERSION;
+        }
+        // Parse metadata
+        _deserializeMetadata(json);
+
+        // Get all keys from deployment object
+        string[] memory loadedKeys = VM.parseJsonKeys(json, ".deployment");
+
+        for (uint256 i = 0; i < loadedKeys.length; i++) {
+            string memory key = loadedKeys[i];
+            string memory basePath = _deploymentBasePath(key);
+
+            if (!VM.keyExistsJson(json, basePath)) {
+                continue;
+            }
+
+            string memory categoryPath = string.concat(basePath, ".category");
+            if (VM.keyExistsJson(json, categoryPath)) {
+                string memory category = VM.parseJsonString(json, categoryPath);
+
+                if (_eq(category, "UUPS proxy")) {
+                    _deserializeProxy(json, key);
+                } else if (_eq(category, "library")) {
+                    _deserializeLibrary(json, key);
+                } else {
+                    _deserializeContract(json, key);
+                }
+
+                _deserializeParameterChildren(json, key, basePath);
+                continue;
+            }
+
+            if (!_deserializeParameterChildren(json, key, basePath)) {
+                _deserializeParameterValue(json, key, basePath);
+            }
+        }
+
+        // Post-processing: mark contracts that have proxies as implementations
+        for (uint256 i = 0; i < loadedKeys.length; i++) {
+            string memory key = loadedKeys[i];
+            if (_eq(_entryType[key], "contract")) {
+                // Check if any proxy uses this as implementation
+                for (uint256 j = 0; j < loadedKeys.length; j++) {
+                    if (
+                        _eq(_entryType[loadedKeys[j]], "proxy") &&
+                        _eq(_proxies[loadedKeys[j]].proxy.implementation, key)
+                    ) {
+                        _entryType[key] = "implementation";
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // ============================================================================
+    // JSON Serialization - Reusable Component Serializers
+    // ============================================================================
+
+    function _serializeDeploymentInfo(
+        string memory key,
+        DeploymentInfo memory info,
+        string memory json
+    ) internal returns (string memory) {
+        json = VM.serializeString(key, "category", info.category);
+        // For existing contracts, only include address and blockNumber
+        bool isExisting = _eq(info.category, "existing");
+
+        if (!isExisting) {
+            json = VM.serializeString(key, "contractPath", info.contractPath);
+            json = VM.serializeString(key, "contractType", info.contractType);
+            json = VM.serializeAddress(key, "deployer", _metadata.deployer);
+            json = VM.serializeAddress(key, "deployedTo", info.addr);
+        }
+
+        json = VM.serializeAddress(key, "address", info.addr);
+        json = VM.serializeUint(key, "blockNumber", info.blockNumber);
+
+        if (!isExisting && info.txHash != bytes32(0)) {
+            json = VM.serializeBytes32(key, "transactionHash", info.txHash);
+        }
+
+        return json;
+    }
+
+    function _serializeCREATE3Info(
+        string memory key,
+        Create3Info memory info,
+        string memory json
+    ) internal returns (string memory) {
+        json = VM.serializeString(key, "proxyType", info.proxyType);
+        json = VM.serializeString(key, "saltString", info.saltString);
+        json = VM.serializeBytes32(key, "salt", info.salt);
+        return json;
+    }
+
+    function _serializeProxyInfo(
+        string memory key,
+        ProxyInfo memory info,
+        string memory json
+    ) internal returns (string memory) {
+        if (bytes(info.implementation).length > 0) {
+            json = VM.serializeString(key, "implementation", info.implementation);
+        }
+        return json;
+    }
+
+    /**
+     * @dev Build proxies array for an implementation by iterating through all proxies
+     * @param implementationKey The key of the implementation contract
+     * @return Array of proxy keys that use this implementation
+     */
+    function _buildProxiesArray(string memory implementationKey) private view returns (string[] memory) {
+        // Count proxies that use this implementation
+        uint256 count = 0;
+        for (uint256 i = 0; i < _keys.length; i++) {
+            if (_eq(_entryType[_keys[i]], "proxy")) {
+                if (_eq(_proxies[_keys[i]].proxy.implementation, implementationKey)) {
+                    count++;
+                }
+            }
+        }
+
+        // Build array
+        string[] memory proxies = new string[](count);
+        uint256 index = 0;
+        for (uint256 i = 0; i < _keys.length; i++) {
+            if (_eq(_entryType[_keys[i]], "proxy")) {
+                if (_eq(_proxies[_keys[i]].proxy.implementation, implementationKey)) {
+                    proxies[index++] = _keys[i];
+                }
+            }
+        }
+
+        return proxies;
+    }
+
+    // ============================================================================
+    // Entry Serializers - Compose from reusable serializers
+    // ============================================================================
+
+    function _serializeContractToObject(string memory key, bool isImplementation) private returns (string memory) {
+        ContractEntry memory entry = _contracts[key];
+
+        string memory namespaceKey = _entryNamespace(key);
+        string memory entryJson = "";
+        entryJson = _serializeDeploymentInfo(namespaceKey, entry.info, entryJson);
+
+        // Add factory (if CREATE3) and deployer (executor) - skip deployer for existing contracts
+        bool isExisting = _eq(entry.info.category, "existing");
+        if (entry.factory != address(0)) {
+            entryJson = VM.serializeAddress(namespaceKey, "factory", entry.factory);
+        }
+        if (!isExisting && entry.deployer != address(0)) {
+            entryJson = VM.serializeAddress(namespaceKey, "deployer", entry.deployer);
+        }
+
+        // Build proxies array dynamically for implementations
+        if (isImplementation) {
+            string[] memory proxies = _buildProxiesArray(key);
+            // Always serialize the array, even if empty, to ensure it overwrites any previous value
+            entryJson = VM.serializeString(namespaceKey, "proxies", proxies);
+        }
+
+        return entryJson;
+    }
+
+    function _serializeProxyToObject(string memory key) private returns (string memory) {
+        ProxyEntry memory entry = _proxies[key];
+
+        string memory namespaceKey = _entryNamespace(key);
+        string memory entryJson = "";
+        entryJson = _serializeDeploymentInfo(namespaceKey, entry.info, entryJson);
+        entryJson = _serializeCREATE3Info(namespaceKey, entry.create3, entryJson);
+        entryJson = _serializeProxyInfo(namespaceKey, entry.proxy, entryJson);
+
+        // Add factory and deployer (executor)
+        entryJson = VM.serializeAddress(namespaceKey, "factory", entry.factory);
+        entryJson = VM.serializeAddress(namespaceKey, "deployer", entry.deployer);
+
+        return entryJson;
+    }
+
+    function _serializeLibraryToObject(string memory key) private returns (string memory) {
+        LibraryEntry memory entry = _libraries[key];
+
+        string memory namespaceKey = _entryNamespace(key);
+        string memory entryJson = "";
+        entryJson = _serializeDeploymentInfo(namespaceKey, entry.info, entryJson);
+
+        // Add deployer (executor)
+        entryJson = VM.serializeAddress(namespaceKey, "deployer", entry.deployer);
+
+        return entryJson;
+    }
+
+    function _serializeParameterEntry(string memory key) private returns (string memory) {
+        string memory paramType = _entryType[key];
+        (string memory base, string memory field) = _splitParameterKey(key);
+
+        if (bytes(field).length == 0) {
+            if (_eq(paramType, "string")) {
+                return VM.serializeString("deployment", base, _stringParams[key]);
+            } else if (_eq(paramType, "uint256")) {
+                return VM.serializeUint("deployment", base, _uintParams[key]);
+            } else if (_eq(paramType, "int256")) {
+                return VM.serializeInt("deployment", base, _intParams[key]);
+            } else if (_eq(paramType, ENTRY_TYPE_NUMBER)) {
+                if (_numberSupportsInt[key]) {
+                    return VM.serializeInt("deployment", base, _intParams[key]);
+                }
+                if (_numberSupportsUint[key]) {
+                    return VM.serializeUint("deployment", base, _uintParams[key]);
+                }
+                revert("Number parameter missing value");
+            } else if (_eq(paramType, "bool")) {
+                return VM.serializeBool("deployment", base, _boolParams[key]);
+            }
+            return "{}";
+        }
+
+        string memory namespaceKey = _entryNamespace(base);
+        string memory entryJson = "";
+        if (_eq(paramType, "string")) {
+            entryJson = VM.serializeString(namespaceKey, field, _stringParams[key]);
+        } else if (_eq(paramType, "uint256")) {
+            entryJson = VM.serializeUint(namespaceKey, field, _uintParams[key]);
+        } else if (_eq(paramType, "int256")) {
+            entryJson = VM.serializeInt(namespaceKey, field, _intParams[key]);
+        } else if (_eq(paramType, ENTRY_TYPE_NUMBER)) {
+            if (_numberSupportsInt[key]) {
+                entryJson = VM.serializeInt(namespaceKey, field, _intParams[key]);
+            } else if (_numberSupportsUint[key]) {
+                entryJson = VM.serializeUint(namespaceKey, field, _uintParams[key]);
+            } else {
+                revert("Number parameter missing value");
+            }
+        } else if (_eq(paramType, "bool")) {
+            entryJson = VM.serializeBool(namespaceKey, field, _boolParams[key]);
+        }
+
+        return VM.serializeString("deployment", base, entryJson);
+    }
+
+    // ============================================================================
+    // JSON Deserialization
+    // ============================================================================
+
+    function _deserializeMetadata(string memory json) private {
+        _metadata.deployer = VM.parseJsonAddress(json, ".deployer");
+        _metadata.owner = VM.parseJsonAddress(json, ".owner");
+        _metadata.network = VM.parseJsonString(json, ".network");
+        _metadata.version = VM.parseJsonString(json, ".version");
+        _metadata.systemSaltString = VM.parseJsonString(json, ".saltString");
+
+        // Count runs by trying to access increasing indices
+        uint256 runCount = 0;
+        while (VM.keyExistsJson(json, string.concat(".runs[", VM.toString(runCount), "]"))) {
+            runCount++;
+        }
+
+        // Parse each run manually (avoiding ISO fields which aren't in struct)
+        for (uint256 i = 0; i < runCount; i++) {
+            string memory runPath = string.concat(".runs[", VM.toString(i), "]");
+            RunRecord memory run;
+            run.deployer = VM.parseJsonAddress(json, string.concat(runPath, ".deployer"));
+            run.startTimestamp = VM.parseJsonUint(json, string.concat(runPath, ".startTimestamp"));
+            run.startBlock = VM.parseJsonUint(json, string.concat(runPath, ".startBlock"));
+            run.finished = VM.parseJsonBool(json, string.concat(runPath, ".finished"));
+            if (VM.keyExistsJson(json, string.concat(runPath, ".finishTimestamp"))) {
+                run.finishTimestamp = VM.parseJsonUint(json, string.concat(runPath, ".finishTimestamp"));
+            }
+            if (VM.keyExistsJson(json, string.concat(runPath, ".finishBlock"))) {
+                run.finishBlock = VM.parseJsonUint(json, string.concat(runPath, ".finishBlock"));
+            }
+            _runs.push(run);
+        }
+
+        _metadata.startTimestamp = _runs[0].startTimestamp;
+        _metadata.startBlock = _runs[0].startBlock;
+        _metadata.finishTimestamp = _runs[_runs.length - 1].finishTimestamp;
+        _metadata.finishBlock = _runs[_runs.length - 1].finishBlock;
+    }
+
+    function _deserializeContract(string memory json, string memory key) private {
+        string memory basePath = _deploymentBasePath(key);
+
+        DeploymentInfo memory info;
+        info.addr = VM.parseJsonAddress(json, string.concat(basePath, ".address"));
+        info.blockNumber = VM.parseJsonUint(json, string.concat(basePath, ".blockNumber"));
+        info.category = VM.parseJsonString(json, string.concat(basePath, ".category"));
+
+        // Only parse these fields for non-existing contracts
+        bool isExisting = _eq(info.category, "existing");
+        if (!isExisting) {
+            info.contractType = VM.parseJsonString(json, string.concat(basePath, ".contractType"));
+            info.contractPath = VM.parseJsonString(json, string.concat(basePath, ".contractPath"));
+        } else {
+            // Set defaults for existing contracts
+            info.contractType = "ExistingContract";
+            info.contractPath = "blockchain";
+        }
+        info.txHash = bytes32(0); // Not available when deserializing from JSON
+
+        // Parse factory (CREATE3) and deployer (executor) - deployer is optional for existing contracts
+        address factory = address(0);
+        if (VM.keyExistsJson(json, string.concat(basePath, ".factory"))) {
+            factory = VM.parseJsonAddress(json, string.concat(basePath, ".factory"));
+        }
+        address deployer = address(0);
+        if (!isExisting && VM.keyExistsJson(json, string.concat(basePath, ".deployer"))) {
+            deployer = VM.parseJsonAddress(json, string.concat(basePath, ".deployer"));
+        }
+
+        _contracts[key] = ContractEntry({info: info, factory: factory, deployer: deployer});
+
+        _exists[key] = true;
+        _entryType[key] = "contract";
+        _keys.push(key);
+    }
+
+    function _deserializeProxy(string memory json, string memory key) private {
+        string memory basePath = _deploymentBasePath(key);
+
+        DeploymentInfo memory info;
+        info.addr = VM.parseJsonAddress(json, string.concat(basePath, ".address"));
+        info.contractType = VM.parseJsonString(json, string.concat(basePath, ".contractType"));
+        info.contractPath = VM.parseJsonString(json, string.concat(basePath, ".contractPath"));
+        info.txHash = bytes32(0); // Not available when deserializing from JSON
+        info.blockNumber = VM.parseJsonUint(json, string.concat(basePath, ".blockNumber"));
+        info.category = VM.parseJsonString(json, string.concat(basePath, ".category"));
+
+        Create3Info memory create3Info;
+        create3Info.salt = VM.parseJsonBytes32(json, string.concat(basePath, ".salt"));
+        create3Info.saltString = VM.parseJsonString(json, string.concat(basePath, ".saltString"));
+        string memory proxyTypePath = string.concat(basePath, ".proxyType");
+        if (VM.keyExistsJson(json, proxyTypePath)) {
+            create3Info.proxyType = VM.parseJsonString(json, proxyTypePath);
+        }
+
+        ProxyInfo memory proxyInfo;
+        string memory implKeyPath = string.concat(basePath, ".implementation");
+        if (VM.keyExistsJson(json, implKeyPath)) {
+            proxyInfo.implementation = VM.parseJsonString(json, implKeyPath);
+        }
+
+        // Parse factory (CREATE3 - always present for proxies) and deployer (executor)
+        address factory = VM.parseJsonAddress(json, string.concat(basePath, ".factory"));
+        address deployer = VM.parseJsonAddress(json, string.concat(basePath, ".deployer"));
+
+        _proxies[key] = ProxyEntry({
+            info: info,
+            create3: create3Info,
+            proxy: proxyInfo,
+            factory: factory,
+            deployer: deployer
+        });
+        _exists[key] = true;
+        _entryType[key] = "proxy";
+        _keys.push(key);
+        _resumedProxies[key] = true;
+    }
+
+    function _deserializeLibrary(string memory json, string memory key) private {
+        string memory basePath = _deploymentBasePath(key);
+
+        DeploymentInfo memory info;
+        info.addr = VM.parseJsonAddress(json, string.concat(basePath, ".address"));
+        info.contractType = VM.parseJsonString(json, string.concat(basePath, ".contractType"));
+        info.contractPath = VM.parseJsonString(json, string.concat(basePath, ".contractPath"));
+        info.blockNumber = VM.parseJsonUint(json, string.concat(basePath, ".blockNumber"));
+        info.category = VM.parseJsonString(json, string.concat(basePath, ".category"));
+
+        // Parse deployer (executor)
+        address deployer = VM.parseJsonAddress(json, string.concat(basePath, ".deployer"));
+
+        _libraries[key] = LibraryEntry({info: info, deployer: deployer});
+        _exists[key] = true;
+        _entryType[key] = "library";
+        _keys.push(key);
+    }
+
+    function _deserializeParameterChildren(
+        string memory json,
+        string memory baseKey,
+        string memory basePath
+    ) private returns (bool) {
+        if (!VM.keyExistsJson(json, basePath)) {
+            return false;
+        }
+
+        (bool hasChildren, string[] memory childKeys) = _tryParseJsonKeys(json, basePath);
+        if (!hasChildren) {
+            return false;
+        }
+
+        bytes32 baseTypeHash = keccak256(bytes(_entryType[baseKey]));
+        bool isStructuredEntry = _exists[baseKey] &&
+            (baseTypeHash == keccak256("contract") ||
+                baseTypeHash == keccak256("implementation") ||
+                baseTypeHash == keccak256("proxy") ||
+                baseTypeHash == keccak256("library"));
+
+        for (uint256 i = 0; i < childKeys.length; i++) {
+            if (isStructuredEntry && _isReservedContractField(childKeys[i])) {
+                continue;
+            }
+
+            string memory childKey = string.concat(baseKey, ".", childKeys[i]);
+            string memory childPath = string.concat(basePath, ".", childKeys[i]);
+
+            if (_deserializeParameterChildren(json, childKey, childPath)) {
+                continue;
+            }
+
+            _deserializeParameterValue(json, childKey, childPath);
+        }
+
+        return true;
+    }
+
+    function _deserializeParameterValue(string memory json, string memory key, string memory valuePath) private {
+        string memory paramType;
+
+        (bool intSuccess, int256 intValue) = _tryParseJsonInt(json, valuePath);
+        (bool uintSuccess, uint256 uintValue) = _tryParseJsonUint(json, valuePath);
+
+        if (intSuccess || uintSuccess) {
+            paramType = ENTRY_TYPE_NUMBER;
+
+            if (intSuccess) {
+                _intParams[key] = intValue;
+                _numberSupportsInt[key] = true;
+            }
+            if (uintSuccess) {
+                _uintParams[key] = uintValue;
+                _numberSupportsUint[key] = true;
+            }
+        } else {
+            (bool boolSuccess, bool boolValue) = _tryParseJsonBool(json, valuePath);
+            if (boolSuccess) {
+                _boolParams[key] = boolValue;
+                paramType = "bool";
+            } else {
+                (bool stringSuccess, string memory stringValue) = _tryParseJsonString(json, valuePath);
+                if (stringSuccess) {
+                    _stringParams[key] = stringValue;
+                    paramType = "string";
+                }
+            }
+        }
+
+        require(bytes(paramType).length != 0, "Unsupported parameter type");
+
+        _exists[key] = true;
+        _entryType[key] = paramType;
+        _keys.push(key);
+    }
+
+    function _tryParseJsonKeys(string memory json, string memory path) private pure returns (bool, string[] memory) {
+        try VM.parseJsonKeys(json, path) returns (string[] memory keys) {
+            return (true, keys);
+        } catch {
+            return (false, new string[](0));
+        }
+    }
+
+    function _tryParseJsonBool(string memory json, string memory path) private pure returns (bool, bool) {
+        try VM.parseJsonBool(json, path) returns (bool value) {
+            return (true, value);
+        } catch {
+            return (false, false);
+        }
+    }
+
+    function _tryParseJsonString(string memory json, string memory path) private pure returns (bool, string memory) {
+        try VM.parseJsonString(json, path) returns (string memory value) {
+            return (true, value);
+        } catch {
+            return (false, "");
+        }
+    }
+
+    function _tryParseJsonInt(string memory json, string memory path) private pure returns (bool, int256) {
+        try VM.parseJsonInt(json, path) returns (int256 value) {
+            return (true, value);
+        } catch {
+            return (false, 0);
+        }
+    }
+
+    function _tryParseJsonUint(string memory json, string memory path) private pure returns (bool, uint256) {
+        try VM.parseJsonUint(json, path) returns (uint256 value) {
+            return (true, value);
+        } catch {
+            return (false, 0);
+        }
+    }
+
+    function _isReservedContractField(string memory field) private pure returns (bool) {
+        bytes32 fieldHash = keccak256(bytes(field));
+        return (fieldHash == keccak256("address") ||
+            fieldHash == keccak256("blockNumber") ||
+            fieldHash == keccak256("category") ||
+            fieldHash == keccak256("contractPath") ||
+            fieldHash == keccak256("contractType") ||
+            fieldHash == keccak256("deployedTo") ||
+            fieldHash == keccak256("deployer") ||
+            fieldHash == keccak256("factory") ||
+            fieldHash == keccak256("implementation") ||
+            fieldHash == keccak256("proxyType") ||
+            fieldHash == keccak256("salt") ||
+            fieldHash == keccak256("saltString") ||
+            fieldHash == keccak256("transactionHash") ||
+            fieldHash == keccak256("proxies") ||
+            fieldHash == keccak256("dryRun"));
+    }
+
+    // ============================================================================
+    // Timestamp Formatting
+    // ============================================================================
+
+    /**
+     * @notice Convert Unix timestamp to ISO 8601 date-time string
+     * @param timestamp Unix timestamp in seconds
+     * @return ISO 8601 formatted string (YYYY-MM-DDTHH:MM:SSZ)
+     */
+    function _formatTimestamp(uint256 timestamp) internal pure returns (string memory) {
+        if (timestamp == 0) return "";
+
+        // Calculate date components
+        uint256 z = timestamp / 86400 + 719468;
+        uint256 era = z / 146097;
+        uint256 doe = z - era * 146097;
+        uint256 yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        uint256 y = yoe + era * 400;
+        uint256 doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        uint256 mp = (5 * doy + 2) / 153;
+        uint256 d = doy - (153 * mp + 2) / 5 + 1;
+        uint256 m = mp < 10 ? mp + 3 : mp - 9;
+        y = m <= 2 ? y + 1 : y;
+
+        // Calculate time components
+        uint256 secondsInDay = timestamp % 86400;
+        uint256 hour = secondsInDay / 3600;
+        uint256 minute = (secondsInDay % 3600) / 60;
+        uint256 second = secondsInDay % 60;
+
+        // Format as ISO 8601: YYYY-MM-DDTHH:MM:SSZ
+        return
+            string(
+                abi.encodePacked(
+                    _padZero(y, 4),
+                    "-",
+                    _padZero(m, 2),
+                    "-",
+                    _padZero(d, 2),
+                    "T",
+                    _padZero(hour, 2),
+                    ":",
+                    _padZero(minute, 2),
+                    ":",
+                    _padZero(second, 2),
+                    "Z"
+                )
+            );
+    }
+
+    /**
+     * @notice Pad number with leading zeros
+     * @param num Number to pad
+     * @param width Target width
+     * @return Padded string
+     */
+    function _padZero(uint256 num, uint256 width) internal pure returns (string memory) {
+        bytes memory b = bytes(VM.toString(num));
+        if (b.length >= width) return string(b);
+
+        bytes memory padded = new bytes(width);
+        uint256 padLen = width - b.length;
+        for (uint256 i = 0; i < padLen; i++) {
+            padded[i] = "0";
+        }
+        for (uint256 i = 0; i < b.length; i++) {
+            padded[padLen + i] = b[i];
+        }
+        return string(padded);
+    }
+
+    /**
+     * @notice Serialize runs array for audit trail
+     * @return JSON array of run records
+     */
+    function _serializeRunsToRoot(string memory rootJson) internal view returns (string memory) {
+        // Build runs array as proper JSON array string
+        string memory runsArrayStr = "[";
+        for (uint256 i = 0; i < _runs.length; i++) {
+            if (i > 0) runsArrayStr = string.concat(runsArrayStr, ",");
+
+            // Build individual run object
+            string memory runJson = "{";
+            runJson = string.concat(runJson, '"deployer":"', VM.toString(_runs[i].deployer), '",');
+            runJson = string.concat(runJson, '"startTimestamp":', VM.toString(_runs[i].startTimestamp), ",");
+            runJson = string.concat(runJson, '"startTimestampISO":"', _formatTimestamp(_runs[i].startTimestamp), '",');
+            runJson = string.concat(runJson, '"finishTimestamp":', VM.toString(_runs[i].finishTimestamp), ",");
+            runJson = string.concat(
+                runJson,
+                '"finishTimestampISO":"',
+                _formatTimestamp(_runs[i].finishTimestamp),
+                '",'
+            );
+            runJson = string.concat(runJson, '"startBlock":', VM.toString(_runs[i].startBlock), ",");
+            runJson = string.concat(runJson, '"finishBlock":', VM.toString(_runs[i].finishBlock), ",");
+            runJson = string.concat(runJson, '"finished":', _runs[i].finished ? "true" : "false");
+            runJson = string.concat(runJson, "}");
+
+            runsArrayStr = string.concat(runsArrayStr, runJson);
+        }
+        runsArrayStr = string.concat(runsArrayStr, "]");
+
+        // Manually inject the runs array into the root JSON
+        // This is a workaround because VM.serialize* doesn't support proper arrays
+        return _injectJsonField(rootJson, "runs", runsArrayStr, false);
+    }
+
+    function _injectJsonField(
+        string memory json,
+        string memory fieldName,
+        string memory fieldValue,
+        bool isString
+    ) internal pure returns (string memory) {
+        // Find the closing brace
+        bytes memory jsonBytes = bytes(json);
+        require(jsonBytes.length > 0 && jsonBytes[jsonBytes.length - 1] == "}", "Invalid JSON");
+
+        // Remove closing brace
+        string memory jsonWithoutClosing = _substring(json, 0, jsonBytes.length - 1);
+
+        // Add comma if there's existing content (not just opening brace)
+        string memory result = jsonWithoutClosing;
+        if (jsonBytes.length > 2) {
+            // More than just "{}"
+            result = string.concat(result, ",");
+        }
+
+        // Add the field
+        result = string.concat(result, '"', fieldName, '":');
+        if (isString) {
+            result = string.concat(result, '"', fieldValue, '"');
+        } else {
+            result = string.concat(result, fieldValue);
+        }
+
+        // Close the JSON
+        result = string.concat(result, "}");
+
+        return result;
+    }
+
+    function _substring(string memory str, uint256 startIndex, uint256 endIndex) internal pure returns (string memory) {
+        bytes memory strBytes = bytes(str);
+        bytes memory result = new bytes(endIndex - startIndex);
+        for (uint256 i = startIndex; i < endIndex; i++) {
+            result[i - startIndex] = strBytes[i];
+        }
+        return string(result);
+    }
+
+    // ============================================================================
+    // Auto-save Support
+    // ============================================================================
+}

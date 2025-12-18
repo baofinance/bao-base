@@ -1,3 +1,11 @@
+script/deployment/UUPSProxyDeployStub.sol:UUPSProxyDeployStub
+| function name    |       max |
+|------------------|-----------|
+| owner            | 2.380e+02 |
+| proxiableUUID    | 1.870e+02 |
+| upgradeTo        | 4.405e+04 |
+| upgradeToAndCall | 1.678e+05 |
+
 src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1
 | function name     |       max |
 |-------------------|-----------|
@@ -64,57 +72,57 @@ src/Token.sol:Token
 |-------------------------------------|-----------|
 | hasNonMutatingParameterlessFunction | 4.190e+03 |
 
-test/BaoAccessControl.t.sol:MockBaoAccessControl
-| function name           |       max |
-|-------------------------|-----------|
-| ANOTHER_ROLE            | 2.390e+02 |
-| ANOTHER_ROLE_ADMIN_ROLE | 2.160e+02 |
-| grantRoles              | 2.636e+04 |
-| hasAllRoles             | 2.636e+03 |
-| hasAnyRole              | 2.635e+03 |
-| initialize              | 7.042e+04 |
-| owner                   | 2.396e+03 |
-| transferOwnership       | 1.212e+04 |
+test/mocks/MockImplementationOZOwnable.sol:MockImplementationOZOwnable
+| function name     |       max |
+|-------------------|-----------|
+| initialize        | 7.077e+04 |
+| owner             | 2.412e+03 |
+| pendingOwner      | 1.860e+02 |
+| transferOwnership | 5.287e+03 |
 
-test/PermittableERC20.t.sol:PermittableERC20_v2
-| function name    |       max |
-|------------------|-----------|
-| DOMAIN_SEPARATOR | 6.500e+03 |
-| proxiableUUID    | 3.490e+02 |
-| version          | 3.188e+03 |
+test/mocks/MockImplementationWithState.sol:MockImplementationWithState
+| function name             |       max |
+|---------------------------|-----------|
+| UPGRADE_INTERFACE_VERSION | 4.580e+02 |
+| implementationType        | 3.250e+02 |
+| owner                     | 2.423e+03 |
+| postUpgradeSetup          | 3.723e+04 |
+| proxiableUUID             | 3.920e+02 |
+| setValue                  | 8.943e+03 |
+| stableValue               | 2.357e+03 |
+| transferOwnership         | 2.515e+03 |
+| upgradeToAndCall          | 4.890e+04 |
+| value                     | 2.377e+03 |
 
-test/Solidity.t.sol:ReturnGas
+test/mocks/basic/MockDependencies.sol:MockToken
 | function name   |       max |
 |-----------------|-----------|
-| doReturn        | 4.840e+02 |
-| doVariable      | 5.060e+02 |
+| oracle          | 2.357e+03 |
 
-test/Token.t.sol:MockERC20
+test/mocks/upgradeable/MockCounter.sol:CounterV1
+| function name     |       max |
+|-------------------|-----------|
+| increment         | 5.271e+03 |
+| initialize        | 9.239e+04 |
+| owner             | 2.329e+03 |
+| proxiableUUID     | 3.920e+02 |
+| transferOwnership | 1.064e+04 |
+| upgradeTo         | 1.070e+04 |
+| value             | 2.338e+03 |
+
+test/mocks/upgradeable/MockMinter.sol:MockMinter
 | function name   |       max |
 |-----------------|-----------|
-| balanceOf       | 2.559e+03 |
-| decimals        | 2.377e+03 |
-| mint            | 6.821e+04 |
-| name            | 3.086e+03 |
-| symbol          | 3.129e+03 |
-| totalSupply     | 2.325e+03 |
+| PEGGED_TOKEN    | 3.260e+02 |
+| initialize      | 9.249e+04 |
+| oracle          | 2.357e+03 |
 
-test/Token.t.sol:MockFunctions
-| function name      |       max |
-|--------------------|-----------|
-| noParamsNoReturn   | 1.630e+02 |
-| noParamsWithReturn | 2.450e+02 |
-
-test/Token.t.sol:MockNonERC20
-| function name   |       max |
-|-----------------|-----------|
-| name            | 1.230e+02 |
-
-test/Token.t.sol:TokenLibraryWrapper
-| function name                       |       max |
-|-------------------------------------|-----------|
-| allOf                               | 6.048e+03 |
-| allOfQuiet                          | 6.066e+03 |
-| ensureContract                      | 3.078e+03 |
-| ensureNonZeroAddress                | 4.820e+02 |
-| hasNonMutatingParameterlessFunction | 8.001e+03 |
+test/mocks/upgradeable/MockOracle.sol:OracleV1
+| function name     |       max |
+|-------------------|-----------|
+| initialize        | 9.235e+04 |
+| owner             | 2.418e+03 |
+| price             | 2.315e+03 |
+| transferOwnership | 1.012e+04 |
+| upgradeTo         | 1.077e+04 |
+| upgradeToAndCall  | 3.890e+04 |

@@ -1,0 +1,17 @@
+{
+  "lib/bao-factory": {
+    "rev": "332edff85cabcc066c47f8848213ae6b2b38a5ac"
+  },
+  "lib/forge-std": {
+    "rev": "b93cf4bc34ff214c099dc970b153f85ade8c9f66"
+  },
+  "lib/openzeppelin-contracts-upgradeable": {
+    "rev": "fa525310e45f91eb20a6d3baa2644be8e0adba31"
+  },
+  "lib/openzeppelin-foundry-upgrades": {
+    "rev": "16e0ae21e0e39049f619f2396fa28c57fad07368"
+  },
+  "lib/solady": {
+    "rev": "717c0a860a83dc9a1520d32384577aec51cecd84"
+  }
+}
