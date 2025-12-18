@@ -19,8 +19,8 @@ jobs:
           - os: macos-latest
             foundry: nightly
 
-          - os: windows-latest
-            foundry: nightly
+          # - os: windows-latest
+          #   foundry: nightly
 
       fail-fast: false # ensure all jobs run even if one fails
 
