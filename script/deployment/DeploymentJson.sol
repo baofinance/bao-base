@@ -98,9 +98,13 @@ abstract contract DeploymentJson is DeploymentBase {
         return string.concat(_getRoot(), "/", _systemSaltString, ".json");
     }
 
-    function _getOutputConfigDir() internal returns (string memory) {
-        if (bytes(_network).length > 0) return string.concat(_getRoot(), "/", _systemSaltString, "/", _network);
-        else return string.concat(_getRoot(), "/", _systemSaltString);
+    function _getOutputConfigDir() internal returns (string memory dir) {
+        // name the directory so it appears after the .json file using ls (with LC_COLLATE=C)
+        // not .log because .gitignore typically ignores .log files
+        dir = string.concat(_getRoot(), "/", _systemSaltString, ".logs");
+        if (bytes(_network).length > 0) {
+            dir = string.concat(dir, "/", _network);
+        }
     }
 
     function _getOutputConfigPath() internal returns (string memory) {
