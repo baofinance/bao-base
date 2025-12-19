@@ -8,9 +8,9 @@
     "startTimestamp": 1,
     "started": "1970-01-01T00:00:01Z",
     "startBlock": 1,
-    "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+    "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
     "stub": {
-      "address": "0x104fbc016f4bb334d775a19e8a6510109ac63e00",
+      "address": "0x104fBc016F4bb334D775a19E8A6510109AC63E00",
       "contractType": "UUPSProxyDeployStub",
       "contractPath": "script/deployment/UUPSProxyDeployStub.sol",
       "blockNumber": 1
@@ -19,64 +19,64 @@
     "finished": "1970-01-01T00:00:01Z",
     "finishBlock": 1
   },
-  "BaoFactory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458",
+  "BaoFactory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458",
   "contracts": {
     "Oracle1": {
-      "address": "0x19cdc6af8a788969003607b763089fee8bff0993",
+      "address": "0x19Cdc6Af8a788969003607b763089fEe8bff0993",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
-      "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
       "blockNumber": 1,
-      "factory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458",
+      "factory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458",
       "owner": "0x0000000000000000000000000000000000001234",
       "category": "UUPS proxy",
       "saltString": "DeploymentUpgradeTest::Oracle1",
       "salt": "0x2f330af184c5bd7f999dab27e893544fa50ee2ff4bcbf9b63a465b6a92af7f66",
       "implementation": {
-        "address": "0x037eda3adb1198021a9b2e88c22b464fd38db3f3",
+        "address": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
         "contractType": "OracleV1",
         "contractPath": "test/mocks/upgradeable/MockOracle.sol",
-        "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+        "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
         "blockNumber": 1,
         "ownershipModel": "transferred-after-deploy"
       }
     },
     "Oracle2": {
-      "address": "0x3c85bd9283cfbecabd43dbc56b30a155baf2cf83",
+      "address": "0x3c85BD9283cfbecAbD43dbC56b30A155bAF2cF83",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
-      "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
       "blockNumber": 1,
-      "factory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458",
+      "factory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458",
       "owner": "0x0000000000000000000000000000000000001234",
       "category": "UUPS proxy",
       "saltString": "DeploymentUpgradeTest::Oracle2",
       "salt": "0x976e5070903006af49230e904a962dd52af37182aa4923d517f4b6035f31eb49",
       "implementation": {
-        "address": "0xddc10602782af652bb913f7bde1fd82981db7dd9",
+        "address": "0xDDc10602782af652bB913f7bdE1fD82981Db7dd9",
         "contractType": "OracleV1",
         "contractPath": "test/mocks/upgradeable/MockOracle.sol",
-        "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+        "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
         "blockNumber": 1,
         "ownershipModel": "transferred-after-deploy"
       }
     },
     "Counter": {
-      "address": "0x964cdd1b46abd52741460b951c239a18d366eccc",
+      "address": "0x964CDD1B46abD52741460b951C239A18d366eccC",
       "contractType": "ERC1967Proxy",
       "contractPath": "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol",
-      "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
       "blockNumber": 1,
-      "factory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458",
+      "factory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458",
       "owner": "0x0000000000000000000000000000000000001234",
       "category": "UUPS proxy",
       "saltString": "DeploymentUpgradeTest::Counter",
       "salt": "0xad516c037fdcae7551ce11d15d30a0e5c6326a7af5957fdefe07091786ad66d7",
       "implementation": {
-        "address": "0x7fdb3132ff7d02d8b9e221c61cc895ce9a4bb773",
+        "address": "0x7FdB3132Ff7D02d8B9e221c61cC895ce9a4bb773",
         "contractType": "CounterV1",
         "contractPath": "test/mocks/upgradeable/MockCounter.sol",
-        "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f",
+        "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
         "blockNumber": 1,
         "ownershipModel": "transferred-after-deploy"
       }

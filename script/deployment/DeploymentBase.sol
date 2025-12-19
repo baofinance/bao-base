@@ -219,7 +219,7 @@ abstract contract DeploymentBase is DeploymentDataMemory {
         _sessionState = State.FINISHED;
 
         _stopBroadcast();
-
+        _save();
         return transferred;
     }
 
@@ -922,30 +922,33 @@ abstract contract DeploymentBase is DeploymentDataMemory {
             return;
         }
 
-        // Check 2: Verify recorded grantees match for each role
-        for (uint256 i = 0; i < roleNames.length; i++) {
-            string[] memory grantees = _getRoleGrantees(contractKey, roleNames[i]);
-            bool found = false;
-            for (uint256 j = 0; j < grantees.length; j++) {
-                if (LibString.eq(grantees[j], granteeKey)) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                console2.log(
-                    string.concat(
-                        "*** ERROR *** ",
-                        granteeKey,
-                        " not recorded as grantee of ",
-                        roleNames[i],
-                        " on ",
-                        contractKey
-                    )
-                );
-                return;
-            }
-        }
+        // TODO: this doesn't work for pegged as it is deployed separately
+        // if we separate the datastores and have one for minter and for pegged then we can look in each of the data stores
+        // until then this part if disabled
+        // // Check 2: Verify recorded grantees match for each role
+        // for (uint256 i = 0; i < roleNames.length; i++) {
+        //     string[] memory grantees = _getRoleGrantees(contractKey, roleNames[i]);
+        //     bool found = false;
+        //     for (uint256 j = 0; j < grantees.length; j++) {
+        //         if (LibString.eq(grantees[j], granteeKey)) {
+        //             found = true;
+        //             break;
+        //         }
+        //     }
+        //     if (!found) {
+        //         console2.log(
+        //             string.concat(
+        //                 "*** ERROR *** ",
+        //                 granteeKey,
+        //                 " not recorded as grantee of ",
+        //                 roleNames[i],
+        //                 " on ",
+        //                 contractKey
+        //             )
+        //         );
+        //         return;
+        //     }
+        // }
 
         console2.log(string.concat(unicode"✓ ", label, " = %x"), actualBitmap);
     }

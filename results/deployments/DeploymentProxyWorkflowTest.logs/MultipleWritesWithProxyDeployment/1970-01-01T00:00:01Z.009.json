@@ -8,7 +8,7 @@
     "startTimestamp": 1,
     "started": "1970-01-01T00:00:01Z",
     "startBlock": 1,
-    "deployer": "0x5615deb798bb3e4dfa0139dfa1b3d433cc23b72f"
+    "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f"
   },
-  "BaoFactory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458"
+  "BaoFactory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458"
 }

@@ -537,7 +537,7 @@ abstract contract DeploymentJson is DeploymentBase {
     }
 
     function _encodeAddressValue(address value) private pure returns (string memory) {
-        return string.concat('"', LibString.toHexString(uint160(value), 20), '"');
+        return string.concat('"', LibString.toHexStringChecksummed(value), '"');
     }
 
     /// @notice Encode address key with lenient resolution

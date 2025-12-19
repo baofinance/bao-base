@@ -8,9 +8,9 @@
     "startTimestamp": 1000000,
     "started": "1970-01-12T13:46:40Z",
     "startBlock": 100,
-    "deployer": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
+    "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
     "stub": {
-      "address": "0xffd4505b3452dc22f8473616d50503ba9e1710ac",
+      "address": "0xffD4505B3452Dc22f8473616d50503bA9E1710Ac",
       "contractType": "UUPSProxyDeployStub",
       "contractPath": "script/deployment/UUPSProxyDeployStub.sol",
       "blockNumber": 100
@@ -19,21 +19,21 @@
     "finished": "1970-01-12T13:46:40Z",
     "finishBlock": 100
   },
-  "BaoFactory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458",
+  "BaoFactory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458",
   "contracts": {
     "collateral": {
-      "address": "0x8d2c17fad02b7bb64139109c6533b7c2b9cadb81",
+      "address": "0x8d2C17FAd02B7bb64139109c6533b7C2b9CADb81",
       "contractType": "MockERC20",
       "contractPath": "test/mocks/MockERC20.sol",
-      "deployer": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
+      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
       "blockNumber": 100,
       "category": "contract"
     },
     "pegged": {
-      "address": "0x3c8ca53ee5661d29d3d3c0732689a4b86947eaf0",
+      "address": "0x3C8Ca53ee5661D29d3d3C0732689a4b86947EAF0",
       "contractType": "MockERC20",
       "contractPath": "test/mocks/MockERC20.sol",
-      "deployer": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
+      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
       "blockNumber": 100,
       "category": "contract"
     }

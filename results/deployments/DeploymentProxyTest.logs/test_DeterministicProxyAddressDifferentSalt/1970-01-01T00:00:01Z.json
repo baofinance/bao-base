@@ -8,13 +8,13 @@
     "startTimestamp": 1,
     "started": "1970-01-01T00:00:01Z",
     "startBlock": 1,
-    "deployer": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
+    "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
     "stub": {
-      "address": "0xffd4505b3452dc22f8473616d50503ba9e1710ac",
+      "address": "0xffD4505B3452Dc22f8473616d50503bA9E1710Ac",
       "contractType": "UUPSProxyDeployStub",
       "contractPath": "script/deployment/UUPSProxyDeployStub.sol",
       "blockNumber": 1
     }
   },
-  "BaoFactory": "0xd696e56b3a054734d4c6dcbd32e11a278b0ec458"
+  "BaoFactory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458"
 }

@@ -136,7 +136,7 @@ contract DeploymentAddressParsingTest is BaoTest {
 
     function test_ParseAddress_FullAddress() public view {
         address expected = 0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84;
-        address result = harness.parseAddress("0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84");
+        address result = harness.parseAddress("0xaE7ab96520DE3A18E5e111B5EaAb095312D7fE84");
         assertEq(result, expected);
     }
 
