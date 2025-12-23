@@ -11,6 +11,24 @@ abstract contract BaoTest is Test {
     // Matches forge's assertApproxEqRel scaling: 1e18 == 100% relative tolerance.
     uint256 private constant RELATIVE_TOLERANCE_SCALE = 1e18;
 
+    function isApprox(uint256 actual, uint256 expected, uint256 absTolerance) internal pure returns (bool) {
+        return isApprox(actual, expected, absTolerance, 0);
+    }
+
+    function isApprox(
+        uint256 actual,
+        uint256 expected,
+        uint256 absTolerance,
+        uint256 relTolerance
+    ) internal pure returns (bool) {
+        uint256 effectiveTolerance = _effectiveTolerance(actual, expected, absTolerance, relTolerance);
+
+        if (actual > expected) {
+            return (actual - expected) <= effectiveTolerance;
+        }
+        return (expected - actual) <= effectiveTolerance;
+    }
+
     function assertApprox(uint256 actual, uint256 expected, uint256 absTolerance) internal pure {
         _assertApprox(actual, expected, absTolerance, 0, "");
     }
@@ -40,7 +58,22 @@ abstract contract BaoTest is Test {
         uint256 relTolerance,
         string memory message
     ) private pure {
-        uint256 effectiveTolerance = absTolerance;
+        uint256 effectiveTolerance = _effectiveTolerance(actual, expected, absTolerance, relTolerance);
+
+        if (bytes(message).length == 0) {
+            assertApproxEqAbs(actual, expected, effectiveTolerance);
+        } else {
+            assertApproxEqAbs(actual, expected, effectiveTolerance, message);
+        }
+    }
+
+    function _effectiveTolerance(
+        uint256 actual,
+        uint256 expected,
+        uint256 absTolerance,
+        uint256 relTolerance
+    ) private pure returns (uint256 effectiveTolerance) {
+        effectiveTolerance = absTolerance;
 
         if (relTolerance > 0) {
             uint256 maxMagnitude = actual > expected ? actual : expected;
@@ -55,12 +88,6 @@ abstract contract BaoTest is Test {
                     effectiveTolerance = relBound;
                 }
             }
-        }
-
-        if (bytes(message).length == 0) {
-            assertApproxEqAbs(actual, expected, effectiveTolerance);
-        } else {
-            assertApproxEqAbs(actual, expected, effectiveTolerance, message);
         }
     }
 }
