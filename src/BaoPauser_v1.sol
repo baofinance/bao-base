@@ -54,7 +54,9 @@ contract BaoPauser_v1 is UUPSUpgradeable, BaoFixedOwnable, IERC5313 {
     /// @notice Deploy the pauser with fixed ownership to Harbor multisig
     /// @dev No parameters - deterministic bytecode for CREATE3 deployment
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() BaoFixedOwnable(address(0), _OWNER, 0) {}
+    constructor() BaoFixedOwnable(address(0), _OWNER, 0) {
+        _disableInitializers();
+    }
 
     /*//////////////////////////////////////////////////////////////////////////
                                   PUBLIC FUNCTIONS
