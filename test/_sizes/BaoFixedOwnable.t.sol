@@ -5,7 +5,7 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import {Test} from "forge-std/Test.sol";
 
-import {IBaoOwnableFixed} from "@bao/interfaces/IBaoOwnableFixed.sol";
+import {IBaoFixedOwnable} from "@bao/interfaces/IBaoFixedOwnable.sol";
 import {BaoFixedOwnable} from "@bao/BaoFixedOwnable.sol";
 
 contract DerivedBaoFixedOwnable is BaoFixedOwnable {
@@ -37,26 +37,26 @@ contract TestBaoFixedOwnableOnly is Test {
 
     function _initialize(address beforeOwner, address delayedOwner, uint256 delay) internal returns (address ownable) {
         vm.expectEmit(true, true, true, true);
-        emit IBaoOwnableFixed.OwnershipTransferred(address(0), beforeOwner);
+        emit IBaoFixedOwnable.OwnershipTransferred(address(0), beforeOwner);
         vm.expectEmit(true, true, true, true);
-        emit IBaoOwnableFixed.OwnershipTransferred(beforeOwner, delayedOwner);
+        emit IBaoFixedOwnable.OwnershipTransferred(beforeOwner, delayedOwner);
         ownable = address(new DerivedBaoFixedOwnable(beforeOwner, delayedOwner, delay));
 
         if (delay > 0) {
-            assertEq(IBaoOwnableFixed(ownable).owner(), beforeOwner);
+            assertEq(IBaoFixedOwnable(ownable).owner(), beforeOwner);
 
             skip(delay - 1);
-            assertEq(IBaoOwnableFixed(ownable).owner(), beforeOwner);
+            assertEq(IBaoFixedOwnable(ownable).owner(), beforeOwner);
 
             skip(1);
         }
 
-        assertEq(IBaoOwnableFixed(ownable).owner(), delayedOwner);
+        assertEq(IBaoFixedOwnable(ownable).owner(), delayedOwner);
     }
 
     function _introspectionOnly(address ownable) internal view {
         assertTrue(IERC165(ownable).supportsInterface(type(IERC165).interfaceId));
-        assertTrue(IERC165(ownable).supportsInterface(type(IBaoOwnableFixed).interfaceId));
+        assertTrue(IERC165(ownable).supportsInterface(type(IBaoFixedOwnable).interfaceId));
     }
 
     function test_introspection() public virtual {
@@ -74,14 +74,14 @@ contract TestBaoFixedOwnableOnly is Test {
         DerivedBaoFixedOwnable(ownable).unprotected();
 
         vm.prank(owner);
-        vm.expectRevert(IBaoOwnableFixed.Unauthorized.selector);
+        vm.expectRevert(IBaoFixedOwnable.Unauthorized.selector);
         DerivedBaoFixedOwnable(ownable).protected();
 
         skip(3600);
 
         DerivedBaoFixedOwnable(ownable).unprotected();
 
-        vm.expectRevert(IBaoOwnableFixed.Unauthorized.selector);
+        vm.expectRevert(IBaoFixedOwnable.Unauthorized.selector);
         DerivedBaoFixedOwnable(ownable).protected();
 
         vm.prank(owner);
@@ -95,13 +95,13 @@ contract TestBaoFixedOwnableOnly is Test {
         address ownable = address(new DerivedBaoFixedOwnable(address(this), address(0), 3600));
 
         DerivedBaoFixedOwnable(ownable).protected();
-        assertEq(IBaoOwnableFixed(ownable).owner(), address(this));
+        assertEq(IBaoFixedOwnable(ownable).owner(), address(this));
 
         skip(3600);
 
-        vm.expectRevert(IBaoOwnableFixed.Unauthorized.selector);
+        vm.expectRevert(IBaoFixedOwnable.Unauthorized.selector);
         DerivedBaoFixedOwnable(ownable).protected();
-        assertEq(IBaoOwnableFixed(ownable).owner(), address(0));
+        assertEq(IBaoFixedOwnable(ownable).owner(), address(0));
     }
 
     function test_transfer1stepZero(uint256 delay) public {
@@ -126,23 +126,23 @@ contract TestBaoFixedOwnableOnly is Test {
         BaoFixedOwnableDeployer deployer = new BaoFixedOwnableDeployer();
 
         vm.expectEmit(true, true, true, true);
-        emit IBaoOwnableFixed.OwnershipTransferred(address(0), beforeOwner);
+        emit IBaoFixedOwnable.OwnershipTransferred(address(0), beforeOwner);
         vm.expectEmit(true, true, true, true);
-        emit IBaoOwnableFixed.OwnershipTransferred(beforeOwner, owner);
+        emit IBaoFixedOwnable.OwnershipTransferred(beforeOwner, owner);
         address ownable = deployer.deploy(beforeOwner, owner, delay);
 
-        assertEq(IBaoOwnableFixed(ownable).owner(), beforeOwner);
+        assertEq(IBaoFixedOwnable(ownable).owner(), beforeOwner);
 
-        vm.expectRevert(IBaoOwnableFixed.Unauthorized.selector);
+        vm.expectRevert(IBaoFixedOwnable.Unauthorized.selector);
         DerivedBaoFixedOwnable(ownable).protected();
 
         vm.prank(beforeOwner);
         DerivedBaoFixedOwnable(ownable).protected();
 
         skip(delay);
-        assertEq(IBaoOwnableFixed(ownable).owner(), owner);
+        assertEq(IBaoFixedOwnable(ownable).owner(), owner);
 
-        vm.expectRevert(IBaoOwnableFixed.Unauthorized.selector);
+        vm.expectRevert(IBaoFixedOwnable.Unauthorized.selector);
         vm.prank(beforeOwner);
         DerivedBaoFixedOwnable(ownable).protected();
 

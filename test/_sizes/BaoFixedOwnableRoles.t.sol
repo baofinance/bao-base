@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoFixedOwnableRoles} from "@bao/BaoFixedOwnableRoles.sol";
-import {IBaoOwnableFixed} from "@bao/interfaces/IBaoOwnableFixed.sol";
+import {IBaoFixedOwnable} from "@bao/interfaces/IBaoFixedOwnable.sol";
 
 import {TestBaoFixedOwnableOnly} from "./BaoFixedOwnable.t.sol";
 import {TestBaoRoles_v2} from "./BaoRoles_v2.t.sol";
@@ -36,22 +36,22 @@ contract TestBaoFixedOwnableRoles is TestBaoFixedOwnableOnly, TestBaoRoles_v2 {
 
     function _initializeRoles(address delayedOwner, uint256 delay) internal returns (address ownable) {
         vm.expectEmit(true, true, true, true);
-        emit IBaoOwnableFixed.OwnershipTransferred(address(0), address(this));
+        emit IBaoFixedOwnable.OwnershipTransferred(address(0), address(this));
         vm.expectEmit(true, true, true, true);
-        emit IBaoOwnableFixed.OwnershipTransferred(address(this), delayedOwner);
+        emit IBaoFixedOwnable.OwnershipTransferred(address(this), delayedOwner);
 
         ownable = address(new DerivedBaoFixedOwnableRoles(address(this), delayedOwner, delay));
 
         if (delay > 0) {
-            assertEq(IBaoOwnableFixed(ownable).owner(), address(this));
+            assertEq(IBaoFixedOwnable(ownable).owner(), address(this));
 
             skip(delay - 1);
-            assertEq(IBaoOwnableFixed(ownable).owner(), address(this));
+            assertEq(IBaoFixedOwnable(ownable).owner(), address(this));
 
             skip(1);
         }
 
-        assertEq(IBaoOwnableFixed(ownable).owner(), delayedOwner);
+        assertEq(IBaoFixedOwnable(ownable).owner(), delayedOwner);
     }
 
     function test_roles(uint256 delay) public {

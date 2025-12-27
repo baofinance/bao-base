@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import {ERC165} from "@bao/ERC165.sol";
-import {IBaoOwnableFixed} from "@bao/interfaces/IBaoOwnableFixed.sol";
+import {IBaoFixedOwnable} from "@bao/interfaces/IBaoFixedOwnable.sol";
 
 /// @title Bao Fixed Ownable
 /// @notice Ownable where the initial owner and delayed owner are constructor-fixed.
@@ -13,7 +13,7 @@ import {IBaoOwnableFixed} from "@bao/interfaces/IBaoOwnableFixed.sol";
 ///
 /// Ownership transitions automatically from `beforeOwner` to `delayedOwner` after `delay` seconds.
 /// No additional ownership transfers are supported.
-abstract contract BaoFixedOwnable is IBaoOwnableFixed, ERC165 {
+abstract contract BaoFixedOwnable is IBaoFixedOwnable, ERC165 {
     /*//////////////////////////////////////////////////////////////////////////
                                    INTERNAL DATA
     //////////////////////////////////////////////////////////////////////////*/
@@ -38,8 +38,8 @@ abstract contract BaoFixedOwnable is IBaoOwnableFixed, ERC165 {
         _OWNER_TRANSFER_AT = block.timestamp + delay;
         _OWNER_AT = delayedOwner;
 
-        emit IBaoOwnableFixed.OwnershipTransferred(address(0), _BEFORE_OWNER);
-        emit IBaoOwnableFixed.OwnershipTransferred(_BEFORE_OWNER, _OWNER_AT);
+        emit IBaoFixedOwnable.OwnershipTransferred(address(0), _BEFORE_OWNER);
+        emit IBaoFixedOwnable.OwnershipTransferred(_BEFORE_OWNER, _OWNER_AT);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -49,7 +49,7 @@ abstract contract BaoFixedOwnable is IBaoOwnableFixed, ERC165 {
     /// @dev Throws if the sender is not the owner.
     function _checkOwner() internal view virtual {
         if (msg.sender != _owner()) {
-            revert IBaoOwnableFixed.Unauthorized();
+            revert IBaoFixedOwnable.Unauthorized();
         }
     }
 
@@ -73,13 +73,13 @@ abstract contract BaoFixedOwnable is IBaoOwnableFixed, ERC165 {
                                   PUBLIC FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
-    // @inheritdoc IBaoOwnableFixed
+    // @inheritdoc IBaoFixedOwnable
     function owner() public view virtual returns (address owner_) {
         owner_ = _owner();
     }
 
     /// @inheritdoc IERC165
     function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165) returns (bool) {
-        return interfaceId == type(IBaoOwnableFixed).interfaceId || super.supportsInterface(interfaceId);
+        return interfaceId == type(IBaoFixedOwnable).interfaceId || super.supportsInterface(interfaceId);
     }
 }

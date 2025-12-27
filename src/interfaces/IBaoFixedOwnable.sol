@@ -10,7 +10,7 @@ pragma solidity >=0.8.28 <0.9.0;
 /// No ownership transfers are supported.
 
 // solhint-disable-next-line contract-name-capwords
-interface IBaoOwnableFixed {
+interface IBaoFixedOwnable {
     /*//////////////////////////////////////////////////////////////////////////
                                    CUSTOM ERRORS
     //////////////////////////////////////////////////////////////////////////*/

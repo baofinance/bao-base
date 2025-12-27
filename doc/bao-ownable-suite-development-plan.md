@@ -91,46 +91,46 @@ Roles-enabled version of `BaoFixedOwnable`.
 
 ### 1.1 Add explicit initializer
 
-- [ ] Add a new internal initializer on `BaoOwnable`:
-  - [ ] Signature includes both `deployerOwner` and `pendingOwner`.
-  - [ ] Sets current owner to `deployerOwner` (never uses `msg.sender`).
-  - [ ] Sets pending owner to `pendingOwner`.
-  - [ ] Preserves the existing `+3600` expiry behavior.
-  - [ ] Preserves all revert behavior (already-initialized, cannot-complete-transfer).
-  - [ ] Emits the same `OwnershipTransferred` events as the existing path.
+- [x] Add a new internal initializer on `BaoOwnable`:
+  - [x] Signature includes both `deployerOwner` and `pendingOwner`.
+  - [x] Sets current owner to `deployerOwner` (never uses `msg.sender`).
+  - [x] Sets pending owner to `pendingOwner`.
+  - [x] Preserves the existing `+3600` expiry behavior.
+  - [x] Preserves all revert behavior (already-initialized, cannot-complete-transfer).
+  - [x] Emits the same `OwnershipTransferred` events as the existing path.
 
 ### 1.2 Deprecate the legacy initializer
 
-- [ ] Mark the existing `_initializeOwner(address pendingOwner)` NatSpec as `@deprecated`.
-- [ ] Add a brief rationale: callers should prefer the explicit initializer where possible.
-- [ ] Do not change legacy semantics.
+- [x] Mark the existing `_initializeOwner(address pendingOwner)` NatSpec as deprecated.
+- [x] Add a brief rationale: callers should prefer the explicit initializer where possible.
+- [x] Do not change legacy semantics.
 
 ## Phase 3 — Implement `BaoFixedOwnable`
 
 ### 2.1 Contract behavior
 
-- [ ] Implement `BaoFixedOwnable` with immutable ownership parameters.
-- [ ] Provide an `owner()` view that returns the correct owner before/after the scheduled transfer time.
-- [ ] Provide `onlyOwner` gating consistent with the time-based owner.
-- [ ] Emit the two `OwnershipTransferred` events (matching the existing `BaoOwnable_v2` expectation):
-  - [ ] `address(0) -> beforeOwner`
-  - [ ] `beforeOwner -> ownerAt`
+- [x] Implement `BaoFixedOwnable` with immutable ownership parameters.
+- [x] Provide an `owner()` view that returns the correct owner before/after the scheduled transfer time.
+- [x] Provide `onlyOwner` gating consistent with the time-based owner.
+- [x] Emit the two `OwnershipTransferred` events (matching the existing `BaoOwnable_v2` expectation):
+  - [x] `address(0) -> beforeOwner`
+  - [x] `beforeOwner -> ownerAt`
 
 ### 2.2 Interface support
 
-- [ ] `supportsInterface` matches the chosen interface target (expected: `IBaoOwnable_v2`-style).
+- [x] `supportsInterface` matches the chosen interface target (expected: `IBaoFixedOwnable` / `IBaoOwnable_v2`-style).
 
 ## Phase 4 — Implement `BaoFixedOwnableRoles`
 
 ### 3.1 Roles behavior
 
-- [ ] Implement roles operations (grant/revoke/renounce) and role checks.
-- [ ] Ensure all role mutations are owner-gated.
-- [ ] Ensure role checks are compatible with existing `BaoRoles(_v2)` expectations.
+- [x] Implement roles operations (grant/revoke/renounce) and role checks.
+- [x] Ensure all role mutations are owner-gated.
+- [x] Ensure role checks are compatible with existing `BaoRoles(_v2)` expectations.
 
 ### 3.2 Interface support
 
-- [ ] `supportsInterface` includes both ownable and roles interface IDs.
+- [x] `supportsInterface` includes both ownable and roles interface IDs.
 
 ## Phase 5 — Tests (unit)
 
@@ -148,18 +148,18 @@ In the existing `BaoOwnable` tests:
 
 ### 4.2 Add `BaoFixedOwnable` tests (mirror v2)
 
-- [ ] Create a `BaoFixedOwnable` test suite mirroring `BaoOwnable_v2`:
-  - [ ] event expectations
-  - [ ] time-based ownership transition
-  - [ ] onlyOwner gating pre/post transition
-  - [ ] `supportsInterface`
+- [x] Create a `BaoFixedOwnable` test suite mirroring `BaoOwnable_v2`:
+  - [x] event expectations
+  - [x] time-based ownership transition
+  - [x] onlyOwner gating pre/post transition
+  - [x] `supportsInterface`
 
 ### 4.3 Add `BaoFixedOwnableRoles` tests (mirror v2 roles)
 
-- [ ] Create a `BaoFixedOwnableRoles` test suite mirroring `BaoOwnableRoles_v2`:
-  - [ ] role grant/revoke behaviors
-  - [ ] onlyOwner/onlyRoles/onlyOwnerOrRoles gating
-  - [ ] `supportsInterface`
+- [x] Create a `BaoFixedOwnableRoles` test suite mirroring `BaoOwnableRoles_v2`:
+  - [x] role grant/revoke behaviors
+  - [x] onlyOwner/onlyRoles/onlyOwnerOrRoles gating
+  - [x] `supportsInterface`
 
 ## Phase 6 — Tests (upgrade paths)
 
