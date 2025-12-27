@@ -23,7 +23,11 @@ contract MockImplementationWithState_Fixed is Initializable, MockImplementationW
     }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(address beforeOwner, address delayedOwner, uint256 delay) BaoFixedOwnable(beforeOwner, delayedOwner, delay) {
+    constructor(
+        address beforeOwner,
+        address delayedOwner,
+        uint256 delay
+    ) BaoFixedOwnable(beforeOwner, delayedOwner, delay) {
         _disableInitializers();
     }
 

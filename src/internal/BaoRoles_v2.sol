@@ -5,10 +5,6 @@ pragma solidity >=0.8.28 <0.9.0;
  *  THIS CODE IS UNDER DEVELOPMENT - DO NOT USE IN PRODUCTION  *
  ***************************************************************/
 
-import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-
-import {ERC165} from "@bao/ERC165.sol";
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {BaoCheckOwner_v2} from "@bao/internal/BaoCheckOwner_v2.sol";
 import {BaoRolesCore} from "@bao/internal/BaoRolesCore.sol";
 

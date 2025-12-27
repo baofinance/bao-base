@@ -38,7 +38,7 @@ contract BaoPauser_v1 is UUPSUpgradeable, BaoFixedOwnable, IERC5313 {
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @notice Harbor multisig address - hardcoded for deterministic deployment
-    address internal constant HARBOR_MULTISIG = 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2;
+    address private constant _OWNER = 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2;
 
     /*//////////////////////////////////////////////////////////////////////////
                                     ERRORS
@@ -54,7 +54,7 @@ contract BaoPauser_v1 is UUPSUpgradeable, BaoFixedOwnable, IERC5313 {
     /// @notice Deploy the pauser with fixed ownership to Harbor multisig
     /// @dev No parameters - deterministic bytecode for CREATE3 deployment
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() BaoFixedOwnable(address(0), HARBOR_MULTISIG, 0) {}
+    constructor() BaoFixedOwnable(address(0), _OWNER, 0) {}
 
     /*//////////////////////////////////////////////////////////////////////////
                                   PUBLIC FUNCTIONS

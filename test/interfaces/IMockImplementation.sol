@@ -68,7 +68,9 @@ abstract contract MockImplementationWithStateBase is UUPSUpgradeable, IMockImple
             return "MockImplementationWithState_v2";
         } else if (implementationType == uint(IMockImplementation.ImplementationType.MockImplementationOZOwnable)) {
             return "MockImplementationOZOwnable";
-        } else if (implementationType == uint(IMockImplementation.ImplementationType.MockImplementationBaoFixedOwnable)) {
+        } else if (
+            implementationType == uint(IMockImplementation.ImplementationType.MockImplementationBaoFixedOwnable)
+        ) {
             return "MockImplementationBaoFixedOwnable";
         }
         return "MockImplementation!";

@@ -12,6 +12,7 @@
     "prettier:bash": "./run lint-bash bin test",
     "prettier:python": "./run fmt-python {bin,test}/**/*.py",
     "fmt": "yarn prettier --write",
+    "fmt:check": "yarn prettier --check",
     "fmt:bash": "yarn prettier:bash --write",
     "fmt:python": "yarn prettier:python --write",
     "validate": "./run validate",
@@ -36,8 +37,8 @@
     "bats": "^1.11.1",
     "bats-assert": "^2.0.0",
     "bats-support": "^0.3.0",
-    "prettier": "^3.5.3",
-    "prettier-plugin-solidity": "^1.4.2",
+    "prettier": "^3.6.2",
+    "prettier-plugin-solidity": "^2.1.0",
     "solhint": "^5.0.5"
   },
   "packageManager": "yarn@4.9.1"
