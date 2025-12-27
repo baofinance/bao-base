@@ -5,7 +5,6 @@ import {Test} from "forge-std/Test.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
-import {BaoFactoryBytecode} from "@bao-factory/BaoFactoryBytecode.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 
 /// @title BaoTest
