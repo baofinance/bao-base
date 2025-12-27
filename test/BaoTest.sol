@@ -12,12 +12,14 @@ import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 /// @notice Shared test utilities for Harbor Foundry suites
 /// @dev Provides pytest-style approximate assertions with absolute and optional relative tolerances
 abstract contract BaoTest is Test {
-    constructor() {
-        vm.label(BaoFactoryBytecode.NICKS_FACTORY, "NicksFactory");
-    }
-
+    address internal constant NICKS_FACTORY = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
     /// @notice Harbor multisig address - hardcoded for deterministic deployment
     address internal constant HARBOR_MULTISIG = 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2;
+
+    constructor() {
+        vm.label(NICKS_FACTORY, "NicksFactory");
+        vm.label(HARBOR_MULTISIG, "HarborMultisig");
+    }
 
     // Matches forge's assertApproxEqRel scaling: 1e18 == 100% relative tolerance.
     uint256 private constant RELATIVE_TOLERANCE_SCALE = 1e18;
