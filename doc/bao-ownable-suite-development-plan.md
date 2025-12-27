@@ -1,0 +1,212 @@
+# BaoOwnable Suite Development Plan
+
+## Goal
+
+Deliver the ownable suite changes with a clean separation between ownership backends and roles, plus matching tests:
+
+- Upgrade `BaoOwnable` to support an additional initializer that does not use `msg.sender`.
+- Add `BaoFixedOwnable` (immutable/bytecode-backed ownership; one implementation per instance).
+- Add `BaoFixedOwnableRoles`.
+- Refactor existing roles / ownable layering so roles logic is backend-agnostic and re-used across slot-backed and immutable-backed owners.
+
+This plan is written to be tracked using markdown checkboxes.
+
+## Agreements
+
+- The new `BaoOwnable` initializer will use the parameter name `pendingOwner` (not `finalOwner`).
+- `BaoFixedOwnable` assumes **one implementation per instance** (i.e., do not point multiple unrelated proxies at the same implementation when ownership is immutable/bytecode-backed).
+- We will do the full refactor that separates roles from ownership because:
+  - it keeps the codebase clean, avoiding downstream confusion,
+  - it forces existing test layers to execute against the refactored code (higher confidence),
+  - it makes it easier to add future owner backends without copying role logic.
+- Deliverables include the above plus the necessary refactors to existing `BaoRoles` / `BaoRoles_v2` and roles-enabled ownables.
+- For every new ownable type introduced (e.g. `BaoFixedOwnable`, `BaoFixedOwnableRoles`), we will add a minimal `Derived*` contract in the corresponding `test/_sizes/*.t.sol` file so it appears in the size report.
+
+## Naming / Semantics
+
+### `BaoOwnable`
+
+Storage-backed (ERC-7201 slot) owner with a one-shot, time-bounded transfer.
+
+### `BaoFixedOwnable`
+
+Bytecode-backed (immutables) ownership with no storage writes for ownership state.
+Ownership semantics mirror `BaoOwnable_v2` behavior (time-based owner resolution with a scheduled switch).
+
+`BaoFixedOwnable` implements the fixed-ownable interface `IBaoFixedOwnable`.
+
+### `BaoFixedOwnableRoles`
+
+Roles-enabled version of `BaoFixedOwnable`.
+
+## Rationale (short)
+
+- Adding an explicit `(deployerOwner, pendingOwner)` initializer to `BaoOwnable` enables deployments where the deployer/harness is not `msg.sender` from the implementation’s point of view (factories, meta-deployers, scripted harnesses), while keeping existing callers unchanged.
+- Using immutables in `BaoFixedOwnable` is only safe under the “one implementation per instance” deployment model; this is explicitly assumed here.
+
+## Phase 0 — Baseline & Constraints
+
+- [x] Confirm baseline tests pass before changes (`forge test`).
+- [x] Confirm no new contracts beyond the agreed three.
+- [x] Confirm `BaoFixedOwnable` is deployed one-implementation-per-instance in the intended workflows.
+
+## Phase 1 — Refactor Roles/Owner Separation (Core Change)
+
+### 1.1 Preserve semantics (explicit)
+
+- [x] Enumerate the semantic behavior of existing roles contracts (`BaoRoles`, `BaoRoles_v2`) that must remain unchanged:
+  - [x] roles storage layout (role slot seed and slot derivation)
+  - [x] authorization rules for grant/revoke
+  - [x] revert behavior and error selectors
+  - [x] event emission (`RolesUpdated`)
+  - [x] ERC165 interface support
+- [x] Enumerate the semantic behavior of owner-or-roles / roles-or-owner gating that must remain unchanged.
+
+### 1.2 Introduce a backend-agnostic roles core
+
+- [x] Add a new internal roles base (name TBD but intention-revealing) that implements all role logic without assuming how ownership is stored.
+- [x] The roles core must require a single ownership hook supplied by the inheriting ownable backend:
+  - [x] preferred hook: `_isOwner(address user) internal view returns (bool)`
+  - [x] roles core derives `_checkOwner()` behavior from `_isOwner(msg.sender)` (or equivalent)
+- [x] Ensure the roles core does not hard-inherit any owner implementation.
+
+### 1.3 Rebuild existing roles variants as thin wrappers
+
+- [x] Update the slot-backed roles contract (`BaoRoles`) to become a thin wrapper over the roles core:
+  - [x] implements `_isOwner(user)` using the slot-backed owner mechanism
+  - [x] preserves all public/external behavior and interface support
+- [x] Update the immutable/time-based roles contract (`BaoRoles_v2`) to become a thin wrapper over the roles core:
+  - [x] implements `_isOwner(user)` using the time-based `_owner()` mechanism
+  - [x] preserves all public/external behavior and interface support
+
+### 1.4 Verify roles tests against refactor
+
+- [x] Run the existing roles-focused test suites (and any inheritors) to validate no semantic regression.
+
+### 1.5 Wire-up roles-enabled ownables
+
+- [x] Confirm `BaoOwnableRoles` and `BaoOwnableRoles_v2` continue to work without logic duplication:
+  - [x] confirm linearization / overrides compile cleanly
+  - [x] confirm `supportsInterface` behavior is preserved
+
+## Phase 2 — Upgrade `BaoOwnable` (API + docs)
+
+### 1.1 Add explicit initializer
+
+- [x] Add a new internal initializer on `BaoOwnable`:
+  - [x] Signature includes both `deployerOwner` and `pendingOwner`.
+  - [x] Sets current owner to `deployerOwner` (never uses `msg.sender`).
+  - [x] Sets pending owner to `pendingOwner`.
+  - [x] Preserves the existing `+3600` expiry behavior.
+  - [x] Preserves all revert behavior (already-initialized, cannot-complete-transfer).
+  - [x] Emits the same `OwnershipTransferred` events as the existing path.
+
+### 1.2 Deprecate the legacy initializer
+
+- [x] Mark the existing `_initializeOwner(address pendingOwner)` NatSpec as deprecated.
+- [x] Add a brief rationale: callers should prefer the explicit initializer where possible.
+- [x] Do not change legacy semantics.
+
+## Phase 3 — Implement `BaoFixedOwnable`
+
+### 2.1 Contract behavior
+
+- [x] Implement `BaoFixedOwnable` with immutable ownership parameters.
+- [x] Provide an `owner()` view that returns the correct owner before/after the scheduled transfer time.
+- [x] Provide `onlyOwner` gating consistent with the time-based owner.
+- [x] Emit the two `OwnershipTransferred` events (matching the existing `BaoOwnable_v2` expectation):
+  - [x] `address(0) -> beforeOwner`
+  - [x] `beforeOwner -> ownerAt`
+
+### 2.2 Interface support
+
+- [x] `supportsInterface` matches the chosen interface target (expected: `IBaoFixedOwnable` / `IBaoOwnable_v2`-style).
+
+## Phase 4 — Implement `BaoFixedOwnableRoles`
+
+### 3.1 Roles behavior
+
+- [x] Implement roles operations (grant/revoke/renounce) and role checks.
+- [x] Ensure all role mutations are owner-gated.
+- [x] Ensure role checks are compatible with existing `BaoRoles(_v2)` expectations.
+
+### 3.2 Interface support
+
+- [x] `supportsInterface` includes both ownable and roles interface IDs.
+
+## Phase 5 — Tests (unit)
+
+### 4.1 Extend `BaoOwnable` tests for the new initializer
+
+In the existing `BaoOwnable` tests:
+
+- [x] Add a derived test contract entrypoint that calls the new initializer.
+- [x] Add tests proving:
+  - [x] Owner becomes `deployerOwner` even when caller is different.
+  - [x] Pending owner and expiry are correct.
+  - [x] Transfer completion rules are unchanged.
+  - [x] Re-init protection is unchanged.
+  - [x] Legacy initializer still behaves exactly the same.
+
+### 4.2 Add `BaoFixedOwnable` tests (mirror v2)
+
+- [x] Create a `BaoFixedOwnable` test suite mirroring `BaoOwnable_v2`:
+  - [x] event expectations
+  - [x] time-based ownership transition
+  - [x] onlyOwner gating pre/post transition
+  - [x] `supportsInterface`
+
+### 4.3 Add `BaoFixedOwnableRoles` tests (mirror v2 roles)
+
+- [x] Create a `BaoFixedOwnableRoles` test suite mirroring `BaoOwnableRoles_v2`:
+  - [x] role grant/revoke behaviors
+  - [x] onlyOwner/onlyRoles/onlyOwnerOrRoles gating
+  - [x] `supportsInterface`
+
+## Phase 6 — Tests (upgrade paths)
+
+### 5.1 BaoOwnable initializer upgrade coverage
+
+- [x] Add upgrade tests proving that upgrading between implementations preserves state/behavior.
+- [x] Add explicit coverage for the new BaoOwnable initializer path.
+
+### 5.2 BaoOwnable ↔ BaoFixedOwnable upgrade coverage (documented assumption)
+
+Because `BaoFixedOwnable` ownership is immutable/bytecode-backed:
+
+- [x] Only add "upgrade between the two" tests if the upgrade path is part of intended production usage.
+- [x] If included, tests must explicitly document that the target implementation is one-per-instance.
+
+Note: BaoFixedOwnable added to StemUseCases.t.sol for ownership model transition testing (n² transitions between all 4 models).
+
+## Phase 7 — Regression & Review
+
+- [x] Run the focused test set for ownables and deployment upgrade tests.
+- [x] Run full `forge test` (553 tests passing).
+- [x] Ensure no unrelated files were reformatted.
+
+## Additional Work Completed
+
+### BaoPauser_v1
+
+- [x] Created `BaoPauser_v1` as replacement for `Stem_v1` using `BaoFixedOwnable`.
+- [x] No constructor args - hardcoded `HARBOR_MULTISIG` (`0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2`).
+- [x] Deployed via BaoFactory at deterministic address.
+- [x] Tests in `test/BaoPauser.t.sol` covering pause/unpause workflow via proxy upgrade.
+
+### BaoFixedOwnable Validation
+
+- [x] Added `ZeroOwner` error - reject zero `delayedOwner` in constructor.
+- [x] Tests use real BaoFactory instead of mock deployer.
+- [x] Factory integration tests validate owner is explicit parameter, not factory.
+
+### Test Infrastructure
+
+- [x] Added `_ensureBaoFactory()` helper to `BaoTest` for consistent factory setup.
+- [x] Added `_ensureNicksFactory()` helper for tests needing only Nick's Factory.
+- [x] Added `HARBOR_MULTISIG` constant to `BaoTest`.
+- [x] Consolidated factory setup from `BaoDeploymentTest` into `BaoTest`.
+
+### Deferred
+
+- [ ] `BaoZeroOwnable` for permanently ownerless contracts (explicitly deferred).

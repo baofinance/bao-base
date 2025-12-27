@@ -11,7 +11,12 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {BaoOwnable} from "@bao/BaoOwnable.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
-import {FundedVault, FundedVaultUUPS, NonPayableVault, NonPayableVaultUUPS} from "@bao-factory-test/mocks/FundedVault.sol";
+import {
+    FundedVault,
+    FundedVaultUUPS,
+    NonPayableVault,
+    NonPayableVaultUUPS
+} from "@bao-factory-test/mocks/FundedVault.sol";
 import {Vm} from "forge-std/Vm.sol";
 
 /// @dev Simple UUPS proxy implementation using BaoOwnable for transfer-after-deploy pattern

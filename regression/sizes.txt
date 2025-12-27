@@ -1,23 +1,26 @@
 | Contract                       |   Runtime Size (B) |   Runtime Margin (B) |   Initcode Size (B) |   Deploy Gas |   Deploy Cost ($) |
 |--------------------------------|--------------------|----------------------|---------------------|--------------|-------------------|
 | Array                          |                 62 |               24,514 |                  88 |       13,280 |              1.33 |
+| BaoPauser_v1                   |              2,107 |               22,469 |               2,403 |      445,430 |             44.54 |
 | Deployed                       |                408 |               24,168 |                 460 |       86,200 |              8.62 |
-| DeploymentJsonTesting          |             50,762 |              -26,186 |              53,950 |   10,691,900 |           1069.19 |
+| DeploymentJsonTesting          |             50,587 |              -26,011 |              53,775 |   10,655,150 |           1065.52 |
 | DeploymentMemoryTesting        |             34,360 |               -9,784 |              36,173 |    7,233,730 |            723.37 |
 | DeploymentTestingOutput        |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
-| DerivedBaoOwnable              |                874 |               23,702 |                 902 |      183,820 |             18.38 |
-| DerivedBaoOwnableRoles         |              1,757 |               22,819 |               1,799 |      369,390 |             36.94 |
-| DerivedBaoOwnableRoles_v2      |              1,365 |               23,211 |               1,719 |      290,190 |             29.02 |
+| DerivedBaoFixedOwnable         |                509 |               24,067 |                 921 |      111,010 |             11.10 |
+| DerivedBaoFixedOwnableRoles    |              1,381 |               23,195 |               1,813 |      294,330 |             29.43 |
+| DerivedBaoOwnable              |                991 |               23,585 |               1,019 |      208,390 |             20.84 |
+| DerivedBaoOwnableRoles         |              1,812 |               22,764 |               1,854 |      380,940 |             38.09 |
+| DerivedBaoOwnableRoles_v2      |              1,381 |               23,195 |               1,735 |      293,550 |             29.36 |
 | DerivedBaoOwnableTransferrable |              1,513 |               23,063 |               1,541 |      318,010 |             31.80 |
 | DerivedBaoOwnable_v2           |                509 |               24,067 |                 845 |      110,250 |             11.03 |
 | DerivedOwnable                 |                916 |               23,660 |                 944 |      192,640 |             19.26 |
 | DerivedOwnableRoles            |              1,555 |               23,021 |               1,583 |      326,830 |             32.68 |
-| DerivedTokenHolder             |              1,909 |               22,667 |               1,937 |      401,170 |             40.12 |
-| ERC20WithData                  |              8,780 |               15,796 |               9,125 |    1,847,250 |            184.73 |
+| DerivedTokenHolder             |              1,922 |               22,654 |               1,950 |      403,900 |             40.39 |
+| ERC20WithData                  |              8,790 |               15,786 |               9,135 |    1,849,350 |            184.94 |
 | JsonArrays                     |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
-| MintableBurnableERC20_v1       |              8,325 |               16,251 |               8,574 |    1,750,740 |            175.07 |
+| MintableBurnableERC20_v1       |              8,335 |               16,241 |               8,584 |    1,752,840 |            175.28 |
 | Pause                          |              2,022 |               22,554 |               2,375 |      428,150 |             42.82 |
-| PermittableERC20_v1            |              7,758 |               16,818 |               8,007 |    1,631,670 |            163.17 |
+| PermittableERC20_v1            |              7,768 |               16,808 |               8,017 |    1,633,770 |            163.38 |
 | Stem_v1                        |              2,022 |               22,554 |               2,382 |      428,220 |             42.82 |
 | Token                          |                648 |               23,928 |                 700 |      136,600 |             13.66 |
 | UUPSProxyDeployStub            |                940 |               23,636 |               1,027 |      198,270 |             19.83 |

@@ -15,6 +15,10 @@ contract DerivedBaoOwnableRoles is BaoOwnableRoles {
         _initializeOwner(owner);
     }
 
+    function initialize(address deployerOwner, address pendingOwner_) public {
+        _initializeOwner(deployerOwner, pendingOwner_);
+    }
+
     function pendingOwner() public view returns (address pendingOwner_) {
         assembly ("memory-safe") {
             pendingOwner_ := sload(_PENDING_SLOT)

@@ -30,6 +30,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@bytecodealliance/preview2-shim@npm:^0.17.2":
+  version: 0.17.5
+  resolution: "@bytecodealliance/preview2-shim@npm:0.17.5"
+  checksum: 10/f5aa8aa01f6821343e21a0a8bbc98e647d332d5c04bc6997ce642d42f7eebd3e12efd1f65b8cae997f5473e074b5d65538ec525e01dd243d007d3d7c108483dd
+  languageName: node
+  linkType: hard
+
 "@isaacs/cliui@npm:^8.0.2":
   version: 8.0.2
   resolution: "@isaacs/cliui@npm:8.0.2"
@@ -50,6 +57,15 @@ __metadata:
   dependencies:
     minipass: "npm:^7.0.4"
   checksum: 10/4412e9e6713c89c1e66d80bb0bb5a2a93192f10477623a27d08f228ba0316bb880affabc5bfe7f838f58a34d26c2c190da726e576cdfc18c49a72e89adabdcf5
+  languageName: node
+  linkType: hard
+
+"@nomicfoundation/slang@npm:1.3.1":
+  version: 1.3.1
+  resolution: "@nomicfoundation/slang@npm:1.3.1"
+  dependencies:
+    "@bytecodealliance/preview2-shim": "npm:^0.17.2"
+  checksum: 10/c05e6fbb031616a7c59dfb6d318be139dcd5c3d5391a9d79aa5e9fd04db414727c9ddc4b45b6e0134f154f1d7bde350a99b31611b6513b76bb1099780613eb20
   languageName: node
   linkType: hard
 
@@ -150,6 +166,13 @@ __metadata:
   version: 0.19.0
   resolution: "@solidity-parser/parser@npm:0.19.0"
   checksum: 10/2136708ecc988b534efcf836e95f4f02a1452ab0c026438014c35ce31b26dc011cc8c512d502fc7bcb968f850ab7e524838292bc36cad6a144fedb4c29685587
+  languageName: node
+  linkType: hard
+
+"@solidity-parser/parser@npm:^0.20.2":
+  version: 0.20.2
+  resolution: "@solidity-parser/parser@npm:0.20.2"
+  checksum: 10/405009cd712cc410df60e45510ddd2ca615d208b152903be71cef4b9440720287ffd3792f88a92eb0de375c2ea66b442e84c843cb810612d6b6e45fd51a2b49b
   languageName: node
   linkType: hard
 
@@ -316,8 +339,8 @@ __metadata:
     bats: "npm:^1.11.1"
     bats-assert: "npm:^2.0.0"
     bats-support: "npm:^0.3.0"
-    prettier: "npm:^3.5.3"
-    prettier-plugin-solidity: "npm:^1.4.2"
+    prettier: "npm:^3.6.2"
+    prettier-plugin-solidity: "npm:^2.1.0"
     solhint: "npm:^5.0.5"
   languageName: unknown
   linkType: soft
@@ -1601,15 +1624,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"prettier-plugin-solidity@npm:^1.4.2":
-  version: 1.4.2
-  resolution: "prettier-plugin-solidity@npm:1.4.2"
+"prettier-plugin-solidity@npm:^2.1.0":
+  version: 2.2.1
+  resolution: "prettier-plugin-solidity@npm:2.2.1"
   dependencies:
-    "@solidity-parser/parser": "npm:^0.19.0"
-    semver: "npm:^7.6.3"
+    "@nomicfoundation/slang": "npm:1.3.1"
+    "@solidity-parser/parser": "npm:^0.20.2"
+    semver: "npm:^7.7.3"
   peerDependencies:
-    prettier: ">=2.3.0"
-  checksum: 10/5f4ca400275c860bbca7ba3ee316682bec04a760a816e903f6a528acc61ef3d2eda9a81edb7e38449b79196d2946db44424fbab78944d2e8bb32f8fed31363bc
+    prettier: ">=3.0.0"
+  checksum: 10/007fa19131366937465ec8ded6e1540264d07892f235c0679929ce08caf5f0081abf3be065984f7476071c3525d4fd67d02bc996a2a94e28c611fcd214fd16e4
   languageName: node
   linkType: hard
 
@@ -1622,12 +1646,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"prettier@npm:^3.5.3":
-  version: 3.5.3
-  resolution: "prettier@npm:3.5.3"
+"prettier@npm:^3.6.2":
+  version: 3.7.4
+  resolution: "prettier@npm:3.7.4"
   bin:
     prettier: bin/prettier.cjs
-  checksum: 10/7050c08f674d9e49fbd9a4c008291d0715471f64e94cc5e4b01729affce221dfc6875c8de7e66b728c64abc9352eefb7eaae071b5f79d30081be207b53774b78
+  checksum: 10/b4d00ea13baed813cb777c444506632fb10faaef52dea526cacd03085f01f6db11fc969ccebedf05bf7d93c3960900994c6adf1b150e28a31afd5cfe7089b313
   languageName: node
   linkType: hard
 
@@ -1841,12 +1865,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"semver@npm:^7.6.3":
-  version: 7.7.1
-  resolution: "semver@npm:7.7.1"
+"semver@npm:^7.7.3":
+  version: 7.7.3
+  resolution: "semver@npm:7.7.3"
   bin:
     semver: bin/semver.js
-  checksum: 10/4cfa1eb91ef3751e20fc52e47a935a0118d56d6f15a837ab814da0c150778ba2ca4f1a4d9068b33070ea4273629e615066664c2cfcd7c272caf7a8a0f6518b2c
+  checksum: 10/8dbc3168e057a38fc322af909c7f5617483c50caddba135439ff09a754b20bdd6482a5123ff543dad4affa488ecf46ec5fb56d61312ad20bb140199b88dfaea9
   languageName: node
   linkType: hard
 
