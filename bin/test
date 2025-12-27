@@ -8,6 +8,6 @@ if [[ "${BAO_BASE_VERBOSITY:-0}" -gt 0 ]]; then
   VERBOSITY+=$(printf "%${BAO_BASE_VERBOSITY}s" "" | tr ' ' 'v')
 fi
 
-echo forge test "${VERBOSITY}" --nmp script/**/*.t.sol --summary "$@"
-forge test "${VERBOSITY}" --nmp script/**/*.t.sol --summary "$@"
+echo forge test "${VERBOSITY}" --nmp "script/**/*.t.sol" --summary "$@"
+forge test "${VERBOSITY}" --nmp "script/**/*.t.sol" --summary "$@"
 # echo $(forge test --nmp script/**/*.t.sol --list | egrep '^    .*$' | wc -l) " tests"
