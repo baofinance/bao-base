@@ -82,28 +82,26 @@ abstract contract BaoTest is Test {
     /// @notice Ensure BaoFactory is deployed and functional at its fixed address
     /// @dev Sets up Nick's Factory if needed, deploys BaoFactory proxy, upgrades to v1
     /// @return factory The functional BaoFactory instance
-    function _ensureBaoFactory() internal returns (IBaoFactory factory) {
+    function _ensureBaoFactory() internal returns (address factory) {
         // Deploy BaoFactory proxy if not present
         if (!BaoFactoryDeployment.isBaoFactoryDeployed()) {
             BaoFactoryDeployment.deployBaoFactory();
         }
 
-        address factoryAddr = BaoFactoryDeployment.predictBaoFactoryAddress();
-        vm.label(factoryAddr, "BaoFactory");
+        factory = BaoFactoryDeployment.predictBaoFactoryAddress();
+        vm.label(factory, "BaoFactory");
 
         // Upgrade to v1 if not already functional
         if (!BaoFactoryDeployment.isBaoFactoryFunctional()) {
-            vm.startPrank(IBaoFactory(factoryAddr).owner());
+            vm.startPrank(IBaoFactory(factory).owner());
             BaoFactoryDeployment.upgradeBaoFactoryToV1();
             vm.stopPrank();
         }
 
-        factory = IBaoFactory(factoryAddr);
-
         // Set this test as operator if not already
-        if (!factory.isCurrentOperator(address(this))) {
-            vm.prank(factory.owner());
-            factory.setOperator(address(this), 365 days);
+        if (!IBaoFactory(factory).isCurrentOperator(address(this))) {
+            vm.prank(IBaoFactory(factory).owner());
+            IBaoFactory(factory).setOperator(address(this), 365 days);
         }
     }
 }

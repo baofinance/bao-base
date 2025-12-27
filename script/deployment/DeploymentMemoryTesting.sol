@@ -22,8 +22,4 @@ contract DeploymentMemoryTesting is DeploymentTesting {
         string memory /* systemSaltString */,
         string memory /* startPoint */
     ) internal override {}
-
-    function _afterValueChanged(string memory key) internal override {}
-
-    function _save() internal override {}
 }

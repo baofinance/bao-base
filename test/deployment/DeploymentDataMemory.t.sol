@@ -58,10 +58,6 @@ contract DeploymentDataMemoryHarness is DeploymentDataMemory {
     function setIntArray(string memory key, int256[] memory values) external {
         _setIntArray(key, values);
     }
-
-    function _afterValueChanged(string memory key) internal override {}
-
-    function _save() internal override {}
 }
 
 contract DeploymentDataMemorySetup is BaoTest {

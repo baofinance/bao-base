@@ -75,7 +75,7 @@ contract BaoPauserTest is BaoTest {
     address public user;
 
     function setUp() public {
-        factory = _ensureBaoFactory();
+        factory = IBaoFactory(_ensureBaoFactory());
         user = makeAddr("user");
     }
 
@@ -95,7 +95,7 @@ contract BaoPauserTest is BaoTest {
     function _deployProxy(address implementation, bytes memory initData) internal returns (address proxy) {
         proxy = LibClone.deployERC1967(implementation);
         if (initData.length > 0) {
-            (bool success,) = proxy.call(initData);
+            (bool success, ) = proxy.call(initData);
             require(success, "Init failed");
         }
     }
@@ -113,7 +113,8 @@ contract BaoPauserTest is BaoTest {
         // Verify ERC165 support
         assertTrue(IERC165(pauser).supportsInterface(type(IERC165).interfaceId), "Should support IERC165");
         assertTrue(
-            IERC165(pauser).supportsInterface(type(IBaoFixedOwnable).interfaceId), "Should support IBaoFixedOwnable"
+            IERC165(pauser).supportsInterface(type(IBaoFixedOwnable).interfaceId),
+            "Should support IBaoFixedOwnable"
         );
     }
 

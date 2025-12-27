@@ -27,7 +27,7 @@ contract TestBaoFixedOwnableOnly is BaoTest {
     address user;
 
     function setUp() public virtual {
-        factory = _ensureBaoFactory();
+        factory = IBaoFactory(_ensureBaoFactory());
         owner = makeAddr("owner");
         user = makeAddr("user");
     }

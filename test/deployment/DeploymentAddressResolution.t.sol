@@ -79,10 +79,6 @@ contract AddressResolutionHarness is DeploymentDataMemory {
     function getAddressArrayRaw(string memory key) external view returns (string[] memory) {
         return _getAddressArrayRaw(key);
     }
-
-    function _afterValueChanged(string memory key) internal override {}
-
-    function _save() internal override {}
 }
 
 // ============================================================================

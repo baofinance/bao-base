@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
+// import {console2} from "forge-std/console2.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
 import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
+import {BaoFactoryBytecode} from "@bao-factory/BaoFactoryBytecode.sol";
 import {DeploymentTestingOutput} from "@bao-script/deployment/DeploymentJsonTesting.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {LibString} from "@solady/utils/LibString.sol";
@@ -13,8 +15,8 @@ import {LibString} from "@solady/utils/LibString.sol";
  * @notice Base test class for deployment-related tests
  * @dev Extends BaoTest and sets up deployment infrastructure (Nick's Factory + BaoFactory)
  * @dev Test hierarchy:
- *      BaoTest (utility assertions + BaoFactory setup)
- *        └─ BaoDeploymentTest (deployment file handling)
+ *      BaoTest (utility assertions)
+ *        └─ BaoDeploymentTest (deployment infrastructure only)
  *             └─ MyDeploymentTest (creates DeploymentTesting as needed)
  * @dev For tests that don't need deployment file infrastructure, extend BaoTest directly
  *
@@ -29,7 +31,8 @@ import {LibString} from "@solady/utils/LibString.sol";
 abstract contract BaoDeploymentTest is BaoTest {
     using LibString for string;
 
-    IBaoFactory internal _baoFactory;
+    address internal _baoFactory;
+    address internal _baoMultisig;
 
     /**
      * @notice Set up deployment infrastructure for tests
