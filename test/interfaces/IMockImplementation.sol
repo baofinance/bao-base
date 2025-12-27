@@ -11,7 +11,8 @@ interface IMockImplementation {
     enum ImplementationType {
         MockImplementationWithState,
         MockImplementationWithState_v2,
-        MockImplementationOZOwnable
+        MockImplementationOZOwnable,
+        MockImplementationBaoFixedOwnable
     }
 
     function implementationType() external pure returns (uint256);
@@ -67,6 +68,8 @@ abstract contract MockImplementationWithStateBase is UUPSUpgradeable, IMockImple
             return "MockImplementationWithState_v2";
         } else if (implementationType == uint(IMockImplementation.ImplementationType.MockImplementationOZOwnable)) {
             return "MockImplementationOZOwnable";
+        } else if (implementationType == uint(IMockImplementation.ImplementationType.MockImplementationBaoFixedOwnable)) {
+            return "MockImplementationBaoFixedOwnable";
         }
         return "MockImplementation!";
     }

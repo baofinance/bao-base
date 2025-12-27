@@ -276,13 +276,8 @@ contract DeploymentEnsureBaoFactoryTest is BaoDeploymentTest {
     string internal constant TEST_SALT = "DeploymentEnsureBaoFactoryTest";
 
     function setUp() public override {
-        // Install Nick's factory but skip BaoFactoryDeployment helpers to simulate missing deployer
-        if (BaoFactoryBytecode.NICKS_FACTORY.code.length == 0) {
-            vm.etch(BaoFactoryBytecode.NICKS_FACTORY, BaoFactoryBytecode.NICKS_FACTORY_BYTECODE);
-        }
-        vm.label(BaoFactoryBytecode.NICKS_FACTORY, "Nick's factory");
-        _baoMultisig = BaoFactoryBytecode.OWNER;
-        vm.label(_baoMultisig, "_baoMultisig");
+        // Only Nick's factory - skip BaoFactory to test ensureBaoFactory() behavior
+        _ensureNicksFactory();
         deployment = new DeploymentCoreHarness();
     }
 

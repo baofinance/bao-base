@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
-import {console2} from "forge-std/console2.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {DeploymentBase} from "@bao-script/deployment/DeploymentBase.sol";
 import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
-import {BaoFactoryBytecode} from "@bao-factory/BaoFactoryBytecode.sol";
 import {DeploymentTestingOutput} from "@bao-script/deployment/DeploymentJsonTesting.sol";
+import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
 /**
@@ -14,10 +13,10 @@ import {LibString} from "@solady/utils/LibString.sol";
  * @notice Base test class for deployment-related tests
  * @dev Extends BaoTest and sets up deployment infrastructure (Nick's Factory + BaoFactory)
  * @dev Test hierarchy:
- *      BaoTest (utility assertions)
- *        └─ BaoDeploymentTest (deployment infrastructure only)
+ *      BaoTest (utility assertions + BaoFactory setup)
+ *        └─ BaoDeploymentTest (deployment file handling)
  *             └─ MyDeploymentTest (creates DeploymentTesting as needed)
- * @dev For tests that don't need deployment infrastructure, extend BaoTest directly
+ * @dev For tests that don't need deployment file infrastructure, extend BaoTest directly
  *
  * @dev NOTE: This base class does NOT declare a `deployment` variable.
  *      Derived test classes should declare and create their own DeploymentTesting:
@@ -30,31 +29,14 @@ import {LibString} from "@solady/utils/LibString.sol";
 abstract contract BaoDeploymentTest is BaoTest {
     using LibString for string;
 
-    address internal _baoFactory;
-    address internal _baoMultisig;
+    IBaoFactory internal _baoFactory;
 
     /**
      * @notice Set up deployment infrastructure for tests
-     * @dev This runs once per test contract (not per test function)
-     * @dev Nick's Factory set up if needed (via etchNicksFactory)
+     * @dev Uses _ensureBaoFactory() from BaoTest
      */
     function setUp() public virtual {
-        // TODO: all this should go other than the labelling
-        // install Nick's factory if not present
-        if (BaoFactoryBytecode.NICKS_FACTORY.code.length == 0) {
-            vm.etch(BaoFactoryBytecode.NICKS_FACTORY, BaoFactoryBytecode.NICKS_FACTORY_BYTECODE);
-            console2.log("etched Nick's factory");
-        }
-        vm.label(BaoFactoryBytecode.NICKS_FACTORY, "Nick's factory");
-
-        // Get owner from BaoFactoryLib constant (avoids call to non-contract address)
-        _baoMultisig = BaoFactoryBytecode.OWNER;
-        vm.label(_baoMultisig, "_baoMultisig");
-
-        // don't deploy it - that is the job of start()
-        // _baoFactory = DeploymentInfrastructure._ensureBaoFactory();
-        _baoFactory = BaoFactoryDeployment.predictBaoFactoryAddress();
-        vm.label(_baoFactory, "_baoFactory");
+        _baoFactory = _ensureBaoFactory();
     }
 
     /// @notice Default test owner address

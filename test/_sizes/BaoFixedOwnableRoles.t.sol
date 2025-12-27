@@ -60,4 +60,76 @@ contract TestBaoFixedOwnableRoles is TestBaoFixedOwnableOnly, TestBaoRoles_v2 {
 
         TestBaoRoles_v2._roles(ownable, owner, user);
     }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                    FACTORY INTEGRATION TESTS (BaoFixedOwnableRoles)
+    //////////////////////////////////////////////////////////////////////////*/
+
+    /// @notice Test factory deployment with roles - owner is explicit, not factory
+    function test_factoryDeploymentWithRoles() public {
+        address intendedOwner = makeAddr("intendedOwner");
+        address futureOwner = makeAddr("futureOwner");
+        uint256 delay = 1 hours;
+
+        // Simulate factory deployment by deploying from a different contract
+        vm.prank(makeAddr("factory"));
+        DerivedBaoFixedOwnableRoles ownable = new DerivedBaoFixedOwnableRoles(intendedOwner, futureOwner, delay);
+
+        // Owner is explicit parameter, not factory
+        assertEq(IBaoFixedOwnable(address(ownable)).owner(), intendedOwner);
+
+        // Cache role before prank (prank only affects next call)
+        uint256 myRole = ownable.MY_ROLE();
+
+        // Owner can grant roles
+        vm.prank(intendedOwner);
+        ownable.grantRoles(user, myRole);
+
+        // User with role can access role-protected function
+        vm.prank(user);
+        ownable.protectedRoles();
+
+        // After delay, new owner can manage roles
+        skip(delay);
+        assertEq(IBaoFixedOwnable(address(ownable)).owner(), futureOwner);
+
+        vm.prank(futureOwner);
+        ownable.revokeRoles(user, myRole);
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                              EDGE CASE TESTS (Roles)
+    //////////////////////////////////////////////////////////////////////////*/
+
+    /// @notice Test very large delay with roles
+    function test_veryLargeDelayWithRoles() public {
+        uint256 oneYear = 365 days;
+
+        vm.expectEmit(true, true, true, true);
+        emit IBaoFixedOwnable.OwnershipTransferred(address(0), address(this));
+        vm.expectEmit(true, true, true, true);
+        emit IBaoFixedOwnable.OwnershipTransferred(address(this), owner);
+
+        DerivedBaoFixedOwnableRoles ownable = new DerivedBaoFixedOwnableRoles(address(this), owner, oneYear);
+
+        // Cache role to avoid consuming prank
+        uint256 myRole = ownable.MY_ROLE();
+
+        // Grant roles during the year
+        ownable.grantRoles(user, myRole);
+
+        vm.prank(user);
+        ownable.protectedRoles();
+
+        // After 1 year, new owner can manage roles
+        skip(oneYear);
+        assertEq(IBaoFixedOwnable(address(ownable)).owner(), owner);
+
+        vm.prank(owner);
+        ownable.revokeRoles(user, myRole);
+
+        vm.prank(user);
+        vm.expectRevert();
+        ownable.protectedRoles();
+    }
 }

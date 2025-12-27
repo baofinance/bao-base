@@ -33,6 +33,8 @@ Storage-backed (ERC-7201 slot) owner with a one-shot, time-bounded transfer.
 Bytecode-backed (immutables) ownership with no storage writes for ownership state.
 Ownership semantics mirror `BaoOwnable_v2` behavior (time-based owner resolution with a scheduled switch).
 
+`BaoFixedOwnable` implements the fixed-ownable interface `IBaoFixedOwnable`.
+
 ### `BaoFixedOwnableRoles`
 
 Roles-enabled version of `BaoFixedOwnable`.
@@ -44,26 +46,26 @@ Roles-enabled version of `BaoFixedOwnable`.
 
 ## Phase 0 — Baseline & Constraints
 
-- [ ] Confirm baseline tests pass before changes (`forge test`).
-- [ ] Confirm no new contracts beyond the agreed three.
-- [ ] Confirm `BaoFixedOwnable` is deployed one-implementation-per-instance in the intended workflows.
+- [x] Confirm baseline tests pass before changes (`forge test`).
+- [x] Confirm no new contracts beyond the agreed three.
+- [x] Confirm `BaoFixedOwnable` is deployed one-implementation-per-instance in the intended workflows.
 
 ## Phase 1 — Refactor Roles/Owner Separation (Core Change)
 
 ### 1.1 Preserve semantics (explicit)
 
-- [ ] Enumerate the semantic behavior of existing roles contracts (`BaoRoles`, `BaoRoles_v2`) that must remain unchanged:
-  - [ ] roles storage layout (role slot seed and slot derivation)
-  - [ ] authorization rules for grant/revoke
-  - [ ] revert behavior and error selectors
-  - [ ] event emission (`RolesUpdated`)
-  - [ ] ERC165 interface support
-- [ ] Enumerate the semantic behavior of owner-or-roles / roles-or-owner gating that must remain unchanged.
+- [x] Enumerate the semantic behavior of existing roles contracts (`BaoRoles`, `BaoRoles_v2`) that must remain unchanged:
+  - [x] roles storage layout (role slot seed and slot derivation)
+  - [x] authorization rules for grant/revoke
+  - [x] revert behavior and error selectors
+  - [x] event emission (`RolesUpdated`)
+  - [x] ERC165 interface support
+- [x] Enumerate the semantic behavior of owner-or-roles / roles-or-owner gating that must remain unchanged.
 
 ### 1.2 Introduce a backend-agnostic roles core
 
 - [x] Add a new internal roles base (name TBD but intention-revealing) that implements all role logic without assuming how ownership is stored.
-- [ ] The roles core must require a single ownership hook supplied by the inheriting ownable backend:
+- [x] The roles core must require a single ownership hook supplied by the inheriting ownable backend:
   - [x] preferred hook: `_isOwner(address user) internal view returns (bool)`
   - [x] roles core derives `_checkOwner()` behavior from `_isOwner(msg.sender)` (or equivalent)
 - [x] Ensure the roles core does not hard-inherit any owner implementation.
@@ -138,13 +140,13 @@ Roles-enabled version of `BaoFixedOwnable`.
 
 In the existing `BaoOwnable` tests:
 
-- [ ] Add a derived test contract entrypoint that calls the new initializer.
-- [ ] Add tests proving:
-  - [ ] Owner becomes `deployerOwner` even when caller is different.
-  - [ ] Pending owner and expiry are correct.
-  - [ ] Transfer completion rules are unchanged.
-  - [ ] Re-init protection is unchanged.
-  - [ ] Legacy initializer still behaves exactly the same.
+- [x] Add a derived test contract entrypoint that calls the new initializer.
+- [x] Add tests proving:
+  - [x] Owner becomes `deployerOwner` even when caller is different.
+  - [x] Pending owner and expiry are correct.
+  - [x] Transfer completion rules are unchanged.
+  - [x] Re-init protection is unchanged.
+  - [x] Legacy initializer still behaves exactly the same.
 
 ### 4.2 Add `BaoFixedOwnable` tests (mirror v2)
 
@@ -165,18 +167,46 @@ In the existing `BaoOwnable` tests:
 
 ### 5.1 BaoOwnable initializer upgrade coverage
 
-- [ ] Add upgrade tests proving that upgrading between implementations preserves state/behavior.
-- [ ] Add explicit coverage for the new BaoOwnable initializer path.
+- [x] Add upgrade tests proving that upgrading between implementations preserves state/behavior.
+- [x] Add explicit coverage for the new BaoOwnable initializer path.
 
 ### 5.2 BaoOwnable ↔ BaoFixedOwnable upgrade coverage (documented assumption)
 
 Because `BaoFixedOwnable` ownership is immutable/bytecode-backed:
 
-- [ ] Only add “upgrade between the two” tests if the upgrade path is part of intended production usage.
-- [ ] If included, tests must explicitly document that the target implementation is one-per-instance.
+- [x] Only add "upgrade between the two" tests if the upgrade path is part of intended production usage.
+- [x] If included, tests must explicitly document that the target implementation is one-per-instance.
+
+Note: BaoFixedOwnable added to StemUseCases.t.sol for ownership model transition testing (n² transitions between all 4 models).
 
 ## Phase 7 — Regression & Review
 
-- [ ] Run the focused test set for ownables and deployment upgrade tests.
-- [ ] Run full `forge test`.
-- [ ] Ensure no unrelated files were reformatted.
+- [x] Run the focused test set for ownables and deployment upgrade tests.
+- [x] Run full `forge test` (553 tests passing).
+- [x] Ensure no unrelated files were reformatted.
+
+## Additional Work Completed
+
+### BaoPauser_v1
+
+- [x] Created `BaoPauser_v1` as replacement for `Stem_v1` using `BaoFixedOwnable`.
+- [x] No constructor args - hardcoded `HARBOR_MULTISIG` (`0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2`).
+- [x] Deployed via BaoFactory at deterministic address.
+- [x] Tests in `test/BaoPauser.t.sol` covering pause/unpause workflow via proxy upgrade.
+
+### BaoFixedOwnable Validation
+
+- [x] Added `ZeroOwner` error - reject zero `delayedOwner` in constructor.
+- [x] Tests use real BaoFactory instead of mock deployer.
+- [x] Factory integration tests validate owner is explicit parameter, not factory.
+
+### Test Infrastructure
+
+- [x] Added `_ensureBaoFactory()` helper to `BaoTest` for consistent factory setup.
+- [x] Added `_ensureNicksFactory()` helper for tests needing only Nick's Factory.
+- [x] Added `HARBOR_MULTISIG` constant to `BaoTest`.
+- [x] Consolidated factory setup from `BaoDeploymentTest` into `BaoTest`.
+
+### Deferred
+
+- [ ] `BaoZeroOwnable` for permanently ownerless contracts (explicitly deferred).

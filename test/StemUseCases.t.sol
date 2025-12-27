@@ -7,6 +7,7 @@ import {Stem_v1} from "src/Stem_v1.sol";
 // Import all ownership model implementations
 import {BaoOwnableAdapter} from "test/adapters/BaoOwnableAdapter.sol"; // Adapter for BaoOwnable
 import {BaoOwnable_v2Adapter} from "test/adapters/BaoOwnable_v2Adapter.sol"; // Adapter for BaoOwnable_v2
+import {BaoFixedOwnableAdapter} from "test/adapters/BaoFixedOwnableAdapter.sol"; // Adapter for BaoFixedOwnable
 import {OZOwnableAdapter} from "test/adapters/OZOwnableAdapter.sol"; // Adapter for OZOwnable
 import {IOwnershipModel} from "test/interfaces/IOwnershipModel.sol"; // Interface for ownership models
 import {IMockImplementation} from "test/interfaces/IMockImplementation.sol"; // Interface for ownership models
@@ -55,6 +56,8 @@ contract StemUseCasesTest is Test {
             adapter = new BaoOwnable_v2Adapter();
         } else if (modelIndex == uint(IMockImplementation.ImplementationType.MockImplementationOZOwnable)) {
             adapter = new OZOwnableAdapter();
+        } else if (modelIndex == uint(IMockImplementation.ImplementationType.MockImplementationBaoFixedOwnable)) {
+            adapter = new BaoFixedOwnableAdapter();
         } else {
             revert("Invalid ownership model");
         }

@@ -18,6 +18,10 @@ interface IBaoFixedOwnable {
     /// @dev The caller is not authorized to call the function.
     error Unauthorized();
 
+    /// @dev Zero address is not allowed as the final owner.
+    /// Use BaoZeroOwnable for contracts that should become permanently ownerless.
+    error ZeroOwner();
+
     /*//////////////////////////////////////////////////////////////////////////
                                        EVENTS
     //////////////////////////////////////////////////////////////////////////*/

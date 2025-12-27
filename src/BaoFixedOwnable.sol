@@ -31,9 +31,12 @@ abstract contract BaoFixedOwnable is IBaoFixedOwnable, ERC165 {
 
     /// @notice Deploys and fixes the ownership transition.
     /// @param beforeOwner The owner address before the delay elapses.
-    /// @param delayedOwner The owner address after the delay elapses.
+    /// @param delayedOwner The owner address after the delay elapses. Cannot be zero.
     /// @param delay The delay (in seconds) after which ownership switches.
     constructor(address beforeOwner, address delayedOwner, uint256 delay) {
+        if (delayedOwner == address(0)) {
+            revert IBaoFixedOwnable.ZeroOwner();
+        }
         _BEFORE_OWNER = beforeOwner;
         _OWNER_TRANSFER_AT = block.timestamp + delay;
         _OWNER_AT = delayedOwner;
