@@ -20,6 +20,7 @@ This plan is written to be tracked using markdown checkboxes.
   - it forces existing test layers to execute against the refactored code (higher confidence),
   - it makes it easier to add future owner backends without copying role logic.
 - Deliverables include the above plus the necessary refactors to existing `BaoRoles` / `BaoRoles_v2` and roles-enabled ownables.
+- For every new ownable type introduced (e.g. `BaoFixedOwnable`, `BaoFixedOwnableRoles`), we will add a minimal `Derived*` contract in the corresponding `test/_sizes/*.t.sol` file so it appears in the size report.
 
 ## Naming / Semantics
 
