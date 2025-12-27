@@ -6,6 +6,15 @@ script/deployment/UUPSProxyDeployStub.sol:UUPSProxyDeployStub
 | upgradeTo        | 4.405e+04 |
 | upgradeToAndCall | 1.678e+05 |
 
+src/BaoPauser_v1.sol:BaoPauser_v1
+| function name     |       max |
+|-------------------|-----------|
+| fallback          | 3.150e+02 |
+| owner             | 3.680e+02 |
+| proxiableUUID     | 3.250e+02 |
+| supportsInterface | 5.050e+02 |
+| upgradeToAndCall  | 8.841e+03 |
+
 src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1
 | function name     |       max |
 |-------------------|-----------|
@@ -103,7 +112,7 @@ test/mocks/upgradeable/MockCounter.sol:CounterV1
 | function name     |       max |
 |-------------------|-----------|
 | increment         | 5.271e+03 |
-| initialize        | 9.239e+04 |
+| initialize        | 9.242e+04 |
 | owner             | 2.329e+03 |
 | proxiableUUID     | 3.920e+02 |
 | transferOwnership | 1.064e+04 |
@@ -114,13 +123,13 @@ test/mocks/upgradeable/MockMinter.sol:MockMinter
 | function name   |       max |
 |-----------------|-----------|
 | PEGGED_TOKEN    | 3.260e+02 |
-| initialize      | 9.249e+04 |
+| initialize      | 9.252e+04 |
 | oracle          | 2.357e+03 |
 
 test/mocks/upgradeable/MockOracle.sol:OracleV1
 | function name     |       max |
 |-------------------|-----------|
-| initialize        | 9.235e+04 |
+| initialize        | 9.240e+04 |
 | owner             | 2.418e+03 |
 | price             | 2.315e+03 |
 | transferOwnership | 1.012e+04 |
