@@ -7,6 +7,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoOwnable_v2} from "@bao/BaoOwnable_v2.sol";
 import {BaoRoles_v2} from "@bao/internal/BaoRoles_v2.sol";
+import {BaoRolesCore} from "@bao/internal/BaoRolesCore.sol";
 
 /// @title Bao Ownable Roles
 /// see BaoOwnable_v2 and BaoRoles_v2 for more information
@@ -22,7 +23,7 @@ abstract contract BaoOwnableRoles_v2 is BaoOwnable_v2, BaoRoles_v2 {
     //////////////////////////////////////////////////////////////////////////*/
     function supportsInterface(
         bytes4 interfaceId
-    ) public view virtual override(BaoOwnable_v2, BaoRoles_v2) returns (bool) {
-        return BaoOwnable_v2.supportsInterface(interfaceId) || BaoRoles_v2.supportsInterface(interfaceId);
+    ) public view virtual override(BaoOwnable_v2, BaoRolesCore) returns (bool) {
+        return BaoOwnable_v2.supportsInterface(interfaceId) || BaoRolesCore.supportsInterface(interfaceId);
     }
 }
