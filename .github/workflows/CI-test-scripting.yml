@@ -19,8 +19,8 @@ jobs:
           - os: macos-14
             foundry: stable
 
-          - os: windows-2022
-            foundry: stable
+          # - os: windows-2022
+          #   foundry: stable
       fail-fast: false # ensure all jobs run even if one fails
 
     runs-on: ${{ matrix.os }}

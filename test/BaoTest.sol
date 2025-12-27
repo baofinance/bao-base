@@ -12,6 +12,10 @@ import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 /// @notice Shared test utilities for Harbor Foundry suites
 /// @dev Provides pytest-style approximate assertions with absolute and optional relative tolerances
 abstract contract BaoTest is Test {
+    constructor() {
+        vm.label(BaoFactoryBytecode.NICKS_FACTORY, "NicksFactory");
+    }
+
     /// @notice Harbor multisig address - hardcoded for deterministic deployment
     address internal constant HARBOR_MULTISIG = 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2;
 
@@ -75,21 +79,10 @@ abstract contract BaoTest is Test {
                               BAOFACTORY SETUP
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @notice Ensure Nick's Factory is available (etch if needed)
-    /// @dev Use this when you need Nick's Factory but NOT BaoFactory
-    function _ensureNicksFactory() internal {
-        if (BaoFactoryBytecode.NICKS_FACTORY.code.length == 0) {
-            vm.etch(BaoFactoryBytecode.NICKS_FACTORY, BaoFactoryBytecode.NICKS_FACTORY_BYTECODE);
-        }
-        vm.label(BaoFactoryBytecode.NICKS_FACTORY, "NicksFactory");
-    }
-
     /// @notice Ensure BaoFactory is deployed and functional at its fixed address
     /// @dev Sets up Nick's Factory if needed, deploys BaoFactory proxy, upgrades to v1
     /// @return factory The functional BaoFactory instance
     function _ensureBaoFactory() internal returns (IBaoFactory factory) {
-        _ensureNicksFactory();
-
         // Deploy BaoFactory proxy if not present
         if (!BaoFactoryDeployment.isBaoFactoryDeployed()) {
             BaoFactoryDeployment.deployBaoFactory();

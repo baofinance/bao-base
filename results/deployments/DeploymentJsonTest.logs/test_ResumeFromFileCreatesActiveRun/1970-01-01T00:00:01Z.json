@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "owner": "0x0000000000000000000000000000000000001234",
+  "BaoFactory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458",
+  "systemSaltString": "DeploymentJsonTest",
+  "session": {
+    "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
+    "stub": {
+      "address": "0xffD4505B3452Dc22f8473616d50503bA9E1710Ac",
+      "contractType": "UUPSProxyDeployStub",
+      "contractPath": "script/deployment/UUPSProxyDeployStub.sol",
+      "blockNumber": 1
+    },
+    "started": "1970-01-01T00:00:01Z",
+    "finished": "1970-01-01T00:00:01Z",
+    "startTimestamp": 1,
+    "finishTimestamp": 1,
+    "startBlock": 1,
+    "finishBlock": 1,
+    "network": "test_ResumeFromFileCreatesActiveRun",
+    "chainId": 31337
+  },
+  "contracts": {
+    "contract1": {
+      "address": "0x037eDa3aDB1198021A9b2e88C22B464fD38db3f3",
+      "contractType": "SimpleContract",
+      "contractPath": "test/deployment/DeploymentJson.t.sol",
+      "deployer": "0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f",
+      "blockNumber": 1,
+      "category": "contract"
+    },
+    "contract2": {
+      "address": "0x8d2C17FAd02B7bb64139109c6533b7C2b9CADb81",
+      "contractType": "SimpleContract",
+      "contractPath": "test/deployment/DeploymentJson.t.sol",
+      "deployer": "0x2e234DAe75C793f67A35089C9d99245E1C58470b",
+      "blockNumber": 1,
+      "category": "contract"
+    }
+  }
+}

@@ -41,6 +41,13 @@ import {DeploymentJson} from "@bao-script/deployment/DeploymentJson.sol";
 abstract contract DeploymentJsonScript is Deployment, DeploymentJson, Script {
     constructor() DeploymentJson(vm.unixTime() / 1000) {}
 
+    bool private readOnly = false;
+
+    function setReadOnly() public {
+        disableLogging();
+        readOnly = true;
+    }
+
     /// @notice Start broadcasting transactions
     /// @dev Called by DeploymentBase before blockchain operations
     function _deployer() internal view override returns (address deployer) {
@@ -50,15 +57,19 @@ abstract contract DeploymentJsonScript is Deployment, DeploymentJson, Script {
     /// @notice Start broadcasting transactions
     /// @dev Called by DeploymentBase before blockchain operations
     function _startBroadcast() internal override returns (address deployer) {
-        vm.startBroadcast();
         deployer = msg.sender;
-        console2.log("startBroadcast with %s ...", deployer);
+        if (!readOnly) {
+            vm.startBroadcast();
+            console2.log("startBroadcast with %s ...", deployer);
+        }
     }
 
     /// @notice Stop broadcasting transactions
     /// @dev Called by DeploymentBase after blockchain operations
     function _stopBroadcast() internal override {
-        console2.log("stopBroadcast.");
-        vm.stopBroadcast();
+        if (!readOnly) {
+            console2.log("stopBroadcast.");
+            vm.stopBroadcast();
+        }
     }
 }

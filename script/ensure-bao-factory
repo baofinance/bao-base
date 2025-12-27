@@ -32,8 +32,8 @@ BAO_FACTORY_SCRIPT="$BAO_FACTORY_ROOT/script/bao-factory"
 # Defaults
 NETWORK="local"
 SALT="Bao.BaoFactory.harbor"
-OPERATOR="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"  # Default anvil account
-DELAY="86400"  # 1 day
+OPERATOR="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" # Default anvil account
+DELAY="86400"                                         # 1 day
 
 # Default anvil key for local network
 ANVIL_PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
@@ -110,9 +110,11 @@ if [[ "$STATUS" == "not_deployed" ]]; then
   log "Factory not deployed, deploying..."
   "$BAO_FACTORY_SCRIPT" --deploy --network "$NETWORK" --salt "$SALT"
 
-  # Re-check status
+  # Re-check status and update all variables
   STATUS_JSON=$("$BAO_FACTORY_SCRIPT" --status --network "$NETWORK" --salt "$SALT" 2>/dev/null)
   STATUS=$(echo "$STATUS_JSON" | jq -r '.status')
+  PROXY=$(echo "$STATUS_JSON" | jq -r '.proxy')
+  OWNER=$(echo "$STATUS_JSON" | jq -r '.owner')
   log "New status: $STATUS"
 fi
 
@@ -139,9 +141,12 @@ if [[ "$STATUS" == "bootstrap" ]]; then
 
   # Upgrade via owner impersonation
   log "Upgrading proxy to BaoFactory_v1..."
+  cast rpc anvil_impersonateAccount "$OWNER" --rpc-url "$NETWORK" >/dev/null
+  cast rpc anvil_setBalance "$OWNER" "0x56BC75E2D63100000" --rpc-url "$NETWORK" >/dev/null # 100 ETH
   cast send --rpc-url "$NETWORK" \
     --from "$OWNER" --unlocked \
     "$PROXY" "upgradeToAndCall(address,bytes)" "$IMPL" "0x" >/dev/null
+  cast rpc anvil_stopImpersonatingAccount "$OWNER" --rpc-url "$NETWORK" >/dev/null
 
   log "Upgrade complete"
   STATUS="upgraded"
@@ -161,9 +166,12 @@ if [[ -n "$OPERATOR_ACTIVE" ]]; then
   log "Operator $OPERATOR is already active"
 else
   log "Setting operator $OPERATOR with delay $DELAY..."
+  cast rpc anvil_impersonateAccount "$OWNER" --rpc-url "$NETWORK" >/dev/null
+  cast rpc anvil_setBalance "$OWNER" "0x56BC75E2D63100000" --rpc-url "$NETWORK" >/dev/null # 100 ETH
   cast send --rpc-url "$NETWORK" \
     --from "$OWNER" --unlocked \
     "$PROXY" "setOperator(address,uint256)" "$OPERATOR" "$DELAY" >/dev/null
+  cast rpc anvil_stopImpersonatingAccount "$OWNER" --rpc-url "$NETWORK" >/dev/null
   log "Operator set successfully"
 fi
 

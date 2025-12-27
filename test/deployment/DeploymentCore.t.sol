@@ -276,8 +276,8 @@ contract DeploymentEnsureBaoFactoryTest is BaoDeploymentTest {
     string internal constant TEST_SALT = "DeploymentEnsureBaoFactoryTest";
 
     function setUp() public override {
-        // Only Nick's factory - skip BaoFactory to test ensureBaoFactory() behavior
-        _ensureNicksFactory();
+        _baoMultisig = BaoFactoryBytecode.OWNER;
+        vm.label(_baoMultisig, "_baoMultisig");
         deployment = new DeploymentCoreHarness();
     }
 

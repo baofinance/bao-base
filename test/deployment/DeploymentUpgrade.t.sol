@@ -559,6 +559,9 @@ contract MockDeploymentOZOwnable is DeploymentMemoryTesting {
     constructor() {
         addProxy("contracts.oz_proxy");
     }
+
+    function _afterValueChanged(string memory key) internal override {}
+    function _save() internal override {}
 }
 
 contract DeploymentNonBaoOwnableTest is BaoDeploymentTest {

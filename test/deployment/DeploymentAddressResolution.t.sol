@@ -20,6 +20,10 @@ contract AddressResolutionHarness is DeploymentDataMemory {
         addAddressArrayKey("contracts.recipients");
     }
 
+    function _afterValueChanged(string memory key) internal override {}
+
+    function _save() internal override {}
+
     // ========== Address parsing ==========
 
     function parseAddress(string memory s) external pure returns (address) {
@@ -136,7 +140,7 @@ contract DeploymentAddressParsingTest is BaoTest {
 
     function test_ParseAddress_FullAddress() public view {
         address expected = 0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84;
-        address result = harness.parseAddress("0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84");
+        address result = harness.parseAddress("0xaE7ab96520DE3A18E5e111B5EaAb095312D7fE84");
         assertEq(result, expected);
     }
 

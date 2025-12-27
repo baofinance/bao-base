@@ -1,13 +1,43 @@
 # Bao-base
 
-This is a project that can/should be used in all Bao contract projects
+This is a project that can/should be used in all Bao contract projects.
+
+## Deployment Framework
+
+Bao-base provides a structured deployment system for deterministic, reproducible contract deployments.
+
+### Architecture
+
+Deployments use `DeploymentJsonScript` which extends Foundry's `Script` with:
+
+- **JSON schema validation** - Define expected contracts, roles, and parameters
+- **CREATE3 via BaoFactory** - Deterministic addresses from salt strings
+- **Role management** - Grant/revoke roles on deployed contracts
+- **Multi-phase deployment** - Deploy, smoke test, verify in separate runs
+
+Projects define deployment contracts by extending `DeploymentJsonScript` and implementing `_deploy*` methods for each deployment unit.
+
+### Scripts
+
+**`script/ensure-bao-factory`** - Prepares BaoFactory for local development. Handles deploy, upgrade, and operator setup via impersonation. Run `--help` for options.
+
+```bash
+# Typical local dev setup
+ensure-bao-factory --operator 0xYourAddress
+```
+
+For production factory operations, use `lib/bao-factory/script/bao-factory` directly (see bao-factory README).
 
 ## Build status
+
 ### foundry
+
 [![CI](https://github.com/baofinance/bao-base/actions/workflows/CI-test-foundry-stable.yml/badge.svg)](https://github.com/baofinance/bao-base/actions/workflows/CI-test-foundry-stable.yml)
 <br>
 [![CI](https://github.com/baofinance/bao-base/actions/workflows/CI-test-foundry-latest.yml/badge.svg)](https://github.com/baofinance/bao-base/actions/workflows/CI-test-foundry-latest.yml)
+
 ### scripting
+
 [![CI](https://github.com/baofinance/bao-base/actions/workflows/CI-test-scripting.yml/badge.svg)](https://github.com/baofinance/bao-base/actions/workflows/CI-test-scripting.yml)
 
 ## Usage

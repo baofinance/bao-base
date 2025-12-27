@@ -3,8 +3,13 @@
 | Array                          |                 62 |               24,514 |                  88 |       13,280 |              1.33 |
 | BaoFixedOwnableDeployer        |              1,205 |               23,371 |               1,233 |      253,330 |             25.33 |
 | Deployed                       |                408 |               24,168 |                 460 |       86,200 |              8.62 |
+<<<<<<< HEAD
 | DeploymentJsonTesting          |             50,550 |              -25,974 |              53,738 |   10,647,380 |           1064.74 |
 | DeploymentMemoryTesting        |             34,157 |               -9,581 |              35,970 |    7,191,100 |            719.11 |
+=======
+| DeploymentJsonTesting          |             50,762 |              -26,186 |              53,950 |   10,691,900 |           1069.19 |
+| DeploymentMemoryTesting        |             34,360 |               -9,784 |              36,173 |    7,233,730 |            723.37 |
+>>>>>>> main
 | DeploymentTestingOutput        |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | DerivedBaoFixedOwnable         |                509 |               24,067 |                 882 |      110,620 |             11.06 |
 | DerivedBaoFixedOwnableRoles    |              1,381 |               23,195 |               1,774 |      293,940 |             29.39 |
