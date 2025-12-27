@@ -16,8 +16,9 @@ import {BaoRolesCore} from "@bao/internal/BaoRolesCore.sol";
 /// @author rootminus0x1 a barefaced copy of Solady's OwnableRoles contract
 /// (https://github.com/vectorized/solady/blob/main/src/auth/OwnableRoles.sol)
 /// @notice It is a copy of Solady's 'OwnableRoles' with the necessary 'Ownable' part
-/// moved into a base contract 'BaoCheckOwner_v2'. We retain solady's sleek mechanism of
-/// utilising the same seed slot for ownability and user roles.
+/// moved into a base contract 'BaoCheckOwner_v2'.
+/// We retain Solady's seed-based storage mechanism for user roles; ownership is provided
+/// by `BaoCheckOwner_v2` (and is not stored in the same seed slot).
 /// This change allows it to be mixed in with the 'BaoOwnable' or 'BaoOwnableTransferrable'
 /// contracts to create Roles enabled versions of those contracts
 /// it also adds IRC165 interface query support

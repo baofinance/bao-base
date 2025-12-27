@@ -13,6 +13,10 @@ contract DerivedBaoOwnable is BaoOwnable {
         _initializeOwner(owner);
     }
 
+    function initialize(address deployerOwner, address pendingOwner_) public {
+        _initializeOwner(deployerOwner, pendingOwner_);
+    }
+
     function pendingOwner() public view returns (address pendingOwner_) {
         assembly ("memory-safe") {
             pendingOwner_ := sload(_PENDING_SLOT)
@@ -85,6 +89,39 @@ contract TestBaoOwnableOnly is Test {
         // can't initialise again
         vm.expectRevert(IBaoOwnable.AlreadyInitialized.selector);
         DerivedBaoOwnable(ownable).initialize(user);
+    }
+
+    function test_initializeExplicitSetsOwnerNotCaller(uint64 start) public {
+        start = uint64(bound(start, 1, type(uint64).max - 52 weeks));
+        vm.warp(start);
+
+        address deployerOwner = makeAddr("deployerOwner");
+        address pendingOwner = makeAddr("pendingOwner");
+
+        assertEq(IBaoOwnable(ownable).owner(), address(0));
+        assertEq(DerivedBaoOwnable(ownable).pendingOwner(), address(0));
+        assertEq(DerivedBaoOwnable(ownable).pendingExpiry(), 0);
+
+        // Caller is address(this), but owner should become deployerOwner.
+        vm.expectEmit();
+        emit IBaoOwnable.OwnershipTransferred(address(0), deployerOwner);
+        DerivedBaoOwnable(ownable).initialize(deployerOwner, pendingOwner);
+
+        assertEq(IBaoOwnable(ownable).owner(), deployerOwner);
+        assertEq(DerivedBaoOwnable(ownable).pendingOwner(), pendingOwner);
+        assertEq(DerivedBaoOwnable(ownable).pendingExpiry(), block.timestamp + 3600);
+
+        // Only the deployerOwner can complete the transfer.
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        IBaoOwnable(ownable).transferOwnership(pendingOwner);
+
+        vm.expectEmit();
+        emit IBaoOwnable.OwnershipTransferred(deployerOwner, pendingOwner);
+        vm.prank(deployerOwner);
+        IBaoOwnable(ownable).transferOwnership(pendingOwner);
+        assertEq(IBaoOwnable(ownable).owner(), pendingOwner);
+        assertEq(DerivedBaoOwnable(ownable).pendingOwner(), address(0));
+        assertEq(DerivedBaoOwnable(ownable).pendingExpiry(), 0);
     }
 
     function test_introspection() public view virtual {

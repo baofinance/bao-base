@@ -1,18 +1,18 @@
 | File                                          | % Lines            | % Statements       | % Branches       | % Funcs          |
 |-----------------------------------------------|--------------------|--------------------|------------------|------------------|
 | script/deployment/Deployment.sol              | X   0% (0/3)       | X   0% (0/2)       | ✓ 100% (0/0)     | X   0% (0/1)     |
-| script/deployment/DeploymentBase.sol          | X  82% (287/351)   | X  85% (361/425)   | X  64% (36/56)   | X  70% (33/47)   |
-| script/deployment/DeploymentDataMemory.sol    | X  99% (184/185)   | X  99% (183/185)   | ✓ 100% (20/20)   | ✓ 100% (44/44)   |
-| script/deployment/DeploymentJson.sol          | X  80% (319/397)   | X  79% (407/515)   | X  70% (71/101)  | X  89% (40/45)   |
-| script/deployment/DeploymentJsonScript.sol    | X   0% (0/11)      | X   0% (0/8)       | ✓ 100% (0/0)     | X   0% (0/4)     |
+| script/deployment/DeploymentBase.sol          | X  82% (281/342)   | X  85% (353/415)   | X  65% (37/57)   | X  70% (31/44)   |
+| script/deployment/DeploymentDataMemory.sol    | X  99% (183/184)   | X  99% (183/185)   | ✓ 100% (20/20)   | ✓ 100% (43/43)   |
+| script/deployment/DeploymentJson.sol          | X  81% (319/395)   | X  79% (407/514)   | X  70% (71/101)  | X  91% (40/44)   |
+| script/deployment/DeploymentJsonScript.sol    | X   0% (0/9)       | X   0% (0/6)       | ✓ 100% (0/0)     | X   0% (0/3)     |
 | script/deployment/DeploymentJsonTesting.sol   | X  91% (10/11)     | X  88% (7/8)       | ✓ 100% (2/2)     | ✓ 100% (4/4)     |
 | script/deployment/DeploymentKeys.sol          | X  83% (217/263)   | X  86% (235/272)   | X  57% (16/28)   | X  74% (37/50)   |
-| script/deployment/DeploymentMemoryTesting.sol | ✓ 100% (3/3)       | ✓ 100% (1/1)       | ✓ 100% (0/0)     | ✓ 100% (2/2)     |
-| script/deployment/DeploymentTesting.sol       | ✓ 100% (47/47)     | ✓ 100% (39/39)     | ✓ 100% (5/5)     | ✓ 100% (14/14)   |
+| script/deployment/DeploymentMemoryTesting.sol | ✓ 100% (5/5)       | ✓ 100% (1/1)       | ✓ 100% (0/0)     | ✓ 100% (4/4)     |
+| script/deployment/DeploymentTesting.sol       | X  96% (47/49)     | X  98% (39/40)     | ✓ 100% (5/5)     | X  93% (14/15)   |
 | script/deployment/JsonArrays.sol              | ✓ 100% (16/16)     | ✓ 100% (16/16)     | ✓ 100% (0/0)     | ✓ 100% (8/8)     |
 | script/deployment/UUPSProxyDeployStub.sol     | X  93% (25/27)     | X  80% (20/25)     | X  33% (2/6)     | ✓ 100% (8/8)     |
 | script/utils/Array.sol                        | X   3% (12/389)    | X   3% (9/334)     | ✓ 100% (0/0)     | X   5% (3/61)    |
-| src/BaoOwnable.sol                            | ✓ 100% (27/27)     | ✓ 100% (24/24)     | ✓ 100% (3/3)     | ✓ 100% (6/6)     |
+| src/BaoOwnable.sol                            | ✓ 100% (29/29)     | ✓ 100% (25/25)     | ✓ 100% (3/3)     | ✓ 100% (7/7)     |
 | src/BaoOwnableRoles.sol                       | ✓ 100% (2/2)       | ✓ 100% (4/4)       | ✓ 100% (0/0)     | ✓ 100% (1/1)     |
 | src/BaoOwnableRoles_v2.sol                    | ✓ 100% (2/2)       | ✓ 100% (4/4)       | ✓ 100% (0/0)     | ✓ 100% (1/1)     |
 | src/BaoOwnableTransferrable.sol               | ✓ 100% (57/57)     | ✓ 100% (48/48)     | ✓ 100% (5/5)     | ✓ 100% (12/12)   |
@@ -26,6 +26,7 @@
 | src/TokenHolder.sol                           | ✓ 100% (12/12)     | ✓ 100% (8/8)       | ✓ 100% (1/1)     | ✓ 100% (4/4)     |
 | src/internal/BaoCheckOwner.sol                | ✓ 100% (6/6)       | ✓ 100% (4/4)       | ✓ 100% (1/1)     | ✓ 100% (2/2)     |
 | src/internal/BaoCheckOwner_v2.sol             | ✓ 100% (13/13)     | ✓ 100% (10/10)     | ✓ 100% (1/1)     | ✓ 100% (4/4)     |
-| src/internal/BaoRoles.sol                     | ✓ 100% (56/56)     | ✓ 100% (49/49)     | ✓ 100% (6/6)     | ✓ 100% (16/16)   |
-| src/internal/BaoRoles_v2.sol                  | ✓ 100% (47/47)     | X  98% (42/43)     | ✓ 100% (4/4)     | ✓ 100% (14/14)   |
-| Total                                         | X  71% (2463/3455) | X  74% (2453/3322) | X  63% (195/309) | X  69% (555/805) |
+| src/internal/BaoRoles.sol                     | ✓ 100% (2/2)       | ✓ 100% (1/1)       | ✓ 100% (0/0)     | ✓ 100% (1/1)     |
+| src/internal/BaoRolesCore.sol                 | ✓ 100% (54/54)     | ✓ 100% (47/47)     | ✓ 100% (5/5)     | ✓ 100% (17/17)   |
+| src/internal/BaoRoles_v2.sol                  | ✓ 100% (2/2)       | ✓ 100% (3/3)       | ✓ 100% (0/0)     | ✓ 100% (1/1)     |
+| Total                                         | X  71% (2426/3415) | X  74% (2415/3279) | X  63% (192/306) | X  69% (548/798) |
