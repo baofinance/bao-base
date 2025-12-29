@@ -16,5 +16,5 @@ export BAO_DEPLOYMENT_LOGS_ROOT=$(mktemp -d -p tmp)
 trap 'rm -rf "${BAO_DEPLOYMENT_LOGS_ROOT}"' EXIT
 
 # run the coverage
-forge coverage --nmp 'script/**/*.t.sol' --report summary --report lcov
+forge coverage --out ${FOUNDRY_OUT} --nmp 'script/**/*.t.sol' --report summary --report lcov "$@"
 { set +x; } 2>/dev/null

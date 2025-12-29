@@ -12,5 +12,5 @@ mkdir -p tmp
 export BAO_DEPLOYMENT_LOGS_ROOT=$(mktemp -d -p tmp)
 trap 'rm -rf "${BAO_DEPLOYMENT_LOGS_ROOT}"' EXIT
 
-forge test --out ${FOUNDRY_OUT} --nmp script/**/*.t.sol --isolate --gas-report "$@"
+forge test --out ${FOUNDRY_OUT} --nmp 'script/**/*.t.sol' --isolate --gas-report "$@"
 { set +x; } 2>/dev/null
