@@ -20,7 +20,7 @@
     "lint:bash": "yarn prettier:bash --lint",
     "lint:python": "[ $# -gt 0 ] && ./run lint-python ${0} bin test; [ $# -eq 0 ] && ./run lint-python bin test",
     "lint:test": "solhint --max-warnings 0 'test/**/*.sol' --config .solhint-test.json --disc",
-    "slither": "./run slither .",
+    "slither": "./run slither",
     "test": "./run test",
     "test:bash": "[ $# -gt 0 ] && ./node_modules/bats/bin/bats test/**/\"${0}\".bats; [ $# -eq 0 ] && ./node_modules/bats/bin/bats test/**/*.bats",
     "test:python": "uv run pytest test/",
