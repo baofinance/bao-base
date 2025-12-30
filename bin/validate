@@ -1,48 +1,54 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Report current shell and bash version/path (works in Bash 3.2+)
-if [ -n "${BASH_VERSION:-}" ]; then
-  # Running under bash
-  echo "Bash in use: ${BASH_VERSION} (path: ${BASH:-unknown})" >&2
-  # Optional: check for >= 5.2
-  major=${BASH_VERSINFO[0]:-0}
-  minor=${BASH_VERSINFO[1]:-0}
-  if { [ "$major" -gt 5 ] || { [ "$major" -eq 5 ] && [ "$minor" -ge 2 ]; }; }; then
-    echo "Bash meets minimum 5.2 requirement" >&2
-  else
-    echo "Bash is below 5.2; PATH/runner may point to older bash" >&2
-  fi
-else
-  # Not running under bash (e.g., sh); show process and default bash
-  shell_name=$(ps -p $$ -o comm= 2>/dev/null || echo "${SHELL:-unknown}")
-  echo "Not running under bash (current shell: ${shell_name})" >&2
-  echo "Default bash in PATH: $(command -v bash 2>/dev/null || echo 'not found')" >&2
-  echo "Default bash version: $(bash --version 2>/dev/null | head -n1 || echo 'unknown')" >&2
-fi
+SCRIPT_ARGS=("$@")
+
+# # Report current shell and bash version/path (works in Bash 3.2+)
+# if [ -n "${BASH_VERSION:-}" ]; then
+#   # Running under bash
+#   echo "Bash in use: ${BASH_VERSION} (path: ${BASH:-unknown})" >&2
+#   # Optional: check for >= 5.2
+#   major=${BASH_VERSINFO[0]:-0}
+#   minor=${BASH_VERSINFO[1]:-0}
+#   if { [ "$major" -gt 5 ] || { [ "$major" -eq 5 ] && [ "$minor" -ge 2 ]; }; }; then
+#     echo "Bash meets minimum 5.2 requirement" >&2
+#   else
+#     echo "Bash is below 5.2; PATH/runner may point to older bash" >&2
+#   fi
+# else
+#   # Not running under bash (e.g., sh); show process and default bash
+#   shell_name=$(ps -p $$ -o comm= 2>/dev/null || echo "${SHELL:-unknown}")
+#   echo "Not running under bash (current shell: ${shell_name})" >&2
+#   echo "Default bash in PATH: $(command -v bash 2>/dev/null || echo 'not found')" >&2
+#   echo "Default bash version: $(bash --version 2>/dev/null | head -n1 || echo 'unknown')" >&2
+# fi
 
 # separate build output & cache
 FOUNDRY_OUT="out/_validate"
 export FOUNDRY_CACHE_PATH=cache/_validate
 
+# clean everything, then create necessary directories
+rm -rf $FOUNDRY_OUT
 BUILD_INFO_DIR="$FOUNDRY_OUT/build-info"
 mkdir -p "${BUILD_INFO_DIR}"
-# only check the src files
 
 # build again with build-info this time, so we force
-forge build --out ${FOUNDRY_OUT} --build-info --build-info-path "${BUILD_INFO_DIR}" --extra-output storageLayout --skip "**/*.vy" --skip "**/*.t.sol" --skip "**/*.s.sol" --force src
+forge build --out ${FOUNDRY_OUT} --build-info --build-info-path "${BUILD_INFO_DIR}" --extra-output storageLayout --skip "**/*.vy" --skip "**/*.t.sol" --skip "**/*.s.sol" src
 echo
 echo "running OpenZeppelin upgrades-core validate..."
 echo "-------------------------------------------"
 echo
-npx @openzeppelin/upgrades-core validate "${BUILD_INFO_DIR}" || error "OpenZeppelin upgrades-core validate failed"
+validate_upgrades() {
+  npx @openzeppelin/upgrades-core validate "${BUILD_INFO_DIR}" --exclude "lib/**" "${SCRIPT_ARGS[@]}"
+}
+validate_upgrades || error "OpenZeppelin upgrades-core validate failed"
 
 # check for root storage access
 echo
 echo "checking namespace-only storage policy..."
 echo "--------------------------------------"
 echo
-contracts=$(npx @openzeppelin/upgrades-core validate "${BUILD_INFO_DIR}" | grep -o -E '[^[:space:]]+.sol:[A-Za-z_][A-Za-z0-9_]*')
+contracts=$(validate_upgrades | grep -o -E '[^[:space:]]+.sol:[A-Za-z_][A-Za-z0-9_]*')
 
 # Allowed storage slot: OpenZeppelin Initializable (ERC-7201)
 # ALLOWED_OZ_INIT_SLOT=$(cast index-erc7201 openzeppelin.storage.Initializable)
@@ -83,6 +89,13 @@ for contract in ${contracts}; do
     echo "ERROR: Constructor does not call _disableInitializers(); (no creation/runtime bytecode) in $contract"
     this_failed=1
   else
+    # Check for Initializable slot in FULL creation bytecode (before trimming)
+    # The slot may be in the immutable data section after the runtime
+    has_init_slot=0
+    if echo "$init" | grep -q "${ALLOWED_OZ_INIT_SLOT}"; then
+      has_init_slot=1
+    fi
+
     # Isolate constructor (init) by trimming runtime tail
     # pos=$(echo -n "$init" | grep -aob -- "${runtime#0x}" | tail -n1 | cut -d: -f1 || true) # OOM on macos
     pos=$(node -e "const a=(process.argv[1]||'').toLowerCase(); const b=(process.argv[2]||'').replace(/^0x/,'').toLowerCase(); const i=a.lastIndexOf(b); if(i>=0) process.stdout.write(String(i));" "$init" "$runtime" 2>/dev/null || true)
@@ -108,8 +121,8 @@ for contract in ${contracts}; do
 
     # echo $init
     # exit 0
-    # Require the Initializable ERC-7201 slot bytes to appear in constructor bytecode
-    if ! echo "$init" | grep -q "${ALLOWED_OZ_INIT_SLOT}"; then
+    # Require the Initializable ERC-7201 slot bytes to appear in creation bytecode
+    if [ "$has_init_slot" -eq 0 ]; then
       echo "ERROR: Constructor does not reference Initializable slot (erc7201) in $contract"
       this_failed=1
     fi
