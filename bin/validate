@@ -38,9 +38,13 @@ echo
 echo "running OpenZeppelin upgrades-core validate..."
 echo "-------------------------------------------"
 echo
+
 validate_upgrades() {
-  npx @openzeppelin/upgrades-core validate "${BUILD_INFO_DIR}" --exclude "lib/**" "${SCRIPT_ARGS[@]}"
+  npx @openzeppelin/upgrades-core validate "${BUILD_INFO_DIR}" \
+    --exclude "lib/**" --exclude "script/**" --exclude "test/**" \
+    "${SCRIPT_ARGS[@]}"
 }
+
 validate_upgrades || error "OpenZeppelin upgrades-core validate failed"
 
 # check for root storage access
