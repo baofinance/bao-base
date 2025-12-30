@@ -33,7 +33,7 @@ BUILD_INFO_DIR="$FOUNDRY_OUT/build-info"
 mkdir -p "${BUILD_INFO_DIR}"
 
 # build again with build-info this time, so we force
-forge build --out ${FOUNDRY_OUT} --build-info --build-info-path "${BUILD_INFO_DIR}" --extra-output storageLayout --skip "**/*.vy" --skip "**/*.t.sol" --skip "**/*.s.sol" src
+forge build --out ${FOUNDRY_OUT} --build-info --build-info-path "${BUILD_INFO_DIR}" --extra-output storageLayout --skip "**/*.vy" --skip "**/*.t.sol" --skip "**/*.s.sol" --force src
 echo
 echo "running OpenZeppelin upgrades-core validate..."
 echo "-------------------------------------------"
