@@ -91,45 +91,37 @@ abstract contract FactoryDeployer is DeploymentBase {
     // Parameters are generic (part1, part2, part3) as they vary by use case.
 
     /// @notice Construct salt string for a single-part key (e.g., "ETH::pegged")
-    function _saltString(string memory part1) internal view returns (string memory) {
-        return string.concat(saltPrefix(), "::", part1);
+    function _saltString(string memory a) internal view returns (string memory) {
+        return string.concat(saltPrefix(), "::", a);
     }
 
     /// @notice Construct salt string for two-part key (e.g., "ETH::fxUSD", "minter")
-    function _saltString(string memory part1, string memory part2) internal view returns (string memory) {
-        return string.concat(saltPrefix(), "::", part1, "::", part2);
+    function _saltString(string memory a, string memory b) internal view returns (string memory) {
+        return string.concat(saltPrefix(), "::", a, "::", b);
     }
 
     /// @notice Construct salt string for three-part key (e.g., "ETH", "fxUSD", "minter")
-    function _saltString(
-        string memory part1,
-        string memory part2,
-        string memory part3
-    ) internal view returns (string memory) {
-        return string.concat(saltPrefix(), "::", part1, "::", part2, "::", part3);
+    function _saltString(string memory a, string memory b, string memory c) internal view returns (string memory) {
+        return string.concat(saltPrefix(), "::", a, "::", b, "::", c);
     }
 
     // ========== ADDRESS PREDICTION ==========
 
     /// @notice Predict address for a single-part key (e.g., "ETH::pegged")
-    function _predictAddress(string memory part1) internal view returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(_saltString(part1)));
+    function _predictAddress(string memory a) internal view returns (address) {
+        bytes32 salt = keccak256(abi.encodePacked(_saltString(a)));
         return IBaoFactory(baoFactory()).predictAddress(salt);
     }
 
     /// @notice Predict address for two-part key (e.g., "ETH::fxUSD", "minter")
-    function _predictAddress(string memory part1, string memory part2) internal view returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(_saltString(part1, part2)));
+    function _predictAddress(string memory a, string memory b) internal view returns (address) {
+        bytes32 salt = keccak256(abi.encodePacked(_saltString(a, b)));
         return IBaoFactory(baoFactory()).predictAddress(salt);
     }
 
     /// @notice Predict address for three-part key (e.g., "ETH", "fxUSD", "minter")
-    function _predictAddress(
-        string memory part1,
-        string memory part2,
-        string memory part3
-    ) internal view returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(_saltString(part1, part2, part3)));
+    function _predictAddress(string memory a, string memory b, string memory c) internal view returns (address) {
+        bytes32 salt = keccak256(abi.encodePacked(_saltString(a, b, c)));
         return IBaoFactory(baoFactory()).predictAddress(salt);
     }
 
