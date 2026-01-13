@@ -151,6 +151,15 @@ contract FactoryDeployerTest is BaoTest {
         deployer.setSaltPrefix("test_v1");
     }
 
+    /// @dev Create a properly initialized state for tests (writes to results/ directory).
+    function _createTestState() internal pure returns (DeploymentTypes.State memory stateData) {
+        stateData.network = "";
+        stateData.saltPrefix = "test_v1";
+        stateData.directoryPrefix = "results";
+        stateData.proxies = new DeploymentTypes.ProxyRecord[](0);
+        stateData.implementations = new DeploymentTypes.ImplementationRecord[](0);
+    }
+
     // ========== SALT STRING TESTS ==========
 
     function test_saltString_onePart() public view {
@@ -314,9 +323,7 @@ contract FactoryDeployerTest is BaoTest {
         IBaoFactory(baoFactoryAddr).setOperator(address(deployer), 365 days);
 
         // Create state data
-        DeploymentTypes.State memory stateData;
-        stateData.proxies = new DeploymentTypes.ProxyRecord[](0);
-        stateData.implementations = new DeploymentTypes.ImplementationRecord[](0);
+        DeploymentTypes.State memory stateData = _createTestState();
 
         // First deployment
         vm.prank(address(deployer));
@@ -368,9 +375,7 @@ contract FactoryDeployerTest is BaoTest {
         IBaoFactory(baoFactoryAddr).setOperator(address(deployer), 365 days);
 
         // Create state data
-        DeploymentTypes.State memory stateData;
-        stateData.proxies = new DeploymentTypes.ProxyRecord[](0);
-        stateData.implementations = new DeploymentTypes.ImplementationRecord[](0);
+        DeploymentTypes.State memory stateData = _createTestState();
 
         // First deployment
         vm.prank(address(deployer));
@@ -418,9 +423,7 @@ contract FactoryDeployerTest is BaoTest {
         IBaoFactory(baoFactoryAddr).setOperator(address(deployer), 365 days);
 
         // Create state data
-        DeploymentTypes.State memory stateData;
-        stateData.proxies = new DeploymentTypes.ProxyRecord[](0);
-        stateData.implementations = new DeploymentTypes.ImplementationRecord[](0);
+        DeploymentTypes.State memory stateData = _createTestState();
 
         // First deployment - creates proxy owned by deployer
         vm.prank(address(deployer));

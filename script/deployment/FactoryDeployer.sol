@@ -165,6 +165,22 @@ abstract contract FactoryDeployer is DeploymentBase {
         string memory contractType,
         bytes memory initData
     ) internal returns (address proxy) {
+        // Recording is idempotent - safe to call even if already recorded
+        DeploymentState.recordImplementation(
+            stateData,
+            DeploymentTypes.ImplementationRecord({
+                proxy: proxyId,
+                contractSource: contractSource,
+                contractType: contractType,
+                implementation: implementation,
+                deploymentTime: uint64(block.timestamp)
+            })
+        );
+
+        // Save state immediately after recording (crash-safe: state reflects what's deployed)
+        DeploymentState.save(stateData);
+
+        // now to the proxy
         bytes32 salt = keccak256(abi.encodePacked(saltPrefix(), "::", proxyId));
         address predictedProxy = IBaoFactory(baoFactory()).predictAddress(salt);
 
@@ -183,18 +199,6 @@ abstract contract FactoryDeployer is DeploymentBase {
         // Register for ownership transfer (idempotent: prevents duplicates, skips already-owned at transfer time)
         _registerForOwnershipTransfer(proxy, _saltString(proxyId));
 
-        // Recording is idempotent - safe to call even if already recorded
-        DeploymentState.recordImplementation(
-            stateData,
-            DeploymentTypes.ImplementationRecord({
-                proxy: proxyId,
-                contractSource: contractSource,
-                contractType: contractType,
-                implementation: implementation,
-                deploymentTime: uint64(block.timestamp)
-            })
-        );
-
         DeploymentState.recordProxy(
             stateData,
             DeploymentTypes.ProxyRecord({
@@ -205,6 +209,9 @@ abstract contract FactoryDeployer is DeploymentBase {
                 deploymentTime: uint64(block.timestamp)
             })
         );
+
+        // Save state immediately after recording (crash-safe: state reflects what's deployed)
+        DeploymentState.save(stateData);
     }
 
     /// @notice Get the implementation address from an ERC1967 proxy.

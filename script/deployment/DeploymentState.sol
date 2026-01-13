@@ -70,19 +70,16 @@ library DeploymentState {
         state = JsonParser.parseStateJson(json);
         state.network = network;
         state.saltPrefix = saltPrefix;
+        state.directoryPrefix = directoryPrefix;
         return state;
     }
 
     function save(DeploymentTypes.State memory state) internal {
-        save(state, "");
-    }
-
-    function save(DeploymentTypes.State memory state, string memory directoryPrefix) internal {
-        _ensureDirectory(state.network, directoryPrefix);
+        _ensureDirectory(state.network, state.directoryPrefix);
 
         string memory json = JsonSerializer.renderState(state);
 
-        string memory path = resolvePath(state.network, state.saltPrefix, directoryPrefix);
+        string memory path = resolvePath(state.network, state.saltPrefix, state.directoryPrefix);
         // vm.writeFile(path, json); // don't do this as we want the json pretty-printed
         json.write(path);
     }

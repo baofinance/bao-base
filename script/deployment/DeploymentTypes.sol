@@ -23,6 +23,7 @@ library DeploymentTypes {
     struct State {
         string network;
         string saltPrefix;
+        string directoryPrefix;
         ImplementationRecord[] implementations;
         ProxyRecord[] proxies;
         address baoFactory;
