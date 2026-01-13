@@ -21,14 +21,15 @@ contract DeploymentStateWrapper {
         return DeploymentState.recordProxy(state, rec);
     }
 
-    /// @notice Records first then attempts second - for duplicate testing.
+    /// @notice Records first then attempts second - for duplicate testing. Returns modified state.
     function recordImplementationTwice(
         DeploymentTypes.State memory state,
         DeploymentTypes.ImplementationRecord memory rec1,
         DeploymentTypes.ImplementationRecord memory rec2
-    ) external pure {
+    ) external pure returns (DeploymentTypes.State memory) {
         DeploymentState.recordImplementation(state, rec1);
         DeploymentState.recordImplementation(state, rec2);
+        return state;
     }
 
     /// @notice Records first then attempts second - for duplicate testing.
