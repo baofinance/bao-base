@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+/// @notice Interface for UUPS proxy upgrade operations.
+interface IUUPSUpgradeableProxy {
+    function implementation() external view returns (address);
+    function upgradeTo(address newImplementation) external;
+    function upgradeToAndCall(address newImplementation, bytes memory data) external payable;
+}
+
 /// @title UUPSProxyDeployStub
 /// @notice Bare-bones UUPS bootstrap contract. The deploying harness becomes the immutable owner.
 /// @dev The contract provides only the upgrade surface plus an `owner()` getter. Ownership cannot

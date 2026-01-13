@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {BaoDeploymentTest} from "./BaoDeploymentTest.sol";
+import {BaoTest} from "@bao-test/BaoTest.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -21,15 +21,14 @@ contract UpgradeTarget {
     }
 }
 
-contract UUPSProxyDeployStubTest is BaoDeploymentTest {
+contract UUPSProxyDeployStubTest is BaoTest {
     bytes32 internal constant IMPLEMENTATION_SLOT = 0x360894A13BA1A3210667C828492DB98DCA3E2076CC3735A920A3CA505D382BBC;
 
     UUPSProxyDeployStub internal stub;
     address internal owner;
     address internal outsider;
 
-    function setUp() public override {
-        super.setUp();
+    function setUp() public {
         owner = address(this);
         stub = new UUPSProxyDeployStub();
         outsider = makeAddr("outsider");

@@ -7,8 +7,7 @@ import {Test} from "forge-std/Test.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {BaoOwnable} from "@bao/BaoOwnable.sol";
-import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
-import {IUUPSUpgradeableProxy} from "@bao-script/deployment/DeploymentBase.sol";
+import {UUPSProxyDeployStub, IUUPSUpgradeableProxy} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";

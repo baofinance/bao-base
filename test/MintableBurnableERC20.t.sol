@@ -353,6 +353,178 @@ contract TestUpgrade is TestLeveragedTokensSetUp {
     }
 }
 
+import {MintableBurnableERC20_v2_Reinit} from "./mocks/MintableBurnableERC20_v2_Reinit.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+
+/// @notice Tests for recovering from botched proxy deployments via upgrade
+/// Pattern: Upgrade to v2 with reinitializer to fix initialization issues
+/// @dev Note: BaoOwnable sets msg.sender as owner and the passed address as pendingOwner.
+///      transferOwnership() must be called to complete transfer.
+contract TestUpgradeRecovery is TestLeveragedTokensSetUp {
+    string constant CORRECT_NAME = "Correct Name";
+    string constant CORRECT_SYMBOL = "CORRECT";
+    string constant WRONG_NAME = "Wrong Name";
+    string constant WRONG_SYMBOL = "WRONG";
+
+    /// @notice Test: Proxy deployed with stub (no initialize called) can be fixed via upgrade
+    /// Scenario: Factory.deploy created proxy with stub implementation, but upgradeToAndCall failed
+    function test_recoverFromUninitializedProxy() public {
+        // Deploy v1 implementation
+        address v1Impl = address(new MintableBurnableERC20_v1());
+
+        // Deploy proxy WITHOUT calling initialize (simulates failed upgradeToAndCall)
+        // Use a minimal ERC1967 proxy pointing to v1 impl
+        address uninitializedProxy = address(
+            new ERC1967Proxy(v1Impl, "") // empty data = no initialize call
+        );
+
+        // Verify proxy is in uninitialized state
+        assertEq(IERC20Metadata(uninitializedProxy).name(), "", "name should be empty");
+        assertEq(IERC20Metadata(uninitializedProxy).symbol(), "", "symbol should be empty");
+
+        // Deploy v2 implementation with reinitializer capability
+        address v2Impl = address(new MintableBurnableERC20_v2_Reinit());
+
+        // Since no owner is set, anyone can initialize - this is the vulnerability
+        // Initialize with wrong params to simulate a deployment mistake
+        // Note: BaoOwnable sets msg.sender (this test contract) as owner, finalOwner as pending
+        MintableBurnableERC20_v1(uninitializedProxy).initialize(owner, WRONG_NAME, WRONG_SYMBOL);
+
+        // Now test contract is owner, owner is pending owner
+        assertEq(IERC20Metadata(uninitializedProxy).name(), WRONG_NAME, "wrong name set");
+        assertEq(IBaoOwnable(uninitializedProxy).owner(), address(this), "test contract is owner");
+
+        // Test contract (as current owner) upgrades to v2 and calls reinitializeV2 to fix name/symbol
+        UUPSUpgradeable(uninitializedProxy).upgradeToAndCall(
+            v2Impl,
+            abi.encodeCall(MintableBurnableERC20_v2_Reinit.reinitializeV2, (CORRECT_NAME, CORRECT_SYMBOL))
+        );
+
+        // Verify name/symbol are now correct
+        assertEq(IERC20Metadata(uninitializedProxy).name(), CORRECT_NAME, "name should be fixed");
+        assertEq(IERC20Metadata(uninitializedProxy).symbol(), CORRECT_SYMBOL, "symbol should be fixed");
+
+        // Complete ownership transfer
+        IBaoOwnable(uninitializedProxy).transferOwnership(owner);
+        assertEq(IBaoOwnable(uninitializedProxy).owner(), owner, "owner should be transferred");
+    }
+
+    /// @notice Test: Proxy initialized with wrong params can be fixed via v2 reinitializer
+    /// Scenario: initialize() was called with incorrect name/symbol during deployment
+    function test_recoverFromWrongInitialization() public {
+        // Deploy with wrong name/symbol (simulating deployment error)
+        // Note: initialize sets msg.sender (test contract) as owner
+        address v1Impl = address(new MintableBurnableERC20_v1());
+        address wronglyInitializedProxy = address(
+            new ERC1967Proxy(
+                v1Impl,
+                abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, WRONG_NAME, WRONG_SYMBOL))
+            )
+        );
+
+        // Verify wrong initialization
+        assertEq(IERC20Metadata(wronglyInitializedProxy).name(), WRONG_NAME, "wrong name");
+        assertEq(IERC20Metadata(wronglyInitializedProxy).symbol(), WRONG_SYMBOL, "wrong symbol");
+        // Test contract is owner (BaoOwnable pattern)
+        assertEq(IBaoOwnable(wronglyInitializedProxy).owner(), address(this), "test is owner");
+
+        // Mint some tokens to verify state is preserved after upgrade
+        uint256 minterRole = IMintableRole(wronglyInitializedProxy).MINTER_ROLE();
+        // Test contract is owner, so it can grant roles
+        IBaoRoles(wronglyInitializedProxy).grantRoles(minter, minterRole);
+
+        vm.prank(minter);
+        IMintable(wronglyInitializedProxy).mint(user1, 100 ether);
+        assertEq(IERC20(wronglyInitializedProxy).balanceOf(user1), 100 ether, "user1 should have tokens");
+
+        // Upgrade to v2 and reinitialize with correct params (test contract is owner)
+        address v2Impl = address(new MintableBurnableERC20_v2_Reinit());
+        UUPSUpgradeable(wronglyInitializedProxy).upgradeToAndCall(
+            v2Impl,
+            abi.encodeCall(MintableBurnableERC20_v2_Reinit.reinitializeV2, (CORRECT_NAME, CORRECT_SYMBOL))
+        );
+
+        // Verify fix
+        assertEq(IERC20Metadata(wronglyInitializedProxy).name(), CORRECT_NAME, "name fixed");
+        assertEq(IERC20Metadata(wronglyInitializedProxy).symbol(), CORRECT_SYMBOL, "symbol fixed");
+
+        // Verify state preserved
+        assertEq(IERC20(wronglyInitializedProxy).balanceOf(user1), 100 ether, "balance preserved");
+        assertTrue(IBaoRoles(wronglyInitializedProxy).hasAnyRole(minter, minterRole), "minter role preserved");
+
+        // Complete ownership transfer and verify
+        IBaoOwnable(wronglyInitializedProxy).transferOwnership(owner);
+        assertEq(IBaoOwnable(wronglyInitializedProxy).owner(), owner, "owner transferred");
+
+        // Verify minting still works after ownership transfer
+        vm.prank(minter);
+        IMintable(wronglyInitializedProxy).mint(user2, 50 ether);
+        assertEq(IERC20(wronglyInitializedProxy).balanceOf(user2), 50 ether, "can still mint");
+    }
+
+    /// @notice Test: Cannot reinitialize with same version
+    function test_cannotReinitializeTwice() public {
+        // Deploy and initialize normally
+        address v2Impl = address(new MintableBurnableERC20_v2_Reinit());
+        address proxy = address(
+            new ERC1967Proxy(
+                v2Impl,
+                abi.encodeCall(MintableBurnableERC20_v2_Reinit.initialize, (owner, CORRECT_NAME, CORRECT_SYMBOL))
+            )
+        );
+
+        // Try to reinitialize with v1 - should fail (already at version 1)
+        // Note: test contract is owner (BaoOwnable pattern)
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        MintableBurnableERC20_v2_Reinit(proxy).reinitializeV1(owner, "New Name", "NEW");
+
+        // Can still reinitialize to v2 (test contract is owner)
+        MintableBurnableERC20_v2_Reinit(proxy).reinitializeV2("Updated Name", "UPD");
+        assertEq(IERC20Metadata(proxy).name(), "Updated Name", "v2 reinit works");
+
+        // Cannot reinitialize v2 again
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        MintableBurnableERC20_v2_Reinit(proxy).reinitializeV2("Another Name", "ANO");
+    }
+
+    /// @notice Test: Only owner can perform upgrade
+    function test_onlyOwnerCanUpgradeToFix() public {
+        // Deploy with wrong params - test contract becomes owner
+        address v1Impl = address(new MintableBurnableERC20_v1());
+        address proxy = address(
+            new ERC1967Proxy(
+                v1Impl,
+                abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, WRONG_NAME, WRONG_SYMBOL))
+            )
+        );
+
+        // Verify test contract is the current owner
+        assertEq(IBaoOwnable(proxy).owner(), address(this), "test is owner");
+
+        address v2Impl = address(new MintableBurnableERC20_v2_Reinit());
+
+        // Non-owner cannot upgrade
+        vm.prank(user1);
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        UUPSUpgradeable(proxy).upgradeToAndCall(
+            v2Impl,
+            abi.encodeCall(MintableBurnableERC20_v2_Reinit.reinitializeV2, (CORRECT_NAME, CORRECT_SYMBOL))
+        );
+
+        // Test contract (as owner) can upgrade
+        UUPSUpgradeable(proxy).upgradeToAndCall(
+            v2Impl,
+            abi.encodeCall(MintableBurnableERC20_v2_Reinit.reinitializeV2, (CORRECT_NAME, CORRECT_SYMBOL))
+        );
+
+        assertEq(IERC20Metadata(proxy).name(), CORRECT_NAME, "owner upgrade succeeded");
+
+        // Complete ownership transfer
+        IBaoOwnable(proxy).transferOwnership(owner);
+        assertEq(IBaoOwnable(proxy).owner(), owner, "ownership transferred");
+    }
+}
+
 contract TestPermit is TestLeveragedTokensSetUp {
     function test_permitBasic() public {
         // Mint some tokens to user1
