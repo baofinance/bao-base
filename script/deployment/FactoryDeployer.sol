@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {Vm} from "forge-std/Vm.sol";
 import {console2 as console} from "forge-std/console2.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
@@ -23,7 +25,15 @@ interface IBaoOwnable {
 /// @dev Deployment calls execute in the derived contract's context (important for permissions).
 /// @dev Includes DeploymentOwnership pattern - tracks deployed contracts and transfers ownership at end.
 /// @dev Inherits DeploymentBase to get baoFactory(), owner(), saltPrefix() from context.
+/// @dev All deployment operations are idempotent - safe to re-run.
 abstract contract FactoryDeployer is DeploymentBase {
+    using EnumerableSet for EnumerableSet.AddressSet;
+
+    // ========== CONSTANTS ==========
+
+    /// @dev Foundry VM cheatcode address.
+    Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+
     /// @dev Lazily deployed stub - must be deployed within broadcast context so msg.sender is correct.
     UUPSProxyDeployStub private _proxyDeployStub;
 
@@ -31,13 +41,11 @@ abstract contract FactoryDeployer is DeploymentBase {
     // Contracts are deployed with deployer as owner, then transferred at end.
     // initialize(owner()) sets pending owner; transferOwnership(owner()) confirms it.
 
-    struct PendingOwnership {
-        address deployed;
-        string salt;
-    }
+    /// @dev Set of deployed contract addresses needing ownership transfer.
+    EnumerableSet.AddressSet private _pendingOwnershipTransfers;
 
-    /// @dev List of deployed contracts needing ownership transfer.
-    PendingOwnership[] private _pendingOwnershipTransfers;
+    /// @dev Salt labels for logging (address -> salt string).
+    mapping(address => string) private _ownershipTransferSalts;
 
     /// @notice Get or deploy the proxy stub. Must be called within broadcast context.
     /// @dev Deploys on first call, returns cached address on subsequent calls.
@@ -50,28 +58,40 @@ abstract contract FactoryDeployer is DeploymentBase {
     }
 
     /// @notice Register a deployed contract for later ownership transfer.
-    /// @dev Call this after deploying any contract that needs ownership transferred.
+    /// @dev Idempotent: EnumerableSet ignores duplicates.
     function _registerForOwnershipTransfer(address deployed, string memory salt) internal {
-        _pendingOwnershipTransfers.push(PendingOwnership(deployed, salt));
+        _pendingOwnershipTransfers.add(deployed);
+        _ownershipTransferSalts[deployed] = salt;
     }
 
     /// @notice Transfer ownership of all registered contracts to final owner.
-    /// @dev No parameter needed - pending owner was set to owner() during initialize().
+    /// @dev Idempotent: skips contracts already owned by the target owner.
     function _transferAllOwnerships() internal {
         address pendingOwner = owner();
         string memory ownerLabel = _addressLabel(pendingOwner);
-        for (uint256 i = 0; i < _pendingOwnershipTransfers.length; i++) {
-            PendingOwnership memory pending = _pendingOwnershipTransfers[i];
-            console.log("        %s -> %s", pending.salt, ownerLabel);
-            IBaoOwnable(pending.deployed).transferOwnership(pendingOwner);
+        uint256 length = _pendingOwnershipTransfers.length();
+        for (uint256 i = 0; i < length; i++) {
+            address deployed = _pendingOwnershipTransfers.at(i);
+            string memory salt = _ownershipTransferSalts[deployed];
+            address currentOwner = IBaoOwnable(deployed).owner();
+            if (currentOwner == pendingOwner) {
+                console.log("        %s -> %s (already owned)", salt, ownerLabel);
+            } else {
+                console.log("        %s -> %s", salt, ownerLabel);
+                IBaoOwnable(deployed).transferOwnership(pendingOwner);
+            }
         }
-        // Clear the list after transfer
-        delete _pendingOwnershipTransfers;
+        // Clear after transfer - iterate backwards to avoid index issues
+        while (_pendingOwnershipTransfers.length() > 0) {
+            address addr = _pendingOwnershipTransfers.at(_pendingOwnershipTransfers.length() - 1);
+            _pendingOwnershipTransfers.remove(addr);
+            delete _ownershipTransferSalts[addr];
+        }
     }
 
     /// @notice Get count of contracts pending ownership transfer.
     function _pendingOwnershipCount() internal view returns (uint256) {
-        return _pendingOwnershipTransfers.length;
+        return _pendingOwnershipTransfers.length();
     }
 
     /// @notice Look up a human-readable label for an address.
@@ -128,7 +148,8 @@ abstract contract FactoryDeployer is DeploymentBase {
     // ========== DEPLOY AND RECORD ==========
 
     /// @notice Deploy a proxy and record both implementation and proxy in state.
-    /// @dev This is the main entry point for all proxy deployments - ensures recording cannot be forgotten.
+    /// @dev Idempotent: if proxy already exists, skips deployment and returns existing proxy.
+    /// @dev Logs existing implementation address for visibility when skipping.
     /// @param stateData Deployment state to record into.
     /// @param proxyId The proxy identifier (e.g., "ETH::fxUSD::minter").
     /// @param implementation The implementation contract address.
@@ -145,9 +166,24 @@ abstract contract FactoryDeployer is DeploymentBase {
         bytes memory initData
     ) internal returns (address proxy) {
         bytes32 salt = keccak256(abi.encodePacked(saltPrefix(), "::", proxyId));
-        proxy = deployProxy(baoFactory(), salt, implementation, initData);
+        address predictedProxy = IBaoFactory(baoFactory()).predictAddress(salt);
 
-        // Record implementation
+        // Check if proxy already exists
+        if (predictedProxy.code.length > 0) {
+            // Proxy exists - skip deployment
+            proxy = predictedProxy;
+            address existingImpl = _getImplementation(proxy);
+            console.log("        Proxy (existing): %s -> impl %s", proxy, existingImpl);
+        } else {
+            // Deploy new proxy
+            proxy = _deployProxy(baoFactory(), salt, implementation, initData);
+            console.log("        Proxy (new): %s", proxy);
+        }
+
+        // Register for ownership transfer (idempotent: prevents duplicates, skips already-owned at transfer time)
+        _registerForOwnershipTransfer(proxy, _saltString(proxyId));
+
+        // Recording is idempotent - safe to call even if already recorded
         DeploymentState.recordImplementation(
             stateData,
             DeploymentTypes.ImplementationRecord({
@@ -159,7 +195,6 @@ abstract contract FactoryDeployer is DeploymentBase {
             })
         );
 
-        // Record proxy
         DeploymentState.recordProxy(
             stateData,
             DeploymentTypes.ProxyRecord({
@@ -170,11 +205,15 @@ abstract contract FactoryDeployer is DeploymentBase {
                 deploymentTime: uint64(block.timestamp)
             })
         );
+    }
 
-        // Register for ownership transfer
-        _registerForOwnershipTransfer(proxy, _saltString(proxyId));
-
-        console.log("        Proxy: %s", proxy);
+    /// @notice Get the implementation address from an ERC1967 proxy.
+    /// @dev Uses Foundry vm.load to read the ERC1967 implementation slot from the proxy's storage.
+    function _getImplementation(address proxy) internal view returns (address) {
+        // ERC1967 implementation slot: keccak256("eip1967.proxy.implementation") - 1
+        bytes32 slot = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+        bytes32 value = vm.load(proxy, slot);
+        return address(uint160(uint256(value)));
     }
 
     /// @notice Deploy a proxy via CREATE3 using BaoFactory.
@@ -184,7 +223,7 @@ abstract contract FactoryDeployer is DeploymentBase {
     /// @param implementation Implementation contract address.
     /// @param initData Initialization calldata for the proxy.
     /// @return proxy The deployed proxy address.
-    function deployProxy(
+    function _deployProxy(
         address factory,
         bytes32 salt,
         address implementation,
