@@ -80,4 +80,63 @@ contract UUPSProxyDeployStubTest is BaoTest {
     function test_ProxiableUUIDMatchesSlot() public view {
         assertEq(stub.proxiableUUID(), IMPLEMENTATION_SLOT, "UUID matches slot");
     }
+
+    // ========== Branch Coverage: Zero Address Checks ==========
+
+    function test_upgradeTo_revertsZeroAddress() public {
+        vm.expectRevert(UUPSProxyDeployStub.ZeroAddress.selector);
+        stub.upgradeTo(address(0));
+    }
+
+    function test_upgradeToAndCall_revertsZeroAddress() public {
+        vm.expectRevert(UUPSProxyDeployStub.ZeroAddress.selector);
+        stub.upgradeToAndCall(address(0), bytes(""));
+    }
+
+    // ========== Branch Coverage: Delegatecall Failure ==========
+
+    function test_upgradeToAndCall_revertsOnFailedDelegatecall() public {
+        // Deploy a contract that will revert on any call
+        RevertingTarget target = new RevertingTarget();
+
+        // upgradeToAndCall with forceCall=true (empty data but forceCall due to payable call pattern)
+        // The delegatecall will fail and bubble up the revert
+        vm.expectRevert("RevertingTarget: always reverts");
+        stub.upgradeToAndCall(address(target), abi.encodeWithSignature("initialize()"));
+    }
+
+    function test_upgradeToAndCall_revertsWithNoReturndata() public {
+        // Deploy a contract that reverts with no data
+        SilentRevertTarget target = new SilentRevertTarget();
+
+        vm.expectRevert(UUPSProxyDeployStub.UpgradeCallFailed.selector);
+        stub.upgradeToAndCall(address(target), abi.encodeWithSignature("initialize()"));
+    }
+
+    function test_upgradeTo_withoutCall() public {
+        // Test upgradeTo without any call (forceCall=false, empty data)
+        UpgradeTarget target = new UpgradeTarget();
+
+        stub.upgradeTo(address(target));
+
+        bytes32 raw = vm.load(address(stub), IMPLEMENTATION_SLOT);
+        address stored = address(uint160(uint256(raw)));
+        assertEq(stored, address(target), "implementation stored without call");
+    }
+}
+
+/// @dev Target that always reverts with a message
+contract RevertingTarget {
+    function initialize() external pure {
+        revert("RevertingTarget: always reverts");
+    }
+}
+
+/// @dev Target that reverts with no data (tests UpgradeCallFailed path)
+contract SilentRevertTarget {
+    function initialize() external pure {
+        assembly {
+            revert(0, 0)
+        }
+    }
 }
