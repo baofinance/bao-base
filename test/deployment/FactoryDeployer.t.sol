@@ -3,14 +3,15 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {FactoryDeployer} from "@bao-script/deployment/FactoryDeployer.sol";
-import {DeploymentBase, WellKnownAddress} from "@bao-script/deployment/DeploymentBase.sol";
-import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {BaoOwnable} from "@bao/BaoOwnable.sol";
+
+// Import needed for proxy deployment
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 /// @notice Simple UUPS-upgradeable contract for testing deployments.
 contract MockUpgradeable is Initializable, UUPSUpgradeable, BaoOwnable {
@@ -253,6 +254,3 @@ contract FactoryDeployerTest is BaoTest {
         assertEq(deployer.pendingOwnershipCount(), 0, "pending list cleared");
     }
 }
-
-// Import needed for proxy deployment
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";

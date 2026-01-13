@@ -3,9 +3,8 @@
 | Array                          |                 62 |               24,514 |                  88 |       13,280 |              1.33 |
 | BaoPauser_v1                   |              2,107 |               22,469 |               2,590 |      447,300 |             44.73 |
 | Deployed                       |                408 |               24,168 |                 460 |       86,200 |              8.62 |
-| DeploymentJsonTesting          |             50,587 |              -26,011 |              53,775 |   10,655,150 |           1065.52 |
-| DeploymentMemoryTesting        |             34,360 |               -9,784 |              36,173 |    7,233,730 |            723.37 |
-| DeploymentTestingOutput        |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| DeploymentState                |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| DeploymentTypes                |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | DerivedBaoFixedOwnable         |                509 |               24,067 |                 921 |      111,010 |             11.10 |
 | DerivedBaoFixedOwnableRoles    |              1,381 |               23,195 |               1,813 |      294,330 |             29.43 |
 | DerivedBaoOwnable              |                991 |               23,585 |               1,019 |      208,390 |             20.84 |
@@ -16,8 +15,8 @@
 | DerivedOwnable                 |                916 |               23,660 |                 944 |      192,640 |             19.26 |
 | DerivedOwnableRoles            |              1,555 |               23,021 |               1,583 |      326,830 |             32.68 |
 | DerivedTokenHolder             |              1,922 |               22,654 |               1,950 |      403,900 |             40.39 |
-| ERC20WithData                  |              8,790 |               15,786 |               9,135 |    1,849,350 |            184.94 |
-| JsonArrays                     |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| JsonParser                     |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
+| JsonSerializer                 |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | MintableBurnableERC20_v1       |              8,335 |               16,241 |               8,584 |    1,752,840 |            175.28 |
 | PermittableERC20_v1            |              7,768 |               16,808 |               8,017 |    1,633,770 |            163.38 |
 | Stem_v1                        |              2,022 |               22,554 |               2,382 |      428,220 |             42.82 |
