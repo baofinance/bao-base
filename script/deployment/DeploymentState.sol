@@ -17,7 +17,6 @@ library DeploymentState {
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     error DuplicateImplementation(address implementation);
-    error DuplicateImplementationForProxy(string proxy);
     error DuplicateProxy(string id);
     error DuplicateProxyAddress(address proxy);
     error ProxyKeyRequiredForImplementation();
@@ -48,7 +47,9 @@ library DeploymentState {
         string memory saltPrefix,
         string memory directoryPrefix
     ) internal view returns (string memory) {
-        return string.concat(resolveDirectory(network, directoryPrefix), "/", saltPrefix, ".state.json");
+        // When network is empty, resolveDirectory already ends with "/" so don't add another
+        string memory separator = network.eq("") ? "" : "/";
+        return string.concat(resolveDirectory(network, directoryPrefix), separator, saltPrefix, ".state.json");
     }
 
     function load(
@@ -74,17 +75,29 @@ library DeploymentState {
         return state;
     }
 
+    /// @notice Save state to disk atomically (write to temp file, then rename).
+    /// @dev Uses ffi to call `mv` for atomic rename since Foundry lacks a rename cheatcode.
     function save(DeploymentTypes.State memory state) internal {
         _ensureDirectory(state.network, state.directoryPrefix);
 
         string memory json = JsonSerializer.renderState(state);
-
         string memory path = resolvePath(state.network, state.saltPrefix, state.directoryPrefix);
-        // vm.writeFile(path, json); // don't do this as we want the json pretty-printed
-        json.write(path);
+        string memory tempPath = string.concat(path, ".tmp");
+
+        // Write to temp file (pretty-printed via stdJson)
+        json.write(tempPath);
+
+        // Atomic rename: mv temp -> final
+        string[] memory mvCmd = new string[](3);
+        mvCmd[0] = "mv";
+        mvCmd[1] = tempPath;
+        mvCmd[2] = path;
+        vm.ffi(mvCmd);
     }
 
     /// @notice Record an implementation. Idempotent: if exact same record exists, returns true.
+    /// @dev Implementations are keyed by address. Multiple implementations can exist for the same
+    ///      proxy (e.g., v1, v2 after upgrade). The proxy record points to the current one.
     /// @return alreadyExists True if the record already existed (no change made).
     function recordImplementation(
         DeploymentTypes.State memory state,
@@ -95,14 +108,15 @@ library DeploymentState {
 
         uint256 length = state.implementations.length;
         for (uint256 i = 0; i < length; ++i) {
-            if (LibString.eq(state.implementations[i].proxy, rec.proxy)) {
-                // Same proxy key - check if it's an identical record (idempotent) or a conflict
-                if (state.implementations[i].implementation == rec.implementation) {
+            if (state.implementations[i].implementation == rec.implementation) {
+                // Same address - check if it's an identical record (idempotent) or a conflict
+                if (
+                    LibString.eq(state.implementations[i].proxy, rec.proxy)
+                        && LibString.eq(state.implementations[i].contractSource, rec.contractSource)
+                        && LibString.eq(state.implementations[i].contractType, rec.contractType)
+                ) {
                     return true; // Idempotent: exact same record already exists
                 }
-                revert DuplicateImplementationForProxy(rec.proxy);
-            }
-            if (state.implementations[i].implementation == rec.implementation) {
                 revert DuplicateImplementation(rec.implementation);
             }
         }

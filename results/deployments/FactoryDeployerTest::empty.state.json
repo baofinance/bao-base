@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "version": "v1",
+  "saltPrefix": "FactoryDeployerTest::empty",
+  "network": "",
+  "chainId": 31337,
+  "baoFactory": "0x0000000000000000000000000000000000000000",
+  "lastUpdated": "1970-01-01T00:00:01Z",
+  "implementations": {},
+  "proxies": {}
+}

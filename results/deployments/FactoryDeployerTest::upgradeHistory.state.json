@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "version": "v1",
+  "saltPrefix": "FactoryDeployerTest::upgradeHistory",
+  "network": "",
+  "chainId": 31337,
+  "baoFactory": "0x0000000000000000000000000000000000000000",
+  "lastUpdated": "1970-01-01T00:00:01Z",
+  "implementations": {
+    "0x7f326dcda6e10e636a672513d1fa352ec69b2b44": {
+      "proxy": "upgradedContract",
+      "contractSource": "src/Contract.sol",
+      "contractType": "Contract_v1",
+      "deploymentTime": "1970-01-01T00:00:00Z"
+    },
+    "0xef1b8fe4e85968bfe60a1a6762fc72c6319eb797": {
+      "proxy": "upgradedContract",
+      "contractSource": "src/Contract.sol",
+      "contractType": "Contract_v2",
+      "deploymentTime": "1970-01-01T00:00:00Z"
+    }
+  },
+  "proxies": {
+    "upgradedContract": {
+      "address": "0x76ce0e9ca7fb9b82e1016747148b6a7c546b922e",
+      "implementation": "0xef1b8fe4e85968bfe60a1a6762fc72c6319eb797",
+      "salt": "FactoryDeployerTest::upgradeHistory::upgradedContract",
+      "deploymentTime": "1970-01-01T00:00:00Z"
+    }
+  }
+}

@@ -92,7 +92,8 @@ contract DeploymentStateTest is Test {
         assertEq(state.implementations.length, 1, "still only one record");
     }
 
-    function test_recordImplementation_revertsDuplicateProxy() public {
+    function test_recordImplementation_allowsMultipleImplsForSameProxy() public {
+        // Upgrade history: same proxy, different implementations
         DeploymentTypes.State memory state = _newState();
         DeploymentTypes.ImplementationRecord memory rec1 = DeploymentTypes.ImplementationRecord({
             proxy: "ETH::minter",
@@ -110,10 +111,13 @@ contract DeploymentStateTest is Test {
             deploymentTime: uint64(block.timestamp)
         });
 
-        vm.expectRevert(
-            abi.encodeWithSelector(DeploymentState.DuplicateImplementationForProxy.selector, "ETH::minter")
-        );
-        wrapper.recordImplementationTwice(state, rec1, rec2);
+        // Both should be recorded (upgrade history)
+        DeploymentState.recordImplementation(state, rec1);
+        DeploymentState.recordImplementation(state, rec2);
+
+        assertEq(state.implementations.length, 2, "both implementations recorded");
+        assertEq(state.implementations[0].contractType, "Minter_v1", "v1 first");
+        assertEq(state.implementations[1].contractType, "Minter_v2", "v2 second");
     }
 
     function test_recordImplementation_revertsDuplicateAddress() public {
@@ -364,13 +368,17 @@ contract DeploymentStateTest is Test {
         // Load
         DeploymentTypes.State memory loaded = DeploymentState.load("test", "roundtrip_test");
 
-        // Verify
+        // Verify all fields preserved
         assertEq(loaded.network, "test", "network preserved");
         assertEq(loaded.saltPrefix, "roundtrip_test", "saltPrefix preserved");
+        assertEq(loaded.baoFactory, state.baoFactory, "baoFactory preserved");
         assertEq(loaded.implementations.length, 1, "one implementation");
         assertEq(loaded.implementations[0].proxy, "ETH::minter", "impl proxy key preserved");
+        assertEq(loaded.implementations[0].implementation, implRec.implementation, "impl address preserved");
         assertEq(loaded.proxies.length, 1, "one proxy");
         assertEq(loaded.proxies[0].id, "ETH::minter", "proxy id preserved");
+        assertEq(loaded.proxies[0].proxy, proxyRec.proxy, "proxy address preserved");
+        assertEq(loaded.proxies[0].implementation, proxyRec.implementation, "proxy impl preserved");
 
         // Cleanup
         vm.removeFile(DeploymentState.resolvePath("test", "roundtrip_test", ""));

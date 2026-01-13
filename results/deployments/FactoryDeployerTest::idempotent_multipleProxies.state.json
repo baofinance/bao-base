@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "version": "v1",
+  "saltPrefix": "FactoryDeployerTest::idempotent_multipleProxies",
+  "network": "",
+  "chainId": 31337,
+  "baoFactory": "0x0000000000000000000000000000000000000000",
+  "lastUpdated": "1970-01-01T00:00:01Z",
+  "implementations": {
+    "0x2e234dae75c793f67a35089c9d99245e1c58470b": {
+      "proxy": "contractA",
+      "contractSource": "test/Mock.sol",
+      "contractType": "MockUpgradeable",
+      "deploymentTime": "1970-01-01T00:00:01Z"
+    },
+    "0xf62849f9a0b5bf2913b396098f7c7019b51a820a": {
+      "proxy": "contractB",
+      "contractSource": "test/Mock.sol",
+      "contractType": "MockUpgradeable",
+      "deploymentTime": "1970-01-01T00:00:01Z"
+    },
+    "0x5991a2df15a8f6a256d3ec51e99254cd3fb576a9": {
+      "proxy": "contractC",
+      "contractSource": "test/MockV2.sol",
+      "contractType": "MockUpgradeableV2",
+      "deploymentTime": "1970-01-01T00:00:01Z"
+    },
+    "0x037eda3adb1198021a9b2e88c22b464fd38db3f3": {
+      "proxy": "contractA",
+      "contractSource": "test/Mock.sol",
+      "contractType": "MockUpgradeable",
+      "deploymentTime": "1970-01-01T00:00:01Z"
+    },
+    "0xddc10602782af652bb913f7bde1fd82981db7dd9": {
+      "proxy": "contractB",
+      "contractSource": "test/Mock.sol",
+      "contractType": "MockUpgradeable",
+      "deploymentTime": "1970-01-01T00:00:01Z"
+    }
+  },
+  "proxies": {
+    "contractA": {
+      "address": "0xfd54bf324c026f88235a5dac4f8cdc4da4c45213",
+      "implementation": "0x2e234dae75c793f67a35089c9d99245e1c58470b",
+      "salt": "FactoryDeployerTest::idempotent_multipleProxies::contractA",
+      "deploymentTime": "1970-01-01T00:00:01Z"
+    },
+    "contractB": {
+      "address": "0xd287871975f674b6bcef3b2b554bda39b3e8cf46",
+      "implementation": "0xf62849f9a0b5bf2913b396098f7c7019b51a820a",
+      "salt": "FactoryDeployerTest::idempotent_multipleProxies::contractB",
+      "deploymentTime": "1970-01-01T00:00:01Z"
+    },
+    "contractC": {
+      "address": "0x88be3dfc0f7515be019b2f7cb888910c2d636947",
+      "implementation": "0x5991a2df15a8f6a256d3ec51e99254cd3fb576a9",
+      "salt": "FactoryDeployerTest::idempotent_multipleProxies::contractC",
+      "deploymentTime": "1970-01-01T00:00:01Z"
+    }
+  }
+}

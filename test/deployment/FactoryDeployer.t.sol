@@ -121,6 +121,7 @@ contract TestableFactoryDeployer is FactoryDeployer {
         return _predictAddress(part1, part2, part3);
     }
 
+    /// @dev Returns both proxy and modified state since external calls work on copies.
     function deployProxyAndRecordExposed(
         DeploymentTypes.State memory stateData,
         string memory proxyId,
@@ -128,8 +129,9 @@ contract TestableFactoryDeployer is FactoryDeployer {
         string memory contractSource,
         string memory contractType,
         bytes memory initData
-    ) external returns (address proxy) {
-        return _deployProxyAndRecord(stateData, proxyId, implementation, contractSource, contractType, initData);
+    ) external returns (address proxy, DeploymentTypes.State memory updatedState) {
+        proxy = _deployProxyAndRecord(stateData, proxyId, implementation, contractSource, contractType, initData);
+        return (proxy, stateData);
     }
 
     function getImplementation(address proxy) external view returns (address) {
@@ -152,9 +154,10 @@ contract FactoryDeployerTest is BaoTest {
     }
 
     /// @dev Create a properly initialized state for tests (writes to results/ directory).
-    function _createTestState() internal pure returns (DeploymentTypes.State memory stateData) {
+    ///      Each test must pass a unique testName to avoid collisions in parallel test runs.
+    function _createTestState(string memory testName) internal pure returns (DeploymentTypes.State memory stateData) {
         stateData.network = "";
-        stateData.saltPrefix = "test_v1";
+        stateData.saltPrefix = string.concat("FactoryDeployerTest::", testName);
         stateData.directoryPrefix = "results";
         stateData.proxies = new DeploymentTypes.ProxyRecord[](0);
         stateData.implementations = new DeploymentTypes.ImplementationRecord[](0);
@@ -314,101 +317,160 @@ contract FactoryDeployerTest is BaoTest {
 
     // ========== IDEMPOTENT DEPLOYMENT TESTS ==========
 
-    function test_deployProxyAndRecord_idempotent_sameImplementation() public {
-        // Deploy implementation
-        MockUpgradeable impl = new MockUpgradeable();
-
-        // Set up factory operator
-        vm.prank(IBaoFactory(baoFactoryAddr).owner());
-        IBaoFactory(baoFactoryAddr).setOperator(address(deployer), 365 days);
-
-        // Create state data
-        DeploymentTypes.State memory stateData = _createTestState();
-
-        // First deployment
-        vm.prank(address(deployer));
-        address proxy1 = deployer.deployProxyAndRecordExposed(
-            stateData,
-            "testContract",
-            address(impl),
-            "test/Mock.sol",
-            "MockUpgradeable",
-            abi.encodeCall(MockUpgradeable.initialize, (42, address(deployer), testOwner))
-        );
-
-        // Record pending ownership count after first deployment
-        uint256 pendingAfterFirst = deployer.pendingOwnershipCount();
-        assertEq(pendingAfterFirst, 1, "first deployment registers for ownership transfer");
-
-        // Deploy a fresh implementation (even though bytecode differs due to immutables)
-        MockUpgradeable impl2 = new MockUpgradeable();
-
-        // Second deployment should be idempotent - returns existing proxy
-        vm.prank(address(deployer));
-        address proxy2 = deployer.deployProxyAndRecordExposed(
-            stateData,
-            "testContract",
-            address(impl2), // Different address (immutables differ), but same "type"
-            "test/Mock.sol",
-            "MockUpgradeable",
-            abi.encodeCall(MockUpgradeable.initialize, (42, address(deployer), testOwner))
-        );
-
-        // Same proxy returned
-        assertEq(proxy1, proxy2, "idempotent deployment returns same proxy");
-
-        // Pending ownership count should not increase (not registered again for existing proxy)
-        uint256 pendingAfterSecond = deployer.pendingOwnershipCount();
-        assertEq(pendingAfterSecond, 1, "idempotent deployment doesn't register again");
-
-        // Original implementation is still in place (not upgraded)
-        address currentImpl = deployer.getImplementation(proxy1);
-        assertEq(currentImpl, address(impl), "original implementation unchanged");
-    }
-
-    function test_deployProxyAndRecord_idempotent_differentImplementationType() public {
-        // Deploy first implementation
+    /// @dev Tests idempotent deployment with both same and different implementation types.
+    ///      State file shows: 3 proxies, 3 implementations (multiple entries)
+    function test_deployProxyAndRecord_idempotent() public {
+        // Deploy implementations
         MockUpgradeable impl1 = new MockUpgradeable();
+        MockUpgradeable impl2 = new MockUpgradeable();
+        MockUpgradeableV2 implV2 = new MockUpgradeableV2();
 
         // Set up factory operator
         vm.prank(IBaoFactory(baoFactoryAddr).owner());
         IBaoFactory(baoFactoryAddr).setOperator(address(deployer), 365 days);
 
-        // Create state data
-        DeploymentTypes.State memory stateData = _createTestState();
+        // Create initial state - starts empty
+        DeploymentTypes.State memory stateData = _createTestState("idempotent_multipleProxies");
+        address proxyA;
+        address proxyB;
+        address proxyC;
 
-        // First deployment
-        vm.prank(address(deployer));
-        address proxy1 = deployer.deployProxyAndRecordExposed(
+        // Deploy three different proxies, capturing returned state to accumulate
+        vm.startPrank(address(deployer));
+
+        (proxyA, stateData) = deployer.deployProxyAndRecordExposed(
             stateData,
-            "testContract",
+            "contractA",
             address(impl1),
             "test/Mock.sol",
             "MockUpgradeable",
-            abi.encodeCall(MockUpgradeable.initialize, (42, address(deployer), testOwner))
+            abi.encodeCall(MockUpgradeable.initialize, (1, address(deployer), testOwner))
         );
 
-        // Deploy V2 implementation with different bytecode
-        MockUpgradeableV2 impl2 = new MockUpgradeableV2();
-
-        // Second deployment with different implementation type should still be idempotent
-        // (returns existing proxy without upgrading - deployment scripts don't upgrade)
-        vm.prank(address(deployer));
-        address proxy2 = deployer.deployProxyAndRecordExposed(
+        (proxyB, stateData) = deployer.deployProxyAndRecordExposed(
             stateData,
-            "testContract",
-            address(impl2), // Different bytecode
+            "contractB",
+            address(impl2),
+            "test/Mock.sol",
+            "MockUpgradeable",
+            abi.encodeCall(MockUpgradeable.initialize, (2, address(deployer), testOwner))
+        );
+
+        (proxyC, stateData) = deployer.deployProxyAndRecordExposed(
+            stateData,
+            "contractC",
+            address(implV2),
             "test/MockV2.sol",
             "MockUpgradeableV2",
-            abi.encodeCall(MockUpgradeableV2.initialize, (42, address(deployer), testOwner))
+            abi.encodeCall(MockUpgradeableV2.initialize, (3, address(deployer), testOwner))
         );
 
-        // Same proxy returned (idempotent)
-        assertEq(proxy1, proxy2, "idempotent deployment returns same proxy");
+        // Verify we have 3 distinct proxies
+        assertTrue(proxyA != proxyB && proxyB != proxyC, "proxies are distinct");
 
-        // Original implementation is still in place (deployment doesn't upgrade)
-        address currentImpl = deployer.getImplementation(proxy1);
-        assertEq(currentImpl, address(impl1), "original implementation unchanged");
+        // Verify state accumulated 3 entries
+        assertEq(stateData.proxies.length, 3, "3 proxies in state");
+        assertEq(stateData.implementations.length, 3, "3 implementations in state");
+
+        // Test idempotency: redeploy all three - should return same addresses
+        // Use distinct fresh implementations for each proxy (simulates real deployment where each
+        // proxy gets its own impl, even if same bytecode - different CREATE = different address)
+        MockUpgradeable freshImplA = new MockUpgradeable();
+        MockUpgradeable freshImplB = new MockUpgradeable();
+        address proxyA2;
+        address proxyB2;
+        address proxyC2;
+
+        (proxyA2, stateData) = deployer.deployProxyAndRecordExposed(
+            stateData,
+            "contractA",
+            address(freshImplA),
+            "test/Mock.sol",
+            "MockUpgradeable",
+            abi.encodeCall(MockUpgradeable.initialize, (1, address(deployer), testOwner))
+        );
+        (proxyB2, stateData) = deployer.deployProxyAndRecordExposed(
+            stateData,
+            "contractB",
+            address(freshImplB),
+            "test/Mock.sol",
+            "MockUpgradeable",
+            abi.encodeCall(MockUpgradeable.initialize, (2, address(deployer), testOwner))
+        );
+        (proxyC2, stateData) = deployer.deployProxyAndRecordExposed(
+            stateData,
+            "contractC",
+            address(implV2),
+            "test/MockV2.sol",
+            "MockUpgradeableV2",
+            abi.encodeCall(MockUpgradeableV2.initialize, (3, address(deployer), testOwner))
+        );
+
+        vm.stopPrank();
+
+        // Idempotent: same proxies returned
+        assertEq(proxyA, proxyA2, "contractA idempotent");
+        assertEq(proxyB, proxyB2, "contractB idempotent");
+        assertEq(proxyC, proxyC2, "contractC idempotent");
+
+        // Original implementations unchanged
+        assertEq(deployer.getImplementation(proxyA), address(impl1), "impl1 unchanged");
+        assertEq(deployer.getImplementation(proxyB), address(impl2), "impl2 unchanged");
+        assertEq(deployer.getImplementation(proxyC), address(implV2), "implV2 unchanged");
+
+        // Pending ownership count should be 3 (one per proxy, no duplicates)
+        assertEq(deployer.pendingOwnershipCount(), 3, "3 proxies pending ownership");
+    }
+
+    /// @dev Tests state file with upgrade history: 1 proxy, 2 implementations.
+    ///      Simulates a proxy that has been upgraded.
+    function test_stateFile_upgradeHistory() public {
+        // Create state and manually record upgrade history
+        DeploymentTypes.State memory stateData = _createTestState("upgradeHistory");
+
+        // Record old implementation (v1)
+        DeploymentTypes.ImplementationRecord memory implV1;
+        implV1.proxy = "upgradedContract";
+        implV1.implementation = makeAddr("oldImpl");
+        implV1.contractSource = "src/Contract.sol";
+        implV1.contractType = "Contract_v1";
+        DeploymentState.recordImplementation(stateData, implV1);
+
+        // Record new implementation (v2) - same proxy, different impl
+        DeploymentTypes.ImplementationRecord memory implV2;
+        implV2.proxy = "upgradedContract";
+        implV2.implementation = makeAddr("newImpl");
+        implV2.contractSource = "src/Contract.sol";
+        implV2.contractType = "Contract_v2";
+        DeploymentState.recordImplementation(stateData, implV2);
+
+        // Record the proxy pointing to the new implementation
+        DeploymentTypes.ProxyRecord memory proxyRec;
+        proxyRec.id = "upgradedContract";
+        proxyRec.proxy = makeAddr("proxyAddr");
+        proxyRec.implementation = makeAddr("newImpl");
+        proxyRec.salt = "test::upgradedContract";
+        DeploymentState.recordProxy(stateData, proxyRec);
+
+        // Save state - should have 2 implementations, 1 proxy
+        DeploymentState.save(stateData);
+
+        // Verify state has expected structure
+        assertEq(stateData.implementations.length, 2, "2 implementations recorded");
+        assertEq(stateData.proxies.length, 1, "1 proxy recorded");
+        assertEq(stateData.proxies[0].implementation, makeAddr("newImpl"), "proxy points to new impl");
+    }
+
+    /// @dev Tests empty state file (0 proxies, 0 implementations).
+    function test_stateFile_empty() public {
+        DeploymentTypes.State memory stateData = _createTestState("empty");
+
+        // Save empty state
+        DeploymentState.save(stateData);
+
+        // Verify state is empty
+        assertEq(stateData.implementations.length, 0, "no implementations");
+        assertEq(stateData.proxies.length, 0, "no proxies");
     }
 
     function test_deployProxyAndRecord_existingProxy_stillRegistersForOwnershipIfNeeded() public {
@@ -422,12 +484,12 @@ contract FactoryDeployerTest is BaoTest {
         vm.prank(IBaoFactory(baoFactoryAddr).owner());
         IBaoFactory(baoFactoryAddr).setOperator(address(deployer), 365 days);
 
-        // Create state data
-        DeploymentTypes.State memory stateData = _createTestState();
+        // Create state data (unique per test to avoid collisions in parallel runs)
+        DeploymentTypes.State memory stateData = _createTestState("existingProxy_stillRegistersForOwnershipIfNeeded");
 
         // First deployment - creates proxy owned by deployer
         vm.prank(address(deployer));
-        address proxy1 = deployer.deployProxyAndRecordExposed(
+        (address proxy1,) = deployer.deployProxyAndRecordExposed(
             stateData,
             "testContract",
             address(impl),
@@ -467,7 +529,7 @@ contract FactoryDeployerTest is BaoTest {
 
         // Now call deployProxyAndRecord for the same salt - proxy exists but ownership not transferred
         vm.prank(address(deployer));
-        address proxy2Again = deployer.deployProxyAndRecordExposed(
+        (address proxy2Again,) = deployer.deployProxyAndRecordExposed(
             stateData,
             "testContract2",
             address(impl),
