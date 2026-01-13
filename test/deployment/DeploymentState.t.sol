@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Test} from "forge-std/Test.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
+import {JsonParser} from "@bao-script/deployment/JsonParser.sol";
 
 /// @notice Wrapper contract to make library calls external for expectRevert testing.
 contract DeploymentStateWrapper {
@@ -392,5 +393,36 @@ contract DeploymentStateTest is Test {
         assertEq(loaded.saltPrefix, "missing_prefix", "saltPrefix set from parameter");
         assertEq(loaded.implementations.length, 0, "no implementations");
         assertEq(loaded.proxies.length, 0, "no proxies");
+    }
+
+    // ========== JSON PARSING TESTS ==========
+
+    function test_parseStateJson_emptyString_returnsEmptyState() public view {
+        DeploymentTypes.State memory state = JsonParser.parseStateJson("");
+        assertEq(state.implementations.length, 0, "implementations should be empty");
+        assertEq(state.proxies.length, 0, "proxies should be empty");
+    }
+
+    function test_parseStateJson_handCraftedJson() public view {
+        string memory salt = "test_parseStateJson";
+        string memory json = string(
+            abi.encodePacked(
+                '{"schemaVersion":1,"version":"v1","saltPrefix":"',
+                salt,
+                '","network":"mainnet","chainId":31337,"baoFactory":"0x0000000000000000000000000000000000009999","lastUpdated":"1970-01-01T00:00:01Z",',
+                '"implementations":{"0x0000000000000000000000000000000000005678":{"proxy":"ETH::minter","contractSource":"src/Minter.sol","contractType":"Minter","deploymentTime":"1970-01-01T00:00:01Z"}},',
+                '"proxies":{"ETH::minter":{"address":"0x0000000000000000000000000000000000001234","implementation":"0x0000000000000000000000000000000000005678","salt":"',
+                salt,
+                '::ETH::minter","deploymentTime":"1970-01-01T00:00:01Z"}}}'
+            )
+        );
+
+        DeploymentTypes.State memory parsed = JsonParser.parseStateJson(json);
+        assertEq(parsed.network, "mainnet", "network");
+        assertEq(parsed.saltPrefix, salt, "saltPrefix");
+        assertEq(parsed.implementations.length, 1, "implementations length");
+        assertEq(parsed.proxies.length, 1, "proxies length");
+        assertEq(parsed.proxies[0].salt, string.concat(salt, "::ETH::minter"), "proxy salt");
+        assertEq(parsed.baoFactory, address(0x9999), "baoFactory");
     }
 }

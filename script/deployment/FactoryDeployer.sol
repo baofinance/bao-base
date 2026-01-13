@@ -8,9 +8,14 @@ import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
-import {DeploymentBase, WellKnownAddress} from "@bao-script/deployment/DeploymentBase.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
+
+/// @notice Well-known address entry for address-to-label mapping.
+struct WellKnownAddress {
+    address addr;
+    string label;
+}
 
 interface IUUPSProxyUpgrade {
     function upgradeToAndCall(address newImplementation, bytes calldata data) external payable;
@@ -24,15 +29,20 @@ interface IBaoOwnable {
 /// @notice Base contract providing CREATE3 proxy deployment via BaoFactory.
 /// @dev Deployment calls execute in the derived contract's context (important for permissions).
 /// @dev Includes DeploymentOwnership pattern - tracks deployed contracts and transfers ownership at end.
-/// @dev Inherits DeploymentBase to get baoFactory(), owner(), saltPrefix() from context.
+/// @dev Protocol-specific configs inherit this and implement owner(), treasury().
 /// @dev All deployment operations are idempotent - safe to re-run.
-abstract contract FactoryDeployer is DeploymentBase {
+abstract contract FactoryDeployer {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     // ========== CONSTANTS ==========
 
     /// @dev Foundry VM cheatcode address.
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+
+    // ========== CONFIGURATION STATE ==========
+
+    /// @dev Salt prefix for deployment namespacing.
+    string private _saltPrefixValue;
 
     /// @dev Lazily deployed stub - must be deployed within broadcast context so msg.sender is correct.
     UUPSProxyDeployStub private _proxyDeployStub;
@@ -46,6 +56,46 @@ abstract contract FactoryDeployer is DeploymentBase {
 
     /// @dev Salt labels for logging (address -> salt string).
     mapping(address => string) private _ownershipTransferSalts;
+
+    // ========== ABSTRACT CONFIGURATION ==========
+    // Protocol-specific configs must implement these.
+
+    /// @notice Get the treasury address for the protocol.
+    function treasury() public view virtual returns (address);
+
+    /// @notice Get the owner address for deployed contracts.
+    function owner() public view virtual returns (address);
+
+    // ========== CONFIGURATION WITH DEFAULTS ==========
+
+    /// @notice Set the salt prefix - must be called before any deployment.
+    /// @dev Called by scripts before startBroadcast().
+    function _setSaltPrefix(string memory saltPrefixString) internal {
+        _saltPrefixValue = saltPrefixString;
+    }
+
+    /// @notice Get the current salt prefix for deployment namespacing.
+    function saltPrefix() public view virtual returns (string memory) {
+        return _saltPrefixValue;
+    }
+
+    /// @notice Get the BaoFactory address for CREATE3 deployments.
+    /// @dev Override if using a different factory address.
+    function baoFactory() public view virtual returns (address) {
+        // BaoFactory CREATE2/CREATE3 predicted address (same on all EVM chains)
+        return 0xD696E56b3A054734d4C6DCBD32E11a278b0EC458;
+    }
+
+    /// @notice Return protocol-level well-known addresses for logging.
+    /// @dev Override in protocol configs to add protocol-specific addresses.
+    function getWellKnownAddresses() public view virtual returns (WellKnownAddress[] memory addrs) {
+        addrs = new WellKnownAddress[](3);
+        addrs[0] = WellKnownAddress({addr: treasury(), label: "treasury"});
+        addrs[1] = WellKnownAddress({addr: owner(), label: "owner"});
+        addrs[2] = WellKnownAddress({addr: baoFactory(), label: "baoFactory"});
+    }
+
+    // ========== PROXY STUB MANAGEMENT ==========
 
     /// @notice Get or deploy the proxy stub. Must be called within broadcast context.
     /// @dev Deploys on first call, returns cached address on subsequent calls.
