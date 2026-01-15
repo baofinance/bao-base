@@ -95,6 +95,19 @@ abstract contract FactoryDeployer {
         addrs[2] = WellKnownAddress({addr: baoFactory(), label: "baoFactory"});
     }
 
+    /// @notice Whether to persist deployment state to disk.
+    /// @dev Override in tests to disable persistence.
+    function _shouldPersistState() internal pure virtual returns (bool) {
+        return true;
+    }
+
+    /// @notice Save deployment state to disk (respects _shouldPersistState).
+    function _saveState(DeploymentTypes.State memory stateData) internal virtual {
+        if (_shouldPersistState()) {
+            DeploymentState.save(stateData);
+        }
+    }
+
     // ========== PROXY STUB MANAGEMENT ==========
 
     /// @notice Get or deploy the proxy stub. Must be called within broadcast context.
@@ -177,22 +190,25 @@ abstract contract FactoryDeployer {
 
     // ========== ADDRESS PREDICTION ==========
 
+    /// @notice Predict address for a complete salt string (e.g., "harbor_v1::ETH::fxUSD::minter")
+    function _predictAddressFromFullSalt(string memory fullSalt) internal view returns (address) {
+        bytes32 salt = keccak256(abi.encodePacked(fullSalt));
+        return IBaoFactory(baoFactory()).predictAddress(salt);
+    }
+
     /// @notice Predict address for a single-part key (e.g., "ETH::pegged")
     function _predictAddress(string memory a) internal view returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(_saltString(a)));
-        return IBaoFactory(baoFactory()).predictAddress(salt);
+        return _predictAddressFromFullSalt(_saltString(a));
     }
 
     /// @notice Predict address for two-part key (e.g., "ETH::fxUSD", "minter")
     function _predictAddress(string memory a, string memory b) internal view returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(_saltString(a, b)));
-        return IBaoFactory(baoFactory()).predictAddress(salt);
+        return _predictAddressFromFullSalt(_saltString(a, b));
     }
 
     /// @notice Predict address for three-part key (e.g., "ETH", "fxUSD", "minter")
     function _predictAddress(string memory a, string memory b, string memory c) internal view returns (address) {
-        bytes32 salt = keccak256(abi.encodePacked(_saltString(a, b, c)));
-        return IBaoFactory(baoFactory()).predictAddress(salt);
+        return _predictAddressFromFullSalt(_saltString(a, b, c));
     }
 
     // ========== DEPLOY AND RECORD ==========
@@ -228,7 +244,7 @@ abstract contract FactoryDeployer {
         );
 
         // Save state immediately after recording (crash-safe: state reflects what's deployed)
-        DeploymentState.save(stateData);
+        _saveState(stateData);
 
         // now to the proxy
         bytes32 salt = keccak256(abi.encodePacked(saltPrefix(), "::", proxyId));
@@ -261,7 +277,7 @@ abstract contract FactoryDeployer {
         );
 
         // Save state immediately after recording (crash-safe: state reflects what's deployed)
-        DeploymentState.save(stateData);
+        _saveState(stateData);
     }
 
     /// @notice Get the implementation address from an ERC1967 proxy.
