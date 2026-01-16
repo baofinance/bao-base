@@ -231,7 +231,6 @@ abstract contract FactoryDeployer {
         string memory contractType,
         bytes memory initData
     ) internal returns (address proxy) {
-        // Recording is idempotent - safe to call even if already recorded
         DeploymentState.recordImplementation(
             stateData,
             DeploymentTypes.ImplementationRecord({
@@ -243,24 +242,10 @@ abstract contract FactoryDeployer {
             })
         );
 
-        // Save state immediately after recording (crash-safe: state reflects what's deployed)
-        _saveState(stateData);
-
-        // now to the proxy
+        // Deploy proxy
         bytes32 salt = keccak256(abi.encodePacked(saltPrefix(), "::", proxyId));
-        address predictedProxy = IBaoFactory(baoFactory()).predictAddress(salt);
-
-        // Check if proxy already exists
-        if (predictedProxy.code.length > 0) {
-            // Proxy exists - skip deployment
-            proxy = predictedProxy;
-            address existingImpl = _getImplementation(proxy);
-            console.log("        Proxy (existing): %s -> impl %s", proxy, existingImpl);
-        } else {
-            // Deploy new proxy
-            proxy = _deployProxy(baoFactory(), salt, implementation, initData);
-            console.log("        Proxy (new): %s", proxy);
-        }
+        proxy = _deployProxy(baoFactory(), salt, implementation, initData);
+        console.log("        Proxy: %s", proxy);
 
         // Register for ownership transfer (idempotent: prevents duplicates, skips already-owned at transfer time)
         _registerForOwnershipTransfer(proxy, _saltString(proxyId));
@@ -275,9 +260,6 @@ abstract contract FactoryDeployer {
                 deploymentTime: uint64(block.timestamp)
             })
         );
-
-        // Save state immediately after recording (crash-safe: state reflects what's deployed)
-        _saveState(stateData);
     }
 
     /// @notice Get the implementation address from an ERC1967 proxy.
