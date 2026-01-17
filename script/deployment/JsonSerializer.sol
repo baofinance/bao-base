@@ -31,7 +31,7 @@ library JsonSerializer {
                 ',"chainId":',
                 LibString.toString(block.chainid),
                 ',"baoFactory":',
-                _quote(LibString.toHexString(state.baoFactory)),
+                _quote(LibString.toHexStringChecksummed(state.baoFactory)),
                 ',"lastUpdated":',
                 _quote(_formatTimestamp(block.timestamp)),
                 ',"implementations":{',
@@ -53,7 +53,7 @@ library JsonSerializer {
             DeploymentTypes.ImplementationRecord memory rec = records[i];
             string memory entry = string.concat(
                 '"',
-                LibString.toHexString(rec.implementation),
+                LibString.toHexStringChecksummed(rec.implementation),
                 '":{"proxy":',
                 _quote(rec.proxy),
                 ',"contractSource":',
@@ -83,9 +83,9 @@ library JsonSerializer {
                 '"',
                 rec.id,
                 '":{"address":',
-                _quote(LibString.toHexString(rec.proxy)),
+                _quote(LibString.toHexStringChecksummed(rec.proxy)),
                 ',"implementation":',
-                _quote(LibString.toHexString(rec.implementation)),
+                _quote(LibString.toHexStringChecksummed(rec.implementation)),
                 ',"salt":',
                 _quote(combinedSalt),
                 ',"deploymentTime":',
@@ -96,30 +96,110 @@ library JsonSerializer {
         }
     }
 
+    /// @notice Count the number of fields in a salt (separated by ::).
+    function _countFields(string memory salt) private pure returns (uint256) {
+        bytes memory data = bytes(salt);
+        uint256 count = 1;
+        for (uint256 i = 0; i + 1 < data.length; ++i) {
+            if (data[i] == ":" && data[i + 1] == ":") {
+                ++count;
+                ++i;
+            }
+        }
+        return count;
+    }
+
+    /// @notice Compare two salt strings for field-aware sorting.
+    /// @dev Compares field-by-field. Within fields, lexicographic. Fewer remaining fields wins as tiebreaker.
+    /// @return -1 if a < b, 0 if equal, 1 if a > b
+    function _compareSalt(
+        string memory a,
+        uint256 fieldsA,
+        string memory b,
+        uint256 fieldsB
+    ) private pure returns (int256) {
+        bytes memory bytesA = bytes(a);
+        bytes memory bytesB = bytes(b);
+        uint256 lenA = bytesA.length;
+        uint256 lenB = bytesB.length;
+
+        uint256 i;
+        uint256 j;
+        uint256 fieldA = 1;
+        uint256 fieldB = 1;
+
+        while (i < lenA && j < lenB) {
+            bool delimA = i + 1 < lenA && bytesA[i] == ":" && bytesA[i + 1] == ":";
+            bool delimB = j + 1 < lenB && bytesB[j] == ":" && bytesB[j + 1] == ":";
+
+            if (delimA && delimB) {
+                // Both at field boundary - compare remaining field counts
+                if (fieldsA - fieldA < fieldsB - fieldB) return -1;
+                if (fieldsA - fieldA > fieldsB - fieldB) return 1;
+                // Same remaining, continue to next field
+                i += 2;
+                j += 2;
+                ++fieldA;
+                ++fieldB;
+            } else if (delimA) {
+                return -1; // A's field ended first (shorter field)
+            } else if (delimB) {
+                return 1; // B's field ended first (shorter field)
+            } else {
+                if (bytesA[i] < bytesB[j]) return -1;
+                if (bytesA[i] > bytesB[j]) return 1;
+                ++i;
+                ++j;
+            }
+        }
+
+        // One or both exhausted - compare remaining fields
+        if (i < lenA) {
+            if (fieldsA - fieldA > fieldsB - fieldB) return 1;
+            if (fieldsA - fieldA < fieldsB - fieldB) return -1;
+            return 1;
+        }
+        if (j < lenB) {
+            if (fieldsB - fieldB > fieldsA - fieldA) return -1;
+            if (fieldsB - fieldB < fieldsA - fieldA) return 1;
+            return -1;
+        }
+        return 0;
+    }
+
     function sortedImplementations(
         DeploymentTypes.ImplementationRecord[] memory records
     ) internal pure returns (DeploymentTypes.ImplementationRecord[] memory) {
-        DeploymentTypes.ImplementationRecord[] memory sorted = new DeploymentTypes.ImplementationRecord[](
-            records.length
-        );
-        for (uint256 i = 0; i < records.length; ++i) {
+        uint256 len = records.length;
+        DeploymentTypes.ImplementationRecord[] memory sorted = new DeploymentTypes.ImplementationRecord[](len);
+        uint256[] memory fieldCounts = new uint256[](len);
+
+        for (uint256 i = 0; i < len; ++i) {
             sorted[i] = records[i];
+            fieldCounts[i] = _countFields(records[i].proxy);
         }
-        for (uint256 i = 0; i < sorted.length; ++i) {
+
+        // Selection sort with cached field counts
+        for (uint256 i = 0; i < len; ++i) {
             uint256 minIndex = i;
-            for (uint256 j = i + 1; j < sorted.length; ++j) {
-                if (
-                    LibString.eq(sorted[j].proxy, sorted[minIndex].proxy)
-                        ? false
-                        : bytes(sorted[j].proxy)[0] < bytes(sorted[minIndex].proxy)[0]
-                ) {
+            for (uint256 j = i + 1; j < len; ++j) {
+                int256 cmp = _compareSalt(
+                    sorted[j].proxy,
+                    fieldCounts[j],
+                    sorted[minIndex].proxy,
+                    fieldCounts[minIndex]
+                );
+                if (cmp < 0 || (cmp == 0 && sorted[j].deploymentTime < sorted[minIndex].deploymentTime)) {
                     minIndex = j;
                 }
             }
             if (minIndex != i) {
-                DeploymentTypes.ImplementationRecord memory tmp = sorted[i];
+                DeploymentTypes.ImplementationRecord memory tmpRec = sorted[i];
                 sorted[i] = sorted[minIndex];
-                sorted[minIndex] = tmp;
+                sorted[minIndex] = tmpRec;
+                uint256 tmpCount = fieldCounts[i];
+                fieldCounts[i] = fieldCounts[minIndex];
+                fieldCounts[minIndex] = tmpCount;
             }
         }
         return sorted;
@@ -128,21 +208,30 @@ library JsonSerializer {
     function sortedProxies(
         DeploymentTypes.ProxyRecord[] memory records
     ) internal pure returns (DeploymentTypes.ProxyRecord[] memory) {
-        DeploymentTypes.ProxyRecord[] memory sorted = new DeploymentTypes.ProxyRecord[](records.length);
-        for (uint256 i = 0; i < records.length; ++i) {
+        uint256 len = records.length;
+        DeploymentTypes.ProxyRecord[] memory sorted = new DeploymentTypes.ProxyRecord[](len);
+        uint256[] memory fieldCounts = new uint256[](len);
+
+        for (uint256 i = 0; i < len; ++i) {
             sorted[i] = records[i];
+            fieldCounts[i] = _countFields(records[i].id);
         }
-        for (uint256 i = 0; i < sorted.length; ++i) {
+
+        // Selection sort with cached field counts
+        for (uint256 i = 0; i < len; ++i) {
             uint256 minIndex = i;
-            for (uint256 j = i + 1; j < sorted.length; ++j) {
-                if (sorted[j].id.cmp(sorted[minIndex].id) < 0) {
+            for (uint256 j = i + 1; j < len; ++j) {
+                if (_compareSalt(sorted[j].id, fieldCounts[j], sorted[minIndex].id, fieldCounts[minIndex]) < 0) {
                     minIndex = j;
                 }
             }
             if (minIndex != i) {
-                DeploymentTypes.ProxyRecord memory tmp = sorted[i];
+                DeploymentTypes.ProxyRecord memory tmpRec = sorted[i];
                 sorted[i] = sorted[minIndex];
-                sorted[minIndex] = tmp;
+                sorted[minIndex] = tmpRec;
+                uint256 tmpCount = fieldCounts[i];
+                fieldCounts[i] = fieldCounts[minIndex];
+                fieldCounts[minIndex] = tmpCount;
             }
         }
         return sorted;

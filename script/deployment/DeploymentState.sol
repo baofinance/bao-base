@@ -67,7 +67,7 @@ library DeploymentState {
         _ensureDirectory(network, directoryPrefix);
 
         string memory path = resolvePath(network, saltPrefix, directoryPrefix);
-        string memory json = _readStateFile(path);
+        string memory json = vm.exists(path) ? vm.readFile(path) : "";
         state = JsonParser.parseStateJson(json);
         state.network = network;
         state.saltPrefix = saltPrefix;
@@ -111,9 +111,9 @@ library DeploymentState {
             if (state.implementations[i].implementation == rec.implementation) {
                 // Same address - check if it's an identical record (idempotent) or a conflict
                 if (
-                    LibString.eq(state.implementations[i].proxy, rec.proxy)
-                        && LibString.eq(state.implementations[i].contractSource, rec.contractSource)
-                        && LibString.eq(state.implementations[i].contractType, rec.contractType)
+                    LibString.eq(state.implementations[i].proxy, rec.proxy) &&
+                    LibString.eq(state.implementations[i].contractSource, rec.contractSource) &&
+                    LibString.eq(state.implementations[i].contractType, rec.contractType)
                 ) {
                     return true; // Idempotent: exact same record already exists
                 }
@@ -181,12 +181,5 @@ library DeploymentState {
 
     function _ensureDirectory(string memory network, string memory directoryPrefix) private {
         vm.createDir(resolveDirectory(network, directoryPrefix), true);
-    }
-
-    function _readStateFile(string memory path) internal view returns (string memory) {
-        if (!vm.exists(path)) {
-            return "";
-        }
-        return vm.readFile(path);
     }
 }

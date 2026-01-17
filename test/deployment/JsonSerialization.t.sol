@@ -376,4 +376,182 @@ contract JsonSerializerTest is Test {
             revert(string.concat("String does not contain expected substring: ", needle));
         }
     }
+
+    // ========== Sorting Tests ==========
+
+    /// @dev Helper to create a ProxyRecord with just an id (other fields don't affect sorting)
+    function makeProxy(string memory id) internal pure returns (DeploymentTypes.ProxyRecord memory) {
+        return DeploymentTypes.ProxyRecord({
+            id: id,
+            proxy: address(0x1),
+            implementation: address(0x2),
+            salt: id,
+            deploymentTime: uint64(1000)
+        });
+    }
+
+    /// @dev Sort proxies and return array of ids in sorted order
+    function sortIds(string[] memory ids) internal pure returns (string[] memory) {
+        DeploymentTypes.ProxyRecord[] memory proxies = new DeploymentTypes.ProxyRecord[](ids.length);
+        for (uint256 i = 0; i < ids.length; ++i) {
+            proxies[i] = makeProxy(ids[i]);
+        }
+        DeploymentTypes.ProxyRecord[] memory sorted = JsonSerializer.sortedProxies(proxies);
+        string[] memory result = new string[](sorted.length);
+        for (uint256 i = 0; i < sorted.length; ++i) {
+            result[i] = sorted[i].id;
+        }
+        return result;
+    }
+
+    /// @dev Assert two string arrays are equal
+    function assertOrder(string[] memory actual, string[] memory expected) internal pure {
+        require(actual.length == expected.length, "length mismatch");
+        for (uint256 i = 0; i < actual.length; ++i) {
+            require(
+                keccak256(bytes(actual[i])) == keccak256(bytes(expected[i])),
+                string.concat("mismatch at ", vm.toString(i), ": got ", actual[i], " expected ", expected[i])
+            );
+        }
+    }
+
+    function test_sorting_fewerFieldsFirst() public pure {
+        string[] memory input = new string[](3);
+        input[0] = "BTC::stETH::minter";
+        input[1] = "BTC::pegged";
+        input[2] = "BTC";
+
+        string[] memory expected = new string[](3);
+        expected[0] = "BTC";
+        expected[1] = "BTC::pegged";
+        expected[2] = "BTC::stETH::minter";
+
+        assertOrder(sortIds(input), expected);
+
+        string[] memory input2 = new string[](3);
+        input2[0] = "BTC::fxUSD::minter";
+        input2[1] = "BTC::pegged";
+        input2[2] = "BTC";
+
+        string[] memory expected2 = new string[](3);
+        expected2[0] = "BTC";
+        expected2[1] = "BTC::pegged";
+        expected2[2] = "BTC::fxUSD::minter";
+
+        assertOrder(sortIds(input2), expected2);
+    }
+
+    function test_sorting_lexicographicWithinSameFieldCount() public pure {
+        string[] memory input = new string[](3);
+        input[0] = "ETH::pegged";
+        input[1] = "BTC::pegged";
+        input[2] = "EUR::pegged";
+
+        string[] memory expected = new string[](3);
+        expected[0] = "BTC::pegged";
+        expected[1] = "ETH::pegged";
+        expected[2] = "EUR::pegged";
+
+        assertOrder(sortIds(input), expected);
+    }
+
+    function test_sorting_secondFieldDiffers() public pure {
+        string[] memory input = new string[](3);
+        input[0] = "BTC::stETH::minter";
+        input[1] = "BTC::fxUSD::minter";
+        input[2] = "BTC::WBTC::minter";
+
+        string[] memory expected = new string[](3);
+        expected[0] = "BTC::WBTC::minter";
+        expected[1] = "BTC::fxUSD::minter";
+        expected[2] = "BTC::stETH::minter";
+
+        assertOrder(sortIds(input), expected);
+    }
+
+    function test_sorting_shorterFieldBeforeLongerPrefix() public pure {
+        string[] memory input = new string[](2);
+        input[0] = "BTC9::pegged";
+        input[1] = "BTC::pegged";
+
+        string[] memory expected = new string[](2);
+        expected[0] = "BTC::pegged";
+        expected[1] = "BTC9::pegged";
+
+        assertOrder(sortIds(input), expected);
+    }
+
+    function test_sorting_numericalInField() public pure {
+        string[] memory input = new string[](3);
+        input[0] = "A2::x";
+        input[1] = "A1::x";
+        input[2] = "AA::x";
+
+        string[] memory expected = new string[](3);
+        expected[0] = "A1::x";
+        expected[1] = "A2::x";
+        expected[2] = "AA::x";
+
+        assertOrder(sortIds(input), expected);
+    }
+
+    function test_sorting_singleColonIsNotDelimiter() public pure {
+        string[] memory input = new string[](2);
+        input[0] = "A:B";
+        input[1] = "A::B";
+
+        string[] memory expected = new string[](2);
+        expected[0] = "A::B";
+        expected[1] = "A:B";
+
+        assertOrder(sortIds(input), expected);
+    }
+
+    function test_sorting_realWorldSalts() public pure {
+        string[] memory input = new string[](6);
+        input[0] = "ETH::fxUSD::minter";
+        input[1] = "BTC::stETH::minter";
+        input[2] = "ETH::pegged";
+        input[3] = "BTC::pegged";
+        input[4] = "BTC::fxUSD::minter";
+        input[5] = "EUR::pegged";
+
+        string[] memory expected = new string[](6);
+        expected[0] = "BTC::pegged";
+        expected[1] = "BTC::fxUSD::minter";
+        expected[2] = "BTC::stETH::minter";
+        expected[3] = "ETH::pegged";
+        expected[4] = "ETH::fxUSD::minter";
+        expected[5] = "EUR::pegged";
+
+        assertOrder(sortIds(input), expected);
+    }
+
+    function test_sorting_emptyArray() public pure {
+        string[] memory input = new string[](0);
+        string[] memory result = sortIds(input);
+        require(result.length == 0, "expected empty array");
+    }
+
+    function test_sorting_singleElement() public pure {
+        string[] memory input = new string[](1);
+        input[0] = "BTC::pegged";
+
+        string[] memory expected = new string[](1);
+        expected[0] = "BTC::pegged";
+
+        assertOrder(sortIds(input), expected);
+    }
+
+    function test_sorting_identicalElements() public pure {
+        string[] memory input = new string[](2);
+        input[0] = "BTC::pegged";
+        input[1] = "BTC::pegged";
+
+        string[] memory expected = new string[](2);
+        expected[0] = "BTC::pegged";
+        expected[1] = "BTC::pegged";
+
+        assertOrder(sortIds(input), expected);
+    }
 }
