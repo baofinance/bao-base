@@ -3,7 +3,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {FactoryDeployer, WellKnownAddress, IBaoOwnable} from "@bao-script/deployment/FactoryDeployer.sol";
-import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
