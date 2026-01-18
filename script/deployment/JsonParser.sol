@@ -123,6 +123,5 @@ library JsonParser {
             if (c < 48 || c > 57) revert InvalidTimestamp(string(data));
             result = result * 10 + (c - 48);
         }
-        return result;
     }
 }

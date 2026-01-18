@@ -153,17 +153,10 @@ library JsonSerializer {
             }
         }
 
-        // One or both exhausted - compare remaining fields
-        if (i < lenA) {
-            if (fieldsA - fieldA > fieldsB - fieldB) return 1;
-            if (fieldsA - fieldA < fieldsB - fieldB) return -1;
-            return 1;
-        }
-        if (j < lenB) {
-            if (fieldsB - fieldB > fieldsA - fieldA) return -1;
-            if (fieldsB - fieldB < fieldsA - fieldA) return 1;
-            return -1;
-        }
+        // One or both exhausted within same field - longer string wins
+        // Note: Different field counts already handled at delimiter boundaries (lines 137-138)
+        if (i < lenA) return 1;
+        if (j < lenB) return -1;
         return 0;
     }
 

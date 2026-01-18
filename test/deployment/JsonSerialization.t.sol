@@ -32,7 +32,7 @@ contract JsonSerializerTest is Test {
         assertContains(json, '"schemaVersion":1');
         assertContains(json, '"saltPrefix":"test_v1"');
         assertContains(json, '"network":"mainnet"');
-        assertContains(json, '"baoFactory":"0xd696e56b3a054734d4c6dcbd32e11a278b0ec458"');
+        assertContains(json, '"baoFactory":"0xD696E56b3A054734d4C6DCBD32E11a278b0EC458"');
     }
 
     function test_renderState_withImplementations() public {
@@ -381,13 +381,14 @@ contract JsonSerializerTest is Test {
 
     /// @dev Helper to create a ProxyRecord with just an id (other fields don't affect sorting)
     function makeProxy(string memory id) internal pure returns (DeploymentTypes.ProxyRecord memory) {
-        return DeploymentTypes.ProxyRecord({
-            id: id,
-            proxy: address(0x1),
-            implementation: address(0x2),
-            salt: id,
-            deploymentTime: uint64(1000)
-        });
+        return
+            DeploymentTypes.ProxyRecord({
+                id: id,
+                proxy: address(0x1),
+                implementation: address(0x2),
+                salt: id,
+                deploymentTime: uint64(1000)
+            });
     }
 
     /// @dev Sort proxies and return array of ids in sorted order
@@ -551,6 +552,117 @@ contract JsonSerializerTest is Test {
         string[] memory expected = new string[](2);
         expected[0] = "BTC::pegged";
         expected[1] = "BTC::pegged";
+
+        assertOrder(sortIds(input), expected);
+    }
+
+    // ========== Edge Case Branch Coverage for _compareSalt ==========
+
+    /// @dev Tests the branch where B's field ends before A's field (delimB is true, delimA is false)
+    /// This triggers line 146: `else if (delimB) { return 1; }`
+    /// Selection sort calls _compareSalt(sorted[j], ..., sorted[minIndex], ...) where j > minIndex
+    /// So with input ["AB::x", "ABCD::x"], it compares A="ABCD::x" vs B="AB::x"
+    /// At position 2: A='C' (delimA=false), B='::' (delimB=true) -> line 146
+    function test_sorting_fieldBEndsFirst() public pure {
+        string[] memory input = new string[](2);
+        input[0] = "AB::x"; // sorted[0] = minIndex
+        input[1] = "ABCD::x"; // sorted[1] = j, becomes A in comparison
+
+        string[] memory expected = new string[](2);
+        expected[0] = "AB::x";
+        expected[1] = "ABCD::x";
+
+        assertOrder(sortIds(input), expected);
+    }
+
+    /// @dev Tests branch when A exhausts first with same field counts
+    /// This triggers line 157-159: remaining field count comparisons when i < lenA
+    function test_sorting_exhaustedWithRemainingFieldsA() public pure {
+        // Compare "A::B::C" vs "A::B" - A has more fields but same prefix
+        // When B exhausts, A still has characters, but fewer remaining fields means B < A
+        string[] memory input = new string[](2);
+        input[0] = "X::Y::Z";
+        input[1] = "X::Y";
+
+        string[] memory expected = new string[](2);
+        expected[0] = "X::Y";
+        expected[1] = "X::Y::Z";
+
+        assertOrder(sortIds(input), expected);
+    }
+
+    /// @dev Tests branch when B exhausts first with same field counts
+    /// This triggers line 162-165: remaining field count comparisons when j < lenB
+    function test_sorting_exhaustedWithRemainingFieldsB() public pure {
+        // Compare "X::Y" vs "X::Y::Z"
+        string[] memory input = new string[](2);
+        input[0] = "X::Y";
+        input[1] = "X::Y::Z";
+
+        string[] memory expected = new string[](2);
+        expected[0] = "X::Y";
+        expected[1] = "X::Y::Z";
+
+        assertOrder(sortIds(input), expected);
+    }
+
+    /// @dev Tests equal strings that are prefixes of each other but different lengths
+    function test_sorting_prefixDifferentLengths() public pure {
+        // "ABC" vs "ABCD" (no delimiters - single field each)
+        string[] memory input = new string[](2);
+        input[0] = "ABCD";
+        input[1] = "ABC";
+
+        string[] memory expected = new string[](2);
+        expected[0] = "ABC";
+        expected[1] = "ABCD";
+
+        assertOrder(sortIds(input), expected);
+    }
+
+    /// @dev Tests the i < lenA branch in _compareSalt (line 157-160)
+    /// When the longer string comes after the shorter one in the input array,
+    /// the comparator is called with a=longer, b=shorter, triggering i < lenA
+    function test_sorting_longerStringAfterShorter() public pure {
+        // Input order: shorter first, longer second
+        // Selection sort calls _compareSalt(sorted[j], sorted[minIndex]) where j > minIndex
+        // So with ["ABC", "ABCD"], it compares a="ABCD" vs b="ABC", hitting i < lenA
+        string[] memory input = new string[](2);
+        input[0] = "ABC";
+        input[1] = "ABCD";
+
+        string[] memory expected = new string[](2);
+        expected[0] = "ABC";
+        expected[1] = "ABCD";
+
+        assertOrder(sortIds(input), expected);
+    }
+
+    /// @dev Tests when remaining field counts differ after one string exhausts
+    function test_sorting_exhaustedDifferentFieldCounts() public pure {
+        // "A::B" vs "A::B::C::D" - A exhausts, then remaining field comparison
+        string[] memory input = new string[](3);
+        input[0] = "A::B::C::D";
+        input[1] = "A::B";
+        input[2] = "A::B::C";
+
+        string[] memory expected = new string[](3);
+        expected[0] = "A::B";
+        expected[1] = "A::B::C";
+        expected[2] = "A::B::C::D";
+
+        assertOrder(sortIds(input), expected);
+    }
+
+    /// @dev Tests within-field length comparison (shorter prefix first)
+    function test_sorting_shorterVsLongerSingleField() public pure {
+        string[] memory input = new string[](2);
+        input[0] = "ABC";
+        input[1] = "AB";
+
+        string[] memory expected = new string[](2);
+        expected[0] = "AB";
+        expected[1] = "ABC";
 
         assertOrder(sortIds(input), expected);
     }

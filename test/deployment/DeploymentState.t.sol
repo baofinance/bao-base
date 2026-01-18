@@ -176,6 +176,33 @@ contract DeploymentStateTest is Test {
 
     // ========== RECORD PROXY TESTS ==========
 
+    function test_recordProxy_addsMultipleRecords() public {
+        // Tests the for loop that copies existing proxies when adding a new one
+        DeploymentTypes.State memory state = _newState();
+        DeploymentTypes.ProxyRecord memory rec1 = DeploymentTypes.ProxyRecord({
+            id: "ETH::minter",
+            proxy: makeAddr("proxy1"),
+            implementation: makeAddr("impl1"),
+            salt: "test_v1",
+            deploymentTime: uint64(block.timestamp)
+        });
+        DeploymentTypes.ProxyRecord memory rec2 = DeploymentTypes.ProxyRecord({
+            id: "BTC::minter",
+            proxy: makeAddr("proxy2"),
+            implementation: makeAddr("impl2"),
+            salt: "test_v1",
+            deploymentTime: uint64(block.timestamp)
+        });
+
+        DeploymentState.recordProxy(state, rec1);
+        bool alreadyExists = DeploymentState.recordProxy(state, rec2);
+
+        assertFalse(alreadyExists, "second record is new");
+        assertEq(state.proxies.length, 2, "two proxies recorded");
+        assertEq(state.proxies[0].id, "ETH::minter", "first proxy preserved");
+        assertEq(state.proxies[1].id, "BTC::minter", "second proxy added");
+    }
+
     function test_recordProxy_addsNewRecord() public {
         DeploymentTypes.State memory state = _newState();
         DeploymentTypes.ProxyRecord memory rec = DeploymentTypes.ProxyRecord({
