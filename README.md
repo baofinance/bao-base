@@ -1,32 +1,8 @@
+### ![logo](doc/bao-harbor.jpg)
+
 # Bao-base
 
 This is a project that can/should be used in all Bao contract projects.
-
-## Deployment Framework
-
-Bao-base provides a structured deployment system for deterministic, reproducible contract deployments.
-
-### Architecture
-
-Deployments use `DeploymentJsonScript` which extends Foundry's `Script` with:
-
-- **JSON schema validation** - Define expected contracts, roles, and parameters
-- **CREATE3 via BaoFactory** - Deterministic addresses from salt strings
-- **Role management** - Grant/revoke roles on deployed contracts
-- **Multi-phase deployment** - Deploy, smoke test, verify in separate runs
-
-Projects define deployment contracts by extending `DeploymentJsonScript` and implementing `_deploy*` methods for each deployment unit.
-
-### Scripts
-
-**`script/ensure-bao-factory`** - Prepares BaoFactory for local development. Handles deploy, upgrade, and operator setup via impersonation. Run `--help` for options.
-
-```bash
-# Typical local dev setup
-ensure-bao-factory --operator 0xYourAddress
-```
-
-For production factory operations, use `lib/bao-factory/script/bao-factory` directly (see bao-factory README).
 
 ## Build status
 
@@ -39,6 +15,71 @@ For production factory operations, use `lib/bao-factory/script/bao-factory` dire
 ### scripting
 
 [![CI](https://github.com/baofinance/bao-base/actions/workflows/CI-test-scripting.yml/badge.svg)](https://github.com/baofinance/bao-base/actions/workflows/CI-test-scripting.yml)
+
+## Deployment Framework
+
+Bao-base has base classes for foundry scripting based deployment - basically for every contract deployable there is a contract that configures it.
+
+It uses `lib/bao-factory` for deterministic CREATE3 deployments. See the [bao-factory README](lib/bao-factory/README.md) for deployment operations.
+
+## BaoOwnable and BaoRoles
+
+These contracts provide ownership and role-based access control but **do not behave like OpenZeppelin's equivalents**.
+
+### BaoOwnable
+
+- Ownership transfer is **one-time only** and must complete within 1 hour
+- Uses a two-phase pattern: `deployerOwner` (initial setup) → `pendingOwner` (final owner)
+- `_initializeOwner(deployerOwner, pendingOwner)` sets both; `transferOwnership(pendingOwner)` completes it
+- Once transferred, ownership cannot be changed again
+- Supports ERC165 interface detection
+
+### BaoRoles
+
+- Based on Solady's `OwnableRoles` but decoupled from the ownable mechanism
+- Provides `grantRoles`, `revokeRoles`, `hasAllRoles`, `hasAnyRole`
+- Role constants are defined as `_ROLE_0`, `_ROLE_1`, etc. (bitmask pattern)
+- Mixes with `BaoOwnable` or `BaoOwnableTransferrable` via `BaoOwnableRoles`
+
+Variants: `BaoFixedOwnable` (hardcoded owner), `BaoOwnableTransferrable` (allows later transfers).
+
+## MintableBurnableERC20
+
+A UUPS-upgradeable ERC20 with role-gated minting and burning.
+
+- Uses `BaoOwnableRoles` for access control
+- `MINTER_ROLE` and `BURNER_ROLE` constants for role checks
+- Includes ERC20Permit support
+- ERC165 interface detection for `IMintable`, `IBurnable`, `IBurnableFrom`
+
+## BaoPauser
+
+A minimal UUPS contract used for emergency pausing via proxy upgrade.
+
+- Upgrade a proxy to `BaoPauser_v1` to disable all functionality
+- Uses `BaoFixedOwnable` with hardcoded Harbor multisig owner
+- Upgrade back to the original implementation to restore functionality
+
+## TokenHolder
+
+Abstract contract for sweeping tokens from a contract.
+
+- Provides `sweep(token, amount, receiver)` to recover stuck tokens
+- Uses reentrancy guard and owner check by default
+- Override `_checkSweeper()` to customize access control
+
+## BaoTest - a base contract for foundry tests
+
+Shared test utilities for Foundry suites. Extend `BaoTest` instead of `Test` to get:
+
+- **`assertApprox`** - pytest-style approximate assertions with absolute and optional relative tolerances
+- **`isApprox`** - boolean version for use in conditionals
+- BaoFactory deployment helpers and labeled addresses
+
+```solidity
+assertApprox(actual, expected, 1e15);           // 0.001 absolute tolerance
+assertApprox(actual, expected, 0, 0.01 ether);  // 1% relative tolerance
+```
 
 ## Usage
 
