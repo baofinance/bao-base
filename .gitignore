@@ -43,10 +43,9 @@ results/*.png
 /broadcast/**/dry-run/
 /broadcast
 
-deployments/*/anvil/*.json
-
-# Docs
-docs/
+deployments/internal/
+deployments/local*/
+deployments/*/local/*.json
 
 # log files
 *.log
