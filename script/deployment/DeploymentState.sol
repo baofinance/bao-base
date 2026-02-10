@@ -27,7 +27,7 @@ library DeploymentState {
     function resolveDirectory(
         string memory network,
         string memory directoryPrefix
-    ) private view returns (string memory) {
+    ) internal view returns (string memory) {
         // DEPLOY_STATE_SUBDIR: optional subdirectory between deployments/ and network
         // e.g., "local" → deployments/local/mainnet/
         string memory subdir = vm.envOr("DEPLOY_STATE_SUBDIR", string(""));
