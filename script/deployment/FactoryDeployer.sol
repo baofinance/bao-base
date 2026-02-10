@@ -242,6 +242,23 @@ abstract contract FactoryDeployer {
             })
         );
 
+        proxy = _deployProxyAndRecord(stateData, proxyId, implementation, initData);
+    }
+
+    /// @notice Deploy a proxy and record both implementation and proxy in state.
+    /// @dev Idempotent: if proxy already exists, skips deployment and returns existing proxy.
+    /// @dev Logs existing implementation address for visibility when skipping.
+    /// @param stateData Deployment state to record into.
+    /// @param proxyId The proxy identifier (e.g., "ETH::fxUSD::minter").
+    /// @param implementation The implementation contract address.
+    /// @param initData Initialization calldata for the proxy.
+    /// @return proxy The deployed proxy address.
+    function _deployProxyAndRecord(
+        DeploymentTypes.State memory stateData,
+        string memory proxyId,
+        address implementation,
+        bytes memory initData
+    ) internal returns (address proxy) {
         // Deploy proxy
         bytes32 salt = keccak256(abi.encodePacked(saltPrefix(), "::", proxyId));
         proxy = _deployProxy(baoFactory(), salt, implementation, initData);
