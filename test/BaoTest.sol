@@ -6,6 +6,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
+import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 /// @title BaoTest
 /// @notice Shared test utilities for Harbor Foundry suites
@@ -107,6 +108,9 @@ abstract contract BaoTest is Test {
                               BAOFACTORY SETUP
     //////////////////////////////////////////////////////////////////////////*/
 
+    /// @dev Shared stub for UUPS proxy deployment - deployed once and reused
+    UUPSProxyDeployStub internal _proxyStub;
+
     /// @notice Ensure BaoFactory is deployed and functional at its fixed address
     /// @dev Sets up Nick's Factory if needed, deploys BaoFactory proxy, upgrades to v1
     /// @return factory The functional BaoFactory instance
@@ -131,5 +135,19 @@ abstract contract BaoTest is Test {
             vm.prank(IBaoFactory(factory).owner());
             IBaoFactory(factory).setOperator(address(this), 365 days);
         }
+    }
+
+    /*//////////////////////////////////////////////////////////////////////////
+                              PROXY STUB MANAGEMENT
+    //////////////////////////////////////////////////////////////////////////*/
+
+    /// @notice Get or deploy the UUPS proxy stub
+    /// @dev Deploys on first call, returns cached address on subsequent calls
+    /// @return stub The deployed UUPSProxyDeployStub instance
+    function _getOrDeployStub() internal returns (UUPSProxyDeployStub) {
+        if (address(_proxyStub) == address(0)) {
+            _proxyStub = new UUPSProxyDeployStub();
+        }
+        return _proxyStub;
     }
 }

@@ -12,6 +12,10 @@
 
 # we do hash of file contents, so we need to keep them consistent
 *.toml text eol=lf
+# the out-the-box vscode json formatter removes linefeeds at the end of file
+*.json text eol=lf
+# these are generated unix style and so need to keep formatting consistent
+*.csv  text eol=lf
 
 # Force CRLF for Windows-specific files
 *.bat text eol=crlf
