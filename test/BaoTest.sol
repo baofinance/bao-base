@@ -136,18 +136,4 @@ abstract contract BaoTest is Test {
             IBaoFactory(factory).setOperator(address(this), 365 days);
         }
     }
-
-    /*//////////////////////////////////////////////////////////////////////////
-                              PROXY STUB MANAGEMENT
-    //////////////////////////////////////////////////////////////////////////*/
-
-    /// @notice Get or deploy the UUPS proxy stub
-    /// @dev Deploys on first call, returns cached address on subsequent calls
-    /// @return stub The deployed UUPSProxyDeployStub instance
-    function _getOrDeployStub() internal returns (UUPSProxyDeployStub) {
-        if (address(_proxyStub) == address(0)) {
-            _proxyStub = new UUPSProxyDeployStub();
-        }
-        return _proxyStub;
-    }
 }
