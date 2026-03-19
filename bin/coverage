@@ -9,6 +9,7 @@ export FOUNDRY_CACHE_PATH=cache/_coverage
 
 # signal to Solidity code that we're in coverage mode
 export BAO_COVERAGE_RUN=true
+export FOUNDRY_PROFILE=coverage
 
 # temp deployment scripts dir
 mkdir -p tmp
