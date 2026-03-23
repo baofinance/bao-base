@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "network": "mainnet",
+  "chainId": 1,
+  "lastUpdated": "2026-03-21T13:44:18Z",
+  "implementations": {
+    "BaoPauser_v1": {
+      "address": "0xd8785d5C51aaDEb3AD1D015Cd67C8A34dBf58f61",
+      "contractSource": "src/BaoPauser_v1.sol",
+      "deploymentTime": "2026-03-21T13:44:18Z"
+    }
+  }
+}

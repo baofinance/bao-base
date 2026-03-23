@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Deploy BaoPauser_v1 implementation contract.
+#
+# BaoPauser_v1 is a minimal UUPS-upgradeable contract that pauses all
+# functionality. It has no constructor args (deterministic bytecode).
+#
+# Usage:
+#   script/deploy-pauser --network mainnet --local        # deploy to local anvil
+#   script/deploy-pauser --network mainnet --broadcast    # deploy to mainnet (needs account)
+#   script/deploy-pauser --help
+
+cd "$(git rev-parse --show-toplevel)"
+
+usage() {
+    cat <<EOF
+Usage: script/deploy-pauser --network <net> [options]
+
+Required:
+  --network <net>    Network name (mainnet, sepolia, etc.)
+
+Options:
+  --local            Use local anvil node (auto-impersonate)
+  --account <name>   Foundry keystore account name (required for non-local deploy)
+  -h, --help         Show this help
+
+Examples:
+  script/deploy-pauser --network mainnet --local
+  script/deploy-pauser --network mainnet --account deployer
+EOF
+}
+
+NETWORK=""
+USE_LOCAL=false
+ACCOUNT=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --network)    NETWORK=$2; shift 2 ;;
+        --local)      USE_LOCAL=true; shift ;;
+        --account)    ACCOUNT=$2; shift 2 ;;
+        -h|--help)    usage; exit 0 ;;
+        *)            echo "Unknown arg: $1" >&2; usage; exit 1 ;;
+    esac
+done
+
+if [[ -z "$NETWORK" ]]; then
+    echo "Error: --network is required" >&2
+    usage
+    exit 1
+fi
+
+# Load env
+# shellcheck source=/dev/null
+[[ -f .env ]] && source .env
+
+# Determine RPC URL
+if $USE_LOCAL; then
+    RPC_URL="${LOCAL_URL:-http://localhost:8545}"
+else
+    # Try <NETWORK>_RPC_URL env var
+    rpc_var="${NETWORK^^}_RPC_URL"
+    RPC_URL="${!rpc_var:-}"
+    if [[ -z "$RPC_URL" ]]; then
+        echo "Error: $rpc_var not set" >&2
+        exit 1
+    fi
+fi
+
+# Build forge create args
+FORGE_ARGS=(
+    "src/BaoPauser_v1.sol:BaoPauser_v1"
+    --rpc-url "$RPC_URL"
+    --skip test script
+)
+
+# forge create always broadcasts, so a signer is always required
+if $USE_LOCAL; then
+    FORGE_ARGS+=(--unlocked --from 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266)
+elif [[ -n "$ACCOUNT" ]]; then
+    FORGE_ARGS+=(--account "$ACCOUNT")
+    # Verify on etherscan for non-local deploys
+    ETHERSCAN_KEY="${ETHERSCAN_KEY:-}"
+    if [[ -n "$ETHERSCAN_KEY" ]]; then
+        FORGE_ARGS+=(--verify --etherscan-api-key "$ETHERSCAN_KEY")
+    fi
+else
+    echo "Error: --account required for non-local deployment" >&2
+    exit 1
+fi
+
+echo "======================================================"
+echo "  Deploy BaoPauser_v1"
+echo "======================================================"
+echo "  Network:   $NETWORK"
+echo "  RPC:       $RPC_URL"
+echo "  Local:     $USE_LOCAL"
+echo ""
+
+# Capture output to extract deployed address
+# forge create --json may emit warnings before the JSON, so extract only the JSON object
+RAW_OUTPUT=$(forge create "${FORGE_ARGS[@]}" --broadcast --json 2>&1)
+OUTPUT=$(echo "$RAW_OUTPUT" | grep '^{' | tail -1)
+echo "$RAW_OUTPUT"
+
+# Extract deployed address
+DEPLOYED=$(echo "$OUTPUT" | jq -r '.deployedTo')
+if [[ -z "$DEPLOYED" || "$DEPLOYED" == "null" ]]; then
+    echo "Error: could not extract deployed address" >&2
+    exit 1
+fi
+
+# Update state file
+if $USE_LOCAL; then
+    STATE_DIR="deployments/local/$NETWORK"
+else
+    STATE_DIR="deployments/$NETWORK"
+fi
+STATE_FILE="$STATE_DIR/state.json"
+mkdir -p "$STATE_DIR"
+
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+CHAIN_ID=$(cast chain-id --rpc-url "$RPC_URL" 2>/dev/null || echo "0")
+
+# Create or update state file
+if [[ -f "$STATE_FILE" ]]; then
+    # Update existing: add/replace the BaoPauser_v1 entry
+    jq --arg addr "$DEPLOYED" \
+       --arg time "$TIMESTAMP" \
+       '.implementations["BaoPauser_v1"] = {
+            address: $addr,
+            contractSource: "src/BaoPauser_v1.sol",
+            deploymentTime: $time
+        } | .lastUpdated = $time' \
+        "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+else
+    # Create new state file
+    jq -n \
+        --arg network "$NETWORK" \
+        --arg chainId "$CHAIN_ID" \
+        --arg addr "$DEPLOYED" \
+        --arg time "$TIMESTAMP" \
+        '{
+            schemaVersion: 1,
+            network: $network,
+            chainId: ($chainId | tonumber),
+            lastUpdated: $time,
+            implementations: {
+                "BaoPauser_v1": {
+                    address: $addr,
+                    contractSource: "src/BaoPauser_v1.sol",
+                    deploymentTime: $time
+                }
+            }
+        }' > "$STATE_FILE"
+fi
+
+echo ""
+echo "State saved to $STATE_FILE"
+echo "  BaoPauser_v1: $DEPLOYED"

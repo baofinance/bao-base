@@ -191,23 +191,25 @@ abstract contract FactoryDeployer {
     // ========== ADDRESS PREDICTION ==========
 
     /// @notice Predict address for a complete salt string (e.g., "harbor_v1::ETH::fxUSD::minter")
-    function _predictAddressFromFullSalt(string memory fullSalt) internal view returns (address) {
+    /// @dev Also labels the address with the salt for readable traces.
+    function _predictAddressFromFullSalt(string memory fullSalt) internal returns (address addr) {
         bytes32 salt = keccak256(abi.encodePacked(fullSalt));
-        return IBaoFactory(baoFactory()).predictAddress(salt);
+        addr = IBaoFactory(baoFactory()).predictAddress(salt);
+        vm.label(addr, fullSalt);
     }
 
     /// @notice Predict address for a single-part key (e.g., "ETH::pegged")
-    function _predictAddress(string memory a) internal view returns (address) {
+    function _predictAddress(string memory a) internal returns (address) {
         return _predictAddressFromFullSalt(_saltString(a));
     }
 
     /// @notice Predict address for two-part key (e.g., "ETH::fxUSD", "minter")
-    function _predictAddress(string memory a, string memory b) internal view returns (address) {
+    function _predictAddress(string memory a, string memory b) internal returns (address) {
         return _predictAddressFromFullSalt(_saltString(a, b));
     }
 
     /// @notice Predict address for three-part key (e.g., "ETH", "fxUSD", "minter")
-    function _predictAddress(string memory a, string memory b, string memory c) internal view returns (address) {
+    function _predictAddress(string memory a, string memory b, string memory c) internal returns (address) {
         return _predictAddressFromFullSalt(_saltString(a, b, c));
     }
 
