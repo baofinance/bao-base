@@ -72,19 +72,19 @@ contract TestableFactoryDeployer is FactoryDeployer {
         return _saltString(a, b, c);
     }
 
-    function predictAddressFromFullSalt(string memory fullSalt) external view returns (address) {
+    function predictAddressFromFullSalt(string memory fullSalt) external returns (address) {
         return _predictAddressFromFullSalt(fullSalt);
     }
 
-    function predictAddress1(string memory a) external view returns (address) {
+    function predictAddress1(string memory a) external returns (address) {
         return _predictAddress(a);
     }
 
-    function predictAddress2(string memory a, string memory b) external view returns (address) {
+    function predictAddress2(string memory a, string memory b) external returns (address) {
         return _predictAddress(a, b);
     }
 
-    function predictAddress3(string memory a, string memory b, string memory c) external view returns (address) {
+    function predictAddress3(string memory a, string memory b, string memory c) external returns (address) {
         return _predictAddress(a, b, c);
     }
 

@@ -1,7 +1,7 @@
 | File                                      | % Lines            | % Statements       | % Branches      | % Funcs          |
 |-------------------------------------------|--------------------|--------------------|-----------------|------------------|
 | script/deployment/DeploymentState.sol     | ✓ 100% (73/73)     | ✓ 100% (95/95)     | ✓ 100% (11/11)  | ✓ 100% (10/10)   |
-| script/deployment/FactoryDeployer.sol     | X  96% (80/83)     | X  98% (86/88)     | X  71% (5/7)    | X  95% (21/22)   |
+| script/deployment/FactoryDeployer.sol     | X  96% (81/84)     | X  98% (86/88)     | X  71% (5/7)    | X  95% (21/22)   |
 | script/deployment/JsonParser.sol          | ✓ 100% (79/79)     | ✓ 100% (106/106)   | ✓ 100% (11/11)  | ✓ 100% (5/5)     |
 | script/deployment/JsonSerializer.sol      | ✓ 100% (136/136)   | ✓ 100% (206/206)   | ✓ 100% (22/22)  | ✓ 100% (10/10)   |
 | script/deployment/UUPSProxyDeployStub.sol | ✓ 100% (27/27)     | X  96% (24/25)     | X  83% (5/6)    | ✓ 100% (8/8)     |
@@ -26,4 +26,4 @@
 | src/internal/BaoRoles.sol                 | ✓ 100% (2/2)       | ✓ 100% (1/1)       | ✓ 100% (0/0)    | ✓ 100% (1/1)     |
 | src/internal/BaoRolesCore.sol             | ✓ 100% (54/54)     | ✓ 100% (47/47)     | ✓ 100% (5/5)    | ✓ 100% (17/17)   |
 | src/internal/BaoRoles_v2.sol              | ✓ 100% (2/2)       | ✓ 100% (3/3)       | ✓ 100% (0/0)    | ✓ 100% (1/1)     |
-| Total                                     | X  62% (1251/2027) | X  66% (1213/1829) | X  62% (85/137) | X  59% (314/529) |
+| Total                                     | X  62% (1252/2028) | X  66% (1213/1829) | X  62% (85/137) | X  59% (314/529) |

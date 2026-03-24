@@ -5,7 +5,7 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {IERC5313} from "@openzeppelin/contracts/interfaces/IERC5313.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-import {BaoFixedOwnable} from "@bao/BaoFixedOwnable.sol";
+import {BaoFixedOwnable} from "./BaoFixedOwnable.sol";
 
 /**
  * @title BaoPauser
