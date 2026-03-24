@@ -11,15 +11,15 @@ contract DeploymentStateWrapper {
     function recordImplementation(
         DeploymentTypes.State memory state,
         DeploymentTypes.ImplementationRecord memory rec
-    ) external pure returns (bool) {
-        return DeploymentState.recordImplementation(state, rec);
+    ) external pure {
+        DeploymentState.recordImplementation(state, rec);
     }
 
     function recordProxy(
         DeploymentTypes.State memory state,
         DeploymentTypes.ProxyRecord memory rec
-    ) external pure returns (bool) {
-        return DeploymentState.recordProxy(state, rec);
+    ) external pure {
+        DeploymentState.recordProxy(state, rec);
     }
 
     /// @notice Records first then attempts second - for duplicate testing. Returns modified state.
@@ -70,15 +70,14 @@ contract DeploymentStateTest is Test {
             deploymentTime: uint64(block.timestamp)
         });
 
-        bool alreadyExists = DeploymentState.recordImplementation(state, rec);
+        DeploymentState.recordImplementation(state, rec);
 
-        assertFalse(alreadyExists, "new record should not already exist");
         assertEq(state.implementations.length, 1, "one implementation recorded");
         assertEq(state.implementations[0].proxy, "ETH::minter", "proxy key stored");
         assertEq(state.implementations[0].implementation, makeAddr("impl1"), "impl address stored");
     }
 
-    function test_recordImplementation_idempotent() public {
+    function test_recordImplementation_revertsDuplicateAddress_evenIfIdentical() public {
         DeploymentTypes.State memory state = _newState();
         DeploymentTypes.ImplementationRecord memory rec = DeploymentTypes.ImplementationRecord({
             proxy: "ETH::minter",
@@ -89,10 +88,8 @@ contract DeploymentStateTest is Test {
         });
 
         DeploymentState.recordImplementation(state, rec);
-        bool alreadyExists = DeploymentState.recordImplementation(state, rec);
-
-        assertTrue(alreadyExists, "second insert of same record is idempotent");
-        assertEq(state.implementations.length, 1, "still only one record");
+        vm.expectRevert(abi.encodeWithSelector(DeploymentState.DuplicateImplementation.selector, makeAddr("impl1")));
+        wrapper.recordImplementation(state, rec);
     }
 
     function test_recordImplementation_allowsMultipleImplsForSameProxy() public {
@@ -196,9 +193,8 @@ contract DeploymentStateTest is Test {
         });
 
         DeploymentState.recordProxy(state, rec1);
-        bool alreadyExists = DeploymentState.recordProxy(state, rec2);
+        DeploymentState.recordProxy(state, rec2);
 
-        assertFalse(alreadyExists, "second record is new");
         assertEq(state.proxies.length, 2, "two proxies recorded");
         assertEq(state.proxies[0].id, "ETH::minter", "first proxy preserved");
         assertEq(state.proxies[1].id, "BTC::minter", "second proxy added");
@@ -214,15 +210,14 @@ contract DeploymentStateTest is Test {
             deploymentTime: uint64(block.timestamp)
         });
 
-        bool alreadyExists = DeploymentState.recordProxy(state, rec);
+        DeploymentState.recordProxy(state, rec);
 
-        assertFalse(alreadyExists, "new record should not already exist");
         assertEq(state.proxies.length, 1, "one proxy recorded");
         assertEq(state.proxies[0].id, "ETH::minter", "id stored");
         assertEq(state.proxies[0].proxy, makeAddr("proxy1"), "proxy address stored");
     }
 
-    function test_recordProxy_idempotent() public {
+    function test_recordProxy_revertsDuplicateId_evenIfIdentical() public {
         DeploymentTypes.State memory state = _newState();
         DeploymentTypes.ProxyRecord memory rec = DeploymentTypes.ProxyRecord({
             id: "ETH::minter",
@@ -233,10 +228,8 @@ contract DeploymentStateTest is Test {
         });
 
         DeploymentState.recordProxy(state, rec);
-        bool alreadyExists = DeploymentState.recordProxy(state, rec);
-
-        assertTrue(alreadyExists, "second insert of same record is idempotent");
-        assertEq(state.proxies.length, 1, "still only one record");
+        vm.expectRevert(abi.encodeWithSelector(DeploymentState.DuplicateProxy.selector, "ETH::minter"));
+        wrapper.recordProxy(state, rec);
     }
 
     function test_recordProxy_revertsDuplicateId() public {
