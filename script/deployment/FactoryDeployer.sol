@@ -101,17 +101,26 @@ abstract contract FactoryDeployer {
         return true;
     }
 
-    /// @notice Resolve the state file path.
-    /// @dev Default reads DEPLOY_STATE_FILE env var (set by run-script).
+    /// @notice Resolve the state file path for reading.
+    /// @dev Default reads DEPLOY_STATE_FILE_READ env var (set by run-script).
     ///      Override in tests to return a test-specific path.
-    function _stateFilePath() internal view virtual returns (string memory) {
-        return vm.envString("DEPLOY_STATE_FILE");
+    function _stateFileRead() internal view virtual returns (string memory) {
+        return vm.envString("DEPLOY_STATE_FILE_READ");
     }
 
-    /// @notice Save deployment state to disk (respects _shouldPersistState).
+    /// @notice Resolve the state file path for writing.
+    /// @dev Default reads DEPLOY_STATE_FILE_WRITE env var (set by run-script).
+    ///      run-script sets this to a separate file so forge's internal simulation
+    ///      pass cannot pollute the file that the broadcast pass reads.
+    ///      Override in tests to return a test-specific path.
+    function _stateFileWrite() internal view virtual returns (string memory) {
+        return vm.envString("DEPLOY_STATE_FILE_WRITE");
+    }
+
+    /// @notice Save deployment state to the write file (respects _shouldPersistState).
     function _saveState(DeploymentTypes.State memory stateData) internal virtual {
         if (_shouldPersistState()) {
-            DeploymentState.save(stateData, _stateFilePath());
+            DeploymentState.save(stateData, _stateFileWrite());
         }
     }
 

@@ -52,6 +52,9 @@ exclude_lints = [
 ]
 severity = ["gas"]
 
+# coverage generates instrumentation warnings, so disable deny for those
+[profile.coverage]
+deny = "never"
 
 gas_reports_ignore = [
   "ERC20Mock",

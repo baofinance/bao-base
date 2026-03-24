@@ -56,28 +56,19 @@ library DeploymentState {
         vm.ffi(mvCmd);
     }
 
-    /// @notice Record an implementation. Idempotent: if exact same record exists, returns true.
-    /// @dev Implementations are keyed by address. Multiple implementations can exist for the same
-    ///      proxy (e.g., v1, v2 after upgrade). The proxy record points to the current one.
-    /// @return alreadyExists True if the record already existed (no change made).
+    /// @notice Record an implementation. Reverts if the address already exists in state.
+    /// @dev Multiple implementations can exist for the same proxy key
+    ///      (e.g., v1, v2 after upgrade). The proxy record points to the current one.
     function recordImplementation(
         DeploymentTypes.State memory state,
         DeploymentTypes.ImplementationRecord memory rec
-    ) internal pure returns (bool alreadyExists) {
+    ) internal pure {
         if (bytes(rec.proxy).length == 0) revert ProxyKeyRequiredForImplementation();
         if (rec.implementation == address(0)) revert ImplementationAddressRequired();
 
         uint256 length = state.implementations.length;
         for (uint256 i = 0; i < length; ++i) {
             if (state.implementations[i].implementation == rec.implementation) {
-                // Same address - check if it's an identical record (idempotent) or a conflict
-                if (
-                    LibString.eq(state.implementations[i].proxy, rec.proxy) &&
-                    LibString.eq(state.implementations[i].contractSource, rec.contractSource) &&
-                    LibString.eq(state.implementations[i].contractType, rec.contractType)
-                ) {
-                    return true; // Idempotent: exact same record already exists
-                }
                 revert DuplicateImplementation(rec.implementation);
             }
         }
@@ -88,27 +79,16 @@ library DeploymentState {
         }
         updated[length] = rec;
         state.implementations = updated;
-        return false;
     }
 
-    /// @notice Record a proxy. Idempotent: if exact same record exists, returns true.
-    /// @return alreadyExists True if the record already existed (no change made).
-    function recordProxy(
-        DeploymentTypes.State memory state,
-        DeploymentTypes.ProxyRecord memory rec
-    ) internal pure returns (bool alreadyExists) {
+    /// @notice Record a proxy. Reverts if the ID or address already exists in state.
+    function recordProxy(DeploymentTypes.State memory state, DeploymentTypes.ProxyRecord memory rec) internal pure {
         if (bytes(rec.id).length == 0) revert ProxyKeyRequired();
         if (rec.proxy == address(0)) revert ProxyAddressRequired();
 
         uint256 length = state.proxies.length;
         for (uint256 i = 0; i < length; ++i) {
-            if (LibString.eq(state.proxies[i].id, rec.id)) {
-                // Same ID - check if it's an identical record (idempotent) or a conflict
-                if (state.proxies[i].proxy == rec.proxy) {
-                    return true; // Idempotent: exact same record already exists
-                }
-                revert DuplicateProxy(rec.id);
-            }
+            if (LibString.eq(state.proxies[i].id, rec.id)) revert DuplicateProxy(rec.id);
             if (state.proxies[i].proxy == rec.proxy) revert DuplicateProxyAddress(rec.proxy);
         }
 
@@ -118,7 +98,6 @@ library DeploymentState {
         }
         updated[length] = rec;
         state.proxies = updated;
-        return false;
     }
 
     /// @notice Check if a proxy with given ID exists in state.
