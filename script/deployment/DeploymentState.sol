@@ -24,64 +24,25 @@ library DeploymentState {
     error ProxyKeyRequired();
     error ProxyAddressRequired();
 
-    function resolveDirectory(
-        string memory network,
-        string memory directoryPrefix
-    ) internal view returns (string memory) {
-        // DEPLOY_STATE_SUBDIR: optional subdirectory between deployments/ and network
-        // e.g., "local" → deployments/local/mainnet/
-        string memory subdir = vm.envOr("DEPLOY_STATE_SUBDIR", string(""));
-        return
-            string.concat(
-                vm.projectRoot(),
-                "/",
-                (directoryPrefix.eq("") ? "" : string.concat(directoryPrefix, "/")),
-                "deployments/",
-                (subdir.eq("") ? "" : string.concat(subdir, "/")),
-                network
-            );
+    /// @notice Resolve the deployment state directory.
+    /// @dev Reads DEPLOY_STATE_DIR env var. Used by SafeBatch for the batch subdirectory.
+    function resolveDirectory() internal view returns (string memory) {
+        return vm.envString("DEPLOY_STATE_DIR");
     }
 
-    function resolvePath(
-        string memory network,
-        string memory saltPrefix,
-        string memory directoryPrefix
-    ) internal view returns (string memory) {
-        // When network is empty, resolveDirectory already ends with "/" so don't add another
-        string memory separator = network.eq("") ? "" : "/";
-        return string.concat(resolveDirectory(network, directoryPrefix), separator, saltPrefix, ".state.json");
-    }
-
-    function load(
-        string memory network,
-        string memory saltPrefix
-    ) internal returns (DeploymentTypes.State memory state) {
-        return load(network, saltPrefix, "");
-    }
-
-    function load(
-        string memory network,
-        string memory saltPrefix,
-        string memory directoryPrefix
-    ) internal returns (DeploymentTypes.State memory state) {
-        _ensureDirectory(network, directoryPrefix);
-
-        string memory path = resolvePath(network, saltPrefix, directoryPrefix);
+    /// @notice Load deployment state from an explicit file path.
+    /// @dev Returns empty state if the file does not exist.
+    function load(string memory path) internal view returns (DeploymentTypes.State memory state) {
         string memory json = vm.exists(path) ? vm.readFile(path) : "";
-        state = JsonParser.parseStateJson(json);
-        state.network = network;
-        state.saltPrefix = saltPrefix;
-        state.directoryPrefix = directoryPrefix;
-        return state;
+        return JsonParser.parseStateJson(json);
     }
 
     /// @notice Save state to disk atomically (write to temp file, then rename).
     /// @dev Uses ffi to call `mv` for atomic rename since Foundry lacks a rename cheatcode.
-    function save(DeploymentTypes.State memory state) internal {
-        _ensureDirectory(state.network, state.directoryPrefix);
+    function save(DeploymentTypes.State memory state, string memory path) internal {
+        _ensureDirectory();
 
         string memory json = JsonSerializer.renderState(state);
-        string memory path = resolvePath(state.network, state.saltPrefix, state.directoryPrefix);
         string memory tempPath = string.concat(path, ".tmp");
 
         // Write to temp file (pretty-printed via stdJson)
@@ -179,7 +140,7 @@ library DeploymentState {
         return false;
     }
 
-    function _ensureDirectory(string memory network, string memory directoryPrefix) private {
-        vm.createDir(resolveDirectory(network, directoryPrefix), true);
+    function _ensureDirectory() private {
+        vm.createDir(resolveDirectory(), true);
     }
 }

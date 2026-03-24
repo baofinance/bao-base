@@ -49,6 +49,7 @@ contract DeploymentStateTest is Test {
 
     function setUp() public {
         wrapper = new DeploymentStateWrapper();
+        vm.setEnv("DEPLOY_STATE_DIR", string.concat(vm.projectRoot(), "/deployments/test"));
     }
 
     function _newState() internal pure returns (DeploymentTypes.State memory state) {
@@ -358,15 +359,16 @@ contract DeploymentStateTest is Test {
 
     // ========== PATH RESOLUTION TESTS ==========
 
-    function test_resolvePath_constructsCorrectPath() public view {
-        string memory path = DeploymentState.resolvePath("mainnet", "harbor_v1", "");
-        // Should end with deployments/mainnet/harbor_v1.state.json
-        assertTrue(bytes(path).length > 0, "path not empty");
+    function test_resolveDirectory_readsEnvVar() public view {
+        string memory dir = DeploymentState.resolveDirectory();
+        assertTrue(bytes(dir).length > 0, "dir not empty");
     }
 
     // ========== LOAD / SAVE ROUND TRIP TESTS ==========
 
     function test_loadSave_roundTrip() public {
+        string memory path = string.concat(DeploymentState.resolveDirectory(), "/roundtrip_test.state.json");
+
         // Set up test state
         DeploymentTypes.State memory state;
         state.network = "test";
@@ -392,10 +394,10 @@ contract DeploymentStateTest is Test {
         DeploymentState.recordProxy(state, proxyRec);
 
         // Save
-        DeploymentState.save(state);
+        DeploymentState.save(state, path);
 
         // Load
-        DeploymentTypes.State memory loaded = DeploymentState.load("test", "roundtrip_test");
+        DeploymentTypes.State memory loaded = DeploymentState.load(path);
 
         // Verify all fields preserved
         assertEq(loaded.network, "test", "network preserved");
@@ -410,14 +412,13 @@ contract DeploymentStateTest is Test {
         assertEq(loaded.proxies[0].implementation, proxyRec.implementation, "proxy impl preserved");
 
         // Cleanup
-        vm.removeFile(DeploymentState.resolvePath("test", "roundtrip_test", ""));
+        vm.removeFile(path);
     }
 
-    function test_load_returnsEmptyStateForMissingFile() public {
-        DeploymentTypes.State memory loaded = DeploymentState.load("nonexistent", "missing_prefix");
+    function test_load_returnsEmptyStateForMissingFile() public view {
+        string memory path = string.concat(DeploymentState.resolveDirectory(), "/missing.state.json");
+        DeploymentTypes.State memory loaded = DeploymentState.load(path);
 
-        assertEq(loaded.network, "nonexistent", "network set from parameter");
-        assertEq(loaded.saltPrefix, "missing_prefix", "saltPrefix set from parameter");
         assertEq(loaded.implementations.length, 0, "no implementations");
         assertEq(loaded.proxies.length, 0, "no proxies");
     }

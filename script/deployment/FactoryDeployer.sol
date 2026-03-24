@@ -101,10 +101,17 @@ abstract contract FactoryDeployer {
         return true;
     }
 
+    /// @notice Resolve the state file path.
+    /// @dev Default reads DEPLOY_STATE_FILE env var (set by run-script).
+    ///      Override in tests to return a test-specific path.
+    function _stateFilePath() internal view virtual returns (string memory) {
+        return vm.envString("DEPLOY_STATE_FILE");
+    }
+
     /// @notice Save deployment state to disk (respects _shouldPersistState).
     function _saveState(DeploymentTypes.State memory stateData) internal virtual {
         if (_shouldPersistState()) {
-            DeploymentState.save(stateData);
+            DeploymentState.save(stateData, _stateFilePath());
         }
     }
 
