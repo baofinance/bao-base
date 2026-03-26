@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 AUDIT_TAG="${1:-audit-2025-07}"
-git fetch --tags
+git fetch --tags --no-recurse-submodules
 git rev-parse --verify "${AUDIT_TAG}^{commit}" >/dev/null 2>&1 \
   || { echo "Tag '${AUDIT_TAG}' not found"; exit 1; }
 # fail if any audited file was modified, deleted, or renamed (new files are OK)
