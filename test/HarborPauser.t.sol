@@ -7,12 +7,12 @@ import {LibClone} from "@solady/utils/LibClone.sol";
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
-import {IBaoFixedOwnable} from "@bao/interfaces/IBaoFixedOwnable.sol";
-import {BaoPauser_v1} from "@bao/BaoPauser_v1.sol";
+import {IHarborFixedOwnable} from "@bao/interfaces/IHarborFixedOwnable.sol";
+import {HarborPauser_v1} from "@bao/HarborPauser_v1.sol";
 
 /**
  * @title MockFunctionalContract
- * @dev A mock UUPS-upgradeable contract for testing pause/unpause via BaoPauser
+ * @dev A mock UUPS-upgradeable contract for testing pause/unpause via HarborPauser
  * Uses simple owner pattern for testing
  */
 contract MockFunctionalContract is UUPSUpgradeable {
@@ -58,17 +58,17 @@ contract MockFunctionalContract is UUPSUpgradeable {
 }
 
 /**
- * @title BaoPauserTest
- * @notice Tests for BaoPauser_v1 deployed via BaoFactory
+ * @title HarborPauserTest
+ * @notice Tests for HarborPauser_v1 deployed via BaoFactory
  * @dev Tests the pause/unpause pattern:
  *      1. Deploy functional contract
- *      2. Deploy BaoPauser via BaoFactory at known address
- *      3. Pause by upgrading proxy to BaoPauser
+ *      2. Deploy HarborPauser via BaoFactory at known address
+ *      3. Pause by upgrading proxy to HarborPauser
  *      4. Verify all calls revert
  *      5. Unpause by upgrading back to functional implementation
  *      6. Verify functionality restored
  */
-contract BaoPauserTest is BaoTest {
+contract HarborPauserTest is BaoTest {
     IBaoFactory public factory;
 
     address public user;
@@ -78,9 +78,9 @@ contract BaoPauserTest is BaoTest {
         user = makeAddr("user");
     }
 
-    /// @notice Deploy BaoPauser via BaoFactory at a deterministic address
-    function _deployBaoPauserViaFactory(bytes32 salt) internal returns (address pauser) {
-        bytes memory creationCode = type(BaoPauser_v1).creationCode;
+    /// @notice Deploy HarborPauser via BaoFactory at a deterministic address
+    function _deployHarborPauserViaFactory(bytes32 salt) internal returns (address pauser) {
+        bytes memory creationCode = type(HarborPauser_v1).creationCode;
         pauser = factory.deploy(creationCode, salt);
     }
 
@@ -99,40 +99,40 @@ contract BaoPauserTest is BaoTest {
         }
     }
 
-    /// @notice Test basic BaoPauser deployment via BaoFactory
-    function test_deployBaoPauserViaBaoFactory() public {
-        address pauser = _deployBaoPauserViaFactory(keccak256("pauser.test"));
+    /// @notice Test basic HarborPauser deployment via BaoFactory
+    function test_deployHarborPauserViaBaoFactory() public {
+        address pauser = _deployHarborPauserViaFactory(keccak256("pauser.test"));
 
         // Verify pauser is deployed
         assertTrue(pauser.code.length > 0, "Pauser should be deployed");
 
-        // Verify owner is BAOMULTISIG (hardcoded in BaoPauser)
-        assertEq(BaoPauser_v1(pauser).owner(), HARBOR_MULTISIG, "Owner should be BAOMULTISIG");
+        // Verify owner is BAOMULTISIG (hardcoded in HarborPauser)
+        assertEq(HarborPauser_v1(pauser).owner(), HARBOR_MULTISIG, "Owner should be BAOMULTISIG");
 
         // Verify ERC165 support
         assertTrue(IERC165(pauser).supportsInterface(type(IERC165).interfaceId), "Should support IERC165");
         assertTrue(
-            IERC165(pauser).supportsInterface(type(IBaoFixedOwnable).interfaceId),
-            "Should support IBaoFixedOwnable"
+            IERC165(pauser).supportsInterface(type(IHarborFixedOwnable).interfaceId),
+            "Should support IHarborFixedOwnable"
         );
     }
 
-    /// @notice Test that BaoPauser owner is hardcoded to BAOMULTISIG, not factory
+    /// @notice Test that HarborPauser owner is hardcoded to BAOMULTISIG, not factory
     function test_pauserOwnerIsHardcodedNotFactory() public {
-        address pauser = _deployBaoPauserViaFactory(keccak256("pauser.owner-test"));
+        address pauser = _deployHarborPauserViaFactory(keccak256("pauser.owner-test"));
 
         // Owner should be BAOMULTISIG, NOT the factory
-        assertEq(BaoPauser_v1(pauser).owner(), HARBOR_MULTISIG);
-        assertTrue(BaoPauser_v1(pauser).owner() != address(factory));
+        assertEq(HarborPauser_v1(pauser).owner(), HARBOR_MULTISIG);
+        assertTrue(HarborPauser_v1(pauser).owner() != address(factory));
     }
 
-    /// @notice Test that BaoPauser reverts all function calls
+    /// @notice Test that HarborPauser reverts all function calls
     function test_pauserRevertsAllCalls() public {
-        address pauser = _deployBaoPauserViaFactory(keccak256("pauser.revert"));
+        address pauser = _deployHarborPauserViaFactory(keccak256("pauser.revert"));
 
         // Any arbitrary call should revert with Paused error
         vm.expectRevert(
-            abi.encodeWithSelector(BaoPauser_v1.Paused.selector, "Contract is paused and all functions are disabled")
+            abi.encodeWithSelector(HarborPauser_v1.Paused.selector, "Contract is paused and all functions are disabled")
         );
         MockFunctionalContract(pauser).value();
     }
@@ -154,33 +154,33 @@ contract BaoPauserTest is BaoTest {
         MockFunctionalContract(proxy).setValue(100);
         assertEq(MockFunctionalContract(proxy).value(), 100, "Value should be updated");
 
-        // Step 3: Deploy BaoPauser via BaoFactory (owned by BAOMULTISIG)
-        address pauser = _deployBaoPauserViaFactory(keccak256("pauser.impl"));
-        assertEq(BaoPauser_v1(pauser).owner(), HARBOR_MULTISIG, "Pauser should be owned by BAOMULTISIG");
+        // Step 3: Deploy HarborPauser via BaoFactory (owned by BAOMULTISIG)
+        address pauser = _deployHarborPauserViaFactory(keccak256("pauser.impl"));
+        assertEq(HarborPauser_v1(pauser).owner(), HARBOR_MULTISIG, "Pauser should be owned by BAOMULTISIG");
 
-        // Step 4: PAUSE - Upgrade proxy to BaoPauser
+        // Step 4: PAUSE - Upgrade proxy to HarborPauser
         vm.prank(HARBOR_MULTISIG);
         UUPSUpgradeable(proxy).upgradeToAndCall(pauser, "");
 
         // Verify proxy now points to pauser and reverts all calls
         vm.expectRevert(
-            abi.encodeWithSelector(BaoPauser_v1.Paused.selector, "Contract is paused and all functions are disabled")
+            abi.encodeWithSelector(HarborPauser_v1.Paused.selector, "Contract is paused and all functions are disabled")
         );
         MockFunctionalContract(proxy).value();
 
         vm.expectRevert(
-            abi.encodeWithSelector(BaoPauser_v1.Paused.selector, "Contract is paused and all functions are disabled")
+            abi.encodeWithSelector(HarborPauser_v1.Paused.selector, "Contract is paused and all functions are disabled")
         );
         MockFunctionalContract(proxy).doSomething();
 
         vm.expectRevert(
-            abi.encodeWithSelector(BaoPauser_v1.Paused.selector, "Contract is paused and all functions are disabled")
+            abi.encodeWithSelector(HarborPauser_v1.Paused.selector, "Contract is paused and all functions are disabled")
         );
         vm.prank(HARBOR_MULTISIG);
         MockFunctionalContract(proxy).setValue(200);
 
-        // But owner() still works (it's defined on BaoPauser)
-        assertEq(BaoPauser_v1(proxy).owner(), HARBOR_MULTISIG, "Owner should still be accessible");
+        // But owner() still works (it's defined on HarborPauser)
+        assertEq(HarborPauser_v1(proxy).owner(), HARBOR_MULTISIG, "Owner should still be accessible");
 
         // Step 5: UNPAUSE - Upgrade proxy back to functional
         vm.prank(HARBOR_MULTISIG);
@@ -202,14 +202,14 @@ contract BaoPauserTest is BaoTest {
         // Deploy and pause
         address functional = _deployFunctionalViaFactory(keccak256("functional.auth"), HARBOR_MULTISIG);
         address proxy = _deployProxy(functional, abi.encodeCall(MockFunctionalContract.initialize, (42)));
-        address pauser = _deployBaoPauserViaFactory(keccak256("pauser.auth"));
+        address pauser = _deployHarborPauserViaFactory(keccak256("pauser.auth"));
 
         vm.prank(HARBOR_MULTISIG);
         UUPSUpgradeable(proxy).upgradeToAndCall(pauser, "");
 
         // Non-owner cannot unpause
         vm.prank(user);
-        vm.expectRevert(IBaoFixedOwnable.Unauthorized.selector);
+        vm.expectRevert(IHarborFixedOwnable.Unauthorized.selector);
         UUPSUpgradeable(proxy).upgradeToAndCall(functional, "");
 
         // Owner (BAOMULTISIG) can unpause
@@ -228,7 +228,7 @@ contract BaoPauserTest is BaoTest {
         address predicted = factory.predictAddress(salt);
 
         // Deploy
-        address pauser = _deployBaoPauserViaFactory(salt);
+        address pauser = _deployHarborPauserViaFactory(salt);
 
         // Should match prediction
         assertEq(pauser, predicted, "Deployed address should match prediction");

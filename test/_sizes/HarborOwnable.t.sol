@@ -6,11 +6,11 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {Test} from "forge-std/Test.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
-import {BaoOwnable} from "@bao/BaoOwnable.sol";
+import {HarborOwnable} from "@bao/HarborOwnable.sol";
 
-contract DerivedBaoOwnable is BaoOwnable {
-    function initialize(address owner) public {
-        _initializeOwner(owner);
+contract DerivedHarborOwnable is HarborOwnable {
+    function initialize(address deployerOwner, address pendingOwner_) public {
+        _initializeOwner(deployerOwner, pendingOwner_);
     }
 
     function pendingOwner() public view returns (address pendingOwner_) {
@@ -28,7 +28,7 @@ contract DerivedBaoOwnable is BaoOwnable {
     function protected() public onlyOwner {}
 }
 
-contract TestBaoOwnableOnly is Test {
+contract TestHarborOwnableOnly is Test {
     address ownable;
     address owner;
     address user;
@@ -37,27 +37,27 @@ contract TestBaoOwnableOnly is Test {
         owner = makeAddr("owner");
         user = makeAddr("user");
 
-        ownable = address(new DerivedBaoOwnable());
+        ownable = address(new DerivedHarborOwnable());
     }
 
     function _initialize(address owner_) internal {
         assertEq(IBaoOwnable(ownable).owner(), address(0));
-        assertEq(DerivedBaoOwnable(ownable).pendingOwner(), address(0));
-        assertEq(DerivedBaoOwnable(ownable).pendingExpiry(), 0);
+        assertEq(DerivedHarborOwnable(ownable).pendingOwner(), address(0));
+        assertEq(DerivedHarborOwnable(ownable).pendingExpiry(), 0);
 
         vm.expectEmit();
         emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
-        DerivedBaoOwnable(ownable).initialize(owner_);
+        DerivedHarborOwnable(ownable).initialize(address(this), owner_);
         assertEq(IBaoOwnable(ownable).owner(), address(this));
-        assertEq(DerivedBaoOwnable(ownable).pendingOwner(), owner_);
-        assertEq(DerivedBaoOwnable(ownable).pendingExpiry(), block.timestamp + 3600);
+        assertEq(DerivedHarborOwnable(ownable).pendingOwner(), owner_);
+        assertEq(DerivedHarborOwnable(ownable).pendingExpiry(), block.timestamp + 3600);
 
         vm.expectEmit();
         emit IBaoOwnable.OwnershipTransferred(address(this), owner_);
         IBaoOwnable(ownable).transferOwnership(owner_);
         assertEq(IBaoOwnable(ownable).owner(), owner_);
-        assertEq(DerivedBaoOwnable(ownable).pendingOwner(), address(0));
-        assertEq(DerivedBaoOwnable(ownable).pendingExpiry(), 0);
+        assertEq(DerivedHarborOwnable(ownable).pendingOwner(), address(0));
+        assertEq(DerivedHarborOwnable(ownable).pendingExpiry(), 0);
     }
 
     function test_initialize(uint64 start) public {
@@ -72,19 +72,52 @@ contract TestBaoOwnableOnly is Test {
         IBaoOwnable(ownable).transferOwnership(owner);
 
         // pending is all zeros
-        assertEq(DerivedBaoOwnable(ownable).pendingOwner(), address(0));
-        assertEq(DerivedBaoOwnable(ownable).pendingExpiry(), 0);
+        assertEq(DerivedHarborOwnable(ownable).pendingOwner(), address(0));
+        assertEq(DerivedHarborOwnable(ownable).pendingExpiry(), 0);
 
         // can initialise to an owner
         _initialize(owner);
 
         // can't initialise again
         vm.expectRevert(IBaoOwnable.AlreadyInitialized.selector);
-        DerivedBaoOwnable(ownable).initialize(owner);
+        DerivedHarborOwnable(ownable).initialize(address(this), owner);
 
         // can't initialise again
         vm.expectRevert(IBaoOwnable.AlreadyInitialized.selector);
-        DerivedBaoOwnable(ownable).initialize(user);
+        DerivedHarborOwnable(ownable).initialize(address(this), user);
+    }
+
+    function test_initializeExplicitSetsOwnerNotCaller(uint64 start) public {
+        start = uint64(bound(start, 1, type(uint64).max - 52 weeks));
+        vm.warp(start);
+
+        address deployerOwner = makeAddr("deployerOwner");
+        address pendingOwner = makeAddr("pendingOwner");
+
+        assertEq(IBaoOwnable(ownable).owner(), address(0));
+        assertEq(DerivedHarborOwnable(ownable).pendingOwner(), address(0));
+        assertEq(DerivedHarborOwnable(ownable).pendingExpiry(), 0);
+
+        // Caller is address(this), but owner should become deployerOwner.
+        vm.expectEmit();
+        emit IBaoOwnable.OwnershipTransferred(address(0), deployerOwner);
+        DerivedHarborOwnable(ownable).initialize(deployerOwner, pendingOwner);
+
+        assertEq(IBaoOwnable(ownable).owner(), deployerOwner);
+        assertEq(DerivedHarborOwnable(ownable).pendingOwner(), pendingOwner);
+        assertEq(DerivedHarborOwnable(ownable).pendingExpiry(), block.timestamp + 3600);
+
+        // Only the deployerOwner can complete the transfer.
+        vm.expectRevert(IBaoOwnable.Unauthorized.selector);
+        IBaoOwnable(ownable).transferOwnership(pendingOwner);
+
+        vm.expectEmit();
+        emit IBaoOwnable.OwnershipTransferred(deployerOwner, pendingOwner);
+        vm.prank(deployerOwner);
+        IBaoOwnable(ownable).transferOwnership(pendingOwner);
+        assertEq(IBaoOwnable(ownable).owner(), pendingOwner);
+        assertEq(DerivedHarborOwnable(ownable).pendingOwner(), address(0));
+        assertEq(DerivedHarborOwnable(ownable).pendingExpiry(), 0);
     }
 
     function test_introspection() public view virtual {
@@ -93,7 +126,7 @@ contract TestBaoOwnableOnly is Test {
     }
 
     function test_initializeTimeoutJustBefore() public {
-        DerivedBaoOwnable(ownable).initialize(owner);
+        DerivedHarborOwnable(ownable).initialize(address(this), owner);
         assertEq(IBaoOwnable(ownable).owner(), address(this));
 
         skip(3600);
@@ -105,7 +138,7 @@ contract TestBaoOwnableOnly is Test {
     }
 
     function test_initializeTimeoutAfter() public {
-        DerivedBaoOwnable(ownable).initialize(owner);
+        DerivedHarborOwnable(ownable).initialize(address(this), owner);
         assertEq(IBaoOwnable(ownable).owner(), address(this));
 
         skip(3601);
@@ -119,7 +152,7 @@ contract TestBaoOwnableOnly is Test {
         // can initialise to an owner, who is deployer
         vm.expectEmit();
         emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
-        DerivedBaoOwnable(ownable).initialize(owner);
+        DerivedHarborOwnable(ownable).initialize(address(this), owner);
         assertEq(IBaoOwnable(ownable).owner(), address(this));
 
         // call a function that fails unless done by an owner
@@ -143,10 +176,10 @@ contract TestBaoOwnableOnly is Test {
         _initialize(owner);
 
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
-        DerivedBaoOwnable(ownable).protected();
+        DerivedHarborOwnable(ownable).protected();
 
         vm.prank(owner);
-        DerivedBaoOwnable(ownable).protected();
+        DerivedHarborOwnable(ownable).protected();
     }
 
     function test_reinitAfterTransfer() public {
@@ -154,7 +187,7 @@ contract TestBaoOwnableOnly is Test {
 
         // can't initialise again after a transfer
         vm.expectRevert(IBaoOwnable.AlreadyInitialized.selector);
-        DerivedBaoOwnable(ownable).initialize(address(this));
+        DerivedHarborOwnable(ownable).initialize(address(this), address(this));
         assertEq(IBaoOwnable(ownable).owner(), owner);
     }
 
@@ -163,7 +196,7 @@ contract TestBaoOwnableOnly is Test {
 
         // can't initialise again after a transfer
         vm.expectRevert(IBaoOwnable.AlreadyInitialized.selector);
-        DerivedBaoOwnable(ownable).initialize(address(this));
+        DerivedHarborOwnable(ownable).initialize(address(this), address(this));
         assertEq(IBaoOwnable(ownable).owner(), address(0));
     }
 
@@ -182,7 +215,7 @@ contract TestBaoOwnableOnly is Test {
     function test_deployNoTransfer() public {
         // initialise to target owner immediately
         vm.prank(owner);
-        DerivedBaoOwnable(ownable).initialize(owner);
+        DerivedHarborOwnable(ownable).initialize(owner, owner);
         assertEq(IBaoOwnable(ownable).owner(), owner);
 
         // owner can't transfer ownership (one-step)
@@ -202,7 +235,7 @@ contract TestBaoOwnableOnly is Test {
         // owner is initially set to the deployer
         vm.expectEmit();
         emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
-        DerivedBaoOwnable(ownable).initialize(owner);
+        DerivedHarborOwnable(ownable).initialize(address(this), owner);
 
         // owner can't transfer ownership (one-step)
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
@@ -255,7 +288,7 @@ contract TestBaoOwnableOnly is Test {
         // owner is initially set to the deployer
         vm.expectEmit();
         emit IBaoOwnable.OwnershipTransferred(address(0), address(this));
-        DerivedBaoOwnable(ownable).initialize(owner);
+        DerivedHarborOwnable(ownable).initialize(address(this), owner);
         assertEq(IBaoOwnable(ownable).owner(), address(this));
 
         // future owner can't renounce

@@ -3,12 +3,12 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import {BaoFixedOwnable} from "@bao/BaoFixedOwnable.sol";
+import {HarborFixedOwnable} from "@bao/HarborFixedOwnable.sol";
 import {IMockImplementation, MockImplementationWithStateBase} from "../interfaces/IMockImplementation.sol";
 
 /**
  * @title MockImplementationWithState_Fixed
- * @dev A mock implementation using BaoFixedOwnable for testing upgrades.
+ * @dev A mock implementation using HarborFixedOwnable for testing upgrades.
  *
  * Key difference from other mock implementations:
  * - Ownership is fixed at construction time via immutables
@@ -17,9 +17,9 @@ import {IMockImplementation, MockImplementationWithStateBase} from "../interface
  * - Still supports UUPS upgrades (owner can upgrade)
  * - If delayedOwner is address(0), upgrades become impossible after delay
  */
-contract MockImplementationWithState_Fixed is Initializable, MockImplementationWithStateBase, BaoFixedOwnable {
+contract MockImplementationWithState_Fixed is Initializable, MockImplementationWithStateBase, HarborFixedOwnable {
     function implementationType() external pure returns (uint256) {
-        return uint(IMockImplementation.ImplementationType.MockImplementationBaoFixedOwnable);
+        return uint(IMockImplementation.ImplementationType.MockImplementationHarborFixedOwnable);
     }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -27,7 +27,7 @@ contract MockImplementationWithState_Fixed is Initializable, MockImplementationW
         address beforeOwner,
         address delayedOwner,
         uint256 delay
-    ) BaoFixedOwnable(beforeOwner, delayedOwner, delay) {
+    ) HarborFixedOwnable(beforeOwner, delayedOwner, delay) {
         _disableInitializers();
     }
 
@@ -51,8 +51,8 @@ contract MockImplementationWithState_Fixed is Initializable, MockImplementationW
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
 
-    function owner() public view virtual override(BaoFixedOwnable, IMockImplementation) returns (address owner_) {
-        owner_ = BaoFixedOwnable.owner();
+    function owner() public view virtual override(HarborFixedOwnable, IMockImplementation) returns (address owner_) {
+        owner_ = HarborFixedOwnable.owner();
     }
 
     function setValue(uint256 newValue) external onlyOwner {

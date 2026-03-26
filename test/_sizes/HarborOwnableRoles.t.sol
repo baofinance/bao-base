@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
+import {HarborOwnableRoles} from "@bao/HarborOwnableRoles.sol";
 
-import {TestBaoOwnableOnly} from "./BaoOwnable.t.sol";
+import {TestHarborOwnableOnly} from "./HarborOwnable.t.sol";
 import {TestBaoRoles} from "./BaoRoles.t.sol";
 
-contract DerivedBaoOwnableRoles is BaoOwnableRoles {
+contract DerivedHarborOwnableRoles is HarborOwnableRoles {
     uint256 public MY_ROLE = _ROLE_1;
     uint256 public ANOTHER_ROLE = _ROLE_2;
     uint256 public YET_ANOTHER_ROLE = _ROLE_3;
 
-    function initialize(address owner) public {
-        _initializeOwner(owner);
+    function initialize(address deployerOwner, address pendingOwner_) public {
+        _initializeOwner(deployerOwner, pendingOwner_);
     }
 
     function pendingOwner() public view returns (address pendingOwner_) {
@@ -33,15 +33,15 @@ contract DerivedBaoOwnableRoles is BaoOwnableRoles {
     function protectedRolesOrOwner() public view onlyRolesOrOwner(MY_ROLE) {}
 }
 
-contract TestBaoOwnableRoles is TestBaoOwnableOnly, TestBaoRoles {
+contract TestHarborOwnableRoles is TestHarborOwnableOnly, TestBaoRoles {
     function setUp() public override {
         super.setUp();
 
-        ownable = address(new DerivedBaoOwnableRoles());
+        ownable = address(new DerivedHarborOwnableRoles());
     }
 
     function test_introspection() public view override {
-        TestBaoOwnableOnly.test_introspection();
+        TestHarborOwnableOnly.test_introspection();
         TestBaoRoles._introspection(ownable);
     }
 

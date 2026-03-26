@@ -12,7 +12,7 @@ interface IMockImplementation {
         MockImplementationWithState,
         MockImplementationWithState_v2,
         MockImplementationOZOwnable,
-        MockImplementationBaoFixedOwnable
+        MockImplementationHarborFixedOwnable
     }
 
     function implementationType() external pure returns (uint256);
@@ -69,9 +69,9 @@ abstract contract MockImplementationWithStateBase is UUPSUpgradeable, IMockImple
         } else if (implementationType == uint(IMockImplementation.ImplementationType.MockImplementationOZOwnable)) {
             return "MockImplementationOZOwnable";
         } else if (
-            implementationType == uint(IMockImplementation.ImplementationType.MockImplementationBaoFixedOwnable)
+            implementationType == uint(IMockImplementation.ImplementationType.MockImplementationHarborFixedOwnable)
         ) {
-            return "MockImplementationBaoFixedOwnable";
+            return "MockImplementationHarborFixedOwnable";
         }
         return "MockImplementation!";
     }

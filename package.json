@@ -15,7 +15,7 @@
     "fmt:check": "yarn prettier --check",
     "fmt:bash": "yarn prettier:bash --write",
     "fmt:python": "yarn prettier:python --write",
-    "verify-audit": "bin/verify-audit",
+    "verify-audit": "./run verify-audit",
     "validate": "./run validate",
     "lint": "solhint --max-warnings 0 '{src,interfaces}/**/*.sol' --disc",
     "lint:bash": "yarn prettier:bash --lint",

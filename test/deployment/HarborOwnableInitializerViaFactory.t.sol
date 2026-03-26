@@ -7,12 +7,14 @@ import {Test} from "forge-std/Test.sol";
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {BaoOwnable} from "@bao/BaoOwnable.sol";
+import {HarborOwnable} from "@bao/HarborOwnable.sol";
 import {UUPSProxyDeployStub, IUUPSUpgradeableProxy} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-contract OwnableInitViaFactoryV1 is Initializable, UUPSUpgradeable, BaoOwnable {
+/// @dev HarborOwnable: explicit 2-arg initializer — works correctly with factory (no stub needed)
+contract OwnableInitViaFactoryV1 is Initializable, UUPSUpgradeable, HarborOwnable {
     uint256 public value;
 
     function initialize(uint256 value_, address deployerOwner, address pendingOwner) external initializer {
@@ -23,6 +25,7 @@ contract OwnableInitViaFactoryV1 is Initializable, UUPSUpgradeable, BaoOwnable {
     function _authorizeUpgrade(address) internal view override onlyOwner {}
 }
 
+/// @dev BaoOwnable: legacy 1-arg initializer — uses msg.sender, so factory becomes owner (broken without stub)
 contract OwnableLegacyInitViaFactoryV1 is Initializable, UUPSUpgradeable, BaoOwnable {
     uint256 public value;
 
@@ -48,7 +51,7 @@ contract UUPSProxyFactoryCaller {
     }
 }
 
-contract BaoOwnableInitializerViaFactoryTest is Test {
+contract HarborOwnableInitializerViaFactoryTest is Test {
     function test_explicitInitializerSetsOwnerNotCaller() public {
         address deployerOwner = makeAddr("deployerOwner");
         address pendingOwner = makeAddr("pendingOwner");

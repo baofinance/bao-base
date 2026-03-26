@@ -5,14 +5,17 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import {BaoCheckOwner} from "@bao/internal/BaoCheckOwner.sol";
 import {ERC165} from "@bao/ERC165.sol";
-import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
+import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 
-/// @title Bao Ownable
+/// @title Harbor Ownable
 /// @dev Note:
-/// This implementation auto-initialises the owner to `msg.sender`.
-/// You MUST call the `_initializeOwner` in the constructor / initializer of the deriving contract.
-/// This initialization sets the owner to `msg.sender`, not to the passed 'finalOwner' parameter.
-/// The contract deployer can now act as owner then 'transferOwnership' once complete.
+/// You MUST call `_initializeOwner(...)` in the constructor / initializer of the deriving contract.
+///
+/// Legacy initialization (`_initializeOwner(address finalOwner)`) sets the initial owner to
+/// `msg.sender` and sets the pending owner to `finalOwner`.
+///
+/// Prefer the explicit initialization (`_initializeOwner(address deployerOwner, address pendingOwner)`) when
+/// the deployer should not be treated as `msg.sender` from the implementation's point of view.
 ///
 /// This contract follows [EIP-173](https://eips.ethereum.org/EIPS/eip-173) for compatibility,
 /// however the transferOwnership function can only be called once and then, only by the caller that calls
@@ -24,27 +27,27 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 /// it also adds IRC165 interface query support
 /// @author rootminus0x1
 /// @dev Uses erc7201 storage
-abstract contract BaoOwnable is IBaoOwnable, BaoCheckOwner, ERC165 {
+
+abstract contract HarborOwnable is IHarborOwnable, BaoCheckOwner, ERC165 {
     /*//////////////////////////////////////////////////////////////////////////
                                CONSTRUCTOR/INITIALIZER
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @notice Initialises the ownership
-    /// This is an unprotected function designed to let a derive contract's initializer to call it
-    /// This function can only be called once.
-    /// The caller of the initializer function will be the deployer of the contract. The deployer (msg.sender)
-    /// becomes the owner, allowing them to do owner-type set up, then ownership is transferred to the 'finalOwner'
-    /// when 'transferOwnership' is called. 'transferOwnership' must be called within an hour.
-    /// @param finalOwner sets the owner, a privileged address, of the contract to be set when 'transferOwnership' is called
+    /// @notice Initialises the ownership (explicit)
+    /// @dev This initializer does not use `msg.sender`.
+    /// The owner is set to `deployerOwner`, and the pending owner is set to `pendingOwner`.
+    /// `transferOwnership(pendingOwner)` must still be completed within an hour.
+    /// @param deployerOwner The initial owner used for setup.
+    /// @param pendingOwner_ The address eligible to complete ownership transfer.
     // slither-disable-next-line dead-code
-    function _initializeOwner(address finalOwner) internal virtual {
+    function _initializeOwner(address deployerOwner, address pendingOwner_) internal virtual {
         unchecked {
             _checkNotInitialized();
             // solhint-disable-next-line no-inline-assembly
             assembly ("memory-safe") {
-                sstore(_PENDING_SLOT, or(finalOwner, shl(192, add(timestamp(), 3600))))
+                sstore(_PENDING_SLOT, or(pendingOwner_, shl(192, add(timestamp(), 3600))))
             }
-            _setOwner(address(0), msg.sender);
+            _setOwner(address(0), deployerOwner);
         }
     }
 
@@ -54,10 +57,10 @@ abstract contract BaoOwnable is IBaoOwnable, BaoCheckOwner, ERC165 {
 
     /// @inheritdoc IERC165
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IBaoOwnable).interfaceId || super.supportsInterface(interfaceId);
+        return interfaceId == type(IHarborOwnable).interfaceId || super.supportsInterface(interfaceId);
     }
 
-    /// @inheritdoc IBaoOwnable
+    /// @inheritdoc IHarborOwnable
     function owner() public view virtual returns (address owner_) {
         // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
@@ -69,7 +72,7 @@ abstract contract BaoOwnable is IBaoOwnable, BaoCheckOwner, ERC165 {
                                   PROTECTED FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @inheritdoc IBaoOwnable
+    /// @inheritdoc IHarborOwnable
     /// @dev Allows the owner to complete the ownership transfer to `pendingOwner`.
     /// Reverts if there is no existing ownership transfer requested by `pendingOwner`.
     function transferOwnership(address confirmOwner) public virtual {

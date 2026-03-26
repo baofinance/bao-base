@@ -5,13 +5,13 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {IERC5313} from "@openzeppelin/contracts/interfaces/IERC5313.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-import {BaoFixedOwnable} from "./BaoFixedOwnable.sol";
+import {HarborFixedOwnable} from "./HarborFixedOwnable.sol";
 
 /**
- * @title BaoPauser
+ * @title HarborPauser
  * @author rootminus0x1
  * @notice A minimal upgradeable contract with no functionality beyond upgradeability and ownership.
- * @dev Uses BaoFixedOwnable with hardcoded owner (Harbor multisig), no constructor args.
+ * @dev Uses HarborFixedOwnable with hardcoded owner (Harbor multisig), no constructor args.
  *
  * The ownership is fixed to the Harbor multisig with no delay.
  *
@@ -20,19 +20,19 @@ import {BaoFixedOwnable} from "./BaoFixedOwnable.sol";
  *    Upgrade the proxy to this contract to "pause" and upgrade back to restore functionality.
  *
  * 2) Compromised owner recovery: If the owner of a previous contract is compromised but not disabled,
- *    the BaoPauser can be owned by the DAO multisig. Note: the BaoPauser cannot be installed
+ *    the HarborPauser can be owned by the DAO multisig. Note: the HarborPauser cannot be installed
  *    unless the existing owner authorizes the upgrade.
  *
  * Note: Deployment protection (previously a use case for Stem_v1) is now handled via
  * pendingOwner pattern in BaoOwnable - not needed here.
  *
  * Key properties:
- * - Uses BaoFixedOwnable with (address(0), HARBOR_MULTISIG, 0) - immediate ownership to DAO
+ * - Uses HarborFixedOwnable with (address(0), HARBOR_MULTISIG, 0) - immediate ownership to DAO
  * - No constructor parameters - deterministic bytecode for CREATE2/CREATE3
  * - Can be deployed via BaoFactory at a deterministic address
  */
 // solhint-disable-next-line contract-name-capwords
-contract BaoPauser_v1 is UUPSUpgradeable, BaoFixedOwnable, IERC5313 {
+contract HarborPauser_v1 is UUPSUpgradeable, HarborFixedOwnable, IERC5313 {
     /*//////////////////////////////////////////////////////////////////////////
                                     CONSTANTS
     //////////////////////////////////////////////////////////////////////////*/
@@ -54,7 +54,7 @@ contract BaoPauser_v1 is UUPSUpgradeable, BaoFixedOwnable, IERC5313 {
     /// @notice Deploy the pauser with fixed ownership to Harbor multisig
     /// @dev No parameters - deterministic bytecode for CREATE3 deployment
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() BaoFixedOwnable(address(0), _OWNER, 0) {
+    constructor() HarborFixedOwnable(address(0), _OWNER, 0) {
         _disableInitializers();
     }
 
@@ -63,8 +63,8 @@ contract BaoPauser_v1 is UUPSUpgradeable, BaoFixedOwnable, IERC5313 {
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IERC5313
-    function owner() public view virtual override(BaoFixedOwnable, IERC5313) returns (address owner_) {
-        owner_ = BaoFixedOwnable.owner();
+    function owner() public view virtual override(HarborFixedOwnable, IERC5313) returns (address owner_) {
+        owner_ = HarborFixedOwnable.owner();
     }
 
     /// @inheritdoc IERC165

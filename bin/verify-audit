@@ -4,4 +4,5 @@ AUDIT_TAG="${1:-audit-2025-07}"
 git fetch --tags
 git rev-parse --verify "${AUDIT_TAG}^{commit}" >/dev/null 2>&1 \
   || { echo "Tag '${AUDIT_TAG}' not found"; exit 1; }
-git diff --exit-code --stat "${AUDIT_TAG}" -- src
+# fail if any audited file was modified, deleted, or renamed (new files are OK)
+git diff --exit-code --stat --diff-filter=DMRT "${AUDIT_TAG}" -- src

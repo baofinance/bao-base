@@ -8,11 +8,11 @@ import {Test} from "forge-std/Test.sol";
 import {IOwnershipModel} from "test/interfaces/IOwnershipModel.sol";
 import {MockImplementationWithState_Fixed} from "test/mocks/MockImplementationWithState_Fixed.sol";
 import {IMockImplementation} from "test/interfaces/IMockImplementation.sol";
-import {IBaoFixedOwnable} from "@bao/interfaces/IBaoFixedOwnable.sol";
+import {IHarborFixedOwnable} from "@bao/interfaces/IHarborFixedOwnable.sol";
 
 /**
- * @title BaoFixedOwnableAdapter
- * @notice Adapter for BaoFixedOwnable ownership model
+ * @title HarborFixedOwnableAdapter
+ * @notice Adapter for HarborFixedOwnable ownership model
  * @dev Adapter Pattern: Provides access to implementation rather than mirroring its interface
  *
  * Key differences from BaoOwnable_v2Adapter:
@@ -20,18 +20,18 @@ import {IBaoFixedOwnable} from "@bao/interfaces/IBaoFixedOwnable.sol";
  * - No delay used for tests (immediate ownership)
  * - Works correctly when deployed via factory
  */
-contract BaoFixedOwnableAdapter is IOwnershipModel, Test {
+contract HarborFixedOwnableAdapter is IOwnershipModel, Test {
     function implementationType() external pure returns (uint256) {
-        return uint(IMockImplementation.ImplementationType.MockImplementationBaoFixedOwnable);
+        return uint(IMockImplementation.ImplementationType.MockImplementationHarborFixedOwnable);
     }
 
     function name() external pure returns (string memory) {
-        return "BaoFixedOwnable";
+        return "HarborFixedOwnable";
     }
 
     function deployImplementation(address prank, address initialOwner) external returns (address implementation) {
         vm.startPrank(prank);
-        // BaoFixedOwnable: beforeOwner = initialOwner, delayedOwner = initialOwner, delay = 0
+        // HarborFixedOwnable: beforeOwner = initialOwner, delayedOwner = initialOwner, delay = 0
         // This means ownership is immediately and permanently initialOwner
         implementation = address(new MockImplementationWithState_Fixed(initialOwner, initialOwner, 0));
         assertEq(MockImplementationWithState_Fixed(implementation).implementationType(), this.implementationType());
@@ -74,6 +74,6 @@ contract BaoFixedOwnableAdapter is IOwnershipModel, Test {
     }
 
     function unauthorizedSelector() external pure returns (bytes4) {
-        return IBaoFixedOwnable.Unauthorized.selector;
+        return IHarborFixedOwnable.Unauthorized.selector;
     }
 }

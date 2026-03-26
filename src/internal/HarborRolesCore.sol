@@ -4,13 +4,13 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import {ERC165} from "@bao/ERC165.sol";
-import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
+import {IHarborRoles} from "@bao/interfaces/IHarborRoles.sol";
 
-/// @title Bao Roles Core
+/// @title Harbor Roles Core
 /// @notice Backend-agnostic roles implementation.
 /// @dev Uses a Template Method pattern: inheritors must provide `_isOwner(address)`.
 /// This keeps the roles logic independent from how ownership is stored (slots, immutables, etc).
-abstract contract BaoRolesCore is IBaoRoles, ERC165 {
+abstract contract HarborRolesCore is IHarborRoles, ERC165 {
     /// @dev `keccak256(bytes("RolesUpdated(address,uint256)"))`.
     uint256 private constant _ROLES_UPDATED_EVENT_SIGNATURE =
         0x715ad5ce61fc9595c7b415289d59cf203f23a94fa06f04af7e489a0a76e1fe26;
@@ -52,7 +52,7 @@ abstract contract BaoRolesCore is IBaoRoles, ERC165 {
 
     /// @inheritdoc IERC165
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IBaoRoles).interfaceId || super.supportsInterface(interfaceId);
+        return interfaceId == type(IHarborRoles).interfaceId || super.supportsInterface(interfaceId);
     }
 
     /*//////////////////////////////////////////////////////////////////////////

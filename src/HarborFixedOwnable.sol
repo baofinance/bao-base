@@ -4,16 +4,16 @@ pragma solidity >=0.8.28 <0.9.0;
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import {ERC165} from "@bao/ERC165.sol";
-import {IBaoFixedOwnable} from "@bao/interfaces/IBaoFixedOwnable.sol";
+import {IHarborFixedOwnable} from "@bao/interfaces/IHarborFixedOwnable.sol";
 
-/// @title Bao Fixed Ownable
+/// @title Harbor Fixed Ownable
 /// @notice Ownable where the initial owner and delayed owner are constructor-fixed.
 /// @dev Similar to BaoOwnable_v2, but does not read `msg.sender` internally.
 /// Instead, the "before" owner is an explicit constructor parameter.
 ///
 /// Ownership transitions automatically from `beforeOwner` to `delayedOwner` after `delay` seconds.
 /// No additional ownership transfers are supported.
-abstract contract BaoFixedOwnable is IBaoFixedOwnable, ERC165 {
+abstract contract HarborFixedOwnable is IHarborFixedOwnable, ERC165 {
     /*//////////////////////////////////////////////////////////////////////////
                                    INTERNAL DATA
     //////////////////////////////////////////////////////////////////////////*/
@@ -37,14 +37,14 @@ abstract contract BaoFixedOwnable is IBaoFixedOwnable, ERC165 {
 
     constructor(address beforeOwner, address delayedOwner, uint256 delay) {
         if (delayedOwner == address(0)) {
-            revert IBaoFixedOwnable.ZeroOwner();
+            revert IHarborFixedOwnable.ZeroOwner();
         }
         _BEFORE_OWNER = beforeOwner;
         _OWNER_TRANSFER_AT = block.timestamp + delay;
         _OWNER_AT = delayedOwner;
 
-        emit IBaoFixedOwnable.OwnershipTransferred(address(0), _BEFORE_OWNER);
-        emit IBaoFixedOwnable.OwnershipTransferred(_BEFORE_OWNER, _OWNER_AT);
+        emit IHarborFixedOwnable.OwnershipTransferred(address(0), _BEFORE_OWNER);
+        emit IHarborFixedOwnable.OwnershipTransferred(_BEFORE_OWNER, _OWNER_AT);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -54,7 +54,7 @@ abstract contract BaoFixedOwnable is IBaoFixedOwnable, ERC165 {
     /// @dev Throws if the sender is not the owner.
     function _checkOwner() internal view virtual {
         if (msg.sender != _owner()) {
-            revert IBaoFixedOwnable.Unauthorized();
+            revert IHarborFixedOwnable.Unauthorized();
         }
     }
 
@@ -78,13 +78,13 @@ abstract contract BaoFixedOwnable is IBaoFixedOwnable, ERC165 {
                                   PUBLIC FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
-    // @inheritdoc IBaoFixedOwnable
+    // @inheritdoc IHarborFixedOwnable
     function owner() public view virtual returns (address owner_) {
         owner_ = _owner();
     }
 
     /// @inheritdoc IERC165
     function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165) returns (bool) {
-        return interfaceId == type(IBaoFixedOwnable).interfaceId || super.supportsInterface(interfaceId);
+        return interfaceId == type(IHarborFixedOwnable).interfaceId || super.supportsInterface(interfaceId);
     }
 }
