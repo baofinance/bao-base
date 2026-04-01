@@ -6,7 +6,7 @@ script/deployment/UUPSProxyDeployStub.sol:UUPSProxyDeployStub
 | upgradeTo        | 4.405e+04 |
 | upgradeToAndCall | 9.901e+04 |
 
-src/BaoPauser_v1.sol:BaoPauser_v1
+src/HarborPauser_v1.sol:HarborPauser_v1
 | function name     |       max |
 |-------------------|-----------|
 | fallback          | 3.150e+02 |
@@ -14,6 +14,13 @@ src/BaoPauser_v1.sol:BaoPauser_v1
 | proxiableUUID     | 3.250e+02 |
 | supportsInterface | 5.050e+02 |
 | upgradeToAndCall  | 8.841e+03 |
+
+src/HarborUpgradeable_v1.sol:HarborUpgradeable_v1
+| function name     |       max |
+|-------------------|-----------|
+| owner             | 3.680e+02 |
+| supportsInterface | 5.050e+02 |
+| upgradeToAndCall  | 8.807e+03 |
 
 src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1
 | function name     |       max |

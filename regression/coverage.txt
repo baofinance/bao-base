@@ -1,7 +1,7 @@
 | File                                      | % Lines            | % Statements       | % Branches      | % Funcs          |
 |-------------------------------------------|--------------------|--------------------|-----------------|------------------|
 | script/deployment/DeploymentState.sol     | ✓ 100% (49/49)     | ✓ 100% (69/69)     | ✓ 100% (9/9)    | ✓ 100% (8/8)     |
-| script/deployment/FactoryDeployer.sol     | X  92% (81/88)     | X  93% (86/92)     | X  71% (5/7)    | X  88% (21/24)   |
+| script/deployment/FactoryDeployer.sol     | X  92% (83/90)     | X  94% (87/93)     | X  71% (5/7)    | X  88% (22/25)   |
 | script/deployment/JsonParser.sol          | ✓ 100% (79/79)     | ✓ 100% (106/106)   | ✓ 100% (11/11)  | ✓ 100% (5/5)     |
 | script/deployment/JsonSerializer.sol      | ✓ 100% (136/136)   | ✓ 100% (206/206)   | ✓ 100% (22/22)  | ✓ 100% (10/10)   |
 | script/deployment/UUPSProxyDeployStub.sol | ✓ 100% (27/27)     | X  96% (24/25)     | X  83% (5/6)    | ✓ 100% (8/8)     |
@@ -17,7 +17,8 @@
 | src/HarborFixedOwnableRoles.sol           | ✓ 100% (4/4)       | ✓ 100% (7/7)       | ✓ 100% (0/0)    | ✓ 100% (2/2)     |
 | src/HarborOwnable.sol                     | ✓ 100% (27/27)     | ✓ 100% (24/24)     | ✓ 100% (3/3)    | ✓ 100% (6/6)     |
 | src/HarborOwnableRoles.sol                | ✓ 100% (2/2)       | ✓ 100% (4/4)       | ✓ 100% (0/0)    | ✓ 100% (1/1)     |
-| src/HarborPauser_v1.sol                   | ✓ 100% (9/9)       | ✓ 100% (7/7)       | ✓ 100% (0/0)    | ✓ 100% (5/5)     |
+| src/HarborPauser_v1.sol                   | ✓ 100% (2/2)       | ✓ 100% (1/1)       | ✓ 100% (0/0)    | ✓ 100% (1/1)     |
+| src/HarborUpgradeable_v1.sol              | ✓ 100% (7/7)       | ✓ 100% (6/6)       | ✓ 100% (0/0)    | ✓ 100% (4/4)     |
 | src/MintableBurnableERC20_v1.sol          | ✓ 100% (25/25)     | ✓ 100% (26/26)     | ✓ 100% (0/0)    | ✓ 100% (7/7)     |
 | src/PermittableERC20_v1.sol               | ✓ 100% (16/16)     | ✓ 100% (14/14)     | ✓ 100% (0/0)    | ✓ 100% (5/5)     |
 | src/Stem_v1.sol                           | ✓ 100% (5/5)       | ✓ 100% (2/2)       | ✓ 100% (0/0)    | ✓ 100% (3/3)     |
@@ -29,4 +30,4 @@
 | src/internal/BaoRoles_v2.sol              | ✓ 100% (47/47)     | X  98% (42/43)     | ✓ 100% (4/4)    | ✓ 100% (14/14)   |
 | src/internal/HarborRoles.sol              | ✓ 100% (2/2)       | ✓ 100% (1/1)       | ✓ 100% (0/0)    | ✓ 100% (1/1)     |
 | src/internal/HarborRolesCore.sol          | ✓ 100% (54/54)     | X  98% (46/47)     | ✓ 100% (5/5)    | ✓ 100% (17/17)   |
-| Total                                     | X  64% (1369/2149) | X  68% (1303/1925) | X  65% (96/148) | X  62% (356/573) |
+| Total                                     | X  64% (1383/2163) | X  68% (1315/1937) | X  65% (96/148) | X  63% (363/580) |

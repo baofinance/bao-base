@@ -1,19 +1,13 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity >=0.8.28 <0.9.0;
 
-import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import {IERC5313} from "@openzeppelin/contracts/interfaces/IERC5313.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-
-import {HarborFixedOwnable} from "./HarborFixedOwnable.sol";
+import {HarborUpgradeable_v1} from "./HarborUpgradeable_v1.sol";
 
 /**
  * @title HarborPauser
  * @author rootminus0x1
  * @notice A minimal upgradeable contract with no functionality beyond upgradeability and ownership.
- * @dev Uses HarborFixedOwnable with hardcoded owner (Harbor multisig), no constructor args.
- *
- * The ownership is fixed to the Harbor multisig with no delay.
+ * @dev Inherits HarborUpgradeable_v1 and adds a fallback that reverts all calls.
  *
  * Use cases:
  * 1) Emergency pause: All functionality is disabled when the proxy points to this implementation.
@@ -23,63 +17,19 @@ import {HarborFixedOwnable} from "./HarborFixedOwnable.sol";
  *    the HarborPauser can be owned by the DAO multisig. Note: the HarborPauser cannot be installed
  *    unless the existing owner authorizes the upgrade.
  *
- * Note: Deployment protection (previously a use case for Stem_v1) is now handled via
- * pendingOwner pattern in BaoOwnable - not needed here.
- *
  * Key properties:
- * - Uses HarborFixedOwnable with (address(0), HARBOR_MULTISIG, 0) - immediate ownership to DAO
+ * - Inherits HarborUpgradeable_v1: UUPS + HarborFixedOwnable + IERC5313
  * - No constructor parameters - deterministic bytecode for CREATE2/CREATE3
  * - Can be deployed via BaoFactory at a deterministic address
  */
 // solhint-disable-next-line contract-name-capwords
-contract HarborPauser_v1 is UUPSUpgradeable, HarborFixedOwnable, IERC5313 {
-    /*//////////////////////////////////////////////////////////////////////////
-                                    CONSTANTS
-    //////////////////////////////////////////////////////////////////////////*/
-
-    /// @notice Harbor multisig address - hardcoded for deterministic deployment
-    address private constant _OWNER = 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2;
-
+contract HarborPauser_v1 is HarborUpgradeable_v1 {
     /*//////////////////////////////////////////////////////////////////////////
                                     ERRORS
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @dev All calls (including ether transfers) revert with this error
     error Paused(string message);
-
-    /*//////////////////////////////////////////////////////////////////////////
-                                  CONSTRUCTOR
-    //////////////////////////////////////////////////////////////////////////*/
-
-    /// @notice Deploy the pauser with fixed ownership to Harbor multisig
-    /// @dev No parameters - deterministic bytecode for CREATE3 deployment
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() HarborFixedOwnable(address(0), _OWNER, 0) {
-        _disableInitializers();
-    }
-
-    /*//////////////////////////////////////////////////////////////////////////
-                                  PUBLIC FUNCTIONS
-    //////////////////////////////////////////////////////////////////////////*/
-
-    /// @inheritdoc IERC5313
-    function owner() public view virtual override(HarborFixedOwnable, IERC5313) returns (address owner_) {
-        owner_ = HarborFixedOwnable.owner();
-    }
-
-    /// @inheritdoc IERC165
-    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IERC5313).interfaceId || super.supportsInterface(interfaceId);
-    }
-
-    /*//////////////////////////////////////////////////////////////////////////
-                                  INTERNAL FUNCTIONS
-    //////////////////////////////////////////////////////////////////////////*/
-
-    /// @notice Authorize upgrades - only owner can upgrade
-    /// @param newImplementation Address of the new implementation
-    /// @dev This is the only way to "unpause" - upgrade to a functional implementation
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
 
     /*//////////////////////////////////////////////////////////////////////////
                                   FALLBACK

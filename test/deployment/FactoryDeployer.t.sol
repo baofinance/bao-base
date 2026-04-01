@@ -60,6 +60,34 @@ contract TestableFactoryDeployer is FactoryDeployer {
         _setSaltPrefix(prefix);
     }
 
+    function key1(string memory a) external pure returns (string memory) {
+        return _key(a);
+    }
+
+    function key2(string memory a, string memory b) external pure returns (string memory) {
+        return _key(a, b);
+    }
+
+    function key3(string memory a, string memory b, string memory c) external pure returns (string memory) {
+        return _key(a, b, c);
+    }
+
+    function key4(string memory a, string memory b, string memory c, string memory d)
+        external
+        pure
+        returns (string memory)
+    {
+        return _key(a, b, c, d);
+    }
+
+    function key5(string memory a, string memory b, string memory c, string memory d, string memory e)
+        external
+        pure
+        returns (string memory)
+    {
+        return _key(a, b, c, d, e);
+    }
+
     function saltString1(string memory a) external view returns (string memory) {
         return _saltString(a);
     }
@@ -195,6 +223,42 @@ contract FactoryDeployerTest is BaoTest {
     function test_saltString3() public {
         deployer.setSaltPrefix("harbor_v1");
         assertEq(deployer.saltString3("ETH", "fxUSD", "minter"), "harbor_v1::ETH::fxUSD::minter");
+    }
+
+    // ========== Key Building Tests ==========
+
+    function test_key1_identity() public view {
+        assertEq(deployer.key1("pegged"), "pegged");
+    }
+
+    function test_key2_joinsTwoParts() public view {
+        assertEq(deployer.key2("ETH", "fxUSD"), "ETH::fxUSD");
+    }
+
+    function test_key3_joinsThreeParts() public view {
+        assertEq(deployer.key3("ETH", "fxUSD", "minter"), "ETH::fxUSD::minter");
+    }
+
+    function test_key4_joinsFourParts() public view {
+        assertEq(
+            deployer.key4("ETH", "fxUSD", "stabilityPoolCollateral", "harvest"),
+            "ETH::fxUSD::stabilityPoolCollateral::harvest"
+        );
+    }
+
+    function test_key5_joinsFiveParts() public view {
+        assertEq(
+            deployer.key5("a", "b", "c", "d", "e"),
+            "a::b::c::d::e"
+        );
+    }
+
+    function test_key_composesWith_saltString() public {
+        deployer.setSaltPrefix("harbor_v1");
+        assertEq(
+            deployer.saltString1(deployer.key3("ETH", "fxUSD", "minter")),
+            "harbor_v1::ETH::fxUSD::minter"
+        );
     }
 
     // ========== Address Label Tests ==========
