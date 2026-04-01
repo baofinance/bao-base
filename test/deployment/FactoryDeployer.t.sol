@@ -65,11 +65,11 @@ contract TestableFactoryDeployer is FactoryDeployer {
     }
 
     function saltString2(string memory a, string memory b) external view returns (string memory) {
-        return _saltString(a, b);
+        return _saltString(_key(a, b));
     }
 
     function saltString3(string memory a, string memory b, string memory c) external view returns (string memory) {
-        return _saltString(a, b, c);
+        return _saltString(_key(a, b, c));
     }
 
     function predictAddressFromFullSalt(string memory fullSalt) external returns (address) {
@@ -81,11 +81,11 @@ contract TestableFactoryDeployer is FactoryDeployer {
     }
 
     function predictAddress2(string memory a, string memory b) external returns (address) {
-        return _predictAddress(a, b);
+        return _predictAddress(_key(a, b));
     }
 
     function predictAddress3(string memory a, string memory b, string memory c) external returns (address) {
-        return _predictAddress(a, b, c);
+        return _predictAddress(_key(a, b, c));
     }
 
     function registerForOwnershipTransfer(address deployed, string memory salt) external {

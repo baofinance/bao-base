@@ -190,21 +190,55 @@ abstract contract FactoryDeployer {
     // Parameters are generic (part1, part2, part3) as they vary by use case.
 
     /// @notice Construct salt string for a single-part key (e.g., "ETH::pegged")
-    function _saltString(string memory a) internal view returns (string memory) {
-        return string.concat(saltPrefix(), "::", a);
+    // ========== KEY BUILDING ==========
+
+    /// @notice Build a local key from one part.
+    function _key(string memory a) internal pure returns (string memory) {
+        return a;
     }
 
-    /// @notice Construct salt string for two-part key (e.g., "ETH::fxUSD", "minter")
-    function _saltString(string memory a, string memory b) internal view returns (string memory) {
-        return string.concat(saltPrefix(), "::", a, "::", b);
+    /// @notice Build a local key from two parts (e.g., "ETH::fxUSD").
+    function _key(string memory a, string memory b) internal pure returns (string memory) {
+        return string.concat(a, "::", b);
     }
 
-    /// @notice Construct salt string for three-part key (e.g., "ETH", "fxUSD", "minter")
-    function _saltString(string memory a, string memory b, string memory c) internal view returns (string memory) {
-        return string.concat(saltPrefix(), "::", a, "::", b, "::", c);
+    /// @notice Build a local key from three parts (e.g., "ETH::fxUSD::minter").
+    function _key(string memory a, string memory b, string memory c) internal pure returns (string memory) {
+        return string.concat(a, "::", b, "::", c);
+    }
+
+    /// @notice Build a local key from four parts (e.g., "ETH::fxUSD::stabilityPoolCollateral::harvest").
+    function _key(string memory a, string memory b, string memory c, string memory d)
+        internal
+        pure
+        returns (string memory)
+    {
+        return string.concat(a, "::", b, "::", c, "::", d);
+    }
+
+    /// @notice Build a local key from five parts.
+    function _key(string memory a, string memory b, string memory c, string memory d, string memory e)
+        internal
+        pure
+        returns (string memory)
+    {
+        return string.concat(a, "::", b, "::", c, "::", d, "::", e);
+    }
+
+    // ========== SALT ==========
+
+    /// @notice Construct full salt string from a local key by prepending the salt prefix.
+    function _saltString(string memory key) internal view returns (string memory) {
+        return string.concat(saltPrefix(), "::", key);
     }
 
     // ========== ADDRESS PREDICTION ==========
+
+    /// @notice Predict address for a local key.
+    /// @dev Prepends salt prefix, hashes, and queries BaoFactory.
+    function _predictAddress(string memory key) internal returns (address) {
+        return _predictAddressFromFullSalt(_saltString(key));
+    }
 
     /// @notice Predict address for a complete salt string (e.g., "harbor_v1::ETH::fxUSD::minter")
     /// @dev Also labels the address with the salt for readable traces.
@@ -214,20 +248,6 @@ abstract contract FactoryDeployer {
         vm.label(addr, fullSalt);
     }
 
-    /// @notice Predict address for a single-part key (e.g., "ETH::pegged")
-    function _predictAddress(string memory a) internal returns (address) {
-        return _predictAddressFromFullSalt(_saltString(a));
-    }
-
-    /// @notice Predict address for two-part key (e.g., "ETH::fxUSD", "minter")
-    function _predictAddress(string memory a, string memory b) internal returns (address) {
-        return _predictAddressFromFullSalt(_saltString(a, b));
-    }
-
-    /// @notice Predict address for three-part key (e.g., "ETH", "fxUSD", "minter")
-    function _predictAddress(string memory a, string memory b, string memory c) internal returns (address) {
-        return _predictAddressFromFullSalt(_saltString(a, b, c));
-    }
 
     // ========== DEPLOY AND RECORD ==========
 
