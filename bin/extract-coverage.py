@@ -31,6 +31,14 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str]:
         if columns and columns[0].endswith(".s.sol"):
             continue
 
+        # Ignore one-shot verification scripts (script/verify/)
+        if columns and columns[0].startswith("script/verify/"):
+            continue
+
+        # Ignore duplicate paths from relative resolution (e.g. src/../script/src/)
+        if columns and "/../" in columns[0]:
+            continue
+
         data.append(columns)
 
     # Create the DataFrame using the cleaned and validated data
