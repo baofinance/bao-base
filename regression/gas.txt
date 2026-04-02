@@ -15,13 +15,6 @@ src/HarborPauser_v1.sol:HarborPauser_v1
 | supportsInterface | 5.050e+02 |
 | upgradeToAndCall  | 8.841e+03 |
 
-src/HarborUpgradeable_v1.sol:HarborUpgradeable_v1
-| function name     |       max |
-|-------------------|-----------|
-| owner             | 3.680e+02 |
-| supportsInterface | 5.050e+02 |
-| upgradeToAndCall  | 8.807e+03 |
-
 src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1
 | function name     |       max |
 |-------------------|-----------|

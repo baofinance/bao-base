@@ -17,7 +17,6 @@
 | DerivedOwnableRoles            |              1,555 |               23,021 |               1,583 |      326,830 |             32.68 |
 | DerivedTokenHolder             |              1,909 |               22,667 |               1,937 |      401,170 |             40.12 |
 | HarborPauser_v1                |              2,107 |               22,469 |               2,590 |      447,300 |             44.73 |
-| HarborUpgradeable_v1           |              2,000 |               22,576 |               2,483 |      424,830 |             42.48 |
 | JsonParser                     |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | JsonSerializer                 |                 85 |               24,491 |                 135 |       18,350 |              1.84 |
 | MintableBurnableERC20_v1       |              8,325 |               16,251 |               8,574 |    1,750,740 |            175.07 |

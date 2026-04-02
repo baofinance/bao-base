@@ -160,3 +160,47 @@ if [[ $failed -ne 0 ]]; then
   return 1
 fi
 echo "SUCCESS: (no contracts have root storage or constructor-initialized storage)"
+
+# ================================================================
+# Source file naming and pragma checks
+# ================================================================
+echo
+echo "checking source file conventions..."
+echo "------------------------------------"
+echo
+
+src_failed=0
+while IFS= read -r -d '' file; do
+  basename=$(basename "$file" .sol)
+
+  # Extract the contract name (first concrete or abstract contract declaration)
+  contract_name=$(grep -oP '^\s*(abstract\s+)?contract\s+\K\w+' "$file" | head -1)
+  if [[ -z "$contract_name" ]]; then
+    # No contract declaration (interface-only or library file) — skip
+    continue
+  fi
+
+  # Check: filename must match contract name
+  if [[ "$basename" != "$contract_name" ]]; then
+    echo " ✘  $file: filename '$basename' does not match contract '$contract_name'"
+    src_failed=1
+  fi
+
+  # Check: concrete contracts must pin pragma (not use a range)
+  is_abstract=$(grep -cP '^\s*abstract\s+contract\s' "$file" || true)
+  if [[ "$is_abstract" -eq 0 ]]; then
+    # Concrete contract — pragma should be pinned (no < > >= operators)
+    pragma=$(grep -oP 'pragma solidity\s+\K[^;]+' "$file" || true)
+    if echo "$pragma" | grep -qE '[<>]'; then
+      echo " ✘  $file: concrete contract '$contract_name' uses version range '$pragma' — should pin (e.g. 0.8.30)"
+      src_failed=1
+    fi
+  fi
+done < <(find src -name '*.sol' -print0)
+
+if [[ $src_failed -ne 0 ]]; then
+  echo
+  echo "ERROR: some source files have naming or pragma issues"
+  return 1
+fi
+echo "SUCCESS: (all source files follow naming and pragma conventions)"

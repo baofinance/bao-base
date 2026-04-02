@@ -18,6 +18,7 @@ struct WellKnownAddress {
 }
 
 interface IUUPSProxyUpgrade {
+    function upgradeTo(address newImplementation) external;
     function upgradeToAndCall(address newImplementation, bytes calldata data) external payable;
 }
 
@@ -208,20 +209,23 @@ abstract contract FactoryDeployer {
     }
 
     /// @notice Build a local key from four parts (e.g., "ETH::fxUSD::stabilityPoolCollateral::harvest").
-    function _key(string memory a, string memory b, string memory c, string memory d)
-        internal
-        pure
-        returns (string memory)
-    {
+    function _key(
+        string memory a,
+        string memory b,
+        string memory c,
+        string memory d
+    ) internal pure returns (string memory) {
         return string.concat(a, "::", b, "::", c, "::", d);
     }
 
     /// @notice Build a local key from five parts.
-    function _key(string memory a, string memory b, string memory c, string memory d, string memory e)
-        internal
-        pure
-        returns (string memory)
-    {
+    function _key(
+        string memory a,
+        string memory b,
+        string memory c,
+        string memory d,
+        string memory e
+    ) internal pure returns (string memory) {
         return string.concat(a, "::", b, "::", c, "::", d, "::", e);
     }
 
@@ -248,19 +252,17 @@ abstract contract FactoryDeployer {
         vm.label(addr, fullSalt);
     }
 
-
     // ========== DEPLOY AND RECORD ==========
+    // Two deployment paths:
+    //   _deployProxyAndRecord          — Direct: ERC1967Proxy(impl, initData) in one step.
+    //                                    Default for new contracts (HarborOwnable, HarborFixedOwnable).
+    //   _deployProxyViaStubAndRecord   — Via UUPSProxyDeployStub: needed for BaoOwnable contracts whose
+    //                                    _initializeOwner(finalOwner) uses msg.sender as temp owner.
+    //                                    The stub ensures msg.sender = FactoryDeployer, not BaoFactory.
 
-    /// @notice Deploy a proxy and record both implementation and proxy in state.
-    /// @dev Idempotent: if proxy already exists, skips deployment and returns existing proxy.
-    /// @dev Logs existing implementation address for visibility when skipping.
-    /// @param stateData Deployment state to record into.
-    /// @param proxyId The proxy identifier (e.g., "ETH::fxUSD::minter").
-    /// @param implementation The implementation contract address.
-    /// @param contractSource Source file path for the implementation (e.g., "@harbor/minter/Minter_v1.sol").
-    /// @param contractType Contract type name (e.g., "Minter_v1").
-    /// @param initData Initialization calldata for the proxy.
-    /// @return proxy The deployed proxy address.
+    // ── Direct path (default) ──────────────────────────────────────
+
+    /// @notice Deploy proxy (direct) and record impl + proxy in state. 6-arg overload records impl metadata.
     function _deployProxyAndRecord(
         DeploymentTypes.State memory stateData,
         string memory proxyId,
@@ -269,6 +271,58 @@ abstract contract FactoryDeployer {
         string memory contractType,
         bytes memory initData
     ) internal returns (address proxy) {
+        _recordImplementation(stateData, proxyId, contractSource, contractType, implementation);
+        proxy = _deployProxyAndRecord(stateData, proxyId, implementation, initData);
+    }
+
+    /// @notice Deploy proxy (direct) and record proxy in state. 4-arg overload.
+    function _deployProxyAndRecord(
+        DeploymentTypes.State memory stateData,
+        string memory proxyId,
+        address implementation,
+        bytes memory initData
+    ) internal returns (address proxy) {
+        bytes32 salt = keccak256(abi.encodePacked(saltPrefix(), "::", proxyId));
+        proxy = _deployProxy(baoFactory(), salt, implementation, initData);
+        _recordProxyAndRegister(stateData, proxyId, proxy, implementation);
+    }
+
+    // ── Via-stub path (legacy BaoOwnable) ──────────────────────────
+
+    /// @notice Deploy proxy via stub and record impl + proxy in state. 6-arg overload records impl metadata.
+    function _deployProxyViaStubAndRecord(
+        DeploymentTypes.State memory stateData,
+        string memory proxyId,
+        address implementation,
+        string memory contractSource,
+        string memory contractType,
+        bytes memory initData
+    ) internal returns (address proxy) {
+        _recordImplementation(stateData, proxyId, contractSource, contractType, implementation);
+        proxy = _deployProxyViaStubAndRecord(stateData, proxyId, implementation, initData);
+    }
+
+    /// @notice Deploy proxy via stub and record proxy in state. 4-arg overload.
+    function _deployProxyViaStubAndRecord(
+        DeploymentTypes.State memory stateData,
+        string memory proxyId,
+        address implementation,
+        bytes memory initData
+    ) internal returns (address proxy) {
+        bytes32 salt = keccak256(abi.encodePacked(saltPrefix(), "::", proxyId));
+        proxy = _deployProxyViaStub(baoFactory(), salt, implementation, initData);
+        _recordProxyAndRegister(stateData, proxyId, proxy, implementation);
+    }
+
+    // ── Shared recording ───────────────────────────────────────────
+
+    function _recordImplementation(
+        DeploymentTypes.State memory stateData,
+        string memory proxyId,
+        string memory contractSource,
+        string memory contractType,
+        address implementation
+    ) private view {
         DeploymentState.recordImplementation(
             stateData,
             DeploymentTypes.ImplementationRecord({
@@ -279,32 +333,16 @@ abstract contract FactoryDeployer {
                 deploymentTime: uint64(block.timestamp)
             })
         );
-
-        proxy = _deployProxyAndRecord(stateData, proxyId, implementation, initData);
     }
 
-    /// @notice Deploy a proxy and record both implementation and proxy in state.
-    /// @dev Idempotent: if proxy already exists, skips deployment and returns existing proxy.
-    /// @dev Logs existing implementation address for visibility when skipping.
-    /// @param stateData Deployment state to record into.
-    /// @param proxyId The proxy identifier (e.g., "ETH::fxUSD::minter").
-    /// @param implementation The implementation contract address.
-    /// @param initData Initialization calldata for the proxy.
-    /// @return proxy The deployed proxy address.
-    function _deployProxyAndRecord(
+    function _recordProxyAndRegister(
         DeploymentTypes.State memory stateData,
         string memory proxyId,
-        address implementation,
-        bytes memory initData
-    ) internal returns (address proxy) {
-        // Deploy proxy
-        bytes32 salt = keccak256(abi.encodePacked(saltPrefix(), "::", proxyId));
-        proxy = _deployProxy(baoFactory(), salt, implementation, initData);
+        address proxy,
+        address implementation
+    ) private {
         console.log("        Proxy: %s", proxy);
-
-        // Register for ownership transfer (idempotent: prevents duplicates, skips already-owned at transfer time)
         _registerForOwnershipTransfer(proxy, _saltString(proxyId));
-
         DeploymentState.recordProxy(
             stateData,
             DeploymentTypes.ProxyRecord({
@@ -317,6 +355,8 @@ abstract contract FactoryDeployer {
         );
     }
 
+    // ========== IMPLEMENTATION DETAILS ==========
+
     /// @notice Get the implementation address from an ERC1967 proxy.
     /// @dev Uses Foundry vm.load to read the ERC1967 implementation slot from the proxy's storage.
     function _getImplementation(address proxy) internal view returns (address) {
@@ -326,13 +366,9 @@ abstract contract FactoryDeployer {
         return address(uint160(uint256(value)));
     }
 
-    /// @notice Deploy a proxy via CREATE3 using BaoFactory.
-    /// @dev Private - all deployments must go through _deployProxyAndRecord() to ensure recording.
-    /// @param factory BaoFactory address.
-    /// @param salt CREATE3 salt.
-    /// @param implementation Implementation contract address.
-    /// @param initData Initialization calldata for the proxy.
-    /// @return proxy The deployed proxy address.
+    /// @notice Deploy proxy directly via BaoFactory CREATE3: ERC1967Proxy(impl, initData).
+    /// @dev Default path. No stub needed — suitable for HarborOwnable (explicit deployer) and
+    ///      HarborFixedOwnable (no initializer) contracts.
     function _deployProxy(
         address factory,
         bytes32 salt,
@@ -340,14 +376,29 @@ abstract contract FactoryDeployer {
         bytes memory initData
     ) private returns (address proxy) {
         IBaoFactory baoFactoryContract = IBaoFactory(factory);
-
-        // Predict proxy address
         address predictedProxy = baoFactoryContract.predictAddress(salt);
 
-        // Get or deploy stub (must happen within broadcast context)
-        UUPSProxyDeployStub stub = _getOrDeployStub();
+        proxy = baoFactoryContract.deploy(
+            abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(implementation, initData)),
+            salt
+        );
+        require(proxy == predictedProxy, "Proxy address mismatch");
+    }
+
+    /// @notice Deploy proxy via UUPSProxyDeployStub then upgrade to real implementation.
+    /// @dev Legacy path for BaoOwnable contracts whose _initializeOwner(finalOwner) uses msg.sender.
+    ///      The stub ensures msg.sender = FactoryDeployer (not BaoFactory) during initialization.
+    function _deployProxyViaStub(
+        address factory,
+        bytes32 salt,
+        address implementation,
+        bytes memory initData
+    ) private returns (address proxy) {
+        IBaoFactory baoFactoryContract = IBaoFactory(factory);
+        address predictedProxy = baoFactoryContract.predictAddress(salt);
 
         // Step 1: deploy proxy pointing at stub
+        UUPSProxyDeployStub stub = _getOrDeployStub();
         proxy = baoFactoryContract.deploy(
             abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(address(stub), "")),
             salt
@@ -355,7 +406,10 @@ abstract contract FactoryDeployer {
         require(proxy == predictedProxy, "Proxy address mismatch");
 
         // Step 2: upgrade to real implementation and initialize (msg.sender = this contract, owner per stub)
-        IUUPSProxyUpgrade(proxy).upgradeToAndCall(implementation, initData);
-        return proxy;
+        if (initData.length > 0) {
+            IUUPSProxyUpgrade(proxy).upgradeToAndCall(implementation, initData);
+        } else {
+            IUUPSProxyUpgrade(proxy).upgradeTo(implementation);
+        }
     }
 }

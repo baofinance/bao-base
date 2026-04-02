@@ -8,8 +8,10 @@ import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {BaoOwnable} from "@bao/BaoOwnable.sol";
+import {HarborOwnable} from "@bao/HarborOwnable.sol";
+import {HarborPauser_v1} from "@bao/HarborPauser_v1.sol";
 
-/// @notice Mock upgradeable contract for testing proxy deployment.
+/// @notice Mock upgradeable contract using BaoOwnable (legacy, needs stub).
 contract MockUpgradeableOwnable is Initializable, UUPSUpgradeable, BaoOwnable {
     uint256 public value;
 
@@ -20,6 +22,24 @@ contract MockUpgradeableOwnable is Initializable, UUPSUpgradeable, BaoOwnable {
 
     function initialize(address owner_, uint256 value_) external initializer {
         _initializeOwner(owner_);
+        __UUPSUpgradeable_init();
+        value = value_;
+    }
+
+    function _authorizeUpgrade(address) internal override onlyOwner {}
+}
+
+/// @notice Mock upgradeable contract using HarborOwnable (modern, no stub needed).
+contract MockHarborOwnable is Initializable, UUPSUpgradeable, HarborOwnable {
+    uint256 public value;
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(address deployerOwner_, address pendingOwner_, uint256 value_) external initializer {
+        _initializeOwner(deployerOwner_, pendingOwner_);
         __UUPSUpgradeable_init();
         value = value_;
     }
@@ -72,19 +92,22 @@ contract TestableFactoryDeployer is FactoryDeployer {
         return _key(a, b, c);
     }
 
-    function key4(string memory a, string memory b, string memory c, string memory d)
-        external
-        pure
-        returns (string memory)
-    {
+    function key4(
+        string memory a,
+        string memory b,
+        string memory c,
+        string memory d
+    ) external pure returns (string memory) {
         return _key(a, b, c, d);
     }
 
-    function key5(string memory a, string memory b, string memory c, string memory d, string memory e)
-        external
-        pure
-        returns (string memory)
-    {
+    function key5(
+        string memory a,
+        string memory b,
+        string memory c,
+        string memory d,
+        string memory e
+    ) external pure returns (string memory) {
         return _key(a, b, c, d, e);
     }
 
@@ -134,6 +157,17 @@ contract TestableFactoryDeployer is FactoryDeployer {
 
     function getImplementation(address proxy) external view returns (address) {
         return _getImplementation(proxy);
+    }
+
+    function deployProxyViaStubAndRecord(
+        DeploymentTypes.State memory stateData,
+        string memory proxyId,
+        address implementation,
+        string memory contractSource,
+        string memory contractType,
+        bytes memory initData
+    ) external returns (address proxy) {
+        return _deployProxyViaStubAndRecord(stateData, proxyId, implementation, contractSource, contractType, initData);
     }
 
     function deployProxyAndRecord(
@@ -247,18 +281,12 @@ contract FactoryDeployerTest is BaoTest {
     }
 
     function test_key5_joinsFiveParts() public view {
-        assertEq(
-            deployer.key5("a", "b", "c", "d", "e"),
-            "a::b::c::d::e"
-        );
+        assertEq(deployer.key5("a", "b", "c", "d", "e"), "a::b::c::d::e");
     }
 
     function test_key_composesWith_saltString() public {
         deployer.setSaltPrefix("harbor_v1");
-        assertEq(
-            deployer.saltString1(deployer.key3("ETH", "fxUSD", "minter")),
-            "harbor_v1::ETH::fxUSD::minter"
-        );
+        assertEq(deployer.saltString1(deployer.key3("ETH", "fxUSD", "minter")), "harbor_v1::ETH::fxUSD::minter");
     }
 
     // ========== Address Label Tests ==========
@@ -348,7 +376,7 @@ contract FactoryDeployerTest is BaoTest {
         state.saltPrefix = "transfer_test";
         state.baoFactory = deployer.baoFactory();
 
-        address proxy = deployer.deployProxyAndRecord(
+        address proxy = deployer.deployProxyViaStubAndRecord(
             state,
             "owned",
             address(impl),
@@ -381,7 +409,7 @@ contract FactoryDeployerTest is BaoTest {
         state.saltPrefix = "already_owned";
         state.baoFactory = deployer.baoFactory();
 
-        address proxy = deployer.deployProxyAndRecord(
+        address proxy = deployer.deployProxyViaStubAndRecord(
             state,
             "owned",
             address(impl),
@@ -411,7 +439,7 @@ contract FactoryDeployerTest is BaoTest {
         state.saltPrefix = "deploy_test";
         state.baoFactory = deployer.baoFactory();
 
-        address proxy = deployer.deployProxyAndRecord(
+        address proxy = deployer.deployProxyViaStubAndRecord(
             state,
             "minter",
             address(impl),
@@ -445,7 +473,7 @@ contract FactoryDeployerTest is BaoTest {
         state.saltPrefix = "impl_test";
         state.baoFactory = deployer.baoFactory();
 
-        address proxy = deployer.deployProxyAndRecord(
+        address proxy = deployer.deployProxyViaStubAndRecord(
             state,
             "check_impl",
             address(impl),
@@ -456,6 +484,123 @@ contract FactoryDeployerTest is BaoTest {
 
         address storedImpl = deployer.getImplementation(proxy);
         assertEq(storedImpl, address(impl), "implementation address matches");
+    }
+
+    // ========== HarborOwnable Deploy Tests (direct and via stub) ==========
+
+    function _deployHarborOwnableState() internal view returns (DeploymentTypes.State memory state) {
+        state.network = "test";
+        state.saltPrefix = "harbor_ownable_test";
+        state.baoFactory = deployer.baoFactory();
+    }
+
+    function test_harborOwnable_directDeploy() public {
+        _setupFactoryWithDeployerAsOperator();
+        deployer.setSaltPrefix("harbor_ownable_test");
+
+        MockHarborOwnable impl = new MockHarborOwnable();
+        DeploymentTypes.State memory state = _deployHarborOwnableState();
+
+        address proxy = deployer.deployProxyAndRecord(
+            state,
+            "direct",
+            address(impl),
+            "test.sol",
+            "MockHarborOwnable",
+            abi.encodeCall(MockHarborOwnable.initialize, (address(deployer), testOwner, 77))
+        );
+
+        assertEq(MockHarborOwnable(proxy).value(), 77, "value initialized");
+        // deployer is temp owner (explicit deployerOwner param)
+        assertEq(IBaoOwnable(proxy).owner(), address(deployer), "deployer is temp owner");
+
+        // Transfer to final owner
+        deployer.transferAllOwnerships();
+        assertEq(IBaoOwnable(proxy).owner(), testOwner, "ownership transferred");
+    }
+
+    function test_harborOwnable_viaStubDeploy() public {
+        _setupFactoryWithDeployerAsOperator();
+        deployer.setSaltPrefix("harbor_ownable_stub");
+
+        MockHarborOwnable impl = new MockHarborOwnable();
+        DeploymentTypes.State memory state;
+        state.network = "test";
+        state.saltPrefix = "harbor_ownable_stub";
+        state.baoFactory = deployer.baoFactory();
+
+        address proxy = deployer.deployProxyViaStubAndRecord(
+            state,
+            "via_stub",
+            address(impl),
+            "test.sol",
+            "MockHarborOwnable",
+            abi.encodeCall(MockHarborOwnable.initialize, (address(deployer), testOwner, 88))
+        );
+
+        assertEq(MockHarborOwnable(proxy).value(), 88, "value initialized");
+        // deployer is temp owner — same result as direct path
+        assertEq(IBaoOwnable(proxy).owner(), address(deployer), "deployer is temp owner");
+
+        // Transfer to final owner
+        deployer.transferAllOwnerships();
+        assertEq(IBaoOwnable(proxy).owner(), testOwner, "ownership transferred");
+    }
+
+    function test_harborOwnable_bothPathsSameAddress() public {
+        // Verify that direct and stub paths produce the same proxy address for the same salt
+        // (they must, since both use CREATE3 with the same salt)
+        _setupFactoryWithDeployerAsOperator();
+
+        MockHarborOwnable impl = new MockHarborOwnable();
+        bytes memory initData = abi.encodeCall(MockHarborOwnable.initialize, (address(deployer), testOwner, 99));
+
+        // Predict address
+        deployer.setSaltPrefix("same_addr_test");
+        address predicted = deployer.predictAddress1("contract");
+
+        // Deploy via direct path
+        DeploymentTypes.State memory state;
+        state.network = "test";
+        state.saltPrefix = "same_addr_test";
+        state.baoFactory = deployer.baoFactory();
+
+        address proxy = deployer.deployProxyAndRecord(
+            state,
+            "contract",
+            address(impl),
+            "test.sol",
+            "MockHarborOwnable",
+            initData
+        );
+
+        assertEq(proxy, predicted, "direct deploy matches predicted address");
+    }
+
+    // ========== HarborFixedOwnable via stub (empty initData) ==========
+
+    function test_harborFixedOwnable_viaStubEmptyInit() public {
+        _setupFactoryWithDeployerAsOperator();
+        deployer.setSaltPrefix("fixed_stub_test");
+
+        HarborPauser_v1 impl = new HarborPauser_v1();
+        DeploymentTypes.State memory state;
+        state.network = "test";
+        state.saltPrefix = "fixed_stub_test";
+        state.baoFactory = deployer.baoFactory();
+
+        address proxy = deployer.deployProxyViaStubAndRecord(
+            state,
+            "pauser",
+            address(impl),
+            "@bao/HarborPauser_v1.sol",
+            "HarborPauser_v1",
+            "" // empty initData — exercises upgradeTo path (line 410)
+        );
+
+        assertGt(proxy.code.length, 0, "proxy has code");
+        // Owner is multisig (hardcoded in HarborFixedOwnable)
+        assertEq(HarborPauser_v1(proxy).owner(), HARBOR_MULTISIG, "owner is multisig");
     }
 
     // ========== State Persistence Tests ==========
@@ -470,5 +615,79 @@ contract FactoryDeployerTest is BaoTest {
 
         // This should not revert even though we haven't set up file permissions
         deployer.saveState(state);
+    }
+}
+
+/// @notice Deployer that does NOT override defaults — exercises _shouldPersistState(true),
+///         _stateFileRead, _stateFileWrite, and _saveState with actual file I/O.
+contract DefaultPersistenceDeployer is FactoryDeployer {
+    function treasury() public pure override returns (address) {
+        return address(0xdead);
+    }
+
+    function owner() public pure override returns (address) {
+        return address(0xbeef);
+    }
+
+    function setSaltPrefix(string memory prefix) external {
+        _setSaltPrefix(prefix);
+    }
+
+    function saveState(DeploymentTypes.State memory stateData) external {
+        _saveState(stateData);
+    }
+
+    function stateFileRead() external view returns (string memory) {
+        return _stateFileRead();
+    }
+
+    function stateFileWrite() external view returns (string memory) {
+        return _stateFileWrite();
+    }
+
+    function shouldPersistState() external pure returns (bool) {
+        return _shouldPersistState();
+    }
+}
+
+contract FactoryDeployerPersistenceTest is BaoTest {
+    DefaultPersistenceDeployer internal deployer;
+    string internal readPath;
+    string internal writePath;
+
+    function setUp() public {
+        deployer = new DefaultPersistenceDeployer();
+
+        string memory stateDir = string.concat(vm.projectRoot(), "/results");
+        readPath = string.concat(stateDir, "/test_state_read.json");
+        writePath = string.concat(stateDir, "/test_state_write.json");
+
+        vm.setEnv("DEPLOY_STATE_DIR", stateDir);
+        vm.setEnv("DEPLOY_STATE_FILE_READ", readPath);
+        vm.setEnv("DEPLOY_STATE_FILE_WRITE", writePath);
+    }
+
+    function test_shouldPersistState_defaultIsTrue() public view {
+        assertTrue(deployer.shouldPersistState());
+    }
+
+    function test_stateFileRead_readsEnvVar() public view {
+        assertEq(deployer.stateFileRead(), readPath);
+    }
+
+    function test_stateFileWrite_readsEnvVar() public view {
+        assertEq(deployer.stateFileWrite(), writePath);
+    }
+
+    function test_saveState_writesToFile() public {
+        DeploymentTypes.State memory state;
+        state.network = "test";
+        state.saltPrefix = "persist_test";
+        state.baoFactory = address(0x123);
+
+        deployer.saveState(state);
+
+        // Verify file was written
+        assertTrue(vm.exists(writePath), "state file created");
     }
 }
