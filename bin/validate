@@ -173,26 +173,36 @@ src_failed=0
 while IFS= read -r -d '' file; do
   basename=$(basename "$file" .sol)
 
-  # Extract the contract name (first concrete or abstract contract declaration)
-  contract_name=$(grep -oP '^\s*(abstract\s+)?contract\s+\K\w+' "$file" | head -1)
+  # Extract the contract or library name (first declaration)
+  contract_name=$(grep -oP '^\s*(abstract\s+)?(contract|library)\s+\K\w+' "$file" | head -1)
   if [[ -z "$contract_name" ]]; then
-    # No contract declaration (interface-only or library file) — skip
+    # No contract or library declaration (interface-only file) — skip
     continue
   fi
 
-  # Check: filename must match contract name
+  # Check: filename must match contract/library name
   if [[ "$basename" != "$contract_name" ]]; then
-    echo " ✘  $file: filename '$basename' does not match contract '$contract_name'"
+    echo " ✘  $file: filename '$basename' does not match '$contract_name'"
     src_failed=1
   fi
 
-  # Check: concrete contracts must pin pragma (not use a range)
+  # Check: deployable code must pin pragma (not use a range)
+  # Deployable = concrete contract, or library with public/external functions
   is_abstract=$(grep -cP '^\s*abstract\s+contract\s' "$file" || true)
-  if [[ "$is_abstract" -eq 0 ]]; then
-    # Concrete contract — pragma should be pinned (no < > >= operators)
+  is_library=$(grep -cP '^\s*library\s' "$file" || true)
+  is_deployable_library=0
+  if [[ "$is_library" -gt 0 ]]; then
+    # Library is deployable only if it has public or external functions
+    has_external=$(grep -cP '^\s+function\s+\w+.*\b(public|external)\b' "$file" || true)
+    if [[ "$has_external" -gt 0 ]]; then
+      is_deployable_library=1
+    fi
+  fi
+  if [[ ("$is_abstract" -eq 0 && "$is_library" -eq 0) || "$is_deployable_library" -gt 0 ]]; then
+    # Concrete contract or deployable library — pragma should be pinned
     pragma=$(grep -oP 'pragma solidity\s+\K[^;]+' "$file" || true)
     if echo "$pragma" | grep -qE '[<>]'; then
-      echo " ✘  $file: concrete contract '$contract_name' uses version range '$pragma' — should pin (e.g. 0.8.30)"
+      echo " ✘  $file: deployable '$contract_name' uses version range '$pragma' — should pin (e.g. 0.8.30)"
       src_failed=1
     fi
   fi
