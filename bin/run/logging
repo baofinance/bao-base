@@ -466,7 +466,7 @@ debug "after args  BAO_BASE_VERBOSITY=${BAO_BASE_VERBOSITY}"
 # Export the functions so they're available to child scripts
 # this avoids namespace polution with helper functions
 # having them there for all subscripts means that clashes are detected early
-# export -f _output # internal functions have to be exported too
+export -f _output # internal functions have to be exported too
 # debug functions driven by DEBUG environment variable, which can select files to print the info on
 export -f debug
 export -f trace
