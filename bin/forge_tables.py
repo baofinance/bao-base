@@ -12,7 +12,7 @@ def extract(log_data: str) -> list[str]:
     result = []
     in_group = False
     for line in log_data.splitlines():
-        if re.match(r"^[|+][ -+|=]+[|+]$", line):  # Ignore lines
+        if re.match(r"^[|+][-  +|=]+[|+]$", line):  # Ignore separator lines
             # print(f"reject={line}")
             continue
         elif re.match(r"^[|].+[|]$", line):  # Match valid |...| lines
