@@ -51,5 +51,45 @@ def test_deploy_cost_includes_init_and_is_last_column():
     assert pd.api.types.is_float_dtype(df[deploy_cost_col])  # type: ignore[arg-type]
 
 
+def test_is_excluded_filters_test_contracts(monkeypatch):
+    module = load_module()
+
+    def mock_path(name):
+        paths = {
+            "Array": "test/Array.sol",
+            "Clog": "test/Useful.sol",
+            "Useful": "test/Useful.sol",
+            "FakeStabilityPool": "test/_sizes/FakeContracts.sol",
+            "StabilityPool_v3": "src/minter/StabilityPool_v3.sol",
+            "Minter_v3": "src/minter/Minter_v3.sol",
+            "SomeLib": "lib/openzeppelin/Token.sol",
+            "SomeVerify": "script/verify/sp-v2-upgrade/SomeTest.sol",
+        }
+        return paths.get(name)
+
+    monkeypatch.setattr(module, "get_contract_source_path", mock_path)
+
+    # test/ contracts excluded
+    assert module.is_excluded_contract("Array") is True
+    assert module.is_excluded_contract("Clog") is True
+    assert module.is_excluded_contract("Useful") is True
+
+    # test/_sizes/ contracts kept (Fake* for measuring abstract sizes)
+    assert module.is_excluded_contract("FakeStabilityPool") is False
+
+    # src/ contracts kept
+    assert module.is_excluded_contract("StabilityPool_v3") is False
+    assert module.is_excluded_contract("Minter_v3") is False
+
+    # lib/ contracts excluded
+    assert module.is_excluded_contract("SomeLib") is True
+
+    # script/verify/ excluded
+    assert module.is_excluded_contract("SomeVerify") is True
+
+    # unknown contract (no artifact) — not excluded
+    assert module.is_excluded_contract("Unknown") is False
+
+
 if __name__ == "__main__":
     raise SystemExit("Run this test with pytest or python -m pytest")

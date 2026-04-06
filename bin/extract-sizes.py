@@ -36,10 +36,22 @@ def get_contract_source_path(contract_name: str) -> str | None:
     return None
 
 
-def is_lib_contract(contract_name: str) -> bool:
-    """Check if contract source is from lib/ directory."""
+def is_excluded_contract(contract_name: str) -> bool:
+    """Check if contract source is from a non-deployable directory.
+
+    Excluded: lib/, test/ (except test/_sizes/), script/verify/.
+    test/_sizes/ contains Fake* contracts that measure abstract contract sizes.
+    """
     source_path = get_contract_source_path(contract_name)
-    return source_path is not None and source_path.startswith("lib/")
+    if source_path is None:
+        return False
+    if source_path.startswith("test/_sizes/"):
+        return False
+    return (
+        source_path.startswith("lib/")
+        or source_path.startswith("test/")
+        or source_path.startswith("script/verify/")
+    )
 
 
 def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str]:
@@ -67,8 +79,8 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str]:
     # Create the DataFrame using the cleaned and validated data
     df = pd.DataFrame(data, columns=header)
 
-    # Filter out contracts from lib/ dependencies
-    df = df[~df["Contract"].apply(is_lib_contract)]
+    # Filter out contracts from non-deployable directories
+    df = df[~df["Contract"].apply(is_excluded_contract)]
 
     df["Runtime Size (B)"] = [int(value.replace(",", "")) for value in df["Runtime Size (B)"]]
     df["Runtime Margin (B)"] = [int(value.replace(",", "")) for value in df["Runtime Margin (B)"]]

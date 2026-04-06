@@ -91,6 +91,8 @@ test/mocks/MintableBurnableERC20_v2_Reinit.sol:MintableBurnableERC20_v2_Reinit
 | name              | 3.246e+03 |
 | owner             | 2.440e+03 |
 | proxiableUUID     | 3.710e+02 |
+| reinitializeV1    | 3.665e+03 |
+| reinitializeV2    | 3.208e+04 |
 | symbol            | 3.258e+03 |
 | transferOwnership | 1.216e+04 |
 
