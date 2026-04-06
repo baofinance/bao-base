@@ -38,6 +38,19 @@ def sample_table_with_digits() -> str:
     )
 
 
+def sample_table_with_overloads() -> str:
+    """Gas table with overloaded functions showing full signatures."""
+    return textwrap.dedent(
+        """\
+        | src/minter/Minter_v3.sol:Minter_v3 Contract |                 |        |        |        |         |
+        | Function Name                                | Min             | Avg    | Median | Max    | # Calls |
+        | mintPeggedToken(uint256,address,uint256)      | 15334           | 92592  | 95155  | 191101 | 25271   |
+        | mintPeggedToken(uint256,address,uint256,uint256) | 36904        | 119840 | 125106 | 125114 | 67      |
+        | mintPeggedTokenDryRun(uint256)                | 28000           | 30000  | 29000  | 35000  | 100     |
+        | mintPeggedTokenDryRun(uint256,uint256)        | 30000           | 32000  | 31000  | 37000  | 50      |"""
+    )
+
+
 def sample_table_with_dollar() -> str:
     """Gas table with function names containing $ (valid Solidity identifier)."""
     return textwrap.dedent(
@@ -95,6 +108,19 @@ def test_excluded_path_returns_none():
     module = load_module()
     result = module.toNamedDataFrame(sample_table_excluded_path())
     assert result is None
+
+
+def test_overloaded_function_signatures():
+    module = load_module()
+    result = module.toNamedDataFrame(sample_table_with_overloads())
+    assert result is not None
+    df, path = result
+    assert "Minter_v3" in path
+    assert len(df) == 4
+    assert "mintPeggedToken(uint256,address,uint256)" in df["function name"].values
+    assert "mintPeggedToken(uint256,address,uint256,uint256)" in df["function name"].values
+    assert "mintPeggedTokenDryRun(uint256)" in df["function name"].values
+    assert "mintPeggedTokenDryRun(uint256,uint256)" in df["function name"].values
 
 
 def test_deployment_cost_rows_excluded():
