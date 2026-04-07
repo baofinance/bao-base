@@ -50,7 +50,7 @@ def is_excluded_contract(contract_name: str) -> bool:
     return (
         source_path.startswith("lib/")
         or source_path.startswith("test/")
-        or source_path.startswith("script/verify/")
+        or ("/verify/" in source_path and source_path.startswith("script/"))
     )
 
 

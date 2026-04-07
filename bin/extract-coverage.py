@@ -31,8 +31,8 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str]:
         if columns and columns[0].endswith(".s.sol"):
             continue
 
-        # Ignore one-shot verification scripts (script/verify/)
-        if columns and columns[0].startswith("script/verify/"):
+        # Ignore one-shot verification scripts (script/*/verify/)
+        if columns and "/verify/" in columns[0] and columns[0].startswith("script/"):
             continue
 
         # Ignore duplicate paths from relative resolution (e.g. src/../script/src/)
