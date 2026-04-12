@@ -159,26 +159,32 @@ contract TestableFactoryDeployer is FactoryDeployer {
         return _getImplementation(proxy);
     }
 
+    function recordImplementation(
+        DeploymentTypes.State memory stateData,
+        string memory proxyId,
+        string memory contractSource,
+        string memory contractType,
+        address implementation
+    ) external view {
+        _recordImplementation(stateData, proxyId, contractSource, contractType, implementation);
+    }
+
     function deployProxyViaStubAndRecord(
         DeploymentTypes.State memory stateData,
         string memory proxyId,
         address implementation,
-        string memory contractSource,
-        string memory contractType,
         bytes memory initData
     ) external returns (address proxy) {
-        return _deployProxyViaStubAndRecord(stateData, proxyId, implementation, contractSource, contractType, initData);
+        return _deployProxyViaStubAndRecord(stateData, proxyId, implementation, initData);
     }
 
     function deployProxyAndRecord(
         DeploymentTypes.State memory stateData,
         string memory proxyId,
         address implementation,
-        string memory contractSource,
-        string memory contractType,
         bytes memory initData
     ) external returns (address proxy) {
-        return _deployProxyAndRecord(stateData, proxyId, implementation, contractSource, contractType, initData);
+        return _deployProxyAndRecord(stateData, proxyId, implementation, initData);
     }
 
     function saveState(DeploymentTypes.State memory stateData) external {
@@ -376,12 +382,11 @@ contract FactoryDeployerTest is BaoTest {
         state.saltPrefix = "transfer_test";
         state.baoFactory = deployer.baoFactory();
 
+        deployer.recordImplementation(state, "owned", "test.sol", "MockUpgradeableOwnable", address(impl));
         address proxy = deployer.deployProxyViaStubAndRecord(
             state,
             "owned",
             address(impl),
-            "test.sol",
-            "MockUpgradeableOwnable",
             abi.encodeCall(MockUpgradeableOwnable.initialize, (testOwner, 42))
         );
 
@@ -409,12 +414,11 @@ contract FactoryDeployerTest is BaoTest {
         state.saltPrefix = "already_owned";
         state.baoFactory = deployer.baoFactory();
 
+        deployer.recordImplementation(state, "owned", "test.sol", "MockUpgradeableOwnable", address(impl));
         address proxy = deployer.deployProxyViaStubAndRecord(
             state,
             "owned",
             address(impl),
-            "test.sol",
-            "MockUpgradeableOwnable",
             abi.encodeCall(MockUpgradeableOwnable.initialize, (address(deployer), 42))
         );
 
@@ -439,12 +443,17 @@ contract FactoryDeployerTest is BaoTest {
         state.saltPrefix = "deploy_test";
         state.baoFactory = deployer.baoFactory();
 
+        deployer.recordImplementation(
+            state,
+            "minter",
+            "@test/MockUpgradeableOwnable.sol",
+            "MockUpgradeableOwnable",
+            address(impl)
+        );
         address proxy = deployer.deployProxyViaStubAndRecord(
             state,
             "minter",
             address(impl),
-            "@test/MockUpgradeableOwnable.sol",
-            "MockUpgradeableOwnable",
             abi.encodeCall(MockUpgradeableOwnable.initialize, (testOwner, 123))
         );
 
@@ -473,12 +482,11 @@ contract FactoryDeployerTest is BaoTest {
         state.saltPrefix = "impl_test";
         state.baoFactory = deployer.baoFactory();
 
+        deployer.recordImplementation(state, "check_impl", "test.sol", "MockUpgradeableOwnable", address(impl));
         address proxy = deployer.deployProxyViaStubAndRecord(
             state,
             "check_impl",
             address(impl),
-            "test.sol",
-            "MockUpgradeableOwnable",
             abi.encodeCall(MockUpgradeableOwnable.initialize, (testOwner, 1))
         );
 
@@ -501,12 +509,11 @@ contract FactoryDeployerTest is BaoTest {
         MockHarborOwnable impl = new MockHarborOwnable();
         DeploymentTypes.State memory state = _deployHarborOwnableState();
 
+        deployer.recordImplementation(state, "direct", "test.sol", "MockHarborOwnable", address(impl));
         address proxy = deployer.deployProxyAndRecord(
             state,
             "direct",
             address(impl),
-            "test.sol",
-            "MockHarborOwnable",
             abi.encodeCall(MockHarborOwnable.initialize, (address(deployer), testOwner, 77))
         );
 
@@ -529,12 +536,11 @@ contract FactoryDeployerTest is BaoTest {
         state.saltPrefix = "harbor_ownable_stub";
         state.baoFactory = deployer.baoFactory();
 
+        deployer.recordImplementation(state, "via_stub", "test.sol", "MockHarborOwnable", address(impl));
         address proxy = deployer.deployProxyViaStubAndRecord(
             state,
             "via_stub",
             address(impl),
-            "test.sol",
-            "MockHarborOwnable",
             abi.encodeCall(MockHarborOwnable.initialize, (address(deployer), testOwner, 88))
         );
 
@@ -565,14 +571,8 @@ contract FactoryDeployerTest is BaoTest {
         state.saltPrefix = "same_addr_test";
         state.baoFactory = deployer.baoFactory();
 
-        address proxy = deployer.deployProxyAndRecord(
-            state,
-            "contract",
-            address(impl),
-            "test.sol",
-            "MockHarborOwnable",
-            initData
-        );
+        deployer.recordImplementation(state, "contract", "test.sol", "MockHarborOwnable", address(impl));
+        address proxy = deployer.deployProxyAndRecord(state, "contract", address(impl), initData);
 
         assertEq(proxy, predicted, "direct deploy matches predicted address");
     }
@@ -589,13 +589,12 @@ contract FactoryDeployerTest is BaoTest {
         state.saltPrefix = "fixed_stub_test";
         state.baoFactory = deployer.baoFactory();
 
+        deployer.recordImplementation(state, "pauser", "@bao/HarborPauser_v1.sol", "HarborPauser_v1", address(impl));
         address proxy = deployer.deployProxyViaStubAndRecord(
             state,
             "pauser",
             address(impl),
-            "@bao/HarborPauser_v1.sol",
-            "HarborPauser_v1",
-            "" // empty initData — exercises upgradeTo path (line 410)
+            "" // empty initData — exercises upgradeTo path
         );
 
         assertGt(proxy.code.length, 0, "proxy has code");

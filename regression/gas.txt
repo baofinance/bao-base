@@ -97,15 +97,17 @@ test/mocks/MintableBurnableERC20_v2_Reinit.sol:MintableBurnableERC20_v2_Reinit
 | transferOwnership | 1.216e+04 |
 
 test/mocks/MockImplementationWithState.sol:MockImplementationWithState
-| function name             |       max |
-|---------------------------|-----------|
-| UPGRADE_INTERFACE_VERSION | 4.580e+02 |
-| implementationType        | 3.250e+02 |
-| owner                     | 2.423e+03 |
-| postUpgradeSetup          | 3.723e+04 |
-| proxiableUUID             | 3.920e+02 |
-| setValue                  | 8.943e+03 |
-| stableValue               | 2.357e+03 |
-| transferOwnership         | 2.515e+03 |
-| upgradeToAndCall          | 4.890e+04 |
-| value                     | 2.377e+03 |
+| function name               |       max |
+|-----------------------------|-----------|
+| UPGRADE_INTERFACE_VERSION   | 4.580e+02 |
+| implementationType          | 3.250e+02 |
+| initialize(address,uint256) | 1.147e+05 |
+| initialize(uint256)         | 4.658e+04 |
+| owner                       | 2.423e+03 |
+| postUpgradeSetup            | 3.723e+04 |
+| proxiableUUID               | 3.920e+02 |
+| setValue                    | 8.943e+03 |
+| stableValue                 | 2.357e+03 |
+| transferOwnership           | 2.515e+03 |
+| upgradeToAndCall            | 4.890e+04 |
+| value                       | 2.377e+03 |

@@ -259,23 +259,15 @@ abstract contract FactoryDeployer {
     //   _deployProxyViaStubAndRecord   — Via UUPSProxyDeployStub: needed for BaoOwnable contracts whose
     //                                    _initializeOwner(finalOwner) uses msg.sender as temp owner.
     //                                    The stub ensures msg.sender = FactoryDeployer, not BaoFactory.
+    //
+    // Implementations are recorded separately by callers via _recordImplementation, before invoking
+    // either deploy* function. This pattern lets callers expose a virtual deploy*Implementation
+    // helper that can be overridden in tests to substitute a mock implementation contract.
 
     // ── Direct path (default) ──────────────────────────────────────
 
-    /// @notice Deploy proxy (direct) and record impl + proxy in state. 6-arg overload records impl metadata.
-    function _deployProxyAndRecord(
-        DeploymentTypes.State memory stateData,
-        string memory proxyId,
-        address implementation,
-        string memory contractSource,
-        string memory contractType,
-        bytes memory initData
-    ) internal returns (address proxy) {
-        _recordImplementation(stateData, proxyId, contractSource, contractType, implementation);
-        proxy = _deployProxyAndRecord(stateData, proxyId, implementation, initData);
-    }
-
-    /// @notice Deploy proxy (direct) and record proxy in state. 4-arg overload.
+    /// @notice Deploy proxy (direct) and record proxy in state.
+    /// @dev Caller must record the implementation via _recordImplementation before calling.
     function _deployProxyAndRecord(
         DeploymentTypes.State memory stateData,
         string memory proxyId,
@@ -289,20 +281,8 @@ abstract contract FactoryDeployer {
 
     // ── Via-stub path (legacy BaoOwnable) ──────────────────────────
 
-    /// @notice Deploy proxy via stub and record impl + proxy in state. 6-arg overload records impl metadata.
-    function _deployProxyViaStubAndRecord(
-        DeploymentTypes.State memory stateData,
-        string memory proxyId,
-        address implementation,
-        string memory contractSource,
-        string memory contractType,
-        bytes memory initData
-    ) internal returns (address proxy) {
-        _recordImplementation(stateData, proxyId, contractSource, contractType, implementation);
-        proxy = _deployProxyViaStubAndRecord(stateData, proxyId, implementation, initData);
-    }
-
-    /// @notice Deploy proxy via stub and record proxy in state. 4-arg overload.
+    /// @notice Deploy proxy via stub and record proxy in state.
+    /// @dev Caller must record the implementation via _recordImplementation before calling.
     function _deployProxyViaStubAndRecord(
         DeploymentTypes.State memory stateData,
         string memory proxyId,
@@ -316,13 +296,17 @@ abstract contract FactoryDeployer {
 
     // ── Shared recording ───────────────────────────────────────────
 
+    /// @notice Record an implementation in deployment state.
+    /// @dev Each implementation must be recorded exactly once. Callers typically expose this
+    ///      from a virtual deploy*Implementation helper so tests can override the helper to
+    ///      substitute a mock implementation address.
     function _recordImplementation(
         DeploymentTypes.State memory stateData,
         string memory proxyId,
         string memory contractSource,
         string memory contractType,
         address implementation
-    ) private view {
+    ) internal view {
         DeploymentState.recordImplementation(
             stateData,
             DeploymentTypes.ImplementationRecord({

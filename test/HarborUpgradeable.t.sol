@@ -35,15 +35,23 @@ contract TestableFixedOwnableDeployer is FactoryDeployer {
         _setSaltPrefix(prefix);
     }
 
+    function recordImplementation(
+        DeploymentTypes.State memory stateData,
+        string memory proxyId,
+        string memory contractSource,
+        string memory contractType,
+        address implementation
+    ) external view {
+        _recordImplementation(stateData, proxyId, contractSource, contractType, implementation);
+    }
+
     function deployProxyAndRecord(
         DeploymentTypes.State memory stateData,
         string memory proxyId,
         address implementation,
-        string memory contractSource,
-        string memory contractType,
         bytes memory initData
     ) external returns (address proxy) {
-        return _deployProxyAndRecord(stateData, proxyId, implementation, contractSource, contractType, initData);
+        return _deployProxyAndRecord(stateData, proxyId, implementation, initData);
     }
 
     function getImplementation(address proxy) external view returns (address) {
@@ -87,14 +95,8 @@ contract HarborFixedOwnableFactoryDeployTest is BaoTest {
         DeploymentTypes.State memory state = _freshState();
         state.baoFactory = deployer.baoFactory();
 
-        address proxy = deployer.deployProxyAndRecord(
-            state,
-            "pauser",
-            address(impl),
-            "@bao/HarborPauser_v1.sol",
-            "HarborPauser_v1",
-            "" // no init data — HarborFixedOwnable has no initializer
-        );
+        deployer.recordImplementation(state, "pauser", "@bao/HarborPauser_v1.sol", "HarborPauser_v1", address(impl));
+        address proxy = deployer.deployProxyAndRecord(state, "pauser", address(impl), "");
 
         assertGt(proxy.code.length, 0, "proxy has code");
         assertEq(deployer.getImplementation(proxy), address(impl), "implementation set");
@@ -105,14 +107,14 @@ contract HarborFixedOwnableFactoryDeployTest is BaoTest {
         DeploymentTypes.State memory state = _freshState();
         state.baoFactory = deployer.baoFactory();
 
-        address proxy = deployer.deployProxyAndRecord(
+        deployer.recordImplementation(
             state,
             "owner_check",
-            address(impl),
             "@bao/HarborPauser_v1.sol",
             "HarborPauser_v1",
-            ""
+            address(impl)
         );
+        address proxy = deployer.deployProxyAndRecord(state, "owner_check", address(impl), "");
 
         assertEq(HarborPauser_v1(proxy).owner(), HARBOR_MULTISIG, "owner is multisig");
         assertTrue(HarborPauser_v1(proxy).owner() != address(deployer), "owner is not deployer");
@@ -123,14 +125,14 @@ contract HarborFixedOwnableFactoryDeployTest is BaoTest {
         DeploymentTypes.State memory state = _freshState();
         state.baoFactory = deployer.baoFactory();
 
-        address proxy = deployer.deployProxyAndRecord(
+        deployer.recordImplementation(
             state,
             "pauser_revert",
-            address(impl),
             "@bao/HarborPauser_v1.sol",
             "HarborPauser_v1",
-            ""
+            address(impl)
         );
+        address proxy = deployer.deployProxyAndRecord(state, "pauser_revert", address(impl), "");
 
         vm.expectRevert(
             abi.encodeWithSelector(HarborPauser_v1.Paused.selector, "Contract is paused and all functions are disabled")
@@ -146,14 +148,14 @@ contract HarborFixedOwnableFactoryDeployTest is BaoTest {
         DeploymentTypes.State memory state = _freshState();
         state.baoFactory = deployer.baoFactory();
 
-        address proxy = deployer.deployProxyAndRecord(
+        deployer.recordImplementation(
             state,
             "upgrade_test",
-            address(impl1),
             "@bao/HarborPauser_v1.sol",
             "HarborPauser_v1",
-            ""
+            address(impl1)
         );
+        address proxy = deployer.deployProxyAndRecord(state, "upgrade_test", address(impl1), "");
 
         // Multisig can upgrade
         vm.prank(HARBOR_MULTISIG);
@@ -167,14 +169,8 @@ contract HarborFixedOwnableFactoryDeployTest is BaoTest {
         DeploymentTypes.State memory state = _freshState();
         state.baoFactory = deployer.baoFactory();
 
-        address proxy = deployer.deployProxyAndRecord(
-            state,
-            "auth_test",
-            address(impl),
-            "@bao/HarborPauser_v1.sol",
-            "HarborPauser_v1",
-            ""
-        );
+        deployer.recordImplementation(state, "auth_test", "@bao/HarborPauser_v1.sol", "HarborPauser_v1", address(impl));
+        address proxy = deployer.deployProxyAndRecord(state, "auth_test", address(impl), "");
 
         vm.prank(makeAddr("attacker"));
         vm.expectRevert(IHarborFixedOwnable.Unauthorized.selector);
@@ -186,14 +182,14 @@ contract HarborFixedOwnableFactoryDeployTest is BaoTest {
         DeploymentTypes.State memory state = _freshState();
         state.baoFactory = deployer.baoFactory();
 
-        deployer.deployProxyAndRecord(
+        deployer.recordImplementation(
             state,
             "skip_transfer",
-            address(impl),
             "@bao/HarborPauser_v1.sol",
             "HarborPauser_v1",
-            ""
+            address(impl)
         );
+        deployer.deployProxyAndRecord(state, "skip_transfer", address(impl), "");
 
         assertEq(deployer.pendingOwnershipCount(), 1, "pending count");
 
@@ -207,14 +203,14 @@ contract HarborFixedOwnableFactoryDeployTest is BaoTest {
         DeploymentTypes.State memory state = _freshState();
         state.baoFactory = deployer.baoFactory();
 
-        address proxy = deployer.deployProxyAndRecord(
+        deployer.recordImplementation(
             state,
             "interface_test",
-            address(impl),
             "@bao/HarborPauser_v1.sol",
             "HarborPauser_v1",
-            ""
+            address(impl)
         );
+        address proxy = deployer.deployProxyAndRecord(state, "interface_test", address(impl), "");
 
         // owner() works through pauser (not caught by fallback)
         assertEq(HarborPauser_v1(proxy).owner(), HARBOR_MULTISIG);
