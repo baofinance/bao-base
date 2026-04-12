@@ -2,12 +2,14 @@
 
 pragma solidity >=0.8.28 <0.9.0;
 
+import {IERC5313} from "@openzeppelin/contracts/interfaces/IERC5313.sol";
+
 /// @notice Simple single owner authorization mixin based on Solady's Ownable
 /// @author rootminus0x1 based on Solady's (https://github.com/vectorized/solady/blob/main/src/auth/Ownable.sol)
 /// It has ownership transfer support for deployer to final owner
 /// No other ownership transfers are supported.
 
-interface IHarborOwnable {
+interface IHarborOwnable is IERC5313 {
     /*//////////////////////////////////////////////////////////////////////////
                                    CUSTOM ERRORS
     //////////////////////////////////////////////////////////////////////////*/
