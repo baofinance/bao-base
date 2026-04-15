@@ -19,6 +19,8 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
 import {PermittableERC20_v1} from "@bao/PermittableERC20_v1.sol";
 
+import {PermitTestBase} from "./helpers/PermitTestBase.t.sol";
+
 contract PermittableERC20Setup is Test {
     // Constants
     address internal OWNER = makeAddr("OWNER");
@@ -654,5 +656,12 @@ contract PermittableERC20UnsafeUpgradesTest is Test {
 
         // Verify upgrade worked
         assertEq(PermittableERC20_v2(proxy).version(), "v2", "Upgrade should set implementation to V2");
+    }
+}
+
+/// @notice Standardised EIP-2612 permit tests inherited from `PermitTestBase`.
+contract PermittableERC20StandardPermitTest is PermittableERC20Setup, PermitTestBase {
+    function _permitTarget() internal view override returns (address) {
+        return proxy;
     }
 }

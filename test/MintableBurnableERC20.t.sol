@@ -29,6 +29,8 @@ import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
 
+import {PermitTestBase} from "./helpers/PermitTestBase.t.sol";
+
 contract TestLeveragedTokensSetUp is Test {
     using ECDSA for bytes32;
     string name;
@@ -654,5 +656,12 @@ contract TestMaxAllowance is TestLeveragedTokensSetUp {
         // Balances should be updated
         assertEq(IERC20(leveragedToken).balanceOf(user1), 7 ether, "user1 balance incorrect");
         assertEq(IERC20(leveragedToken).balanceOf(user2), 3 ether, "user2 balance incorrect");
+    }
+}
+
+/// @notice Standardised EIP-2612 permit tests inherited from `PermitTestBase`.
+contract TestLeveragedTokenPermit is TestLeveragedTokensSetUp, PermitTestBase {
+    function _permitTarget() internal view override returns (address) {
+        return leveragedToken;
     }
 }
