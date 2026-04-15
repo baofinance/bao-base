@@ -33,7 +33,7 @@ jobs:
 
       - name: Verify audited sources unchanged
         shell: bash
-        run: ./bin/verify-audit audit-2025-07
+        run: ./bin/verify-audit
 
       - name: Run Bao-base CI actions
         uses: ./.github/actions/test-foundry

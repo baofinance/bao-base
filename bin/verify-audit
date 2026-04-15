@@ -1,8 +1,100 @@
 #!/usr/bin/env bash
 set -euo pipefail
-AUDIT_TAG="${1:-audit-2025-07}"
+# Usage: verify-audit [tag-or-pattern ...]
+# Each argument is expanded via `git tag -l` (so wildcards like `deploy-*`
+# work). Defaults to `audit*` and `deploy*`. Fails if any file under src/ was
+# modified, deleted, or renamed since any resolved tag (new files are OK).
+# Quote patterns to avoid shell globbing.
+#
+# A `.verify-audit-ignore` file in the current directory controls what is
+# skipped. Each non-comment, non-blank line has the form:
+#
+#   tag                          — ignore the whole tag
+#   tag file1 file2 ...          — ignore specific files within the tag only;
+#                                  other drifting files in that tag still fail
+#
+# `#` begins a comment. Ignored tags/files are reported but do not contribute
+# to the exit status.
+[[ $# -gt 0 ]] || set -- "audit*" "deploy*"
+
+# Parse .verify-audit-ignore into an associative array.
+# Key = tag name. Value = space-separated file list (empty = whole-tag ignore).
+declare -A ignores=()
+if [[ -f .verify-audit-ignore ]]; then
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%%#*}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -z "$line" ]] && continue
+    read -r tag rest <<< "$line"
+    ignores["$tag"]="${rest:-}"
+  done <.verify-audit-ignore
+fi
+
 git fetch --tags --no-recurse-submodules
-git rev-parse --verify "${AUDIT_TAG}^{commit}" >/dev/null 2>&1 \
-  || { echo "Tag '${AUDIT_TAG}' not found"; exit 1; }
-# fail if any audited file was modified, deleted, or renamed (new files are OK)
-git diff --exit-code --stat --diff-filter=DMRT "${AUDIT_TAG}" -- src
+tags=()
+for pattern in "$@"; do
+  matches=$(git tag -l "${pattern}")
+  if [[ -z "${matches}" ]]; then
+    echo "INFO: No tags match '${pattern}'"
+  else
+    while IFS= read -r t; do
+      tags+=("${t}")
+    done <<<"${matches}"
+  fi
+done
+
+maxlines=100
+fail=0
+for t in "${tags[@]}"; do
+  printf '\n\033[1;36m=== %s ===\033[0m\n' "${t}"
+
+  # Whole-tag ignore
+  if [[ -v ignores["$t"] && -z "${ignores[$t]}" ]]; then
+    printf '\033[2m(ignored via .verify-audit-ignore)\033[0m\n'
+    continue
+  fi
+
+  # Gather changed files
+  mapfile -t changed < <(git diff --name-only --diff-filter=DMRT "${t}" -- src)
+
+  if [[ ${#changed[@]} -eq 0 ]]; then
+    printf '\033[32mno changes under src/\033[0m\n'
+    continue
+  fi
+
+  # File-level ignore: filter out listed files for this tag
+  check=()
+  if [[ -v ignores["$t"] ]]; then
+    read -r -a ig_files <<< "${ignores[$t]}"
+    for f in "${changed[@]}"; do
+      skip=0
+      for ig in "${ig_files[@]}"; do
+        [[ "$f" == $ig ]] && { skip=1; break; }
+      done
+      if [[ $skip -eq 1 ]]; then
+        printf '\033[2m  %s (ignored via .verify-audit-ignore)\033[0m\n' "$f"
+      else
+        check+=("$f")
+      fi
+    done
+  else
+    check=("${changed[@]}")
+  fi
+
+  if [[ ${#check[@]} -eq 0 ]]; then
+    printf '\033[32mno changes under src/ (some files ignored via .verify-audit-ignore)\033[0m\n'
+    continue
+  fi
+
+  fail=1
+  changes=$(GIT_PAGER="" git diff --minimal --color=always --diff-filter=DMRT "${t}" -- "${check[@]}")
+  linecount=$(printf '%s\n' "${changes}" | wc -l)
+  if [[ "${linecount}" -gt "${maxlines}" ]]; then
+    printf '%s\n' "${changes}" | head -n "${maxlines}"
+    printf '... (truncated to %s lines)\n' "${maxlines}"
+  else
+    printf '%s\n' "${changes}"
+  fi
+done
+exit "${fail}"

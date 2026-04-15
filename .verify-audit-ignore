@@ -1,0 +1,13 @@
+# Syntax: tag [file1 file2 ...]
+#   tag alone        — ignore the whole tag
+#   tag file1 file2  — ignore specific files within the tag only
+
+# All four tags below have the same 11 drifting files. These were modified
+# post-audit (between deploy/harbor-1.0 and 1.0.1) and then reverted to the
+# audit state in commit 73470e5 "revert file changed since the audit". HEAD
+# correctly matches the audit; the deployed bytecodes for 1.0.1-1.2 used
+# the post-audit versions and cannot be rebuilt from HEAD.
+deploy/harbor-1.0.1 src/BaoFixedOwnableRoles.sol src/BaoOwnable.sol src/BaoOwnableRoles.sol src/BaoOwnableRoles_v2.sol src/BaoOwnableTransferrableRoles.sol src/HarborFixedOwnable.sol src/HarborPauser_v1.sol src/interfaces/IHarborFixedOwnable.sol src/internal/BaoRoles.sol src/internal/BaoRoles_v2.sol src/internal/HarborRolesCore.sol
+deploy/harbor-1.0.2 src/BaoFixedOwnableRoles.sol src/BaoOwnable.sol src/BaoOwnableRoles.sol src/BaoOwnableRoles_v2.sol src/BaoOwnableTransferrableRoles.sol src/HarborFixedOwnable.sol src/HarborPauser_v1.sol src/interfaces/IHarborFixedOwnable.sol src/internal/BaoRoles.sol src/internal/BaoRoles_v2.sol src/internal/HarborRolesCore.sol
+deploy/harbor-1.1   src/BaoFixedOwnableRoles.sol src/BaoOwnable.sol src/BaoOwnableRoles.sol src/BaoOwnableRoles_v2.sol src/BaoOwnableTransferrableRoles.sol src/HarborFixedOwnable.sol src/HarborPauser_v1.sol src/interfaces/IHarborFixedOwnable.sol src/internal/BaoRoles.sol src/internal/BaoRoles_v2.sol src/internal/HarborRolesCore.sol
+deploy/harbor-1.2   src/BaoFixedOwnableRoles.sol src/BaoOwnable.sol src/BaoOwnableRoles.sol src/BaoOwnableRoles_v2.sol src/BaoOwnableTransferrableRoles.sol src/HarborFixedOwnable.sol src/HarborPauser_v1.sol src/interfaces/IHarborFixedOwnable.sol src/internal/BaoRoles.sol src/internal/BaoRoles_v2.sol src/internal/HarborRolesCore.sol
