@@ -196,13 +196,16 @@ while IFS= read -r -d '' file; do
   fi
 
   # Check: filename must match contract/library name
-  if [[ "$basename" != "$contract_name" ]]; then
-    if is_ignored "naming" "$file"; then
-      echo " ⚠  $file: filename '$basename' does not match '$contract_name' (ignored via .validate-ignore)"
-    else
-      echo " ✘  $file: filename '$basename' does not match '$contract_name'"
+  if is_ignored "naming" "$file"; then
+    if [[ "$basename" == "$contract_name" ]]; then
+      printf '\033[31m ✘  stale .validate-ignore entry: naming "%s" — check passes, remove from .validate-ignore\033[0m\n' "$file"
       src_failed=1
+    else
+      printf '\033[2m ⚠  %s: naming check ignored via .validate-ignore (filename '\''%s'\'', contract '\''%s'\'')\033[0m\n' "$file" "$basename" "$contract_name"
     fi
+  elif [[ "$basename" != "$contract_name" ]]; then
+    echo " ✘  $file: filename '$basename' does not match '$contract_name'"
+    src_failed=1
   fi
 
   # Check: deployable code must pin pragma (not use a range)
@@ -220,13 +223,16 @@ while IFS= read -r -d '' file; do
   if [[ ("$is_abstract" -eq 0 && "$is_library" -eq 0) || "$is_deployable_library" -gt 0 ]]; then
     # Concrete contract or deployable library — pragma should be pinned
     pragma=$(grep -oP 'pragma solidity\s+\K[^;]+' "$file" || true)
-    if echo "$pragma" | grep -qE '[<>]'; then
-      if is_ignored "pragma" "$file"; then
-        echo " ⚠  $file: deployable '$contract_name' uses version range '$pragma' (ignored via .validate-ignore)"
-      else
-        echo " ✘  $file: deployable '$contract_name' uses version range '$pragma' — should pin (e.g. 0.8.30)"
+    if is_ignored "pragma" "$file"; then
+      if ! echo "$pragma" | grep -qE '[<>]'; then
+        printf '\033[31m ✘  stale .validate-ignore entry: pragma "%s" — check passes, remove from .validate-ignore\033[0m\n' "$file"
         src_failed=1
+      else
+        printf '\033[2m ⚠  %s: pragma check ignored via .validate-ignore (pragma '\''%s'\'')\033[0m\n' "$file" "$pragma"
       fi
+    elif echo "$pragma" | grep -qE '[<>]'; then
+      echo " ✘  $file: deployable '$contract_name' uses version range '$pragma' — should pin (e.g. 0.8.30)"
+      src_failed=1
     fi
   fi
 done < <(find src -name '*.sol' -print0)
