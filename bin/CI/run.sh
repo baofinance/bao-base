@@ -74,16 +74,20 @@ foundry_cache_dir="${BAO_BASE_TOOLS_DIR}/foundry-cache"
 mkdir -p "${foundry_cache_dir}"
 
 # handle submodules - in submodules .git is a file, in the root, it is a directory
-# we need to have act run in the context of the superproject root
+# we need to have act run in the context of the true git root (not just the immediate superproject,
+# since this repo may itself be a submodule several levels deep)
 if [[ -f .git ]]; then
-  # we must execute in the superproject root - absolute path is fine here
-  act_execute_dir=$(git rev-parse --show-superproject-working-tree)
+  # walk up through nested submodules until we reach the true root (where .git is a directory)
+  act_execute_dir=$(pwd)
+  while [[ -f "${act_execute_dir}/.git" ]]; do
+    act_execute_dir=$(git -C "${act_execute_dir}" rev-parse --show-superproject-working-tree)
+  done
   # as we're changing directory, we need to make some dirs absolute
   BAO_BASE_TOOLS_DIR=$(realpath "${BAO_BASE_TOOLS_DIR}")
   workflow_file=$(realpath "${workflow_file}")
   event_file=$(realpath "${event_file}")
   foundry_cache_dir=$(realpath "${foundry_cache_dir}")
-  # the relative path of the submodule from the superproject root
+  # the relative path of this submodule from the true root
   debug "act_execute_dir=${act_execute_dir}"
   debug "BAO_BASE_TOOLS_DIR=${BAO_BASE_TOOLS_DIR}"
   debug "workflow_file=${workflow_file}"
@@ -93,7 +97,7 @@ if [[ -f .git ]]; then
   BAO_BASE_DIR=$(realpath --relative-to="${act_execute_dir}" "${BAO_BASE_DIR}")
   debug "BAO_BASE_DIR=${BAO_BASE_DIR}"
 else
-  act_execute_dir="." # where act runs - the superproject root it its a submodule, here otherwise
+  act_execute_dir="." # where act runs - the superproject root if it is a submodule, here otherwise
   CWD="."             # where the workflow action will run (theres a step to cd to it)
 fi
 
