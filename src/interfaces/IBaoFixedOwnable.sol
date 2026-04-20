@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+/***************************************************************
+ *  THIS CODE IS UNDER DEVELOPMENT - DO NOT USE IN PRODUCTION  *
+ ***************************************************************/
+
 /// @notice Simple single owner authorization mixin based on Solady's Ownable
 /// @author rootminus0x1 based on Solady's (https://github.com/vectorized/solady/blob/main/src/auth/Ownable.sol)
 /// No ownership transfers are supported.
