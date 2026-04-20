@@ -275,7 +275,7 @@ abstract contract FactoryDeployer {
         bytes memory initData
     ) internal returns (address proxy) {
         bytes32 salt = keccak256(abi.encodePacked(saltPrefix(), "::", proxyId));
-        proxy = _deployProxyRaw(baoFactory(), salt, implementation, initData);
+        proxy = _deployProxy(baoFactory(), salt, implementation, initData);
         _recordProxyAndRegister(stateData, proxyId, proxy, implementation);
     }
 
@@ -350,18 +350,10 @@ abstract contract FactoryDeployer {
         return address(uint160(uint256(value)));
     }
 
-    /// @notice Deploy proxy for a key without state recording.
-    /// @dev Use when deploying a dependency whose state is managed by a separate repo's scripts
-    ///      (e.g. a price oracle). The proxy address is deterministic from saltPrefix + key.
-    function _deployProxy(string memory proxyId, address implementation) internal returns (address proxy) {
-        bytes32 salt = keccak256(abi.encodePacked(saltPrefix(), "::", proxyId));
-        proxy = _deployProxyRaw(baoFactory(), salt, implementation, "");
-    }
-
     /// @notice Deploy proxy directly via BaoFactory CREATE3: ERC1967Proxy(impl, initData).
     /// @dev Default path. No stub needed — suitable for HarborOwnable (explicit deployer) and
     ///      HarborFixedOwnable (no initializer) contracts.
-    function _deployProxyRaw(
+    function _deployProxy(
         address factory,
         bytes32 salt,
         address implementation,
