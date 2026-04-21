@@ -6,6 +6,10 @@ set -euo pipefail
 # modified, deleted, or renamed since any resolved tag (new files are OK).
 # Quote patterns to avoid shell globbing.
 #
+# Renames where the only content changes are import-path lines are
+# auto-suppressed: they arise from directory reorganisations and have zero
+# bytecode effect. Any other content change in a renamed file still fails.
+#
 # A `.verify-audit-ignore` file in the current directory controls what is
 # skipped. Each non-comment, non-blank line has the form:
 #
@@ -102,8 +106,30 @@ for t in "${tags[@]}"; do
     check=("${changed[@]}")
   fi
 
+  # Auto-suppress renamed files whose only diff is import-path changes.
+  # Build the rename map for this tag (new_path -> old_path).
+  declare -A _rename_src=()
+  while IFS=$'\t' read -r _st _old _new; do
+    _rename_src["${_new}"]="${_old}"
+  done < <(git diff --name-status --diff-filter=R "${t}" -- src)
+  filtered_check=()
+  for f in "${check[@]}"; do
+    old_path="${_rename_src[${f}]:-}"
+    if [[ -n "${old_path}" ]]; then
+      non_import=$(git diff "${t}:${old_path}" "HEAD:${f}" 2>/dev/null \
+        | grep -E "^[+-][^+-]" \
+        | grep -vE "^[+-][[:space:]]*import[[:space:]]" || true)
+      if [[ -z "${non_import}" ]]; then
+        printf '\033[2m  %s (auto-suppressed: renamed, import paths only)\033[0m\n' "${f}"
+        continue
+      fi
+    fi
+    filtered_check+=("${f}")
+  done
+  check=("${filtered_check[@]+"${filtered_check[@]}"}")
+
   if [[ ${#check[@]} -eq 0 ]]; then
-    printf '\033[32mno changes under src/ (some files ignored via .verify-audit-ignore)\033[0m\n'
+    printf '\033[32mno changes under src/ (ignored or auto-suppressed)\033[0m\n'
     continue
   fi
 
