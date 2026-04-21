@@ -13,7 +13,6 @@ ffi = true                         # needed for atomic file writes (mv command)
 
 deny = "warnings"
 
-solc = "0.8.30"
 
 remappings = [
   "ds-test/=lib/forge-std/lib/ds-test/src/",
