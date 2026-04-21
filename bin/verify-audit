@@ -26,7 +26,7 @@ if [[ -f .verify-audit-ignore ]]; then
     line="${line#"${line%%[![:space:]]*}"}"
     line="${line%"${line##*[![:space:]]}"}"
     [[ -z "$line" ]] && continue
-    read -r tag rest <<< "$line"
+    read -r tag rest <<<"$line"
     ignores["$tag"]="${rest:-}"
   done <.verify-audit-ignore
 fi
@@ -44,7 +44,6 @@ for pattern in "$@"; do
   fi
 done
 
-maxlines=100
 fail=0
 for t in "${tags[@]}"; do
   printf '\n\033[1;36m=== %s ===\033[0m\n' "${t}"
@@ -70,12 +69,15 @@ for t in "${tags[@]}"; do
   # File-level ignore: check for stale entries, then filter
   check=()
   if [[ -v ignores["$t"] ]]; then
-    read -r -a ig_files <<< "${ignores[$t]}"
+    read -r -a ig_files <<<"${ignores[$t]}"
     # reverse check: flag any ignored file that has no actual drift
     for ig in "${ig_files[@]}"; do
       found=0
       for f in "${changed[@]}"; do
-        [[ "$f" == $ig ]] && { found=1; break; }
+        [[ "$f" == $ig ]] && {
+          found=1
+          break
+        }
       done
       if [[ $found -eq 0 ]]; then
         printf '\033[31m  ERROR: stale .verify-audit-ignore entry: "%s" for tag "%s" has no changes — remove it\033[0m\n' "$ig" "${t}"
@@ -85,7 +87,10 @@ for t in "${tags[@]}"; do
     for f in "${changed[@]}"; do
       skip=0
       for ig in "${ig_files[@]}"; do
-        [[ "$f" == $ig ]] && { skip=1; break; }
+        [[ "$f" == $ig ]] && {
+          skip=1
+          break
+        }
       done
       if [[ $skip -eq 1 ]]; then
         printf '\033[2m  %s (ignored via .verify-audit-ignore)\033[0m\n' "$f"
@@ -103,13 +108,19 @@ for t in "${tags[@]}"; do
   fi
 
   fail=1
-  changes=$(GIT_PAGER="" git diff --minimal --color=always --diff-filter=DMRT "${t}" -- "${check[@]}")
-  linecount=$(printf '%s\n' "${changes}" | wc -l)
-  if [[ "${linecount}" -gt "${maxlines}" ]]; then
-    printf '%s\n' "${changes}" | head -n "${maxlines}"
-    printf '... (truncated to %s lines)\n' "${maxlines}"
-  else
-    printf '%s\n' "${changes}"
-  fi
+  printf '\033[31m  CHANGED (not ignored):\033[0m\n'
+  for f in "${check[@]}"; do
+    printf '\033[31m    %s\033[0m\n' "$f"
+    changes=$(GIT_PAGER="" git diff --minimal --color=always --diff-filter=DMRT "${t}" -- "$f")
+    linecount=$(printf '%s\n' "${changes}" | wc -l)
+    if [[ "${linecount}" -gt 20 ]]; then
+      printf '%s\n' "${changes}" | head -n 20
+      printf '\033[2m    ... (truncated to 20 lines)\033[0m\n'
+    else
+      printf '%s\n' "${changes}"
+    fi
+  done
+  printf '\033[31mchanges under src/\033[0m\n'
+
 done
 exit "${fail}"

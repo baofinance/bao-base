@@ -66,12 +66,20 @@ runs:
         cd ${{ inputs.cwd }}
         yarn
 
+    - name: Check audit and deployed code
+      shell: bash
+      run: |
+        # verify code at certain tags has not been changed since that tag
+        cd ${{ inputs.cwd }}; pwd
+        yarn verify-audit
+      id: verify-audit
+
     - name: Run Prettier
       shell: bash
       run: |
         # run prettier to check formatting
         cd ${{ inputs.cwd }}
-        yarn prettier --check
+        yarn fmt:check
       id: prettier
 
     - name: Run Solhint
