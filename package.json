@@ -5,6 +5,7 @@
   "scripts": {
     "upgrade:yarn": "yarn set version stable",
     "upgrade": "[ $# -gt 0 ] && yarn up \"${0}\"; [ $# -eq 0 ] && yarn up \"*\"",
+    "doctor": "./run doctor",
     "clean": "./run clean",
     "gas": "./run regression-of gas",
     "sizes": "./run regression-of sizes",
