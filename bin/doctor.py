@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import Any, cast
 
@@ -24,8 +25,12 @@ except ModuleNotFoundError:
             return _toml_loader.load(stream)
 
 
-script_path = Path(__file__).resolve()
-repo_root = script_path.parents[3]
+repo_root = Path(
+    subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True, check=True
+    ).stdout.strip()
+)
 foundry_path = repo_root / "foundry.toml"
 wake_path = repo_root / "wake.toml"
 
@@ -66,9 +71,22 @@ for item in wake_items:
 foundry_remappings = cast(list[str], foundry_items)
 wake_remappings = cast(list[str], wake_items)
 
-if foundry_remappings != wake_remappings:
-    foundry_only = [item for item in foundry_remappings if item not in wake_remappings]
-    wake_only = [item for item in wake_remappings if item not in foundry_remappings]
+
+def strip_context_prefix(entry: str) -> str:
+    """Foundry supports context-specific remappings ('ctx/:key=val'); Wake does not.
+    Strip the context prefix so both sides can be compared on equal footing."""
+    eq = entry.find("=")
+    colon = entry.find(":", 0, eq if eq != -1 else len(entry))
+    if colon != -1:
+        return entry[colon + 1 :]
+    return entry
+
+
+normalized_foundry = [strip_context_prefix(r) for r in foundry_remappings]
+
+if normalized_foundry != wake_remappings:
+    foundry_only = [item for item in normalized_foundry if item not in wake_remappings]
+    wake_only = [item for item in wake_remappings if item not in normalized_foundry]
 
     mismatch_details: list[str] = []
 
@@ -79,7 +97,7 @@ if foundry_remappings != wake_remappings:
         mismatch_details.append("Entries only in wake.toml:\n  " + "\n  ".join(wake_only))
 
     if not mismatch_details:
-        for index, pair in enumerate(zip(foundry_remappings, wake_remappings)):
+        for index, pair in enumerate(zip(normalized_foundry, wake_remappings)):
             if pair[0] != pair[1]:
                 mismatch_details.append(
                     f"Order mismatch at index {index}: "
@@ -87,9 +105,9 @@ if foundry_remappings != wake_remappings:
                 )
                 break
 
-        if len(foundry_remappings) != len(wake_remappings):
+        if len(normalized_foundry) != len(wake_remappings):
             mismatch_details.append(
-                "The lists have different lengths: " f"{len(foundry_remappings)} vs {len(wake_remappings)}."
+                "The lists have different lengths: " f"{len(normalized_foundry)} vs {len(wake_remappings)}."
             )
 
     if not mismatch_details:
