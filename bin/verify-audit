@@ -31,7 +31,13 @@ if [[ -f .verify-audit-ignore ]]; then
     line="${line%"${line##*[![:space:]]}"}"
     [[ -z "$line" ]] && continue
     read -r tag rest <<<"$line"
-    ignores["$tag"]="${rest:-}"
+    if [[ -z "${rest:-}" ]]; then
+      ignores["$tag"]=""                                  # whole-tag ignore
+    elif [[ -v ignores["$tag"] && -z "${ignores[$tag]}" ]]; then
+      :                                                   # already whole-tag; file entries don't narrow it
+    else
+      ignores["$tag"]+="${ignores[$tag]:+ }${rest}"       # accumulate file list
+    fi
   done <.verify-audit-ignore
 fi
 
