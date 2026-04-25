@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -e
+set -o pipefail
+
+ACTION_YML="${BAO_BASE_DIR}/.github/actions/test-foundry/action.yml"
+
+while IFS= read -r cmd; do
+    echo ""
+    echo "=== $cmd ==="
+    $cmd
+done < <(grep -E '^\s+id: yarn' "$ACTION_YML" | sed 's/.*id: //')
