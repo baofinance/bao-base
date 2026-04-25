@@ -246,7 +246,7 @@ abstract contract FactoryDeployer {
 
     /// @notice Predict address for a complete salt string (e.g., "harbor_v1::ETH::fxUSD::minter")
     /// @dev Also labels the address with the salt for readable traces.
-    function _predictAddressFromFullSalt(string memory fullSalt) internal returns (address addr) {
+    function _predictAddressFromFullSalt(string memory fullSalt) private returns (address addr) {
         bytes32 salt = keccak256(abi.encodePacked(fullSalt));
         addr = IBaoFactory(baoFactory()).predictAddress(salt);
         vm.label(addr, fullSalt);

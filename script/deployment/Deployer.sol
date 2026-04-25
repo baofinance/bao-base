@@ -68,10 +68,10 @@ abstract contract Deployer is FactoryDeployer {
         queue(target, data, target.toHexString());
     }
 
-    /// @notice Queue a transaction using a full salt string for address prediction.
-    /// @param fullSalt The complete salt string (e.g., from _saltString())
-    function queue(string memory fullSalt, bytes memory data, string memory description) internal {
-        queue(_predictAddressFromFullSalt(fullSalt), data, string.concat(fullSalt, ".", description));
+    /// @notice Queue a transaction using a local key for address prediction.
+    /// @param key The local key (e.g., from _key()), without salt prefix.
+    function queue(string memory key, bytes memory data, string memory description) internal {
+        queue(_predictAddress(key), data, string.concat(_saltString(key), ".", description));
     }
 
     /// @notice Save the current queued transactions as a named batch and clear the queue.
@@ -109,7 +109,7 @@ abstract contract Deployer is FactoryDeployer {
             return;
         }
 
-        if (!_vm.isContext(VmSafe.ForgeContext.Test)) {
+        if (!_vm.isContext(VmSafe.ForgeContext.TestGroup)) {
             address batchSigner = _signer != address(0) ? _signer : owner();
             string memory name = _vm.envOr("SAFE_BATCH_NAME", string("batch"));
             string memory timestamp = _vm.envOr("SAFE_BATCH_TIMESTAMP", block.timestamp.toString());
@@ -135,10 +135,10 @@ abstract contract Deployer is FactoryDeployer {
     function _executeLocal() internal {
         if (_allTransactions.length == 0) return;
 
-        bool isTest = _vm.isContext(VmSafe.ForgeContext.Test);
-        if (!isTest && !_vm.envOr("EXECUTE_LOCAL", false)) return;
+        bool isTestGroup = _vm.isContext(VmSafe.ForgeContext.TestGroup);
+        if (!isTestGroup && !_vm.envOr("EXECUTE_LOCAL", false)) return;
 
-        if (isTest) {
+        if (isTestGroup) {
             _vm.startPrank(owner());
         } else {
             _vm.startBroadcast(owner());
@@ -152,7 +152,7 @@ abstract contract Deployer is FactoryDeployer {
                 }
             }
         }
-        if (isTest) {
+        if (isTestGroup) {
             _vm.stopPrank();
         } else {
             _vm.stopBroadcast();

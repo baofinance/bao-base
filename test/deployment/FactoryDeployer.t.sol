@@ -123,10 +123,6 @@ contract TestableFactoryDeployer is FactoryDeployer {
         return _saltString(_key(a, b, c));
     }
 
-    function predictAddressFromFullSalt(string memory fullSalt) external returns (address) {
-        return _predictAddressFromFullSalt(fullSalt);
-    }
-
     function predictAddress1(string memory a) external returns (address) {
         return _predictAddress(a);
     }
@@ -316,21 +312,23 @@ contract FactoryDeployerTest is BaoTest {
     // ========== Address Prediction Tests (requires BaoFactory) ==========
 
     function test_predictAddress_withFactory() public {
-        _ensureBaoFactory();
+        address factory = _ensureBaoFactory();
         deployer.setSaltPrefix("test_v1");
 
-        // Test all three overloads produce consistent results
+        // Test all three overloads produce addresses matching the expected CREATE3 salt
         address predicted1 = deployer.predictAddress1("minter");
-        address predictedFull = deployer.predictAddressFromFullSalt("test_v1::minter");
-        assertEq(predicted1, predictedFull, "predictAddress1 matches predictAddressFromFullSalt");
+        address expected1 = IBaoFactory(factory).predictAddress(keccak256(abi.encodePacked("test_v1::minter")));
+        assertEq(predicted1, expected1, "predictAddress1 matches expected salt");
 
         address predicted2 = deployer.predictAddress2("ETH", "minter");
-        address predictedFull2 = deployer.predictAddressFromFullSalt("test_v1::ETH::minter");
-        assertEq(predicted2, predictedFull2, "predictAddress2 matches predictAddressFromFullSalt");
+        address expected2 = IBaoFactory(factory).predictAddress(keccak256(abi.encodePacked("test_v1::ETH::minter")));
+        assertEq(predicted2, expected2, "predictAddress2 matches expected salt");
 
         address predicted3 = deployer.predictAddress3("ETH", "fxUSD", "minter");
-        address predictedFull3 = deployer.predictAddressFromFullSalt("test_v1::ETH::fxUSD::minter");
-        assertEq(predicted3, predictedFull3, "predictAddress3 matches predictAddressFromFullSalt");
+        address expected3 = IBaoFactory(factory).predictAddress(
+            keccak256(abi.encodePacked("test_v1::ETH::fxUSD::minter"))
+        );
+        assertEq(predicted3, expected3, "predictAddress3 matches expected salt");
     }
 
     // ========== Helper to set up factory with deployer as operator ==========
