@@ -1,12 +1,63 @@
 #!/usr/bin/env bash
 set -e
 set -o pipefail
-trap 'exit 130' INT # terminate the loop on ctrl-C
+trap 'exit 130' INT
 
 ACTION_YML="${BAO_BASE_DIR}/.github/actions/test-foundry/action.yml"
 
-while IFS= read -r cmd; do
-  echo ""
-  echo "=== $cmd ==="
-  $cmd
-done < <(grep -E '^\s+id:\s+yarn__' "$ACTION_YML" | sed -E 's/^\s+id:\s+yarn__/yarn /')
+debug=0
+if [[ "${1:-}" == "--debug" || "${1:-}" == "-d" ]]; then
+    debug=1
+fi
+
+# Phase 1: parse action.yml — build execute[] and skipped[] lists
+execute=()
+skipped=()
+marker_seen=0
+
+while IFS= read -r line; do
+    cmd="${line#"${line%%[![:space:]]*}"}"
+
+    if [[ "$marker_seen" == "1" ]]; then
+        if [[ -z "$cmd" ]]; then
+            echo "ERROR: blank line after '# ci-execute-next-line' in $ACTION_YML" >&2
+            exit 1
+        elif [[ "$cmd" != yarn\ * ]]; then
+            echo "ERROR: '# ci-execute-next-line' not followed by a yarn command (got: $cmd)" >&2
+            exit 1
+        fi
+        execute+=("$cmd")
+        marker_seen=0
+        continue
+    fi
+
+    if [[ "$cmd" == "# ci-execute-next-line" ]]; then
+        marker_seen=1
+    elif [[ "$cmd" == yarn\ * ]]; then
+        skipped+=("$cmd")
+    fi
+done < "$ACTION_YML"
+
+if [[ "$marker_seen" == "1" ]]; then
+    echo "ERROR: '# ci-execute-next-line' at end of file with no following command" >&2
+    exit 1
+fi
+
+# Phase 2: execute (or print in debug mode)
+for cmd in "${execute[@]}"; do
+    echo ""
+    echo "=== $cmd ==="
+    if [[ "$debug" == "1" ]]; then
+        echo "[debug] skipping execution"
+    else
+        eval "$cmd"
+    fi
+done
+
+if [[ ${#skipped[@]} -gt 0 ]]; then
+    echo ""
+    echo "=== yarn commands not executed (add '# ci-execute-next-line' above to run) ==="
+    for cmd in "${skipped[@]}"; do
+        echo "  $cmd"
+    done
+fi

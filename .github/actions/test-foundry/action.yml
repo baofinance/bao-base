@@ -71,32 +71,36 @@ runs:
       run: |
         # verify code at certain tags has not been changed since that tag
         cd ${{ inputs.cwd }}; pwd
+        # ci-execute-next-line
         yarn verify-audit
-      id: yarn__verify-audit
+      id: verify-audit
 
     - name: Run Prettier
       shell: bash
       run: |
         # run prettier to check formatting
         cd ${{ inputs.cwd }}
+        # ci-execute-next-line
         yarn fmt:check
-      id: yarn__fmt:check
+      id: fmt-check
 
     - name: Run Solhint
       shell: bash
       run: |
         # run solhint
         cd ${{ inputs.cwd }}
+        # ci-execute-next-line
         yarn lint
-      id: yarn__lint
+      id: lint
 
     - name: Run Slither
       shell: bash
       run: |
         # run slither
         cd ${{ inputs.cwd }}
+        # ci-execute-next-line
         yarn slither
-      id: yarn__slither
+      id: slither
 
     - name: Run Forge build, generating contract sizes reports into the regression folder - if they differ from the ones in the repo, they will be failed in the git-diffs step
       if: runner.os != 'Windows' # TODO: for some reason, the sizes processing doesn't work on windows
@@ -104,24 +108,27 @@ runs:
       run: |
         # generate contract sizes reports into the regression folder - if they differ from the ones in the repo, they will be failed in the git-diffs step
         cd ${{ inputs.cwd }}
-        uv run yarn sizes
-      id: yarn__sizes
+        # ci-execute-next-line
+        yarn sizes
+      id: sizes
 
     - name: Run Forge tests
       shell: bash
       run: |
         # run all the foundry tests in the test folder
         cd ${{ inputs.cwd }}
-        uv run yarn test
-      id: yarn__test
+        # ci-execute-next-line
+        yarn test
+      id: test
 
     - name: Run Lint on Forge tests
       shell: bash
       run: |
         # run all the foundry tests in the test folder
         cd ${{ inputs.cwd }}
-        uv run yarn lint:test
-      id: yarn__lint:test
+        # ci-execute-next-line
+        yarn lint:test
+      id: lint-test
 
     - name: Run Forge tests - coverage
       if: runner.os != 'Windows' # TODO: for some reason, the coverage processing doesn't work on windows
@@ -129,8 +136,9 @@ runs:
       run: |
         # generate coverage reports into the regression folder - if they differ from the ones in the repo, they will be failed in the git-diffs step
         cd ${{ inputs.cwd }}
-        uv run yarn coverage
-      id: yarn__coverage
+        # ci-execute-next-line
+        yarn coverage
+      id: coverage
 
     - name: Run Forge tests - gas
       if: runner.os != 'Windows' # TODO: for some reason, the gas processing doesn't work on windows
@@ -138,16 +146,18 @@ runs:
       run: |
         # generate gas reports into the regression folder - if they differ from the ones in the repo, they will be failed in the git-diffs step
         cd ${{ inputs.cwd }}
-        uv run yarn gas
-      id: yarn__gas
+        # ci-execute-next-line
+        yarn gas
+      id: gas
 
     - name: Run upgradeable contract deployment validation
       shell: bash
       run: |
         # check all contracts for deployment upgradeability
         cd ${{ inputs.cwd }}
-        uv run yarn validate
-      id: yarn__validate
+        # ci-execute-next-line
+        yarn validate
+      id: validate
 
     - name: Check for changed repo files
       shell: bash
@@ -159,7 +169,7 @@ runs:
           git diff | head -100
           echo "Git repo has changed, either correctly fix those files locally or .gitignore them"; exit 1;
         fi
-      id: yarn__git-diffs
+      id: git-diffs
 
     - name: Check some wtf's
       shell: bash
