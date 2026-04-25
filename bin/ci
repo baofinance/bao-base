@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -e
 set -o pipefail
+trap 'exit 130' INT # terminate the loop on ctrl-C
 
 ACTION_YML="${BAO_BASE_DIR}/.github/actions/test-foundry/action.yml"
 
 while IFS= read -r cmd; do
-    echo ""
-    echo "=== $cmd ==="
-    $cmd
-done < <(grep -E '^\s+id: yarn' "$ACTION_YML" | sed 's/.*id: //')
+  echo ""
+  echo "=== $cmd ==="
+  $cmd
+done < <(grep -E '^\s+id:\s+yarn__' "$ACTION_YML" | sed -E 's/^\s+id:\s+yarn__/yarn /')
