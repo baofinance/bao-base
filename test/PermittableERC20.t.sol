@@ -19,7 +19,7 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
 import {PermittableERC20_v1} from "@bao/PermittableERC20_v1.sol";
 
-import {PermitTestBase} from "./helpers/PermitTestBase.t.sol";
+import {PermitTestBase} from "@bao-test/helpers/PermitTestBase.t.sol";
 
 contract PermittableERC20Setup is Test {
     // Constants

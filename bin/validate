@@ -243,3 +243,63 @@ if [[ $src_failed -ne 0 ]]; then
   return 1
 fi
 echo "SUCCESS: (all source files follow naming and pragma conventions)"
+
+# ================================================================
+# Import path checks — bare imports (src/test/script prefix)
+# ================================================================
+echo
+echo "checking for bare imports..."
+echo "----------------------------"
+echo
+
+bare_failed=0
+while IFS= read -r -d '' file; do
+  if is_ignored "bare-imports" "$file"; then
+    printf '\033[2m ⚠  %s: bare-imports check ignored via .validate-ignore\033[0m\n' "$file"
+    continue
+  fi
+  bad_lines=$(grep -nE 'import[[:space:]].*"(src|test|script)/[^"]*"' "$file" || true)
+  if [[ -n "$bad_lines" ]]; then
+    while IFS= read -r bad; do
+      echo " ✘  $file: bare import: $bad"
+    done <<< "$bad_lines"
+    bare_failed=1
+  fi
+done < <(find src script test -name '*.sol' -print0 2>/dev/null)
+
+if [[ $bare_failed -ne 0 ]]; then
+  echo
+  echo "ERROR: bare imports found — use remapped prefixes (@bao/, @bao-test/, @bao-script/, etc.)"
+  return 1
+fi
+echo "SUCCESS: (no bare imports)"
+
+# ================================================================
+# Import path checks — relative imports (. or .. prefix)
+# ================================================================
+echo
+echo "checking for relative imports..."
+echo "--------------------------------"
+echo
+
+relative_failed=0
+while IFS= read -r -d '' file; do
+  if is_ignored "relative-imports" "$file"; then
+    printf '\033[2m ⚠  %s: relative-imports check ignored via .validate-ignore\033[0m\n' "$file"
+    continue
+  fi
+  bad_lines=$(grep -nE 'import[[:space:]].*"(\.\.|\.)/[^"]*"' "$file" || true)
+  if [[ -n "$bad_lines" ]]; then
+    while IFS= read -r bad; do
+      echo " ✘  $file: relative import: $bad"
+    done <<< "$bad_lines"
+    relative_failed=1
+  fi
+done < <(find src script test -name '*.sol' -print0 2>/dev/null)
+
+if [[ $relative_failed -ne 0 ]]; then
+  echo
+  echo "ERROR: relative imports found — use remapped prefixes (@bao/, @bao-test/, @bao-script/, etc.)"
+  return 1
+fi
+echo "SUCCESS: (no relative imports)"

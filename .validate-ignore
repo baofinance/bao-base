@@ -1,0 +1,3 @@
+# deployed source files — must not be modified, so import checks are suppressed
+relative-imports src/TokenHolder.sol
+relative-imports src/HarborPauser_v1.sol

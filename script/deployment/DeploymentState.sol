@@ -4,9 +4,9 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Vm} from "forge-std/Vm.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {LibString} from "@solady/utils/LibString.sol";
-import {JsonSerializer} from "./JsonSerializer.sol";
-import {JsonParser} from "./JsonParser.sol";
-import {DeploymentTypes} from "./DeploymentTypes.sol";
+import {JsonSerializer} from "@bao-script/deployment/JsonSerializer.sol";
+import {JsonParser} from "@bao-script/deployment/JsonParser.sol";
+import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 
 /// @notice Persistent deployment state management backed by JSON files.
 /// @dev Library form to avoid on-chain deployment/broadcast in scripts.

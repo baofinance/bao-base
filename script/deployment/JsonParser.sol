@@ -5,7 +5,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 import {DateTimeLib} from "@solady/utils/DateTimeLib.sol";
-import {DeploymentTypes} from "./DeploymentTypes.sol";
+import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 
 /// @notice JSON parsing for deployment state.
 library JsonParser {

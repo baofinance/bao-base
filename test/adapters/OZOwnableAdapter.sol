@@ -6,9 +6,9 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 
 import {Test} from "forge-std/Test.sol";
 
-import {IOwnershipModel} from "test/interfaces/IOwnershipModel.sol";
-import {MockImplementationOZOwnable} from "test/mocks/MockImplementationOZOwnable.sol";
-import {IMockImplementation} from "test/interfaces/IMockImplementation.sol";
+import {IOwnershipModel} from "@bao-test/interfaces/IOwnershipModel.sol";
+import {MockImplementationOZOwnable} from "@bao-test/mocks/MockImplementationOZOwnable.sol";
+import {IMockImplementation} from "@bao-test/interfaces/IMockImplementation.sol";
 
 /**
  * @title OZOwnableAdapter

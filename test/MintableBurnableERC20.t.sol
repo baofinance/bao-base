@@ -29,7 +29,7 @@ import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
 
-import {PermitTestBase} from "./helpers/PermitTestBase.t.sol";
+import {PermitTestBase} from "@bao-test/helpers/PermitTestBase.t.sol";
 
 contract TestLeveragedTokensSetUp is Test {
     using ECDSA for bytes32;
@@ -355,7 +355,7 @@ contract TestUpgrade is TestLeveragedTokensSetUp {
     }
 }
 
-import {MintableBurnableERC20_v2_Reinit} from "./mocks/MintableBurnableERC20_v2_Reinit.sol";
+import {MintableBurnableERC20_v2_Reinit} from "@bao-test/mocks/MintableBurnableERC20_v2_Reinit.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 /// @notice Tests for recovering from botched proxy deployments via upgrade

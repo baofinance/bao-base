@@ -5,8 +5,8 @@ import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 import {BaoOwnableTransferrableRoles} from "@bao/BaoOwnableTransferrableRoles.sol";
 
-import {TestBaoOwnableTransferrableOnly} from "./BaoOwnableTransferrable.t.sol";
-import {TestBaoRoles} from "./BaoRoles.t.sol";
+import {TestBaoOwnableTransferrableOnly} from "@bao-test/_sizes/BaoOwnableTransferrable.t.sol";
+import {TestBaoRoles} from "@bao-test/_sizes/BaoRoles.t.sol";
 
 contract DerivedBaoOwnableTransferrableRoles is BaoOwnableTransferrableRoles, TestBaoRoles {
     uint256 public MY_ROLE = _ROLE_1;

@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {LibString} from "@solady/utils/LibString.sol";
 import {DateTimeLib} from "@solady/utils/DateTimeLib.sol";
-import {DeploymentTypes} from "./DeploymentTypes.sol";
+import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 
 /// @notice JSON serialization for deployment state.
 library JsonSerializer {

@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 import {BaoOwnable} from "@bao/BaoOwnable.sol";
-import {IMockImplementation, MockImplementationWithStateBase} from "../interfaces/IMockImplementation.sol";
+import {IMockImplementation, MockImplementationWithStateBase} from "@bao-test/interfaces/IMockImplementation.sol";
 
 /**
  * @title MockImplementationWithState

@@ -2,15 +2,15 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
-import {Stem_v1} from "src/Stem_v1.sol";
+import {Stem_v1} from "@bao/Stem_v1.sol";
 
 // Import all ownership model implementations
-import {BaoOwnableAdapter} from "test/adapters/BaoOwnableAdapter.sol"; // Adapter for BaoOwnable
-import {BaoOwnable_v2Adapter} from "test/adapters/BaoOwnable_v2Adapter.sol"; // Adapter for BaoOwnable_v2
-import {HarborFixedOwnableAdapter} from "test/adapters/HarborFixedOwnableAdapter.sol"; // Adapter for HarborFixedOwnable
-import {OZOwnableAdapter} from "test/adapters/OZOwnableAdapter.sol"; // Adapter for OZOwnable
-import {IOwnershipModel} from "test/interfaces/IOwnershipModel.sol"; // Interface for ownership models
-import {IMockImplementation} from "test/interfaces/IMockImplementation.sol"; // Interface for ownership models
+import {BaoOwnableAdapter} from "@bao-test/adapters/BaoOwnableAdapter.sol"; // Adapter for BaoOwnable
+import {BaoOwnable_v2Adapter} from "@bao-test/adapters/BaoOwnable_v2Adapter.sol"; // Adapter for BaoOwnable_v2
+import {HarborFixedOwnableAdapter} from "@bao-test/adapters/HarborFixedOwnableAdapter.sol"; // Adapter for HarborFixedOwnable
+import {OZOwnableAdapter} from "@bao-test/adapters/OZOwnableAdapter.sol"; // Adapter for OZOwnable
+import {IOwnershipModel} from "@bao-test/interfaces/IOwnershipModel.sol"; // Interface for ownership models
+import {IMockImplementation} from "@bao-test/interfaces/IMockImplementation.sol"; // Interface for ownership models
 
 /**
  * @title StemUseCasesTest

@@ -3,8 +3,8 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {HarborOwnableRoles} from "@bao/HarborOwnableRoles.sol";
 
-import {TestHarborOwnableOnly} from "./HarborOwnable.t.sol";
-import {TestBaoRoles} from "./BaoRoles.t.sol";
+import {TestHarborOwnableOnly} from "@bao-test/_sizes/HarborOwnable.t.sol";
+import {TestBaoRoles} from "@bao-test/_sizes/BaoRoles.t.sol";
 
 contract DerivedHarborOwnableRoles is HarborOwnableRoles {
     uint256 public MY_ROLE = _ROLE_1;

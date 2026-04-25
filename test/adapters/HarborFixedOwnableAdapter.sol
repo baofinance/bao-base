@@ -5,9 +5,9 @@ import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 import {Test} from "forge-std/Test.sol";
 
-import {IOwnershipModel} from "test/interfaces/IOwnershipModel.sol";
-import {MockImplementationWithState_Fixed} from "test/mocks/MockImplementationWithState_Fixed.sol";
-import {IMockImplementation} from "test/interfaces/IMockImplementation.sol";
+import {IOwnershipModel} from "@bao-test/interfaces/IOwnershipModel.sol";
+import {MockImplementationWithState_Fixed} from "@bao-test/mocks/MockImplementationWithState_Fixed.sol";
+import {IMockImplementation} from "@bao-test/interfaces/IMockImplementation.sol";
 import {IHarborFixedOwnable} from "@bao/interfaces/IHarborFixedOwnable.sol";
 
 /**
