@@ -33,7 +33,7 @@
     "pre-checkin": "yarn fmt && yarn slither && yarn lint && yarn test && yarn coverage && yarn gas && yarn sizes && echo \"ready for checkin\"",
     "git-diffs": "./run git-diffs",
     "CI": "./run CI",
-    "ci": "./run ci"
+    "CI-act": "./run CI-act"
   },
   "dependencies": {
     "@openzeppelin/upgrades-core": "1.44.0",
