@@ -189,7 +189,7 @@ while IFS= read -r -d '' file; do
   basename=$(basename "$file" .sol)
 
   # Extract the contract or library name (first declaration)
-  contract_name=$(grep -oP '^\s*(abstract\s+)?(contract|library)\s+\K\w+' "$file" | head -1)
+  contract_name=$(grep -oE '^\s*(abstract\s+)?(contract|library)\s+\w+' "$file" | grep -oE '\w+$' | head -1)
   if [[ -z "$contract_name" ]]; then
     # No contract or library declaration (interface-only file) — skip
     continue
@@ -210,19 +210,19 @@ while IFS= read -r -d '' file; do
 
   # Check: deployable code must pin pragma (not use a range)
   # Deployable = concrete contract, or library with public/external functions
-  is_abstract=$(grep -cP '^\s*abstract\s+contract\s' "$file" || true)
-  is_library=$(grep -cP '^\s*library\s' "$file" || true)
+  is_abstract=$(grep -cE '^\s*abstract\s+contract\s' "$file" || true)
+  is_library=$(grep -cE '^\s*library\s' "$file" || true)
   is_deployable_library=0
   if [[ "$is_library" -gt 0 ]]; then
     # Library is deployable only if it has public or external functions
-    has_external=$(grep -cP '^\s+function\s+\w+.*\b(public|external)\b' "$file" || true)
+    has_external=$(grep -cE '^\s+function\s+\w+.*(public|external)' "$file" || true)
     if [[ "$has_external" -gt 0 ]]; then
       is_deployable_library=1
     fi
   fi
   if [[ ("$is_abstract" -eq 0 && "$is_library" -eq 0) || "$is_deployable_library" -gt 0 ]]; then
     # Concrete contract or deployable library — pragma should be pinned
-    pragma=$(grep -oP 'pragma solidity\s+\K[^;]+' "$file" || true)
+    pragma=$(grep -oE 'pragma solidity\s+[^;]+' "$file" | sed 's/pragma solidity[[:space:]]*//' || true)
     if is_ignored "pragma" "$file"; then
       if ! echo "$pragma" | grep -qE '[<>]'; then
         printf '\033[31m ✘  stale .validate-ignore entry: pragma "%s" — check passes, remove from .validate-ignore\033[0m\n' "$file"
