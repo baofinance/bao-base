@@ -71,7 +71,7 @@ abstract contract FactoryDeployer {
 
     /// @notice Set the salt prefix - must be called before any deployment.
     /// @dev Called by scripts before startBroadcast().
-    function _setSaltPrefix(string memory saltPrefixString) internal {
+    function _setSaltPrefix(string memory saltPrefixString) internal virtual {
         _saltPrefixValue = saltPrefixString;
     }
 
@@ -176,7 +176,7 @@ abstract contract FactoryDeployer {
 
     /// @notice Look up a human-readable label for an address.
     /// @dev Uses getWellKnownAddresses() to find a label. Falls back to hex address.
-    function _addressLabel(address addr) internal view returns (string memory) {
+    function _addressLabel(address addr) internal view virtual returns (string memory) {
         WellKnownAddress[] memory known = getWellKnownAddresses();
         for (uint256 i = 0; i < known.length; i++) {
             if (known[i].addr == addr) {
