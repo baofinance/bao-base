@@ -4,10 +4,20 @@ set -o pipefail
 trap 'exit 130' INT
 
 ACTION_YML="${BAO_BASE_DIR}/.github/actions/test-foundry/action.yml"
+STATE_FILE="${PWD}/tmp/.ci-state"
 
 debug=0
-if [[ "${1:-}" == "--debug" || "${1:-}" == "-d" ]]; then
-    debug=1
+continue_mode=0
+for arg in "$@"; do
+    case "$arg" in
+        --debug|-d) debug=1 ;;
+        --continue) continue_mode=1 ;;
+        *) echo "ERROR: unknown argument: $arg" >&2; exit 1 ;;
+    esac
+done
+
+if [[ "$continue_mode" == "0" ]]; then
+    rm -f "$STATE_FILE"
 fi
 
 # Phase 1: parse action.yml — build execute[] and skipped[] lists
@@ -43,16 +53,39 @@ if [[ "$marker_seen" == "1" ]]; then
     exit 1
 fi
 
+total=${#execute[@]}
+
+# Determine starting step (0-based index)
+start_index=0
+if [[ "$continue_mode" == "1" ]]; then
+    if [[ ! -f "$STATE_FILE" ]]; then
+        echo "ERROR: no .ci-state file found — run 'yarn CI' first" >&2
+        exit 1
+    fi
+    start_index=$(cat "$STATE_FILE")
+    echo "Resuming from step $((start_index + 1)) of $total: ${execute[$start_index]}"
+fi
+
 # Phase 2: execute (or print in debug mode)
-for cmd in "${execute[@]}"; do
+for ((i = start_index; i < total; i++)); do
+    cmd="${execute[$i]}"
     echo ""
-    echo "=== $cmd ==="
+    echo "=== [$((i + 1))/$total] $cmd ==="
     if [[ "$debug" == "1" ]]; then
         echo "[debug] skipping execution"
     else
-        eval "$cmd"
+        if ! eval "$cmd"; then
+            echo "" >&2
+            echo "=== FAILED at step $((i + 1))/$total: $cmd ===" >&2
+            mkdir -p "$(dirname "$STATE_FILE")"
+            echo "$i" > "$STATE_FILE"
+            echo "Run 'yarn CI --continue' to resume from this step." >&2
+            exit 1
+        fi
     fi
 done
+
+rm -f "$STATE_FILE"
 
 if [[ ${#skipped[@]} -gt 0 ]]; then
     echo ""
