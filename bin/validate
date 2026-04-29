@@ -4,17 +4,37 @@ set -euo pipefail
 SCRIPT_ARGS=("$@")
 
 # Parse .validate-ignore: each non-comment non-blank line is "check file".
-# Supported checks: naming, pragma, storage, upgrades.
+# Supported checks: naming, pragma, storage, upgrades, bare-imports, relative-imports.
+VALID_CHECKS=(naming pragma storage upgrades bare-imports relative-imports)
 declare -A validate_ignores=()
+_ignore_parse_failed=0
 if [[ -f .validate-ignore ]]; then
+  _lineno=0
   while IFS= read -r line || [[ -n "$line" ]]; do
+    ((_lineno++)) || true
     line="${line%%#*}"
     line="${line#"${line%%[![:space:]]*}"}"
     line="${line%"${line##*[![:space:]]}"}"
     [[ -z "$line" ]] && continue
     read -r _check _file <<< "$line"
+    _valid=0
+    for _kw in "${VALID_CHECKS[@]}"; do
+      [[ "$_check" == "$_kw" ]] && _valid=1 && break
+    done
+    if [[ $_valid -eq 0 ]]; then
+      echo ".validate-ignore:${_lineno}: unknown check '${_check}' (valid: ${VALID_CHECKS[*]})" >&2
+      _ignore_parse_failed=1
+    fi
+    if [[ ! -e "$_file" ]]; then
+      echo ".validate-ignore:${_lineno}: file does not exist: '${_file}'" >&2
+      _ignore_parse_failed=1
+    fi
     validate_ignores["$_check $_file"]=1
   done <.validate-ignore
+fi
+if [[ $_ignore_parse_failed -ne 0 ]]; then
+  echo "ERROR: .validate-ignore has errors — fix them before continuing" >&2
+  exit 1
 fi
 is_ignored() { [[ -v validate_ignores["$1 $2"] ]]; }
 
