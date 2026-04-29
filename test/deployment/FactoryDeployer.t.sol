@@ -682,6 +682,9 @@ contract FactoryDeployerPersistenceTest is BaoTest {
         state.saltPrefix = "persist_test";
         state.baoFactory = address(0x123);
 
+        // Pin timestamp and chainId so the output is stable for regression comparison.
+        vm.warp(1);
+        vm.chainId(31337);
         deployer.saveState(state);
 
         // Verify file was written

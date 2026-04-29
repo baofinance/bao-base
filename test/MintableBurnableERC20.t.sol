@@ -584,7 +584,9 @@ contract TestPermit is TestLeveragedTokensSetUp {
         (uint8 v2, bytes32 r2, bytes32 s2) = vm.sign(user1Wallet.privateKey, expiredDigest);
 
         // Should revert with expired deadline
-        vm.expectRevert(abi.encodeWithSelector(ERC20PermitUpgradeable.ERC2612ExpiredSignature.selector, 0));
+        vm.expectRevert(
+            abi.encodeWithSelector(ERC20PermitUpgradeable.ERC2612ExpiredSignature.selector, expiredDeadline)
+        );
         IERC20Permit(leveragedToken).permit(user1, address(this), 1 ether, expiredDeadline, v2, r2, s2);
     }
 
