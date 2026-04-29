@@ -7,16 +7,23 @@ ACTION_YML="${BAO_BASE_DIR}/.github/actions/test-foundry/action.yml"
 STATE_FILE="${PWD}/tmp/.ci-state"
 
 debug=0
-continue_mode=0
+retry_mode=0
+skip_mode=0
 for arg in "$@"; do
     case "$arg" in
         --debug|-d) debug=1 ;;
-        --continue) continue_mode=1 ;;
+        --retry) retry_mode=1 ;;
+        --skip) skip_mode=1 ;;
         *) echo "ERROR: unknown argument: $arg" >&2; exit 1 ;;
     esac
 done
 
-if [[ "$continue_mode" == "0" ]]; then
+if [[ "$retry_mode" == "1" ]] && [[ "$skip_mode" == "1" ]]; then
+    echo "ERROR: --retry and --skip are mutually exclusive" >&2
+    exit 1
+fi
+
+if [[ "$retry_mode" == "0" ]] && [[ "$skip_mode" == "0" ]]; then
     rm -f "$STATE_FILE"
 fi
 
@@ -57,13 +64,18 @@ total=${#execute[@]}
 
 # Determine starting step (0-based index)
 start_index=0
-if [[ "$continue_mode" == "1" ]]; then
+if [[ "$retry_mode" == "1" ]] || [[ "$skip_mode" == "1" ]]; then
     if [[ ! -f "$STATE_FILE" ]]; then
         echo "ERROR: no .ci-state file found — run 'yarn CI' first" >&2
         exit 1
     fi
     start_index=$(cat "$STATE_FILE")
-    echo "Resuming from step $((start_index + 1)) of $total: ${execute[$start_index]}"
+    if [[ "$skip_mode" == "1" ]]; then
+        echo "Skipping step $((start_index + 1)) of $total: ${execute[$start_index]}"
+        start_index=$((start_index + 1))
+    else
+        echo "Retrying from step $((start_index + 1)) of $total: ${execute[$start_index]}"
+    fi
 fi
 
 # Phase 2: execute (or print in debug mode)
@@ -79,7 +91,7 @@ for ((i = start_index; i < total; i++)); do
             echo "=== FAILED at step $((i + 1))/$total: $cmd ===" >&2
             mkdir -p "$(dirname "$STATE_FILE")"
             echo "$i" > "$STATE_FILE"
-            echo "Run 'yarn CI --continue' to resume from this step." >&2
+            echo "Run 'yarn CI --retry' to retry this step, or 'yarn CI --skip' to skip it." >&2
             exit 1
         fi
     fi
