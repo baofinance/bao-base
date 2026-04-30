@@ -1,6 +1,6 @@
 version = 1
-revision = 2
-requires-python = "==3.13.*"
+revision = 3
+requires-python = "==3.13.3"
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -86,7 +86,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "slither-analyzer", specifier = ">=0.11.3" },
+    { name = "slither-analyzer", specifier = ">=0.11.5" },
     { name = "solc-select", specifier = ">=1.0.4" },
 ]
 
@@ -653,7 +653,7 @@ wheels = [
 
 [[package]]
 name = "slither-analyzer"
-version = "0.11.3"
+version = "0.11.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "crytic-compile" },
@@ -665,9 +665,9 @@ dependencies = [
     { name = "pycryptodome" },
     { name = "web3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f9/d7/327729240d0ab0291cf3e9b36f05e135676ffea796e4a74ec6b7ef7ad2dd/slither_analyzer-0.11.3.tar.gz", hash = "sha256:09953ddb89d9ab182aa5826bda6fa3da482c82b5ffa371e34b35ba766044616e", size = 584002, upload-time = "2025-04-18T12:00:26.113Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b0/e8/bf6efe567dffbab0d850bd2395a7a1db68fe1a95bfb507854be00571832c/slither_analyzer-0.11.5.tar.gz", hash = "sha256:d90af76b86bdf7ced56fc4c8eea8792cde1ec2c375372d5e70298c2ff998d5e1", size = 15419605, upload-time = "2026-01-16T19:47:08.362Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1a/d4/3be5fb139af3a386886169bd00732c5c01d48f3708c1d6c74b2f8e5de7fe/slither_analyzer-0.11.3-py3-none-any.whl", hash = "sha256:16bf8208a6ec68fc405c212be2a01308ea713d4a6113d355d5325d03cb25d315", size = 817977, upload-time = "2025-04-18T12:00:24.516Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/70/37c117f059f6358e451aefc7ca55298aacf2ceb131f714e20babf1432445/slither_analyzer-0.11.5-py3-none-any.whl", hash = "sha256:3c7cb43651464543ed9152ed2f383dad4e15220b173754878ba6b291698be977", size = 752117, upload-time = "2026-01-16T19:47:06.518Z" },
 ]
 
 [[package]]
