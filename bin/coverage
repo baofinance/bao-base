@@ -9,7 +9,6 @@ export FOUNDRY_CACHE_PATH=cache/_coverage
 
 # signal to Solidity code that we're in coverage mode
 export BAO_COVERAGE_RUN=true
-export FOUNDRY_PROFILE=coverage
 
 # temp deployment scripts dir
 mkdir -p tmp
@@ -17,5 +16,5 @@ export BAO_DEPLOYMENT_LOGS_ROOT=$(mktemp -d -p tmp)
 trap 'rm -rf "${BAO_DEPLOYMENT_LOGS_ROOT}"' EXIT
 
 # run the coverage
-forge coverage --out ${FOUNDRY_OUT} --nmp 'script/**/*.t.sol' --report summary --report lcov "$@"
+forge coverage --out ${FOUNDRY_OUT} --nmp 'script/**/*.t.sol' --report summary --report lcov --deny never "$@"
 { set +x; } 2>/dev/null

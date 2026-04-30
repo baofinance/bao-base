@@ -44,18 +44,6 @@ ignored_warnings_from = [
   "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/utils/StorageSlot.sol",
 ]
 
-[lint]
-exclude_lints = [
-  "mixed-case-function",
-  "mixed-case-variable",
-  "screaming-snake-case-constant",
-]
-severity = ["gas"]
-
-# coverage generates instrumentation warnings, so disable deny for those
-[profile.coverage]
-deny = "never"
-
 gas_reports_ignore = [
   "ERC20Mock",
   "ERC1967Proxy",
@@ -71,6 +59,14 @@ gas_reports_ignore = [
   "BaoOwnableAdapter",
   "MockImplementationWithState",
 ]
+
+[lint]
+exclude_lints = [
+  "mixed-case-function",
+  "mixed-case-variable",
+  "screaming-snake-case-constant",
+]
+severity = ["gas"]
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_KEY}" }
