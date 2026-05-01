@@ -92,6 +92,9 @@ contracts=$(validate_upgrades | grep -o -E '[^[:space:]]+.sol:[A-Za-z_][A-Za-z0-
 # Allowed storage slot: OpenZeppelin Initializable (ERC-7201)
 # ALLOWED_OZ_INIT_SLOT=$(cast index-erc7201 openzeppelin.storage.Initializable)
 ALLOWED_OZ_INIT_SLOT="f0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00"
+# Solady UpgradeableBeacon implementation slot (assembly-only; not in forge storage-layout)
+# _UPGRADEABLE_BEACON_IMPLEMENTATION_SLOT = 0x911c5a209f08d5ec5e
+BEACON_IMPL_SLOT="911c5a209f08d5ec5e"
 
 failed=0
 for contract in ${contracts}; do
@@ -109,9 +112,18 @@ for contract in ${contracts}; do
   # check for storage slots not in a namespace (i.e. root slots)
   ################################################################
   root_slots=$(forge inspect --out ${FOUNDRY_OUT} --json $contract storage-layout | jq '.storage | length')
-  if [[ "${root_slots}" != "" && "${root_slots}" -gt 0 ]]; then
-    echo "ERROR: Root slots for ${contract}: ${root_slots}\n$(forge inspect $contract storage-layout)"
-    this_failed=1
+  if is_ignored "storage" "${contract%%:*}"; then
+    if [[ "${root_slots}" != "" && "${root_slots}" -eq 0 ]]; then
+      printf '\033[31m ✘  stale .validate-ignore entry: storage "%s" — check passes, remove from .validate-ignore\033[0m\n' "${contract%%:*}"
+      this_failed=1
+    else
+      printf '\033[2m ⚠  %s: storage check ignored via .validate-ignore\033[0m\n' "${contract}"
+    fi
+  else
+    if [[ "${root_slots}" != "" && "${root_slots}" -gt 0 ]]; then
+      echo "ERROR: Root slots for ${contract}: ${root_slots}\n$(forge inspect $contract storage-layout)"
+      this_failed=1
+    fi
   fi
 
   ################################################################
@@ -123,63 +135,74 @@ for contract in ${contracts}; do
   init=$(forge inspect --out ${FOUNDRY_OUT} "$contract" bytecode | tr -d '\n')
   runtime=$(forge inspect --out ${FOUNDRY_OUT} "$contract" deployedBytecode | tr -d '\n')
 
-  # Mandatory: contracts must have constructor code and call _disableInitializers()
-  if [ "$init" = "0x" ] || [ "$runtime" = "0x" ]; then
-    echo "ERROR: Constructor does not call _disableInitializers(); (no creation/runtime bytecode) in $contract"
-    this_failed=1
-  else
-    # Check for Initializable slot in FULL creation bytecode (before trimming)
-    # The slot may be in the immutable data section after the runtime
-    has_init_slot=0
-    if echo "$init" | grep -q "${ALLOWED_OZ_INIT_SLOT}"; then
-      has_init_slot=1
-    fi
+  # Auto-detect beacon contracts: runtime contains the Solady UpgradeableBeacon implementation
+  # slot. Beacons are not UUPS proxies — their constructor writes to their own slot, not to
+  # the OZ Initializable ERC-7201 slot.
+  is_beacon=0
+  if echo "$runtime" | grep -q "${BEACON_IMPL_SLOT}"; then
+    is_beacon=1
+  fi
 
-    # Isolate constructor (init) by trimming runtime tail
-    # pos=$(echo -n "$init" | grep -aob -- "${runtime#0x}" | tail -n1 | cut -d: -f1 || true) # OOM on macos
-    pos=$(node -e "const a=(process.argv[1]||'').toLowerCase(); const b=(process.argv[2]||'').replace(/^0x/,'').toLowerCase(); const i=a.lastIndexOf(b); if(i>=0) process.stdout.write(String(i));" "$init" "$runtime" 2>/dev/null || true)
-    if [ -n "$pos" ]; then
-      init="${init:0:$pos}"
+  if is_ignored "upgrades" "${contract%%:*}"; then
+    if [ "$is_beacon" -eq 1 ]; then
+      printf '\033[31m ✘  stale .validate-ignore entry: upgrades "%s" — beacon auto-detected, remove from .validate-ignore\033[0m\n' "${contract%%:*}"
+      this_failed=1
     else
-      echo "WARNING: Couldn't locate runtime inside creation for $contract; scanning full creation code"
+      printf '\033[2m ⚠  %s: upgrades check ignored via .validate-ignore\033[0m\n' "${contract}"
     fi
+  else
 
-    # Count SSTOREs in init
-    disasm=$(cast disassemble "$init")
-    sstore_count=$(echo "$disasm" | grep -ci '\bSSTORE\b' || true)
-    sload_count=$(echo "$disasm" | grep -ci '\bSLOAD\b' || true)
+    # Mandatory: contracts must have constructor code
+    if [ "$init" = "0x" ] || [ "$runtime" = "0x" ]; then
+      echo "ERROR: Constructor does not call _disableInitializers(); (no creation/runtime bytecode) in $contract"
+      this_failed=1
+    else
+      # For UUPS impls: check OZ Initializable slot in FULL creation bytecode before trimming.
+      # The slot may appear in the immutable data section appended after the runtime.
+      has_init_slot=0
+      if [ "$is_beacon" -eq 0 ] && echo "$init" | grep -q "${ALLOWED_OZ_INIT_SLOT}"; then
+        has_init_slot=1
+      fi
 
-    # Require exactly one SSTORE (the _disableInitializers write)
-    if [ "${sstore_count:-0}" -eq 0 ]; then
-      echo "ERROR: Constructor does not call _disableInitializers() (no SSTORE) in $contract"
-      this_failed=1
-    elif [ "${sstore_count:-0}" -gt 1 ]; then
-      echo "ERROR: Constructor performs multiple SSTOREs in $contract (only Initializable write allowed)"
-      this_failed=1
+      # Isolate constructor (init) by trimming runtime tail
+      # pos=$(echo -n "$init" | grep -aob -- "${runtime#0x}" | tail -n1 | cut -d: -f1 || true) # OOM on macos
+      pos=$(node -e "const a=(process.argv[1]||'').toLowerCase(); const b=(process.argv[2]||'').replace(/^0x/,'').toLowerCase(); const i=a.lastIndexOf(b); if(i>=0) process.stdout.write(String(i));" "$init" "$runtime" 2>/dev/null || true)
+      if [ -n "$pos" ]; then
+        init="${init:0:$pos}"
+      else
+        echo "WARNING: Couldn't locate runtime inside creation for $contract; scanning full creation code"
+      fi
+
+      # Count SSTOREs in constructor
+      disasm=$(cast disassemble "$init")
+      sstore_count=$(echo "$disasm" | grep -ci '\bSSTORE\b' || true)
+      sload_count=$(echo "$disasm" | grep -ci '\bSLOAD\b' || true)
+
+      if [ "$is_beacon" -eq 1 ]; then
+        # Beacon: constructor must write exactly once (to the implementation slot).
+        # No OZ Initializable slot required.
+        if [ "${sstore_count:-0}" -eq 0 ]; then
+          echo "ERROR: Beacon constructor does not write implementation slot (no SSTORE) in $contract"
+          this_failed=1
+        elif [ "${sstore_count:-0}" -gt 1 ]; then
+          echo "ERROR: Beacon constructor performs multiple SSTOREs in $contract"
+          this_failed=1
+        fi
+      else
+        # UUPS proxy implementation: must SSTORE exactly once, to the OZ Initializable slot.
+        if [ "${sstore_count:-0}" -eq 0 ]; then
+          echo "ERROR: Constructor does not call _disableInitializers() (no SSTORE) in $contract"
+          this_failed=1
+        elif [ "${sstore_count:-0}" -gt 1 ]; then
+          echo "ERROR: Constructor performs multiple SSTOREs in $contract (only Initializable write allowed)"
+          this_failed=1
+        fi
+        if [ "$has_init_slot" -eq 0 ]; then
+          echo "ERROR: Constructor does not reference Initializable slot (erc7201) in $contract"
+          this_failed=1
+        fi
+      fi
     fi
-
-    # echo $init
-    # exit 0
-    # Require the Initializable ERC-7201 slot bytes to appear in creation bytecode
-    if [ "$has_init_slot" -eq 0 ]; then
-      echo "ERROR: Constructor does not reference Initializable slot (erc7201) in $contract"
-      this_failed=1
-    fi
-
-    # Enforce: exactly one SSTORE, and it must target the Initializable slot
-    # if ! echo "$disasm" | awk -v slot="${ALLOWED_OZ_INIT_SLOT}" '
-    #     BEGIN { pushline=0; total=0; toslot=0; bad=0; window=256 }
-    #     /PUSH[0-9]+/ { if (index($0, slot) > 0) { pushline=NR } next }
-    #     /SSTORE\b/   {
-    #         total++
-    #         if (pushline > 0 && (NR - pushline) <= window) { toslot++ } else { bad=1 }
-    #         next
-    #     }
-    #     END { exit(bad || total != 1 || toslot != 1 ? 1 : 0) }
-    # '; then
-    #     warn "Constructor does not perform exactly one SSTORE to Initializable in $contract"
-    #     this_failed=1
-    # fi
   fi
 
   if [[ $this_failed -ne 0 ]]; then
