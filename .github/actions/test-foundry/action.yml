@@ -45,7 +45,6 @@ runs:
       uses: foundry-rs/foundry-toolchain@v1
       with:
         version: ${{ inputs.foundry }}
-        github-token: ${{ github.token }}
       id: foundry-install
 
     - shell: bash
