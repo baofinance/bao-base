@@ -59,11 +59,17 @@ runs:
         cd ${{ inputs.cwd }}
         [[ -f pyproject.toml ]] && uv sync || echo "No pyproject.toml found, skipping python dependencies installation"
 
+    - name: Install node
+      uses: actions/setup-node@v6
+      with:
+        node-version: 25
+
     - name: Install node project dependencies
       shell: bash
       run: |
         # install node project dependencies
         cd ${{ inputs.cwd }}
+        corepack enable
         yarn
 
     - name: Check audit and deployed code
