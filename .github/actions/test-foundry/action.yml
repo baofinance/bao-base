@@ -41,10 +41,29 @@ runs:
         curl -LsSf https://astral.sh/uv/install.sh | bash
       id: uv-install
 
+    - name: Resolve latest nightly tag
+      id: nightly
+      if: inputs.foundry == 'nightly'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        # foundryup's own "latest nightly" lookup is unauthenticated and gets
+        # rate-limited (esp. on macOS shared runner IPs), so resolve the concrete
+        # tag here with auth and hand foundryup a fixed tag instead.
+        tag=$(gh api repos/foundry-rs/foundry/releases \
+          --jq 'map(select(.tag_name | startswith("nightly")))[0].tag_name')
+        if [[ -z "$tag" ]]; then
+          echo "Could not resolve a nightly release tag" >&2
+          exit 1
+        fi
+        echo "Resolved nightly -> $tag"
+        echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
     - name: Install Foundry
       uses: foundry-rs/foundry-toolchain@v1
       with:
-        version: ${{ inputs.foundry }}
+        version: ${{ steps.nightly.outputs.tag || inputs.foundry }}
       id: foundry-install
 
     - shell: bash
