@@ -1,5 +1,19 @@
 # CLAUDE.md
 
+## Working mode
+
+Work in small, explicit batches with a checkpoint between each batch. After
+completing a batch of changes, stop and report what was done — do not continue
+to the next batch without the user confirming. Use the plan file in
+`~/.claude/plans/` to track multi-session work; update it after each completed
+step and commit the change.
+
+Never end a planning pass with "is the plan good to go?" and then immediately
+execute on confirmation. Planning and execution are separate sessions. After
+presenting or updating a plan, stop. The user will explicitly say when to start
+executing a batch.
+
+## Other rules
 - use forge install/remove for managing submodule dependencies
 - Never use bare `"src/..."`, `"script/..."`, or `"test/..."` import paths in any Solidity file — not in contracts, scripts, or tests. Always use the remapped prefix for the repo the file lives in (e.g. `"@harbor/..."`, `"@harbor-script/..."`, `"@harbor-test/..."` for harbor files; `"@bao/..."`, `"@bao-script/..."`, `"@bao-test/..."` for bao-base files). Bare paths create duplicate type identities when files are consumed as a library by another repo, breaking compilation. The only exception is deployed contract source files that cannot be modified.
 - In tests and scripts, use interface types (e.g. `IStabilityPool_v3(address)`) not concrete contract types (e.g. `StabilityPool_v3(address)`) when calling functions. This verifies the interface matches the implementation. Concrete types are only for initialisation (constructor, deploy).
