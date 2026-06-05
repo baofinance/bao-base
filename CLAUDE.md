@@ -13,6 +13,17 @@ execute on confirmation. Planning and execution are separate sessions. After
 presenting or updating a plan, stop. The user will explicitly say when to start
 executing a batch.
 
+## Git — the user performs all git operations
+
+Do not run git commands that change repository state in the project repositories:
+no `add`/staging, `commit`, `rm`, `mv`, `restore`, `checkout`, `reset`, `stash`,
+`revert`, `branch`, `merge`, `rebase`, `cherry-pick`, `push`, or `tag`. When a git
+action is needed (including cleaning up a file you created by mistake), propose the
+exact command(s) and let the user run them. Read-only inspection (`git status`,
+`git log`, `git diff`, `git show`) is fine. The one exception is plan files under
+`~/.claude/plans/`, which is a separate repo — continue to commit those yourself as
+described in Working mode.
+
 ## Other rules
 - use forge install/remove for managing submodule dependencies
 - Never use bare `"src/..."`, `"script/..."`, or `"test/..."` import paths in any Solidity file — not in contracts, scripts, or tests. Always use the remapped prefix for the repo the file lives in (e.g. `"@harbor/..."`, `"@harbor-script/..."`, `"@harbor-test/..."` for harbor files; `"@bao/..."`, `"@bao-script/..."`, `"@bao-test/..."` for bao-base files). Bare paths create duplicate type identities when files are consumed as a library by another repo, breaking compilation. The only exception is deployed contract source files that cannot be modified.
