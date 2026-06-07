@@ -172,7 +172,7 @@ abstract contract Deployer is FactoryDeployer {
             txArray = string.concat(
                 txArray,
                 '{"to":"',
-                _transactions[i].target.toHexString(),
+                _transactions[i].target.toHexStringChecksummed(),
                 '","value":"0","data":"',
                 _vm.toString(_transactions[i].data),
                 '"}'
