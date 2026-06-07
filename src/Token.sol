@@ -5,9 +5,6 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-
-import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 
 /*
 function totalSupply() external view returns (uint256);
@@ -29,7 +26,6 @@ library Token {
     error ZeroAddress();
     error NotContractAddress(address addr);
     error NotERC20Token(address token);
-    error NotUUPSUpgradeable(address addr);
 
     function allOf(address account, address token, uint256 tokenIn) internal view returns (uint256 actualIn) {
         if (tokenIn == type(uint256).max) {
@@ -82,24 +78,6 @@ library Token {
             !_hasNonMutatingFunction(addr, abi.encodeWithSelector(IERC20.balanceOf.selector, address(this)))
         ) {
             revert NotERC20Token(addr);
-        }
-    }
-
-    function ensureUUPSUpgradeable(address addr) internal view {
-        ensureContract(addr);
-        // Must be ownable (Harbor owner()) ...
-        if (!_hasNonMutatingFunction(addr, abi.encodeWithSelector(IHarborOwnable.owner.selector))) {
-            revert NotUUPSUpgradeable(addr);
-        }
-        // ... and report the ERC-1967 implementation slot as its proxiable UUID. The call is
-        // guarded: a contract without proxiableUUID() reverts, which must surface as the clean
-        // NotUUPSUpgradeable error rather than an opaque low-level revert.
-        try UUPSUpgradeable(addr).proxiableUUID() returns (bytes32 slot) {
-            if (slot != bytes32(0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc)) {
-                revert NotUUPSUpgradeable(addr);
-            }
-        } catch {
-            revert NotUUPSUpgradeable(addr);
         }
     }
 

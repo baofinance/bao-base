@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Token} from "@bao/Token.sol";
+import {TokenUUPS} from "@bao/TokenUUPS.sol";
 
 // Mock ERC20 token for testing
 contract MockERC20 is ERC20 {
@@ -97,7 +98,7 @@ contract TokenLibraryWrapper {
      * @dev External wrapper for Token.ensureUUPSUpgradeable
      */
     function ensureUUPSUpgradeable(address addr) external view {
-        Token.ensureUUPSUpgradeable(addr);
+        TokenUUPS.ensureUUPSUpgradeable(addr);
     }
 
     /**
@@ -296,14 +297,14 @@ contract TokenLibraryTest is Test {
 
     function test_ensureUUPSUpgradeable_wrongUUID_reverts() public {
         address m = address(new MockWrongUUID());
-        vm.expectRevert(abi.encodeWithSelector(Token.NotUUPSUpgradeable.selector, m));
+        vm.expectRevert(abi.encodeWithSelector(TokenUUPS.NotUUPSUpgradeable.selector, m));
         tokenLibExt.ensureUUPSUpgradeable(m);
     }
 
     function test_ensureUUPSUpgradeable_noOwner_reverts() public {
         // Missing owner() — caught before the proxiableUUID() check short-circuits.
         address m = address(new MockNoOwner());
-        vm.expectRevert(abi.encodeWithSelector(Token.NotUUPSUpgradeable.selector, m));
+        vm.expectRevert(abi.encodeWithSelector(TokenUUPS.NotUUPSUpgradeable.selector, m));
         tokenLibExt.ensureUUPSUpgradeable(m);
     }
 
@@ -322,7 +323,7 @@ contract TokenLibraryTest is Test {
     /// proxiableUUID() call reverts with a low-level error instead.)
     function test_ensureUUPSUpgradeable_ownerButNoUUID_reverts() public {
         address m = address(new MockOwnerNoUUID());
-        vm.expectRevert(abi.encodeWithSelector(Token.NotUUPSUpgradeable.selector, m));
+        vm.expectRevert(abi.encodeWithSelector(TokenUUPS.NotUUPSUpgradeable.selector, m));
         tokenLibExt.ensureUUPSUpgradeable(m);
     }
 }
