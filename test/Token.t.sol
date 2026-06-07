@@ -94,6 +94,13 @@ contract TokenLibraryWrapper {
     }
 
     /**
+     * @dev External wrapper for Token.ensureUUPSUpgradeable
+     */
+    function ensureUUPSUpgradeable(address addr) external view {
+        Token.ensureUUPSUpgradeable(addr);
+    }
+
+    /**
      * @dev External wrapper for Token.hasNonMutatingParameterlessFunction
      */
     function hasNonMutatingParameterlessFunction(
@@ -101,6 +108,46 @@ contract TokenLibraryWrapper {
         string memory funcName
     ) external view returns (bool) {
         return Token.hasNonMutatingParameterlessFunction(contractAddr, funcName);
+    }
+}
+
+// ── UUPS-shaped mocks for ensureUUPSUpgradeable ──────────────────────────────
+// The ERC-1967 implementation slot that a genuine UUPS proxiableUUID() must return.
+bytes32 constant ERC1967_IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+
+// Valid: has owner() and the correct ERC-1967 proxiableUUID.
+contract MockValidUUPS {
+    function owner() external pure returns (address) {
+        return address(0xBEEF);
+    }
+
+    function proxiableUUID() external pure returns (bytes32) {
+        return ERC1967_IMPL_SLOT;
+    }
+}
+
+// Has owner() but reports a wrong proxiable slot (e.g. a beacon/other UUID).
+contract MockWrongUUID {
+    function owner() external pure returns (address) {
+        return address(0xBEEF);
+    }
+
+    function proxiableUUID() external pure returns (bytes32) {
+        return bytes32(uint256(1));
+    }
+}
+
+// Correct UUID but no owner() — not (Harbor-)ownable.
+contract MockNoOwner {
+    function proxiableUUID() external pure returns (bytes32) {
+        return ERC1967_IMPL_SLOT;
+    }
+}
+
+// Has owner() but no proxiableUUID() at all — the proxiableUUID() call reverts.
+contract MockOwnerNoUUID {
+    function owner() external pure returns (address) {
+        return address(0xBEEF);
     }
 }
 
@@ -238,5 +285,44 @@ contract TokenLibraryTest is Test {
         // Functions with parameters will revert when called without parameters
         bool exists = tokenLibExt.hasNonMutatingParameterlessFunction(address(testFunctions), "withParamsNoReturn");
         assertFalse(exists, "Should return false for function with parameters");
+    }
+
+    // --- ensureUUPSUpgradeable tests ---
+
+    function test_ensureUUPSUpgradeable_valid() public {
+        // owner() + proxiableUUID() == ERC1967 slot → accepted (no revert).
+        tokenLibExt.ensureUUPSUpgradeable(address(new MockValidUUPS()));
+    }
+
+    function test_ensureUUPSUpgradeable_wrongUUID_reverts() public {
+        address m = address(new MockWrongUUID());
+        vm.expectRevert(abi.encodeWithSelector(Token.NotUUPSUpgradeable.selector, m));
+        tokenLibExt.ensureUUPSUpgradeable(m);
+    }
+
+    function test_ensureUUPSUpgradeable_noOwner_reverts() public {
+        // Missing owner() — caught before the proxiableUUID() check short-circuits.
+        address m = address(new MockNoOwner());
+        vm.expectRevert(abi.encodeWithSelector(Token.NotUUPSUpgradeable.selector, m));
+        tokenLibExt.ensureUUPSUpgradeable(m);
+    }
+
+    function test_ensureUUPSUpgradeable_nonContract_reverts() public {
+        vm.expectRevert(abi.encodeWithSelector(Token.NotContractAddress.selector, NON_CONTRACT_ADDRESS));
+        tokenLibExt.ensureUUPSUpgradeable(NON_CONTRACT_ADDRESS);
+    }
+
+    function test_ensureUUPSUpgradeable_zeroAddress_reverts() public {
+        vm.expectRevert(Token.ZeroAddress.selector);
+        tokenLibExt.ensureUUPSUpgradeable(ZERO_ADDRESS);
+    }
+
+    /// @dev Intended behaviour: a contract with owner() but no proxiableUUID() is NOT UUPS,
+    /// so it should revert with NotUUPSUpgradeable. (See note: currently the unguarded
+    /// proxiableUUID() call reverts with a low-level error instead.)
+    function test_ensureUUPSUpgradeable_ownerButNoUUID_reverts() public {
+        address m = address(new MockOwnerNoUUID());
+        vm.expectRevert(abi.encodeWithSelector(Token.NotUUPSUpgradeable.selector, m));
+        tokenLibExt.ensureUUPSUpgradeable(m);
     }
 }
