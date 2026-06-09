@@ -41,6 +41,36 @@ runs:
         curl -LsSf https://astral.sh/uv/install.sh | bash
       id: uv-install
 
+    - name: Resolve latest nightly tag
+      id: nightly
+      if: inputs.foundry == 'nightly'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        # foundryup's own "latest nightly" lookup is unauthenticated and gets
+        # rate-limited (esp. on macOS shared runner IPs), so resolve the concrete
+        # tag here with auth and hand foundryup a fixed tag instead.
+        tag=$(gh api repos/foundry-rs/foundry/releases \
+          --jq 'map(select(.tag_name | startswith("nightly")))[0].tag_name')
+        if [[ -z "$tag" ]]; then
+          echo "Could not resolve a nightly release tag" >&2
+          exit 1
+        fi
+        echo "Resolved nightly -> $tag"
+        echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+    - name: Install Foundry
+      uses: foundry-rs/foundry-toolchain@v1
+      with:
+        version: ${{ steps.nightly.outputs.tag || inputs.foundry }}
+      id: foundry-install
+
+    - shell: bash
+      run: |
+        # foundry version
+        forge --version
+
     - name: Install python project dependencies (if any)
       shell: bash
       run: |
@@ -48,11 +78,17 @@ runs:
         cd ${{ inputs.cwd }}
         [[ -f pyproject.toml ]] && uv sync || echo "No pyproject.toml found, skipping python dependencies installation"
 
+    - name: Install node
+      uses: actions/setup-node@v6
+      with:
+        node-version: 25
+
     - name: Install node project dependencies
       shell: bash
       run: |
         # install node project dependencies
         cd ${{ inputs.cwd }}
+        corepack enable
         yarn
 
     - name: Install ShellCheck
@@ -87,15 +123,6 @@ runs:
         else
           echo "Warning: ShellCheck not available in PATH"
         fi
-
-    # we install foundry because some scripts check for it's existence
-    - name: Install Foundry
-      uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: ${{ inputs.foundry }}
-    - shell: bash
-      run: |
-        forge --version
 
     - name: Install project dependencies
       shell: bash
