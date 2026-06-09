@@ -28,6 +28,68 @@ them. Read-only inspection (`git status`, `git log`, `git diff`, `git show`) is 
 After updating a plan, commit the change yourself (as in Working mode). Do this
 without being asked; it is an obligation, not a tolerated exception.
 
+## Design principles
+
+### Fix or remove files that cause errors or warnings
+Any file — including legacy config, stale declarations, or superseded build
+setup — that causes a compiler error or warning must be fixed or deleted, even
+if it is "not the file we're working on". If a file is no longer needed, delete
+it; if it needs updating, update it. The codebase should be clean on every build.
+
+### Do it right from the start
+Implement code in its intended final location — the right package, file, and
+abstraction level — even if it takes longer. Do not put code in a temporary
+place intending to move it later: "do it later" defers integration problems
+rather than preventing them, and accrues structural debt faster than it is paid
+down. If the correct final home isn't clear, stop and resolve that before writing
+code.
+
+### One code path for default and non-default cases
+Do not write one piece of code to establish a default value and a separate piece
+to handle switching to a non-default one. Both should flow through the same path
+— a single handler/initialiser that runs for all values including the initial
+one. Relatedly, a default value should appear literally once (in the composing
+expression), never restated at each early-return branch — duplicated defaults
+drift apart silently.
+
+### Catch only the specific error you expect
+Only catch the specific, documented condition you expect, and only when there is
+a clear reason it is not a defect (e.g. an optional resource that legitimately
+may not exist — catch only its "absent" signal). Every other error must propagate
+unchanged. Never use a broad catch that swallows unexpected failures; a silent
+fallback makes a broken system look like a working one. (Extends the
+error-handling rule under "Other rules".)
+
+### Error messages report facts, not assumptions
+An error message must state what was observed, not what the writer guesses caused
+it. A check knows that a specific thing failed; it does not know whether the cause
+is stale state, a hand-edit, a partial write, corruption, or something unforeseen.
+Speculating bakes today's best guess into a string that outlives it. Report the
+facts (which item, which field, which value) and let cause analysis happen at read
+time. (Complements the diagnosis rule under "Other rules": no "likely"/"probably"
+without evidence.)
+
+### Stabilise the error path before fixing the cause
+When broken code is discovered, fix the error handling first, then the root cause
+— as two separate steps. (1) Stabilise: make the failure visible and contained —
+surface it, stop retry loops, ensure one failure doesn't cascade. Confirm the
+error path works before continuing. (2) Fix the root cause. A system that fails
+loudly once is far easier to debug and verify than one that fails silently or
+repeatedly.
+
+### Red-green: confirm the test fails before you make it pass
+Before implementing any change in behaviour — a bugfix, a new feature, or an
+algorithm change — write a test that asserts the intended behaviour and run it
+to confirm it *fails* for the right reason first. Then implement the change and
+run the test again to confirm it passes. Confirming red first proves the test
+actually exercises the change; a test that was green before you touched anything
+proves nothing. (The bugfix-specific form of this is under "Other rules".)
+
+### Questions are not instructions
+When a message ends with "?", it is a question to answer in the reply — not an
+instruction to act on. Answer it before doing anything else, and do not treat it
+as a directive to change code or behaviour.
+
 ## Other rules
 - use forge install/remove for managing submodule dependencies
 - Never use bare `"src/..."`, `"script/..."`, or `"test/..."` import paths in any Solidity file — not in contracts, scripts, or tests. Always use the remapped prefix for the repo the file lives in (e.g. `"@harbor/..."`, `"@harbor-script/..."`, `"@harbor-test/..."` for harbor files; `"@bao/..."`, `"@bao-script/..."`, `"@bao-test/..."` for bao-base files). Bare paths create duplicate type identities when files are consumed as a library by another repo, breaking compilation. The only exception is deployed contract source files that cannot be modified.
@@ -51,8 +113,11 @@ without being asked; it is an obligation, not a tolerated exception.
 - When adding functions to interfaces in an inheritance hierarchy, avoid creating diamond inheritance. If a function is defined on both an interface and a concrete base, the derived contract must override to resolve the ambiguity. Instead, put the function on only one path — either a new versioned interface (e.g. `IMultipleRewardDistributor_v3`) or directly on the implementation. Prefer eliminating the diamond over resolving it with overrides.
 - In tests, never create and then remove files or directories — forge runs tests in parallel so you can create a race condition. Write test output to `./results` and leave it there.
 - Tests verify *what code is supposed to do*, not merely that lines execute. When asked to improve testing, think: "what is the intended behaviour?" — then construct scenarios that demonstrate the code fulfils that intent. If unsure what a function is supposed to do, ask — the specification is not in the code. Avoid writing tests that only exercise code paths to increase coverage metrics; such tests reinforce any misunderstanding in the implementation and give false confidence. Always add a comment at the top of a test to say what functionality it is testing: keep it concise.
+- Do not write comments that reference ephemeral or planning artifacts: plan-section identifiers (e.g. `§N`), red/green test-phase labels ("Red:", "Green:"), implementation states ("buggy:", "TODO after X is merged"), or other conditions that become stale once the work is complete. The test comment describes intended behaviour that is always true; anything else belongs in the PR or commit message.
 - Before implementing any new contract or significant feature, add a **test plan** to the plan file. List each test by function name, state the single behaviour it verifies, and say whether it is a unit test (mock-based, fast) or a fork test (real mainnet state). The section is not complete until all tests in its plan are written and `forge test --match-path test/TheContract.t.sol` confirms they all pass.
 - In tests, prefer `console2.log` over `emit` for debug logging — it shows in `forge test -vvv` output without cluttering the event log. Use the `Fmt` library with `string.concat` for readable formatted messages.
+- Unimplemented functions must `revert`, not return a plausible stub value. A function that silently returns 0, false, or an empty array masquerades as implemented and lets tests pass vacuously. Use a descriptive custom error (e.g. `error NotImplemented()`) or a plain `revert("name: not implemented")` so the unimplemented state is immediately visible.
+- In tests, prefer exact assertions (`assertEq`) over approximate ones. When the exact value can be computed or read from storage (e.g. a snapshot value read back from the contract), use it directly — never substitute an approximation when the exact value is available. When approximation is genuinely required (e.g. rounding from integer division in an external formula), derive the tolerance analytically — identify the maximum possible error from first principles and use `assertApproxEqAbs` with that specific bound, accompanied by a comment explaining the derivation. Use `BaoTest.assertApprox(actual, expected, absTolerance, relTolerance)` (pytest-style: passes when within either bound) when both an absolute floor and a relative component are independently meaningful — e.g. when the expected value can be zero but a small rounding constant is also possible. Never use a percentage-based tolerance like `0.01e18` as a blanket fallback.
 - Prefer immutable constructor arguments over configurable storage for addresses of related contracts deployed at predictable proxy addresses. The related contract can be upgraded via its own proxy without the consuming contract needing a setter. This saves bytecode (no setter function, no zero-address checks, no storage reads) and gas. Only use storage for addresses that genuinely need to change independently of contract upgrades.
   - **Exception — beacon proxies:** immutables are stored in the *implementation* bytecode and are therefore shared across all proxies that point to the same beacon. Per-proxy state (e.g. the `vault` address that differs for each `HarborYieldEntry_v1` instance) must live in per-proxy storage (ERC-7201 slot or plain storage). Use immutables only for values that are genuinely the same for every proxy instance (e.g. the beacon address itself, baked into the factory).
 - Never modify a deployed contract's source file. Check `deployments/*.state.json` for deployed contracts. To add functionality: inherit from the deployed version (e.g. `Minter_v3 is Minter_v2`) if the changes are additive, or clone and modify if the inheritance chain doesn't work. The proxy upgrade mechanism allows swapping implementations, but the old source must remain unchanged for audit traceability.
