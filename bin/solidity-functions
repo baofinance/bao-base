@@ -1,0 +1,255 @@
+#!/usr/bin/env python3
+"""List the functions in a Solidity file, sized by source-line span or actual bytecode.
+
+Use this when a contract is over the EIP-170 runtime limit and you need to find
+relocation candidates (e.g. convenience functions to move to a peripheral).
+
+Two sizing modes:
+  (default) source-line span — a quick heuristic; comments/blank lines inflate it and
+            the optimiser means equal spans need not be equal bytecode.
+  --bytecode  ACTUAL deployed-bytecode bytes attributed per function, decoded from the
+            forge artifact's `deployedBytecode` + `sourceMap`. Each opcode's bytes are
+            charged to the function whose source range contains the instruction. Bytes
+            from base contracts / libraries / the dispatcher are reported as overhead.
+            This is exact attribution (sums to the EIP-170 figure), not a heuristic.
+
+Usage:
+  solidity-functions <file.sol> [--bytecode] [--contract Name] [--all] [--min-lines N]
+
+  --bytecode     attribute real deployed-bytecode bytes (needs `forge build` done first)
+  --contract X   restrict to functions in `contract/library/interface X`; also selects
+                 the artifact for --bytecode. Defaults to the file's stem (Foo.sol → Foo),
+                 so other contracts/libraries in the same file are hidden unless named here.
+  --all          include internal/private/declaration-only functions
+  --min-lines N  hide functions whose body span is below N lines
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from pathlib import Path
+
+
+def blank_comments_and_strings(src: str) -> str:
+    """src with comments and string/char literals blanked (offsets + newlines preserved)."""
+    out = []
+    i, n = 0, len(src)
+    state = "code"
+    while i < n:
+        c = src[i]
+        nxt = src[i + 1] if i + 1 < n else ""
+        if state == "code":
+            if c == "/" and nxt == "/":
+                state = "line_comment"; out.append("  "); i += 2; continue
+            if c == "/" and nxt == "*":
+                state = "block_comment"; out.append("  "); i += 2; continue
+            if c == '"':
+                state = "string"; out.append(" "); i += 1; continue
+            if c == "'":
+                state = "char"; out.append(" "); i += 1; continue
+            out.append(c); i += 1; continue
+        if state == "line_comment":
+            out.append("\n" if c == "\n" else " "); i += 1
+            if c == "\n":
+                state = "code"
+            continue
+        if state == "block_comment":
+            if c == "*" and nxt == "/":
+                state = "code"; out.append("  "); i += 2; continue
+            out.append("\n" if c == "\n" else " "); i += 1; continue
+        if c == "\\":
+            out.append("  "); i += 2; continue
+        if (state == "string" and c == '"') or (state == "char" and c == "'"):
+            state = "code"; out.append(" "); i += 1; continue
+        out.append("\n" if c == "\n" else " "); i += 1; continue
+    return "".join(out)
+
+
+def line_of(offset: int, line_starts: list[int]) -> int:
+    lo, hi = 0, len(line_starts) - 1
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if line_starts[mid] <= offset:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo + 1
+
+
+def find_functions(src: str):
+    """Return list of dicts: name, vis, is_decl, scope, start_off, end_off, start_line, end_line."""
+    code = blank_comments_and_strings(src)
+    line_starts = [0]
+    for idx, ch in enumerate(src):
+        if ch == "\n":
+            line_starts.append(idx + 1)
+    scope_re = re.compile(r"\b(contract|library|interface)\s+([A-Za-z0-9_$]+)")
+    func_re = re.compile(r"\b(function|constructor)\b\s*([A-Za-z0-9_$]+)?\s*\(")
+    funcs = []
+    for m in func_re.finditer(code):
+        kind, name = m.group(1), (m.group(2) or m.group(1))
+        depth, j = 0, m.end() - 1
+        while j < len(code):
+            if code[j] == "(":
+                depth += 1
+            elif code[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        k = j + 1
+        while k < len(code) and code[k] not in "{;":
+            k += 1
+        header = code[m.start():k]
+        is_decl = k >= len(code) or code[k] == ";"
+        if is_decl:
+            end_off = k
+        else:
+            depth, b = 0, k
+            while b < len(code):
+                if code[b] == "{":
+                    depth += 1
+                elif code[b] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                b += 1
+            end_off = b
+        vis_m = re.search(r"\b(external|public|internal|private)\b", header)
+        vis = vis_m.group(1) if vis_m else ("internal" if kind == "function" else "public")
+        scope = ""
+        for sm in scope_re.finditer(code, 0, m.start()):
+            scope = sm.group(2)
+        funcs.append({
+            "name": name, "vis": vis, "is_decl": is_decl, "scope": scope,
+            "start_off": m.start(), "end_off": end_off,
+            "start_line": line_of(m.start(), line_starts), "end_line": line_of(end_off, line_starts),
+        })
+    return funcs
+
+
+def opcode_offsets(bytecode_hex: str):
+    """Yield (instruction_index, byte_length) for each opcode (PUSHn consume operand bytes)."""
+    b = bytes.fromhex(bytecode_hex)
+    i = 0
+    while i < len(b):
+        op = b[i]
+        ln = 1 + (op - 0x5f) if 0x60 <= op <= 0x7f else 1
+        yield ln
+        i += ln
+
+
+def parse_source_map(sm: str):
+    s = l = f = 0
+    entries = []
+    for e in sm.split(";"):
+        parts = e.split(":")
+        if len(parts) > 0 and parts[0] != "":
+            s = int(parts[0])
+        if len(parts) > 1 and parts[1] != "":
+            l = int(parts[1])
+        if len(parts) > 2 and parts[2] != "":
+            f = int(parts[2])
+        entries.append((s, l, f))
+    return entries
+
+
+def attribute_bytecode(funcs, artifact_path: Path):
+    art = json.loads(artifact_path.read_text())
+    db = art["deployedBytecode"]
+    code = db["object"].removeprefix("0x")
+    smap = parse_source_map(db["sourceMap"])
+    self_f = smap[0][2]  # first entry maps the contract's own definition → its file index
+    lengths = list(opcode_offsets(code))
+    func_bytes = {id(fn): 0 for fn in funcs}
+    overhead = {"dispatcher/contract-level": 0, "base contracts & libraries": 0, "metadata/unmapped": 0}
+    for idx, ln in enumerate(lengths):
+        if idx >= len(smap):
+            overhead["metadata/unmapped"] += ln
+            continue
+        s, _l, f = smap[idx]
+        if f != self_f:
+            overhead["base contracts & libraries"] += ln
+            continue
+        hit = None
+        for fn in funcs:
+            if fn["start_off"] <= s < fn["end_off"]:
+                hit = fn
+                break
+        if hit is None:
+            overhead["dispatcher/contract-level"] += ln
+        else:
+            func_bytes[id(hit)] += ln
+    total = len(bytes.fromhex(code))
+    return func_bytes, overhead, total
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("file", type=Path)
+    ap.add_argument("--bytecode", action="store_true")
+    ap.add_argument("--all", action="store_true")
+    ap.add_argument("--min-lines", type=int, default=0)
+    ap.add_argument("--contract", default=None)
+    args = ap.parse_args()
+
+    if not args.file.is_file():
+        print(f"solidity-functions: not a file: {args.file}", file=sys.stderr)
+        return 1
+    src = args.file.read_text()
+    funcs = find_functions(src)
+    # --contract defaults to the file's stem (the conventional main contract, e.g. Foo.sol → Foo).
+    contract = args.contract or args.file.stem
+
+    def keep(fn):
+        if fn["is_decl"] and not args.bytecode and not args.all:
+            return args.all
+        if not args.all and fn["vis"] not in ("external", "public"):
+            return False
+        if fn["scope"] != contract:
+            return False
+        return True
+
+    if args.bytecode:
+        artifact = args.file.parent.parent / "out" / args.file.name / f"{contract}.json"
+        if not artifact.is_file():
+            # fall back: search out/ for the contract artifact
+            matches = list(Path("out").glob(f"*/{contract}.json"))
+            if not matches:
+                print(f"solidity-functions: no forge artifact for {contract}; run `forge build` first",
+                      file=sys.stderr)
+                return 1
+            artifact = matches[0]
+        func_bytes, overhead, total = attribute_bytecode(funcs, artifact)
+        rows = [(func_bytes[id(fn)], fn) for fn in funcs if keep(fn) and not fn["is_decl"]]
+        rows.sort(key=lambda r: r[0], reverse=True)
+        print(f"# {args.file} :: {contract} — actual deployed bytecode attribution (total {total} bytes, "
+              f"EIP-170 limit 24576)")
+        print(f"{'bytes':>7}  {'visibility':<10} {'lines@':<12} name")
+        for size, fn in rows:
+            qual = f"{fn['scope']}.{fn['name']}" if fn["scope"] else fn["name"]
+            loc = f"{fn['start_line']}-{fn['end_line']}"
+            print(f"{size:>7}  {fn['vis']:<10} {loc:<12} {qual}")
+        print("  ----  overhead (not a single function):")
+        for label, size in overhead.items():
+            print(f"{size:>7}  {label}")
+        attributed = sum(s for s, _ in rows) + sum(overhead.values())
+        print(f"{attributed:>7}  TOTAL attributed")
+        return 0
+
+    rows = [(fn["end_line"] - fn["start_line"] + 1, fn) for fn in funcs if keep(fn)]
+    rows.sort(key=lambda r: r[0], reverse=True)
+    print(f"# {args.file}  ({len(rows)} functions, ranked by source-line span — a heuristic, not bytecode)")
+    print(f"{'lines':>6}  {'visibility':<10} {'lines@':<12} name")
+    for span, fn in rows:
+        qual = f"{fn['scope']}.{fn['name']}" if fn["scope"] else fn["name"]
+        suffix = " (declaration)" if fn["is_decl"] else ""
+        loc = f"{fn['start_line']}-{fn['end_line']}"
+        print(f"{span:>6}  {fn['vis']:<10} {loc:<12} {qual}{suffix}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
