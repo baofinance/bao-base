@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Create a new array starting with style options
+args=()
+# Use an associative array to ensure uniqueness of files
+
+root_dir="src"
+config_suffix=""
+for arg in "$@"; do
+  case "${arg}" in
+    --test)
+      root_dir="test"
+      config_suffix="-test"
+      ;;
+    -*)
+      # add the args to the list
+      args+=("${arg}")
+      ;;
+  esac
+done
+
+solhint "${root_dir}/**/*.sol" --config "${BAO_BASE_DIR}/.solhint${config_suffix}.json" --disc --max-warnings 0 "${args[@]}"
