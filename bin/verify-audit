@@ -40,6 +40,25 @@ _textual_neutral() { # $1 tag  $2 old_path  $3 new_path
        <(git show "HEAD:${3}" 2>/dev/null | _significant) >/dev/null 2>&1
 }
 
+# Confirm the metadata-disabling env switches actually take effect; else fail
+# loudly. Guards against a future Foundry renaming/ignoring these switches, which
+# would otherwise leave metadata in the bytecode and produce false fails/clears.
+_assert_metadata_disabled() {
+  local cfg rc
+  cfg=$(FOUNDRY_BYTECODE_HASH=none FOUNDRY_CBOR_METADATA=false forge config 2>&1)
+  rc=$?
+  if [[ ${rc} -ne 0 ]]; then
+    printf '\033[31mERROR: `forge config` failed; cannot verify metadata disabled:\n%s\033[0m\n' "${cfg}" >&2
+    return 1
+  fi
+  if ! grep -q 'bytecode_hash = "none"' <<<"${cfg}" \
+    || ! grep -q 'cbor_metadata = false' <<<"${cfg}"; then
+    printf '\033[31mERROR: metadata not disabled; forge config reports:\n%s\033[0m\n' \
+      "$(grep -E 'bytecode_hash|cbor_metadata' <<<"${cfg}")" >&2
+    return 1
+  fi
+}
+
 main() {
 [[ $# -gt 0 ]] || set -- "audit*" "deploy*"
 

@@ -36,6 +36,7 @@ _tag_fixture() { # $1 = tag
 teardown() {
   [[ -n "${FIX:-}" ]] && rm -rf "$FIX"
   [[ -n "${BARE_PARENT:-}" ]] && rm -rf "$BARE_PARENT"
+  return 0   # never let cleanup short-circuit a unit test that made no fixture
 }
 
 # ----------------------------------------------------------------------------
@@ -233,5 +234,32 @@ SOL
   echo "status=$status"; echo "output=$output"
   [ "$status" -eq 0 ]
   [[ "$output" != *"FORGE_CALLED"* ]]
+  rm -rf "$shim"
+}
+
+# ----------------------------------------------------------------------------
+# BEHAVIOUR — metadata-disabled guard (unit; sourced with BATS sentinel)
+# ----------------------------------------------------------------------------
+
+@test "_assert_metadata_disabled trips when forge config does not show none/false" {
+  source "$VERIFY_AUDIT" BATS   # BATS sentinel: load functions, don't run main
+  shim=$(mktemp -d)
+  printf '#!/bin/sh\necho '\''bytecode_hash = "ipfs"'\''\necho '\''cbor_metadata = true'\''\n' >"$shim/forge"
+  chmod +x "$shim/forge"
+  PATH="$shim:$PATH" run _assert_metadata_disabled
+  echo "status=$status"; echo "output=$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"metadata not disabled"* ]]
+  rm -rf "$shim"
+}
+
+@test "_assert_metadata_disabled passes when forge config shows none/false" {
+  source "$VERIFY_AUDIT" BATS   # BATS sentinel: load functions, don't run main
+  shim=$(mktemp -d)
+  printf '#!/bin/sh\necho '\''bytecode_hash = "none"'\''\necho '\''cbor_metadata = false'\''\n' >"$shim/forge"
+  chmod +x "$shim/forge"
+  PATH="$shim:$PATH" run _assert_metadata_disabled
+  echo "status=$status"; echo "output=$output"
+  [ "$status" -eq 0 ]
   rm -rf "$shim"
 }
