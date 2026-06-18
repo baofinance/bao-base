@@ -198,3 +198,40 @@ SOL
   [ "$status" -ne 0 ]
   [[ "$output" == *"stale .verify-audit-ignore entry: \"src/Ghost.sol\""* ]]
 }
+
+# ----------------------------------------------------------------------------
+# BEHAVIOUR — Stage 1 textual clear
+# ----------------------------------------------------------------------------
+
+@test "comment/whitespace-only change is cleared without a build" {
+  _new_fixture
+  cat >"$FIX/src/Foo.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Foo {
+    function f() external pure returns (uint256) { return 1; }
+}
+SOL
+  _tag_fixture "deploy/test"
+  # add a comment line + reindent existing lines (no line splits/merges)
+  cat >"$FIX/src/Foo.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+// a brand new explanatory comment
+contract Foo {
+        function f() external pure returns (uint256) { return 1; }
+}
+SOL
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m comment+reindent
+
+  cd "$FIX"
+  # forge shim that errors if called, to prove Stage 1 does not build.
+  shim=$(mktemp -d)
+  printf '#!/bin/sh\necho FORGE_CALLED >&2\nexit 1\n' >"$shim/forge"
+  chmod +x "$shim/forge"
+  PATH="$shim:$PATH" run "$VERIFY_AUDIT" "deploy/test"
+  echo "status=$status"; echo "output=$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"FORGE_CALLED"* ]]
+  rm -rf "$shim"
+}
