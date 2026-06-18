@@ -102,13 +102,21 @@ SOL
   [[ "$output" == *"auto-suppressed"* || "$output" == *"cleared"* ]]
 }
 
-@test "char: renamed file with non-import change FAILS today [EXPECTED TO FLIP to cleared]" {
+@test "renamed file with name+NatSpec change clears via bytecode equivalence" {
   _new_fixture
+  # A realistically-sized contract so git pairs the rename (>50% similar); only
+  # the contract name and one NatSpec line differ between the two versions.
   cat >"$FIX/src/Old.sol" <<'SOL'
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 /// @notice old docs
-contract Old { function f() external pure returns (uint256) { return 7; } }
+contract Old {
+    uint256 public constant A = 1;
+    uint256 public constant B = 2;
+    function f() external pure returns (uint256) { return 7; }
+    function g() external pure returns (uint256) { return A + B; }
+    function h(uint256 x) external pure returns (uint256) { return x * 2; }
+}
 SOL
   _tag_fixture "deploy/test"
   git -C "$FIX" mv src/Old.sol src/New.sol
@@ -116,16 +124,22 @@ SOL
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 /// @notice new docs
-contract New { function f() external pure returns (uint256) { return 7; } }
+contract New {
+    uint256 public constant A = 1;
+    uint256 public constant B = 2;
+    function f() external pure returns (uint256) { return 7; }
+    function g() external pure returns (uint256) { return A + B; }
+    function h(uint256 x) external pure returns (uint256) { return x * 2; }
+}
 SOL
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m rename
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
   echo "status=$status"; echo "output=$output"
-  # Current behaviour: non-import change in a rename is not suppressed -> fails.
-  # After Stage 2 this becomes bytecode-equivalent and clears (status 0).
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"CHANGED (not ignored)"* ]]
+  # rename + contract-name + NatSpec change, identical logic -> same creation
+  # bytecode (metadata off) -> cleared.
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"bytecode-equivalent"* ]]
 }
 
 @test "char: whole-tag ignore suppresses the tag" {
@@ -204,7 +218,7 @@ SOL
 # BEHAVIOUR — Stage 1 textual clear
 # ----------------------------------------------------------------------------
 
-@test "comment/whitespace-only change is cleared without a build" {
+@test "comment/whitespace-only change clears via bytecode equivalence" {
   _new_fixture
   cat >"$FIX/src/Foo.sol" <<'SOL'
 // SPDX-License-Identifier: MIT
@@ -214,7 +228,7 @@ contract Foo {
 }
 SOL
   _tag_fixture "deploy/test"
-  # add a comment line + reindent existing lines (no line splits/merges)
+  # add a comment line + reindent (formatting/comments never affect bytecode)
   cat >"$FIX/src/Foo.sol" <<'SOL'
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
@@ -226,15 +240,10 @@ SOL
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m comment+reindent
 
   cd "$FIX"
-  # forge shim that errors if called, to prove Stage 1 does not build.
-  shim=$(mktemp -d)
-  printf '#!/bin/sh\necho FORGE_CALLED >&2\nexit 1\n' >"$shim/forge"
-  chmod +x "$shim/forge"
-  PATH="$shim:$PATH" run "$VERIFY_AUDIT" "deploy/test"
+  run "$VERIFY_AUDIT" "deploy/test"
   echo "status=$status"; echo "output=$output"
   [ "$status" -eq 0 ]
-  [[ "$output" != *"FORGE_CALLED"* ]]
-  rm -rf "$shim"
+  [[ "$output" == *"bytecode-equivalent"* ]]
 }
 
 # ----------------------------------------------------------------------------
@@ -291,4 +300,106 @@ SOL
   [ -n "$sig_old" ] && [ "$sig_old" != "__MISSING__" ]
   [ "$sig_old" == "$sig_new" ]
   rm -rf "$tag_out" "$head_out"
+}
+
+# ----------------------------------------------------------------------------
+# BEHAVIOUR — rename hardening + negative/edge cases
+# ----------------------------------------------------------------------------
+
+@test "renames are paired despite hostile git config (renames off, low limit)" {
+  _new_fixture
+  git -C "$FIX" config diff.renames false
+  git -C "$FIX" config diff.renameLimit 1
+  cat >"$FIX/src/One.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract One {
+    uint256 public constant A = 1;
+    function f() external pure returns (uint256) { return 11; }
+    function g(uint256 x) external pure returns (uint256) { return x + A; }
+}
+SOL
+  cat >"$FIX/src/Two.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Two {
+    uint256 public constant B = 2;
+    function f() external pure returns (uint256) { return 22; }
+    function g(uint256 x) external pure returns (uint256) { return x + B; }
+}
+SOL
+  _tag_fixture "deploy/test"
+  git -C "$FIX" mv src/One.sol src/OneRenamed.sol
+  git -C "$FIX" mv src/Two.sol src/TwoRenamed.sol
+  sed -i 's/contract One /contract OneRenamed /' "$FIX/src/OneRenamed.sol"
+  sed -i 's/contract Two /contract TwoRenamed /' "$FIX/src/TwoRenamed.sol"
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m rename2
+
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "deploy/test"
+  echo "status=$status"; echo "output=$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"src/OneRenamed.sol (cleared: bytecode-equivalent)"* ]]
+  [[ "$output" == *"src/TwoRenamed.sol (cleared: bytecode-equivalent)"* ]]
+}
+
+@test "constructor-only change fails (creation bytecode, not runtime)" {
+  _new_fixture
+  cat >"$FIX/src/Imm.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Imm {
+    uint256 public immutable X;
+    constructor() { X = 1; }
+    function f() external view returns (uint256) { return X; }
+}
+SOL
+  _tag_fixture "deploy/test"
+  sed -i 's/X = 1;/X = 2;/' "$FIX/src/Imm.sol"
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m ctor
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "deploy/test"
+  echo "status=$status"; echo "output=$output"
+  # runtime bytecode is identical (immutable placeholder); creation bytecode
+  # differs (constructor pushes 2 vs 1) -> not cleared. Proves we compare creation.
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"CHANGED (not ignored)"* ]]
+}
+
+@test "uncompilable tag version is a loud error, not a silent pass" {
+  _new_fixture
+  cat >"$FIX/src/Bad.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Bad { this is not valid solidity }
+SOL
+  _tag_fixture "deploy/test"
+  cat >"$FIX/src/Bad.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Bad { function f() external pure returns (uint256) { return 1; } }
+SOL
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m fix
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "deploy/test"
+  echo "status=$status"; echo "output=$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"build at"* ]]
+}
+
+@test "deleting a deployed contract is reported as drift, not cleared" {
+  _new_fixture
+  cat >"$FIX/src/Gone.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Gone { function f() external pure returns (uint256) { return 1; } }
+SOL
+  _tag_fixture "deploy/test"
+  git -C "$FIX" rm -q src/Gone.sol && git -C "$FIX" commit -q -m del
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "deploy/test"
+  echo "status=$status"; echo "output=$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"CHANGED (not ignored)"* ]]
+  [[ "$output" == *"src/Gone.sol"* ]]
 }

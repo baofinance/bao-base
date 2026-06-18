@@ -20,26 +20,6 @@ set -euo pipefail
 # `#` begins a comment. Ignored tags/files are reported but do not contribute
 # to the exit status.
 
-# Emit a file's "significant" lines: trimmed, minus blank / full-line-comment /
-# import lines. Never strips mid-line, so it cannot hide a real change behind a
-# trailing comment or inside a string literal.
-_significant() {
-  awk '
-    { line=$0; sub(/^[ \t]+/,"",line); sub(/[ \t]+$/,"",line) }
-    line=="" { next }
-    line ~ /^\/\// { next }
-    line ~ /^import[ \t]/ { next }
-    { print line }
-  '
-}
-
-# Stage 1 clear: exit 0 when old@tag and new@HEAD differ only in whitespace,
-# blank lines, full-line comments, or import statements.
-_textual_neutral() { # $1 tag  $2 old_path  $3 new_path
-  diff <(git show "${1}:${2}" 2>/dev/null | _significant) \
-       <(git show "HEAD:${3}" 2>/dev/null | _significant) >/dev/null 2>&1
-}
-
 # Confirm the metadata-disabling env switches actually take effect; else fail
 # loudly. Guards against a future Foundry renaming/ignoring these switches, which
 # would otherwise leave metadata in the bytecode and produce false fails/clears.
@@ -104,6 +84,7 @@ _file_signature() { # $1 = out dir, $2 = sol path
 
 main() {
 [[ $# -gt 0 ]] || set -- "audit*" "deploy*"
+_head_out=""  # one reused HEAD build dir, created lazily on the first tag that builds
 
 # Parse .verify-audit-ignore into an associative array.
 # Key = tag name. Value = space-separated file list (empty = whole-tag ignore).
@@ -142,8 +123,11 @@ fail=0
 for t in "${tags[@]}"; do
   printf '\n\033[1;36m=== %s ===\033[0m\n' "${t}"
 
-  # Gather changed files
-  mapfile -t changed < <(git diff --name-only --diff-filter=DMRT "${t}" -- src)
+  # Gather changed files. Force rename detection on (-M) with no limit (-l0) so a
+  # repo's diff.renames=false / diff.renameLimit config cannot turn renames into
+  # delete+add — which would mis-report a rename as drift. Both this and the
+  # rename-map diff below must use identical flags to stay consistent.
+  mapfile -t changed < <(git diff -M -l0 --name-only --diff-filter=DMRT "${t}" -- src)
 
   # Whole-tag ignore
   if [[ -v ignores["$t"] && -z "${ignores[$t]}" ]]; then
@@ -201,22 +185,59 @@ for t in "${tags[@]}"; do
   declare -A _rename_src=()
   while IFS=$'\t' read -r _st _old _new; do
     _rename_src["${_new}"]="${_old}"
-  done < <(git diff --name-status --diff-filter=R "${t}" -- src)
+  done < <(git diff -M -l0 --name-status --diff-filter=R "${t}" -- src)
 
-  # Stage 1: textual clear (no build).
-  stage2=()
-  for f in "${check[@]}"; do
-    old_path="${_rename_src[${f}]:-${f}}"
-    if _textual_neutral "${t}" "${old_path}" "${f}"; then
-      printf '\033[2m  %s (cleared: textually neutral)\033[0m\n' "${f}"
-    else
-      stage2+=("${f}")
+  # Stage 2: clear files whose tag and HEAD versions compile to the same
+  # metadata-stripped creation bytecode. Build only the changed files and their
+  # import closure, once per tag; reuse one HEAD build across tags. A file absent
+  # at HEAD (a deletion, or a rename git did not pair) cannot be compiled there —
+  # it is genuine drift, reported directly without a build.
+  if [[ ${#check[@]} -gt 0 ]]; then
+    residue=()
+    compare=()
+    compare_old=()
+    for f in "${check[@]}"; do
+      if git cat-file -e "HEAD:${f}" 2>/dev/null; then
+        compare+=("${f}")
+        compare_old+=("${_rename_src[${f}]:-${f}}")
+      else
+        residue+=("${f}")
+      fi
+    done
+    if [[ ${#compare[@]} -gt 0 ]]; then
+      if [[ -z "${_head_out}" ]]; then
+        _assert_metadata_disabled || exit 1
+        _head_out=$(mktemp -d)
+      fi
+      if ! _build_head_out "${_head_out}" "${compare[@]}"; then
+        printf '\033[31m  ERROR: HEAD build failed — cannot compare bytecode\033[0m\n' >&2
+        exit 1
+      fi
+      tag_out=$(mktemp -d)
+      if ! _build_tag_out "${t}" "${tag_out}" "${compare_old[@]}"; then
+        printf '\033[31m  ERROR: build at "%s" failed — cannot compare bytecode\033[0m\n' "${t}" >&2
+        rm -rf "${tag_out}"
+        exit 1
+      fi
+      idx=0
+      for f in "${compare[@]}"; do
+        old_path="${compare_old[${idx}]}"
+        idx=$((idx + 1))
+        sig_old=$(_file_signature "${tag_out}" "${old_path}")
+        sig_new=$(_file_signature "${_head_out}" "${f}")
+        if [[ "${sig_old}" == "${sig_new}" && "${sig_old}" != "__MISSING__" ]]; then
+          printf '\033[2m  %s (cleared: bytecode-equivalent)\033[0m\n' "${f}"
+        else
+          residue+=("${f}")
+        fi
+      done
+      rm -rf "${tag_out}"
     fi
-  done
-  check=("${stage2[@]+"${stage2[@]}"}")
+    check=("${residue[@]+"${residue[@]}"}")
+  fi
 
   if [[ ${#check[@]} -eq 0 ]]; then
-    printf '\033[32mno changes under src/ (ignored or auto-suppressed)\033[0m\n'
+    printf '\033[32mno changes under src/ (ignored or cleared)\033[0m\n'
     continue
   fi
 
@@ -236,6 +257,9 @@ for t in "${tags[@]}"; do
   printf '\033[31mchanges under src/\033[0m\n'
 
 done
+if [[ -n "${_head_out}" ]]; then
+  rm -rf "${_head_out}"
+fi
 exit "${fail}"
 }
 
