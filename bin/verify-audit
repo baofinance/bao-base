@@ -19,6 +19,8 @@ set -euo pipefail
 #
 # `#` begins a comment. Ignored tags/files are reported but do not contribute
 # to the exit status.
+
+main() {
 [[ $# -gt 0 ]] || set -- "audit*" "deploy*"
 
 # Parse .verify-audit-ignore into an associative array.
@@ -156,3 +158,10 @@ for t in "${tags[@]}"; do
 
 done
 exit "${fail}"
+}
+
+# bao-base bin scripts are sourced by `run`, so they must run on source. Tests
+# source with first arg "BATS" to load the functions without running main.
+if [[ "${1:-}" != "BATS" ]]; then
+  main "$@"
+fi
