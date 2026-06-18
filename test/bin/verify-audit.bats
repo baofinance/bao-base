@@ -263,3 +263,32 @@ SOL
   [ "$status" -eq 0 ]
   rm -rf "$shim"
 }
+
+# ----------------------------------------------------------------------------
+# BEHAVIOUR — build + bytecode signature (unit; compiles real fixtures)
+# ----------------------------------------------------------------------------
+
+@test "_file_signature: pure rename yields identical creation-bytecode signature" {
+  source "$VERIFY_AUDIT" BATS   # BATS sentinel: load functions, don't run main
+  _new_fixture
+  cat >"$FIX/src/Old.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Old { function f() external pure returns (uint256) { return 7; } }
+SOL
+  ( cd "$FIX" && git add -A && git commit -q -m s && git tag deploy/test )
+  ( cd "$FIX" && git mv src/Old.sol src/New.sol )
+  sed -i 's/contract Old/contract New/' "$FIX/src/New.sol"
+  ( cd "$FIX" && git add -A && git commit -q -m r )
+
+  cd "$FIX"
+  tag_out=$(mktemp -d); head_out=$(mktemp -d)
+  _build_tag_out deploy/test "$tag_out" src/Old.sol
+  _build_head_out "$head_out" src/New.sol
+  sig_old=$(_file_signature "$tag_out" src/Old.sol)
+  sig_new=$(_file_signature "$head_out" src/New.sol)
+  echo "old=$sig_old"; echo "new=$sig_new"
+  [ -n "$sig_old" ] && [ "$sig_old" != "__MISSING__" ]
+  [ "$sig_old" == "$sig_new" ]
+  rm -rf "$tag_out" "$head_out"
+}

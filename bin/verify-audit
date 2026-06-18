@@ -59,6 +59,49 @@ _assert_metadata_disabled() {
   fi
 }
 
+# Build specific source files of the working tree (HEAD) into $1, metadata off.
+# Only the given paths and their import closure are compiled.
+_build_head_out() { # $1 = abs out dir, $2.. = src paths
+  local out="$1"
+  shift
+  FOUNDRY_BYTECODE_HASH=none FOUNDRY_CBOR_METADATA=false FOUNDRY_OUT="${out}" forge build "$@" >/dev/null
+}
+
+# Build specific source files at a tag into $2 via a throwaway worktree, metadata
+# off. The worktree gives the tag's full dependency closure; submodule objects are
+# already local (no network). Only the given paths and their closure are compiled.
+_build_tag_out() { # $1 = tag, $2 = abs out dir, $3.. = src paths (tag's paths)
+  local tag="$1" out="$2"
+  shift 2
+  local wt rc
+  wt=$(mktemp -d)
+  git worktree add --detach --quiet "${wt}" "${tag}" || {
+    rm -rf "${wt}"
+    return 1
+  }
+  git -C "${wt}" submodule update --init --recursive --quiet || {
+    git worktree remove --force "${wt}"
+    return 1
+  }
+  (cd "${wt}" && FOUNDRY_BYTECODE_HASH=none FOUNDRY_CBOR_METADATA=false FOUNDRY_OUT="${out}" forge build "$@" >/dev/null)
+  rc=$?
+  git worktree remove --force "${wt}"
+  return ${rc}
+}
+
+# Sorted concat of the creation bytecode of every contract compiled from one .sol
+# file. forge writes artifacts to <out>/<basename>.sol/<Contract>.json. Names are
+# not used, so this is robust to renames; a multi-contract file compares its whole
+# set. "__MISSING__" if the file produced no artifacts (e.g. deleted/uncompiled).
+_file_signature() { # $1 = out dir, $2 = sol path
+  local dir="$1/$(basename "$2")"
+  [[ -d "${dir}" ]] || {
+    printf '__MISSING__'
+    return 0
+  }
+  jq -r '.bytecode.object // ""' "${dir}"/*.json 2>/dev/null | LC_ALL=C sort | tr -d '\n'
+}
+
 main() {
 [[ $# -gt 0 ]] || set -- "audit*" "deploy*"
 
