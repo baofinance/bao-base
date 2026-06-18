@@ -403,3 +403,30 @@ SOL
   [[ "$output" == *"CHANGED (not ignored)"* ]]
   [[ "$output" == *"src/Gone.sol"* ]]
 }
+
+@test "a tag's compiler settings cannot drift the comparison (pinned to HEAD)" {
+  _new_fixture
+  # tag built with via_ir off; HEAD with via_ir on. Same logic + a neutral comment
+  # change. Pinning HEAD's settings makes both sides compile identically -> cleared.
+  printf '[profile.default]\nsrc = "src"\nout = "out"\nvia_ir = false\noptimizer = true\n' >"$FIX/foundry.toml"
+  cat >"$FIX/src/Loop.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Loop {
+    function sum(uint256 n) external pure returns (uint256 s) {
+        for (uint256 i = 0; i < n; ++i) {
+            s += i * 2 + 1;
+        }
+    }
+}
+SOL
+  _tag_fixture "deploy/test"
+  printf '[profile.default]\nsrc = "src"\nout = "out"\nvia_ir = true\noptimizer = true\n' >"$FIX/foundry.toml"
+  sed -i '2a // pinned-settings test' "$FIX/src/Loop.sol"
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m settings+comment
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "deploy/test"
+  echo "status=$status"; echo "output=$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"bytecode-equivalent"* ]]
+}

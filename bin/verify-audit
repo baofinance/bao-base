@@ -6,9 +6,16 @@ set -euo pipefail
 # modified, deleted, or renamed since any resolved tag (new files are OK).
 # Quote patterns to avoid shell globbing.
 #
-# Renames where the only content changes are import-path lines are
-# auto-suppressed: they arise from directory reorganisations and have zero
-# bytecode effect. Any other content change in a renamed file still fails.
+# A changed file is auto-cleared when it is meaning-neutral: its version at the
+# tag and at HEAD compile to the same metadata-stripped creation bytecode. Both
+# sides are compiled with the current toolchain (FOUNDRY_BYTECODE_HASH=none,
+# FOUNDRY_CBOR_METADATA=false) in a throwaway git worktree, building only the
+# changed files and their import closure; a guard fails loudly if those switches
+# stop disabling metadata. This clears renames, comment/NatSpec, and formatting
+# changes that do not alter bytecode. Rename detection is forced on (git -M -l0)
+# so a repo's diff.renames / diff.renameLimit config cannot mis-report a rename
+# as drift. Deletions, and any change that alters bytecode, are reported.
+# Requires `forge` and `jq` on PATH.
 #
 # A `.verify-audit-ignore` file in the current directory controls what is
 # skipped. Each non-comment, non-blank line has the form:
@@ -37,6 +44,22 @@ _assert_metadata_disabled() {
       "$(grep -E 'bytecode_hash|cbor_metadata' <<<"${cfg}")" >&2
     return 1
   fi
+}
+
+# Export HEAD's bytecode-affecting compiler settings so EVERY forge build (HEAD
+# and every tag worktree) uses identical settings — a tag's own foundry.toml
+# therefore cannot drift the comparison. solc is left to pragma auto-resolution
+# (identical on both sides); remappings are taken from each tree (they match).
+_pin_compiler_settings() {
+  local cfg
+  cfg=$(forge config --json 2>/dev/null) || {
+    printf '\033[31mERROR: `forge config --json` failed; cannot pin build settings\033[0m\n' >&2
+    return 1
+  }
+  export FOUNDRY_OPTIMIZER="$(jq -r '.optimizer' <<<"${cfg}")"
+  export FOUNDRY_OPTIMIZER_RUNS="$(jq -r '.optimizer_runs' <<<"${cfg}")"
+  export FOUNDRY_EVM_VERSION="$(jq -r '.evm_version' <<<"${cfg}")"
+  export FOUNDRY_VIA_IR="$(jq -r '.via_ir' <<<"${cfg}")"
 }
 
 # Build specific source files of the working tree (HEAD) into $1, metadata off.
@@ -207,6 +230,7 @@ for t in "${tags[@]}"; do
     if [[ ${#compare[@]} -gt 0 ]]; then
       if [[ -z "${_head_out}" ]]; then
         _assert_metadata_disabled || exit 1
+        _pin_compiler_settings || exit 1
         _head_out=$(mktemp -d)
       fi
       if ! _build_head_out "${_head_out}" "${compare[@]}"; then
