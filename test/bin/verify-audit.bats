@@ -430,3 +430,31 @@ SOL
   [ "$status" -eq 0 ]
   [[ "$output" == *"bytecode-equivalent"* ]]
 }
+
+@test "control: differing settings DO change bytecode (keeps the pinning test honest)" {
+  # If this fails, via_ir no longer affects this contract and the settings-pinning
+  # test above would be passing vacuously. Pass condition = the signatures DIFFER.
+  source "$VERIFY_AUDIT" BATS
+  _new_fixture
+  cat >"$FIX/src/Loop.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Loop {
+    function sum(uint256 n) external pure returns (uint256 s) {
+        for (uint256 i = 0; i < n; ++i) {
+            s += i * 2 + 1;
+        }
+    }
+}
+SOL
+  cd "$FIX"
+  o1=$(mktemp -d); o2=$(mktemp -d)
+  FOUNDRY_VIA_IR=false _build_head_out "$o1" src/Loop.sol
+  FOUNDRY_VIA_IR=true _build_head_out "$o2" src/Loop.sol
+  s1=$(_file_signature "$o1" src/Loop.sol)
+  s2=$(_file_signature "$o2" src/Loop.sol)
+  echo "via_ir=false len=${#s1}  via_ir=true len=${#s2}"
+  [ -n "$s1" ] && [ "$s1" != "__MISSING__" ]
+  [ "$s1" != "$s2" ]
+  rm -rf "$o1" "$o2"
+}
