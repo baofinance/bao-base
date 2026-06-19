@@ -497,3 +497,72 @@ SOL
   [[ "$output" == *"src/AlphaV2.sol (cleared: bytecode-equivalent)"* ]]
   [[ "$output" == *"src/BetaV2.sol (cleared: bytecode-equivalent)"* ]]
 }
+
+# ----------------------------------------------------------------------------
+# BEHAVIOUR — redundant ignore-entry detection (entry that would now clear)
+# ----------------------------------------------------------------------------
+
+@test "ignore entry for a would-now-clear file is flagged redundant (remove it)" {
+  _new_fixture
+  cat >"$FIX/src/Widget.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Widget {
+    uint256 public constant K = 9;
+    function f(uint256 x) external pure returns (uint256) { return x + K; }
+    function g(uint256 x) external pure returns (uint256) { return x * K; }
+}
+SOL
+  _tag_fixture "deploy/test"
+  git -C "$FIX" mv src/Widget.sol src/WidgetV2.sol
+  sed -i 's/contract Widget /contract WidgetV2 /' "$FIX/src/WidgetV2.sol"
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m rename
+  printf 'deploy/test src/WidgetV2.sol\n' >"$FIX/.verify-audit-ignore"
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "deploy/test"
+  echo "status=$status"; echo "output=$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"src/WidgetV2.sol"* ]]
+  [[ "$output" == *"would now clear"* ]]
+}
+
+@test "ignore entry for a genuinely-changed file is kept, not flagged" {
+  _new_fixture
+  cat >"$FIX/src/Widget.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Widget {
+    function f() external pure returns (uint256) { return 1; }
+}
+SOL
+  _tag_fixture "deploy/test"
+  sed -i 's/return 1;/return 2;/' "$FIX/src/Widget.sol"
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m change
+  printf 'deploy/test src/Widget.sol\n' >"$FIX/.verify-audit-ignore"
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "deploy/test"
+  echo "status=$status"; echo "output=$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ignored via .verify-audit-ignore"* ]]
+  [[ "$output" != *"would now clear"* ]]
+}
+
+@test "ignore entry that suppresses a deletion is kept (not built, not flagged)" {
+  _new_fixture
+  cat >"$FIX/src/Gone.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Gone { function f() external pure returns (uint256) { return 1; } }
+SOL
+  _tag_fixture "deploy/test"
+  git -C "$FIX" rm -q src/Gone.sol && git -C "$FIX" commit -q -m del
+  printf 'deploy/test src/Gone.sol\n' >"$FIX/.verify-audit-ignore"
+  cd "$FIX"
+  # a deleted file cannot be built; the entry legitimately suppresses real drift,
+  # so it must stay "ignored via" and never be flagged as a redundant entry.
+  run "$VERIFY_AUDIT" "deploy/test"
+  echo "status=$status"; echo "output=$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"src/Gone.sol (ignored via .verify-audit-ignore)"* ]]
+  [[ "$output" != *"would now clear"* ]]
+}

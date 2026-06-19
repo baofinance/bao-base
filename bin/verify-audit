@@ -25,7 +25,9 @@ set -euo pipefail
 #                                  other drifting files in that tag still fail
 #
 # `#` begins a comment. Ignored tags/files are reported but do not contribute
-# to the exit status.
+# to the exit status — unless an entry is stale: a file entry that matches no
+# changed file, or one whose change would now clear (bytecode-equivalent). Both
+# are reported as errors ("remove it") so the ignore file stays minimal.
 
 # Confirm the metadata-disabling env switches actually take effect; else fail
 # loudly. Guards against a future Foundry renaming/ignoring these switches, which
@@ -204,6 +206,8 @@ for t in "${tags[@]}"; do
 
   # File-level ignore: check for stale entries, then filter
   check=()
+  ignored_changed=()  # ignored files that DID change — verified in Stage 2 to flag
+  # any whose change would now clear (a redundant entry to remove)
   if [[ -v ignores["$t"] ]]; then
     read -r -a ig_files <<<"${ignores[$t]}"
     # reverse check: flag any ignored file that has no actual drift
@@ -229,7 +233,7 @@ for t in "${tags[@]}"; do
         }
       done
       if [[ $skip -eq 1 ]]; then
-        printf '\033[2m  %s (ignored via .verify-audit-ignore)\033[0m\n' "$f"
+        ignored_changed+=("$f")
       else
         check+=("$f")
       fi
@@ -249,17 +253,30 @@ for t in "${tags[@]}"; do
   # metadata-stripped creation bytecode. Build only the changed files and their
   # import closure, once per tag; reuse one HEAD build across tags. A file absent
   # at HEAD (a deletion, or a rename git did not pair) cannot be compiled there —
-  # it is genuine drift, reported directly without a build.
-  if [[ ${#check[@]} -gt 0 ]]; then
+  # it is genuine drift, reported directly without a build. Ignored files that DID
+  # change are built in the same pass to flag any that would now clear (a redundant
+  # entry); a deletion an entry legitimately suppresses is not built.
+  if [[ ${#check[@]} -gt 0 || ${#ignored_changed[@]} -gt 0 ]]; then
     residue=()
     compare=()
     compare_old=()
+    compare_ig=()  # parallel marker: 1 = ignore entry being verified, 0 = normal check
     for f in "${check[@]}"; do
       if git cat-file -e "HEAD:${f}" 2>/dev/null; then
         compare+=("${f}")
         compare_old+=("${_rename_src[${f}]:-${f}}")
+        compare_ig+=(0)
       else
         residue+=("${f}")
+      fi
+    done
+    for f in "${ignored_changed[@]}"; do
+      if git cat-file -e "HEAD:${f}" 2>/dev/null; then
+        compare+=("${f}")
+        compare_old+=("${_rename_src[${f}]:-${f}}")
+        compare_ig+=(1)
+      else
+        printf '\033[2m  %s (ignored via .verify-audit-ignore)\033[0m\n' "${f}"
       fi
     done
     if [[ ${#compare[@]} -gt 0 ]]; then
@@ -282,13 +299,23 @@ for t in "${tags[@]}"; do
       idx=0
       for f in "${compare[@]}"; do
         old_path="${compare_old[${idx}]}"
+        ig="${compare_ig[${idx}]}"
         idx=$((idx + 1))
         sig_old=$(_file_signature "${_wt_out}" "${old_path}")
         sig_new=$(_file_signature "${_head_out}" "${f}")
         if [[ "${sig_old}" == "${sig_new}" && "${sig_old}" != "__MISSING__" ]]; then
-          printf '\033[2m  %s (cleared: bytecode-equivalent)\033[0m\n' "${f}"
+          if [[ "${ig}" -eq 1 ]]; then
+            printf '\033[31m  ERROR: stale .verify-audit-ignore entry: "%s" for tag "%s" would now clear (bytecode-equivalent) — remove it\033[0m\n' "${f}" "${t}"
+            fail=1
+          else
+            printf '\033[2m  %s (cleared: bytecode-equivalent)\033[0m\n' "${f}"
+          fi
         else
-          residue+=("${f}")
+          if [[ "${ig}" -eq 1 ]]; then
+            printf '\033[2m  %s (ignored via .verify-audit-ignore)\033[0m\n' "${f}"
+          else
+            residue+=("${f}")
+          fi
         fi
       done
       _restore_overlay "${compare_old[@]}"
