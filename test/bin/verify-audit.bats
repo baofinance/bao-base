@@ -291,15 +291,18 @@ SOL
   ( cd "$FIX" && git add -A && git commit -q -m r )
 
   cd "$FIX"
-  tag_out=$(mktemp -d); head_out=$(mktemp -d)
-  _build_tag_out deploy/test "$tag_out" src/Old.sol
+  _wt=""; _wt_out=""; head_out=$(mktemp -d)
   _build_head_out "$head_out" src/New.sol
-  sig_old=$(_file_signature "$tag_out" src/Old.sol)
+  _ensure_worktree
+  _overlay_and_build_tag deploy/test src/Old.sol
+  sig_old=$(_file_signature "$_wt_out" src/Old.sol)
   sig_new=$(_file_signature "$head_out" src/New.sol)
+  _restore_overlay src/Old.sol
   echo "old=$sig_old"; echo "new=$sig_new"
   [ -n "$sig_old" ] && [ "$sig_old" != "__MISSING__" ]
   [ "$sig_old" == "$sig_new" ]
-  rm -rf "$tag_out" "$head_out"
+  git worktree remove --force "$_wt" 2>/dev/null
+  rm -rf "$head_out" "$_wt_out"
 }
 
 # ----------------------------------------------------------------------------
@@ -404,10 +407,12 @@ SOL
   [[ "$output" == *"src/Gone.sol"* ]]
 }
 
-@test "a tag's compiler settings cannot drift the comparison (pinned to HEAD)" {
+@test "a tag's compiler settings cannot drift the comparison (overlay uses HEAD's)" {
   _new_fixture
-  # tag built with via_ir off; HEAD with via_ir on. Same logic + a neutral comment
-  # change. Pinning HEAD's settings makes both sides compile identically -> cleared.
+  # tag's foundry.toml has via_ir off; HEAD has via_ir on. Same logic + a neutral
+  # comment change. The overlay builds the tag's file inside the HEAD worktree, so
+  # HEAD's foundry.toml is used for both and the tag's settings are ignored ->
+  # both compile identically -> cleared.
   printf '[profile.default]\nsrc = "src"\nout = "out"\nvia_ir = false\noptimizer = true\n' >"$FIX/foundry.toml"
   cat >"$FIX/src/Loop.sol" <<'SOL'
 // SPDX-License-Identifier: MIT
@@ -457,4 +462,38 @@ SOL
   [ -n "$s1" ] && [ "$s1" != "__MISSING__" ]
   [ "$s1" != "$s2" ]
   rm -rf "$o1" "$o2"
+}
+
+@test "shared worktree is reused correctly across multiple (chronological) tags" {
+  _new_fixture
+  cat >"$FIX/src/Alpha.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Alpha {
+    uint256 public constant K = 3;
+    function f(uint256 x) external pure returns (uint256) { return x + K; }
+}
+SOL
+  _tag_fixture "deploy/early"
+  cat >"$FIX/src/Beta.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Beta {
+    uint256 public constant K = 5;
+    function f(uint256 x) external pure returns (uint256) { return x * K; }
+}
+SOL
+  _tag_fixture "deploy/late"
+  # neutral renames at HEAD of both contracts (name only)
+  git -C "$FIX" mv src/Alpha.sol src/AlphaV2.sol
+  git -C "$FIX" mv src/Beta.sol src/BetaV2.sol
+  sed -i 's/contract Alpha /contract AlphaV2 /' "$FIX/src/AlphaV2.sol"
+  sed -i 's/contract Beta /contract BetaV2 /' "$FIX/src/BetaV2.sol"
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m renames
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "deploy/*"
+  echo "status=$status"; echo "output=$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"src/AlphaV2.sol (cleared: bytecode-equivalent)"* ]]
+  [[ "$output" == *"src/BetaV2.sol (cleared: bytecode-equivalent)"* ]]
 }

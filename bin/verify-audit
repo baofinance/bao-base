@@ -46,22 +46,6 @@ _assert_metadata_disabled() {
   fi
 }
 
-# Export HEAD's bytecode-affecting compiler settings so EVERY forge build (HEAD
-# and every tag worktree) uses identical settings — a tag's own foundry.toml
-# therefore cannot drift the comparison. solc is left to pragma auto-resolution
-# (identical on both sides); remappings are taken from each tree (they match).
-_pin_compiler_settings() {
-  local cfg
-  cfg=$(forge config --json 2>/dev/null) || {
-    printf '\033[31mERROR: `forge config --json` failed; cannot pin build settings\033[0m\n' >&2
-    return 1
-  }
-  export FOUNDRY_OPTIMIZER="$(jq -r '.optimizer' <<<"${cfg}")"
-  export FOUNDRY_OPTIMIZER_RUNS="$(jq -r '.optimizer_runs' <<<"${cfg}")"
-  export FOUNDRY_EVM_VERSION="$(jq -r '.evm_version' <<<"${cfg}")"
-  export FOUNDRY_VIA_IR="$(jq -r '.via_ir' <<<"${cfg}")"
-}
-
 # Build specific source files of the working tree (HEAD) into $1, metadata off.
 # Only the given paths and their import closure are compiled.
 _build_head_out() { # $1 = abs out dir, $2.. = src paths
@@ -73,23 +57,61 @@ _build_head_out() { # $1 = abs out dir, $2.. = src paths
 # Build specific source files at a tag into $2 via a throwaway worktree, metadata
 # off. The worktree gives the tag's full dependency closure; submodule objects are
 # already local (no network). Only the given paths and their closure are compiled.
-_build_tag_out() { # $1 = tag, $2 = abs out dir, $3.. = src paths (tag's paths)
-  local tag="$1" out="$2"
-  shift 2
-  local wt rc
-  wt=$(mktemp -d)
-  git worktree add --detach --quiet "${wt}" "${tag}" || {
-    rm -rf "${wt}"
-    return 1
-  }
-  git -C "${wt}" submodule update --init --recursive --quiet || {
-    git worktree remove --force "${wt}"
-    return 1
-  }
-  (cd "${wt}" && FOUNDRY_BYTECODE_HASH=none FOUNDRY_CBOR_METADATA=false FOUNDRY_OUT="${out}" forge build "$@" >/dev/null)
-  rc=$?
-  git worktree remove --force "${wt}"
-  return ${rc}
+# One shared throwaway worktree pinned at HEAD (HEAD's foundry.toml, lib, settings)
+# with a persistent forge cache, so the import closure compiles once and is reused
+# across every tag. Created lazily on the first tag that needs a build.
+_ensure_worktree() {
+  [[ -n "${_wt}" ]] && return 0
+  _wt=$(mktemp -u)      # git worktree add creates this dir; it must not pre-exist
+  _wt_out=$(mktemp -d)  # forge out dir, pre-created
+  git worktree add --detach --quiet "${_wt}" HEAD || return 1
+  git -C "${_wt}" submodule update --init --recursive --quiet || return 1
+}
+
+# Overlay the given files from <tag> into the shared HEAD worktree and build them
+# into the persistent cache. Only these (leaf) files recompile — HEAD's closure
+# stays cached. Caller reads signatures from "${_wt_out}", then _restore_overlay.
+_overlay_and_build_tag() { # $1 = tag, $2.. = paths (the tag's paths)
+  local tag="$1"
+  shift
+  # `git restore --source` only touches working-tree files — never HEAD — so the
+  # worktree stays detached at HEAD no matter what paths are passed.
+  git -C "${_wt}" restore --source="${tag}" --worktree -- "$@" || return 1
+  (cd "${_wt}" && FOUNDRY_BYTECODE_HASH=none FOUNDRY_CBOR_METADATA=false FOUNDRY_OUT="${_wt_out}" forge build "$@" >/dev/null)
+}
+
+# Restore overlaid paths back to HEAD so an overlaid dependency cannot leak into a
+# later tag's build. A path absent at HEAD (a rename's old path) is removed.
+_restore_overlay() { # $@ = paths
+  local p
+  for p in "$@"; do
+    if git cat-file -e "HEAD:${p}" 2>/dev/null; then
+      git -C "${_wt}" restore --source=HEAD --worktree -- "${p}"
+    else
+      rm -f "${_wt}/${p}"
+    fi
+  done
+}
+
+# Remove the shared worktree and build dirs. Idempotent; run via an EXIT trap so
+# it fires on every exit path (`run` sets no EXIT trap of its own, so this is
+# safe). `git worktree remove` can fail on a submodule-populated worktree, so
+# follow it with rm + prune to guarantee the registration is cleared.
+_cleanup_builds() {
+  if [[ -n "${_wt}" ]]; then
+    git worktree remove --force "${_wt}" 2>/dev/null
+    rm -rf "${_wt}"
+    git worktree prune 2>/dev/null || true
+    _wt=""
+  fi
+  if [[ -n "${_wt_out}" ]]; then
+    rm -rf "${_wt_out}"
+    _wt_out=""
+  fi
+  if [[ -n "${_head_out}" ]]; then
+    rm -rf "${_head_out}"
+    _head_out=""
+  fi
 }
 
 # Sorted concat of the creation bytecode of every contract compiled from one .sol
@@ -107,7 +129,10 @@ _file_signature() { # $1 = out dir, $2 = sol path
 
 main() {
 [[ $# -gt 0 ]] || set -- "audit*" "deploy*"
-_head_out=""  # one reused HEAD build dir, created lazily on the first tag that builds
+_head_out=""  # reused HEAD build dir, created lazily on the first tag that builds
+_wt=""        # shared HEAD worktree (tag source overlaid into it), created lazily
+_wt_out=""    # persistent forge cache for the worktree, reused across tags
+trap _cleanup_builds EXIT  # guarantee worktree/build-dir cleanup on every exit path
 
 # Parse .verify-audit-ignore into an associative array.
 # Key = tag name. Value = space-separated file list (empty = whole-tag ignore).
@@ -141,6 +166,16 @@ for pattern in "$@"; do
     done <<<"${matches}"
   fi
 done
+
+# Process tags oldest-first: consecutive overlays then share the most source, so
+# forge's content-addressed cache rebuilds the least between tags.
+if [[ ${#tags[@]} -gt 1 ]]; then
+  mapfile -t tags < <(
+    for t in "${tags[@]}"; do
+      printf '%s\t%s\n' "$(git log -1 --format=%ct "${t}")" "${t}"
+    done | sort -n | cut -f2
+  )
+fi
 
 fail=0
 for t in "${tags[@]}"; do
@@ -230,24 +265,25 @@ for t in "${tags[@]}"; do
     if [[ ${#compare[@]} -gt 0 ]]; then
       if [[ -z "${_head_out}" ]]; then
         _assert_metadata_disabled || exit 1
-        _pin_compiler_settings || exit 1
         _head_out=$(mktemp -d)
       fi
       if ! _build_head_out "${_head_out}" "${compare[@]}"; then
         printf '\033[31m  ERROR: HEAD build failed — cannot compare bytecode\033[0m\n' >&2
         exit 1
       fi
-      tag_out=$(mktemp -d)
-      if ! _build_tag_out "${t}" "${tag_out}" "${compare_old[@]}"; then
+      if ! _ensure_worktree; then
+        printf '\033[31m  ERROR: could not set up HEAD worktree — cannot compare bytecode\033[0m\n' >&2
+        exit 1
+      fi
+      if ! _overlay_and_build_tag "${t}" "${compare_old[@]}"; then
         printf '\033[31m  ERROR: build at "%s" failed — cannot compare bytecode\033[0m\n' "${t}" >&2
-        rm -rf "${tag_out}"
         exit 1
       fi
       idx=0
       for f in "${compare[@]}"; do
         old_path="${compare_old[${idx}]}"
         idx=$((idx + 1))
-        sig_old=$(_file_signature "${tag_out}" "${old_path}")
+        sig_old=$(_file_signature "${_wt_out}" "${old_path}")
         sig_new=$(_file_signature "${_head_out}" "${f}")
         if [[ "${sig_old}" == "${sig_new}" && "${sig_old}" != "__MISSING__" ]]; then
           printf '\033[2m  %s (cleared: bytecode-equivalent)\033[0m\n' "${f}"
@@ -255,7 +291,7 @@ for t in "${tags[@]}"; do
           residue+=("${f}")
         fi
       done
-      rm -rf "${tag_out}"
+      _restore_overlay "${compare_old[@]}"
     fi
     check=("${residue[@]+"${residue[@]}"}")
   fi
@@ -281,9 +317,6 @@ for t in "${tags[@]}"; do
   printf '\033[31mchanges under src/\033[0m\n'
 
 done
-if [[ -n "${_head_out}" ]]; then
-  rm -rf "${_head_out}"
-fi
 exit "${fail}"
 }
 
