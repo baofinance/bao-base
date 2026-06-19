@@ -86,10 +86,24 @@ _ensure_worktree() {
 _overlay_and_build_tag() { # $1 = tag, $2.. = paths (the tag's paths)
   local tag="$1"
   shift
-  # `git restore --source` only touches working-tree files — never HEAD — so the
-  # worktree stays detached at HEAD no matter what paths are passed.
-  git -C "${_wt}" restore --source="${tag}" --worktree -- "$@" || return 1
-  (cd "${_wt}" && FOUNDRY_BYTECODE_HASH=none FOUNDRY_CBOR_METADATA=false FOUNDRY_OUT="${_wt_out}" forge build "$@" >/dev/null)
+  # Args are: <overlay paths> -- <build paths>. The overlay set is the WHOLE
+  # changed cascade (so a built contract's renamed dependencies resolve to their
+  # tag-time files); only the build set is compiled and later compared.
+  # `git restore --source` only touches working-tree files — never HEAD.
+  local overlay=() build=() _seen=0 a
+  for a in "$@"; do
+    if [[ "${a}" == "--" ]]; then
+      _seen=1
+      continue
+    fi
+    if [[ ${_seen} -eq 0 ]]; then
+      overlay+=("${a}")
+    else
+      build+=("${a}")
+    fi
+  done
+  git -C "${_wt}" restore --source="${tag}" --worktree -- "${overlay[@]}" || return 1
+  (cd "${_wt}" && FOUNDRY_BYTECODE_HASH=none FOUNDRY_CBOR_METADATA=false FOUNDRY_OUT="${_wt_out}" forge build "${build[@]}" >/dev/null)
 }
 
 # Restore overlaid paths back to HEAD so an overlaid dependency cannot leak into a
@@ -270,7 +284,10 @@ for t in "${tags[@]}"; do
   # diff.renames config), then keep only those within the tag's scope.
   mapfile -t _changed_all < <(git diff -M -l0 --name-only --diff-filter=DMRT "${t}" -- src)
   changed=()
+  _all_old=()  # tag-time path of every changed file — the cascade overlaid so a
+  # narrowly-scoped contract's renamed dependencies still resolve when it builds
   for f in "${_changed_all[@]}"; do
+    _all_old+=("${_rename_src[${f}]:-${f}}")
     if _in_scope "${f}"; then
       changed+=("${f}")
     fi
@@ -388,7 +405,7 @@ for t in "${tags[@]}"; do
         printf '\033[31m  ERROR: could not set up HEAD worktree — cannot compare bytecode\033[0m\n' >&2
         exit 1
       fi
-      if ! _overlay_and_build_tag "${t}" "${compare_old[@]}"; then
+      if ! _overlay_and_build_tag "${t}" "${_all_old[@]}" -- "${compare_old[@]}"; then
         printf '\033[31m  ERROR: build at "%s" failed — cannot compare bytecode\033[0m\n' "${t}" >&2
         exit 1
       fi
@@ -414,7 +431,7 @@ for t in "${tags[@]}"; do
           fi
         fi
       done
-      _restore_overlay "${compare_old[@]}"
+      _restore_overlay "${_all_old[@]}"
     fi
     check=("${residue[@]+"${residue[@]}"}")
   fi

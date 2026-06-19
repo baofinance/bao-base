@@ -294,7 +294,7 @@ SOL
   _wt=""; _wt_out=""; head_out=$(mktemp -d)
   _build_head_out "$head_out" src/New.sol
   _ensure_worktree
-  _overlay_and_build_tag deploy/test src/Old.sol
+  _overlay_and_build_tag deploy/test src/Old.sol -- src/Old.sol
   sig_old=$(_file_signature "$_wt_out" src/Old.sol)
   sig_new=$(_file_signature "$head_out" src/New.sol)
   _restore_overlay src/Old.sol
