@@ -27,6 +27,11 @@ set -euo pipefail
 #                                  (the deploy only covered them); files outside
 #                                  the dirs are not checked, and any file entry
 #                                  outside them is an error
+#   tag {path.json:field} [file] — scope to the contracts a deployment manifest
+#                                  records: the named JSON field's values (read at
+#                                  the tag), each taken up to its ":" suffix. This
+#                                  is complete by construction. Dirs and manifests
+#                                  may be mixed inside { }.
 #
 # `#` begins a comment. Ignored tags/files are reported but do not contribute
 # to the exit status — unless an entry is stale: a file entry that matches no
@@ -98,6 +103,20 @@ _restore_overlay() { # $@ = paths
       rm -f "${_wt}/${p}"
     fi
   done
+}
+
+# True when a (HEAD-layout) path is within the current tag's scope: under one of
+# the scope directories, or — mapped to its tag-time path via the rename map —
+# among the tag's deployed contracts. Uses the per-tag _scope_dirs / _deployed /
+# _rename_src set in the main loop.
+_in_scope() { # $1 = path
+  local p="$1" d
+  for d in "${_scope_dirs[@]}"; do
+    if [[ "${p}" == "${d}"/* || "${p}" == "${d}" ]]; then
+      return 0
+    fi
+  done
+  [[ -v _deployed["${_rename_src[$p]:-$p}"] ]]
 }
 
 # Remove the shared worktree and build dirs. Idempotent; run via an EXIT trap so
@@ -203,35 +222,72 @@ fail=0
 for t in "${tags[@]}"; do
   printf '\n\033[1;36m=== %s ===\033[0m\n' "${t}"
 
-  # The tag's scope: the directories it deployed (default all of src/). Only these
-  # are diffed, so out-of-scope drift is never checked against this tag.
-  read -r -a _scope <<<"${scopes[$t]:-src}"
+  # Resolve the tag's scope into directories and a deployed-contract set. A scope
+  # token of the form path.json:field is a deployment manifest read at the tag:
+  # the named JSON field is harvested wherever it occurs and each value is taken
+  # up to any ":" (so "src/X.sol:X" and "src/X.sol" both yield "src/X.sol") — the
+  # exact deployed contracts at their tag-time paths. Other tokens are directories.
+  # Default scope is all of src/.
+  _scope_dirs=()
+  declare -A _deployed=()
+  read -r -a _scope_tokens <<<"${scopes[$t]:-src}"
+  for tok in "${_scope_tokens[@]}"; do
+    if [[ "${tok}" == *.json:* ]]; then
+      _mpath="${tok%:*}"
+      _mfield="${tok##*:}"
+      if ! _manifest=$(git show "${t}:${_mpath}" 2>/dev/null); then
+        printf '\033[31m  ERROR: scope manifest "%s" not found at tag "%s"\033[0m\n' "${_mpath}" "${t}"
+        fail=1
+        continue
+      fi
+      _n=0
+      while IFS= read -r cp; do
+        [[ -z "${cp}" ]] && continue
+        _deployed["${cp%%:*}"]=1
+        _n=$((_n + 1))
+      done < <(jq -r --arg f "${_mfield}" '[.. | objects | .[$f]? // empty] | .[]' <<<"${_manifest}" 2>/dev/null)
+      if [[ ${_n} -eq 0 ]]; then
+        printf '\033[31m  ERROR: scope manifest "%s" field "%s" for tag "%s" yielded no paths\033[0m\n' "${_mpath}" "${_mfield}" "${t}"
+        fail=1
+      fi
+    elif [[ "${tok}" == *.json ]]; then
+      printf '\033[31m  ERROR: manifest scope "%s" for tag "%s" needs a field, e.g. "%s:contractPath"\033[0m\n' "${tok}" "${t}" "${tok}"
+      fail=1
+    else
+      _scope_dirs+=("${tok}")
+    fi
+  done
 
-  # Gather changed files. Force rename detection on (-M) with no limit (-l0) so a
-  # repo's diff.renames=false / diff.renameLimit config cannot turn renames into
-  # delete+add — which would mis-report a rename as drift. Both this and the
-  # rename-map diff below must use identical flags to stay consistent.
-  mapfile -t changed < <(git diff -M -l0 --name-only --diff-filter=DMRT "${t}" -- "${_scope[@]}")
+  # Rename map new_path -> old_path, built over all of src so it can pair renames
+  # that cross a scope boundary. Maps HEAD paths back to tag-time paths for both
+  # the deployed-set scope check (_in_scope) and the bytecode comparison.
+  declare -A _rename_src=()
+  while IFS=$'\t' read -r _st _old _new; do
+    _rename_src["${_new}"]="${_old}"
+  done < <(git diff -M -l0 --name-status --diff-filter=R "${t}" -- src)
+
+  # Gather all changed files (-M -l0 forces rename detection regardless of repo
+  # diff.renames config), then keep only those within the tag's scope.
+  mapfile -t _changed_all < <(git diff -M -l0 --name-only --diff-filter=DMRT "${t}" -- src)
+  changed=()
+  for f in "${_changed_all[@]}"; do
+    if _in_scope "${f}"; then
+      changed+=("${f}")
+    fi
+  done
 
   # Scope check + collect in-scope file ignores. A file entry outside the tag's
-  # scope can never be checked (that directory isn't diffed), so it is an error.
-  # Done before the no-changes short-circuit so it is caught even on a clean scope.
+  # scope can never be checked, so it is an error. Done before the no-changes
+  # short-circuit so it is caught even on a clean scope.
   ig_files=()
   if [[ -v ignores["$t"] && -n "${ignores[$t]}" ]]; then
     read -r -a _raw_ig <<<"${ignores[$t]}"
     for ig in "${_raw_ig[@]}"; do
-      in_scope=0
-      for d in "${_scope[@]}"; do
-        if [[ "${ig}" == "${d}"/* || "${ig}" == "${d}" ]]; then
-          in_scope=1
-          break
-        fi
-      done
-      if [[ ${in_scope} -eq 0 ]]; then
+      if _in_scope "${ig}"; then
+        ig_files+=("${ig}")
+      else
         printf '\033[31m  ERROR: .verify-audit-ignore entry: "%s" for tag "%s" is outside its scope {%s} — remove it\033[0m\n' "${ig}" "${t}" "${scopes[$t]:-src}"
         fail=1
-      else
-        ig_files+=("${ig}")
       fi
     done
   fi
@@ -288,13 +344,6 @@ for t in "${tags[@]}"; do
   else
     check=("${changed[@]}")
   fi
-
-  # Build rename map new_path -> old_path for this tag (used by Stage 1/2 to find
-  # the pre-rename source to compare against).
-  declare -A _rename_src=()
-  while IFS=$'\t' read -r _st _old _new; do
-    _rename_src["${_new}"]="${_old}"
-  done < <(git diff -M -l0 --name-status --diff-filter=R "${t}" -- "${_scope[@]}")
 
   # Stage 2: clear files whose tag and HEAD versions compile to the same
   # metadata-stripped creation bytecode. Build only the changed files and their

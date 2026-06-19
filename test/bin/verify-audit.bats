@@ -615,3 +615,41 @@ _scope_fixture() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"outside"* ]] && [[ "$output" == *"scope"* ]]
 }
+
+@test "scope from a deployment manifest checks exactly the deployed contracts" {
+  _new_fixture
+  mkdir -p "$FIX/src/a" "$FIX/src/b" "$FIX/deployments"
+  printf '// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\ncontract X { function f() external pure returns (uint256){ return 1; } }\n' >"$FIX/src/a/X.sol"
+  printf '// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\ncontract Y { function f() external pure returns (uint256){ return 1; } }\n' >"$FIX/src/b/Y.sol"
+  # the manifest is part of the deploy, so it exists AT the tag
+  printf '{"oracles":{"X":{"contractPath":"src/a/X.sol:X"}}}' >"$FIX/deployments/m.json"
+  _tag_fixture "deploy/test"
+  # change BOTH; only X is in the manifest
+  sed -i 's/return 1;/return 2;/' "$FIX/src/a/X.sol"
+  sed -i 's/return 1;/return 2;/' "$FIX/src/b/Y.sol"
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m change-both
+  printf 'deploy/test {deployments/m.json:contractPath}\n' >"$FIX/.verify-audit-ignore"
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "deploy/test"
+  echo "status=$status"; echo "output=$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"src/a/X.sol"* ]]   # deployed -> in scope -> flagged
+  [[ "$output" != *"Y.sol"* ]]         # not deployed -> out of scope -> not checked
+}
+
+@test "scope from a manifest still pairs renamed deployed contracts (bytecode-equivalent)" {
+  _new_fixture
+  mkdir -p "$FIX/src/m" "$FIX/deployments"
+  printf '// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\ncontract Old {\n  uint256 public constant K = 3;\n  function f(uint256 x) external pure returns (uint256){ return x + K; }\n}\n' >"$FIX/src/m/Old.sol"
+  printf '{"oracles":{"Old":{"contractPath":"src/m/Old.sol:Old"}}}' >"$FIX/deployments/m.json"
+  _tag_fixture "deploy/test"
+  git -C "$FIX" mv src/m/Old.sol src/m/New.sol
+  sed -i 's/contract Old /contract New /' "$FIX/src/m/New.sol"
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m rename
+  printf 'deploy/test {deployments/m.json:contractPath}\n' >"$FIX/.verify-audit-ignore"
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "deploy/test"
+  echo "status=$status"; echo "output=$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"src/m/New.sol (cleared: bytecode-equivalent)"* ]]
+}
