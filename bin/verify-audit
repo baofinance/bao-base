@@ -23,11 +23,16 @@ set -euo pipefail
 #   tag                          — ignore the whole tag
 #   tag file1 file2 ...          — ignore specific files within the tag only;
 #                                  other drifting files in that tag still fail
+#   tag {dir1 dir2} [file ...]   — restrict the tag's checks to those directories
+#                                  (the deploy only covered them); files outside
+#                                  the dirs are not checked, and any file entry
+#                                  outside them is an error
 #
 # `#` begins a comment. Ignored tags/files are reported but do not contribute
 # to the exit status — unless an entry is stale: a file entry that matches no
-# changed file, or one whose change would now clear (bytecode-equivalent). Both
-# are reported as errors ("remove it") so the ignore file stays minimal.
+# changed file, whose change would now clear (bytecode-equivalent), or that lies
+# outside the tag's declared scope. All are reported as errors ("remove it") so
+# the ignore file stays minimal.
 
 # Confirm the metadata-disabling env switches actually take effect; else fail
 # loudly. Guards against a future Foundry renaming/ignoring these switches, which
@@ -136,9 +141,12 @@ _wt=""        # shared HEAD worktree (tag source overlaid into it), created lazi
 _wt_out=""    # persistent forge cache for the worktree, reused across tags
 trap _cleanup_builds EXIT  # guarantee worktree/build-dir cleanup on every exit path
 
-# Parse .verify-audit-ignore into an associative array.
-# Key = tag name. Value = space-separated file list (empty = whole-tag ignore).
+# Parse .verify-audit-ignore. ignores[tag]: space-separated file list (empty =
+# whole-tag ignore). scopes[tag]: space-separated directory pathspecs the tag
+# applies to (default src/); a "tag {dir1 dir2} ..." line declares it, restricting
+# the diff to those dirs and requiring any file entries to live within them.
 declare -A ignores=()
+declare -A scopes=()
 if [[ -f .verify-audit-ignore ]]; then
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%%#*}"
@@ -146,8 +154,20 @@ if [[ -f .verify-audit-ignore ]]; then
     line="${line%"${line##*[![:space:]]}"}"
     [[ -z "$line" ]] && continue
     read -r tag rest <<<"$line"
+    if [[ "${rest}" == "{"* ]]; then                      # optional scope: tag {dir1 dir2} ...
+      scope="${rest#\{}"
+      scope="${scope%%\}*}"
+      rest="${rest#*\}}"
+      rest="${rest#"${rest%%[![:space:]]*}"}"             # trim leading space before any files
+      read -r -a _s <<<"${scope}"                         # normalise internal whitespace
+      scopes["$tag"]="${_s[*]}"
+    fi
     if [[ -z "${rest:-}" ]]; then
-      ignores["$tag"]=""                                  # whole-tag ignore
+      if [[ -v scopes["$tag"] ]]; then
+        :                                                 # scope-only declaration; no file ignores
+      else
+        ignores["$tag"]=""                                # whole-tag ignore
+      fi
     elif [[ -v ignores["$tag"] && -z "${ignores[$tag]}" ]]; then
       :                                                   # already whole-tag; file entries don't narrow it
     else
@@ -183,11 +203,38 @@ fail=0
 for t in "${tags[@]}"; do
   printf '\n\033[1;36m=== %s ===\033[0m\n' "${t}"
 
+  # The tag's scope: the directories it deployed (default all of src/). Only these
+  # are diffed, so out-of-scope drift is never checked against this tag.
+  read -r -a _scope <<<"${scopes[$t]:-src}"
+
   # Gather changed files. Force rename detection on (-M) with no limit (-l0) so a
   # repo's diff.renames=false / diff.renameLimit config cannot turn renames into
   # delete+add — which would mis-report a rename as drift. Both this and the
   # rename-map diff below must use identical flags to stay consistent.
-  mapfile -t changed < <(git diff -M -l0 --name-only --diff-filter=DMRT "${t}" -- src)
+  mapfile -t changed < <(git diff -M -l0 --name-only --diff-filter=DMRT "${t}" -- "${_scope[@]}")
+
+  # Scope check + collect in-scope file ignores. A file entry outside the tag's
+  # scope can never be checked (that directory isn't diffed), so it is an error.
+  # Done before the no-changes short-circuit so it is caught even on a clean scope.
+  ig_files=()
+  if [[ -v ignores["$t"] && -n "${ignores[$t]}" ]]; then
+    read -r -a _raw_ig <<<"${ignores[$t]}"
+    for ig in "${_raw_ig[@]}"; do
+      in_scope=0
+      for d in "${_scope[@]}"; do
+        if [[ "${ig}" == "${d}"/* || "${ig}" == "${d}" ]]; then
+          in_scope=1
+          break
+        fi
+      done
+      if [[ ${in_scope} -eq 0 ]]; then
+        printf '\033[31m  ERROR: .verify-audit-ignore entry: "%s" for tag "%s" is outside its scope {%s} — remove it\033[0m\n' "${ig}" "${t}" "${scopes[$t]:-src}"
+        fail=1
+      else
+        ig_files+=("${ig}")
+      fi
+    done
+  fi
 
   # Whole-tag ignore
   if [[ -v ignores["$t"] && -z "${ignores[$t]}" ]]; then
@@ -209,8 +256,8 @@ for t in "${tags[@]}"; do
   ignored_changed=()  # ignored files that DID change — verified in Stage 2 to flag
   # any whose change would now clear (a redundant entry to remove)
   if [[ -v ignores["$t"] ]]; then
-    read -r -a ig_files <<<"${ignores[$t]}"
-    # reverse check: flag any ignored file that has no actual drift
+    # reverse check: flag any ignored file that has no actual drift (ig_files was
+    # validated against the tag's scope above)
     for ig in "${ig_files[@]}"; do
       found=0
       for f in "${changed[@]}"; do
@@ -247,7 +294,7 @@ for t in "${tags[@]}"; do
   declare -A _rename_src=()
   while IFS=$'\t' read -r _st _old _new; do
     _rename_src["${_new}"]="${_old}"
-  done < <(git diff -M -l0 --name-status --diff-filter=R "${t}" -- src)
+  done < <(git diff -M -l0 --name-status --diff-filter=R "${t}" -- "${_scope[@]}")
 
   # Stage 2: clear files whose tag and HEAD versions compile to the same
   # metadata-stripped creation bytecode. Build only the changed files and their

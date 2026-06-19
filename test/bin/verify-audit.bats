@@ -566,3 +566,52 @@ SOL
   [[ "$output" == *"src/Gone.sol (ignored via .verify-audit-ignore)"* ]]
   [[ "$output" != *"would now clear"* ]]
 }
+
+# ----------------------------------------------------------------------------
+# BEHAVIOUR — tag scope: "tag {dir ...}" restricts the diff to those directories
+# ----------------------------------------------------------------------------
+
+# helper: a fixture with src/a/X.sol and src/b/Y.sol, tagged deploy/test
+_scope_fixture() {
+  _new_fixture
+  mkdir -p "$FIX/src/a" "$FIX/src/b"
+  printf '// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\ncontract X { function f() external pure returns (uint256){ return 1; } }\n' >"$FIX/src/a/X.sol"
+  printf '// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\ncontract Y { function f() external pure returns (uint256){ return 1; } }\n' >"$FIX/src/b/Y.sol"
+  _tag_fixture "deploy/test"
+}
+
+@test "tag scope restricts the diff: out-of-scope drift is not flagged" {
+  _scope_fixture
+  sed -i 's/return 1;/return 2;/' "$FIX/src/b/Y.sol"   # real change OUTSIDE scope
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m change-b
+  printf 'deploy/test {src/a}\n' >"$FIX/.verify-audit-ignore"
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "deploy/test"
+  echo "status=$status"; echo "output=$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"Y.sol"* ]]
+}
+
+@test "tag scope still flags in-scope drift" {
+  _scope_fixture
+  sed -i 's/return 1;/return 2;/' "$FIX/src/a/X.sol"   # real change INSIDE scope
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m change-a
+  printf 'deploy/test {src/a}\n' >"$FIX/.verify-audit-ignore"
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "deploy/test"
+  echo "status=$status"; echo "output=$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"src/a/X.sol"* ]]
+}
+
+@test "ignore entry outside the declared scope is an error" {
+  _scope_fixture
+  sed -i 's/return 1;/return 2;/' "$FIX/src/b/Y.sol"
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m change-b
+  printf 'deploy/test {src/a} src/b/Y.sol\n' >"$FIX/.verify-audit-ignore"
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "deploy/test"
+  echo "status=$status"; echo "output=$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"outside"* ]] && [[ "$output" == *"scope"* ]]
+}
