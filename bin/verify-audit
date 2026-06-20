@@ -2,8 +2,8 @@
 set -euo pipefail
 # Usage: verify-audit [tag-or-pattern ...]
 # Each argument is expanded via `git tag -l` (so wildcards like `deploy-*`
-# work). Defaults to `audit*` and `deploy*`. Fails if any file under src/ was
-# modified, deleted, or renamed since any resolved tag (new files are OK).
+# work). Defaults to `audit*` and `deploy*`. Fails if a deployed contract's
+# creation bytecode has drifted since a resolved tag (new files are OK).
 # Quote patterns to avoid shell globbing.
 #
 # A changed file is auto-cleared when it is meaning-neutral: its version at the
@@ -66,9 +66,6 @@ _build_head_out() { # $1 = abs out dir, $2.. = src paths
   FOUNDRY_BYTECODE_HASH=none FOUNDRY_CBOR_METADATA=false FOUNDRY_OUT="${out}" forge build "$@" >/dev/null
 }
 
-# Build specific source files at a tag into $2 via a throwaway worktree, metadata
-# off. The worktree gives the tag's full dependency closure; submodule objects are
-# already local (no network). Only the given paths and their closure are compiled.
 # One shared throwaway worktree pinned at HEAD (HEAD's foundry.toml, lib, settings)
 # with a persistent forge cache, so the import closure compiles once and is reused
 # across every tag. Created lazily on the first tag that needs a build.
@@ -80,10 +77,10 @@ _ensure_worktree() {
   git -C "${_wt}" submodule update --init --recursive --quiet || return 1
 }
 
-# Overlay the given files from <tag> into the shared HEAD worktree and build them
-# into the persistent cache. Only these (leaf) files recompile — HEAD's closure
-# stays cached. Caller reads signatures from "${_wt_out}", then _restore_overlay.
-_overlay_and_build_tag() { # $1 = tag, $2.. = paths (the tag's paths)
+# Overlay the tag's source into the shared HEAD worktree and build the requested
+# contracts into the persistent cache. Caller reads signatures from "${_wt_out}",
+# then calls _restore_overlay.
+_overlay_and_build_tag() { # $1 = tag, then: <overlay paths> -- <build paths>
   local tag="$1"
   shift
   # Args are: <overlay paths> -- <build paths>. The overlay set is the WHOLE
