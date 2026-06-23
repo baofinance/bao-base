@@ -82,7 +82,55 @@ def strip_context_prefix(entry: str) -> str:
     return entry
 
 
+def submodule_url_drift(repo_dir: Path, prefix: str = "") -> list[tuple[str, str, str]]:
+    """Find submodules whose initialized URL in .git/config disagrees with the committed
+    .gitmodules. `git submodule update` trusts .git/config (written once at init/sync) and
+    never reconciles it when .gitmodules changes, so a stale .git/config silently clones the
+    wrong URL. Read-only: compares the two configs, recursing into populated submodules so
+    drift at any nesting level is reported. Returns (display path, .gitmodules url, .git/config url)."""
+    gitmodules = repo_dir / ".gitmodules"
+    if not gitmodules.is_file():
+        return []
+
+    listing = subprocess.run(
+        ["git", "config", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.url$"],
+        cwd=repo_dir, capture_output=True, text=True,
+    )
+
+    drift: list[tuple[str, str, str]] = []
+    for line in listing.stdout.splitlines():
+        key, _, gitmodules_url = line.partition(" ")
+        gitmodules_url = gitmodules_url.strip()
+        name = key[len("submodule.") : -len(".url")]
+
+        path_result = subprocess.run(
+            ["git", "config", "-f", ".gitmodules", "--get", f"submodule.{name}.path"],
+            cwd=repo_dir, capture_output=True, text=True,
+        )
+        sub_path = path_result.stdout.strip() or name
+        display = f"{prefix}{sub_path}"
+
+        # --local is the .git/config that `submodule update` reads. A non-zero return means
+        # this submodule isn't initialized in this clone, so there is no stored URL to drift.
+        local = subprocess.run(
+            ["git", "config", "--local", "--get", f"submodule.{name}.url"],
+            cwd=repo_dir, capture_output=True, text=True,
+        )
+        if local.returncode == 0:
+            gitconfig_url = local.stdout.strip()
+            if gitconfig_url != gitmodules_url:
+                drift.append((display, gitmodules_url, gitconfig_url))
+
+        nested = repo_dir / sub_path
+        if (nested / ".git").exists():
+            drift.extend(submodule_url_drift(nested, prefix=f"{display}/"))
+
+    return drift
+
+
 normalized_foundry = [strip_context_prefix(r) for r in foundry_remappings]
+
+problems: list[str] = []
 
 if normalized_foundry != wake_remappings:
     foundry_only = [item for item in normalized_foundry if item not in wake_remappings]
@@ -113,6 +161,21 @@ if normalized_foundry != wake_remappings:
     if not mismatch_details:
         mismatch_details.append("Remapping lists differ but no specific difference found.")
 
-    raise SystemExit("Remapping mismatch detected:\n" + "\n".join(mismatch_details))
+    problems.append("Remapping mismatch detected:\n" + "\n".join(mismatch_details))
+else:
+    print("Foundry and Wake remappings are identical.")
 
-print("Foundry and Wake remappings are identical.")
+drift = submodule_url_drift(repo_root)
+if drift:
+    drift_lines = ["Submodule URL drift — .git/config disagrees with the committed .gitmodules:"]
+    for display, gitmodules_url, gitconfig_url in drift:
+        drift_lines.append(f"  {display}")
+        drift_lines.append(f"    .git/config: {gitconfig_url}")
+        drift_lines.append(f"    .gitmodules: {gitmodules_url}")
+    drift_lines.append("Repair (rewrites .git/config from .gitmodules): git submodule sync")
+    problems.append("\n".join(drift_lines))
+else:
+    print("Submodule URLs match between .git/config and .gitmodules.")
+
+if problems:
+    raise SystemExit("\n\n".join(problems))
