@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Trial slither with any version and any options, fast — for experimenting, not CI.
+# Runs an isolated, uvx-managed slither; nothing is installed, locked, or patched.
+#
+#   run slither-try [@<version>] [slither args...]
+#
+#   run slither-try . --config lib/bao-base/slither.config.json --fail-pedantic
+#   run slither-try @0.11.4 . --config lib/bao-base/slither.config.json --fail-pedantic
+#   SLITHER_PYTHON=3.12 run slither-try @0.12.0 . ...        # force a python if a version needs one
+#
+# An optional leading @<version> picks the slither-analyzer version; everything after it is
+# passed straight to slither. Without @<version> the default below is used. Transitive deps are
+# resolved fresh each run (uvx, no lock) — fine for trialing. The pinned, locked, repeatable
+# runner is a separate piece (bin/slither / the eventual bin/tools spec), left untouched.
+
+version="0.11.3"  # default version to trial; override with a leading @<version>
+if [[ "${1:-}" == @* ]]; then
+  version="${1#@}"
+  shift
+fi
+
+# Prefer bao-base's pinned uv + shared cache; fall back to a uv on PATH.
+uv_bin="${BAO_BASE_TOOLS_DIR:-}/uv/uv"
+if [[ ! -x "$uv_bin" ]]; then
+  uv_bin="uv"
+fi
+if [[ -n "${BAO_BASE_TOOLS_DIR:-}" && -d "$BAO_BASE_TOOLS_DIR/uv-cache" ]]; then
+  export UV_CACHE_DIR="$BAO_BASE_TOOLS_DIR/uv-cache"
+fi
+
+cmd=("$uv_bin" tool run --from "slither-analyzer==$version")
+if [[ -n "${SLITHER_PYTHON:-}" ]]; then
+  cmd+=(--python "$SLITHER_PYTHON")
+fi
+cmd+=(slither "$@")
+
+export PYTHONHASHSEED=0  # deterministic analysis, as the current runner does
+"${cmd[@]}"
