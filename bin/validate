@@ -82,6 +82,46 @@ validate_upgrades() {
 
 validate_upgrades || error "OpenZeppelin upgrades-core validate failed"
 
+# ──────────────────────────────────────────────────────────────────────────────────────────────
+# check that every deployable versioned (_v2+) upgradeable contract declares an upgrade reference
+# to its predecessor (@custom:oz-upgrades-from). Without it OZ validates the contract in ISOLATION
+# and never checks its storage layout is compatible with the deployed previous version — a silent
+# gap (e.g. a re-ordered/inserted namespaced field would ship unverified). OZ appends "(upgrades
+# from <ref>)" to a contract's line exactly when the annotation is present, so we read that back.
+# ──────────────────────────────────────────────────────────────────────────────────────────────
+echo
+echo "checking version upgrade references..."
+echo "--------------------------------------"
+echo
+version_ref_failed=0
+while IFS= read -r vline; do
+  # the validated contract's name is the first "<path>.sol:<Name>" token on the line
+  vname="$(printf '%s' "$vline" | grep -oE '\.sol:[A-Za-z_][A-Za-z0-9_]*' | head -1 | sed 's/.*\.sol://')"
+  [[ -z "$vname" ]] && continue
+  if [[ "$vname" =~ ^(.+)_v([0-9]+)$ ]]; then
+    vbase="${BASH_REMATCH[1]}"
+    vver="${BASH_REMATCH[2]}"
+    if [[ "$vver" -ge 2 ]]; then
+      if [[ "$vline" != *"(upgrades from"* ]]; then
+        printf '\033[31m ✘  %s: no @custom:oz-upgrades-from reference — its storage layout is NOT validated against the deployed predecessor\033[0m\n' "$vname"
+        version_ref_failed=1
+      elif [[ "$vline" != *":${vbase}_v"* ]]; then
+        printf '\033[31m ✘  %s: @custom:oz-upgrades-from references a non-%s_v* contract\033[0m\n' "$vname" "$vbase"
+        version_ref_failed=1
+      else
+        # the referenced predecessor is the second "<path>.sol:<Name>" token (inside "(upgrades from …)")
+        vref="$(printf '%s' "$vline" | grep -oE '\.sol:[A-Za-z_][A-Za-z0-9_]*' | tail -1 | sed 's/.*\.sol://')"
+        printf ' ✔  %s upgrades from %s\n' "$vname" "$vref"
+      fi
+    fi
+  fi
+done < <(validate_upgrades 2>/dev/null || true)
+if [[ "$version_ref_failed" -ne 0 ]]; then
+  error "versioned (_v2+) contracts must declare @custom:oz-upgrades-from their predecessor"
+fi
+echo
+echo "SUCCESS: (all versioned upgradeable contracts reference a predecessor)"
+
 # check for root storage access
 echo
 echo "checking namespace-only storage policy..."
