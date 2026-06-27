@@ -153,11 +153,19 @@ def test_foundry_lock_problems_passes_when_pin_matches(tmp_path):
     assert doctor.foundry_lock_problems(host) == []
 
 
-def test_foundry_lock_problems_flags_stale_pin(tmp_path):
+def test_foundry_lock_problems_flags_stale_pin_with_forge_fix(tmp_path):
+    # foundry.lock is forge-managed; the fix must be a forge command, NOT git add / git submodule
+    # update (which only move the gitlink and leave the lock stale — the real-world failure that
+    # prompted this). A branch pin must also note that forge update follows the branch HEAD.
     sub = _init_repo(tmp_path / "sub")
     _commit_one(sub)
     host = _init_repo(tmp_path / "host")
     _add_submodule(host, sub)
-    (host / "foundry.lock").write_text(json.dumps({"lib/sub": {"tag": {"name": "v1", "rev": "0" * 40}}}))
+    (host / "foundry.lock").write_text(json.dumps({"lib/sub": {"branch": {"name": "main", "rev": "0" * 40}}}))
     problems = doctor.foundry_lock_problems(host)
-    assert any("lib/sub" in p and "foundry.lock pins" in p for p in problems)
+    assert problems
+    p = problems[0]
+    assert "lib/sub" in p and "foundry.lock pins" in p
+    assert "forge update lib/sub" in p  # forge's resolution (re-fetch + rewrite the lock)
+    assert "git -C lib/sub checkout" in p  # the other direction: adopt the locked commit
+    assert "branch main" in p  # branch-vs-tag is surfaced

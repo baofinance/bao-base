@@ -297,9 +297,18 @@ def foundry_lock_problems(repo_root: Path) -> list[str]:
         expected = pin.get("rev")
         actual = checked_out.get(path)
         if expected and actual and actual != expected:
+            kind = "branch" if "branch" in entry else "tag" if "tag" in entry else "ref"
+            # The checked-out commit and foundry.lock's rev are two independent pins (git's gitlink vs
+            # forge's lock); the doctor cannot know which is authoritative — that is intent. So offer both
+            # resolutions rather than guessing. `forge update` is forge's (it re-fetches the ref and
+            # rewrites the lock — for a branch that follows HEAD); `git checkout <lock rev>` adopts the
+            # commit the lock already records. `git add`/`git submodule update` alone can't fix it: they
+            # only move the gitlink, never the forge lock (the real-world failure that surfaced this).
             problems.append(
-                f"{path}: checked out {actual[:10]} but foundry.lock pins {expected[:10]} "
-                f"({pin.get('name', '?')}) — `git add {path}` to re-pin, or `git submodule update {path}` to reset"
+                f"{path}: checked out {actual[:10]} but foundry.lock pins {expected[:10]} ({kind} "
+                f"{pin.get('name', '?')}). Two independent pins — pick which to keep: `forge update {path}` "
+                f"lets forge re-fetch the {kind} and rewrite the lock, or "
+                f"`git -C {path} checkout {expected} && git add {path}` adopts the locked commit."
             )
     return problems
 
