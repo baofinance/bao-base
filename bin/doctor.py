@@ -3,27 +3,15 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tomllib
 from pathlib import Path
 from typing import Any, cast
 
-try:
-    import tomllib as _toml_loader
-
-    def load_toml(path: Path) -> dict[str, Any]:
-        with path.open("rb") as stream:
-            return _toml_loader.load(stream)
-
-except ModuleNotFoundError:
-    try:
-        import toml as _toml_loader
-    except ModuleNotFoundError as exc:  # pragma: no cover - dependency should be present via pyproject
-        raise SystemExit(
-            "doctor.py requires either the stdlib tomllib (Python >=3.11) or the third-party toml package."
-        ) from exc
-
-    def load_toml(path: Path) -> dict[str, Any]:
-        with path.open("r", encoding="utf-8") as stream:
-            return _toml_loader.load(stream)
+def load_toml(path: Path) -> dict[str, Any]:
+    """Parse a TOML file with the stdlib tomllib. bao-base runs on its pinned Python (3.13, see
+    bin/.python-version), so tomllib is always present — no third-party fallback needed."""
+    with path.open("rb") as stream:
+        return tomllib.load(stream)
 
 
 def load_remappings(repo_root: Path) -> tuple[list[str], list[str]]:
