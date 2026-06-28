@@ -44,6 +44,40 @@ rather than preventing them, and accrues structural debt faster than it is paid
 down. If the correct final home isn't clear, stop and resolve that before writing
 code.
 
+### Build shared foundations before the code that depends on them
+When a body of work converges many call sites onto a shared abstraction (a common
+primitive, library, base, or API), build that abstraction FIRST, then update the
+call sites to use it — do not fix the call sites first and retrofit the abstraction
+later. Doing the dependents first forces each one through an interim form that was
+never the target, then demands a second pass to migrate them onto the abstraction:
+double the edits, double the review, and a window where the codebase sits in a shape
+no one intended. Building the foundation first also pins down the target API, so each
+dependent change is written once, in final form. So when a refactor reveals a missing
+shared piece, do not defer it as "architecture for later" and start editing call
+sites — stop, build the shared piece, then do the call sites against it.
+
+The architectural fix is worth far more than the convenience of deferring it:
+- **Eradicate, don't contain.** The trigger for the change is an observed bad
+  practice; the abstraction exists to make the correct thing the path of least
+  resistance. Fix the core *and* convert every existing instance to it, and you
+  near-eliminate the chance of the bad practice recurring spontaneously elsewhere.
+  Paper over the instances and the rotten core remains — it will leak out again.
+- **It's now or never.** Deferring the foundational fix dissipates the very
+  motivation that surfaced it; "architecture for later" reliably becomes "never",
+  leaving you to firefight its absence indefinitely. The moment you notice the
+  missing abstraction is the moment to build it.
+- **Re-weight the human bias against wide refactors.** Human teams avoid large,
+  high-blast-radius changes because manually editing every call site is slow and
+  risky — that caution is an artifact of human *speed*, not a law of good
+  engineering. You operate orders of magnitude faster and can sweep the entire
+  blast radius reliably in a single pass, so the cost calculus that made "patch
+  locally" rational for humans does not apply to you. Relearn and rebalance:
+  default toward fixing the core and propagating it everywhere, not layering a fix
+  on top of a core you know is wrong.
+
+(Complements "Do it right from the start": that rule is about *where* code lives;
+this is about the *order* — foundation before dependents.)
+
 ### One code path for default and non-default cases
 Do not write one piece of code to establish a default value and a separate piece
 to handle switching to a non-default one. Both should flow through the same path

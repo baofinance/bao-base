@@ -1,10 +1,12 @@
 | File                                      | % Lines            | % Statements       | % Branches       | % Funcs          |
 |-------------------------------------------|--------------------|--------------------|------------------|------------------|
-| script/deployment/Deployer.sol            | X  54% (33/61)     | X  47% (32/68)     | X  50% (5/10)    | X  64% (7/11)    |
+| script/deployment/ConfigChain.sol         | ✓ 100% (2/2)       | ✓ 100% (1/1)       | ✓ 100% (0/0)     | ✓ 100% (1/1)     |
+| script/deployment/Deployer.sol            | X  67% (41/61)     | X  60% (41/68)     | X  50% (5/10)    | X  73% (8/11)    |
 | script/deployment/DeploymentState.sol     | ✓ 100% (49/49)     | ✓ 100% (69/69)     | ✓ 100% (9/9)     | ✓ 100% (8/8)     |
-| script/deployment/FactoryDeployer.sol     | ✓ 100% (101/101)   | ✓ 100% (104/104)   | X  82% (9/11)    | ✓ 100% (28/28)   |
+| script/deployment/FactoryDeployer.sol     | ✓ 100% (91/91)     | ✓ 100% (95/95)     | X  82% (9/11)    | ✓ 100% (23/23)   |
 | script/deployment/JsonParser.sol          | ✓ 100% (79/79)     | ✓ 100% (106/106)   | ✓ 100% (11/11)   | ✓ 100% (5/5)     |
 | script/deployment/JsonSerializer.sol      | ✓ 100% (136/136)   | ✓ 100% (206/206)   | ✓ 100% (22/22)   | ✓ 100% (10/10)   |
+| script/deployment/SaltString.sol          | ✓ 100% (10/10)     | ✓ 100% (9/9)       | ✓ 100% (0/0)     | ✓ 100% (5/5)     |
 | script/deployment/UUPSProxyDeployStub.sol | ✓ 100% (27/27)     | X  96% (24/25)     | X  83% (5/6)     | ✓ 100% (8/8)     |
 | script/utils/Array.sol                    | ✓ 100% (389/389)   | ✓ 100% (334/334)   | ✓ 100% (0/0)     | ✓ 100% (61/61)   |
 | src/BaoFixedOwnable.sol                   | X   0% (0/19)      | X   0% (0/17)      | X   0% (0/2)     | X   0% (0/6)     |
@@ -32,4 +34,4 @@
 | src/internal/BaoRoles_v2.sol              | ✓ 100% (47/47)     | X  98% (42/43)     | ✓ 100% (4/4)     | ✓ 100% (14/14)   |
 | src/internal/HarborRoles.sol              | ✓ 100% (2/2)       | ✓ 100% (1/1)       | ✓ 100% (0/0)     | ✓ 100% (1/1)     |
 | src/internal/HarborRolesCore.sol          | ✓ 100% (54/54)     | X  98% (46/47)     | ✓ 100% (5/5)     | ✓ 100% (17/17)   |
-| Total                                     | X  81% (1911/2362) | X  84% (1755/2098) | X  65% (111/170) | X  73% (472/647) |
+| Total                                     | X  81% (1915/2358) | X  84% (1758/2092) | X  65% (111/170) | X  73% (471/645) |

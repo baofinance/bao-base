@@ -95,6 +95,10 @@ contract TestableDeployer is Deployer {
         _executeLocal();
     }
 
+    function doBuildSafeJson(string calldata description) external view returns (string memory) {
+        return _buildSafeJson(description);
+    }
+
     // ── Configurable build() for run() tests ──────────────────────────────────
 
     function setBuildTarget(address target, bytes calldata data) external {
@@ -163,6 +167,26 @@ contract DeployerTest is BaoTest {
         // description is "<fullSalt>.<desc>", so it starts with the salt prefix
         assertEq(bytes(desc)[0], bytes1("t"), "description prefixed with salt (starts 'test_v1...')");
         assertTrue(bytes(desc).length > bytes("upgrade").length, "description is longer than bare desc");
+    }
+
+    // ── Safe batch JSON ─────────────────────────────────────────────────────────
+
+    function test_buildSafeJson_encodesQueuedTransactions() public {
+        // The Safe batch JSON carries the chainId, the meta description, and each queued tx's to/value/data
+        // — the exact shape the Safe Transaction Builder imports.
+        bytes memory data = abi.encodeCall(MockCallTarget.record, ());
+        deployer.doQueue(address(mock), data, "record call");
+
+        string memory json = deployer.doBuildSafeJson("grant roles");
+
+        assertTrue(LibString.contains(json, '"chainId":"'), "includes chainId");
+        assertTrue(LibString.contains(json, '"description":"grant roles"'), "includes the meta description");
+        assertTrue(LibString.contains(json, '"value":"0"'), "tx value is 0");
+        assertTrue(
+            LibString.contains(json, LibString.toHexStringChecksummed(address(mock))),
+            "includes the checksummed tx target"
+        );
+        assertTrue(LibString.contains(json, vm.toString(data)), "includes the tx calldata");
     }
 
     // ── flush ─────────────────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 
 /// @notice Well-known address entry for address-to-label mapping.
 struct WellKnownAddress {
@@ -186,54 +187,15 @@ abstract contract FactoryDeployer {
         return Strings.toHexString(addr);
     }
 
-    // ========== SALT STRING CONSTRUCTION ==========
-    // All "::" salt construction happens here - nowhere else in the codebase.
-    // Parameters are generic (part1, part2, part3) as they vary by use case.
-
-    /// @notice Construct salt string for a single-part key (e.g., "ETH::pegged")
-    // ========== KEY BUILDING ==========
-
-    /// @notice Build a local key from one part.
-    function _key(string memory a) internal pure returns (string memory) {
-        return a;
-    }
-
-    /// @notice Build a local key from two parts (e.g., "ETH::fxUSD").
-    function _key(string memory a, string memory b) internal pure returns (string memory) {
-        return string.concat(a, "::", b);
-    }
-
-    /// @notice Build a local key from three parts (e.g., "ETH::fxUSD::minter").
-    function _key(string memory a, string memory b, string memory c) internal pure returns (string memory) {
-        return string.concat(a, "::", b, "::", c);
-    }
-
-    /// @notice Build a local key from four parts (e.g., "ETH::fxUSD::stabilityPoolCollateral::harvest").
-    function _key(
-        string memory a,
-        string memory b,
-        string memory c,
-        string memory d
-    ) internal pure returns (string memory) {
-        return string.concat(a, "::", b, "::", c, "::", d);
-    }
-
-    /// @notice Build a local key from five parts.
-    function _key(
-        string memory a,
-        string memory b,
-        string memory c,
-        string memory d,
-        string memory e
-    ) internal pure returns (string memory) {
-        return string.concat(a, "::", b, "::", c, "::", d, "::", e);
-    }
-
     // ========== SALT ==========
+    // Salt KEYS are built with SaltString.key(...) — the single key-builder, reachable from deployers,
+    // configs, libraries and tests alike (FactoryDeployer no longer exposes its own _key). The campaign
+    // PREFIX is deploy-run state held here and applied by _saltString below.
 
-    /// @notice Construct full salt string from a local key by prepending the salt prefix.
+    /// @notice Construct full salt string from a local key by prepending the campaign salt prefix.
+    /// @dev The prefix is deploy-run state (held here); the join itself routes through SaltString.
     function _saltString(string memory key) internal view returns (string memory) {
-        return string.concat(saltPrefix(), "::", key);
+        return SaltString.key(saltPrefix(), key);
     }
 
     // ========== ADDRESS PREDICTION ==========

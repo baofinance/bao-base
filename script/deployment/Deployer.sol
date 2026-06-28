@@ -69,7 +69,7 @@ abstract contract Deployer is FactoryDeployer {
     }
 
     /// @notice Queue a transaction using a local key for address prediction.
-    /// @param key The local key (e.g., from _key()), without salt prefix.
+    /// @param key The local key (e.g., from SaltString.key()), without salt prefix.
     function queue(string memory key, bytes memory data, string memory description) internal {
         queue(_predictAddress(key), data, string.concat(_saltString(key), ".", description));
     }
@@ -163,7 +163,7 @@ abstract contract Deployer is FactoryDeployer {
     // Internal: JSON Generation
     // ─────────────────────────────────────────────────────────────────────────
 
-    function _buildSafeJson(string memory description) private view returns (string memory) {
+    function _buildSafeJson(string memory description) internal view returns (string memory) {
         string memory txArray = "[";
         for (uint256 i = 0; i < _transactions.length; i++) {
             if (i > 0) {

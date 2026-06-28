@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {FactoryDeployer, WellKnownAddress, IBaoOwnable} from "@bao-script/deployment/FactoryDeployer.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
+import {SaltString} from "@bao-script/deployment/SaltString.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -80,47 +81,16 @@ contract TestableFactoryDeployer is FactoryDeployer {
         _setSaltPrefix(prefix);
     }
 
-    function key1(string memory a) external pure returns (string memory) {
-        return _key(a);
-    }
-
-    function key2(string memory a, string memory b) external pure returns (string memory) {
-        return _key(a, b);
-    }
-
-    function key3(string memory a, string memory b, string memory c) external pure returns (string memory) {
-        return _key(a, b, c);
-    }
-
-    function key4(
-        string memory a,
-        string memory b,
-        string memory c,
-        string memory d
-    ) external pure returns (string memory) {
-        return _key(a, b, c, d);
-    }
-
-    function key5(
-        string memory a,
-        string memory b,
-        string memory c,
-        string memory d,
-        string memory e
-    ) external pure returns (string memory) {
-        return _key(a, b, c, d, e);
-    }
-
     function saltString1(string memory a) external view returns (string memory) {
         return _saltString(a);
     }
 
     function saltString2(string memory a, string memory b) external view returns (string memory) {
-        return _saltString(_key(a, b));
+        return _saltString(SaltString.key(a, b));
     }
 
     function saltString3(string memory a, string memory b, string memory c) external view returns (string memory) {
-        return _saltString(_key(a, b, c));
+        return _saltString(SaltString.key(a, b, c));
     }
 
     function predictAddress1(string memory a) external returns (address) {
@@ -128,11 +98,11 @@ contract TestableFactoryDeployer is FactoryDeployer {
     }
 
     function predictAddress2(string memory a, string memory b) external returns (address) {
-        return _predictAddress(_key(a, b));
+        return _predictAddress(SaltString.key(a, b));
     }
 
     function predictAddress3(string memory a, string memory b, string memory c) external returns (address) {
-        return _predictAddress(_key(a, b, c));
+        return _predictAddress(SaltString.key(a, b, c));
     }
 
     function registerForOwnershipTransfer(address deployed, string memory salt) external {
@@ -261,35 +231,8 @@ contract FactoryDeployerTest is BaoTest {
         assertEq(deployer.saltString3("ETH", "fxUSD", "minter"), "harbor_v1::ETH::fxUSD::minter");
     }
 
-    // ========== Key Building Tests ==========
-
-    function test_key1_identity() public view {
-        assertEq(deployer.key1("pegged"), "pegged");
-    }
-
-    function test_key2_joinsTwoParts() public view {
-        assertEq(deployer.key2("ETH", "fxUSD"), "ETH::fxUSD");
-    }
-
-    function test_key3_joinsThreeParts() public view {
-        assertEq(deployer.key3("ETH", "fxUSD", "minter"), "ETH::fxUSD::minter");
-    }
-
-    function test_key4_joinsFourParts() public view {
-        assertEq(
-            deployer.key4("ETH", "fxUSD", "stabilityPoolCollateral", "harvest"),
-            "ETH::fxUSD::stabilityPoolCollateral::harvest"
-        );
-    }
-
-    function test_key5_joinsFiveParts() public view {
-        assertEq(deployer.key5("a", "b", "c", "d", "e"), "a::b::c::d::e");
-    }
-
-    function test_key_composesWith_saltString() public {
-        deployer.setSaltPrefix("harbor_v1");
-        assertEq(deployer.saltString1(deployer.key3("ETH", "fxUSD", "minter")), "harbor_v1::ETH::fxUSD::minter");
-    }
+    // (Key-building join is SaltString's — tested in SaltString.t.sol; the saltString*/predictAddress*
+    //  tests above exercise FactoryDeployer's prefix+predict composition over SaltString.key.)
 
     // ========== Address Label Tests ==========
 
