@@ -7,6 +7,9 @@ completing a batch of changes, stop and report what was done — do not continue
 to the next batch without the user confirming. Use the plan file in
 `~/.claude/plans/` to track multi-session work; update it after each completed
 step and commit the change.
+When presenting what was done, also present the next step so I have everything I need
+to know what was done and what I'm now saying yes to.
+
 
 Never end a planning pass with "is the plan good to go?" and then immediately
 execute on confirmation. Planning and execution are separate sessions. After
