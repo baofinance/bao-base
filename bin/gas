@@ -12,5 +12,9 @@ mkdir -p tmp
 export BAO_DEPLOYMENT_LOGS_ROOT=$(mktemp -d -p tmp)
 trap 'rm -rf "${BAO_DEPLOYMENT_LOGS_ROOT}"' EXIT
 
-forge test --out ${FOUNDRY_OUT} --nmp 'script/**/*.t.sol' --isolate --gas-report --fuzz-seed 1 --fuzz-runs 64 "$@"
+status=0
+forge test --out ${FOUNDRY_OUT} --nmp 'script/**/*.t.sol' --isolate --gas-report --fuzz-seed 1 --fuzz-runs 64 "$@" || status=$?
 { set +x; } 2>/dev/null
+# make forge's exit status the script's return value: the set +x above would otherwise mask it,
+# and run sources this script under `|| exit_code=$?` which suppresses set -e
+( exit "$status" )
