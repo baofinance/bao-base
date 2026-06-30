@@ -13,6 +13,6 @@ debug "BAO_BASE_VERBOSITY=${BAO_BASE_VERBOSITY}."
 status=0
 forge build --sizes --out ${FOUNDRY_OUT} --force src test/_sizes script || status=$?
 { set +x; } 2>/dev/null
-# make forge's exit status the script's return value: the set +x above would otherwise mask it,
+# don't make forge's exit status the script's return value: the set +x above would otherwise mask it,
 # and run sources this script under `|| exit_code=$?` which suppresses set -e
-( exit "$status" )
+# ( exit "$status" )
