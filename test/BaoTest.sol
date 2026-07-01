@@ -73,12 +73,7 @@ abstract contract BaoTest is Test {
         _assertApprox(actual, expected, absTolerance, relTolerance, message);
     }
 
-    function assertApprox(
-        int256 actual,
-        int256 expected,
-        uint256 absTolerance,
-        string memory message
-    ) internal pure {
+    function assertApprox(int256 actual, int256 expected, uint256 absTolerance, string memory message) internal pure {
         _assertApprox(actual, expected, absTolerance, 0, message);
     }
 

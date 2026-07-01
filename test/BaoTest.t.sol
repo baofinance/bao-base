@@ -161,9 +161,7 @@ contract BaoTestApproxTest is BaoTest {
     // When the relative bound governs, the failure message reports it in wei alongside the absolute floor.
     function test_assertApprox_failureNamesRelComponent() public {
         // rel 50% of the larger magnitude (100) = 50 governs over abs 1; diff 90 exceeds it.
-        vm.expectRevert(
-            bytes("rel (max delta = max(abs 1, rel 50) wei): 10 !~= 100 (max delta: 50, real delta: 90)")
-        );
+        vm.expectRevert(bytes("rel (max delta = max(abs 1, rel 50) wei): 10 !~= 100 (max delta: 50, real delta: 90)"));
         this.exposed_assertApprox(10, 100, 1, 5e17, "rel");
     }
 }
@@ -200,9 +198,7 @@ contract BaoTestApproxIntTest is BaoTest {
 
     // A signed difference beyond both tolerances reverts, message naming both components.
     function test_assertApproxInt_revertsBeyondTolerance() public {
-        vm.expectRevert(
-            bytes("signed (max delta = max(abs 1, rel 0) wei): -2 !~= 3 (max delta: 1, real delta: 5)")
-        );
+        vm.expectRevert(bytes("signed (max delta = max(abs 1, rel 0) wei): -2 !~= 3 (max delta: 1, real delta: 5)"));
         this.exposed_assertApproxInt(-2, 3, 1, 0, "signed");
     }
 }
