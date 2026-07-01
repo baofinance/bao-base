@@ -145,15 +145,64 @@ contract BaoTestApproxTest is BaoTest {
         assertTrue(isApprox(0, 0, 0, 5e17), "0 vs 0 conserved");
     }
 
-    // assertApprox passes silently when within tolerance.
+    // assertApprox passes silently when within tolerance. (First arg typed to select the uint256 overload;
+    // a bare literal is ambiguous now that a signed overload exists — real call sites pass typed values.)
     function test_assertApprox_passesWithinAbs() public pure {
-        assertApprox(105, 100, 5, "within abs");
+        assertApprox(uint256(105), 100, 5, "within abs");
     }
 
-    // assertApprox reverts when the difference exceeds the effective tolerance.
+    // assertApprox reverts when the difference exceeds the effective tolerance, and the message names both
+    // the absolute and relative components before forge's own delta suffix.
     function test_assertApprox_revertsBeyondTolerance() public {
-        // Delegates to vm.assertApproxEqAbs, which reverts with this message on failure.
-        vm.expectRevert(bytes("beyond: 106 !~= 100 (max delta: 5, real delta: 6)"));
+        vm.expectRevert(bytes("beyond (max delta = max(abs 5, rel 0) wei): 106 !~= 100 (max delta: 5, real delta: 6)"));
         this.exposed_assertApprox(106, 100, 5, 0, "beyond");
+    }
+
+    // When the relative bound governs, the failure message reports it in wei alongside the absolute floor.
+    function test_assertApprox_failureNamesRelComponent() public {
+        // rel 50% of the larger magnitude (100) = 50 governs over abs 1; diff 90 exceeds it.
+        vm.expectRevert(
+            bytes("rel (max delta = max(abs 1, rel 50) wei): 10 !~= 100 (max delta: 50, real delta: 90)")
+        );
+        this.exposed_assertApprox(10, 100, 1, 5e17, "rel");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Unit tests for BaoTest's int256 assertApprox overloads.
+//
+// The signed comparator shares the effective-tolerance logic with the
+// uint256 one (relative bound taken against the larger magnitude), and
+// carries the same abs/rel failure message. These pin the sign-aware
+// behaviour that the harbor Minter conservation checks rely on.
+// ═══════════════════════════════════════════════════════════════
+
+contract BaoTestApproxIntTest is BaoTest {
+    function exposed_assertApproxInt(
+        int256 actual,
+        int256 expected,
+        uint256 absTolerance,
+        uint256 relTolerance,
+        string memory message
+    ) external pure {
+        assertApprox(actual, expected, absTolerance, relTolerance, message);
+    }
+
+    // A signed difference within the absolute tolerance passes (straddling zero).
+    function test_assertApproxInt_passesWithinAbs() public pure {
+        assertApprox(int256(-2), int256(3), 5, "signed diff 5 within abs 5");
+    }
+
+    // The relative bound is taken against the larger magnitude, so 50% of 100 admits a diff of 40.
+    function test_assertApproxInt_passesWithinRel() public pure {
+        assertApprox(int256(-140), int256(-100), 1, 5e17, "signed diff 40 within 50% of 100");
+    }
+
+    // A signed difference beyond both tolerances reverts, message naming both components.
+    function test_assertApproxInt_revertsBeyondTolerance() public {
+        vm.expectRevert(
+            bytes("signed (max delta = max(abs 1, rel 0) wei): -2 !~= 3 (max delta: 1, real delta: 5)")
+        );
+        this.exposed_assertApproxInt(-2, 3, 1, 0, "signed");
     }
 }

@@ -3,6 +3,8 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {SignedMath} from "@openzeppelin/contracts/utils/math/SignedMath.sol";
+import {LibString} from "@solady/utils/LibString.sol";
 
 import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
@@ -24,6 +26,16 @@ abstract contract BaoTest is Test {
     // Matches forge's assertApproxEqRel scaling: 1e18 == 100% relative tolerance.
     uint256 private constant RELATIVE_TOLERANCE_SCALE = 1e18;
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Approximate comparators (abs OR rel). `assertApprox` passes when the actual
+    // value is within the *larger* of the absolute tolerance and the relative
+    // tolerance (rel scaled so 1e18 == 100%). `isApprox` is the same predicate
+    // returning a bool. int256 overloads compare signed values; their relative
+    // bound is taken against the larger magnitude. On failure the message names
+    // both components — `max delta = max(abs A, rel R) wei` — before forge's own
+    // `a !~= b (max delta …, real delta …)` suffix, so neither budget is hidden.
+    // ─────────────────────────────────────────────────────────────────────────
+
     function isApprox(uint256 actual, uint256 expected, uint256 absTolerance) internal pure returns (bool) {
         return isApprox(actual, expected, absTolerance, 0);
     }
@@ -34,12 +46,9 @@ abstract contract BaoTest is Test {
         uint256 absTolerance,
         uint256 relTolerance
     ) internal pure returns (bool) {
-        uint256 effectiveTolerance = _effectiveTolerance(actual, expected, absTolerance, relTolerance);
-
-        if (actual > expected) {
-            return (actual - expected) <= effectiveTolerance;
-        }
-        return (expected - actual) <= effectiveTolerance;
+        (uint256 effectiveTolerance, ) = _effectiveTolerance(actual, expected, absTolerance, relTolerance);
+        uint256 diff = actual > expected ? actual - expected : expected - actual;
+        return diff <= effectiveTolerance;
     }
 
     function assertApprox(uint256 actual, uint256 expected, uint256 absTolerance) internal pure {
@@ -64,6 +73,25 @@ abstract contract BaoTest is Test {
         _assertApprox(actual, expected, absTolerance, relTolerance, message);
     }
 
+    function assertApprox(
+        int256 actual,
+        int256 expected,
+        uint256 absTolerance,
+        string memory message
+    ) internal pure {
+        _assertApprox(actual, expected, absTolerance, 0, message);
+    }
+
+    function assertApprox(
+        int256 actual,
+        int256 expected,
+        uint256 absTolerance,
+        uint256 relTolerance,
+        string memory message
+    ) internal pure {
+        _assertApprox(actual, expected, absTolerance, relTolerance, message);
+    }
+
     function _assertApprox(
         uint256 actual,
         uint256 expected,
@@ -71,37 +99,64 @@ abstract contract BaoTest is Test {
         uint256 relTolerance,
         string memory message
     ) private pure {
-        uint256 effectiveTolerance = _effectiveTolerance(actual, expected, absTolerance, relTolerance);
-
-        if (bytes(message).length == 0) {
-            assertApproxEqAbs(actual, expected, effectiveTolerance);
-        } else {
-            assertApproxEqAbs(actual, expected, effectiveTolerance, message);
-        }
+        (uint256 effectiveTolerance, uint256 relBound) = _effectiveTolerance(
+            actual,
+            expected,
+            absTolerance,
+            relTolerance
+        );
+        assertApproxEqAbs(actual, expected, effectiveTolerance, _toleranceMemo(message, absTolerance, relBound));
     }
 
+    function _assertApprox(
+        int256 actual,
+        int256 expected,
+        uint256 absTolerance,
+        uint256 relTolerance,
+        string memory message
+    ) private pure {
+        (uint256 effectiveTolerance, uint256 relBound) = _effectiveTolerance(
+            SignedMath.abs(actual),
+            SignedMath.abs(expected),
+            absTolerance,
+            relTolerance
+        );
+        assertApproxEqAbs(actual, expected, effectiveTolerance, _toleranceMemo(message, absTolerance, relBound));
+    }
+
+    /// @dev The effective tolerance is the larger of the absolute floor and the relative bound; `relBound`
+    ///      is returned separately so the failure message can name each component.
     function _effectiveTolerance(
-        uint256 actual,
-        uint256 expected,
+        uint256 actualMagnitude,
+        uint256 expectedMagnitude,
         uint256 absTolerance,
         uint256 relTolerance
-    ) private pure returns (uint256 effectiveTolerance) {
-        effectiveTolerance = absTolerance;
-
+    ) private pure returns (uint256 effectiveTolerance, uint256 relBound) {
         if (relTolerance > 0) {
-            uint256 maxMagnitude = actual > expected ? actual : expected;
+            uint256 maxMagnitude = actualMagnitude > expectedMagnitude ? actualMagnitude : expectedMagnitude;
             if (maxMagnitude > 0) {
-                uint256 relBound = Math.mulDiv(
-                    maxMagnitude,
-                    relTolerance,
-                    RELATIVE_TOLERANCE_SCALE,
-                    Math.Rounding.Ceil
-                );
-                if (relBound > effectiveTolerance) {
-                    effectiveTolerance = relBound;
-                }
+                relBound = Math.mulDiv(maxMagnitude, relTolerance, RELATIVE_TOLERANCE_SCALE, Math.Rounding.Ceil);
             }
         }
+        effectiveTolerance = absTolerance > relBound ? absTolerance : relBound;
+    }
+
+    /// @dev Prefixes the caller's message with the tolerance breakdown; forge appends the actual/expected
+    ///      delta after this, so a failure reads e.g. "memo (max delta = max(abs 2, rel 1) wei): 100 !~= 98 …".
+    function _toleranceMemo(
+        string memory message,
+        uint256 absTolerance,
+        uint256 relBound
+    ) private pure returns (string memory) {
+        return
+            string.concat(
+                message,
+                " (max delta = max(abs ",
+                LibString.toString(absTolerance),
+                ", rel ",
+                LibString.toString(relBound),
+                ") wei)"
+            );
     }
 
     /// @notice Asserts a set of parts conserves a whole, leaving only bounded rounding dust.
