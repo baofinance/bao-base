@@ -104,6 +104,32 @@ abstract contract BaoTest is Test {
         }
     }
 
+    /// @notice Asserts a set of parts conserves a whole, leaving only bounded rounding dust.
+    /// @dev One-sided and directional, unlike the symmetric `assertApprox` window: the sum of
+    ///      `parts` must never exceed `whole` (no value is created), and the shortfall
+    ///      `whole - Σparts` must not exceed `maxDustWei` (no value is lost beyond the stated
+    ///      rounding bound). A conserving system rounds strictly in the whole's favour, so an
+    ///      overshoot is always a failure, never tolerated as dust. `maxDustWei` is the caller's
+    ///      analytically-derived bound (typically 1 wei per truncating division that feeds a part).
+    /// @param parts The components that should sum to (just under) `whole`.
+    /// @param whole The conserved total the parts are drawn from.
+    /// @param maxDustWei The maximum permitted shortfall `whole - Σparts`, derived from the
+    ///        number of truncating divisions in the computation of the parts.
+    /// @param memo A label prefixed to the failure message identifying the conservation being checked.
+    function assertConserved(
+        uint256[] memory parts,
+        uint256 whole,
+        uint256 maxDustWei,
+        string memory memo
+    ) internal pure {
+        uint256 sum = 0;
+        for (uint256 i = 0; i < parts.length; i++) {
+            sum += parts[i];
+        }
+        assertLe(sum, whole, string.concat(memo, ": parts exceed whole (value created)"));
+        assertLe(whole - sum, maxDustWei, string.concat(memo, ": shortfall exceeds dust bound (value lost)"));
+    }
+
     /*//////////////////////////////////////////////////////////////////////////
                               BAOFACTORY SETUP
     //////////////////////////////////////////////////////////////////////////*/
