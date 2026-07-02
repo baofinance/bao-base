@@ -180,6 +180,31 @@ abstract contract BaoTest is Test {
         assertLe(whole - sum, maxDustWei, string.concat(memo, ": shortfall exceeds dust bound (value lost)"));
     }
 
+    /// @notice Asserts a tolerance both ADMITS the correct value and REJECTS a specific wrong one — so the
+    ///         tolerance is shown to discriminate, not merely to pass. `actual` must be within `absTolerance` of
+    ///         `expected` (as `assertApprox`), and `wrongValue` — the value a bug would produce (e.g. the ceil
+    ///         where the code floors, or a deviation just past a conservation dust cliff) — must be OUTSIDE it.
+    ///         This turns a one-off "seed a bug, confirm the test flips" mutation-check into a continuous, every-run
+    ///         guarantee that the bound stays tight enough to catch that bug (and can't be silently widened past it).
+    /// @param actual The value produced by the code under test.
+    /// @param expected The independently-derived correct value.
+    /// @param absTolerance The tolerance being asserted (the derived rounding bound).
+    /// @param wrongValue A value a real bug would produce; must fall outside `absTolerance` of `expected`.
+    /// @param memo A label prefixed to the failure message.
+    function assertDiscriminates(
+        uint256 actual,
+        uint256 expected,
+        uint256 absTolerance,
+        uint256 wrongValue,
+        string memory memo
+    ) internal pure {
+        assertApprox(actual, expected, absTolerance, memo);
+        assertFalse(
+            isApprox(wrongValue, expected, absTolerance),
+            string.concat(memo, ": tolerance too loose to reject the wrong value")
+        );
+    }
+
     /*//////////////////////////////////////////////////////////////////////////
                               BAOFACTORY SETUP
     //////////////////////////////////////////////////////////////////////////*/

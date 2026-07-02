@@ -202,3 +202,40 @@ contract BaoTestApproxIntTest is BaoTest {
         this.exposed_assertApproxInt(-2, 3, 1, 0, "signed");
     }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Unit tests for BaoTest's discrimination assertion.
+//
+// assertDiscriminates proves a tolerance both admits the correct
+// value AND rejects a specific wrong one — so the tolerance is shown
+// to catch the bug it targets, continuously, not just to pass. It
+// fails if the tolerance is loose enough to also admit the wrong value.
+// ═══════════════════════════════════════════════════════════════
+
+contract BaoTestDiscriminatesTest is BaoTest {
+    function exposed_assertDiscriminates(
+        uint256 actual,
+        uint256 expected,
+        uint256 absTolerance,
+        uint256 wrongValue,
+        string memory memo
+    ) external pure {
+        assertDiscriminates(actual, expected, absTolerance, wrongValue, memo);
+    }
+
+    // A tight (exact) tolerance admits the correct value and rejects the off-by-one a rounding flip would produce.
+    function test_assertDiscriminates_tightBoundPasses() public pure {
+        assertDiscriminates(100, 100, 0, 101, "exact rejects ceil");
+    }
+
+    // A tolerance that still rejects the wrong value passes (correct within 2, wrong 5 away is outside).
+    function test_assertDiscriminates_withToleranceRejectsFarWrong() public pure {
+        assertDiscriminates(101, 100, 2, 105, "within 2, rejects 5-away");
+    }
+
+    // A tolerance loose enough to also admit the wrong value fails: it cannot discriminate.
+    function test_assertDiscriminates_revertsWhenTooLoose() public {
+        vm.expectRevert(bytes("loose: tolerance too loose to reject the wrong value"));
+        this.exposed_assertDiscriminates(100, 100, 5, 103, "loose");
+    }
+}
