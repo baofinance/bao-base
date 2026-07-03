@@ -83,6 +83,21 @@ validate_upgrades() {
 validate_upgrades || error "OpenZeppelin upgrades-core validate failed"
 
 # ──────────────────────────────────────────────────────────────────────────────────────────────
+# bao storage-successor check: OZ cannot verify a field WIDENED in place inside a namespaced struct,
+# because solc does not expose struct-member NatSpec so @custom:oz-retyped-from can't reach it
+# (ethereum/solidity#12295, OpenZeppelin/openzeppelin-upgrades#802 — both open). Contracts that widen
+# therefore carry @custom:bao-upgrades-from (which OZ ignores, validating them in isolation) plus a
+# struct-level @custom:bao-retyped-from, and this verifies each such link is a DOCUMENTED byte-
+# compatible successor of its predecessor. A no-op (exit 0) when no contract carries the annotation.
+# ──────────────────────────────────────────────────────────────────────────────────────────────
+echo
+echo "running bao storage-successor validate..."
+echo "--------------------------------------"
+echo
+"$BAO_BASE_BIN_DIR"/run-python storage-successor "${BUILD_INFO_DIR}" --root . \
+  || error "bao storage-successor validate failed (a @custom:bao-upgrades-from link is not a documented byte-compatible successor)"
+
+# ──────────────────────────────────────────────────────────────────────────────────────────────
 # check that every deployable versioned (_v2+) upgradeable contract declares an upgrade reference
 # to its predecessor (@custom:oz-upgrades-from). Without it OZ validates the contract in ISOLATION
 # and never checks its storage layout is compatible with the deployed previous version — a silent
@@ -93,6 +108,14 @@ echo
 echo "checking version upgrade references..."
 echo "--------------------------------------"
 echo
+# a versioned contract references its predecessor via @custom:oz-upgrades-from (OZ appends "(upgrades
+# from …)" above) OR @custom:bao-upgrades-from (verified by storage-successor above); collect the bao
+# links "<successor> <predecessor>" so the audit accepts either — and rejects declaring both.
+declare -A bao_pred=()
+while read -r _bsucc _bpred; do
+  [[ -n "$_bsucc" ]] && bao_pred["$_bsucc"]="$_bpred"
+done < <("$BAO_BASE_BIN_DIR"/run-python storage-successor "${BUILD_INFO_DIR}" --list 2>/dev/null || true)
+
 version_ref_failed=0
 while IFS= read -r vline; do
   # the validated contract's name is the first "<path>.sol:<Name>" token on the line
@@ -102,22 +125,37 @@ while IFS= read -r vline; do
     vbase="${BASH_REMATCH[1]}"
     vver="${BASH_REMATCH[2]}"
     if [[ "$vver" -ge 2 ]]; then
-      if [[ "$vline" != *"(upgrades from"* ]]; then
-        printf '\033[31m ✘  %s: no @custom:oz-upgrades-from reference — its storage layout is NOT validated against the deployed predecessor\033[0m\n' "$vname"
+      has_oz=0; [[ "$vline" == *"(upgrades from"* ]] && has_oz=1
+      has_bao=0; [[ -v bao_pred["$vname"] ]] && has_bao=1
+      if [[ "$has_oz" -eq 1 && "$has_bao" -eq 1 ]]; then
+        printf '\033[31m ✘  %s: declares BOTH @custom:oz-upgrades-from and @custom:bao-upgrades-from — use exactly one\033[0m\n' "$vname"
         version_ref_failed=1
-      elif [[ "$vline" != *":${vbase}_v"* ]]; then
-        printf '\033[31m ✘  %s: @custom:oz-upgrades-from references a non-%s_v* contract\033[0m\n' "$vname" "$vbase"
-        version_ref_failed=1
+      elif [[ "$has_oz" -eq 1 ]]; then
+        if [[ "$vline" != *":${vbase}_v"* ]]; then
+          printf '\033[31m ✘  %s: @custom:oz-upgrades-from references a non-%s_v* contract\033[0m\n' "$vname" "$vbase"
+          version_ref_failed=1
+        else
+          # the referenced predecessor is the second "<path>.sol:<Name>" token (inside "(upgrades from …)")
+          vref="$(printf '%s' "$vline" | grep -oE '\.sol:[A-Za-z_][A-Za-z0-9_]*' | tail -1 | sed 's/.*\.sol://')"
+          printf ' ✔  %s upgrades from %s\n' "$vname" "$vref"
+        fi
+      elif [[ "$has_bao" -eq 1 ]]; then
+        bref="${bao_pred[$vname]}"
+        if [[ "$bref" != "${vbase}_v"* ]]; then
+          printf '\033[31m ✘  %s: @custom:bao-upgrades-from references a non-%s_v* contract (%s)\033[0m\n' "$vname" "$vbase" "$bref"
+          version_ref_failed=1
+        else
+          printf ' ✔  %s upgrades from %s (bao)\n' "$vname" "$bref"
+        fi
       else
-        # the referenced predecessor is the second "<path>.sol:<Name>" token (inside "(upgrades from …)")
-        vref="$(printf '%s' "$vline" | grep -oE '\.sol:[A-Za-z_][A-Za-z0-9_]*' | tail -1 | sed 's/.*\.sol://')"
-        printf ' ✔  %s upgrades from %s\n' "$vname" "$vref"
+        printf '\033[31m ✘  %s: no @custom:oz-upgrades-from or @custom:bao-upgrades-from reference — its storage layout is NOT validated against the deployed predecessor\033[0m\n' "$vname"
+        version_ref_failed=1
       fi
     fi
   fi
 done < <(validate_upgrades 2>/dev/null || true)
 if [[ "$version_ref_failed" -ne 0 ]]; then
-  error "versioned (_v2+) contracts must declare @custom:oz-upgrades-from their predecessor"
+  error "versioned (_v2+) contracts must declare @custom:oz-upgrades-from or @custom:bao-upgrades-from their predecessor"
 fi
 echo
 echo "SUCCESS: (all versioned upgradeable contracts reference a predecessor)"

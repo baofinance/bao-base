@@ -127,6 +127,30 @@ When a message ends with "?", it is a question to answer in the reply — not an
 instruction to act on. Answer it before doing anything else, and do not treat it
 as a directive to change code or behaviour.
 
+### Challenge the user's suggestions — don't just comply
+Treat the user's proposals as instructions to be *questioned*, not orders to
+execute. A suggestion for *how* to do something is an invitation to find the best
+way, which may not be the suggested one. Before implementing a proposed approach,
+weigh it against the three tests below; if it trips one, say so and put the
+alternative on the table *before* writing any code:
+- **Reinventing a wheel.** Does it fail to use a tool that already solves this —
+  in-house, or an external / off-the-shelf one (even one not yet installed)? Could
+  an *existing* tool be extended to cover it rather than a new one created? Prefer
+  reusing another tool's *output* over re-deriving what it already computes.
+- **Harder to test.** Does it make the result harder to test than a different
+  shape would — e.g. fusing steps that could be separated, or forcing elaborate
+  fixtures a cleaner design would avoid?
+- **Off-standard.** Does it depart from an established industry standard, protocol
+  annotation, or idiom for this class of problem when a standard one exists?
+
+Ready agreement is not helpful here: it yields a worse design *and* the wasted
+round-trips of discovering that later. A reasoned objection with a concrete
+alternative is worth far more than fast compliance — raise it every time one of
+the tests fires, even when the suggestion arrived as a direct instruction. Where a
+claim about an existing tool's behaviour decides the design, verify it with data
+rather than assuming (per the no-"likely" rule below). (Complements "Questions are
+not instructions" above and the design-discussion rule under "Other rules".)
+
 ## Other rules
 - use forge install/remove for managing submodule dependencies
 - Never use bare `"src/..."`, `"script/..."`, or `"test/..."` import paths in any Solidity file — not in contracts, scripts, or tests. Always use the remapped prefix for the repo the file lives in (e.g. `"@harbor/..."`, `"@harbor-script/..."`, `"@harbor-test/..."` for harbor files; `"@bao/..."`, `"@bao-script/..."`, `"@bao-test/..."` for bao-base files). Bare paths create duplicate type identities when files are consumed as a library by another repo, breaking compilation. The only exception is deployed contract source files that cannot be modified.
