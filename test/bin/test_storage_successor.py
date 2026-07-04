@@ -98,8 +98,41 @@ def contained(kind, amount="t_uint104"):
 V2 = flat("t_uint104")  # deployed: uint104 amount
 
 
-def errors(a, b, retyped=None):
-    return mod.successor_errors(a, b, retyped)
+def errors(a, b, retyped=None, added=None):
+    return mod.successor_errors(a, b, retyped, added)
+
+
+def nested(depth, tb=None):
+    """A top-level var reaching a TokenBalance nested `depth` struct-layers deep (depth 0 = TokenBalance is the
+    top-level var itself). Each wrapping layer holds the previous type as its single member, so nesting alone
+    changes no struct's size."""
+    types = dict(BASE_TYPES)
+    types["t_tb"] = tb if tb is not None else token_balance()
+    inner = "t_tb"
+    for d in range(depth):
+        name = f"t_L{d}"
+        types[name] = {"encoding": "inplace", "label": f"struct L{d}", "numberOfBytes": types[inner]["numberOfBytes"],
+                       "members": [{"label": "inner", "slot": "0", "offset": 0, "type": inner}]}
+        inner = name
+    return {"storage": [{"label": "v", "slot": "0", "offset": 0, "type": inner}], "types": types}
+
+
+def _tb_padding_append():
+    """TokenBalance with a size-preserving `extra` packed into slot-1 trailing padding (numberOfBytes stays 64)."""
+    tb = token_balance()
+    tb["members"] = tb["members"] + [{"label": "extra", "slot": "1", "offset": 5, "type": "t_uint40"}]
+    return tb
+
+
+def _tb_growing_append():
+    """TokenBalance with `extra` in a fresh slot 2 (numberOfBytes 64 -> 96)."""
+    tb = token_balance()
+    tb["members"] = tb["members"] + [{"label": "extra", "slot": "2", "offset": 0, "type": "t_uint256"}]
+    tb["numberOfBytes"] = "96"
+    return tb
+
+
+ADDED = {"TokenBalance": {"extra"}}  # documents the `extra` append on its owning struct
 
 
 def has(errs, *needles):
@@ -199,10 +232,40 @@ def test_removed_member_is_rejected():
     assert has(errors(V2, flat(tb=without)), "updatedAt", "removed")
 
 
-def test_added_member_is_rejected():
-    plus = token_balance()
-    plus["members"] = plus["members"] + [{"label": "extra", "slot": "1", "offset": 5, "type": "t_uint40"}]
-    assert has(errors(V2, flat(tb=plus)), "extra", "added")
+# ── documented appends: the top-level namespace struct may grow; an embedded struct may only take a
+#    size-preserving append (packs into its own padding, never over its slot count). Tested at 0/1/N embedding. ──
+
+def test_documented_top_level_grow_is_accepted():
+    # depth 0 (the namespace struct itself): a new trailing slot is fresh storage, so a grow is safe.
+    assert errors(nested(0), nested(0, tb=_tb_growing_append()), None, ADDED) == []
+
+
+def test_documented_size_preserving_append_is_accepted_at_every_depth():
+    # a size-preserving append packs into the struct's own padding — safe at any embedding depth.
+    for depth in (0, 1, 2, 3):
+        assert errors(nested(depth), nested(depth, tb=_tb_padding_append()), None, ADDED) == [], f"depth {depth}"
+
+
+def test_growing_append_to_embedded_struct_is_rejected_at_every_depth():
+    # depth >= 1: growing an embedded struct relocates the storage after it — rejected even when documented.
+    for depth in (1, 2, 3):
+        errs = errors(nested(depth), nested(depth, tb=_tb_growing_append()), None, ADDED)
+        assert has(errs, "extra", "grows"), f"depth {depth}: {errs}"
+
+
+def test_undocumented_append_is_rejected():
+    assert has(errors(nested(0), nested(0, tb=_tb_padding_append())), "extra", "undocumented")
+
+
+def test_inserted_member_is_rejected():
+    tb = token_balance()
+    tb["members"] = tb["members"] + [{"label": "extra", "slot": "0", "offset": 0, "type": "t_uint40"}]  # overlaps product
+    assert has(errors(nested(0), nested(0, tb=tb), None, ADDED), "extra", "overlapping")
+
+
+def test_stale_added_declaration_is_rejected():
+    # names a field that is not actually a new member
+    assert has(errors(nested(0), nested(0), None, {"TokenBalance": {"ghost"}}), "ghost", "not added")
 
 
 def test_reordered_members_is_rejected():
@@ -234,9 +297,16 @@ def test_deep_narrow_inside_mapping_is_rejected():
     assert has(errors(contained("mapping"), contained("mapping", "t_uint64")), "amount", "narrowed")
 
 
-def test_deep_added_member_inside_dynamic_array_is_rejected():
+def test_undocumented_deep_append_inside_dynamic_array_is_rejected():
     a = contained("dynarray")
     b = contained("dynarray")
-    b["types"]["t_tb"] = token_balance()
-    b["types"]["t_tb"]["members"] = b["types"]["t_tb"]["members"] + [{"label": "extra", "slot": "1", "offset": 5, "type": "t_uint40"}]
-    assert has(errors(a, b), "extra", "added")
+    b["types"]["t_tb"] = _tb_padding_append()
+    assert has(errors(a, b), "extra", "undocumented")
+
+
+def test_documented_size_preserving_append_inside_dynamic_array_is_accepted():
+    # a size-preserving append packs into each element's padding without changing the stride — safe.
+    a = contained("dynarray")
+    b = contained("dynarray")
+    b["types"]["t_tb"] = _tb_padding_append()
+    assert errors(a, b, None, ADDED) == []

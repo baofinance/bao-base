@@ -41,6 +41,7 @@ from rich.console import Console
 _NAMESPACE = re.compile(r"custom:storage-location\s+erc7201:(\S+)")
 _BAO_REF = re.compile(r"custom:bao-upgrades-from\s+(\S+):([A-Za-z_]\w*)")
 _BAO_RETYPED = re.compile(r"custom:bao-retyped-from\s+(\w+)\s+(u?int\d+)")
+_BAO_ADDED = re.compile(r"custom:bao-added\s+(\w+)")
 
 
 # ── the successor rule (pure; unit-testable with synthetic storageLayout dicts + declarations) ──────────────
@@ -68,10 +69,23 @@ def _layout_struct_names(layout):
     return {_struct_name(t["label"]) for t in layout["types"].values() if "members" in t}
 
 
-def _compare_type(a_id, a_types, b_id, b_types, path, errors, retyped, used, declared_old):
-    """Recurse a matched type position. `retyped` = {structName: {field: oldTypeLabel}}; `used` accumulates
-    the (structName, field) declarations actually reached; `declared_old` is the declaration for THIS position
-    (only meaningful on an integer leaf), or None."""
+def _occupied_ranges(entries, types):
+    """The byte ranges [start, end) that a list of storage entries (struct members or top-level slots) occupy.
+    A new field is a byte-safe APPEND exactly when its range overlaps none of these — it takes storage the
+    predecessor never wrote (former padding or fresh trailing slots), so a live proxy reads it zero."""
+    ranges = []
+    for e in entries:
+        start = int(e["slot"]) * 32 + int(e["offset"])
+        ranges.append((start, start + int(types[e["type"]]["numberOfBytes"])))
+    return ranges
+
+
+def _compare_type(a_id, a_types, b_id, b_types, path, errors, retyped, used, declared_old, added=None, is_root=False):
+    """Recurse a matched type position. `retyped` = {structName: {field: oldTypeLabel}}; `added` =
+    {structName: {field}}; `used` accumulates the (structName, field) declarations actually reached;
+    `declared_old` is the declaration for THIS position (only meaningful on an integer leaf), or None;
+    `is_root` marks the top-level namespace struct (which may grow, since nothing follows it)."""
+    added = added or {}
     a, b = a_types[a_id], b_types[b_id]
     ak, bk = _kind(a), _kind(b)
     if ak != bk:
@@ -83,6 +97,7 @@ def _compare_type(a_id, a_types, b_id, b_types, path, errors, retyped, used, dec
     if ak == "struct":
         struct_name = _struct_name(a["label"])
         declarations = retyped.get(struct_name, {})
+        added_here = added.get(struct_name, set())
         a_members = {m["label"]: m for m in a["members"]}
         b_members = {m["label"]: m for m in b["members"]}
         for label, ma in a_members.items():
@@ -99,20 +114,40 @@ def _compare_type(a_id, a_types, b_id, b_types, path, errors, retyped, used, dec
                     f"(slot {ma['slot']}:{ma['offset']} -> {mb['slot']}:{mb['offset']})"
                 )
                 continue
-            _compare_type(ma["type"], a_types, mb["type"], b_types, f"{path}.{label}", errors, retyped, used, member_declared)
-        for label in b_members:
-            if label not in a_members:
-                errors.append(f"{path}.{label}: member added (not yet allowed)")
+            _compare_type(ma["type"], a_types, mb["type"], b_types, f"{path}.{label}", errors, retyped, used, member_declared, added)
+        # A new member is a byte-compatible APPEND when its bytes overlap no existing member (it takes storage the
+        # predecessor never wrote) AND it relocates nothing: either the struct's size is unchanged (it packs into
+        # the struct's own trailing padding — safe in any container, since the field after a struct starts a new
+        # slot) or this is the top-level namespace struct (nothing follows it, so it may grow). Every accepted
+        # append must be documented with `@custom:bao-added`, so no layout change is silent.
+        occupied = _occupied_ranges(a["members"], a_types)
+        grows = int(b["numberOfBytes"]) > int(a["numberOfBytes"])
+        for label, mb in b_members.items():
+            if label in a_members:
+                continue
+            start = int(mb["slot"]) * 32 + int(mb["offset"])
+            end = start + int(b_types[mb["type"]]["numberOfBytes"])
+            if any(start < r_end and r_start < end for r_start, r_end in occupied):
+                errors.append(f"{path}.{label}: member added overlapping existing storage (an insert, not an append)")
+            elif grows and not is_root:
+                errors.append(
+                    f"{path}.{label}: member added grows a nested struct (relocates the storage after it); only a "
+                    f"size-preserving append, or an append to the top-level namespace struct, is byte-compatible"
+                )
+            elif label not in added_here:
+                errors.append(f"{path}.{label}: undocumented add; annotate the owning struct `@custom:bao-added {label}`")
+            else:
+                used.add((struct_name, label))  # documented, byte-compatible append
 
     elif ak == "mapping":
         if a_types[a["key"]]["label"] != b_types[b["key"]]["label"]:
             errors.append(f"{path}: mapping key changed ({a_types[a['key']]['label']} -> {b_types[b['key']]['label']})")
-        _compare_type(a["value"], a_types, b["value"], b_types, f"{path}[k]", errors, retyped, used, None)
+        _compare_type(a["value"], a_types, b["value"], b_types, f"{path}[k]", errors, retyped, used, None, added)
 
     elif ak == "array":
         if a["numberOfBytes"] != b["numberOfBytes"]:
             errors.append(f"{path}: array resized ({a['label']} {a['numberOfBytes']}B -> {b['label']} {b['numberOfBytes']}B)")
-        _compare_type(a["base"], a_types, b["base"], b_types, f"{path}[i]", errors, retyped, used, None)
+        _compare_type(a["base"], a_types, b["base"], b_types, f"{path}[i]", errors, retyped, used, None, added)
 
     elif ak == "integer":
         a_signed, b_signed = not a["label"].startswith("u"), not b["label"].startswith("u")
@@ -137,11 +172,13 @@ def _compare_type(a_id, a_types, b_id, b_types, path, errors, retyped, used, dec
             errors.append(f"{path}: type changed ({a['label']} -> {b['label']})")
 
 
-def successor_errors(a_layout, b_layout, retyped=None):
+def successor_errors(a_layout, b_layout, retyped=None, added=None):
     """a_layout/b_layout: solc storageLayout dicts ({"storage", "types"}). retyped: {structName: {field:
-    oldTypeLabel}} from the successor's `@custom:bao-retyped-from` declarations. Return the list of changes
-    that stop B being a documented byte-compatible successor of A (empty == compatible)."""
+    oldTypeLabel}} from `@custom:bao-retyped-from`; added: {structName: {field}} from `@custom:bao-added`.
+    Return the list of changes that stop B being a documented byte-compatible successor of A (empty ==
+    compatible)."""
     retyped = retyped or {}
+    added = added or {}
     errors = []
     used = set()
     a_by_label = {s["label"]: s for s in a_layout["storage"]}
@@ -154,7 +191,7 @@ def successor_errors(a_layout, b_layout, retyped=None):
         if str(sa["slot"]) != str(sb["slot"]) or sa["offset"] != sb["offset"]:
             errors.append(f"{label}: top-level slot moved (slot {sa['slot']}:{sa['offset']} -> {sb['slot']}:{sb['offset']})")
             continue
-        _compare_type(sa["type"], a_layout["types"], sb["type"], b_layout["types"], label, errors, retyped, used, None)
+        _compare_type(sa["type"], a_layout["types"], sb["type"], b_layout["types"], label, errors, retyped, used, None, added, is_root=True)
     for label in b_by_label:
         if label not in a_by_label:
             errors.append(f"{label}: top-level slot added (not yet allowed)")
@@ -167,6 +204,12 @@ def successor_errors(a_layout, b_layout, retyped=None):
         for field in fields:
             if (struct_name, field) not in used:
                 errors.append(f"{struct_name}.{field}: `@custom:bao-retyped-from` names a field not found in the struct")
+    for struct_name, fields in added.items():
+        if struct_name not in present:
+            continue
+        for field in fields:
+            if (struct_name, field) not in used:
+                errors.append(f"{struct_name}.{field}: `@custom:bao-added` names a field that was not added")
     return errors
 
 
@@ -213,6 +256,17 @@ def _retyped(contract_node):
             declarations = {field: old for field, old in _BAO_RETYPED.findall(_doc(member))}
             if declarations:
                 out[member.get("name")] = declarations
+    return out
+
+
+def _added(contract_node):
+    """structName -> {field} from `@custom:bao-added` on the contract's struct docs."""
+    out = {}
+    for member in contract_node.get("nodes", []):
+        if isinstance(member, dict) and member.get("nodeType") == "StructDefinition":
+            fields = set(_BAO_ADDED.findall(_doc(member)))
+            if fields:
+                out[member.get("name")] = fields
     return out
 
 
@@ -270,10 +324,11 @@ def check_build(build_info, root):
         _, succ_node = _contract_by_name(build_info, succ_contract)
         _, pred_node = _contract_by_name(build_info, pred_contract)
         if pred_node is None:
-            plan.append((succ_contract, pred_contract, None, [f"predecessor {pred_contract} ({pred_path}) not in build"], None))
+            plan.append((succ_contract, pred_contract, None, [f"predecessor {pred_contract} ({pred_path}) not in build"], None, None))
             continue
         succ_ns, pred_ns = _namespaces(succ_node), _namespaces(pred_node)
         succ_retyped = _retyped(succ_node)
+        succ_added = _added(succ_node)
         errs = [f"namespace {ns} gone" for ns in pred_ns if ns not in succ_ns]
         for ns, struct in succ_ns.items():
             if ns not in pred_ns:
@@ -282,17 +337,17 @@ def check_build(build_info, root):
             idx += 2
             jobs.append((pi, pred_path, pred_contract, pred_ns[ns]))
             jobs.append((si, succ_path, succ_contract, struct))
-            plan.append((succ_contract, pred_contract, ns, (pi, si), succ_retyped))
+            plan.append((succ_contract, pred_contract, ns, (pi, si), succ_retyped, succ_added))
         for pre_err in errs:
-            plan.append((succ_contract, pred_contract, None, [pre_err], None))
+            plan.append((succ_contract, pred_contract, None, [pre_err], None, None))
 
     layouts = _inject_layouts(jobs, root) if jobs else {}
 
     checked, failures = [], []
-    for succ_contract, pred_contract, ns, data, succ_retyped in plan:
+    for succ_contract, pred_contract, ns, data, succ_retyped, succ_added in plan:
         if isinstance(data, tuple):
             pi, si = data
-            errs = successor_errors(layouts[pi], layouts[si], succ_retyped)
+            errs = successor_errors(layouts[pi], layouts[si], succ_retyped, succ_added)
         else:
             errs = data
         checked.append(f"{succ_contract} <- {pred_contract} [{ns or '-'}]")
