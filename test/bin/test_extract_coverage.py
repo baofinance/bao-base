@@ -25,6 +25,47 @@ def sample_table() -> str:
     ).strip()
 
 
+def invariant_call_summary_table() -> str:
+    # Forge prints a per-invariant "call summary" table to stdout when it runs
+    # the invariant tests; the coverage run captures it into the same log the
+    # extractor filters. It is not a coverage table.
+    return textwrap.dedent(
+        """
+        | Contract                      | Selector           | Calls | Reverts | Discards |
+        |-------------------------------+--------------------+-------+---------+----------|
+        | StabilityPoolInvariantHandler | checkpointActor    | 914   | 0       | 0        |
+        | StabilityPoolInvariantHandler | claimRewards       | 909   | 0       | 0        |
+        """
+    ).strip()
+
+
+def file_headed_non_coverage_table() -> str:
+    # A table whose first column is "File" but which is not the coverage
+    # summary (no "% Lines/…" columns) must not be mistaken for coverage.
+    return textwrap.dedent(
+        """
+        | File          | Size  |
+        |---------------+-------|
+        | src/Foo.sol   | 1234  |
+        """
+    ).strip()
+
+
+def test_to_named_dataframe_skips_non_coverage_table():
+    module = load_module()
+    # process() drives the extractor over every table in the forge log and skips
+    # a table when the parser returns None; a foreign table must return None, not
+    # raise, so the real coverage table further down the log is still parsed.
+    assert module.toNamedDataFrame(invariant_call_summary_table()) is None
+
+
+def test_to_named_dataframe_skips_file_headed_non_coverage_table():
+    module = load_module()
+    # Discrimination: a "| File |" header alone is not enough - only the coverage
+    # summary's own columns identify it, everything else is skipped.
+    assert module.toNamedDataFrame(file_headed_non_coverage_table()) is None
+
+
 def test_to_named_dataframe_formats_percentages_with_markers():
     module = load_module()
     df, path = module.toNamedDataFrame(sample_table())

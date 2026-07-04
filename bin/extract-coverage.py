@@ -6,14 +6,24 @@ import forge_tables
 import pandas as pd
 
 
-def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str]:
+def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str] | None:
     """
-    Parse the table from the input data.
+    Parse the coverage summary table from the input data, or return None if the
+    input is not the coverage table.
+
+    process() feeds every "|...|" table in the forge log through here (compiler
+    output, invariant call-summary tables, etc.), so a block that is not the
+    coverage summary is skipped by returning None. Identification is by the
+    coverage summary's own columns - a bare "| File |" header is not enough.
     """
-    # Extract the header line
-    header_match = re.search(r"^\| File\s+\|.+\|$", input_data, re.MULTILINE)
+    # Extract the header line - must be the coverage summary's exact columns
+    header_match = re.search(
+        r"^\| File\s+\| % Lines\s+\| % Statements\s+\| % Branches\s+\| % Funcs\s+\|$",
+        input_data,
+        re.MULTILINE,
+    )
     if not header_match:
-        raise ValueError("Input data does not contain a valid table header.")
+        return None
     header_line = header_match.group(0)
     header = [col.strip() for col in re.split(r"\s+\|\s+", header_line.strip("| "))]
 
