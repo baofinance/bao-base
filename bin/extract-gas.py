@@ -34,10 +34,14 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str] | None:
     Parse the table from the input data.
     Returns None if the file path should be filtered out.
     """
-    # Extract the header line
-    path_match = re.search(r"(\S+)\s*:\s*(\S+)", input_data)
+    # A gas report table is identified by its contract header line:
+    #   | <file>:<contract> Contract | ...
+    # forge interleaves other bordered tables in the same stream (e.g. the
+    # invariant-test call summary "| Contract | Selector | Calls | ... |"), which
+    # carry no file:contract header - those are not gas tables, so skip them.
+    path_match = re.search(r"^\|\s*(\S+):(\S+)\s+Contract\b", input_data, re.MULTILINE)
     if not path_match:
-        raise ValueError("Input data does not contain the expected 'file:contract' pattern.")
+        return None
 
     file = path_match.group(1)
     contract = path_match.group(2)

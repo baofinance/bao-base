@@ -133,3 +133,63 @@ def test_deployment_cost_rows_excluded():
     assert "243910" not in df["function name"].values
     # "Deployment Cost" is a header, not a function
     assert "Deployment Cost" not in df["function name"].values
+
+
+def sample_invariant_call_summary_table() -> str:
+    """Invariant-test call summary table forge emits alongside gas tables.
+
+    It is a bordered `|...|` table like a gas report, but its columns are
+    Contract/Selector/Calls/Reverts/Discards and it carries no
+    `file:contract` header - so it is not a gas table and must be skipped.
+    """
+    return textwrap.dedent(
+        """\
+        | Contract                      | Selector           | Calls | Reverts | Discards |
+        | StabilityPoolInvariantHandler | checkpointActor    | 901   | 0       | 0        |
+        | StabilityPoolInvariantHandler | claimRewards       | 921   | 0       | 0        |
+        | StabilityPoolInvariantHandler | deposit            | 934   | 0       | 0        |"""
+    )
+
+
+def test_invariant_call_summary_table_returns_none():
+    """A forge invariant call-summary table is not a gas table and must be skipped, not raise."""
+    module = load_module()
+    result = module.toNamedDataFrame(sample_invariant_call_summary_table())
+    assert result is None
+
+
+def test_mixed_stream_skips_invariant_and_keeps_gas_table():
+    """End-to-end: a log holding an invariant summary and a gas table yields only the gas table."""
+    import forge_tables
+
+    log = "\n".join(
+        [
+            "Ran 1 test for test/invariant/StabilityPoolInvariant.t.sol:StabilityPoolInvariant",
+            "[PASS] invariant_solvency() (runs: 256, calls: 128000, reverts: 0)",
+            "",
+            "╭-------------------------------+--------------------+-------+---------+----------╮",
+            "| Contract                      | Selector           | Calls | Reverts | Discards |",
+            "+=================================================================================+",
+            "| StabilityPoolInvariantHandler | deposit            | 934   | 0       | 0        |",
+            "|-------------------------------+--------------------+-------+---------+----------|",
+            "| StabilityPoolInvariantHandler | claimRewards       | 921   | 0       | 0        |",
+            "╰-------------------------------+--------------------+-------+---------+----------╯",
+            "",
+            "╭-----------------------------------------------+-----------------+-------+--------+--------+---------╮",
+            "| src/minter/Minter_v3.sol:Minter_v3 Contract   |                 |       |        |        |         |",
+            "+=====================================================================================================+",
+            "| Function Name                                 | Min             | Avg   | Median | Max    | # Calls |",
+            "|-----------------------------------------------+-----------------+-------+--------+--------+---------|",
+            "| mintPeggedToken                               | 50000           | 60000 | 55000  | 80000  | 100     |",
+            "╰-----------------------------------------------+-----------------+-------+--------+--------+---------╯",
+        ]
+    )
+
+    module = load_module()
+    parsed = [module.toNamedDataFrame(table) for table in forge_tables.extract(log)]
+    kept = [result for result in parsed if result is not None]
+
+    assert len(kept) == 1
+    df, path = kept[0]
+    assert path == "src/minter/Minter_v3.sol:Minter_v3"
+    assert "mintPeggedToken" in df["function name"].values
