@@ -1,3 +1,0 @@
-This is not a git diff line
-| function | value |
-random text

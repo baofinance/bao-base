@@ -1,4 +1,0 @@
- | function name                      |      max |
- |------------------------------------|----------|
- | CONSTANT_VALUE                     |   100000 |
- | ANOTHER_CONSTANT                   |    50000 |

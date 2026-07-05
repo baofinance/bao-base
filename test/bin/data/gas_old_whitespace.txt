@@ -1,5 +1,0 @@
-src/test/Test.sol:Test
-|function name|max|
-|testFuncOut1   |100   |
-| testFunc2                          | 200      |
-|   testFunc3   |   300   |

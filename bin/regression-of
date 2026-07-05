@@ -33,45 +33,49 @@ else
   cp "${GENERATED_LOG}" "${EXTRACTED_FILE}"
 fi
 
-# Check for changes in the regression file
-info1 "checking for changes against ${REGRESSION_FILE}..."
+# Merge the fresh extract against the committed baseline and fail (so it must be committed) if the
+# regression file changed. A type WITH a merge script (compare-<type>.py) gets the tolerance + ratchet;
+# any other type falls back to "any difference is a change".
+info1 "checking ${REGRESSION_TYPE} against ${REGRESSION_FILE}..."
 debug "$(git status)"
+COMPARE_SCRIPT="${BAO_BASE_BIN_DIR}/compare-${REGRESSION_TYPE}.py"
 
-has_diffs=false
-git diff --quiet --minimal --color --no-index <(git show HEAD:"${REGRESSION_FILE}") "${EXTRACTED_FILE}" || has_diffs=true
-debug "has_diffs: $has_diffs"
+if [[ -f "$COMPARE_SCRIPT" ]]; then
+  # compare-<type>.py: (committed, fresh) -> merged on stdout; exit 0 = held, 1 = changed, >1 = real error.
+  # Run it under the bin uv venv (created by the extract step above) rather than run-python, which would
+  # collapse the merge's "exit 1 = changed" into a generic failure.
+  VENV_PYTHON="${DEPENDENCIES_DIR:-${BAO_BASE_BIN_DIR}}/.venv/bin/python3"
+  report="$(mktemp)"
+  merged="$(mktemp)"
+  merge_status=0
+  "${VENV_PYTHON}" "${COMPARE_SCRIPT}" <(git show HEAD:"${REGRESSION_FILE}" 2>/dev/null) "${EXTRACTED_FILE}" \
+    >"${merged}" 2>"${report}" || merge_status=$?
+  rm -f "${EXTRACTED_FILE}"
 
-raw_changes=""
-if [[ "$has_diffs" == "true" ]]; then
-  # get the diffs
-  raw_changes=$(GIT_PAGER="" git diff --minimal --color --no-index <(git show HEAD:"${REGRESSION_FILE}") "${EXTRACTED_FILE}" 2>&1 | tail -n +5)
-  debug "raw changes: $raw_changes"
-
-  # Look for a specialized comparison tool for this regression type (e.g. to remove diffs below a threshold)
-  COMPARE_SCRIPT="${BAO_BASE_BIN_DIR}/compare-${REGRESSION_TYPE}.py"
-  if [[ -x "$COMPARE_SCRIPT" ]]; then
-    debug "using comparison for ${REGRESSION_TYPE}..."
-    # Generate git diff and pipe through comparison filter
-    raw_changes=$(echo "$raw_changes" | . "${BAO_BASE_BIN_DIR}/run-python" "$COMPARE_SCRIPT") && has_diffs=false
-  else
-    debug "no comparison script found for ${REGRESSION_TYPE}, using raw git diff."
+  if [[ "${merge_status}" -gt 1 ]]; then
+    cat "${report}" >&2
+    rm -f "${merged}" "${report}"
+    error "compare-${REGRESSION_TYPE} failed (exit ${merge_status}). Fix the merge before running regression."
   fi
-fi
 
-if [[ "$has_diffs" == "true" ]]; then
-  maxlines=100
-  # changes=$(printf '\n%s\n' "$raw_changes" | head -n "${maxlines}")
-  changes="$raw_changes"
-  linecount=$(printf '%s\n' "$changes" | wc -l)
-  [[ "$linecount" -gt "$maxlines" ]] && changes+=$'\n'"... (truncated to ${maxlines} lines)"
-  # overwrite the regression file so it shows up in git status
-  mv "${EXTRACTED_FILE}" "${REGRESSION_FILE}"
-  error "The regression file ${REGRESSION_FILE} has changed:'\n'${changes}"$'\n'$'\n'"Either commit the changes if they are expected or fix the issues causing the differences."$'\n'
-else
-  # no need to overwrite the regression file as there are no significant changes
-  debug "no changes detected in ${REGRESSION_FILE}, removing ${EXTRACTED_FILE}"
-  rm "${EXTRACTED_FILE}"
-  # restore the version from git as it has been deemed to be good
-  git restore --worktree "${REGRESSION_FILE}"
+  # Write the merged result (only breached rows differ from the committed baseline).
+  mv "${merged}" "${REGRESSION_FILE}"
+  if [[ "${merge_status}" -eq 1 ]]; then
+    changes="$(cat "${report}")"
+    rm -f "${report}"
+    error "The regression file ${REGRESSION_FILE} changed:"$'\n'"${changes}"$'\n'$'\n'"Review and commit ${REGRESSION_FILE} if the change is expected, or fix the cause."$'\n'
+  fi
+  rm -f "${report}"
   log "No changes detected in ${REGRESSION_FILE}"
+else
+  # No merge script for this type: any difference from the committed baseline is a change.
+  if git diff --quiet --no-index <(git show HEAD:"${REGRESSION_FILE}" 2>/dev/null) "${EXTRACTED_FILE}"; then
+    rm -f "${EXTRACTED_FILE}"
+    git restore --worktree "${REGRESSION_FILE}" 2>/dev/null || :
+    log "No changes detected in ${REGRESSION_FILE}"
+  else
+    changes="$(GIT_PAGER="" git diff --minimal --color --no-index <(git show HEAD:"${REGRESSION_FILE}" 2>/dev/null) "${EXTRACTED_FILE}" 2>&1 | tail -n +5)"
+    mv "${EXTRACTED_FILE}" "${REGRESSION_FILE}"
+    error "The regression file ${REGRESSION_FILE} changed:"$'\n'"${changes}"$'\n'$'\n'"Either commit the changes if they are expected or fix the cause."$'\n'
+  fi
 fi

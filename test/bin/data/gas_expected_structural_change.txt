@@ -1,8 +1,0 @@
-[36m@@ -2,6 +2,7 @@[m [msrc/minter/Minter_v1.sol:Minter_v1[m
- | function name                      |      max |[m
- |------------------------------------|----------|[m
- | HARVESTER_ROLE                     | 2.83e+02 |[m
-[32m+[m[32m| NEW_FUNCTION                       | 1.50e+04 |[m
- | LEVERAGED_TOKEN                    | 2.83e+02 |[m
- | collateralRatio                    | 1.91e+04 |[m
- | mintLeveragedToken                 | 1.49e+05 |[m

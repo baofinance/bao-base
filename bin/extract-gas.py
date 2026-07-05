@@ -71,22 +71,11 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str] | None:
 
     # Create the DataFrame using the cleaned and validated data
     df = pd.DataFrame(data, columns=header).drop(columns=["min", "avg", "median", "# calls"])
-    # columns_to_format = ["median", "max"]
-    # df[columns_to_format] = df[columns_to_format].map(lambda x: f"{int(x):>8}")
-    # Format the 'max' column to the nearest 1000
-    # if "max" in df.columns:
-    df["max"] = df["max"].astype(float)
-    # df["max"] = df["max"].apply(lambda x: f"0{float(x):.2e}".replace("e+0", "e"))
-    # df["max"] = df["max"].astype(str)
-    # df["max"] = df["max"].apply(lambda x: f"{round(x/1000):,} k")
-    # df["max"] = df["max"].apply(lambda x: f"{x:.2e}")  # e.g., 1.23e+05
-    # df["max"] = df["max"].apply(lambda x: f"{float(x):.2e}")
-    # df["max"] = df["max"].apply(lambda x: np.format_float_scientific(x, precision=2, exp_digits=2))
-    # df["max"] = df["max"].apply(lambda x: f"{x:e}")
-
-    # pd.set_option("display.float_format", "{:,}".format)
+    # Emit the exact integer max; the merge (compare-gas.py) does tolerance/ratchet and renders the
+    # friendly display column, so the extract must stay precise (an abs tolerance needs the real value).
+    df["max"] = df["max"].astype(float).round().astype("int64")
     return (df, file + ":" + contract)
 
 
 if __name__ == "__main__":
-    forge_tables.process(toNamedDataFrame, floatfmt=".3e", intfmt=",")
+    forge_tables.process(toNamedDataFrame, floatfmt=".3e", intfmt="")
