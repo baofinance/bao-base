@@ -15,7 +15,7 @@ abstract contract TokenHolder is ReentrancyGuardTransientUpgradeable, BaoCheckOw
     /// This allows. for example dust resulting from rounding errors, etc.
     /// in case tokens are transferred to this contract by mistake, they can be recovered
     // slither-disable-next-line reentrancy-no-eth
-    function sweep(address token, uint256 amount, address receiver) external onlySweeper nonReentrant {
+    function sweep(address token, uint256 amount, address receiver) external virtual onlySweeper nonReentrant {
         Token.ensureNonZeroAddress(receiver);
         amount = Token.allOf(address(this), token, amount);
         if (amount > 0) {
