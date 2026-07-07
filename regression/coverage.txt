@@ -3,7 +3,7 @@
 | script/deployment/ConfigChain.sol         | ✓ 100% (2/2)       | ✓ 100% (1/1)       | ✓ 100% (0/0)     | ✓ 100% (1/1)     |
 | script/deployment/Deployer.sol            | X  67% (41/61)     | X  60% (41/68)     | X  50% (5/10)    | X  73% (8/11)    |
 | script/deployment/DeploymentState.sol     | ✓ 100% (49/49)     | ✓ 100% (69/69)     | ✓ 100% (9/9)     | ✓ 100% (8/8)     |
-| script/deployment/FactoryDeployer.sol     | ✓ 100% (91/91)     | ✓ 100% (95/95)     | X  82% (9/11)    | ✓ 100% (23/23)   |
+| script/deployment/FactoryDeployer.sol     | ✓ 100% (98/98)     | ✓ 100% (103/103)   | X  86% (12/14)   | ✓ 100% (23/23)   |
 | script/deployment/JsonParser.sol          | ✓ 100% (79/79)     | ✓ 100% (106/106)   | ✓ 100% (11/11)   | ✓ 100% (5/5)     |
 | script/deployment/JsonSerializer.sol      | ✓ 100% (136/136)   | ✓ 100% (206/206)   | ✓ 100% (22/22)   | ✓ 100% (10/10)   |
 | script/deployment/SaltString.sol          | ✓ 100% (10/10)     | ✓ 100% (9/9)       | ✓ 100% (0/0)     | ✓ 100% (5/5)     |
@@ -34,4 +34,4 @@
 | src/internal/BaoRoles_v2.sol              | ✓ 100% (47/47)     | X  98% (42/43)     | ✓ 100% (4/4)     | ✓ 100% (14/14)   |
 | src/internal/HarborRoles.sol              | ✓ 100% (2/2)       | ✓ 100% (1/1)       | ✓ 100% (0/0)     | ✓ 100% (1/1)     |
 | src/internal/HarborRolesCore.sol          | ✓ 100% (54/54)     | X  98% (46/47)     | ✓ 100% (5/5)     | ✓ 100% (17/17)   |
-| Total                                     | X  82% (1953/2372) | X  85% (1793/2102) | X  68% (113/166) | X  74% (483/651) |
+| Total                                     | X  82% (1960/2379) | X  85% (1801/2110) | X  69% (116/169) | X  74% (483/651) |

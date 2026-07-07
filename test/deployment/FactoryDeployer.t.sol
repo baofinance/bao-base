@@ -180,10 +180,23 @@ contract FactoryDeployerTest is BaoTest {
         assertEq(deployer.saltPrefix(), "test_v1", "saltPrefix set correctly");
     }
 
-    function test_setSaltPrefixCanBeOverwritten() public {
+    function test_setSaltPrefix_revertsOnSecondSet() public {
+        // The salt prefix is write-once: an established CREATE3 namespace cannot be silently overwritten.
         deployer.setSaltPrefix("first");
+        vm.expectRevert(abi.encodeWithSelector(FactoryDeployer.SaltPrefixAlreadySet.selector, "first", "second"));
         deployer.setSaltPrefix("second");
-        assertEq(deployer.saltPrefix(), "second", "saltPrefix can be changed");
+    }
+
+    function test_setSaltPrefix_revertsOnEmpty() public {
+        // The empty string is the "unset" marker, so it cannot be set as a prefix.
+        vm.expectRevert(FactoryDeployer.EmptySaltPrefix.selector);
+        deployer.setSaltPrefix("");
+    }
+
+    function test_saltString_revertsWhenPrefixUnset() public {
+        // Salting/predicting before the namespace is established fails loudly, not with a wrong-namespace address.
+        vm.expectRevert(FactoryDeployer.SaltPrefixNotSet.selector);
+        deployer.saltString1("minter");
     }
 
     function test_treasury() public view {

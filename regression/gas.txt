@@ -1,96 +1,95 @@
+# regression: better=lower abs=500 rel=0.001 display={:.3e}
+
 script/deployment/UUPSProxyDeployStub.sol:UUPSProxyDeployStub
-| function name    |       max |
-|------------------|-----------|
-| owner            | 2.380e+02 |
-| proxiableUUID    | 1.870e+02 |
-| upgradeTo        | 4.405e+04 |
-| upgradeToAndCall | 9.901e+04 |
+| function name    |   max |   display |
+|------------------|-------|-----------|
+| owner            |   238 | 2.380e+02 |
+| proxiableUUID    |   187 | 1.870e+02 |
+| upgradeTo        | 44050 | 4.405e+04 |
+| upgradeToAndCall | 99010 | 9.901e+04 |
 
 src/HarborPauser_v1.sol:HarborPauser_v1
-| function name     |       max |
-|-------------------|-----------|
-| fallback          | 3.150e+02 |
-| owner             | 3.680e+02 |
-| proxiableUUID     | 3.250e+02 |
-| supportsInterface | 5.050e+02 |
-| upgradeToAndCall  | 8.841e+03 |
+| function name     |   max |   display |
+|-------------------|-------|-----------|
+| fallback          |   315 | 3.150e+02 |
+| owner             |   368 | 3.680e+02 |
+| proxiableUUID     |   325 | 3.250e+02 |
+| supportsInterface |   505 | 5.050e+02 |
+| upgradeToAndCall  |  8841 | 8.841e+03 |
 
 src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1
-| function name     |       max |
-|-------------------|-----------|
-| BURNER_ROLE       | 2.620e+02 |
-| DOMAIN_SEPARATOR  | 6.500e+03 |
-| MINTER_ROLE       | 2.600e+02 |
-| allowance         | 2.822e+03 |
-| approve           | 2.483e+04 |
-| balanceOf         | 2.712e+03 |
-| burn              | 1.489e+04 |
-| burnFrom          | 2.061e+04 |
-| decimals          | 2.880e+02 |
-| grantRoles        | 2.638e+04 |
-| hasAnyRole        | 2.614e+03 |
-| initialize        | 1.665e+05 |
-| mint              | 4.910e+04 |
-| name              | 3.246e+03 |
-| nonces            | 2.688e+03 |
-| owner             | 2.440e+03 |
-| permit            | 5.762e+04 |
-| proxiableUUID     | 3.930e+02 |
-| supportsInterface | 1.250e+03 |
-| symbol            | 3.236e+03 |
-| totalSupply       | 2.326e+03 |
-| transfer          | 3.002e+04 |
-| transferFrom      | 3.575e+04 |
-| transferOwnership | 1.214e+04 |
-| upgradeToAndCall  | 4.376e+04 |
+| function name     |    max |   display |
+|-------------------|--------|-----------|
+| BURNER_ROLE       |    262 | 2.620e+02 |
+| DOMAIN_SEPARATOR  |   6500 | 6.500e+03 |
+| MINTER_ROLE       |    260 | 2.600e+02 |
+| allowance         |   2822 | 2.822e+03 |
+| approve           |  24828 | 2.483e+04 |
+| balanceOf         |   2712 | 2.712e+03 |
+| burn              |  14886 | 1.489e+04 |
+| burnFrom          |  20606 | 2.061e+04 |
+| decimals          |    288 | 2.880e+02 |
+| grantRoles        |  26380 | 2.638e+04 |
+| hasAnyRole        |   2614 | 2.614e+03 |
+| initialize        | 166474 | 1.665e+05 |
+| mint              |  49100 | 4.910e+04 |
+| nonces            |   2688 | 2.688e+03 |
+| owner             |   2440 | 2.440e+03 |
+| permit            |  57620 | 5.762e+04 |
+| proxiableUUID     |    393 | 3.930e+02 |
+| supportsInterface |   1250 | 1.250e+03 |
+| symbol            |   3236 | 3.236e+03 |
+| totalSupply       |   2326 | 2.326e+03 |
+| transfer          |  30020 | 3.002e+04 |
+| transferFrom      |  35746 | 3.575e+04 |
+| transferOwnership |  12137 | 1.214e+04 |
+| upgradeToAndCall  |  43759 | 4.376e+04 |
 
 src/PermittableERC20_v1.sol:PermittableERC20_v1
-| function name             |       max |
-|---------------------------|-----------|
-| DOMAIN_SEPARATOR          | 6.522e+03 |
-| UPGRADE_INTERFACE_VERSION | 4.790e+02 |
-| allowance                 | 2.822e+03 |
-| approve                   | 2.480e+04 |
-| balanceOf                 | 2.667e+03 |
-| decimals                  | 2.210e+02 |
-| initialize                | 1.667e+05 |
-| name                      | 3.223e+03 |
-| nonces                    | 2.710e+03 |
-| owner                     | 2.462e+03 |
-| permit                    | 5.764e+04 |
-| supportsInterface         | 9.520e+02 |
-| symbol                    | 3.236e+03 |
-| totalSupply               | 2.370e+03 |
-| transfer                  | 3.002e+04 |
-| transferFrom              | 3.577e+04 |
-| transferOwnership         | 1.214e+04 |
-| upgradeToAndCall          | 4.147e+04 |
+| function name             |    max |   display |
+|---------------------------|--------|-----------|
+| DOMAIN_SEPARATOR          |   6522 | 6.522e+03 |
+| UPGRADE_INTERFACE_VERSION |    479 | 4.790e+02 |
+| allowance                 |   2822 | 2.822e+03 |
+| approve                   |  24800 | 2.480e+04 |
+| balanceOf                 |   2667 | 2.667e+03 |
+| decimals                  |    221 | 2.210e+02 |
+| initialize                | 166677 | 1.667e+05 |
+| nonces                    |   2710 | 2.710e+03 |
+| owner                     |   2462 | 2.462e+03 |
+| permit                    |  57640 | 5.764e+04 |
+| supportsInterface         |    952 | 9.520e+02 |
+| symbol                    |   3236 | 3.236e+03 |
+| totalSupply               |   2370 | 2.370e+03 |
+| transfer                  |  30020 | 3.002e+04 |
+| transferFrom              |  35768 | 3.577e+04 |
+| transferOwnership         |  12137 | 1.214e+04 |
+| upgradeToAndCall          |  41467 | 4.147e+04 |
 
 src/Stem_v1.sol:Stem_v1
-| function name             |       max |
-|---------------------------|-----------|
-| UPGRADE_INTERFACE_VERSION | 4.570e+02 |
-| fallback                  | 3.150e+02 |
-| owner                     | 3.340e+02 |
-| proxiableUUID             | 3.250e+02 |
-| upgradeToAndCall          | 8.896e+03 |
+| function name             |   max |   display |
+|---------------------------|-------|-----------|
+| UPGRADE_INTERFACE_VERSION |   457 | 4.570e+02 |
+| fallback                  |   315 | 3.150e+02 |
+| owner                     |   334 | 3.340e+02 |
+| proxiableUUID             |   325 | 3.250e+02 |
+| upgradeToAndCall          |  8896 | 8.896e+03 |
 
 src/Token.sol:Token
-| function name                       |       max |
-|-------------------------------------|-----------|
-| hasNonMutatingParameterlessFunction | 4.190e+03 |
+| function name                       |   max |   display |
+|-------------------------------------|-------|-----------|
+| hasNonMutatingParameterlessFunction |  4190 | 4.190e+03 |
 
 test/mocks/MintableBurnableERC20_v2_Reinit.sol:MintableBurnableERC20_v2_Reinit
-| function name     |       max |
-|-------------------|-----------|
-| balanceOf         | 2.690e+03 |
-| hasAnyRole        | 2.592e+03 |
-| initialize        | 1.668e+05 |
-| mint              | 3.198e+04 |
-| name              | 3.246e+03 |
-| owner             | 2.440e+03 |
-| proxiableUUID     | 3.710e+02 |
-| reinitializeV1    | 3.665e+03 |
-| reinitializeV2    | 3.208e+04 |
-| symbol            | 3.258e+03 |
-| transferOwnership | 1.216e+04 |
+| function name     |    max |   display |
+|-------------------|--------|-----------|
+| balanceOf         |   2690 | 2.690e+03 |
+| hasAnyRole        |   2592 | 2.592e+03 |
+| initialize        | 166792 | 1.668e+05 |
+| mint              |  31980 | 3.198e+04 |
+| owner             |   2440 | 2.440e+03 |
+| proxiableUUID     |    371 | 3.710e+02 |
+| reinitializeV1    |   3665 | 3.665e+03 |
+| reinitializeV2    |  32079 | 3.208e+04 |
+| symbol            |   3258 | 3.258e+03 |
+| transferOwnership |  12159 | 1.216e+04 |

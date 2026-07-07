@@ -41,6 +41,15 @@ abstract contract FactoryDeployer {
     /// @dev Foundry VM cheatcode address.
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
+    // ========== ERRORS ==========
+
+    /// @notice Predicting an address or deploying before the salt prefix (the CREATE3 namespace) has been set.
+    error SaltPrefixNotSet();
+    /// @notice `_setSaltPrefix` was given the empty string, which is reserved as the "unset" marker.
+    error EmptySaltPrefix();
+    /// @notice The salt prefix is write-once; it was already `current` when a set to `attempted` was tried.
+    error SaltPrefixAlreadySet(string current, string attempted);
+
     // ========== CONFIGURATION STATE ==========
 
     /// @dev Salt prefix for deployment namespacing.
@@ -70,9 +79,18 @@ abstract contract FactoryDeployer {
 
     // ========== CONFIGURATION WITH DEFAULTS ==========
 
-    /// @notice Set the salt prefix - must be called before any deployment.
-    /// @dev Called by scripts before startBroadcast().
+    /// @notice Set the deployment salt prefix (the CREATE3 namespace) - must be called once, before any address
+    /// prediction or deployment. Write-once: the empty string is the "unset" marker (so it cannot be set as a prefix),
+    /// and a second set is rejected rather than silently overwriting an established namespace. The deploy entrypoints
+    /// (e.g. deployHarborForPeg) set it from their saltPrefix argument, so a caller passes the namespace to the deploy
+    /// rather than establishing it separately - avoiding a standalone temporal dependency before the deploy runs.
     function _setSaltPrefix(string memory saltPrefixString) internal virtual {
+        if (bytes(saltPrefixString).length == 0) {
+            revert EmptySaltPrefix();
+        }
+        if (bytes(_saltPrefixValue).length != 0) {
+            revert SaltPrefixAlreadySet(_saltPrefixValue, saltPrefixString);
+        }
         _saltPrefixValue = saltPrefixString;
     }
 
@@ -195,7 +213,11 @@ abstract contract FactoryDeployer {
     /// @notice Construct full salt string from a local key by prepending the campaign salt prefix.
     /// @dev The prefix is deploy-run state (held here); the join itself routes through SaltString.
     function _saltString(string memory key) internal view returns (string memory) {
-        return SaltString.key(saltPrefix(), key);
+        string memory prefix = saltPrefix();
+        if (bytes(prefix).length == 0) {
+            revert SaltPrefixNotSet();
+        }
+        return SaltString.key(prefix, key);
     }
 
     // ========== ADDRESS PREDICTION ==========
