@@ -6,8 +6,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SignedMath} from "@openzeppelin/contracts/utils/math/SignedMath.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
-import {BaoFactoryDeployment} from "@bao-factory/BaoFactoryDeployment.sol";
-import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
+import {BaoFactoryTestLib} from "@bao-test/BaoFactoryTestLib.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 
 /// @title BaoTest
@@ -216,25 +215,6 @@ abstract contract BaoTest is Test {
     /// @dev Sets up Nick's Factory if needed, deploys BaoFactory proxy, upgrades to v1
     /// @return factory The functional BaoFactory instance
     function _ensureBaoFactory() internal returns (address factory) {
-        // Deploy BaoFactory proxy if not present
-        if (!BaoFactoryDeployment.isBaoFactoryDeployed()) {
-            BaoFactoryDeployment.deployBaoFactory();
-        }
-
-        factory = BaoFactoryDeployment.predictBaoFactoryAddress();
-        vm.label(factory, "BaoFactory");
-
-        // Upgrade to v1 if not already functional
-        if (!BaoFactoryDeployment.isBaoFactoryFunctional()) {
-            vm.startPrank(IBaoFactory(factory).owner());
-            BaoFactoryDeployment.upgradeBaoFactoryToV1();
-            vm.stopPrank();
-        }
-
-        // Set this test as operator if not already
-        if (!IBaoFactory(factory).isCurrentOperator(address(this))) {
-            vm.prank(IBaoFactory(factory).owner());
-            IBaoFactory(factory).setOperator(address(this), 365 days);
-        }
+        return BaoFactoryTestLib.ensureBaoFactory();
     }
 }
