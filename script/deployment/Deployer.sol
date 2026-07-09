@@ -37,8 +37,12 @@ abstract contract Deployer is FactoryDeployer {
     }
 
     Transaction[] internal _transactions;
-    Transaction[] internal _allTransactions; // accumulated across flushes for local execution
+    Transaction[] internal _allTransactions; // flushed and awaiting local execution; drained by _executeLocal
     address private _signer;
+
+    /// @notice A queued transaction's target had no code at execution time — a data-carrying call to a
+    ///         codeless address would return success without doing anything.
+    error CallTargetHasNoCode(address target, string description);
 
     // ─────────────────────────────────────────────────────────────────────────
     // DSL: Signer Context
@@ -94,7 +98,7 @@ abstract contract Deployer is FactoryDeployer {
     function run(string memory salt_) public {
         _setSaltPrefix(salt_);
         build();
-        _saveAndExecute("", _vm.envOr("SAFE_BATCH_DESCRIPTION", string("")));
+        flush("", _vm.envOr("SAFE_BATCH_DESCRIPTION", string("")));
         _executeLocal();
     }
 
@@ -102,14 +106,22 @@ abstract contract Deployer is FactoryDeployer {
     // Persistence and execution
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @dev Accumulate queued transactions; write batch JSON in non-test contexts.
+    /// @notice Whether to write Safe batch JSON files. Batch files are a script-run artifact for the
+    ///         multisig, so writing is on for script runs and off under forge test. Override to force a
+    ///         non-default choice (e.g. a test exercising the batch-file path itself, writing under the
+    ///         results directory).
+    function _shouldWriteBatchFiles() internal view virtual returns (bool) {
+        return !_vm.isContext(VmSafe.ForgeContext.TestGroup);
+    }
+
+    /// @dev Accumulate queued transactions; write batch JSON when batch files are enabled.
     function _saveAndExecute(string memory suffix, string memory description) internal {
         if (_transactions.length == 0) {
             console.log("No transactions queued - nothing to execute");
             return;
         }
 
-        if (!_vm.isContext(VmSafe.ForgeContext.TestGroup)) {
+        if (_shouldWriteBatchFiles()) {
             address batchSigner = _signer != address(0) ? _signer : owner();
             string memory name = _vm.envOr("SAFE_BATCH_NAME", string("batch"));
             string memory timestamp = _vm.envOr("SAFE_BATCH_TIMESTAMP", block.timestamp.toString());
@@ -129,7 +141,10 @@ abstract contract Deployer is FactoryDeployer {
         }
     }
 
-    /// @dev Execute all accumulated transactions.
+    /// @dev Execute the flushed-but-not-yet-executed transactions, then drain them — each queued
+    ///      transaction executes exactly once no matter how many times this is called, mirroring the
+    ///      production multisig executing each saved batch once. A target with no code reverts: a
+    ///      data-carrying call to a codeless address would return success without doing anything.
     ///      Test context: always runs with vm.startPrank(owner()).
     ///      Script context: runs with vm.startBroadcast(owner()) only when EXECUTE_LOCAL=true.
     function _executeLocal() internal {
@@ -145,6 +160,9 @@ abstract contract Deployer is FactoryDeployer {
         }
         for (uint256 i = 0; i < _allTransactions.length; i++) {
             console.log("Executing:", _allTransactions[i].description);
+            if (_allTransactions[i].target.code.length == 0) {
+                revert CallTargetHasNoCode(_allTransactions[i].target, _allTransactions[i].description);
+            }
             (bool ok, bytes memory ret) = _allTransactions[i].target.call(_allTransactions[i].data);
             if (!ok) {
                 assembly {
@@ -157,6 +175,7 @@ abstract contract Deployer is FactoryDeployer {
         } else {
             _vm.stopBroadcast();
         }
+        delete _allTransactions;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

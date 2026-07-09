@@ -2,8 +2,9 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
+import {stdJson} from "forge-std/StdJson.sol";
 import {Deployer} from "@bao-script/deployment/Deployer.sol";
-import {WellKnownAddress} from "@bao-script/deployment/FactoryDeployer.sol";
+import {FactoryDeployer, WellKnownAddress} from "@bao-script/deployment/FactoryDeployer.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 
@@ -25,6 +26,19 @@ contract MockCallTarget {
         }
         callCount++;
         lastCaller = msg.sender;
+    }
+}
+
+/// @notice Records the order of calls it receives, so tests can assert execution sequence.
+contract SequenceRecorder {
+    uint256[] public calls;
+
+    function poke(uint256 id) external {
+        calls.push(id);
+    }
+
+    function callCount() external view returns (uint256) {
+        return calls.length;
     }
 }
 
@@ -91,6 +105,14 @@ contract TestableDeployer is Deployer {
         _executeLocal();
     }
 
+    function doStartSigner(address signer_) external {
+        startSigner(signer_);
+    }
+
+    function doStopSigner() external {
+        stopSigner();
+    }
+
     function doBuildSafeJson(string calldata description) external view returns (string memory) {
         return _buildSafeJson(description);
     }
@@ -110,10 +132,22 @@ contract TestableDeployer is Deployer {
     }
 }
 
+/// @notice Deployer that forces batch-file writing on — exercises the Safe batch JSON file path
+///         (written under ./results per the test-output convention, git-checked for regressions).
+contract BatchWritingDeployer is TestableDeployer {
+    constructor(address owner_) TestableDeployer(owner_) {}
+
+    function _shouldWriteBatchFiles() internal pure override returns (bool) {
+        return true;
+    }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 /// @notice Unit tests for Deployer.sol: queue, flush, _executeLocal, and run().
 contract DeployerTest is BaoTest {
+    using stdJson for string;
+
     TestableDeployer internal deployer;
     MockCallTarget internal mock;
     address internal testOwner;
@@ -122,6 +156,12 @@ contract DeployerTest is BaoTest {
         testOwner = makeAddr("owner");
         deployer = new TestableDeployer(testOwner);
         mock = new MockCallTarget();
+        // Batch-file env: identical values in every test's setUp — test functions run in parallel and
+        // vm.setEnv is process-global, so per-test values would race. Filenames are made unique per test
+        // via the flush suffix instead.
+        vm.setEnv("DEPLOY_STATE_DIR", string.concat(vm.projectRoot(), "/results"));
+        vm.setEnv("SAFE_BATCH_NAME", "deployer");
+        vm.setEnv("SAFE_BATCH_TIMESTAMP", "fixed");
     }
 
     // ── queue ─────────────────────────────────────────────────────────────────
@@ -140,12 +180,17 @@ contract DeployerTest is BaoTest {
     }
 
     function test_queue_autoDesc_usesAddressHex() public {
-        // the 2-arg overload generates the target address as description
+        // the 2-arg overload generates the target's hex address as the description
         deployer.doQueueAutoDesc(address(mock), abi.encodeCall(MockCallTarget.record, ()));
         (, , string memory desc) = deployer.getTransaction(0);
-        assertEq(bytes(desc)[0], bytes1("0"), "description starts with 0");
-        assertEq(bytes(desc)[1], bytes1("x"), "description starts with 0x");
-        assertEq(bytes(desc).length, 42, "description is a checksummed hex address (42 chars)");
+        assertEq(desc, LibString.toHexString(address(mock)), "description is the target's hex address");
+    }
+
+    function test_queue_keyOverload_beforePrefix_revertsSaltPrefixNotSet() public {
+        // queue-by-key resolves the target from the salt prefix; with no prefix set it must fail loudly,
+        // not queue a transaction against a wrong or zero address
+        vm.expectRevert(FactoryDeployer.SaltPrefixNotSet.selector);
+        deployer.doQueueKey("minter", hex"", "upgrade");
     }
 
     function test_queue_keyOverload_predictsAddressAndPrefixesDescription() public {
@@ -183,6 +228,98 @@ contract DeployerTest is BaoTest {
             "includes the checksummed tx target"
         );
         assertTrue(LibString.contains(json, vm.toString(data)), "includes the tx calldata");
+    }
+
+    function test_buildSafeJson_emptyQueue_hasEmptyTransactionsArray() public view {
+        // with nothing queued, the batch JSON still has the full envelope and an empty transactions array
+        string memory json = deployer.doBuildSafeJson("empty batch");
+        assertTrue(LibString.contains(json, '"transactions":[]'), "empty transactions array");
+        assertTrue(LibString.contains(json, '"description":"empty batch"'), "includes the meta description");
+    }
+
+    function test_buildSafeJson_multipleTransactions_inQueueOrder() public {
+        // each queued tx becomes its own entry, in queue order, and the envelope carries the exact
+        // chainId and createdAt (unix timestamp in milliseconds) the Safe Transaction Builder expects
+        MockCallTarget mock2 = new MockCallTarget();
+        deployer.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "first");
+        deployer.doQueue(address(mock2), abi.encodeCall(MockCallTarget.record, ()), "second");
+
+        string memory json = deployer.doBuildSafeJson("two txns");
+
+        uint256 first = LibString.indexOf(json, LibString.toHexStringChecksummed(address(mock)));
+        uint256 second = LibString.indexOf(json, LibString.toHexStringChecksummed(address(mock2)));
+        assertTrue(first != LibString.NOT_FOUND, "first target present");
+        assertTrue(second != LibString.NOT_FOUND, "second target present");
+        assertLt(first, second, "entries appear in queue order");
+        assertTrue(LibString.contains(json, '"},{"'), "entries are separate array elements");
+        assertTrue(
+            LibString.contains(json, string.concat('"chainId":"', vm.toString(block.chainid), '"')),
+            "exact chainId"
+        );
+        assertTrue(
+            LibString.contains(json, string.concat('"createdAt":', vm.toString(block.timestamp * 1000))),
+            "createdAt is the block timestamp in milliseconds"
+        );
+    }
+
+    // ── batch files ─────────────────────────────────────────────────────────────
+
+    function test_flush_writesBatchFile_whenBatchFilesEnabled() public {
+        // with batch files enabled, flush writes the Safe batch JSON to
+        // <DEPLOY_STATE_DIR>/batch/<name>_<timestamp>_<suffix>@<signer>.json with the queued payload
+        BatchWritingDeployer writer = new BatchWritingDeployer(testOwner);
+        bytes memory data = abi.encodeCall(MockCallTarget.record, ());
+        writer.doQueue(address(mock), data, "record call");
+        writer.doFlush("01_roles", "batch file test");
+
+        string memory path = string.concat(
+            vm.projectRoot(),
+            "/results/batch/deployer_fixed_01_roles@",
+            LibString.toHexString(testOwner),
+            ".json"
+        );
+        assertTrue(vm.exists(path), "batch file written at the derived path");
+        // vm.writeJson re-formats, so assert the parsed values, not raw substrings
+        string memory json = vm.readFile(path);
+        assertEq(json.readString(".meta.description"), "batch file test", "file carries the description");
+        assertEq(json.readAddress(".transactions[0].to"), address(mock), "file carries the tx target");
+        assertEq(json.readBytes(".transactions[0].data"), data, "file carries the tx calldata");
+    }
+
+    function test_flush_batchFilename_usesSignerOverride() public {
+        // startSigner routes the batch file to the signer's label; stopSigner restores owner()
+        BatchWritingDeployer writer = new BatchWritingDeployer(testOwner);
+        address signer = makeAddr("signer");
+
+        writer.doStartSigner(signer);
+        writer.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "as signer");
+        writer.doFlush("02_signer", "signer batch");
+        assertTrue(
+            vm.exists(
+                string.concat(
+                    vm.projectRoot(),
+                    "/results/batch/deployer_fixed_02_signer@",
+                    LibString.toHexString(signer),
+                    ".json"
+                )
+            ),
+            "batch file named for the signer override"
+        );
+
+        writer.doStopSigner();
+        writer.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "as owner");
+        writer.doFlush("03_owner", "owner batch");
+        assertTrue(
+            vm.exists(
+                string.concat(
+                    vm.projectRoot(),
+                    "/results/batch/deployer_fixed_03_owner@",
+                    LibString.toHexString(testOwner),
+                    ".json"
+                )
+            ),
+            "after stopSigner the batch file is named for owner()"
+        );
     }
 
     // ── flush ─────────────────────────────────────────────────────────────────
@@ -266,6 +403,63 @@ contract DeployerTest is BaoTest {
         assertEq(mock.lastCaller(), testOwner, "transaction executed as owner");
     }
 
+    function test_executeLocal_ordersAcrossFlushBatches() public {
+        // transactions execute strictly in queue order across flush boundaries — batch 1 fully before
+        // batch 2 — matching the order the multisig would execute the saved batches in production
+        SequenceRecorder recorder = new SequenceRecorder();
+        deployer.doQueue(address(recorder), abi.encodeCall(SequenceRecorder.poke, (1)), "batch1 tx1");
+        deployer.doQueue(address(recorder), abi.encodeCall(SequenceRecorder.poke, (2)), "batch1 tx2");
+        deployer.doFlush("", "batch 1");
+        deployer.doQueue(address(recorder), abi.encodeCall(SequenceRecorder.poke, (3)), "batch2 tx1");
+        deployer.doFlush("", "batch 2");
+
+        deployer.doExecuteLocal();
+
+        assertEq(recorder.callCount(), 3, "all transactions from both batches executed");
+        assertEq(recorder.calls(0), 1, "batch 1 tx 1 first");
+        assertEq(recorder.calls(1), 2, "batch 1 tx 2 second");
+        assertEq(recorder.calls(2), 3, "batch 2 tx 1 last");
+    }
+
+    function test_executeLocal_drainsExecutedTransactions() public {
+        // each _executeLocal runs only what has not been executed yet — mirroring the production multisig,
+        // which executes every saved batch exactly once. A deploy that drains, queues more, and drains
+        // again (the interleaved build→execute orchestration) must not re-run the earlier batch.
+        SequenceRecorder recorder = new SequenceRecorder();
+        deployer.doQueue(address(recorder), abi.encodeCall(SequenceRecorder.poke, (1)), "batch1");
+        deployer.doFlush("", "batch 1");
+        deployer.doExecuteLocal();
+
+        deployer.doQueue(address(recorder), abi.encodeCall(SequenceRecorder.poke, (2)), "batch2");
+        deployer.doFlush("", "batch 2");
+        deployer.doExecuteLocal();
+
+        assertEq(recorder.callCount(), 2, "batch 1 executed once, batch 2 executed once");
+        assertEq(recorder.calls(0), 1, "batch 1 first");
+        assertEq(recorder.calls(1), 2, "batch 2 second");
+    }
+
+    function test_executeLocal_codelessTarget_reverts() public {
+        // a data-carrying call to an address with no code returns success without doing anything, so a
+        // queued transaction whose target is still codeless at execution time is an error, not a silent pass
+        address codeless = makeAddr("codeless");
+        deployer.doQueue(codeless, abi.encodeCall(MockCallTarget.record, ()), "premature call");
+        deployer.doFlush("", "");
+        vm.expectRevert(abi.encodeWithSelector(Deployer.CallTargetHasNoCode.selector, codeless, "premature call"));
+        deployer.doExecuteLocal();
+    }
+
+    function test_executeLocal_releasesOwnerPrank() public {
+        // the owner prank is scoped to _executeLocal — a call made afterwards runs as the caller,
+        // not as a leaked owner() prank
+        deployer.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "desc");
+        deployer.doFlush("", "");
+        deployer.doExecuteLocal();
+
+        mock.record();
+        assertEq(mock.lastCaller(), address(this), "no lingering prank after _executeLocal");
+    }
+
     // ── run() ─────────────────────────────────────────────────────────────────
 
     function test_run_callsBuildAndExecutesTransactions() public {
@@ -279,5 +473,21 @@ contract DeployerTest is BaoTest {
     function test_run_emptyBuild_doesNotRevert() public {
         // run() with a build() that queues nothing completes without error
         deployer.run("test_v1");
+    }
+
+    function test_run_clearsPendingQueue() public {
+        // run() consumes build()'s queued transactions through the same save-and-clear lifecycle as flush(),
+        // leaving no pending transactions behind to leak into a later flush
+        deployer.setBuildTarget(address(mock), abi.encodeCall(MockCallTarget.record, ()));
+        deployer.run("test_v1");
+        assertEq(deployer.transactionCount(), 0, "pending queue is empty after run()");
+    }
+
+    function test_run_secondRun_revertsSaltPrefixAlreadySet() public {
+        // the salt prefix is write-once, so a deployer instance is single-run — a second run() with any
+        // prefix fails loudly instead of silently mixing two runs' state
+        deployer.run("test_v1");
+        vm.expectRevert(abi.encodeWithSelector(FactoryDeployer.SaltPrefixAlreadySet.selector, "test_v1", "other_v1"));
+        deployer.run("other_v1");
     }
 }
