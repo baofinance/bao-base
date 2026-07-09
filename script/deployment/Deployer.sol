@@ -11,8 +11,21 @@ import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 ///         (FactoryDeployer) with Safe batch transaction queuing.
 ///
 /// @dev No forge Script dependency — usable from both forge test and forge script contexts.
-///      In forge test context _executeLocal() pranks as owner(); in script context it broadcasts
+///      In forge test context _executeQueued() pranks as owner(); in script context it broadcasts
 ///      when EXECUTE_LOCAL=true. Batch JSON files are only written in non-test contexts.
+///
+/// Deploy-run lifecycle — the rules every deploy script follows (worked flows in
+/// doc/deployment-system.md):
+///   1. Configure contracts deployed THIS run with direct calls — valid while the deployer holds
+///      temporary ownership, i.e. until _transferAllOwnerships().
+///   2. Configure contracts someone else owns (a multisig-owned live system) via queue() — such an
+///      action can only happen as a Safe transaction.
+///   3. An _executeQueued() call is a synchronization point: script logic after it may depend on the
+///      queued transactions' effects. Production defers the synchronization to the multisig executing
+///      the saved batches in order; tests execute inline at the same point.
+///   4. Batch construction may read only state that exists at script-run time — never the effects of a
+///      batch that has not executed.
+///   5. Each flush() boundary defines one Safe batch JSON for the multisig to sign.
 ///
 /// Environment variables (set by script/run-script):
 ///   SAFE_BATCH_NAME          Filename prefix for the batch JSON
@@ -37,7 +50,7 @@ abstract contract Deployer is FactoryDeployer {
     }
 
     Transaction[] internal _transactions;
-    Transaction[] internal _allTransactions; // flushed and awaiting local execution; drained by _executeLocal
+    Transaction[] internal _allTransactions; // flushed and awaiting local execution; drained by _executeQueued
     address private _signer;
 
     /// @notice A queued transaction's target had no code at execution time — a data-carrying call to a
@@ -99,7 +112,7 @@ abstract contract Deployer is FactoryDeployer {
         _setSaltPrefix(salt_);
         build();
         flush("", _vm.envOr("SAFE_BATCH_DESCRIPTION", string("")));
-        _executeLocal();
+        _executeQueued();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -147,7 +160,7 @@ abstract contract Deployer is FactoryDeployer {
     ///      data-carrying call to a codeless address would return success without doing anything.
     ///      Test context: always runs with vm.startPrank(owner()).
     ///      Script context: runs with vm.startBroadcast(owner()) only when EXECUTE_LOCAL=true.
-    function _executeLocal() internal {
+    function _executeQueued() internal {
         if (_allTransactions.length == 0) return;
 
         bool isTestGroup = _vm.isContext(VmSafe.ForgeContext.TestGroup);

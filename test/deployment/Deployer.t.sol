@@ -101,8 +101,8 @@ contract TestableDeployer is Deployer {
         flush(suffix, description);
     }
 
-    function doExecuteLocal() external {
-        _executeLocal();
+    function doExecuteQueued() external {
+        _executeQueued();
     }
 
     function doStartSigner(address signer_) external {
@@ -144,7 +144,7 @@ contract BatchWritingDeployer is TestableDeployer {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-/// @notice Unit tests for Deployer.sol: queue, flush, _executeLocal, and run().
+/// @notice Unit tests for Deployer.sol: queue, flush, _executeQueued, and run().
 contract DeployerTest is BaoTest {
     using stdJson for string;
 
@@ -353,57 +353,57 @@ contract DeployerTest is BaoTest {
         assertEq(deployer.allTransactionCount(), 2);
     }
 
-    // ── _executeLocal ─────────────────────────────────────────────────────────
+    // ── _executeQueued ─────────────────────────────────────────────────────────
 
-    function test_executeLocal_emptyAllTransactions_isNoOp() public {
-        // _executeLocal with nothing accumulated does not revert
-        deployer.doExecuteLocal();
+    function test_executeQueued_emptyAllTransactions_isNoOp() public {
+        // _executeQueued with nothing accumulated does not revert
+        deployer.doExecuteQueued();
     }
 
-    function test_executeLocal_pendingOnly_doesNotExecute() public {
-        // transactions in _transactions (not yet flushed) are NOT executed by _executeLocal
+    function test_executeQueued_pendingOnly_doesNotExecute() public {
+        // transactions in _transactions (not yet flushed) are NOT executed by _executeQueued
         deployer.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "desc");
-        deployer.doExecuteLocal();
-        assertEq(mock.callCount(), 0, "_executeLocal only runs accumulated (flushed) transactions");
+        deployer.doExecuteQueued();
+        assertEq(mock.callCount(), 0, "_executeQueued only runs accumulated (flushed) transactions");
     }
 
-    function test_executeLocal_executesAccumulatedTransaction() public {
+    function test_executeQueued_executesAccumulatedTransaction() public {
         // flush then execute: the target receives the call
         deployer.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "desc");
         deployer.doFlush("", "");
-        deployer.doExecuteLocal();
+        deployer.doExecuteQueued();
         assertEq(mock.callCount(), 1);
     }
 
-    function test_executeLocal_executesInOrder() public {
+    function test_executeQueued_executesInOrder() public {
         // two transactions execute in the order they were queued
         MockCallTarget mock2 = new MockCallTarget();
         deployer.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "first");
         deployer.doQueue(address(mock2), abi.encodeCall(MockCallTarget.record, ()), "second");
         deployer.doFlush("", "");
-        deployer.doExecuteLocal();
+        deployer.doExecuteQueued();
         assertEq(mock.callCount(), 1);
         assertEq(mock2.callCount(), 1);
     }
 
-    function test_executeLocal_failedTransaction_reverts() public {
-        // a revert inside a queued transaction propagates out of _executeLocal
+    function test_executeQueued_failedTransaction_reverts() public {
+        // a revert inside a queued transaction propagates out of _executeQueued
         mock.setRevert(true);
         deployer.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "desc");
         deployer.doFlush("", "");
         vm.expectRevert("MockCallTarget: forced revert");
-        deployer.doExecuteLocal();
+        deployer.doExecuteQueued();
     }
 
-    function test_executeLocal_pranksAsOwner() public {
+    function test_executeQueued_pranksAsOwner() public {
         // in test context, transactions execute with msg.sender == owner()
         deployer.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "desc");
         deployer.doFlush("", "");
-        deployer.doExecuteLocal();
+        deployer.doExecuteQueued();
         assertEq(mock.lastCaller(), testOwner, "transaction executed as owner");
     }
 
-    function test_executeLocal_ordersAcrossFlushBatches() public {
+    function test_executeQueued_ordersAcrossFlushBatches() public {
         // transactions execute strictly in queue order across flush boundaries — batch 1 fully before
         // batch 2 — matching the order the multisig would execute the saved batches in production
         SequenceRecorder recorder = new SequenceRecorder();
@@ -413,7 +413,7 @@ contract DeployerTest is BaoTest {
         deployer.doQueue(address(recorder), abi.encodeCall(SequenceRecorder.poke, (3)), "batch2 tx1");
         deployer.doFlush("", "batch 2");
 
-        deployer.doExecuteLocal();
+        deployer.doExecuteQueued();
 
         assertEq(recorder.callCount(), 3, "all transactions from both batches executed");
         assertEq(recorder.calls(0), 1, "batch 1 tx 1 first");
@@ -421,43 +421,43 @@ contract DeployerTest is BaoTest {
         assertEq(recorder.calls(2), 3, "batch 2 tx 1 last");
     }
 
-    function test_executeLocal_drainsExecutedTransactions() public {
-        // each _executeLocal runs only what has not been executed yet — mirroring the production multisig,
+    function test_executeQueued_drainsExecutedTransactions() public {
+        // each _executeQueued runs only what has not been executed yet — mirroring the production multisig,
         // which executes every saved batch exactly once. A deploy that drains, queues more, and drains
         // again (the interleaved build→execute orchestration) must not re-run the earlier batch.
         SequenceRecorder recorder = new SequenceRecorder();
         deployer.doQueue(address(recorder), abi.encodeCall(SequenceRecorder.poke, (1)), "batch1");
         deployer.doFlush("", "batch 1");
-        deployer.doExecuteLocal();
+        deployer.doExecuteQueued();
 
         deployer.doQueue(address(recorder), abi.encodeCall(SequenceRecorder.poke, (2)), "batch2");
         deployer.doFlush("", "batch 2");
-        deployer.doExecuteLocal();
+        deployer.doExecuteQueued();
 
         assertEq(recorder.callCount(), 2, "batch 1 executed once, batch 2 executed once");
         assertEq(recorder.calls(0), 1, "batch 1 first");
         assertEq(recorder.calls(1), 2, "batch 2 second");
     }
 
-    function test_executeLocal_codelessTarget_reverts() public {
+    function test_executeQueued_codelessTarget_reverts() public {
         // a data-carrying call to an address with no code returns success without doing anything, so a
         // queued transaction whose target is still codeless at execution time is an error, not a silent pass
         address codeless = makeAddr("codeless");
         deployer.doQueue(codeless, abi.encodeCall(MockCallTarget.record, ()), "premature call");
         deployer.doFlush("", "");
         vm.expectRevert(abi.encodeWithSelector(Deployer.CallTargetHasNoCode.selector, codeless, "premature call"));
-        deployer.doExecuteLocal();
+        deployer.doExecuteQueued();
     }
 
-    function test_executeLocal_releasesOwnerPrank() public {
-        // the owner prank is scoped to _executeLocal — a call made afterwards runs as the caller,
+    function test_executeQueued_releasesOwnerPrank() public {
+        // the owner prank is scoped to _executeQueued — a call made afterwards runs as the caller,
         // not as a leaked owner() prank
         deployer.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "desc");
         deployer.doFlush("", "");
-        deployer.doExecuteLocal();
+        deployer.doExecuteQueued();
 
         mock.record();
-        assertEq(mock.lastCaller(), address(this), "no lingering prank after _executeLocal");
+        assertEq(mock.lastCaller(), address(this), "no lingering prank after _executeQueued");
     }
 
     // ── run() ─────────────────────────────────────────────────────────────────
