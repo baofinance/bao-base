@@ -27,10 +27,6 @@ contract TestableFixedOwnableDeployer is FactoryDeployer {
         return 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2;
     }
 
-    function _shouldPersistState() internal pure override returns (bool) {
-        return false;
-    }
-
     function setSaltPrefix(string memory prefix) external {
         _setSaltPrefix(prefix);
     }

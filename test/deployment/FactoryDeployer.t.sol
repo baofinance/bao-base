@@ -52,7 +52,6 @@ contract MockHarborOwnable is Initializable, UUPSUpgradeable, HarborOwnable {
 contract TestableFactoryDeployer is FactoryDeployer {
     address private _treasuryAddr;
     address private _ownerAddr;
-    bool private _persistState = false;
 
     constructor(address treasury_, address owner_) {
         _treasuryAddr = treasury_;
@@ -71,11 +70,11 @@ contract TestableFactoryDeployer is FactoryDeployer {
         _ownerAddr = owner_;
     }
 
-    function _shouldPersistState() internal pure override returns (bool) {
-        return false;
-    }
-
     // ========== Expose internal functions for testing ==========
+
+    function shouldPersistState() external view returns (bool) {
+        return _shouldPersistState();
+    }
 
     function setSaltPrefix(string memory prefix) external {
         _setSaltPrefix(prefix);
@@ -558,9 +557,13 @@ contract FactoryDeployerTest is BaoTest {
 
     // ========== State Persistence Tests ==========
 
+    function test_shouldPersistState_defaultFalseInTestContext() public view {
+        // State files are a script-run artifact — under forge test the default declines persistence.
+        assertFalse(deployer.shouldPersistState());
+    }
+
     function test_saveState_respectsShouldPersistState() public {
-        // _shouldPersistState returns false in TestableFactoryDeployer
-        // So saveState should be a no-op (doesn't try to write files)
+        // _shouldPersistState is false in test context, so saveState is a no-op (writes no files)
         DeploymentTypes.State memory state;
         state.network = "test";
         state.saltPrefix = "persist_test";
@@ -571,8 +574,8 @@ contract FactoryDeployerTest is BaoTest {
     }
 }
 
-/// @notice Deployer that does NOT override defaults — exercises _shouldPersistState(true),
-///         _stateFileRead, _stateFileWrite, and _saveState with actual file I/O.
+/// @notice Deployer that forces persistence on — exercises _stateFileRead, _stateFileWrite, and
+///         _saveState with actual file I/O (written under ./results per the test-output convention).
 contract DefaultPersistenceDeployer is FactoryDeployer {
     function treasury() public pure override returns (address) {
         return address(0xdead);
@@ -580,6 +583,10 @@ contract DefaultPersistenceDeployer is FactoryDeployer {
 
     function owner() public pure override returns (address) {
         return address(0xbeef);
+    }
+
+    function _shouldPersistState() internal pure override returns (bool) {
+        return true;
     }
 
     function setSaltPrefix(string memory prefix) external {
@@ -620,7 +627,7 @@ contract FactoryDeployerPersistenceTest is BaoTest {
         vm.setEnv("DEPLOY_STATE_FILE_WRITE", writePath);
     }
 
-    function test_shouldPersistState_defaultIsTrue() public view {
+    function test_shouldPersistState_overrideForcesPersistence() public view {
         assertTrue(deployer.shouldPersistState());
     }
 

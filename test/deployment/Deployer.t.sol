@@ -53,10 +53,6 @@ contract TestableDeployer is Deployer {
         addrs = new WellKnownAddress[](0);
     }
 
-    function _shouldPersistState() internal pure override returns (bool) {
-        return false;
-    }
-
     // ── Expose internals ──────────────────────────────────────────────────────
 
     function setSaltPrefix(string memory prefix) external {

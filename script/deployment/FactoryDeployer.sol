@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Vm} from "forge-std/Vm.sol";
+import {Vm, VmSafe} from "forge-std/Vm.sol";
 import {console2 as console} from "forge-std/console2.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
@@ -115,10 +115,11 @@ abstract contract FactoryDeployer {
         addrs[2] = WellKnownAddress({addr: baoFactory(), label: "baoFactory"});
     }
 
-    /// @notice Whether to persist deployment state to disk.
-    /// @dev Override in tests to disable persistence.
-    function _shouldPersistState() internal pure virtual returns (bool) {
-        return true;
+    /// @notice Whether to persist deployment state to disk. State files are a script-run artifact, so
+    ///         persistence is on for script runs and off under forge test. Override only to force a
+    ///         non-default choice (e.g. a test exercising the persistence path itself).
+    function _shouldPersistState() internal view virtual returns (bool) {
+        return !vm.isContext(VmSafe.ForgeContext.TestGroup);
     }
 
     /// @notice Resolve the state file path for reading.
