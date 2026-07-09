@@ -37,6 +37,18 @@ library DeploymentState {
         return JsonParser.parseStateJson(json);
     }
 
+    /// @notice A fresh in-memory deployment state (no records, no directory prefix) for a deploy run that
+    ///         starts from nothing — a non-persisting test run, or a first deploy on a clean network.
+    ///         The caller stamps `state.baoFactory` (typically `baoFactory()`) after construction — the same
+    ///         normalisation a loaded state receives.
+    function fresh(
+        string memory saltPrefix,
+        string memory network
+    ) internal pure returns (DeploymentTypes.State memory state) {
+        state.network = network;
+        state.saltPrefix = saltPrefix;
+    }
+
     /// @notice Save state to disk atomically (write to temp file, then rename).
     /// @dev Uses ffi to call `mv` for atomic rename since Foundry lacks a rename cheatcode.
     function save(DeploymentTypes.State memory state, string memory path) internal {

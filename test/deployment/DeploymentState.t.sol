@@ -50,9 +50,22 @@ contract DeploymentStateTest is Test {
     }
 
     function _newState() internal pure returns (DeploymentTypes.State memory state) {
-        state.network = "mainnet";
-        state.saltPrefix = "test_v1";
+        state = DeploymentState.fresh("test_v1", "mainnet");
         state.baoFactory = address(0xD696E56b3A054734d4C6DCBD32E11a278b0EC458);
+    }
+
+    // ========== FRESH STATE TESTS ==========
+
+    /// @notice fresh() carries exactly the given identity and nothing else: no records, no directory
+    ///         prefix, and baoFactory left unstamped for the caller.
+    function test_fresh_emptyStateWithIdentity() public pure {
+        DeploymentTypes.State memory state = DeploymentState.fresh("prefix_v1", "mainnet");
+        assertEq(state.saltPrefix, "prefix_v1", "salt prefix");
+        assertEq(state.network, "mainnet", "network");
+        assertEq(state.directoryPrefix, "", "no directory prefix");
+        assertEq(state.implementations.length, 0, "no implementation records");
+        assertEq(state.proxies.length, 0, "no proxy records");
+        assertEq(state.baoFactory, address(0), "baoFactory unstamped");
     }
 
     // ========== RECORD IMPLEMENTATION TESTS ==========
