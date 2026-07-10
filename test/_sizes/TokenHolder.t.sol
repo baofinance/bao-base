@@ -15,7 +15,8 @@ import {TokenHolder} from "@bao/TokenHolder.sol";
 // import { Deployed } from "@bao/Deployed.sol";
 
 contract DerivedTokenHolder is TokenHolder, BaoOwnable {
-    function initialize(address owner) public initializer {
+    // BaoOwnable._initializeOwner reverts once the owner is set, so initialize succeeds only once.
+    function initialize(address owner) public {
         _initializeOwner(owner);
         transferOwnership(owner);
     }
