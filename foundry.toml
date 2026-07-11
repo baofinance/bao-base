@@ -19,6 +19,11 @@ remappings = [
   "forge-std/=lib/forge-std/src/",
   "@openzeppelin/contracts/=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
   "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+  # OZ deletes ReentrancyGuardTransientUpgradeable in 5.6.x. Redirect that import PATH to the
+  # byte-identical @bao shim, so TokenHolder keeps its audit-state OZ import and stays byte-identical
+  # while compiling under both OZ 5.1 (file present here, overridden) and 5.6.x (file absent).
+  # Longest-prefix match wins over the broader contracts-upgradeable/ rule above.
+  "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol=src/ReentrancyGuardTransientUpgradeable.sol",
   "@solady/=lib/solady/src/",
   "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
   "solidity-stringutils/=lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils/",

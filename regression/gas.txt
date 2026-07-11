@@ -93,3 +93,9 @@ test/mocks/MintableBurnableERC20_v2_Reinit.sol:MintableBurnableERC20_v2_Reinit
 | reinitializeV2    |  32079 | 3.208e+04 |
 | symbol            |   3258 | 3.258e+03 |
 | transferOwnership |  12159 | 1.216e+04 |
+
+test/mocks/MockERC20.sol:MockERC20
+| function name   |   max |   display |
+|-----------------|-------|-----------|
+| balanceOf       |  2648 | 2.648e+03 |
+| mint            | 68438 | 6.844e+04 |
