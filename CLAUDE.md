@@ -16,6 +16,17 @@ execute on confirmation. Planning and execution are separate sessions. After
 presenting or updating a plan, stop. The user will explicitly say when to start
 executing a batch.
 
+## Communication
+
+### Plain language first; slang only after it is defined
+Do not use jargon or programmer slang as the primary carrier of meaning in
+explanations, reports, or comments. State the point in plain, precise terms first;
+after that you may introduce the slang term in brackets — e.g. "an API whose
+documented behaviour invites accidental misuse (a 'footgun')" — and reuse the term
+freely afterwards, since it is now defined. A reader must never need prior
+knowledge of the slang to understand the point. (This is the prose counterpart of
+the "no unexplained abbreviations in code" rule below.)
+
 ## Git
 
 Two repos, opposite rules:
