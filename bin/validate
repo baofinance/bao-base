@@ -69,6 +69,36 @@ mkdir -p "${BUILD_INFO_DIR}"
 
 # build again with build-info this time, so we force
 forge build --out ${FOUNDRY_OUT} --build-info --build-info-path "${BUILD_INFO_DIR}" --extra-output storageLayout --skip "**/*.vy" --skip "**/*.t.sol" --skip "**/*.s.sol" --force src
+
+# Reconcile the build-info sources. forge records an overriding file-level remapping (the OZ
+# ReentrancyGuardTransientUpgradeable path redirected to the bao compat shim) in the compiler OUTPUT sources but not
+# the INPUT sources. OZ upgrades-core's checkNamespaceSolidityVersion iterates every OUTPUT source and reads
+# input.sources[src].content, so a source present in output-but-not-input crashes it with a `content` TypeError before
+# any --exclude is applied. Add each output-only source to input.sources with its on-disk content.
+BUILD_INFO_DIR="${BUILD_INFO_DIR}" node <<'RECONCILE_BUILD_INFO'
+const fs = require("fs");
+const path = require("path");
+const dir = process.env.BUILD_INFO_DIR;
+for (const file of fs.readdirSync(dir).filter((name) => name.endsWith(".json"))) {
+  const full = path.join(dir, file);
+  const buildInfo = JSON.parse(fs.readFileSync(full, "utf8"));
+  const input = buildInfo.input && buildInfo.input.sources;
+  const output = (buildInfo.output && buildInfo.output.sources) || {};
+  if (!input) {
+    continue;
+  }
+  let added = 0;
+  for (const src of Object.keys(output)) {
+    if (!(src in input)) {
+      input[src] = { content: fs.readFileSync(src, "utf8") };
+      added++;
+    }
+  }
+  if (added > 0) {
+    fs.writeFileSync(full, JSON.stringify(buildInfo));
+  }
+}
+RECONCILE_BUILD_INFO
 echo
 echo "running OpenZeppelin upgrades-core validate..."
 echo "-------------------------------------------"
