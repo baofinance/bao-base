@@ -13,7 +13,11 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 /// guard's base with any contract that uses `ReentrancyGuardTransient` directly (e.g. via `TokenHolder`), so both can
 /// be inherited without a duplicate `ReentrancyGuardReentrantCall` declaration.
 abstract contract ReentrancyGuardTransientUpgradeable is Initializable, ReentrancyGuardTransient {
+    /// These exist only to be called by a deriving contract's initializer, so nothing inside this repo's `src` calls
+    /// them and the dead-code detector cannot see their callers.
+    // slither-disable-next-line dead-code
     function __ReentrancyGuardTransient_init() internal onlyInitializing {} // solhint-disable-line func-name-mixedcase,no-empty-blocks
 
+    // slither-disable-next-line dead-code
     function __ReentrancyGuardTransient_init_unchained() internal onlyInitializing {} // solhint-disable-line func-name-mixedcase,no-empty-blocks
 }
