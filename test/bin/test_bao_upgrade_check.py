@@ -50,7 +50,7 @@ def mixed():
 
 def test_all_pairs_were_checked(mixed):
     checked, _ = mixed
-    assert len(checked) == 11, checked
+    assert len(checked) == 15, checked
 
 
 @pytest.mark.parametrize("succ", ["WidenSucc", "NestGoodSucc"])
@@ -78,6 +78,52 @@ def test_bad_pair_is_rejected(mixed, succ, needle):
     _, failures = mixed
     assert succ in failures, f"{succ} should have been rejected"
     assert any(needle in e for e in failures[succ]), failures[succ]
+
+
+def test_inherited_bad_change_is_rejected(mixed):
+    # the namespace is declared in an inherited base; the tool must walk the inheritance chain to compare it,
+    # otherwise this undocumented widen is silently not checked
+    _, failures = mixed
+    assert "InheritBadSucc" in failures, "an undocumented widen in an inherited namespace was not caught"
+    assert any("undocumented widen" in e for e in failures["InheritBadSucc"]), failures["InheritBadSucc"]
+
+
+def test_inherited_documented_rename_passes(mixed):
+    # a documented rename in an inherited namespace must be reached (walked) AND accepted
+    checked, failures = mixed
+    assert any("InheritRenameSucc" in c for c in checked), "the inherited-namespace pair was not even checked"
+    assert "InheritRenameSucc" not in failures, failures.get("InheritRenameSucc")
+
+
+def test_missing_predecessor_is_reported(mixed):
+    # a @custom:bao-upgrades-from naming a predecessor absent from the build must fail loudly, not be skipped
+    _, failures = mixed
+    assert "MissingPredSucc" in failures, "a dangling bao-upgrades-from reference was silently skipped"
+    assert any("not in build" in e for e in failures["MissingPredSucc"]), failures["MissingPredSucc"]
+
+
+def test_dropped_namespace_is_reported(mixed):
+    # dropping a @custom:storage-location the predecessor declared loses that storage's layout — must be rejected
+    _, failures = mixed
+    assert "NamespaceGoneSucc" in failures, "a dropped namespace was not caught"
+    assert any("gone" in e for e in failures["NamespaceGoneSucc"]), failures["NamespaceGoneSucc"]
+
+
+def test_list_mode_prints_each_link_and_exits_0(capsys):
+    # --list (used by validate's version-reference audit) prints '<successor> <predecessor>' per link, no build
+    if shutil.which("forge") is None:
+        pytest.skip("forge not available")
+    mod = load_module()
+    d = build_info_dir(GOOD, "_bao_test_good")
+    assert mod.main([str(d), "--list"]) == 0
+    assert capsys.readouterr().out == "GoodSucc GoodPred\n"
+
+
+def test_build_with_no_bao_upgrade_links_is_clean():
+    # the zero-pair case (most builds have none): check_build lays nothing out and returns no failures, so main
+    # exits 0. Synthetic build-info (no solc needed) — a build whose sources declare no @custom:bao-upgrades-from.
+    mod = load_module()
+    assert mod.check_build({"output": {"sources": {}}}, ".") == ([], [])
 
 
 def test_main_exits_1_when_any_link_is_incompatible():

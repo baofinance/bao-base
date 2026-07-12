@@ -98,8 +98,10 @@ def contained(kind, amount="t_uint104"):
 V2 = flat("t_uint104")  # deployed: uint104 amount
 
 
-def errors(a, b, retyped=None, added=None):
-    return mod.successor_errors(a, b, retyped, added)
+def errors(a, b, retyped=None, added=None, renamed=None):
+    if renamed is None:
+        return mod.successor_errors(a, b, retyped, added)
+    return mod.successor_errors(a, b, retyped, added, renamed)
 
 
 def nested(depth, tb=None):
@@ -291,6 +293,53 @@ def test_static_array_resized_is_rejected():
     assert has(errors(a, b), "array resized")
 
 
+# ── documented renames: `@custom:oz-renamed-from` cannot reach a namespaced struct member (solc #12295, the
+#    same limitation that forces `@custom:bao-retyped-from` for widens), so a rename inside a namespaced struct is
+#    documented struct-level with `@custom:bao-renamed-from <newField> <oldField>`. A pure rename (same
+#    slot/offset/type, only the name differs) is a byte-compatible successor; an undocumented one is rejected. ──
+
+def _tb_renamed(new="amountRenamed"):
+    """TokenBalance with `amount` renamed to `new` — same slot/offset/type, a pure rename."""
+    tb = token_balance()
+    tb["members"] = [dict(m) for m in tb["members"]]
+    tb["members"][1]["label"] = new
+    return tb
+
+
+RENAMED = {"TokenBalance": {"amountRenamed": "amount"}}  # {newName: oldName}
+
+
+def test_documented_rename_is_a_successor():
+    assert errors(V2, flat(tb=_tb_renamed()), renamed=RENAMED) == []
+
+
+def test_undocumented_rename_is_rejected():
+    # without the annotation, a rename reads as the old field removed (and a new one added)
+    assert has(errors(V2, flat(tb=_tb_renamed())), "amount", "removed")
+
+
+def test_stale_rename_declaration_is_rejected():
+    # names a successor field that was not actually renamed from a predecessor field
+    assert has(errors(V2, V2, renamed={"TokenBalance": {"ghost": "amount"}}), "ghost", "not renamed")
+
+
+def test_documented_rename_that_also_moves_is_rejected():
+    # a rename does not excuse a slot move — the field's storage must not relocate
+    tb = _tb_renamed()
+    tb["members"][1]["slot"] = "1"
+    tb["members"][1]["offset"] = 0
+    tb["members"][2]["slot"] = "2"
+    tb["numberOfBytes"] = "96"
+    assert has(errors(V2, flat(tb=tb), renamed=RENAMED), "amount", "moved")
+
+
+def test_documented_rename_through_mapping_is_a_successor():
+    a = contained("mapping")
+    b = contained("mapping")
+    b["types"]["t_tb"] = _tb_renamed()
+    assert errors(a, b, renamed=RENAMED) == []
+
+
 # ── rejected: a bad change buried deep inside a container (rejection must propagate) ────────────────────────
 
 def test_deep_narrow_inside_mapping_is_rejected():
@@ -310,3 +359,41 @@ def test_documented_size_preserving_append_inside_dynamic_array_is_accepted():
     b = contained("dynarray")
     b["types"]["t_tb"] = _tb_padding_append()
     assert errors(a, b, None, ADDED) == []
+
+
+# ── top-level slots: before recursing into the namespace struct, successor_errors compares the layout's
+#    top-level storage entries for removal / move / addition. The injection probe always emits exactly one
+#    top-level var, so these cannot occur through the pipeline — but the rule guards them, so pin the branches
+#    directly. They are the top-level analogues of the struct-member remove / move / add tests above. ──
+
+def _top(entries):
+    return {"storage": entries, "types": dict(BASE_TYPES)}
+
+
+_ONE_SLOT = [{"label": "pool", "slot": "0", "offset": 0, "type": "t_uint128"}]
+_TWO_SLOTS = _ONE_SLOT + [{"label": "extra", "slot": "1", "offset": 0, "type": "t_uint128"}]
+_MOVED_SLOT = [{"label": "pool", "slot": "1", "offset": 0, "type": "t_uint128"}]
+
+
+def test_top_level_slot_removed_is_rejected():
+    assert has(errors(_top(_TWO_SLOTS), _top(_ONE_SLOT)), "extra", "top-level slot removed")
+
+
+def test_top_level_slot_moved_is_rejected():
+    assert has(errors(_top(_ONE_SLOT), _top(_MOVED_SLOT)), "pool", "top-level slot moved")
+
+
+def test_top_level_slot_added_is_rejected():
+    assert has(errors(_top(_ONE_SLOT), _top(_TWO_SLOTS)), "extra", "top-level slot added")
+
+
+# ── a declaration naming a struct absent from the compared layout is ignored. A contract with several
+#    namespaced structs (the reward distributor: its storage struct plus RewardData) collects retyped / added /
+#    renamed declarations across its whole inheritance chain; when ONE namespace's layout is compared, a
+#    declaration naming a struct not present here must be skipped, or a sibling struct's valid declaration
+#    false-fires "not found". Without that skip, the OtherStruct declarations below would each report unfound. ──
+
+def test_declaration_for_a_struct_absent_from_this_layout_is_ignored():
+    assert errors(V2, V2, {"OtherStruct": {"amount": "uint104"}}) == []
+    assert errors(V2, V2, None, {"OtherStruct": {"extra"}}) == []
+    assert errors(V2, V2, None, None, {"OtherStruct": {"newName": "oldName"}}) == []

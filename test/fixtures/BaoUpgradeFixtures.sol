@@ -234,3 +234,74 @@ contract NestBadSucc {
         Inner[] list;
     }
 }
+
+// ── ACCEPTED via INHERITANCE: a documented rename of a member in a namespace declared in an INHERITED base.
+//    Neither the successor nor the predecessor declares the namespace directly — the tool must walk the
+//    inheritance chain to find and compare it. ──
+abstract contract InheritRenameBasePred {
+    /// @custom:storage-location erc7201:test.inherit.rename
+    struct S {
+        uint128 a;
+        uint128 oldName;
+    }
+}
+
+contract InheritRenamePred is InheritRenameBasePred {}
+
+abstract contract InheritRenameBaseSucc {
+    /// @custom:storage-location erc7201:test.inherit.rename
+    /// @custom:bao-renamed-from newName oldName
+    struct S {
+        uint128 a;
+        uint128 newName;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:InheritRenamePred
+contract InheritRenameSucc is InheritRenameBaseSucc {}
+
+// ── REJECTED via INHERITANCE: an undocumented widen in a namespace declared in an INHERITED base. Without the
+//    inheritance walk this pair is silently not compared (the namespace is invisible on the derived node). ──
+abstract contract InheritBadBasePred {
+    /// @custom:storage-location erc7201:test.inherit.bad
+    struct S {
+        uint104 amount;
+    }
+}
+
+contract InheritBadPred is InheritBadBasePred {}
+
+abstract contract InheritBadBaseSucc {
+    /// @custom:storage-location erc7201:test.inherit.bad
+    struct S {
+        uint128 amount;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:InheritBadPred
+contract InheritBadSucc is InheritBadBaseSucc {}
+
+// ── REJECTED: `@custom:bao-upgrades-from` names a predecessor absent from the build (a typo in the path or the
+//    name). The link is still "checked" and must fail loudly ("not in build"), never be silently skipped. ──
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:NoSuchPredecessor
+contract MissingPredSucc {
+    /// @custom:storage-location erc7201:test.missingpred
+    struct S {
+        uint128 amount;
+    }
+}
+
+// ── REJECTED: the successor drops a namespace its predecessor declared (a removed `@custom:storage-location`).
+//    The predecessor's storage still lives in the proxy, so losing the namespace loses that layout — the tool
+//    must report "namespace ... gone", not pass by omission. ──
+contract NamespaceGonePred {
+    /// @custom:storage-location erc7201:test.namespacegone
+    struct S {
+        uint128 amount;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:NamespaceGonePred
+contract NamespaceGoneSucc {
+    // the erc7201:test.namespacegone namespace is intentionally gone — no @custom:storage-location struct here
+}
