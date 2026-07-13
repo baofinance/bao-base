@@ -105,19 +105,27 @@ def _compare_type(a_id, a_types, b_id, b_types, path, errors, retyped, used, dec
         old_to_new = {old: new for new, old in renames.items()}
         a_members = {m["label"]: m for m in a["members"]}
         b_members = {m["label"]: m for m in b["members"]}
+        matched_b = set()  # successor members consumed by a predecessor match; the rest are candidate appends
         for label, ma in a_members.items():
             member_declared = declarations.get(label)
             if member_declared is not None:
                 used.add((struct_name, label))  # the field exists in the predecessor, so the declaration is not a typo
-            mb = b_members.get(label)  # match the same name first — a rename only applies once the old name is gone
-            if mb is None and label in old_to_new:
+            # A documented rename for this field takes precedence over same-name matching WHEN its new name is
+            # present in the successor: an upgrade may free a name and reuse it for a different field, so
+            # `label` in the predecessor and `label` in the successor can be different fields. Only when the
+            # rename target is absent do we fall back to same-name matching (which keeps a stale rename a failure).
+            mb = None
+            if label in old_to_new:
                 new_label = old_to_new[label]  # a documented rename maps this predecessor field to a new name
                 mb = b_members.get(new_label)
                 if mb is not None:
-                    used.add((struct_name, new_label))  # the rename was applied (old name gone, new name present)
+                    used.add((struct_name, new_label))  # the rename was applied (new name present)
+            if mb is None:
+                mb = b_members.get(label)
             if mb is None:
                 errors.append(f"{path}.{label}: member removed")
                 continue
+            matched_b.add(mb["label"])
             if str(ma["slot"]) != str(mb["slot"]) or ma["offset"] != mb["offset"]:
                 errors.append(
                     f"{path}.{label}: member moved "
@@ -133,7 +141,7 @@ def _compare_type(a_id, a_types, b_id, b_types, path, errors, retyped, used, dec
         occupied = _occupied_ranges(a["members"], a_types)
         grows = int(b["numberOfBytes"]) > int(a["numberOfBytes"])
         for label, mb in b_members.items():
-            if label in a_members or label in renames:  # a rename target already matched its predecessor field
+            if label in matched_b:  # already paired with a predecessor member (by same name or by rename)
                 continue
             start = int(mb["slot"]) * 32 + int(mb["offset"])
             end = start + int(b_types[mb["type"]]["numberOfBytes"])

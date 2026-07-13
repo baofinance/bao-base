@@ -340,6 +340,41 @@ def test_documented_rename_through_mapping_is_a_successor():
     assert errors(a, b, renamed=RENAMED) == []
 
 
+# ── documented name REUSE: an upgrade may free a name and immediately reuse it for a DIFFERENT field in the
+#    same struct. The reward structs do exactly this — the accumulator frees `userRewardSnapshot`
+#    (-> userRewardSnapshotNOTUSED) then reuses it (userRewardSnapshotV2 -> userRewardSnapshot); the distributor
+#    frees `rewardData` (-> rewardDataUNUSED) then reuses it for a new widened field. Each field keeps its slot,
+#    so it is byte-compatible — but only if the matcher follows the rename declarations rather than pairing the
+#    reused name to itself (`foo`(predecessor) and `foo`(successor) are different fields here). ──
+
+def _two_member_struct(first, second, second_type="t_uint128", second_slot="0", second_offset=16, nbytes="32"):
+    types = dict(BASE_TYPES)
+    types["t_s"] = {"encoding": "inplace", "label": "struct S", "numberOfBytes": nbytes, "members": [
+        {"label": first, "slot": "0", "offset": 0, "type": "t_uint128"},
+        {"label": second, "slot": second_slot, "offset": second_offset, "type": second_type},
+    ]}
+    return {"storage": [{"label": "s", "slot": "0", "offset": 0, "type": "t_s"}], "types": types}
+
+
+def test_rename_reusing_a_freed_name_for_another_renamed_field_is_a_successor():
+    # foo -> fooOld frees `foo`; bar -> foo reuses it. Both keep their packed slot-0 positions (accumulator shape).
+    pred = _two_member_struct("foo", "bar")
+    succ = _two_member_struct("fooOld", "foo")
+    assert errors(pred, succ, renamed={"S": {"fooOld": "foo", "foo": "bar"}}) == []
+
+
+def test_rename_reusing_a_freed_name_for_an_added_field_is_a_successor():
+    # foo -> fooOld frees `foo`; a NEW `foo` in a fresh slot reuses it — a documented append to the top-level
+    # namespace struct (distributor shape). The reused name must not be skipped as "already present" merely
+    # because a field of that name existed in the predecessor; the @custom:bao-added must be credited.
+    types_pred = dict(BASE_TYPES)
+    types_pred["t_s"] = {"encoding": "inplace", "label": "struct S", "numberOfBytes": "32",
+                         "members": [{"label": "foo", "slot": "0", "offset": 0, "type": "t_uint128"}]}
+    pred = {"storage": [{"label": "s", "slot": "0", "offset": 0, "type": "t_s"}], "types": types_pred}
+    succ = _two_member_struct("fooOld", "foo", second_type="t_uint256", second_slot="1", second_offset=0, nbytes="64")
+    assert errors(pred, succ, added={"S": {"foo"}}, renamed={"S": {"fooOld": "foo"}}) == []
+
+
 # ── rejected: a bad change buried deep inside a container (rejection must propagate) ────────────────────────
 
 def test_deep_narrow_inside_mapping_is_rejected():
