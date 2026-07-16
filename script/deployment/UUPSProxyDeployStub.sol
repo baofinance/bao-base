@@ -11,7 +11,11 @@ interface IUUPSUpgradeableProxy {
 /// @title UUPSProxyDeployStub
 /// @notice Bare-bones UUPS bootstrap contract. The deploying harness becomes the immutable owner.
 /// @dev The contract provides only the upgrade surface plus an `owner()` getter. Ownership cannot
-///      be transferred or reconfigured.
+///      be transferred or reconfigured. As a deploy-time bootstrap it is intentionally not a normal
+///      upgradeable implementation: it fixes its immutable owner in a constructor and delegatecalls the
+///      real implementation's initializer during the bootstrap upgrade - all by design, so OZ
+///      upgrades-core validates it with those specific checks disabled.
+/// @custom:oz-upgrades-unsafe-allow constructor delegatecall state-variable-immutable
 contract UUPSProxyDeployStub {
     // ---------------------------------------------------------------------
     // Errors
