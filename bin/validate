@@ -68,7 +68,7 @@ BUILD_INFO_DIR="$FOUNDRY_OUT/build-info"
 mkdir -p "${BUILD_INFO_DIR}"
 
 # build again with build-info this time, so we force
-forge build --out ${FOUNDRY_OUT} --build-info --build-info-path "${BUILD_INFO_DIR}" --extra-output storageLayout --skip "**/*.vy" --skip "**/*.t.sol" --skip "**/*.s.sol" --force src
+forge build --out ${FOUNDRY_OUT} --build-info --build-info-path "${BUILD_INFO_DIR}" --extra-output storageLayout --skip "**/*.vy" --skip "**/*.t.sol" --skip "**/*.s.sol" --force src script
 
 # Reconcile the build-info sources. forge records an overriding file-level remapping (the OZ
 # ReentrancyGuardTransientUpgradeable path redirected to the bao compat shim) in the compiler OUTPUT sources but not
@@ -106,7 +106,7 @@ echo
 
 validate_upgrades() {
   npx @openzeppelin/upgrades-core validate "${BUILD_INFO_DIR}" \
-    --exclude "lib/**" --exclude "script/**" --exclude "test/**" \
+    --exclude "lib/**" --exclude "test/**" \
     "${SCRIPT_ARGS[@]}"
 }
 
@@ -151,6 +151,11 @@ while IFS= read -r vline; do
   # the validated contract's name is the first "<path>.sol:<Name>" token on the line
   vname="$(printf '%s' "$vline" | grep -oE '\.sol:[A-Za-z_][A-Za-z0-9_]*' | head -1 | sed 's/.*\.sol://')"
   [[ -z "$vname" ]] && continue
+  # The "_v2+ must declare a predecessor" discipline is for PRODUCTION versioned contracts in src/. A script/
+  # contract whose name coincidentally ends "_v<n>" (a remediation "…ForStabilityPool_v2", a "…_v3" deploy helper)
+  # is descriptive, not a version chain, so it is exempt.
+  vpath="$(printf '%s' "$vline" | grep -oE '[^[:space:]]+\.sol:' | head -1 | sed 's/:$//')"
+  [[ "$vpath" == src/* ]] || continue
   if [[ "$vname" =~ ^(.+)_v([0-9]+)$ ]]; then
     vbase="${BASH_REMATCH[1]}"
     vver="${BASH_REMATCH[2]}"
@@ -207,8 +212,10 @@ BEACON_IMPL_SLOT="911c5a209f08d5ec5e"
 failed=0
 for contract in ${contracts}; do
   this_failed=0
-  # skip libraries
-  if [[ "$contract" == "lib/"* ]]; then
+  # The namespace-only-storage and constructor-disables-initializers checks below are PRODUCTION UUPS-impl
+  # discipline (per the deploy pattern) and apply to src/ only. lib/, and a script/ throwaway migrator or a
+  # verification helper, are exempt - a one-shot script impl need not disable initializers or avoid root storage.
+  if [[ "$contract" != "src/"* ]]; then
     continue
   fi
   # special case for Stem
@@ -415,6 +422,8 @@ while IFS= read -r -d '' file; do
       echo " ✘  $file: bare import: $bad"
     done <<< "$bad_lines"
     bare_failed=1
+  else
+    echo " ✓  $file"
   fi
 done < <(find src script test -name '*.sol' -print0 2>/dev/null)
 

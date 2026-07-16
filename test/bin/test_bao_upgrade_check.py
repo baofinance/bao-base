@@ -48,9 +48,52 @@ def mixed():
     return checked, {succ: errs for succ, pred, ns, errs in failures}
 
 
+@pytest.fixture(scope="module")
+def mixed_build():
+    """The raw (module, build_info) for the mixed fixtures — for unit-testing the AST-analysis internals directly."""
+    if shutil.which("forge") is None:
+        pytest.skip("forge not available")
+    mod = load_module()
+    return mod, mod._latest_build_info(str(build_info_dir(FIXTURES, "_bao_test_mixed")))
+
+
+def _contract_id(mod, build_info, name):
+    for _path, c in mod._contracts(build_info):
+        if c.get("name") == name:
+            return c["id"]
+    raise AssertionError(f"{name} not in build")
+
+
+def test_namespace_getter_detected_for_reached_foreign_struct(mixed_build):
+    # PartialMigrator._a() reaches test.partial.a through PartialSucc's struct (defined outside its inheritance);
+    # the getter detector must yield that (contract, function, namespace) triple so the partial check can find it
+    mod, build_info = mixed_build
+    getters = [(c.get("name"), fn.get("name"), ns) for c, fn, ns, _sid, _slot in mod._namespace_getters(build_info)]
+    assert ("PartialMigrator", "_a", "test.partial.a") in getters, getters
+
+
+def test_accessed_map_lists_only_reached_foreign_namespaces(mixed_build):
+    # a partial migrator's access map is exactly the namespaces it REACHES via a foreign struct (test.partial.a),
+    # never a predecessor namespace it does not touch (test.partial.b); and the reached struct is the foreign one
+    mod, build_info = mixed_build
+    accessed = mod._accessed_namespaces_by_contract(build_info)
+    mig = accessed.get(_contract_id(mod, build_info, "PartialMigrator"), {})
+    assert set(mig) == {"test.partial.a"}, mig
+    owner, _ref = mod._struct_owner_and_ref(build_info)
+    assert owner[mig["test.partial.a"]] == _contract_id(mod, build_info, "PartialSucc"), "reached struct is not foreign"
+
+
+def test_contract_declaring_its_own_namespace_is_absent_from_accessed_map(mixed_build):
+    # a getter that returns a struct declared in its OWN inheritance chain is not "accessing" a foreign namespace,
+    # so it must not appear in the access map (only reached-foreign structs make a contract a partial migrator)
+    mod, build_info = mixed_build
+    accessed = mod._accessed_namespaces_by_contract(build_info)
+    assert _contract_id(mod, build_info, "SlotGetterGood") not in accessed
+
+
 def test_all_pairs_were_checked(mixed):
     checked, _ = mixed
-    assert len(checked) == 15, checked
+    assert len(checked) == 16, checked
 
 
 @pytest.mark.parametrize("succ", ["WidenSucc", "NestGoodSucc"])
@@ -109,6 +152,14 @@ def test_dropped_namespace_is_reported(mixed):
     assert any("gone" in e for e in failures["NamespaceGoneSucc"]), failures["NamespaceGoneSucc"]
 
 
+def test_partial_migrator_compatible_namespace_passes(mixed):
+    # a light migrator reaching a namespace via ANOTHER contract's struct (@custom:bao-upgrades-from, but declares
+    # no namespaces of its own) must have that reached struct byte-compared to the predecessor, and must NOT be
+    # flagged for the predecessor namespaces (test.partial.b) it never touches
+    _, failures = mixed
+    assert "PartialMigrator" not in failures, failures.get("PartialMigrator")
+
+
 def test_list_mode_prints_each_link_and_exits_0(capsys):
     # --list (used by validate's version-reference audit) prints '<successor> <predecessor>' per link, no build
     if shutil.which("forge") is None:
@@ -124,6 +175,40 @@ def test_build_with_no_bao_upgrade_links_is_clean():
     # exits 0. Synthetic build-info (no solc needed) — a build whose sources declare no @custom:bao-upgrades-from.
     mod = load_module()
     assert mod.check_build({"output": {"sources": {}}}, ".") == ([], [])
+
+
+@pytest.fixture(scope="module")
+def slot_errors():
+    """slot_getter_errors over the mixed fixture build, keyed by the getter's `Contract.function` (shells to `cast`)."""
+    if shutil.which("forge") is None:
+        pytest.skip("forge not available")
+    mod = load_module()
+    build_info = mod._latest_build_info(str(build_info_dir(FIXTURES, "_bao_test_mixed")))
+    return {where: msg for where, msg in mod.slot_getter_errors(build_info)}
+
+
+def test_correct_slot_getter_passes(slot_errors):
+    # a getter whose hardcoded slot equals its namespace's ERC-7201 hash is auto-detected and NOT flagged
+    assert not any(w.startswith("SlotGetterGood.") for w in slot_errors), slot_errors
+
+
+def test_wrong_slot_getter_is_rejected(slot_errors):
+    # the getter reaches test.slotgetter.bad but hardcodes test.slotgetter.good's slot -> auto-detected mismatch
+    bad = [msg for w, msg in slot_errors.items() if w.startswith("SlotGetterWrong.")]
+    assert bad, "a getter whose hardcoded slot mismatches its namespace was not caught"
+    assert any("!=" in m for m in bad), bad
+
+
+def test_misspelled_bao_tag_is_rejected():
+    # a typo'd @custom:bao-* tag compiles but matches no regex — it must be flagged, not silently ignored,
+    # and the many legitimate bao tags across the fixtures must NOT be false-flagged alongside it
+    if shutil.which("forge") is None:
+        pytest.skip("forge not available")
+    mod = load_module()
+    build_info = mod._latest_build_info(str(build_info_dir(FIXTURES, "_bao_test_mixed")))
+    tags = {tag for _where, tag in mod.unrecognized_bao_tags(build_info)}
+    assert "bao-renamd-from" in tags, "a misspelled @custom:bao-* tag was not caught"
+    assert not (tags & {"bao-upgrades-from", "bao-retyped-from", "bao-added", "bao-renamed-from", "bao-storage-slot"}), tags
 
 
 def test_main_exits_1_when_any_link_is_incompatible():

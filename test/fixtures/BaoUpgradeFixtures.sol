@@ -305,3 +305,102 @@ contract NamespaceGonePred {
 contract NamespaceGoneSucc {
     // the erc7201:test.namespacegone namespace is intentionally gone — no @custom:storage-location struct here
 }
+
+// ── ACCEPTED: a getter that returns a namespaced struct at the CORRECT hardcoded ERC-7201 slot. storage-successor
+//    auto-detects it (via solc's assembly externalReferences — no annotation) and verifies the slot equals
+//    `cast index-erc7201 test.slotgetter.good`. ──
+contract SlotGetterGood {
+    /// @custom:storage-location erc7201:test.slotgetter.good
+    struct S {
+        uint256 x;
+    }
+
+    bytes32 private constant _SLOT = 0x943d3d3fc26f81ba6fc8e9e463ad4208960dc4c24d8836531cae61e956cb8600;
+
+    function value() external view returns (uint256) {
+        return _s().x;
+    }
+
+    function _s() private pure returns (S storage $) {
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            $.slot := _SLOT
+        }
+    }
+}
+
+// ── REJECTED: the getter reaches namespace test.slotgetter.bad but hardcodes test.slotgetter.good's slot (a
+//    copy-paste of the wrong namespace's slot). Auto-detected and flagged as a slot mismatch. ──
+contract SlotGetterWrong {
+    /// @custom:storage-location erc7201:test.slotgetter.bad
+    struct S {
+        uint256 x;
+    }
+
+    bytes32 private constant _SLOT = 0x943d3d3fc26f81ba6fc8e9e463ad4208960dc4c24d8836531cae61e956cb8600;
+
+    function value() external view returns (uint256) {
+        return _s().x;
+    }
+
+    function _s() private pure returns (S storage $) {
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            $.slot := _SLOT
+        }
+    }
+}
+
+// ── REJECTED: a misspelled bao tag (`bao-renamd-from`, a typo of bao-renamed-from). solc accepts it as a valid
+//    custom tag, so it compiles — but the tool recognizes no such tag, so the intended rename check would be
+//    silently skipped. The unrecognized-tag check catches it; the recognized tags alongside it stay unflagged. ──
+contract MisspelledBaoTag {
+    /// @custom:storage-location erc7201:test.misspelled
+    /// @custom:bao-added a
+    /// @custom:bao-renamd-from newName oldName
+    struct S {
+        uint128 a;
+    }
+}
+
+// ── PARTIAL MIGRATOR: a light contract carrying @custom:bao-upgrades-from that REACHES a namespace by assembly
+//    through ANOTHER contract's struct (one it does not declare itself) — the mark of a transient upgrader. It
+//    touches only test.partial.a; storage-successor must byte-compare that reached struct against the
+//    predecessor's same namespace, and must NOT flag test.partial.b (which it never touches) as "gone". ──
+contract PartialPred {
+    /// @custom:storage-location erc7201:test.partial.a
+    struct A {
+        uint128 x;
+        uint128 y;
+    }
+
+    /// @custom:storage-location erc7201:test.partial.b
+    struct B {
+        uint256 z;
+    }
+}
+
+// the real successor whose struct the migrator reaches; test.partial.a is unchanged (a byte-compatible successor).
+contract PartialSucc {
+    /// @custom:storage-location erc7201:test.partial.a
+    struct A {
+        uint128 x;
+        uint128 y;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:PartialPred
+contract PartialMigrator {
+    bytes32 private constant _SLOT_A = 0x8a9f310f7d6993bc328438cd0b0d58f23c02c13f7a7079d2675aebd53eb72000;
+
+    function value() external view returns (uint128) {
+        return _a().x;
+    }
+
+    function _a() private pure returns (PartialSucc.A storage $) {
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            $.slot := _SLOT_A
+        }
+    }
+}

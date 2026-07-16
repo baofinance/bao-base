@@ -43,6 +43,12 @@ _BAO_REF = re.compile(r"custom:bao-upgrades-from\s+(\S+):([A-Za-z_]\w*)")
 _BAO_RETYPED = re.compile(r"custom:bao-retyped-from\s+(\w+)\s+(u?int\d+)")
 _BAO_ADDED = re.compile(r"custom:bao-added\s+(\w+)")
 _BAO_RENAMED = re.compile(r"custom:bao-renamed-from\s+(\w+)\s+(\w+)")
+# every `@custom:bao-*` tag this tool acts on — one per bao regex above. A `@custom:bao-*` tag NOT in this set
+# is a typo or an unimplemented tag: solc accepts it (it is a valid custom tag) but the tool silently ignores it,
+# so the intended check never runs and the change ships unverified. `unrecognized_bao_tags` catches that. When
+# you add a new bao tag + its regex, add it here too.
+_BAO_TAG = re.compile(r"custom:(bao-[a-z-]+)")
+_RECOGNIZED_BAO_TAGS = frozenset({"bao-upgrades-from", "bao-retyped-from", "bao-added", "bao-renamed-from"})
 
 
 # ── the successor rule (pure; unit-testable with synthetic storageLayout dicts + declarations) ──────────────
@@ -327,6 +333,201 @@ def _pairs(build_info):
     return found
 
 
+# ── namespace slot-getter check: solc records, in each inline-assembly block's `externalReferences`, which
+#    Solidity declarations its Yul touches. So the tool AUTO-DETECTS every getter that returns a single
+#    `storage <struct>` (a struct carrying `@custom:storage-location erc7201:<ns>`) and sets that return var's
+#    `.slot` from a hardcoded constant, and verifies the constant equals the namespace's canonical ERC-7201 slot
+#    (`cast index-erc7201`, reusing foundry rather than re-implementing keccak). No annotation is needed and none
+#    can be forgotten — a hardcoded slot that drifts from its namespace is caught wherever it lives (a pool, a
+#    reward base, a throwaway migrator, even OZ's Initializable). A getter that COMPUTES its slot has no hardcoded
+#    value to verify and is skipped. ──
+
+def _namespace_by_struct_id(build_info):
+    """StructDefinition node id -> namespace, for every struct with `@custom:storage-location erc7201:<ns>`."""
+    out = {}
+    for _path, node in _contracts(build_info):
+        for member in node.get("nodes", []):
+            if isinstance(member, dict) and member.get("nodeType") == "StructDefinition":
+                m = _NAMESPACE.search(_doc(member))
+                if m:
+                    out[member["id"]] = m.group(1)
+    return out
+
+
+def _state_vars_by_id(build_info):
+    """Node id -> VariableDeclaration for every contract-level and file-level state variable/constant — the
+    declarations an inline-assembly block references by id in its `externalReferences`."""
+    out = {}
+    for _path, src in build_info.get("output", {}).get("sources", {}).items():
+        ast = src.get("ast")
+        if not isinstance(ast, dict):
+            continue
+        for node in ast.get("nodes", []):
+            if not isinstance(node, dict):
+                continue
+            if node.get("nodeType") == "VariableDeclaration":
+                out[node["id"]] = node
+            elif node.get("nodeType") == "ContractDefinition":
+                for member in node.get("nodes", []):
+                    if isinstance(member, dict) and member.get("nodeType") == "VariableDeclaration":
+                        out[member["id"]] = member
+    return out
+
+
+def _inline_assembly_nodes(node):
+    """Yield every InlineAssembly node anywhere under `node`."""
+    if isinstance(node, dict):
+        if node.get("nodeType") == "InlineAssembly":
+            yield node
+        for value in node.values():
+            yield from _inline_assembly_nodes(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _inline_assembly_nodes(item)
+
+
+def _norm_slot(hexstr):
+    """A hex slot as 0x + 64 lowercase hex digits (so a value and cast's output compare regardless of padding)."""
+    h = str(hexstr).strip().lower()
+    if h.startswith("0x"):
+        h = h[2:]
+    return "0x" + h.rjust(64, "0")
+
+
+def _cast_erc7201(namespace, cache):
+    if namespace not in cache:
+        result = subprocess.run(["cast", "index-erc7201", namespace], capture_output=True, text=True)
+        if result.returncode != 0:
+            sys.exit(f"storage-successor: `cast index-erc7201 {namespace}` failed\n{result.stderr}")
+        cache[namespace] = _norm_slot(result.stdout)
+    return cache[namespace]
+
+
+def _namespace_getters(build_info):
+    """Yield (contract, fn, namespace, struct_id, slot_const_or_None) for every namespace slot getter: a function
+    returning a single `storage <struct>` whose struct has an `@custom:storage-location`, that sets the return
+    var's `.slot` in assembly. `slot_const` is the literal constant the `.slot` is set from, or None when it is
+    computed. Shared by the slot check (verify the constant) and the partial-successor check (which struct/namespace
+    a migrator reaches)."""
+    namespace_by_struct = _namespace_by_struct_id(build_info)
+    state_vars = _state_vars_by_id(build_info)
+    for _path, contract in _contracts(build_info):
+        for fn in contract.get("nodes", []):
+            if not (isinstance(fn, dict) and fn.get("nodeType") == "FunctionDefinition"):
+                continue
+            params = fn.get("returnParameters", {}).get("parameters", [])
+            if len(params) != 1:
+                continue
+            ret = params[0]
+            typ = ret.get("typeName") or {}
+            if ret.get("storageLocation") != "storage" or typ.get("nodeType") != "UserDefinedTypeName":
+                continue
+            struct_id = typ.get("referencedDeclaration")
+            namespace = namespace_by_struct.get(struct_id)
+            if namespace is None:
+                continue  # returns a storage struct, but not a namespaced one
+            ret_id = ret.get("id")
+            sets_slot = False
+            slot_const = None
+            for asm in _inline_assembly_nodes(fn.get("body")):
+                refs = asm.get("externalReferences", [])
+                if not any(r.get("declaration") == ret_id and r.get("isSlot") for r in refs):
+                    continue
+                sets_slot = True
+                for r in refs:
+                    target = state_vars.get(r.get("declaration"))
+                    if target is None or not target.get("constant"):
+                        continue
+                    value = target.get("value")
+                    if isinstance(value, dict) and value.get("nodeType") == "Literal" and value.get("kind") == "number":
+                        slot_const = target
+            if sets_slot:
+                yield contract, fn, namespace, struct_id, slot_const
+
+
+def slot_getter_errors(build_info):
+    """Verify every namespace slot getter's hardcoded slot equals its namespace's canonical ERC-7201 slot (a getter
+    that computes its slot has no literal to verify and is skipped). Return a list of (where, message)."""
+    cache = {}
+    errors = []
+    for contract, fn, namespace, _struct_id, slot_const in _namespace_getters(build_info):
+        if slot_const is None:
+            continue
+        actual = _norm_slot(slot_const["value"]["value"])
+        expected = _cast_erc7201(namespace, cache)
+        if actual != expected:
+            where = f"{contract.get('name')}.{fn.get('name')}"
+            errors.append((where, f"slot constant {slot_const.get('name')} = {actual} != erc7201({namespace}) = {expected}"))
+    return errors
+
+
+# ── partial-migrator support: a light contract with `@custom:bao-upgrades-from` that REACHES a namespace by
+#    assembly through another contract's struct (one it does not declare) touches only that namespace. The
+#    successor check byte-compares each reached struct against the predecessor's same namespace and, because such a
+#    migrator is partial by construction, does not flag the predecessor namespaces it never touches as "gone". ──
+
+def _struct_owner_and_ref(build_info):
+    """Two maps over every StructDefinition: id -> owning ContractDefinition id, and id -> (source_path, contract
+    name, struct name) for injecting it into a probe."""
+    owner, ref = {}, {}
+    for path, contract in _contracts(build_info):
+        for member in contract.get("nodes", []):
+            if isinstance(member, dict) and member.get("nodeType") == "StructDefinition":
+                owner[member["id"]] = contract["id"]
+                ref[member["id"]] = (path, contract.get("name"), member.get("name"))
+    return owner, ref
+
+
+def _accessed_namespaces_by_contract(build_info):
+    """contract id -> {namespace: struct_id} for namespaces each contract REACHES via its own getters that return a
+    struct defined OUTSIDE its inheritance chain (a foreign struct) — the mark of a partial migrator that accesses
+    another contract's storage rather than declaring its own."""
+    owner, _ref = _struct_owner_and_ref(build_info)
+    chains = {contract["id"]: set(contract.get("linearizedBaseContracts", [contract["id"]]))
+              for _path, contract in _contracts(build_info)}
+    out = {}
+    for contract, _fn, namespace, struct_id, _slot in _namespace_getters(build_info):
+        cid = contract["id"]
+        if owner.get(struct_id) not in chains.get(cid, {cid}):
+            out.setdefault(cid, {})[namespace] = struct_id
+    return out
+
+
+# ── unrecognized-tag check: a misspelled `@custom:bao-*` tag (bao-renamd-from, bao-retype-from, …) compiles
+#    fine but matches no regex, so its intended check is silently skipped — the most dangerous failure mode for a
+#    validator. Every `@custom:bao-*` tag in the build must be one the tool recognizes. ──────────────────────
+
+def _documented_nodes(build_info):
+    """Yield (where, doc_text) for every documented declaration — file-level nodes and contract members — since
+    a `@custom:bao-*` tag can sit on a contract, a struct, or a state-variable constant."""
+    for path, src in build_info.get("output", {}).get("sources", {}).items():
+        ast = src.get("ast")
+        if not isinstance(ast, dict):
+            continue
+        for node in ast.get("nodes", []):
+            if not isinstance(node, dict):
+                continue
+            name = node.get("name") or os.path.basename(path)
+            if _doc(node):
+                yield name, _doc(node)
+            for member in node.get("nodes", []):
+                if isinstance(member, dict) and _doc(member):
+                    yield f"{name}.{member.get('name')}", _doc(member)
+
+
+def unrecognized_bao_tags(build_info):
+    """Every `@custom:bao-*` tag that the tool does not recognize (a typo, or a tag with no implementation).
+    Return list of (where, tag), deduplicated."""
+    out = []
+    seen = set()
+    for where, text in _documented_nodes(build_info):
+        for tag in _BAO_TAG.findall(text):
+            if tag not in _RECOGNIZED_BAO_TAGS and (where, tag) not in seen:
+                seen.add((where, tag))
+                out.append((where, tag))
+    return out
+
+
 # ── injection: lay out each struct via a probe so solc emits its storageLayout ──────────────────────────────
 
 def probe_source(jobs):
@@ -367,6 +568,8 @@ def check_build(build_info, root):
     """Check every bao-upgrade link in the build-info. Return (checked_link_descriptions, failures)."""
     jobs, plan = [], []
     idx = 0
+    accessed_by_contract = _accessed_namespaces_by_contract(build_info)
+    _owner, struct_ref = _struct_owner_and_ref(build_info)
     for succ_path, succ_contract, pred_path, pred_contract in _pairs(build_info):
         _, succ_node = _contract_by_name(build_info, succ_contract)
         _, pred_node = _contract_by_name(build_info, pred_contract)
@@ -377,7 +580,13 @@ def check_build(build_info, root):
         succ_retyped = _retyped(build_info, succ_node)
         succ_added = _added(build_info, succ_node)
         succ_renamed = _renamed(build_info, succ_node)
-        errs = [f"namespace {ns} gone" for ns in pred_ns if ns not in succ_ns]
+        # A migrator that REACHES a predecessor namespace through a foreign struct (rather than declaring it) is a
+        # PARTIAL successor: it touches only those namespaces, so the "gone" flag is suppressed for the ones it never
+        # touches. A full successor (which declares its namespaces) has no accessed namespaces and behaves as before.
+        accessed = accessed_by_contract.get(succ_node.get("id"), {})
+        is_partial = bool(accessed)
+        errs = [f"namespace {ns} gone" for ns in pred_ns if ns not in succ_ns and ns not in accessed and not is_partial]
+        # declared namespaces: compare the successor's own struct
         for ns, struct in succ_ns.items():
             if ns not in pred_ns:
                 continue  # new namespace = new storage, allowed
@@ -386,6 +595,19 @@ def check_build(build_info, root):
             jobs.append((pi, pred_path, pred_contract, pred_ns[ns]))
             jobs.append((si, succ_path, succ_contract, struct))
             plan.append((succ_contract, pred_contract, ns, (pi, si), succ_retyped, succ_added, succ_renamed))
+        # accessed namespaces (partial migrator): compare the reached foreign struct against the predecessor's,
+        # using the OWNER contract's change annotations (the reached struct is the real successor's, e.g. SP_v3's)
+        for ns, struct_id in accessed.items():
+            if ns not in pred_ns or ns in succ_ns:
+                continue
+            acc_path, acc_contract, acc_struct = struct_ref[struct_id]
+            _, owner_node = _contract_by_name(build_info, acc_contract)
+            pi, si = idx, idx + 1
+            idx += 2
+            jobs.append((pi, pred_path, pred_contract, pred_ns[ns]))
+            jobs.append((si, acc_path, acc_contract, acc_struct))
+            plan.append((succ_contract, pred_contract, ns, (pi, si),
+                         _retyped(build_info, owner_node), _added(build_info, owner_node), _renamed(build_info, owner_node)))
         for pre_err in errs:
             plan.append((succ_contract, pred_contract, None, [pre_err], None, None, None))
 
@@ -440,7 +662,20 @@ def main(argv=None):
                 console.print(f"    {e}", style="red", markup=False)
         else:
             console.print(f"✓ {link}", style="green", markup=False)
-    return 1 if failures else 0
+
+    # every hardcoded namespace slot getter must set its `.slot` to the namespace's canonical ERC-7201 slot
+    slot_errors = slot_getter_errors(build_info)
+    for where, message in slot_errors:
+        console.print(f"✗ {where} — {message}", style="bold red", markup=False)
+    if not slot_errors:
+        console.print("✓ hardcoded namespace slots verify against their ERC-7201 hashes", style="green", markup=False)
+
+    # every @custom:bao-* tag must be one the tool recognizes (a misspelled tag would be silently skipped)
+    bad_tags = unrecognized_bao_tags(build_info)
+    for where, tag in bad_tags:
+        console.print(f"✗ {where} — unrecognized tag @custom:{tag} (typo, or a bao tag with no implementation)", style="bold red", markup=False)
+
+    return 1 if (failures or slot_errors or bad_tags) else 0
 
 
 if __name__ == "__main__":

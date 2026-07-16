@@ -432,3 +432,38 @@ def test_declaration_for_a_struct_absent_from_this_layout_is_ignored():
     assert errors(V2, V2, {"OtherStruct": {"amount": "uint104"}}) == []
     assert errors(V2, V2, None, {"OtherStruct": {"extra"}}) == []
     assert errors(V2, V2, None, None, {"OtherStruct": {"newName": "oldName"}}) == []
+
+
+# ── namespace slot-getter helpers: slot normalization + struct-id→namespace extraction (pure). The full
+#    auto-detection, which shells out to `cast index-erc7201`, is covered by the .sol-fixture integration test. ──
+
+def test_norm_slot_lowercases_and_left_pads_to_32_bytes():
+    padded = "0x" + "abc".rjust(64, "0")
+    assert mod._norm_slot("0xABC") == padded
+    assert mod._norm_slot("abc") == padded  # a bare (no-0x) value normalizes the same
+    full = "0x077a0ba7b5c5bbac7ec1ded2b9233ddb1dee1ab5c084fb024016a2c615667600"
+    assert mod._norm_slot(full) == full
+
+
+def test_namespace_by_struct_id_maps_only_storage_location_structs():
+    build_info = {"output": {"sources": {"X.sol": {"ast": {"nodes": [
+        {"nodeType": "ContractDefinition", "name": "C", "nodes": [
+            {"nodeType": "StructDefinition", "id": 1, "name": "S",
+             "documentation": {"text": "@custom:storage-location erc7201:my.ns"}},
+            {"nodeType": "StructDefinition", "id": 2, "name": "Plain",
+             "documentation": {"text": "an ordinary struct"}},
+        ]},
+    ]}}}}}
+    assert mod._namespace_by_struct_id(build_info) == {1: "my.ns"}
+
+
+def test_unrecognized_bao_tag_is_flagged_recognized_ones_ignored():
+    build_info = {"output": {"sources": {"X.sol": {"ast": {"nodes": [
+        {"nodeType": "ContractDefinition", "name": "C",
+         "documentation": {"text": "@custom:bao-upgrades-from a:B"},  # recognized -> ignored
+         "nodes": [
+            {"nodeType": "StructDefinition", "name": "S",
+             "documentation": {"text": "@custom:bao-renamd-from x y"}},  # typo of bao-renamed-from -> flagged
+        ]},
+    ]}}}}}
+    assert mod.unrecognized_bao_tags(build_info) == [("C.S", "bao-renamd-from")]
