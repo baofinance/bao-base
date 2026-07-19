@@ -5,6 +5,7 @@
   "scripts": {
     "upgrade:yarn": "yarn set version stable",
     "upgrade": "[ $# -gt 0 ] && yarn up \"${0}\"; [ $# -eq 0 ] && yarn up \"*\"",
+    "update": "./run update-submodule",
     "doctor": "./run doctor",
     "clean": "./run clean",
     "gas": "./run regression-of gas",
@@ -24,6 +25,7 @@
     "lint:test": "./run lint-sol --test",
     "slither": "./run slither",
     "test": "./run test",
+    "test:duration": "./run test-duration",
     "test:bash": "[ $# -gt 0 ] && ./node_modules/bats/bin/bats test/**/\"${0}\".bats; [ $# -eq 0 ] && ./node_modules/bats/bin/bats test/**/*.bats",
     "test:python": "./run pytest test/",
     "test:addresses": "./lib/bao-base/bin/check_addresses.sh ./lib/bao-base/script/addresses.mainnet.json ./lib/bao-base/script/addresses.arbitrum.json",
