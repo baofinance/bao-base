@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# Update foundry submodule dependencies (`forge update`), refusing while a submodule still holds work its remote
+# does not.
+#
+# `forge update` force-points each submodule at its REMOTE tip. Anything local that the remote has never seen is
+# discarded from the branch by that move - committing in a submodule is NOT safety, only pushing is. The loss is
+# silent: the commits survive only as unreachable objects in the submodule's reflog, until gc collects them.
+#
+# So this checks first and refuses loudly, rather than letting the update destroy work. Both at-risk states are
+# reported together, so one run tells you everything to fix:
+#   - commits reachable from the submodule's HEAD that no remote holds
+#   - uncommitted changes in the submodule's working tree
+#
+# Usage mirrors `forge update`, deliberately: name the dependencies to update, or name none to update them ALL (no
+# dependency is assumed or privileged). Matching that contract is what makes this a drop-in for `forge update` -
+# diverging would invite reaching for the raw command and losing the guard. Pass --check to run just the safety
+# checks and report, updating nothing - useful as a pre-flight, in CI, and to exercise this script itself without
+# invoking the destructive command it guards.
+
+set -euo pipefail
+
+usage="usage: update-submodule [--check] [dependency...]
+  --check       run the safety checks and report, updating nothing
+  dependency    a foundry dependency (its directory under lib/) or a submodule path; none means ALL submodules"
+
+check_only=0
+declare -a dependencies=()
+for argument in "$@"; do
+  case "$argument" in
+    --check) check_only=1 ;;
+    -h | --help)
+      echo "$usage"
+      exit 0
+      ;;
+    # An unrecognised option must not be taken for a dependency name - that reports "no submodule at '--chec'",
+    # which misdiagnoses a typo'd flag as a missing dependency.
+    -*)
+      echo "error: unknown option '$argument'" >&2
+      echo "$usage" >&2
+      exit 1
+      ;;
+    *) dependencies+=("$argument") ;;
+  esac
+done
+
+# Which submodules `forge update` would touch: the named dependencies, or every submodule when none are named
+# (matching `forge update`'s own no-argument behaviour).
+declare -a submodule_paths=()
+if [[ ${#dependencies[@]} -eq 0 ]]; then
+  if ! submodule_status=$(git submodule status); then
+    echo "error: could not list submodules - is this a git repository?" >&2
+    exit 1
+  fi
+  # `git submodule status` prints "<status><sha> <path> (<describe>)"; the path is the second field.
+  while read -r _sha path _rest; do
+    [[ -n "$path" ]] && submodule_paths+=("$path")
+  done <<<"$submodule_status"
+else
+  # A foundry dependency is named by its directory under lib/, but accept a full path too.
+  for dependency in "${dependencies[@]}"; do
+    if [[ -e "$dependency/.git" ]]; then
+      submodule_paths+=("$dependency")
+    elif [[ -e "lib/$dependency/.git" ]]; then
+      submodule_paths+=("lib/$dependency")
+    else
+      echo "error: no submodule at '$dependency' or 'lib/$dependency'" >&2
+      exit 1
+    fi
+  done
+fi
+
+if [[ ${#submodule_paths[@]} -eq 0 ]]; then
+  echo "no submodules to update"
+  exit 0
+fi
+
+# Collect every problem before reporting, so a single run lists all of them.
+blocked=0
+for path in "${submodule_paths[@]}"; do
+  # Commits reachable from this submodule's HEAD that no remote holds - precisely what a force-point to the remote
+  # tip would orphan. `set -e` does not catch a failing command substitution, so the status is checked explicitly.
+  if ! unpushed=$(git -C "$path" log --oneline HEAD --not --remotes 2>/dev/null); then
+    echo "error: could not inspect commits in '$path'" >&2
+    exit 1
+  fi
+  if ! uncommitted=$(git -C "$path" status --porcelain 2>/dev/null); then
+    echo "error: could not inspect the working tree of '$path'" >&2
+    exit 1
+  fi
+
+  if [[ -n "$unpushed" ]]; then
+    blocked=1
+    echo "$path holds commits no remote has; 'forge update' would discard them:" >&2
+    echo "$unpushed" | sed 's/^/    /' >&2
+    echo "  push them first:  git -C $path push" >&2
+  fi
+  if [[ -n "$uncommitted" ]]; then
+    blocked=1
+    echo "$path has uncommitted changes; 'forge update' would move it out from under them:" >&2
+    echo "$uncommitted" | sed 's/^/    /' >&2
+    echo "  commit and push them first" >&2
+  fi
+done
+
+if [[ $blocked -ne 0 ]]; then
+  echo "" >&2
+  echo "refusing to update - nothing has been changed" >&2
+  exit 1
+fi
+
+# Name what was actually checked - saying "all submodules" when only some were named would overstate the result.
+echo "pushed and clean: ${submodule_paths[*]}"
+
+if [[ $check_only -ne 0 ]]; then
+  echo "--check, so nothing was updated"
+  exit 0
+fi
+
+forge update ${dependencies[@]+"${dependencies[@]}"}
