@@ -127,5 +127,17 @@ debug "Executing: ${UV_RUN_CMD[*]}"
 [[ "${BAO_BASE_VERBOSITY}" -gt 0 ]] && set -x
 
 # Clear VIRTUAL_ENV to avoid conflicts with parent project environments
-env -u VIRTUAL_ENV "${UV_RUN_CMD[@]}" || error "Failed to run Python script or command: $SCRIPT"
+python_status=0
+env -u VIRTUAL_ENV "${UV_RUN_CMD[@]}" || python_status=$?
 { set +x; } 2>/dev/null
+
+# Hand the script's own exit status back to the caller. A script that ran and chose a non-zero code
+# has NOT failed to run, and conflating the two hides the difference between "the tests reported a
+# regression" and "the tooling broke" - so no message is invented here; whatever the script wrote to
+# stderr is the report. uv and python already say so themselves when they cannot start something.
+#
+# `( exit N )` rather than `return`/`exit`, because run-python is BOTH sourced (run:144,
+# regression-of:35) and executed directly (validate:127,147, slither/run.sh:7,11): `return` is an
+# error when executed, and `exit` would kill the caller's shell when sourced. Setting the status via
+# a subshell is the idiom bin/gas already uses and is correct either way.
+( exit "${python_status}" )

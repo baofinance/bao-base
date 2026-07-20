@@ -1,4 +1,4 @@
-# regression: better=lower abs=500 rel=0.001 display={:.3e}
+# regression: better=lower abs=500 rel=0.001 display={:.3e} ratchet=on
 
 script/deployment/UUPSProxyDeployStub.sol:UUPSProxyDeployStub
 | function name    |   max |   display |

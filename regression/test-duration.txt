@@ -1,0 +1,63 @@
+# regression: shares_multiple=2 total_multiple=4 floor_seconds=0.05 ratchet=off
+
+suite share of run CPU (parts per billion)
+| name                                                                                            |   parts per billion | CPU   | share   |   rank |
+|-------------------------------------------------------------------------------------------------|---------------------|-------|---------|--------|
+| test/BaoAccessControl.t.sol:TestBaoAccessControl                                                |              163250 | 0.00s | 0.02%   |     39 |
+| test/BaoAccessControl.t.sol:TestBaoAccessControlInit                                            |             2004893 | 0.00s | 0.20%   |     20 |
+| test/BaoTest.t.sol:BaoTestApproxIntTest                                                         |               64346 | 0.00s | 0.01%   |     49 |
+| test/BaoTest.t.sol:BaoTestApproxTest                                                            |              140033 | 0.00s | 0.01%   |     41 |
+| test/BaoTest.t.sol:BaoTestAssertConservedTest                                                   |               95089 | 0.00s | 0.01%   |     45 |
+| test/BaoTest.t.sol:BaoTestDiscriminatesTest                                                     |               52643 | 0.00s | 0.01%   |     51 |
+| test/HarborPauser.t.sol:HarborPauserTest                                                        |              487327 | 0.00s | 0.05%   |     31 |
+| test/HarborUpgradeable.t.sol:HarborFixedOwnableFactoryDeployTest                                |             1031088 | 0.00s | 0.10%   |     26 |
+| test/MintableBurnableERC20.t.sol:TestLeveragedToken                                             |             1117012 | 0.00s | 0.11%   |     25 |
+| test/MintableBurnableERC20.t.sol:TestLeveragedTokenInitEvents                                   |             1351871 | 0.00s | 0.14%   |     23 |
+| test/MintableBurnableERC20.t.sol:TestLeveragedTokenPermit                                       |             1901785 | 0.00s | 0.19%   |     21 |
+| test/MintableBurnableERC20.t.sol:TestMaxAllowance                                               |               67909 | 0.00s | 0.01%   |     48 |
+| test/MintableBurnableERC20.t.sol:TestPermit                                                     |              431442 | 0.00s | 0.04%   |     32 |
+| test/MintableBurnableERC20.t.sol:TestUpgrade                                                    |               56905 | 0.00s | 0.01%   |     50 |
+| test/MintableBurnableERC20.t.sol:TestUpgradeRecovery                                            |              784773 | 0.00s | 0.08%   |     28 |
+| test/PermittableERC20.t.sol:PermittableERC20BasicTest                                           |              114222 | 0.00s | 0.01%   |     43 |
+| test/PermittableERC20.t.sol:PermittableERC20DomainSeparatorTest                                 |              339291 | 0.00s | 0.03%   |     34 |
+| test/PermittableERC20.t.sol:PermittableERC20FunctionalityTest                                   |              317564 | 0.00s | 0.03%   |     35 |
+| test/PermittableERC20.t.sol:PermittableERC20OwnershipTest                                       |               38442 | 0.00s | 0.00%   |     53 |
+| test/PermittableERC20.t.sol:PermittableERC20PermitEdgeCasesTest                                 |             3087536 | 0.01s | 0.31%   |     17 |
+| test/PermittableERC20.t.sol:PermittableERC20PermitTest                                          |              698849 | 0.00s | 0.07%   |     29 |
+| test/PermittableERC20.t.sol:PermittableERC20StandardPermitTest                                  |             1202936 | 0.00s | 0.12%   |     24 |
+| test/PermittableERC20.t.sol:PermittableERC20UnsafeUpgradesTest                                  |              114434 | 0.00s | 0.01%   |     42 |
+| test/PermittableERC20.t.sol:PermittableERC20UpgradeTest                                         |              154320 | 0.00s | 0.02%   |     40 |
+| test/Solidity.t.sol:TestReturnGas                                                               |               39777 | 0.00s | 0.00%   |     52 |
+| test/Solidity.t.sol:TestSolidityInitialisation                                                  |              111214 | 0.00s | 0.01%   |     44 |
+| test/StemUseCases.t.sol:StemUseCasesTest                                                        |            20226511 | 0.03s | 2.02%   |     11 |
+| test/Token.t.sol:TokenLibraryTest                                                               |              368161 | 0.00s | 0.04%   |     33 |
+| test/_sizes/BaoOwnable.t.sol:TestBaoOwnableOnly                                                 |            21864796 | 0.04s | 2.19%   |     10 |
+| test/_sizes/BaoOwnableRoles.t.sol:TestBaoOwnableRoles                                           |            45098647 | 0.08s | 4.51%   |      8 |
+| test/_sizes/BaoOwnableRoles_v2.t.sol:TestBaoOwnableRoles_v2                                     |           124698647 | 0.21s | 12.47%  |      3 |
+| test/_sizes/BaoOwnableTransferrable.t.sol:TestBaoOwnableTransferrableOnly                       |            23743667 | 0.04s | 2.37%   |      9 |
+| test/_sizes/BaoOwnableTransferrableRoles.t.sol:TestBaoOwnableTransferrableRoles                 |            17585780 | 0.03s | 1.76%   |     12 |
+| test/_sizes/BaoOwnable_v2.t.sol:TestBaoOwnable_v2Only                                           |            66951986 | 0.11s | 6.70%   |      7 |
+| test/_sizes/HarborFixedOwnable.t.sol:TestHarborFixedOwnableOnly                                 |            85391278 | 0.14s | 8.54%   |      4 |
+| test/_sizes/HarborFixedOwnableRoles.t.sol:TestHarborFixedOwnableRoles                           |           131836067 | 0.22s | 13.18%  |      2 |
+| test/_sizes/HarborOwnable.t.sol:TestHarborOwnableOnly                                           |            68195020 | 0.11s | 6.82%   |      6 |
+| test/_sizes/HarborOwnableRoles.t.sol:TestHarborOwnableRoles                                     |            68870955 | 0.11s | 6.89%   |      5 |
+| test/_sizes/Ownable.t.sol:TestOwnable                                                           |             2600633 | 0.00s | 0.26%   |     19 |
+| test/_sizes/Ownable.t.sol:TestOwnableRoles                                                      |              271256 | 0.00s | 0.03%   |     37 |
+| test/_sizes/TokenHolder.t.sol:TestTokenHolder                                                   |             1781491 | 0.00s | 0.18%   |     22 |
+| test/_sizes/TokenHolder_v2.t.sol:TestTokenHolder_v2                                             |             1008175 | 0.00s | 0.10%   |     27 |
+| test/deployment/ConfigChain.t.sol:ConfigChainTest                                               |               85294 | 0.00s | 0.01%   |     46 |
+| test/deployment/Deployer.t.sol:DeployerTest                                                     |             2766753 | 0.00s | 0.28%   |     18 |
+| test/deployment/DeploymentState.t.sol:DeploymentStateTest                                       |            13066177 | 0.02s | 1.31%   |     13 |
+| test/deployment/FactoryDeployer.t.sol:FactoryDeployerPersistenceTest                            |             3219286 | 0.01s | 0.32%   |     16 |
+| test/deployment/FactoryDeployer.t.sol:FactoryDeployerTest                                       |             4376396 | 0.01s | 0.44%   |     15 |
+| test/deployment/HarborOwnableInitializerViaFactory.t.sol:HarborOwnableInitializerViaFactoryTest |              281029 | 0.00s | 0.03%   |     36 |
+| test/deployment/JsonSerialization.t.sol:JsonSerializerTest                                      |            11611197 | 0.02s | 1.16%   |     14 |
+| test/deployment/SaltString.t.sol:SaltStringTest                                                 |               67954 | 0.00s | 0.01%   |     47 |
+| test/deployment/UUPSProxyDeployStub.t.sol:UUPSProxyDeployStubTest                               |              187211 | 0.00s | 0.02%   |     38 |
+| test/fork.t.sol:TestFork                                                                        |           267286671 | 0.45s | 26.73%  |      1 |
+| test/utils/Array.t.sol:ArrayTest                                                                |              590012 | 0.00s | 0.06%   |     30 |
+
+run total CPU (milliseconds)
+| name       |   milliseconds | CPU   |
+|------------|----------------|-------|
+| all suites |           1746 | 1.75s |

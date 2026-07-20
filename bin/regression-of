@@ -5,6 +5,11 @@ mkdir -p ./regression
 REGRESSION_TYPE="$1"
 shift
 REGRESSION_FILE="regression/${REGRESSION_TYPE}.txt"
+# The baseline is read below as `git show :"${REGRESSION_FILE}"`. The empty ref before the colon is
+# the INDEX, so staging an updated regression file is enough to compare against it — no commit
+# needed mid-iteration. When nothing is staged the index matches HEAD, so the same expression serves
+# the committed case too; there is no second branch to keep in step. A path after a tree-ish colon
+# is repo-root-relative, so this holds when run from a subdirectory.
 EXTRACTED_FILE="regression/${REGRESSION_TYPE}.txt.log" # .log is likely to be gitignored
 GENERATED_LOG="regression/${REGRESSION_TYPE}.log"
 info1 "generating regression for ${REGRESSION_TYPE}..."
@@ -48,7 +53,7 @@ if [[ -f "$COMPARE_SCRIPT" ]]; then
   report="$(mktemp)"
   merged="$(mktemp)"
   merge_status=0
-  "${VENV_PYTHON}" "${COMPARE_SCRIPT}" <(git show HEAD:"${REGRESSION_FILE}" 2>/dev/null) "${EXTRACTED_FILE}" \
+  "${VENV_PYTHON}" "${COMPARE_SCRIPT}" <(git show :"${REGRESSION_FILE}" 2>/dev/null) "${EXTRACTED_FILE}" \
     >"${merged}" 2>"${report}" || merge_status=$?
   rm -f "${EXTRACTED_FILE}"
 
@@ -69,12 +74,12 @@ if [[ -f "$COMPARE_SCRIPT" ]]; then
   log "No changes detected in ${REGRESSION_FILE}"
 else
   # No merge script for this type: any difference from the committed baseline is a change.
-  if git diff --quiet --no-index <(git show HEAD:"${REGRESSION_FILE}" 2>/dev/null) "${EXTRACTED_FILE}"; then
+  if git diff --quiet --no-index <(git show :"${REGRESSION_FILE}" 2>/dev/null) "${EXTRACTED_FILE}"; then
     rm -f "${EXTRACTED_FILE}"
     git restore --worktree "${REGRESSION_FILE}" 2>/dev/null || :
     log "No changes detected in ${REGRESSION_FILE}"
   else
-    changes="$(GIT_PAGER="" git diff --minimal --color --no-index <(git show HEAD:"${REGRESSION_FILE}" 2>/dev/null) "${EXTRACTED_FILE}" 2>&1 | tail -n +5)"
+    changes="$(GIT_PAGER="" git diff --minimal --color --no-index <(git show :"${REGRESSION_FILE}" 2>/dev/null) "${EXTRACTED_FILE}" 2>&1 | tail -n +5)"
     mv "${EXTRACTED_FILE}" "${REGRESSION_FILE}"
     error "The regression file ${REGRESSION_FILE} changed:"$'\n'"${changes}"$'\n'$'\n'"Either commit the changes if they are expected or fix the cause."$'\n'
   fi
