@@ -108,7 +108,13 @@ def main():
             sys.stderr.write(merge.stderr)
             sys.stderr.write(f"compare-duration failed (exit {merge.returncode})\n")
             return merge.returncode
-        regression_file.write_text(merge.stdout, encoding="utf-8")
+        # Write only when the merge reports a change (exit 1). On no change the merged output equals
+        # the committed baseline, so writing would only churn the working tree and could revert an
+        # uncommitted edit. The merge holds within-tolerance rows at the committed value, so passing
+        # timings stay anchored to the baseline (which may be faster than this run) instead of
+        # drifting up to the current measurement.
+        if merge.returncode == 1:
+            regression_file.write_text(merge.stdout, encoding="utf-8")
 
     # A failing run matters more than a duration change, so its status is the one that survives.
     if run_status != 0:

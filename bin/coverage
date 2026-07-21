@@ -3,10 +3,8 @@ set -e
 set -o pipefail
 
 [[ "${BAO_BASE_VERBOSITY}" -gt 0 ]] && set -x
-# separate build output & cache
-export FOUNDRY_OUT=out/_coverage
-export FOUNDRY_CACHE_PATH=cache/_coverage
-
+VERBOSITY="-v"
+if [[ "${BAO_BASE_VERBOSITY:-0}" -gt 0 ]]; then VERBOSITY="-$(printf "%${BAO_BASE_VERBOSITY}s" "" | tr ' ' 'v')"; fi
 # signal to Solidity code that we're in coverage mode
 export BAO_COVERAGE_RUN=true
 
@@ -15,6 +13,12 @@ mkdir -p tmp
 export BAO_DEPLOYMENT_LOGS_ROOT=$(mktemp -d -p tmp)
 trap 'rm -rf "${BAO_DEPLOYMENT_LOGS_ROOT}"' EXIT
 
+mkdir -p results
 # run the coverage
-forge coverage --out ${FOUNDRY_OUT} --nmp 'script/**/*.t.sol' --report summary --report lcov --deny never "$@"
+status=0
+set -x
+forge coverage "${VERBOSITY}" --nmp 'script/**/*.t.sol' --report summary --report lcov --deny never "$@" || status=$?
 { set +x; } 2>/dev/null
+# make forge's exit status the script's return value: the set +x above would otherwise mask it,
+# and run sources this script under `|| exit_code=$?` which suppresses set -e
+(exit "$status")

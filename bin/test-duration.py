@@ -28,6 +28,36 @@ def duration_ms(text):
     return sum(float(value) * _UNIT_MS[unit] for value, unit in _PART.findall(text or ""))
 
 
+def durations(suites):
+    """Rows of (milliseconds, suite, test) from `forge test --json`, plus its failures and skip count.
+
+    `--gas-report` makes forge emit the GAS REPORT — a list of per-contract objects — INSTEAD of the
+    test results, so that run carries no durations at all. Asking for both in one command looks
+    entirely reasonable, so say what came back rather than failing on the shape.
+    """
+    if not isinstance(suites, dict):
+        raise SystemExit(
+            "forge returned a gas report, not test results: --json replaces the test output with the "
+            "gas report when --gas-report is passed, so there are no durations to read. Drop "
+            "--gas-report - --isolate alone still carries the per-call instrumentation cost."
+        )
+    rows, failures, skipped = [], [], 0
+    for suite_id, suite in suites.items():
+        suite_name = suite_id.split(":")[-1]
+        for test_name, result in (suite.get("test_results") or {}).items():
+            short_name = test_name.split("(")[0]
+            # forge reports "Success", "Failure" or "Skipped". Test the FAILURE case explicitly - treating
+            # anything that is not "Success" as failed reports skipped tests as failures.
+            status = result.get("status")
+            if status == "Skipped":
+                skipped += 1
+            elif status != "Success":
+                # Name them: "N FAILED" alone leaves you re-running the suite just to find out which.
+                failures.append(f"{suite_name}.{short_name}: {result.get('reason') or 'no reason reported'}")
+            rows.append((duration_ms(result.get("duration")), suite_name, short_name))
+    return rows, failures, skipped
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description="Report test durations, slowest first.")
     parser.add_argument("--top", type=int, default=25, help="how many of the slowest tests to list (default 25)")
@@ -45,22 +75,7 @@ def main(argv):
         sys.stderr.write(completed.stderr or completed.stdout)
         return completed.returncode or 1
 
-    rows = []
-    failures = []
-    skipped = 0
-    for suite_id, suite in suites.items():
-        suite_name = suite_id.split(":")[-1]
-        for test_name, result in (suite.get("test_results") or {}).items():
-            short_name = test_name.split("(")[0]
-            # forge reports "Success", "Failure" or "Skipped". Test the FAILURE case explicitly - treating
-            # anything that is not "Success" as failed reports skipped tests as failures.
-            status = result.get("status")
-            if status == "Skipped":
-                skipped += 1
-            elif status != "Success":
-                # Name them: "N FAILED" alone leaves you re-running the suite just to find out which.
-                failures.append(f"{suite_name}.{short_name}: {result.get('reason') or 'no reason reported'}")
-            rows.append((duration_ms(result.get("duration")), suite_name, short_name))
+    rows, failures, skipped = durations(suites)
 
     if not rows:
         print("no tests ran")

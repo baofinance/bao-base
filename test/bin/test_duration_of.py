@@ -19,12 +19,24 @@ import tempfile
 
 DURATION_OF = pathlib.Path(__file__).resolve().parents[2] / "bin" / "duration-of.py"
 
-STUB_LOG = """\
-Ran 1 test for test/A.t.sol:ATest
-Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 2.00s (1.00s CPU time)
-Ran 2 tests for test/B.t.sol:BTest
-Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 6.00s (3.00s CPU time)
-"""
+def _log(cpu_seconds: dict[str, float]) -> str:
+    """A forge test log reporting the given per-suite CPU seconds (wall is twice CPU, arbitrarily)."""
+    lines = []
+    for name, cpu in cpu_seconds.items():
+        lines.append(f"Ran 1 test for {name}")
+        lines.append(f"Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in {cpu * 2:.2f}s ({cpu:.2f}s CPU time)")
+    return "\n".join(lines) + "\n"
+
+
+# Enough suites that the median-of-ratios scale is stable; A and B are asserted by name below.
+BASELINE_CPU = {
+    "test/A.t.sol:ATest": 1.0,
+    "test/B.t.sol:BTest": 3.0,
+    "test/C.t.sol:CTest": 2.0,
+    "test/D.t.sol:DTest": 4.0,
+    "test/E.t.sol:ETest": 5.0,
+}
+STUB_LOG = _log(BASELINE_CPU)
 
 
 def load_module():
@@ -96,3 +108,68 @@ def test_no_stray_log_left_behind():
         base = pathlib.Path(directory)
         run_wrapper(base, 0, "test")
         assert sorted(p.name for p in (base / "regression").iterdir()) == ["test-duration.txt"]
+
+
+def _git(directory: pathlib.Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=directory, check=True, capture_output=True)
+
+
+def _init_repo(base: pathlib.Path) -> None:
+    _git(base, "init", "-q")
+    _git(base, "config", "user.email", "t@t")
+    _git(base, "config", "user.name", "t")
+
+
+def test_no_change_preserves_an_uncommitted_edit():
+    # A run that holds against the committed baseline must leave the working-tree file untouched. The
+    # baseline is read from the git index, so an uncommitted edit to the working copy is invisible to
+    # the comparison; a no-change run must not overwrite it with identical merged content (which would
+    # silently discard the edit). This pins both "write only on change" and the reason for it.
+    with tempfile.TemporaryDirectory() as directory:
+        base = pathlib.Path(directory)
+        _init_repo(base)
+        recorded = base / "regression" / "test-duration.txt"
+
+        # First run establishes the baseline: every row is new, so it is a change and is written.
+        run_wrapper(base, 0, "test")
+        assert recorded.exists()
+        _git(base, "add", "regression/test-duration.txt")
+        _git(base, "commit", "-q", "-m", "baseline")
+
+        # An uncommitted working-tree edit. Only the index is the baseline, so this does not change
+        # what the next run compares against.
+        recorded.write_text(recorded.read_text() + "# uncommitted edit\n")
+
+        # An identical run holds against the committed baseline -> no change -> nothing written.
+        result = run_wrapper(base, 0, "test")
+        assert result.returncode == 0
+        assert "# uncommitted edit" in recorded.read_text()
+
+
+def test_change_is_written_against_a_committed_baseline():
+    # The other side of the guard: when the run does breach the tolerance, the merged result IS
+    # written. Committing a baseline first, then regressing ONE suite 40x (the rest unchanged, so the
+    # median scale stays ~1 and the machine is judged steady) drives a genuine change - unlike scaling
+    # EVERY suite, which median-of-ratios correctly reads as a machine change and holds.
+    with tempfile.TemporaryDirectory() as directory:
+        base = pathlib.Path(directory)
+        _init_repo(base)
+        recorded = base / "regression" / "test-duration.txt"
+
+        run_wrapper(base, 0, "test")
+        _git(base, "add", "regression/test-duration.txt")
+        _git(base, "commit", "-q", "-m", "baseline")
+
+        regressed_log = _log(dict(BASELINE_CPU, **{"test/A.t.sol:ATest": 40.0}))
+        stub = base / "run"
+        stub.write_text(f"#!/usr/bin/env bash\ncat <<'LOG'\n{regressed_log}LOG\nexit 0\n")
+        stub.chmod(0o755)
+        result = subprocess.run(
+            [sys.executable, str(DURATION_OF), "test"],
+            cwd=base,
+            env=dict(os.environ, BAO_BASE_DIR=str(base)),
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 1  # a duration change makes the run fail until committed
+        assert "40000" in recorded.read_text()  # A's regressed value (40s -> 40000ms) was written

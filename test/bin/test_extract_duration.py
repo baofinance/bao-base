@@ -1,10 +1,9 @@
 """
 Tests for bin/extract-duration.py — per-suite CPU time out of any forge test log.
 
-The extract emits two sections: each suite's share of the run's total CPU (in parts per billion, so
-the value stays an integer and the baseline is machine-INDEPENDENT), and the run total in whole
-seconds (machine-dependent by design — it is what catches a uniform slowdown that leaves every
-share unmoved).
+The extract emits one absolute figure per suite: its CPU in milliseconds. Nothing is normalised
+against the run total - the comparison (compare-duration.py) divides out a robust per-run scale at
+compare time, which is what keeps it machine-independent without coupling every suite to every other.
 """
 import importlib.util
 import pathlib
@@ -78,44 +77,36 @@ def test_ignores_non_suite_timing_lines():
 
 def test_empty_log_yields_empty_output():
     # `bin/sizes` runs `forge build --sizes`, which has no suites at all — that must produce no rows
-    # rather than dividing by a zero total or failing.
+    # rather than failing.
     module = load_module()
     assert module.parse_suites("Compiling 300 files with Solc 0.8.30\n") == []
     assert module.render([]) == ""
 
 
-def test_shares_sum_to_one_billion():
-    # The shares are the machine-independent half of the check, so they must be a true partition of
-    # the run; slack is one part per suite for the rounding to integer parts-per-billion.
+def test_render_stores_each_suite_in_milliseconds():
+    # The stored (compared) value is the suite's absolute CPU in milliseconds - seconds x 1000,
+    # rounded. Milliseconds so a run of a second or so still has resolution.
     module = load_module()
-    suites = module.parse_suites(sample_log())
-    shares = [value for name, value in _rows(module.render(suites), "share")]
-    assert abs(sum(shares) - 1_000_000_000) <= len(suites)
+    milliseconds = _milliseconds(module.render(module.parse_suites(sample_log())))
+    assert milliseconds["test/C.t.sol:CTest"] == 10_000  # 10.00s
+    assert milliseconds["test/B.t.sol:BTest"] == 4  # 3.60ms -> 4ms
+    assert milliseconds["test/A.t.sol:ATest"] == 0  # 147.45µs rounds to 0ms (sub-floor, held elsewhere)
 
 
-def test_run_total_is_the_sum_of_suite_cpu_in_milliseconds():
-    # Milliseconds, so a run of a second or so still has resolution to be compared against.
+def test_render_rows_are_sorted_by_name():
+    # Forge emits suites in completion order; name order is what makes two baselines diffable.
     module = load_module()
-    suites = module.parse_suites(sample_log())
-    totals = _rows(module.render(suites), "milliseconds")
-    assert len(totals) == 1
-    assert totals[0][1] == round(sum(value for _, value in suites) * 1000)  # 10.0036s -> 10004ms
+    names = list(_milliseconds(module.render(module.parse_suites(sample_log()))))
+    assert names == sorted(names)
 
 
-def _rows(rendered: str, column: str) -> list[tuple[str, int]]:
-    """Rows of the section whose value column is `column`, as (name, integer value)."""
-    rows: list[tuple[str, int]] = []
-    in_section = False
+def _milliseconds(rendered: str) -> dict[str, int]:
+    """The suite -> milliseconds mapping (column 2) from a rendered section."""
+    out: dict[str, int] = {}
     for line in rendered.splitlines():
         stripped = line.strip()
-        if not stripped.startswith("|"):
+        if not stripped.startswith("| test/"):
             continue
         cells = [cell.strip() for cell in stripped.strip("|").split("|")]
-        if len(cells) < 2 or set(cells[0]) <= set("-: "):
-            continue
-        if cells[0].lower() == "name":
-            in_section = cells[1].lower() == column
-            continue
-        if in_section:
-            rows.append((cells[0], int(cells[1])))
-    return rows
+        out[cells[0]] = int(cells[1])
+    return out

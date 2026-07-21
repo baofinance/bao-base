@@ -63,20 +63,22 @@ if [[ -f "$COMPARE_SCRIPT" ]]; then
     error "compare-${REGRESSION_TYPE} failed (exit ${merge_status}). Fix the merge before running regression."
   fi
 
-  # Write the merged result (only breached rows differ from the committed baseline).
-  mv "${merged}" "${REGRESSION_FILE}"
   if [[ "${merge_status}" -eq 1 ]]; then
+    # Write only on change. The merge holds within-tolerance rows at their committed value, so only
+    # breached rows differ from the committed baseline; passing values stay anchored, not drifting.
+    mv "${merged}" "${REGRESSION_FILE}"
     changes="$(cat "${report}")"
     rm -f "${report}"
     error "The regression file ${REGRESSION_FILE} changed:"$'\n'"${changes}"$'\n'$'\n'"Review and commit ${REGRESSION_FILE} if the change is expected, or fix the cause."$'\n'
   fi
-  rm -f "${report}"
+  # No change: leave the working-tree file untouched - no write, no git restore.
+  rm -f "${merged}" "${report}"
   log "No changes detected in ${REGRESSION_FILE}"
 else
   # No merge script for this type: any difference from the committed baseline is a change.
   if git diff --quiet --no-index <(git show :"${REGRESSION_FILE}" 2>/dev/null) "${EXTRACTED_FILE}"; then
+    # No change: leave the working-tree file untouched - no write, no git restore.
     rm -f "${EXTRACTED_FILE}"
-    git restore --worktree "${REGRESSION_FILE}" 2>/dev/null || :
     log "No changes detected in ${REGRESSION_FILE}"
   else
     changes="$(GIT_PAGER="" git diff --minimal --color --no-index <(git show :"${REGRESSION_FILE}" 2>/dev/null) "${EXTRACTED_FILE}" 2>&1 | tail -n +5)"

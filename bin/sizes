@@ -2,16 +2,15 @@
 set -e
 set -o pipefail
 
-# put the output in a different directory, so as not to clash with the normal forge build output
-FOUNDRY_OUT="out/_sizes"
-export FOUNDRY_CACHE_PATH=cache/_sizes
-mkdir -p "${FOUNDRY_OUT}"
+[[ "${BAO_BASE_VERBOSITY}" -gt 0 ]] && set -x
+VERBOSITY="-v"
+if [[ "${BAO_BASE_VERBOSITY:-0}" -gt 0 ]]; then VERBOSITY="-$(printf "%${BAO_BASE_VERBOSITY}s" "" | tr ' ' 'v')"; fi
 
 # forge clean, forcing the build as we don't trust the cache
 debug "BAO_BASE_VERBOSITY=${BAO_BASE_VERBOSITY}."
-[[ "${BAO_BASE_VERBOSITY}" -gt 0 ]] && set -x
 status=0
-forge build --sizes --out ${FOUNDRY_OUT} --force src test/_sizes script || status=$?
+set -x
+forge build "${VERBOSITY}" --sizes --out out/_sizes --cache-path cache/_sizes src test/_sizes script || status=$?
 { set +x; } 2>/dev/null
 # don't make forge's exit status the script's return value: the set +x above would otherwise mask it,
 # and run sources this script under `|| exit_code=$?` which suppresses set -e

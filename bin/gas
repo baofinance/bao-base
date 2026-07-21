@@ -3,18 +3,33 @@ set -e
 set -o pipefail
 
 [[ "${BAO_BASE_VERBOSITY}" -gt 0 ]] && set -x
-# separate build output & cache
-FOUNDRY_OUT=out/_gas
-export FOUNDRY_CACHE_PATH=cache/_gas
-
 # temp deployment scripts dir
 mkdir -p tmp
 export BAO_DEPLOYMENT_LOGS_ROOT=$(mktemp -d -p tmp)
 trap 'rm -rf "${BAO_DEPLOYMENT_LOGS_ROOT}"' EXIT
 
+mkdir -p results
 status=0
-forge test --out ${FOUNDRY_OUT} --nmp 'script/**/*.t.sol' --isolate --gas-report --fuzz-seed 1 --fuzz-runs 64 "$@" || status=$?
+# `--no-match-test _notInGasReport` opts a test OUT of the gas pass by name, the only selector forge
+# offers. Under --isolate every top-level call becomes its own transaction, so a many-iteration
+# stress test can cost hundreds of times its neighbours while adding nothing the shorter tests do not
+# already measure for the same functions. Such a test keeps that suffix; it still runs under `test`
+# and `coverage`, where the iterations earn their keep. Kept before "$@" so a caller can still add
+# their own filters, but note forge takes only the LAST --no-match-test, so an explicit one there
+# replaces this rather than combining.
+# The verbosity flag is optional: -v/-vv/-vvv... when BAO_BASE_VERBOSITY>0, and entirely absent
+# otherwise. It must be absent, not empty - forge rejects an empty "" positional argument - so the
+# command is collected in an array where that element is added only when it exists.
+cmd=(forge test)
+if [[ "${BAO_BASE_VERBOSITY:-0}" -gt 0 ]]; then
+  cmd+=("-$(printf "%${BAO_BASE_VERBOSITY}s" "" | tr ' ' 'v')")
+else
+  cmd+=(-s)
+fi
+cmd+=(--out out/_gas --cache-path cache/_gas --nmp 'script/**/*.t.sol' --no-match-test '_notInGasReport' --isolate --gas-report --fuzz-seed 1 --fuzz-runs 64 --deny never)
+set -x
+"${cmd[@]}" "$@" || status=$?
 { set +x; } 2>/dev/null
 # make forge's exit status the script's return value: the set +x above would otherwise mask it,
 # and run sources this script under `|| exit_code=$?` which suppresses set -e
-( exit "$status" )
+(exit "$status")

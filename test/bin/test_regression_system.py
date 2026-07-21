@@ -404,6 +404,15 @@ def test_unstaged_edit_is_not_the_baseline():
     assert baseline_via_script_expression("COMMITTED", staged="STAGED", worktree="WORKTREE") == "STAGED"
 
 
+def test_no_change_does_not_restore_the_working_tree():
+    # A no-regression run must leave the working tree alone. `git restore --worktree` was removed: it
+    # silently discards any uncommitted edit to the regression file, so a check that finds no
+    # regression could wipe the developer's working copy. Writing only on a real change means there is
+    # nothing to restore — so no CODE path may invoke it (comments may still mention the removal).
+    code_lines = [line for line in REGRESSION_OF.read_text().splitlines() if not line.lstrip().startswith("#")]
+    assert not any("git restore" in line for line in code_lines), "git restore must not run in any code path"
+
+
 # ── discrimination guard: prove, on every run, that the tests kill known logic mutations ──────
 
 def test_suite_kills_mutants():

@@ -1,215 +1,169 @@
 #!/usr/bin/env python3
 """
-Duration regression merge — CPU time compared at two granularities.
+Duration regression merge - per-suite CPU compared by median-of-ratios.
 
 Usage: compare-duration.py <committed_file> <fresh_extracted_file>
 
 `regression-of` finds this by name for the `duration` measure, which every run that executes tests
-produces alongside its own (see extract-duration.py). Table parsing and rendering come from
-compare.py so the file format stays identical across regression types; the POLICY here differs from
-gas's in three ways, which is why this is a separate merge rather than gas's with other numbers:
+produces alongside its own (see extract-duration.py). The file format and the emit-and-decide path
+come from compare.py so every regression type describes itself the same way; the COMPARISON here is
+what differs, and it is a well-worn one.
 
-  - **Two granularities, checked separately.** Per suite, its SHARE of run CPU — machine-independent,
-    so one committed baseline holds on any machine, and it catches a suite that got worse relative to
-    its peers. Per run, the TOTAL CPU in seconds — machine-dependent on purpose, because it is the
-    only thing that moves when a change slows every suite equally and leaves every share untouched.
-    Neither alone is sufficient and no boolean combination of the two per row works: requiring both
-    to fire misses the uniform slowdown, and requiring either fires on every machine change.
-  - **Hold within EITHER bound, not both.** The absolute bound is therefore a noise floor: a suite
-    too small to measure can double without flagging. Gas holds only within BOTH, which is right for
-    a deterministic quantity but would make every tiny suite a false alarm here.
-  - **No ratchet.** Gas locks in every improvement, keeping the baseline at the best value ever seen.
-    Doing that with timings would anchor each suite at its fastest run on an idle machine, so a
-    change is judged symmetrically: a small improvement is held like any other small change.
+Storing each suite as a SHARE of the run total makes the values compositional: they sum to a
+constant, so one suite changing shifts every other suite's share - Pearson's 1897 closure problem. A
+single dominant regression then flags the whole innocent field around it. The fix is the RNA-seq
+count-normalisation method (DESeq's median-of-ratios, edgeR's TMM), which faces the identical shape
+- normalise out a global "library size" (here the machine's speed / the run's total cost) while a
+few components genuinely change:
+
+  - for each suite measurable in both runs, `ratio = fresh / committed`;
+  - the machine scale = the MEDIAN of those ratios - robust, because the handful of suites that
+    really changed are outliers the median ignores;
+  - a suite flags when its ratio deviates from that scale by more than `suite_multiple` either way
+    AND its absolute change exceeds `noise_seconds`. The absolute floor matters because a ratio is
+    unreliable at small magnitudes: a 0.5s -> 0.1s wobble is a 5x ratio but 0.4s of scheduler noise,
+    not a regression. Requiring both a relative AND an absolute change is the standard companion to
+    median-of-ratios (DESeq's independent filtering) - do not test a ratio on a quantity too small.
+
+So a uniformly faster or slower machine leaves every ratio at the scale and flags nothing, however
+extreme; and one suite going 40x flags THAT suite and only that suite, because the median barely
+moves. Absolute milliseconds are stored (machine-specific), yet detection is machine-independent,
+because the scale is divided out at compare time, not baked into the file.
+
+Two things this method genuinely cannot do, by construction, and does not pretend to:
+  - tell "the whole run got slower" from "the machine got slower" - they are the same signal in
+    relative terms. The scale MAGNITUDE is reported when it is large, as an honest note, but it never
+    flags (that would fire on every real machine change).
+  - work when MORE than half the suites change at once - then the "unchanged majority" the median
+    leans on no longer exists. That is a re-baseline event, and the too-few-measurable note says so.
 """
-import math
 import os
+import statistics
 import sys
-from collections import OrderedDict
 
 # Make sibling bin modules importable (matches the other bin scripts).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import compare  # noqa: E402
 import duration_format  # noqa: E402
-import pandas as pd  # noqa: E402
 
-SHARE_SECTION = duration_format.SHARE_SECTION
-TOTAL_SECTION = duration_format.TOTAL_SECTION
-SHARE_PRECISION = duration_format.SHARE_PRECISION
+SUITE_SECTION = duration_format.SUITE_SECTION
 
 # The policy, in the same shape every regression type uses, so `compare.header_line` renders it in
-# the same grammar. Units live in the key where a bare number would be ambiguous.
-#   shares_multiple  a suite must MORE than double its share of the run before it flags
-#   total_multiple   the run total moves with the machine too, so it needs more room
-#   floor_seconds    below this a suite's timing is scheduler jitter rather than signal. It has to
-#                    stay well under the whole run or it swallows every row: at 0.5s over bao-base's
-#                    ~1s suite no row could ever flag. Measured jitter was ~15% on a 13.5s suite, so
-#                    50ms is comfortably above the noise.
-#   ratchet          off: a change is judged symmetrically, so a small improvement is held rather
-#                    than anchoring every suite at its fastest run on an idle machine.
+# the same grammar. Units live in the key where a bare number would be ambiguous. ONE policy for every
+# measure (test / gas / coverage): duration is a generalised BLOW-UP check, so it wants a coarse band
+# that catches only extreme increases and tolerates moderate ones - not a per-environment tolerance
+# coupling the tool to each run's determinism.
+#   suite_multiple      a suite must deviate from the machine scale by more than this (either way) to
+#                       flag. This is the "noise RATIO", set to the LOOSEST any measure needs: the
+#                       random-seed, parallel `test`/`coverage` runs swing a suite up to ~6x run to run
+#                       (measured: per-suite deviation-from-scale maxed at 6.09x over five runs), so 8x
+#                       clears that noise. `gas` is deterministic and would tolerate a tighter band, but
+#                       a blow-up check does not need one - a moderate gas increase is not a blow-up.
+#                       Any "40x" is still caught at 8x.
+#   run_shift_multiple  a whole-run scale beyond this is reported as a note - but never flags (a machine
+#                       change is indistinguishable from a uniform slowdown in relative terms)
+#   noise_seconds       a suite whose ABSOLUTE change is smaller than this is held however large its
+#                       ratio: relative comparison is unreliable at small magnitudes. Set to EXCEED the
+#                       largest overhead-dominated suite, so scheduler noise on it can never flag - a
+#                       tiny suite (a `_sizes` contract-size test doing almost no work) is pure
+#                       framework overhead, swinging as much as its own magnitude between runs. bao-base
+#                       coverage suites top out near 1.1s and swing up to ~0.8s run to run (measured
+#                       over several runs); 1.5s clears both. Any "40x" on a suite that matters is
+#                       seconds of absolute change and still flags. This is the absolute half of "hold
+#                       within EITHER bound", the standard companion to median-of-ratios (DESeq's
+#                       independent filtering): do not test a ratio on a quantity too small to measure.
+#   floor_seconds       a suite below this in a run gives no reliable ratio, so it is excluded from the
+#                       median scale (kept low, 50ms, so the scale still rests on many suites).
 DURATION_POLICY = {
-    "shares_multiple": 2.0,
-    "total_multiple": 4.0,
+    "suite_multiple": 8.0,
+    "run_shift_multiple": 4.0,
+    "noise_seconds": 1.5,
     "floor_seconds": 0.05,
-    "ratchet": False,
 }
+# Report when FEWER than this many suites are measurable: a median over fewer than a handful can be
+# swung by the couple that changed, so the machine scale is not trustworthy. It is an ABSOLUTE count,
+# not a fraction of the run - a small project with a dozen measurable suites and many tiny ones below
+# the floor has a perfectly good scale and must not be told otherwise. Not policy: it changes no
+# verdict, only whether the run explains itself.
+MIN_MEASURABLE = 5
 
-# Report when this fraction of the suites sit under the floor: past that the share check is mostly
-# inert, and a check that cannot fire must say so rather than pass quietly. Not policy — it changes
-# no verdict, only whether the run explains itself.
-INERT_FRACTION = 0.5
 
+def machine_scale(committed, fresh, floor_ms):
+    """The robust per-run scale factor: the median of `fresh/committed` over suites measurable in both.
 
-
-def relative_bound(multiplier):
-    """The `rel` tolerance that triggers when a value changes by `multiplier` times.
-
-    A change flags when `delta > rel * max(old, new)`; at exactly `multiplier` times,
-    `delta = (multiplier - 1) * old` and `max = multiplier * old`, which solves to `(n - 1) / n`.
-    Note the bound approaches but never reaches 1: `rel = 1` would hold ANY increase, however large.
+    Returns (scale, measurable_count). Suites below the floor in either run are excluded, because a
+    ratio taken against scheduler noise is meaningless. With nothing measurable the scale is 1.0 (no
+    evidence of a machine change), and every above-floor suite is then judged against that.
     """
-    return (multiplier - 1) / multiplier
+    ratios = [
+        fresh[name] / committed[name]
+        for name in committed.keys() & fresh.keys()
+        if committed[name] >= floor_ms and fresh[name] >= floor_ms
+    ]
+    return (statistics.median(ratios) if ratios else 1.0), len(ratios)
 
 
-def seconds_decimals(floor_seconds):
-    """How many decimals of a seconds figure the floor can actually act on.
+def merge(committed, fresh, scale, floor_ms, noise_ms):
+    """Merge fresh onto committed per suite, judging each against the machine scale. Returns (merged, changes).
 
-    Showing more precision than the tolerance can distinguish is noise: a 0.5s floor justifies one
-    decimal, 0.05s justifies two. Derived from the floor so the two cannot drift apart.
+    Held suites keep their COMMITTED milliseconds, so the file is byte-stable run to run and only a
+    genuine change rewrites a row. A suite is held when it appears/vanishes aside, it is held on
+    EITHER ground: its absolute change is below the noise floor (too small to measure a ratio), OR it
+    is measurable and its ratio tracks the machine scale within `suite_multiple`. It flags only when a
+    change is BOTH large enough to matter AND deviates from the scale (or its committed value was
+    sub-floor, so there is no reliable ratio and a significant change is a genuine appearance).
     """
-    return max(0, math.ceil(-math.log10(floor_seconds)))
-
-
-def _by_cost(rows):
-    """Rows heaviest first, ties broken by name so the rank is stable between identical runs."""
-    return sorted(rows.items(), key=lambda row: (-row[1], row[0]))
-
-
-def render_sections(merged, total_milliseconds):
-    """Build the display tables: the stored value, plus what it means in seconds and as a percentage.
-
-    Both extra columns are DERIVED from the share and the run total already in the file — nothing
-    further is recorded, so the baseline stays machine-independent. The seconds column is what the
-    absolute floor acts on and the percentage is what the multiplier acts on, so between them they
-    show how each tolerance will judge the row.
-    """
-    decimals = seconds_decimals(DURATION_POLICY["floor_seconds"])
-    sections = []
-    for path, rows in merged.items():
-        # The unit is carried in the cell rather than only in the heading: it keeps each figure
-        # self-describing, and it stops the table renderer re-parsing these as numbers and
-        # reformatting them back into scientific notation.
-        if path == TOTAL_SECTION:
-            frame = pd.DataFrame(
-                [
-                    (name, int(round(value)), f"{value / duration_format.MILLISECONDS_PER_SECOND:.{decimals}f}s")
-                    for name, value in rows.items()
-                ],
-                columns=["name", "milliseconds", "CPU"],
-            )
+    low = 1.0 / DURATION_POLICY["suite_multiple"]
+    high = DURATION_POLICY["suite_multiple"]
+    merged = {}
+    changes = []  # (section, name, kind, old, new)
+    for name in sorted(committed.keys() | fresh.keys()):
+        old = committed.get(name)
+        new = fresh.get(name)
+        if old is None:
+            merged[name] = new
+            changes.append((SUITE_SECTION, name, "added", None, new))
+        elif new is None:
+            changes.append((SUITE_SECTION, name, "removed", old, None))
+        elif abs(new - old) < noise_ms or (old >= floor_ms and low <= (new / old) / scale <= high):
+            merged[name] = old  # too small a change to matter, or it tracks the machine scale: held
         else:
-            seconds_per_part = total_milliseconds / duration_format.MILLISECONDS_PER_SECOND / SHARE_PRECISION
-            # Rank by cost, but LIST by name. Forge emits suites in completion order, which varies
-            # between runs, so sorting by name is what makes two baselines diffable side by side —
-            # and the rank then carries the information that ordering by cost would have given.
-            rank_of = {name: position for position, (name, _) in enumerate(_by_cost(rows), start=1)}
-            frame = pd.DataFrame(
-                [
-                    (
-                        name,
-                        int(round(value)),
-                        f"{value * seconds_per_part:.{decimals}f}s",
-                        f"{value / SHARE_PRECISION:.2%}",
-                        rank_of[name],
-                    )
-                    for name, value in sorted(rows.items())
-                ],
-                columns=["name", "parts per billion", "CPU", "share", "rank"],
-            )
-        sections.append((path, frame))
-    return sections
-
-
-def share_floor(fresh):
-    """The share below which a suite's timing is noise, in parts per billion of the run measured.
-
-    Derived from this run's own total rather than fixed, so the floor stays worth the same half
-    second whatever the run costs.
-    """
-    total_seconds = run_total_milliseconds(fresh) / duration_format.MILLISECONDS_PER_SECOND
-    return DURATION_POLICY["floor_seconds"] / total_seconds * duration_format.SHARE_PRECISION
-
-
-def run_total_milliseconds(tables):
-    """The run's total CPU, which sizes the floor and converts shares back into seconds."""
-    totals = tables.get(TOTAL_SECTION)
-    if not totals:
-        raise ValueError(f"the extract has no {TOTAL_SECTION!r} section, so the noise floor cannot be sized")
-    return next(iter(totals.values()))
-
-
-def merge(committed, fresh):
-    """Merge fresh onto committed per (section, row), symmetrically and without a ratchet."""
-    tolerances = {
-        SHARE_SECTION: (share_floor(fresh), relative_bound(DURATION_POLICY["shares_multiple"])),
-        # The total is absolute seconds, so it has no meaningful floor - the multiplier governs.
-        TOTAL_SECTION: (0.0, relative_bound(DURATION_POLICY["total_multiple"])),
-    }
-    merged = OrderedDict()
-    changes = []  # (path, name, kind, old, new)
-    seen = set()
-
-    for path, rows in fresh.items():
-        abs_tol, rel_tol = tolerances[path]
-        committed_rows = committed.get(path, {})
-        out = OrderedDict()
-        for name, new in rows.items():
-            seen.add((path, name))
-            old = committed_rows.get(name)
-            if old is None:
-                out[name] = new
-                changes.append((path, name, "added", None, new))
-                continue
-            delta = abs(new - old)
-            if delta <= abs_tol or delta <= rel_tol * max(abs(old), abs(new)):
-                out[name] = old  # within tolerance: hold the committed value, no churn
-            else:
-                out[name] = new
-                changes.append((path, name, "changed", old, new))
-        merged[path] = out
-
-    for path, rows in committed.items():
-        for name, old in rows.items():
-            if (path, name) not in seen:
-                changes.append((path, name, "removed", old, None))
+            merged[name] = new
+            changes.append((SUITE_SECTION, name, "changed", old, new))
     return merged, changes
 
 
 def main():
-    committed_text, fresh_text = compare.read_pair(
-        "Duration regression merge: per-suite share and run total CPU"
-    )
-    fresh = compare.parse_tables(fresh_text)
+    committed_text, fresh_text = compare.read_pair("Duration regression merge: per-suite CPU by median-of-ratios")
+    fresh = compare.parse_tables(fresh_text).get(SUITE_SECTION, {})
     if not fresh:
         # A run with no test suites (forge build --sizes) measures no durations at all, so there is
         # nothing to compare and nothing to write.
         sys.exit(0)
 
-    merged, changes = merge(compare.parse_tables(committed_text), fresh)
-    sections = render_sections(merged, run_total_milliseconds(fresh))
+    committed = compare.parse_tables(committed_text).get(SUITE_SECTION, {})
+    floor_ms = DURATION_POLICY["floor_seconds"] * duration_format.MILLISECONDS_PER_SECOND
+    noise_ms = DURATION_POLICY["noise_seconds"] * duration_format.MILLISECONDS_PER_SECOND
+    scale, measurable = machine_scale(committed, fresh, floor_ms)
+    merged, changes = merge(committed, fresh, scale, floor_ms, noise_ms)
 
-    # A floor that covers most of the run leaves the share check unable to fire for those rows. Say
-    # so: a check that cannot discriminate must not be reported as a clean pass. Written before the
-    # merge report so it frames what follows.
-    floor = share_floor(fresh)
-    suites = fresh.get(SHARE_SECTION, {})
-    inert = [name for name, value in suites.items() if value <= floor]
-    if suites and len(inert) > INERT_FRACTION * len(suites):
+    decimals = duration_format.seconds_decimals(DURATION_POLICY["floor_seconds"])
+    sections = [(SUITE_SECTION, duration_format.suite_frame(merged, decimals))]
+
+    # Context and honest limits, to stderr, before the merge's own change lines. None of these change
+    # the verdict - the exit code comes from the per-suite changes alone.
+    if changes and measurable:
+        sys.stderr.write(f"compared at machine scale {scale:.2f}x (median of {measurable} per-suite ratios)\n")
+    if scale > DURATION_POLICY["run_shift_multiple"] or scale < 1.0 / DURATION_POLICY["run_shift_multiple"]:
         sys.stderr.write(
-            f"{len(inert)} of {len(suites)} suites are below the {DURATION_POLICY['floor_seconds']:g}s "
-            f"floor and cannot flag however much they change - this run is too short for the share "
-            f"check to say much\n"
+            f"the whole run is {scale:.2f}x the baseline - a machine or environment change, not flagged "
+            f"(indistinguishable from a faster/slower machine in relative terms)\n"
+        )
+    if committed and measurable < MIN_MEASURABLE:
+        sys.stderr.write(
+            f"the machine scale rests on only {measurable} suite(s) above the {DURATION_POLICY['floor_seconds']:g}s "
+            f"floor and may be unreliable\n"
         )
 
     sys.exit(compare.emit(DURATION_POLICY, sections, committed_text, changes))
