@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Format Solidity with prettier: --write applies, --check verifies (the fmt / fmt:check UX call this).
+# A bare `prettier` resolves off node_modules/.bin under yarn, the same way lint-sol reaches `solhint`.
+# This is the single home for the prettier invocation, so fmt / fmt:check need not repeat it.
+args=()
+for arg in "$@"; do
+  case "${arg}" in
+    -*)
+      args+=("${arg}")
+      ;;
+  esac
+done
+
+prettier --log-level warn --ignore-path .gitignore "{src,test,interfaces,script}/**/*.sol" "${args[@]}"

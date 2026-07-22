@@ -28,6 +28,8 @@ from pathlib import Path
 BIN_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BIN_DIR))
 
+import ratchet  # noqa: E402 - importable only after bin is on the path above
+
 EXTRACT = BIN_DIR / "extract-duration.py"
 COMPARE = BIN_DIR / "compare-duration.py"
 
@@ -68,6 +70,15 @@ def main():
     regression_dir.mkdir(parents=True, exist_ok=True)
     regression_file = regression_dir / f"{name}-duration.txt"
 
+    # Resolve the baseline BEFORE running: a missing one fails fast, with the git command to restore
+    # it, rather than after the wrapped run (which may be long). An empty string means the file is not
+    # tracked yet, so this run writes the first version.
+    try:
+        baseline = ratchet.resolve(str(regression_file))
+    except ratchet.BaselineMissing as missing:
+        sys.stderr.write(f"{missing}\n")
+        return 1
+
     # Tee the run's output: the developer still reads it live, and the copy is what gets measured.
     # A temp file rather than a second persistent log, so this needs no knowledge of where the
     # wrapped command keeps its own (`regression-of` already writes one) and cannot collide with it.
@@ -87,40 +98,23 @@ def main():
 
         extract = load(EXTRACT)
         extracted = extract.render(extract.parse_suites(captured.read_text(encoding="utf-8")))
-        if not extracted:
-            # A run with no test suites measures no durations; nothing to record or compare.
-            return run_status
 
-        # The baseline comes from the git INDEX, so staging an updated file is enough to compare
-        # against it — matching how `regression-of` reads its own baselines.
-        baseline = subprocess.run(
-            ["git", "show", f":{regression_file}"], capture_output=True, text=True
-        ).stdout
-        committed = Path(scratch) / "committed.txt"
-        fresh = Path(scratch) / "fresh.txt"
-        committed.write_text(baseline, encoding="utf-8")
-        fresh.write_text(extracted, encoding="utf-8")
+    if not extracted:
+        # A run with no test suites measures no durations; nothing to record or compare.
+        return run_status
 
-        merge = subprocess.run(
-            [sys.executable, str(COMPARE), str(committed), str(fresh)], capture_output=True, text=True
-        )
-        if merge.returncode > 1:
-            sys.stderr.write(merge.stderr)
-            sys.stderr.write(f"compare-duration failed (exit {merge.returncode})\n")
-            return merge.returncode
-        # Write only when the merge reports a change (exit 1). On no change the merged output equals
-        # the committed baseline, so writing would only churn the working tree and could revert an
-        # uncommitted edit. The merge holds within-tolerance rows at the committed value, so passing
-        # timings stay anchored to the baseline (which may be faster than this run) instead of
-        # drifting up to the current measurement.
-        if merge.returncode == 1:
-            regression_file.write_text(merge.stdout, encoding="utf-8")
+    try:
+        verdict = ratchet.apply(str(regression_file), baseline, extracted, str(COMPARE))
+    except ratchet.CompareFailed as failure:
+        sys.stderr.write(failure.report)
+        sys.stderr.write(f"compare-duration failed (exit {failure.code})\n")
+        return failure.code
 
     # A failing run matters more than a duration change, so its status is the one that survives.
     if run_status != 0:
         return run_status
-    if merge.returncode == 1:
-        sys.stderr.write(merge.stderr)
+    if verdict.changed:
+        sys.stderr.write(verdict.report)
         sys.stderr.write(
             f"\n{regression_file} changed. Review and stage it if the change is expected, "
             f"or fix the cause.\n"

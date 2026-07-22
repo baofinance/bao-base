@@ -36,7 +36,7 @@ _tag_fixture() { # $1 = tag
 teardown() {
   [[ -n "${FIX:-}" ]] && rm -rf "$FIX"
   [[ -n "${BARE_PARENT:-}" ]] && rm -rf "$BARE_PARENT"
-  return 0   # never let cleanup short-circuit a unit test that made no fixture
+  return 0 # never let cleanup short-circuit a unit test that made no fixture
 }
 
 # ----------------------------------------------------------------------------
@@ -53,7 +53,8 @@ SOL
   _tag_fixture "deploy/test"
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -eq 0 ]
   [[ "$output" == *"no changes under src"* ]]
 }
@@ -70,7 +71,8 @@ SOL
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -ne 0 ]
   [[ "$output" == *"CHANGED (not ignored)"* ]]
 }
@@ -97,7 +99,8 @@ SOL
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m reimport
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -eq 0 ]
   [[ "$output" == *"auto-suppressed"* || "$output" == *"cleared"* ]]
 }
@@ -135,7 +138,8 @@ SOL
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m rename
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   # rename + contract-name + NatSpec change, identical logic -> same creation
   # bytecode (metadata off) -> cleared.
   [ "$status" -eq 0 ]
@@ -155,7 +159,8 @@ SOL
   printf 'deploy/test\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -eq 0 ]
   [[ "$output" == *"ignored via .verify-audit-ignore"* ]]
 }
@@ -173,7 +178,8 @@ SOL
   printf 'deploy/test src/Foo.sol\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -eq 0 ]
   [[ "$output" == *"src/Foo.sol (ignored via .verify-audit-ignore)"* ]]
 }
@@ -190,7 +196,8 @@ SOL
   printf 'deploy/test\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -ne 0 ]
   [[ "$output" == *"stale .verify-audit-ignore entry"* ]]
 }
@@ -209,7 +216,8 @@ SOL
   printf 'deploy/test src/Foo.sol src/Ghost.sol\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -ne 0 ]
   [[ "$output" == *"stale .verify-audit-ignore entry: \"src/Ghost.sol\""* ]]
 }
@@ -241,7 +249,8 @@ SOL
 
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -eq 0 ]
   [[ "$output" == *"bytecode-equivalent"* ]]
 }
@@ -251,24 +260,26 @@ SOL
 # ----------------------------------------------------------------------------
 
 @test "_assert_metadata_disabled trips when forge config does not show none/false" {
-  source "$VERIFY_AUDIT" BATS   # BATS sentinel: load functions, don't run main
+  source "$VERIFY_AUDIT" BATS # BATS sentinel: load functions, don't run main
   shim=$(mktemp -d)
   printf '#!/bin/sh\necho '\''bytecode_hash = "ipfs"'\''\necho '\''cbor_metadata = true'\''\n' >"$shim/forge"
   chmod +x "$shim/forge"
   PATH="$shim:$PATH" run _assert_metadata_disabled
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -ne 0 ]
   [[ "$output" == *"metadata not disabled"* ]]
   rm -rf "$shim"
 }
 
 @test "_assert_metadata_disabled passes when forge config shows none/false" {
-  source "$VERIFY_AUDIT" BATS   # BATS sentinel: load functions, don't run main
+  source "$VERIFY_AUDIT" BATS # BATS sentinel: load functions, don't run main
   shim=$(mktemp -d)
   printf '#!/bin/sh\necho '\''bytecode_hash = "none"'\''\necho '\''cbor_metadata = false'\''\n' >"$shim/forge"
   chmod +x "$shim/forge"
   PATH="$shim:$PATH" run _assert_metadata_disabled
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -eq 0 ]
   rm -rf "$shim"
 }
@@ -278,27 +289,30 @@ SOL
 # ----------------------------------------------------------------------------
 
 @test "_file_signature: pure rename yields identical creation-bytecode signature" {
-  source "$VERIFY_AUDIT" BATS   # BATS sentinel: load functions, don't run main
+  source "$VERIFY_AUDIT" BATS # BATS sentinel: load functions, don't run main
   _new_fixture
   cat >"$FIX/src/Old.sol" <<'SOL'
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 contract Old { function f() external pure returns (uint256) { return 7; } }
 SOL
-  ( cd "$FIX" && git add -A && git commit -q -m s && git tag deploy/test )
-  ( cd "$FIX" && git mv src/Old.sol src/New.sol )
+  (cd "$FIX" && git add -A && git commit -q -m s && git tag deploy/test)
+  (cd "$FIX" && git mv src/Old.sol src/New.sol)
   sed -i 's/contract Old/contract New/' "$FIX/src/New.sol"
-  ( cd "$FIX" && git add -A && git commit -q -m r )
+  (cd "$FIX" && git add -A && git commit -q -m r)
 
   cd "$FIX"
-  _wt=""; _wt_out=""; head_out=$(mktemp -d)
+  _wt=""
+  _wt_out=""
+  head_out=$(mktemp -d)
   _build_head_out "$head_out" src/New.sol
   _ensure_worktree
   _overlay_and_build_tag deploy/test src/Old.sol -- src/Old.sol
   sig_old=$(_file_signature "$_wt_out" src/Old.sol)
   sig_new=$(_file_signature "$head_out" src/New.sol)
   _restore_overlay src/Old.sol
-  echo "old=$sig_old"; echo "new=$sig_new"
+  echo "old=$sig_old"
+  echo "new=$sig_new"
   [ -n "$sig_old" ] && [ "$sig_old" != "__MISSING__" ]
   [ "$sig_old" == "$sig_new" ]
   git worktree remove --force "$_wt" 2>/dev/null
@@ -340,7 +354,8 @@ SOL
 
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -eq 0 ]
   [[ "$output" == *"src/OneRenamed.sol (cleared: bytecode-equivalent)"* ]]
   [[ "$output" == *"src/TwoRenamed.sol (cleared: bytecode-equivalent)"* ]]
@@ -362,7 +377,8 @@ SOL
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m ctor
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   # runtime bytecode is identical (immutable placeholder); creation bytecode
   # differs (constructor pushes 2 vs 1) -> not cleared. Proves we compare creation.
   [ "$status" -ne 0 ]
@@ -385,7 +401,8 @@ SOL
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m fix
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -ne 0 ]
   [[ "$output" == *"build at"* ]]
 }
@@ -401,7 +418,8 @@ SOL
   git -C "$FIX" rm -q src/Gone.sol && git -C "$FIX" commit -q -m del
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -ne 0 ]
   [[ "$output" == *"CHANGED (not ignored)"* ]]
   [[ "$output" == *"src/Gone.sol"* ]]
@@ -431,7 +449,8 @@ SOL
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m settings+comment
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -eq 0 ]
   [[ "$output" == *"bytecode-equivalent"* ]]
 }
@@ -453,7 +472,8 @@ contract Loop {
 }
 SOL
   cd "$FIX"
-  o1=$(mktemp -d); o2=$(mktemp -d)
+  o1=$(mktemp -d)
+  o2=$(mktemp -d)
   FOUNDRY_VIA_IR=false _build_head_out "$o1" src/Loop.sol
   FOUNDRY_VIA_IR=true _build_head_out "$o2" src/Loop.sol
   s1=$(_file_signature "$o1" src/Loop.sol)
@@ -492,7 +512,8 @@ SOL
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m renames
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/*"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -eq 0 ]
   [[ "$output" == *"src/AlphaV2.sol (cleared: bytecode-equivalent)"* ]]
   [[ "$output" == *"src/BetaV2.sol (cleared: bytecode-equivalent)"* ]]
@@ -520,7 +541,8 @@ SOL
   printf 'deploy/test src/WidgetV2.sol\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -ne 0 ]
   [[ "$output" == *"src/WidgetV2.sol"* ]]
   [[ "$output" == *"would now clear"* ]]
@@ -541,7 +563,8 @@ SOL
   printf 'deploy/test src/Widget.sol\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -eq 0 ]
   [[ "$output" == *"ignored via .verify-audit-ignore"* ]]
   [[ "$output" != *"would now clear"* ]]
@@ -561,7 +584,8 @@ SOL
   # a deleted file cannot be built; the entry legitimately suppresses real drift,
   # so it must stay "ignored via" and never be flagged as a redundant entry.
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -eq 0 ]
   [[ "$output" == *"src/Gone.sol (ignored via .verify-audit-ignore)"* ]]
   [[ "$output" != *"would now clear"* ]]
@@ -582,24 +606,26 @@ _scope_fixture() {
 
 @test "tag scope restricts the diff: out-of-scope drift is not flagged" {
   _scope_fixture
-  sed -i 's/return 1;/return 2;/' "$FIX/src/b/Y.sol"   # real change OUTSIDE scope
+  sed -i 's/return 1;/return 2;/' "$FIX/src/b/Y.sol" # real change OUTSIDE scope
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change-b
   printf 'deploy/test {src/a}\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -eq 0 ]
   [[ "$output" != *"Y.sol"* ]]
 }
 
 @test "tag scope still flags in-scope drift" {
   _scope_fixture
-  sed -i 's/return 1;/return 2;/' "$FIX/src/a/X.sol"   # real change INSIDE scope
+  sed -i 's/return 1;/return 2;/' "$FIX/src/a/X.sol" # real change INSIDE scope
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change-a
   printf 'deploy/test {src/a}\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -ne 0 ]
   [[ "$output" == *"src/a/X.sol"* ]]
 }
@@ -611,7 +637,8 @@ _scope_fixture() {
   printf 'deploy/test {src/a} src/b/Y.sol\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -ne 0 ]
   [[ "$output" == *"outside"* ]] && [[ "$output" == *"scope"* ]]
 }
@@ -631,10 +658,11 @@ _scope_fixture() {
   printf 'deploy/test {deployments/m.json:contractPath}\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"src/a/X.sol"* ]]   # deployed -> in scope -> flagged
-  [[ "$output" != *"Y.sol"* ]]         # not deployed -> out of scope -> not checked
+  [[ "$output" == *"src/a/X.sol"* ]] # deployed -> in scope -> flagged
+  [[ "$output" != *"Y.sol"* ]]       # not deployed -> out of scope -> not checked
 }
 
 @test "scope from a manifest still pairs renamed deployed contracts (bytecode-equivalent)" {
@@ -649,7 +677,8 @@ _scope_fixture() {
   printf 'deploy/test {deployments/m.json:contractPath}\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
-  echo "status=$status"; echo "output=$output"
+  echo "status=$status"
+  echo "output=$output"
   [ "$status" -eq 0 ]
   [[ "$output" == *"src/m/New.sol (cleared: bytecode-equivalent)"* ]]
 }

@@ -124,12 +124,6 @@ runs:
           echo "Warning: ShellCheck not available in PATH"
         fi
 
-    - name: Install project dependencies
-      shell: bash
-      run: |
-        cd ${{ inputs.cwd }}
-        yarn
-
     - name: Run run script debug info
       shell: bash
       run: |
@@ -144,7 +138,8 @@ runs:
       shell: bash
       run: |
         cd ${{ inputs.cwd }}
-        yarn prettier:bash
+        # ci-execute-next-line
+        yarn fmt:bash
       id: prettier
 
     # - name: Run Bash Script Linting
@@ -158,6 +153,7 @@ runs:
       shell: bash
       run: |
         cd ${{ inputs.cwd }}
+        # ci-execute-next-line
         yarn test:python
       id: pytest
 

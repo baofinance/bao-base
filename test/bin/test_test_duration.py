@@ -6,6 +6,7 @@ of per-contract objects) INSTEAD of test results, so there are no durations in i
 has to say so, because asking for both in one run looks entirely reasonable and the combination
 silently answers a different question.
 """
+
 import importlib.util
 import json
 import pathlib

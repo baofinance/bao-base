@@ -15,7 +15,7 @@ set -euo pipefail
 # resolved fresh each run (uvx, no lock) — fine for trialing. The pinned, locked, repeatable
 # runner is a separate piece (bin/slither / the eventual bin/tools spec), left untouched.
 
-version="0.11.3"  # default version to trial; override with a leading @<version>
+version="0.11.3" # default version to trial; override with a leading @<version>
 if [[ "${1:-}" == @* ]]; then
   version="${1#@}"
   shift
@@ -36,5 +36,5 @@ if [[ -n "${SLITHER_PYTHON:-}" ]]; then
 fi
 cmd+=(slither "$@")
 
-export PYTHONHASHSEED=0  # deterministic analysis, as the current runner does
+export PYTHONHASHSEED=0 # deterministic analysis, as the current runner does
 "${cmd[@]}"

@@ -18,7 +18,6 @@ writes a merged baseline, per (section, row), with:
 Exit 1 iff anything changed; only flagged rows differ from the committed baseline.
 """
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -339,78 +338,10 @@ def test_better_higher_holds_a_within_tolerance_decrease():
     assert vals["cov"] == 800000
 
 
-# ── the baseline comes from the git INDEX, so staging a regression file is enough ────
-
-REGRESSION_OF = COMPARE.parent / "regression-of"
-BASELINE_RE = re.compile(r"git show (\S+) 2>/dev/null")
-FIXTURE_FILE = "regression/f.txt"
-
-
-def baseline_via_script_expression(committed: str, staged: str | None, worktree: str | None) -> str:
-    """What regression-of's OWN baseline expression yields for a repo in the given states.
-
-    The ref is extracted from the script rather than restated here, so these tests exercise the
-    expression the script actually runs — not merely git's behaviour.
-    """
-    refs = BASELINE_RE.findall(REGRESSION_OF.read_text())
-    assert refs, "regression-of has no `git show … 2>/dev/null` baseline read"
-    assert len(set(refs)) == 1, f"baseline read sites disagree on the ref: {sorted(set(refs))}"
-    with tempfile.TemporaryDirectory() as directory:
-
-        def git(*args):
-            subprocess.run(["git", *args], cwd=directory, check=True, capture_output=True)
-
-        target = Path(directory) / FIXTURE_FILE
-        target.parent.mkdir(parents=True)
-        git("init", "-q", ".")
-        git("config", "user.email", "test@example.com")
-        git("config", "user.name", "test")
-        target.write_text(committed)
-        git("add", "-A")
-        git("commit", "-qm", "baseline")
-        if staged is not None:
-            target.write_text(staged)
-            git("add", FIXTURE_FILE)
-        if worktree is not None:
-            target.write_text(worktree)
-        result = subprocess.run(
-            ["bash", "-c", f'REGRESSION_FILE="{FIXTURE_FILE}"; git show {refs[0]} 2>/dev/null'],
-            cwd=directory,
-            capture_output=True,
-            text=True,
-        )
-        return result.stdout
-
-
-def test_all_baseline_read_sites_use_the_same_ref():
-    # The tolerance path and the exact-diff path (which reads twice) must agree, or a staged file
-    # would be the baseline for one comparison and not the other.
-    refs = BASELINE_RE.findall(REGRESSION_OF.read_text())
-    assert len(refs) == 3
-    assert len(set(refs)) == 1
-
-
-def test_baseline_read_from_index_when_staged():
-    assert baseline_via_script_expression("COMMITTED", staged="STAGED", worktree=None) == "STAGED"
-
-
-def test_baseline_falls_back_to_head_when_nothing_staged():
-    # One code path serves both cases: with a clean index the index ref IS the committed content.
-    assert baseline_via_script_expression("COMMITTED", staged=None, worktree=None) == "COMMITTED"
-
-
-def test_unstaged_edit_is_not_the_baseline():
-    # Editing the regression file in the working tree must not move the baseline — only staging does.
-    assert baseline_via_script_expression("COMMITTED", staged="STAGED", worktree="WORKTREE") == "STAGED"
-
-
-def test_no_change_does_not_restore_the_working_tree():
-    # A no-regression run must leave the working tree alone. `git restore --worktree` was removed: it
-    # silently discards any uncommitted edit to the regression file, so a check that finds no
-    # regression could wipe the developer's working copy. Writing only on a real change means there is
-    # nothing to restore — so no CODE path may invoke it (comments may still mention the removal).
-    code_lines = [line for line in REGRESSION_OF.read_text().splitlines() if not line.lstrip().startswith("#")]
-    assert not any("git restore" in line for line in code_lines), "git restore must not run in any code path"
+# The baseline read, its four missing-file states, and the "offer git, never run it" rule moved from
+# this bash-source-grepping harness into the shared `bin/ratchet.py`; they are covered by
+# `test_ratchet.py` (resolve's four states + the no-mutating-git guard) and, end to end through the
+# recoded wrapper, by `test_regression_of.py`.
 
 
 # ── discrimination guard: prove, on every run, that the tests kill known logic mutations ──────

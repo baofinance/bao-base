@@ -173,3 +173,42 @@ def test_change_is_written_against_a_committed_baseline():
         )
         assert result.returncode == 1  # a duration change makes the run fail until committed
         assert "40000" in recorded.read_text()  # A's regressed value (40s -> 40000ms) was written
+
+
+def test_staged_deletion_of_the_baseline_fails_fast_before_the_run():
+    # A staged deletion of the duration baseline is NOT silently regenerated: the wrapper resolves the
+    # baseline up front and, finding it gone from the index, aborts BEFORE running the (possibly long)
+    # inner command, offering the git command that restores it from HEAD. The inner run never happens.
+    with tempfile.TemporaryDirectory() as directory:
+        base = pathlib.Path(directory)
+        _init_repo(base)
+        recorded = base / "regression" / "test-duration.txt"
+        run_wrapper(base, 0, "test")
+        _git(base, "add", "regression/test-duration.txt")
+        _git(base, "commit", "-q", "-m", "baseline")
+        recorded.unlink()
+        _git(base, "add", "regression/test-duration.txt")  # stage the deletion
+
+        result = run_wrapper(base, 0, "test")
+        assert result.returncode == 1
+        assert "git restore --staged --worktree regression/test-duration.txt" in result.stderr
+        assert "Ran 1 test" not in result.stdout  # fail-fast: the inner run never ran
+
+
+def test_working_copy_deletion_of_the_baseline_fails_fast():
+    # Only the working copy is gone (the index still holds it): the offer is a plain `git restore`,
+    # which reads it back from the index. Again the run is aborted before it starts.
+    with tempfile.TemporaryDirectory() as directory:
+        base = pathlib.Path(directory)
+        _init_repo(base)
+        recorded = base / "regression" / "test-duration.txt"
+        run_wrapper(base, 0, "test")
+        _git(base, "add", "regression/test-duration.txt")
+        _git(base, "commit", "-q", "-m", "baseline")
+        recorded.unlink()  # delete the working copy only; the index still has it
+
+        result = run_wrapper(base, 0, "test")
+        assert result.returncode == 1
+        assert "git restore regression/test-duration.txt" in result.stderr
+        assert "--staged" not in result.stderr
+        assert "Ran 1 test" not in result.stdout

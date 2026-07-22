@@ -1,9 +1,6 @@
 # Dotenv file
 .env
 
-# put your personal stuff in your personal vscode settings file
-.vscode/settings.json
-
 # local bin dependencies
 .tools/
 
@@ -30,6 +27,8 @@ tmp/
 !.yarn/versions
 
 # python generated files
+.pytest_cache/
+.ruff_cache/
 __pycache__/
 *.pyc
 

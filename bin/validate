@@ -16,7 +16,7 @@ if [[ -f .validate-ignore ]]; then
     line="${line#"${line%%[![:space:]]*}"}"
     line="${line%"${line##*[![:space:]]}"}"
     [[ -z "$line" ]] && continue
-    read -r _check _file <<< "$line"
+    read -r _check _file <<<"$line"
     _valid=0
     for _kw in "${VALID_CHECKS[@]}"; do
       [[ "$_check" == "$_kw" ]] && _valid=1 && break
@@ -124,8 +124,8 @@ echo
 echo "running bao storage-successor validate..."
 echo "--------------------------------------"
 echo
-"$BAO_BASE_BIN_DIR"/run-python storage-successor "${BUILD_INFO_DIR}" --root . \
-  || error "bao storage-successor validate failed (a @custom:bao-upgrades-from link is not a documented byte-compatible successor)"
+"$BAO_BASE_BIN_DIR"/run-python storage-successor "${BUILD_INFO_DIR}" --root . ||
+  error "bao storage-successor validate failed (a @custom:bao-upgrades-from link is not a documented byte-compatible successor)"
 
 # ──────────────────────────────────────────────────────────────────────────────────────────────
 # check that every deployable versioned (_v2+) upgradeable contract declares an upgrade reference
@@ -160,8 +160,10 @@ while IFS= read -r vline; do
     vbase="${BASH_REMATCH[1]}"
     vver="${BASH_REMATCH[2]}"
     if [[ "$vver" -ge 2 ]]; then
-      has_oz=0; [[ "$vline" == *"(upgrades from"* ]] && has_oz=1
-      has_bao=0; [[ -v bao_pred["$vname"] ]] && has_bao=1
+      has_oz=0
+      [[ "$vline" == *"(upgrades from"* ]] && has_oz=1
+      has_bao=0
+      [[ -v bao_pred["$vname"] ]] && has_bao=1
       if [[ "$has_oz" -eq 1 && "$has_bao" -eq 1 ]]; then
         printf '\033[31m ✘  %s: declares BOTH @custom:oz-upgrades-from and @custom:bao-upgrades-from — use exactly one\033[0m\n' "$vname"
         version_ref_failed=1
@@ -420,7 +422,7 @@ while IFS= read -r -d '' file; do
   if [[ -n "$bad_lines" ]]; then
     while IFS= read -r bad; do
       echo " ✘  $file: bare import: $bad"
-    done <<< "$bad_lines"
+    done <<<"$bad_lines"
     bare_failed=1
   else
     echo " ✓  $file"
@@ -452,7 +454,7 @@ while IFS= read -r -d '' file; do
   if [[ -n "$bad_lines" ]]; then
     while IFS= read -r bad; do
       echo " ✘  $file: relative import: $bad"
-    done <<< "$bad_lines"
+    done <<<"$bad_lines"
     relative_failed=1
   fi
 done < <(find src script test -name '*.sol' -print0 2>/dev/null)

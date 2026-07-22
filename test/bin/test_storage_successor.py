@@ -10,6 +10,7 @@ synthetic layouts honest — if their shape ever diverged from solc's, that test
 The golden case is the StabilityPool widening: TokenBalance.amount uint104 -> uint128, exercised directly and
 through a mapping, a dynamic array, a static array, and a mapping-of-mappings.
 """
+
 import importlib.util
 import pathlib
 
@@ -30,8 +31,14 @@ def _int(bits, signed=False):
 
 
 BASE_TYPES = {
-    "t_uint256": _int(256), "t_uint192": _int(192), "t_uint136": _int(136), "t_uint128": _int(128),
-    "t_uint104": _int(104), "t_uint64": _int(64), "t_uint40": _int(40), "t_int128": _int(128, signed=True),
+    "t_uint256": _int(256),
+    "t_uint192": _int(192),
+    "t_uint136": _int(136),
+    "t_uint128": _int(128),
+    "t_uint104": _int(104),
+    "t_uint64": _int(64),
+    "t_uint40": _int(40),
+    "t_int128": _int(128, signed=True),
     "t_address": {"encoding": "inplace", "label": "address", "numberOfBytes": "20"},
     "t_bytes32": {"encoding": "inplace", "label": "bytes32", "numberOfBytes": "32"},
 }
@@ -79,7 +86,13 @@ def contained(kind, amount="t_uint104"):
     if kind == "direct":
         member = "t_tb"
     elif kind == "mapping":
-        types["t_map"] = {"encoding": "mapping", "label": "mapping(address => TokenBalance)", "numberOfBytes": "32", "key": "t_address", "value": "t_tb"}
+        types["t_map"] = {
+            "encoding": "mapping",
+            "label": "mapping(address => TokenBalance)",
+            "numberOfBytes": "32",
+            "key": "t_address",
+            "value": "t_tb",
+        }
         member = "t_map"
     elif kind == "dynarray":
         types["t_arr"] = {"encoding": "dynamic_array", "label": "TokenBalance[]", "numberOfBytes": "32", "base": "t_tb"}
@@ -88,10 +101,27 @@ def contained(kind, amount="t_uint104"):
         types["t_sarr"] = {"encoding": "inplace", "label": "TokenBalance[3]", "numberOfBytes": "192", "base": "t_tb"}
         member = "t_sarr"
     elif kind == "mapmap":
-        types["t_inner"] = {"encoding": "mapping", "label": "mapping(uint256 => TokenBalance)", "numberOfBytes": "32", "key": "t_uint256", "value": "t_tb"}
-        types["t_outer"] = {"encoding": "mapping", "label": "mapping(address => mapping(uint256 => TokenBalance))", "numberOfBytes": "32", "key": "t_address", "value": "t_inner"}
+        types["t_inner"] = {
+            "encoding": "mapping",
+            "label": "mapping(uint256 => TokenBalance)",
+            "numberOfBytes": "32",
+            "key": "t_uint256",
+            "value": "t_tb",
+        }
+        types["t_outer"] = {
+            "encoding": "mapping",
+            "label": "mapping(address => mapping(uint256 => TokenBalance))",
+            "numberOfBytes": "32",
+            "key": "t_address",
+            "value": "t_inner",
+        }
         member = "t_outer"
-    types["t_root"] = {"encoding": "inplace", "label": "struct Root", "numberOfBytes": "32", "members": [{"label": "field", "slot": "0", "offset": 0, "type": member}]}
+    types["t_root"] = {
+        "encoding": "inplace",
+        "label": "struct Root",
+        "numberOfBytes": "32",
+        "members": [{"label": "field", "slot": "0", "offset": 0, "type": member}],
+    }
     return {"storage": [{"label": "root", "slot": "0", "offset": 0, "type": "t_root"}], "types": types}
 
 
@@ -113,8 +143,12 @@ def nested(depth, tb=None):
     inner = "t_tb"
     for d in range(depth):
         name = f"t_L{d}"
-        types[name] = {"encoding": "inplace", "label": f"struct L{d}", "numberOfBytes": types[inner]["numberOfBytes"],
-                       "members": [{"label": "inner", "slot": "0", "offset": 0, "type": inner}]}
+        types[name] = {
+            "encoding": "inplace",
+            "label": f"struct L{d}",
+            "numberOfBytes": types[inner]["numberOfBytes"],
+            "members": [{"label": "inner", "slot": "0", "offset": 0, "type": inner}],
+        }
         inner = name
     return {"storage": [{"label": "v", "slot": "0", "offset": 0, "type": inner}], "types": types}
 
@@ -143,6 +177,7 @@ def has(errs, *needles):
 
 # ── accepted: a documented integer widen, direct and through every container ──────────────────────────────
 
+
 def test_documented_widen_is_a_successor():
     assert errors(V2, flat("t_uint128"), DOC) == []
 
@@ -169,6 +204,7 @@ def test_documented_widen_through_mapping_of_mappings():
 
 # ── rejected: the documentation gate ──────────────────────────────────────────────────────────────────────
 
+
 def test_undocumented_widen_is_rejected():
     assert has(errors(V2, flat("t_uint128")), "amount", "undocumented widen")
 
@@ -193,7 +229,9 @@ def test_declaration_naming_unknown_field_is_rejected():
 
 def test_wrong_declared_old_type_is_rejected():
     # declared uint96 but the predecessor is really uint104
-    assert has(errors(V2, flat("t_uint128"), {"TokenBalance": {"amount": "uint96"}}), "amount", "predecessor is uint104")
+    assert has(
+        errors(V2, flat("t_uint128"), {"TokenBalance": {"amount": "uint96"}}), "amount", "predecessor is uint104"
+    )
 
 
 def test_declaration_on_non_integer_field_is_rejected():
@@ -203,6 +241,7 @@ def test_declaration_on_non_integer_field_is_rejected():
 
 
 # ── rejected: every non-widen change (even when documented, a widen that doesn't fit / flips sign / narrows) ─
+
 
 def test_overflow_widen_that_relocates_is_rejected_even_when_documented():
     # uint192 can't fit amount's slot; solc relocates it. Documented or not, a moved field is rejected —
@@ -237,6 +276,7 @@ def test_removed_member_is_rejected():
 # ── documented appends: the top-level namespace struct may grow; an embedded struct may only take a
 #    size-preserving append (packs into its own padding, never over its slot count). Tested at 0/1/N embedding. ──
 
+
 def test_documented_top_level_grow_is_accepted():
     # depth 0 (the namespace struct itself): a new trailing slot is fresh storage, so a grow is safe.
     assert errors(nested(0), nested(0, tb=_tb_growing_append()), None, ADDED) == []
@@ -261,7 +301,9 @@ def test_undocumented_append_is_rejected():
 
 def test_inserted_member_is_rejected():
     tb = token_balance()
-    tb["members"] = tb["members"] + [{"label": "extra", "slot": "0", "offset": 0, "type": "t_uint40"}]  # overlaps product
+    tb["members"] = tb["members"] + [
+        {"label": "extra", "slot": "0", "offset": 0, "type": "t_uint40"}
+    ]  # overlaps product
     assert has(errors(nested(0), nested(0, tb=tb), None, ADDED), "extra", "overlapping")
 
 
@@ -271,11 +313,16 @@ def test_stale_added_declaration_is_rejected():
 
 
 def test_reordered_members_is_rejected():
-    swapped = {"encoding": "inplace", "label": "struct TokenBalance", "numberOfBytes": "64", "members": [
-        {"label": "product", "slot": "0", "offset": 13, "type": "t_uint128"},
-        {"label": "amount", "slot": "0", "offset": 0, "type": "t_uint104"},
-        {"label": "updatedAt", "slot": "1", "offset": 0, "type": "t_uint40"},
-    ]}
+    swapped = {
+        "encoding": "inplace",
+        "label": "struct TokenBalance",
+        "numberOfBytes": "64",
+        "members": [
+            {"label": "product", "slot": "0", "offset": 13, "type": "t_uint128"},
+            {"label": "amount", "slot": "0", "offset": 0, "type": "t_uint104"},
+            {"label": "updatedAt", "slot": "1", "offset": 0, "type": "t_uint40"},
+        ],
+    }
     assert has(errors(V2, flat(tb=swapped)), "moved")
 
 
@@ -297,6 +344,7 @@ def test_static_array_resized_is_rejected():
 #    same limitation that forces `@custom:bao-retyped-from` for widens), so a rename inside a namespaced struct is
 #    documented struct-level with `@custom:bao-renamed-from <newField> <oldField>`. A pure rename (same
 #    slot/offset/type, only the name differs) is a byte-compatible successor; an undocumented one is rejected. ──
+
 
 def _tb_renamed(new="amountRenamed"):
     """TokenBalance with `amount` renamed to `new` — same slot/offset/type, a pure rename."""
@@ -347,12 +395,18 @@ def test_documented_rename_through_mapping_is_a_successor():
 #    so it is byte-compatible — but only if the matcher follows the rename declarations rather than pairing the
 #    reused name to itself (`foo`(predecessor) and `foo`(successor) are different fields here). ──
 
+
 def _two_member_struct(first, second, second_type="t_uint128", second_slot="0", second_offset=16, nbytes="32"):
     types = dict(BASE_TYPES)
-    types["t_s"] = {"encoding": "inplace", "label": "struct S", "numberOfBytes": nbytes, "members": [
-        {"label": first, "slot": "0", "offset": 0, "type": "t_uint128"},
-        {"label": second, "slot": second_slot, "offset": second_offset, "type": second_type},
-    ]}
+    types["t_s"] = {
+        "encoding": "inplace",
+        "label": "struct S",
+        "numberOfBytes": nbytes,
+        "members": [
+            {"label": first, "slot": "0", "offset": 0, "type": "t_uint128"},
+            {"label": second, "slot": second_slot, "offset": second_offset, "type": second_type},
+        ],
+    }
     return {"storage": [{"label": "s", "slot": "0", "offset": 0, "type": "t_s"}], "types": types}
 
 
@@ -368,14 +422,19 @@ def test_rename_reusing_a_freed_name_for_an_added_field_is_a_successor():
     # namespace struct (distributor shape). The reused name must not be skipped as "already present" merely
     # because a field of that name existed in the predecessor; the @custom:bao-added must be credited.
     types_pred = dict(BASE_TYPES)
-    types_pred["t_s"] = {"encoding": "inplace", "label": "struct S", "numberOfBytes": "32",
-                         "members": [{"label": "foo", "slot": "0", "offset": 0, "type": "t_uint128"}]}
+    types_pred["t_s"] = {
+        "encoding": "inplace",
+        "label": "struct S",
+        "numberOfBytes": "32",
+        "members": [{"label": "foo", "slot": "0", "offset": 0, "type": "t_uint128"}],
+    }
     pred = {"storage": [{"label": "s", "slot": "0", "offset": 0, "type": "t_s"}], "types": types_pred}
     succ = _two_member_struct("fooOld", "foo", second_type="t_uint256", second_slot="1", second_offset=0, nbytes="64")
     assert errors(pred, succ, added={"S": {"foo"}}, renamed={"S": {"fooOld": "foo"}}) == []
 
 
 # ── rejected: a bad change buried deep inside a container (rejection must propagate) ────────────────────────
+
 
 def test_deep_narrow_inside_mapping_is_rejected():
     assert has(errors(contained("mapping"), contained("mapping", "t_uint64")), "amount", "narrowed")
@@ -400,6 +459,7 @@ def test_documented_size_preserving_append_inside_dynamic_array_is_accepted():
 #    top-level storage entries for removal / move / addition. The injection probe always emits exactly one
 #    top-level var, so these cannot occur through the pipeline — but the rule guards them, so pin the branches
 #    directly. They are the top-level analogues of the struct-member remove / move / add tests above. ──
+
 
 def _top(entries):
     return {"storage": entries, "types": dict(BASE_TYPES)}
@@ -428,6 +488,7 @@ def test_top_level_slot_added_is_rejected():
 #    declaration naming a struct not present here must be skipped, or a sibling struct's valid declaration
 #    false-fires "not found". Without that skip, the OtherStruct declarations below would each report unfound. ──
 
+
 def test_declaration_for_a_struct_absent_from_this_layout_is_ignored():
     assert errors(V2, V2, {"OtherStruct": {"amount": "uint104"}}) == []
     assert errors(V2, V2, None, {"OtherStruct": {"extra"}}) == []
@@ -436,6 +497,7 @@ def test_declaration_for_a_struct_absent_from_this_layout_is_ignored():
 
 # ── namespace slot-getter helpers: slot normalization + struct-id→namespace extraction (pure). The full
 #    auto-detection, which shells out to `cast index-erc7201`, is covered by the .sol-fixture integration test. ──
+
 
 def test_norm_slot_lowercases_and_left_pads_to_32_bytes():
     padded = "0x" + "abc".rjust(64, "0")
@@ -446,24 +508,62 @@ def test_norm_slot_lowercases_and_left_pads_to_32_bytes():
 
 
 def test_namespace_by_struct_id_maps_only_storage_location_structs():
-    build_info = {"output": {"sources": {"X.sol": {"ast": {"nodes": [
-        {"nodeType": "ContractDefinition", "name": "C", "nodes": [
-            {"nodeType": "StructDefinition", "id": 1, "name": "S",
-             "documentation": {"text": "@custom:storage-location erc7201:my.ns"}},
-            {"nodeType": "StructDefinition", "id": 2, "name": "Plain",
-             "documentation": {"text": "an ordinary struct"}},
-        ]},
-    ]}}}}}
+    build_info = {
+        "output": {
+            "sources": {
+                "X.sol": {
+                    "ast": {
+                        "nodes": [
+                            {
+                                "nodeType": "ContractDefinition",
+                                "name": "C",
+                                "nodes": [
+                                    {
+                                        "nodeType": "StructDefinition",
+                                        "id": 1,
+                                        "name": "S",
+                                        "documentation": {"text": "@custom:storage-location erc7201:my.ns"},
+                                    },
+                                    {
+                                        "nodeType": "StructDefinition",
+                                        "id": 2,
+                                        "name": "Plain",
+                                        "documentation": {"text": "an ordinary struct"},
+                                    },
+                                ],
+                            },
+                        ]
+                    }
+                }
+            }
+        }
+    }
     assert mod._namespace_by_struct_id(build_info) == {1: "my.ns"}
 
 
 def test_unrecognized_bao_tag_is_flagged_recognized_ones_ignored():
-    build_info = {"output": {"sources": {"X.sol": {"ast": {"nodes": [
-        {"nodeType": "ContractDefinition", "name": "C",
-         "documentation": {"text": "@custom:bao-upgrades-from a:B"},  # recognized -> ignored
-         "nodes": [
-            {"nodeType": "StructDefinition", "name": "S",
-             "documentation": {"text": "@custom:bao-renamd-from x y"}},  # typo of bao-renamed-from -> flagged
-        ]},
-    ]}}}}}
+    build_info = {
+        "output": {
+            "sources": {
+                "X.sol": {
+                    "ast": {
+                        "nodes": [
+                            {
+                                "nodeType": "ContractDefinition",
+                                "name": "C",
+                                "documentation": {"text": "@custom:bao-upgrades-from a:B"},  # recognized -> ignored
+                                "nodes": [
+                                    {
+                                        "nodeType": "StructDefinition",
+                                        "name": "S",
+                                        "documentation": {"text": "@custom:bao-renamd-from x y"},
+                                    },  # typo of bao-renamed-from -> flagged
+                                ],
+                            },
+                        ]
+                    }
+                }
+            }
+        }
+    }
     assert mod.unrecognized_bao_tags(build_info) == [("C.S", "bao-renamd-from")]

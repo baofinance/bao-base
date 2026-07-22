@@ -2,8 +2,6 @@ import importlib.util
 import pathlib
 import textwrap
 
-import pytest
-
 
 def load_module():
     module_path = pathlib.Path(__file__).resolve().parents[2] / "bin" / "extract-gas.py"

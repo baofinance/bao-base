@@ -140,4 +140,4 @@ env -u VIRTUAL_ENV "${UV_RUN_CMD[@]}" || python_status=$?
 # regression-of:35) and executed directly (validate:127,147, slither/run.sh:7,11): `return` is an
 # error when executed, and `exit` would kill the caller's shell when sourced. Setting the status via
 # a subshell is the idiom bin/gas already uses and is correct either way.
-( exit "${python_status}" )
+(exit "${python_status}")

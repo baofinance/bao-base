@@ -14,6 +14,20 @@ SHEBANGS="#!/bin/bash:#!/usr/bin/env bash:#!/bin/sh:#!/usr/bin/env sh:#!/usr/bin
 shopt -s globstar nullglob
 
 mode="--list"
+
+# Default to the bao-base source trees when no path argument is given, so fmt:bash / lint:bash need
+# not repeat them - this file is their single home for the bash paths.
+_has_path=false
+for _arg in "$@"; do
+  case "${_arg}" in
+    -*) ;;
+    *) _has_path=true ;;
+  esac
+done
+if [[ "${_has_path}" == false ]]; then
+  set -- "$@" bin test
+fi
+
 for arg in "$@"; do
   case "${arg}" in
     --write)
