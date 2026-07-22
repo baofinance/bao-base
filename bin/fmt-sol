@@ -13,4 +13,4 @@ for arg in "$@"; do
   esac
 done
 
-prettier --log-level warn --ignore-path .gitignore "{src,test,interfaces,script}/**/*.sol" "${args[@]}"
+prettier --log-level warn --ignore-path .gitignore "{src,test,script}/**/*.sol" "${args[@]}"

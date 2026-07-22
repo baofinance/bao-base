@@ -15,8 +15,10 @@ shopt -s globstar nullglob
 
 mode="--list"
 
-# Default to the bao-base source trees when no path argument is given, so fmt:bash / lint:bash need
-# not repeat them - this file is their single home for the bash paths.
+# Default to the conventional source trees that exist when no path argument is given, so fmt:bash /
+# lint:bash need not repeat them - this file is their single home for the bash paths. The candidate
+# list is the union across bao-base-style repos (bao-base uses bin/script/test; consumers may use
+# script/scripts/tests); each repo contributes only the dirs it actually has.
 _has_path=false
 for _arg in "$@"; do
   case "${_arg}" in
@@ -25,7 +27,11 @@ for _arg in "$@"; do
   esac
 done
 if [[ "${_has_path}" == false ]]; then
-  set -- "$@" bin test
+  for _dir in bin script scripts test tests; do
+    if [[ -d "${_dir}" ]]; then
+      set -- "$@" "${_dir}"
+    fi
+  done
 fi
 
 for arg in "$@"; do

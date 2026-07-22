@@ -15,6 +15,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+DEFAULT_PATHS = ("bin", "script", "scripts", "test", "tests")
+
+
+def default_paths() -> list[str]:
+    """The conventional source dirs (relative to the cwd) that exist - fmt-python / lint-python's
+    default scan scope when no paths are given, so neither wrapper nor any consumer's package.json
+    repeats them. The candidate list is the union across bao-base-style repos (bao-base uses bin/test;
+    consumers may add script/scripts/tests); each repo contributes only the dirs it actually has."""
+    return [directory for directory in DEFAULT_PATHS if Path(directory).is_dir()]
+
 
 def run(*args: str) -> int:
     """Run the bao-base ruff with `args`; return its exit code (or 1 if ruff has not been synced)."""
