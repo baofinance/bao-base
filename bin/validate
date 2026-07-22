@@ -70,11 +70,26 @@ mkdir -p "${BUILD_INFO_DIR}"
 # build again with build-info this time, so we force
 forge build --out ${FOUNDRY_OUT} --build-info --build-info-path "${BUILD_INFO_DIR}" --extra-output storageLayout --skip "**/*.vy" --skip "**/*.t.sol" --skip "**/*.s.sol" --force src script
 
-# Reconcile the build-info sources. forge records an overriding file-level remapping (the OZ
-# ReentrancyGuardTransientUpgradeable path redirected to the bao compat shim) in the compiler OUTPUT sources but not
-# the INPUT sources. OZ upgrades-core's checkNamespaceSolidityVersion iterates every OUTPUT source and reads
-# input.sources[src].content, so a source present in output-but-not-input crashes it with a `content` TypeError before
-# any --exclude is applied. Add each output-only source to input.sources with its on-disk content.
+# Reconcile the build-info sources before OZ upgrades-core reads them. Two independent fix-ups, both
+# needed because this is a CONSUMER repo compiling a submodule (lib/harbor) whose deployed contracts
+# use bare "src/..." imports and carry their own upgrade annotations:
+#
+#   1. input.sources coverage. forge records an overriding file-level remapping (e.g. the OZ
+#      ReentrancyGuardTransientUpgradeable path redirected to the bao compat shim, and bare "src/..."
+#      imports inside lib/harbor resolved to a second source name) in the compiler OUTPUT sources but
+#      not the INPUT sources. checkNamespaceSolidityVersion iterates every OUTPUT source and reads
+#      input.sources[src].content, so a source present in output-but-not-input crashes it with a
+#      `content` TypeError before any --exclude is applied. Give each output-only source content.
+#
+#   2. lib/** upgrade references. Both OZ upgrades-core and the bao storage-successor tool resolve every
+#      contract's predecessor reference from its @custom:oz-upgrades-from / @custom:bao-upgrades-from
+#      annotation. OZ does so (contract-report.js iterating buildInfoDictionary) BEFORE --exclude is
+#      applied (that glob check happens later, per-report). A lib/harbor contract such as Minter_v3 or
+#      StabilityPool_v3 references its predecessor by a path (e.g. src/minter/Minter_v2.sol:Minter_v2)
+#      that lives only in harbor's own source tree and is not part of this repo's compilation, so the
+#      lookup dangles and the tool fails. Those chains are harbor's to validate (harbor's CI has the
+#      predecessors); here they are excluded anyway. Strip both annotations from lib/** contracts so each
+#      is assessed in isolation (no reference lookup) and the lib exclusion then drops it.
 BUILD_INFO_DIR="${BUILD_INFO_DIR}" node <<'RECONCILE_BUILD_INFO'
 const fs = require("fs");
 const path = require("path");
@@ -87,14 +102,68 @@ for (const file of fs.readdirSync(dir).filter((name) => name.endsWith(".json")))
   if (!input) {
     continue;
   }
-  let added = 0;
+  let changed = false;
   for (const src of Object.keys(output)) {
-    if (!(src in input)) {
-      input[src] = { content: fs.readFileSync(src, "utf8") };
-      added++;
+    if (src in input) {
+      continue;
+    }
+    let content;
+    if (fs.existsSync(src)) {
+      content = fs.readFileSync(src, "utf8"); // real output-only file (e.g. the OZ compat-shim remap)
+    } else {
+      // Foundry resolved a bare "src/..." import inside a submodule to a second source name for a
+      // file already present under its canonical lib/... name. Reuse that identical content.
+      const canonical = Object.keys(input).filter((k) => k === src || k.endsWith("/" + src));
+      if (canonical.length !== 1) {
+        throw new Error(
+          `reconcile: output source ${src} is not on disk and matched ${canonical.length} input sources [${canonical.join(", ")}]`,
+        );
+      }
+      content = input[canonical[0]].content;
+    }
+    input[src] = { content };
+    changed = true;
+  }
+
+  // Strip @custom:oz-upgrades-from and @custom:bao-upgrades-from from lib/** contract documentation
+  // (see fix-up 2 above). Both tools read these from each ContractDefinition node's `documentation`
+  // (a string, or an object with a `text` field); removing the tag line means no predecessor is resolved.
+  const stripTag = (doc) => doc.replace(/^[ \t]*@custom:(oz|bao)-upgrades-from\b.*$\n?/gm, "");
+  const scrub = (node) => {
+    if (!node || typeof node !== "object") {
+      return;
+    }
+    if (node.nodeType === "ContractDefinition" && node.documentation != null) {
+      if (typeof node.documentation === "string") {
+        const next = stripTag(node.documentation);
+        if (next !== node.documentation) {
+          node.documentation = next;
+          changed = true;
+        }
+      } else if (typeof node.documentation.text === "string") {
+        const next = stripTag(node.documentation.text);
+        if (next !== node.documentation.text) {
+          node.documentation.text = next;
+          changed = true;
+        }
+      }
+    }
+    for (const key of Object.keys(node)) {
+      const value = node[key];
+      if (Array.isArray(value)) {
+        value.forEach(scrub);
+      } else if (value && typeof value === "object") {
+        scrub(value);
+      }
+    }
+  };
+  for (const [src, source] of Object.entries(output)) {
+    if (src.startsWith("lib/") && source && source.ast) {
+      scrub(source.ast);
     }
   }
-  if (added > 0) {
+
+  if (changed) {
     fs.writeFileSync(full, JSON.stringify(buildInfo));
   }
 }
