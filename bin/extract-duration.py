@@ -14,6 +14,7 @@ what the median-of-ratios comparison avoids.
 CPU time is read, never wall time. Wall carries the scheduling noise of parallel test execution -
 the same suite measured 13.51s and 15.53s CPU across two runs while its wall time barely moved.
 """
+
 import re
 import sys
 

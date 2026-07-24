@@ -10,6 +10,7 @@ run-python is both SOURCED (run:144, regression-of:35) and EXECUTED directly (va
 slither/run.sh:7,11), so it must not end in a bare `return` or a bare `exit` — the codebase idiom
 for setting a status that works either way is `( exit "$status" )`, as bin/gas already does.
 """
+
 import subprocess
 from pathlib import Path
 

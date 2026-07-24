@@ -17,6 +17,7 @@ writes a merged baseline, per (section, row), with:
   - a header-less (old-format) baseline migrated to the new format without crashing.
 Exit 1 iff anything changed; only flagged rows differ from the committed baseline.
 """
+
 import os
 import subprocess
 import sys
@@ -150,6 +151,7 @@ def _merged_values(stdout: str) -> dict[str, int]:
 
 # ── the merge exists and is callable ────────────────────────────────────────
 
+
 def test_script_exists():
     assert COMPARE.exists()
 
@@ -161,6 +163,7 @@ def test_help_mentions_tolerance():
 
 
 # ── the tolerance: within BOTH holds; breaking EITHER flags (abs-AND-rel) ─────
+
 
 def test_within_both_tolerances_is_held():
     # +50 on 100000: within abs (<=500) AND within rel (<=100.05). Held, no change.
@@ -203,6 +206,7 @@ def test_rel_boundary_pinned():
 
 # ── the ratchet: ANY improvement is locked in ────────────────────────────────
 
+
 def test_any_decrease_is_ratcheted_in():
     # Gas ratchets: even a 1-unit improvement is flagged and locked in, so the baseline stays anchored
     # at the best value achieved and a later regression is measured from there rather than from a
@@ -222,23 +226,20 @@ def test_an_improvement_is_labelled_improved():
 def test_an_improvement_is_labelled_improved_without_the_ratchet_too():
     # Without the ratchet an improvement beyond tolerance takes the same branch as a regression, so
     # the label has to come from the direction rather than from which branch was taken.
-    _, vals, _, err = run_merge(
-        committed({"foo": 100000}, header=NO_RATCHET_HEADER), fresh({"foo": 50000}), NO_RATCHET
-    )
+    _, vals, _, err = run_merge(committed({"foo": 100000}, header=NO_RATCHET_HEADER), fresh({"foo": 50000}), NO_RATCHET)
     assert vals["foo"] == 50000
     assert "improved" in err
     assert "regressed" not in err
 
 
 def test_a_small_improvement_is_held_without_the_ratchet():
-    rc, vals, _, _ = run_merge(
-        committed({"foo": 100000}, header=NO_RATCHET_HEADER), fresh({"foo": 99999}), NO_RATCHET
-    )
+    rc, vals, _, _ = run_merge(committed({"foo": 100000}, header=NO_RATCHET_HEADER), fresh({"foo": 99999}), NO_RATCHET)
     assert rc == 0
     assert vals["foo"] == 100000
 
 
 # ── structural changes ───────────────────────────────────────────────────────
+
 
 def test_added_row_flags():
     rc, vals, _, _ = run_merge(committed({"foo": 100000}), fresh({"foo": 100000, "bar": 5000}))
@@ -259,6 +260,7 @@ def test_no_change_holds_everything():
 
 
 # ── the tolerances come from the entry script's policy, not the file ─────────
+
 
 def test_policy_emitted_into_header():
     # The emitted header states the policy the run actually applied, whatever the input said.
@@ -295,6 +297,7 @@ def test_cli_overrides_policy():
 
 # ── old-format baseline: migrate, don't crash ────────────────────────────────
 
+
 def test_old_format_migrates_and_fires_a_diff():
     rc, vals, out, err = run_merge(old_format({"foo": 100000}), fresh({"foo": 100000}))
     assert rc == 1  # migration is a change to commit
@@ -312,6 +315,7 @@ def test_scientific_values_parse():
 
 # ── zero / small values don't divide by zero and behave sanely ───────────────
 
+
 def test_zero_to_zero_is_held():
     rc, vals, _, _ = run_merge(committed({"foo": 0}), fresh({"foo": 0}))
     assert rc == 0
@@ -325,6 +329,7 @@ def test_zero_to_nonzero_flags():
 
 
 # ── better=higher (coverage direction) inverts improvement vs regression ──────
+
 
 def test_better_higher_locks_in_an_increase():
     rc, vals, _, _ = run_merge(committed({"cov": 8000}, header=HIGHER_HEADER), fresh({"cov": 9000}), COVERAGE)
@@ -345,6 +350,7 @@ def test_better_higher_holds_a_within_tolerance_decrease():
 
 
 # ── discrimination guard: prove, on every run, that the tests kill known logic mutations ──────
+
 
 def test_suite_kills_mutants():
     """Every listed logic mutation of the shared compare module must change a scenario's result.

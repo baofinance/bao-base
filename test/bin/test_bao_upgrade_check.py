@@ -8,6 +8,7 @@ test_storage_successor.py: if their layout shape ever diverged from solc's, the 
 
 Skipped if forge is unavailable (the only integration tests in bin/ that need a build).
 """
+
 import importlib.util
 import pathlib
 import shutil
@@ -32,8 +33,20 @@ def build_info_dir(fixture, subdir):
     """Build one fixture file with a fresh build-info (as validate builds src); return the build-info dir."""
     out_dir = ROOT / "out" / subdir / "build-info"
     subprocess.run(
-        ["forge", "build", fixture, "--build-info", "--build-info-path", str(out_dir), "--extra-output", "storageLayout"],
-        cwd=ROOT, check=True, capture_output=True, text=True,
+        [
+            "forge",
+            "build",
+            fixture,
+            "--build-info",
+            "--build-info-path",
+            str(out_dir),
+            "--extra-output",
+            "storageLayout",
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
     )
     return out_dir
 
@@ -208,7 +221,9 @@ def test_misspelled_bao_tag_is_rejected():
     build_info = mod._latest_build_info(str(build_info_dir(FIXTURES, "_bao_test_mixed")))
     tags = {tag for _where, tag in mod.unrecognized_bao_tags(build_info)}
     assert "bao-renamd-from" in tags, "a misspelled @custom:bao-* tag was not caught"
-    assert not (tags & {"bao-upgrades-from", "bao-retyped-from", "bao-added", "bao-renamed-from", "bao-storage-slot"}), tags
+    assert not (
+        tags & {"bao-upgrades-from", "bao-retyped-from", "bao-added", "bao-renamed-from", "bao-storage-slot"}
+    ), tags
 
 
 def test_main_exits_1_when_any_link_is_incompatible():

@@ -28,6 +28,7 @@ with synthetic inputs; `main` is exercised end-to-end by building `.sol` fixture
 
 Exit 0 if every link is a documented byte-compatible successor (or there are none); 1 otherwise.
 """
+
 import argparse
 import glob
 import json
@@ -53,6 +54,7 @@ _RECOGNIZED_BAO_TAGS = frozenset({"bao-upgrades-from", "bao-retyped-from", "bao-
 
 # ── the successor rule (pure; unit-testable with synthetic storageLayout dicts + declarations) ──────────────
 
+
 def _kind(type_def):
     if "members" in type_def:
         return "struct"
@@ -68,7 +70,7 @@ def _kind(type_def):
 
 def _struct_name(label):
     # "struct Scope.Name" or "struct Name" -> "Name"; matches a StructDefinition's AST `name`
-    name = label[len("struct "):] if label.startswith("struct ") else label
+    name = label[len("struct ") :] if label.startswith("struct ") else label
     return name.rsplit(".", 1)[-1]
 
 
@@ -87,7 +89,9 @@ def _occupied_ranges(entries, types):
     return ranges
 
 
-def _compare_type(a_id, a_types, b_id, b_types, path, errors, retyped, used, declared_old, added=None, renamed=None, is_root=False):
+def _compare_type(
+    a_id, a_types, b_id, b_types, path, errors, retyped, used, declared_old, added=None, renamed=None, is_root=False
+):
     """Recurse a matched type position. `retyped` = {structName: {field: oldTypeLabel}}; `added` =
     {structName: {field}}; `renamed` = {structName: {newField: oldField}}; `used` accumulates the
     (structName, field) declarations actually reached; `declared_old` is the declaration for THIS position
@@ -134,11 +138,22 @@ def _compare_type(a_id, a_types, b_id, b_types, path, errors, retyped, used, dec
             matched_b.add(mb["label"])
             if str(ma["slot"]) != str(mb["slot"]) or ma["offset"] != mb["offset"]:
                 errors.append(
-                    f"{path}.{label}: member moved "
-                    f"(slot {ma['slot']}:{ma['offset']} -> {mb['slot']}:{mb['offset']})"
+                    f"{path}.{label}: member moved (slot {ma['slot']}:{ma['offset']} -> {mb['slot']}:{mb['offset']})"
                 )
                 continue
-            _compare_type(ma["type"], a_types, mb["type"], b_types, f"{path}.{label}", errors, retyped, used, member_declared, added, renamed)
+            _compare_type(
+                ma["type"],
+                a_types,
+                mb["type"],
+                b_types,
+                f"{path}.{label}",
+                errors,
+                retyped,
+                used,
+                member_declared,
+                added,
+                renamed,
+            )
         # A new member is a byte-compatible APPEND when its bytes overlap no existing member (it takes storage the
         # predecessor never wrote) AND it relocates nothing: either the struct's size is unchanged (it packs into
         # the struct's own trailing padding — safe in any container, since the field after a struct starts a new
@@ -159,18 +174,24 @@ def _compare_type(a_id, a_types, b_id, b_types, path, errors, retyped, used, dec
                     f"size-preserving append, or an append to the top-level namespace struct, is byte-compatible"
                 )
             elif label not in added_here:
-                errors.append(f"{path}.{label}: undocumented add; annotate the owning struct `@custom:bao-added {label}`")
+                errors.append(
+                    f"{path}.{label}: undocumented add; annotate the owning struct `@custom:bao-added {label}`"
+                )
             else:
                 used.add((struct_name, label))  # documented, byte-compatible append
 
     elif ak == "mapping":
         if a_types[a["key"]]["label"] != b_types[b["key"]]["label"]:
             errors.append(f"{path}: mapping key changed ({a_types[a['key']]['label']} -> {b_types[b['key']]['label']})")
-        _compare_type(a["value"], a_types, b["value"], b_types, f"{path}[k]", errors, retyped, used, None, added, renamed)
+        _compare_type(
+            a["value"], a_types, b["value"], b_types, f"{path}[k]", errors, retyped, used, None, added, renamed
+        )
 
     elif ak == "array":
         if a["numberOfBytes"] != b["numberOfBytes"]:
-            errors.append(f"{path}: array resized ({a['label']} {a['numberOfBytes']}B -> {b['label']} {b['numberOfBytes']}B)")
+            errors.append(
+                f"{path}: array resized ({a['label']} {a['numberOfBytes']}B -> {b['label']} {b['numberOfBytes']}B)"
+            )
         _compare_type(a["base"], a_types, b["base"], b_types, f"{path}[i]", errors, retyped, used, None, added, renamed)
 
     elif ak == "integer":
@@ -184,12 +205,18 @@ def _compare_type(a_id, a_types, b_id, b_types, path, errors, retyped, used, dec
             # a widen — safe in bytes (any displacement would have moved a following member, caught above),
             # but only allowed when the developer documented it and the declared old type is the real one.
             if declared_old is None:
-                errors.append(f"{path}: undocumented widen ({a['label']} -> {b['label']}); add `@custom:bao-retyped-from <field> {a['label']}` to the owning struct")
+                errors.append(
+                    f"{path}: undocumented widen ({a['label']} -> {b['label']}); add `@custom:bao-retyped-from <field> {a['label']}` to the owning struct"
+                )
             elif declared_old != a["label"]:
-                errors.append(f"{path}: declared `@custom:bao-retyped-from ... {declared_old}` but predecessor is {a['label']}")
+                errors.append(
+                    f"{path}: declared `@custom:bao-retyped-from ... {declared_old}` but predecessor is {a['label']}"
+                )
         else:  # same size, same sign: unchanged
             if declared_old is not None:
-                errors.append(f"{path}: stale `@custom:bao-retyped-from ... {declared_old}` — {a['label']} is unchanged")
+                errors.append(
+                    f"{path}: stale `@custom:bao-retyped-from ... {declared_old}` — {a['label']} is unchanged"
+                )
 
     else:  # elementary — must be identical
         if a["label"] != b["label"]:
@@ -214,9 +241,24 @@ def successor_errors(a_layout, b_layout, retyped=None, added=None, renamed=None)
             errors.append(f"{label}: top-level slot removed")
             continue
         if str(sa["slot"]) != str(sb["slot"]) or sa["offset"] != sb["offset"]:
-            errors.append(f"{label}: top-level slot moved (slot {sa['slot']}:{sa['offset']} -> {sb['slot']}:{sb['offset']})")
+            errors.append(
+                f"{label}: top-level slot moved (slot {sa['slot']}:{sa['offset']} -> {sb['slot']}:{sb['offset']})"
+            )
             continue
-        _compare_type(sa["type"], a_layout["types"], sb["type"], b_layout["types"], label, errors, retyped, used, None, added, renamed, is_root=True)
+        _compare_type(
+            sa["type"],
+            a_layout["types"],
+            sb["type"],
+            b_layout["types"],
+            label,
+            errors,
+            retyped,
+            used,
+            None,
+            added,
+            renamed,
+            is_root=True,
+        )
     for label in b_by_label:
         if label not in a_by_label:
             errors.append(f"{label}: top-level slot added (not yet allowed)")
@@ -228,7 +270,9 @@ def successor_errors(a_layout, b_layout, retyped=None, added=None, renamed=None)
             continue
         for field in fields:
             if (struct_name, field) not in used:
-                errors.append(f"{struct_name}.{field}: `@custom:bao-retyped-from` names a field not found in the struct")
+                errors.append(
+                    f"{struct_name}.{field}: `@custom:bao-retyped-from` names a field not found in the struct"
+                )
     for struct_name, fields in added.items():
         if struct_name not in present:
             continue
@@ -240,11 +284,14 @@ def successor_errors(a_layout, b_layout, retyped=None, added=None, renamed=None)
             continue
         for new_field in new_fields:
             if (struct_name, new_field) not in used:
-                errors.append(f"{struct_name}.{new_field}: `@custom:bao-renamed-from` names a field that was not renamed")
+                errors.append(
+                    f"{struct_name}.{new_field}: `@custom:bao-renamed-from` names a field that was not renamed"
+                )
     return errors
 
 
 # ── build-env access: find the pairs, namespaces, and retype declarations BY NAME from the build-info ───────
+
 
 def _doc(node):
     d = node.get("documentation") if isinstance(node, dict) else None
@@ -341,6 +388,7 @@ def _pairs(build_info):
 #    can be forgotten — a hardcoded slot that drifts from its namespace is caught wherever it lives (a pool, a
 #    reward base, a throwaway migrator, even OZ's Initializable). A getter that COMPUTES its slot has no hardcoded
 #    value to verify and is skipped. ──
+
 
 def _namespace_by_struct_id(build_info):
     """StructDefinition node id -> namespace, for every struct with `@custom:storage-location erc7201:<ns>`."""
@@ -457,7 +505,9 @@ def slot_getter_errors(build_info):
         expected = _cast_erc7201(namespace, cache)
         if actual != expected:
             where = f"{contract.get('name')}.{fn.get('name')}"
-            errors.append((where, f"slot constant {slot_const.get('name')} = {actual} != erc7201({namespace}) = {expected}"))
+            errors.append(
+                (where, f"slot constant {slot_const.get('name')} = {actual} != erc7201({namespace}) = {expected}")
+            )
     return errors
 
 
@@ -465,6 +515,7 @@ def slot_getter_errors(build_info):
 #    assembly through another contract's struct (one it does not declare) touches only that namespace. The
 #    successor check byte-compares each reached struct against the predecessor's same namespace and, because such a
 #    migrator is partial by construction, does not flag the predecessor namespaces it never touches as "gone". ──
+
 
 def _struct_owner_and_ref(build_info):
     """Two maps over every StructDefinition: id -> owning ContractDefinition id, and id -> (source_path, contract
@@ -483,8 +534,10 @@ def _accessed_namespaces_by_contract(build_info):
     struct defined OUTSIDE its inheritance chain (a foreign struct) — the mark of a partial migrator that accesses
     another contract's storage rather than declaring its own."""
     owner, _ref = _struct_owner_and_ref(build_info)
-    chains = {contract["id"]: set(contract.get("linearizedBaseContracts", [contract["id"]]))
-              for _path, contract in _contracts(build_info)}
+    chains = {
+        contract["id"]: set(contract.get("linearizedBaseContracts", [contract["id"]]))
+        for _path, contract in _contracts(build_info)
+    }
     out = {}
     for contract, _fn, namespace, struct_id, _slot in _namespace_getters(build_info):
         cid = contract["id"]
@@ -496,6 +549,7 @@ def _accessed_namespaces_by_contract(build_info):
 # ── unrecognized-tag check: a misspelled `@custom:bao-*` tag (bao-renamd-from, bao-retype-from, …) compiles
 #    fine but matches no regex, so its intended check is silently skipped — the most dangerous failure mode for a
 #    validator. Every `@custom:bao-*` tag in the build must be one the tool recognizes. ──────────────────────
+
 
 def _documented_nodes(build_info):
     """Yield (where, doc_text) for every documented declaration — file-level nodes and contract members — since
@@ -530,6 +584,7 @@ def unrecognized_bao_tags(build_info):
 
 # ── injection: lay out each struct via a probe so solc emits its storageLayout ──────────────────────────────
 
+
 def probe_source(jobs):
     """Pure: jobs = list of (index, path, contract, struct). Return (solidity_source, {index: probe_name})."""
     lines = ["// SPDX-License-Identifier: MIT", "pragma solidity >=0.8.28 <0.9.0;", ""]
@@ -553,7 +608,9 @@ def _inject_layouts(jobs, root):
     out_dir = os.path.join(inject_dir, "out")
     build = subprocess.run(
         ["forge", "build", probe, "--extra-output", "storageLayout", "--out", out_dir],
-        cwd=root, capture_output=True, text=True,
+        cwd=root,
+        capture_output=True,
+        text=True,
     )
     if build.returncode != 0:
         sys.exit(f"storage-successor: probe build failed\n{build.stdout}\n{build.stderr}")
@@ -574,7 +631,17 @@ def check_build(build_info, root):
         _, succ_node = _contract_by_name(build_info, succ_contract)
         _, pred_node = _contract_by_name(build_info, pred_contract)
         if pred_node is None:
-            plan.append((succ_contract, pred_contract, None, [f"predecessor {pred_contract} ({pred_path}) not in build"], None, None, None))
+            plan.append(
+                (
+                    succ_contract,
+                    pred_contract,
+                    None,
+                    [f"predecessor {pred_contract} ({pred_path}) not in build"],
+                    None,
+                    None,
+                    None,
+                )
+            )
             continue
         succ_ns, pred_ns = _namespaces(build_info, succ_node), _namespaces(build_info, pred_node)
         succ_retyped = _retyped(build_info, succ_node)
@@ -606,8 +673,17 @@ def check_build(build_info, root):
             idx += 2
             jobs.append((pi, pred_path, pred_contract, pred_ns[ns]))
             jobs.append((si, acc_path, acc_contract, acc_struct))
-            plan.append((succ_contract, pred_contract, ns, (pi, si),
-                         _retyped(build_info, owner_node), _added(build_info, owner_node), _renamed(build_info, owner_node)))
+            plan.append(
+                (
+                    succ_contract,
+                    pred_contract,
+                    ns,
+                    (pi, si),
+                    _retyped(build_info, owner_node),
+                    _added(build_info, owner_node),
+                    _renamed(build_info, owner_node),
+                )
+            )
         for pre_err in errs:
             plan.append((succ_contract, pred_contract, None, [pre_err], None, None, None))
 
@@ -635,10 +711,16 @@ def _latest_build_info(build_info_dir):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Verify @custom:bao-upgrades-from storage links are documented byte-compatible successors.")
+    parser = argparse.ArgumentParser(
+        description="Verify @custom:bao-upgrades-from storage links are documented byte-compatible successors."
+    )
     parser.add_argument("build_info_dir", help="the fresh build-info directory (validate's, or the test build's)")
     parser.add_argument("--root", default=".", help="project root (for the probe build)")
-    parser.add_argument("--list", action="store_true", help="print '<successor> <predecessor>' for each @custom:bao-upgrades-from link (no probe build) and exit — for validate's reference audit")
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="print '<successor> <predecessor>' for each @custom:bao-upgrades-from link (no probe build) and exit — for validate's reference audit",
+    )
     args = parser.parse_args(argv)
 
     build_info = _latest_build_info(args.build_info_dir)
@@ -673,7 +755,11 @@ def main(argv=None):
     # every @custom:bao-* tag must be one the tool recognizes (a misspelled tag would be silently skipped)
     bad_tags = unrecognized_bao_tags(build_info)
     for where, tag in bad_tags:
-        console.print(f"✗ {where} — unrecognized tag @custom:{tag} (typo, or a bao tag with no implementation)", style="bold red", markup=False)
+        console.print(
+            f"✗ {where} — unrecognized tag @custom:{tag} (typo, or a bao tag with no implementation)",
+            style="bold red",
+            markup=False,
+        )
 
     return 1 if (failures or slot_errors or bad_tags) else 0
 

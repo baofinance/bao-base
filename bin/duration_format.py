@@ -12,6 +12,7 @@ one suite changing shifts them all), but by dividing out a robust per-run scale 
 compare-duration.py). Absolute milliseconds - not seconds - because a small suite (bao-base's whole
 run is about a second) would round to 1 in whole seconds, leaving no resolution to compare.
 """
+
 import math
 
 import forge_tables
@@ -54,4 +55,8 @@ def suite_frame(name_to_milliseconds, decimals):
 
 def suite_table(name_to_milliseconds, decimals):
     """The suite section as a ready-to-write string (`SUITE_SECTION` + table), for the extract."""
-    return SUITE_SECTION + "\n" + forge_tables.toStr(suite_frame(name_to_milliseconds, decimals), floatfmt=".3e", intfmt="")
+    return (
+        SUITE_SECTION
+        + "\n"
+        + forge_tables.toStr(suite_frame(name_to_milliseconds, decimals), floatfmt=".3e", intfmt="")
+    )

@@ -37,6 +37,7 @@ Two things this method genuinely cannot do, by construction, and does not preten
   - work when MORE than half the suites change at once - then the "unchanged majority" the median
     leans on no longer exists. That is a re-baseline event, and the too-few-measurable note says so.
 """
+
 import os
 import statistics
 import sys

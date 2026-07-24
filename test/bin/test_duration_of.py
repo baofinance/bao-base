@@ -10,6 +10,7 @@ The wrapper runs its inner command as a SUBPROCESS. That is load-bearing: `regre
 dispatches bash scripts by SOURCING them, so a sourcing wrapper would be killed by its own inner
 command and lose the timings exactly when a regression occurred.
 """
+
 import importlib.util
 import os
 import pathlib
@@ -19,12 +20,15 @@ import tempfile
 
 DURATION_OF = pathlib.Path(__file__).resolve().parents[2] / "bin" / "duration-of.py"
 
+
 def _log(cpu_seconds: dict[str, float]) -> str:
     """A forge test log reporting the given per-suite CPU seconds (wall is twice CPU, arbitrarily)."""
     lines = []
     for name, cpu in cpu_seconds.items():
         lines.append(f"Ran 1 test for {name}")
-        lines.append(f"Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in {cpu * 2:.2f}s ({cpu:.2f}s CPU time)")
+        lines.append(
+            f"Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in {cpu * 2:.2f}s ({cpu:.2f}s CPU time)"
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -54,7 +58,7 @@ def run_wrapper(directory: pathlib.Path, exit_code: int, *args: str) -> subproce
     "$BAO_BASE_DIR/run" either way — so this exercises the real dispatch path.
     """
     stub = directory / "run"
-    stub.write_text(f'#!/usr/bin/env bash\ncat <<\'LOG\'\n{STUB_LOG}LOG\nexit {exit_code}\n')
+    stub.write_text(f"#!/usr/bin/env bash\ncat <<'LOG'\n{STUB_LOG}LOG\nexit {exit_code}\n")
     stub.chmod(0o755)
     environment = dict(os.environ, BAO_BASE_DIR=str(directory))
     return subprocess.run(

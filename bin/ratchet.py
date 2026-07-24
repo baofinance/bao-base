@@ -66,12 +66,9 @@ def resolve(regression_file: str) -> str:
     if _object_in_git(index_ref):
         if not Path(regression_file).exists():
             raise BaselineMissing(
-                f"{regression_file} is absent from the working tree. "
-                f"Restore it from git: git restore {regression_file}"
+                f"{regression_file} is absent from the working tree. Restore it from git: git restore {regression_file}"
             )
-        return subprocess.run(
-            ["git", "show", index_ref], capture_output=True, text=True, check=True
-        ).stdout
+        return subprocess.run(["git", "show", index_ref], capture_output=True, text=True, check=True).stdout
     if _object_in_git(f"HEAD:{regression_file}"):
         raise BaselineMissing(
             f"{regression_file} has a staged deletion, so there is no baseline to check against. "

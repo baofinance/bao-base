@@ -81,7 +81,9 @@ def submodule_url_drift(repo_dir: Path, prefix: str = "") -> list[tuple[str, str
 
     listing = subprocess.run(
         ["git", "config", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.url$"],
-        cwd=repo_dir, capture_output=True, text=True,
+        cwd=repo_dir,
+        capture_output=True,
+        text=True,
     )
 
     drift: list[tuple[str, str, str]] = []
@@ -92,7 +94,9 @@ def submodule_url_drift(repo_dir: Path, prefix: str = "") -> list[tuple[str, str
 
         path_result = subprocess.run(
             ["git", "config", "-f", ".gitmodules", "--get", f"submodule.{name}.path"],
-            cwd=repo_dir, capture_output=True, text=True,
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
         )
         sub_path = path_result.stdout.strip() or name
         display = f"{prefix}{sub_path}"
@@ -101,7 +105,9 @@ def submodule_url_drift(repo_dir: Path, prefix: str = "") -> list[tuple[str, str
         # this submodule isn't initialized in this clone, so there is no stored URL to drift.
         local = subprocess.run(
             ["git", "config", "--local", "--get", f"submodule.{name}.url"],
-            cwd=repo_dir, capture_output=True, text=True,
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
         )
         if local.returncode == 0:
             gitconfig_url = local.stdout.strip()
@@ -132,7 +138,9 @@ def submodule_status_problems(repo_root: Path) -> list[str]:
     }
     status = subprocess.run(
         ["git", "submodule", "status", "--recursive"],
-        cwd=repo_root, capture_output=True, text=True,
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
     )
     out: list[str] = []
     for line in status.stdout.splitlines():
@@ -159,7 +167,9 @@ def ghost_submodules(repo_dir: Path, prefix: str = "") -> list[str]:
 
     status = subprocess.run(
         ["git", "status", "--porcelain", "--untracked-files=all"],
-        cwd=repo_dir, capture_output=True, text=True,
+        cwd=repo_dir,
+        capture_output=True,
+        text=True,
     )
     for line in status.stdout.splitlines():
         if line.startswith("?? "):
@@ -169,7 +179,9 @@ def ghost_submodules(repo_dir: Path, prefix: str = "") -> list[str]:
 
     listing = subprocess.run(
         ["git", "config", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.path$"],
-        cwd=repo_dir, capture_output=True, text=True,
+        cwd=repo_dir,
+        capture_output=True,
+        text=True,
     )
     for line in listing.stdout.splitlines():
         sub_path = line.partition(" ")[2].strip()
@@ -214,13 +226,12 @@ def remapping_problems(foundry_remappings: list[str], wake_remappings: list[str]
         for index, pair in enumerate(zip(normalized_foundry, wake_remappings)):
             if pair[0] != pair[1]:
                 mismatch_details.append(
-                    f"Order mismatch at index {index}: "
-                    f"foundry.toml has {pair[0]!r} while wake.toml has {pair[1]!r}."
+                    f"Order mismatch at index {index}: foundry.toml has {pair[0]!r} while wake.toml has {pair[1]!r}."
                 )
                 break
         if len(normalized_foundry) != len(wake_remappings):
             mismatch_details.append(
-                "The lists have different lengths: " f"{len(normalized_foundry)} vs {len(wake_remappings)}."
+                f"The lists have different lengths: {len(normalized_foundry)} vs {len(wake_remappings)}."
             )
 
     if not mismatch_details:
@@ -274,7 +285,10 @@ def foundry_lock_problems(repo_root: Path) -> list[str]:
         return [f"foundry.lock is not valid JSON: {exc}"]
 
     status = subprocess.run(
-        ["git", "submodule", "status"], cwd=repo_root, capture_output=True, text=True,
+        ["git", "submodule", "status"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
     )
     checked_out: dict[str, str] = {}
     for line in status.stdout.splitlines():
@@ -337,9 +351,7 @@ def vscode_ruff_settings_problems(repo_root: Path) -> list[str]:
 
     problems: list[str] = []
     if repo.get("[python]") != canonical.get("[python]"):
-        problems.append(
-            f'"[python]" differs from bao-base: {repo.get("[python]")!r} vs {canonical.get("[python]")!r}'
-        )
+        problems.append(f'"[python]" differs from bao-base: {repo.get("[python]")!r} vs {canonical.get("[python]")!r}')
 
     # ruff.path is a per-workspace path to the shared ruff, so compare it RESOLVED to an absolute path
     # (a consumer reaches it via lib/bao-base/); the other checked ruff.* keys are shared literals,

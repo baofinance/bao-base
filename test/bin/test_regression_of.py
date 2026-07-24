@@ -69,6 +69,7 @@ def run_regression_of(base: pathlib.Path, regression_type: str, log: str, exit_c
 
 # ── gas: the compare-script (tolerance/ratchet) path ─────────────────────────
 
+
 def test_gas_first_generation_writes_the_extracted_baseline():
     # No baseline yet -> every row is new -> written, and the run fails until it is committed.
     with tempfile.TemporaryDirectory() as directory:
@@ -131,6 +132,7 @@ def test_gas_staged_deletion_fails_fast_before_the_run():
 
 # ── run and extract failures stop the pipeline ───────────────────────────────
 
+
 def test_run_failure_is_reported_and_stops_before_writing():
     with tempfile.TemporaryDirectory() as directory:
         base = pathlib.Path(directory)
@@ -151,6 +153,7 @@ def test_extract_failure_is_reported():
 
 
 # ── the fallback paths: no compare script (sizes), and no extract script either ──
+
 
 def test_sizes_uses_the_exact_match_fallback():
     # sizes has an extract script but no compare-sizes.py -> any difference is a change; an identical
@@ -184,6 +187,7 @@ def test_type_without_an_extract_script_uses_the_raw_log():
 
 
 # ── plumbing ─────────────────────────────────────────────────────────────────
+
 
 def test_inner_output_is_passed_through():
     with tempfile.TemporaryDirectory() as directory:

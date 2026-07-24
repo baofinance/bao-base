@@ -12,6 +12,7 @@ Extra arguments are passed through to forge, so a slow area can be isolated:
 Timings are wall-clock and therefore load-dependent; treat them as "what is heavy", not as exact figures. Fuzz
 tests dominate, and their cost moves with --fuzz-runs.
 """
+
 import argparse
 import json
 import re

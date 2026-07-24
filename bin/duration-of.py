@@ -18,6 +18,7 @@ changes, and `run` dispatches bash scripts by SOURCING them — so a wrapper tha
 command would be terminated by it and lose the timings at exactly the moment a regression was being
 reported. Being a Python script makes that structural: this cannot be sourced into `run`'s shell.
 """
+
 import importlib.util
 import os
 import subprocess
@@ -116,8 +117,7 @@ def main():
     if verdict.changed:
         sys.stderr.write(verdict.report)
         sys.stderr.write(
-            f"\n{regression_file} changed. Review and stage it if the change is expected, "
-            f"or fix the cause.\n"
+            f"\n{regression_file} changed. Review and stage it if the change is expected, or fix the cause.\n"
         )
         return 1
     return 0

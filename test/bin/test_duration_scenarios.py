@@ -11,6 +11,7 @@ scenarios (a dominant mover drags every other suite's share past tolerance) whil
 machine-change ones. That red/green split is the whole point: it is the spec the detection method has
 to meet, and the evidence for choosing the method.
 """
+
 import importlib.util
 import subprocess
 import sys
@@ -92,6 +93,7 @@ def scaled(cpu: dict[str, float], factor: float, overrides: dict[str, float] | N
 
 # ── machine-speed changes must flag NOTHING, however extreme ──────────────────
 
+
 def test_a_2x_faster_machine_flags_nothing():
     assert flagged_suites(BASELINE, scaled(BASELINE, 0.5)) == set()
 
@@ -122,6 +124,7 @@ DOMINATED = {
 
 
 # ── one genuine change flags that suite and ONLY that suite ───────────────────
+
 
 def test_one_dominant_regression_flags_only_itself():
     # The largest suite 40x - it swamps the run, so every other suite's share of the total collapses.

@@ -22,6 +22,7 @@ COMPARE_GAS = str(BIN / "compare-gas.py")
 
 # ── format helpers: the shapes compare-gas.py parses (fresh extract, new-format baseline) ──
 
+
 def _fresh(rows: dict) -> str:
     lines = ["src/X.sol:X", "| function name | max |", "|---|---|"]
     lines += [f"| {name} | {int(value)} |" for name, value in rows.items()]
@@ -40,15 +41,13 @@ def _stub_compare(directory: Path, exit_code: int, merged: str = "MERGED\n", rep
     stderr, an exit code out - but with a fixed, chosen result, to drive apply's branches directly."""
     script = directory / f"stub_compare_{exit_code}.py"
     script.write_text(
-        "import sys\n"
-        f"sys.stdout.write({merged!r})\n"
-        f"sys.stderr.write({report!r})\n"
-        f"sys.exit({exit_code})\n"
+        f"import sys\nsys.stdout.write({merged!r})\nsys.stderr.write({report!r})\nsys.exit({exit_code})\n"
     )
     return str(script)
 
 
 # ── resolve: the four baseline states ────────────────────────────────────────
+
 
 def test_resolve_returns_the_committed_baseline(repo):
     # Present in the index and the working tree -> the index content is the baseline.
@@ -114,6 +113,7 @@ def test_resolve_never_runs_a_mutating_git_command(repo, tmp_path, monkeypatch):
 
 # ── apply: the compare-script path (gas) ─────────────────────────────────────
 
+
 def test_apply_holds_and_leaves_the_file_untouched_on_no_change(repo):
     repo.write("ORIGINAL\n")  # a working-tree file a held run must not touch
     verdict = ratchet.apply(repo.file, _committed({"foo": 100000}), _fresh({"foo": 100000}), COMPARE_GAS)
@@ -147,6 +147,7 @@ def test_apply_first_generation_writes_the_whole_file(repo):
 
 
 # ── apply: the exact-match fallback (types with no compare script: coverage, sizes) ──
+
 
 def test_apply_fallback_holds_identical_text(repo):
     repo.write("SAME\n")

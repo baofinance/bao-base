@@ -8,6 +8,7 @@ Usage: compare-gas.py <committed_file> <fresh_extracted_file>
 — tolerance, ratchet, add/remove flagging, old-format migration, the emitted `# regression:` header
 — lives in compare.py; this file exists to state the policy gas is measured against.
 """
+
 import os
 import sys
 

@@ -39,6 +39,7 @@ Exit 1 if anything changed (regression, improvement, add, remove, migration, or 
 the run fails until the merged file is committed; exit 0 when everything held. A summary goes to
 stderr.
 """
+
 import argparse
 import os
 import re

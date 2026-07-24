@@ -6,6 +6,7 @@ itself, however much it distorts the run around it) is the spec in test_duration
 file pins the internals that produce it: the robust scale, the per-suite hold/flag decision, the
 floor, the file format, and the honest notes about what the method cannot do.
 """
+
 import importlib.util
 import subprocess
 import sys
@@ -68,6 +69,7 @@ def run_merge(committed: dict, fresh: dict) -> tuple[int, dict, str]:
 
 # ── the robust scale: the median of per-suite ratios, ignoring sub-floor suites ──
 
+
 def test_machine_scale_is_the_median_of_ratios():
     # A few suites doubled, most unchanged: the median ratio is the machine factor (1.0), not dragged
     # by the movers. This is what decouples the per-suite verdict from the run around it.
@@ -95,6 +97,7 @@ def test_scale_ignores_sub_floor_suites():
 
 
 # ── the per-suite hold / flag decision ──────────────────────────────────────
+
 
 def test_a_suite_tracking_the_scale_is_held_at_its_committed_value():
     # Held suites keep their COMMITTED milliseconds, so the file is byte-stable run to run - only a
@@ -167,6 +170,7 @@ def test_a_suite_crossing_the_floor_upward_flags():
 
 # ── the file the comparison writes ──────────────────────────────────────────
 
+
 def test_display_shows_milliseconds_then_seconds():
     _, _, _ = run_merge({"test/A.t.sol:X": 20.0}, {"test/A.t.sol:X": 20.0})
     text = duration_file({"test/A.t.sol:X": 20.0}, with_header=True)
@@ -184,6 +188,7 @@ def test_display_precision_follows_the_floor():
 
 
 # ── honest notes about what the method cannot do ────────────────────────────
+
 
 def test_a_large_uniform_shift_is_reported_but_never_flags():
     # A 5x slower machine (or environment) is indistinguishable from everything being 5x slower, so it

@@ -5,6 +5,7 @@ The extract emits one absolute figure per suite: its CPU in milliseconds. Nothin
 against the run total - the comparison (compare-duration.py) divides out a robust per-run scale at
 compare time, which is what keeps it machine-independent without coupling every suite to every other.
 """
+
 import importlib.util
 import pathlib
 import textwrap

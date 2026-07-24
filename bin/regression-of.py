@@ -73,8 +73,7 @@ def main():
         run_status = process.wait()
     if run_status != 0:
         sys.stderr.write(
-            f"{regression_type} failed (exit code {run_status}). "
-            f"Fix the failing tests before running regression.\n"
+            f"{regression_type} failed (exit code {run_status}). Fix the failing tests before running regression.\n"
         )
         return 1
 
@@ -112,8 +111,7 @@ def main():
     except ratchet.CompareFailed as failure:
         sys.stderr.write(failure.report)
         sys.stderr.write(
-            f"compare-{regression_type} failed (exit {failure.code}). "
-            f"Fix the merge before running regression.\n"
+            f"compare-{regression_type} failed (exit {failure.code}). Fix the merge before running regression.\n"
         )
         return failure.code
 

@@ -139,8 +139,16 @@ runs:
       run: |
         cd ${{ inputs.cwd }}
         # ci-execute-next-line
-        yarn fmt:bash
-      id: prettier
+        yarn fmt:bash:check
+      id: shfmt
+
+    - name: Run Python Script Formatting
+      shell: bash
+      run: |
+        cd ${{ inputs.cwd }}
+        # ci-execute-next-line
+        yarn fmt:python:check
+      id: ruff
 
     # - name: Run Bash Script Linting
     #   shell: bash
@@ -148,6 +156,14 @@ runs:
     #     cd ${{ inputs.cwd }}
     #     yarn lint:bash
     #   id: lint
+
+    - name: Run Python Script linting
+      shell: bash
+      run: |
+        cd ${{ inputs.cwd }}
+        # ci-execute-next-line
+        yarn lint:python
+      id: ruff_lint
 
     - name: Run Python (pytest) Tests
       shell: bash
