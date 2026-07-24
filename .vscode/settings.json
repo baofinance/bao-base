@@ -1,0 +1,17 @@
+{
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.tabSize": 4, // as per PEP 8 standard
+    "editor.formatOnSave": true,
+    // "editor.codeActionsOnSave": {
+    //   "source.organizeImports": "explicit"
+    // }
+  },
+  "ruff.interpreter": [
+    "./we-need-a-self-loading-wrapper-for/python"
+  ],
+  "ruff.path": [
+    "bin/ruff"
+  ],
+  "ruff.configuration": "pyproject.toml"
+}

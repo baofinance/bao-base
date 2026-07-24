@@ -7,6 +7,9 @@ import tomllib
 from pathlib import Path
 from typing import Any, cast
 
+import json5
+
+
 def load_toml(path: Path) -> dict[str, Any]:
     """Parse a TOML file with the stdlib tomllib. bao-base runs on its pinned Python (3.13, see
     bin/.python-version), so tomllib is always present — no third-party fallback needed."""
@@ -301,6 +304,64 @@ def foundry_lock_problems(repo_root: Path) -> list[str]:
     return problems
 
 
+def vscode_ruff_settings_problems(repo_root: Path) -> list[str]:
+    """Check .vscode/settings.json wires the editor to bao-base's shared ruff, matching bao-base's own
+    canonical settings. ruff.path is a per-workspace path (a consumer's under `lib/bao-base/` vs
+    bao-base's own) that must RESOLVE to the same file; the [python] block and the other checked ruff.*
+    settings (e.g. ruff.configuration) are shared literals matched verbatim. bao-base's own
+    .vscode/settings.json is the source of truth: run inside bao-base the two are one file, so it
+    compares against itself and passes. Returns the mismatches, or [] when the settings are present and
+    agree."""
+    bao_base_root = Path(__file__).resolve().parent.parent
+    canonical_file = bao_base_root / ".vscode" / "settings.json"
+    repo_file = repo_root / ".vscode" / "settings.json"
+
+    if not canonical_file.is_file():
+        return [f"bao-base has no {canonical_file} to compare against."]
+    if not repo_file.is_file():
+        return [f"{repo_file} is missing (the editor needs it to use bao-base's ruff)."]
+
+    try:
+        repo = json5.loads(repo_file.read_text())
+    except ValueError as exc:
+        return [f"{repo_file} is not valid JSON5: {exc}"]
+    canonical = json5.loads(canonical_file.read_text())
+
+    absent: list[str] = []
+    if "[python]" not in repo:
+        absent.append('"[python]" block')
+    if not any(key.startswith("ruff.") for key in repo):
+        absent.append('"ruff.*" settings')
+    if absent:
+        return [f"{repo_file} is missing " + " and ".join(absent) + "."]
+
+    problems: list[str] = []
+    if repo.get("[python]") != canonical.get("[python]"):
+        problems.append(
+            f'"[python]" differs from bao-base: {repo.get("[python]")!r} vs {canonical.get("[python]")!r}'
+        )
+
+    # ruff.path is a per-workspace path to the shared ruff, so compare it RESOLVED to an absolute path
+    # (a consumer reaches it via lib/bao-base/); the other checked ruff.* keys are shared literals,
+    # compared verbatim. ruff.interpreter is the editor's own concern, not shared wiring — not checked.
+    resolved_keys = ("ruff.path",)
+    for key in sorted(name for name in canonical if name.startswith("ruff.") and name != "ruff.interpreter"):
+        canonical_value = canonical.get(key)
+        repo_value = repo.get(key)
+        if key in resolved_keys:
+            canonical_paths = [str((bao_base_root / entry).resolve()) for entry in (canonical_value or [])]
+            repo_paths = [str((repo_root / entry).resolve()) for entry in (repo_value or [])]
+            if repo_paths != canonical_paths:
+                problems.append(
+                    f'"{key}" resolves to {repo_paths} (from {repo_value!r}), '
+                    f"but bao-base's is {canonical_paths} (from {canonical_value!r})"
+                )
+        elif repo_value != canonical_value:
+            problems.append(f'"{key}" is {repo_value!r} but bao-base has {canonical_value!r}')
+
+    return problems
+
+
 def main() -> None:
     from rich.console import Console
 
@@ -319,6 +380,7 @@ def main() -> None:
         ("submodule URLs (.git/config vs .gitmodules)", submodule_url_drift_problems(repo_root)),
         ("submodule tree (initialised, at gitlink, no ghosts)", submodule_tree_problems(repo_root)),
         ("submodule commits match foundry.lock", foundry_lock_problems(repo_root)),
+        (".vscode/settings.json uses bao-base's ruff", vscode_ruff_settings_problems(repo_root)),
     ]
 
     failed = False

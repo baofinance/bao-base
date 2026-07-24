@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Run ruff from the bao-base ROOT project: lib/bao-base/pyproject.toml owns ruff's version AND its
+# [tool.ruff] config, so ruff resolves there — not the shared bin env, not a per-tool dir. run-python
+# does the uv/python/venv bootstrap, so ruff auto-loads on demand like every other bao-base tool.
+#
+# Reached two ways; the only difference is whether `run` has set up the environment yet:
+#  - `run ruff …`  — run has already set BAO_BASE_* and SOURCES this, so just do the work (no `exec`,
+#                    which would replace run's own shell).
+#  - direct exec   — the editor's `ruff.path` runs this with no environment. Re-enter through `run`
+#                    (which sets it up) rather than duplicating run's preamble here. `-q` because run's
+#                    INFO lines go to STDOUT and would corrupt ruff's LSP stdio (run-python is quiet).
+if [[ -z "${BAO_BASE_BIN_DIR:-}" ]]; then
+  self="$(readlink -f "${BASH_SOURCE[0]}")"
+  exec "$(dirname "$(dirname "$self")")/run" -q ruff "$@"
+fi
+
+"$BAO_BASE_BIN_DIR/run-python" --project "$BAO_BASE_DIR" ruff "$@"

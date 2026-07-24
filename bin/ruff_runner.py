@@ -1,10 +1,10 @@
 """Find and run the bao-base project's ruff - the one resolver shared by the `fmt-python` /
 `lint-python` wrappers, so "which ruff" lives in a single place.
 
-Ruff is the one in the bao-base root `.venv` (materialised by `uv sync`), the single ruff the editor
-also uses (via `ruff.path`), so the CLI and the editor share one ruff version AND one config (the root
-`[tool.ruff]`). The `format`/`check` subcommand and any flags are the caller's; this just runs whatever
-ruff invocation it is handed.
+Ruff comes from the bao-base ROOT project (its pyproject.toml owns the version AND the `[tool.ruff]`
+config), auto-loaded on demand via `run-python --project <root>` — the same uv bootstrap every other
+bao-base tool uses (and the same ruff the editor is wired to). The `format`/`check` subcommand and any
+flags are the caller's; this just hands them to ruff.
 
 Named `ruff_runner`, not `ruff`: `bin/` is on `sys.path`, so a `ruff.py` here would shadow the `ruff`
 package in the venv's site-packages (the ruff distribution ships a Python launcher module alongside
@@ -12,7 +12,6 @@ its binary) on `import ruff` - the same file-shadows-package trap that broke a `
 """
 
 import subprocess
-import sys
 from pathlib import Path
 
 DEFAULT_PATHS = ("bin", "script", "scripts", "test", "tests")
@@ -27,9 +26,8 @@ def default_paths() -> list[str]:
 
 
 def run(*args: str) -> int:
-    """Run the bao-base ruff with `args`; return its exit code (or 1 if ruff has not been synced)."""
-    ruff = Path(__file__).resolve().parent.parent / ".venv" / "bin" / "ruff"
-    if not ruff.exists():
-        sys.stderr.write(f"ruff not found at {ruff} - run `uv sync` in bao-base first.\n")
-        return 1
-    return subprocess.run([str(ruff), *args]).returncode
+    """Run ruff from the bao-base ROOT project, auto-loaded via `run-python --project <root>` (the same
+    uv bootstrap every other bao-base tool uses); return ruff's exit code."""
+    bin_dir = Path(__file__).resolve().parent
+    run_python = bin_dir / "run-python"
+    return subprocess.run([str(run_python), "--project", str(bin_dir.parent), "ruff", *args]).returncode

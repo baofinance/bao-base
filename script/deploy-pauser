@@ -14,7 +14,7 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 usage() {
-    cat <<EOF
+  cat <<EOF
 Usage: script/deploy-pauser --network <net> [options]
 
 Required:
@@ -36,19 +36,35 @@ USE_LOCAL=false
 ACCOUNT=""
 
 while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --network)    NETWORK=$2; shift 2 ;;
-        --local)      USE_LOCAL=true; shift ;;
-        --account)    ACCOUNT=$2; shift 2 ;;
-        -h|--help)    usage; exit 0 ;;
-        *)            echo "Unknown arg: $1" >&2; usage; exit 1 ;;
-    esac
+  case "$1" in
+    --network)
+      NETWORK=$2
+      shift 2
+      ;;
+    --local)
+      USE_LOCAL=true
+      shift
+      ;;
+    --account)
+      ACCOUNT=$2
+      shift 2
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown arg: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
 done
 
 if [[ -z "$NETWORK" ]]; then
-    echo "Error: --network is required" >&2
-    usage
-    exit 1
+  echo "Error: --network is required" >&2
+  usage
+  exit 1
 fi
 
 # Load env
@@ -57,37 +73,37 @@ fi
 
 # Determine RPC URL
 if $USE_LOCAL; then
-    RPC_URL="${LOCAL_URL:-http://localhost:8545}"
+  RPC_URL="${LOCAL_URL:-http://localhost:8545}"
 else
-    # Try <NETWORK>_RPC_URL env var
-    rpc_var="${NETWORK^^}_RPC_URL"
-    RPC_URL="${!rpc_var:-}"
-    if [[ -z "$RPC_URL" ]]; then
-        echo "Error: $rpc_var not set" >&2
-        exit 1
-    fi
+  # Try <NETWORK>_RPC_URL env var
+  rpc_var="${NETWORK^^}_RPC_URL"
+  RPC_URL="${!rpc_var:-}"
+  if [[ -z "$RPC_URL" ]]; then
+    echo "Error: $rpc_var not set" >&2
+    exit 1
+  fi
 fi
 
 # Build forge create args
 FORGE_ARGS=(
-    "src/BaoPauser_v1.sol:BaoPauser_v1"
-    --rpc-url "$RPC_URL"
-    --skip test script
+  "src/BaoPauser_v1.sol:BaoPauser_v1"
+  --rpc-url "$RPC_URL"
+  --skip test script
 )
 
 # forge create always broadcasts, so a signer is always required
 if $USE_LOCAL; then
-    FORGE_ARGS+=(--unlocked --from 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266)
+  FORGE_ARGS+=(--unlocked --from 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266)
 elif [[ -n "$ACCOUNT" ]]; then
-    FORGE_ARGS+=(--account "$ACCOUNT")
-    # Verify on etherscan for non-local deploys
-    ETHERSCAN_KEY="${ETHERSCAN_KEY:-}"
-    if [[ -n "$ETHERSCAN_KEY" ]]; then
-        FORGE_ARGS+=(--verify --etherscan-api-key "$ETHERSCAN_KEY")
-    fi
+  FORGE_ARGS+=(--account "$ACCOUNT")
+  # Verify on etherscan for non-local deploys
+  ETHERSCAN_KEY="${ETHERSCAN_KEY:-}"
+  if [[ -n "$ETHERSCAN_KEY" ]]; then
+    FORGE_ARGS+=(--verify --etherscan-api-key "$ETHERSCAN_KEY")
+  fi
 else
-    echo "Error: --account required for non-local deployment" >&2
-    exit 1
+  echo "Error: --account required for non-local deployment" >&2
+  exit 1
 fi
 
 echo "======================================================"
@@ -107,15 +123,15 @@ echo "$RAW_OUTPUT"
 # Extract deployed address
 DEPLOYED=$(echo "$OUTPUT" | jq -r '.deployedTo')
 if [[ -z "$DEPLOYED" || "$DEPLOYED" == "null" ]]; then
-    echo "Error: could not extract deployed address" >&2
-    exit 1
+  echo "Error: could not extract deployed address" >&2
+  exit 1
 fi
 
 # Update state file
 if $USE_LOCAL; then
-    STATE_DIR="deployments/local/$NETWORK"
+  STATE_DIR="deployments/local/$NETWORK"
 else
-    STATE_DIR="deployments/$NETWORK"
+  STATE_DIR="deployments/$NETWORK"
 fi
 STATE_FILE="$STATE_DIR/state.json"
 mkdir -p "$STATE_DIR"
@@ -125,23 +141,23 @@ CHAIN_ID=$(cast chain-id --rpc-url "$RPC_URL" 2>/dev/null || echo "0")
 
 # Create or update state file
 if [[ -f "$STATE_FILE" ]]; then
-    # Update existing: add/replace the BaoPauser_v1 entry
-    jq --arg addr "$DEPLOYED" \
-       --arg time "$TIMESTAMP" \
-       '.implementations["BaoPauser_v1"] = {
+  # Update existing: add/replace the BaoPauser_v1 entry
+  jq --arg addr "$DEPLOYED" \
+    --arg time "$TIMESTAMP" \
+    '.implementations["BaoPauser_v1"] = {
             address: $addr,
             contractSource: "src/BaoPauser_v1.sol",
             deploymentTime: $time
         } | .lastUpdated = $time' \
-        "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+    "$STATE_FILE" >"${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
 else
-    # Create new state file
-    jq -n \
-        --arg network "$NETWORK" \
-        --arg chainId "$CHAIN_ID" \
-        --arg addr "$DEPLOYED" \
-        --arg time "$TIMESTAMP" \
-        '{
+  # Create new state file
+  jq -n \
+    --arg network "$NETWORK" \
+    --arg chainId "$CHAIN_ID" \
+    --arg addr "$DEPLOYED" \
+    --arg time "$TIMESTAMP" \
+    '{
             schemaVersion: 1,
             network: $network,
             chainId: ($chainId | tonumber),
@@ -153,7 +169,7 @@ else
                     deploymentTime: $time
                 }
             }
-        }' > "$STATE_FILE"
+        }' >"$STATE_FILE"
 fi
 
 echo ""

@@ -8,6 +8,15 @@ BAO_BASE_DIR=$BAO_BASE_DIR
 BAO_BASE_OS=$BAO_BASE_OS
 BAO_BASE_VERBOSITY=$BAO_BASE_VERBOSITY
 
+# Optional leading `--project <dir>`: run against that project's pyproject.toml (e.g. the bao-base
+# ROOT, where ruff's version AND its [tool.ruff] config live) instead of the default bin env. Anything
+# after it is the script/command + its args, exactly as before.
+DEPENDENCIES_DIR_OVERRIDE=""
+if [[ "${1:-}" == "--project" ]]; then
+  DEPENDENCIES_DIR_OVERRIDE="$2"
+  shift 2
+fi
+
 # Set the path to the script
 SCRIPT="$1"
 shift
@@ -15,8 +24,10 @@ debug "Script to run: $SCRIPT"
 debug "Arguments: $*"
 debug "Verbosity level: $BAO_BASE_VERBOSITY"
 
-# Set up directories: if "script" is a directory, use
-if [ ! -d "$BAO_BASE_BIN_DIR/$SCRIPT" ]; then
+# Set up directories: an explicit --project wins; else if "script" is a directory, use it; else bin.
+if [[ -n "$DEPENDENCIES_DIR_OVERRIDE" ]]; then
+  DEPENDENCIES_DIR="$DEPENDENCIES_DIR_OVERRIDE"
+elif [ ! -d "$BAO_BASE_BIN_DIR/$SCRIPT" ]; then
   DEPENDENCIES_DIR="$BAO_BASE_BIN_DIR"
 else
   DEPENDENCIES_DIR="$BAO_BASE_BIN_DIR/$SCRIPT"
