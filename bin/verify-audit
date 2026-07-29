@@ -39,6 +39,34 @@ set -euo pipefail
 # outside the tag's declared scope. All are reported as errors ("remove it") so
 # the ignore file stays minimal.
 
+# Where audited source may live. Rename detection pairs only among the paths that
+# survive the pathspec, so any location a source file can legitimately move TO must
+# be listed here: otherwise the move looks like an unpaired deletion inside src, and
+# git pairs it with whatever unrelated new file scores above its similarity
+# threshold — reporting that new file as drift while hiding the real move.
+_AUDIT_PATHSPEC=(src deprecated/src)
+
+# Where a deleted file went, if it is still on disk. Git pairs a rename only among
+# paths it tracks that survive the pathspec, so a move whose destination is untracked,
+# or outside _AUDIT_PATHSPEC, reaches the report as a plain deletion. Matching is by
+# exact blob identity, never similarity: an identical blob elsewhere IS the moved file.
+# Echoes a note, or nothing when the deletion is genuine.
+_locate_moved() { # $1 = tag, $2 = deleted path
+  local tag="$1" path="$2" blob base c
+  blob=$(git rev-parse "${tag}:${path}" 2>/dev/null) || return 0
+  base="${path##*/}"
+  while IFS= read -r c; do
+    [[ "${c##*/}" == "${base}" && -f "${c}" ]] || continue
+    [[ "$(git hash-object "${c}" 2>/dev/null)" == "${blob}" ]] || continue
+    if git ls-files --error-unmatch "${c}" >/dev/null 2>&1; then
+      printf 'identical content at %s (tracked, outside the audit pathspec - add its directory to _AUDIT_PATHSPEC)' "${c}"
+    else
+      printf 'identical content at %s (untracked - git add it so the move is seen as a rename)' "${c}"
+    fi
+    return 0
+  done < <(git ls-files --cached --others --exclude-standard)
+}
+
 # Confirm the metadata-disabling env switches actually take effect; else fail
 # loudly. Guards against a future Foundry renaming/ignoring these switches, which
 # would otherwise leave metadata in the bytecode and produce false fails/clears.
@@ -275,11 +303,27 @@ main() {
     declare -A _rename_src=()
     while IFS=$'\t' read -r _st _old _new; do
       _rename_src["${_new}"]="${_old}"
-    done < <(git diff -M -l0 --name-status --diff-filter=R "${t}" -- src)
+    done < <(git diff -M -l0 --name-status --diff-filter=R "${t}" -- "${_AUDIT_PATHSPEC[@]}")
 
     # Gather all changed files (-M -l0 forces rename detection regardless of repo
-    # diff.renames config), then keep only those within the tag's scope.
-    mapfile -t _changed_all < <(git diff -M -l0 --name-only --diff-filter=DMRT "${t}" -- src)
+    # diff.renames config), then keep only those within the tag's scope. Both diffs
+    # MUST use the same pathspec: they are separate git invocations, and rename
+    # detection pairs only among the paths that survive the pathspec, so differing
+    # specs would produce disagreeing rename maps.
+    # Status is captured from THIS diff, not re-queried per file: a per-file diff has
+    # no partner in its pathspec, so rename detection cannot run and a rename would be
+    # misreported as a deletion.
+    declare -A _status=()
+    _changed_all=()
+    while IFS=$'\t' read -r _st _p1 _p2; do
+      if [[ "${_st}" == R* ]]; then
+        _status["${_p2}"]="R"
+        _changed_all+=("${_p2}")
+      else
+        _status["${_p1}"]="${_st:0:1}"
+        _changed_all+=("${_p1}")
+      fi
+    done < <(git diff -M -l0 --name-status --diff-filter=DMRT "${t}" -- "${_AUDIT_PATHSPEC[@]}")
     changed=()
     _all_old=() # tag-time path of every changed file — the cascade overlaid so a
     # narrowly-scoped contract's renamed dependencies still resolve when it builds
@@ -442,6 +486,17 @@ main() {
     printf '\033[31m  CHANGED (not ignored):\033[0m\n'
     for f in "${check[@]}"; do
       printf '\033[31m    %s\033[0m\n' "$f"
+      # A deletion's diff is the whole file as removals: it says nothing beyond the
+      # filename and drowns the other entries. Report the fact instead.
+      if [[ "${_status[$f]:-}" == "D" ]]; then
+        _moved=$(_locate_moved "${t}" "${f}")
+        if [[ -n "${_moved}" ]]; then
+          printf '\033[2m      deleted since the tag; %s\033[0m\n' "${_moved}"
+        else
+          printf '\033[2m      deleted since the tag (no diff shown)\033[0m\n'
+        fi
+        continue
+      fi
       changes=$(GIT_PAGER="" git diff --minimal --color=always --diff-filter=DMRT "${t}" -- "$f")
       linecount=$(printf '%s\n' "${changes}" | wc -l)
       if [[ "${linecount}" -gt 20 ]]; then
