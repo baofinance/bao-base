@@ -24,6 +24,7 @@ import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
 /// @author rootminus0x1
 /// @dev Uses UUPS proxy, erc7201 storage
 /// @custom:oz-upgrades
+/// @custom:oz-upgrades-from src/MintableBurnableERC20_v1.sol:MintableBurnableERC20_v1
 // slither-disable-next-line unimplemented-functions
 // solhint-disable-next-line contract-name-capwords
 contract MintableBurnableERC20_v2 is
