@@ -22,7 +22,7 @@ import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 
-import {MintableBurnableERC20_v1} from "@bao/MintableBurnableERC20_v1.sol";
+import {MintableBurnableERC20_v2} from "@bao/MintableBurnableERC20_v2.sol";
 import {IMintableRole} from "@bao/interfaces/IMintableRole.sol";
 import {IBurnableRole} from "@bao/interfaces/IBurnableRole.sol";
 import {IMintable} from "@bao/interfaces/IMintable.sol";
@@ -55,15 +55,15 @@ contract TestLeveragedTokensSetUp is Test {
     }
 
     function setUp_impl() internal {
-        leveragedImpl = address(new MintableBurnableERC20_v1());
+        leveragedImpl = address(new MintableBurnableERC20_v2());
     }
 
     function setUp_proxy() internal {
         leveragedToken = address(
-            MintableBurnableERC20_v1(
+            MintableBurnableERC20_v2(
                 UnsafeUpgrades.deployUUPSProxy(
-                    leveragedImpl, //"MintableBurnableERC20_v1.sol",
-                    abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, name, symbol))
+                    leveragedImpl, //"MintableBurnableERC20_v2.sol",
+                    abi.encodeCall(MintableBurnableERC20_v2.initialize, (address(this), owner, name, symbol))
                 )
             )
         );
@@ -115,7 +115,7 @@ contract TestLeveragedToken is TestLeveragedTokensSetUp {
     function test_init() public {
         // expect a revert if initialize called twice
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        MintableBurnableERC20_v1(leveragedToken).initialize(address(this), name, symbol);
+        MintableBurnableERC20_v2(leveragedToken).initialize(address(this), address(this), name, symbol);
 
         // check the data has been set up correctly
         assertEq(IERC20Metadata(leveragedToken).name(), name, "wrong name");
@@ -343,7 +343,7 @@ contract TestLeveragedToken is TestLeveragedTokensSetUp {
 contract TestUpgrade is TestLeveragedTokensSetUp {
     function test_authorizeUpgrade() public {
         // Deploy a new implementation
-        address newImpl = address(new MintableBurnableERC20_v1());
+        address newImpl = address(new MintableBurnableERC20_v2());
 
         // Should revert if not owner
         vm.expectRevert(IBaoOwnable.Unauthorized.selector);
@@ -372,7 +372,7 @@ contract TestUpgradeRecovery is TestLeveragedTokensSetUp {
     /// Scenario: Factory.deploy created proxy with stub implementation, but upgradeToAndCall failed
     function test_recoverFromUninitializedProxy() public {
         // Deploy v1 implementation
-        address v1Impl = address(new MintableBurnableERC20_v1());
+        address v1Impl = address(new MintableBurnableERC20_v2());
 
         // Deploy proxy WITHOUT calling initialize (simulates failed upgradeToAndCall)
         // Use a minimal ERC1967 proxy pointing to v1 impl
@@ -390,7 +390,7 @@ contract TestUpgradeRecovery is TestLeveragedTokensSetUp {
         // Since no owner is set, anyone can initialize - this is the vulnerability
         // Initialize with wrong params to simulate a deployment mistake
         // Note: BaoOwnable sets msg.sender (this test contract) as owner, finalOwner as pending
-        MintableBurnableERC20_v1(uninitializedProxy).initialize(owner, WRONG_NAME, WRONG_SYMBOL);
+        MintableBurnableERC20_v2(uninitializedProxy).initialize(address(this), owner, WRONG_NAME, WRONG_SYMBOL);
 
         // Now test contract is owner, owner is pending owner
         assertEq(IERC20Metadata(uninitializedProxy).name(), WRONG_NAME, "wrong name set");
@@ -416,11 +416,11 @@ contract TestUpgradeRecovery is TestLeveragedTokensSetUp {
     function test_recoverFromWrongInitialization() public {
         // Deploy with wrong name/symbol (simulating deployment error)
         // Note: initialize sets msg.sender (test contract) as owner
-        address v1Impl = address(new MintableBurnableERC20_v1());
+        address v1Impl = address(new MintableBurnableERC20_v2());
         address wronglyInitializedProxy = address(
             new ERC1967Proxy(
                 v1Impl,
-                abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, WRONG_NAME, WRONG_SYMBOL))
+                abi.encodeCall(MintableBurnableERC20_v2.initialize, (address(this), owner, WRONG_NAME, WRONG_SYMBOL))
             )
         );
 
@@ -471,14 +471,17 @@ contract TestUpgradeRecovery is TestLeveragedTokensSetUp {
         address proxy = address(
             new ERC1967Proxy(
                 v2Impl,
-                abi.encodeCall(MintableBurnableERC20_v2_Reinit.initialize, (owner, CORRECT_NAME, CORRECT_SYMBOL))
+                abi.encodeCall(
+                    MintableBurnableERC20_v2_Reinit.initialize,
+                    (address(this), owner, CORRECT_NAME, CORRECT_SYMBOL)
+                )
             )
         );
 
         // Try to reinitialize with v1 - should fail (already at version 1)
         // Note: test contract is owner (BaoOwnable pattern)
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        MintableBurnableERC20_v2_Reinit(proxy).reinitializeV1(owner, "New Name", "NEW");
+        MintableBurnableERC20_v2_Reinit(proxy).reinitializeV1(address(this), owner, "New Name", "NEW");
 
         // Can still reinitialize to v2 (test contract is owner)
         MintableBurnableERC20_v2_Reinit(proxy).reinitializeV2("Updated Name", "UPD");
@@ -492,11 +495,11 @@ contract TestUpgradeRecovery is TestLeveragedTokensSetUp {
     /// @notice Test: Only owner can perform upgrade
     function test_onlyOwnerCanUpgradeToFix() public {
         // Deploy with wrong params - test contract becomes owner
-        address v1Impl = address(new MintableBurnableERC20_v1());
+        address v1Impl = address(new MintableBurnableERC20_v2());
         address proxy = address(
             new ERC1967Proxy(
                 v1Impl,
-                abi.encodeCall(MintableBurnableERC20_v1.initialize, (owner, WRONG_NAME, WRONG_SYMBOL))
+                abi.encodeCall(MintableBurnableERC20_v2.initialize, (address(this), owner, WRONG_NAME, WRONG_SYMBOL))
             )
         );
 

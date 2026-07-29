@@ -19,11 +19,14 @@ import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
 
-/// @title MintableBurnableERC20 v2 with reinitializer for fixing initialization
-/// @notice Used to fix proxies that were deployed without initialize or with wrong params
-/// @dev This is a test mock demonstrating how to fix botched deployments via upgrade
+/// @title Mintable Burnable ERC20 token
+/// @notice A simple mintable and burnable ERC20 token based on Openzeppelin
+/// @author rootminus0x1
+/// @dev Uses UUPS proxy, erc7201 storage
+/// @custom:oz-upgrades
+// slither-disable-next-line unimplemented-functions
 // solhint-disable-next-line contract-name-capwords
-contract MintableBurnableERC20_v2_Reinit is
+contract MintableBurnableERC20_v2 is
     Initializable,
     UUPSUpgradeable,
     ERC20PermitUpgradeable,
@@ -39,48 +42,37 @@ contract MintableBurnableERC20_v2_Reinit is
     uint256 public constant MINTER_ROLE = _ROLE_0;
     uint256 public constant BURNER_ROLE = _ROLE_1;
 
+    /// @notice initialise the UUPS proxy
+    /// @param deployerOwner_ The initial owner, used by the deploy script to configure the contract
+    /// @param pendingOwner_ The address the deployer hands ownership to, within an hour of initialisation
+    /// @param name_ The name of the ERC20 token
+    /// @param symbol_ The symbol of the ERC20 token. This expected to reflect the collateral and pegged token symbols
+    function initialize(
+        address deployerOwner_,
+        address pendingOwner_,
+        string memory name_,
+        string memory symbol_
+    ) public initializer {
+        _initializeOwner(deployerOwner_, pendingOwner_);
+        __UUPSUpgradeable_init();
+        __ERC20_init(name_, symbol_);
+        __ERC20Permit_init(name_);
+    }
+
+    /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version
+    /// https://forum.openzeppelin.com/t/what-does-disableinitializers-function-mean/28730
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
-    /// @notice Original initialize - kept for interface compatibility but will revert if already initialized
-    function initialize(
-        address pendingOwner,
-        address owner_,
-        string memory name_,
-        string memory symbol_
-    ) public initializer {
-        _initializeOwner(pendingOwner, owner_);
-        __UUPSUpgradeable_init();
-        __ERC20_init(name_, symbol_);
-        __ERC20Permit_init(name_);
-    }
+    /// @notice The check that allow this contract to be upgraded:
+    /// In UUPS proxies the implementation is responsible for upgrading itself
+    /// only owners can upgrade this contract.
+    function _authorizeUpgrade(address) internal override onlyOwner {} // solhint-disable-line no-empty-blocks
 
-    /// @notice Reinitialize to version 1 - used when proxy was deployed but initialize never called
-    /// @dev Use this when the proxy has code but initialize() was never invoked
-    function reinitializeV1(
-        address pendingOwner,
-        address owner_,
-        string memory name_,
-        string memory symbol_
-    ) public reinitializer(1) {
-        _initializeOwner(pendingOwner, owner_);
-        __UUPSUpgradeable_init();
-        __ERC20_init(name_, symbol_);
-        __ERC20Permit_init(name_);
-    }
-
-    /// @notice Reinitialize to version 2 - used to fix wrong name/symbol after v1 initialize
-    /// @dev Use this when initialize() was called with wrong parameters
-    /// @dev WARNING: This changes the EIP-712 domain, invalidating existing permit signatures
-    function reinitializeV2(string memory name_, string memory symbol_) public reinitializer(2) {
-        __ERC20_init(name_, symbol_);
-        __ERC20Permit_init(name_);
-    }
-
-    function _authorizeUpgrade(address) internal override onlyOwner {}
-
+    /// @notice Returns true if a given interface is supported.
+    /// @dev See {IERC165-supportsInterface}.
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
         return
             interfaceId == type(IMintableRole).interfaceId ||
