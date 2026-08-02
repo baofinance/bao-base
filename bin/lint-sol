@@ -10,7 +10,7 @@ config_suffix=""
 for arg in "$@"; do
   case "${arg}" in
     --test)
-      root_dir="test"
+      root_dir="{test,script}"
       config_suffix="-test"
       ;;
     -*)
