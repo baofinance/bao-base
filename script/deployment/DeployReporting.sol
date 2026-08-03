@@ -61,15 +61,32 @@ abstract contract DeployReporting {
 
     // ========== WHAT A DEPLOY PRODUCES ==========
 
-    /// @notice Announce the run: which salt prefix, which network.
+    /// @notice Announce the run: what is being deployed, under which salt prefix, on which network.
+    /// @param what What this run deploys, e.g. "Minter Contracts" or "Swap Stack". Passed rather than held,
+    ///        so the pair below stays stateless and a consumer needs no reporting subclass of its own just
+    ///        to name itself.
     /// @dev `saltPrefix_` is passed in rather than read from `saltPrefix()` because this is called before
     ///      `_setSaltPrefix` in some flows; the trailing underscore keeps it clear of that getter.
-    function _reportRun(string memory saltPrefix_, string memory network) internal view virtual {
+    function _reportRun(
+        string memory what,
+        string memory saltPrefix_,
+        string memory network
+    ) internal view virtual {
         if (!_shouldReport()) {
             return;
         }
+        console.log("=== Deploying %s ===", what);
         console.log("  Salt:    %s", saltPrefix_);
         console.log("  Network: %s", network);
+    }
+
+    /// @notice The run is over.
+    /// @param what The same value given to `_reportRun`, so the two lines bracket the run by name.
+    function _reportRunComplete(string memory what) internal view virtual {
+        if (!_shouldReport()) {
+            return;
+        }
+        console.log("=== %s Deployment Done ===", what);
     }
 
     /// @notice A top-level stage of the run.
