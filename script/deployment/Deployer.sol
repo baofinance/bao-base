@@ -2,7 +2,6 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Vm, VmSafe} from "forge-std/Vm.sol";
-import {console2 as console} from "forge-std/console2.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 import {FactoryDeployer} from "@bao-script/deployment/FactoryDeployer.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
@@ -127,10 +126,15 @@ abstract contract Deployer is FactoryDeployer {
         return !_vm.isContext(VmSafe.ForgeContext.TestGroup);
     }
 
+    // The `_reportNoTransactions` / `_reportBatchSaved` / `_reportExecuting` messages used below are
+    // declared on `DeployReporting`, at the base of the chain, alongside the rest of the deploy's
+    // running commentary — see the note there on why the transaction vocabulary is declared a layer
+    // below the concepts it names.
+
     /// @dev Accumulate queued transactions; write batch JSON when batch files are enabled.
     function _saveAndExecute(string memory suffix, string memory description) internal {
         if (_transactions.length == 0) {
-            console.log("No transactions queued - nothing to execute");
+            _reportNoTransactions();
             return;
         }
 
@@ -145,8 +149,7 @@ abstract contract Deployer is FactoryDeployer {
             string memory filename = string.concat(name, "_", timestamp, "_", fileSuffix, ".json");
             string memory path = string.concat(batchDir, "/", filename);
             _vm.writeJson(_buildSafeJson(description), path);
-            console.log("Safe batch saved to: %s", path);
-            console.log("  Transactions:", _transactions.length);
+            _reportBatchSaved(path, _transactions.length);
         }
 
         for (uint256 i = 0; i < _transactions.length; i++) {
@@ -172,7 +175,7 @@ abstract contract Deployer is FactoryDeployer {
             _vm.startBroadcast(owner());
         }
         for (uint256 i = 0; i < _allTransactions.length; i++) {
-            console.log("Executing:", _allTransactions[i].description);
+            _reportExecuting(_allTransactions[i].description);
             if (_allTransactions[i].target.code.length == 0) {
                 revert CallTargetHasNoCode(_allTransactions[i].target, _allTransactions[i].description);
             }

@@ -2,7 +2,6 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Vm, VmSafe} from "forge-std/Vm.sol";
-import {console2 as console} from "forge-std/console2.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
@@ -11,6 +10,7 @@ import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.so
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {SaltString} from "@bao-script/deployment/SaltString.sol";
+import {DeployReporting} from "@bao-script/deployment/DeployReporting.sol";
 
 /// @notice Well-known address entry for address-to-label mapping.
 struct WellKnownAddress {
@@ -33,12 +33,13 @@ interface IBaoOwnable {
 /// @dev Includes DeploymentOwnership pattern - tracks deployed contracts and transfers ownership at end.
 /// @dev Protocol-specific configs inherit this and implement owner(), treasury().
 /// @dev All deployment operations are idempotent - safe to re-run.
-abstract contract FactoryDeployer {
+abstract contract FactoryDeployer is DeployReporting {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     // ========== CONSTANTS ==========
 
-    /// @dev Foundry VM cheatcode address.
+    /// @dev Foundry VM cheatcode address. Redeclared rather than inherited — see the note on the same
+    ///      constant in `DeployReporting` for why every contract in this chain keeps its own `private` one.
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     // ========== ERRORS ==========
@@ -122,6 +123,11 @@ abstract contract FactoryDeployer {
         return !vm.isContext(VmSafe.ForgeContext.TestGroup);
     }
 
+    // The deploy's running commentary lives in `DeployReporting`, inherited above — including the
+    // `_shouldReport` predicate, which completes the family with `_shouldPersistState` here and
+    // `_shouldWriteBatchFiles` on `Deployer`. It is a separate file so that its permanently-uncovered
+    // message bodies do not mask the coverage of the deployment code in this one.
+
     /// @notice Resolve the state file path for reading.
     /// @dev Default reads DEPLOY_STATE_FILE_READ env var (set by run-script).
     ///      Override in tests to return a test-specific path.
@@ -152,7 +158,7 @@ abstract contract FactoryDeployer {
     function _getOrDeployStub() internal returns (UUPSProxyDeployStub) {
         if (address(_proxyDeployStub) == address(0)) {
             _proxyDeployStub = new UUPSProxyDeployStub();
-            console.log("      UUPSProxyDeployStub: %s", address(_proxyDeployStub));
+            _reportDetail("UUPSProxyDeployStub:", address(_proxyDeployStub));
         }
         return _proxyDeployStub;
     }
@@ -174,10 +180,9 @@ abstract contract FactoryDeployer {
             address deployed = _pendingOwnershipTransfers.at(i);
             string memory salt = _ownershipTransferSalts[deployed];
             address currentOwner = IBaoOwnable(deployed).owner();
-            if (currentOwner == pendingOwner) {
-                console.log("        %s -> %s (already owned)", salt, ownerLabel);
-            } else {
-                console.log("        %s -> %s", salt, ownerLabel);
+            bool alreadyOwned = currentOwner == pendingOwner;
+            _reportOwnershipTransfer(salt, ownerLabel, alreadyOwned);
+            if (!alreadyOwned) {
                 IBaoOwnable(deployed).transferOwnership(pendingOwner);
             }
         }
@@ -310,7 +315,7 @@ abstract contract FactoryDeployer {
         address proxy,
         address implementation
     ) private {
-        console.log("        Proxy: %s", proxy);
+        _reportProxy(proxy);
         _registerForOwnershipTransfer(proxy, _saltString(proxyId));
         DeploymentState.recordProxy(
             stateData,

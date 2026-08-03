@@ -76,6 +76,10 @@ contract TestableFactoryDeployer is FactoryDeployer {
         return _shouldPersistState();
     }
 
+    function shouldReport() external view returns (bool) {
+        return _shouldReport();
+    }
+
     function setSaltPrefix(string memory prefix) external {
         _setSaltPrefix(prefix);
     }
@@ -562,6 +566,12 @@ contract FactoryDeployerTest is BaoTest {
         assertFalse(deployer.shouldPersistState());
     }
 
+    function test_shouldReport_defaultFalseInTestContext() public view {
+        // The deploy's running commentary is a script-run artifact too: useful to an operator watching a
+        // deploy, noise in a test that is only using the deploy to arrange a fixture.
+        assertFalse(deployer.shouldReport());
+    }
+
     function test_saveState_respectsShouldPersistState() public {
         // _shouldPersistState is false in test context, so saveState is a no-op (writes no files)
         DeploymentTypes.State memory state;
@@ -587,6 +597,14 @@ contract DefaultPersistenceDeployer is FactoryDeployer {
 
     function _shouldPersistState() internal pure override returns (bool) {
         return true;
+    }
+
+    function _shouldReport() internal pure override returns (bool) {
+        return true;
+    }
+
+    function shouldReport() external pure returns (bool) {
+        return _shouldReport();
     }
 
     function setSaltPrefix(string memory prefix) external {
@@ -629,6 +647,11 @@ contract FactoryDeployerPersistenceTest is BaoTest {
 
     function test_shouldPersistState_overrideForcesPersistence() public view {
         assertTrue(deployer.shouldPersistState());
+    }
+
+    function test_shouldReport_overrideForcesReporting() public view {
+        // The escape hatch for a test that is ABOUT the deploy rather than merely using it.
+        assertTrue(deployer.shouldReport());
     }
 
     function test_stateFileRead_readsEnvVar() public view {

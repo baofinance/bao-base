@@ -1,9 +1,10 @@
 | File                                        | % Lines            | % Statements       | % Branches       | % Funcs          |
 |---------------------------------------------|--------------------|--------------------|------------------|------------------|
 | script/deployment/ConfigChain.sol           | ✓ 100% (2/2)       | ✓ 100% (1/1)       | ✓ 100% (0/0)     | ✓ 100% (1/1)     |
-| script/deployment/Deployer.sol              | X  95% (62/65)     | X  94% (68/72)     | X  73% (8/11)    | X  92% (11/12)   |
+| script/deployment/DeployReporting.sol       | X  43% (21/49)     | X  39% (15/38)     | X  46% (6/13)    | X  64% (7/11)    |
+| script/deployment/Deployer.sol              | X  95% (61/64)     | X  94% (67/71)     | X  73% (8/11)    | X  92% (11/12)   |
 | script/deployment/DeploymentState.sol       | ✓ 100% (52/52)     | ✓ 100% (71/71)     | ✓ 100% (9/9)     | ✓ 100% (9/9)     |
-| script/deployment/FactoryDeployer.sol       | ✓ 100% (98/98)     | ✓ 100% (104/104)   | X  86% (12/14)   | ✓ 100% (23/23)   |
+| script/deployment/FactoryDeployer.sol       | ✓ 100% (98/98)     | ✓ 100% (105/105)   | X  85% (11/13)   | ✓ 100% (23/23)   |
 | script/deployment/JsonParser.sol            | ✓ 100% (79/79)     | ✓ 100% (106/106)   | ✓ 100% (11/11)   | ✓ 100% (5/5)     |
 | script/deployment/JsonSerializer.sol        | ✓ 100% (136/136)   | ✓ 100% (206/206)   | ✓ 100% (22/22)   | ✓ 100% (10/10)   |
 | script/deployment/SaltString.sol            | ✓ 100% (10/10)     | ✓ 100% (9/9)       | ✓ 100% (0/0)     | ✓ 100% (5/5)     |
@@ -36,4 +37,4 @@
 | src/internal/BaoRoles_v2.sol                | ✓ 100% (47/47)     | X  98% (42/43)     | ✓ 100% (4/4)     | ✓ 100% (14/14)   |
 | src/internal/HarborRoles.sol                | ✓ 100% (2/2)       | ✓ 100% (1/1)       | ✓ 100% (0/0)     | ✓ 100% (1/1)     |
 | src/internal/HarborRolesCore.sol            | ✓ 100% (54/54)     | ✓ 100% (47/47)     | ✓ 100% (5/5)     | ✓ 100% (17/17)   |
-| Total                                       | X  82% (2004/2435) | X  85% (1834/2147) | X  70% (120/171) | X  74% (501/677) |
+| Total                                       | X  82% (2030/2489) | X  85% (1854/2190) | X  68% (125/183) | X  74% (511/691) |
