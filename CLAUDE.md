@@ -92,6 +92,35 @@ The architectural fix is worth far more than the convenience of deferring it:
 (Complements "Do it right from the start": that rule is about *where* code lives;
 this is about the *order* — foundation before dependents.)
 
+### External libraries reduce contract size; internal libraries share code
+Two distinct jobs, two distinct tools. Choosing by habit rather than by job is how a contract runs out
+of its 24 KB while its "libraries" deploy at 85 bytes each.
+
+1. **Extract to an EXTERNAL library to reduce contract size.** An external library (any `external` or
+   `public` function) deploys separately and is reached by `DELEGATECALL`, so its code leaves the
+   calling contract's bytecode. This is the only mechanism that reduces a contract's size.
+   **Do NOT extract when the extraction would result in more than one external call in a single
+   transaction** — code invoked per item in a loop, or from several places in one flow, multiplies the
+   call overhead and trades a size problem for a gas one. Everything else extracts: a keeper trigger, a
+   governance action, or a user entrypoint pays one extra call, which is noise beside the token
+   transfers and oracle reads already in it.
+2. **Use an INTERNAL library ONLY to share code between external libraries and contracts.** `internal`
+   functions are inlined into every consumer, so an internal library reduces nothing — its code IS the
+   consumer's bytecode. Its purpose is CONSISTENCY where inheritance cannot reach: one definition
+   compiled into the contract and into each external library that needs it. An internal library with a
+   single consumer has no reason to exist — fold it into that consumer, or make it external under (1).
+
+Consequences worth designing for rather than discovering:
+- A shared internal library is duplicated into each consumer's bytecode. That is expected and correct —
+  each consumer has its own size budget — but it means (2) buys consistency, never size. Do not later
+  "optimise" a shared internal library into an external one; that breaks the reason it exists.
+- **An external library cannot read the calling contract's immutables.** It shares the contract's
+  STORAGE under `DELEGATECALL`, but immutables live in the caller's code, which the library cannot see.
+  Any immutable the extracted code needs must become a parameter — decide this when designing the
+  extraction, not when the compiler refuses it.
+- Errors and events stay declared on the interface (see the rule below), so the contract and its
+  external libraries revert and emit the same ones.
+
 ### One code path for default and non-default cases
 Do not write one piece of code to establish a default value and a separate piece
 to handle switching to a non-default one. Both should flow through the same path

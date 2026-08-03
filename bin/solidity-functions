@@ -12,6 +12,10 @@ Two sizing modes:
             charged to the function whose source range contains the instruction. Bytes
             from base contracts / libraries / the dispatcher are reported as overhead.
             This is exact attribution (sums to the EIP-170 figure), not a heuristic.
+            A contract that links EXTERNAL libraries is handled: the unlinked address
+            placeholders are length-preserving, so attribution is unaffected, and the
+            libraries are named in the header. Such a contract's total counts only the
+            DELEGATECALL stubs — the library bodies deploy separately, under their own limits.
 
 Usage:
   solidity-functions <file.sol> [--bytecode] [--contract Name] [--all] [--min-lines N]
@@ -130,6 +134,30 @@ def find_functions(src: str):
     return funcs
 
 
+# A contract that links an external library carries a placeholder wherever the linker will write
+# that library's address: `__$` + 34 hex characters of the library-name hash + `$__`.
+LINK_PLACEHOLDER = re.compile(r"__\$[0-9a-fA-F]{34}\$__")
+
+
+def resolve_link_placeholders(bytecode_hex: str, artifact_path: Path) -> tuple[str, int]:
+    """bytecode_hex with each library-address placeholder replaced by 40 hex zeros, and the count
+    replaced. A placeholder is exactly 40 characters and stands for exactly the 20 bytes of the
+    PUSH20 operand that loads the library address, so substituting 40 hex digits leaves every
+    instruction boundary — and therefore the whole attribution — unchanged. The address itself is
+    never read here; only the lengths matter.
+    """
+    resolved, count = LINK_PLACEHOLDER.subn("0" * 40, bytecode_hex)
+    stray = re.search(r"[^0-9a-fA-F]", resolved)
+    if stray is not None:
+        context = resolved[max(0, stray.start() - 20):stray.start() + 20]
+        raise SystemExit(
+            f"solidity-functions: {artifact_path}: deployedBytecode is not hexadecimal at character "
+            f"{stray.start()} ({stray.group()!r}), after replacing {count} library placeholder(s). "
+            f"Surrounding text: {context!r}"
+        )
+    return resolved, count
+
+
 def opcode_offsets(bytecode_hex: str):
     """Yield (instruction_index, byte_length) for each opcode (PUSHn consume operand bytes)."""
     b = bytes.fromhex(bytecode_hex)
@@ -159,7 +187,8 @@ def parse_source_map(sm: str):
 def attribute_bytecode(funcs, artifact_path: Path):
     art = json.loads(artifact_path.read_text())
     db = art["deployedBytecode"]
-    code = db["object"].removeprefix("0x")
+    code, _replaced = resolve_link_placeholders(db["object"].removeprefix("0x"), artifact_path)
+    links = sorted(name for refs in db.get("linkReferences", {}).values() for name in refs)
     smap = parse_source_map(db["sourceMap"])
     self_f = smap[0][2]  # first entry maps the contract's own definition → its file index
     lengths = list(opcode_offsets(code))
@@ -183,7 +212,7 @@ def attribute_bytecode(funcs, artifact_path: Path):
         else:
             func_bytes[id(hit)] += ln
     total = len(bytes.fromhex(code))
-    return func_bytes, overhead, total
+    return func_bytes, overhead, total, links
 
 
 def main() -> int:
@@ -222,20 +251,31 @@ def main() -> int:
                       file=sys.stderr)
                 return 1
             artifact = matches[0]
-        func_bytes, overhead, total = attribute_bytecode(funcs, artifact)
+        func_bytes, overhead, total, links = attribute_bytecode(funcs, artifact)
         rows = [(func_bytes[id(fn)], fn) for fn in funcs if keep(fn) and not fn["is_decl"]]
         rows.sort(key=lambda r: r[0], reverse=True)
         print(f"# {args.file} :: {contract} — actual deployed bytecode attribution (total {total} bytes, "
               f"EIP-170 limit 24576)")
+        if links:
+            print(f"# links {len(links)} external librar{'y' if len(links) == 1 else 'ies'}: "
+                  f"{', '.join(links)}. Each call site below counts only its DELEGATECALL stub; the "
+                  f"library bodies deploy separately and are not in this total.")
         print(f"{'bytes':>7}  {'visibility':<10} {'lines@':<12} name")
         for size, fn in rows:
             qual = f"{fn['scope']}.{fn['name']}" if fn["scope"] else fn["name"]
             loc = f"{fn['start_line']}-{fn['end_line']}"
             print(f"{size:>7}  {fn['vis']:<10} {loc:<12} {qual}")
+        # Functions attributed bytes but filtered out of `rows` (internal/private, or another scope in
+        # this file) still hold real bytecode. Report them as one line rather than dropping them, so
+        # TOTAL always reconciles with the figure in the header.
+        listed = {id(fn) for _, fn in rows}
+        unlisted = sum(size for fn_id, size in func_bytes.items() if fn_id not in listed)
         print("  ----  overhead (not a single function):")
         for label, size in overhead.items():
             print(f"{size:>7}  {label}")
-        attributed = sum(s for s, _ in rows) + sum(overhead.values())
+        if unlisted:
+            print(f"{unlisted:>7}  functions not listed above (re-run with --all)")
+        attributed = sum(s for s, _ in rows) + sum(overhead.values()) + unlisted
         print(f"{attributed:>7}  TOTAL attributed")
         return 0
 
