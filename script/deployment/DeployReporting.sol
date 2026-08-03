@@ -67,11 +67,7 @@ abstract contract DeployReporting {
     ///        to name itself.
     /// @dev `saltPrefix_` is passed in rather than read from `saltPrefix()` because this is called before
     ///      `_setSaltPrefix` in some flows; the trailing underscore keeps it clear of that getter.
-    function _reportRun(
-        string memory what,
-        string memory saltPrefix_,
-        string memory network
-    ) internal view virtual {
+    function _reportRun(string memory what, string memory saltPrefix_, string memory network) internal view virtual {
         if (!_shouldReport()) {
             return;
         }
