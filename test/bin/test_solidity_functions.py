@@ -77,9 +77,7 @@ def build_artifact(tmp_path, *, linked=True):
             "0:1:1",
         ]
     )
-    link_references = (
-        {"src/SampleLib.sol": {"SampleLib": [{"start": 1, "length": 20}]}} if linked else {}
-    )
+    link_references = {"src/SampleLib.sol": {"SampleLib": [{"start": 1, "length": 20}]}} if linked else {}
     artifact = {
         "deployedBytecode": {
             "object": "0x" + code,
@@ -100,9 +98,7 @@ def build_artifact(tmp_path, *, linked=True):
 
 def run_main(monkeypatch, capsys, source_path, *extra_args):
     module = load_module()
-    monkeypatch.setattr(
-        "sys.argv", ["solidity-functions", str(source_path), "--bytecode", *extra_args]
-    )
+    monkeypatch.setattr("sys.argv", ["solidity-functions", str(source_path), "--bytecode", *extra_args])
     assert module.main() == 0
     return capsys.readouterr().out
 
