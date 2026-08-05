@@ -31,6 +31,19 @@ done
 ACTION_YML="${BAO_BASE_DIR}/.github/actions/${action}/action.yml"
 if [[ ! -f "$ACTION_YML" ]]; then
   echo "ERROR: actions file not found: $ACTION_YML" >&2
+  # the valid names are not written down anywhere else — they are whichever action directories
+  # hold an action.yml — so list them rather than leaving the caller to go looking
+  valid_actions=()
+  for candidate in "${BAO_BASE_DIR}"/.github/actions/*/action.yml; do
+    if [[ -f "$candidate" ]]; then
+      valid_actions+=("$(basename "$(dirname "$candidate")")")
+    fi
+  done
+  if [[ ${#valid_actions[@]} -gt 0 ]]; then
+    echo "valid actions: ${valid_actions[*]}" >&2
+  else
+    echo "no action.yml found under ${BAO_BASE_DIR}/.github/actions/" >&2
+  fi
   exit 1
 fi
 

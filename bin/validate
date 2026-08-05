@@ -4,8 +4,8 @@ set -euo pipefail
 SCRIPT_ARGS=("$@")
 
 # Parse .validate-ignore: each non-comment non-blank line is "check file".
-# Supported checks: naming, pragma, storage, upgrades, bare-imports, relative-imports.
-VALID_CHECKS=(naming pragma storage upgrades bare-imports relative-imports)
+# Supported checks: naming, pragma, storage, upgrades, bare-imports, relative-imports, broadcast-scope.
+VALID_CHECKS=(naming pragma storage upgrades bare-imports relative-imports broadcast-scope)
 declare -A validate_ignores=()
 _ignore_parse_failed=0
 if [[ -f .validate-ignore ]]; then
@@ -534,3 +534,26 @@ if [[ $relative_failed -ne 0 ]]; then
   return 1
 fi
 echo "SUCCESS: (no relative imports)"
+
+# ================================================================
+# Broadcast scope — config objects created inside a broadcast
+# ================================================================
+echo
+echo "checking for config objects created inside a broadcast..."
+echo "---------------------------------------------------------"
+echo
+
+# pass this check's .validate-ignore entries through. Both loop and expansion are guarded on the
+# array being non-empty, because an empty array expansion is an error under `set -u` before bash 4.4
+broadcast_scope_ignores=()
+if [[ ${#validate_ignores[@]} -gt 0 ]]; then
+  for _ignore_key in "${!validate_ignores[@]}"; do
+    if [[ "$_ignore_key" == "broadcast-scope "* ]]; then
+      broadcast_scope_ignores+=(--ignore "${_ignore_key#broadcast-scope }")
+    fi
+  done
+fi
+
+"$BAO_BASE_BIN_DIR"/run-python broadcast-scope src script test \
+  ${broadcast_scope_ignores[@]+"${broadcast_scope_ignores[@]}"} ||
+  error "broadcast-scope validate failed (a config object is created inside a vm.startBroadcast() region)"
