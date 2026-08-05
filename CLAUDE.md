@@ -121,6 +121,41 @@ Consequences worth designing for rather than discovering:
 - Errors and events stay declared on the interface (see the rule below), so the contract and its
   external libraries revert and emit the same ones.
 
+### Version what is deployed; do not version what is inlined
+The name says which of the two jobs above a library does, and a reader must be able to tell without
+opening it.
+- **An EXTERNAL library is a deployed artefact**: it has an address, it is linked into each consumer's
+  bytecode, and swapping it is a deployment event. Version it exactly like a contract — `VaultManager_v1`,
+  `CompoundManager_v1`. The suffix tracks the deployed thing, which is precisely what needs tracking.
+- **An INTERNAL library is inlined and has no deployed identity**: it is source that becomes part of
+  every consumer. Name it `SomethingLib` with NO version — `ValuationLib`, `TokenStackLib`. A version
+  suffix there implies an artefact that can be swapped independently, and none exists; it also invites
+  the "which version is deployed?" question that has no answer.
+
+So `*Manager_v1` / `*_v1` for external, `*Lib` for internal — and if a library's visibility changes, its
+name changes with it, because the name is the claim about what it is.
+
+### An ERC-7201 namespace names the STRUCT, so it carries no version
+The namespace string derives the storage slot, so it is the only thing making existing data reachable.
+Version it and the first upgrade that "updates the name to match the contract" silently orphans every
+holder's balance in slots nothing reads. Use `<project>.storage.<Struct>` — `bao.storage.Minter` is read
+by `Minter_v3` and always will be.
+- A struct whose layout must change gains fields at the END, under the same name. Appending is the whole
+  point of namespaced storage.
+- Storage that genuinely cannot be appended takes a NEW namespace under its own name, leaving the old
+  one intact and still readable by whatever still owns it. That is a second namespace, never a second
+  version of the first.
+- **Put `@custom:storage-location erc7201:<ns>` on the STRUCT**, not on the slot constant. On the
+  constant it attaches to nothing and the validator silently ignores it.
+- **Verify with `yarn validate`, not by hand.** It re-derives every hardcoded slot constant from its
+  annotation and compares ("✓ hardcoded namespace slots verify against their ERC-7201 hashes"), covering
+  every contract at once. Hand-deriving with `cast keccak` checks one value and proves nothing about the
+  annotation agreeing with it.
+- If the struct must be shared with libraries it cannot live inside the contract, and the annotation
+  cannot go on it. Wrap it in an annotated single-member struct declared INSIDE the contract: a wrapper
+  whose only member is the struct has that struct's exact layout, so validation is restored with no
+  duplicated field and no drift.
+
 ### One code path for default and non-default cases
 Do not write one piece of code to establish a default value and a separate piece
 to handle switching to a non-default one. Both should flow through the same path
