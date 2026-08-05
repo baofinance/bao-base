@@ -17,7 +17,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 
-import {PermittableERC20_v1} from "@bao/PermittableERC20_v1.sol";
+import {PermittableERC20_v1} from "../src/PermittableERC20_v1.sol";
 
 import {PermitTestBase} from "@bao-test/helpers/PermitTestBase.t.sol";
 
