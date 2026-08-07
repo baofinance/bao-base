@@ -197,6 +197,23 @@ run the test again to confirm it passes. Confirming red first proves the test
 actually exercises the change; a test that was green before you touched anything
 proves nothing. (The bugfix-specific form of this is under "Other rules".)
 
+When the test can only be written AFTER the code (a new capability has nothing to
+assert against until it compiles), get the same proof by breaking the code on
+purpose and confirming the test goes red for the right reason. **Any such
+deliberate break must be fenced with markers**, so it is greppable and cannot be
+left behind:
+
+```
+// TEST MODIFICATION BEGIN - MUST BE REVERTED
+// <what was changed and which test is expected to go red>
+...
+// TEST MODIFICATION END
+```
+
+Revert it immediately afterwards and confirm `grep -rn "TEST MODIFICATION"` finds
+nothing before reporting the work. Never leave a deliberate break in place across
+a checkpoint, and never use an unfenced one.
+
 ### Questions are not instructions
 When a message ends with "?", it is a question to answer in the reply — not an
 instruction to act on. Answer it before doing anything else, and do not treat it
