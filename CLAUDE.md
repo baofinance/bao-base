@@ -235,6 +235,35 @@ Revert it immediately afterwards and confirm `grep -rn "TEST MODIFICATION"` find
 nothing before reporting the work. Never leave a deliberate break in place across
 a checkpoint, and never use an unfenced one.
 
+### `test/` is reproducible; `script/verify/` is where it need not be
+Everything under `test/` must be deterministic and repeatable — the same inputs
+give the same result on any machine, any day. A fork PINNED to a block is
+reproducible and belongs there; anything tracking chain HEAD, live prices, or
+current balances is not, and belongs under `script/verify/`.
+
+This splits upgrade testing in two, and each half is weaker if it tries to be the
+other:
+- **`test/` proves the upgrade MECHANICS** — that an upgrade can be performed at
+  all: the proxy accepts the new implementation, ownership survives, the thing is
+  still callable. Hand-built fixtures on the previous implementation are the right
+  input here, precisely because they are reproducible. It does not need real data.
+- **`script/verify/` exercises the actual upgrade SCRIPTS** against real state —
+  data migration, functional compatibility, whatever only live data can show.
+  Non-reproducibility is the point, not a defect.
+
+So "the test builds a synthetic previous-version contract" is not a weakness in a
+`test/` upgrade test; it is the correct choice. Do not migrate such a fixture onto
+real forked state to make it "more faithful" — that moves it to the other half of
+the split and loses the reproducibility that justified its location.
+
+**`test/` exists to test PENDING deploys — the upgrade about to be performed, not
+one already made.** So there is exactly one upgrade worth testing per contract at
+any time: from the version DEPLOYED (check `deployments/*.state.json`) to the
+version in SOURCE. If mainnet runs `Foo_v2` and the repo holds `Foo_v3`, the test
+is v2→v3; a v1→v2 test re-confirms something that already succeeded and earns
+nothing, so delete it rather than carry it. When an upgrade ships, retarget the
+test to the next step rather than adding another.
+
 ### Questions are not instructions
 When a message ends with "?", it is a question to answer in the reply — not an
 instruction to act on. Answer it before doing anything else, and do not treat it
