@@ -44,11 +44,32 @@ without being asked; it is an obligation, not a tolerated exception.
 
 ## Design principles
 
-### Fix or remove files that cause errors or warnings
+### Fix, park, or remove files that cause errors or warnings
 Any file — including legacy config, stale declarations, or superseded build
-setup — that causes a compiler error or warning must be fixed or deleted, even
-if it is "not the file we're working on". If a file is no longer needed, delete
-it; if it needs updating, update it. The codebase should be clean on every build.
+setup — that causes a compiler error or warning must be dealt with, even if it is
+"not the file we're working on". The codebase should be clean on every build.
+Three outcomes, in order of preference:
+
+1. **Fix it.** The default. If it needs updating, update it.
+2. **Park it**, when the file still has value that has not been captured yet —
+   its replacement is not written, or it holds intent that would be lost. Rename
+   it so the toolchain no longer sees it: append a suffix AFTER the extension so
+   it stops matching the compiled pattern, e.g.
+   `Foo.t.sol` → `Foo.t.sol.superseded`. Do not comment the contents out and do
+   not leave it where it still compiles.
+3. **Delete it.** When nothing is left to recover, because version control
+   already holds the content.
+
+Parking is a deferral, not a resting place, so it carries obligations: say in
+the plan (or an issue) what superseded the file, what would bring it back, and
+who decides. A parked file cannot be compiled or tested, so it drifts further
+out of date with every refactor around it — the longer it sits, the less likely
+it is ever to return. Prefer capturing the intent in its replacement and
+deleting; park only when that capture has not happened yet.
+
+**Whether to park or delete is the USER'S call, never a unilateral one** — the
+judgement is about whether the value is already captured, which is theirs to
+make. Propose, do not act.
 
 ### Do it right from the start
 Implement code in its intended final location — the right package, file, and
