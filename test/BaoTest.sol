@@ -17,9 +17,32 @@ abstract contract BaoTest is Test {
     /// @notice Harbor multisig address - hardcoded for deterministic deployment
     address internal constant HARBOR_MULTISIG = 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2;
 
+    /// @notice The mainnet block every repo's `test/` suite forks at.
+    /// @dev Pinned, because a `test/` fork must be reproducible — the same inputs on any machine, any day.
+    ///      SHARED across repos deliberately: CI caches fork data per block, so one block means one cached
+    ///      dataset instead of one per repo, and a cold run fetches it once rather than several times. That
+    ///      is why this lives here rather than in each repo.
+    ///
+    ///      Changing it is a CROSS-REPO event: every consumer re-runs against different chain state, and
+    ///      anything asserting a fact about the chain at a block can move with it — an address with no code
+    ///      may acquire some, EIP-7702 delegations appear on EOAs, rates drift. Expect to re-verify, not
+    ///      merely re-run. The CI cache key in `.github/actions/test-foundry` names this same number and
+    ///      must be changed with it.
+    ///
+    ///      `script/verify/` deliberately does NOT use this: its blocks are chosen per upgrade, and its
+    ///      whole point is meeting real state rather than a reproducible one.
+    uint256 internal constant MAINNET_FORK_BLOCK = 24699497;
+
     constructor() {
         vm.label(NICKS_FACTORY, "NicksFactory");
         vm.label(HARBOR_MULTISIG, "HarborMultisig");
+    }
+
+    /// @notice Select a mainnet fork at the shared pinned block.
+    /// @dev A helper rather than a bare constant so no repo repeats the incantation either, and so the
+    ///      choice of RPC alias stays in one place.
+    function forkMainnet() internal returns (uint256 forkId) {
+        return vm.createSelectFork(vm.rpcUrl("mainnet"), MAINNET_FORK_BLOCK);
     }
 
     // Matches forge's assertApproxEqRel scaling: 1e18 == 100% relative tolerance.

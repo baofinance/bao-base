@@ -64,6 +64,7 @@ runs:
       uses: foundry-rs/foundry-toolchain@v1
       with:
         version: ${{ steps.nightly.outputs.tag || inputs.foundry }}
+        cache-key: fork-24699497 # change this number and update the bao-base BaoTest's forkMainnet() function
       id: foundry-install
 
     - shell: bash
