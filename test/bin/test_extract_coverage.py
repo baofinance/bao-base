@@ -76,9 +76,9 @@ def test_total_sums_exactly_the_rows_the_report_keeps(kept_count: int):
     """
     df, reported, total = extract(KEPT[:kept_count])
 
-    assert [row[0] for row in reported] == [
-        row.split("|")[1].strip() for row in KEPT[:kept_count]
-    ], "filtering kept the wrong rows"
+    assert [row[0] for row in reported] == [row.split("|")[1].strip() for row in KEPT[:kept_count]], (
+        "filtering kept the wrong rows"
+    )
 
     for column in range(1, len(df.columns)):
         covered = sum(counts(row[column])[0] for row in reported)
