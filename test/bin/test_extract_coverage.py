@@ -1,6 +1,8 @@
 import importlib.util
 import pathlib
-import textwrap
+import re
+
+import pytest
 
 
 def load_module():
@@ -12,89 +14,101 @@ def load_module():
     return module
 
 
-def sample_table() -> str:
-    return textwrap.dedent(
-        """
-        | File | % Lines | % Statements | % Branches | % Funcs |
-        |------+---------+--------------+------------+---------|
-        | script/examples/ExampleProductionDeployment.s.sol | 0% (0/8) | 0% (0/7) | 100% (0/0) | 0% (0/3) |
-        | script/deployment/Deployment.sol | 87% (118/136) | 89% (128/144) | 50% (14/28) | 84% (16/19) |
-        | src/BaoOwnable.sol | 100% (27/27) | 100% (24/24) | 100% (3/3) | 100% (6/6) |
-        | Total | 80% (1722/2151) | 83% (1671/2002) | 57% (149/261) | 70% (362/514) |
-        """
-    ).strip()
+# Rows the extractor keeps: under src/ or script/, not a deploy stub, not a verification one-shot.
+KEPT = [
+    "| src/KeptOne.sol         | 50.00% (10/20)   | 50.00% (5/10)    | 50.00% (2/4)   | 50.00% (1/2)     |",
+    "| script/KeptTwo.sol      | 25.00% (5/20)    | 20.00% (2/10)    | 25.00% (1/4)   | 50.00% (1/2)     |",
+]
+
+# Rows the extractor drops, one per exclusion rule. Each is fully covered, so leaving any of them in
+# the sum would raise the Total - which is exactly how the real report overstated itself.
+FILTERED = [
+    "| script/Deploy.s.sol     | 100.00% (60/60)  | 100.00% (30/30)  | 100.00% (8/8)  | 100.00% (6/6)    |",
+    "| script/verify/Once.sol  | 100.00% (40/40)  | 100.00% (20/20)  | 100.00% (4/4)  | 100.00% (4/4)    |",
+    "| src/../script/Dupe.sol  | 100.00% (30/30)  | 100.00% (15/15)  | 100.00% (4/4)  | 100.00% (2/2)    |",
+]
+
+# forge's own Total, spanning every row above whether the report keeps it or not. Deliberately wrong for
+# each case below, so a Total that merely echoes it cannot pass.
+FORGE_TOTAL = "| Total                   | 96.43% (145/150) | 92.00% (72/85)   | 79.17% (19/24) | 93.75% (15/16)   |"
+
+HEADER = [
+    "| File                    | % Lines          | % Statements     | % Branches     | % Funcs          |",
+    "|-------------------------|------------------|------------------|----------------|------------------|",
+]
 
 
-def invariant_call_summary_table() -> str:
-    # Forge prints a per-invariant "call summary" table to stdout when it runs
-    # the invariant tests; the coverage run captures it into the same log the
-    # extractor filters. It is not a coverage table.
-    return textwrap.dedent(
-        """
-        | Contract                      | Selector           | Calls | Reverts | Discards |
-        |-------------------------------+--------------------+-------+---------+----------|
-        | StabilityPoolInvariantHandler | checkpointActor    | 914   | 0       | 0        |
-        | StabilityPoolInvariantHandler | claimRewards       | 909   | 0       | 0        |
-        """
-    ).strip()
+def table(kept: list[str]) -> str:
+    return "\n".join(HEADER + kept + FILTERED + [FORGE_TOTAL])
 
 
-def file_headed_non_coverage_table() -> str:
-    # A table whose first column is "File" but which is not the coverage
-    # summary (no "% Lines/…" columns) must not be mistaken for coverage.
-    return textwrap.dedent(
-        """
-        | File          | Size  |
-        |---------------+-------|
-        | src/Foo.sol   | 1234  |
-        """
-    ).strip()
+def counts(cell: str) -> tuple[int, int]:
+    match = re.search(r"\((\d+)/(\d+)\)", cell)
+    assert match is not None, f"no (covered/measured) counts in {cell!r}"
+    return int(match.group(1)), int(match.group(2))
 
 
-def test_to_named_dataframe_skips_non_coverage_table():
-    module = load_module()
-    # process() drives the extractor over every table in the forge log and skips
-    # a table when the parser returns None; a foreign table must return None, not
-    # raise, so the real coverage table further down the log is still parsed.
-    assert module.toNamedDataFrame(invariant_call_summary_table()) is None
+def extract(kept: list[str]):
+    result = load_module().toNamedDataFrame(table(kept))
+    assert result is not None
+    df, _ = result
+    rows = df.values.tolist()
+    reported = [row for row in rows if row[0] != "Total"]
+    totals = [row for row in rows if row[0] == "Total"]
+    assert len(totals) == 1, "exactly one Total row"
+    return df, reported, totals[0]
 
 
-def test_to_named_dataframe_skips_file_headed_non_coverage_table():
-    module = load_module()
-    # Discrimination: a "| File |" header alone is not enough - only the coverage
-    # summary's own columns identify it, everything else is skipped.
-    assert module.toNamedDataFrame(file_headed_non_coverage_table()) is None
+@pytest.mark.parametrize(
+    "kept_count",
+    [0, 1, 2],
+    ids=["no reported rows", "one reported row", "several reported rows"],
+)
+def test_total_sums_exactly_the_rows_the_report_keeps(kept_count: int):
+    """The Total adds up the rows shown, at every size the sum can take.
+
+    forge's Total spans files the extractor filters out, so it both overstates coverage and moves when a
+    file absent from the report changes - failing the regression diff while every visible row is
+    identical. Summing the kept rows is the only Total that means anything under the table it sits on.
+
+    Sizes matter here because the sum is a loop: none reported (everything filtered), exactly one - where
+    a Total that simply echoed its single row would also pass - and several, where it must actually add.
+    """
+    df, reported, total = extract(KEPT[:kept_count])
+
+    assert [row[0] for row in reported] == [
+        row.split("|")[1].strip() for row in KEPT[:kept_count]
+    ], "filtering kept the wrong rows"
+
+    for column in range(1, len(df.columns)):
+        covered = sum(counts(row[column])[0] for row in reported)
+        measured = sum(counts(row[column])[1] for row in reported)
+        assert counts(total[column]) == (covered, measured), (
+            f"{df.columns[column]}: Total says {total[column]}, rows sum to ({covered}/{measured})"
+        )
 
 
-def test_to_named_dataframe_formats_percentages_with_markers():
-    module = load_module()
-    df, path = module.toNamedDataFrame(sample_table())
+def test_a_lone_reported_row_is_not_inflated_by_the_filtered_ones():
+    """The single-row case pinned against its concrete wrong answer.
 
-    assert path == ""
-    assert list(df.columns) == ["File", "% Lines", "% Statements", "% Branches", "% Funcs"]
+    With one row kept and three fully-covered rows dropped, a Total carrying the dropped rows reads
+    145/150; the row it sits under holds 10/20. Naming the wrong value is what stops the check being
+    satisfied by any plausible-looking number.
+    """
+    _, reported, total = extract(KEPT[:1])
 
-    expected_files = [
-        "script/deployment/Deployment.sol",
-        "src/BaoOwnable.sol",
-        "Total",
-    ]
-    assert list(df["File"]) == expected_files
-    assert all(not name.endswith(".s.sol") for name in df["File"])
-
-    script_lines = df.loc[df["File"] == "script/deployment/Deployment.sol", "% Lines"].iat[0]
-    assert script_lines.startswith("X")
-    assert "87%" in script_lines
-    assert script_lines.endswith("(118/136)")
-
-    src_lines = df.loc[df["File"] == "src/BaoOwnable.sol", "% Lines"].iat[0]
-    assert src_lines.startswith("✓")
-    assert src_lines == "✓ 100% (27/27)"
-
-    total_branches = df.loc[df["File"] == "Total", "% Branches"].iat[0]
-    assert total_branches.startswith("X")
-    assert "57%" in total_branches
-    assert total_branches.endswith("(149/261)")
+    assert counts(reported[0][1]) == (10, 20)
+    assert counts(total[1]) != (145, 150), "the Total is forge's, not the report's"
+    assert counts(total[1]) == (10, 20)
 
 
-if __name__ == "__main__":
-    raise SystemExit("Run this test with pytest or python -m pytest")
+def test_an_empty_report_totals_nothing_rather_than_forges_figure():
+    """Everything filtered out: the Total must collapse to 0/0, not report 145 covered lines.
+
+    This is the case where echoing forge is most obviously wrong - there is no row to justify any
+    coverage at all - and the one a sum written without a zero-iteration guard would get wrong.
+    """
+    _, reported, total = extract([])
+
+    assert reported == []
+    assert counts(total[1]) == (0, 0)
