@@ -137,6 +137,49 @@ def test_a_noise_sized_change_on_a_small_suite_is_held():
     assert merged["test/_sizes/small.t.sol:X"] == 1100  # held at committed 1100ms, not the fresh 280ms
 
 
+def test_a_cold_to_warm_fork_cache_flags_only_the_seconds_sized_drops():
+    """Reproduces the real harbor gas-duration churn, to separate what the merge decides from what it
+    was handed.
+
+    Three fork suites moved between consecutive runs when the foundry RPC cache went from cold to warm -
+    a step change in work done, not scheduler noise, so it hits individual suites by 200x while the
+    machine scale stays at 1. Two of them are seconds-sized and should flag; the third moved 179ms ->
+    23ms, an absolute change of 156ms, which the noise floor holds however large its ratio.
+
+    That third row nonetheless appeared as changed in the committed file. If this test passes, the merge
+    is not what rewrote it and the cause is upstream - the baseline it was compared against was not the
+    run immediately before. If it fails, the hold is not being applied and the file churns for a second,
+    quieter reason on top of the fork cache.
+    """
+    committed = {f"test/Anchor{c}.t.sol:X": 10.0 for c in "ABCDE"}
+    fresh = dict(committed)
+
+    # Cold -> warm on the two suites whose setUp fetches fork state.
+    committed["test/Genesis.t.sol:Test_GenesisBase"] = 2.540
+    fresh["test/Genesis.t.sol:Test_GenesisBase"] = 0.012
+    committed["test/Minter_base.t.sol:TestMinterInit"] = 3.100
+    fresh["test/Minter_base.t.sol:TestMinterInit"] = 0.014
+
+    # The same direction, but an absolute move far below the 1.5s floor.
+    committed["test/StabilityPool.t.sol:TestStabilityPoolInitEvents"] = 0.179
+    fresh["test/StabilityPool.t.sol:TestStabilityPoolInitEvents"] = 0.023
+
+    rc, merged, stderr = run_merge(committed, fresh)
+
+    assert rc == 1, "the two seconds-sized drops are genuine changes"
+    assert merged["test/Genesis.t.sol:Test_GenesisBase"] == 12
+    assert merged["test/Minter_base.t.sol:TestMinterInit"] == 14
+
+    # 156ms of movement is under the noise floor, so this row keeps its committed value however
+    # large the ratio - the same rule that holds a _sizes suite swinging by its own magnitude.
+    assert merged["test/StabilityPool.t.sol:TestStabilityPoolInitEvents"] == 179
+    assert "TestStabilityPoolInitEvents" not in stderr, "a sub-floor move must not be reported"
+
+    # The innocents around a 200x drop are untouched: no cascade from the distorted scale.
+    for anchor in "ABCDE":
+        assert merged[f"test/Anchor{anchor}.t.sol:X"] == 10_000
+
+
 def test_a_new_suite_flags_as_added():
     rc, _, stderr = run_merge({"test/A.t.sol:X": 10.0}, {"test/A.t.sol:X": 10.0, "test/New.t.sol:X": 5.0})
     assert rc == 1
