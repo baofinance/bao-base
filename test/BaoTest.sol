@@ -240,4 +240,20 @@ abstract contract BaoTest is Test {
     function _ensureBaoFactory() internal returns (address factory) {
         return BaoFactoryTestLib.ensureBaoFactory();
     }
+
+    /// @notice Select the shared pinned mainnet fork and leave the BaoFactory usable on it.
+    /// @dev These two steps compose in one order only, so they are paired here rather than left to each
+    ///      suite to sequence. `vm.createSelectFork` replaces account state, so a factory ensured
+    ///      beforehand does not carry into the fork and neither does the operator registration that came
+    ///      with it — whatever deploys next then reverts `Unauthorized()` at its first `factory.deploy`.
+    ///      Ensuring afterwards also meets the factory already deployed on mainnet rather than a local
+    ///      rebuild of it, which is the one these tests exist to deploy through.
+    ///
+    ///      `forkMainnet` is deliberately left as it is: suites that fork only for real token contracts
+    ///      should not be made to stand up a factory they never call.
+    /// @return factory The functional BaoFactory instance, with the caller registered as an operator
+    function forkMainnetWithBaoFactory() internal returns (address factory) {
+        forkMainnet();
+        return _ensureBaoFactory();
+    }
 }
