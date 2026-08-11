@@ -318,6 +318,61 @@ def foundry_lock_problems(repo_root: Path) -> list[str]:
     return problems
 
 
+def tracked_but_ignored_problems(repo_root: Path) -> list[str]:
+    """Files the exclude rules match that git nonetheless tracks. Ignore rules apply only to untracked
+    paths, so once a file is in the index the rule does nothing: edits keep appearing in `git status`
+    and keep being committed, while the rule reads as a protection it is not providing. This is the
+    state a file lands in whenever it was committed before the rule was written. Top-level repo only —
+    recursing would report third-party submodules, whose tracking is not ours to change. Read-only:
+    `git ls-files -i -c` lists the tracked paths the exclude rules match, and `git check-ignore` names
+    the rule matching each — it needs `--no-index`, which is what makes it answer for tracked paths at
+    all. Returns one block naming each file and its rule; [] when nothing tracked is ignored."""
+    listing = subprocess.run(
+        ["git", "ls-files", "-i", "-c", "--exclude-standard", "-z"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    paths = [path for path in listing.stdout.split("\0") if path]
+    if not paths:
+        return []
+
+    matches = subprocess.run(
+        ["git", "check-ignore", "--no-index", "-v", "-z", "--stdin"],
+        cwd=repo_root,
+        input="\0".join(paths) + "\0",
+        capture_output=True,
+        text=True,
+    )
+    # `-v -z` emits four NUL-separated fields per match: source file, line number, pattern, pathname.
+    fields = matches.stdout.split("\0")
+    rule_for: dict[str, str] = {}
+    for index in range(0, len(fields) - 3, 4):
+        source, line_number, pattern, path = fields[index : index + 4]
+        rule_for[path] = f"{source}:{line_number}  {pattern}"
+
+    # Group by rule: one wildcard usually catches a whole set, and the decision (untrack the files, or
+    # narrow the rule) is made per rule — so listing the rule once above its files is both shorter and
+    # the shape the reader acts on.
+    by_rule: dict[str, list[str]] = {}
+    for path in paths:
+        by_rule.setdefault(rule_for.get(path, "(no rule reported by git check-ignore)"), []).append(path)
+
+    lines = ["Tracked files that the ignore rules match — the rule has no effect while the file is tracked:"]
+    for rule, matched in by_rule.items():
+        lines.append(f"  {rule}")
+        for path in matched:
+            lines.append(f"    {path}")
+    # Which side is wrong — the tracking or the rule — is intent the doctor cannot know, so offer both.
+    lines.append(
+        "Repair: to untrack them (keeps your working-tree copies) "
+        "`git ls-files -i -c --exclude-standard -z | xargs -0 git rm --cached` then commit — note the "
+        "commit DELETES them from every other clone on pull, being ignored does not protect them. "
+        "To keep them in the repo instead, narrow the ignore rule so it no longer matches."
+    )
+    return ["\n".join(lines)]
+
+
 def vscode_ruff_settings_problems(repo_root: Path) -> list[str]:
     """Check .vscode/settings.json wires the editor to bao-base's shared ruff, matching bao-base's own
     canonical settings. ruff.path is a per-workspace path (a consumer's under `lib/bao-base/` vs
@@ -392,6 +447,7 @@ def main() -> None:
         ("submodule URLs (.git/config vs .gitmodules)", submodule_url_drift_problems(repo_root)),
         ("submodule tree (initialised, at gitlink, no ghosts)", submodule_tree_problems(repo_root)),
         ("submodule commits match foundry.lock", foundry_lock_problems(repo_root)),
+        ("no tracked file is gitignored", tracked_but_ignored_problems(repo_root)),
         (".vscode/settings.json uses bao-base's ruff", vscode_ruff_settings_problems(repo_root)),
     ]
 

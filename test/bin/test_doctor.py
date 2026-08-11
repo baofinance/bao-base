@@ -169,3 +169,51 @@ def test_foundry_lock_problems_flags_stale_pin_with_forge_fix(tmp_path):
     assert "forge update lib/sub" in p  # forge's resolution (re-fetch + rewrite the lock)
     assert "git -C lib/sub checkout" in p  # the other direction: adopt the locked commit
     assert "branch main" in p  # branch-vs-tag is surfaced
+
+
+# ── tracked_but_ignored_problems: a .gitignore rule has no effect on an already-tracked file ──
+def test_tracked_but_ignored_none_when_the_ignored_file_is_untracked(tmp_path):
+    # The normal, healthy arrangement: the rule matches a file git never took under management.
+    repo = _init_repo(tmp_path / "host")
+    (repo / ".gitignore").write_text("*.log\n")
+    (repo / "build.log").write_text("noise")
+    _git(repo, "add", ".gitignore")
+    _git(repo, "commit", "-qm", "ignore logs")
+    assert doctor.tracked_but_ignored_problems(repo) == []
+
+
+def test_tracked_but_ignored_flags_a_file_committed_before_its_ignore_rule(tmp_path):
+    # The failure this catches: the file was committed first, so adding the rule later changes nothing
+    # — git keeps tracking it and its edits keep landing in commits.
+    repo = _init_repo(tmp_path / "host")
+    (repo / "settings.local.json").write_text("{}")
+    _git(repo, "add", "settings.local.json")
+    _git(repo, "commit", "-qm", "add settings")
+    (repo / ".gitignore").write_text("settings.local.json\n")
+    _git(repo, "add", ".gitignore")
+    _git(repo, "commit", "-qm", "ignore settings")
+
+    problems = doctor.tracked_but_ignored_problems(repo)
+    assert problems
+    p = problems[0]
+    assert "settings.local.json" in p
+    assert ".gitignore:1" in p  # the rule that matches, so its author can judge which side is wrong
+    assert "git rm --cached" in p  # untrack, keeping the working-tree copy
+
+
+def test_tracked_but_ignored_lists_every_matching_file(tmp_path):
+    # A wildcard rule usually catches a whole set; each tracked member must be named individually
+    # rather than the report stopping at the first.
+    repo = _init_repo(tmp_path / "host")
+    for name in ("one.json", "two.json", "three.json"):
+        (repo / name).write_text("{}")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "add generated files")
+    (repo / ".gitignore").write_text("*.json\n")
+    _git(repo, "add", ".gitignore")
+    _git(repo, "commit", "-qm", "ignore generated files")
+
+    problems = doctor.tracked_but_ignored_problems(repo)
+    assert problems
+    p = problems[0]
+    assert "one.json" in p and "two.json" in p and "three.json" in p
