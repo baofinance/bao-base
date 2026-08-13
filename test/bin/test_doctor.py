@@ -282,3 +282,68 @@ def test_permission_scope_flags_a_wildcard_on_a_state_changing_command(tmp_path)
     problems = doctor.claude_permission_scope_problems(repo)
     assert problems
     assert "chmod" in problems[0]
+
+
+# ── tracked_but_ignored_problems: a .gitignore rule has no effect on an already-tracked file ──
+def test_tracked_but_ignored_none_when_the_ignored_file_is_untracked(tmp_path):
+    # The normal, healthy arrangement: the rule matches a file git never took under management.
+    repo = _init_repo(tmp_path / "host")
+    (repo / ".gitignore").write_text("*.log\n")
+    (repo / "build.log").write_text("noise")
+    _git(repo, "add", ".gitignore")
+    _git(repo, "commit", "-qm", "ignore logs")
+    assert doctor.tracked_but_ignored_problems(repo) == []
+
+
+def test_tracked_but_ignored_flags_a_file_committed_before_its_ignore_rule(tmp_path):
+    # The failure this catches: the file was committed first, so adding the rule later changes nothing
+    # — git keeps tracking it and its edits keep landing in commits.
+    repo = _init_repo(tmp_path / "host")
+    (repo / "settings.local.json").write_text("{}")
+    _git(repo, "add", "settings.local.json")
+    _git(repo, "commit", "-qm", "add settings")
+    (repo / ".gitignore").write_text("settings.local.json\n")
+    _git(repo, "add", ".gitignore")
+    _git(repo, "commit", "-qm", "ignore settings")
+
+    problems = doctor.tracked_but_ignored_problems(repo)
+    assert problems
+    p = problems[0]
+    assert "settings.local.json" in p
+    assert ".gitignore:1" in p  # the rule that matches, so its author can judge which side is wrong
+    assert "git rm --cached" in p  # untrack, keeping the working-tree copy
+
+
+def test_tracked_but_ignored_lists_every_matching_file(tmp_path):
+    # A wildcard rule usually catches a whole set; each tracked member must be named individually
+    # rather than the report stopping at the first.
+    repo = _init_repo(tmp_path / "host")
+    for name in ("one.json", "two.json", "three.json"):
+        (repo / name).write_text("{}")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "add generated files")
+    (repo / ".gitignore").write_text("*.json\n")
+    _git(repo, "add", ".gitignore")
+    _git(repo, "commit", "-qm", "ignore generated files")
+
+    problems = doctor.tracked_but_ignored_problems(repo)
+    assert problems
+    p = problems[0]
+    assert "one.json" in p and "two.json" in p and "three.json" in p
+
+
+def test_every_check_function_is_registered(tmp_path):
+    # The guard for what actually went wrong: `tracked_but_ignored_problems` was written, tested by
+    # hand, and then never added to the checks list, so it silently never ran. A check that exists
+    # but is not registered is worse than one that does not exist — it reads as covered.
+    repo = _init_repo(tmp_path / "host")
+    registered = {check.name for check in doctor.build_checks(repo, [], [])}
+    # submodule_status_problems is a building block of submodule_tree_problems, not a check itself.
+    helpers = {"submodule_status_problems"}
+    defined = {
+        name for name in dir(doctor) if name.endswith("_problems") and not name.startswith("_") and name not in helpers
+    }
+    unregistered = {
+        name for name in defined if not any(name.split("_problems")[0].split("_")[0] in check for check in registered)
+    }
+    assert not unregistered, f"check functions never reached the checks list: {sorted(unregistered)}"

@@ -51,6 +51,24 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str] | None:
 
         data.append(columns)
 
+    # forge's own Total counts every file it measured, including the *.s.sol, script/*/verify/ and test
+    # rows filtered out above. It therefore does not add up to the rows shown, and - worse for a regression
+    # check - it moves when coverage changes in a file the report does not contain, failing the diff while
+    # every visible row is identical. Recompute it from what the report actually holds.
+    data = [row for row in data if row and row[0] != "Total"]
+
+    totals: list[str] = ["Total"]
+    for column in range(1, len(header)):
+        covered = measured = 0
+        for row in data:
+            counts = re.search(r"\((\d+)/(\d+)\)", row[column])
+            if counts:
+                covered += int(counts.group(1))
+                measured += int(counts.group(2))
+        percent = (100.0 * covered / measured) if measured else 100.0
+        totals.append(f"{percent:.2f}% ({covered}/{measured})")
+    data.append(totals)
+
     # Create the DataFrame using the cleaned and validated data
     df = pd.DataFrame(data, columns=header)
 

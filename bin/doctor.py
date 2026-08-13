@@ -320,6 +320,61 @@ def foundry_lock_problems(repo_root: Path) -> list[str]:
     return problems
 
 
+def tracked_but_ignored_problems(repo_root: Path) -> list[str]:
+    """Files the exclude rules match that git nonetheless tracks. Ignore rules apply only to untracked
+    paths, so once a file is in the index the rule does nothing: edits keep appearing in `git status`
+    and keep being committed, while the rule reads as a protection it is not providing. This is the
+    state a file lands in whenever it was committed before the rule was written. Top-level repo only —
+    recursing would report third-party submodules, whose tracking is not ours to change. Read-only:
+    `git ls-files -i -c` lists the tracked paths the exclude rules match, and `git check-ignore` names
+    the rule matching each — it needs `--no-index`, which is what makes it answer for tracked paths at
+    all. Returns one block naming each file and its rule; [] when nothing tracked is ignored."""
+    listing = subprocess.run(
+        ["git", "ls-files", "-i", "-c", "--exclude-standard", "-z"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    paths = [path for path in listing.stdout.split("\0") if path]
+    if not paths:
+        return []
+
+    matches = subprocess.run(
+        ["git", "check-ignore", "--no-index", "-v", "-z", "--stdin"],
+        cwd=repo_root,
+        input="\0".join(paths) + "\0",
+        capture_output=True,
+        text=True,
+    )
+    # `-v -z` emits four NUL-separated fields per match: source file, line number, pattern, pathname.
+    fields = matches.stdout.split("\0")
+    rule_for: dict[str, str] = {}
+    for index in range(0, len(fields) - 3, 4):
+        source, line_number, pattern, path = fields[index : index + 4]
+        rule_for[path] = f"{source}:{line_number}  {pattern}"
+
+    # Group by rule: one wildcard usually catches a whole set, and the decision (untrack the files, or
+    # narrow the rule) is made per rule — so listing the rule once above its files is both shorter and
+    # the shape the reader acts on.
+    by_rule: dict[str, list[str]] = {}
+    for path in paths:
+        by_rule.setdefault(rule_for.get(path, "(no rule reported by git check-ignore)"), []).append(path)
+
+    lines = ["Tracked files that the ignore rules match — the rule has no effect while the file is tracked:"]
+    for rule, matched in by_rule.items():
+        lines.append(f"  {rule}")
+        for path in matched:
+            lines.append(f"    {path}")
+    # Which side is wrong — the tracking or the rule — is intent the doctor cannot know, so offer both.
+    lines.append(
+        "  Repair: to untrack them (keeps your working-tree copies) "
+        "`git ls-files -i -c --exclude-standard -z | xargs -0 git rm --cached` then commit — note the "
+        "commit DELETES them from every other clone on pull, being ignored does not protect them. "
+        "To keep them in the repo instead, narrow the ignore rule so it no longer matches."
+    )
+    return ["\n".join(lines)]
+
+
 def vscode_ruff_settings_problems(repo_root: Path) -> list[str]:
     """Check .vscode/settings.json wires the editor to bao-base's shared ruff, matching bao-base's own
     canonical settings. ruff.path is a per-workspace path (a consumer's under `lib/bao-base/` vs
@@ -565,24 +620,18 @@ def _wrap(text: str, indent: str, width: int, marker: str = "") -> list[str]:
     )
 
 
-def main() -> None:
-    from rich.console import Console
+def build_checks(repo_root: Path, foundry_remappings: list[str], wake_remappings: list[str]) -> list[Check]:
+    """Every check doctor runs, in report order. Separate from `main` so the list is a value that can
+    be asserted on: a check function that is written but never added here silently never runs, and
+    reads as covered — which is exactly what happened to `tracked_but_ignored_problems`.
 
-    repo_root = Path(
-        subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True
-        ).stdout.strip()
-    )
-    foundry_remappings, wake_remappings = load_remappings(repo_root)
-    console = Console()
-
-    # Each check names what it verifies, why that matters, what a failure costs, and its problems;
-    # it passes when there are none. `why` prints identically on both paths — a check whose purpose
-    # is visible only when it fires teaches nothing while it is green, and a reader who does not
-    # know what a check is FOR cannot judge whether its failure is urgent or cosmetic. `cost` is the
-    # only part that differs, added on failure: it is the consequence of leaving it unfixed, which
-    # is worth the lines only once something is actually broken.
-    checks: list[Check] = [
+    Each check names what it verifies, why that matters, what a failure costs, and its problems; it
+    passes when there are none. `why` prints identically on both paths — a check whose purpose is
+    visible only when it fires teaches nothing while it is green, and a reader who does not know
+    what a check is FOR cannot judge whether its failure is urgent or cosmetic. `cost` is the only
+    part that differs, added on failure: the consequence of leaving it unfixed, which is worth the
+    lines only once something is actually broken."""
+    return [
         Check(
             "foundry/wake remappings agree",
             "wake and forge must resolve every import to the same file — otherwise wake analyses a "
@@ -639,7 +688,29 @@ def main() -> None:
             "ones whose task is finished; narrow the rest to the path or command actually needed",
             claude_permission_scope_problems(repo_root),
         ),
+        Check(
+            "no tracked file is matched by an ignore rule",
+            "ignore rules apply only to untracked paths, so once a file is in the index the rule "
+            "does nothing — the file keeps appearing in `git status` and keeps being committed, "
+            "while the rule reads as a protection it is not providing",
+            "someone has written a rule believing the file is now private, and it is not; whichever "
+            "side is wrong, the file is being committed against somebody's intent",
+            tracked_but_ignored_problems(repo_root),
+        ),
     ]
+
+
+def main() -> None:
+    from rich.console import Console
+
+    repo_root = Path(
+        subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True
+        ).stdout.strip()
+    )
+    foundry_remappings, wake_remappings = load_remappings(repo_root)
+    console = Console()
+    checks = build_checks(repo_root, foundry_remappings, wake_remappings)
 
     failed = False
     for check in checks:

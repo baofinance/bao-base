@@ -5,6 +5,7 @@ suite CPU (milliseconds)
 |-------------------------------------------------------------------------------------------------|----------------|-------|
 | test/BaoAccessControl.t.sol:TestBaoAccessControl                                                |              2 | 0.00s |
 | test/BaoAccessControl.t.sol:TestBaoAccessControlInit                                            |              6 | 0.01s |
+| test/BaoFactoryAcrossForks.t.sol:BaoFactoryAcrossForksTest                                      |           1470 | 1.47s |
 | test/BaoTest.t.sol:BaoTestApproxIntTest                                                         |              4 | 0.00s |
 | test/BaoTest.t.sol:BaoTestApproxTest                                                            |              0 | 0.00s |
 | test/BaoTest.t.sol:BaoTestAssertConservedTest                                                   |              0 | 0.00s |
@@ -45,5 +46,5 @@ suite CPU (milliseconds)
 | test/deployment/JsonSerialization.t.sol:JsonSerializerTest                                      |             35 | 0.04s |
 | test/deployment/SaltString.t.sol:SaltStringTest                                                 |              0 | 0.00s |
 | test/deployment/UUPSProxyDeployStub.t.sol:UUPSProxyDeployStubTest                               |              1 | 0.00s |
-| test/fork.t.sol:TestFork                                                                        |            524 | 0.52s |
+| test/fork.t.sol:TestFork                                                                        |            456 | 0.46s |
 | test/utils/Array.t.sol:ArrayTest                                                                |              5 | 0.01s |

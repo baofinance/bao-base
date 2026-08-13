@@ -2,6 +2,9 @@
 """
 Record how long a run's test suites took, then check that against the committed baseline.
 
+TEMPORARILY DISABLED at the return in `main`: it currently runs its inner command and reports that
+command's status, measuring nothing. Everything below describes what it does once restored.
+
 Usage: duration-of <command> [args...]
   duration-of test                                       -> regression/test-duration.txt
   duration-of regression-of gas                          -> regression/gas-duration.txt
@@ -65,6 +68,12 @@ def main():
     if not args:
         sys.stderr.write(f"usage: {Path(sys.argv[0]).name} <command> [args...]\n")
         return 2
+
+    # TEMPORARILY OFF, so everything below is unreachable: a fork suite's figure measures RPC
+    # round-trip time rather than the code, and has swung 10x run to run on cache state and provider
+    # latency alone - the size of the band compare-duration.py judges against. Remove this return to
+    # restore it, along with the --ignore in pyproject.toml holding test_duration_of.py out of pytest.
+    return subprocess.call([os.environ.get("BAO_BASE_DIR", str(BIN_DIR.parent)) + "/run", *args])
 
     name = measure_name(args)
     regression_dir = Path("regression")
