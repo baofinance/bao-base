@@ -169,3 +169,116 @@ def test_foundry_lock_problems_flags_stale_pin_with_forge_fix(tmp_path):
     assert "forge update lib/sub" in p  # forge's resolution (re-fetch + rewrite the lock)
     assert "git -C lib/sub checkout" in p  # the other direction: adopt the locked commit
     assert "branch main" in p  # branch-vs-tag is surfaced
+
+
+# ── claude_local_settings_problems: the machine-local settings file must stay out of the repo ──
+# `.claude/settings.local.json` is a per-machine override. Committing it publishes one developer's
+# permission grants to everyone and makes them a reviewable part of the source, which is how a loose
+# rule outlives the session that needed it. Both halves are required: untracking without ignoring
+# lets the next `git add .` bring it back, and ignoring an already-tracked file does nothing.
+def _write_local_settings(repo: pathlib.Path, allow: list[str]) -> pathlib.Path:
+    claude = repo / ".claude"
+    claude.mkdir(parents=True, exist_ok=True)
+    path = claude / "settings.local.json"
+    path.write_text(json.dumps({"permissions": {"allow": allow, "deny": []}}))
+    return path
+
+
+def test_local_settings_clean_when_absent(tmp_path):
+    repo = _init_repo(tmp_path / "host")
+    assert doctor.claude_local_settings_problems(repo) == []
+
+
+def test_local_settings_clean_when_present_and_ignored(tmp_path):
+    repo = _init_repo(tmp_path / "host")
+    _write_local_settings(repo, [])
+    (repo / ".gitignore").write_text(".claude/settings.local.json\n")
+    assert doctor.claude_local_settings_problems(repo) == []
+
+
+def test_local_settings_flags_a_tracked_file(tmp_path):
+    repo = _init_repo(tmp_path / "host")
+    _write_local_settings(repo, [])
+    _git(repo, "add", "-f", ".claude/settings.local.json")
+    _git(repo, "commit", "-qm", "track it")
+    problems = doctor.claude_local_settings_problems(repo)
+    assert problems
+    assert "git rm --cached" in problems[0]  # the repair must untrack, not just ignore
+
+
+def test_local_settings_flags_present_but_not_ignored(tmp_path):
+    # Only a rule inside the repo counts. A personal ~/.gitignore_global covers the author's machine
+    # and nobody else's, so accepting it would report the repo protected while every teammate can
+    # still commit the file — the exact route by which one gets committed. This machine HAS such a
+    # global rule, so a check trusting `git check-ignore` alone passes here and fails for everyone.
+    repo = _init_repo(tmp_path / "host")
+    _write_local_settings(repo, [])
+    problems = doctor.claude_local_settings_problems(repo)
+    assert problems
+    assert ".gitignore" in problems[0]
+
+
+# ── claude_permission_scope_problems: three rule shapes that grant more than this repo's work needs ──
+def test_permission_scope_clean_for_repo_scoped_rules(tmp_path):
+    repo = _init_repo(tmp_path / "host")
+    _write_local_settings(repo, ["Bash(forge build)", "Read(src/**)", "WebSearch"])
+    assert doctor.claude_permission_scope_problems(repo) == []
+
+
+def test_permission_scope_flags_a_path_outside_the_repo(tmp_path):
+    repo = _init_repo(tmp_path / "host")
+    _write_local_settings(repo, ["Read(//home/someone/github/other-project/**)"])
+    problems = doctor.claude_permission_scope_problems(repo)
+    assert problems
+    assert "other-project" in problems[0]
+
+
+def test_permission_scope_allows_the_claude_plans_repo(tmp_path):
+    # CLAUDE.md *requires* committing to ~/.claude/plans after every plan update, so a rule reaching
+    # it is the documented working mode, not an over-grant. Hardcoded rather than left to an ignore
+    # file: a check that flags its own instructions gets switched off wholesale. Written with `~`,
+    # which is the portable spelling — see the hardcoded-home test below.
+    repo = _init_repo(tmp_path / "host")
+    _write_local_settings(repo, ["Read(~/.claude/plans/**)"])
+    assert doctor.claude_permission_scope_problems(repo) == []
+
+
+def test_permission_scope_flags_a_hardcoded_home_path_even_when_the_scope_is_allowed(tmp_path):
+    # The plans repo is exempt on SCOPE, but spelling it `/home/<user>/...` still ties the settings
+    # file to one machine and one account. Scope and portability are independent defects, so the
+    # exemption for the first must not suppress the second.
+    repo = _init_repo(tmp_path / "host")
+    _write_local_settings(repo, [f"Read(/{pathlib.Path.home()}/.claude/plans/**)"])
+    problems = doctor.claude_permission_scope_problems(repo)
+    assert problems
+    assert "~" in problems[0]
+    assert "outside this repository" not in problems[0]  # scope is fine; only the spelling is not
+
+
+def test_permission_scope_reports_every_reason_a_rule_fails(tmp_path):
+    # A rule can fail on more than one count, and reporting only the first sends the reader round the
+    # loop again after they fix it.
+    repo = _init_repo(tmp_path / "host")
+    _write_local_settings(repo, [f"Read(/{pathlib.Path.home()}/github/elsewhere/**)"])
+    problems = doctor.claude_permission_scope_problems(repo)
+    assert problems
+    assert "outside this repository" in problems[0]  # reason 1: scope
+    assert "~" in problems[0]  # reason 2: machine-specific spelling
+
+
+def test_permission_scope_flags_an_arbitrary_command_suffix(tmp_path):
+    # `Bash(cd <repo> *)` matches `cd <repo> && rm -rf ~` — a trailing ` *` is a shell-continuation
+    # hole, not an argument wildcard.
+    repo = _init_repo(tmp_path / "host")
+    _write_local_settings(repo, [f"Bash(cd {repo} *)"])
+    problems = doctor.claude_permission_scope_problems(repo)
+    assert problems
+    assert any("&&" in p for p in problems)  # the message must explain WHY a trailing * is unsafe
+
+
+def test_permission_scope_flags_a_wildcard_on_a_state_changing_command(tmp_path):
+    repo = _init_repo(tmp_path / "host")
+    _write_local_settings(repo, ["Bash(chmod:*)"])
+    problems = doctor.claude_permission_scope_problems(repo)
+    assert problems
+    assert "chmod" in problems[0]

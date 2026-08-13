@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
+import textwrap
 import tomllib
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 import json5
 
@@ -250,7 +252,7 @@ def submodule_tree_problems(repo_root: Path) -> list[str]:
     return [
         "Submodule tree inconsistencies:\n  "
         + "\n  ".join(lines)
-        + "\nRepair: uninitialized → `git submodule update --init --recursive`; revision mismatch → commit & "
+        + "\n  Repair: uninitialized → `git submodule update --init --recursive`; revision mismatch → commit & "
         "`git add` it (or `git submodule update` to reset); ghost → delete its worktree and its "
         "`.git/modules/.../<path>` gitdir. (A plain detached HEAD at the pinned commit is normal, not listed.)"
     ]
@@ -374,6 +376,195 @@ def vscode_ruff_settings_problems(repo_root: Path) -> list[str]:
     return problems
 
 
+_CLAUDE_LOCAL_SETTINGS = ".claude/settings.local.json"
+
+# CLAUDE.md *requires* committing to the plan repo after every plan update, so a rule reaching it is
+# the documented working mode rather than an over-grant. Hardcoded rather than left to an ignore
+# file: a check that flags its own instructions is one a developer switches off wholesale, and then
+# it catches nothing at all.
+_CLAUDE_PERMITTED_OUTSIDE_PATHS = (Path.home() / ".claude" / "plans",)
+
+# Commands that change state outside the working tree, or reach the network. A wildcard on one of
+# these grants far more than any single task needs; name them explicitly rather than guessing at
+# "dangerous", so the check stays predictable and argues its case when it fires.
+_STATE_CHANGING_COMMANDS = ("chmod", "chown", "rm", "mv", "dd", "curl", "wget", "sudo", "git push")
+
+
+def claude_local_settings_problems(repo_root: Path) -> list[str]:
+    """`.claude/settings.local.json` is a per-machine override, so it must be untracked AND ignored.
+    Committing it publishes one developer's permission grants to everyone and turns them into source
+    that outlives the session that needed them. Both halves are checked because each alone is
+    insufficient: untracking without ignoring lets the next `git add .` bring it back, and ignoring a
+    file already in the index does nothing to it. Returns [] when the file is absent, or present and
+    both untracked and ignored."""
+    path = repo_root / _CLAUDE_LOCAL_SETTINGS
+    problems: list[str] = []
+
+    tracked = (
+        subprocess.run(
+            ["git", "ls-files", "--error-unmatch", _CLAUDE_LOCAL_SETTINGS],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        ).returncode
+        == 0
+    )
+    if tracked:
+        problems.append(
+            f"{_CLAUDE_LOCAL_SETTINGS} is tracked by git. It is a machine-local override, so it "
+            f"should exist only on this machine.\n"
+            f"  Repair: git rm --cached {_CLAUDE_LOCAL_SETTINGS}  (keeps your copy, drops it from the repo)"
+        )
+
+    if path.is_file():
+        # The rule has to live in a .gitignore INSIDE the repo, because that is the only kind that
+        # travels with a clone. A personal ~/.gitignore_global covers the author's machine and
+        # nobody else's, so `git check-ignore` alone would report the repo protected while every
+        # teammate can still commit the file — which is how one gets committed in the first place.
+        # --no-index answers from the ignore rules regardless of tracking, keeping the two halves of
+        # this check independent. -v names the source of the match, which is what is judged here.
+        matched = subprocess.run(
+            ["git", "check-ignore", "--no-index", "-v", _CLAUDE_LOCAL_SETTINGS],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+        source = matched.stdout.split(":", 1)[0] if matched.returncode == 0 else ""
+        # `.git/info/exclude` is machine-local too, so it is not accepted either.
+        travels = bool(source) and not Path(source).is_absolute() and not source.startswith(".git/")
+        if not travels:
+            covered_by = f" (only by {source}, which is not part of the repository)" if source else ""
+            problems.append(
+                f"{_CLAUDE_LOCAL_SETTINGS} exists but no ignore rule in this repository covers "
+                f"it{covered_by}, so anyone cloning it can commit the file by accident.\n"
+                f"  Repair: echo '{_CLAUDE_LOCAL_SETTINGS}' >> .gitignore"
+            )
+
+    return problems
+
+
+def _permission_rule_reasons(rule: str, repo_root: Path) -> list[str]:
+    """Every reason `rule` grants more than work in this repository needs — a rule can fail on more
+    than one count, and reporting only the first sends the reader round the loop again after they fix
+    it. Scope and portability are independent: a path can be correctly scoped yet still spelled in a
+    way that works on one machine only, so the plan-repo exemption suppresses the scope reason alone.
+    Returns [] for an adequately scoped rule."""
+    parsed = re.fullmatch(r"(\w+)\((.*)\)", rule, re.S)
+    if not parsed:
+        return []  # a bare tool grant (e.g. `WebSearch`) carries no path or command to over-scope
+    tool, argument = parsed.group(1), parsed.group(2)
+    reasons: list[str] = []
+
+    if tool in ("Read", "Edit", "Write"):
+        # Claude writes an absolute path as `//abs/path`; anything relative is repo-scoped already.
+        if not argument.startswith(("//", "/", "~")):
+            return []
+        # The fixed prefix, before any wildcard. `~` must stay leading for expanduser() to expand it,
+        # so only the `//abs/path` form gets its single leading slash restored.
+        normalised = argument if argument.startswith("~") else "/" + argument.lstrip("/")
+        target = Path(re.split(r"[*?]", normalised)[0]).expanduser()
+
+        permitted = any(target.is_relative_to(allowed) for allowed in _CLAUDE_PERMITTED_OUTSIDE_PATHS)
+        if not permitted and not target.is_relative_to(repo_root):
+            reasons.append(
+                f"reaches {target}, which is outside this repository. Work in this repo does not "
+                f"need it, and the grant persists for every future session."
+            )
+        # A literal /home/<user>/… names one machine and one account, so the file cannot be shared,
+        # copied to another checkout, or used by anyone else. `~` is the portable spelling and
+        # resolves to the same place. Independent of scope: it applies to permitted paths too.
+        if not argument.startswith("~") and target.is_relative_to(Path.home()):
+            portable = "~/" + str(target.relative_to(Path.home()))
+            reasons.append(
+                f"hardcodes a machine-specific path. Write it as `{portable}…` so the rule does not "
+                f"name one machine and one account."
+            )
+
+    if tool == "Bash":
+        if argument.rstrip().endswith(" *"):
+            reasons.append(
+                "ends in a space then `*`, so it matches any continuation — including "
+                "`&& rm -rf ~`. Bound the arguments instead, or name the exact command."
+            )
+        for command in _STATE_CHANGING_COMMANDS:
+            if re.match(rf"^{re.escape(command)}\b.*[:\s]\*", argument):
+                reasons.append(
+                    f"is a wildcard on `{command}`, which changes state outside the working "
+                    f"tree or reaches the network. Grant the specific invocation you need."
+                )
+
+    return reasons
+
+
+def claude_permission_scope_problems(repo_root: Path) -> list[str]:
+    """Allow-rules in `.claude/settings.json` / `.claude/settings.local.json` that grant more than
+    work in this repository needs. Four shapes are flagged: a path outside the repo, a path
+    hardcoding `/home/<user>/…` where `~` would be portable, a Bash rule ending in ` *` (which
+    matches any shell continuation), and a wildcard on a state-changing command. A rule failing on
+    several counts reports all of them. Rules reaching the plan repo are exempt from the scope
+    check — CLAUDE.md requires them — but not from the others. Returns [] when no settings file
+    exists or every rule is adequately scoped."""
+    problems: list[str] = []
+    for name in ("settings.json", _CLAUDE_LOCAL_SETTINGS.rsplit("/", 1)[1]):
+        settings_file = repo_root / ".claude" / name
+        if not settings_file.is_file():
+            continue
+        try:
+            settings = json5.loads(settings_file.read_text())
+        except ValueError as exc:
+            problems.append(f".claude/{name} is not valid JSON: {exc}")
+            continue
+        allow = settings.get("permissions", {}).get("allow", [])
+        found = [
+            f"{rule}\n" + "\n".join(f"    {reason}" for reason in reasons)
+            for rule in allow
+            if (reasons := _permission_rule_reasons(rule, repo_root))
+        ]
+        if found:
+            problems.append(
+                f".claude/{name} — {len(found)} of {len(allow)} allow-rules are broader than this repo:\n  "
+                + "\n  ".join(found)
+            )
+    return problems
+
+
+class Check(NamedTuple):
+    """One doctor check, ready to render. `why` states what it is for and prints on every run;
+    `cost` states what leaving it unfixed costs and prints only when it fired, which is the one
+    place that extra reading earns its space."""
+
+    name: str
+    why: str
+    cost: str
+    problems: list[str]
+
+
+def _wrap(text: str, indent: str, width: int, marker: str = "") -> list[str]:
+    """One line of `text` wrapped to `width` under `indent`, ready to print.
+
+    `width` is the console's own width: wrap wider than that and rich re-wraps the result at the true
+    edge, dropping the indent from every continuation line and leaving the output ragged. Any leading
+    whitespace `text` already carries is preserved and added to `indent`, so a problem block's own
+    structure survives.
+
+    `marker` is a list bullet ("* ", "- ") placed once, on the first line; continuations align past
+    it rather than stepping in further. Separating items by bullet rather than by blank line keeps
+    each one visibly distinct without the vertical gaps, and a continuation that aligned under the
+    bullet — or indented past it — would read as a nested item instead of the same one. An empty
+    line stays empty."""
+    own_indent = " " * (len(text) - len(text.lstrip()))
+    prefix = indent + own_indent
+    body = text.strip()
+    if not body:
+        return [""]
+    return textwrap.wrap(
+        body,
+        width=max(width, len(prefix) + len(marker) + 20),
+        initial_indent=prefix + marker,
+        subsequent_indent=prefix + " " * len(marker),
+    )
+
+
 def main() -> None:
     from rich.console import Console
 
@@ -385,26 +576,91 @@ def main() -> None:
     foundry_remappings, wake_remappings = load_remappings(repo_root)
     console = Console()
 
-    # Each check is (name, problems); it passes when it returns no problems. One uniform colored
-    # pass/fail line per check keeps the report consistent however many sub-checks each one runs.
-    checks: list[tuple[str, list[str]]] = [
-        ("foundry/wake remappings agree", remapping_problems(foundry_remappings, wake_remappings)),
-        ("submodule URLs (.git/config vs .gitmodules)", submodule_url_drift_problems(repo_root)),
-        ("submodule tree (initialised, at gitlink, no ghosts)", submodule_tree_problems(repo_root)),
-        ("submodule commits match foundry.lock", foundry_lock_problems(repo_root)),
-        (".vscode/settings.json uses bao-base's ruff", vscode_ruff_settings_problems(repo_root)),
+    # Each check names what it verifies, why that matters, what a failure costs, and its problems;
+    # it passes when there are none. `why` prints identically on both paths — a check whose purpose
+    # is visible only when it fires teaches nothing while it is green, and a reader who does not
+    # know what a check is FOR cannot judge whether its failure is urgent or cosmetic. `cost` is the
+    # only part that differs, added on failure: it is the consequence of leaving it unfixed, which
+    # is worth the lines only once something is actually broken.
+    checks: list[Check] = [
+        Check(
+            "foundry/wake remappings agree",
+            "wake and forge must resolve every import to the same file — otherwise wake analyses a "
+            "different program from the one that compiles, and its findings apply to neither",
+            "until they agree, every wake detection is suspect: it may be reporting on code that "
+            "does not build, or missing code that does",
+            remapping_problems(foundry_remappings, wake_remappings),
+        ),
+        Check(
+            "submodule URLs (.git/config vs .gitmodules)",
+            "a drifted URL means your checkout tracks a different remote from the one committed, so "
+            "you build code that no one else can fetch",
+            "your builds pass and everyone else's fail, on source that looks identical in the diff",
+            submodule_url_drift_problems(repo_root),
+        ),
+        Check(
+            "submodule tree (initialised, at gitlink, no ghosts)",
+            "an uninitialised or off-gitlink submodule builds against the wrong source; a ghost is a "
+            "nested repo nothing tracks, so its contents are invisible to everyone else",
+            "what you compile and test is not what the commit describes, so a green run here says "
+            "nothing about the tree anyone else will get",
+            submodule_tree_problems(repo_root),
+        ),
+        Check(
+            "submodule commits match foundry.lock",
+            "forge only warns on this drift, so a stale pin ships silently — the lock and the "
+            "gitlink are two independent pins and both must name the same commit",
+            "the two pins disagree about which commit is the dependency, and which one wins depends "
+            "on whether git or forge updated the checkout last",
+            foundry_lock_problems(repo_root),
+        ),
+        Check(
+            ".vscode/settings.json uses bao-base's ruff",
+            "a different ruff, or none, formats and lints Python to a different standard than CI "
+            "enforces, so the editor tells you the file is clean and CI disagrees",
+            "you will keep discovering formatting failures in CI on files the editor called clean, one push at a time",
+            vscode_ruff_settings_problems(repo_root),
+        ),
+        Check(
+            ".claude/settings.local.json is untracked and ignored",
+            "it holds per-machine permission grants; committing it publishes one developer's grants "
+            "to everyone and turns them into source that outlives the session that needed them",
+            "every clone inherits one developer's grants, and each is reviewed as source rather than "
+            "reconsidered as a permission",
+            claude_local_settings_problems(repo_root),
+        ),
+        Check(
+            ".claude allow-rules are scoped to this repo",
+            "a rule reaching outside the repo, ending in a bare ` *`, or wildcarding a "
+            "state-changing command grants far more than any one task needs, and it persists for "
+            "every future session; one spelling an absolute /home/<user>/ path also ties the file "
+            "to a single machine and account",
+            "each rule below was approved once for one task and now stands permanently. Delete the "
+            "ones whose task is finished; narrow the rest to the path or command actually needed",
+            claude_permission_scope_problems(repo_root),
+        ),
     ]
 
     failed = False
-    for name, problems in checks:
-        if problems:
-            failed = True
-            console.print(f"✗ {name}", style="bold red", markup=False)
-            for block in problems:
-                for line in block.splitlines():
-                    console.print(f"    {line}", style="red", markup=False)
-        else:
-            console.print(f"✓ {name}", style="green", markup=False)
+    for check in checks:
+        mark, style = ("✗", "red") if check.problems else ("✓", "green")
+        console.print(f"{mark} {check.name}", style=f"bold {style}" if check.problems else style, markup=False)
+        # Identical shape on both paths, so the reason for a check reads the same whether or not it
+        # fired; only `cost` and the problems themselves are added when it did.
+        prose = check.why if not check.problems else f"{check.why}. {check.cost}"
+        for line in _wrap(prose, indent="    ", width=console.width):
+            console.print(line, style=style if check.problems else "dim", markup=False)
+        if not check.problems:
+            continue
+        failed = True
+        # Bulleted rather than blank-line separated: each problem stays visibly distinct without the
+        # vertical gaps, and a block's own indentation still carries its structure. `*` opens a
+        # problem, `-` its details, so depth is readable at a glance rather than counted in spaces.
+        for block in check.problems:
+            for line in block.splitlines():
+                marker = "* " if line == line.lstrip() else "- "
+                for wrapped in _wrap(line, indent="    ", width=console.width, marker=marker):
+                    console.print(wrapped, style=style, markup=False)
 
     if failed:
         raise SystemExit(1)
