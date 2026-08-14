@@ -11,6 +11,8 @@ env:
 jobs:
   test_scripting_os:
     strategy:
+      max-parallel: 1
+      fail-fast: false # ensure all jobs run even if one fails
       matrix:
         include:
           - os: ubuntu-22.04
@@ -21,7 +23,6 @@ jobs:
 
           # - os: windows-2022
           #   foundry: stable
-      fail-fast: false # ensure all jobs run even if one fails
 
     runs-on: ${{ matrix.os }}
     steps:
