@@ -176,11 +176,14 @@ def test_foundry_lock_problems_flags_stale_pin_with_forge_fix(tmp_path):
 # permission grants to everyone and makes them a reviewable part of the source, which is how a loose
 # rule outlives the session that needed it. Both halves are required: untracking without ignoring
 # lets the next `git add .` bring it back, and ignoring an already-tracked file does nothing.
-def _write_local_settings(repo: pathlib.Path, allow: list[str]) -> pathlib.Path:
+def _write_local_settings(repo: pathlib.Path, allow: list[str], *, tracked: bool = False) -> pathlib.Path:
     claude = repo / ".claude"
     claude.mkdir(parents=True, exist_ok=True)
     path = claude / "settings.local.json"
     path.write_text(json.dumps({"permissions": {"allow": allow, "deny": []}}))
+    if tracked:
+        _git(repo, "add", "-f", ".claude/settings.local.json")
+        _git(repo, "commit", "-qm", "track settings")
     return path
 
 
@@ -221,13 +224,13 @@ def test_local_settings_flags_present_but_not_ignored(tmp_path):
 # ── claude_permission_scope_problems: three rule shapes that grant more than this repo's work needs ──
 def test_permission_scope_clean_for_repo_scoped_rules(tmp_path):
     repo = _init_repo(tmp_path / "host")
-    _write_local_settings(repo, ["Bash(forge build)", "Read(src/**)", "WebSearch"])
+    _write_local_settings(repo, ["Bash(forge build)", "Read(src/**)", "WebSearch"], tracked=True)
     assert doctor.claude_permission_scope_problems(repo) == []
 
 
 def test_permission_scope_flags_a_path_outside_the_repo(tmp_path):
     repo = _init_repo(tmp_path / "host")
-    _write_local_settings(repo, ["Read(//home/someone/github/other-project/**)"])
+    _write_local_settings(repo, ["Read(//home/someone/github/other-project/**)"], tracked=True)
     problems = doctor.claude_permission_scope_problems(repo)
     assert problems
     assert "other-project" in problems[0]
@@ -239,7 +242,7 @@ def test_permission_scope_allows_the_claude_plans_repo(tmp_path):
     # file: a check that flags its own instructions gets switched off wholesale. Written with `~`,
     # which is the portable spelling — see the hardcoded-home test below.
     repo = _init_repo(tmp_path / "host")
-    _write_local_settings(repo, ["Read(~/.claude/plans/**)"])
+    _write_local_settings(repo, ["Read(~/.claude/plans/**)"], tracked=True)
     assert doctor.claude_permission_scope_problems(repo) == []
 
 
@@ -248,7 +251,7 @@ def test_permission_scope_flags_a_hardcoded_home_path_even_when_the_scope_is_all
     # file to one machine and one account. Scope and portability are independent defects, so the
     # exemption for the first must not suppress the second.
     repo = _init_repo(tmp_path / "host")
-    _write_local_settings(repo, [f"Read(/{pathlib.Path.home()}/.claude/plans/**)"])
+    _write_local_settings(repo, [f"Read(/{pathlib.Path.home()}/.claude/plans/**)"], tracked=True)
     problems = doctor.claude_permission_scope_problems(repo)
     assert problems
     assert "~" in problems[0]
@@ -259,7 +262,7 @@ def test_permission_scope_reports_every_reason_a_rule_fails(tmp_path):
     # A rule can fail on more than one count, and reporting only the first sends the reader round the
     # loop again after they fix it.
     repo = _init_repo(tmp_path / "host")
-    _write_local_settings(repo, [f"Read(/{pathlib.Path.home()}/github/elsewhere/**)"])
+    _write_local_settings(repo, [f"Read(/{pathlib.Path.home()}/github/elsewhere/**)"], tracked=True)
     problems = doctor.claude_permission_scope_problems(repo)
     assert problems
     assert "outside this repository" in problems[0]  # reason 1: scope
@@ -270,7 +273,7 @@ def test_permission_scope_flags_an_arbitrary_command_suffix(tmp_path):
     # `Bash(cd <repo> *)` matches `cd <repo> && rm -rf ~` — a trailing ` *` is a shell-continuation
     # hole, not an argument wildcard.
     repo = _init_repo(tmp_path / "host")
-    _write_local_settings(repo, [f"Bash(cd {repo} *)"])
+    _write_local_settings(repo, [f"Bash(cd {repo} *)"], tracked=True)
     problems = doctor.claude_permission_scope_problems(repo)
     assert problems
     assert any("&&" in p for p in problems)  # the message must explain WHY a trailing * is unsafe
@@ -278,7 +281,7 @@ def test_permission_scope_flags_an_arbitrary_command_suffix(tmp_path):
 
 def test_permission_scope_flags_a_wildcard_on_a_state_changing_command(tmp_path):
     repo = _init_repo(tmp_path / "host")
-    _write_local_settings(repo, ["Bash(chmod:*)"])
+    _write_local_settings(repo, ["Bash(chmod:*)"], tracked=True)
     problems = doctor.claude_permission_scope_problems(repo)
     assert problems
     assert "chmod" in problems[0]
@@ -347,3 +350,23 @@ def test_every_check_function_is_registered(tmp_path):
         name for name in defined if not any(name.split("_problems")[0].split("_")[0] in check for check in registered)
     }
     assert not unregistered, f"check functions never reached the checks list: {sorted(unregistered)}"
+
+
+# ── scope is checked on TRACKED settings only: an untracked file is not the repository's business ──
+def test_permission_scope_ignores_an_untracked_settings_file(tmp_path):
+    # The check's whole justification is that these grants are published to everyone who clones and
+    # outlive the session that needed them. That holds only while the file is in the index. Untracked,
+    # it is one developer's own machine, and doctor is a repo-health tool. Checking it anyway also puts
+    # the two checks in conflict: untracking is the fix the sibling check asks for, and it would leave
+    # this one red forever — a permanently-red check is one people stop reading.
+    repo = _init_repo(tmp_path / "host")
+    _write_local_settings(repo, ["Read(//home/someone/elsewhere/**)"])  # untracked
+    assert doctor.claude_permission_scope_problems(repo) == []
+
+
+def test_permission_scope_flags_the_same_file_once_it_is_tracked(tmp_path):
+    repo = _init_repo(tmp_path / "host")
+    _write_local_settings(repo, ["Read(//home/someone/elsewhere/**)"], tracked=True)
+    problems = doctor.claude_permission_scope_problems(repo)
+    assert problems
+    assert "elsewhere" in problems[0]

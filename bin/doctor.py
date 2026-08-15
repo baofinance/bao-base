@@ -564,6 +564,24 @@ def claude_permission_scope_problems(repo_root: Path) -> list[str]:
         settings_file = repo_root / ".claude" / name
         if not settings_file.is_file():
             continue
+        # Only a TRACKED settings file is this repository's business. The reason to police these
+        # grants is that they reach everyone who clones and outlive the session that needed them —
+        # true of a file in the index, and of nothing else. Untracked, it is one developer's own
+        # machine, and doctor reports on repositories. Checking it anyway would also set the two
+        # `.claude` checks against each other: untracking is the fix its sibling asks for, and it
+        # would leave this one red for good, which is how a check stops being read.
+        tracked = (
+            subprocess.run(
+                ["git", "ls-files", "--error-unmatch", f".claude/{name}"],
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+                check=False,  # a non-zero return IS the answer: the file is untracked
+            ).returncode
+            == 0
+        )
+        if not tracked:
+            continue
         try:
             settings = json5.loads(settings_file.read_text())
         except ValueError as exc:
@@ -679,11 +697,12 @@ def build_checks(repo_root: Path, foundry_remappings: list[str], wake_remappings
             claude_local_settings_problems(repo_root),
         ),
         Check(
-            ".claude allow-rules are scoped to this repo",
-            "a rule reaching outside the repo, ending in a bare ` *`, or wildcarding a "
-            "state-changing command grants far more than any one task needs, and it persists for "
-            "every future session; one spelling an absolute /home/<user>/ path also ties the file "
-            "to a single machine and account",
+            "committed .claude allow-rules are scoped to this repo",
+            "a COMMITTED rule reaches everyone who clones and outlives the session that needed it, "
+            "so one reaching outside the repo, ending in a bare ` *`, or wildcarding a "
+            "state-changing command grants far more than any one task needs; one spelling an "
+            "absolute /home/<user>/ path also ties the file to a single machine and account. An "
+            "untracked settings file is a developer's own business and is not read",
             "each rule below was approved once for one task and now stands permanently. Delete the "
             "ones whose task is finished; narrow the rest to the path or command actually needed",
             claude_permission_scope_problems(repo_root),
