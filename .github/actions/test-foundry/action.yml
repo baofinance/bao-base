@@ -35,6 +35,25 @@ runs:
         brew install bash
         bash --version
 
+    - name: Check the workflows copied from bao-base
+      shell: bash
+      run: |
+        # This repo's copies of bao-base's workflows still match the originals. Placed before the
+        # expensive setup because it needs none of it — bao-base's run provisions its own python —
+        # so drift is reported in seconds instead of after foundry, node and a full install. It is
+        # the only check run from here on purpose; see bin/workflow_copy.py for why adding a second
+        # is a decision rather than a tidy-up.
+        #
+        # bao-base is lib/bao-base in a consumer and the repo itself when bao-base IS the repo, and
+        # `uses:` takes no expressions so the path cannot be supplied where the action is referenced.
+        # Both cases fit in the one command, which is also what bin/CI replays locally — so the step
+        # is the same line of shell wherever it runs. A repo with neither fails on the missing file,
+        # which is the honest outcome: there is no bao-base to check against.
+        cd ${{ inputs.cwd }}
+        # ci-execute-next-line
+        if [[ -d lib/bao-base ]]; then lib/bao-base/run workflow_copy; else ./run workflow_copy; fi
+      id: workflow-copy
+
     - name: Install uv python framework
       shell: bash
       run: |

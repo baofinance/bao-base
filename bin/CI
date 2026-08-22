@@ -57,6 +57,22 @@ if [[ "$retry_mode" == "0" ]] && [[ "$skip_mode" == "0" ]]; then
   rm -f "$STATE_FILE"
 fi
 
+# A command in action.yml that this script can replay locally. Two forms, because CI reaches bao-base
+# two ways: through a repo's yarn scripts, and directly through bao-base's own `run` — which needs
+# neither node nor a package.json entry, so the action can use it before yarn exists. Anything else
+# in the file is a GitHub-only step (a `uses:`, a shell fragment) that has no local equivalent.
+is_replayable() {
+  local cmd="$1"
+  [[ "$cmd" == yarn\ * ]] && return 0
+  # `run` has to be recognised where a command can actually start — the beginning of the line, or
+  # after `;`, `then` or `else` — because the step that locates bao-base does so inline, in a
+  # one-line if. Matching it anywhere in the line instead would take the "/run" in a message or a
+  # URL for an invocation and drag a GitHub-only step into the local replay.
+  local run_invocation='(^|; |then |else )([^[:space:]]*/)?run[[:space:]]'
+  [[ "$cmd" =~ $run_invocation ]] && return 0
+  return 1
+}
+
 # Phase 1: parse action.yml — build execute[] and skipped[] lists
 execute=()
 skipped=()
@@ -69,8 +85,8 @@ while IFS= read -r line; do
     if [[ -z "$cmd" ]]; then
       echo "ERROR: blank line after '# ci-execute-next-line' in $ACTION_YML" >&2
       exit 1
-    elif [[ "$cmd" != yarn\ * ]]; then
-      echo "ERROR: '# ci-execute-next-line' not followed by a yarn command (got: $cmd)" >&2
+    elif ! is_replayable "$cmd"; then
+      echo "ERROR: '# ci-execute-next-line' not followed by a yarn script or a bao-base 'run' target (got: $cmd)" >&2
       exit 1
     fi
     execute+=("$cmd")
@@ -80,7 +96,7 @@ while IFS= read -r line; do
 
   if [[ "$cmd" == "# ci-execute-next-line" ]]; then
     marker_seen=1
-  elif [[ "$cmd" == yarn\ * ]]; then
+  elif is_replayable "$cmd"; then
     skipped+=("$cmd")
   fi
 done <"$ACTION_YML"
@@ -131,7 +147,7 @@ rm -f "$STATE_FILE"
 
 if [[ ${#skipped[@]} -gt 0 ]]; then
   echo ""
-  echo "=== yarn commands not executed (add '# ci-execute-next-line' above to run) ==="
+  echo "=== commands not executed (add '# ci-execute-next-line' above to run) ==="
   for cmd in "${skipped[@]}"; do
     echo "  $cmd"
   done

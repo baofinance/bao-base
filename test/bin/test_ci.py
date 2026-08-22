@@ -85,3 +85,72 @@ def test_a_valid_action_is_accepted():
     # --debug parses the action and prints the steps instead of executing them.
     result = run_ci(valid_action_names()[0], "--debug")
     assert result.returncode == 0
+
+
+# ── which commands bin/CI will replay ─────────────────────────────────────────────────────────────
+# The action reaches bao-base two ways: through a repo's yarn scripts, and directly through
+# bao-base's own `run`, which needs neither node nor a package.json entry so CI can use it before
+# yarn exists. Both must replay locally — a step that only ever runs on GitHub is one you discover
+# in a pull request rather than before pushing.
+
+
+def _action_with_steps(base_dir, body):
+    """An actions directory holding one action whose action.yml contains `body`."""
+    action_dir = base_dir / ".github" / "actions" / "an-action"
+    action_dir.mkdir(parents=True)
+    (action_dir / "action.yml").write_text(body)
+    return "an-action"
+
+
+def test_marked_run_command_is_executed(tmp_path):
+    name = _action_with_steps(tmp_path, "runs:\n  steps:\n    - run: |\n        # ci-execute-next-line\n        \"$BAO_BASE_DIR\"/run some-target\n")
+    result = run_ci_against(tmp_path, name, "--debug")
+    assert result.returncode == 0
+    assert '"$BAO_BASE_DIR"/run some-target' in result.stdout
+
+
+def test_marked_yarn_command_is_still_executed(tmp_path):
+    # the original form has to keep working — this is an extension, not a replacement
+    name = _action_with_steps(tmp_path, "runs:\n  steps:\n    - run: |\n        # ci-execute-next-line\n        yarn test\n")
+    result = run_ci_against(tmp_path, name, "--debug")
+    assert result.returncode == 0
+    assert "yarn test" in result.stdout
+
+
+def test_marked_command_that_is_neither_is_rejected(tmp_path):
+    # the guard still has to fire: the marker means "replay this locally", and a step bin/CI cannot
+    # replay would be silently absent from every local run while appearing to be covered.
+    name = _action_with_steps(tmp_path, "runs:\n  steps:\n    - run: |\n        # ci-execute-next-line\n        brew install bash\n")
+    result = run_ci_against(tmp_path, name, "--debug")
+    assert result.returncode != 0
+    assert "brew install bash" in result.stderr
+
+
+def test_unmarked_run_command_is_listed_as_not_executed(tmp_path):
+    # an unmarked command is reported so it can be adopted, exactly as unmarked yarn commands are
+    name = _action_with_steps(tmp_path, "runs:\n  steps:\n    - run: |\n        ./lib/bao-base/run some-target\n")
+    result = run_ci_against(tmp_path, name, "--debug")
+    assert result.returncode == 0
+    assert "not executed" in result.stdout
+    assert "./lib/bao-base/run some-target" in result.stdout
+
+
+def test_marked_inline_if_choosing_between_run_paths_is_executed(tmp_path):
+    # The shape the action actually uses. bao-base is lib/bao-base in a consumer and the repo itself
+    # in bao-base, and `uses:` takes no expressions, so the step picks between them inline — which
+    # puts the invocation after `then` and after `else` rather than at the start of the line.
+    command = "if [[ -d lib/bao-base ]]; then lib/bao-base/run workflow_copy; else ./run workflow_copy; fi"
+    name = _action_with_steps(tmp_path, f"runs:\n  steps:\n    - run: |\n        # ci-execute-next-line\n        {command}\n")
+    result = run_ci_against(tmp_path, name, "--debug")
+    assert result.returncode == 0
+    assert command in result.stdout
+
+
+def test_a_run_inside_a_longer_command_is_not_mistaken_for_one(tmp_path):
+    # the match is anchored at the start of the command: a word ending in "/run" elsewhere in a
+    # shell line is not an invocation of bao-base's run, and treating it as one would put a
+    # GitHub-only step into the local replay, where it would fail for reasons no one could place.
+    name = _action_with_steps(tmp_path, "runs:\n  steps:\n    - run: |\n        echo do not /run this\n")
+    result = run_ci_against(tmp_path, name, "--debug")
+    assert result.returncode == 0
+    assert "do not /run this" not in result.stdout

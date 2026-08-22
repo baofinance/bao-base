@@ -4,12 +4,14 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-import textwrap
 import tomllib
 from pathlib import Path
-from typing import Any, NamedTuple, cast
+from typing import Any, cast
 
 import json5
+
+import workflow_copy
+from checks import Check, report
 
 
 def load_toml(path: Path) -> dict[str, Any]:
@@ -601,43 +603,6 @@ def claude_permission_scope_problems(repo_root: Path) -> list[str]:
     return problems
 
 
-class Check(NamedTuple):
-    """One doctor check, ready to render. `why` states what it is for and prints on every run;
-    `cost` states what leaving it unfixed costs and prints only when it fired, which is the one
-    place that extra reading earns its space."""
-
-    name: str
-    why: str
-    cost: str
-    problems: list[str]
-
-
-def _wrap(text: str, indent: str, width: int, marker: str = "") -> list[str]:
-    """One line of `text` wrapped to `width` under `indent`, ready to print.
-
-    `width` is the console's own width: wrap wider than that and rich re-wraps the result at the true
-    edge, dropping the indent from every continuation line and leaving the output ragged. Any leading
-    whitespace `text` already carries is preserved and added to `indent`, so a problem block's own
-    structure survives.
-
-    `marker` is a list bullet ("* ", "- ") placed once, on the first line; continuations align past
-    it rather than stepping in further. Separating items by bullet rather than by blank line keeps
-    each one visibly distinct without the vertical gaps, and a continuation that aligned under the
-    bullet — or indented past it — would read as a nested item instead of the same one. An empty
-    line stays empty."""
-    own_indent = " " * (len(text) - len(text.lstrip()))
-    prefix = indent + own_indent
-    body = text.strip()
-    if not body:
-        return [""]
-    return textwrap.wrap(
-        body,
-        width=max(width, len(prefix) + len(marker) + 20),
-        initial_indent=prefix + marker,
-        subsequent_indent=prefix + " " * len(marker),
-    )
-
-
 def build_checks(repo_root: Path, foundry_remappings: list[str], wake_remappings: list[str]) -> list[Check]:
     """Every check doctor runs, in report order. Separate from `main` so the list is a value that can
     be asserted on: a check function that is written but never added here silently never runs, and
@@ -681,6 +646,7 @@ def build_checks(repo_root: Path, foundry_remappings: list[str], wake_remappings
             "on whether git or forge updated the checkout last",
             foundry_lock_problems(repo_root),
         ),
+        workflow_copy.check(repo_root),
         Check(
             ".vscode/settings.json uses bao-base's ruff",
             "a different ruff, or none, formats and lints Python to a different standard than CI "
@@ -720,40 +686,13 @@ def build_checks(repo_root: Path, foundry_remappings: list[str], wake_remappings
 
 
 def main() -> None:
-    from rich.console import Console
-
     repo_root = Path(
         subprocess.run(
             ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True
         ).stdout.strip()
     )
     foundry_remappings, wake_remappings = load_remappings(repo_root)
-    console = Console()
-    checks = build_checks(repo_root, foundry_remappings, wake_remappings)
-
-    failed = False
-    for check in checks:
-        mark, style = ("✗", "red") if check.problems else ("✓", "green")
-        console.print(f"{mark} {check.name}", style=f"bold {style}" if check.problems else style, markup=False)
-        # Identical shape on both paths, so the reason for a check reads the same whether or not it
-        # fired; only `cost` and the problems themselves are added when it did.
-        prose = check.why if not check.problems else f"{check.why}. {check.cost}"
-        for line in _wrap(prose, indent="    ", width=console.width):
-            console.print(line, style=style if check.problems else "dim", markup=False)
-        if not check.problems:
-            continue
-        failed = True
-        # Bulleted rather than blank-line separated: each problem stays visibly distinct without the
-        # vertical gaps, and a block's own indentation still carries its structure. `*` opens a
-        # problem, `-` its details, so depth is readable at a glance rather than counted in spaces.
-        for block in check.problems:
-            for line in block.splitlines():
-                marker = "* " if line == line.lstrip() else "- "
-                for wrapped in _wrap(line, indent="    ", width=console.width, marker=marker):
-                    console.print(wrapped, style=style, markup=False)
-
-    if failed:
-        raise SystemExit(1)
+    report(build_checks(repo_root, foundry_remappings, wake_remappings))
 
 
 if __name__ == "__main__":
