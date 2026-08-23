@@ -234,7 +234,28 @@ main() {
     done <.verify-audit-ignore
   fi
 
+  # Refresh the tags. Whether the local tag list is stale cannot be answered locally — a tag you
+  # have never seen leaves no trace — so the only way to audit against the tags that actually exist
+  # is to ask the remote. In CI this is redundant (actions/checkout with fetch-depth: 0 has just
+  # fetched everything); it is here for a developer whose clone has not seen a recently cut tag,
+  # who would otherwise audit fewer tags than exist and be told nothing was wrong.
   git fetch --tags --no-recurse-submodules
+
+  # A shallow repository is refused rather than audited. It holds an unknown subset of the tagged
+  # commits — the tag at the cloned tip is there, older ones are not — so the patterns below would
+  # match only what happens to be present and the audit would report success having checked a
+  # subset it never names. Nothing in the tag list distinguishes that from a genuinely complete run,
+  # and the fetch above does not repair it: fetching into a shallow clone keeps it shallow.
+  shallow=$(git rev-parse --is-shallow-repository) || {
+    echo "ERROR: could not determine whether this is a shallow repository" >&2
+    exit 1
+  }
+  if [[ "${shallow}" == "true" ]]; then
+    echo "ERROR: this is a shallow clone, so an unknown subset of tagged commits is absent and the audit cannot be complete" >&2
+    echo "       fetch the full history first (in GitHub Actions: actions/checkout with fetch-depth: 0)" >&2
+    exit 1
+  fi
+
   tags=()
   for pattern in "$@"; do
     matches=$(git tag -l "${pattern}")

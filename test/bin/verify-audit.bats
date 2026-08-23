@@ -407,6 +407,29 @@ SOL
   [[ "$output" == *"build at"* ]]
 }
 
+@test "a shallow clone is a loud error, not a silent pass" {
+  # A shallow clone is missing an unknown subset of the tagged commits — the tag at the cloned tip
+  # is present, older ones are not — so the patterns match only whatever happens to be there and the
+  # audit reports success having checked a subset it never names. That is the worst outcome for a
+  # check whose whole job is noticing drift, and it cannot be detected from the tag list itself.
+  # The caller must fetch the full history (in GitHub Actions, fetch-depth: 0).
+  _new_fixture
+  cat >"$FIX/src/A.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract A { function f() external pure returns (uint256) { return 1; } }
+SOL
+  _tag_fixture "deploy/test"
+  # cloned inside BARE_PARENT so teardown removes it with the rest of the fixture
+  git clone -q --depth=1 "file://$BARE" "$BARE_PARENT/shallow"
+  cd "$BARE_PARENT/shallow"
+  run "$VERIFY_AUDIT"
+  echo "status=$status"
+  echo "output=$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *shallow* ]]
+}
+
 @test "deleting a deployed contract is reported as drift, not cleared" {
   _new_fixture
   cat >"$FIX/src/Gone.sol" <<'SOL'
