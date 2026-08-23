@@ -103,7 +103,10 @@ def _action_with_steps(base_dir, body):
 
 
 def test_marked_run_command_is_executed(tmp_path):
-    name = _action_with_steps(tmp_path, "runs:\n  steps:\n    - run: |\n        # ci-execute-next-line\n        \"$BAO_BASE_DIR\"/run some-target\n")
+    name = _action_with_steps(
+        tmp_path,
+        'runs:\n  steps:\n    - run: |\n        # ci-execute-next-line\n        "$BAO_BASE_DIR"/run some-target\n',
+    )
     result = run_ci_against(tmp_path, name, "--debug")
     assert result.returncode == 0
     assert '"$BAO_BASE_DIR"/run some-target' in result.stdout
@@ -111,7 +114,9 @@ def test_marked_run_command_is_executed(tmp_path):
 
 def test_marked_yarn_command_is_still_executed(tmp_path):
     # the original form has to keep working — this is an extension, not a replacement
-    name = _action_with_steps(tmp_path, "runs:\n  steps:\n    - run: |\n        # ci-execute-next-line\n        yarn test\n")
+    name = _action_with_steps(
+        tmp_path, "runs:\n  steps:\n    - run: |\n        # ci-execute-next-line\n        yarn test\n"
+    )
     result = run_ci_against(tmp_path, name, "--debug")
     assert result.returncode == 0
     assert "yarn test" in result.stdout
@@ -120,7 +125,9 @@ def test_marked_yarn_command_is_still_executed(tmp_path):
 def test_marked_command_that_is_neither_is_rejected(tmp_path):
     # the guard still has to fire: the marker means "replay this locally", and a step bin/CI cannot
     # replay would be silently absent from every local run while appearing to be covered.
-    name = _action_with_steps(tmp_path, "runs:\n  steps:\n    - run: |\n        # ci-execute-next-line\n        brew install bash\n")
+    name = _action_with_steps(
+        tmp_path, "runs:\n  steps:\n    - run: |\n        # ci-execute-next-line\n        brew install bash\n"
+    )
     result = run_ci_against(tmp_path, name, "--debug")
     assert result.returncode != 0
     assert "brew install bash" in result.stderr
@@ -140,7 +147,9 @@ def test_marked_inline_if_choosing_between_run_paths_is_executed(tmp_path):
     # in bao-base, and `uses:` takes no expressions, so the step picks between them inline — which
     # puts the invocation after `then` and after `else` rather than at the start of the line.
     command = "if [[ -d lib/bao-base ]]; then lib/bao-base/run workflow_copy; else ./run workflow_copy; fi"
-    name = _action_with_steps(tmp_path, f"runs:\n  steps:\n    - run: |\n        # ci-execute-next-line\n        {command}\n")
+    name = _action_with_steps(
+        tmp_path, f"runs:\n  steps:\n    - run: |\n        # ci-execute-next-line\n        {command}\n"
+    )
     result = run_ci_against(tmp_path, name, "--debug")
     assert result.returncode == 0
     assert command in result.stdout
