@@ -1,0 +1,284 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Forge script runner, shared by every repo that builds on bao-base.
+#
+# Runs a Solidity script with standardised environment and forge arguments: it resolves the network
+# to an RPC URL and chain id, exports NETWORK and the deployment state directory for the script to
+# read, and saves the batch JSON for scripts using the SafeBatch pattern.
+#
+# Nothing here is specific to one repo's contracts — a repo adds its own arguments in a thin wrapper
+# that delegates here (see harbor's script/deploy, which adds --peg/--collateral). That is why it
+# lives in bao-base rather than in any one consumer: a second copy would drift from the first.
+#
+# Default entry point: run(string,string) — the salt prefix and the network, the two arguments this
+# runner requires. Use -- to override the forge --sig for a script on a different signature.
+
+[[ -f "foundry.toml" ]] || {
+  echo "❌ Run from project root" >&2
+  exit 1
+}
+
+usage() {
+  cat <<EOF
+Usage:
+  $0 <ScriptName> --network <net> --salt <salt> [options] [-- <extra forge args>]
+
+Required:
+  <ScriptName>       Solidity script contract name (e.g., Deploy_StabilityPool_v2_mainnet)
+  --network <net>    Network name (mainnet, arbitrum, base)
+  --salt <salt>      Salt prefix (e.g., harbor_v1)
+
+Options:
+  --broadcast        Broadcast transactions on-chain (adds --broadcast --slow --ffi --verify)
+  --account <name>   Foundry keystore account name (required for non-local broadcast)
+  --local            Use local anvil node (auto-impersonate, local state directory)
+  --timestamp        Add timestamp to local state directory (requires --local)
+  --resume           Resume a previous broadcast
+  -m, --message      Override safe batch description (max 256 chars)
+  -h, --help         Show this help message
+
+Pass-through:
+  -- <args>          Extra arguments passed directly to forge script.
+                     If --sig is included, it overrides the default "run(string,string)".
+
+Examples:
+  $0 Deploy_StabilityPool_v2_mainnet --salt harbor_v1 --network mainnet --broadcast --local
+  $0 UpdateVolatility_Example --salt harbor_v1 --network mainnet
+EOF
+}
+
+NETWORK=""
+SALT=""
+SCRIPT_NAME=""
+USE_LOCAL=false
+USE_TIMESTAMP=false
+USE_BROADCAST=false
+ACCOUNT=""
+MESSAGE=""
+FORGE_EXTRA=()
+EXTRA_FORGE_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --)
+      shift
+      EXTRA_FORGE_ARGS=("$@")
+      break
+      ;;
+    --network)
+      NETWORK=$2
+      shift 2
+      ;;
+    --salt)
+      SALT=$2
+      shift 2
+      ;;
+    --broadcast)
+      USE_BROADCAST=true
+      shift
+      ;;
+    --account)
+      ACCOUNT=$2
+      shift 2
+      ;;
+    --local)
+      USE_LOCAL=true
+      shift
+      ;;
+    --timestamp)
+      USE_TIMESTAMP=true
+      shift
+      ;;
+    --resume)
+      FORGE_EXTRA+=(--resume)
+      shift
+      ;;
+    -m | --message)
+      MESSAGE=$2
+      shift 2
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    -*)
+      echo "❌ Unknown option: $1" >&2
+      exit 1
+      ;;
+    *)
+      SCRIPT_NAME="$1"
+      shift
+      ;;
+  esac
+done
+
+# ── Validation ────────────────────────────────────────────────────────────
+
+[[ -n "$SCRIPT_NAME" ]] || {
+  echo "❌ Script name required" >&2
+  usage >&2
+  exit 1
+}
+[[ -n "$NETWORK" ]] || {
+  echo "❌ --network required" >&2
+  exit 1
+}
+[[ -n "$SALT" ]] || {
+  echo "❌ --salt required" >&2
+  exit 1
+}
+[[ "$USE_TIMESTAMP" == false || "$USE_LOCAL" == true ]] || {
+  echo "❌ --timestamp requires --local" >&2
+  exit 1
+}
+[[ "$USE_BROADCAST" == true || "$USE_LOCAL" == true || -n "$ACCOUNT" ]] || true # account optional
+
+SCRIPT_PATH="script/${SCRIPT_NAME}.s.sol"
+[[ -f "$SCRIPT_PATH" ]] || {
+  echo "❌ Script not found: $SCRIPT_PATH" >&2
+  exit 1
+}
+
+# ── RPC and state directory ───────────────────────────────────────────────
+
+if [[ "$USE_LOCAL" == true ]]; then
+  RPC_URL="local"
+  if [[ "$USE_TIMESTAMP" == true ]]; then
+    SUBDIR="local-$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  else
+    SUBDIR="local"
+  fi
+  DEPLOY_STATE_DIR="$(pwd)/deployments/${SUBDIR}/${NETWORK}"
+else
+  RPC_URL=$NETWORK
+  DEPLOY_STATE_DIR="$(pwd)/deployments/${NETWORK}"
+fi
+export DEPLOY_STATE_DIR
+export DEPLOY_STATE_FILE_READ="${DEPLOY_STATE_DIR}/${SALT}.state.json"
+export DEPLOY_STATE_FILE_WRITE="${DEPLOY_STATE_DIR}/${SALT}.state.json.pending"
+
+CHAIN_ID=$(cast chain-id --rpc-url "$RPC_URL" 2>/dev/null) || {
+  echo "❌ RPC failed: $RPC_URL" >&2
+  exit 1
+}
+
+FORGE_ARGS=(--rpc-url "$RPC_URL")
+
+# ── Account / signer ─────────────────────────────────────────────────────
+
+if [[ "$USE_LOCAL" == true ]]; then
+  FORGE_ARGS+=(--unlocked)
+  if [[ -z "$ACCOUNT" ]]; then
+    FORGE_ARGS+=(--sender 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266)
+  fi
+  cast rpc anvil_setBalance 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2 0xDE0B6B3A7640000 --rpc-url local
+  cast balance 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2 --rpc-url local
+fi
+if [[ -n "$ACCOUNT" ]]; then
+  FORGE_ARGS+=(--account "$ACCOUNT")
+fi
+
+# ── Broadcast mode ────────────────────────────────────────────────────────
+
+if [[ "$USE_BROADCAST" == true ]]; then
+  FORGE_ARGS+=(--broadcast)
+  [[ "$USE_LOCAL" == true ]] || FORGE_ARGS+=(--slow --verify)
+fi
+
+# ── Environment for Solidity ──────────────────────────────────────────────
+
+export NETWORK
+export SAFE_BATCH_NAME="$SCRIPT_NAME"
+export SAFE_BATCH_TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+if [[ -n "$MESSAGE" ]]; then
+  DESCRIPTION="$MESSAGE"
+else
+  DESCRIPTION="$SCRIPT_NAME --salt $SALT"
+fi
+if [[ ${#DESCRIPTION} -gt 256 ]]; then
+  DESCRIPTION="${DESCRIPTION:0:253}..."
+fi
+export SAFE_BATCH_DESCRIPTION="$DESCRIPTION"
+
+if [[ "$USE_LOCAL" == true ]]; then
+  export EXECUTE_LOCAL=true
+fi
+
+# ── Append extra forge flags ──────────────────────────────────────────────
+
+FORGE_ARGS+=("${FORGE_EXTRA[@]}" "--ffi")
+
+# ── Display ───────────────────────────────────────────────────────────────
+
+echo "======================================================" >&2
+echo "  RUN SCRIPT: $SCRIPT_NAME" >&2
+echo "======================================================" >&2
+echo "  Salt:       $SALT" >&2
+echo "  Network:    $NETWORK ($RPC_URL, chainId: $CHAIN_ID)" >&2
+echo "  Broadcast:  $USE_BROADCAST" >&2
+echo "  Local:      $USE_LOCAL" >&2
+[[ -z "$ACCOUNT" ]] || echo "  Account:    $ACCOUNT" >&2
+echo "  forge args: ${FORGE_ARGS[*]}" >&2
+echo "" >&2
+
+START_TIME=$(date +%s)
+
+# ── State file management ────────────────────────────────────────────────
+# Solidity reads from DEPLOY_STATE_FILE_READ and writes to DEPLOY_STATE_FILE_WRITE
+# (a .pending file). This ensures forge's internal simulation pass never pollutes
+# the file that the broadcast pass reads. On success with --broadcast, the pending
+# file is promoted to the real state file. Otherwise it is deleted.
+
+# Clean up any .pending file left by a prior failed run.
+if [[ -f "$DEPLOY_STATE_FILE_WRITE" ]]; then
+  echo "  State:      cleaning up stale .pending from prior run" >&2
+  rm -f "$DEPLOY_STATE_FILE_WRITE"
+fi
+
+# Default: --sig "run(string,string)" with the salt and the network — the two values this runner
+# requires, handed over the same way. Passing one as an argument and leaving the other to be read
+# from the exported NETWORK would split one interface across two mechanisms.
+# If -- was used and includes --sig, the caller controls the entry point.
+if [[ ${#EXTRA_FORGE_ARGS[@]} -gt 0 ]]; then
+  FORGE_CMD=(forge script "$SCRIPT_PATH" --tc "$SCRIPT_NAME" "${EXTRA_FORGE_ARGS[@]}" "${FORGE_ARGS[@]}")
+else
+  FORGE_CMD=(
+    forge script "$SCRIPT_PATH" --tc "$SCRIPT_NAME"
+    --sig "run(string,string)" "$SALT" "$NETWORK" "${FORGE_ARGS[@]}"
+  )
+fi
+
+if ! "${FORGE_CMD[@]}"; then
+  echo "" >&2
+  echo "======================================================" >&2
+  echo "  FAILED" >&2
+  if [[ -f "$DEPLOY_STATE_FILE_WRITE" ]]; then
+    echo "  State:      .pending left for debugging at $DEPLOY_STATE_FILE_WRITE" >&2
+  fi
+  echo "======================================================" >&2
+  exit 1
+fi
+
+# Promote or discard the pending state file.
+if [[ -f "$DEPLOY_STATE_FILE_WRITE" ]]; then
+  if [[ "$USE_BROADCAST" == true ]]; then
+    mv "$DEPLOY_STATE_FILE_WRITE" "$DEPLOY_STATE_FILE_READ"
+    echo "  State:      promoted .pending -> $DEPLOY_STATE_FILE_READ" >&2
+  else
+    rm -f "$DEPLOY_STATE_FILE_WRITE"
+    echo "  State:      removed .pending (dry run)" >&2
+  fi
+fi
+
+END_TIME=$(date +%s)
+ELAPSED=$((END_TIME - START_TIME))
+MINS=$((ELAPSED / 60))
+SECS=$((ELAPSED % 60))
+
+echo "" >&2
+echo "======================================================" >&2
+echo "  COMPLETE" >&2
+printf "  Took: %dm %02ds\n" "$MINS" "$SECS" >&2
+echo "======================================================" >&2
