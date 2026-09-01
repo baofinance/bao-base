@@ -149,9 +149,15 @@ opening it.
   bytecode, and swapping it is a deployment event. Version it exactly like a contract — `VaultManager_v1`,
   `CompoundManager_v1`. The suffix tracks the deployed thing, which is precisely what needs tracking.
 - **An INTERNAL library is inlined and has no deployed identity**: it is source that becomes part of
-  every consumer. Name it `SomethingLib` with NO version — `ValuationLib`, `TokenStackLib`. A version
-  suffix there implies an artefact that can be swapped independently, and none exists; it also invites
-  the "which version is deployed?" question that has no answer.
+  every consumer. Name it `SomethingLib` with NO version — `MinterValuationLib`, `TokenStackLib`. A
+  version suffix there implies an artefact that can be swapped independently, and none exists; it also
+  invites the "which version is deployed?" question that has no answer.
+- **Make the name unambiguous across every repo that compiles it, not just its own.** Solidity imports
+  are path-qualified, but the artefact namespace and every tool keyed on the bare contract name
+  (`out/<file>.sol/<Contract>.json`, `--match-contract`, size/gas/coverage tables, slither) are flat.
+  Two repos in one build tree cannot both hold a `ValuationLib`. Prefix by domain so the name stands
+  alone: `MinterValuationLib` for the minter's collateral arithmetic, `VaultValuationLib` for the
+  ERC-4626 vault valuation that consumes it downstream.
 
 So `*Manager_v1` / `*_v1` for external, `*Lib` for internal — and if a library's visibility changes, its
 name changes with it, because the name is the claim about what it is.
