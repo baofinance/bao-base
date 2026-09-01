@@ -13,15 +13,18 @@
 #
 # Usage mirrors `forge update`, deliberately: name the dependencies to update, or name none to update them ALL (no
 # dependency is assumed or privileged). Matching that contract is what makes this a drop-in for `forge update` -
-# diverging would invite reaching for the raw command and losing the guard. Pass --check to run just the safety
-# checks and report, updating nothing - useful as a pre-flight, in CI, and to exercise this script itself without
-# invoking the destructive command it guards.
+# diverging would invite reaching for the raw command and losing the guard. That extends to the ref suffix,
+# `<dependency>@<ref>`: `update-submodule bao-base@main` re-pins bao-base, rewriting its foundry.lock entry to the
+# main branch. Pass --check to run just the safety checks and report, updating nothing - useful as a pre-flight, in
+# CI, and to exercise this script itself without invoking the destructive command it guards.
 
 set -euo pipefail
 
-usage="usage: update-submodule [--check] [dependency...]
+usage="usage: update-submodule [--check] [dependency[@ref]...]
   --check       run the safety checks and report, updating nothing
-  dependency    a foundry dependency (its directory under lib/) or a submodule path; none means ALL submodules"
+  dependency    a foundry dependency (its directory under lib/) or a submodule path; none means ALL submodules
+  @ref          re-pin the dependency to this branch, tag or commit, rewriting its foundry.lock entry
+                  e.g. update-submodule bao-base@main"
 
 check_only=0
 declare -a dependencies=()
@@ -46,6 +49,9 @@ done
 # Which submodules `forge update` would touch: the named dependencies, or every submodule when none are named
 # (matching `forge update`'s own no-argument behaviour).
 declare -a submodule_paths=()
+# What forge is finally handed: each named dependency as the path resolved for it, carrying whatever
+# ref came with it. Naming none means ALL, which forge expresses by receiving no dependency at all.
+declare -a forge_arguments=()
 if [[ ${#dependencies[@]} -eq 0 ]]; then
   if ! submodule_status=$(git submodule status); then
     echo "error: could not list submodules - is this a git repository?" >&2
@@ -58,14 +64,31 @@ if [[ ${#dependencies[@]} -eq 0 ]]; then
 else
   # A foundry dependency is named by its directory under lib/, but accept a full path too.
   for dependency in "${dependencies[@]}"; do
-    if [[ -e "$dependency/.git" ]]; then
-      submodule_paths+=("$dependency")
-    elif [[ -e "lib/$dependency/.git" ]]; then
-      submodule_paths+=("lib/$dependency")
+    # A dependency may carry a ref - <dependency>@<ref>, as in bao-base@main - which RE-PINS it:
+    # forge update rewrites that dependency's foundry.lock entry to the named branch, tag or commit.
+    # No flag on `forge update` or `forge install` does this, so passing the form through is the only
+    # way to change a pin. The ref is not part of the path, so split it off before locating the
+    # submodule, then re-attach it to the path that was resolved: forge does NOT split a ref off a
+    # bare name - given `bao-base@main` it looks for the whole string at `lib/bao-base@main` and
+    # reports the dependency missing. Only the lib/-prefixed path carries a ref successfully.
+    ref=""
+    path="$dependency"
+    if [[ "$dependency" == *@* ]]; then
+      ref="@${dependency##*@}"
+      path="${dependency%@*}"
+    fi
+
+    if [[ -e "$path/.git" ]]; then
+      submodule_paths+=("$path")
+    elif [[ -e "lib/$path/.git" ]]; then
+      path="lib/$path"
+      submodule_paths+=("$path")
     else
-      echo "error: no submodule at '$dependency' or 'lib/$dependency'" >&2
+      echo "error: no submodule at '$path' or 'lib/$path'" >&2
       exit 1
     fi
+
+    forge_arguments+=("${path}${ref}")
   done
 fi
 
@@ -116,4 +139,4 @@ if [[ $check_only -ne 0 ]]; then
   exit 0
 fi
 
-forge update ${dependencies[@]+"${dependencies[@]}"}
+forge update ${forge_arguments[@]+"${forge_arguments[@]}"}
