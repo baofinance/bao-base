@@ -2,7 +2,7 @@
 
 pragma solidity >=0.8.28 <0.9.0;
 
-import {IPriceOracleErrors} from "./IPriceOracleErrors.sol";
+import {IPriceOracleErrors} from "@bao/interfaces/IPriceOracleErrors.sol";
 
 /// @notice A layer providing validated price information for underlying and wrapped assets.
 /// @dev This validates prices from Chainlink feeds and ensures they meet quality standards.
