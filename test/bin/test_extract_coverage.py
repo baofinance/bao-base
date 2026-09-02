@@ -42,6 +42,13 @@ def table(kept: list[str]) -> str:
     return "\n".join(HEADER + kept + FILTERED + [FORGE_TOTAL])
 
 
+# A row whose branch and statement columns have nothing to measure. Recent forge reports these as
+# "N/A (0/0)"; older versions reported "100.00% (0/0)".
+NOTHING_TO_MEASURE = (
+    "| src/NoBranches.sol      | 50.00% (10/20)   | N/A (0/0)        | N/A (0/0)      | 100.00% (2/2)    |"
+)
+
+
 def counts(cell: str) -> tuple[int, int]:
     match = re.search(r"\((\d+)/(\d+)\)", cell)
     assert match is not None, f"no (covered/measured) counts in {cell!r}"
@@ -102,6 +109,36 @@ def test_a_lone_reported_row_is_not_inflated_by_the_filtered_ones():
     assert counts(total[1]) == (10, 20)
 
 
+def test_a_column_with_nothing_to_measure_reads_as_not_applicable():
+    """A "N/A (0/0)" column keeps forge's not-applicable reading instead of being passed through raw.
+
+    A file with no branches has neither covered nor uncovered ones, so it must not be marked as a
+    shortfall, and it must not claim full coverage either - the ✓ that "100.00% (0/0)" used to produce
+    said a file was fully covered when nothing about it was measured at all. It carries its own
+    marker, laid out to the width of the ✓/X forms so the markers stay in one column.
+    """
+    _, reported, _ = extract([NOTHING_TO_MEASURE])
+
+    lines, statements, branches, functions = reported[0][1:5]
+    assert statements == "-  N/A (0/0)"
+    assert branches == "-  N/A (0/0)"
+    assert lines == "X  50% (10/20)", "the measured columns are unaffected"
+    assert functions == "✓ 100% (2/2)"
+    assert len(statements.split(" (")[0]) == len(functions.split(" (")[0]), "markers share one column"
+
+
+def test_a_column_with_nothing_to_measure_adds_nothing_to_the_total():
+    """0/0 columns leave the Total to the rows that were actually measured.
+
+    Counting an unmeasured column as fully covered would lift the Total above what the report can
+    show; counting it as uncovered would sink it. It contributes neither.
+    """
+    _, reported, total = extract([*KEPT[:1], NOTHING_TO_MEASURE])
+
+    assert counts(total[2]) == counts(reported[0][2]), "the unmeasured statements column added counts"
+    assert counts(total[1]) == (20, 40), "the measured lines columns sum normally"
+
+
 def test_an_empty_report_totals_nothing_rather_than_forges_figure():
     """Everything filtered out: the Total must collapse to 0/0, not report 145 covered lines.
 
@@ -112,3 +149,4 @@ def test_an_empty_report_totals_nothing_rather_than_forges_figure():
 
     assert reported == []
     assert counts(total[1]) == (0, 0)
+    assert total[1] == "-  N/A (0/0)", "a Total over no rows is not applicable, not fully covered"

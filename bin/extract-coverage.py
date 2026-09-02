@@ -5,6 +5,10 @@ import re
 import forge_tables
 import pandas as pd
 
+# What forge prints for a column with nothing to measure - a file with no branches, say. It is
+# neither covered nor uncovered, and forge's earlier "100.00% (0/0)" claimed full coverage of it.
+NOT_MEASURED = "N/A"
+
 
 def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str] | None:
     """
@@ -65,8 +69,13 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str] | None:
             if counts:
                 covered += int(counts.group(1))
                 measured += int(counts.group(2))
-        percent = (100.0 * covered / measured) if measured else 100.0
-        totals.append(f"{percent:.2f}% ({covered}/{measured})")
+        # With nothing measured there is no percentage to state, so the Total says so in forge's own
+        # words rather than claiming full coverage of nothing. Formatting is left to the one cell
+        # formatter below, which sees this row exactly as it sees forge's.
+        if measured:
+            totals.append(f"{100.0 * covered / measured:.2f}% ({covered}/{measured})")
+        else:
+            totals.append(f"{NOT_MEASURED} ({covered}/{measured})")
     data.append(totals)
 
     # Create the DataFrame using the cleaned and validated data
@@ -75,9 +84,15 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str] | None:
     # format the data to show xxx% (nn/mm), with asterisk and padding for <100%
     def _format_coverage_cell(raw: str) -> str:
         raw = raw.strip()
+        count_match = re.search(r"\((\d+/\d+)\)", raw)
+        suffix = f" {count_match.group(0)}" if count_match else ""
+
         match = re.search(r"(\d+(?:\.\d+)?)%", raw)
         if not match:
-            return raw
+            # Nothing measured: its own marker, so the cell is read as neither a shortfall nor full
+            # coverage. Marker and value together are the width of the ✓/X forms below, so every
+            # marker in the column lines up.
+            return f"-  {NOT_MEASURED}{suffix}" if raw.startswith(NOT_MEASURED) else raw
 
         percent_value = float(match.group(1))
         percent = f"{percent_value:2.0f}"
@@ -88,9 +103,6 @@ def toNamedDataFrame(input_data: str) -> tuple[pd.DataFrame, str] | None:
         else:
             marker = "X"
             spacer = "  "
-
-        count_match = re.search(r"\((\d+/\d+)\)", raw)
-        suffix = f" {count_match.group(0)}" if count_match else ""
 
         return f"{marker}{spacer}{percent}%{suffix}"
 
