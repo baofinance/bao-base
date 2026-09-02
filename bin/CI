@@ -132,7 +132,20 @@ for ((i = start_index; i < total; i++)); do
   if [[ "$debug" == "1" ]]; then
     echo "[debug] skipping execution"
   else
-    if ! eval "$cmd"; then
+    # Exactly the shell GitHub gives a step, rather than eval in this one. Two reasons, and the
+    # first is a correctness bug: a command placed in a condition has `set -e` suppressed for
+    # everything it expands, so an eval'd compound command runs on past its first failure and ends
+    # up reporting the LAST command's status — a step that fails in CI passes here. Second, a
+    # separate process matches GitHub's step isolation, where a cd or an environment change cannot
+    # leak into the next step.
+    #
+    # BASH_ENV is dropped because --noprofile and --norc do not cover it: they govern the
+    # interactive and login startup files, neither of which a script shell reads, while BASH_ENV is
+    # the one file it does read. Left set, a developer's local replay would source something no
+    # runner has.
+    step_status=0
+    env -u BASH_ENV bash --noprofile --norc -eo pipefail -c "$cmd" || step_status=$?
+    if [[ "$step_status" -ne 0 ]]; then
       echo "" >&2
       echo "=== FAILED at step $((i + 1))/$total: $cmd ===" >&2
       mkdir -p "$(dirname "$STATE_FILE")"

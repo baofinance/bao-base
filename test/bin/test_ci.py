@@ -163,3 +163,67 @@ def test_a_run_inside_a_longer_command_is_not_mistaken_for_one(tmp_path):
     result = run_ci_against(tmp_path, name, "--debug")
     assert result.returncode == 0
     assert "do not /run this" not in result.stdout
+
+
+# ── how a replayed command is executed ────────────────────────────────────────────────────────────
+# GitHub runs every step as `bash --noprofile --norc -eo pipefail`, so a failing command aborts the
+# rest of that step. Local replay has to match, or `yarn CI` reports success for a step CI will fail.
+# These are the only tests here that actually execute a marked command rather than parsing it.
+
+
+def _stub_yarn(directory, exit_code):
+    """A `yarn` on PATH that announces itself and exits as asked, so a test can tell "the command
+    ran and failed" from "the command never ran"."""
+    directory.mkdir(exist_ok=True)
+    stub = directory / "yarn"
+    stub.write_text(f'#!/usr/bin/env bash\necho "STUB-YARN-RAN"\nexit {exit_code}\n')
+    stub.chmod(0o755)
+    return directory
+
+
+def execute_ci_against(base_dir, *args, stub_bin):
+    """bin/CI actually executing, rather than parsing under --debug. cwd is the fixture directory so
+    the .ci-state file it writes on failure lands there and not in the repo."""
+    return subprocess.run(
+        ["bash", str(BAO_BASE / "bin" / "CI"), *args],
+        cwd=base_dir,
+        env={
+            **os.environ,
+            "BAO_BASE_DIR": str(base_dir),
+            "PATH": f"{stub_bin}{os.pathsep}{os.environ['PATH']}",
+        },
+        capture_output=True,
+        text=True,
+    )
+
+
+# Whether the tail of a compound command ran is probed through the filesystem, not through stdout:
+# bin/CI announces each step by echoing the command itself, so any marker word in the command is in
+# the output before the command has run at all.
+
+
+def test_a_marked_command_stops_at_the_first_failure(tmp_path):
+    # The command below fails at `yarn` and then touches a file. If the tail still runs, the
+    # compound's exit status becomes the touch's — zero — and a failing step is reported as a
+    # passing one, which is the worst outcome available to a CI replay.
+    name = _action_with_steps(
+        tmp_path,
+        "runs:\n  steps:\n    - run: |\n        # ci-execute-next-line\n"
+        "        yarn thing; touch tail-ran\n",
+    )
+    result = execute_ci_against(tmp_path, name, stub_bin=_stub_yarn(tmp_path / "stub", 3))
+    assert "STUB-YARN-RAN" in result.stdout, "the marked command did not run at all"
+    assert not (tmp_path / "tail-ran").exists()
+    assert result.returncode != 0
+
+
+def test_a_marked_command_that_succeeds_runs_to_the_end(tmp_path):
+    # The other direction: aborting on failure must not turn into aborting on everything.
+    name = _action_with_steps(
+        tmp_path,
+        "runs:\n  steps:\n    - run: |\n        # ci-execute-next-line\n        yarn thing; touch tail-ran\n",
+    )
+    result = execute_ci_against(tmp_path, name, stub_bin=_stub_yarn(tmp_path / "stub", 0))
+    assert "STUB-YARN-RAN" in result.stdout
+    assert (tmp_path / "tail-ran").exists()
+    assert result.returncode == 0

@@ -111,6 +111,21 @@ runs:
         corepack enable
         yarn
 
+    - name: Run the project's debug script (if any)
+      shell: bash
+      run: |
+        # A repo's own pre-test diagnostic — typically reporting whether the secrets its fork tests
+        # need actually arrived. Optional; bin/optional-yarn-script says why it is a package.json
+        # script rather than a step added here, and what its output means.
+        #
+        # Placed here rather than first because it is a yarn script and yarn does not exist until the
+        # step above — still ahead of everything slow. The bao-base path is spelled the same way as
+        # in the workflow-copy step above, for the same reason given there.
+        cd ${{ inputs.cwd }}
+        # ci-execute-next-line
+        if [[ -d lib/bao-base ]]; then lib/bao-base/run optional-yarn-script debug; else ./run optional-yarn-script debug; fi
+      id: debug
+
     - name: Check audit and deployed code
       shell: bash
       run: |
@@ -219,18 +234,10 @@ runs:
     - name: Check some wtf's
       shell: bash
       run: |
-        # if the package.json file has a wtf script, run it
-        # if it returns anything, print it then fail the action
+        # A repo's own bespoke checks — the same optional-script mechanism as the debug step above,
+        # differing only in that here the output IS the verdict: these print nothing when they are
+        # happy, so anything printed is an issue found. That is what --output-means-failure selects.
         cd ${{ inputs.cwd }}
-        if jq -e '.scripts.wtf' package.json >/dev/null; then
-          out=$(yarn wtf)
-          echo "$out"
-          if [ -n "$out" ]; then
-            echo "wt(actual)f: issues detected by running 'yarn wtf' (which is an optional script in package.json used to detect project bespoke issues)"
-            exit 1
-          fi
-          echo "wtf: no issues detected by running 'yarn wtf' (which is an optional script in package.json used to detect project bespoke issues)"
-        fi
-        echo "wtf: no script "wtf" in package.json, which is fine and dandy as 'yarn wtf' is an optional script in package.json used to detect project bespoke issues"
-        exit 0
+        # ci-execute-next-line
+        if [[ -d lib/bao-base ]]; then lib/bao-base/run optional-yarn-script wtf --output-means-failure; else ./run optional-yarn-script wtf --output-means-failure; fi
       id: wtf

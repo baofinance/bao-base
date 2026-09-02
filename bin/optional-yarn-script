@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Run a project's OPTIONAL package.json script, if it defines one.
+#
+# The test-foundry action offers a consumer two of these — `debug` before the slow steps, `wtf` at
+# the end — so a repo can add its own pre-test diagnostics and its own bespoke checks WITHOUT adding
+# a step to the workflow it copies from bao-base. A copy is entitled to differ only in where the
+# action lives and in the env block carrying its secrets, so a bespoke STEP would be drift that
+# workflow_copy reports; a bespoke package.json SCRIPT is the repo's own business and leaves the
+# copied workflow identical.
+#
+# The two callers differ in one thing only: what output MEANS. For a diagnostic it is information,
+# and the script's exit status is the only verdict. For bespoke checks the output IS the verdict —
+# they print nothing when they are happy — which is what --output-means-failure selects.
+#
+# It lives here rather than inline in action.yml because shell embedded in a step is reachable only
+# by GitHub: it cannot be unit tested, and bin/CI cannot replay it locally. As a `run` target it is
+# both.
+
+script_name=""
+output_means_failure=0
+
+for arg in "$@"; do
+  case "$arg" in
+    --output-means-failure) output_means_failure=1 ;;
+    -*)
+      echo "ERROR: unknown flag: $arg" >&2
+      exit 1
+      ;;
+    *)
+      if [[ -n "$script_name" ]]; then
+        echo "ERROR: only one script name may be given (already have '$script_name', got '$arg')" >&2
+        exit 1
+      fi
+      script_name="$arg"
+      ;;
+  esac
+done
+
+if [[ -z "$script_name" ]]; then
+  echo "ERROR: no script name given" >&2
+  exit 1
+fi
+
+# Absent package.json and absent script are reported apart. The check knows which of the two it saw,
+# and "no 'debug' script in package.json" sends a reader looking for a key in a file that is not
+# there.
+if [[ ! -f package.json ]]; then
+  echo "$script_name: no package.json in $(pwd), so there is no optional '$script_name' script to run"
+  exit 0
+fi
+
+# A package.json that cannot be parsed is an error, not an absent script. Letting the lookup below
+# fail would report a broken repo as a healthy one with nothing to run.
+if ! jq empty package.json 2>/dev/null; then
+  echo "ERROR: package.json in $(pwd) is not valid JSON" >&2
+  exit 1
+fi
+
+if ! jq -e --arg name "$script_name" '(.scripts // {}) | has($name)' package.json >/dev/null; then
+  echo "$script_name: no '$script_name' script in package.json, which is fine — it is an optional script"
+  exit 0
+fi
+
+status=0
+
+if [[ "$output_means_failure" == "1" ]]; then
+  # Captured, because printing anything is the verdict. Printed BEFORE anything is decided, so a
+  # script that explains its failure and then exits non-zero keeps that explanation — losing it is
+  # the one thing this must not do.
+  output=$(yarn "$script_name") || status=$?
+  if [[ -n "$output" ]]; then
+    echo "$output"
+  fi
+  if [[ "$status" -ne 0 ]]; then
+    echo "$script_name: 'yarn $script_name' itself failed, exiting $status" >&2
+    exit "$status"
+  fi
+  if [[ -n "$output" ]]; then
+    echo "$script_name: issues detected by 'yarn $script_name'"
+    exit 1
+  fi
+  echo "$script_name: no issues detected by 'yarn $script_name'"
+  exit 0
+fi
+
+# Information: streamed rather than captured, so it appears as it happens, and the script's own exit
+# status is the only verdict.
+yarn "$script_name" || status=$?
+if [[ "$status" -ne 0 ]]; then
+  echo "$script_name: 'yarn $script_name' failed, exiting $status" >&2
+fi
+exit "$status"
