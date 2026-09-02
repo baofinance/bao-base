@@ -1,9 +1,17 @@
 """Tests for bin/workflow_copy.py — the check `doctor` lists and the action runs on its own.
 
 A consumer cannot point `uses:` at bao-base's workflow, so it holds a hand-copy. The copy may differ
-in ONE way — where the action lives — and must match in every other, in both directions: a line it is
-missing is an upstream fix that never arrived, and a line only it has is an addition upstream never
-took.
+in TWO ways and no more.
+
+Where the action lives, which is normalised away before anything is compared.
+
+And the top-level `env:` block, which is genuinely the consumer's own: a composite action cannot read
+the `secrets` context, so the workflow file is the only place a repo's own RPC endpoints can be
+spelled, and those differ per repo because `foundry.toml` does. There the rule is one-directional —
+every upstream env line must still be present, and in upstream's order — but the copy may add to it.
+
+Everywhere else both directions count: a line the copy is missing is an upstream fix that never
+arrived, and a line only the copy has is an addition upstream never took.
 
 conftest puts bin/ on sys.path, so this imports the module directly.
 """
@@ -57,9 +65,11 @@ def test_copy_missing_an_upstream_line_is_reported(tmp_path):
     assert "GITHUB_TOKEN: secret" in problems[0]
 
 
-def test_copy_with_an_extra_line_is_reported(tmp_path):
-    # The other direction: a consumer-side addition upstream never took. It is not automatically
-    # wrong, but it is undocumented drift, and the check's job is to make someone decide.
+def test_copy_with_an_extra_step_line_is_reported(tmp_path):
+    # The other direction, OUTSIDE env: a consumer-side addition upstream never took. It is not
+    # automatically wrong, but it is undocumented drift, and the check's job is to make someone
+    # decide. This is what the env relaxation must NOT extend to — an added step can change what
+    # the copied steps do, through $GITHUB_ENV or the shared working tree.
     repo, bao_base = _workflow_pair(
         tmp_path,
         f"name: test\njobs:\n  build:\n    steps:\n{_CANONICAL_ACTION}\n",
@@ -76,13 +86,80 @@ def test_both_directions_are_reported_at_once(tmp_path):
     # wastes a round trip — the same reason the permission check reports every reason a rule fails.
     repo, bao_base = _workflow_pair(
         tmp_path,
-        f"name: test\nenv:\n  GITHUB_TOKEN: secret\njobs:\n  build:\n    steps:\n{_CANONICAL_ACTION}\n",
-        f"name: test\nenv:\n  OTHER_TOKEN: secret\njobs:\n  build:\n    steps:\n{_CONSUMER_ACTION}\n",
+        f"name: test\njobs:\n  build:\n    steps:\n      - name: upstream step\n{_CANONICAL_ACTION}\n",
+        f"name: test\njobs:\n  build:\n    steps:\n      - name: consumer step\n{_CONSUMER_ACTION}\n",
+    )
+    problems = workflow_copy.problems(repo, bao_base)
+    assert len(problems) == 1
+    assert "upstream step" in problems[0]
+    assert "consumer step" in problems[0]
+
+
+# ── the top-level env: block, which a consumer owns ───────────────────────────────────────────────
+
+
+def test_extra_env_var_in_the_copy_is_allowed(tmp_path):
+    # The case that forced this: harbor-price-aggregators declares arbitrum and base endpoints its
+    # fork tests read, and bao-base has no such endpoints. Secrets can only be referenced from the
+    # workflow, so there is nowhere else these could live.
+    repo, bao_base = _workflow_pair(
+        tmp_path,
+        f"name: test\nenv:\n  MAINNET_RPC_URL: a\n\njobs:\n  build:\n    steps:\n{_CANONICAL_ACTION}\n",
+        f"name: test\nenv:\n  MAINNET_RPC_URL: a\n  ARBITRUM_RPC_URL: b\n  BASE_RPC_URL: c\n\njobs:\n  build:\n    steps:\n{_CONSUMER_ACTION}\n",
+    )
+    assert workflow_copy.problems(repo, bao_base) == []
+
+
+def test_env_var_missing_from_the_copy_is_still_reported(tmp_path):
+    # The relaxation is one-directional. A copy that has added its own endpoints but never picked up
+    # an upstream one is exactly the stale-copy case this whole check exists for, and having its own
+    # additions must not excuse it.
+    repo, bao_base = _workflow_pair(
+        tmp_path,
+        f"name: test\nenv:\n  MAINNET_RPC_URL: a\n  GITHUB_TOKEN: secret\n\njobs:\n  build:\n    steps:\n{_CANONICAL_ACTION}\n",
+        f"name: test\nenv:\n  MAINNET_RPC_URL: a\n  ARBITRUM_RPC_URL: b\n\njobs:\n  build:\n    steps:\n{_CONSUMER_ACTION}\n",
     )
     problems = workflow_copy.problems(repo, bao_base)
     assert len(problems) == 1
     assert "GITHUB_TOKEN: secret" in problems[0]
-    assert "OTHER_TOKEN: secret" in problems[0]
+    # its own addition is not drift, so it must not be named as though it were
+    assert "ARBITRUM_RPC_URL" not in problems[0]
+
+
+def test_env_additions_must_follow_the_upstream_lines(tmp_path):
+    # Order is what makes "all of upstream's lines are still here" checkable line by line without a
+    # YAML parser. Reordering upstream's own entries is a change to the copied part, not an addition.
+    repo, bao_base = _workflow_pair(
+        tmp_path,
+        f"name: test\nenv:\n  MAINNET_RPC_URL: a\n  GITHUB_TOKEN: secret\n\njobs:\n  build:\n    steps:\n{_CANONICAL_ACTION}\n",
+        f"name: test\nenv:\n  GITHUB_TOKEN: secret\n  MAINNET_RPC_URL: a\n\njobs:\n  build:\n    steps:\n{_CONSUMER_ACTION}\n",
+    )
+    assert workflow_copy.problems(repo, bao_base) != []
+
+
+def test_the_env_key_itself_cannot_be_dropped(tmp_path):
+    # `env:` is structure, not an entry within the block: a copy that removed it entirely would
+    # otherwise look like a copy whose additions simply happened to be none.
+    repo, bao_base = _workflow_pair(
+        tmp_path,
+        f"name: test\nenv:\n  MAINNET_RPC_URL: a\n\njobs:\n  build:\n    steps:\n{_CANONICAL_ACTION}\n",
+        f"name: test\njobs:\n  build:\n    steps:\n{_CONSUMER_ACTION}\n",
+    )
+    assert workflow_copy.problems(repo, bao_base) != []
+
+
+def test_an_added_step_is_reported_even_when_env_also_differs(tmp_path):
+    # The relaxation is scoped to the env block, not enabled by it: a copy that legitimately adds an
+    # endpoint AND adds a step must still be told about the step.
+    repo, bao_base = _workflow_pair(
+        tmp_path,
+        f"name: test\nenv:\n  MAINNET_RPC_URL: a\n\njobs:\n  build:\n    steps:\n{_CANONICAL_ACTION}\n",
+        f"name: test\nenv:\n  MAINNET_RPC_URL: a\n  ARBITRUM_RPC_URL: b\n\njobs:\n  build:\n    steps:\n      - name: extra\n{_CONSUMER_ACTION}\n",
+    )
+    problems = workflow_copy.problems(repo, bao_base)
+    assert len(problems) == 1
+    assert "extra" in problems[0]
+    assert "ARBITRUM_RPC_URL" not in problems[0]
 
 
 def test_leading_comment_block_is_not_drift(tmp_path):

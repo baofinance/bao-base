@@ -133,9 +133,7 @@ def test_an_unreadable_package_json_is_an_error_not_an_absent_script(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     (project / "package.json").write_text("{ not json")
-    result = subprocess.run(
-        ["bash", str(SCRIPT), "debug"], cwd=project, capture_output=True, text=True
-    )
+    result = subprocess.run(["bash", str(SCRIPT), "debug"], cwd=project, capture_output=True, text=True)
     assert result.returncode != 0
     assert "package.json" in result.stderr
 

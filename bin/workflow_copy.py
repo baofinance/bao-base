@@ -54,12 +54,46 @@ def normalised_lines(path: Path, action_prefix: str) -> list[str]:
     return [line.replace(action_prefix, CANONICAL_ACTION_PREFIX) for line in lines[start:]]
 
 
+def split_env_block(lines: list[str]) -> tuple[list[str], list[str]]:
+    """A workflow's lines split into (the entries inside its top-level `env:` block, everything
+    else).
+
+    The block runs from a column-0 `env:` to the next line that is non-blank and also at column 0.
+    The `env:` key itself stays with everything else: it is structure, and a copy that dropped it
+    would otherwise be indistinguishable from one whose additions happened to be none.
+
+    Env is the one part of a copied workflow a consumer genuinely owns. A composite action cannot
+    read the `secrets` context, so the workflow file is the only place a repo's own RPC endpoints can
+    be spelled, and which endpoints exist differs per repo because `foundry.toml` does. Splitting on
+    lines rather than parsing YAML keeps this check free of a parser it would otherwise need on every
+    consumer's runner, on every operating system in the matrix."""
+    inside: list[str] = []
+    outside: list[str] = []
+    in_env = False
+    for line in lines:
+        at_top_level = bool(line) and not line[0].isspace()
+        if at_top_level:
+            in_env = line.rstrip() == "env:"
+            outside.append(line)
+            continue
+        if in_env:
+            inside.append(line)
+        else:
+            outside.append(line)
+    return inside, outside
+
+
 def problems(repo_root: Path, bao_base_root: Path) -> list[str]:
     """Every workflow in `repo_root` that has drifted from its original in `bao_base_root`.
 
-    The single difference a copy is entitled to is where the action lives; that is normalised away,
-    and anything else is drift, reported in both directions — a line the copy is missing is a fix
-    that never arrived, and a line only the copy has is an addition upstream never took.
+    A copy is entitled to two differences. Where the action lives, which is normalised away. And the
+    contents of its top-level `env:` block, where it may ADD to what upstream has — see
+    `split_env_block` for why that one is the consumer's own.
+
+    Everything else is drift, reported in both directions: a line the copy is missing is a fix that
+    never arrived, and a line only the copy has is an addition upstream never took. Inside `env:`
+    only the first of those counts, so an upstream entry the copy has dropped is still reported while
+    its own additions are not.
 
     Scope is opt-in by presence: only a workflow BOTH repos have is compared. Adopting one of
     bao-base's workflows is a deliberate act, so a consumer carrying one of three is not told it is
@@ -94,13 +128,25 @@ def problems(repo_root: Path, bao_base_root: Path) -> list[str]:
         repo_lines = normalised_lines(repo_file, consumer_prefix)
         if canonical_lines == repo_lines:
             continue
+
+        canonical_env, canonical_rest = split_env_block(canonical_lines)
+        repo_env, repo_rest = split_env_block(repo_lines)
+
         # Reported as labelled lines rather than as a diff: the report is already bulleted, so a
         # diff's own `-`/`+` markers would sit next to bullet markers meaning something else
         # entirely. `n=0` drops context, leaving only the lines that actually differ, and the first
         # two entries are unified_diff's empty `---`/`+++` headers.
-        changed = list(difflib.unified_diff(canonical_lines, repo_lines, n=0, lineterm=""))[2:]
-        upstream_only = [line[1:].strip() for line in changed if line.startswith("-")]
-        here_only = [line[1:].strip() for line in changed if line.startswith("+")]
+        rest_changed = list(difflib.unified_diff(canonical_rest, repo_rest, n=0, lineterm=""))[2:]
+        env_changed = list(difflib.unified_diff(canonical_env, repo_env, n=0, lineterm=""))[2:]
+
+        # Both diffs contribute what upstream has and the copy lacks; only the one outside env
+        # contributes the copy's own additions. A line upstream merely MOVED still shows up as
+        # missing, which is intended — reordering upstream's entries is a change to the copied part,
+        # not an addition to it, and matching by position is what lets this work line by line.
+        upstream_only = [line[1:].strip() for line in rest_changed + env_changed if line.startswith("-")]
+        here_only = [line[1:].strip() for line in rest_changed if line.startswith("+")]
+        if not upstream_only and not here_only:
+            continue
 
         detail: list[str] = []
         if upstream_only:
@@ -122,8 +168,8 @@ def check(repo_root: Path) -> Check:
     return Check(
         "workflows copied from bao-base match their originals",
         "a workflow here is a hand-copy of bao-base's, entitled to differ only in where the action "
-        "lives; every other difference means the copy has stopped tracking the original, in "
-        "whichever direction",
+        "lives and in what its own env: block adds; every other difference means the copy has "
+        "stopped tracking the original, in whichever direction",
         "an upstream fix does not reach this repo and nothing says so — the copy keeps passing CI "
         "while running the version of the workflow that had the bug",
         problems(repo_root, BAO_BASE_ROOT),

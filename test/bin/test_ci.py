@@ -208,8 +208,7 @@ def test_a_marked_command_stops_at_the_first_failure(tmp_path):
     # passing one, which is the worst outcome available to a CI replay.
     name = _action_with_steps(
         tmp_path,
-        "runs:\n  steps:\n    - run: |\n        # ci-execute-next-line\n"
-        "        yarn thing; touch tail-ran\n",
+        "runs:\n  steps:\n    - run: |\n        # ci-execute-next-line\n        yarn thing; touch tail-ran\n",
     )
     result = execute_ci_against(tmp_path, name, stub_bin=_stub_yarn(tmp_path / "stub", 3))
     assert "STUB-YARN-RAN" in result.stdout, "the marked command did not run at all"
