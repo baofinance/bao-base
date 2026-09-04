@@ -29,7 +29,7 @@ import {IMintable} from "@bao/interfaces/IMintable.sol";
 import {IBurnable} from "@bao/interfaces/IBurnable.sol";
 import {IBurnableFrom} from "@bao/interfaces/IBurnableFrom.sol";
 
-import {PermitTestBase} from "@bao-test/helpers/PermitTestBase.t.sol";
+import {PermitTestBase} from "@bao-test/PermitTestBase.t.sol";
 
 contract TestLeveragedTokensSetUp is Test {
     using ECDSA for bytes32;
