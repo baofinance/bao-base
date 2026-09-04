@@ -77,6 +77,13 @@ abstract contract GraphTestBase is Test {
         vm.writeLine(file, _row(data, decimals));
     }
 
+    /// @dev A row whose cells are already rendered. For rows the numeric builders cannot express: a
+    ///      label column identifying which case the row measures, or a column whose scale is chosen
+    ///      per value rather than per column.
+    function writeLine(string memory file, string[] memory cells) internal {
+        vm.writeLine(file, BaoTestLib.join(cells, ","));
+    }
+
     // ─── long rows ───
 
     /// @dev Header is every axis name followed by every value name; `writeRow` must match that order.
