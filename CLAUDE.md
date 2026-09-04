@@ -42,6 +42,27 @@ them. Read-only inspection (`git status`, `git log`, `git diff`, `git show`) is 
 After updating a plan, commit the change yourself (as in Working mode). Do this
 without being asked; it is an obligation, not a tolerated exception.
 
+### Every batch ends with a commit message, and it says WHAT changed
+
+The user runs every commit in the project repos, so a batch report without a
+ready-to-paste message is not actionable. Supply one at the end of each batch, in
+a fenced block, without being asked.
+
+Write it for the reader who meets it while bisecting a regression:
+
+- **What changed.** Short bullets once there is more than one thing
+- **A "why" only where the change would otherwise be undone or misread** — a
+  non-obvious mechanism, a constraint that forced an unusual shape, a defect being
+  worked around. One clause attached to the item it explains, never a paragraph of
+  its own.
+- **Nothing else.** No rationale essays, no alternatives weighed, no evidence that
+  it works ("all tests pass"), no restating the report the message sits under.
+
+The reasoning, the options and the evidence go in the plan file, the PR
+description, and the batch report — all read at decision time, with room to
+argue. The commit is read at speed by someone who wants to know what a revision
+did, and every sentence that is not that is in the way.
+
 ## Design principles
 
 ### Fix, park, or remove files that cause errors or warnings
