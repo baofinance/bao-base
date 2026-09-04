@@ -15,9 +15,15 @@ trap 'rm -rf "${BAO_DEPLOYMENT_LOGS_ROOT}"' EXIT
 
 mkdir -p results
 # run the coverage
+# --disable-block-gas-limit: coverage is the one run that compiles with the optimizer off (forge does
+# that so line data maps back to source), which inflates every contract's deployed code and with it the
+# 200 gas per byte charged to deposit that code - a 40KB contract costs over 8M gas to deploy. A test
+# that forks adopts the forked block's gas limit (60M on mainnet) in place of foundry.toml's, and a
+# setUp deploying a stack of such contracts exceeds it; the create halts out of gas and setUp reverts
+# with no indication of why. Lifting that ceiling keeps the run on foundry's own configured gas limit.
 status=0
 set -x
-forge coverage "${VERBOSITY}" --nmp 'script/**/*.t.sol' --report summary --report lcov --deny never "$@" || status=$?
+forge coverage "${VERBOSITY}" --nmp 'script/**/*.t.sol' --report summary --report lcov --deny never --disable-block-gas-limit "$@" || status=$?
 { set +x; } 2>/dev/null
 # make forge's exit status the script's return value: the set +x above would otherwise mask it,
 # and run sources this script under `|| exit_code=$?` which suppresses set -e
