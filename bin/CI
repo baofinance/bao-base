@@ -28,6 +28,9 @@ for arg in "$@"; do
   esac
 done
 
+# set by `run`, which sources this; unset it would look for the action under /.github and report the
+# wrong path as missing
+: "${BAO_BASE_DIR:?must be set by the bao-base run script}"
 ACTION_YML="${BAO_BASE_DIR}/.github/actions/${action}/action.yml"
 if [[ ! -f "$ACTION_YML" ]]; then
   echo "ERROR: actions file not found: $ACTION_YML" >&2
@@ -148,7 +151,8 @@ for ((i = start_index; i < total; i++)); do
     if [[ "$step_status" -ne 0 ]]; then
       echo "" >&2
       echo "=== FAILED at step $((i + 1))/$total: $cmd ===" >&2
-      mkdir -p "$(dirname "$STATE_FILE")"
+      # dirname of a non-empty literal path, so there is no failure to check
+      mkdir -p "$(dirname "$STATE_FILE")" # lint-bash disable=command-substitution
       echo "$i" >"$STATE_FILE"
       echo "Run 'yarn CI ${action} --retry' to retry this step, or 'yarn CI ${action} --skip' to skip it." >&2
       exit 1

@@ -150,12 +150,13 @@ runs:
         yarn fmt:python:check
       id: ruff
 
-    # - name: Run Bash Script Linting
-    #   shell: bash
-    #   run: |
-    #     cd ${{ inputs.cwd }}
-    #     yarn lint:bash
-    #   id: lint
+    - name: Run Bash Script Linting
+      shell: bash
+      run: |
+        cd ${{ inputs.cwd }}
+        # ci-execute-next-line
+        yarn lint:bash
+      id: lint_bash
 
     - name: Run Python Script linting
       shell: bash
@@ -173,12 +174,13 @@ runs:
         yarn test:python
       id: pytest
 
-    # - name: Run Bash (BATS) Tests
-    #   shell: bash
-    #   run: |
-    #     cd ${{ inputs.cwd }}
-    #     yarn test:bash
-    #   id: bats
+    - name: Run Bash (BATS) Tests
+      shell: bash
+      run: |
+        cd ${{ inputs.cwd }}
+        # ci-execute-next-line
+        yarn test:bash
+      id: bats
 
     - name: Check for changed repo files
       shell: bash

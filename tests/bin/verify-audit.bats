@@ -260,6 +260,7 @@ SOL
 # ----------------------------------------------------------------------------
 
 @test "_assert_metadata_disabled trips when forge config does not show none/false" {
+  # shellcheck source=bin/verify-audit
   source "$VERIFY_AUDIT" BATS # BATS sentinel: load functions, don't run main
   shim=$(mktemp -d)
   printf '#!/bin/sh\necho '\''bytecode_hash = "ipfs"'\''\necho '\''cbor_metadata = true'\''\n' >"$shim/forge"
@@ -273,6 +274,7 @@ SOL
 }
 
 @test "_assert_metadata_disabled passes when forge config shows none/false" {
+  # shellcheck source=bin/verify-audit
   source "$VERIFY_AUDIT" BATS # BATS sentinel: load functions, don't run main
   shim=$(mktemp -d)
   printf '#!/bin/sh\necho '\''bytecode_hash = "none"'\''\necho '\''cbor_metadata = false'\''\n' >"$shim/forge"
@@ -289,6 +291,7 @@ SOL
 # ----------------------------------------------------------------------------
 
 @test "_file_signature: pure rename yields identical creation-bytecode signature" {
+  # shellcheck source=bin/verify-audit
   source "$VERIFY_AUDIT" BATS # BATS sentinel: load functions, don't run main
   _new_fixture
   cat >"$FIX/src/Old.sol" <<'SOL'
@@ -481,6 +484,7 @@ SOL
 @test "control: differing settings DO change bytecode (keeps the pinning test honest)" {
   # If this fails, via_ir no longer affects this contract and the settings-pinning
   # test above would be passing vacuously. Pass condition = the signatures DIFFER.
+  # shellcheck source=bin/verify-audit
   source "$VERIFY_AUDIT" BATS
   _new_fixture
   cat >"$FIX/src/Loop.sol" <<'SOL'

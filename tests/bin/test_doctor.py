@@ -11,7 +11,7 @@ import json
 import pathlib
 import subprocess
 
-# Load bin/doctor.py by path (import-safe — see module guard). This file lives in test/bin/, so the
+# Load bin/doctor.py by path (import-safe — see module guard). This file lives in tests/bin/, so the
 # repo root (containing bin/) is two parents up.
 _module_path = pathlib.Path(__file__).resolve().parents[2] / "bin" / "doctor.py"
 _spec = importlib.util.spec_from_file_location("doctor", _module_path)

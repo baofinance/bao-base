@@ -47,14 +47,16 @@ fi
 # and "no 'debug' script in package.json" sends a reader looking for a key in a file that is not
 # there.
 if [[ ! -f package.json ]]; then
-  echo "$script_name: no package.json in $(pwd), so there is no optional '$script_name' script to run"
+  # pwd reports the directory the shell is already in, so there is no failure to check
+  echo "$script_name: no package.json in $(pwd), so there is no optional '$script_name' script to run" # lint-bash disable=command-substitution
   exit 0
 fi
 
 # A package.json that cannot be parsed is an error, not an absent script. Letting the lookup below
 # fail would report a broken repo as a healthy one with nothing to run.
 if ! jq empty package.json 2>/dev/null; then
-  echo "ERROR: package.json in $(pwd) is not valid JSON" >&2
+  # pwd reports the directory the shell is already in, so there is no failure to check
+  echo "ERROR: package.json in $(pwd) is not valid JSON" >&2 # lint-bash disable=command-substitution
   exit 1
 fi
 

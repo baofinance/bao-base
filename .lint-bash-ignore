@@ -1,0 +1,15 @@
+# Files bin/lint-bash does not check yet. One path per line; a path that no longer exists is an error,
+# so this list cannot outlive what it excuses.
+#
+# TEMPORARY. Everything here is the legacy bash deployment layer, which is being migrated to python;
+# these files are expected to be deleted rather than fixed, so cleaning their 41 findings would be work
+# thrown away. Every other bash file in the repo is checked, and a NEW file is checked by default -
+# this is a list of what is left behind, not a list of what is looked at.
+#
+# Delete an entry when its file is migrated or fixed; delete the file when the list is empty.
+bin/deploy.sh
+bin/maul.sh
+bin/run/blockchain
+bin/run/logging
+bin/run/recording
+bin/run/transacting

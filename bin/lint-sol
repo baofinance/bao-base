@@ -20,4 +20,6 @@ for arg in "$@"; do
   esac
 done
 
+# set by `run`, which sources this; unset it would silently point solhint at a non-existent config
+: "${BAO_BASE_DIR:?must be set by the bao-base run script}"
 solhint "${root_dir}/**/*.sol" --config "${BAO_BASE_DIR}/.solhint${config_suffix}.json" --disc --max-warnings 0 "${args[@]}"

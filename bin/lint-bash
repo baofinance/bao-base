@@ -87,10 +87,49 @@ for arg in "$@"; do
   esac
 done
 
+# .lint-bash-ignore: one path per line, blanks and #-comments skipped. Modelled on .validate-ignore,
+# including its refusal to carry a stale entry: a listed file that no longer exists is an error, so the
+# list cannot quietly outlive the thing it excuses.
+if [[ -f .lint-bash-ignore ]]; then
+  declare -A _ignored=()
+  _ignore_missing=0
+  while IFS= read -r _ignore || [[ -n "${_ignore}" ]]; do
+    _ignore="${_ignore%%#*}"
+    _ignore="${_ignore#"${_ignore%%[![:space:]]*}"}"
+    _ignore="${_ignore%"${_ignore##*[![:space:]]}"}"
+    [[ -z "${_ignore}" ]] && continue
+    if [[ ! -e "${_ignore}" ]]; then
+      echo ".lint-bash-ignore: file does not exist: '${_ignore}'" >&2
+      _ignore_missing=1
+      continue
+    fi
+    _ignore_abs=$(realpath "${_ignore}")
+    _ignored["${_ignore_abs}"]=1
+  done <.lint-bash-ignore
+  if [[ "${_ignore_missing}" -ne 0 ]]; then
+    error "lint-bash: .lint-bash-ignore names files that do not exist"
+  fi
+  # matched on the RESOLVED path: discovery yields paths relative to the working directory when no
+  # path argument is given, and absolute ones when an absolute directory is passed. Comparing the
+  # literal strings would silently stop ignoring in the second case.
+  for _found in "${!file_set[@]}"; do
+    _found_abs=$(realpath "${_found}")
+    if [[ -v _ignored["${_found_abs}"] ]]; then
+      info2 "ignoring ${_found}"
+      unset "file_set[${_found}]"
+    fi
+  done
+fi
+
 # Print to help debug what files were found
 info1 "Found ${#file_set[@]} files and file patterns"
 
-if [[ "${mode}" == "--lint" ]]; then
+if [[ ${#file_set[@]} -eq 0 ]]; then
+  # Nothing survived discovery and .lint-bash-ignore. Both tools below are given the file list as
+  # arguments, and neither degrades safely when it is empty: shellcheck exits non-zero complaining it
+  # was given no files, and grep with no file operands reads stdin and hangs.
+  log "no bash files to check"
+elif [[ "${mode}" == "--lint" ]]; then
   # https://www.shellcheck.net
   if ! command -v shellcheck &>/dev/null; then
     log "shellcheck not found attempting to install..."
@@ -108,7 +147,8 @@ if [[ "${mode}" == "--lint" ]]; then
     fi
   fi
   # run shellcheck
-  log "shellcheck v$(shellcheck --version | awk '/version:/ {print $2}')"
+  # a version banner: if shellcheck cannot report its version, the run below fails anyway
+  log "shellcheck v$(shellcheck --version | awk '/version:/ {print $2}')" # lint-bash disable=command-substitution
   issues=0
   info1 "Running shellcheck..."
   info1 "with args: ${args[*]}"
@@ -158,7 +198,9 @@ if [[ "${mode}" == "--lint" ]]; then
     echo -e "  ${khaki}${indent} warning: Command substitution used as argument without error checking${plain}"
     echo -e "  ${grey}if this is an acceptable use of command substitution, put this at the end of this line ${olive}# lint-bash disable=command-substitution${plain}"
     echo ""
-  done < <(grep -nH '\$[(]' "${!file_set[@]}" |
+    # `\$\([^(]` and not `\$[(]`: the latter also matches the `$((` opening an arithmetic expansion,
+    # which contains no command and so has no exit status to check.
+  done < <(grep -nHE '\$\([^(]' "${!file_set[@]}" |
     grep -v '=' |
     grep -v '|| \(exit\|return\)' |
     grep -v '^[^:]*:[^:]*:[ \t]*#' |

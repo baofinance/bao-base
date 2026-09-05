@@ -3,6 +3,10 @@ set -euo pipefail
 
 SCRIPT_ARGS=("$@")
 
+# set by `run`, which sources this. Asserted here rather than at its use far below, so the failure
+# comes before the full forge build rather than after it.
+: "${BAO_BASE_BIN_DIR:?must be set by the bao-base run script}"
+
 # Parse .validate-ignore: each non-comment non-blank line is "check file".
 # Supported checks: naming, pragma, storage, upgrades, bare-imports, relative-imports, broadcast-scope.
 VALID_CHECKS=(naming pragma storage upgrades bare-imports relative-imports broadcast-scope)
@@ -307,7 +311,8 @@ for contract in ${contracts}; do
     fi
   else
     if [[ "${root_slots}" != "" && "${root_slots}" -gt 0 ]]; then
-      echo "ERROR: Root slots for ${contract}: ${root_slots}\n$(forge inspect $contract storage-layout)"
+      # already on the failure path: a forge inspect that also fails just leaves the detail empty
+      echo "ERROR: Root slots for ${contract}: ${root_slots}\n$(forge inspect "$contract" storage-layout)" # lint-bash disable=command-substitution
       this_failed=1
     fi
   fi
@@ -362,7 +367,6 @@ for contract in ${contracts}; do
       # Count SSTOREs in constructor
       disasm=$(cast disassemble "$init")
       sstore_count=$(echo "$disasm" | grep -ci '\bSSTORE\b' || true)
-      sload_count=$(echo "$disasm" | grep -ci '\bSLOAD\b' || true)
 
       if [ "$is_beacon" -eq 1 ]; then
         # Beacon: constructor must write exactly once (to the implementation slot).

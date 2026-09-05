@@ -15,7 +15,7 @@ The fix is always the same shape: create the configs BEFORE `vm.startBroadcast()
 values, and leave only the deployment calls inside the broadcast.
 
 `violations` is pure — source text in, (line number, line) pairs out — so the rule is unit-testable
-without a filesystem (test/bin/test_broadcast_scope.py). `main` walks the roots, honours the
+without a filesystem (tests/bin/test_broadcast_scope.py). `main` walks the roots, honours the
 `--ignore` paths bin/validate passes it from `.validate-ignore`, and reports.
 
 Exit 0 if no config object is created inside a broadcast; 1 otherwise.
