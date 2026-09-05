@@ -6,7 +6,7 @@ import {BaoOwnable} from "@bao/BaoOwnable.sol";
 import {TokenHolder_v2} from "@bao/TokenHolder_v2.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 
-import {TokenHolderTestBase} from "@bao-test/helpers/TokenHolderTestBase.t.sol";
+import {TokenHolderTestBase} from "@bao-test/TokenHolderTestBase.t.sol";
 
 /// @notice v2 counterpart to DerivedTokenHolder. v2's non-upgradeable ReentrancyGuardTransient needs no initializer,
 ///         so - in deliberate contrast to the v1 canary - `initialize` does owner-setup only, with no

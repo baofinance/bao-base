@@ -5,7 +5,7 @@ import {BaoOwnable} from "@bao/BaoOwnable.sol";
 import {TokenHolder} from "@bao/TokenHolder.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 
-import {TokenHolderTestBase} from "@bao-test/helpers/TokenHolderTestBase.t.sol";
+import {TokenHolderTestBase} from "@bao-test/TokenHolderTestBase.t.sol";
 
 /// @notice Canary mirroring downstream deployed consumers: it calls the reentrancy-guard initializer inside an
 ///         `initializer` context, so a change to TokenHolder that removes that init API (or drifts the guard bytecode)
