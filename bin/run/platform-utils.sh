@@ -29,11 +29,18 @@ elif [[ "$(uname)" == "Linux" ]]; then
   BAO_BASE_OS="linux"
   # Try to get distribution info
   if [[ -f /etc/os-release ]]; then
+    # Each variable the sourced file provides is declared empty immediately before the `source`.
+    # This is for the linter, not for bash: shellcheck runs with --external-sources, so it follows
+    # the `source` and finds the assignments only when the file is present. /etc/os-release and
+    # /etc/lsb-release exist on a Linux runner and not on a macOS one, so without these declarations
+    # the identical code lints clean on Linux and reports SC2154 on macOS.
     BAO_BASE_OS_SUBTYPE=$(
+      ID=""
       source /etc/os-release >/dev/null 2>&1
       echo "${ID,,}"
     ) # e.g. "ubuntu" "debian", "centos", "fedora"
     BAO_BASE_OS_VERSION=$(
+      VERSION_ID=""
       source /etc/os-release >/dev/null 2>&1
       echo "${VERSION_ID}"
     ) # e.g. "20.04", "11", "8"
@@ -42,6 +49,8 @@ elif [[ "$(uname)" == "Linux" ]]; then
     BAO_BASE_OS_SUBTYPE=$(lsb_release -si | tr '[:upper:]' '[:lower:]') # e.g. "ubuntu", "debian"
     BAO_BASE_OS_VERSION=$(lsb_release -sr)                              # e.g. "20.04", "11"
   elif [[ -f /etc/lsb-release ]]; then
+    DISTRIB_ID=""
+    DISTRIB_RELEASE=""
     source /etc/lsb-release
     BAO_BASE_OS_SUBTYPE="${DISTRIB_ID,,}"    # e.g. "ubuntu", "debian"
     BAO_BASE_OS_VERSION="${DISTRIB_RELEASE}" # e.g. "20.04", "11"
