@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Usage: verify-audit [tag-or-pattern ...]
-# Each argument is expanded via `git tag -l` (so wildcards like `deploy-*`
-# work). Defaults to `audit*` and `deploy*`. Fails if a deployed contract's
-# creation bytecode has drifted since a resolved tag (new files are OK).
-# Quote patterns to avoid shell globbing.
+# Usage: verify-audit [revision-or-pattern ...]
+# Defaults to `audit*` and `deploy*`. Fails if a deployed contract's creation
+# bytecode has drifted since a resolved revision (new files are OK).
 #
-# A changed file is auto-cleared when it is meaning-neutral: its version at the
-# tag and at HEAD compile to the same metadata-stripped creation bytecode. Both
+# An argument holding a glob metacharacter is a PATTERN, expanded via `git tag -l`
+# (so `deploy-*` works — quote it to avoid shell globbing); matching no tags is
+# information, not a failure. Any other argument is an EXPLICIT name and must
+# resolve, or the run fails: a tag, a branch, or a commit SHA — so a repo that cuts
+# no tags can still compare against the commit its deploy was built from. A name
+# that is both a tag and a branch resolves as the tag, and says so.
+#
+# A changed file is auto-cleared when it is meaning-neutral: its version at that
+# revision and at HEAD compile to the same metadata-stripped creation bytecode. Both
 # sides are compiled with the current toolchain (FOUNDRY_BYTECODE_HASH=none,
 # FOUNDRY_CBOR_METADATA=false) in a throwaway git worktree, building only the
 # changed files and their import closure; a guard fails loudly if those switches
@@ -20,24 +25,25 @@ set -euo pipefail
 # A `.verify-audit-ignore` file in the current directory controls what is
 # skipped. Each non-comment, non-blank line has the form:
 #
-#   tag                          — ignore the whole tag
-#   tag file1 file2 ...          — ignore specific files within the tag only;
-#                                  other drifting files in that tag still fail
-#   tag {dir1 dir2} [file ...]   — restrict the tag's checks to those directories
-#                                  (the deploy only covered them); files outside
-#                                  the dirs are not checked, and any file entry
-#                                  outside them is an error
-#   tag {path.json:field} [file] — scope to the contracts a deployment manifest
+#   rev                          — ignore the whole revision
+#   rev file1 file2 ...          — ignore specific files within the revision only;
+#                                  other drifting files in it still fail
+#   rev {dir1 dir2} [file ...]   — restrict the revision's checks to those
+#                                  directories (the deploy only covered them); files
+#                                  outside the dirs are not checked, and any file
+#                                  entry outside them is an error
+#   rev {path.json:field} [file] — scope to the contracts a deployment manifest
 #                                  records: the named JSON field's values (read at
-#                                  the tag), each taken up to its ":" suffix. This
-#                                  is complete by construction. Dirs and manifests
-#                                  may be mixed inside { }.
+#                                  that revision), each taken up to its ":" suffix.
+#                                  This is complete by construction. Dirs and
+#                                  manifests may be mixed inside { }.
 #
-# `#` begins a comment. Ignored tags/files are reported but do not contribute
+# `rev` is the argument as written on the command line — a tag, branch or commit.
+# `#` begins a comment. Ignored revisions/files are reported but do not contribute
 # to the exit status — unless an entry is stale: a file entry that matches no
 # changed file, whose change would now clear (bytecode-equivalent), or that lies
-# outside the tag's declared scope. All are reported as errors ("remove it") so
-# the ignore file stays minimal.
+# outside the revision's declared scope. All are reported as errors ("remove it")
+# so the ignore file stays minimal.
 
 # Where audited source may live. Rename detection pairs only among the paths that
 # survive the pathspec, so any location a source file can legitimately move TO must
@@ -51,9 +57,9 @@ _AUDIT_PATHSPEC=(src deprecated/src)
 # or outside _AUDIT_PATHSPEC, reaches the report as a plain deletion. Matching is by
 # exact blob identity, never similarity: an identical blob elsewhere IS the moved file.
 # Echoes a note, or nothing when the deletion is genuine.
-_locate_moved() { # $1 = tag, $2 = deleted path
-  local tag="$1" path="$2" blob base c
-  blob=$(git rev-parse "${tag}:${path}" 2>/dev/null) || return 0
+_locate_moved() { # $1 = revision, $2 = deleted path
+  local rev="$1" path="$2" blob base c
+  blob=$(git rev-parse "${rev}:${path}" 2>/dev/null) || return 0
   base="${path##*/}"
   while IFS= read -r c; do
     [[ "${c##*/}" == "${base}" && -f "${c}" ]] || continue
@@ -96,7 +102,7 @@ _build_head_out() { # $1 = abs out dir, $2.. = src paths
 
 # One shared throwaway worktree pinned at HEAD (HEAD's foundry.toml, lib, settings)
 # with a persistent forge cache, so the import closure compiles once and is reused
-# across every tag. Created lazily on the first tag that needs a build.
+# across every revision. Created lazily on the first revision that needs a build.
 _ensure_worktree() {
   [[ -n "${_wt}" ]] && return 0
   _wt=$(mktemp -u)     # git worktree add creates this dir; it must not pre-exist
@@ -105,15 +111,15 @@ _ensure_worktree() {
   git -C "${_wt}" submodule update --init --recursive --quiet || return 1
 }
 
-# Overlay the tag's source into the shared HEAD worktree and build the requested
+# Overlay the revision's source into the shared HEAD worktree and build the requested
 # contracts into the persistent cache. Caller reads signatures from "${_wt_out}",
 # then calls _restore_overlay.
-_overlay_and_build_tag() { # $1 = tag, then: <overlay paths> -- <build paths>
-  local tag="$1"
+_overlay_and_build_revision() { # $1 = revision, then: <overlay paths> -- <build paths>
+  local rev="$1"
   shift
   # Args are: <overlay paths> -- <build paths>. The overlay set is the WHOLE
-  # changed cascade (so a built contract's renamed dependencies resolve to their
-  # tag-time files); only the build set is compiled and later compared.
+  # changed cascade (so a built contract's renamed dependencies resolve to the
+  # files they had at that revision); only the build set is compiled and later compared.
   # `git restore --source` only touches working-tree files — never HEAD.
   local overlay=() build=() _seen=0 a
   for a in "$@"; do
@@ -127,12 +133,12 @@ _overlay_and_build_tag() { # $1 = tag, then: <overlay paths> -- <build paths>
       build+=("${a}")
     fi
   done
-  git -C "${_wt}" restore --source="${tag}" --worktree -- "${overlay[@]}" || return 1
+  git -C "${_wt}" restore --source="${rev}" --worktree -- "${overlay[@]}" || return 1
   (cd "${_wt}" && FOUNDRY_BYTECODE_HASH=none FOUNDRY_CBOR_METADATA=false FOUNDRY_OUT="${_wt_out}" forge build --deny=never "${build[@]}" >/dev/null)
 }
 
 # Restore overlaid paths back to HEAD so an overlaid dependency cannot leak into a
-# later tag's build. A path absent at HEAD (a rename's old path) is removed.
+# later revision's build. A path absent at HEAD (a rename's old path) is removed.
 _restore_overlay() { # $@ = paths
   local p
   for p in "$@"; do
@@ -144,9 +150,9 @@ _restore_overlay() { # $@ = paths
   done
 }
 
-# True when a (HEAD-layout) path is within the current tag's scope: under one of
-# the scope directories, or — mapped to its tag-time path via the rename map —
-# among the tag's deployed contracts. Uses the per-tag _scope_dirs / _deployed /
+# True when a (HEAD-layout) path is within the current revision's scope: under one
+# of the scope directories, or — mapped to its path at that revision via the rename
+# map — among its deployed contracts. Uses the per-revision _scope_dirs / _deployed /
 # _rename_src set in the main loop.
 _in_scope() { # $1 = path
   local p="$1" d
@@ -196,15 +202,16 @@ _file_signature() { # $1 = out dir, $2 = sol path
 
 main() {
   [[ $# -gt 0 ]] || set -- "audit*" "deploy*"
-  _head_out=""              # reused HEAD build dir, created lazily on the first tag that builds
-  _wt=""                    # shared HEAD worktree (tag source overlaid into it), created lazily
-  _wt_out=""                # persistent forge cache for the worktree, reused across tags
+  _head_out=""              # reused HEAD build dir, created lazily on the first revision that builds
+  _wt=""                    # shared HEAD worktree (the revision's source overlaid into it), created lazily
+  _wt_out=""                # persistent forge cache for the worktree, reused across revisions
   trap _cleanup_builds EXIT # guarantee worktree/build-dir cleanup on every exit path
 
-  # Parse .verify-audit-ignore. ignores[tag]: space-separated file list (empty =
-  # whole-tag ignore). scopes[tag]: space-separated directory pathspecs the tag
-  # applies to (default src/); a "tag {dir1 dir2} ..." line declares it, restricting
-  # the diff to those dirs and requiring any file entries to live within them.
+  # Parse .verify-audit-ignore. Entries are keyed by the revision name as written on
+  # the command line. ignores[rev]: space-separated file list (empty = whole-revision
+  # ignore). scopes[rev]: space-separated directory pathspecs the revision applies to
+  # (default src/); a "rev {dir1 dir2} ..." line declares it, restricting the diff to
+  # those dirs and requiring any file entries to live within them.
   declare -A ignores=()
   declare -A scopes=()
   if [[ -f .verify-audit-ignore ]]; then
@@ -213,25 +220,25 @@ main() {
       line="${line#"${line%%[![:space:]]*}"}"
       line="${line%"${line##*[![:space:]]}"}"
       [[ -z "$line" ]] && continue
-      read -r tag rest <<<"$line"
-      if [[ "${rest}" == "{"* ]]; then # optional scope: tag {dir1 dir2} ...
+      read -r rev rest <<<"$line"
+      if [[ "${rest}" == "{"* ]]; then # optional scope: rev {dir1 dir2} ...
         scope="${rest#\{}"
         scope="${scope%%\}*}"
         rest="${rest#*\}}"
         rest="${rest#"${rest%%[![:space:]]*}"}" # trim leading space before any files
         read -r -a _s <<<"${scope}"             # normalise internal whitespace
-        scopes["$tag"]="${_s[*]}"
+        scopes["$rev"]="${_s[*]}"
       fi
       if [[ -z "${rest:-}" ]]; then
-        if [[ -v scopes["$tag"] ]]; then
+        if [[ -v scopes["$rev"] ]]; then
           : # scope-only declaration; no file ignores
         else
-          ignores["$tag"]="" # whole-tag ignore
+          ignores["$rev"]="" # whole-revision ignore
         fi
-      elif [[ -v ignores["$tag"] && -z "${ignores[$tag]}" ]]; then
-        : # already whole-tag; file entries don't narrow it
+      elif [[ -v ignores["$rev"] && -z "${ignores[$rev]}" ]]; then
+        : # already whole-revision; file entries don't narrow it
       else
-        ignores["$tag"]+="${ignores[$tag]:+ }${rest}" # accumulate file list
+        ignores["$rev"]+="${ignores[$rev]:+ }${rest}" # accumulate file list
       fi
     done <.verify-audit-ignore
   fi
@@ -258,37 +265,67 @@ main() {
     exit 1
   fi
 
-  tags=()
-  for pattern in "$@"; do
-    matches=$(git tag -l "${pattern}")
-    if [[ -z "${matches}" ]]; then
-      echo "INFO: No tags match '${pattern}'"
-    else
+  # Resolve each argument to the revision it names. An argument containing a glob
+  # metacharacter is a PATTERN: it is expanded with `git tag -l`, and matching
+  # nothing is a legitimate answer. Anything else is an EXPLICIT name and must
+  # resolve, or the run fails — a typo that exits 0 reports everything is fine
+  # having compared against nothing, the same silent pass as a repo with no tags.
+  #
+  # Every name is pinned to a commit SHA here, and only the SHA is used for git
+  # operations afterwards. Git does not resolve an ambiguous name consistently:
+  # with a tag and a branch both called `x`, `git diff x` takes the tag while
+  # `git restore --source=x` takes the branch — so the two sides of the comparison
+  # would come from different commits and their difference would silently clear.
+  # The tag wins, and the collision is reported so the caller can see which was used.
+  fail=0
+  revisions=()           # names as given, for output and .verify-audit-ignore lookup
+  declare -A _rev_sha=() # name -> the commit it resolved to
+  for arg in "$@"; do
+    if [[ "${arg}" == *[\*\?\[]* ]]; then
+      matches=$(git tag -l "${arg}")
+      if [[ -z "${matches}" ]]; then
+        echo "INFO: No tags match '${arg}'"
+        continue
+      fi
       while IFS= read -r t; do
-        tags+=("${t}")
+        revisions+=("${t}")
+        _rev_sha["${t}"]=$(git rev-parse --verify --quiet "refs/tags/${t}^{commit}")
       done <<<"${matches}"
+      continue
     fi
+    if sha=$(git rev-parse --verify --quiet "refs/tags/${arg}^{commit}"); then
+      if git show-ref --verify --quiet "refs/heads/${arg}"; then
+        printf 'NOTE: "%s" is both a tag and a branch; using the tag\n' "${arg}"
+      fi
+    elif ! sha=$(git rev-parse --verify --quiet "${arg}^{commit}"); then
+      printf '\033[31mERROR: "%s" is not a tag, branch or commit in this repository\033[0m\n' "${arg}" >&2
+      fail=1
+      continue
+    fi
+    revisions+=("${arg}")
+    _rev_sha["${arg}"]="${sha}"
   done
 
-  # Process tags oldest-first: consecutive overlays then share the most source, so
-  # forge's content-addressed cache rebuilds the least between tags.
-  if [[ ${#tags[@]} -gt 1 ]]; then
-    mapfile -t tags < <(
-      for t in "${tags[@]}"; do
-        printf '%s\t%s\n' "$(git log -1 --format=%ct "${t}")" "${t}"
+  # Process revisions oldest-first: consecutive overlays then share the most source,
+  # so forge's content-addressed cache rebuilds the least between them.
+  if [[ ${#revisions[@]} -gt 1 ]]; then
+    mapfile -t revisions < <(
+      for t in "${revisions[@]}"; do
+        printf '%s\t%s\n' "$(git log -1 --format=%ct "${_rev_sha[$t]}")" "${t}"
       done | sort -n | cut -f2
     )
   fi
 
-  fail=0
-  for t in "${tags[@]}"; do
+  for t in "${revisions[@]+"${revisions[@]}"}"; do
+    _sha="${_rev_sha[$t]}"
     printf '\n\033[1;36m=== %s ===\033[0m\n' "${t}"
 
-    # Resolve the tag's scope into directories and a deployed-contract set. A scope
-    # token of the form path.json:field is a deployment manifest read at the tag:
+    # Resolve the revision's scope into directories and a deployed-contract set. A
+    # scope token of the form path.json:field is a deployment manifest read at that
+    # revision:
     # the named JSON field is harvested wherever it occurs and each value is taken
     # up to any ":" (so "src/X.sol:X" and "src/X.sol" both yield "src/X.sol") — the
-    # exact deployed contracts at their tag-time paths. Other tokens are directories.
+    # exact deployed contracts at the paths they had there. Other tokens are directories.
     # Default scope is all of src/.
     _scope_dirs=()
     declare -A _deployed=()
@@ -297,8 +334,8 @@ main() {
       if [[ "${tok}" == *.json:* ]]; then
         _mpath="${tok%:*}"
         _mfield="${tok##*:}"
-        if ! _manifest=$(git show "${t}:${_mpath}" 2>/dev/null); then
-          printf '\033[31m  ERROR: scope manifest "%s" not found at tag "%s"\033[0m\n' "${_mpath}" "${t}"
+        if ! _manifest=$(git show "${_sha}:${_mpath}" 2>/dev/null); then
+          printf '\033[31m  ERROR: scope manifest "%s" not found at revision "%s"\033[0m\n' "${_mpath}" "${t}"
           fail=1
           continue
         fi
@@ -309,11 +346,11 @@ main() {
           _n=$((_n + 1))
         done < <(jq -r --arg f "${_mfield}" '[.. | objects | .[$f]? // empty] | .[]' <<<"${_manifest}" 2>/dev/null)
         if [[ ${_n} -eq 0 ]]; then
-          printf '\033[31m  ERROR: scope manifest "%s" field "%s" for tag "%s" yielded no paths\033[0m\n' "${_mpath}" "${_mfield}" "${t}"
+          printf '\033[31m  ERROR: scope manifest "%s" field "%s" for revision "%s" yielded no paths\033[0m\n' "${_mpath}" "${_mfield}" "${t}"
           fail=1
         fi
       elif [[ "${tok}" == *.json ]]; then
-        printf '\033[31m  ERROR: manifest scope "%s" for tag "%s" needs a field, e.g. "%s:contractPath"\033[0m\n' "${tok}" "${t}" "${tok}"
+        printf '\033[31m  ERROR: manifest scope "%s" for revision "%s" needs a field, e.g. "%s:contractPath"\033[0m\n' "${tok}" "${t}" "${tok}"
         fail=1
       else
         _scope_dirs+=("${tok}")
@@ -321,15 +358,15 @@ main() {
     done
 
     # Rename map new_path -> old_path, built over all of src so it can pair renames
-    # that cross a scope boundary. Maps HEAD paths back to tag-time paths for both
-    # the deployed-set scope check (_in_scope) and the bytecode comparison.
+    # that cross a scope boundary. Maps HEAD paths back to the revision's paths for
+    # both the deployed-set scope check (_in_scope) and the bytecode comparison.
     declare -A _rename_src=()
     while IFS=$'\t' read -r _st _old _new; do
       _rename_src["${_new}"]="${_old}"
-    done < <(git diff -M -l0 --name-status --diff-filter=R "${t}" -- "${_AUDIT_PATHSPEC[@]}")
+    done < <(git diff -M -l0 --name-status --diff-filter=R "${_sha}" -- "${_AUDIT_PATHSPEC[@]}")
 
     # Gather all changed files (-M -l0 forces rename detection regardless of repo
-    # diff.renames config), then keep only those within the tag's scope. Both diffs
+    # diff.renames config), then keep only those within the revision's scope. Both diffs
     # MUST use the same pathspec: they are separate git invocations, and rename
     # detection pairs only among the paths that survive the pathspec, so differing
     # specs would produce disagreeing rename maps.
@@ -346,9 +383,9 @@ main() {
         _status["${_p1}"]="${_st:0:1}"
         _changed_all+=("${_p1}")
       fi
-    done < <(git diff -M -l0 --name-status --diff-filter=DMRT "${t}" -- "${_AUDIT_PATHSPEC[@]}")
+    done < <(git diff -M -l0 --name-status --diff-filter=DMRT "${_sha}" -- "${_AUDIT_PATHSPEC[@]}")
     changed=()
-    _all_old=() # tag-time path of every changed file — the cascade overlaid so a
+    _all_old=() # the revision's path for every changed file — the cascade overlaid so a
     # narrowly-scoped contract's renamed dependencies still resolve when it builds
     for f in "${_changed_all[@]}"; do
       _all_old+=("${_rename_src[${f}]:-${f}}")
@@ -357,7 +394,7 @@ main() {
       fi
     done
 
-    # Scope check + collect in-scope file ignores. A file entry outside the tag's
+    # Scope check + collect in-scope file ignores. A file entry outside the revision's
     # scope can never be checked, so it is an error. Done before the no-changes
     # short-circuit so it is caught even on a clean scope.
     ig_files=()
@@ -367,16 +404,16 @@ main() {
         if _in_scope "${ig}"; then
           ig_files+=("${ig}")
         else
-          printf '\033[31m  ERROR: .verify-audit-ignore entry: "%s" for tag "%s" is outside its scope {%s} — remove it\033[0m\n' "${ig}" "${t}" "${scopes[$t]:-src}"
+          printf '\033[31m  ERROR: .verify-audit-ignore entry: "%s" for revision "%s" is outside its scope {%s} — remove it\033[0m\n' "${ig}" "${t}" "${scopes[$t]:-src}"
           fail=1
         fi
       done
     fi
 
-    # Whole-tag ignore
+    # Whole-revision ignore
     if [[ -v ignores["$t"] && -z "${ignores[$t]}" ]]; then
       if [[ ${#changed[@]} -eq 0 ]]; then
-        printf '\033[31m  ERROR: stale .verify-audit-ignore entry: tag "%s" has no changes — remove it\033[0m\n' "${t}"
+        printf '\033[31m  ERROR: stale .verify-audit-ignore entry: revision "%s" has no changes — remove it\033[0m\n' "${t}"
         fail=1
       fi
       printf '\033[2m(ignored via .verify-audit-ignore)\033[0m\n'
@@ -394,7 +431,7 @@ main() {
     # any whose change would now clear (a redundant entry to remove)
     if [[ -v ignores["$t"] ]]; then
       # reverse check: flag any ignored file that has no actual drift (ig_files was
-      # validated against the tag's scope above)
+      # validated against the revision's scope above)
       for ig in "${ig_files[@]}"; do
         found=0
         for f in "${changed[@]}"; do
@@ -406,7 +443,7 @@ main() {
           }
         done
         if [[ $found -eq 0 ]]; then
-          printf '\033[31m  ERROR: stale .verify-audit-ignore entry: "%s" for tag "%s" has no changes — remove it\033[0m\n' "$ig" "${t}"
+          printf '\033[31m  ERROR: stale .verify-audit-ignore entry: "%s" for revision "%s" has no changes — remove it\033[0m\n' "$ig" "${t}"
           fail=1
         fi
       done
@@ -430,9 +467,9 @@ main() {
       check=("${changed[@]}")
     fi
 
-    # Stage 2: clear files whose tag and HEAD versions compile to the same
+    # Stage 2: clear files whose baseline and HEAD versions compile to the same
     # metadata-stripped creation bytecode. Build only the changed files and their
-    # import closure, once per tag; reuse one HEAD build across tags. A file absent
+    # import closure, once per revision; reuse one HEAD build across revisions. A file absent
     # at HEAD (a deletion, or a rename git did not pair) cannot be compiled there —
     # it is genuine drift, reported directly without a build. Ignored files that DID
     # change are built in the same pass to flag any that would now clear (a redundant
@@ -473,7 +510,7 @@ main() {
           printf '\033[31m  ERROR: could not set up HEAD worktree — cannot compare bytecode\033[0m\n' >&2
           exit 1
         fi
-        if ! _overlay_and_build_tag "${t}" "${_all_old[@]}" -- "${compare_old[@]}"; then
+        if ! _overlay_and_build_revision "${_sha}" "${_all_old[@]}" -- "${compare_old[@]}"; then
           printf '\033[31m  ERROR: build at "%s" failed — cannot compare bytecode\033[0m\n' "${t}" >&2
           exit 1
         fi
@@ -486,7 +523,7 @@ main() {
           sig_new=$(_file_signature "${_head_out}" "${f}")
           if [[ "${sig_old}" == "${sig_new}" && "${sig_old}" != "__MISSING__" ]]; then
             if [[ "${ig}" -eq 1 ]]; then
-              printf '\033[31m  ERROR: stale .verify-audit-ignore entry: "%s" for tag "%s" would now clear (bytecode-equivalent) — remove it\033[0m\n' "${f}" "${t}"
+              printf '\033[31m  ERROR: stale .verify-audit-ignore entry: "%s" for revision "%s" would now clear (bytecode-equivalent) — remove it\033[0m\n' "${f}" "${t}"
               fail=1
             else
               printf '\033[2m  %s (cleared: bytecode-equivalent)\033[0m\n' "${f}"
@@ -516,15 +553,15 @@ main() {
       # A deletion's diff is the whole file as removals: it says nothing beyond the
       # filename and drowns the other entries. Report the fact instead.
       if [[ "${_status[$f]:-}" == "D" ]]; then
-        _moved=$(_locate_moved "${t}" "${f}")
+        _moved=$(_locate_moved "${_sha}" "${f}")
         if [[ -n "${_moved}" ]]; then
-          printf '\033[2m      deleted since the tag; %s\033[0m\n' "${_moved}"
+          printf '\033[2m      deleted since the revision; %s\033[0m\n' "${_moved}"
         else
-          printf '\033[2m      deleted since the tag (no diff shown)\033[0m\n'
+          printf '\033[2m      deleted since the revision (no diff shown)\033[0m\n'
         fi
         continue
       fi
-      changes=$(GIT_PAGER="" git diff --minimal --color=always --diff-filter=DMRT "${t}" -- "$f")
+      changes=$(GIT_PAGER="" git diff --minimal --color=always --diff-filter=DMRT "${_sha}" -- "$f")
       linecount=$(printf '%s\n' "${changes}" | wc -l)
       if [[ "${linecount}" -gt 20 ]]; then
         printf '%s\n' "${changes}" | head -n 20

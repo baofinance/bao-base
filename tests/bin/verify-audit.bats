@@ -33,6 +33,15 @@ _tag_fixture() { # $1 = tag
   git -C "$FIX" push -q origin HEAD --tags 2>/dev/null
 }
 
+# Commit the current state and push it, leaving it untagged; echoes the commit
+# SHA. The baseline for a repo that cuts no tags is the commit itself.
+_commit_fixture() {
+  git -C "$FIX" add -A
+  git -C "$FIX" commit -q -m snapshot
+  git -C "$FIX" push -q origin HEAD 2>/dev/null
+  git -C "$FIX" rev-parse HEAD
+}
+
 teardown() {
   [[ -n "${FIX:-}" ]] && rm -rf "$FIX"
   [[ -n "${BARE_PARENT:-}" ]] && rm -rf "$BARE_PARENT"
@@ -310,7 +319,7 @@ SOL
   head_out=$(mktemp -d)
   _build_head_out "$head_out" src/New.sol
   _ensure_worktree
-  _overlay_and_build_tag deploy/test src/Old.sol -- src/Old.sol
+  _overlay_and_build_revision deploy/test src/Old.sol -- src/Old.sol
   sig_old=$(_file_signature "$_wt_out" src/Old.sol)
   sig_new=$(_file_signature "$head_out" src/New.sol)
   _restore_overlay src/Old.sol
@@ -708,4 +717,107 @@ _scope_fixture() {
   echo "output=$output"
   [ "$status" -eq 0 ]
   [[ "$output" == *"src/m/New.sol (cleared: bytecode-equivalent)"* ]]
+}
+
+# ----------------------------------------------------------------------------
+# ARGUMENT RESOLUTION — patterns may match nothing, explicit names must resolve,
+# and a revision need not be a tag
+# ----------------------------------------------------------------------------
+
+@test "an explicit name that does not resolve is an error, not a silent pass" {
+  # A deliberately-named revision is a claim that it exists. Reporting success on a
+  # typo tells the caller everything is fine having compared against nothing.
+  _new_fixture
+  cat >"$FIX/src/Foo.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Foo { function f() external pure returns (uint256) { return 1; } }
+SOL
+  _tag_fixture "deploy/test"
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "deploy/definitely-not-a-tag"
+  echo "status=$status"
+  echo "output=$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"deploy/definitely-not-a-tag"* ]]
+}
+
+@test "a pattern matching nothing is informational, not an error" {
+  # The complement of the test above: a wildcard is a search, and finding nothing
+  # is a legitimate answer.
+  _new_fixture
+  cat >"$FIX/src/Foo.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Foo { function f() external pure returns (uint256) { return 1; } }
+SOL
+  _commit_fixture >/dev/null
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "deploy*"
+  echo "status=$status"
+  echo "output=$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No tags match"* ]]
+}
+
+@test "a commit SHA is resolved and compared, not looked up as a tag" {
+  _new_fixture
+  cat >"$FIX/src/Foo.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Foo { function f() external pure returns (uint256) { return 1; } }
+SOL
+  base=$(_commit_fixture)
+  sed -i 's/return 1;/return 2;/' "$FIX/src/Foo.sol"
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m change
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "$base"
+  echo "status=$status"
+  echo "output=$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"CHANGED (not ignored)"* ]]
+  [[ "$output" == *"src/Foo.sol"* ]]
+}
+
+@test "a branch name is resolved and compared" {
+  _new_fixture
+  cat >"$FIX/src/Foo.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Foo { function f() external pure returns (uint256) { return 1; } }
+SOL
+  _commit_fixture >/dev/null
+  git -C "$FIX" branch deploy-baseline
+  sed -i 's/return 1;/return 2;/' "$FIX/src/Foo.sol"
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m change
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "deploy-baseline"
+  echo "status=$status"
+  echo "output=$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"CHANGED (not ignored)"* ]]
+  [[ "$output" == *"src/Foo.sol"* ]]
+}
+
+@test "a name that is both a tag and a branch resolves as the tag, and says so" {
+  # The tag is at the unchanged version and the branch at the changed one, so the
+  # exit status alone distinguishes which was used: resolving the branch would
+  # compare HEAD against itself and pass.
+  _new_fixture
+  cat >"$FIX/src/Foo.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Foo { function f() external pure returns (uint256) { return 1; } }
+SOL
+  _tag_fixture "both"
+  sed -i 's/return 1;/return 2;/' "$FIX/src/Foo.sol"
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m change
+  git -C "$FIX" branch both 2>/dev/null
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "both"
+  echo "status=$status"
+  echo "output=$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"src/Foo.sol"* ]]
+  [[ "$output" == *"is both a tag and a branch; using the tag"* ]]
 }
