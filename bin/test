@@ -8,8 +8,21 @@ if [[ "${BAO_BASE_VERBOSITY:-0}" -gt 0 ]]; then VERBOSITY="-$(printf "%${BAO_BAS
 
 mkdir -p results
 status=0
+# --no-dynamic-test-linking works around a forge defect that makes tests pass against source they
+# cannot pass against. Dynamic test linking (on by default since forge 1.8.0) rewrites `new Contract(...)`
+# in a test into a deploy performed at run time, so the test file no longer needs recompiling when only
+# that contract's body changes - and the build cache stops recompiling it. The rewrite is skipped when
+# the contract's recorded source path does not start with the src directory, which is exactly what a
+# REMAPPED import produces (an absolute path); the cache still skips the recompile regardless. The test
+# then keeps running the creation code compiled into it earlier. Every import in these repos is remapped
+# by house rule, so the rewrite never applies here and the stale-artifact half is all we get.
+# Verified on forge 1.8.1: an edited aggregator reported all tests passing with gas figures identical to
+# the digit, against a return statement that could not produce them.
+# Reported as https://github.com/foundry-rs/foundry/issues/16682 (body kept in bug-reports/).
+# Remove this flag once forge fixes the disagreement between the two halves - not before.
+# test/toolchain/test_forge_dynamic_test_linking.py fails if this flag is removed while the defect stands.
 set -x
-forge test "${VERBOSITY}" --nmp "script/**/*.t.sol" --summary "$@" || status=$?
+forge test "${VERBOSITY}" --no-dynamic-test-linking --nmp "script/**/*.t.sol" --summary "$@" || status=$?
 { set +x; } 2>/dev/null
 # make forge's exit status the script's return value: the set +x above would otherwise mask it,
 # and run sources this script under `|| exit_code=$?` which suppresses set -e
