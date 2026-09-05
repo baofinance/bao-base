@@ -15,7 +15,7 @@ interface IChainConfig {
 ///         so every deploy stack exposes the chain config without threading it through call signatures.
 abstract contract ConfigChain is IChainConfig {
     /// @inheritdoc IChainConfig
-    function gasToken() public pure virtual returns (string memory) {
+    function gasToken() public view virtual returns (string memory) {
         return "ETH";
     }
 }
