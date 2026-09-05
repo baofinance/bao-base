@@ -42,6 +42,22 @@ _commit_fixture() {
   git -C "$FIX" rev-parse HEAD
 }
 
+# Edit a fixture file in place. GNU sed's `-i` takes no argument, whereas BSD
+# (macOS) sed reads the very next argument as the backup suffix — so on macOS
+# `sed -i 's/x/y/' file` binds the script as the suffix and then tries to parse
+# the path as the script. No spelling of `-i` means "in place, no backup" on
+# both, so write the result out and copy it back over the original.
+_sed_inplace() { # $1 = sed script, $2 = file
+  local script="$1" file="$2" tmp
+  tmp="$(mktemp)"
+  # Deliberately neither `sed ... >"$file"` (the redirect truncates the input
+  # before sed reads it) nor an assignment from a command substitution (that
+  # swallows sed's exit status, so a bad script would empty the file silently).
+  sed "$script" "$file" >"$tmp"
+  cat "$tmp" >"$file" # copy back rather than mv, so the original's mode survives
+  rm -f "$tmp"
+}
+
 teardown() {
   [[ -n "${FIX:-}" ]] && rm -rf "$FIX"
   [[ -n "${BARE_PARENT:-}" ]] && rm -rf "$BARE_PARENT"
@@ -76,7 +92,7 @@ pragma solidity ^0.8.20;
 contract Foo { function f() external pure returns (uint256) { return 1; } }
 SOL
   _tag_fixture "deploy/test"
-  sed -i 's/return 1;/return 2;/' "$FIX/src/Foo.sol"
+  _sed_inplace 's/return 1;/return 2;/' "$FIX/src/Foo.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
@@ -104,7 +120,7 @@ contract Old { function f() external pure returns (uint256) { return 1; } }
 SOL
   _tag_fixture "deploy/test"
   git -C "$FIX" mv src/Old.sol src/New.sol
-  sed -i 's#import "./dep1.sol";#import "./dep2.sol";#' "$FIX/src/New.sol"
+  _sed_inplace 's#import "./dep1.sol";#import "./dep2.sol";#' "$FIX/src/New.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m reimport
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
@@ -163,7 +179,7 @@ pragma solidity ^0.8.20;
 contract Foo { function f() external pure returns (uint256) { return 1; } }
 SOL
   _tag_fixture "deploy/test"
-  sed -i 's/return 1;/return 2;/' "$FIX/src/Foo.sol"
+  _sed_inplace 's/return 1;/return 2;/' "$FIX/src/Foo.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change
   printf 'deploy/test\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
@@ -182,7 +198,7 @@ pragma solidity ^0.8.20;
 contract Foo { function f() external pure returns (uint256) { return 1; } }
 SOL
   _tag_fixture "deploy/test"
-  sed -i 's/return 1;/return 2;/' "$FIX/src/Foo.sol"
+  _sed_inplace 's/return 1;/return 2;/' "$FIX/src/Foo.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change
   printf 'deploy/test src/Foo.sol\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
@@ -219,7 +235,7 @@ pragma solidity ^0.8.20;
 contract Foo { function f() external pure returns (uint256) { return 1; } }
 SOL
   _tag_fixture "deploy/test"
-  sed -i 's/return 1;/return 2;/' "$FIX/src/Foo.sol"
+  _sed_inplace 's/return 1;/return 2;/' "$FIX/src/Foo.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change
   # Foo.sol legitimately ignored; Ghost.sol never changed -> stale entry.
   printf 'deploy/test src/Foo.sol src/Ghost.sol\n' >"$FIX/.verify-audit-ignore"
@@ -310,7 +326,7 @@ contract Old { function f() external pure returns (uint256) { return 7; } }
 SOL
   (cd "$FIX" && git add -A && git commit -q -m s && git tag deploy/test)
   (cd "$FIX" && git mv src/Old.sol src/New.sol)
-  sed -i 's/contract Old/contract New/' "$FIX/src/New.sol"
+  _sed_inplace 's/contract Old/contract New/' "$FIX/src/New.sol"
   (cd "$FIX" && git add -A && git commit -q -m r)
 
   cd "$FIX"
@@ -360,8 +376,8 @@ SOL
   _tag_fixture "deploy/test"
   git -C "$FIX" mv src/One.sol src/OneRenamed.sol
   git -C "$FIX" mv src/Two.sol src/TwoRenamed.sol
-  sed -i 's/contract One /contract OneRenamed /' "$FIX/src/OneRenamed.sol"
-  sed -i 's/contract Two /contract TwoRenamed /' "$FIX/src/TwoRenamed.sol"
+  _sed_inplace 's/contract One /contract OneRenamed /' "$FIX/src/OneRenamed.sol"
+  _sed_inplace 's/contract Two /contract TwoRenamed /' "$FIX/src/TwoRenamed.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m rename2
 
   cd "$FIX"
@@ -385,7 +401,7 @@ contract Imm {
 }
 SOL
   _tag_fixture "deploy/test"
-  sed -i 's/X = 1;/X = 2;/' "$FIX/src/Imm.sol"
+  _sed_inplace 's/X = 1;/X = 2;/' "$FIX/src/Imm.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m ctor
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
@@ -480,7 +496,10 @@ contract Loop {
 SOL
   _tag_fixture "deploy/test"
   printf '[profile.default]\nsrc = "src"\nout = "out"\nvia_ir = true\noptimizer = true\n' >"$FIX/foundry.toml"
-  sed -i '2a // pinned-settings test' "$FIX/src/Loop.sol"
+  # a comment-only edit, so Loop.sol shows up in the diff and actually gets
+  # compared. Appended rather than inserted with sed's `a` command: the one-line
+  # `2a text` form is a GNU extension that BSD (macOS) sed rejects.
+  printf '// pinned-settings test\n' >>"$FIX/src/Loop.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m settings+comment
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/test"
@@ -543,8 +562,8 @@ SOL
   # neutral renames at HEAD of both contracts (name only)
   git -C "$FIX" mv src/Alpha.sol src/AlphaV2.sol
   git -C "$FIX" mv src/Beta.sol src/BetaV2.sol
-  sed -i 's/contract Alpha /contract AlphaV2 /' "$FIX/src/AlphaV2.sol"
-  sed -i 's/contract Beta /contract BetaV2 /' "$FIX/src/BetaV2.sol"
+  _sed_inplace 's/contract Alpha /contract AlphaV2 /' "$FIX/src/AlphaV2.sol"
+  _sed_inplace 's/contract Beta /contract BetaV2 /' "$FIX/src/BetaV2.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m renames
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy/*"
@@ -572,7 +591,7 @@ contract Widget {
 SOL
   _tag_fixture "deploy/test"
   git -C "$FIX" mv src/Widget.sol src/WidgetV2.sol
-  sed -i 's/contract Widget /contract WidgetV2 /' "$FIX/src/WidgetV2.sol"
+  _sed_inplace 's/contract Widget /contract WidgetV2 /' "$FIX/src/WidgetV2.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m rename
   printf 'deploy/test src/WidgetV2.sol\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
@@ -594,7 +613,7 @@ contract Widget {
 }
 SOL
   _tag_fixture "deploy/test"
-  sed -i 's/return 1;/return 2;/' "$FIX/src/Widget.sol"
+  _sed_inplace 's/return 1;/return 2;/' "$FIX/src/Widget.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change
   printf 'deploy/test src/Widget.sol\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
@@ -642,7 +661,7 @@ _scope_fixture() {
 
 @test "tag scope restricts the diff: out-of-scope drift is not flagged" {
   _scope_fixture
-  sed -i 's/return 1;/return 2;/' "$FIX/src/b/Y.sol" # real change OUTSIDE scope
+  _sed_inplace 's/return 1;/return 2;/' "$FIX/src/b/Y.sol" # real change OUTSIDE scope
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change-b
   printf 'deploy/test {src/a}\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
@@ -655,7 +674,7 @@ _scope_fixture() {
 
 @test "tag scope still flags in-scope drift" {
   _scope_fixture
-  sed -i 's/return 1;/return 2;/' "$FIX/src/a/X.sol" # real change INSIDE scope
+  _sed_inplace 's/return 1;/return 2;/' "$FIX/src/a/X.sol" # real change INSIDE scope
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change-a
   printf 'deploy/test {src/a}\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
@@ -668,7 +687,7 @@ _scope_fixture() {
 
 @test "ignore entry outside the declared scope is an error" {
   _scope_fixture
-  sed -i 's/return 1;/return 2;/' "$FIX/src/b/Y.sol"
+  _sed_inplace 's/return 1;/return 2;/' "$FIX/src/b/Y.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change-b
   printf 'deploy/test {src/a} src/b/Y.sol\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
@@ -688,8 +707,8 @@ _scope_fixture() {
   printf '{"oracles":{"X":{"contractPath":"src/a/X.sol:X"}}}' >"$FIX/deployments/m.json"
   _tag_fixture "deploy/test"
   # change BOTH; only X is in the manifest
-  sed -i 's/return 1;/return 2;/' "$FIX/src/a/X.sol"
-  sed -i 's/return 1;/return 2;/' "$FIX/src/b/Y.sol"
+  _sed_inplace 's/return 1;/return 2;/' "$FIX/src/a/X.sol"
+  _sed_inplace 's/return 1;/return 2;/' "$FIX/src/b/Y.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change-both
   printf 'deploy/test {deployments/m.json:contractPath}\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
@@ -708,7 +727,7 @@ _scope_fixture() {
   printf '{"oracles":{"Old":{"contractPath":"src/m/Old.sol:Old"}}}' >"$FIX/deployments/m.json"
   _tag_fixture "deploy/test"
   git -C "$FIX" mv src/m/Old.sol src/m/New.sol
-  sed -i 's/contract Old /contract New /' "$FIX/src/m/New.sol"
+  _sed_inplace 's/contract Old /contract New /' "$FIX/src/m/New.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m rename
   printf 'deploy/test {deployments/m.json:contractPath}\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
@@ -768,7 +787,7 @@ pragma solidity ^0.8.20;
 contract Foo { function f() external pure returns (uint256) { return 1; } }
 SOL
   base=$(_commit_fixture)
-  sed -i 's/return 1;/return 2;/' "$FIX/src/Foo.sol"
+  _sed_inplace 's/return 1;/return 2;/' "$FIX/src/Foo.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change
   cd "$FIX"
   run "$VERIFY_AUDIT" "$base"
@@ -788,7 +807,7 @@ contract Foo { function f() external pure returns (uint256) { return 1; } }
 SOL
   _commit_fixture >/dev/null
   git -C "$FIX" branch deploy-baseline
-  sed -i 's/return 1;/return 2;/' "$FIX/src/Foo.sol"
+  _sed_inplace 's/return 1;/return 2;/' "$FIX/src/Foo.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change
   cd "$FIX"
   run "$VERIFY_AUDIT" "deploy-baseline"
@@ -810,7 +829,7 @@ pragma solidity ^0.8.20;
 contract Foo { function f() external pure returns (uint256) { return 1; } }
 SOL
   _tag_fixture "both"
-  sed -i 's/return 1;/return 2;/' "$FIX/src/Foo.sol"
+  _sed_inplace 's/return 1;/return 2;/' "$FIX/src/Foo.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change
   git -C "$FIX" branch both 2>/dev/null
   cd "$FIX"
