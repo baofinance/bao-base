@@ -13,7 +13,10 @@ set -euo pipefail
 #                    INFO lines go to STDOUT and would corrupt ruff's LSP stdio (run-python is quiet).
 if [[ -z "${BAO_BASE_BIN_DIR:-}" ]]; then
   self="$(readlink -f "${BASH_SOURCE[0]}")"
-  exec "$(dirname "$(dirname "$self")")/run" -q ruff "$@"
+  # dirname of a path readlink already resolved, so there is no failure to check
+  exec "$(dirname "$(dirname "$self")")/run" -q ruff "$@" # lint-bash disable=command-substitution
 fi
 
+# set by `run`; unset it would send ruff to the wrong project and so to the wrong [tool.ruff] config
+: "${BAO_BASE_DIR:?must be set by the bao-base run script}"
 "$BAO_BASE_BIN_DIR/run-python" --project "$BAO_BASE_DIR" ruff "$@"

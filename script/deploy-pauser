@@ -11,7 +11,13 @@ set -euo pipefail
 #   script/deploy-pauser --network mainnet --broadcast    # deploy to mainnet (needs account)
 #   script/deploy-pauser --help
 
-cd "$(git rev-parse --show-toplevel)"
+# checked, not inlined into the cd: outside a git repository the substitution is empty and `cd ""`
+# succeeds without moving, leaving the deploy to run against whatever directory the caller was in
+if ! repo_root=$(git rev-parse --show-toplevel); then
+  echo "script/deploy-pauser: not inside a git repository" >&2
+  exit 1
+fi
+cd "$repo_root"
 
 usage() {
   cat <<EOF

@@ -2,16 +2,14 @@
 set -e
 set -o pipefail
 
-[[ "${BAO_BASE_VERBOSITY}" -gt 0 ]] && set -x
+[[ "${BAO_BASE_VERBOSITY:-0}" -gt 0 ]] && set -x
 VERBOSITY="-v"
 if [[ "${BAO_BASE_VERBOSITY:-0}" -gt 0 ]]; then VERBOSITY="-$(printf "%${BAO_BASE_VERBOSITY}s" "" | tr ' ' 'v')"; fi
 
 # forge clean, forcing the build as we don't trust the cache
 debug "BAO_BASE_VERBOSITY=${BAO_BASE_VERBOSITY}."
-status=0
 set -x
-forge build "${VERBOSITY}" --sizes --out out/_sizes --cache-path cache/_sizes --deny never src test/_sizes script || status=$?
+# `|| true` keeps set -e from aborting here; forge's exit status is deliberately NOT propagated, so
+# the status is discarded rather than captured into a variable nothing reads
+forge build "${VERBOSITY}" --sizes --out out/_sizes --cache-path cache/_sizes --deny never src test/_sizes script || true
 { set +x; } 2>/dev/null
-# don't make forge's exit status the script's return value: the set +x above would otherwise mask it,
-# and run sources this script under `|| exit_code=$?` which suppresses set -e
-# ( exit "$status" )

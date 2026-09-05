@@ -2,7 +2,7 @@
 set -e
 set -o pipefail
 
-[[ "${BAO_BASE_VERBOSITY}" -gt 0 ]] && set -x
+[[ "${BAO_BASE_VERBOSITY:-0}" -gt 0 ]] && set -x
 VERBOSITY="-v"
 if [[ "${BAO_BASE_VERBOSITY:-0}" -gt 0 ]]; then VERBOSITY="-$(printf "%${BAO_BASE_VERBOSITY}s" "" | tr ' ' 'v')"; fi
 
@@ -20,7 +20,7 @@ status=0
 # the digit, against a return statement that could not produce them.
 # Reported as https://github.com/foundry-rs/foundry/issues/16682 (body kept in bug-reports/).
 # Remove this flag once forge fixes the disagreement between the two halves - not before.
-# test/toolchain/test_forge_dynamic_test_linking.py fails if this flag is removed while the defect stands.
+# tests/toolchain/test_forge_dynamic_test_linking.py fails if this flag is removed while the defect stands.
 set -x
 forge test "${VERBOSITY}" --no-dynamic-test-linking --nmp "script/**/*.t.sol" --summary "$@" || status=$?
 { set +x; } 2>/dev/null
