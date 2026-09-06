@@ -840,3 +840,146 @@ SOL
   [[ "$output" == *"src/Foo.sol"* ]]
   [[ "$output" == *"is both a tag and a branch; using the tag"* ]]
 }
+
+# ----------------------------------------------------------------------------
+# MIS-PAIRING — git pairs renames by textual similarity, and when it is wrong a
+# deleted deployed contract vanishes from the report entirely
+# ----------------------------------------------------------------------------
+
+# A deployed contract deleted in the same commit that adds an unrelated one of similar
+# shape. Git pairs them as a rename (measured: R068), so `--diff-filter=D` yields nothing
+# and the deletion is absorbed. Leaves $BASE as the revision to audit against.
+_mispair_fixture() {
+  _new_fixture
+  cat >"$FIX/src/Deployed.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Deployed {
+    uint256 public constant DECIMALS = 18;
+    uint256 public constant HEARTBEAT = 3600;
+    function latestAnswer() external pure returns (uint256) { return 1234; }
+    function description() external pure returns (string memory) { return "deployed"; }
+}
+SOL
+  BASE=$(_commit_fixture)
+  git -C "$FIX" rm -q src/Deployed.sol
+  mkdir -p "$FIX/src" # git removes the directory when its last file goes
+  cat >"$FIX/src/Unrelated.sol" <<'SOL'
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+contract Unrelated {
+    uint256 public constant DECIMALS = 18;
+    uint256 public constant HEARTBEAT = 7200;
+    function latestAnswer() external pure returns (uint256) { return 9999; }
+    function description() external pure returns (string memory) { return "unrelated"; }
+}
+SOL
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m swap
+}
+
+@test "a deletion git mis-paired as a rename is still named in the report" {
+  # The whole point of the audit is noticing that a deployed contract went away. Reporting
+  # only the new path lets the removal ship unseen.
+  _mispair_fixture
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "$BASE"
+  echo "status=$status"
+  echo "output=$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"src/Deployed.sol"* ]]
+}
+
+@test "a pairing whose bytecode differs says it may be a mis-paired deletion" {
+  # Bytecode cannot separate "this contract changed" from "a deletion was mis-paired with an
+  # unrelated new file" - the old bytecode is absent from HEAD either way. So the report must
+  # put both explanations in front of the reader rather than picking one.
+  _mispair_fixture
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "$BASE"
+  echo "status=$status"
+  echo "output=$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"src/Deployed.sol"* && "$output" == *"src/Unrelated.sol"* ]]
+  [[ "$output" == *"removed"* ]]
+}
+
+# A file whose text is mostly comments, so deleting the comments drops similarity below git's
+# 50% rename threshold while the compiled bytecode is unchanged. This is the case git cannot
+# pair and _locate_moved cannot either (it needs byte-identical content).
+_unpairable_by_git_fixture() { # $1 = contract name at HEAD, $2 = destination path
+  _new_fixture
+  mkdir -p "$FIX/src/old"
+  {
+    echo "// SPDX-License-Identifier: MIT"
+    echo "pragma solidity ^0.8.20;"
+    for i in {1..40}; do echo "// explanatory prose line $i about the pricing model and its bounds"; done
+    echo "contract Moved {"
+    echo "    uint256 public constant K = 3;"
+    echo "    function f(uint256 x) external pure returns (uint256) { return x + K; }"
+    echo "}"
+  } >"$FIX/src/old/Moved.sol"
+  BASE=$(_commit_fixture)
+  git -C "$FIX" rm -q src/old/Moved.sol
+  mkdir -p "$FIX/${2%/*}"
+  {
+    echo "// SPDX-License-Identifier: MIT"
+    echo "pragma solidity ^0.8.20;"
+    echo "contract $1 {"
+    echo "    uint256 public constant K = 3;"
+    echo "    function f(uint256 x) external pure returns (uint256) { return x + K; }"
+    echo "}"
+  } >"$FIX/$2"
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m move
+}
+
+@test "a move git could not pair is paired by bytecode, naming both paths" {
+  _unpairable_by_git_fixture "Renamed" "src/new/Renamed.sol"
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "$BASE"
+  echo "status=$status"
+  echo "output=$output"
+  [[ "$output" == *"src/old/Moved.sol"* ]]
+  [[ "$output" == *"src/new/Renamed.sol"* ]]
+  [ "$status" -eq 0 ]
+}
+
+@test "two HEAD files sharing a signature is an ambiguity, never a silent pick" {
+  # A contract's name does not reach its creation bytecode, so two files with the same body
+  # and different names have identical signatures. Choosing one would be a guess.
+  _new_fixture
+  mkdir -p "$FIX/src/old"
+  printf '// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\ncontract Moved {\n  uint256 public constant K = 3;\n  function f(uint256 x) external pure returns (uint256){ return x + K; }\n}\n' >"$FIX/src/old/Moved.sol"
+  BASE=$(_commit_fixture)
+  git -C "$FIX" rm -q src/old/Moved.sol
+  mkdir -p "$FIX/src/new"
+  printf '// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\ncontract Twin1 {\n  uint256 public constant K = 3;\n  function f(uint256 x) external pure returns (uint256){ return x + K; }\n}\n' >"$FIX/src/new/Twin1.sol"
+  printf '// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\ncontract Twin2 {\n  uint256 public constant K = 3;\n  function f(uint256 x) external pure returns (uint256){ return x + K; }\n}\n' >"$FIX/src/new/Twin2.sol"
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m twins
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "$BASE"
+  echo "status=$status"
+  echo "output=$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"src/old/Moved.sol"* ]]
+  [[ "$output" == *"more than one"* ]]
+}
+
+@test "a signature that identifies nothing never pairs" {
+  # A file of abstract contracts compiles to an empty creation object, which every other such
+  # file shares. Pairing on it would match unrelated files to each other.
+  _new_fixture
+  mkdir -p "$FIX/src/old"
+  printf '// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\nabstract contract Gone {\n  function f() external pure virtual returns (uint256);\n}\n' >"$FIX/src/old/Gone.sol"
+  BASE=$(_commit_fixture)
+  git -C "$FIX" rm -q src/old/Gone.sol
+  mkdir -p "$FIX/src/new"
+  printf '// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\nabstract contract Fresh {\n  function g() external pure virtual returns (uint256);\n}\n' >"$FIX/src/new/Fresh.sol"
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m abstracts
+  cd "$FIX"
+  run "$VERIFY_AUDIT" "$BASE"
+  echo "status=$status"
+  echo "output=$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"src/old/Gone.sol"* ]]
+  [[ "$output" != *"src/new/Fresh.sol is the same"* ]]
+}

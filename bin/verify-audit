@@ -200,6 +200,26 @@ _file_signature() { # $1 = out dir, $2 = sol path
   jq -r '.bytecode.object // ""' "${dir}"/*.json 2>/dev/null | LC_ALL=C sort | tr -d '\n'
 }
 
+# Whether a signature identifies a file at all. A file holding only abstract contracts or
+# interfaces compiles to an empty creation object, and EVERY such file shares that value - so
+# pairing on it would match unrelated files to each other. "__MISSING__" means nothing compiled.
+_signature_identifies() { # $1 = signature
+  local stripped="${1//0x/}"
+  [[ "$1" != "__MISSING__" && -n "${stripped}" ]]
+}
+
+# Every candidate whose HEAD signature equals $1, one per line. Used both to find where a
+# vanished file went and to detect a second claimant on a pairing git already made.
+_signature_matches() { # $1 = signature, $2.. = candidate paths
+  local want="$1" candidate
+  shift
+  for candidate in "$@"; do
+    if [[ "$(_file_signature "${_head_out}" "${candidate}")" == "${want}" ]]; then
+      printf '%s\n' "${candidate}"
+    fi
+  done
+}
+
 main() {
   [[ $# -gt 0 ]] || set -- "audit*" "deploy*"
   _head_out=""              # reused HEAD build dir, created lazily on the first revision that builds
@@ -374,6 +394,7 @@ main() {
     # no partner in its pathspec, so rename detection cannot run and a rename would be
     # misreported as a deletion.
     declare -A _status=()
+    declare -A _pair_note=() # path -> why its pairing could not be resolved, shown in the report
     _changed_all=()
     while IFS=$'\t' read -r _st _p1 _p2; do
       if [[ "${_st}" == R* ]]; then
@@ -479,15 +500,39 @@ main() {
       compare=()
       compare_old=()
       compare_ig=() # parallel marker: 1 = ignore entry being verified, 0 = normal check
+      vanished=()   # in scope, absent at HEAD: a deletion, or a move git did not pair
       for f in "${check[@]}"; do
         if git cat-file -e "HEAD:${f}" 2>/dev/null; then
           compare+=("${f}")
           compare_old+=("${_rename_src[${f}]:-${f}}")
           compare_ig+=(0)
         else
-          residue+=("${f}")
+          vanished+=("${f}")
         fi
       done
+
+      # Candidate destinations for a file git could not pair, and the other claimants on a
+      # pairing git DID make. Both are files ADDED since the revision, so they are absent from
+      # the DMRT diff above and have to be asked for separately. Only gathered when something
+      # actually needs explaining, because every one of them has to be compiled.
+      added=()
+      _needs_candidates=0
+      if [[ ${#vanished[@]} -gt 0 ]]; then
+        _needs_candidates=1
+      fi
+      for f in "${compare[@]+"${compare[@]}"}"; do
+        if [[ "${_status[$f]:-}" == "R" ]]; then
+          _needs_candidates=1
+          break
+        fi
+      done
+      if [[ ${_needs_candidates} -eq 1 ]]; then
+        while IFS=$'\t' read -r _st _p; do
+          if [[ "${_p}" == *.sol ]]; then
+            added+=("${_p}")
+          fi
+        done < <(git diff -M -l0 --name-status --diff-filter=A "${_sha}" -- "${_AUDIT_PATHSPEC[@]}")
+      fi
       for f in "${ignored_changed[@]}"; do
         if git cat-file -e "HEAD:${f}" 2>/dev/null; then
           compare+=("${f}")
@@ -497,12 +542,12 @@ main() {
           printf '\033[2m  %s (ignored via .verify-audit-ignore)\033[0m\n' "${f}"
         fi
       done
-      if [[ ${#compare[@]} -gt 0 ]]; then
+      if [[ ${#compare[@]} -gt 0 || ${#vanished[@]} -gt 0 ]]; then
         if [[ -z "${_head_out}" ]]; then
           _assert_metadata_disabled || exit 1
           _head_out=$(mktemp -d)
         fi
-        if ! _build_head_out "${_head_out}" "${compare[@]}"; then
+        if ! _build_head_out "${_head_out}" "${compare[@]+"${compare[@]}"}" "${added[@]+"${added[@]}"}"; then
           printf '\033[31m  ERROR: HEAD build failed — cannot compare bytecode\033[0m\n' >&2
           exit 1
         fi
@@ -510,7 +555,9 @@ main() {
           printf '\033[31m  ERROR: could not set up HEAD worktree — cannot compare bytecode\033[0m\n' >&2
           exit 1
         fi
-        if ! _overlay_and_build_revision "${_sha}" "${_all_old[@]}" -- "${compare_old[@]}"; then
+        # A vanished file is built at the revision too: its signature is the only handle on
+        # where it went, since its path says nothing once it no longer exists.
+        if ! _overlay_and_build_revision "${_sha}" "${_all_old[@]}" -- "${compare_old[@]+"${compare_old[@]}"}" "${vanished[@]+"${vanished[@]}"}"; then
           printf '\033[31m  ERROR: build at "%s" failed — cannot compare bytecode\033[0m\n' "${t}" >&2
           exit 1
         fi
@@ -522,7 +569,17 @@ main() {
           sig_old=$(_file_signature "${_wt_out}" "${old_path}")
           sig_new=$(_file_signature "${_head_out}" "${f}")
           if [[ "${sig_old}" == "${sig_new}" && "${sig_old}" != "__MISSING__" ]]; then
-            if [[ "${ig}" -eq 1 ]]; then
+            # git pairs by textual similarity. Where an ADDED file compiles to the same
+            # bytecode, the pairing had more than one candidate, and clearing it would accept
+            # whichever git happened to pick - silently taking the old file's deletion with it.
+            _rivals=()
+            if [[ "${_status[$f]:-}" == "R" ]] && _signature_identifies "${sig_old}"; then
+              mapfile -t _rivals < <(_signature_matches "${sig_old}" "${added[@]+"${added[@]}"}")
+            fi
+            if [[ ${#_rivals[@]} -gt 0 ]]; then
+              residue+=("${f}")
+              _pair_note["${f}"]="git paired ${_rename_src[$f]:-?} here, but more than one file at HEAD has that bytecode (${f} ${_rivals[*]}) — which one it became cannot be told apart"
+            elif [[ "${ig}" -eq 1 ]]; then
               printf '\033[31m  ERROR: stale .verify-audit-ignore entry: "%s" for revision "%s" would now clear (bytecode-equivalent) — remove it\033[0m\n' "${f}" "${t}"
               fail=1
             else
@@ -533,6 +590,26 @@ main() {
               printf '\033[2m  %s (ignored via .verify-audit-ignore)\033[0m\n' "${f}"
             else
               residue+=("${f}")
+            fi
+          fi
+        done
+        # A file that is gone at HEAD. Its signature is rename-proof, so if exactly one file at
+        # HEAD compiles to the same bytecode, that is where it went: report the move, naming
+        # both paths, and clear it. Anything else is drift — no match is a removal, which is
+        # what the audit exists to catch, and more than one match is a question this tool must
+        # not answer by guessing.
+        for f in "${vanished[@]+"${vanished[@]}"}"; do
+          sig_old=$(_file_signature "${_wt_out}" "${f}")
+          _matches=()
+          if _signature_identifies "${sig_old}"; then
+            mapfile -t _matches < <(_signature_matches "${sig_old}" "${added[@]+"${added[@]}"}")
+          fi
+          if [[ ${#_matches[@]} -eq 1 ]]; then
+            printf '\033[2m  %s -> %s (cleared: paired by bytecode, moved or renamed)\033[0m\n' "${f}" "${_matches[0]}"
+          else
+            residue+=("${f}")
+            if [[ ${#_matches[@]} -gt 1 ]]; then
+              _pair_note["${f}"]="more than one file at HEAD has this bytecode (${_matches[*]}) — which one it became cannot be told apart"
             fi
           fi
         done
@@ -550,6 +627,10 @@ main() {
     printf '\033[31m  CHANGED (not ignored):\033[0m\n'
     for f in "${check[@]}"; do
       printf '\033[31m    %s\033[0m\n' "$f"
+      # An unresolved pairing: reported here rather than guessed at above.
+      if [[ -n "${_pair_note[$f]:-}" ]]; then
+        printf '\033[31m      %s\033[0m\n' "${_pair_note[$f]}"
+      fi
       # A deletion's diff is the whole file as removals: it says nothing beyond the
       # filename and drowns the other entries. Report the fact instead.
       if [[ "${_status[$f]:-}" == "D" ]]; then
@@ -561,7 +642,29 @@ main() {
         fi
         continue
       fi
-      changes=$(GIT_PAGER="" git diff --minimal --color=always --diff-filter=DMRT "${_sha}" -- "$f")
+      # A pairing git made by TEXTUAL SIMILARITY, whose bytecode then disagreed. Two
+      # explanations fit, and no bytecode test separates them: the old file's code is absent
+      # from HEAD whether it was edited or removed. So name the path that is gone and put
+      # both readings in front of the reader rather than picking one. Without this the
+      # report shows only the new path, and the removal of a deployed contract - the drift
+      # this tool exists to catch - is invisible.
+      if [[ "${_status[$f]:-}" == "R" ]]; then
+        _old_path="${_rename_src[$f]:-}"
+        if [[ -n "${_old_path}" && "${_old_path}" != "${f}" ]]; then
+          printf '\033[31m      %s is GONE at HEAD; git paired it with this file, but their bytecode differs\033[0m\n' "${_old_path}"
+          printf '\033[2m      so either %s was renamed here AND changed, or it was removed and git\033[0m\n' "${_old_path}"
+          printf '\033[2m      mis-paired the deletion with %s, which is simply new\033[0m\n' "${f}"
+        fi
+      fi
+      # A renamed file needs BOTH paths in the pathspec and -M -l0: rename detection pairs only
+      # among the paths that survive the pathspec, so asking for the new path alone leaves the
+      # old one out, git sees an addition, --diff-filter=DMRT drops it, and the entry prints
+      # bare with no diff at all.
+      _diff_paths=("$f")
+      if [[ -n "${_rename_src[$f]:-}" && "${_rename_src[$f]}" != "${f}" ]]; then
+        _diff_paths=("${_rename_src[$f]}" "$f")
+      fi
+      changes=$(GIT_PAGER="" git diff --minimal --color=always -M -l0 --diff-filter=DMRT "${_sha}" -- "${_diff_paths[@]}")
       linecount=$(printf '%s\n' "${changes}" | wc -l)
       if [[ "${linecount}" -gt 20 ]]; then
         printf '%s\n' "${changes}" | head -n 20
