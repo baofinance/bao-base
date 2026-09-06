@@ -1,18 +1,41 @@
 #!/usr/bin/env bash
 set -e
 set -o pipefail
-trap 'exit 130' INT
 
 debug=0
 retry_mode=0
 skip_mode=0
 action="test-foundry" # the .github/actions/<name>/ whose action.yml is run; override as the sole positional arg
 action_set=0
+step_in_flight=0
+
+# Both ways to carry on from a run that stopped part-way, in both spellings. The short forms are
+# offered here because this is where they are found: a resume is the one thing a person does over and
+# over in a sitting, and nothing else in the tool would introduce them.
+resume_hint() {
+  echo "Run 'yarn CI ${action} --retry' (or -r) to retry this step, or 'yarn CI ${action} --skip' (or -s) to skip it." >&2
+}
+
+# Ctrl-C reaches this script as well as the step it is running, so the step's own failure path never
+# runs and nothing would otherwise say where the run stopped. The resume point is already on disk —
+# it is written before the step starts — so this only has to report it. It reports nothing when no
+# step was in flight: --retry leaves a state file in place from the first line of the run, so the
+# file's presence alone would name a step this run had not reached.
+on_interrupt() {
+  if [[ "$step_in_flight" == "1" ]]; then
+    echo "" >&2
+    echo "=== INTERRUPTED at step $((i + 1))/$total: $cmd ===" >&2
+    resume_hint
+  fi
+  exit 130
+}
+trap on_interrupt INT
+
 for arg in "$@"; do
   case "$arg" in
     --debug | -d) debug=1 ;;
-    --retry) retry_mode=1 ;;
-    --skip) skip_mode=1 ;;
+    --retry | -r) retry_mode=1 ;;
+    --skip | -s) skip_mode=1 ;;
     -*)
       echo "ERROR: unknown flag: $arg" >&2
       exit 1
@@ -135,6 +158,15 @@ for ((i = start_index; i < total; i++)); do
   if [[ "$debug" == "1" ]]; then
     echo "[debug] skipping execution"
   else
+    # The step to resume at is recorded BEFORE it is run, not when it fails. A run stops three ways
+    # and only one of them can run code as it stops: a failing step returns here, but Ctrl-C signals
+    # this script along with the step so nothing below the step ever runs, and a machine that goes
+    # away allows no code at all. Recording on entry is the single point that covers all three. The
+    # file is removed once every step has passed, so it exists only while a run is unfinished.
+    # dirname of a non-empty literal path, so there is no failure to check
+    mkdir -p "$(dirname "$STATE_FILE")" # lint-bash disable=command-substitution
+    echo "$i" >"$STATE_FILE"
+
     # Exactly the shell GitHub gives a step, rather than eval in this one. Two reasons, and the
     # first is a correctness bug: a command placed in a condition has `set -e` suppressed for
     # everything it expands, so an eval'd compound command runs on past its first failure and ends
@@ -147,14 +179,13 @@ for ((i = start_index; i < total; i++)); do
     # the one file it does read. Left set, a developer's local replay would source something no
     # runner has.
     step_status=0
+    step_in_flight=1
     env -u BASH_ENV bash --noprofile --norc -eo pipefail -c "$cmd" || step_status=$?
+    step_in_flight=0
     if [[ "$step_status" -ne 0 ]]; then
       echo "" >&2
       echo "=== FAILED at step $((i + 1))/$total: $cmd ===" >&2
-      # dirname of a non-empty literal path, so there is no failure to check
-      mkdir -p "$(dirname "$STATE_FILE")" # lint-bash disable=command-substitution
-      echo "$i" >"$STATE_FILE"
-      echo "Run 'yarn CI ${action} --retry' to retry this step, or 'yarn CI ${action} --skip' to skip it." >&2
+      resume_hint
       exit 1
     fi
   fi

@@ -10,8 +10,13 @@ does not make this test stale.
 """
 
 import os
+import re
+import signal
 import subprocess
+import time
 from pathlib import Path
+
+import pytest
 
 BAO_BASE = Path(__file__).resolve().parents[2]
 RUN = BAO_BASE / "run"
@@ -183,7 +188,7 @@ def _stub_yarn(directory, exit_code):
 
 def execute_ci_against(base_dir, *args, stub_bin):
     """bin/CI actually executing, rather than parsing under --debug. cwd is the fixture directory so
-    the .ci-state file it writes on failure lands there and not in the repo."""
+    the .ci-state file it writes as it runs lands there and not in the repo."""
     return subprocess.run(
         ["bash", str(BAO_BASE / "bin" / "CI"), *args],
         cwd=base_dir,
@@ -226,3 +231,189 @@ def test_a_marked_command_that_succeeds_runs_to_the_end(tmp_path):
     assert "STUB-YARN-RAN" in result.stdout
     assert (tmp_path / "tail-ran").exists()
     assert result.returncode == 0
+
+
+# ── which step --retry resumes at ─────────────────────────────────────────────────────────────────
+# The state file records the step to resume at, and a run stops for three reasons: the step failed,
+# someone pressed Ctrl-C, or the machine went away. Only the first can run any code as it stops, so
+# the record has to be on disk while the step is running rather than written as the run ends.
+
+TWO_STEPS_THE_SECOND_BLOCKING = (
+    "runs:\n"
+    "  steps:\n"
+    "    - run: |\n"
+    "        # ci-execute-next-line\n"
+    "        yarn quick\n"
+    "    - run: |\n"
+    "        # ci-execute-next-line\n"
+    "        yarn blocks\n"
+)
+
+
+def _state_file(base_dir, action):
+    return base_dir / "tmp" / f".ci-state-{action}"
+
+
+def _stub_yarn_that_blocks_on(directory, blocking_argument):
+    """A `yarn` on PATH that hangs when given `blocking_argument`, so a test can interrupt bin/CI
+    while a step is genuinely mid-flight. It announces the start through a file rather than stdout
+    because the test has to wait for that moment, and bin/CI's own pipes are read only on exit."""
+    directory.mkdir(exist_ok=True)
+    stub = directory / "yarn"
+    stub.write_text(
+        "#!/usr/bin/env bash\n"
+        f'if [[ "$1" == "{blocking_argument}" ]]; then\n'
+        "  touch step-running\n"
+        "  sleep 60\n"
+        "fi\n"
+        'echo "STUB-YARN-RAN $1"\n'
+    )
+    stub.chmod(0o755)
+    return directory
+
+
+def interrupt_ci_during_the_blocking_step(base_dir, *args, stub_bin):
+    """Run bin/CI and Ctrl-C it while the blocking step runs.
+
+    Ctrl-C reaches every process in the terminal's foreground process group — the step's shell and
+    bin/CI alike — so the signal goes to the group, not to bin/CI's pid; signalling the pid alone
+    would exercise a path no keypress produces. start_new_session puts the run in a group of its own
+    so pytest is not signalled along with it.
+    """
+    process = subprocess.Popen(
+        ["bash", str(BAO_BASE / "bin" / "CI"), *args],
+        cwd=base_dir,
+        env={
+            **os.environ,
+            "BAO_BASE_DIR": str(base_dir),
+            "PATH": f"{stub_bin}{os.pathsep}{os.environ['PATH']}",
+        },
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    deadline = time.monotonic() + 30
+    while not (base_dir / "step-running").exists():
+        assert process.poll() is None, "bin/CI exited before reaching the blocking step"
+        assert time.monotonic() < deadline, "the blocking step never started"
+        time.sleep(0.05)
+    os.killpg(process.pid, signal.SIGINT)
+    stdout, stderr = process.communicate(timeout=30)
+    return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+
+
+def test_an_interrupted_step_is_recorded_as_the_one_to_resume_at(tmp_path):
+    # Ctrl-C kills bin/CI along with the step, so nothing it could run as it exits would record
+    # anything — and a power cut would not even allow that much.
+    name = _action_with_steps(tmp_path, TWO_STEPS_THE_SECOND_BLOCKING)
+    stub = _stub_yarn_that_blocks_on(tmp_path / "stub", "blocks")
+    interrupt_ci_during_the_blocking_step(tmp_path, name, stub_bin=stub)
+    # 0-based, so the second of the two steps
+    assert _state_file(tmp_path, name).read_text().strip() == "1"
+
+
+# Each of the two resumption flags has a long and a short spelling, and both are exercised here: a
+# short form that parsed but set nothing would fall through to running the whole action from step 1,
+# which looks enough like working to go unnoticed.
+
+
+@pytest.mark.parametrize("flag", ["--retry", "-r"])
+def test_retry_after_an_interrupt_resumes_at_the_interrupted_step(tmp_path, flag):
+    name = _action_with_steps(tmp_path, TWO_STEPS_THE_SECOND_BLOCKING)
+    stub = _stub_yarn_that_blocks_on(tmp_path / "stub", "blocks")
+    interrupt_ci_during_the_blocking_step(tmp_path, name, stub_bin=stub)
+
+    # the same argument no longer hangs, so the retried step can finish
+    result = execute_ci_against(tmp_path, name, flag, stub_bin=_stub_yarn(tmp_path / "stub", 0))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "=== [2/2]" in result.stdout
+    assert "=== [1/2]" not in result.stdout, "the step that had already passed was run again"
+
+
+@pytest.mark.parametrize("flag", ["--skip", "-s"])
+def test_skip_after_an_interrupt_moves_past_the_interrupted_step(tmp_path, flag):
+    name = _action_with_steps(tmp_path, TWO_STEPS_THE_SECOND_BLOCKING)
+    stub = _stub_yarn_that_blocks_on(tmp_path / "stub", "blocks")
+    interrupt_ci_during_the_blocking_step(tmp_path, name, stub_bin=stub)
+
+    result = execute_ci_against(tmp_path, name, flag, stub_bin=_stub_yarn(tmp_path / "stub", 0))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Skipping step 2 of 2" in result.stdout
+    assert "=== [2/2]" not in result.stdout, "the skipped step was run"
+    assert not _state_file(tmp_path, name).exists()
+
+
+# ── what a stopped run tells you to do next ───────────────────────────────────────────────────────
+# A run that stopped part-way is resumable, but only if the person watching knows it. Both places a
+# run can stop say the same two things: where it stopped, and both spellings of each way to carry on
+# — the short forms appear nowhere else, so a hint that gave only the long ones would leave them
+# undiscoverable in the one situation that involves repeated typing.
+
+
+def _assert_names_every_way_to_resume(text):
+    """Every spelling of both flags is offered, each as a flag in its own right.
+
+    Matched on a boundary rather than as a substring: "-r" occurs inside "--retry", so a plain
+    containment check would report the short forms as present in a hint that never mentions them.
+    """
+    for flag in ("--retry", "-r", "--skip", "-s"):
+        pattern = rf"(?<![-\w]){re.escape(flag)}(?![\w-])"
+        assert re.search(pattern, text), f"{flag} is not offered in:\n{text}"
+
+
+def test_an_interrupt_says_which_step_it_stopped_at(tmp_path):
+    name = _action_with_steps(tmp_path, TWO_STEPS_THE_SECOND_BLOCKING)
+    stub = _stub_yarn_that_blocks_on(tmp_path / "stub", "blocks")
+    result = interrupt_ci_during_the_blocking_step(tmp_path, name, stub_bin=stub)
+    assert "INTERRUPTED at step 2/2: yarn blocks" in result.stderr
+
+
+def test_an_interrupt_names_both_spellings_of_both_ways_to_resume(tmp_path):
+    name = _action_with_steps(tmp_path, TWO_STEPS_THE_SECOND_BLOCKING)
+    stub = _stub_yarn_that_blocks_on(tmp_path / "stub", "blocks")
+    result = interrupt_ci_during_the_blocking_step(tmp_path, name, stub_bin=stub)
+    _assert_names_every_way_to_resume(result.stderr)
+
+
+def test_a_failed_step_names_both_spellings_of_both_ways_to_resume(tmp_path):
+    # the other place a run stops; the two reports are the same offer and must not drift apart
+    name = _action_with_steps(
+        tmp_path, "runs:\n  steps:\n    - run: |\n        # ci-execute-next-line\n        yarn thing\n"
+    )
+    result = execute_ci_against(tmp_path, name, stub_bin=_stub_yarn(tmp_path / "stub", 3))
+    assert result.returncode != 0
+    _assert_names_every_way_to_resume(result.stderr)
+
+
+def test_an_interrupt_before_any_step_starts_reports_nothing_to_resume(tmp_path):
+    # --retry does not clear the state file, so one is on disk from the very first line of a retried
+    # run. Reporting a stopping point from its mere presence would name a step this run never
+    # reached, on a run that stopped before it had started anything.
+    name = _action_with_steps(tmp_path, TWO_STEPS_THE_SECOND_BLOCKING)
+    stub = _stub_yarn_that_blocks_on(tmp_path / "stub", "blocks")
+    interrupt_ci_during_the_blocking_step(tmp_path, name, stub_bin=stub)
+
+    process = subprocess.Popen(
+        ["bash", str(BAO_BASE / "bin" / "CI"), name, "--retry", "--debug"],
+        cwd=tmp_path,
+        env={**os.environ, "BAO_BASE_DIR": str(tmp_path)},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    os.killpg(process.pid, signal.SIGINT)
+    _, stderr = process.communicate(timeout=30)
+    assert "INTERRUPTED" not in stderr
+
+
+def test_a_successful_run_leaves_no_state_file(tmp_path):
+    # The other direction: a record kept for the whole run must still be cleared by the end of it,
+    # or the next --retry would resume a run that had finished.
+    name = _action_with_steps(
+        tmp_path, "runs:\n  steps:\n    - run: |\n        # ci-execute-next-line\n        yarn thing\n"
+    )
+    result = execute_ci_against(tmp_path, name, stub_bin=_stub_yarn(tmp_path / "stub", 0))
+    assert result.returncode == 0
+    assert not _state_file(tmp_path, name).exists()
