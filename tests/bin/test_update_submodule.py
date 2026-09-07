@@ -270,8 +270,16 @@ def test_a_nested_dependency_does_not_gain_an_entry_in_our_lock(project, tmp_pat
     # records only what THIS repository depends on, and forge never writes another repository's
     # dependency into it, so an entry for a nested path pins nothing and is reported as stale by the
     # mirror check. Sweeping it must leave the lock alone.
-    git("-c", "protocol.file.allow=always", "submodule", "add", "-q",
-        str(tmp_path / "root" / "other.git"), "lib/inner", cwd=project / "lib" / "dep")
+    git(
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        "-q",
+        str(tmp_path / "root" / "other.git"),
+        "lib/inner",
+        cwd=project / "lib" / "dep",
+    )
     git("commit", "-qm", "add inner", cwd=project / "lib" / "dep")
     stranded = project / "lib" / "dep" / "lib" / "inner" / "stranded"
     git("clone", "-q", str(tmp_path / "root" / "other.git"), str(stranded), cwd=project)

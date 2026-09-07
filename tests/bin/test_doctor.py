@@ -403,8 +403,12 @@ def test_a_parent_is_not_reported_for_drift_its_children_already_explain(tmp_pat
 
     problems = doctor.submodule_problems(host)
 
-    assert any(p.startswith("lib/dep/lib/child: recorded as a dependency but not checked out") for p in problems), problems
-    assert not any(p.startswith("lib/dep: its own dependencies are not at the commits it records") for p in problems), problems
+    assert any(p.startswith("lib/dep/lib/child: recorded as a dependency but not checked out") for p in problems), (
+        problems
+    )
+    assert not any(p.startswith("lib/dep: its own dependencies are not at the commits it records") for p in problems), (
+        problems
+    )
 
 
 def test_a_lock_entry_for_a_departed_submodule_is_reported(tmp_path):
