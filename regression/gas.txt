@@ -21,7 +21,7 @@ src/MintableBurnableERC20_v2.sol:MintableBurnableERC20_v2
 | function name     |    max |   display |
 |-------------------|--------|-----------|
 | BURNER_ROLE       |    284 | 2.840e+02 |
-| DOMAIN_SEPARATOR  |   6522 | 6.522e+03 |
+| DOMAIN_SEPARATOR  |   6324 | 6.324e+03 |
 | MINTER_ROLE       |    260 | 2.600e+02 |
 | allowance         |   2822 | 2.822e+03 |
 | approve           |  24828 | 2.483e+04 |
@@ -31,19 +31,19 @@ src/MintableBurnableERC20_v2.sol:MintableBurnableERC20_v2
 | decimals          |    221 | 2.210e+02 |
 | grantRoles        |  26384 | 2.638e+04 |
 | hasAnyRole        |   2636 | 2.636e+03 |
-| initialize        | 166584 | 1.666e+05 |
+| initialize        | 162350 | 1.624e+05 |
 | mint              |  49124 | 4.912e+04 |
 | nonces            |   2710 | 2.710e+03 |
 | owner             |   2374 | 2.374e+03 |
-| permit            |  57620 | 5.762e+04 |
+| permit            |  57422 | 5.742e+04 |
 | proxiableUUID     |    415 | 4.150e+02 |
 | supportsInterface |   1250 | 1.250e+03 |
 | symbol            |   3236 | 3.236e+03 |
 | totalSupply       |   2326 | 2.326e+03 |
 | transfer          |  30023 | 3.002e+04 |
-| transferFrom      |  35768 | 3.577e+04 |
+| transferFrom      |  35767 | 3.577e+04 |
 | transferOwnership |  12137 | 1.214e+04 |
-| upgradeToAndCall  |  43781 | 4.378e+04 |
+| upgradeToAndCall  |  39448 | 3.945e+04 |
 
 src/Stem_v1.sol:Stem_v1
 | function name             |   max |   display |
@@ -59,17 +59,22 @@ src/Token.sol:Token
 |-------------------------------------|-------|-----------|
 | hasNonMutatingParameterlessFunction |  4190 | 4.190e+03 |
 
+src/openzeppelin-compat/BaoERC1967Proxy.sol:BaoERC1967Proxy
+| function name   |    max |   display |
+|-----------------|--------|-----------|
+| fallback        | 190066 | 1.901e+05 |
+
 test/mocks/MintableBurnableERC20_v2_Reinit.sol:MintableBurnableERC20_v2_Reinit
 | function name     |    max |   display |
 |-------------------|--------|-----------|
 | balanceOf         |   2712 | 2.712e+03 |
 | hasAnyRole        |   2614 | 2.614e+03 |
-| initialize        | 166968 | 1.670e+05 |
+| initialize        | 162833 | 1.628e+05 |
 | mint              |  31980 | 3.198e+04 |
 | owner             |   2440 | 2.440e+03 |
 | proxiableUUID     |    393 | 3.930e+02 |
-| reinitializeV1    |   3764 | 3.764e+03 |
-| reinitializeV2    |  32057 | 3.206e+04 |
+| reinitializeV1    |   3790 | 3.790e+03 |
+| reinitializeV2    |  27860 | 2.786e+04 |
 | symbol            |   3236 | 3.236e+03 |
 | transferOwnership |  12159 | 1.216e+04 |
 

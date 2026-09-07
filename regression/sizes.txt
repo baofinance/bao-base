@@ -1,6 +1,7 @@
 | Contract                       |   Runtime Size (B) |   Runtime Margin (B) |   Initcode Size (B) |   Deploy Gas |   Deploy Cost ($) |
 |--------------------------------|--------------------|----------------------|---------------------|--------------|-------------------|
 | Array                          |                 62 |               24,514 |                  88 |       13,280 |              1.33 |
+| BaoERC1967Proxy                |                163 |               24,413 |                 923 |       41,830 |              4.18 |
 | Deployed                       |                408 |               24,168 |                 460 |       86,200 |              8.62 |
 | DerivedBaoOwnable              |                874 |               23,702 |                 902 |      183,820 |             18.38 |
 | DerivedBaoOwnableRoles         |              1,757 |               22,819 |               1,799 |      369,390 |             36.94 |
@@ -13,23 +14,23 @@
 | DerivedHarborOwnableRoles      |              1,763 |               22,813 |               1,805 |      370,650 |             37.07 |
 | DerivedOwnable                 |                916 |               23,660 |                 944 |      192,640 |             19.26 |
 | DerivedOwnableRoles            |              1,555 |               23,021 |               1,583 |      326,830 |             32.68 |
-| DerivedTokenHolder             |              1,996 |               22,580 |               2,024 |      419,440 |             41.94 |
-| DerivedTokenHolder_v2          |              1,909 |               22,667 |               1,937 |      401,170 |             40.12 |
-| HarborPauser_v1                |              2,107 |               22,469 |               2,590 |      447,300 |             44.73 |
-| MintableBurnableERC20_v1       |              8,325 |               16,251 |               8,574 |    1,750,740 |            175.07 |
-| MintableBurnableERC20_v2       |              8,344 |               16,232 |               8,593 |    1,754,730 |            175.47 |
-| Stem_v1                        |              2,022 |               22,554 |               2,382 |      428,220 |             42.82 |
+| DerivedTokenHolder             |              1,972 |               22,604 |               2,000 |      414,400 |             41.44 |
+| DerivedTokenHolder_v2          |              1,894 |               22,682 |               1,922 |      398,020 |             39.80 |
+| HarborPauser_v1                |              2,057 |               22,519 |               2,555 |      436,950 |             43.70 |
+| MintableBurnableERC20_v1       |              8,052 |               16,524 |               8,301 |    1,693,410 |            169.34 |
+| MintableBurnableERC20_v2       |              8,055 |               16,521 |               8,304 |    1,694,040 |            169.40 |
+| Stem_v1                        |              1,973 |               22,603 |               2,333 |      417,930 |             41.79 |
 | Token                          |                648 |               23,928 |                 700 |      136,600 |             13.66 |
 | UUPSProxyDeployStub            |                940 |               23,636 |               1,027 |      198,270 |             19.83 |
 | _BaoOwnableRoles_              |              1,219 |               23,357 |               1,247 |      256,270 |             25.63 |
 | _BaoOwnableTransferrableRoles_ |              1,961 |               22,615 |               1,989 |      412,090 |             41.21 |
 | _BaoOwnableTransferrable_      |              1,381 |               23,195 |               1,409 |      290,290 |             29.03 |
 | _BaoOwnable_                   |                636 |               23,940 |                 664 |      133,840 |             13.38 |
-| _Initializable_UUPSUpGradeable |              1,540 |               23,036 |               1,596 |      323,960 |             32.40 |
+| _Initializable_UUPSUpGradeable |              1,484 |               23,092 |               1,540 |      312,200 |             31.22 |
 | _OZAccessControl               |              1,114 |               23,462 |               1,142 |      234,220 |             23.42 |
 | _OZDefaultAdminRules           |              3,561 |               21,015 |               3,589 |      748,090 |             74.81 |
 | _OZOwnable                     |                545 |               24,031 |                 573 |      114,730 |             11.47 |
 | _OZOwnable2Step                |                812 |               23,764 |                 840 |      170,800 |             17.08 |
 | _SoladyOwnable                 |                727 |               23,849 |                 755 |      152,950 |             15.29 |
 | _SoladyOwnableRoles            |              1,273 |               23,303 |               1,301 |      267,610 |             26.76 |
-| _UUPSUpgradeable               |              1,540 |               23,036 |               1,596 |      323,960 |             32.40 |
+| _UUPSUpgradeable               |              1,484 |               23,092 |               1,540 |      312,200 |             31.22 |
