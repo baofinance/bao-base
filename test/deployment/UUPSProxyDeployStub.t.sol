@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {BaoERC1967Proxy} from "@bao/openzeppelin-compat/BaoERC1967Proxy.sol";
 
 contract UpgradeTarget {
     uint256 internal storedValue;
@@ -56,7 +56,7 @@ contract UUPSProxyDeployStubTest is BaoTest {
     }
 
     function test_UpgradeToAndCallThroughProxy() public {
-        ERC1967Proxy proxy = new ERC1967Proxy(address(stub), bytes(""));
+        BaoERC1967Proxy proxy = new BaoERC1967Proxy(address(stub), bytes(""));
         UUPSProxyDeployStub proxyStub = UUPSProxyDeployStub(address(proxy));
 
         UpgradeTarget target = new UpgradeTarget();

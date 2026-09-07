@@ -356,7 +356,7 @@ contract TestUpgrade is TestLeveragedTokensSetUp {
 }
 
 import {MintableBurnableERC20_v2_Reinit} from "@bao-test/mocks/MintableBurnableERC20_v2_Reinit.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {BaoERC1967Proxy} from "@bao/openzeppelin-compat/BaoERC1967Proxy.sol";
 
 /// @notice Tests for recovering from botched proxy deployments via upgrade
 /// Pattern: Upgrade to v2 with reinitializer to fix initialization issues
@@ -377,7 +377,7 @@ contract TestUpgradeRecovery is TestLeveragedTokensSetUp {
         // Deploy proxy WITHOUT calling initialize (simulates failed upgradeToAndCall)
         // Use a minimal ERC1967 proxy pointing to v1 impl
         address uninitializedProxy = address(
-            new ERC1967Proxy(v1Impl, "") // empty data = no initialize call
+            new BaoERC1967Proxy(v1Impl, "") // empty data = no initialize call
         );
 
         // Verify proxy is in uninitialized state
@@ -418,7 +418,7 @@ contract TestUpgradeRecovery is TestLeveragedTokensSetUp {
         // Note: initialize sets msg.sender (test contract) as owner
         address v1Impl = address(new MintableBurnableERC20_v2());
         address wronglyInitializedProxy = address(
-            new ERC1967Proxy(
+            new BaoERC1967Proxy(
                 v1Impl,
                 abi.encodeCall(MintableBurnableERC20_v2.initialize, (address(this), owner, WRONG_NAME, WRONG_SYMBOL))
             )
@@ -469,7 +469,7 @@ contract TestUpgradeRecovery is TestLeveragedTokensSetUp {
         // Deploy and initialize normally
         address v2Impl = address(new MintableBurnableERC20_v2_Reinit());
         address proxy = address(
-            new ERC1967Proxy(
+            new BaoERC1967Proxy(
                 v2Impl,
                 abi.encodeCall(
                     MintableBurnableERC20_v2_Reinit.initialize,
@@ -497,7 +497,7 @@ contract TestUpgradeRecovery is TestLeveragedTokensSetUp {
         // Deploy with wrong params - test contract becomes owner
         address v1Impl = address(new MintableBurnableERC20_v2());
         address proxy = address(
-            new ERC1967Proxy(
+            new BaoERC1967Proxy(
                 v1Impl,
                 abi.encodeCall(MintableBurnableERC20_v2.initialize, (address(this), owner, WRONG_NAME, WRONG_SYMBOL))
             )

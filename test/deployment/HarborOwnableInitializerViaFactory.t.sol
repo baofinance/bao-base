@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {BaoERC1967Proxy} from "@bao/openzeppelin-compat/BaoERC1967Proxy.sol";
 
 import {Test} from "forge-std/Test.sol";
 
@@ -43,7 +43,7 @@ contract UUPSProxyFactoryCaller {
     }
 
     function deployProxy(address stub) external returns (address proxy) {
-        proxy = address(new ERC1967Proxy(stub, ""));
+        proxy = address(new BaoERC1967Proxy(stub, ""));
     }
 
     function upgradeToAndCall(address proxy, address implementation, bytes calldata data) external {

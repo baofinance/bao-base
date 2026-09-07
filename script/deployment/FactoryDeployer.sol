@@ -5,7 +5,7 @@ import {Vm, VmSafe} from "forge-std/Vm.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {BaoERC1967Proxy} from "@bao/openzeppelin-compat/BaoERC1967Proxy.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
@@ -244,7 +244,7 @@ abstract contract FactoryDeployer is DeployReporting {
 
     // ========== DEPLOY AND RECORD ==========
     // Two deployment paths:
-    //   _deployProxyAndRecord          — Direct: ERC1967Proxy(impl, initData) in one step.
+    //   _deployProxyAndRecord          — Direct: BaoERC1967Proxy(impl, initData) in one step.
     //                                    Default for new contracts (HarborOwnable, HarborFixedOwnable).
     //   _deployProxyViaStubAndRecord   — Via UUPSProxyDeployStub: needed for BaoOwnable contracts whose
     //                                    _initializeOwner(finalOwner) uses msg.sender as temp owner.
@@ -340,7 +340,7 @@ abstract contract FactoryDeployer is DeployReporting {
         return address(uint160(uint256(value)));
     }
 
-    /// @notice Deploy proxy directly via BaoFactory CREATE3: ERC1967Proxy(impl, initData).
+    /// @notice Deploy proxy directly via BaoFactory CREATE3: BaoERC1967Proxy(impl, initData).
     /// @dev Default path. No stub needed — suitable for HarborOwnable (explicit deployer) and
     ///      HarborFixedOwnable (no initializer) contracts.
     function _deployProxy(
@@ -353,7 +353,7 @@ abstract contract FactoryDeployer is DeployReporting {
         address predictedProxy = baoFactoryContract.predictAddress(salt);
 
         proxy = baoFactoryContract.deploy(
-            abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(implementation, initData)),
+            abi.encodePacked(type(BaoERC1967Proxy).creationCode, abi.encode(implementation, initData)),
             salt
         );
         require(proxy == predictedProxy, "Proxy address mismatch");
@@ -374,7 +374,7 @@ abstract contract FactoryDeployer is DeployReporting {
         // Step 1: deploy proxy pointing at stub
         UUPSProxyDeployStub stub = _getOrDeployStub();
         proxy = baoFactoryContract.deploy(
-            abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(address(stub), "")),
+            abi.encodePacked(type(BaoERC1967Proxy).creationCode, abi.encode(address(stub), "")),
             salt
         );
         require(proxy == predictedProxy, "Proxy address mismatch");
