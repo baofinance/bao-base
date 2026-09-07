@@ -37,8 +37,6 @@ def make_repo(root: Path, name: str) -> Path:
     source = root / name
     source.mkdir(parents=True)
     git(source, "init", "-q", "-b", "main")
-    git(source, "config", "user.email", "state@test")
-    git(source, "config", "user.name", "state")
     (source / "A.sol").write_text("// one\n")
     git(source, "add", "-A")
     git(source, "commit", "-qm", "one")
@@ -76,8 +74,6 @@ def world(tmp_path):
     (project / "src").mkdir(parents=True)
     (project / "foundry.toml").write_text(FOUNDRY_TOML)
     git(project, "init", "-q", "-b", "main")
-    git(project, "config", "user.email", "state@test")
-    git(project, "config", "user.name", "state")
     git(project, "add", "-A")
     git(project, "commit", "-qm", "init")
     git(project, "submodule", "add", "-q", str(remote), "lib/dep")
@@ -390,8 +386,6 @@ def test_an_untracked_repositorys_own_commits_block_a_delete(world):
     scratch = world.project / "lib" / "dep" / "scratch"
     scratch.mkdir(parents=True)
     git(scratch, "init", "-q")
-    git(scratch, "config", "user.email", "state@test")
-    git(scratch, "config", "user.name", "state")
     (scratch / "notes.txt").write_text("precious\n")
     git(scratch, "add", "-A")
     git(scratch, "commit", "-qm", "unpushed, and no remote at all")

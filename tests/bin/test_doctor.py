@@ -27,8 +27,6 @@ def _git(repo: pathlib.Path, *args: str) -> None:
 def _init_repo(path: pathlib.Path) -> pathlib.Path:
     path.mkdir(parents=True, exist_ok=True)
     _git(path, "init", "-q")
-    _git(path, "config", "user.email", "doctor-test@example.com")
-    _git(path, "config", "user.name", "doctor-test")
     return path
 
 

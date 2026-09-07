@@ -87,8 +87,6 @@ class Remotes:
         source = self.work / name
         source.mkdir()
         git(source, "init", "-q", "-b", "main")
-        git(source, "config", "user.email", "toolchain@test")
-        git(source, "config", "user.name", "toolchain")
         (source / "A.sol").write_text(CONTRACT)
         git(source, "add", "-A")
         git(source, "commit", "-qm", "one")
@@ -174,8 +172,6 @@ def project(tmp_path, remotes):
     (root / "foundry.toml").write_text(FOUNDRY_TOML)
     (root / "src" / "X.sol").write_text(CONTRACT)
     git(root, "init", "-q", "-b", "main")
-    git(root, "config", "user.email", "toolchain@test")
-    git(root, "config", "user.name", "toolchain")
     git(root, "add", "-A")
     git(root, "commit", "-qm", "init")
     return root

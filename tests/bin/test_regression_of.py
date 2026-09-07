@@ -45,8 +45,6 @@ def _git(base: pathlib.Path, *args: str) -> None:
 
 def _init_repo(base: pathlib.Path) -> None:
     _git(base, "init", "-q")
-    _git(base, "config", "user.email", "t@t")
-    _git(base, "config", "user.name", "t")
 
 
 def run_regression_of(base: pathlib.Path, regression_type: str, log: str, exit_code: int = 0):

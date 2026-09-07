@@ -31,8 +31,6 @@ class GitRepo:
 
     def init(self):
         self._git("init", "-q")
-        self._git("config", "user.email", "test@example.com")
-        self._git("config", "user.name", "test")
 
     def write(self, text: str):
         """Write the working-tree copy (an unstaged edit); the index is untouched."""

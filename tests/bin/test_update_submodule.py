@@ -45,8 +45,6 @@ def make_dependency(root: Path, name: str) -> Path:
     source = root / name
     source.mkdir()
     git("init", "-q", "-b", "main", ".", cwd=source)
-    git("config", "user.email", "test@example.com", cwd=source)
-    git("config", "user.name", "test", cwd=source)
     (source / "README.md").write_text(f"{name}\n")
     git("add", "-A", cwd=source)
     git("commit", "-qm", "initial", cwd=source)
@@ -71,8 +69,6 @@ def project(tmp_path, monkeypatch):
     project = root / "project"
     project.mkdir()
     git("init", "-q", "-b", "main", ".", cwd=project)
-    git("config", "user.email", "test@example.com", cwd=project)
-    git("config", "user.name", "test", cwd=project)
     (project / "foundry.toml").write_text('[profile.default]\nlibs = ["lib"]\n')
     git("add", "-A", cwd=project)
     git("commit", "-qm", "initial", cwd=project)

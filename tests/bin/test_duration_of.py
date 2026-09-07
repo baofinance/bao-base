@@ -120,8 +120,6 @@ def _git(directory: pathlib.Path, *args: str) -> None:
 
 def _init_repo(base: pathlib.Path) -> None:
     _git(base, "init", "-q")
-    _git(base, "config", "user.email", "t@t")
-    _git(base, "config", "user.name", "t")
 
 
 def test_no_change_preserves_an_uncommitted_edit():
