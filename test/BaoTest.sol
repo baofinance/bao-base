@@ -31,18 +31,39 @@ abstract contract BaoTest is Test {
     ///
     ///      `script/verify/` deliberately does NOT use this: its blocks are chosen per upgrade, and its
     ///      whole point is meeting real state rather than a reproducible one.
-    uint256 internal constant MAINNET_FORK_BLOCK = 24699497;
+    ///
+    ///      A function rather than a constant so one suite can pin a different block — holding a
+    ///      failure still at the block that produced it, say — without moving the shared default and
+    ///      re-running every other repo against different chain state. `LATEST_BLOCK` opts a suite out
+    ///      of pinning altogether, for the suites whose whole purpose is meeting the chain as it
+    ///      stands; that choice is the suite's, and is whole-suite either way.
+    function forkBlock() internal pure virtual returns (uint256) {
+        return 24699497;
+    }
+
+    /// @notice The value `forkBlock` returns to mean "whatever the endpoint is serving now".
+    /// @dev Zero rather than a flag: no fork is ever usefully taken at the genesis block, so the
+    ///      sentinel cannot collide with a block anyone wants.
+    uint256 internal constant LATEST_BLOCK = 0;
 
     constructor() {
         vm.label(NICKS_FACTORY, "NicksFactory");
         vm.label(HARBOR_MULTISIG, "HarborMultisig");
     }
 
+    /// @notice Select a fork of `url` at whatever block `forkBlock` names.
+    /// @dev The one place that reads `forkBlock`, so deciding the block and applying it cannot drift
+    ///      apart, and a suite overriding `forkBlock` is honoured however the fork is reached.
+    function forkAt(string memory url) internal returns (uint256 forkId) {
+        uint256 pinned = forkBlock();
+        return pinned == LATEST_BLOCK ? vm.createSelectFork(url) : vm.createSelectFork(url, pinned);
+    }
+
     /// @notice Select a mainnet fork at the shared pinned block.
     /// @dev A helper rather than a bare constant so no repo repeats the incantation either, and so the
     ///      choice of RPC alias stays in one place.
     function forkMainnet() internal returns (uint256 forkId) {
-        return vm.createSelectFork(vm.rpcUrl("mainnet"), MAINNET_FORK_BLOCK);
+        return forkAt(vm.rpcUrl("mainnet"));
     }
 
     // Matches forge's assertApproxEqRel scaling: 1e18 == 100% relative tolerance.
