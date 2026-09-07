@@ -34,7 +34,32 @@ log "slither v$("$BAO_BASE_BIN_DIR"/run-python slither --version)" # lint-bash d
 # from another, and slither dies with "out/build-info is not a directory".
 # realpath of the current directory, which the shell is already in, so there is no failure to check
 slither_status=0
-"$BAO_BASE_BIN_DIR"/run-python slither . --config "$BAO_BASE_DIR/slither.config.json" --foundry-out-directory "$FOUNDRY_OUT" --filter-paths "BaoFixedOwnable,$(realpath .)/lib" --fail-pedantic "$@" || slither_status=$? # lint-bash disable=command-substitution
+slither_log="$(mktemp)" # lint-bash disable=command-substitution
+trap 'rm -f "$slither_log"' EXIT
+# `if` rather than `|| status=$?` so errexit does not end the run here — the name check below must
+# still get to speak — while PIPESTATUS still gives slither's own status rather than tee's.
+if "$BAO_BASE_BIN_DIR"/run-python slither . --config "$BAO_BASE_DIR/slither.config.json" --foundry-out-directory "$FOUNDRY_OUT" --filter-paths "BaoFixedOwnable,$(realpath .)/lib" --fail-pedantic "$@" 2>&1 | tee "$slither_log"; then # lint-bash disable=command-substitution
+  slither_status=0
+else
+  slither_status=${PIPESTATUS[0]}
+fi
+
+# A source slither cannot parse is reported as an ERROR line and then SKIPPED: the contract is carried
+# forward with the unresolved part missing, so every detector runs against a program that is not the
+# one that compiles, finds nothing in it, and the run exits 0. `--fail-pedantic` does not cover this —
+# it grades findings, and a contract emptied by a parse failure produces none.
+#
+# That is the same failure the contract-name check below guards against and that `yarn doctor` guards
+# for wake: a check which passes having looked at nothing is worse than no check, because it is
+# believed. So an ERROR from slither fails this script, whatever its exit code said.
+parsing_status=0
+if grep -q '^ERROR:' "$slither_log"; then
+  printf '\033[31mERROR: slither could not parse everything it was given, so it analysed a program\n'
+  printf 'other than the one that compiles. Its findings — including finding nothing — say nothing\n'
+  printf 'about the contracts named above until this is resolved.\033[0m\n' >&2
+  grep '^ERROR:' "$slither_log" >&2
+  parsing_status=1
+fi
 
 # Two source files compiling one contract name is silent everywhere else: forge writes both to
 # out/<file>.sol/<Contract>.json so the second overwrites the first, and slither's own name-reused
@@ -45,9 +70,12 @@ slither_status=0
 names_status=0
 "$BAO_BASE_BIN_DIR"/run-python lint-contract-names.py "$FOUNDRY_OUT/build-info" || names_status=$?
 
-# Report both, then fail with slither's code if it failed, else the check's. Deliberately not `set -e`
-# after slither: a repo with slither findings would otherwise never learn it also has a name collision.
+# Report all three, then fail with the first that failed. Deliberately not `set -e` after slither: a
+# repo with slither findings would otherwise never learn it also has a name collision or a parse error.
 worst_status=$slither_status
+if [[ $worst_status -eq 0 ]]; then
+  worst_status=$parsing_status
+fi
 if [[ $worst_status -eq 0 ]]; then
   worst_status=$names_status
 fi
