@@ -324,6 +324,25 @@ class Condition:
     detail: str
     reach: str | None = None
 
+    # What a READER is told. `name` stays the identifier this module and its tests branch on, but it
+    # is shorthand for whoever wrote it - "litter-present" describes a data structure, not a thing
+    # that happened to your checkout. Anything a person sees says what is wrong in words they did not
+    # have to learn.
+    SUMMARIES = {
+        "uninitialised": "recorded as a dependency but not checked out",
+        "at-risk-content": "holds work that exists nowhere else",
+        "litter-present": "has leftover directories from an older version",
+        "nested-drift": "its own dependencies are not at the commits it records",
+        "unpinned": "missing from foundry.lock",
+        "bumped-not-locked": "is not the version the commit records",
+        "behind-moving-pin": "is behind the branch it tracks",
+        "consistent": "agrees with the commit",
+    }
+
+    @property
+    def summary(self) -> str:
+        return self.SUMMARIES.get(self.name, self.name)
+
     @property
     def is_fault(self) -> bool:
         """Whether doctor should report it. Only a branch pin behind its remote is excluded: that is
@@ -338,13 +357,13 @@ def condition(facts: Facts) -> Condition:
     meaningful state, and work that a repair would destroy outranks the disagreement that prompted the
     repair."""
     if not facts.initialised:
-        return Condition("uninitialised", f"{facts.path} is recorded but not checked out")
+        return Condition("uninitialised", "recorded but not checked out")
 
     if facts.at_risk:
         places = sorted({item.path for item in facts.at_risk})
         kinds = {item.kind for item in facts.at_risk}
         detail = (
-            f"{facts.path} holds {len(facts.at_risk)} thing(s) no remote has "
+            f"{len(facts.at_risk)} thing(s) no remote has "
             f"({', '.join(sorted(kinds))}): {', '.join(places[:3])}{'' if len(places) <= 3 else ', ...'}"
         )
         # Reported whatever the kind, including commits that are merely unpushed: they exist in one
@@ -396,24 +415,24 @@ def condition(facts: Facts) -> Condition:
     # of what exists nowhere else, not two.
 
     if facts.litter:
-        return Condition("litter-present", f"{facts.path} contains untracked repositories: " + ", ".join(facts.litter))
+        return Condition("litter-present", "untracked repositories: " + ", ".join(facts.litter))
 
     if facts.nested_drift:
         return Condition(
             "nested-drift",
-            f"{facts.path} has {len(facts.nested_drift)} nested submodule(s) off their recorded commits",
+            f"{len(facts.nested_drift)} nested submodule(s) off their recorded commits",
         )
 
     if facts.lock.kind == "unpinned":
         return Condition(
             "unpinned",
-            f"{facts.path} is a submodule of a foundry project but foundry.lock does not name it",
+            "a submodule of a foundry project, but foundry.lock does not name it",
         )
 
     if facts.lock.moving and facts.remote_tip and facts.remote_tip != facts.worktree:
-        return Condition("behind-moving-pin", f"{facts.path} is behind origin/{facts.lock.name}")
+        return Condition("behind-moving-pin", f"behind origin/{facts.lock.name}")
 
-    return Condition("consistent", f"{facts.path} agrees on {(facts.worktree or '')[:10]}")
+    return Condition("consistent", f"agrees on {(facts.worktree or '')[:10]}")
 
 
 @dataclass(frozen=True)
@@ -457,7 +476,7 @@ def checklist(facts: Facts, target_ref: str | None, target_rev: str | None) -> l
             "a ref to move to",
             target_ref is not None,
             f"{target_ref}" if target_ref else f"{facts.lock.kind} pin cannot resolve itself",
-            "" if target_ref else f"name one: `yarn update {Path(facts.path).name}@<ref>`",
+            "" if target_ref else f"name one: `yarn update {facts.path}@<ref>`",
         ),
         Stage(
             2,
@@ -514,13 +533,22 @@ def repair(facts: Facts, found: Condition) -> str:
     version disagreement: staging moves the gitlink and cannot touch foundry.lock, so it records the
     disagreement instead of resolving it - the mistake the old doctor made.
     """
-    name = Path(facts.path).name
+    # The PATH, never the basename. A dependency's dependency routinely shares a name with one of
+    # ours - bao-base and OpenZeppelin both carry `lib/forge-std` - so a basename sends `yarn update`
+    # to a different repository, moving one that was fine and leaving the reported problem untouched.
+    # `resolve_path` accepts a full path, so this costs nothing for the ordinary top-level case.
+    name = facts.path
     if found.name == "uninitialised":
         return f"git submodule update --init --recursive {facts.path}"
     if found.name == "at-risk-content":
         return f"commit and push it, or discard it: git -C {facts.path} status --untracked-files=all"
     if found.name == "nested-drift":
         return f"git -C {facts.path} submodule update --init --recursive"
+    if found.name == "litter-present":
+        # Not a version change: the directory outlived the move that stranded it, and clearing it
+        # touches no pin, lock or gitlink. Kept separate so it can also be offered for a submodule of
+        # a submodule, whose version is its own parent's to change but whose litter is still here.
+        return f"yarn update --sweep {facts.path}"
     if found.name == "unpinned":
         # forge writes the entry when it installs, so pinning it is the same command as updating it.
         return f"yarn update {name}@{facts.worktree_ref or '<ref>'}"

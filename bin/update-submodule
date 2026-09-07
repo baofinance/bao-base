@@ -29,7 +29,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from submodule_state import Pin, checklist, read_facts
+from submodule_state import Pin, checklist, read_facts, read_lock, submodules
 
 USAGE = """\
 update-submodule [--check] [--force] <dependency>[@<ref>] ...
@@ -38,6 +38,9 @@ update-submodule [--check] [--force] <dependency>[@<ref>] ...
   @<ref>         the tag, branch or commit to move to. Required when the current pin is a tag or a
                  commit, because those cannot resolve themselves; a branch pin takes its own tip.
   --check        report what is left to do and change nothing
+  --sweep        remove only the directories a version change stranded under the dependency,
+                 changing no pin, lock or gitlink. Works at any depth, so it can clear litter
+                 inside a dependency's own dependency.
   --force        proceed even though something under the dependency exists nowhere else
 
 At least one dependency must be named. There is deliberately no form meaning "all": that shape lets
@@ -110,6 +113,39 @@ def report(facts, stages, done_actions: list[str]) -> None:
             print(f"        {stage.action}")
 
 
+def sweep(repo_root: Path, dependency: str, force: bool) -> int:
+    """Remove what a version change stranded under one dependency, at any depth, and nothing else.
+
+    Separate from `converge` because a stranded directory is not a version disagreement: it survives
+    the move that caused it, and clearing it changes no pin, no lock and no gitlink. That separation
+    is what lets it name a submodule of a submodule, whose version is its own parent's to change but
+    whose litter still sits in our working tree and still has to go.
+    """
+    path = resolve_path(repo_root, dependency)
+    parent, name, display = next(
+        ((p, n, d) for p, n, d in submodules(repo_root) if d == path),
+        (repo_root, path, path),
+    )
+    print(f"{display}:")
+
+    # The same stage-0 guard converge applies, for the same reason: this step deletes, so it must not
+    # run over the only copy of anything.
+    facts = read_facts(parent, name, read_lock(parent).get(name), display)
+    if facts.has_own_work and not force:
+        for item in facts.at_risk:
+            print(f"  ! {item.path} ({item.kind}: {item.detail})")
+        print("  refusing: the above exists nowhere else.")
+        print("  Commit and push what matters, then run this again - or repeat with --force.")
+        return 1
+
+    if not facts.litter:
+        print("  no orphaned directories - nothing to sweep")
+        return 0
+    for gone in remove_stranded(repo_root, display, facts.litter):
+        print(f"  removed {gone}, stranded by a version change")
+    return 0
+
+
 def converge(repo_root: Path, dependency: str, check_only: bool, force: bool) -> int:
     """Bring one dependency to its ref, doing only what is not already done. Returns 0 on success."""
     requested_ref = None
@@ -118,6 +154,16 @@ def converge(repo_root: Path, dependency: str, check_only: bool, force: bool) ->
     path = resolve_path(repo_root, dependency)
     submodule = repo_root / path
     print(f"{path}:")
+
+    # Everything below reads and writes against repo_root as the IMMEDIATE parent - the gitlink, the
+    # index, foundry.lock, the staging advice. None of that exists here for a submodule of a
+    # submodule, so converging one would write our lock with an entry pinning nothing and report
+    # stages against gitlinks we do not hold. Its version is its own parent's to change.
+    if not any(parent == repo_root and name == path for parent, name, _ in submodules(repo_root)):
+        print("  refusing: not a dependency of this repository - it belongs to its own parent,")
+        print("  whose version of it changes when that parent's version does.")
+        print(f"  To clear directories stranded under it: `yarn update --sweep {path}`")
+        return 1
 
     facts = read_facts(repo_root, path)
 
@@ -201,6 +247,7 @@ def converge(repo_root: Path, dependency: str, check_only: bool, force: bool) ->
 def main() -> int:
     parser = argparse.ArgumentParser(add_help=False, usage=USAGE)
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--sweep", action="store_true")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("-h", "--help", action="store_true")
     parser.add_argument("dependencies", nargs="*")
@@ -222,6 +269,8 @@ def main() -> int:
         return 1
     repo_root = Path(top.stdout.strip())
 
+    if arguments.sweep:
+        return max(sweep(repo_root, dependency, arguments.force) for dependency in arguments.dependencies)
     return max(
         converge(repo_root, dependency, arguments.check, arguments.force)
         for dependency in arguments.dependencies

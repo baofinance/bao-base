@@ -173,7 +173,7 @@ def submodule_problems(repo_root: Path) -> list[str]:
         if found.name == "nested-drift" and any(other.startswith(f"{facts.path}/") for other in reported):
             continue
 
-        lines = [f"{facts.path}: {found.name}"]
+        lines = [f"{facts.path}: {found.summary}"]
         lines.append(f"  {found.detail}")
         if found.reach:
             lines.append(f"  a version bump has reached {found.reach}; foundry.lock has not caught up")
@@ -574,12 +574,11 @@ def build_checks(repo_root: Path, foundry_remappings: list[str], wake_remappings
             submodule_url_drift_problems(repo_root),
         ),
         Check(
-            "every submodule agrees with itself",
-            "four things claim which commit a dependency is — the commit HEAD records, the one "
-            "staged, the one checked out, and the ref foundry.lock names — and git can write the "
-            "first three while forge writes the last, so no single tool leaves them agreeing",
-            "what you compile is not what the commit describes, and the disagreement outlives the "
-            "session that caused it — forge only warns, once, in the middle of a build log",
+            "each dependency is the version the commit records",
+            "the commit is the only version anyone else gets; the checkout, the index and "
+            "foundry.lock are yours alone, and no single tool writes all four",
+            "so a disagreement means you are building something no one else can, and a version "
+            "change that stranded directories leaves them until someone removes them",
             submodule_problems(repo_root),
         ),
         workflow_copy.check(repo_root),

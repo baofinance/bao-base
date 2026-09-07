@@ -19,11 +19,15 @@ remappings = [
   "forge-std/=lib/forge-std/src/",
   "@openzeppelin/contracts/=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
   "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
-  # OZ deletes ReentrancyGuardTransientUpgradeable in 5.6.x. Redirect that import PATH to the
-  # byte-identical @bao shim, so TokenHolder keeps its audit-state OZ import and stays byte-identical
-  # while compiling under both OZ 5.1 (file present here, overridden) and 5.6.x (file absent).
+  # OZ 5.6.x deletes ReentrancyGuardTransientUpgradeable, and 5.7.0 reduces UUPSUpgradeable to a
+  # re-export of the non-upgradeable core (dropping Initializable from its bases and the empty
+  # __UUPSUpgradeable_init shims). Redirect those import PATHS to byte-identical @bao shims, so
+  # deployed sources keep the exact OZ import they were audited with.
+  # The path is what must be redirected, not the import: verify-audit compiles a revision's source
+  # against HEAD's foundry.toml, so a remapping reaches old revisions and an edited import cannot.
   # Longest-prefix match wins over the broader contracts-upgradeable/ rule above.
-  "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol=src/ReentrancyGuardTransientUpgradeable.sol",
+  "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol=src/openzeppelin-compat/ReentrancyGuardTransientUpgradeable.sol",
+  "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol=src/openzeppelin-compat/UUPSUpgradeable.sol",
   "@solady/=lib/solady/src/",
   "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
   "solidity-stringutils/=lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils/",

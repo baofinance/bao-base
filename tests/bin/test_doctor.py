@@ -318,9 +318,9 @@ def test_submodule_problems_reports_one_finding_carrying_its_own_repair(tmp_path
     problems = doctor.submodule_problems(host)
 
     assert len(problems) == 1, problems
-    assert problems[0].startswith("lib/sub: bumped-not-locked")
+    assert problems[0].startswith("lib/sub: is not the version the commit records")
     assert "foundry.lock say 0000000000" in problems[0], problems[0]
-    assert "Repair: yarn update sub@" in problems[0]
+    assert "Repair: yarn update lib/sub@" in problems[0]
     assert "git add" not in problems[0]
 
 
@@ -392,7 +392,7 @@ def test_a_submodule_absent_from_foundry_lock_is_still_checked(tmp_path):
 
     problems = doctor.submodule_problems(host)
 
-    assert any(p.startswith("lib/unlocked: uninitialised") for p in problems), problems
+    assert any(p.startswith("lib/unlocked: recorded as a dependency but not checked out") for p in problems), problems
 
 
 def test_a_parent_is_not_reported_for_drift_its_children_already_explain(tmp_path):
@@ -403,8 +403,8 @@ def test_a_parent_is_not_reported_for_drift_its_children_already_explain(tmp_pat
 
     problems = doctor.submodule_problems(host)
 
-    assert any(p.startswith("lib/dep/lib/child: uninitialised") for p in problems), problems
-    assert not any(p.startswith("lib/dep: nested-drift") for p in problems), problems
+    assert any(p.startswith("lib/dep/lib/child: recorded as a dependency but not checked out") for p in problems), problems
+    assert not any(p.startswith("lib/dep: its own dependencies are not at the commits it records") for p in problems), problems
 
 
 def test_a_lock_entry_for_a_departed_submodule_is_reported(tmp_path):
@@ -427,7 +427,7 @@ def test_a_submodule_a_foundry_project_never_pinned_is_reported(tmp_path):
 
     problems = doctor.submodule_problems(host)
 
-    assert any(p.startswith("lib/unlocked: unpinned") for p in problems), problems
+    assert any(p.startswith("lib/unlocked: missing from foundry.lock") for p in problems), problems
 
 
 def test_a_third_party_dependency_without_a_lock_is_not_called_unpinned(tmp_path):
@@ -437,7 +437,7 @@ def test_a_third_party_dependency_without_a_lock_is_not_called_unpinned(tmp_path
 
     problems = doctor.submodule_problems(host)
 
-    assert not any(p.startswith("lib/dep/lib/child: unpinned") for p in problems), problems
+    assert not any(p.startswith("lib/dep/lib/child: missing from foundry.lock") for p in problems), problems
 
 
 def test_a_lock_deviation_is_stated_even_when_something_else_is_named(tmp_path):
@@ -449,7 +449,7 @@ def test_a_lock_deviation_is_stated_even_when_something_else_is_named(tmp_path):
 
     problems = [p for p in doctor.submodule_problems(host) if p.startswith("lib/dep:")]
 
-    assert problems and problems[0].startswith("lib/dep: at-risk-content"), problems
+    assert problems and problems[0].startswith("lib/dep: holds work that exists nowhere else"), problems
     assert "foundry.lock names" not in problems[0], "the pin matches here, so nothing to say"
 
     lock = json.loads((host / "foundry.lock").read_text())
@@ -458,5 +458,5 @@ def test_a_lock_deviation_is_stated_even_when_something_else_is_named(tmp_path):
 
     problems = [p for p in doctor.submodule_problems(host) if p.startswith("lib/dep:")]
 
-    assert problems[0].startswith("lib/dep: at-risk-content"), problems
+    assert problems[0].startswith("lib/dep: holds work that exists nowhere else"), problems
     assert "and foundry.lock names 0000000000" in problems[0], problems

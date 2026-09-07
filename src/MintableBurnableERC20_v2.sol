@@ -55,7 +55,6 @@ contract MintableBurnableERC20_v2 is
         string memory symbol_
     ) public initializer {
         _initializeOwner(deployerOwner_, pendingOwner_);
-        __UUPSUpgradeable_init();
         __ERC20_init(name_, symbol_);
         __ERC20Permit_init(name_);
     }

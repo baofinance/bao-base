@@ -215,6 +215,32 @@ def test_an_untracked_repository_inside_a_dependency_is_litter(world):
     assert condition(facts).name == "litter-present"
 
 
+def test_litter_in_a_nested_dependency_is_repaired_at_its_own_path(world):
+    # The repair for a NESTED submodule must name that submodule, not its bare directory name: a
+    # dependency's dependency routinely shares a name with one of ours (both bao-base and OZ carry
+    # `lib/forge-std`), so a basename sends `yarn update` to a different repository - moving one that
+    # was fine and leaving the litter where it was.
+    inner = make_repo(world.remotes, "inner")
+    git(world.dep_source, "submodule", "add", "-q", str(inner), "lib/inner")
+    git(world.dep_source, "commit", "-qm", "add inner")
+    dep = world.project / "lib" / "dep"
+    git(dep, "fetch", "-q", "origin")
+    git(dep, "checkout", "-q", "origin/main")
+    git(dep, "submodule", "update", "--init", "-q")
+    # A same-named dependency of our own, which the basename form would target instead.
+    git(world.project, "submodule", "add", "-q", str(inner), "lib/inner")
+    orphan = dep / "lib" / "inner" / "lib" / "stranded"
+    orphan.mkdir(parents=True)
+    git(orphan, "init", "-q")
+
+    facts = read_facts(world.project, "lib/dep/lib/inner")
+    found = condition(facts)
+    assert found.name == "litter-present", found
+    fix = repair(facts, found)
+    assert "lib/dep/lib/inner" in fix, fix
+    assert not fix.endswith(" inner"), f"a bare name resolves to our own lib/inner: {fix}"
+
+
 def test_the_lock_records_which_kind_of_pin_it_is(world):
     # Only a branch can resolve itself, which is what decides whether a bare `yarn update <dep>` has a
     # ref to move to or must ask for one.
@@ -263,7 +289,7 @@ def test_a_stationary_pin_with_no_ref_fails_the_checklist_rather_than_guessing(w
     stages = {stage.number: stage for stage in checklist(facts_for(world.project), None, None)}
 
     assert not stages[1].done
-    assert "yarn update dep@<ref>" in stages[1].action
+    assert "yarn update lib/dep@<ref>" in stages[1].action
 
 
 def test_work_that_a_delete_would_destroy_stops_the_checklist_at_stage_zero(world):
@@ -312,7 +338,7 @@ def test_a_version_disagreement_is_never_repaired_by_staging(world):
     facts = facts_for(world.project)
     fix = repair(facts, condition(facts))
 
-    assert fix == "yarn update dep@v2", fix
+    assert fix == "yarn update lib/dep@v2", fix
     assert "git add" not in fix and "git submodule update" not in fix
 
 
@@ -333,7 +359,7 @@ def test_the_repair_names_the_tag_the_working_tree_is_on(world):
     git(dep, "checkout", "-q", "origin/main")
     untagged = facts_for(world.project)
     assert untagged.worktree_ref is None, "an untagged commit must not be presented as a version"
-    assert repair(untagged, condition(untagged)) == "yarn update dep@<ref>"
+    assert repair(untagged, condition(untagged)) == "yarn update lib/dep@<ref>"
 
 
 def test_a_nested_submodules_own_commits_block_a_delete(world):

@@ -264,6 +264,28 @@ def test_a_stranded_directory_is_removed(project, tmp_path):
     assert "removed lib/dep/stranded" in result.stdout, "and said so"
 
 
+def test_a_nested_dependency_does_not_gain_an_entry_in_our_lock(project, tmp_path):
+    # Litter can be stranded one level down - a dependency's own dependency moving to a version that
+    # declares fewer submodules - so a repair must be able to name that nested path. foundry.lock
+    # records only what THIS repository depends on, and forge never writes another repository's
+    # dependency into it, so an entry for a nested path pins nothing and is reported as stale by the
+    # mirror check. Sweeping it must leave the lock alone.
+    git("-c", "protocol.file.allow=always", "submodule", "add", "-q",
+        str(tmp_path / "root" / "other.git"), "lib/inner", cwd=project / "lib" / "dep")
+    git("commit", "-qm", "add inner", cwd=project / "lib" / "dep")
+    stranded = project / "lib" / "dep" / "lib" / "inner" / "stranded"
+    git("clone", "-q", str(tmp_path / "root" / "other.git"), str(stranded), cwd=project)
+    before = (project / "foundry.lock").read_text() if (project / "foundry.lock").is_file() else ""
+
+    result = update_submodule("--sweep", "lib/dep/lib/inner")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not stranded.exists(), "the stranded directory must still be swept"
+    after = (project / "foundry.lock").read_text() if (project / "foundry.lock").is_file() else ""
+    assert "lib/dep/lib/inner" not in after, f"our lock must not pin someone else's dependency: {after}"
+    assert after == before, "and must not be rewritten at all for a submodule we do not own"
+
+
 def test_a_stranded_directory_holding_work_is_not_removed(project, tmp_path):
     # The other half. A directory that looks identical but holds a commit no remote has is stopped
     # on, not swept up - the difference is not what it is but whether losing it matters.

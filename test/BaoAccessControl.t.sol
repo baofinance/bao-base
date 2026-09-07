@@ -13,6 +13,8 @@ import {BaoOwnableRoles} from "@bao/BaoOwnableRoles.sol";
 import {IBaoOwnable} from "@bao/interfaces/IBaoOwnable.sol";
 import {IBaoRoles} from "@bao/interfaces/IBaoRoles.sol";
 
+import {UUPSOwnableTestBase} from "@bao-test/UUPSOwnableTestBase.t.sol";
+
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
 contract MockBaoAccessControl is BaoOwnableRoles, UUPSUpgradeable {
@@ -95,16 +97,32 @@ contract TestBaoAccessControlInit is TestBaoAccessControlSetUp {
     }
 }
 
-contract TestBaoAccessControl is TestBaoAccessControlSetUp {
+contract TestBaoAccessControl is TestBaoAccessControlSetUp, UUPSOwnableTestBase {
     uint256 anotherRole;
     uint256 anotherRole2;
     uint256 anotherRoleAdminRole;
+    address nonOwner;
 
     function setUp() public override {
         super.setUp();
         anotherRole = MockBaoAccessControl(accessControl).ANOTHER_ROLE();
         anotherRoleAdminRole = MockBaoAccessControl(accessControl).ANOTHER_ROLE_ADMIN_ROLE();
         anotherRole2 = MockBaoAccessControl(accessControl).ANOTHER_ROLE2();
+        nonOwner = makeAddr("nonOwner");
+    }
+
+    /// @dev `_initializeOwner(finalOwner)` sets the owner to msg.sender and leaves `finalOwner`
+    ///      pending, so the deployer — this test contract — owns the proxy, as the base requires.
+    function _uupsProxyTarget() internal view override returns (address) {
+        return accessControl;
+    }
+
+    function _uupsNonOwner() internal view override returns (address) {
+        return nonOwner;
+    }
+
+    function _uupsCallInitialize(address target) internal override {
+        MockBaoAccessControl(target).initialize(owner);
     }
 
     // TODO: test all the comments in the source file
