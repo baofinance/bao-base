@@ -27,7 +27,9 @@ import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.s
 // The bodies are identical: between 5.1.0 and 5.7.0 OZ changed only the pragma, the import paths, a `@custom:stateless`
 // tag, `virtual` on `proxiableUUID`, one comment — and the two removals above. So this pins no behaviour that OZ has
 // since improved. Re-diff it against `contracts/proxy/utils/UUPSUpgradeable.sol` on the next OZ bump; if OZ ever
-// changes the body, that diff is the decision point, and it is the only maintenance this file asks for.
+// changes the body, that diff is the decision point, and it is the only maintenance this file asks for. The body is
+// otherwise verbatim: the solhint line above and the one slither comment below are the only additions, so anything
+// else the diff shows came from OZ.
 /**
  * @dev An upgradeability mechanism designed for UUPS proxies. The functions included here can perform an upgrade of an
  * {ERC1967Proxy}, when this contract is set as the implementation behind such a proxy.
@@ -85,6 +87,10 @@ abstract contract UUPSUpgradeable is Initializable, IERC1822Proxiable {
 
     function __UUPSUpgradeable_init() internal onlyInitializing {}
 
+    // Genuinely uncalled — kept only so a deployed initializer that names OZ's unchained form still
+    // compiles. Deliberately NOT applied to `__UUPSUpgradeable_init()` above, which
+    // `MintableBurnableERC20_v1` does call: if that ever stops being true, it should be reported.
+    // slither-disable-next-line dead-code
     function __UUPSUpgradeable_init_unchained() internal onlyInitializing {}
     /**
      * @dev Implementation of the ERC-1822 {proxiableUUID} function. This returns the storage slot used by the

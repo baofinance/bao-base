@@ -25,6 +25,9 @@ contract BaoERC1967Proxy is ERC1967Proxy {
     constructor(address implementation, bytes memory data) payable ERC1967Proxy(implementation, data) {}
 
     /// @inheritdoc ERC1967Proxy
+    /// @dev A false positive, not an unused function: `ERC1967Proxy`'s constructor calls this, and slither
+    ///      does not follow the virtual dispatch from a base into an override. Wake reports it correctly.
+    // slither-disable-next-line dead-code
     function _unsafeAllowUninitialized() internal pure override returns (bool) {
         return true;
     }
