@@ -321,7 +321,25 @@ rather than assuming (per the no-"likely" rule below). (Complements "Questions a
 not instructions" above and the design-discussion rule under "Other rules".)
 
 ## Other rules
-- use forge install/remove for managing submodule dependencies
+- **Submodule dependencies: `forge install` to ADD one, `forge remove` to drop one, `yarn update
+  <dependency>@<ref>` to CHANGE the version of one. Never `forge update`.** The split is not
+  stylistic; each command was measured (forge 1.8.1, pinned in
+  `tests/toolchain/test_forge_submodule_update.py`):
+  - **`forge update` reaches dependencies it was not given.** Naming one dependency leaves it
+    untouched and advances every *branch*-pinned dependency in the project to its remote tip. It also
+    does nothing at all, silently and with exit 0, for a tag-pinned dependency — and when given
+    `@<ref>` against a tag pin it moves the working tree, leaves `foundry.lock` unwritten, and still
+    exits 0. Its exit code is not evidence that anything worked.
+  - **`forge install` deletes the dependency's working tree whenever it fails**, including when it
+    fails *because* git refused to overwrite an uncommitted edit — so the refusal is itself the
+    destruction. Safe for a dependency that does not exist yet, since there is nothing there to lose.
+  - **`yarn update` moves the dependency with git**, which refuses without touching anything, and
+    writes `foundry.lock` itself. It converges a checklist, so it finishes a version bump started in
+    the VSCode GUI as readily as one of its own, and running it twice is safe. It stops on anything
+    under the dependency that no remote has, naming each item; `--force` is how you overrule it. It
+    prints the `git add` / `git commit` for you rather than running them.
+  - `yarn doctor` reports the same state `yarn update` converges, from the same module
+    (`bin/submodule_state.py`), so the two cannot give contradictory advice.
 - Never use bare `"src/..."`, `"script/..."`, or `"test/..."` import paths in any Solidity file — not in contracts, scripts, or tests. Always use the remapped prefix for the repo the file lives in (e.g. `"@harbor/..."`, `"@harbor-script/..."`, `"@harbor-test/..."` for harbor files; `"@bao/..."`, `"@bao-script/..."`, `"@bao-test/..."` for bao-base files). Bare paths create duplicate type identities when files are consumed as a library by another repo, breaking compilation. The only exception is deployed contract source files that cannot be modified.
 - In tests and scripts, use interface types (e.g. `IStabilityPool_v3(address)`) not concrete contract types (e.g. `StabilityPool_v3(address)`) when calling functions. This verifies the interface matches the implementation. Concrete types are only for initialisation (constructor, deploy).
   - **Declarations:** use `address`, not typed contract variables. E.g. `address rewardToken = address(new MockERC20(...))`, not `MockERC20 rewardToken = new MockERC20(...)`.

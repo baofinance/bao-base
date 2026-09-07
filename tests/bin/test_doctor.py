@@ -57,48 +57,6 @@ def test_remapping_problems_reports_a_real_path_mismatch():
     assert "@bao/=lib/harbor/lib/bao-base/src/" in problems[0]  # wake-only side
 
 
-# ── ghost_submodules: an unregistered nested git repo is a ghost; gitignored/registered ones aren't ──
-def test_ghost_none_in_clean_repo(tmp_path):
-    repo = _init_repo(tmp_path / "host")
-    (repo / "file.txt").write_text("x")
-    _git(repo, "add", ".")
-    _git(repo, "commit", "-qm", "init")
-    assert doctor.ghost_submodules(repo) == []
-
-
-def test_ghost_detected_even_inside_an_untracked_parent(tmp_path):
-    # The case that defeated the first implementation: git collapses an all-untracked parent to
-    # `?? lib/`, hiding the nested repo. --untracked-files=all lists `?? lib/ghost/` instead.
-    repo = _init_repo(tmp_path / "host")
-    _init_repo(repo / "lib" / "ghost")  # untracked nested repo, parent has no tracked siblings
-    assert doctor.ghost_submodules(repo) == ["lib/ghost"]
-
-
-def test_ghost_not_flagged_when_gitignored(tmp_path):
-    # A nested repo under a gitignored path (e.g. uv's `.tools/` sdist cache) must NOT be a ghost —
-    # this is why the check uses `git status` (honours .gitignore), not a raw filesystem `.git` walk.
-    repo = _init_repo(tmp_path / "host")
-    (repo / ".gitignore").write_text(".tools/\n")
-    _git(repo, "add", ".gitignore")
-    _git(repo, "commit", "-qm", "ignore tools")
-    _init_repo(repo / ".tools" / "cache" / "sdist")  # gitignored nested repo
-    assert doctor.ghost_submodules(repo) == []
-
-
-# ── submodule_status_problems: a recorded-but-not-checked-out submodule reports '-' uninitialized ──
-def test_status_flags_uninitialized_submodule(tmp_path):
-    sub = _init_repo(tmp_path / "sub")
-    (sub / "a.txt").write_text("a")
-    _git(sub, "add", ".")
-    _git(sub, "commit", "-qm", "sub")
-    host = _init_repo(tmp_path / "host")
-    _git(host, "-c", "protocol.file.allow=always", "submodule", "add", str(sub), "lib/sub")
-    _git(host, "commit", "-qm", "add sub")
-    _git(host, "submodule", "deinit", "-f", "lib/sub")  # registered but not checked out → '-'
-    problems = doctor.submodule_status_problems(host)
-    assert any("lib/sub" in p and "uninitialized" in p for p in problems)
-
-
 # ── submodule_url_drift: .gitmodules url changed without `git submodule sync` → stale .git/config ──
 def test_url_drift_detected_when_gitmodules_url_changes(tmp_path):
     sub = _init_repo(tmp_path / "sub")
@@ -122,53 +80,6 @@ def test_remapping_problems_flags_wake_context_syntax():
     assert problems
     assert "context remappings" in problems[0]
     assert "use the bare form `src/=lib/harbor/src/`" in problems[0]
-
-
-# ── foundry_lock_problems (item 3): a submodule whose checked-out commit != foundry.lock's pinned rev ──
-def _add_submodule(host: pathlib.Path, sub: pathlib.Path, path: str = "lib/sub") -> str:
-    _git(host, "-c", "protocol.file.allow=always", "submodule", "add", str(sub), path)
-    _git(host, "commit", "-qm", f"add {path}")
-    return subprocess.run(
-        ["git", "-C", str(host / path), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
-    ).stdout.strip()
-
-
-def _commit_one(repo: pathlib.Path) -> None:
-    (repo / "a.txt").write_text("a")
-    _git(repo, "add", ".")
-    _git(repo, "commit", "-qm", "content")
-
-
-def test_foundry_lock_problems_none_when_no_lock(tmp_path):
-    host = _init_repo(tmp_path / "host")
-    assert doctor.foundry_lock_problems(host) == []
-
-
-def test_foundry_lock_problems_passes_when_pin_matches(tmp_path):
-    sub = _init_repo(tmp_path / "sub")
-    _commit_one(sub)
-    host = _init_repo(tmp_path / "host")
-    sha = _add_submodule(host, sub)
-    (host / "foundry.lock").write_text(json.dumps({"lib/sub": {"tag": {"name": "v1", "rev": sha}}}))
-    assert doctor.foundry_lock_problems(host) == []
-
-
-def test_foundry_lock_problems_flags_stale_pin_with_forge_fix(tmp_path):
-    # foundry.lock is forge-managed; the fix must be a forge command, NOT git add / git submodule
-    # update (which only move the gitlink and leave the lock stale — the real-world failure that
-    # prompted this). A branch pin must also note that forge update follows the branch HEAD.
-    sub = _init_repo(tmp_path / "sub")
-    _commit_one(sub)
-    host = _init_repo(tmp_path / "host")
-    _add_submodule(host, sub)
-    (host / "foundry.lock").write_text(json.dumps({"lib/sub": {"branch": {"name": "main", "rev": "0" * 40}}}))
-    problems = doctor.foundry_lock_problems(host)
-    assert problems
-    p = problems[0]
-    assert "lib/sub" in p and "foundry.lock pins" in p
-    assert "forge update lib/sub" in p  # forge's resolution (re-fetch + rewrite the lock)
-    assert "git -C lib/sub checkout" in p  # the other direction: adopt the locked commit
-    assert "branch main" in p  # branch-vs-tag is surfaced
 
 
 # ── claude_local_settings_problems: the machine-local settings file must stay out of the repo ──
@@ -341,8 +252,7 @@ def test_every_check_function_is_registered(tmp_path):
     # but is not registered is worse than one that does not exist — it reads as covered.
     repo = _init_repo(tmp_path / "host")
     registered = {check.name for check in doctor.build_checks(repo, [], [])}
-    # submodule_status_problems is a building block of submodule_tree_problems, not a check itself.
-    helpers = {"submodule_status_problems"}
+    helpers: set[str] = set()
     defined = {
         name for name in dir(doctor) if name.endswith("_problems") and not name.startswith("_") and name not in helpers
     }
@@ -370,3 +280,183 @@ def test_permission_scope_flags_the_same_file_once_it_is_tracked(tmp_path):
     problems = doctor.claude_permission_scope_problems(repo)
     assert problems
     assert "elsewhere" in problems[0]
+
+
+# ── submodule_problems: one finding per submodule, and silence about states that are normal ──
+def _submodule_at(host: pathlib.Path, sub: pathlib.Path, path: str = "lib/sub") -> str:
+    _git(host, "-c", "protocol.file.allow=always", "submodule", "add", str(sub), path)
+    _git(host, "commit", "-qm", f"add {path}")
+    return subprocess.run(
+        ["git", "-C", str(host / path), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def test_submodule_problems_says_nothing_when_every_claim_agrees(tmp_path):
+    sub = _init_repo(tmp_path / "sub")
+    (sub / "a.txt").write_text("a")
+    _git(sub, "add", ".")
+    _git(sub, "commit", "-qm", "content")
+    host = _init_repo(tmp_path / "host")
+    sha = _submodule_at(host, sub)
+    (host / "foundry.lock").write_text(json.dumps({"lib/sub": {"tag": {"name": "v1", "rev": sha}}}))
+
+    assert doctor.submodule_problems(host) == []
+
+
+def test_submodule_problems_reports_one_finding_carrying_its_own_repair(tmp_path):
+    # What replaced four checks reporting the same cause four ways with two contradictory repairs.
+    # The repair must be the command that writes BOTH the working tree and the lock: `git add` moves
+    # the gitlink only, so offering it here would record the disagreement rather than resolve it.
+    sub = _init_repo(tmp_path / "sub")
+    (sub / "a.txt").write_text("a")
+    _git(sub, "add", ".")
+    _git(sub, "commit", "-qm", "content")
+    host = _init_repo(tmp_path / "host")
+    _submodule_at(host, sub)
+    (host / "foundry.lock").write_text(json.dumps({"lib/sub": {"tag": {"name": "v1", "rev": "0" * 40}}}))
+
+    problems = doctor.submodule_problems(host)
+
+    assert len(problems) == 1, problems
+    assert problems[0].startswith("lib/sub: bumped-not-locked")
+    assert "foundry.lock say 0000000000" in problems[0], problems[0]
+    assert "Repair: yarn update sub@" in problems[0]
+    assert "git add" not in problems[0]
+
+
+# ── the coverage the four superseded checks had, which iterating foundry.lock alone did not ──
+def _nest(tmp_path: pathlib.Path) -> pathlib.Path:
+    """A host with lib/dep -> lib/child, and lib/unlocked which foundry.lock never mentions."""
+    for name in ("child", "dep", "unlocked"):
+        repo = _init_repo(tmp_path / "remotes" / name)
+        (repo / "a.txt").write_text("a")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-qm", "content")
+    _git(
+        tmp_path / "remotes" / "dep",
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        str(tmp_path / "remotes" / "child"),
+        "lib/child",
+    )
+    _git(tmp_path / "remotes" / "dep", "commit", "-qm", "add child")
+    host = _init_repo(tmp_path / "host")
+    for name in ("dep", "unlocked"):
+        _git(
+            host,
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            str(tmp_path / "remotes" / name),
+            f"lib/{name}",
+        )
+    _git(host, "-c", "protocol.file.allow=always", "submodule", "update", "--init", "--recursive")
+    _git(host, "commit", "-qm", "add deps")
+    sha = subprocess.run(
+        ["git", "-C", str(host / "lib" / "dep"), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    (host / "foundry.lock").write_text(json.dumps({"lib/dep": {"tag": {"name": "v1", "rev": sha}}}))
+    return host
+
+
+def test_a_stray_clone_in_our_own_tree_is_reported(tmp_path):
+    # Ours to delete, and invisible to everyone else. It is in no .gitmodules and no foundry.lock, so
+    # nothing that iterates either would ever look at it.
+    host = _nest(tmp_path)
+    _init_repo(host / "lib" / "strayclone")
+
+    problems = doctor.submodule_problems(host)
+
+    assert any(p.startswith("lib/strayclone:") and "nothing tracks" in p for p in problems), problems
+
+
+def test_litter_inside_a_grandchild_is_reported(tmp_path):
+    # The shape of the real orphans: they sat two levels down, inside a dependency's dependency.
+    # Reading each submodule against its own parent is what reaches them.
+    host = _nest(tmp_path)
+    _init_repo(host / "lib" / "dep" / "lib" / "child" / "lib" / "orphan")
+
+    problems = doctor.submodule_problems(host)
+
+    assert any("lib/dep/lib/child" in p and "lib/orphan" in p for p in problems), problems
+
+
+def test_a_submodule_absent_from_foundry_lock_is_still_checked(tmp_path):
+    # The lock is forge's record and need not mention every submodule. Enumerating from .gitmodules
+    # is what stops one going unlooked-at precisely because nothing pinned it.
+    host = _nest(tmp_path)
+    _git(host, "submodule", "deinit", "-f", "lib/unlocked")
+
+    problems = doctor.submodule_problems(host)
+
+    assert any(p.startswith("lib/unlocked: uninitialised") for p in problems), problems
+
+
+def test_a_parent_is_not_reported_for_drift_its_children_already_explain(tmp_path):
+    # One cause, one finding. The child's own reading carries the repair, so repeating it as the
+    # parent's drift is the duplication this check replaced.
+    host = _nest(tmp_path)
+    _git(host / "lib" / "dep", "submodule", "deinit", "-f", "lib/child")
+
+    problems = doctor.submodule_problems(host)
+
+    assert any(p.startswith("lib/dep/lib/child: uninitialised") for p in problems), problems
+    assert not any(p.startswith("lib/dep: nested-drift") for p in problems), problems
+
+
+def test_a_lock_entry_for_a_departed_submodule_is_reported(tmp_path):
+    # The mirror of enumerating from .gitmodules: a removed dependency leaves its pin behind, and
+    # nothing that walks the submodule tree would ever look at it again.
+    host = _nest(tmp_path)
+    lock = json.loads((host / "foundry.lock").read_text())
+    lock["lib/departed"] = {"tag": {"name": "v9", "rev": "0" * 40}}
+    (host / "foundry.lock").write_text(json.dumps(lock))
+
+    problems = doctor.submodule_problems(host)
+
+    assert any(p.startswith("lib/departed:") and "not a submodule" in p for p in problems), problems
+
+
+def test_a_submodule_a_foundry_project_never_pinned_is_reported(tmp_path):
+    # forge warns on drift only for what the lock names, so an unpinned dependency can move without
+    # anything noticing. `lib/unlocked` is in .gitmodules and in no lock entry.
+    host = _nest(tmp_path)
+
+    problems = doctor.submodule_problems(host)
+
+    assert any(p.startswith("lib/unlocked: unpinned") for p in problems), problems
+
+
+def test_a_third_party_dependency_without_a_lock_is_not_called_unpinned(tmp_path):
+    # `lib/dep` keeps no foundry.lock, so its own submodule being absent from one means nothing —
+    # most dependencies have never used forge. Only a project that keeps a lock has a gap.
+    host = _nest(tmp_path)
+
+    problems = doctor.submodule_problems(host)
+
+    assert not any(p.startswith("lib/dep/lib/child: unpinned") for p in problems), problems
+
+
+def test_a_lock_deviation_is_stated_even_when_something_else_is_named(tmp_path):
+    # The working tree is the truth, so any other commit the lock names is a deviation to fix. A more
+    # urgent fault must not hide it: reporting only the edits would leave the reader believing the
+    # pin was sound.
+    host = _nest(tmp_path)
+    (host / "lib" / "dep" / "a.txt").write_text("edited by hand\n")
+
+    problems = [p for p in doctor.submodule_problems(host) if p.startswith("lib/dep:")]
+
+    assert problems and problems[0].startswith("lib/dep: at-risk-content"), problems
+    assert "foundry.lock names" not in problems[0], "the pin matches here, so nothing to say"
+
+    lock = json.loads((host / "foundry.lock").read_text())
+    lock["lib/dep"] = {"tag": {"name": "v1", "rev": "0" * 40}}
+    (host / "foundry.lock").write_text(json.dumps(lock))
+
+    problems = [p for p in doctor.submodule_problems(host) if p.startswith("lib/dep:")]
+
+    assert problems[0].startswith("lib/dep: at-risk-content"), problems
+    assert "and foundry.lock names 0000000000" in problems[0], problems

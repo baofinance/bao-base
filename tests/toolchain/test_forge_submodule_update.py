@@ -26,9 +26,13 @@ them: a URL carrying a port has the port turned into a path segment
 silently rather than failing.
 """
 
+import importlib.machinery
+import importlib.util
 import json
 import subprocess
+import sys
 import threading
+from pathlib import Path
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
@@ -36,6 +40,8 @@ import pytest
 
 # forge only accepts https://<dotted-host>/<org>/<repo>, so the project always names this host and git
 # rewrites it to the local server. The host never resolves and is never contacted.
+BAO_BASE = Path(__file__).resolve().parents[2]
+
 FAKE_HOST = "https://forge-test.example/"
 
 FOUNDRY_TOML = """\
@@ -102,6 +108,25 @@ class Remotes:
     def tag(self, name, tag):
         git(self.work / name, "tag", tag)
         self.publish(name)
+
+    def add_submodule(self, parent, child, path):
+        """Give `parent` a submodule, at whatever commit `child` is currently on."""
+        git(self.work / parent, "submodule", "add", "-q", self.url(child), path)
+        git(self.work / parent, "commit", "-qm", f"add {path}")
+        self.publish(parent)
+
+    def drop_submodule(self, parent, path):
+        """Remove a submodule from `parent` - the move that strands a populated grandchild."""
+        git(self.work / parent, "rm", "-qr", path)
+        git(self.work / parent, "commit", "-qm", f"drop {path}")
+        self.publish(parent)
+
+    def point_submodule_at(self, parent, path, ref):
+        """Move `parent`'s recorded commit for one of its submodules, as a version bump would."""
+        git(self.work / parent / path, "checkout", "-q", ref)
+        git(self.work / parent, "add", path)
+        git(self.work / parent, "commit", "-qm", f"{path} -> {ref}")
+        self.publish(parent)
 
     def publish(self, name):
         bare = self.served / name
@@ -181,7 +206,19 @@ def remove(project, name):
 
 
 def head(project, name):
+    """The commit the dependency's own working tree is on."""
     return git(project / "lib" / name, "rev-parse", "HEAD").stdout.strip()
+
+
+def index_gitlink(project, name):
+    """The commit the PARENT has staged for the dependency, or None when it is not in the index."""
+    fields = git(project, "ls-files", "-s", f"lib/{name}").stdout.split()
+    return fields[1] if fields else None
+
+
+def head_gitlink(project, name):
+    """The commit the PARENT's last commit records for the dependency."""
+    return git(project, "rev-parse", f"HEAD:lib/{name}", check=False).stdout.strip()
 
 
 def lock(project):
@@ -220,7 +257,8 @@ def test_update_without_ref_moves_unnamed_branch_deps(project, remotes):
     remotes.create("other")
     install(project, remotes, "dep", "v1.0.0")
     install(project, remotes, "other", "main")
-    # `other` is now behind its remote, so a spraying command has somewhere to move it to.
+    # `other` is now behind its remote, so a command that reaches dependencies it was not given has
+    # somewhere to move it to.
     remotes.commit("other", "moved on")
     before = head(project, "other")
 
@@ -272,6 +310,12 @@ def test_install_over_an_existing_clone_cannot_reach_a_new_ref(project, remotes)
     assert "not found" in result.stderr, (
         f"forge install failed for some other reason than the ref being unreachable.\n{result.stderr}"
     )
+    # And it does not fail harmlessly: the dependency's working tree is gone afterwards, so a failed
+    # install is itself a destructive act on whatever was in that directory.
+    assert not (project / "lib" / "dep").exists(), (
+        "forge install now leaves the dependency in place when it fails, so a failed update no longer "
+        "destroys what was there."
+    )
 
 
 def test_install_moves_only_the_named_dependency(project, remotes):
@@ -282,7 +326,8 @@ def test_install_moves_only_the_named_dependency(project, remotes):
     remotes.create("other")
     install(project, remotes, "dep", "v1.0.0")
     install(project, remotes, "other", "main")
-    # `other` is now behind its remote, so a spraying command would visibly advance it.
+    # `other` is now behind its remote, so a command that reaches unnamed dependencies would
+    # visibly advance it.
     remotes.commit("other", "moved on")
     untouched = head(project, "other")
     remotes.tag("dep", "v1.2.0")
@@ -356,4 +401,178 @@ def test_install_records_a_bare_commit_as_a_rev_pin(project, remotes):
     entry = lock(project)["lib/dep"]
     assert "rev" in entry and entry["rev"] == sha, (
         f"asking for a bare commit no longer records a rev pin; got {entry!r}."
+    )
+
+
+def test_install_does_not_stage_the_gitlink(project, remotes):
+    # Neither forge command records the move in the PARENT: it writes the dependency's working tree
+    # and the lock, and stops. bin/update-submodule therefore prints the git add / git commit for the
+    # user to run, and this is what says it still has to.
+    remotes.create("dep")
+    remotes.commit("dep", "two")
+    remotes.tag("dep", "v1.2.0")
+    install(project, remotes, "dep", "v1.0.0")
+    was = head_gitlink(project, "dep")
+
+    result = forge(project, "install", f"{remotes.url('dep')}@v1.2.0")
+
+    assert result.returncode == 0, result.stderr
+    assert head(project, "dep") == remotes.rev("dep", "v1.2.0"), "the working tree must have moved"
+    assert index_gitlink(project, "dep") == was, (
+        f"forge install now stages the gitlink. bin/update-submodule tells the user to stage it, so "
+        f"that instruction would become wrong.\n{result.stdout}"
+    )
+    assert head_gitlink(project, "dep") == was, f"forge install must not commit.\n{result.stdout}"
+
+
+def test_update_does_not_stage_the_gitlink(project, remotes):
+    # The same missing half for forge update, which reaches a branch-pinned dependency.
+    remotes.create("dep")
+    install(project, remotes, "dep", "main")
+    remotes.commit("dep", "moved on")
+    was = head_gitlink(project, "dep")
+
+    result = forge(project, "update", "lib/dep")
+
+    assert result.returncode == 0
+    assert head(project, "dep") == remotes.rev("dep", "main"), "the working tree must have moved"
+    assert index_gitlink(project, "dep") == was, f"forge update now stages the gitlink.\n{result.stdout}"
+    assert head_gitlink(project, "dep") == was, f"forge update must not commit.\n{result.stdout}"
+
+
+def test_recursing_after_an_unrecursed_bump_strands_a_dropped_submodule(project, remotes):
+    # The litter recipe, and it needs BOTH halves. A GUI bump moves the outer dependency without
+    # recursing, so its nested submodule stays at the old version - with the old version's own
+    # submodule still populated on disk. Whatever recurses next moves that nested submodule to a
+    # version that no longer declares it, and git cannot delete the populated directory: it warns and
+    # carries on, leaving an orphan that nothing tracks.
+    #
+    # Being populated is the whole precondition. The same bump against a nested submodule whose own
+    # submodule was never checked out strands nothing, which is why one of these repos grew orphans
+    # and the other did not.
+    remotes.create("grandchild")
+    remotes.create("child")
+    remotes.add_submodule("child", "grandchild", "lib/grandchild")
+    remotes.tag("child", "child-v1")
+    remotes.drop_submodule("child", "lib/grandchild")
+    remotes.tag("child", "child-v2")
+
+    remotes.create("dep")
+    remotes.add_submodule("dep", "child", "lib/child")
+    remotes.point_submodule_at("dep", "lib/child", "child-v1")
+    remotes.tag("dep", "holds-grandchild")
+    remotes.point_submodule_at("dep", "lib/child", "child-v2")
+    remotes.tag("dep", "drops-grandchild")
+
+    install(project, remotes, "dep", "holds-grandchild")
+    stranded = project / "lib" / "dep" / "lib" / "child" / "lib" / "grandchild"
+    assert stranded.is_dir(), "the grandchild must be populated, or there is nothing to strand"
+
+    # The GUI bump: the outer dependency moves, nothing recurses.
+    git(project / "lib" / "dep", "fetch", "-q", "origin", "--tags")
+    git(project / "lib" / "dep", "checkout", "-q", "drops-grandchild")
+
+    recursed = git(project / "lib" / "dep", "submodule", "update", "--init", "--recursive")
+
+    assert "unable to rmdir" in recursed.stderr, (
+        "git no longer reports being unable to remove the stranded directory, so the warning "
+        f"bin/update-submodule keys its clean-up on has changed.\n{recursed.stderr}"
+    )
+    assert stranded.is_dir(), (
+        "the stranded directory was removed after all, so there is no litter for the wrapper to "
+        f"clean up.\n{recursed.stderr}"
+    )
+
+
+def test_install_reaches_a_new_ref_once_the_clone_has_fetched_it(project, remotes):
+    # forge install resolves against the clone on disk and never fetches, so a ref published since is
+    # "not found". Fetching FIRST removes that limitation without deleting anything - which matters
+    # because deleting is what puts a dependency's untracked and gitignored files at risk, and git's
+    # own way of moving a submodule preserves them.
+    remotes.create("dep")
+    install(project, remotes, "dep", "v1.0.0")
+    remotes.commit("dep", "two")
+    remotes.tag("dep", "v1.2.0")
+
+    git(project / "lib" / "dep", "fetch", "--tags", "origin")
+    fetched = forge(project, "install", f"{remotes.url('dep')}@v1.2.0")
+
+    assert fetched.returncode == 0, (
+        f"forge install still cannot reach a fetched ref, so a delete really is the only way to move "
+        f"a dependency forward.\n{fetched.stderr}"
+    )
+    assert head(project, "dep") == remotes.rev("dep", "v1.2.0")
+    assert lock(project)["lib/dep"]["tag"]["name"] == "v1.2.0", lock(project)
+
+
+def test_whether_a_successful_install_preserves_untracked_files(project, remotes):
+    # Decides whether the wrapper can avoid deleting at all. If forge install moves the dependency the
+    # way git does, untracked and gitignored files (a local .env among them) survive an update and
+    # only a deliberate delete puts them at risk. If it re-clones, they are lost either way and the
+    # wrapper's own delete changes nothing.
+    remotes.create("dep")
+    install(project, remotes, "dep", "v1.0.0")
+    remotes.commit("dep", "two")
+    remotes.tag("dep", "v1.2.0")
+    (project / "lib" / "dep" / "local.env").write_text("SECRET=hunter2\n")
+    git(project / "lib" / "dep", "fetch", "--tags", "origin")
+
+    result = forge(project, "install", f"{remotes.url('dep')}@v1.2.0")
+
+    assert result.returncode == 0, result.stderr
+    assert head(project, "dep") == remotes.rev("dep", "v1.2.0"), "it must actually have moved"
+    assert (project / "lib" / "dep" / "local.env").is_file(), (
+        "forge install destroys untracked files when it moves a dependency, so an update is "
+        "destructive whether or not the wrapper deletes anything first."
+    )
+
+
+def test_what_an_install_does_to_an_uncommitted_modification(project, remotes):
+    # The remaining hazard. A failed install deletes the dependency's working tree, so if forge
+    # refuses when a tracked file is modified, the refusal destroys the very edit it refused over.
+    # Whatever it does here is what bin/update-submodule must check for BEFORE calling it.
+    remotes.create("dep")
+    install(project, remotes, "dep", "v1.0.0")
+    remotes.commit("dep", "two")
+    remotes.tag("dep", "v1.2.0")
+    (project / "lib" / "dep" / "A.sol").write_text("// a change worth keeping\n")
+    git(project / "lib" / "dep", "fetch", "--tags", "origin")
+
+    result = forge(project, "install", f"{remotes.url('dep')}@v1.2.0")
+
+    # git protects the edit - "local changes would be overwritten by checkout" - and forge then
+    # deletes the working tree on its way out, destroying exactly what git refused to touch. The
+    # refusal is the destruction. Nothing recovers this, so it must be checked BEFORE forge is run.
+    assert result.returncode != 0, f"forge no longer fails on a modified file.\n{result.stdout}"
+    assert "would be overwritten by checkout" in result.stderr, result.stderr
+    assert not (project / "lib" / "dep" / "A.sol").is_file(), (
+        "forge install now leaves the modified file in place when it fails, so failing over an "
+        "uncommitted change is no longer destructive."
+    )
+
+
+def test_the_lock_we_write_matches_the_one_forge_writes(project, remotes):
+    # bin/update-submodule writes foundry.lock itself, because the only forge command that writes it
+    # deletes the dependency's working tree when it fails. Writing another tool's file is a coupling
+    # risk, and this is the guard: forge writes an entry, we write the same one from the same inputs,
+    # and the bytes must match. When forge changes the format this fails and names it.
+    # bin/update-submodule has no .py extension, so it needs a loader named explicitly.
+    sys.path.insert(0, str(BAO_BASE / "bin"))
+    loader = importlib.machinery.SourceFileLoader("update_submodule", str(BAO_BASE / "bin" / "update-submodule"))
+    module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    loader.exec_module(module)
+
+    remotes.create("dep")
+    remotes.create("other")
+    for name, ref in (("dep", "v1.0.0"), ("other", "main")):
+        install(project, remotes, name, ref)
+    forge_wrote = (project / "foundry.lock").read_bytes()
+
+    (project / "foundry.lock").unlink()
+    for name, ref in (("dep", "v1.0.0"), ("other", "main")):
+        module.write_lock_entry(project, f"lib/{name}", module.classify(project / "lib" / name, ref))
+
+    assert (project / "foundry.lock").read_bytes() == forge_wrote, (
+        "our foundry.lock no longer matches forge's byte for byte:\n"
+        f"forge: {forge_wrote!r}\nours : {(project / 'foundry.lock').read_bytes()!r}"
     )

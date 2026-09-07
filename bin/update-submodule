@@ -1,142 +1,232 @@
-#!/usr/bin/env bash
-# Update foundry submodule dependencies (`forge update`), refusing while a submodule still holds work its remote
-# does not.
-#
-# `forge update` force-points each submodule at its REMOTE tip. Anything local that the remote has never seen is
-# discarded from the branch by that move - committing in a submodule is NOT safety, only pushing is. The loss is
-# silent: the commits survive only as unreachable objects in the submodule's reflog, until gc collects them.
-#
-# So this checks first and refuses loudly, rather than letting the update destroy work. Both at-risk states are
-# reported together, so one run tells you everything to fix:
-#   - commits reachable from the submodule's HEAD that no remote holds
-#   - uncommitted changes in the submodule's working tree
-#
-# Usage mirrors `forge update`, deliberately: name the dependencies to update, or name none to update them ALL (no
-# dependency is assumed or privileged). Matching that contract is what makes this a drop-in for `forge update` -
-# diverging would invite reaching for the raw command and losing the guard. That extends to the ref suffix,
-# `<dependency>@<ref>`: `update-submodule bao-base@main` re-pins bao-base, rewriting its foundry.lock entry to the
-# main branch. Pass --check to run just the safety checks and report, updating nothing - useful as a pre-flight, in
-# CI, and to exercise this script itself without invoking the destructive command it guards.
+#!/usr/bin/env python3
+"""Bring one dependency to a named version, and leave nothing half-done.
 
-set -euo pipefail
+This is a CHECKLIST it converges, not a script it runs. Each stage is a question about the state
+plus the action that answers it; anything already true is left alone. So it finishes a version bump
+someone started in the VSCode GUI, or an update a `forge` run abandoned, as readily as it does one of
+its own - and running it twice is safe.
 
-usage="usage: update-submodule [--check] [dependency[@ref]...]
-  --check       run the safety checks and report, updating nothing
-  dependency    a foundry dependency (its directory under lib/) or a submodule path; none means ALL submodules
-  @ref          re-pin the dependency to this branch, tag or commit, rewriting its foundry.lock entry
-                  e.g. update-submodule bao-base@main"
+It moves the dependency with GIT and writes foundry.lock itself. `forge install` was measured doing
+both, and charging for the lock by DELETING the dependency's working tree whenever it fails -
+including when it fails because git refused to overwrite an uncommitted edit, so the refusal is the
+destruction. git refuses without touching anything: the edit survives, the submodule does not move,
+and untracked and gitignored files are left alone. The safety check below is therefore a second line
+of defence with a clearer message, not the only thing standing between the user and lost work.
+(`forge install` remains right for installing a dependency that does not exist yet: there is nothing
+there to destroy.)
 
-check_only=0
-declare -a dependencies=()
-for argument in "$@"; do
-  case "$argument" in
-    --check) check_only=1 ;;
-    -h | --help)
-      echo "$usage"
-      exit 0
-      ;;
-    # An unrecognised option must not be taken for a dependency name - that reports "no submodule at '--chec'",
-    # which misdiagnoses a typo'd flag as a missing dependency.
-    -*)
-      echo "error: unknown option '$argument'" >&2
-      echo "$usage" >&2
-      exit 1
-      ;;
-    *) dependencies+=("$argument") ;;
-  esac
-done
+Nothing here writes to the SUPERPROJECT's git. Staging and committing are the user's, so the last two
+stages complete by printing the commands rather than running them - and reporting them as done on the
+next run once the user has.
+"""
 
-# Which submodules `forge update` would touch: the named dependencies, or every submodule when none are named
-# (matching `forge update`'s own no-argument behaviour).
-declare -a submodule_paths=()
-# What forge is finally handed: each named dependency as the path resolved for it, carrying whatever
-# ref came with it. Naming none means ALL, which forge expresses by receiving no dependency at all.
-declare -a forge_arguments=()
-if [[ ${#dependencies[@]} -eq 0 ]]; then
-  if ! submodule_status=$(git submodule status); then
-    echo "error: could not list submodules - is this a git repository?" >&2
-    exit 1
-  fi
-  # `git submodule status` prints "<status><sha> <path> (<describe>)"; the path is the second field.
-  while read -r _sha path _rest; do
-    [[ -n "$path" ]] && submodule_paths+=("$path")
-  done <<<"$submodule_status"
-else
-  # A foundry dependency is named by its directory under lib/, but accept a full path too.
-  for dependency in "${dependencies[@]}"; do
-    # A dependency may carry a ref - <dependency>@<ref>, as in bao-base@main - which RE-PINS it:
-    # forge update rewrites that dependency's foundry.lock entry to the named branch, tag or commit.
-    # No flag on `forge update` or `forge install` does this, so passing the form through is the only
-    # way to change a pin. The ref is not part of the path, so split it off before locating the
-    # submodule, then re-attach it to the path that was resolved: forge does NOT split a ref off a
-    # bare name - given `bao-base@main` it looks for the whole string at `lib/bao-base@main` and
-    # reports the dependency missing. Only the lib/-prefixed path carries a ref successfully.
-    ref=""
-    path="$dependency"
-    if [[ "$dependency" == *@* ]]; then
-      ref="@${dependency##*@}"
-      path="${dependency%@*}"
-    fi
+from __future__ import annotations
 
-    if [[ -e "$path/.git" ]]; then
-      submodule_paths+=("$path")
-    elif [[ -e "lib/$path/.git" ]]; then
-      path="lib/$path"
-      submodule_paths+=("$path")
-    else
-      echo "error: no submodule at '$path' or 'lib/$path'" >&2
-      exit 1
-    fi
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
 
-    forge_arguments+=("${path}${ref}")
-  done
-fi
+from submodule_state import Pin, checklist, read_facts
 
-if [[ ${#submodule_paths[@]} -eq 0 ]]; then
-  echo "no submodules to update"
-  exit 0
-fi
+USAGE = """\
+update-submodule [--check] [--force] <dependency>[@<ref>] ...
 
-# Collect every problem before reporting, so a single run lists all of them.
-blocked=0
-for path in "${submodule_paths[@]}"; do
-  # Commits reachable from this submodule's HEAD that no remote holds - precisely what a force-point to the remote
-  # tip would orphan. `set -e` does not catch a failing command substitution, so the status is checked explicitly.
-  if ! unpushed=$(git -C "$path" log --oneline HEAD --not --remotes 2>/dev/null); then
-    echo "error: could not inspect commits in '$path'" >&2
-    exit 1
-  fi
-  if ! uncommitted=$(git -C "$path" status --porcelain 2>/dev/null); then
-    echo "error: could not inspect the working tree of '$path'" >&2
-    exit 1
-  fi
+  <dependency>   a directory under lib/, or a path to a submodule
+  @<ref>         the tag, branch or commit to move to. Required when the current pin is a tag or a
+                 commit, because those cannot resolve themselves; a branch pin takes its own tip.
+  --check        report what is left to do and change nothing
+  --force        proceed even though something under the dependency exists nowhere else
 
-  if [[ -n "$unpushed" ]]; then
-    blocked=1
-    echo "$path holds commits no remote has; 'forge update' would discard them:" >&2
-    echo "$unpushed" | sed 's/^/    /' >&2
-    echo "  push them first:  git -C $path push" >&2
-  fi
-  if [[ -n "$uncommitted" ]]; then
-    blocked=1
-    echo "$path has uncommitted changes; 'forge update' would move it out from under them:" >&2
-    echo "$uncommitted" | sed 's/^/    /' >&2
-    echo "  commit and push them first" >&2
-  fi
-done
+At least one dependency must be named. There is deliberately no form meaning "all": that shape lets
+one request change dependencies nobody asked about."""
 
-if [[ $blocked -ne 0 ]]; then
-  echo "" >&2
-  echo "refusing to update - nothing has been changed" >&2
-  exit 1
-fi
 
-# Name what was actually checked - saying "all submodules" when only some were named would overstate the result.
-echo "pushed and clean: ${submodule_paths[*]}"
+def git(where: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *arguments], cwd=where, capture_output=True, text=True)
 
-if [[ $check_only -ne 0 ]]; then
-  echo "--check, so nothing was updated"
-  exit 0
-fi
 
-forge update ${forge_arguments[@]+"${forge_arguments[@]}"}
+def resolve_path(repo_root: Path, dependency: str) -> str:
+    """A dependency is named by its directory under lib/, but a full path is accepted too."""
+    for candidate in (dependency, f"lib/{dependency}"):
+        if (repo_root / candidate / ".git").exists():
+            return candidate
+    raise SystemExit(f"error: no submodule at '{dependency}' or 'lib/{dependency}'")
+
+
+def classify(submodule: Path, ref: str) -> Pin:
+    """Which KIND of pin `ref` is, which is what the lock records and what a later bare run needs.
+
+    A tag and a commit are stationary and a branch moves, so this decides whether `yarn update <dep>`
+    can ever resolve itself again. Asked of git rather than of the string's shape, because a branch
+    and a tag can be named anything.
+    """
+    tag = git(submodule, "rev-parse", "--verify", "--quiet", f"refs/tags/{ref}^{{commit}}")
+    if tag.returncode == 0:
+        return Pin("tag", ref, tag.stdout.strip())
+    branch = git(submodule, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{ref}^{{commit}}")
+    if branch.returncode == 0:
+        return Pin("branch", ref, branch.stdout.strip())
+    commit = git(submodule, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
+    if commit.returncode == 0:
+        return Pin("rev", None, commit.stdout.strip())
+    return Pin("absent", None, None)
+
+
+def write_lock_entry(repo_root: Path, path: str, pin: Pin) -> None:
+    """Rewrite one entry, in the byte-for-byte format forge writes: two-space indent, keys sorted, no
+    trailing newline. The rest of the file is carried through untouched rather than regenerated, so a
+    field this tool does not understand is not silently dropped."""
+    lock_file = repo_root / "foundry.lock"
+    raw = json.loads(lock_file.read_text()) if lock_file.is_file() else {}
+    raw[path] = {"rev": pin.rev} if pin.kind == "rev" else {pin.kind: {"name": pin.name, "rev": pin.rev}}
+    lock_file.write_text(json.dumps(raw, indent=2, sort_keys=True))
+
+
+def remove_stranded(repo_root: Path, path: str, litter: list[str]) -> list[str]:
+    """Delete directories a version change stopped declaring, which git reports it is "unable to
+    rmdir" and then leaves behind. Its gitdir goes too, or git reuses it if the path ever returns."""
+    removed = []
+    for entry in litter:
+        directory = repo_root / path / entry
+        marker = directory / ".git"
+        if marker.is_file():
+            pointer = marker.read_text().partition("gitdir:")[2].strip()
+            if pointer:
+                shutil.rmtree((directory / pointer).resolve(), ignore_errors=True)
+        shutil.rmtree(directory, ignore_errors=True)
+        removed.append(f"{path}/{entry}")
+    return removed
+
+
+def report(facts, stages, done_actions: list[str]) -> None:
+    for line in done_actions:
+        print(f"  {line}")
+    for stage in stages:
+        print(f"  [{'x' if stage.done else ' '}] {stage.number}. {stage.name} - {stage.detail}")
+        if not stage.done and stage.action:
+            print(f"        {stage.action}")
+
+
+def converge(repo_root: Path, dependency: str, check_only: bool, force: bool) -> int:
+    """Bring one dependency to its ref, doing only what is not already done. Returns 0 on success."""
+    requested_ref = None
+    if "@" in dependency:
+        dependency, _, requested_ref = dependency.partition("@")
+    path = resolve_path(repo_root, dependency)
+    submodule = repo_root / path
+    print(f"{path}:")
+
+    facts = read_facts(repo_root, path)
+
+    # Stage 0, before anything is touched. git would refuse a move over an uncommitted edit anyway,
+    # but it cannot see unpushed commits or a nested submodule's own work, and its message names one
+    # file rather than the whole picture.
+    if facts.has_own_work and not force:
+        for item in facts.at_risk:
+            print(f"  ! {item.path} ({item.kind}: {item.detail})")
+        print("  refusing: the above exists nowhere else.")
+        print("  Commit and push what matters, then run this again - or repeat with --force.")
+        return 1
+
+    ref = requested_ref or (facts.lock.name if facts.lock.moving else None)
+    if ref is None:
+        pin = facts.lock
+        # Only a branch names something that moves on its own. A tag or a commit is a fixed point, and
+        # a dependency with no lock entry names nothing at all - in every case the version wanted is
+        # the user's to say, and guessing it would silently pick one.
+        if pin.kind in ("tag", "rev"):
+            named = pin.name or (pin.rev or "")[:10]
+            print(f"  refusing: pinned to the {pin.kind} {named}, which cannot move on its own.")
+        else:
+            print(f"  refusing: foundry.lock does not pin {path}, so there is no ref to resolve.")
+        print(f"  Name the version you want, e.g. `yarn update {Path(path).name}@{facts.worktree_ref or '<ref>'}`")
+        return 1
+
+    if not check_only:
+        git(submodule, "fetch", "--tags", "--quiet", "origin")
+
+    target = classify(submodule, ref)
+    if target.rev is None:
+        print(f"  refusing: '{ref}' is not a tag, branch or commit in {path}")
+        return 1
+
+    stages = checklist(facts, ref, target.rev)
+    if check_only:
+        report(facts, stages, [])
+        return 0
+
+    performed: list[str] = []
+    if facts.worktree != target.rev:
+        moved = git(submodule, "checkout", "--quiet", target.rev)
+        if moved.returncode != 0:
+            print(f"  git refused to move it, and changed nothing:\n{moved.stderr.rstrip()}")
+            return 1
+        performed.append(f"moved to {ref} ({target.rev[:10]})")
+
+    recursed = git(submodule, "submodule", "update", "--init", "--recursive")
+    if recursed.returncode != 0:
+        print(f"  could not update nested submodules:\n{recursed.stderr.rstrip()}")
+        return 1
+    if recursed.stdout.strip():
+        performed.append("brought nested submodules to their recorded commits")
+
+    after_move = read_facts(repo_root, path)
+    for gone in remove_stranded(repo_root, path, after_move.litter):
+        performed.append(f"removed {gone}, stranded by the version change")
+
+    if facts.lock.rev != target.rev or facts.lock.name != target.name or facts.lock.kind != target.kind:
+        write_lock_entry(repo_root, path, target)
+        performed.append(f"wrote foundry.lock: {target.kind} {target.name or target.rev[:10]}")
+
+    # The post-check is the diagnosis run again, not a second implementation of it: whatever the
+    # stages asked for before is what they are asked for now.
+    facts = read_facts(repo_root, path)
+    stages = checklist(facts, ref, target.rev)
+    report(facts, stages, performed)
+
+    # Only the stages this tool performs. 0 and 1 are preconditions decided before acting - and under
+    # --force stage 0 stays unticked on purpose, because the thing it warned about is still there.
+    # 6 and 7 are the user's, so they are reported rather than required.
+    outstanding = [stage for stage in stages if not stage.done and 2 <= stage.number <= 5]
+    if outstanding:
+        print(f"  FAILED: {len(outstanding)} stage(s) did not complete")
+        return 1
+    print(f"  Now yours to run:  git add {path} && git commit")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(add_help=False, usage=USAGE)
+    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("-h", "--help", action="store_true")
+    parser.add_argument("dependencies", nargs="*")
+    arguments = parser.parse_args()
+
+    if arguments.help:
+        print(USAGE)
+        return 0
+    if not arguments.dependencies:
+        print(USAGE, file=sys.stderr)
+        print("\nerror: name at least one dependency", file=sys.stderr)
+        return 1
+
+    top = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True
+    )
+    if top.returncode != 0:
+        print("error: not inside a git repository", file=sys.stderr)
+        return 1
+    repo_root = Path(top.stdout.strip())
+
+    return max(
+        converge(repo_root, dependency, arguments.check, arguments.force)
+        for dependency in arguments.dependencies
+    )
+
+
+if __name__ == "__main__":
+    sys.exit(main())

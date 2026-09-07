@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import json
 import re
 import subprocess
 import tomllib
@@ -12,6 +11,15 @@ import json5
 
 import workflow_copy
 from checks import Check, report
+from submodule_state import (
+    condition,
+    read_facts,
+    read_lock,
+    repair,
+    stale_lock_entries,
+    stray_clones,
+    submodules,
+)
 
 
 def load_toml(path: Path) -> dict[str, Any]:
@@ -125,75 +133,74 @@ def submodule_url_drift(repo_dir: Path, prefix: str = "") -> list[tuple[str, str
     return drift
 
 
-def submodule_status_problems(repo_root: Path) -> list[str]:
-    """Inconsistencies across the recursive submodule tree, read from the leading flag of
-    `git submodule status --recursive`:
-      '-'  uninitialized — recorded in the tree but not checked out (an import into it resolves to a
-           missing file; this is exactly what a non-`--recursive` clone/update leaves behind).
-      '+'  the checked-out commit differs from the gitlink the parent records. This is also how a
-           detached-HEAD submodule carrying *local commits* shows up — a plain detached HEAD at the
-           pinned commit is the normal state for a submodule and is deliberately NOT flagged.
-      'U'  merge conflict.
-    Read-only. Returns '<path>: <description>' lines."""
-    labels = {
-        "-": "uninitialized (not checked out)",
-        "+": "revision mismatch (working tree != recorded gitlink)",
-        "U": "merge conflict",
-    }
-    status = subprocess.run(
-        ["git", "submodule", "status", "--recursive"],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-    )
-    out: list[str] = []
-    for line in status.stdout.splitlines():
-        if not line:
+def submodule_problems(repo_root: Path) -> list[str]:
+    """One finding per submodule, from bin/submodule_state.py.
+
+    This replaces four checks that each compared a different pair of pins and each invented its own
+    repair - which is how one came to advise `git add` for a version disagreement while its sibling
+    documented that `git add` cannot fix one. Every reading and every repair now comes from the same
+    module `yarn update` converges against, so the two tools cannot disagree.
+
+    Consequences are nested UNDER their cause rather than listed beside it: a dependency whose nested
+    submodules are stale because its version was bumped without recursing is ONE finding, not two.
+    States that are normal are not reported at all - a branch pin behind its remote (bao-base's main
+    moves daily) and a dependency carrying local commits (what working in one looks like)."""
+    problems: list[str] = []
+    for stray in stray_clones(repo_root):
+        problems.append(
+            f"{stray}: a git repository nothing tracks, in our own tree\n"
+            f"  its contents are invisible to everyone else, and no .gitmodules records it\n"
+            f"  Repair: delete {stray} and, if one exists, its .git/modules/{stray} gitdir"
+        )
+    for entry, pins in stale_lock_entries(repo_root):
+        problems.append(
+            f"{entry}: foundry.lock pins it ({pins}) but it is not a submodule\n"
+            f"  nothing reads the entry, and it misstates what this project depends on\n"
+            f"  Repair: remove the {entry} entry from foundry.lock"
+        )
+    readings = [
+        (facts, found)
+        for parent, name, display in submodules(repo_root)
+        for facts in [read_facts(parent, name, read_lock(parent).get(name), display)]
+        for found in [condition(facts)]
+        if condition(facts).is_fault
+    ]
+    reported = {facts.path for facts, _ in readings}
+    for facts, found in readings:
+        # A dependency whose only fault is that its own submodules are off their pins says nothing
+        # the reading of those submodules does not say better - and each of them carries the repair
+        # for its own case. Reporting both is the duplication this check exists to remove.
+        if found.name == "nested-drift" and any(other.startswith(f"{facts.path}/") for other in reported):
             continue
-        flag, body = line[0], line[1:]
-        if flag in labels:
-            parts = body.split()
-            path = parts[1] if len(parts) > 1 else body.strip()
-            out.append(f"{path}: {labels[flag]}")
-    return out
 
-
-def ghost_submodules(repo_dir: Path, prefix: str = "") -> list[str]:
-    """Nested git repositories present in the working tree that no .gitmodules registers — e.g. a
-    stray `forge install`/clone run in the wrong directory (the bao-factory-in-bao-factory we hit).
-    Each repo's untracked entries are scanned with `--untracked-files=all`, so a ghost nested inside
-    an otherwise-untracked directory is listed individually (`?? lib/ghost/`) instead of collapsed
-    onto its parent (`?? lib/`); entries that themselves contain a `.git` are the ghosts. Using
-    `git status` rather than a raw filesystem walk means `.gitignore` is honoured — so gitignored
-    tooling caches (e.g. uv's `.tools/` sdist repos) are not mistaken for ghosts. Recurses into
-    registered submodules so a ghost at any depth is found. Read-only. Returns display paths."""
-    ghosts: list[str] = []
-
-    status = subprocess.run(
-        ["git", "status", "--porcelain", "--untracked-files=all"],
-        cwd=repo_dir,
-        capture_output=True,
-        text=True,
-    )
-    for line in status.stdout.splitlines():
-        if line.startswith("?? "):
-            entry = line[3:].strip().strip('"').rstrip("/")
-            if (repo_dir / entry / ".git").exists():
-                ghosts.append(f"{prefix}{entry}")
-
-    listing = subprocess.run(
-        ["git", "config", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.path$"],
-        cwd=repo_dir,
-        capture_output=True,
-        text=True,
-    )
-    for line in listing.stdout.splitlines():
-        sub_path = line.partition(" ")[2].strip()
-        nested = repo_dir / sub_path
-        if (nested / ".git").exists():
-            ghosts.extend(ghost_submodules(nested, prefix=f"{prefix}{sub_path}/"))
-
-    return ghosts
+        lines = [f"{facts.path}: {found.name}"]
+        lines.append(f"  {found.detail}")
+        if found.reach:
+            lines.append(f"  a version bump has reached {found.reach}; foundry.lock has not caught up")
+        # Facts a reader must weigh before acting, which `condition` did not name because something
+        # more urgent outranked it. Without these a repair can look safe when it is not.
+        #
+        # The working tree is the truth - it is what builds here and what CI checks out - so any
+        # commit foundry.lock names other than that one is a deviation to be fixed, and must be said
+        # even when something more urgent was named, or the more pressing fault silently hides it.
+        if facts.lock.rev and facts.lock.rev != facts.worktree and found.name != "bumped-not-locked":
+            lines.append(
+                f"  and foundry.lock names {facts.lock.rev[:10]}, not the "
+                f"{(facts.worktree or 'absent')[:10]} checked out here"
+            )
+        if facts.unpushed:
+            lines.append(
+                f"  and {len(facts.unpushed)} commit(s) here are on no remote - pushing them first is the only backup"
+            )
+        if facts.nested_drift and found.name != "nested-drift":
+            lines.append(f"  and {len(facts.nested_drift)} nested submodule(s) are off their recorded commits")
+        if facts.litter and found.name != "litter-present":
+            lines.append(f"  and untracked repositories were left behind: {', '.join(facts.litter)}")
+        fix = repair(facts, found)
+        if fix:
+            lines.append(f"  Repair: {fix}")
+        problems.append("\n".join(lines))
+    return problems
 
 
 def remapping_problems(foundry_remappings: list[str], wake_remappings: list[str]) -> list[str]:
@@ -244,22 +251,6 @@ def remapping_problems(foundry_remappings: list[str], wake_remappings: list[str]
     return ["Remapping mismatch detected:\n" + "\n".join(mismatch_details)]
 
 
-def submodule_tree_problems(repo_root: Path) -> list[str]:
-    """Status-flag inconsistencies (`submodule_status_problems`) + ghosts (`ghost_submodules`) across
-    the recursive submodule tree, formatted as one problem block. Returns [] when the tree is clean."""
-    lines = submodule_status_problems(repo_root)
-    lines += [f"{ghost}: ghost (untracked nested git repo, in no .gitmodules)" for ghost in ghost_submodules(repo_root)]
-    if not lines:
-        return []
-    return [
-        "Submodule tree inconsistencies:\n  "
-        + "\n  ".join(lines)
-        + "\n  Repair: uninitialized → `git submodule update --init --recursive`; revision mismatch → commit & "
-        "`git add` it (or `git submodule update` to reset); ghost → delete its worktree and its "
-        "`.git/modules/.../<path>` gitdir. (A plain detached HEAD at the pinned commit is normal, not listed.)"
-    ]
-
-
 def submodule_url_drift_problems(repo_root: Path) -> list[str]:
     """`submodule_url_drift` formatted as a problem block. Returns [] when URLs agree."""
     drift = submodule_url_drift(repo_root)
@@ -272,54 +263,6 @@ def submodule_url_drift_problems(repo_root: Path) -> list[str]:
         lines.append(f"    .gitmodules: {gitmodules_url}")
     lines.append("Repair (rewrites .git/config from .gitmodules): git submodule sync")
     return ["\n".join(lines)]
-
-
-def foundry_lock_problems(repo_root: Path) -> list[str]:
-    """Verify each submodule's checked-out commit matches the rev pinned in foundry.lock — forge only
-    *warns* on this drift, so a stale pin is easy to miss. foundry.lock maps a submodule path to
-    {tag|branch: {name, rev}}. Read-only. Returns '<path>: checked out X but foundry.lock pins Y (ref)'
-    lines; [] when there is no foundry.lock or every pin matches. (Replaces bin/check_gitmodules_lock.sh,
-    which checked a separate .gitmodules.commitlock that this repo does not use.)"""
-    lock_path = repo_root / "foundry.lock"
-    if not lock_path.is_file():
-        return []
-    try:
-        lock = cast("dict[str, dict[str, dict[str, str]]]", json.loads(lock_path.read_text()))
-    except json.JSONDecodeError as exc:
-        return [f"foundry.lock is not valid JSON: {exc}"]
-
-    status = subprocess.run(
-        ["git", "submodule", "status"],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-    )
-    checked_out: dict[str, str] = {}
-    for line in status.stdout.splitlines():
-        parts = line[1:].split()  # drop the leading status flag (' ', '+', '-', 'U')
-        if len(parts) >= 2:
-            checked_out[parts[1]] = parts[0]
-
-    problems: list[str] = []
-    for path, entry in lock.items():
-        pin: dict[str, str] = entry.get("tag") or entry.get("branch") or {}
-        expected = pin.get("rev")
-        actual = checked_out.get(path)
-        if expected and actual and actual != expected:
-            kind = "branch" if "branch" in entry else "tag" if "tag" in entry else "ref"
-            # The checked-out commit and foundry.lock's rev are two independent pins (git's gitlink vs
-            # forge's lock); the doctor cannot know which is authoritative — that is intent. So offer both
-            # resolutions rather than guessing. `forge update` is forge's (it re-fetches the ref and
-            # rewrites the lock — for a branch that follows HEAD); `git checkout <lock rev>` adopts the
-            # commit the lock already records. `git add`/`git submodule update` alone can't fix it: they
-            # only move the gitlink, never the forge lock (the real-world failure that surfaced this).
-            problems.append(
-                f"{path}: checked out {actual[:10]} but foundry.lock pins {expected[:10]} ({kind} "
-                f"{pin.get('name', '?')}). Two independent pins — pick which to keep: `forge update {path}` "
-                f"lets forge re-fetch the {kind} and rewrite the lock, or "
-                f"`git -C {path} checkout {expected} && git add {path}` adopts the locked commit."
-            )
-    return problems
 
 
 def tracked_but_ignored_problems(repo_root: Path) -> list[str]:
@@ -631,20 +574,13 @@ def build_checks(repo_root: Path, foundry_remappings: list[str], wake_remappings
             submodule_url_drift_problems(repo_root),
         ),
         Check(
-            "submodule tree (initialised, at gitlink, no ghosts)",
-            "an uninitialised or off-gitlink submodule builds against the wrong source; a ghost is a "
-            "nested repo nothing tracks, so its contents are invisible to everyone else",
-            "what you compile and test is not what the commit describes, so a green run here says "
-            "nothing about the tree anyone else will get",
-            submodule_tree_problems(repo_root),
-        ),
-        Check(
-            "submodule commits match foundry.lock",
-            "forge only warns on this drift, so a stale pin ships silently — the lock and the "
-            "gitlink are two independent pins and both must name the same commit",
-            "the two pins disagree about which commit is the dependency, and which one wins depends "
-            "on whether git or forge updated the checkout last",
-            foundry_lock_problems(repo_root),
+            "every submodule agrees with itself",
+            "four things claim which commit a dependency is — the commit HEAD records, the one "
+            "staged, the one checked out, and the ref foundry.lock names — and git can write the "
+            "first three while forge writes the last, so no single tool leaves them agreeing",
+            "what you compile is not what the commit describes, and the disagreement outlives the "
+            "session that caused it — forge only warns, once, in the middle of a build log",
+            submodule_problems(repo_root),
         ),
         workflow_copy.check(repo_root),
         Check(

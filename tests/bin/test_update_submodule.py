@@ -1,22 +1,24 @@
-"""Tests for bin/update-submodule - naming a dependency with a ref, `<dependency>@<ref>`.
+"""bin/update-submodule brings ONE named dependency to a version, and leaves nothing half-done.
 
-A ref re-pins a dependency: `forge update lib/bao-base@main` rewrites foundry.lock's entry for it
-from whatever it held (a tag, say) to that ref. `forge update` is the only command that can do this
-- neither it nor `forge install` takes a flag for it - so the wrapper has to pass the form through.
+It converges a checklist rather than running a fixed sequence, so what it does depends on what is
+already true: a bump someone made in the VSCode GUI needs only the lock rewritten and the move
+staged, while an untouched dependency needs the whole row. That is what makes it safe to run twice,
+and able to finish a job something else started.
 
-That imposes two requirements, which the tests below hold apart:
+It moves the dependency with git and writes foundry.lock itself. `forge install` deletes the
+dependency's working tree whenever it fails - including when it fails because git refused to
+overwrite an uncommitted edit - so using it would make the refusal itself destructive. Tests here
+therefore assert what the TREE looks like afterwards rather than which command was invoked: the
+guarantee is about the state, not the mechanism.
 
-  - the submodule is located from the PATH part alone, so the ref does not make the lookup fail;
-  - forge receives the ref attached to the RESOLVED, lib/-prefixed path. forge does not split a ref
-    off a bare name: given `dep@main` it looks for the whole string at `lib/dep@main` and reports
-    the dependency missing. Only `lib/dep@main` re-pins.
-
-`--check` stops before forge is invoked, so the resolution tests use it; the tests that pin the
-forge invocation put a recording stub on PATH instead of running the real thing.
+`--check` reports and changes nothing. `--force` is the user's answer to a refusal, so the tool never
+warns-and-proceeds: it either says nothing or it stops.
 """
 
+import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -85,144 +87,222 @@ def project(tmp_path, monkeypatch):
 def update_submodule(*args: str, path_prefix: Path | None = None) -> subprocess.CompletedProcess:
     """Run bin/update-submodule in the current directory.
 
-    Invoked as bash directly rather than through `run`, which would resolve BAO_BASE_DIR against the
-    throwaway project. `path_prefix` puts a directory at the front of PATH, which is how the forge
-    stub is installed.
+    Invoked directly rather than through `run`, which would resolve BAO_BASE_DIR against the
+    throwaway project.
     """
     env = dict(GIT_ENV)
     if path_prefix is not None:
         env["PATH"] = f"{path_prefix}{os.pathsep}{env['PATH']}"
+    return subprocess.run([str(UPDATE_SUBMODULE), *args], capture_output=True, text=True, env=env)
+
+
+def head(project: Path, name: str) -> str:
     return subprocess.run(
-        ["bash", str(UPDATE_SUBMODULE), *args],
+        ["git", "-C", str(project / "lib" / name), "rev-parse", "HEAD"],
+        check=True,
         capture_output=True,
         text=True,
-        env=env,
-    )
+    ).stdout.strip()
 
 
-@pytest.fixture
-def forge_stub(tmp_path):
-    """A `forge` on PATH that records its arguments instead of updating anything.
-
-    Returns (directory to prepend to PATH, a reader for the recorded argument list). The real forge
-    would reach the network and move the submodule; what these tests need to know is only which
-    arguments it was handed.
-    """
-    bin_dir = tmp_path / "stub-bin"
-    bin_dir.mkdir()
-    record = tmp_path / "forge-args"
-    stub = bin_dir / "forge"
-    stub.write_text(f'#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "{record}"\n')
-    stub.chmod(0o755)
-
-    def recorded_arguments() -> list[str]:
-        return record.read_text().splitlines() if record.exists() else []
-
-    return bin_dir, recorded_arguments
+# ── locating the dependency: the ref must never make the lookup fail ──────────────────────────────
 
 
-# ── locating the submodule when a ref is attached ─────────────────────────────────────────────────
-
-
-def test_bare_name_with_a_ref_is_located(project):
-    # `yarn update bao-base@main` - the name is not a path, and the ref is not part of it
+def test_a_bare_name_is_located_under_lib(project):
+    # `yarn update dep@main` - the name is not a path, and the ref is not part of it
     result = update_submodule("--check", "dep@main")
     assert result.returncode == 0, result.stderr
     assert "lib/dep" in result.stdout
 
 
-def test_path_with_a_ref_is_located(project):
+def test_a_path_is_accepted_as_well_as_a_name(project):
     result = update_submodule("--check", "lib/dep@main")
     assert result.returncode == 0, result.stderr
     assert "lib/dep" in result.stdout
 
 
-def test_a_ref_containing_a_slash_is_located(project):
-    # a tag or branch name may itself contain a slash - deploy/harbor-1.2, feature/x
+def test_a_ref_containing_a_slash_does_not_break_the_lookup(project):
+    # A tag or branch may itself contain a slash - deploy/harbor-1.2, feature/x. The dependency is
+    # still found; the complaint must be about the ref, not about the path.
     result = update_submodule("--check", "dep@deploy/harbor-1.2")
-    assert result.returncode == 0, result.stderr
     assert "lib/dep" in result.stdout
+    assert "no submodule" not in result.stdout + result.stderr
+    assert "not a tag, branch or commit" in result.stdout
 
 
-def test_name_without_a_ref_is_still_located(project):
-    result = update_submodule("--check", "dep")
-    assert result.returncode == 0, result.stderr
-    assert "lib/dep" in result.stdout
-
-
-def test_several_dependencies_with_refs_are_all_located(project):
+def test_every_named_dependency_is_processed(project):
     result = update_submodule("--check", "dep@main", "other@main")
     assert result.returncode == 0, result.stderr
-    assert "lib/dep" in result.stdout
-    assert "lib/other" in result.stdout
+    assert "lib/dep" in result.stdout and "lib/other" in result.stdout
 
 
-def test_only_the_named_dependency_is_checked(project):
-    # the report must describe what was actually inspected, not claim the whole project
+def test_only_the_named_dependency_is_touched(project):
+    # The report must describe what was actually inspected, not claim the whole project.
     result = update_submodule("--check", "dep@main")
     assert result.returncode == 0, result.stderr
     assert "lib/other" not in result.stdout
 
 
-def test_an_unknown_dependency_with_a_ref_is_reported_by_its_path(project):
-    # the ref is not what was missing, so the message names the path that was looked for
+def test_an_unknown_dependency_is_reported_by_its_path(project):
     result = update_submodule("--check", "nosuch@main")
     assert result.returncode != 0
-    assert "nosuch" in result.stderr
-    assert "no submodule" in result.stderr
+    assert "nosuch" in result.stderr and "no submodule" in result.stderr
 
 
-# ── what forge is handed ──────────────────────────────────────────────────────────────────────────
+# ── naming nothing is an error, not a request to update everything ────────────────────────────────
 
 
-def test_forge_receives_the_ref_on_the_resolved_path(project, forge_stub):
-    # forge does not split a ref off a bare name: `dep@main` sends it looking in `lib/dep@main`
-    path_prefix, recorded_arguments = forge_stub
-    result = update_submodule("dep@main", path_prefix=path_prefix)
-    assert result.returncode == 0, result.stderr
-    assert recorded_arguments() == ["update", "lib/dep@main"]
-
-
-def test_forge_receives_a_path_argument_unchanged(project, forge_stub):
-    path_prefix, recorded_arguments = forge_stub
-    result = update_submodule("lib/dep@main", path_prefix=path_prefix)
-    assert result.returncode == 0, result.stderr
-    assert recorded_arguments() == ["update", "lib/dep@main"]
-
-
-def test_forge_receives_the_resolved_path_when_no_ref_is_given(project, forge_stub):
-    path_prefix, recorded_arguments = forge_stub
-    result = update_submodule("dep", path_prefix=path_prefix)
-    assert result.returncode == 0, result.stderr
-    assert recorded_arguments() == ["update", "lib/dep"]
-
-
-def test_forge_receives_every_named_dependency(project, forge_stub):
-    path_prefix, recorded_arguments = forge_stub
-    result = update_submodule("dep@main", "other", path_prefix=path_prefix)
-    assert result.returncode == 0, result.stderr
-    assert recorded_arguments() == ["update", "lib/dep@main", "lib/other"]
-
-
-def test_forge_is_given_no_dependencies_when_none_are_named(project, forge_stub):
-    # naming none means ALL, which forge expresses by receiving no dependency arguments
-    path_prefix, recorded_arguments = forge_stub
-    result = update_submodule(path_prefix=path_prefix)
-    assert result.returncode == 0, result.stderr
-    assert recorded_arguments() == ["update"]
-
-
-def test_forge_is_not_reached_when_a_dependency_is_dirty(project, forge_stub):
-    # the guard's whole purpose: a destructive update must not run over uncommitted work
-    path_prefix, recorded_arguments = forge_stub
-    (project / "lib" / "dep" / "README.md").write_text("edited\n")
-    result = update_submodule("dep@main", path_prefix=path_prefix)
+def test_naming_no_dependency_is_refused(project):
+    # The shape that lets one request change dependencies nobody asked about. `forge update` has it
+    # and the old wrapper mirrored it deliberately; this one does not.
+    result = update_submodule("--check")
     assert result.returncode != 0
-    assert recorded_arguments() == []
+    assert "name at least one dependency" in result.stderr
 
 
-def test_forge_is_not_reached_with_check(project, forge_stub):
-    path_prefix, recorded_arguments = forge_stub
-    result = update_submodule("--check", "dep@main", path_prefix=path_prefix)
+def test_a_stationary_pin_without_a_ref_is_refused_with_a_candidate(project):
+    # Two pins can disagree and the tool cannot know which was meant, so it asks - and carries the
+    # version the working tree is actually on, which turns the refusal into a one-line fix.
+    (project / "foundry.lock").write_text(json.dumps({"lib/dep": {"tag": {"name": "v1", "rev": "0" * 40}}}))
+    git("tag", "v1", cwd=project / "lib" / "dep")
+
+    result = update_submodule("--check", "dep")
+
+    assert result.returncode != 0
+    assert "cannot move on its own" in result.stdout
+    assert "yarn update dep@v1" in result.stdout
+
+
+# ── nothing is touched until the checklist says it may be ─────────────────────────────────────────
+
+
+def test_an_uncommitted_edit_stops_the_update_before_anything_moves(project):
+    before = head(project, "dep")
+    (project / "lib" / "dep" / "README.md").write_text("edited\n")
+
+    result = update_submodule("dep@main")
+
+    assert result.returncode != 0
+    assert "exists nowhere else" in result.stdout
+    assert "README.md" in result.stdout, "the refusal must name what it found"
+    assert head(project, "dep") == before, "nothing may move"
+    assert (project / "lib" / "dep" / "README.md").read_text() == "edited\n", "the edit must survive"
+
+
+def test_force_is_the_answer_to_a_refusal(project):
+    # --force is a decision the user makes after being told what is at stake, which is why the tool
+    # stops rather than warning and proceeding.
+    (project / "lib" / "dep" / "untracked.txt").write_text("scratch\n")
+
+    refused = update_submodule("dep@main")
+    assert refused.returncode != 0
+
+    forced = update_submodule("--force", "dep@main")
+    assert forced.returncode == 0, forced.stdout + forced.stderr
+
+
+def test_check_changes_nothing_at_all(project):
+    before = head(project, "dep")
+    lock = project / "foundry.lock"
+
+    result = update_submodule("--check", "dep@main")
+
     assert result.returncode == 0, result.stderr
-    assert recorded_arguments() == []
+    assert head(project, "dep") == before
+    assert not lock.exists(), "--check must not write the lock either"
+
+
+# ── converging: only what is undone is done ───────────────────────────────────────────────────────
+
+
+def test_an_already_correct_dependency_is_left_alone(project):
+    # The property that lets it finish someone else's job: when the working tree is already at the
+    # ref, nothing is fetched, moved or re-cloned - only the lock and the staging remain.
+    update_submodule("dep@main")
+    before = head(project, "dep")
+
+    result = update_submodule("dep@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert head(project, "dep") == before
+    assert "[x] 2." in result.stdout, "stage 2 must already be satisfied"
+
+
+def test_the_lock_is_written_and_then_verified(project):
+    result = update_submodule("dep@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    entry = json.loads((project / "foundry.lock").read_text())["lib/dep"]
+    assert entry == {"branch": {"name": "main", "rev": head(project, "dep")}}, entry
+    assert "[x] 5." in result.stdout, "and re-read afterwards rather than assumed"
+
+
+def test_staging_and_committing_are_printed_not_run(project):
+    result = update_submodule("dep@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "git add lib/dep" in result.stdout
+    staged = subprocess.run(
+        ["git", "diff", "--cached", "--name-only"], cwd=project, capture_output=True, text=True
+    ).stdout
+    assert staged.strip() == "", "the superproject's git is the user's"
+
+
+def test_a_stranded_directory_is_removed(project, tmp_path):
+    # When a dependency moves to a version that no longer declares one of its own submodules, git
+    # cannot delete the populated directory - it reports "unable to rmdir" and carries on, leaving a
+    # repository nothing tracks. Clearing it is stage 4, and it is safe here precisely because stage 0
+    # has already established that nothing under it exists only there.
+    stranded = project / "lib" / "dep" / "stranded"
+    git("clone", "-q", str(tmp_path / "root" / "other.git"), str(stranded), cwd=project)
+    assert stranded.is_dir()
+
+    result = update_submodule("dep@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not stranded.exists(), "the stranded directory must be gone"
+    assert "removed lib/dep/stranded" in result.stdout, "and said so"
+
+
+def test_a_stranded_directory_holding_work_is_not_removed(project, tmp_path):
+    # The other half. A directory that looks identical but holds a commit no remote has is stopped
+    # on, not swept up - the difference is not what it is but whether losing it matters.
+    stranded = project / "lib" / "dep" / "stranded"
+    git("clone", "-q", str(tmp_path / "root" / "other.git"), str(stranded), cwd=project)
+    (stranded / "mine.txt").write_text("a day of work\n")
+    git("add", "-A", cwd=stranded)
+    git("commit", "-qm", "unpushed", cwd=stranded)
+
+    result = update_submodule("dep@main")
+
+    assert result.returncode != 0
+    assert stranded.is_dir(), "it must still be there"
+    assert (stranded / "mine.txt").is_file()
+    assert "exists nowhere else" in result.stdout
+
+
+@pytest.mark.parametrize("stop_after", ["nothing", "stage", "commit"])
+def test_doctor_advises_exactly_what_update_would_do_next(project, stop_after):
+    # The two tools must not give different answers about the same tree. Doctor's Repair line is taken
+    # from the same checklist `yarn update` converges, so whatever update reports as its first undone
+    # stage is what doctor tells the user to run - across every point a bump can be abandoned at.
+    sys.path.insert(0, str(BAO_BASE / "bin"))
+    import doctor
+
+    git("fetch", "-q", "origin", cwd=project / "lib" / "dep")
+    update_submodule("dep@main")  # brings the working tree and the lock into line
+    if stop_after in ("stage", "commit"):
+        git("add", "lib/dep", "foundry.lock", cwd=project)
+    if stop_after == "commit":
+        git("commit", "-qm", "record dep", cwd=project)
+
+    findings = [p for p in doctor.submodule_problems(project) if p.startswith("lib/dep:")]
+    checked = update_submodule("--check", "dep@main")
+
+    if not findings:
+        assert "[ ]" not in checked.stdout, "doctor is quiet, so update must have nothing left"
+        return
+    advice = next(line.split("Repair: ", 1)[1] for line in findings[0].splitlines() if "Repair: " in line)
+    first_undone = next(line.strip() for line in checked.stdout.splitlines() if line.strip().startswith("[ ]"))
+    assert advice in checked.stdout, f"doctor advises {advice!r}, which update never mentions"
+    assert first_undone, "and update must actually have something undone"
