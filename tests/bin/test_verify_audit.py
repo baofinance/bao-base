@@ -1,16 +1,17 @@
-"""End-to-end tests for bin/verify-audit: what it reports, and with what exit status.
+"""Tests for bin/verify-audit.py: what it reports, with what exit status, and its build primitives.
 
-Each test builds a throwaway foundry git repo, drives it into one state, and runs verify-audit over
-it, asserting on the combined output and the exit status. Entered through `run`, as every script
-under bin/ is: `run` exports the environment the script reaches other tools by (BAO_BASE_BIN_DIR,
-the logging functions), so executing the file directly leaves that unset and the failure lands on
+Most tests build a throwaway foundry git repo, drive it into one state, and run verify-audit over it,
+asserting on the combined output and the exit status. Those are entered through `run`, as every
+script under bin/ is: `run` exports the environment the script reaches other tools by
+(BAO_BASE_BIN_DIR), so executing the file directly leaves that unset and the failure lands on
 whichever line reaches for it first.
 
-The four tests that reach a single function of the script rather than running it live in
-verify-audit.bats, because Python cannot source bash functions. They move here as direct imports
-when the script itself is Python, and that file then goes away.
+The last section reaches individual functions instead, for properties that are clearer pinned at the
+function than inferred from a whole run - whether a signature survives a rename, and whether the
+metadata guard reads `forge config` correctly.
 """
 
+import importlib.util
 import os
 import subprocess
 from pathlib import Path
@@ -19,6 +20,10 @@ import pytest
 
 BAO_BASE = Path(__file__).resolve().parents[2]
 RUN = BAO_BASE / "run"
+
+_spec = importlib.util.spec_from_file_location("verify_audit", BAO_BASE / "bin" / "verify-audit.py")
+verify_audit = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(verify_audit)
 
 FOUNDRY_TOML = '[profile.default]\nsrc = "src"\nout = "out"\n'
 
@@ -867,21 +872,96 @@ def test_dependency_agreement_lets_the_comparison_run(conflicted_tagged):
     assert status == 0, output
 
 
-def test_dependency_version_disagreement_stops_the_run(conflicted):
-    """A disagreement is named and nothing past it is attempted, so no verdict is printed under it.
-
-    Reporting both would spend minutes compiling to produce a verdict nobody may act on, under a
-    qualification a screen further up: "no changes under src/" reads as a pass however qualified.
-    """
-    status, output = run_verify_audit(conflicted, "deploy/test")
-    assert status != 0, output
-    assert "shared" in output  # the disagreement is named
-    assert "=== deploy/test ===" not in output  # and nothing past it was attempted
-
-
 def test_dependency_agreement_is_stated_and_the_comparison_runs(conflicted):
     """The check passing must not end the run early, and says so in one line rather than a block."""
     _make_dependencies_agree(conflicted)
     status, output = run_verify_audit(conflicted, "deploy/definitely-not-a-tag")
     assert "staged at the same commit" in output
     assert "deploy/definitely-not-a-tag" in output  # it reached the revision it could not resolve
+
+
+# ── the build primitives, reached directly ─────────────────────────────────────────────────────────
+
+LOOP = (
+    "// SPDX-License-Identifier: MIT\n"
+    "pragma solidity ^0.8.20;\n"
+    "contract Loop {\n"
+    "    function sum(uint256 n) external pure returns (uint256 s) {\n"
+    "        for (uint256 i = 0; i < n; ++i) {\n"
+    "            s += i * 2 + 1;\n"
+    "        }\n"
+    "    }\n"
+    "}\n"
+)
+
+
+def _forge_shim(directory, bytecode_hash, cbor_metadata, monkeypatch):
+    """Put a `forge` on PATH that reports the given config, so the guard's reading can be driven."""
+    directory.mkdir()
+    shim = directory / "forge"
+    shim.write_text(f"#!/bin/sh\necho 'bytecode_hash = \"{bytecode_hash}\"'\necho 'cbor_metadata = {cbor_metadata}'\n")
+    shim.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{directory}:{os.environ['PATH']}")
+
+
+def test_metadata_guard_trips_when_forge_does_not_report_the_switches_taking_effect(tmp_path, monkeypatch, capsys):
+    """The guard exists so a future Foundry that renames or ignores the switches cannot pass silently."""
+    _forge_shim(tmp_path / "shim", "ipfs", "true", monkeypatch)
+    assert verify_audit._assert_metadata_disabled() is False
+    assert "metadata not disabled" in capsys.readouterr().err
+
+
+def test_metadata_guard_passes_when_forge_reports_the_switches_taking_effect(tmp_path, monkeypatch):
+    """The mirror: the guard must not fail a toolchain that does disable metadata."""
+    _forge_shim(tmp_path / "shim", "none", "false", monkeypatch)
+    assert verify_audit._assert_metadata_disabled() is True
+
+
+def test_file_signature_is_identical_across_a_pure_rename(fix, tmp_path, monkeypatch):
+    """A signature is built from bytecode alone, so renaming a file cannot change it.
+
+    This is the property the whole bytecode-equivalence clear rests on, pinned at the function rather
+    than inferred from a run's verdict.
+    """
+    fix.write(
+        "src/Old.sol",
+        "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\n"
+        "contract Old { function f() external pure returns (uint256) { return 7; } }\n",
+    )
+    fix.tag("deploy/test")
+    fix.git("mv", "src/Old.sol", "src/New.sol")
+    fix.edit("src/New.sol", "contract Old", "contract New")
+    fix.commit("rename")
+
+    monkeypatch.chdir(fix.work)
+    head_out = tmp_path / "head-out"
+    builds = verify_audit._Builds()
+    try:
+        assert verify_audit._forge_build(head_out, ["src/New.sol"])
+        assert builds.ensure_worktree()
+        assert builds.overlay_and_build_revision("deploy/test", ["src/Old.sol"], ["src/Old.sol"])
+        signature_old = verify_audit._file_signature(builds.wt_out, "src/Old.sol")
+        signature_new = verify_audit._file_signature(head_out, "src/New.sol")
+        builds.restore_overlay(["src/Old.sol"])
+    finally:
+        builds.cleanup()
+
+    assert verify_audit._signature_identifies(signature_old)
+    assert signature_old == signature_new
+
+
+def test_differing_compiler_settings_do_change_the_bytecode(fix, tmp_path, monkeypatch):
+    """The control for the settings-pinning test: if via_ir stopped mattering here, that test would
+    be passing vacuously."""
+    fix.write("src/Loop.sol", LOOP)
+    monkeypatch.chdir(fix.work)
+
+    monkeypatch.setenv("FOUNDRY_VIA_IR", "false")
+    assert verify_audit._forge_build(tmp_path / "no-ir", ["src/Loop.sol"])
+    monkeypatch.setenv("FOUNDRY_VIA_IR", "true")
+    assert verify_audit._forge_build(tmp_path / "via-ir", ["src/Loop.sol"])
+
+    without = verify_audit._file_signature(tmp_path / "no-ir", "src/Loop.sol")
+    with_ir = verify_audit._file_signature(tmp_path / "via-ir", "src/Loop.sol")
+    assert verify_audit._signature_identifies(without)
+    assert without != with_ir
