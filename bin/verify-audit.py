@@ -64,6 +64,10 @@ _MISSING = "__MISSING__"
 # the same way.
 _METADATA_OFF = {"FOUNDRY_BYTECODE_HASH": "none", "FOUNDRY_CBOR_METADATA": "false"}
 
+# Where the toolchain is installed, as opposed to how it compiles. It survives the scrub below
+# because dropping it would send forge looking for its own installation in the default location.
+_FOUNDRY_INSTALL_VARS = {"FOUNDRY_DIR"}
+
 
 def _out(text: str) -> None:
     """Write to stdout unbuffered, so it interleaves with subprocess output in the order written."""
@@ -80,6 +84,26 @@ def _log(message: str) -> None:
     """The INFO line the bash `log` printed, mirrored: level 0, gated on verbosity, on stderr."""
     if int(os.environ.get("BAO_BASE_VERBOSITY") or "0") >= 0:
         _err(f"\033[0;32mINFO  \033[0m{message}\n")
+
+
+def _forge_env(**overrides: str) -> dict[str, str]:
+    """The environment every forge invocation runs in.
+
+    Every FOUNDRY_* variable the caller had is dropped, apart from where the toolchain is installed:
+    the rest steer the build - optimizer, via_ir, remappings, artefact and cache locations - so
+    letting them through would make a verdict depend on the shell the run was started from, and would
+    silently give a FOUNDRY_* variable added by some future Foundry the same power. Only what this
+    function sets survives. Nothing outside that namespace is touched, because forge still needs PATH,
+    HOME, and the solc store they lead to.
+
+    FOUNDRY_PROFILE is not scrubbed here but refused outright at startup: selecting a profile changes
+    which foundry.toml section applies, and there is no value that means "no profile", so it can be
+    neither honoured nor neutralised.
+    """
+    env = {k: v for k, v in os.environ.items() if not k.startswith("FOUNDRY_") or k in _FOUNDRY_INSTALL_VARS}
+    env.update(_METADATA_OFF)
+    env.update(overrides)
+    return env
 
 
 def _git(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
@@ -135,12 +159,7 @@ def _assert_metadata_disabled() -> bool:
     Guards against a future Foundry renaming/ignoring these switches, which would otherwise leave
     metadata in the bytecode and produce false fails/clears.
     """
-    done = subprocess.run(
-        ["forge", "config"],
-        capture_output=True,
-        text=True,
-        env={**os.environ, **_METADATA_OFF},
-    )
+    done = subprocess.run(["forge", "config"], capture_output=True, text=True, env=_forge_env())
     cfg = done.stdout + done.stderr
     if done.returncode != 0:
         _err(f"\033[31mERROR: `forge config` failed; cannot verify metadata disabled:\n{cfg}\033[0m\n")
@@ -152,14 +171,22 @@ def _assert_metadata_disabled() -> bool:
     return True
 
 
-def _forge_build(out: Path, paths: list[str], cwd: Path | None = None) -> bool:
-    """Compile the given source paths and their import closure into `out`, metadata off."""
+def _forge_build(out: Path, cache: Path, paths: list[str], cwd: Path | None = None) -> bool:
+    """Compile the given source paths and their import closure into `out`, metadata off.
+
+    The cache is named explicitly, and never the project's. Sharing the project's cache damages it -
+    its entries would point at an `out` this run deletes on exit, so the next ordinary build
+    recompiles - and makes this run's result depend on state a concurrent forge command may be
+    rewriting.
+    """
+    out.mkdir(parents=True, exist_ok=True)
+    cache.mkdir(parents=True, exist_ok=True)
     done = subprocess.run(
         ["forge", "build", "--deny=never", *paths],
         cwd=cwd,
         capture_output=True,
         text=True,
-        env={**os.environ, **_METADATA_OFF, "FOUNDRY_OUT": str(out)},
+        env=_forge_env(FOUNDRY_OUT=str(out), FOUNDRY_CACHE_PATH=str(cache)),
     )
     return done.returncode == 0
 
@@ -213,30 +240,39 @@ class _Builds:
     """
 
     def __init__(self) -> None:
+        self.root: Path | None = None  # everything this run compiles into, created on first use
         self.head_out: Path | None = None  # reused HEAD build dir
+        self.head_cache: Path | None = None
         self.wt: Path | None = None  # shared HEAD worktree, the revision's source overlaid into it
-        self.wt_out: Path | None = None  # persistent forge cache for the worktree
+        self.wt_out: Path | None = None
+        self.wt_cache: Path | None = None  # persistent forge cache for the worktree
+
+    def _in_root(self, name: str) -> Path:
+        """A path under this run's throwaway root, which is created on the first request."""
+        if self.root is None:
+            self.root = Path(tempfile.mkdtemp(prefix="verify-audit-"))
+        return self.root / name
 
     def ensure_head_out(self) -> bool:
         if self.head_out is not None:
             return True
         if not _assert_metadata_disabled():
             return False
-        self.head_out = Path(tempfile.mkdtemp())
+        self.head_out = self._in_root("current-out")
+        self.head_cache = self._in_root("current-cache")
         return True
 
     def ensure_worktree(self) -> bool:
         if self.wt is not None:
             return True
-        # `git worktree add` creates this directory; it must not pre-exist
-        wt = Path(tempfile.mkdtemp())
-        wt.rmdir()
+        wt = self._in_root("worktree")  # `git worktree add` creates it; it must not pre-exist
         if _git("worktree", "add", "--detach", "--quiet", str(wt), "HEAD").returncode != 0:
             return False
         if _git("submodule", "update", "--init", "--recursive", "--quiet", cwd=wt).returncode != 0:
             return False
         self.wt = wt
-        self.wt_out = Path(tempfile.mkdtemp())
+        self.wt_out = self._in_root("revision-out")
+        self.wt_cache = self._in_root("revision-cache")
         return True
 
     def overlay_and_build_revision(self, rev: str, overlay: list[str], build: list[str]) -> bool:
@@ -246,10 +282,10 @@ class _Builds:
         resolve to the files they had at that revision); only the build set is compiled and later
         compared. `git restore --source` only touches working-tree files - never HEAD.
         """
-        assert self.wt is not None and self.wt_out is not None
+        assert self.wt is not None and self.wt_out is not None and self.wt_cache is not None
         if _git("restore", f"--source={rev}", "--worktree", "--", *overlay, cwd=self.wt).returncode != 0:
             return False
-        return _forge_build(self.wt_out, build, cwd=self.wt)
+        return _forge_build(self.wt_out, self.wt_cache, build, cwd=self.wt)
 
     def restore_overlay(self, paths: list[str]) -> None:
         """Restore overlaid paths back to HEAD so an overlaid dependency cannot leak into a later
@@ -272,11 +308,10 @@ class _Builds:
             shutil.rmtree(self.wt, ignore_errors=True)
             _git("worktree", "prune")
             self.wt = None
-        for directory in ("wt_out", "head_out"):
-            path = getattr(self, directory)
-            if path is not None:
-                shutil.rmtree(path, ignore_errors=True)
-                setattr(self, directory, None)
+        if self.root is not None:
+            shutil.rmtree(self.root, ignore_errors=True)
+            self.root = None
+        self.head_out = self.head_cache = self.wt_out = self.wt_cache = None
 
 
 def _in_scope(path: str, scope_dirs: list[str], deployed: set[str], rename_src: dict[str, str]) -> bool:
@@ -529,6 +564,19 @@ def _run(args: list[str], builds: _Builds) -> int:
     # tag section that says "no changes under src/" reads as a pass however it was qualified.
     # Nothing is lost by stopping: converge the versions and run it again, and both halves are
     # answerable.
+    # A profile selects which foundry.toml section applies - src, out, optimizer, via_ir - so
+    # honouring it would audit under settings the deploy was never built with, while dropping it
+    # would ignore something the caller deliberately asked for. There is no value meaning "no
+    # profile", so it is refused rather than resolved either way.
+    if os.environ.get("FOUNDRY_PROFILE"):
+        _err(
+            "\033[31mERROR: FOUNDRY_PROFILE is set"
+            f' ("{os.environ["FOUNDRY_PROFILE"]}"), and it would decide which foundry.toml'
+            " settings this audit compiles with\033[0m\n"
+        )
+        _err("       unset it and run again; the audit compiles with the default profile\n")
+        return 1
+
     bin_dir = os.environ.get("BAO_BASE_BIN_DIR")
     if not bin_dir:
         _err("ERROR: BAO_BASE_BIN_DIR must be set by the bao-base run script\n")
@@ -684,8 +732,8 @@ def _run(args: list[str], builds: _Builds) -> int:
             if compare or vanished:
                 if not builds.ensure_head_out():
                     return 1
-                assert builds.head_out is not None
-                if not _forge_build(builds.head_out, compare + added):
+                assert builds.head_out is not None and builds.head_cache is not None
+                if not _forge_build(builds.head_out, builds.head_cache, compare + added):
                     _err("\033[31m  ERROR: HEAD build failed — cannot compare bytecode\033[0m\n")
                     return 1
                 if not builds.ensure_worktree():

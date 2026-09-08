@@ -28,19 +28,21 @@ _spec.loader.exec_module(verify_audit)
 FOUNDRY_TOML = '[profile.default]\nsrc = "src"\nout = "out"\n'
 
 
-def run_verify_audit(cwd, *args):
+def run_verify_audit(cwd, *args, env=None):
     """Run verify-audit in `cwd`; returns (exit status, stdout+stderr).
 
-    The verbosity is pinned because `run` takes a `-q` anywhere in its argument list as its own
-    quiet flag and exports the resulting level, so `run pytest -q` would otherwise suppress the INFO
-    lines some of these tests assert on - and the suite's result would depend on how it was invoked.
+    `env` adds to the caller's environment, for the tests that check what the run does with a
+    variable it was handed. The verbosity is pinned because `run` takes a `-q` anywhere in its
+    argument list as its own quiet flag and exports the resulting level, so `run pytest -q` would
+    otherwise suppress the INFO lines some of these tests assert on - and the suite's result would
+    depend on how it was invoked.
     """
     done = subprocess.run(
         [str(RUN), "verify-audit", *args],
         cwd=cwd,
         capture_output=True,
         text=True,
-        env={**os.environ, "BAO_BASE_VERBOSITY": "0"},
+        env={**os.environ, "BAO_BASE_VERBOSITY": "0", **(env or {})},
     )
     return done.returncode, done.stdout + done.stderr
 
@@ -99,9 +101,9 @@ class FoundryFixture:
         self.git("tag", name)
         self.git("push", "-q", "origin", "HEAD", "--tags", check=False)
 
-    def verify_audit(self, *args, cwd=None):
+    def verify_audit(self, *args, cwd=None, env=None):
         """Run verify-audit over the fixture; returns (exit status, stdout+stderr)."""
-        return run_verify_audit(cwd or self.work, *args)
+        return run_verify_audit(cwd or self.work, *args, env=env)
 
 
 @pytest.fixture
@@ -880,6 +882,55 @@ def test_dependency_agreement_is_stated_and_the_comparison_runs(conflicted):
     assert "deploy/definitely-not-a-tag" in output  # it reached the revision it could not resolve
 
 
+# ── build isolation: what a run may touch, and what it may be influenced by ────────────────────────
+
+
+def _a_run_that_builds(fix):
+    """A revision plus a bytecode-neutral change at HEAD, so the comparison actually compiles."""
+    fix.write("src/Foo.sol", FOO)
+    fix.tag("deploy/test")
+    fix.write("src/Foo.sol", "// a brand new explanatory comment\n" + FOO)
+    fix.commit("comment")
+
+
+def test_a_run_writes_no_build_artefacts_into_the_project(fix):
+    """Compiling is done entirely in throwaway directories, so a run cannot disturb the project.
+
+    Sharing the project's cache both damages it - the entries point at an out dir that is deleted
+    when the run ends, so the next build recompiles - and makes the run's result depend on state any
+    concurrent forge command may be rewriting.
+    """
+    _a_run_that_builds(fix)
+    status, output = fix.verify_audit("deploy/test")
+    assert status == 0, output
+    assert "bytecode-equivalent" in output  # it really did compile something
+    assert not (fix.work / "cache").exists(), "the run wrote forge's cache into the project"
+    assert not (fix.work / "out").exists(), "the run wrote build artefacts into the project"
+
+
+def test_a_caller_set_foundry_profile_is_an_error(fix):
+    """A profile selects a whole foundry.toml section - src, out, optimizer, via_ir.
+
+    Honouring it would audit under settings the deploy was never built with, and dropping it silently
+    would ignore something the caller deliberately asked for. Neither is safe, so it is refused.
+    """
+    _a_run_that_builds(fix)
+    status, output = fix.verify_audit("deploy/test", env={"FOUNDRY_PROFILE": "novyper"})
+    assert status != 0, output
+    assert "FOUNDRY_PROFILE" in output
+
+
+def test_a_caller_set_foundry_cache_path_is_not_used(fix, tmp_path):
+    """An ambient FOUNDRY_* variable cannot steer the build, shown where the effect is observable."""
+    _a_run_that_builds(fix)
+    ambient = tmp_path / "ambient-cache"
+    ambient.mkdir()
+    status, output = fix.verify_audit("deploy/test", env={"FOUNDRY_CACHE_PATH": str(ambient)})
+    assert status == 0, output
+    assert "bytecode-equivalent" in output
+    assert list(ambient.iterdir()) == [], "the run honoured the caller's FOUNDRY_CACHE_PATH"
+
+
 # ── the build primitives, reached directly ─────────────────────────────────────────────────────────
 
 LOOP = (
@@ -937,7 +988,7 @@ def test_file_signature_is_identical_across_a_pure_rename(fix, tmp_path, monkeyp
     head_out = tmp_path / "head-out"
     builds = verify_audit._Builds()
     try:
-        assert verify_audit._forge_build(head_out, ["src/New.sol"])
+        assert verify_audit._forge_build(head_out, tmp_path / "head-cache", ["src/New.sol"])
         assert builds.ensure_worktree()
         assert builds.overlay_and_build_revision("deploy/test", ["src/Old.sol"], ["src/Old.sol"])
         signature_old = verify_audit._file_signature(builds.wt_out, "src/Old.sol")
@@ -952,14 +1003,18 @@ def test_file_signature_is_identical_across_a_pure_rename(fix, tmp_path, monkeyp
 
 def test_differing_compiler_settings_do_change_the_bytecode(fix, tmp_path, monkeypatch):
     """The control for the settings-pinning test: if via_ir stopped mattering here, that test would
-    be passing vacuously."""
+    be passing vacuously.
+
+    The setting is driven through foundry.toml, as the settings-pinning test drives it, because the
+    build environment deliberately drops any FOUNDRY_* the caller had.
+    """
     fix.write("src/Loop.sol", LOOP)
     monkeypatch.chdir(fix.work)
 
-    monkeypatch.setenv("FOUNDRY_VIA_IR", "false")
-    assert verify_audit._forge_build(tmp_path / "no-ir", ["src/Loop.sol"])
-    monkeypatch.setenv("FOUNDRY_VIA_IR", "true")
-    assert verify_audit._forge_build(tmp_path / "via-ir", ["src/Loop.sol"])
+    fix.write("foundry.toml", FOUNDRY_TOML + "via_ir = false\noptimizer = true\n")
+    assert verify_audit._forge_build(tmp_path / "no-ir", tmp_path / "no-ir-cache", ["src/Loop.sol"])
+    fix.write("foundry.toml", FOUNDRY_TOML + "via_ir = true\noptimizer = true\n")
+    assert verify_audit._forge_build(tmp_path / "via-ir", tmp_path / "via-ir-cache", ["src/Loop.sol"])
 
     without = verify_audit._file_signature(tmp_path / "no-ir", "src/Loop.sol")
     with_ir = verify_audit._file_signature(tmp_path / "via-ir", "src/Loop.sol")
