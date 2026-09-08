@@ -332,3 +332,109 @@ def test_doctor_advises_exactly_what_update_would_do_next(project, stop_after):
     first_undone = next(line.strip() for line in checked.stdout.splitlines() if line.strip().startswith("[ ]"))
     assert advice in checked.stdout, f"doctor advises {advice!r}, which update never mentions"
     assert first_undone, "and update must actually have something undone"
+
+
+# ── --relock: the lock follows the tree, instead of the tree following a ref ──────────────────────
+#
+# The reverse direction. `converge` moves a dependency to a ref the caller names; this records where
+# the dependency already is - a bump made in a GUI, or a fleet converged by hand. Its risk is the
+# mirror of its use: it blesses whatever is checked out, so it insists the tree has settled first.
+
+
+def bump_and_stage(project: Path, tmp_path: Path, name: str = "dep") -> str:
+    """Move a dependency to a new upstream commit and stage it, without touching foundry.lock."""
+    source = tmp_path / "root" / name
+    (source / "README.md").write_text("moved on\n")
+    git("add", "-A", cwd=source)
+    git("commit", "-qm", "moved on", cwd=source)
+    # The fixture's sources have no remote of their own; the bare clone the submodule points at sits
+    # beside them, so it is named by path.
+    git("push", "-q", str(tmp_path / "root" / f"{name}.git"), "main", cwd=source)
+    git("fetch", "-q", "origin", cwd=project / "lib" / name)
+    git("checkout", "-q", "origin/main", cwd=project / "lib" / name)
+    git("add", f"lib/{name}", cwd=project)
+    return head(project, name)
+
+
+def test_relock_records_the_commit_already_staged(project, tmp_path):
+    # No lock entry to preserve, and the new commit carries no tag, so a bare rev is what records it.
+    moved = bump_and_stage(project, tmp_path)
+
+    result = update_submodule("--relock", "dep")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads((project / "foundry.lock").read_text())["lib/dep"]["rev"] == moved
+    assert head(project, "dep") == moved, "and it must not have moved the dependency"
+
+
+def test_relock_keeps_a_branch_pin_on_its_branch(project, tmp_path):
+    # Following the branch is what a branch pin is for, so the name stays and only the commit moves.
+    (project / "foundry.lock").write_text(json.dumps({"lib/dep": {"branch": {"name": "main", "rev": "0" * 40}}}))
+    moved = bump_and_stage(project, tmp_path)
+
+    update_submodule("--relock", "dep")
+
+    entry = json.loads((project / "foundry.lock").read_text())["lib/dep"]
+    assert entry["branch"] == {"name": "main", "rev": moved}
+
+
+def test_relock_does_not_keep_a_tag_pin_the_commit_has_left(project, tmp_path):
+    # A tag names one commit. Once the commit moves the old tag is simply wrong, so it cannot be
+    # carried forward the way a branch name can - it becomes the new commit's tag, or a bare rev.
+    (project / "foundry.lock").write_text(json.dumps({"lib/dep": {"tag": {"name": "v1", "rev": "0" * 40}}}))
+    moved = bump_and_stage(project, tmp_path)
+
+    update_submodule("--relock", "dep")
+
+    entry = json.loads((project / "foundry.lock").read_text())["lib/dep"]
+    assert entry == {"rev": moved}, "a stale tag must not survive the commit it named"
+
+
+def test_relock_refuses_a_move_that_is_not_staged(project, tmp_path):
+    # An unstaged checkout is not yet a decision. Recording it would turn a stray `git checkout` into
+    # the pin everyone else gets, and remove the disagreement that would have shown it up.
+    before = (project / "foundry.lock").read_text() if (project / "foundry.lock").is_file() else ""
+    bump_and_stage(project, tmp_path)
+    git("restore", "--staged", "lib/dep", cwd=project)
+
+    result = update_submodule("--relock", "dep")
+
+    assert result.returncode != 0
+    assert "stage the move first" in result.stdout
+    after = (project / "foundry.lock").read_text() if (project / "foundry.lock").is_file() else ""
+    assert after == before, "and it must not have written anything"
+
+
+def test_relock_check_reports_without_writing(project, tmp_path):
+    bump_and_stage(project, tmp_path)
+    before = (project / "foundry.lock").read_text() if (project / "foundry.lock").is_file() else ""
+
+    result = update_submodule("--relock", "--check", "dep")
+
+    assert result.returncode == 0
+    assert "would become" in result.stdout
+    after = (project / "foundry.lock").read_text() if (project / "foundry.lock").is_file() else ""
+    assert after == before
+
+
+def test_relock_all_covers_every_dependency_without_naming_them(project, tmp_path):
+    # The one place an "all" form is admitted: it moves nothing, so it cannot change a dependency
+    # nobody asked about - it only records where they already are.
+    bump_and_stage(project, tmp_path, "dep")
+    bump_and_stage(project, tmp_path, "other")
+
+    result = update_submodule("--relock", "--all")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    locked = json.loads((project / "foundry.lock").read_text())
+    assert locked["lib/dep"]["rev"] == head(project, "dep")
+    assert locked["lib/other"]["rev"] == head(project, "other")
+
+
+def test_all_is_refused_for_a_form_that_moves_dependencies(project):
+    # The ban this preserves: `forge update` sprays every branch-pinned dependency, and the wrapper
+    # exists partly to refuse that shape.
+    result = update_submodule("--all", "dep@main")
+
+    assert result.returncode != 0
+    assert "only for --relock" in result.stderr

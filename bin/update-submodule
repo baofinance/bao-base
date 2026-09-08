@@ -29,7 +29,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from submodule_state import Pin, checklist, read_facts, read_lock, submodules
+from submodule_state import MOVING, Pin, _declared, checklist, read_facts, read_lock, submodules
 
 USAGE = """\
 update-submodule [--check] [--force] <dependency>[@<ref>] ...
@@ -41,10 +41,15 @@ update-submodule [--check] [--force] <dependency>[@<ref>] ...
   --sweep        remove only the directories a version change stranded under the dependency,
                  changing no pin, lock or gitlink. Works at any depth, so it can clear litter
                  inside a dependency's own dependency.
+  --relock       write foundry.lock to record the commit the dependency is ALREADY staged at,
+                 moving nothing. The reverse of the default: here the tree is the truth and the
+                 lock has fallen behind. Refuses unless the working tree and index agree.
+  --all          every dependency of this repository, with --relock only
   --force        proceed even though something under the dependency exists nowhere else
 
-At least one dependency must be named. There is deliberately no form meaning "all": that shape lets
-one request change dependencies nobody asked about."""
+At least one dependency must be named, unless --all. There is deliberately no form meaning "all" for
+MOVING dependencies: that shape lets one request change dependencies nobody asked about. --relock
+moves none of them - it only records where they already are - so the objection does not reach it."""
 
 
 def git(where: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -143,6 +148,59 @@ def sweep(repo_root: Path, dependency: str, force: bool) -> int:
         return 0
     for gone in remove_stranded(repo_root, display, facts.litter):
         print(f"  removed {gone}, stranded by a version change")
+    return 0
+
+
+def _recording(submodule: Path, staged: str, current: Pin) -> Pin:
+    """The pin that records `staged`, keeping the kind where the kind still means something.
+
+    A BRANCH pin keeps its name: following the branch is what it is for, and the new commit is where
+    the branch got to. A TAG pin cannot - a tag names one commit, so once the commit moves the old tag
+    is simply wrong - and it becomes the tag the new commit carries, or a bare rev if it carries none.
+    """
+    if current.kind == MOVING and current.name:
+        return Pin(MOVING, current.name, staged)
+    tag = git(submodule, "describe", "--tags", "--exact-match", staged)
+    if tag.returncode == 0:
+        return Pin("tag", tag.stdout.strip(), staged)
+    return Pin("rev", None, staged)
+
+
+def relock(repo_root: Path, dependency: str, check_only: bool) -> int:
+    """Write foundry.lock to record the commit a dependency is ALREADY staged at. Moves nothing.
+
+    The opposite direction from `converge`, which moves the dependency to a ref the caller names. Here
+    the tree is the truth and the lock is what has fallen behind - a bump made in the GUI, or a whole
+    fleet converged by hand. `yarn update <dep>@<sha>` can do the same for one dependency, but only if
+    you first go and find the sha; this reads it.
+
+    It records what is there, which is exactly its risk: an accidental checkout becomes the recorded
+    pin, and the disagreement that would have shown it up is gone. So it refuses unless the working
+    tree and the index agree - what you staged is what you have - and it names every change it makes.
+    """
+    path = resolve_path(repo_root, dependency)
+    print(f"{path}:")
+    facts = read_facts(repo_root, path)
+
+    if facts.worktree is None:
+        print("  refusing: not checked out, so there is nothing to record")
+        return 1
+    if facts.worktree != facts.index_gitlink:
+        print(f"  refusing: working tree {facts.worktree[:10]}, index {(facts.index_gitlink or 'absent')[:10]}")
+        print(f"  stage the move first — `git add {path}` — so the commit recorded is the one you meant")
+        return 1
+
+    target = _recording(repo_root / path, facts.worktree, facts.lock)
+    if (facts.lock.kind, facts.lock.name, facts.lock.rev) == (target.kind, target.name, target.rev):
+        print(f"  [x] foundry.lock already records {target.kind} {target.name or target.rev[:10]}")
+        return 0
+    if check_only:
+        print(f"  [ ] foundry.lock would become {target.kind} {target.name or target.rev[:10]}")
+        return 0
+
+    write_lock_entry(repo_root, path, target)
+    print(f"  wrote foundry.lock: {target.kind} {target.name or target.rev[:10]}")
+    print(f"  Now yours to run:  git add foundry.lock && git commit")
     return 0
 
 
@@ -248,6 +306,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(add_help=False, usage=USAGE)
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--sweep", action="store_true")
+    parser.add_argument("--relock", action="store_true")
+    parser.add_argument("--all", action="store_true")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("-h", "--help", action="store_true")
     parser.add_argument("dependencies", nargs="*")
@@ -256,7 +316,13 @@ def main() -> int:
     if arguments.help:
         print(USAGE)
         return 0
-    if not arguments.dependencies:
+    # --all is admitted for --relock alone. The ban on an "all" form is about MOVING dependencies
+    # nobody asked about; --relock moves none, so the reason for the ban does not apply to it.
+    if arguments.all and not arguments.relock:
+        print(USAGE, file=sys.stderr)
+        print("\nerror: --all is only for --relock, which moves nothing", file=sys.stderr)
+        return 1
+    if not arguments.dependencies and not arguments.all:
         print(USAGE, file=sys.stderr)
         print("\nerror: name at least one dependency", file=sys.stderr)
         return 1
@@ -269,6 +335,12 @@ def main() -> int:
         return 1
     repo_root = Path(top.stdout.strip())
 
+    if arguments.relock:
+        named = arguments.dependencies or [path for path, _ in _declared(repo_root)]
+        if not named:
+            print("this repository declares no dependencies")
+            return 0
+        return max(relock(repo_root, dependency, arguments.check) for dependency in named)
     if arguments.sweep:
         return max(sweep(repo_root, dependency, arguments.force) for dependency in arguments.dependencies)
     return max(
