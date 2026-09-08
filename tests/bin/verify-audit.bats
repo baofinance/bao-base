@@ -990,3 +990,73 @@ _unpairable_by_git_fixture() { # $1 = contract name at HEAD, $2 = destination pa
   [[ "$output" == *"src/old/Gone.sol"* ]]
   [[ "$output" != *"src/new/Fresh.sol is the same"* ]]
 }
+
+# ── the dependency-version check, which runs before any tag is looked at ──────────────────────────
+
+# A repository whose dependency stages a shared dependency at a different commit than it does - what
+# `dependency-conflicts.py` reports. The owner is read positionally from the URL, so a directory name
+# stands in for a GitHub organisation: everything lives under one `acme`, which is what makes the
+# dependency count as ours. Taking a submodule named bao-base is what makes it share our toolchain.
+# Leaves $FIX as the host repository.
+_new_conflicted_fixture() {
+  ORG="$(mktemp -d)/acme"
+  mkdir -p "$ORG"
+  for name in shared bao-base; do
+    git init -q "$ORG/$name"
+    git -C "$ORG/$name" config user.email t@t
+    git -C "$ORG/$name" config user.name test
+    printf 'one\n' >"$ORG/$name/a.txt"
+    git -C "$ORG/$name" add -A && git -C "$ORG/$name" commit -q -m one
+  done
+  printf 'two\n' >"$ORG/shared/a.txt"
+  git -C "$ORG/shared" add -A && git -C "$ORG/shared" commit -q -m two
+
+  git init -q "$ORG/dep"
+  git -C "$ORG/dep" config user.email t@t
+  git -C "$ORG/dep" config user.name test
+  git -C "$ORG/dep" -c protocol.file.allow=always submodule add -q "$ORG/bao-base" lib/bao-base
+  git -C "$ORG/dep" -c protocol.file.allow=always submodule add -q "$ORG/shared" lib/shared
+  git -C "$ORG/dep/lib/shared" checkout -q HEAD~1 # the dependency stays on the older commit
+  git -C "$ORG/dep" add lib/shared
+  git -C "$ORG/dep" commit -q -m deps
+
+  FIX="$ORG/host"
+  git init -q "$FIX"
+  git -C "$FIX" config user.email t@t
+  git -C "$FIX" config user.name test
+  git -C "$FIX" remote add origin "$ORG/host.git" # never fetched from; it is where the owner is read
+  printf '[profile.default]\nsrc = "src"\nout = "out"\n' >"$FIX/foundry.toml"
+  mkdir -p "$FIX/src"
+  git -C "$FIX" add -A && git -C "$FIX" commit -q -m init
+  git -C "$FIX" -c protocol.file.allow=always submodule add -q "$ORG/dep" lib/dep
+  git -C "$FIX" -c protocol.file.allow=always submodule add -q "$ORG/shared" lib/shared
+  git -C "$FIX" commit -q -m deps
+}
+
+@test "a dependency-version disagreement stops the run before anything is compiled" {
+  # It reported both at first, so one invocation would name everything wrong. In use that spends
+  # minutes compiling to produce a verdict nobody may act on, printed under a qualification a screen
+  # further up: "no changes under src/" reads as a pass however it was qualified.
+  _new_conflicted_fixture
+  cd "$FIX"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
+  echo "status=$status"
+  echo "output=$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"shared"* ]] # the disagreement is named
+  [[ "$output" != *"=== deploy/test ==="* ]] # and nothing past it was attempted
+}
+
+@test "agreement is stated once, and the tag comparison then runs" {
+  # The mirror: the check passing must not become a way for the run to end early, and it says so in
+  # one INFO line rather than a block, so a clean run is not made longer by it.
+  _new_conflicted_fixture
+  git -C "$FIX/lib/shared" checkout -q HEAD~1 # both now stage the same commit
+  git -C "$FIX" add lib/shared
+  cd "$FIX"
+  run "$BAO_BASE_RUN" verify-audit "deploy/definitely-not-a-tag"
+  echo "status=$status"
+  echo "output=$output"
+  [[ "$output" == *"staged at the same commit"* ]]
+  [[ "$output" == *"deploy/definitely-not-a-tag"* ]] # it reached the tag it could not resolve
+}
