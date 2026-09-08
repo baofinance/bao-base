@@ -22,7 +22,14 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bin"))
 
-from submodule_state import checklist, condition, read_facts, read_lock, repair  # noqa: E402
+from submodule_state import (  # noqa: E402
+    checklist,
+    condition,
+    conflicting_dependencies,
+    read_facts,
+    read_lock,
+    repair,
+)
 
 FOUNDRY_TOML = '[profile.default]\nsrc = "src"\nlibs = ["lib"]\n'
 FILE_TRANSPORT = ("-c", "protocol.file.allow=always")
@@ -562,3 +569,231 @@ def test_the_repair_asks_for_staging_when_that_is_what_is_missing(world):
     facts = facts_for(world.project)
 
     assert repair(facts, condition(facts)) == "git add lib/dep"
+
+
+# ── one version per dependency, within a tree ─────────────────────────────────────────────────────
+#
+# A tree holds many checkouts of one dependency and compiles exactly ONE - the root's, because the
+# root's remappings win. The others are inert, so divergence never miscompiles and never announces
+# itself. What it costs is that a dependency's guarantees were established against ITS pins and are
+# spent against the consumer's: bao-base verified its sources against OpenZeppelin 5.7.0 while
+# harbor-swap compiles those same sources against 5.6.1, and nothing said so.
+
+
+@pytest.fixture
+def tree(tmp_path):
+    """A project holding `shared` directly and again under three neighbours, one for each way the
+    scope rule can answer:
+
+      lib/dep         ours, and takes `toolkit` — compared
+      lib/standalone  ours, but takes no `toolkit` — the bao-factory case, not compared
+      lib/vendor      a third party's — not compared
+
+    `toolkit` stands for bao-base: the repository sharing it is what makes two repositories subject to
+    the same version move. Ownership is read from the URL, so the remotes sit under `ours/` and
+    `theirs/` directories standing in for the owner segment a real URL carries.
+    """
+    remotes = tmp_path / "remotes"
+    shared = make_repo(remotes / "ours", "shared")
+    toolkit = make_repo(remotes / "ours", "toolkit")
+
+    ours = make_repo(remotes / "ours", "dep")
+    git(ours, "submodule", "add", "-q", str(toolkit), "lib/toolkit")
+    git(ours, "submodule", "add", "-q", str(shared), "lib/shared")
+    git(ours, "commit", "-qm", "add toolkit and shared")
+
+    standalone = make_repo(remotes / "ours", "standalone")
+    git(standalone, "submodule", "add", "-q", str(shared), "lib/shared")
+    git(standalone, "commit", "-qm", "add shared")
+
+    theirs = make_repo(remotes / "theirs", "vendor")
+    git(theirs, "submodule", "add", "-q", str(shared), "lib/shared")
+    git(theirs, "commit", "-qm", "add shared")
+
+    project = tmp_path / "project"
+    project.mkdir()
+    git(project, "init", "-q", "-b", "main")
+    (project / "foundry.toml").write_text(FOUNDRY_TOML)
+    git(project, "add", "-A")
+    git(project, "commit", "-qm", "init")
+    for source, path in (
+        (toolkit, "lib/toolkit"),
+        (shared, "lib/shared"),
+        (ours, "lib/dep"),
+        (standalone, "lib/standalone"),
+        (theirs, "lib/vendor"),
+    ):
+        git(project, "submodule", "add", "-q", str(source), path)
+    git(project, "submodule", "update", "--init", "--recursive", "-q")
+    git(project, "commit", "-qm", "add submodules")
+    return project, shared
+
+
+def conflicts(project: Path):
+    """The check as these fixtures spell it: `ours` for the owner, `toolkit` for bao-base."""
+    return conflicting_dependencies(project, owner="ours", toolchain="toolkit")
+
+
+def bump(project: Path, source: Path, path: str) -> None:
+    """Move one checkout to its remote's tip and STAGE it, which is the state the check reads."""
+    add_commit(source, "moved on")
+    git(project / path, "fetch", "-q", "origin")
+    git(project / path, "checkout", "-q", "origin/main")
+    git(project, "add", path)
+
+
+def test_a_dependency_both_stage_at_one_commit_is_not_reported(tree):
+    # The clean case says nothing: we and `lib/dep` stage `shared` at the same commit.
+    project, _ = tree
+    assert conflicts(project) == []
+
+
+def test_a_dependency_staged_at_two_commits_is_reported_with_both_sides(tree):
+    # harbor-swap's shape: we stage one OpenZeppelin, bao-base stages another. Both sides are named
+    # because which one moves is the reader's call - the newer pin is sometimes ours, sometimes theirs.
+    project, shared = tree
+    bump(project, shared, "lib/shared")
+
+    found = conflicts(project)
+
+    assert len(found) == 1, found
+    assert found[0].dependency == "shared"
+    assert found[0].at == "lib/dep", "the repository to cd into"
+    assert found[0].ours.commit != found[0].theirs.commit
+
+
+def test_a_dependency_of_a_third_party_dependency_is_out_of_scope(tree):
+    # harbor-yield holds 16 forge-std checkouts at 7 versions, most of them pinned by OpenZeppelin.
+    # Reporting those would be permanently red and unfixable - nobody here can move OZ's pin.
+    project, shared = tree
+    add_commit(shared, "moved on")
+    vendored = project / "lib" / "vendor" / "lib" / "shared"
+    git(vendored, "fetch", "-q", "origin")
+    git(vendored, "checkout", "-q", "origin/main")
+    git(project / "lib" / "vendor", "add", "lib/shared")
+
+    assert conflicts(project) == [], "a third party's pin is not ours to reconcile"
+
+
+def test_a_repository_of_ours_that_does_not_share_the_toolkit_is_out_of_scope(tree):
+    # bao-factory's case: ours, but it takes no bao-base, pins its own solady and forge-std, and is
+    # consumed without inheriting ours. It has no reason to move when we do, so a disagreement with it
+    # is one neither side is wrong about.
+    project, shared = tree
+    add_commit(shared, "moved on")
+    vendored = project / "lib" / "standalone" / "lib" / "shared"
+    git(vendored, "fetch", "-q", "origin")
+    git(vendored, "checkout", "-q", "origin/main")
+    git(project / "lib" / "standalone", "add", "lib/shared")
+
+    assert conflicts(project) == [], "a repository standing alone keeps its own versions"
+
+
+def test_the_toolkit_itself_is_in_scope_without_depending_on_itself(tree):
+    # The one case the rule has to name outright. bao-base does not take bao-base, and excluding it
+    # would drop the repository every other one actually shares.
+    project, _ = tree
+    toolkit = project / "lib" / "toolkit"
+    add_commit(toolkit, "moved on locally")
+    git(project, "add", "lib/toolkit")
+
+    # `dep` still stages the toolkit at the commit it recorded, so the two now disagree about it.
+    found = conflicts(project)
+
+    assert [mismatch.dependency for mismatch in found] == ["toolkit"], found
+
+
+def test_the_staged_commit_is_read_not_the_committed_one(tree):
+    # `ratchet.resolve` reads the index because what is staged is what you mean. A bump on its way to
+    # a commit is the bump; reading HEAD would report the state the user has already moved on from.
+    project, shared = tree
+    bump(project, shared, "lib/shared")
+
+    assert conflicts(project), "a staged bump must be seen"
+
+    git(project, "restore", "--staged", "lib/shared")
+
+    assert conflicts(project) == [], "and unstaging it must un-see it"
+
+
+def test_each_side_carries_a_date_so_a_bare_hash_can_be_judged(tree):
+    # Several dependencies are pinned by commit with no tag at all - lib/bao-factory is one - and two
+    # hashes say nothing about which is ahead. Presence is the contract; the ORDER is not asserted,
+    # because two fixture commits land in the same second and controlling the clock would test the
+    # fixture rather than the code.
+    project, shared = tree
+    bump(project, shared, "lib/shared")
+
+    mismatch = conflicts(project)[0]
+
+    for side in (mismatch.ours, mismatch.theirs):
+        assert side.when and side.when.startswith("20"), side
+        # `git describe` carries the distance too - "v1-1-gdc59034" is one commit past v1 - which is
+        # what makes it readable when neither side sits exactly on a tag.
+        assert side.described and side.described.startswith("v1"), side
+    assert mismatch.ours.commit != mismatch.theirs.commit
+
+
+def test_ancestry_says_which_pin_is_later(tree):
+    # The structural answer, and the one that survives a rebase rewriting dates. It is what turns two
+    # hashes into a decision: one of us is simply behind.
+    project, shared = tree
+    bump(project, shared, "lib/shared")
+
+    assert conflicts(project)[0].relation == "ours is later"
+
+
+def test_unrelated_histories_are_not_called_divergence(tree):
+    # openzeppelin-contracts-upgradeable is transpiled per release, so v5.6.1 and v5.7.0 share no
+    # commit at all - `git merge-base` returns nothing. That is an ordinary version gap, and calling
+    # it divergence would raise an alarm about every OpenZeppelin upgrade there has ever been.
+    project, shared = tree
+    git(shared, "checkout", "-q", "--orphan", "regenerated")
+    (shared / "A.sol").write_text("// transpiled afresh\n")
+    git(shared, "add", "-A")
+    git(shared, "commit", "-qm", "regenerated from scratch")
+    git(project / "lib" / "shared", "fetch", "-q", "origin", "regenerated")
+    git(project / "lib" / "shared", "checkout", "-q", "FETCH_HEAD")
+    git(project, "add", "lib/shared")
+
+    mismatch = conflicts(project)[0]
+
+    assert mismatch.relation == "unrelated histories", mismatch
+    assert mismatch.ours.when and mismatch.theirs.when, "the date has to carry it when ancestry cannot"
+
+
+def test_a_pin_no_checkout_holds_cannot_be_ordered(tree):
+    # harbor-swap's own OpenZeppelin checkout does not contain the commit bao-base stages, and a
+    # read-only reader must not fetch to find out. Saying nothing is right; guessing is not.
+    project, shared = tree
+    # A well-formed commit no store holds. Not the null SHA, which git refuses outright as a gitlink.
+    unknown = "1" * 40
+    git(project, "update-index", "--cacheinfo", f"160000,{unknown},lib/shared")
+
+    mismatch = conflicts(project)[0]
+
+    assert mismatch.relation is None, mismatch
+    assert mismatch.ours.commit == unknown and mismatch.ours.when is None, mismatch
+
+
+def test_dependencies_are_grouped_by_url_not_by_directory_name(tmp_path):
+    # Two different dependencies can sit at the same directory name, and one dependency can sit at
+    # two names. The URL is the identity; the path is only where it is checked out.
+    remotes = tmp_path / "remotes"
+    first = make_repo(remotes / "ours", "alpha")
+    second = make_repo(remotes / "ours", "beta")
+    add_commit(second, "different from alpha")
+
+    project = tmp_path / "project"
+    project.mkdir()
+    git(project, "init", "-q", "-b", "main")
+    (project / "foundry.toml").write_text(FOUNDRY_TOML)
+    git(project, "add", "-A")
+    git(project, "commit", "-qm", "init")
+    git(project, "submodule", "add", "-q", str(first), "lib/one")
+    git(project, "submodule", "add", "-q", str(second), "lib/two")
+    git(project, "commit", "-qm", "add submodules")
+
+    # Two dependencies, two paths, two commits - and no disagreement, because they are not the same
+    # dependency. Keyed by directory name, "one" and "two" would look like one dependency in conflict.
+    assert conflicts(project) == []

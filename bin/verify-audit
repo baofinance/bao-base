@@ -227,6 +227,23 @@ main() {
   _wt_out=""                # persistent forge cache for the worktree, reused across revisions
   trap _cleanup_builds EXIT # guarantee worktree/build-dir cleanup on every exit path
 
+  # What this tree is built from, before anything is said about what is in it. A dependency's
+  # guarantees were established against ITS pins and are spent against ours — bao-base verifies its
+  # sources against one OpenZeppelin while a consumer compiles them against another — so a verdict
+  # below is only as good as the versions named here, and a disagreement fails the run.
+  #
+  # Not `yarn doctor`, which admits only checks that can never be legitimately red: this one is red
+  # for as long as the fleet is unconverged, and is read at the moment someone is about to deploy or
+  # audit rather than every morning. The tag comparison below still runs either way, so one run
+  # reports both.
+  dependency_conflicts=0
+  "$BAO_BASE_BIN_DIR"/run-python dependency-conflicts.py || dependency_conflicts=$?
+  if [[ ${dependency_conflicts} -eq 0 ]]; then
+    log "every dependency shared with a repository this one depends on is staged at the same commit"
+  else
+    echo # the findings above are a block; the tag sections below start their own
+  fi
+
   # Parse .verify-audit-ignore. Entries are keyed by the revision name as written on
   # the command line. ignores[rev]: space-separated file list (empty = whole-revision
   # ignore). scopes[rev]: space-separated directory pathspecs the revision applies to
@@ -297,7 +314,10 @@ main() {
   # `git restore --source=x` takes the branch — so the two sides of the comparison
   # would come from different commits and their difference would silently clear.
   # The tag wins, and the collision is reported so the caller can see which was used.
-  fail=0
+  # Seeded with the dependency check above rather than starting at 0, so a version disagreement fails
+  # the run even when every tag compares clean — and the tag comparison still runs, so one invocation
+  # reports both rather than hiding the second behind the first.
+  fail=${dependency_conflicts}
   revisions=()           # names as given, for output and .verify-audit-ignore lookup
   declare -A _rev_sha=() # name -> the commit it resolved to
   for arg in "$@"; do

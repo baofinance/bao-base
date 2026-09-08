@@ -213,6 +213,202 @@ def submodules(repo_dir: Path, prefix: str = "") -> list[tuple[Path, str, str]]:
     return found
 
 
+@dataclass(frozen=True)
+class Pinned:
+    """What one repository stages for a dependency: the commit, and enough about it to choose.
+
+    `described` is the nearest tag and `when` the commit date, because several dependencies are pinned
+    by bare commit - `lib/bao-factory` carries no tag at all - and a pair of hashes says nothing about
+    which is ahead. The date does, and choosing is the reader's."""
+
+    commit: str | None
+    described: str | None
+    when: str | None
+
+
+@dataclass(frozen=True)
+class Mismatch:
+    """One dependency that this repository and a dependency of ours each stage at a different commit.
+
+    `at` is where that other repository sits, so the fix is a `cd` away. Which SIDE moves is not the
+    tool's to decide: the newer pin is sometimes ours and sometimes theirs, and only the reader knows
+    whether they are catching up or waiting."""
+
+    dependency: str
+    at: str
+    ours: Pinned
+    theirs: Pinned
+    relation: str | None
+
+
+def _owner(url: str) -> str:
+    """The segment before the repository name - `baofinance` in `github.com/baofinance/bao-base`.
+
+    Read positionally rather than by host, so a file path stands in for a URL unchanged. That is what
+    lets the tests build a tree without a forge, and what keeps a mirror or a fork readable."""
+    parts = [part for part in url.rstrip("/").removesuffix(".git").replace(":", "/").split("/") if part]
+    return parts[-2] if len(parts) >= 2 else ""
+
+
+def _identity(url: str) -> str:
+    """A dependency's identity is its URL, not its directory name: two dependencies can be checked out
+    under one name, and one dependency under two.
+
+    Normalised so that nothing which is merely how a URL was written can split a dependency from
+    itself - the scheme, an ssh user, `:` against `/` as the host separator, a trailing `.git`. The
+    two spellings of one GitHub repository both land on `github.com/owner/name`."""
+    text = url.rstrip("/").removesuffix(".git")
+    text = text.split("://", 1)[-1]
+    text = text.split("@", 1)[-1]
+    return "/".join(part for part in text.replace(":", "/").split("/") if part).lower()
+
+
+def _declared(repo_dir: Path) -> list[tuple[str, str]]:
+    """Every submodule this repository declares, as (path within it, url)."""
+    listing = git(repo_dir, "config", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.(path|url)$")
+    fields: dict[str, dict[str, str]] = {}
+    for line in listing.stdout.splitlines():
+        key, _, value = line.partition(" ")
+        name, _, field = key.removeprefix("submodule.").rpartition(".")
+        if name and field in ("path", "url"):
+            fields.setdefault(name, {})[field] = value.strip()
+    return [(entry["path"], entry["url"]) for entry in fields.values() if "path" in entry and "url" in entry]
+
+
+def _staged(repo_dir: Path, path: str) -> str | None:
+    """The commit a repository STAGES for a submodule.
+
+    The index rather than HEAD, following `ratchet.resolve`: what is staged is what you mean to depend
+    on, and a bump on its way to a commit should read as the bump. Whether the index, HEAD and the
+    checkout agree is a separate question, and `condition()` already answers it - this must not
+    re-litigate it, or one fact grows two verdicts again."""
+    fields = git(repo_dir, "ls-files", "-s", path).stdout.split()
+    return fields[1] if len(fields) > 1 else None
+
+
+def _about(commit: str | None, checkouts: list[Path]) -> Pinned:
+    """Describe `commit` from whichever checkout holds the object.
+
+    More than one is tried because a repository that has not fetched lately may not hold the commit
+    another one stages, and every checkout of a dependency is a clone of the same upstream."""
+    if commit is None:
+        return Pinned(None, None, None)
+    for checkout in checkouts:
+        if not (checkout / ".git").exists():
+            continue
+        when = git(checkout, "show", "-s", "--format=%cI", commit).stdout.strip()
+        if not when:
+            continue
+        described = git(checkout, "describe", "--tags", commit).stdout.strip()
+        return Pinned(commit, described or None, when)
+    return Pinned(commit, None, None)
+
+
+def _relation(ours: str | None, theirs: str | None, checkouts: list[Path]) -> str | None:
+    """Which pin is later, read from the graph rather than from a clock.
+
+    Ancestry is the only structural answer - a rebase rewrites dates, a cherry-pick invents them - so
+    it is asked first and its verdict stands. It cannot always answer, and the two ways it fails must
+    stay apart:
+
+      `diverged`             a common ancestor exists and neither pin reaches the other. Real, and
+                             worth alarm.
+      `unrelated histories`  no common ancestor at all. Ordinary for a generated repository -
+                             openzeppelin-contracts-upgradeable is transpiled per release, so v5.6.1
+                             and v5.7.0 share no commit - and reporting THAT as divergence would
+                             alarm about every OpenZeppelin version gap there is.
+
+    Both commits must be in one object store; a checkout that has not fetched holds only its own, and
+    a read-only reader must not fetch to fill the gap. Each checkout of the dependency is tried, and
+    `None` means none of them could answer - which is when the tag and the date have to carry it.
+    """
+    if not ours or not theirs:
+        return None
+    for checkout in checkouts:
+        if not (checkout / ".git").exists():
+            continue
+        if any(git(checkout, "cat-file", "-e", commit).returncode != 0 for commit in (ours, theirs)):
+            continue
+        if git(checkout, "merge-base", "--is-ancestor", theirs, ours).returncode == 0:
+            return "ours is later"
+        if git(checkout, "merge-base", "--is-ancestor", ours, theirs).returncode == 0:
+            return "theirs is later"
+        return "diverged" if git(checkout, "merge-base", ours, theirs).stdout.strip() else "unrelated histories"
+    return None
+
+
+def _shares_our_toolchain(repo_dir: Path, path: str, url: str, toolchain: str) -> bool:
+    """Whether a dependency shares bao-base with us, and so has to agree with us about versions.
+
+    Not because bao-base dictates them - a version moves wherever it is first needed, and reaches the
+    others by way of bao-base afterwards. Sharing bao-base is what makes two repositories subject to
+    the same move, whichever of them starts it. Taking it as a submodule is what that looks like, so it
+    is what this reads: no configuration, and a new sibling joins the day it adopts bao-base. bao-base
+    itself counts without depending on itself, the one case the rule has to name outright.
+
+    A repository standing alone is deliberately out: bao-factory pins its own solady and forge-std, is
+    consumed without inheriting ours, and has no reason to move when we do. Requiring it to agree would
+    report a disagreement neither side is wrong about."""
+    if _identity(url).rsplit("/", 1)[-1] == toolchain:
+        return True
+    return any(_identity(u).rsplit("/", 1)[-1] == toolchain for _, u in _declared(repo_dir / path))
+
+
+def conflicting_dependencies(
+    repo_root: Path, owner: str | None = None, toolchain: str = "bao-base"
+) -> list[Mismatch]:
+    """Dependencies this repository and a dependency of OURS each stage at a different commit.
+
+    Only DIRECT against DIRECT, and only against submodules we own. That is what makes every finding
+    the same thing as its repair: a mismatch here is one `yarn update` away, in this repository, by
+    whoever is reading. A disagreement further down - bao-factory's forge-std beneath bao-base - is
+    real but is not ours to settle, and bao-base's own run reports it where it can be fixed. The check
+    decomposes across repositories rather than one run policing a whole tree, and nothing is lost.
+
+    Scope is the whole difficulty. A tree can hold sixteen checkouts of forge-std at seven versions,
+    most pinned by OpenZeppelin and openzeppelin-foundry-upgrades; requiring those to agree would be
+    permanently red and unfixable, which is the failure this module exists to remove. `owner` names
+    who counts as ours, defaulting to whoever owns this repository, so nothing needs configuring and a
+    sibling is included without being listed.
+
+    What a mismatch costs, when it is one: a dependency's guarantees are established against its OWN
+    pins and spent against ours - bao-base verifies its sources against one OpenZeppelin while we
+    compile them against another - and a config copied between repositories assumes a version we may
+    not have.
+    """
+    if owner is None:
+        origin = git(repo_root, "config", "--get", "remote.origin.url").stdout.strip()
+        owner = _owner(origin) if origin else ""
+
+    ours = {_identity(url): path for path, url in _declared(repo_root)}
+    found: list[Mismatch] = []
+    for path, url in _declared(repo_root):
+        if _owner(url) != owner or not (repo_root / path / ".git").exists():
+            continue
+        if not _shares_our_toolchain(repo_root, path, url, toolchain):
+            continue
+        for their_path, their_url in _declared(repo_root / path):
+            identity = _identity(their_url)
+            our_path = ours.get(identity)
+            if our_path is None:
+                continue
+            our_commit = _staged(repo_root, our_path)
+            their_commit = _staged(repo_root / path, their_path)
+            if our_commit == their_commit:
+                continue
+            checkouts = [repo_root / our_path, repo_root / path / their_path]
+            found.append(
+                Mismatch(
+                    dependency=identity.rsplit("/", 1)[-1],
+                    at=path,
+                    ours=_about(our_commit, checkouts),
+                    theirs=_about(their_commit, list(reversed(checkouts))),
+                    relation=_relation(our_commit, their_commit, checkouts),
+                )
+            )
+    return found
+
+
 def stray_clones(repo_root: Path) -> list[str]:
     """Git repositories sitting untracked in OUR OWN tree - a `forge install` or clone run in the
     wrong directory. Distinct from the litter inside a dependency: this is ours to delete, and its
