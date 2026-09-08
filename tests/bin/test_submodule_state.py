@@ -118,9 +118,11 @@ def test_a_branch_pin_behind_its_remote_is_not_a_fault(world):
     assert not found.is_fault
 
 
-def test_a_dependency_holding_unpushed_commits_is_reported(world):
-    # Commits that exist in one clone only: every other checkout is missing what the gitlink names,
-    # and a lost machine loses them. Reported on every run until they are pushed, deliberately.
+def test_working_in_a_dependency_still_blocks_a_delete_but_is_not_a_finding(world):
+    # Two different questions that used to share one answer. Whether something would be DESTROYED is
+    # what guards `yarn update`, and must stay as wide as it is. Whether something is WRONG is what
+    # doctor reports - and having work in progress in a dependency is not wrong, it is what working in
+    # one looks like. Reporting it every run says nothing except that you have not finished yet.
     add_commit(world.project / "lib" / "dep", "local work")
     git(world.project, "add", "-A")
     git(world.project, "commit", "-qm", "record local work")
@@ -133,11 +135,29 @@ def test_a_dependency_holding_unpushed_commits_is_reported(world):
     )
 
     facts = facts_for(world.project)
+
     assert facts.unpushed, "the fixture must leave a commit no remote holds"
+    assert facts.has_own_work, "which still blocks a destructive stage"
+    assert not condition(facts).is_fault, "but doctor does not grade work in progress"
+
+
+def test_work_in_progress_does_not_hide_a_real_disagreement(world):
+    # The reason it cannot merely be excluded from `is_fault`: it was returned AHEAD of the version
+    # comparison, so a dependency being edited reported "holds work that exists nowhere else" and
+    # buried the lock disagreement underneath it as an afterthought.
+    dep = world.project / "lib" / "dep"
+    add_commit(world.dep_source, "v2")
+    git(world.dep_source, "tag", "v2")
+    git(dep, "fetch", "-q", "origin", "--tags")
+    git(dep, "checkout", "-q", "v2")  # the checkout moves, so the lock is genuinely behind
+    (dep / "B.sol").write_text("// and work is in progress here\n")
+
+    facts = facts_for(world.project)
     found = condition(facts)
-    assert found.name == "at-risk-content"
-    assert found.is_fault, "one threshold: what blocks a delete is also what doctor reports"
-    assert facts.has_own_work, "and it blocks a destructive stage"
+
+    assert facts.has_own_work, "the edit is still seen, for the delete guard"
+    assert found.name == "bumped-not-locked", f"the version disagreement is the finding: {found}"
+    assert "foundry.lock" in found.detail, found.detail
 
 
 @pytest.mark.parametrize(
@@ -163,6 +183,26 @@ def test_a_version_bump_is_named_by_how_far_it_travelled(world, stop_after, expe
     assert found.is_fault
 
 
+def test_a_bump_that_is_staged_and_locked_is_ready_regardless_of_head(world):
+    # doctor is what you run BEFORE committing, so it must not withhold a pass until you commit -
+    # that makes the tool demand the very thing it exists to prepare you for. The checkout, what is
+    # staged, and foundry.lock are what it judges; HEAD lagging is only "not committed yet", which is
+    # what every piece of work in progress looks like.
+    dep = world.project / "lib" / "dep"
+    add_commit(world.dep_source, "v2")
+    git(world.dep_source, "tag", "v2")
+    git(dep, "fetch", "-q", "origin", "--tags")
+    git(dep, "checkout", "-q", "v2")
+    moved = git(dep, "rev-parse", "HEAD").stdout.strip()
+    write_lock(world.project, "lib/dep", "tag", "v2", moved)
+    git(world.project, "add", "lib/dep", "foundry.lock")
+
+    found = condition(facts_for(world.project))
+
+    assert not found.is_fault, found
+    assert found.name == "consistent", found
+
+
 def test_an_uninitialised_submodule_outranks_every_other_reading(world):
     # Nothing else about it is meaningful, so it must not be reported as a version disagreement.
     subprocess.run(["rm", "-rf", str(world.project / "lib" / "dep")], check=True)
@@ -171,15 +211,17 @@ def test_an_uninitialised_submodule_outranks_every_other_reading(world):
     assert found.name == "uninitialised"
 
 
-def test_a_developer_edit_is_reported_and_nested_drift_is_not(world):
+def test_a_developer_edit_blocks_a_delete_and_nested_drift_does_not(world):
     # The distinction the old tools could not make. A modified file is the developer's work and blocks
     # a delete; a nested submodule off its pin belongs to the dependency and is fixed by recursing.
+    # Blocking the delete is all it does - doctor does not report it, because working in a dependency
+    # is not a defect.
     (world.project / "lib" / "dep" / "A.sol").write_text("// edited by hand\n")
 
     facts = facts_for(world.project)
     assert facts.edits, "a hand-edited file must be seen"
-    assert condition(facts).name == "at-risk-content"
     assert facts.has_own_work
+    assert not condition(facts).is_fault
 
 
 def test_nested_drift_alone_is_not_the_developers_work(world):
@@ -365,6 +407,28 @@ def test_the_repair_names_the_tag_the_working_tree_is_on(world):
     assert repair(untagged, condition(untagged)) == "yarn update lib/dep@<ref>"
 
 
+def test_a_lock_that_is_the_only_thing_behind_is_repaired_by_relocking(world):
+    # The live case: lib/bao-base staged at a commit foundry.lock had not caught up with. The
+    # ref-bearing repair cannot serve it - `worktree_ref` is an exact tag match, so a branch bump
+    # lands on no tag and the advice asks for a `<ref>` the user has no way to name. `--relock` reads
+    # the staged commit instead of being told it, which is why it needs none.
+    #
+    # Staged is the whole condition, and `relock` refuses without it for the same reason: an
+    # accidental checkout would become the recorded pin, and the disagreement that would have shown
+    # it up would be gone. The unstaged case is the test above, which still asks for a ref.
+    dep = world.project / "lib" / "dep"
+    add_commit(world.dep_source, "past the tag")
+    git(dep, "fetch", "-q", "origin")
+    git(dep, "checkout", "-q", "origin/main")
+    git(world.project, "add", "lib/dep")
+
+    facts = facts_for(world.project)
+    assert facts.worktree_ref is None, "the case is precisely that no ref can be named"
+    assert facts.index_gitlink == facts.worktree, "staged is what makes the staged commit answerable"
+
+    assert repair(facts, condition(facts)) == "yarn update --relock lib/dep"
+
+
 def test_a_nested_submodules_own_commits_block_a_delete(world):
     # A `+` in `git submodule status` is produced identically by a version bump nobody recursed and
     # by a day of work committed inside the nested submodule. The flag cannot tell them apart, so the
@@ -516,10 +580,10 @@ def test_a_gitignored_file_is_not_treated_as_at_risk(world):
 
 def test_a_disagreement_that_is_not_a_bump_is_not_narrated_as_one(world):
     # Found in a third repository the tests had never seen: the working tree and foundry.lock agreed
-    # while the index and HEAD named something else. The old rule fell through to "the change has
-    # reached HEAD; foundry.lock is behind it" - the exact opposite of the truth. `reach` is now set
-    # only for the three shapes a version bump actually produces; every other disagreement is stated
-    # as the grouping of who agrees with whom, which is always true.
+    # while what was staged named something else. The old rule fell through to "the change has reached
+    # HEAD; foundry.lock is behind it" - the exact opposite of the truth. `reach` is now set only for
+    # the three shapes a version bump actually produces; every other disagreement is stated as the
+    # grouping of who agrees with whom, which is always true.
     dep = world.project / "lib" / "dep"
     add_commit(world.dep_source, "v2")
     git(world.dep_source, "tag", "v2")
@@ -535,27 +599,12 @@ def test_a_disagreement_that_is_not_a_bump_is_not_narrated_as_one(world):
     assert found.name == "bumped-not-locked"
     assert found.reach is None, f"this is not a bump, so nothing may be claimed about one: {found}"
     assert "working tree + foundry.lock say" in found.detail, found.detail
-    assert "index + HEAD say" in found.detail, found.detail
+    assert "index say" in found.detail, found.detail
 
-
-def test_the_repair_asks_for_a_commit_when_that_is_all_that_is_left(world):
-    # Found by comparing five repositories: one had every claim agreeing except HEAD - a bump staged
-    # and not committed - and a fixed "yarn update" string told the user to update a dependency whose
-    # only need was `git commit`. The repair now comes from the checklist, so it names whichever of
-    # the two tools actually has work left.
-    dep = world.project / "lib" / "dep"
-    add_commit(world.dep_source, "v2")
-    git(world.dep_source, "tag", "v2")
-    git(dep, "fetch", "-q", "origin", "--tags")
-    git(dep, "checkout", "-q", "v2")
-    write_lock(world.project, "lib/dep", "tag", "v2", git(dep, "rev-parse", "HEAD").stdout.strip())
-    git(world.project, "add", "lib/dep", "foundry.lock")
-
-    facts = facts_for(world.project)
-    found = condition(facts)
-
-    assert found.name == "bumped-not-locked", found
-    assert repair(facts, found) == "git commit", repair(facts, found)
+    # (A bump staged, locked, and not yet committed once had its own test here, asserting doctor
+    # advised `git commit`. That state is no longer a fault at all - see
+    # test_a_bump_that_is_staged_and_locked_is_ready_regardless_of_head - so the advice has nowhere to
+    # be given from. `yarn update --check` still reports the commit as outstanding, which is its job.)
 
 
 def test_the_repair_asks_for_staging_when_that_is_what_is_missing(world):

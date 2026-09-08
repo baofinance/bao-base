@@ -305,6 +305,8 @@ def test_submodule_problems_reports_one_finding_carrying_its_own_repair(tmp_path
     # What replaced four checks reporting the same cause four ways with two contradictory repairs.
     # The repair must be the command that writes BOTH the working tree and the lock: `git add` moves
     # the gitlink only, so offering it here would record the disagreement rather than resolve it.
+    # Here the tree and the index already agree and the lock alone is behind, so the command that
+    # closes that gap is `--relock`, which reads the staged commit rather than asking for a ref.
     sub = _init_repo(tmp_path / "sub")
     (sub / "a.txt").write_text("a")
     _git(sub, "add", ".")
@@ -316,9 +318,9 @@ def test_submodule_problems_reports_one_finding_carrying_its_own_repair(tmp_path
     problems = doctor.submodule_problems(host)
 
     assert len(problems) == 1, problems
-    assert problems[0].startswith("lib/sub: is not the version the commit records")
+    assert problems[0].startswith("lib/sub: is at more than one version")
     assert "foundry.lock say 0000000000" in problems[0], problems[0]
-    assert "Repair: yarn update lib/sub@" in problems[0]
+    assert "Repair: yarn update --relock lib/sub" in problems[0]
     assert "git add" not in problems[0]
 
 
@@ -443,16 +445,16 @@ def test_a_third_party_dependency_without_a_lock_is_not_called_unpinned(tmp_path
 
 
 def test_a_lock_deviation_is_stated_even_when_something_else_is_named(tmp_path):
-    # The working tree is the truth, so any other commit the lock names is a deviation to fix. A more
-    # urgent fault must not hide it: reporting only the edits would leave the reader believing the
-    # pin was sound.
+    # The working tree is the truth, so any other commit the lock names is a deviation to fix.
+    # Editing a file in the dependency is work in progress and reported by nothing, so the lock
+    # deviation has to stand on its own - it used to arrive as a footnote under "holds work that
+    # exists nowhere else", which outranked it and read as the lesser problem.
     host = _nest(tmp_path)
     (host / "lib" / "dep" / "a.txt").write_text("edited by hand\n")
 
-    problems = [p for p in doctor.submodule_problems(host) if p.startswith("lib/dep:")]
-
-    assert problems and problems[0].startswith("lib/dep: holds work that exists nowhere else"), problems
-    assert "foundry.lock names" not in problems[0], "the pin matches here, so nothing to say"
+    assert [p for p in doctor.submodule_problems(host) if p.startswith("lib/dep:")] == [], (
+        "a hand-edited file in a dependency is not a finding"
+    )
 
     lock = json.loads((host / "foundry.lock").read_text())
     lock["lib/dep"] = {"tag": {"name": "v1", "rev": "0" * 40}}
@@ -460,5 +462,5 @@ def test_a_lock_deviation_is_stated_even_when_something_else_is_named(tmp_path):
 
     problems = [p for p in doctor.submodule_problems(host) if p.startswith("lib/dep:")]
 
-    assert problems[0].startswith("lib/dep: holds work that exists nowhere else"), problems
-    assert "and foundry.lock names 0000000000" in problems[0], problems
+    assert problems[0].startswith("lib/dep: is at more than one version"), problems
+    assert "foundry.lock say 0000000000" in problems[0], problems

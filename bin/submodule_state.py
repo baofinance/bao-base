@@ -354,9 +354,7 @@ def _shares_our_toolchain(repo_dir: Path, path: str, url: str, toolchain: str) -
     return any(_identity(u).rsplit("/", 1)[-1] == toolchain for _, u in _declared(repo_dir / path))
 
 
-def conflicting_dependencies(
-    repo_root: Path, owner: str | None = None, toolchain: str = "bao-base"
-) -> list[Mismatch]:
+def conflicting_dependencies(repo_root: Path, owner: str | None = None, toolchain: str = "bao-base") -> list[Mismatch]:
     """Dependencies this repository and a dependency of OURS each stage at a different commit.
 
     Only DIRECT against DIRECT, and only against submodules we own. That is what makes every finding
@@ -530,7 +528,7 @@ class Condition:
         "litter-present": "has leftover directories from an older version",
         "nested-drift": "its own dependencies are not at the commits it records",
         "unpinned": "missing from foundry.lock",
-        "bumped-not-locked": "is not the version the commit records",
+        "bumped-not-locked": "is at more than one version",
         "behind-moving-pin": "is behind the branch it tracks",
         "consistent": "agrees with the commit",
     }
@@ -543,8 +541,9 @@ class Condition:
     def is_fault(self) -> bool:
         """Whether doctor should report it. Only a branch pin behind its remote is excluded: that is
         the remote moving, not this repository holding anything, and bao-base's main moves daily.
-        Content that exists nowhere else IS reported every run, deliberately - a dependency you are
-        working in fires until you push, which is the point."""
+
+        Work in progress inside a dependency is not among these at all - see `condition`. Doctor
+        grades what has been DONE, and unfinished work is not a defect."""
         return self.name not in ("consistent", "behind-moving-pin")
 
 
@@ -555,28 +554,30 @@ def condition(facts: Facts) -> Condition:
     if not facts.initialised:
         return Condition("uninitialised", "recorded but not checked out")
 
-    if facts.at_risk:
-        places = sorted({item.path for item in facts.at_risk})
-        kinds = {item.kind for item in facts.at_risk}
-        detail = (
-            f"{len(facts.at_risk)} thing(s) no remote has "
-            f"({', '.join(sorted(kinds))}): {', '.join(places[:3])}{'' if len(places) <= 3 else ', ...'}"
-        )
-        # Reported whatever the kind, including commits that are merely unpushed: they exist in one
-        # place only, so a lost laptop loses them, and every clone but this one is missing what the
-        # gitlink points at. One threshold, so doctor and the checklist cannot disagree about what
-        # counts as at risk.
-        return Condition("at-risk-content", detail)
+    # `at_risk` is deliberately NOT a condition. It answers "would this be destroyed", which is what
+    # guards `yarn update`'s deleting steps and must stay as wide as it is - `has_own_work` still
+    # carries it, unchanged. It does not answer "is this wrong", which is what doctor reports, and
+    # having work in progress inside a dependency is not wrong: it is what working in one looks like,
+    # and saying so every run says only that you have not finished yet.
+    #
+    # Removed here rather than merely excluded from `is_fault`, because it was returned AHEAD of the
+    # version comparison below - so a dependency being edited announced "holds work that exists nowhere
+    # else" and buried a real lock disagreement under it as an afterthought.
 
     # URL drift is deliberately NOT named here. doctor owns it in its own check, which compares
     # .git/config (what `git submodule update` actually reads) rather than the submodule's `origin`,
     # and recurses. Two checks reporting one fault in two vocabularies is the thing this module
     # exists to stop, so there is exactly one owner.
 
+    # HEAD is deliberately absent. doctor is what you run BEFORE committing, so a check that withholds
+    # a pass until you commit demands the very thing it exists to prepare you for - and HEAD lagging is
+    # only "not committed yet", which is what all work in progress looks like. What it judges is the
+    # checkout, what you have STAGED, and foundry.lock: the same index-is-the-baseline rule as
+    # `ratchet.resolve` and the dependency-version check. HEAD still narrates `reach` below, because
+    # how far a bump travelled is worth saying once something else has already made it a fault.
     pins = {
         "working tree": facts.worktree,
         "index": facts.index_gitlink,
-        "HEAD": facts.head_gitlink,
         "foundry.lock": facts.lock.rev,
     }
     distinct = {value for value in pins.values() if value}
@@ -749,6 +750,18 @@ def repair(facts: Facts, found: Condition) -> str:
         # forge writes the entry when it installs, so pinning it is the same command as updating it.
         return f"yarn update {name}@{facts.worktree_ref or '<ref>'}"
     if found.name in ("bumped-not-locked", "litter-present"):
+        # When the checkout and the index already agree and only the lock is behind them, the repair
+        # needs no ref: `--relock` reads the staged commit rather than being told it. That matters
+        # because `worktree_ref` is an EXACT tag match, so a branch bump - which is what most bumps
+        # are - lands on no tag, and the ref-bearing advice below degrades to a literal `<ref>` the
+        # user has no way to answer.
+        #
+        # Staged is the whole condition, and it is `relock`'s own precondition for the same reason:
+        # what it records is what is there, so an accidental checkout would become the recorded pin
+        # and the disagreement that would have shown it up would be gone. Unstaged, the checkout is
+        # exactly the thing that might be wrong, and the user has to say what they meant.
+        if facts.worktree is not None and facts.index_gitlink == facts.worktree and facts.lock.rev != facts.worktree:
+            return f"yarn update --relock {name}"
         # Taken from the CHECKLIST rather than written here, against the version the working tree is
         # actually on - the working tree being the truth. So doctor's advice is literally the next
         # thing `yarn update` would do, and the two cannot drift apart or contradict each other.

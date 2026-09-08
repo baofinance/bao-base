@@ -8,6 +8,13 @@
 # flip is judged: an intended behaviour change (update the test) or a regression
 # (fix the code). Tests marked "EXPECTED TO FLIP" are the intended changes.
 
+# Entered through `run`, as every script under bin/ is: `run` sources them, having exported the
+# environment they reach other tools by (BAO_BASE_BIN_DIR, the logging functions). Executing the file
+# directly leaves that unset, so verify-audit's dependency-version check cannot start - and the
+# failure lands on whichever line reaches for it first, which says nothing about the test.
+BAO_BASE_RUN="$PWD/run"
+
+# The path itself, for the tests that source the file to reach a single function.
 VERIFY_AUDIT="$PWD/bin/verify-audit"
 
 # Build a self-contained foundry git repo with an `origin` remote (so the
@@ -77,7 +84,7 @@ contract Foo { function f() external pure returns (uint256) { return 1; } }
 SOL
   _tag_fixture "deploy/test"
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -eq 0 ]
@@ -95,7 +102,7 @@ SOL
   _sed_inplace 's/return 1;/return 2;/' "$FIX/src/Foo.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -ne 0 ]
@@ -123,7 +130,7 @@ SOL
   _sed_inplace 's#import "./dep1.sol";#import "./dep2.sol";#' "$FIX/src/New.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m reimport
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -eq 0 ]
@@ -162,7 +169,7 @@ contract New {
 SOL
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m rename
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   # rename + contract-name + NatSpec change, identical logic -> same creation
@@ -183,7 +190,7 @@ SOL
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change
   printf 'deploy/test\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -eq 0 ]
@@ -202,7 +209,7 @@ SOL
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change
   printf 'deploy/test src/Foo.sol\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -eq 0 ]
@@ -220,7 +227,7 @@ SOL
   # no changes, but the tag is whole-ignored -> stale
   printf 'deploy/test\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -ne 0 ]
@@ -240,7 +247,7 @@ SOL
   # Foo.sol legitimately ignored; Ghost.sol never changed -> stale entry.
   printf 'deploy/test src/Foo.sol src/Ghost.sol\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -ne 0 ]
@@ -273,7 +280,7 @@ SOL
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m comment+reindent
 
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -eq 0 ]
@@ -381,7 +388,7 @@ SOL
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m rename2
 
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -eq 0 ]
@@ -404,7 +411,7 @@ SOL
   _sed_inplace 's/X = 1;/X = 2;/' "$FIX/src/Imm.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m ctor
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   # runtime bytecode is identical (immutable placeholder); creation bytecode
@@ -428,7 +435,7 @@ contract Bad { function f() external pure returns (uint256) { return 1; } }
 SOL
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m fix
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -ne 0 ]
@@ -451,7 +458,7 @@ SOL
   # cloned inside BARE_PARENT so teardown removes it with the rest of the fixture
   git clone -q --depth=1 "file://$BARE" "$BARE_PARENT/shallow"
   cd "$BARE_PARENT/shallow"
-  run "$VERIFY_AUDIT"
+  run "$BAO_BASE_RUN" verify-audit
   echo "status=$status"
   echo "output=$output"
   [ "$status" -ne 0 ]
@@ -468,7 +475,7 @@ SOL
   _tag_fixture "deploy/test"
   git -C "$FIX" rm -q src/Gone.sol && git -C "$FIX" commit -q -m del
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -ne 0 ]
@@ -502,7 +509,7 @@ SOL
   printf '// pinned-settings test\n' >>"$FIX/src/Loop.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m settings+comment
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -eq 0 ]
@@ -566,7 +573,7 @@ SOL
   _sed_inplace 's/contract Beta /contract BetaV2 /' "$FIX/src/BetaV2.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m renames
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/*"
+  run "$BAO_BASE_RUN" verify-audit "deploy/*"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -eq 0 ]
@@ -595,7 +602,7 @@ SOL
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m rename
   printf 'deploy/test src/WidgetV2.sol\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -ne 0 ]
@@ -617,7 +624,7 @@ SOL
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change
   printf 'deploy/test src/Widget.sol\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -eq 0 ]
@@ -638,7 +645,7 @@ SOL
   cd "$FIX"
   # a deleted file cannot be built; the entry legitimately suppresses real drift,
   # so it must stay "ignored via" and never be flagged as a redundant entry.
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -eq 0 ]
@@ -665,7 +672,7 @@ _scope_fixture() {
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change-b
   printf 'deploy/test {src/a}\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -eq 0 ]
@@ -678,7 +685,7 @@ _scope_fixture() {
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change-a
   printf 'deploy/test {src/a}\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -ne 0 ]
@@ -691,7 +698,7 @@ _scope_fixture() {
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change-b
   printf 'deploy/test {src/a} src/b/Y.sol\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -ne 0 ]
@@ -712,7 +719,7 @@ _scope_fixture() {
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change-both
   printf 'deploy/test {deployments/m.json:contractPath}\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -ne 0 ]
@@ -731,7 +738,7 @@ _scope_fixture() {
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m rename
   printf 'deploy/test {deployments/m.json:contractPath}\n' >"$FIX/.verify-audit-ignore"
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/test"
+  run "$BAO_BASE_RUN" verify-audit "deploy/test"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -eq 0 ]
@@ -754,7 +761,7 @@ contract Foo { function f() external pure returns (uint256) { return 1; } }
 SOL
   _tag_fixture "deploy/test"
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy/definitely-not-a-tag"
+  run "$BAO_BASE_RUN" verify-audit "deploy/definitely-not-a-tag"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -ne 0 ]
@@ -772,7 +779,7 @@ contract Foo { function f() external pure returns (uint256) { return 1; } }
 SOL
   _commit_fixture >/dev/null
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy*"
+  run "$BAO_BASE_RUN" verify-audit "deploy*"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -eq 0 ]
@@ -790,7 +797,7 @@ SOL
   _sed_inplace 's/return 1;/return 2;/' "$FIX/src/Foo.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change
   cd "$FIX"
-  run "$VERIFY_AUDIT" "$base"
+  run "$BAO_BASE_RUN" verify-audit "$base"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -ne 0 ]
@@ -810,7 +817,7 @@ SOL
   _sed_inplace 's/return 1;/return 2;/' "$FIX/src/Foo.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change
   cd "$FIX"
-  run "$VERIFY_AUDIT" "deploy-baseline"
+  run "$BAO_BASE_RUN" verify-audit "deploy-baseline"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -ne 0 ]
@@ -833,7 +840,7 @@ SOL
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m change
   git -C "$FIX" branch both 2>/dev/null
   cd "$FIX"
-  run "$VERIFY_AUDIT" "both"
+  run "$BAO_BASE_RUN" verify-audit "both"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -ne 0 ]
@@ -882,7 +889,7 @@ SOL
   # only the new path lets the removal ship unseen.
   _mispair_fixture
   cd "$FIX"
-  run "$VERIFY_AUDIT" "$BASE"
+  run "$BAO_BASE_RUN" verify-audit "$BASE"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -ne 0 ]
@@ -895,7 +902,7 @@ SOL
   # put both explanations in front of the reader rather than picking one.
   _mispair_fixture
   cd "$FIX"
-  run "$VERIFY_AUDIT" "$BASE"
+  run "$BAO_BASE_RUN" verify-audit "$BASE"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -ne 0 ]
@@ -935,7 +942,7 @@ _unpairable_by_git_fixture() { # $1 = contract name at HEAD, $2 = destination pa
 @test "a move git could not pair is paired by bytecode, naming both paths" {
   _unpairable_by_git_fixture "Renamed" "src/new/Renamed.sol"
   cd "$FIX"
-  run "$VERIFY_AUDIT" "$BASE"
+  run "$BAO_BASE_RUN" verify-audit "$BASE"
   echo "status=$status"
   echo "output=$output"
   [[ "$output" == *"src/old/Moved.sol"* ]]
@@ -956,7 +963,7 @@ _unpairable_by_git_fixture() { # $1 = contract name at HEAD, $2 = destination pa
   printf '// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\ncontract Twin2 {\n  uint256 public constant K = 3;\n  function f(uint256 x) external pure returns (uint256){ return x + K; }\n}\n' >"$FIX/src/new/Twin2.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m twins
   cd "$FIX"
-  run "$VERIFY_AUDIT" "$BASE"
+  run "$BAO_BASE_RUN" verify-audit "$BASE"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -ne 0 ]
@@ -976,7 +983,7 @@ _unpairable_by_git_fixture() { # $1 = contract name at HEAD, $2 = destination pa
   printf '// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\nabstract contract Fresh {\n  function g() external pure virtual returns (uint256);\n}\n' >"$FIX/src/new/Fresh.sol"
   git -C "$FIX" add -A && git -C "$FIX" commit -q -m abstracts
   cd "$FIX"
-  run "$VERIFY_AUDIT" "$BASE"
+  run "$BAO_BASE_RUN" verify-audit "$BASE"
   echo "status=$status"
   echo "output=$output"
   [ "$status" -ne 0 ]

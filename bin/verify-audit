@@ -236,6 +236,11 @@ main() {
   # for as long as the fleet is unconverged, and is read at the moment someone is about to deploy or
   # audit rather than every morning. The tag comparison below still runs either way, so one run
   # reports both.
+  # Set by `run`, which sources this. Asserted rather than assumed: unset it would expand to an
+  # empty string and address the wrong path, and shellcheck cannot see an export made by a caller.
+  # Stated here, beside the only use, rather than at load: the tests source this file to reach a
+  # single function, and a load-time assertion would put the whole environment in their way.
+  : "${BAO_BASE_BIN_DIR:?must be set by the bao-base run script}"
   dependency_conflicts=0
   "$BAO_BASE_BIN_DIR"/run-python dependency-conflicts.py || dependency_conflicts=$?
   if [[ ${dependency_conflicts} -eq 0 ]]; then

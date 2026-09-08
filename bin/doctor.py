@@ -574,11 +574,14 @@ def build_checks(repo_root: Path, foundry_remappings: list[str], wake_remappings
             submodule_url_drift_problems(repo_root),
         ),
         Check(
-            "each dependency is the version the commit records",
-            "the commit is the only version anyone else gets; the checkout, the index and "
-            "foundry.lock are yours alone, and no single tool writes all four",
-            "so a disagreement means you are building something no one else can, and a version "
-            "change that stranded directories leaves them until someone removes them",
+            "each dependency is at one version",
+            "the checkout, what you have staged and foundry.lock must name one commit, and no single "
+            "tool writes all three — git writes the first two and forge the third. HEAD is not "
+            "consulted: this is what you run BEFORE committing, so a commit not yet made is not a "
+            "fault",
+            "so a disagreement means the version you are building is not the version you are about "
+            "to record, and a version change that stranded directories leaves them until someone "
+            "removes them",
             submodule_problems(repo_root),
         ),
         workflow_copy.check(repo_root),

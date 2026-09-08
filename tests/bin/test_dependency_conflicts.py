@@ -88,7 +88,9 @@ def test_a_long_version_does_not_pad_another_group(tmp_path):
     # across the whole report made every `v1.9.5` elsewhere carry twenty-four trailing spaces.
     found = report(
         [
-            mismatch("bao-base", "lib/harbor", "deploy/harbor-1.1-223-g0d965ca", "deploy/harbor-1.1-196-g998dc0f", None),
+            mismatch(
+                "bao-base", "lib/harbor", "deploy/harbor-1.1-223-g0d965ca", "deploy/harbor-1.1-196-g998dc0f", None
+            ),
             mismatch("solady", "lib/bao-base", "v0.1.26", "v0.0.287", "ours is later"),
         ]
     )
@@ -130,7 +132,9 @@ def test_only_the_other_repository_is_annotated(tmp_path):
 def test_unrelated_histories_carry_no_claim_about_order(tmp_path):
     # openzeppelin-contracts-upgradeable is transpiled per release, so two versions share no commit.
     # An ordinary version gap, and calling it divergence would alarm about every OZ upgrade there is.
-    found = report([mismatch("openzeppelin-contracts-upgradeable", "lib/bao-base", "v5.6.1", "v5.7.0", "unrelated histories")])
+    found = report(
+        [mismatch("openzeppelin-contracts-upgradeable", "lib/bao-base", "v5.6.1", "v5.7.0", "unrelated histories")]
+    )
 
     assert "diverged" not in found
     assert "behind" not in found and "ahead" not in found

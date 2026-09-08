@@ -64,8 +64,7 @@ def report(found: list[Mismatch]) -> str:
     for dependency, mismatches in grouped.items():
         rows = [_side(mismatches[0].ours, "this repo")]
         rows += [
-            _side(mismatch.theirs, mismatch.at, RELATIVE.get(mismatch.relation or "", ""))
-            for mismatch in mismatches
+            _side(mismatch.theirs, mismatch.at, RELATIVE.get(mismatch.relation or "", "")) for mismatch in mismatches
         ]
         version_width = max(len(row[0]) for row in rows)
         where_width = max(len(row[2]) for row in rows)
