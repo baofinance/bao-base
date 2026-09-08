@@ -3,7 +3,10 @@
     "rev": "b49a45ff1aaebb1e56164091020e2bbe4c27cfcb"
   },
   "lib/forge-std": {
-    "rev": "b93cf4bc34ff214c099dc970b153f85ade8c9f66"
+    "tag": {
+      "name": "v1.16.2",
+      "rev": "bf647bd6046f2f7da30d0c2bf435e5c76a780c1b"
+    }
   },
   "lib/openzeppelin-contracts-upgradeable": {
     "tag": {
@@ -12,7 +15,10 @@
     }
   },
   "lib/openzeppelin-foundry-upgrades": {
-    "rev": "16e0ae21e0e39049f619f2396fa28c57fad07368"
+    "tag": {
+      "name": "v0.4.2",
+      "rev": "8ddceb0c0d94f7f9420fee1ee30fffbdacadf08f"
+    }
   },
   "lib/solady": {
     "rev": "717c0a860a83dc9a1520d32384577aec51cecd84"
