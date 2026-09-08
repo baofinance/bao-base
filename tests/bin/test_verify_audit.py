@@ -101,6 +101,25 @@ class FoundryFixture:
         self.git("tag", name)
         self.git("push", "-q", "origin", "HEAD", "--tags", check=False)
 
+    def add_submodule(self, name, files):
+        """Create a repo holding `files` and add it as a submodule at lib/<name>; returns its origin.
+
+        The origin is a directory beside the fixture rather than inside it, so a test can make it
+        unreachable and prove a run does not need it.
+        """
+        origin = self.root / "deps" / name
+        origin.mkdir(parents=True)
+        for args in (("init", "-q"), ("config", "user.email", "t@t"), ("config", "user.name", "test")):
+            self.git(*args, cwd=origin)
+        for relpath, text in files.items():
+            path = origin / relpath
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        self.git("add", "-A", cwd=origin)
+        self.git("commit", "-qm", "dependency", cwd=origin)
+        self.git("-c", "protocol.file.allow=always", "submodule", "add", "-q", str(origin), f"lib/{name}")
+        return origin
+
     def verify_audit(self, *args, cwd=None, env=None):
         """Run verify-audit over the fixture; returns (exit status, stdout+stderr)."""
         return run_verify_audit(cwd or self.work, *args, env=env)
@@ -681,7 +700,8 @@ def test_uncompilable_revision_version_is_a_loud_error(fix):
     fix.commit("fix")
     status, output = fix.verify_audit("deploy/test")
     assert status != 0, output
-    assert "build at" in output
+    assert "failed to compile" in output  # named as the revision's sources, not the environment
+    assert "Expected identifier" in output  # and forge's own account of what is wrong with them
 
 
 def test_shallow_clone_is_a_loud_error(fix):
@@ -1026,6 +1046,185 @@ def test_a_snapshot_that_cannot_be_taken_is_a_loud_error(tmp_path):
     assert "snapshot" in output
 
 
+# ── what the run reads, and what it leaves to its caller ───────────────────────────────────────────
+
+
+def test_a_tag_this_clone_has_not_seen_is_still_audited(fix):
+    """A tag cut since the last fetch is audited, which is the whole reason the run refreshes them.
+
+    A stale tag list cannot be detected locally - a tag never seen leaves no trace - so a run that
+    skipped this would audit fewer revisions than exist and report that nothing was wrong.
+    """
+    fix.write("src/Foo.sol", FOO)
+    fix.tag("deploy/local")
+    # cut only on the remote, as a colleague's tag would be
+    fix.git("tag", "deploy/cut-elsewhere", cwd=fix.bare)
+
+    status, output = fix.verify_audit("deploy/*")
+    assert status == 0, output
+    assert "deploy/local" in output
+    assert "deploy/cut-elsewhere" in output
+
+
+def test_a_fetch_that_fails_warns_and_audits_the_local_tags(fix):
+    """No reachable remote is not a reason to refuse: the local tags are still worth auditing.
+
+    It has to say so, though - a silently skipped refresh is indistinguishable from a complete run.
+    """
+    fix.write("src/Foo.sol", FOO)
+    fix.tag("deploy/test")
+    fix.git("remote", "set-url", "origin", str(fix.root / "not-a-repository"))
+
+    status, output = fix.verify_audit("deploy/*")
+    assert status == 0, output
+    assert "could not refresh the tags" in output
+    assert "deploy/test" in output
+
+
+def test_a_revision_missing_locally_names_the_fetch_to_run(fix):
+    """Since the tool no longer fetches, a name it cannot resolve has to say how to go and get it."""
+    fix.write("src/Foo.sol", FOO)
+    fix.tag("deploy/test")
+
+    status, output = fix.verify_audit("deploy/not-here-yet")
+    assert status != 0, output
+    assert "deploy/not-here-yet" in output
+    assert "git fetch --tags" in output
+
+
+def test_a_patterns_match_count_is_reported(fix):
+    """A pattern that quietly matched fewer tags than expected is how an audit checks less than it says.
+
+    The count is stated so a stale local tag list shows up as a number the reader can disbelieve.
+    """
+    fix.write("src/Foo.sol", FOO)
+    fix.tag("deploy/one")
+    fix.write("src/Bar.sol", FOO.replace("Foo", "Bar"))
+    fix.tag("deploy/two")
+
+    status, output = fix.verify_audit("deploy/*")
+    assert status == 0, output
+    assert "matched 2 tags" in output
+
+
+def test_imports_that_do_not_resolve_are_reported_as_an_environment_failure(fix):
+    """ "The revision failed to build" reads as "that code is broken", which sends the reader to the
+    wrong place when the truth is that the current configuration no longer covers what it imported.
+
+    This is the failure that opened this whole piece of work, so the report has to separate the two
+    and show what forge actually said.
+    """
+    fix.write("foundry.toml", REMAPPED_TOML.format(target="vendor"))
+    fix.write("vendor/Dep.sol", DEP)
+    fix.write("src/Foo.sol", USES_DEP)
+    fix.tag("deploy/test")
+    # the dependency is dropped: the current tree compiles without it, the revision cannot
+    fix.write("foundry.toml", FOUNDRY_TOML)
+    fix.git("rm", "-r", "-q", "vendor")
+    fix.write("src/Foo.sol", FOO)
+    fix.commit("drop the dependency")
+
+    status, output = fix.verify_audit("deploy/test")
+    assert status != 0, output
+    assert "resolve" in output  # named as a resolution failure, not as broken revision sources
+    assert "@x/Dep.sol" in output  # and forge's own account of what it could not find
+
+
+# ── submodules: populated from what is already here, and only where the build reaches ──────────────
+
+SUBMODULE_TOML = (
+    "[profile.default]\n"
+    'src = "src"\n'
+    'out = "out"\n'
+    "auto_detect_remappings = {auto_detect}\n"
+    'remappings = ["@x/=lib/dep/src/"]\n'
+)
+
+
+@pytest.fixture
+def submodule_fix(fix):
+    """A revision whose source resolves through a submodule, beside one nothing remaps to."""
+    fix.add_submodule("dep", {"src/Dep.sol": DEP})
+    fix.add_submodule("unused", {"src/Other.sol": DEP})
+    fix.write("foundry.toml", SUBMODULE_TOML.format(auto_detect="false"))
+    fix.write("src/Foo.sol", USES_DEP)
+    fix.tag("deploy/test")
+    fix.write("src/Foo.sol", "// a neutral comment\n" + USES_DEP)
+    fix.commit("comment")
+    return fix
+
+
+def test_a_run_does_not_need_the_submodule_remotes(submodule_fix):
+    """Everything a submodule contributes is already in this clone, so no remote is consulted.
+
+    Cloning each submodule per run is both slow - harbor has 29 of them and 363M of module stores -
+    and a dependency on the network for a comparison whose inputs are all local.
+    """
+    (submodule_fix.root / "deps").rename(submodule_fix.root / "deps-gone")
+
+    status, output = submodule_fix.verify_audit("deploy/test")
+    assert status == 0, output
+    assert "bytecode-equivalent" in output
+
+
+def test_a_submodule_commit_no_remote_has_is_still_audited(submodule_fix):
+    """A submodule at an unpushed commit is the normal state while developing one, not an error.
+
+    The commit exists in this clone, which is where the audit reads it from; asking a remote for it
+    would fail, and would make the tool unusable exactly when a dependency is being worked on.
+    """
+    submodule_fix.write("lib/dep/src/Extra.sol", DEP)
+    submodule_fix.git("add", "-A", cwd=submodule_fix.work / "lib" / "dep")
+    submodule_fix.git("commit", "-qm", "unpushed work", cwd=submodule_fix.work / "lib" / "dep")
+
+    status, output = submodule_fix.verify_audit("deploy/test")
+    assert status == 0, output
+    assert "bytecode-equivalent" in output
+
+
+def test_nested_submodule_worktree_registrations_are_cleaned_up(submodule_fix):
+    """A run leaves no registration behind in any submodule it populated."""
+    status, output = submodule_fix.verify_audit("deploy/test")
+    assert status == 0, output
+    listed = submodule_fix.git("worktree", "list", cwd=submodule_fix.work / "lib" / "dep")
+    assert len(listed.splitlines()) == 1, listed
+
+
+def test_the_main_submodule_checkout_and_its_edits_survive_a_run(submodule_fix):
+    """A run must not disturb the submodule checkout being worked in - the hazard with real cost."""
+    dep = submodule_fix.work / "lib" / "dep"
+    before = submodule_fix.git("rev-parse", "HEAD", cwd=dep)
+    (dep / "src" / "Dep.sol").write_text(DEP + "// work in progress\n")
+
+    status, output = submodule_fix.verify_audit("deploy/test")
+    assert status == 0, output
+    assert submodule_fix.git("rev-parse", "HEAD", cwd=dep) == before
+    assert "work in progress" in (dep / "src" / "Dep.sol").read_text()
+
+
+def test_only_the_submodules_the_remappings_reach_are_needed(submodule_fix, monkeypatch):
+    """A submodule no remapping target points into is never read, so it is never populated."""
+    monkeypatch.chdir(submodule_fix.work)
+    base = verify_audit._snapshot_commit()
+    assert base is not None
+    submodules = verify_audit._submodules(base)
+    assert set(submodules) == {"lib/dep", "lib/unused"}
+
+    needed = verify_audit._needed_submodules(submodule_fix.work, submodules)
+    assert set(needed) == {"lib/dep"}
+
+
+def test_auto_detected_remappings_need_every_submodule(submodule_fix, monkeypatch):
+    """With auto-detection on, forge may resolve through any of them, so none can be left out."""
+    submodule_fix.write("foundry.toml", SUBMODULE_TOML.format(auto_detect="true"))
+    monkeypatch.chdir(submodule_fix.work)
+    base = verify_audit._snapshot_commit()
+    assert base is not None
+
+    needed = verify_audit._needed_submodules(submodule_fix.work, verify_audit._submodules(base))
+    assert set(needed) == {"lib/dep", "lib/unused"}
+
+
 # ── the build primitives, reached directly ─────────────────────────────────────────────────────────
 
 LOOP = (
@@ -1135,9 +1334,11 @@ def test_file_signature_is_identical_across_a_pure_rename(fix, tmp_path, monkeyp
     assert base is not None
     builds = verify_audit._Builds(base)
     try:
-        assert verify_audit._forge_build(head_out, tmp_path / "head-cache", ["src/New.sol"])
+        built, report = verify_audit._forge_build(head_out, tmp_path / "head-cache", ["src/New.sol"])
+        assert built, report
         assert builds.ensure_worktree()
-        assert builds.overlay_and_build_revision("deploy/test", ["src/Old.sol"], ["src/Old.sol"])
+        built, report = builds.overlay_and_build_revision("deploy/test", ["src/Old.sol"], ["src/Old.sol"])
+        assert built, report
         signature_old = verify_audit._file_signature(builds.wt_out, "src/Old.sol")
         signature_new = verify_audit._file_signature(head_out, "src/New.sol")
         builds.restore_overlay(["src/Old.sol"])
@@ -1159,9 +1360,11 @@ def test_differing_compiler_settings_do_change_the_bytecode(fix, tmp_path, monke
     monkeypatch.chdir(fix.work)
 
     fix.write("foundry.toml", FOUNDRY_TOML + "via_ir = false\noptimizer = true\n")
-    assert verify_audit._forge_build(tmp_path / "no-ir", tmp_path / "no-ir-cache", ["src/Loop.sol"])
+    built, report = verify_audit._forge_build(tmp_path / "no-ir", tmp_path / "no-ir-cache", ["src/Loop.sol"])
+    assert built, report
     fix.write("foundry.toml", FOUNDRY_TOML + "via_ir = true\noptimizer = true\n")
-    assert verify_audit._forge_build(tmp_path / "via-ir", tmp_path / "via-ir-cache", ["src/Loop.sol"])
+    built, report = verify_audit._forge_build(tmp_path / "via-ir", tmp_path / "via-ir-cache", ["src/Loop.sol"])
+    assert built, report
 
     without = verify_audit._file_signature(tmp_path / "no-ir", "src/Loop.sol")
     with_ir = verify_audit._file_signature(tmp_path / "via-ir", "src/Loop.sol")

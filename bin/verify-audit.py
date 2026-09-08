@@ -18,8 +18,8 @@ worktree taken from a snapshot of the current tree - staged, unstaged and untrac
 than the last commit's; only the changed files and their import closure are built, and a guard fails
 loudly if those switches stop disabling metadata. This clears renames, comment/NatSpec, and
 formatting changes that do not alter bytecode. Rename detection is forced on (git -M -l0) so a
-repo's diff.renames / diff.renameLimit config cannot mis-report a rename as drift. Deletions, and any change that alters bytecode, are
-reported. Requires `forge` on PATH.
+repo's diff.renames / diff.renameLimit config cannot mis-report a rename as drift. Deletions, and
+any change that alters bytecode, are reported. Requires `forge` on PATH.
 
 A `.verify-audit-ignore` file in the current directory controls what is skipped. Each non-comment,
 non-blank line has the form:
@@ -177,6 +177,61 @@ def _git_value(*args: str) -> str | None:
     return done.stdout.strip()
 
 
+def _submodules(base: str) -> dict[str, str]:
+    """Every submodule the snapshot records, at any depth: path -> the commit recorded for it.
+
+    Walked one level at a time because a nested submodule's commit is recorded in its parent's tree
+    and `git ls-tree` cannot see through a gitlink. Each level is read from that submodule's own
+    checkout in this working tree, which is where its objects already are.
+    """
+    found: dict[str, str] = {}
+    frontier = [("", Path("."), base)]
+    while frontier:
+        prefix, repo, commit = frontier.pop()
+        for line in _git_lines("ls-tree", "-r", commit, cwd=repo):
+            info, _, path = line.partition("\t")
+            fields = info.split()
+            if len(fields) != 3 or fields[1] != "commit":
+                continue
+            full = f"{prefix}{path}"
+            found[full] = fields[2]
+            frontier.append((f"{full}/", Path(full), fields[2]))
+    return found
+
+
+def _needed_submodules(worktree: Path, submodules: dict[str, str]) -> dict[str, str] | None:
+    """The submodules the build can reach, from the remappings it will compile with; None on failure.
+
+    With auto_detect_remappings off, a remapping target is the only way a path inside a submodule can
+    be reached, so one that no target points into is never read and need not be placed at all - 8 of
+    harbor's 29. With auto-detection on forge may resolve through any of them, so all are placed.
+
+    The set is a superset of what the build imports rather than exactly it, which is the safe
+    direction: a path that resolves outside every remapping fails as an unresolved import naming the
+    file, which is actionable, where guessing too small a set silently changes what compiles.
+    """
+    done = subprocess.run(["forge", "config", "--json"], cwd=worktree, capture_output=True, text=True, env=_forge_env())
+    if done.returncode != 0:
+        _err("\033[31m  `forge config --json` failed, so the submodules to place cannot be worked out:\033[0m\n")
+        _err(done.stderr)
+        return None
+    try:
+        config = json.loads(done.stdout)
+    except json.JSONDecodeError:
+        _err(
+            "\033[31m  `forge config --json` did not return JSON, so the submodules to place cannot be worked out\033[0m\n"
+        )
+        return None
+    if config.get("auto_detect_remappings"):
+        return dict(submodules)
+    targets = [remapping.partition("=")[2] for remapping in config.get("remappings") or []]
+    return {
+        path: commit
+        for path, commit in submodules.items()
+        if any(target == path or target.startswith(path + "/") for target in targets)
+    }
+
+
 def _locate_moved(rev: str, path: str) -> str:
     """Where a deleted file went, if it is still on disk.
 
@@ -221,8 +276,12 @@ def _assert_metadata_disabled() -> bool:
     return True
 
 
-def _forge_build(out: Path, cache: Path, paths: list[str], cwd: Path | None = None) -> bool:
+def _forge_build(out: Path, cache: Path, paths: list[str], cwd: Path | None = None) -> tuple[bool, str]:
     """Compile the given source paths and their import closure into `out`, metadata off.
+
+    Returns whether it succeeded and what forge said, because a failure here is reported to the
+    reader: a build that stopped is the one thing a bytecode comparison cannot work around, and
+    discarding forge's account of why leaves them nothing to act on.
 
     The cache is named explicitly, and never the project's. Sharing the project's cache damages it -
     its entries would point at an `out` this run deletes on exit, so the next ordinary build
@@ -238,7 +297,7 @@ def _forge_build(out: Path, cache: Path, paths: list[str], cwd: Path | None = No
         text=True,
         env=_forge_env(FOUNDRY_OUT=str(out), FOUNDRY_CACHE_PATH=str(cache)),
     )
-    return done.returncode == 0
+    return done.returncode == 0, done.stdout + done.stderr
 
 
 def _file_signature(out_dir: Path, sol_path: str) -> str:
@@ -296,6 +355,7 @@ class _Builds:
         self.head_out: Path | None = None  # reused build dir for the current tree
         self.head_cache: Path | None = None
         self.wt: Path | None = None  # shared worktree of the current tree, the revision's source in it
+        self.nested: list[tuple[Path, Path]] = []  # (submodule checkout, its worktree in self.wt)
         self.wt_out: Path | None = None
         self.wt_cache: Path | None = None  # persistent forge cache for the worktree
 
@@ -322,21 +382,36 @@ class _Builds:
         if done.returncode != 0:
             _err(f"\033[31m  `git worktree add` failed:\033[0m\n{done.stderr}")
             return False
-        # Recorded before the submodules are populated, so that a failure there still leaves cleanup
+        # Recorded before the submodules are placed, so that a failure there still leaves cleanup
         # something to remove: the registration exists from this point on, whatever happens next.
         self.wt = wt
-        # git's own message is passed through: "could not set up the worktree" on its own leaves the
-        # reader guessing between a locked repository, an unreachable submodule remote, and a
-        # submodule commit that no remote has.
-        done = _git("submodule", "update", "--init", "--recursive", "--quiet", cwd=wt)
-        if done.returncode != 0:
-            _err(f"\033[31m  `git submodule update` failed in the worktree:\033[0m\n{done.stderr}")
+
+        # Each submodule is placed as a worktree of its OWN checkout here, not cloned from its
+        # remote. That is what makes a run local: the objects are already in this clone, so a
+        # submodule sitting at an unpushed commit - the normal state while one is being worked on -
+        # is readable, where a clone would ask a remote that has never heard of it. It is also what
+        # keeps the run cheap, since a worktree shares the object store instead of copying it, and
+        # what keeps it safe: the submodule gets its own checkout, so the one being worked in is not
+        # touched.
+        needed = _needed_submodules(wt, _submodules(self.base))
+        if needed is None:
             return False
+        for path in sorted(needed, key=lambda p: p.count("/")):  # parents before their children
+            repo = Path(path)
+            if not (repo / ".git").exists():
+                _err(f'\033[31m  submodule "{path}" is not checked out here, so it cannot be read\033[0m\n')
+                _err(f"       run `git submodule update --init {path}` and try again\n")
+                return False
+            done = _git("worktree", "add", "--detach", "--quiet", str(wt / path), needed[path], cwd=repo)
+            if done.returncode != 0:
+                _err(f'\033[31m  could not place submodule "{path}" in the worktree:\033[0m\n{done.stderr}')
+                return False
+            self.nested.append((repo, wt / path))
         self.wt_out = self._in_root("revision-out")
         self.wt_cache = self._in_root("revision-cache")
         return True
 
-    def overlay_and_build_revision(self, rev: str, overlay: list[str], build: list[str]) -> bool:
+    def overlay_and_build_revision(self, rev: str, overlay: list[str], build: list[str]) -> tuple[bool, str]:
         """Overlay the revision's source into the shared worktree and build the requested contracts.
 
         The overlay set is the WHOLE changed cascade (so a built contract's renamed dependencies
@@ -344,8 +419,9 @@ class _Builds:
         compared. `git restore --source` only touches working-tree files - never HEAD.
         """
         assert self.wt is not None and self.wt_out is not None and self.wt_cache is not None
-        if _git("restore", f"--source={rev}", "--worktree", "--", *overlay, cwd=self.wt).returncode != 0:
-            return False
+        done = _git("restore", f"--source={rev}", "--worktree", "--", *overlay, cwd=self.wt)
+        if done.returncode != 0:
+            return False, done.stderr
         return _forge_build(self.wt_out, self.wt_cache, build, cwd=self.wt)
 
     def restore_overlay(self, paths: list[str]) -> None:
@@ -366,6 +442,12 @@ class _Builds:
         `--expire=now`: a bare `git worktree prune` honours gc.worktreePruneExpire, three months by
         default, so it leaves the registration this run just made listed as prunable.
         """
+        # Each submodule's registration lives in that submodule's own gitdir, so it has to be cleared
+        # there. Deepest first, and before the worktree they sit inside is removed from under them.
+        for repo, target in reversed(self.nested):
+            _git("worktree", "remove", "--force", str(target), cwd=repo)
+            _git("worktree", "prune", "--expire=now", cwd=repo)
+        self.nested = []
         if self.wt is not None:
             _git("worktree", "remove", "--force", str(self.wt))
             shutil.rmtree(self.wt, ignore_errors=True)
@@ -472,8 +554,9 @@ def _resolve_revisions(args: list[str]) -> tuple[list[str], dict[str, str], bool
         if any(metacharacter in arg for metacharacter in "*?["):
             matches = _git_lines("tag", "-l", arg)
             if not matches:
-                _out(f"INFO: No tags match '{arg}'\n")
+                _out(f"INFO: No tags match '{arg}' (fetch first if one was cut recently: git fetch --tags)\n")
                 continue
+            _out(f"INFO: pattern '{arg}' matched {len(matches)} tag{'' if len(matches) == 1 else 's'}\n")
             for tag in matches:
                 revisions.append(tag)
                 rev_sha[tag] = _git_value("rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}") or ""
@@ -486,6 +569,7 @@ def _resolve_revisions(args: list[str]) -> tuple[list[str], dict[str, str], bool
             sha = _git_value("rev-parse", "--verify", "--quiet", f"{arg}^{{commit}}")
             if not sha:
                 _err(f'\033[31mERROR: "{arg}" is not a tag, branch or commit in this repository\033[0m\n')
+                _err("       if it is a tag this clone has not seen, run `git fetch --tags` and try again\n")
                 failed = True
                 continue
         revisions.append(arg)
@@ -648,11 +732,14 @@ def _run(args: list[str]) -> int:
 
     # Refresh the tags. Whether the local tag list is stale cannot be answered locally - a tag you
     # have never seen leaves no trace - so the only way to audit against the tags that actually
-    # exist is to ask the remote. In CI this is redundant (actions/checkout with fetch-depth: 0 has
-    # just fetched everything); it is here for a developer whose clone has not seen a recently cut
-    # tag, who would otherwise audit fewer tags than exist and be told nothing was wrong. Its
-    # failure is not fatal: a clone with no reachable remote can still audit the tags it holds.
-    subprocess.run(["git", "fetch", "--tags", "--no-recurse-submodules"])
+    # exist is to ask the remote. It lives HERE rather than in each caller's yarn script because
+    # every repo that consumes bao-base would otherwise need the same line, and they would drift;
+    # here there is one definition, and a developer and CI reach it through the same command.
+    #
+    # Its failure is not fatal, and says so: a clone with no reachable remote can still audit the
+    # tags it holds, and the per-pattern match counts below are what make a short list visible.
+    if _git("fetch", "--tags", "--no-recurse-submodules").returncode != 0:
+        _err("\033[33mWARNING: could not refresh the tags; auditing the tag list this clone holds\033[0m\n")
 
     # A shallow repository is refused rather than audited. It holds an unknown subset of the tagged
     # commits - the tag at the cloned tip is there, older ones are not - so the patterns below would
@@ -805,8 +892,10 @@ def _compare_revisions(args: list[str], builds: _Builds, ignores: dict[str, str]
                 if not builds.ensure_head_out():
                     return 1
                 assert builds.head_out is not None and builds.head_cache is not None
-                if not _forge_build(builds.head_out, builds.head_cache, compare + added):
-                    _err("\033[31m  ERROR: the current tree's build failed — cannot compare bytecode\033[0m\n")
+                built, report = _forge_build(builds.head_out, builds.head_cache, compare + added)
+                if not built:
+                    _err("\033[31m  ERROR: the current tree failed to build — cannot compare bytecode\033[0m\n")
+                    _err(report)
                     return 1
                 if not builds.ensure_worktree():
                     _err(
@@ -816,8 +905,27 @@ def _compare_revisions(args: list[str], builds: _Builds, ignores: dict[str, str]
                     return 1
                 # A vanished file is built at the revision too: its signature is the only handle on
                 # where it went, since its path says nothing once it no longer exists.
-                if not builds.overlay_and_build_revision(sha, all_old, compare_old + vanished):
-                    _err(f'\033[31m  ERROR: build at "{revision}" failed — cannot compare bytecode\033[0m\n')
+                built, report = builds.overlay_and_build_revision(sha, all_old, compare_old + vanished)
+                if not built:
+                    # Two failures wear the same face if both are called "the build failed", and they
+                    # send the reader to opposite places: sources that do not COMPILE are a problem
+                    # with the revision, whereas sources that do not RESOLVE are a problem with the
+                    # configuration compiling them - a remapping or dependency the current tree no
+                    # longer provides. Naming the wrong one is what made this tool's own failure take
+                    # an hour to place.
+                    if "Unable to resolve imports" in report or "not found: File not found" in report:
+                        _err(
+                            f'\033[31m  ERROR: the sources at "{revision}" do not resolve in the'
+                            " current tree's build environment — cannot compare bytecode\033[0m\n"
+                        )
+                        _err("       they import something the current configuration does not cover; forge reports:\n")
+                    else:
+                        _err(
+                            f'\033[31m  ERROR: the sources at "{revision}" failed to compile'
+                            " — cannot compare bytecode\033[0m\n"
+                        )
+                        _err("       forge reports:\n")
+                    _err(report)
                     return 1
                 assert builds.wt_out is not None
 
