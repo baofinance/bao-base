@@ -617,7 +617,7 @@ def test_move_git_could_not_pair_is_paired_by_bytecode(fix):
     assert status == 0, output
 
 
-def test_two_head_files_sharing_a_signature_is_an_ambiguity(fix):
+def test_two_current_files_sharing_a_signature_is_an_ambiguity(fix):
     """A contract's name does not reach its creation bytecode, so identical bodies cannot be told apart."""
     body = (
         "  uint256 public constant K = 3;\n  function f(uint256 x) external pure returns (uint256){ return x + K; }\n"
@@ -931,6 +931,101 @@ def test_a_caller_set_foundry_cache_path_is_not_used(fix, tmp_path):
     assert list(ambient.iterdir()) == [], "the run honoured the caller's FOUNDRY_CACHE_PATH"
 
 
+# ── the current tree as one snapshot, so both sides compile the same way ───────────────────────────
+
+REMAPPED_TOML = (
+    '[profile.default]\nsrc = "src"\nout = "out"\nauto_detect_remappings = false\nremappings = ["@x/={target}/"]\n'
+)
+
+DEP = (
+    "// SPDX-License-Identifier: MIT\n"
+    "pragma solidity ^0.8.20;\n"
+    "library Dep { function v() internal pure returns (uint256) { return 5; } }\n"
+)
+
+USES_DEP = (
+    "// SPDX-License-Identifier: MIT\n"
+    "pragma solidity ^0.8.20;\n"
+    'import {Dep} from "@x/Dep.sol";\n'
+    "contract Foo { function f() external pure returns (uint256) { return Dep.v(); } }\n"
+)
+
+
+def _revision_needing_a_remapping(fix):
+    """A revision whose source resolves only through a remapping, plus a neutral change at HEAD.
+
+    The neutral change is what puts the file in the diff, so the comparison actually compiles both
+    sides and the build environment each side used becomes observable.
+    """
+    fix.write("foundry.toml", REMAPPED_TOML.format(target="vendor"))
+    fix.write("vendor/Dep.sol", DEP)
+    fix.write("src/Foo.sol", USES_DEP)
+    fix.tag("deploy/test")
+    fix.write("src/Foo.sol", "// a neutral comment\n" + USES_DEP)
+
+
+def test_an_uncommitted_config_fix_is_used_by_both_sides(fix):
+    """The revision is compiled under the working tree's configuration, not the last commit's.
+
+    Here the committed foundry.toml points at a directory that the same commit moved away, so it
+    resolves only with the uncommitted fix - the state this tool was itself found in. Compiling the
+    revision under a different configuration than the current tree is not only a build failure
+    waiting to happen: a remapping that resolves a base contract elsewhere would silently manufacture
+    or mask drift.
+    """
+    _revision_needing_a_remapping(fix)
+    fix.git("mv", "vendor", "lib2")
+    fix.commit("move the dependency, without the config change that follows it")
+    fix.write("foundry.toml", REMAPPED_TOML.format(target="lib2"))  # the fix, left uncommitted
+
+    status, output = fix.verify_audit("deploy/test")
+    assert status == 0, output
+    assert "bytecode-equivalent" in output
+
+
+def test_untracked_files_reach_the_revision_build(fix):
+    """Content git does not yet track is part of the current tree, so it must reach the comparison."""
+    _revision_needing_a_remapping(fix)
+    fix.git("rm", "-r", "-q", "vendor")
+    fix.commit("remove the tracked dependency")
+    fix.write("lib2/Dep.sol", DEP)  # its replacement, never staged
+    fix.write("foundry.toml", REMAPPED_TOML.format(target="lib2"))
+
+    status, output = fix.verify_audit("deploy/test")
+    assert status == 0, output
+    assert "bytecode-equivalent" in output
+
+
+def test_a_staged_change_to_a_deployed_contract_is_reported_as_drift(fix):
+    """Drift is reported from the working tree, so it does not wait for a commit to be seen."""
+    fix.write("src/Foo.sol", FOO)
+    fix.tag("deploy/test")
+    fix.edit("src/Foo.sol", "return 1;", "return 2;")
+    fix.git("add", "src/Foo.sol")  # staged, deliberately not committed
+
+    status, output = fix.verify_audit("deploy/test")
+    assert status != 0, output
+    assert "CHANGED (not ignored)" in output
+    assert "src/Foo.sol" in output
+
+
+def test_a_snapshot_that_cannot_be_taken_is_a_loud_error(tmp_path):
+    """A snapshot that fails must say so, never fall back to comparing against the last commit.
+
+    An unborn HEAD is the reachable way to make it fail; what matters is that the failure is named
+    rather than silently degrading the comparison to a different pair of trees.
+    """
+    repo = tmp_path / "unborn"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True, capture_output=True)
+    (repo / "foundry.toml").write_text(FOUNDRY_TOML)
+    (repo / "src").mkdir()
+
+    status, output = run_verify_audit(repo, "deploy/test")
+    assert status != 0, output
+    assert "snapshot" in output
+
+
 # ── the build primitives, reached directly ─────────────────────────────────────────────────────────
 
 LOOP = (
@@ -968,6 +1063,56 @@ def test_metadata_guard_passes_when_forge_reports_the_switches_taking_effect(tmp
     assert verify_audit._assert_metadata_disabled() is True
 
 
+def test_the_snapshot_holds_the_current_tree_and_leaves_ignored_files_out(fix, monkeypatch):
+    """The snapshot is the tree as it is: staged, unstaged and untracked content, minus what is
+    ignored - which cannot be audited against, since git does not track it."""
+    fix.write(".gitignore", "ignored/\n")
+    fix.write("src/Committed.sol", FOO)
+    fix.write("src/Staged.sol", FOO)
+    fix.commit("base")
+
+    fix.edit("src/Staged.sol", "return 1;", "return 2;")
+    fix.git("add", "src/Staged.sol")  # staged
+    fix.edit("src/Committed.sol", "return 1;", "return 3;")  # unstaged
+    fix.write("src/Untracked.sol", FOO)  # never staged
+    fix.write("ignored/Ignored.sol", FOO)
+
+    monkeypatch.chdir(fix.work)
+    base = verify_audit._snapshot_commit()
+    assert base is not None
+
+    listed = fix.git("ls-tree", "-r", "--name-only", base).splitlines()
+    assert "src/Untracked.sol" in listed
+    assert "ignored/Ignored.sol" not in listed
+    assert "return 2;" in fix.git("show", f"{base}:src/Staged.sol")
+    assert "return 3;" in fix.git("show", f"{base}:src/Committed.sol")
+
+
+def test_the_snapshot_leaves_the_repository_index_untouched(fix, monkeypatch):
+    """Taking it must not disturb a concurrent git command, nor be disturbed by one.
+
+    `git stash create` would rewrite the index and take its lock; this builds the tree through a
+    private index instead, so a held lock neither blocks it nor makes it fail.
+    """
+    fix.write("src/Foo.sol", FOO)
+    fix.commit("base")
+    fix.edit("src/Foo.sol", "return 1;", "return 2;")
+
+    index = fix.work / ".git" / "index"
+    before = (index.read_bytes(), index.stat().st_mtime_ns)
+
+    monkeypatch.chdir(fix.work)
+    lock = fix.work / ".git" / "index.lock"
+    lock.touch()  # a concurrent git command holding the lock
+    try:
+        base = verify_audit._snapshot_commit()
+    finally:
+        lock.unlink()
+
+    assert base is not None, "a held index.lock stopped the snapshot"
+    assert (index.read_bytes(), index.stat().st_mtime_ns) == before
+
+
 def test_file_signature_is_identical_across_a_pure_rename(fix, tmp_path, monkeypatch):
     """A signature is built from bytecode alone, so renaming a file cannot change it.
 
@@ -986,7 +1131,9 @@ def test_file_signature_is_identical_across_a_pure_rename(fix, tmp_path, monkeyp
 
     monkeypatch.chdir(fix.work)
     head_out = tmp_path / "head-out"
-    builds = verify_audit._Builds()
+    base = verify_audit._snapshot_commit()
+    assert base is not None
+    builds = verify_audit._Builds(base)
     try:
         assert verify_audit._forge_build(head_out, tmp_path / "head-cache", ["src/New.sol"])
         assert builds.ensure_worktree()

@@ -10,13 +10,15 @@ argument is an EXPLICIT name and must resolve, or the run fails: a tag, a branch
 so a repo that cuts no tags can still compare against the commit its deploy was built from. A name
 that is both a tag and a branch resolves as the tag, and says so.
 
-A changed file is auto-cleared when it is meaning-neutral: its version at that revision and at HEAD
-compile to the same metadata-stripped creation bytecode. Both sides are compiled with the current
-toolchain (FOUNDRY_BYTECODE_HASH=none, FOUNDRY_CBOR_METADATA=false) in a throwaway git worktree,
-building only the changed files and their import closure; a guard fails loudly if those switches stop
-disabling metadata. This clears renames, comment/NatSpec, and formatting changes that do not alter
-bytecode. Rename detection is forced on (git -M -l0) so a repo's diff.renames / diff.renameLimit
-config cannot mis-report a rename as drift. Deletions, and any change that alters bytecode, are
+A changed file is auto-cleared when it is meaning-neutral: its version at that revision and in the
+current tree compile to the same metadata-stripped creation bytecode. Both sides are compiled with
+the current toolchain (FOUNDRY_BYTECODE_HASH=none, FOUNDRY_CBOR_METADATA=false) in a throwaway git
+worktree taken from a snapshot of the current tree - staged, unstaged and untracked content included
+- so the revision compiles under the configuration and dependencies the tree actually has rather
+than the last commit's; only the changed files and their import closure are built, and a guard fails
+loudly if those switches stop disabling metadata. This clears renames, comment/NatSpec, and
+formatting changes that do not alter bytecode. Rename detection is forced on (git -M -l0) so a
+repo's diff.renames / diff.renameLimit config cannot mis-report a rename as drift. Deletions, and any change that alters bytecode, are
 reported. Requires `forge` on PATH.
 
 A `.verify-audit-ignore` file in the current directory controls what is skipped. Each non-comment,
@@ -109,6 +111,54 @@ def _forge_env(**overrides: str) -> dict[str, str]:
 def _git(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
     """Run git capturing both streams; the caller decides what a non-zero status means."""
     return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+
+
+# An identity for the snapshot commit, so taking it never depends on the caller having configured
+# one. The commit is thrown away when the run ends and is never pushed anywhere.
+_SNAPSHOT_IDENTITY = {
+    "GIT_AUTHOR_NAME": "verify-audit",
+    "GIT_AUTHOR_EMAIL": "verify-audit@localhost",
+    "GIT_COMMITTER_NAME": "verify-audit",
+    "GIT_COMMITTER_EMAIL": "verify-audit@localhost",
+}
+
+
+def _snapshot_commit() -> str | None:
+    """A commit holding the current tree - staged, unstaged and untracked - or None if it cannot be.
+
+    This is what both sides of every comparison are built from, so the revision is compiled under the
+    configuration and dependencies the tree actually HAS rather than the last commit's. Compiling the
+    two sides under different configurations is not merely a build failure waiting to happen: a
+    remapping that resolves a base contract elsewhere would silently manufacture or mask drift. It has
+    to be a commit because that is what `git worktree add` and `git restore --source` accept.
+
+    Built through a private index OUTSIDE the repository, so the repository's own index is neither
+    locked nor rewritten: a concurrent git command can neither be disturbed by this nor make it fail.
+    (`git stash create` does both, and when the index lock is held it exits 1 printing nothing at all
+    - indistinguishable from the empty output it gives for a clean tree.) The index has to live
+    outside the working tree or `git add -A` would snapshot the index file itself. Ignored files stay
+    out, because `git add` leaves them out.
+    """
+    with tempfile.TemporaryDirectory(prefix="verify-audit-index-") as directory:
+        env = {**os.environ, **_SNAPSHOT_IDENTITY, "GIT_INDEX_FILE": str(Path(directory) / "index")}
+
+        def snapshot_git(*args: str) -> subprocess.CompletedProcess:
+            return subprocess.run(["git", *args], capture_output=True, text=True, env=env)
+
+        for args in (("read-tree", "HEAD"), ("add", "-A", "."), ("write-tree",)):
+            done = snapshot_git(*args)
+            if done.returncode != 0:
+                _err(f"\033[31mERROR: could not snapshot the current tree: `git {args[0]}` failed\033[0m\n")
+                _err(done.stderr)
+                return None
+            tree = done.stdout.strip()
+
+        done = snapshot_git("commit-tree", tree, "-p", "HEAD", "-m", "verify-audit snapshot of the current tree")
+        if done.returncode != 0:
+            _err("\033[31mERROR: could not snapshot the current tree: `git commit-tree` failed\033[0m\n")
+            _err(done.stderr)
+            return None
+        return done.stdout.strip()
 
 
 def _git_lines(*args: str, cwd: Path | None = None) -> list[str]:
@@ -223,7 +273,7 @@ def _signature_identifies(signature: str) -> bool:
 
 
 def _signature_matches(signature: str, head_out: Path, candidates: list[str]) -> list[str]:
-    """Every candidate whose HEAD signature equals `signature`.
+    """Every candidate whose signature in the current tree equals `signature`.
 
     Used both to find where a vanished file went and to detect a second claimant on a pairing git
     already made.
@@ -234,16 +284,18 @@ def _signature_matches(signature: str, head_out: Path, candidates: list[str]) ->
 class _Builds:
     """The throwaway build directories and worktree a run compiles in.
 
-    One worktree pinned at HEAD (HEAD's foundry.toml, lib, settings) with a persistent forge cache,
-    so the import closure compiles once and is reused across every revision. Created lazily on the
-    first revision that needs a build.
+    One worktree checked out at `base` - the snapshot of the current tree, so its foundry.toml, lib
+    and settings are the ones the tree actually has - with a persistent forge cache, so the import
+    closure compiles once and is reused across every revision. Created lazily on the first revision
+    that needs a build.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, base: str) -> None:
+        self.base = base  # the snapshot commit every comparison is made against
         self.root: Path | None = None  # everything this run compiles into, created on first use
-        self.head_out: Path | None = None  # reused HEAD build dir
+        self.head_out: Path | None = None  # reused build dir for the current tree
         self.head_cache: Path | None = None
-        self.wt: Path | None = None  # shared HEAD worktree, the revision's source overlaid into it
+        self.wt: Path | None = None  # shared worktree of the current tree, the revision's source in it
         self.wt_out: Path | None = None
         self.wt_cache: Path | None = None  # persistent forge cache for the worktree
 
@@ -266,11 +318,20 @@ class _Builds:
         if self.wt is not None:
             return True
         wt = self._in_root("worktree")  # `git worktree add` creates it; it must not pre-exist
-        if _git("worktree", "add", "--detach", "--quiet", str(wt), "HEAD").returncode != 0:
+        done = _git("worktree", "add", "--detach", "--quiet", str(wt), self.base)
+        if done.returncode != 0:
+            _err(f"\033[31m  `git worktree add` failed:\033[0m\n{done.stderr}")
             return False
-        if _git("submodule", "update", "--init", "--recursive", "--quiet", cwd=wt).returncode != 0:
-            return False
+        # Recorded before the submodules are populated, so that a failure there still leaves cleanup
+        # something to remove: the registration exists from this point on, whatever happens next.
         self.wt = wt
+        # git's own message is passed through: "could not set up the worktree" on its own leaves the
+        # reader guessing between a locked repository, an unreachable submodule remote, and a
+        # submodule commit that no remote has.
+        done = _git("submodule", "update", "--init", "--recursive", "--quiet", cwd=wt)
+        if done.returncode != 0:
+            _err(f"\033[31m  `git submodule update` failed in the worktree:\033[0m\n{done.stderr}")
+            return False
         self.wt_out = self._in_root("revision-out")
         self.wt_cache = self._in_root("revision-cache")
         return True
@@ -288,12 +349,12 @@ class _Builds:
         return _forge_build(self.wt_out, self.wt_cache, build, cwd=self.wt)
 
     def restore_overlay(self, paths: list[str]) -> None:
-        """Restore overlaid paths back to HEAD so an overlaid dependency cannot leak into a later
-        revision's build. A path absent at HEAD (a rename's old path) is removed."""
+        """Restore overlaid paths back to the snapshot so an overlaid dependency cannot leak into a
+        later revision's build. A path absent from the snapshot (a rename's old path) is removed."""
         assert self.wt is not None
         for path in paths:
-            if _git("cat-file", "-e", f"HEAD:{path}").returncode == 0:
-                _git("restore", "--source=HEAD", "--worktree", "--", path, cwd=self.wt)
+            if _git("cat-file", "-e", f"{self.base}:{path}").returncode == 0:
+                _git("restore", f"--source={self.base}", "--worktree", "--", path, cwd=self.wt)
             else:
                 (self.wt / path).unlink(missing_ok=True)
 
@@ -301,12 +362,14 @@ class _Builds:
         """Remove the worktree and build dirs. Idempotent.
 
         `git worktree remove` can fail on a submodule-populated worktree, so follow it with a
-        removal and a prune to guarantee the registration is cleared.
+        removal and a prune to guarantee the registration is cleared. The prune needs
+        `--expire=now`: a bare `git worktree prune` honours gc.worktreePruneExpire, three months by
+        default, so it leaves the registration this run just made listed as prunable.
         """
         if self.wt is not None:
             _git("worktree", "remove", "--force", str(self.wt))
             shutil.rmtree(self.wt, ignore_errors=True)
-            _git("worktree", "prune")
+            _git("worktree", "prune", "--expire=now")
             self.wt = None
         if self.root is not None:
             shutil.rmtree(self.root, ignore_errors=True)
@@ -315,7 +378,7 @@ class _Builds:
 
 
 def _in_scope(path: str, scope_dirs: list[str], deployed: set[str], rename_src: dict[str, str]) -> bool:
-    """Whether a (HEAD-layout) path is within the current revision's scope.
+    """Whether a (current-tree-layout) path is within the current revision's scope.
 
     Either under one of the scope directories, or - mapped to its path at that revision via the
     rename map - among its deployed contracts.
@@ -540,15 +603,23 @@ def _print_diff(sha: str, path: str, rename_src: dict[str, str]) -> None:
 
 
 def main() -> int:
-    args = sys.argv[1:] or ["audit*", "deploy*"]
-    builds = _Builds()
-    try:
-        return _run(args, builds)
-    finally:
-        builds.cleanup()
+    return _run(sys.argv[1:] or ["audit*", "deploy*"])
 
 
-def _run(args: list[str], builds: _Builds) -> int:
+def _run(args: list[str]) -> int:
+    # A profile selects which foundry.toml section applies - src, out, optimizer, via_ir - so
+    # honouring it would audit under settings the deploy was never built with, while dropping it
+    # would ignore something the caller deliberately asked for. There is no value meaning "no
+    # profile", so it is refused rather than resolved either way.
+    if os.environ.get("FOUNDRY_PROFILE"):
+        _err(
+            "\033[31mERROR: FOUNDRY_PROFILE is set"
+            f' ("{os.environ["FOUNDRY_PROFILE"]}"), and it would decide which foundry.toml'
+            " settings this audit compiles with\033[0m\n"
+        )
+        _err("       unset it and run again; the audit compiles with the default profile\n")
+        return 1
+
     # What this tree is built from, before anything is said about what is in it. A dependency's
     # guarantees were established against ITS pins and are spent against ours - bao-base verifies
     # its sources against one OpenZeppelin while a consumer compiles them against another - so a
@@ -564,19 +635,6 @@ def _run(args: list[str], builds: _Builds) -> int:
     # tag section that says "no changes under src/" reads as a pass however it was qualified.
     # Nothing is lost by stopping: converge the versions and run it again, and both halves are
     # answerable.
-    # A profile selects which foundry.toml section applies - src, out, optimizer, via_ir - so
-    # honouring it would audit under settings the deploy was never built with, while dropping it
-    # would ignore something the caller deliberately asked for. There is no value meaning "no
-    # profile", so it is refused rather than resolved either way.
-    if os.environ.get("FOUNDRY_PROFILE"):
-        _err(
-            "\033[31mERROR: FOUNDRY_PROFILE is set"
-            f' ("{os.environ["FOUNDRY_PROFILE"]}"), and it would decide which foundry.toml'
-            " settings this audit compiles with\033[0m\n"
-        )
-        _err("       unset it and run again; the audit compiles with the default profile\n")
-        return 1
-
     bin_dir = os.environ.get("BAO_BASE_BIN_DIR")
     if not bin_dir:
         _err("ERROR: BAO_BASE_BIN_DIR must be set by the bao-base run script\n")
@@ -613,6 +671,20 @@ def _run(args: list[str], builds: _Builds) -> int:
         _err("       fetch the full history first (in GitHub Actions: actions/checkout with fetch-depth: 0)\n")
         return 1
 
+    # Taken once, before any revision is looked at, so a tree that cannot be snapshotted is reported
+    # on its own rather than part-way through a comparison that would then mean something else.
+    base = _snapshot_commit()
+    if base is None:
+        return 1
+
+    builds = _Builds(base)
+    try:
+        return _compare_revisions(args, builds, ignores, scopes)
+    finally:
+        builds.cleanup()
+
+
+def _compare_revisions(args: list[str], builds: _Builds, ignores: dict[str, str], scopes: dict[str, str]) -> int:
     revisions, rev_sha, fail = _resolve_revisions(args)
 
     for revision in revisions:
@@ -625,7 +697,7 @@ def _run(args: list[str], builds: _Builds) -> int:
             fail = True
 
         # The rename map is built over all of src so it can pair renames that cross a scope
-        # boundary, mapping HEAD paths back to the revision's paths for both the deployed-set scope
+        # boundary, mapping current-tree paths back to the revision's paths for both the deployed-set
         # check and the bytecode comparison.
         rename_src, status, changed_all = _changed_since(sha)
 
@@ -686,9 +758,9 @@ def _run(args: list[str], builds: _Builds) -> int:
         else:
             check = list(changed)
 
-        # Clear files whose baseline and HEAD versions compile to the same metadata-stripped
+        # Clear files whose baseline and current versions compile to the same metadata-stripped
         # creation bytecode. Build only the changed files and their import closure, once per
-        # revision; reuse one HEAD build across revisions. A file absent at HEAD (a deletion, or a
+        # revision; reuse one build of the current tree across revisions. A file absent from it (a
         # rename git did not pair) cannot be compiled there - it is genuine drift, reported directly
         # without a build. Ignored files that DID change are built in the same pass to flag any that
         # would now clear (a redundant entry); a deletion an entry legitimately suppresses is not
@@ -699,9 +771,9 @@ def _run(args: list[str], builds: _Builds) -> int:
             compare: list[str] = []
             compare_old: list[str] = []
             compare_is_ignore: list[bool] = []
-            vanished: list[str] = []  # in scope, absent at HEAD: a deletion, or an unpaired move
+            vanished: list[str] = []  # in scope, absent from the current tree: a deletion or unpaired move
             for f in check:
-                if _git("cat-file", "-e", f"HEAD:{f}").returncode == 0:
+                if _git("cat-file", "-e", f"{builds.base}:{f}").returncode == 0:
                     compare.append(f)
                     compare_old.append(rename_src.get(f, f))
                     compare_is_ignore.append(False)
@@ -722,7 +794,7 @@ def _run(args: list[str], builds: _Builds) -> int:
                         added.append(path)
 
             for f in ignored_changed:
-                if _git("cat-file", "-e", f"HEAD:{f}").returncode == 0:
+                if _git("cat-file", "-e", f"{builds.base}:{f}").returncode == 0:
                     compare.append(f)
                     compare_old.append(rename_src.get(f, f))
                     compare_is_ignore.append(True)
@@ -734,10 +806,13 @@ def _run(args: list[str], builds: _Builds) -> int:
                     return 1
                 assert builds.head_out is not None and builds.head_cache is not None
                 if not _forge_build(builds.head_out, builds.head_cache, compare + added):
-                    _err("\033[31m  ERROR: HEAD build failed — cannot compare bytecode\033[0m\n")
+                    _err("\033[31m  ERROR: the current tree's build failed — cannot compare bytecode\033[0m\n")
                     return 1
                 if not builds.ensure_worktree():
-                    _err("\033[31m  ERROR: could not set up HEAD worktree — cannot compare bytecode\033[0m\n")
+                    _err(
+                        "\033[31m  ERROR: could not set up the worktree for the current tree"
+                        " — cannot compare bytecode\033[0m\n"
+                    )
                     return 1
                 # A vanished file is built at the revision too: its signature is the only handle on
                 # where it went, since its path says nothing once it no longer exists.
@@ -761,7 +836,7 @@ def _run(args: list[str], builds: _Builds) -> int:
                             residue.append(f)
                             pair_note[f] = (
                                 f"git paired {rename_src.get(f, '?')} here, but more than one file at"
-                                f" HEAD has that bytecode ({' '.join([f, *rivals])}) — which one it"
+                                f" the current tree has that bytecode ({' '.join([f, *rivals])}) — which one it"
                                 " became cannot be told apart"
                             )
                         elif is_ignore:
@@ -778,8 +853,8 @@ def _run(args: list[str], builds: _Builds) -> int:
                         else:
                             residue.append(f)
 
-                # A file that is gone at HEAD. Its signature is rename-proof, so if exactly one file
-                # at HEAD compiles to the same bytecode, that is where it went: report the move,
+                # A file gone from the current tree. Its signature is rename-proof, so if exactly one
+                # file in the tree compiles to the same bytecode, that is where it went: report it,
                 # naming both paths, and clear it. Anything else is drift - no match is a removal,
                 # which is what the audit exists to catch, and more than one match is a question
                 # this tool must not answer by guessing.
@@ -794,7 +869,7 @@ def _run(args: list[str], builds: _Builds) -> int:
                         residue.append(f)
                         if len(matches) > 1:
                             pair_note[f] = (
-                                f"more than one file at HEAD has this bytecode ({' '.join(matches)})"
+                                f"more than one file in the current tree has this bytecode ({' '.join(matches)})"
                                 " — which one it became cannot be told apart"
                             )
                 builds.restore_overlay(all_old)
@@ -822,7 +897,7 @@ def _run(args: list[str], builds: _Builds) -> int:
                 continue
             # A pairing git made by TEXTUAL SIMILARITY, whose bytecode then disagreed. Two
             # explanations fit, and no bytecode test separates them: the old file's code is absent
-            # from HEAD whether it was edited or removed. So name the path that is gone and put both
+            # from the current tree whether it was edited or removed. So name the path that is gone and
             # readings in front of the reader rather than picking one. Without this the report shows
             # only the new path, and the removal of a deployed contract - the drift this tool exists
             # to catch - is invisible.
@@ -830,7 +905,7 @@ def _run(args: list[str], builds: _Builds) -> int:
                 old_path = rename_src.get(f, "")
                 if old_path and old_path != f:
                     _out(
-                        f"\033[31m      {old_path} is GONE at HEAD; git paired it with this file,"
+                        f"\033[31m      {old_path} is GONE from the current tree; git paired it with this file,"
                         " but their bytecode differs\033[0m\n"
                     )
                     _out(
