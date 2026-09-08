@@ -18,6 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import columns  # noqa: E402
 from submodule_state import Mismatch, conflicting_dependencies  # noqa: E402
 
 # What ancestry established, always stated RELATIVE TO HERE and only ever on the other repository's
@@ -50,8 +51,9 @@ def report(found: list[Mismatch]) -> str:
 
     # Grouped by dependency, because more than one repository of ours can disagree about the same one
     # and they all disagree with the SAME pin of ours - so "here" is said once and each of them under
-    # it. Widths are per group, not across the report: one `deploy/harbor-1.1-223-g0d965ca` would
-    # otherwise pad every `v1.9.5` in it by twenty-four spaces.
+    # it. Widths come out per group because `columns.rows` is called once per group: one
+    # `deploy/harbor-1.1-223-g0d965ca` would otherwise pad every `v1.9.5` in the report by
+    # twenty-four spaces.
     grouped: dict[str, list[Mismatch]] = {}
     for mismatch in found:
         grouped.setdefault(mismatch.dependency, []).append(mismatch)
@@ -62,18 +64,13 @@ def report(found: list[Mismatch]) -> str:
         "",
     ]
     for dependency, mismatches in grouped.items():
-        rows = [_side(mismatches[0].ours, "this repo")]
-        rows += [
+        cells = [_side(mismatches[0].ours, "this repo")]
+        cells += [
             _side(mismatch.theirs, mismatch.at, RELATIVE.get(mismatch.relation or "", "")) for mismatch in mismatches
         ]
-        version_width = max(len(row[0]) for row in rows)
-        where_width = max(len(row[2]) for row in rows)
 
         lines.append(f"  {dependency}")
-        lines.extend(
-            f"    {version:<{version_width}}  {when:<10}  {where:<{where_width}}  {note}".rstrip()
-            for version, when, where, note in rows
-        )
+        lines.extend(columns.rows(cells, indent="    "))
         if any(mismatch.relation is None for mismatch in mismatches):
             lines.append("    (no checkout holds both commits, so which is later cannot be read here)")
         lines.append("")

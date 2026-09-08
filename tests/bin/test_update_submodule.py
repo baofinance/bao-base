@@ -322,7 +322,7 @@ def test_doctor_advises_exactly_what_update_would_do_next(project, stop_after):
     if stop_after == "commit":
         git("commit", "-qm", "record dep", cwd=project)
 
-    findings = [p for p in doctor.submodule_problems(project) if p.startswith("lib/dep:")]
+    findings = [p for p in sum(doctor.submodule_problems(project), []) if p.startswith("lib/dep:")]
     checked = update_submodule("--check", "dep@main")
 
     if not findings:

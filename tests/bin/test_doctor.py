@@ -281,6 +281,11 @@ def test_permission_scope_flags_the_same_file_once_it_is_tracked(tmp_path):
 
 
 # ── submodule_problems: one finding per submodule, and silence about states that are normal ──
+#
+# It returns (versions, leftovers), split by what the reader must DO - a version is moved, staged or
+# locked, and a leftover is deleted - because that is what each check's title has to be true of. Which
+# list a finding lands in is asserted here rather than taken on trust, so a finding cannot migrate to
+# a check whose title does not describe it.
 def _submodule_at(host: pathlib.Path, sub: pathlib.Path, path: str = "lib/sub") -> str:
     _git(host, "-c", "protocol.file.allow=always", "submodule", "add", str(sub), path)
     _git(host, "commit", "-qm", f"add {path}")
@@ -298,7 +303,7 @@ def test_submodule_problems_says_nothing_when_every_claim_agrees(tmp_path):
     sha = _submodule_at(host, sub)
     (host / "foundry.lock").write_text(json.dumps({"lib/sub": {"tag": {"name": "v1", "rev": sha}}}))
 
-    assert doctor.submodule_problems(host) == []
+    assert doctor.submodule_problems(host) == ([], [])
 
 
 def test_submodule_problems_reports_one_finding_carrying_its_own_repair(tmp_path):
@@ -315,11 +320,13 @@ def test_submodule_problems_reports_one_finding_carrying_its_own_repair(tmp_path
     _submodule_at(host, sub)
     (host / "foundry.lock").write_text(json.dumps({"lib/sub": {"tag": {"name": "v1", "rev": "0" * 40}}}))
 
-    problems = doctor.submodule_problems(host)
+    problems, leftovers = doctor.submodule_problems(host)
 
-    assert len(problems) == 1, problems
+    assert len(problems) == 1 and leftovers == [], (problems, leftovers)
     assert problems[0].startswith("lib/sub: is at more than one version")
-    assert "foundry.lock say 0000000000" in problems[0], problems[0]
+    # The claims arrive as aligned rows - commit first, then who says it - so which of them agree is
+    # read off the shape rather than out of a sentence.
+    assert "0000000000  foundry.lock" in problems[0], problems[0]
     assert "Repair: yarn update --relock lib/sub" in problems[0]
     assert "git add" not in problems[0]
 
@@ -368,9 +375,10 @@ def test_a_stray_clone_in_our_own_tree_is_reported(tmp_path):
     host = _nest(tmp_path)
     _init_repo(host / "lib" / "strayclone")
 
-    problems = doctor.submodule_problems(host)
+    versions, leftovers = doctor.submodule_problems(host)
 
-    assert any(p.startswith("lib/strayclone:") and "nothing tracks" in p for p in problems), problems
+    assert any(p.startswith("lib/strayclone:") and "nothing tracks" in p for p in leftovers), leftovers
+    assert not any("strayclone" in p for p in versions), "a directory to delete is not a version to move"
 
 
 def test_litter_inside_a_grandchild_is_reported(tmp_path):
@@ -379,9 +387,30 @@ def test_litter_inside_a_grandchild_is_reported(tmp_path):
     host = _nest(tmp_path)
     _init_repo(host / "lib" / "dep" / "lib" / "child" / "lib" / "orphan")
 
-    problems = doctor.submodule_problems(host)
+    versions, leftovers = doctor.submodule_problems(host)
 
-    assert any("lib/dep/lib/child" in p and "lib/orphan" in p for p in problems), problems
+    assert any("lib/dep/lib/child" in p and "lib/orphan" in p for p in leftovers), leftovers
+    assert not any("lib/orphan" in p for p in versions), versions
+
+
+def test_a_dependency_at_the_wrong_version_with_leftovers_is_in_both_lists(tmp_path):
+    # Two faults, two commands, and `condition` names only the more urgent of them. Reading leftovers
+    # through it had the leftovers check report all-clear while the version finding beside it named a
+    # stranded directory - one tree, two answers, which is what splitting the check must not cost.
+    host = _nest(tmp_path)
+    _init_repo(host / "lib" / "dep" / "lib" / "orphan")
+    lock = json.loads((host / "foundry.lock").read_text())
+    lock["lib/dep"] = {"tag": {"name": "v1", "rev": "0" * 40}}
+    (host / "foundry.lock").write_text(json.dumps(lock))
+
+    versions, leftovers = doctor.submodule_problems(host)
+
+    assert any(p.startswith("lib/dep: is at more than one version") for p in versions), versions
+    assert any(p.startswith("lib/dep: has leftover directories") and "lib/orphan" in p for p in leftovers), leftovers
+    # Each carries the command for its own fault, and neither offers the other's.
+    version_finding = next(p for p in versions if p.startswith("lib/dep:"))
+    assert "--sweep" not in version_finding, version_finding
+    assert "--sweep lib/dep" in next(p for p in leftovers if p.startswith("lib/dep:"))
 
 
 def test_a_submodule_absent_from_foundry_lock_is_still_checked(tmp_path):
@@ -390,7 +419,7 @@ def test_a_submodule_absent_from_foundry_lock_is_still_checked(tmp_path):
     host = _nest(tmp_path)
     _git(host, "submodule", "deinit", "-f", "lib/unlocked")
 
-    problems = doctor.submodule_problems(host)
+    problems, _ = doctor.submodule_problems(host)
 
     assert any(p.startswith("lib/unlocked: recorded as a dependency but not checked out") for p in problems), problems
 
@@ -401,7 +430,7 @@ def test_a_parent_is_not_reported_for_drift_its_children_already_explain(tmp_pat
     host = _nest(tmp_path)
     _git(host / "lib" / "dep", "submodule", "deinit", "-f", "lib/child")
 
-    problems = doctor.submodule_problems(host)
+    problems = sum(doctor.submodule_problems(host), [])
 
     assert any(p.startswith("lib/dep/lib/child: recorded as a dependency but not checked out") for p in problems), (
         problems
@@ -419,9 +448,10 @@ def test_a_lock_entry_for_a_departed_submodule_is_reported(tmp_path):
     lock["lib/departed"] = {"tag": {"name": "v9", "rev": "0" * 40}}
     (host / "foundry.lock").write_text(json.dumps(lock))
 
-    problems = doctor.submodule_problems(host)
+    versions, leftovers = doctor.submodule_problems(host)
 
-    assert any(p.startswith("lib/departed:") and "not a submodule" in p for p in problems), problems
+    assert any(p.startswith("lib/departed:") and "not a submodule" in p for p in leftovers), leftovers
+    assert not any(p.startswith("lib/departed:") for p in versions), "an entry pinning nothing is deleted, not moved"
 
 
 def test_a_submodule_a_foundry_project_never_pinned_is_reported(tmp_path):
@@ -429,7 +459,7 @@ def test_a_submodule_a_foundry_project_never_pinned_is_reported(tmp_path):
     # anything noticing. `lib/unlocked` is in .gitmodules and in no lock entry.
     host = _nest(tmp_path)
 
-    problems = doctor.submodule_problems(host)
+    problems, _ = doctor.submodule_problems(host)
 
     assert any(p.startswith("lib/unlocked: missing from foundry.lock") for p in problems), problems
 
@@ -439,7 +469,7 @@ def test_a_third_party_dependency_without_a_lock_is_not_called_unpinned(tmp_path
     # most dependencies have never used forge. Only a project that keeps a lock has a gap.
     host = _nest(tmp_path)
 
-    problems = doctor.submodule_problems(host)
+    problems = sum(doctor.submodule_problems(host), [])
 
     assert not any(p.startswith("lib/dep/lib/child: missing from foundry.lock") for p in problems), problems
 
@@ -452,7 +482,7 @@ def test_a_lock_deviation_is_stated_even_when_something_else_is_named(tmp_path):
     host = _nest(tmp_path)
     (host / "lib" / "dep" / "a.txt").write_text("edited by hand\n")
 
-    assert [p for p in doctor.submodule_problems(host) if p.startswith("lib/dep:")] == [], (
+    assert [p for p in sum(doctor.submodule_problems(host), []) if p.startswith("lib/dep:")] == [], (
         "a hand-edited file in a dependency is not a finding"
     )
 
@@ -460,7 +490,7 @@ def test_a_lock_deviation_is_stated_even_when_something_else_is_named(tmp_path):
     lock["lib/dep"] = {"tag": {"name": "v1", "rev": "0" * 40}}
     (host / "foundry.lock").write_text(json.dumps(lock))
 
-    problems = [p for p in doctor.submodule_problems(host) if p.startswith("lib/dep:")]
+    problems = [p for p in doctor.submodule_problems(host)[0] if p.startswith("lib/dep:")]
 
     assert problems[0].startswith("lib/dep: is at more than one version"), problems
-    assert "foundry.lock say 0000000000" in problems[0], problems
+    assert "0000000000  foundry.lock" in problems[0], problems

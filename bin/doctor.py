@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import re
 import subprocess
 import tomllib
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
 
 import json5
 
+import columns
 import workflow_copy
 from checks import Check, report
 from submodule_state import (
+    Condition,
+    Facts,
     condition,
+    litter_condition,
     read_facts,
     read_lock,
     repair,
@@ -133,8 +139,34 @@ def submodule_url_drift(repo_dir: Path, prefix: str = "") -> list[tuple[str, str
     return drift
 
 
-def submodule_problems(repo_root: Path) -> list[str]:
-    """One finding per submodule, from bin/submodule_state.py.
+def _finding(facts: Facts, found: Condition, weigh: Sequence[str] = ()) -> str:
+    """One finding as doctor prints it: what is wrong, the facts behind it, anything a reader must
+    weigh before acting, and the one command that fixes it.
+
+    Shared by the version findings and the leftovers, so the two checks cannot come to look like
+    different tools reporting on the same tree."""
+    lines = [f"{facts.path}: {found.summary}"]
+    # A comparison of claims arrives as rows and is aligned; every other condition is one fact in
+    # words. Same alignment as the cross-repo table in `dependency-conflicts.py`, from the same code,
+    # so a reader meets one column discipline rather than one per report.
+    lines.extend(columns.rows(found.rows, indent="  ") if found.rows else [f"  {found.detail}"])
+    lines.extend(f"  {item}" for item in weigh)
+    if fix := repair(facts, found):
+        lines.append(f"  Repair: {fix}")
+    return "\n".join(lines)
+
+
+def submodule_problems(repo_root: Path) -> tuple[list[str], list[str]]:
+    """One finding per submodule, from bin/submodule_state.py, split into (versions, leftovers).
+
+    Split by what the reader must DO, which is what a check title has to be true of: a version is
+    moved, staged or locked, and a leftover is deleted. Three findings reading "has leftover
+    directories from an older version" under a check titled "each dependency is at one version" made
+    the title false of half its contents, and the check's rationale had grown a clause about stranded
+    directories to cover them.
+
+    One traversal, because it walks every submodule and runs git in each: the split is which list a
+    finding lands in, never a second pass to find it.
 
     This replaces four checks that each compared a different pair of pins and each invented its own
     repair - which is how one came to advise `git add` for a version disagreement while its sibling
@@ -145,62 +177,63 @@ def submodule_problems(repo_root: Path) -> list[str]:
     submodules are stale because its version was bumped without recursing is ONE finding, not two.
     States that are normal are not reported at all - a branch pin behind its remote (bao-base's main
     moves daily) and a dependency carrying local commits (what working in one looks like)."""
-    problems: list[str] = []
+    versions: list[str] = []
+    leftovers: list[str] = []
     for stray in stray_clones(repo_root):
-        problems.append(
+        leftovers.append(
             f"{stray}: a git repository nothing tracks, in our own tree\n"
             f"  its contents are invisible to everyone else, and no .gitmodules records it\n"
             f"  Repair: delete {stray} and, if one exists, its .git/modules/{stray} gitdir"
         )
     for entry, pins in stale_lock_entries(repo_root):
-        problems.append(
+        leftovers.append(
             f"{entry}: foundry.lock pins it ({pins}) but it is not a submodule\n"
             f"  nothing reads the entry, and it misstates what this project depends on\n"
             f"  Repair: remove the {entry} entry from foundry.lock"
         )
     readings = [
-        (facts, found)
+        (facts, condition(facts))
         for parent, name, display in submodules(repo_root)
         for facts in [read_facts(parent, name, read_lock(parent).get(name), display)]
-        for found in [condition(facts)]
-        if condition(facts).is_fault
     ]
-    reported = {facts.path for facts, _ in readings}
+    reported = {facts.path for facts, found in readings if found.is_fault}
     for facts, found in readings:
+        # Leftovers are read on their own rather than through `condition`, which names one thing and
+        # ranks a version disagreement above them. A dependency can be at the wrong version AND have
+        # stranded directories - two faults, two commands - and a check titled "no dependency has
+        # leftovers" that could only see them when nothing outranked them would report all-clear
+        # beside a version finding that named one.
+        if stranded := litter_condition(facts):
+            leftovers.append(_finding(facts, stranded))
+        if not found.is_fault or found.name == "litter-present":
+            continue
         # A dependency whose only fault is that its own submodules are off their pins says nothing
         # the reading of those submodules does not say better - and each of them carries the repair
         # for its own case. Reporting both is the duplication this check exists to remove.
         if found.name == "nested-drift" and any(other.startswith(f"{facts.path}/") for other in reported):
             continue
 
-        lines = [f"{facts.path}: {found.summary}"]
-        lines.append(f"  {found.detail}")
-        if found.reach:
-            lines.append(f"  a version bump has reached {found.reach}; foundry.lock has not caught up")
         # Facts a reader must weigh before acting, which `condition` did not name because something
         # more urgent outranked it. Without these a repair can look safe when it is not.
-        #
+        weigh = []
+        if found.reach:
+            weigh.append(f"a version bump has reached {found.reach}; foundry.lock has not caught up")
         # The working tree is the truth - it is what builds here and what CI checks out - so any
         # commit foundry.lock names other than that one is a deviation to be fixed, and must be said
         # even when something more urgent was named, or the more pressing fault silently hides it.
         if facts.lock.rev and facts.lock.rev != facts.worktree and found.name != "bumped-not-locked":
-            lines.append(
-                f"  and foundry.lock names {facts.lock.rev[:10]}, not the "
+            weigh.append(
+                f"and foundry.lock names {facts.lock.rev[:10]}, not the "
                 f"{(facts.worktree or 'absent')[:10]} checked out here"
             )
         if facts.unpushed:
-            lines.append(
-                f"  and {len(facts.unpushed)} commit(s) here are on no remote - pushing them first is the only backup"
+            weigh.append(
+                f"and {len(facts.unpushed)} commit(s) here are on no remote - pushing them first is the only backup"
             )
         if facts.nested_drift and found.name != "nested-drift":
-            lines.append(f"  and {len(facts.nested_drift)} nested submodule(s) are off their recorded commits")
-        if facts.litter and found.name != "litter-present":
-            lines.append(f"  and untracked repositories were left behind: {', '.join(facts.litter)}")
-        fix = repair(facts, found)
-        if fix:
-            lines.append(f"  Repair: {fix}")
-        problems.append("\n".join(lines))
-    return problems
+            weigh.append(f"and {len(facts.nested_drift)} nested submodule(s) are off their recorded commits")
+        versions.append(_finding(facts, found, weigh))
+    return versions, leftovers
 
 
 def remapping_problems(foundry_remappings: list[str], wake_remappings: list[str]) -> list[str]:
@@ -552,11 +585,12 @@ def build_checks(repo_root: Path, foundry_remappings: list[str], wake_remappings
     reads as covered — which is exactly what happened to `tracked_but_ignored_problems`.
 
     Each check names what it verifies, why that matters, what a failure costs, and its problems; it
-    passes when there are none. `why` prints identically on both paths — a check whose purpose is
-    visible only when it fires teaches nothing while it is green, and a reader who does not know
-    what a check is FOR cannot judge whether its failure is urgent or cosmetic. `cost` is the only
-    part that differs, added on failure: the consequence of leaving it unfixed, which is worth the
-    lines only once something is actually broken."""
+    passes when there are none. `why` and `cost` are read on the failing path, and `yarn doctor -v`
+    puts `why` back on every check — see `checks.report`.
+
+    The submodule traversal runs once and its findings are split, because it walks every submodule
+    and runs git in each; calling it per check would double that to say the same things."""
+    version_problems, leftover_problems = submodule_problems(repo_root)
     return [
         Check(
             "foundry/wake remappings agree",
@@ -579,10 +613,19 @@ def build_checks(repo_root: Path, foundry_remappings: list[str], wake_remappings
             "tool writes all three — git writes the first two and forge the third. HEAD is not "
             "consulted: this is what you run BEFORE committing, so a commit not yet made is not a "
             "fault",
-            "so a disagreement means the version you are building is not the version you are about "
-            "to record, and a version change that stranded directories leaves them until someone "
-            "removes them",
-            submodule_problems(repo_root),
+            "a disagreement means the version you are building is not the version you are about to "
+            "record, and whichever of them is wrong will be wrong for everyone who clones it",
+            version_problems,
+        ),
+        Check(
+            "no dependency has leftovers from an older version",
+            "a version change that moves or drops a nested dependency strands its directory, and a "
+            "dependency that is removed strands its foundry.lock entry — nothing walks the tree to "
+            "clear either, so both sit there until someone does",
+            "forge and git read what is present, not what is recorded: a stranded checkout still "
+            "resolves imports, and an entry that pins nothing still misstates what this project "
+            "depends on",
+            leftover_problems,
         ),
         workflow_copy.check(repo_root),
         Check(
@@ -624,13 +667,21 @@ def build_checks(repo_root: Path, foundry_remappings: list[str], wake_remappings
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Check this repository for states that are always wrong.")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="say what every check is for, not only the ones that fired",
+    )
+    arguments = parser.parse_args()
     repo_root = Path(
         subprocess.run(
             ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True
         ).stdout.strip()
     )
     foundry_remappings, wake_remappings = load_remappings(repo_root)
-    report(build_checks(repo_root, foundry_remappings, wake_remappings))
+    report(build_checks(repo_root, foundry_remappings, wake_remappings), verbose=arguments.verbose)
 
 
 if __name__ == "__main__":

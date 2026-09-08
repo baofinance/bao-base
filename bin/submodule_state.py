@@ -510,13 +510,21 @@ def _litter(submodule: Path) -> list[str]:
 
 @dataclass(frozen=True)
 class Condition:
-    """What is wrong with one submodule, named. `detail` states the facts behind the name and never
-    speculates about how the state arose: a working tree ahead of the recorded pins looks identical
-    whether a GUI bumped it or a forge run half-finished, so claiming either would be invention."""
+    """What is wrong with one submodule, named. The facts behind the name never speculate about how
+    the state arose: a working tree ahead of the recorded pins looks identical whether a GUI bumped it
+    or a forge run half-finished, so claiming either would be invention.
+
+    They arrive as `detail` OR as `rows`, never both - one representation per condition, so a sentence
+    and a table cannot drift apart. `rows` is for the one condition that is a COMPARISON of claims,
+    where which of them agree is the thing a reader acts on and a sentence hides it; every other
+    condition is a single fact and says it in words."""
 
     name: str
     detail: str
     reach: str | None = None
+    # Cells for `columns.rows`, laid out by whoever renders them - the alignment is not this module's
+    # business, and neither is the indent it will sit under.
+    rows: tuple[tuple[str, ...], ...] = ()
 
     # What a READER is told. `name` stays the identifier this module and its tests branch on, but it
     # is shorthand for whoever wrote it - "litter-present" describes a data structure, not a thing
@@ -545,6 +553,21 @@ class Condition:
         Work in progress inside a dependency is not among these at all - see `condition`. Doctor
         grades what has been DONE, and unfinished work is not a defect."""
         return self.name not in ("consistent", "behind-moving-pin")
+
+
+def litter_condition(facts: Facts) -> Condition | None:
+    """Directories a version change stranded, or None. ORTHOGONAL to everything else that can be wrong
+    with a dependency: a checkout can be at the wrong version AND have leftovers, and they are fixed
+    by different commands.
+
+    So it is read on its own as well as through `condition`, which can only ever name one thing and
+    ranks a version disagreement above this. Reading it separately is what lets a reader be told about
+    leftovers that a more urgent fault would otherwise have buried - and it is why doctor's leftovers
+    check cannot be built from `condition` alone, which would have it report all-clear while the
+    version finding beside it named a stranded directory."""
+    if not facts.litter:
+        return None
+    return Condition("litter-present", "untracked repositories: " + ", ".join(facts.litter))
 
 
 def condition(facts: Facts) -> Condition:
@@ -584,12 +607,13 @@ def condition(facts: Facts) -> Condition:
 
     if len(distinct) > 1:
         # Grouped by the commit they name rather than listed flat: which claims AGREE is the thing a
-        # reader acts on, and four values in a row hides it.
+        # reader acts on, and three values in a row hides it. One row per distinct commit, the commit
+        # first because its width is fixed and the list of claimants' is not.
         agreeing: dict[str, list[str]] = {}
         for where, what in pins.items():
             if what:
                 agreeing.setdefault(what, []).append(where)
-        disagreement = "; ".join(f"{' + '.join(names)} say {what[:10]}" for what, names in agreeing.items())
+        disagreement = tuple((what[:10], " + ".join(names)) for what, names in agreeing.items())
 
         # `reach` narrates how far a version bump travelled, and is set ONLY for the three shapes a
         # bump actually produces - the lock behind, and the change having reached the working tree,
@@ -605,14 +629,14 @@ def condition(facts: Facts) -> Condition:
                 reach = "the index"
             elif facts.worktree == facts.index_gitlink == facts.head_gitlink:
                 reach = "HEAD"
-        return Condition("bumped-not-locked", disagreement, reach)
+        return Condition("bumped-not-locked", "", reach, disagreement)
 
     # No branch for unpushed commits: `at_risk` above already collects them, running the same
     # `git log HEAD --not --remotes`, so anything this could match has returned already. One measure
     # of what exists nowhere else, not two.
 
-    if facts.litter:
-        return Condition("litter-present", "untracked repositories: " + ", ".join(facts.litter))
+    if leftovers := litter_condition(facts):
+        return leftovers
 
     if facts.nested_drift:
         return Condition(

@@ -157,7 +157,7 @@ def test_work_in_progress_does_not_hide_a_real_disagreement(world):
 
     assert facts.has_own_work, "the edit is still seen, for the delete guard"
     assert found.name == "bumped-not-locked", f"the version disagreement is the finding: {found}"
-    assert "foundry.lock" in found.detail, found.detail
+    assert any("foundry.lock" in claimants for _, claimants in found.rows), found.rows
 
 
 @pytest.mark.parametrize(
@@ -598,8 +598,9 @@ def test_a_disagreement_that_is_not_a_bump_is_not_narrated_as_one(world):
 
     assert found.name == "bumped-not-locked"
     assert found.reach is None, f"this is not a bump, so nothing may be claimed about one: {found}"
-    assert "working tree + foundry.lock say" in found.detail, found.detail
-    assert "index say" in found.detail, found.detail
+    # One row per distinct commit, so which claims agree is the shape of the finding rather than
+    # something to read out of a sentence. The commit is first because its width is fixed.
+    assert [claimants for _, claimants in found.rows] == ["working tree + foundry.lock", "index"], found.rows
 
     # (A bump staged, locked, and not yet committed once had its own test here, asserting doctor
     # advised `git commit`. That state is no longer a fault at all - see

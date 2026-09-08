@@ -19,9 +19,13 @@ from rich.console import Console
 
 
 class Check(NamedTuple):
-    """One check, ready to render. `why` states what it is for and prints on every run; `cost` states
-    what leaving it unfixed costs and prints only when it fired, which is the one place that extra
-    reading earns its space."""
+    """One check, ready to render. `why` states what it is for and `cost` what leaving it unfixed
+    costs; both are read on the failing path, and `--verbose` puts `why` back on every check.
+
+    Both are written as sentences that begin lowercase and are joined with a semicolon rather than a
+    full stop, because neither is a sentence a reader meets on its own - `why` opens the explanation
+    and `cost` continues it. Joining them with ". " read as "…is not a fault. so a disagreement
+    means…" for as long as there have been costs, which only a failing check ever showed."""
 
     name: str
     why: str
@@ -55,8 +59,14 @@ def wrap(text: str, indent: str, width: int, marker: str = "") -> list[str]:
     )
 
 
-def report(checks: list[Check]) -> None:
+def report(checks: list[Check], verbose: bool = False) -> None:
     """Print every check in the order given, then exit non-zero if any of them fired.
+
+    A passing check is one line by default. The rationale is written for a reader who has not met the
+    check before, and that reader exists on the first run; by the tenth it is eight paragraphs of
+    prose to scroll past to reach the one thing that fired. `--verbose` is that reader's flag, and
+    prints `why` for every check - which is what this did unconditionally until it was measured
+    against a real run beside `verify-audit`, whose whole advantage was having no passing half.
 
     Exiting from here rather than returning a flag is deliberate: every caller is a command whose
     exit status IS its result, and a caller that forgot to re-raise would report a clean run while
@@ -67,10 +77,9 @@ def report(checks: list[Check]) -> None:
     for check in checks:
         mark, style = ("✗", "red") if check.problems else ("✓", "green")
         console.print(f"{mark} {check.name}", style=f"bold {style}" if check.problems else style, markup=False)
-        # Identical shape on both paths, so the reason for a check reads the same whether or not it
-        # fired; only `cost` and the problems themselves are added when it did.
-        prose = check.why if not check.problems else f"{check.why}. {check.cost}"
-        for line in wrap(prose, indent="    ", width=console.width):
+        # Semicolon, not a full stop: `cost` continues `why`'s sentence and is written to.
+        prose = f"{check.why}; {check.cost}" if check.problems else check.why if verbose else ""
+        for line in wrap(prose, indent="    ", width=console.width) if prose else []:
             console.print(line, style=style if check.problems else "dim", markup=False)
         if not check.problems:
             continue
