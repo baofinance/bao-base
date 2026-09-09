@@ -12,6 +12,10 @@ dependencies = [
   "python-dotenv~=1.1.0",
   # Coloured terminal output (doctor.py pass/fail report)
   "rich~=13.7",
+  # keccak256, for deployed.json's bytecode digests. The ecosystem hashes with keccak and `cast
+  # keccak` is what anyone checking a value by hand will reach for; sha256 was chosen only because it
+  # is in the stdlib, which is convenience deciding a format others have to verify against.
+  "pycryptodome~=3.20",
   # [tool.pytest.ini_options]
   # testpaths = ["tests"]
   # python_files = "test_*.py"

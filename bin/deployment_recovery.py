@@ -33,7 +33,11 @@ from pathlib import Path
 def strip_metadata(code: bytes) -> bytes:
     """`code` without its CBOR metadata trailer.
 
-    Solidity appends the trailer and then two bytes giving its length, so it removes itself exactly.
+    Solidity appends the trailer and then two bytes giving its length, so it removes itself exactly -
+    documented at https://docs.soliditylang.org/en/latest/metadata.html ("the last two bytes in the
+    bytecode indicate the length of the CBOR encoded information"). The docs describe the trailer and
+    say nothing about what precedes it, which is where the byte that broke this comparison lives; see
+    `matches`.
     A deployed contract carries one and a build with `FOUNDRY_CBOR_METADATA=false` does not - the real
     recovery differed by precisely those 53 bytes until this was applied, which is the first thing
     anyone repeating this will hit.
@@ -327,10 +331,30 @@ def artefact_for(out: Path, source: str, contract_type: str) -> dict | None:
 def matches(onchain: bytes, artefact: dict) -> tuple[bool, list[str]]:
     """Whether the deployed runtime code is what this artefact builds, and the immutables read off it.
 
+    BOTH SIDES ARE STRIPPED. A build carries its own CBOR trailer and it never equals the deployed
+    one, because each hashes the sources and settings of the tree it was built in - so the verdict has
+    to rest on the code with both removed. Stripping only the chain's side happened to work while the
+    build was forced to emit no metadata, and forcing that was itself the defect: whether the metadata
+    is appended changes the CODE BEFORE IT. The compiler emits a terminator only when there is
+    something after the code to separate from - ethereum/solidity, `libevmasm/Assembly.cpp`, in
+    `assemble()` (https://raw.githubusercontent.com/ethereum/solidity/develop/libevmasm/Assembly.cpp;
+    `develop` moves, so `git grep "help tests find miscompilation"` is the durable way to find it):
+
+        if (!m_subs.empty() || !m_data.empty() || !m_auxiliaryData.empty())
+            // Append an INVALID here to help tests find miscompilation.
+            ret.bytecode.push_back(static_cast<uint8_t>(Instruction::INVALID));
+
+    The CBOR metadata IS that auxiliary data, so a contract with no sub-assemblies and no data section
+    loses the `INVALID` along with it, leaving the metadata-off build one byte shorter than anything
+    that was ever deployed. Measured on `Aggregator_stETH_USD_mainnet` at a2ac04c401 - one source, one
+    compiler: 3302 bytes with metadata off, 3303 after stripping with it on, 3303 deployed.
+
     The immutables are returned rather than discarded: they are excluded from the comparison, so they
     are the part a human still has to look at - and for the aggregators they are the Chainlink feed
     addresses, which is exactly the thing an audit is about."""
-    built = bytes.fromhex(artefact["deployedBytecode"]["object"][2:])
+    # The regions are offsets from the START, and the trailer is at the end, so stripping moves none
+    # of them.
+    built = strip_metadata(bytes.fromhex(artefact["deployedBytecode"]["object"][2:]))
     references = artefact["deployedBytecode"].get("immutableReferences") or {}
     stripped = strip_metadata(onchain)
     if len(stripped) != len(built):

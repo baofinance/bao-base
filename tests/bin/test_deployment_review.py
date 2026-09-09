@@ -41,6 +41,7 @@ def repo(tmp_path):
         json.dumps(
             {
                 "network": "mainnet",
+                "chainId": 1,
                 "implementations": {"0xAA": {"contractSource": "src/Foo.sol", "contractType": "Foo"}},
             }
         )
@@ -52,6 +53,7 @@ def repo(tmp_path):
 
 def baseline_for(address: str = "0xAA") -> Baseline:
     return Baseline(
+        chain_id=1,
         chain="mainnet",
         address=address,
         contract_type="Foo",
@@ -60,7 +62,7 @@ def baseline_for(address: str = "0xAA") -> Baseline:
         commit_timestamp="2026-03-19T20:50:21Z",
         deploy_block=24706244,
         deploy_timestamp="2026-03-21T13:41:23Z",
-        creation_bytecode_hash="sha256:" + "b" * 64,
+        creation_bytecode_keccak256="b" * 64,
     )
 
 
@@ -115,6 +117,7 @@ def test_one_contract_in_two_manifests_is_one_thing_to_recover(repo):
         json.dumps(
             {
                 "network": "mainnet",
+                "chainId": 1,
                 "implementations": {
                     "0xAA": {
                         "contractSource": "src/Foo.sol",
@@ -126,7 +129,13 @@ def test_one_contract_in_two_manifests_is_one_thing_to_recover(repo):
         )
     )
     (manifests / "state.json").write_text(
-        json.dumps({"network": "mainnet", "oracles": {"FOO": {"address": "0xAA", "contractPath": "src/Foo.sol:Foo"}}})
+        json.dumps(
+            {
+                "network": "mainnet",
+                "chainId": 1,
+                "oracles": {"FOO": {"address": "0xAA", "contractPath": "src/Foo.sol:Foo"}},
+            }
+        )
     )
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "two manifests, one contract")
@@ -152,12 +161,22 @@ def test_two_manifests_disagreeing_about_one_contract_is_reported_and_never_gues
     (repo / "src" / "Foo.sol").unlink()
     manifests = repo / "deployments" / "mainnet"
     (manifests / "a-first.json").write_text(
-        json.dumps({"network": "mainnet", "implementations": {"0xAA": {
-            "contractSource": "src/Foo.sol", "contractType": "Foo"}}})
+        json.dumps(
+            {
+                "network": "mainnet",
+                "chainId": 1,
+                "implementations": {"0xAA": {"contractSource": "src/Foo.sol", "contractType": "Foo"}},
+            }
+        )
     )
     (manifests / "state.json").write_text(
-        json.dumps({"network": "mainnet", "implementations": {"0xAA": {
-            "contractSource": "src/moved/Foo.sol", "contractType": "Foo"}}})
+        json.dumps(
+            {
+                "network": "mainnet",
+                "chainId": 1,
+                "implementations": {"0xAA": {"contractSource": "src/moved/Foo.sol", "contractType": "Foo"}},
+            }
+        )
     )
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "the file moved; two manifests disagree")
@@ -170,13 +189,43 @@ def test_two_manifests_disagreeing_about_one_contract_is_reported_and_never_gues
     assert found.unrecovered[0].recorded_path is None, "unset, so nothing acts on an arbitrary pick"
 
 
+def test_a_contract_whose_manifest_gives_no_chain_id_is_reported_not_silently_dropped(repo):
+    # A deployed contract with no usable chain id cannot be keyed, so it would vanish from every count -
+    # exactly the "this repo deploys less than it does" failure the whole model exists to remove. One
+    # MegaETH manifest records `chainId: 0` where four others say 4326.
+    manifest = repo / "deployments" / "mainnet" / "state.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "network": "mainnet",
+                "chainId": 0,
+                "implementations": {"0xAA": {"contractSource": "src/Foo.sol", "contractType": "Foo"}},
+            }
+        )
+    )
+
+    found = review(repo)
+
+    assert [problem.entry.name for problem in found.unreadable] == ["Foo"]
+    # The reason quotes what the RECORD says, not what it was normalised to: "chainId is None" for a
+    # manifest holding `chainId: 0` sends the reader looking for a missing field that is not missing.
+    assert "chainId is 0" in found.unreadable[0].reason, found.unreadable[0].reason
+    assert found.unrecovered == [], "it is not also a recovery backlog item, because it cannot be keyed"
+
+
 def test_a_manifest_path_that_cannot_be_normalised_is_reported_not_failed(repo):
     # Pre-existing record defects - harbor's `src/BaoPauser_v1.sol` naming bao-base's file - must not
     # turn a repo red on the day this check lands. They are reported, and a baseline cannot be written
     # for one anyway, so recording forces them to be fixed.
     manifest = repo / "deployments" / "mainnet" / "state.json"
     manifest.write_text(
-        json.dumps({"implementations": {"0xBB": {"contractSource": "src/NeverHere.sol", "contractType": "Ghost"}}})
+        json.dumps(
+            {
+                "network": "mainnet",
+                "chainId": 1,
+                "implementations": {"0xBB": {"contractSource": "src/NeverHere.sol", "contractType": "Ghost"}},
+            }
+        )
     )
 
     found = review(repo)

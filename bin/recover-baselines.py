@@ -11,15 +11,16 @@ not match is reported and skipped - an unrecovered baseline is a known gap, and 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import os
 import subprocess
 import sys
 import tempfile
+import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from dataclasses import dataclass
+from Crypto.Hash import keccak
 
 from deployment_baselines import Baseline, add, key, read_baselines, review, write_baselines
 from deployment_recovery import (
@@ -34,7 +35,16 @@ from deployment_recovery import (
     source_at,
 )
 
-_METADATA_OFF = {"FOUNDRY_BYTECODE_HASH": "none", "FOUNDRY_CBOR_METADATA": "false"}
+
+def _keccak256(data: bytes) -> str:
+    """keccak256, because that is what this ecosystem hashes with.
+
+    sha256 was the first choice and it was convenience deciding a format other people have to verify
+    against: it is in the stdlib, and keccak is not. But anyone checking a recorded digest by hand
+    reaches for `cast keccak`, and a record exists to be checked."""
+    digest = keccak.new(digest_bits=256)
+    digest.update(data)
+    return digest.hexdigest()
 
 
 def _deployed_code(address: str, chain: str) -> bytes | None:
@@ -83,16 +93,41 @@ def _deployment(address: str, chain: str, claimed: str) -> tuple[int, str] | Non
 
 
 def _build(worktree: Path, sources: list[str], out: Path) -> bool:
-    """Compile these source files and their closure, with metadata off so comparisons can be made.
+    """Compile these source files and their closure, exactly as the deploy would have.
 
     Several at once because they share the closure: twenty aggregators at one commit compile their
-    common base and libraries once between them rather than twenty times."""
+    common base and libraries once between them rather than twenty times.
+
+    METADATA IS LEFT ON, and that one setting decides whether anything matches at all. It was forced
+    off - `FOUNDRY_CBOR_METADATA=false`, `FOUNDRY_BYTECODE_HASH=none` - because the metadata embeds
+    source hashes that cannot be expected to agree. True, and the action was still wrong: the trailer
+    is stripped from both sides anyway, and disabling it changes the CODE BEFORE IT. `Assembly.cpp`
+    ends the code with an `INVALID` only when something follows it to separate from, and the metadata
+    is that something (`!m_subs.empty() || !m_data.empty() || !m_auxiliaryData.empty()`), so a contract
+    with no sub-assemblies and no data section loses the byte along with the metadata:
+
+        ethereum/solidity, libevmasm/Assembly.cpp, in `assemble()`
+        https://raw.githubusercontent.com/ethereum/solidity/develop/libevmasm/Assembly.cpp
+
+    (`develop` moves, so the line will not stay where it is; `git grep "help tests find
+    miscompilation"` finds it in any checkout.) Measured on
+    `Aggregator_stETH_USD_mainnet` at a2ac04c401, one source, one compiler:
+
+        metadata off   3302 bytes, strips to 3302, ends ...610cb956
+        metadata on    3356 bytes, strips to 3303, ends ...610cb956fe
+        deployed       3356 bytes, strips to 3303, ends ...610cb956fe
+
+    So the metadata-off build was a byte shorter than anything that has ever been deployed. It is not
+    alignment padding - one byte, never a computed count, and 3303 is no more word-aligned than 3302.
+    `BaoPauser_v1` recovered anyway because it HAS a data section, which puts its terminator further
+    back where stripping the trailer does not reach - which is how a defect survives its first
+    success."""
     done = subprocess.run(
         ["forge", "build", *sources],
         cwd=worktree,
         capture_output=True,
         text=True,
-        env={**_environment(), **_METADATA_OFF, "FOUNDRY_OUT": str(out)},
+        env={**_environment(), "FOUNDRY_OUT": str(out)},
     )
     if done.returncode != 0:
         sys.stderr.write(done.stdout + done.stderr)
@@ -177,6 +212,23 @@ def main() -> int:
     root = Path.cwd()
     found = review(root)
     outstanding = [e for e in found.unrecovered if not arguments.only or e.address.lower() == arguments.only.lower()]
+
+    # Said out loud because this run is long, occasional, and otherwise silent for minutes at a time -
+    # and because every number here is one a reader would otherwise have to infer from what is missing.
+    print(f"{root}")
+    print(
+        f"  manifests describe {len(found.recorded) + len(found.unrecovered)} deployed contracts: "
+        f"{len(found.recorded)} already recorded, {len(found.unrecovered)} without a baseline"
+    )
+    for label, items in (
+        ("cannot be read, so cannot be recovered", found.unreadable),
+        ("recorded but no manifest claims them any more", found.orphaned),
+        ("described by two manifests that disagree", found.conflicts),
+    ):
+        if items:
+            print(f"  {len(items)} {label}")
+    if arguments.only:
+        print(f"  --only {arguments.only}: {len(outstanding)} of them")
     if not outstanding:
         print("nothing to recover")
         return 0
@@ -184,9 +236,10 @@ def main() -> int:
     baselines = read_baselines(root)
 
     # Every contract's chain facts first, because they decide its candidate window and cost only RPC.
+    print(f"\nreading the chain for {len(outstanding)} contract(s)")
     pending: dict[str, _Wanted] = {}
-    for entry in outstanding:
-        print(f"{entry.chain}/{entry.address}  {entry.name}")
+    for position, entry in enumerate(outstanding, start=1):
+        print(f"[{position:>3}/{len(outstanding)}] {entry.chain}/{entry.address}  {entry.name}")
         if not entry.name:
             print("  the manifest names no contract, so nothing can be located or built")
             continue
@@ -205,8 +258,11 @@ def main() -> int:
         # The chain's timestamp, not the manifest's, anchors the window: the manifest's is the deploy
         # script's clock and is late, so it opens the search in the wrong place.
         candidates = candidate_commits(root, deployed, arguments.before_days, arguments.after_days)
-        print(f"  created in block {block} at {deployed}; {len(candidates)} candidate commits")
-        pending[key(entry.chain, entry.address)] = _Wanted(entry, onchain, block, deployed, candidates)
+        print(
+            f"          created in block {block} at {deployed}, {len(onchain)} bytes on chain; "
+            f"{len(candidates)} candidate commits from -{arguments.before_days}d to +{arguments.after_days}d"
+        )
+        pending[key(entry.chain_id, entry.address)] = _Wanted(entry, onchain, block, deployed, candidates)
 
     # THE DEPLOY BLOCK DECIDES WHICH COMMIT, not the order things happen to be tried in. Many commits
     # compile identically, so "the first that matches" is arbitrary; "the LATEST at or before the
@@ -220,33 +276,52 @@ def main() -> int:
         ("at or before the deploy", dated, lambda when, deployed: when <= deployed),
         ("after it (an uncommitted tree)", list(reversed(dated)), lambda when, deployed: when > deployed),
     ]
-    print(f"\ntrying {len(dated)} commits for {len(pending)} contracts\n")
+    print(f"\ntrying {len(dated)} commits for {len(pending)} contract(s)")
     recovered = 0
-    tried: set[str] = set()
-    for _, order, admits in passes:
-        for commit, when in order:
+    built = 0
+    # Which commit first claimed each set of build inputs, so a skip can say what it duplicates rather
+    # than leaving a gap in the numbering that reads like a contract being dropped.
+    tried: dict[str, str] = {}
+    for label, order, admits in passes:
+        if not pending:
+            break
+        print(f"\npass: commits {label} — {len(pending)} contract(s) still looking")
+        for position, (commit, when) in enumerate(order, start=1):
             if not pending:
                 break
             looking = {k: w for k, w in pending.items() if commit in w.candidates and admits(when, w.deployed)}
             if not looking:
                 continue
+            place = f"[{position:>3}/{len(order)}] {commit[:10]} {when}"
             # Two commits reading the same build inputs compile the same, so the second is free.
             print_key = build_fingerprint(root, commit)
             if print_key in tried:
+                print(f"{place}  same build inputs as {tried[print_key][:10]}, so it compiles the same — skipped")
                 continue
-            tried.add(print_key)
-            for entry_key, (found, source, artefact, immutables) in _try_commit(root, commit, looking).items():
+            tried[print_key] = commit
+            print(f"{place}  {len(looking)} waiting, building…", flush=True)
+            started = time.monotonic()
+            outcome = _try_commit(root, commit, looking)
+            built += 1
+            print(f"{' ' * len(place)}  {time.monotonic() - started:.1f}s, {len(outcome)} matched")
+            for entry_key, (found, source, artefact, immutables) in outcome.items():
                 wants = pending.pop(entry_key)
                 entry = wants.entry
                 creation = bytes.fromhex(artefact["bytecode"]["object"][2:])
                 made = commit_timestamp(root, found)
-                print(f"{entry.chain}/{entry.address}  {entry.name}")
-                print(f"  MATCHES at {found[:10]} ({source}); immutables: {' '.join(immutables) or 'none'}")
+                print(f"    MATCHES {entry.chain}/{entry.address}  {entry.name}")
+                print(f"      built from {source} at {found[:10]}, committed {made or 'unknown'}")
+                # The immutables are the part the comparison could NOT check, so they are the part a
+                # human still has to look at - for the aggregators, the Chainlink feed addresses.
+                print(f"      immutables (excluded from the comparison): {len(immutables)}")
+                for value in immutables:
+                    print(f"        {value}")
                 if made and made > wants.deployed:
-                    print(f"  NOTE: committed at {made}, AFTER the deploy — it ran from an uncommitted tree")
+                    print(f"      NOTE: committed AFTER the {wants.deployed} deploy — it ran from an uncommitted tree")
                 baselines = add(
                     baselines,
                     Baseline(
+                        chain_id=entry.chain_id,
                         chain=entry.chain,
                         address=entry.address,
                         contract_type=entry.name,
@@ -255,7 +330,7 @@ def main() -> int:
                         commit_timestamp=made or "",
                         deploy_block=wants.block,
                         deploy_timestamp=wants.deployed,
-                        creation_bytecode_hash="sha256:" + hashlib.sha256(creation).hexdigest(),
+                        creation_bytecode_keccak256=_keccak256(creation),
                     ),
                 )
                 recovered += 1
@@ -264,10 +339,12 @@ def main() -> int:
                 if arguments.write:
                     write_baselines(root, baselines)
 
-    for entry_key, wants in pending.items():
-        print(f"{entry_key}  {wants.entry.name}: no candidate built what is deployed")
+    if pending:
+        print(f"\n{len(pending)} not recovered — no candidate built what is deployed:")
+        for entry_key, wants in pending.items():
+            print(f"  {entry_key}  {wants.entry.name}  ({len(wants.candidates)} candidates tried)")
 
-    print(f"\n{recovered} of {len(outstanding)} recovered")
+    print(f"\n{recovered} of {len(outstanding)} recovered, from {built} build(s) over {len(dated)} candidate commits")
     if recovered and arguments.write:
         print(f"deployed.json holds {len(baselines)} baseline(s)")
     elif recovered:

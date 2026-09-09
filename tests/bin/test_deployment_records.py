@@ -229,6 +229,41 @@ def test_the_chain_falls_back_to_the_directory_when_the_record_does_not_say(repo
     assert read_records(repo)[0].chain == "arbitrum"
 
 
+def test_the_chain_id_is_read_because_it_is_what_identifies_a_chain(repo):
+    # The name is a label - eight spellings covered four chains across these manifests - so the id is
+    # what a deployed contract is keyed by, and it has to come off the record to be keyed by.
+    write(
+        repo,
+        "arbitrum/v3-aggregators.json",
+        {"chainId": 42161, "implementations": {"0xAA": {"contractSource": "src/A.sol", "contractType": "A"}}},
+    )
+
+    assert read_records(repo)[0].chain_id == 42161
+
+
+def test_a_chain_id_of_zero_is_a_gap_not_a_chain(repo):
+    # One MegaETH manifest records exactly this where four others say 4326. Taken at face value every
+    # zero-chained contract across every chain would group under one key; reported as absent, it is a
+    # defect a human is told about.
+    write(
+        repo,
+        "megaeth/v3-aggregators.json",
+        {"chainId": 0, "implementations": {"0xAA": {"contractSource": "src/A.sol", "contractType": "A"}}},
+    )
+
+    assert read_records(repo)[0].chain_id is None
+
+
+def test_a_manifest_that_names_no_chain_id_says_so_rather_than_inventing_one(repo):
+    write(
+        repo,
+        "mainnet/old.json",
+        {"network": "mainnet", "implementations": {"0xAA": {"contractSource": "src/A.sol", "contractType": "A"}}},
+    )
+
+    assert read_records(repo)[0].chain_id is None
+
+
 def test_an_unreadable_manifest_is_raised_not_skipped(repo):
     # Silently returning a shorter list reads as "this repository deploys less than it does", which is
     # the failure this whole plan exists to stop.

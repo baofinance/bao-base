@@ -55,6 +55,7 @@ class Conflict(Exception):
 # because it is Python. Mixing the two conventions in one file - which the first draft did, with
 # `schemaVersion` beside `creation_bytecode_hash` - reads as two authors who never met.
 _FIELDS = {
+    "chain_id": "chainId",
     "chain": "chain",
     "address": "address",
     "contract_type": "contractType",
@@ -63,7 +64,9 @@ _FIELDS = {
     "commit_timestamp": "commitTimestamp",
     "deploy_block": "deployBlock",
     "deploy_timestamp": "deployTimestamp",
-    "creation_bytecode_hash": "creationBytecodeHash",
+    # The algorithm is in the NAME, not smuggled into the value as a prefix: a reader checking it runs
+    # `cast keccak` and compares, with nothing to strip first.
+    "creation_bytecode_keccak256": "creationBytecodeKeccak256",
 }
 
 
@@ -89,6 +92,7 @@ class Baseline:
     deploy script's clock - measured 2m55s late for BaoPauser, and shared across a whole batch of
     aggregators that were deployed at different moments."""
 
+    chain_id: int  # the chain. `chain` beside it is a label for reading and for the RPC alias
     chain: str
     address: str
     contract_type: str
@@ -97,16 +101,20 @@ class Baseline:
     commit_timestamp: str
     deploy_block: int
     deploy_timestamp: str
-    creation_bytecode_hash: str
+    creation_bytecode_keccak256: str
 
 
-def key(chain: str, address: str) -> str:
+def key(chain_id: int, address: str) -> str:
     """The identity of a deployed contract, as one string.
 
-    Lowercased on both halves. Addresses are checksummed in the manifests, so two spellings of one
-    address would otherwise become two baselines for one artefact - the same trap the chain names had,
-    where eight spellings covered four chains."""
-    return f"{chain.lower()}/{address.lower()}"
+    The chain is its ID, not a name: eight spellings covered four chains across these manifests
+    (`Mainnet`/`mainnet`, `MegaETH`/`megaeth`), and a name is a label anyone can write differently. The
+    id also caught a manifest recording `chainId: 0` for MegaETH where four others say 4326 - a defect
+    no amount of name-matching would have seen.
+
+    The address is lowercased because manifests checksum it, and two spellings of one address would
+    otherwise become two baselines for one artefact."""
+    return f"{chain_id}/{address.lower()}"
 
 
 def read_baselines(repo_root: Path) -> dict[str, Baseline]:
@@ -132,7 +140,7 @@ def add(baselines: dict[str, Baseline], baseline: Baseline) -> dict[str, Baselin
     already covered is safe. Recording something DIFFERENT for an address that already has a baseline
     is refused: the artefact at that address never changed, so the two claims cannot both be true and
     this is not the place to decide which is."""
-    entry_key = key(baseline.chain, baseline.address)
+    entry_key = key(baseline.chain_id, baseline.address)
     existing = baselines.get(entry_key)
     if existing is not None and existing != baseline:
         raise Conflict(
@@ -193,9 +201,17 @@ def review(repo_root: Path) -> Review:
     would make the check red on the day it lands and red for as long as the backlog takes - which is
     how a check stops being read. It is reported and counted instead."""
     entries, unreadable = normalise(read_records(repo_root), repo_root)
+    # A contract whose manifest gives no usable chain id cannot be keyed, so it would silently vanish
+    # from every count - which is the failure mode this whole model exists to remove. One MegaETH
+    # manifest records `chainId: 0` where four others say 4326.
+    unreadable = unreadable + [
+        Problem(entry, f"chainId is {entry.recorded_chain_id!r}, so the chain cannot be identified")
+        for entry in entries
+        if not entry.chain_id
+    ]
     baselines = read_baselines(repo_root)
-    claimed = {key(entry.chain, entry.address) for entry in entries}
-    unrecovered, conflicts = _by_address(e for e in entries if key(e.chain, e.address) not in baselines)
+    claimed = {key(e.chain_id, e.address) for e in entries if e.chain_id}
+    unrecovered, conflicts = _by_address(e for e in entries if e.chain_id and key(e.chain_id, e.address) not in baselines)
     return Review(
         recorded=[baselines[k] for k in sorted(baselines) if k in claimed],
         unrecovered=unrecovered,
@@ -230,7 +246,7 @@ def _by_address(entries: Iterable[Entry]) -> tuple[list[Entry], list[str]]:
     merged: dict[str, Entry] = {}
     conflicts: list[str] = []
     for entry in entries:
-        entry_key = key(entry.chain, entry.address)
+        entry_key = key(entry.chain_id, entry.address)
         held = merged.get(entry_key)
         if held is None:
             merged[entry_key] = entry

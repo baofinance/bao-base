@@ -49,6 +49,14 @@ class Entry:
     address: str
     name: str | None
     recorded_path: str | None
+    # The chain is its ID; `chain` beside it is the label the manifest used, kept because it is also
+    # the RPC alias `cast --rpc-url` needs and because a reader wants a word. `chain_id` is None when a
+    # manifest does not say, or says 0 - which one of them does - and that is a gap, not a chain.
+    chain_id: int | None
+    # What the record SAYS, kept beside what it MEANS for the same reason `recorded_path` is: a report
+    # that says "chainId is None" for a manifest holding `chainId: 0` sends the reader looking for a
+    # missing field, when the field is there and is wrong.
+    recorded_chain_id: object
     chain: str
     deployed_at: str | None
     manifest: str  # repo-relative, so a finding can name the file a human has to edit
@@ -73,8 +81,19 @@ def _chain(document: dict, manifest: Path, repo_root: Path) -> str:
     return parent.name if parent != repo_root else ""
 
 
+def _chain_id(document: dict) -> int | None:
+    """The chain's id, or None when the manifest does not give a usable one.
+
+    `chainId: 0` is not a chain, and one MegaETH manifest records exactly that where four others say
+    4326. Returning None makes it a gap a human is told about, rather than a key that silently groups
+    every zero-chained contract together."""
+    value = document.get("chainId")
+    return value if isinstance(value, int) and value > 0 else None
+
+
 def _entries(document: dict, manifest: Path, repo_root: Path) -> list[Entry]:
     chain = _chain(document, manifest, repo_root)
+    chain_id = _chain_id(document)
     display = str(manifest.relative_to(repo_root))
     found: list[Entry] = []
     for section, (path_field, name_field) in _SECTIONS.items():
@@ -102,6 +121,8 @@ def _entries(document: dict, manifest: Path, repo_root: Path) -> list[Entry]:
                     address=entry.get("address") or key,
                     name=name,
                     recorded_path=recorded or None,
+                    chain_id=chain_id,
+                    recorded_chain_id=document.get("chainId"),
                     chain=chain,
                     deployed_at=entry.get("deploymentTime") or entry.get("deployedAt"),
                     manifest=display,

@@ -1,7 +1,8 @@
 {
   "schemaVersion": 1,
   "baselines": {
-    "mainnet/0xd8785d5c51aadeb3ad1d015cd67c8a34dbf58f61": {
+    "1/0xd8785d5c51aadeb3ad1d015cd67c8a34dbf58f61": {
+      "chainId": 1,
       "chain": "mainnet",
       "address": "0xd8785d5C51aaDEb3AD1D015Cd67C8A34dBf58f61",
       "contractType": "BaoPauser_v1",
@@ -10,7 +11,7 @@
       "commitTimestamp": "2026-03-19T20:50:21Z",
       "deployBlock": 24706244,
       "deployTimestamp": "2026-03-21T13:41:23Z",
-      "creationBytecodeHash": "sha256:f5d373b426e8215ae6a47851ed7c66591d053e3b2174fbb2b3471c1e254f9e3a"
+      "creationBytecodeKeccak256": "19d60ec0618ee7eaeee3e21e4dd4b2194105acf731ea057cfa575b1f98370c36"
     }
   }
 }

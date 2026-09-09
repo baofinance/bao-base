@@ -41,9 +41,12 @@ def artefact(runtime: bytes, creation: bytes = b"\x60\x80", immutables: dict | N
     }
 
 
-def with_trailer(body: bytes) -> bytes:
-    """`body` as a deployed contract carries it: with a CBOR trailer and its length."""
-    trailer = b"\xa2\x64solc" + b"\x00" * 45
+def with_trailer(body: bytes, filler: int = 0x00) -> bytes:
+    """`body` as a deployed contract carries it: with a CBOR trailer and its length.
+
+    `filler` varies the trailer's contents, because the whole difficulty is that two trailers over the
+    same code are NOT equal - they hash the sources and settings of the tree each was built in."""
+    trailer = b"\xa2\x64solc" + bytes([filler]) * 45
     return body + trailer + len(trailer).to_bytes(2, "big")
 
 
@@ -128,6 +131,22 @@ def test_the_deployed_code_matches_the_artefact_that_built_it():
     agreed, immutables = matches(with_trailer(body), artefact(body))
 
     assert agreed and immutables == []
+
+
+def test_the_artefact_is_stripped_too_because_a_real_build_carries_its_own_metadata():
+    # The comparison must be symmetric. Stripping only the chain's side worked only while the build was
+    # forced to produce no metadata, and forcing that was itself the defect: solc emits an `INVALID`
+    # separator before the metadata and emits none when there is nothing to separate, so the
+    # metadata-off build was a byte shorter than anything ever deployed. Measured on
+    # `Aggregator_stETH_USD_mainnet`: 3302 bytes off, 3303 on, 3303 deployed.
+    #
+    # The two trailers never agree - each hashes the tree it was built in - so both are removed and the
+    # verdict rests on the code.
+    body = bytes.fromhex("6080604052" + "00" * 40)
+
+    agreed, _ = matches(with_trailer(body), artefact(with_trailer(body, filler=0x11)))
+
+    assert agreed
 
 
 def test_one_byte_different_outside_the_masked_regions_is_not_a_match():

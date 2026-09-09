@@ -28,6 +28,7 @@ from deployment_baselines import (  # noqa: E402
 )
 
 PAUSER = Baseline(
+    chain_id=1,
     chain="mainnet",
     address="0xd8785d5C51aaDEb3AD1D015Cd67C8A34dBf58f61",
     contract_type="BaoPauser_v1",
@@ -36,7 +37,7 @@ PAUSER = Baseline(
     commit_timestamp="2026-03-19T20:50:21Z",
     deploy_block=24706244,
     deploy_timestamp="2026-03-21T13:41:23Z",
-    creation_bytecode_hash="sha256:" + "b" * 64,
+    creation_bytecode_keccak256="b" * 64,
 )
 
 
@@ -48,14 +49,22 @@ def test_a_repository_that_has_not_started_records_nothing(tmp_path):
 def test_a_baseline_survives_the_round_trip(tmp_path):
     write_baselines(tmp_path, add({}, PAUSER))
 
-    assert read_baselines(tmp_path) == {key(PAUSER.chain, PAUSER.address): PAUSER}
+    assert read_baselines(tmp_path) == {key(PAUSER.chain_id, PAUSER.address): PAUSER}
 
 
 def test_an_address_is_one_identity_however_it_is_spelled(tmp_path):
     # Manifests carry checksummed addresses, so two spellings of one address would otherwise become
-    # two baselines for one artefact - the trap the chain names had, where eight spellings covered
-    # four chains.
-    assert key("Mainnet", "0xABCdef") == key("mainnet", "0xabcdef")
+    # two baselines for one artefact.
+    assert key(1, "0xABCdef") == key(1, "0xabcdef")
+
+
+def test_the_chain_is_identified_by_its_id_not_by_a_name(tmp_path):
+    # Eight spellings covered four chains - `Mainnet` and `mainnet`, `MegaETH` and `megaeth` - and a
+    # name is a label anyone can write differently. The id is the chain. It also caught a manifest
+    # recording `chainId: 0` for MegaETH where four others say 4326, which no amount of name-matching
+    # would have noticed.
+    assert key(1, "0xAA") != key(42161, "0xAA"), "one address, two chains, two contracts"
+    assert key(1, "0xAA") == key(1, "0xAA")
 
 
 def test_recording_the_same_fact_twice_is_a_no_op(tmp_path):
@@ -103,6 +112,7 @@ def test_the_file_is_camel_case_throughout_and_names_its_fields_as_the_manifests
     fields = next(iter(json.loads((tmp_path / RECORD).read_text())["baselines"].values()))
 
     assert set(fields) == {
+        "chainId",
         "chain",
         "address",
         "contractType",
@@ -111,9 +121,10 @@ def test_the_file_is_camel_case_throughout_and_names_its_fields_as_the_manifests
         "commitTimestamp",
         "deployBlock",
         "deployTimestamp",
-        "creationBytecodeHash",
+        "creationBytecodeKeccak256",
     }
     assert not any("_" in name for name in fields), fields
+    assert "Hash" not in "".join(fields), "the algorithm is named, not left for the value to declare"
 
 
 def test_every_timestamp_is_utc(tmp_path):
