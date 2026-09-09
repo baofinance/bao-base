@@ -54,7 +54,7 @@ def baseline_for(address: str = "0xAA") -> Baseline:
     return Baseline(
         chain="mainnet",
         address=address,
-        contract="Foo",
+        contract_type="Foo",
         source="@harbor/Foo.sol",
         commit="a" * 40,
         creation_bytecode_hash="0x" + "b" * 64,
@@ -75,7 +75,7 @@ def test_a_recorded_contract_stops_being_unrecovered(repo):
 
     found = review(repo)
 
-    assert [b.contract for b in found.recorded] == ["Foo"]
+    assert [b.contract_type for b in found.recorded] == ["Foo"]
     assert found.unrecovered == []
 
 
@@ -87,7 +87,7 @@ def test_deleting_a_manifest_entry_orphans_its_baseline(repo):
 
     found = review(repo)
 
-    assert [b.contract for b in found.orphaned] == ["Foo"]
+    assert [b.contract_type for b in found.orphaned] == ["Foo"]
     assert found.recorded == []
 
 

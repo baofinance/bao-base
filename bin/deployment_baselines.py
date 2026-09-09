@@ -48,20 +48,36 @@ class Conflict(Exception):
     which of the two is true is a question about the chain, not about a file."""
 
 
+# Python names on the left, the file's names on the right. The file is camelCase throughout, because
+# every manifest in the fleet already is (`contractSource`, `contractType`, `deploymentTime`,
+# `chainId`) and a reader moving between them should not have to translate; Python stays snake_case,
+# because it is Python. Mixing the two conventions in one file - which the first draft did, with
+# `schemaVersion` beside `creation_bytecode_hash` - reads as two authors who never met.
+_FIELDS = {
+    "chain": "chain",
+    "address": "address",
+    "contract_type": "contractType",
+    "source": "source",
+    "commit": "commit",
+    "creation_bytecode_hash": "creationBytecodeHash",
+}
+
+
 @dataclass(frozen=True)
 class Baseline:
     """One deployed contract's source, as a fact.
 
-    `contract` duplicates the manifest's `contractType` and that is deliberate: it is what makes the
-    record readable on its own, and it cannot drift, because both are write-once facts about one
-    immutable artefact. `deployedAt` is NOT duplicated for the opposite reason - harbor's history shows
-    it repaired twice (a null filled in, a date reformatted), so it is mutable metadata and copying it
-    would be a copy that can diverge."""
+    `contract_type` duplicates the manifest's field of that name, deliberately and under the same
+    spelling: it is what makes the record readable on its own, it cannot drift because both are
+    write-once facts about one immutable artefact, and calling it something else would invite the
+    question of whether it means something else. `deployedAt` is NOT duplicated, for the opposite
+    reason - harbor's history shows it repaired twice (a null filled in, a date reformatted), so it is
+    mutable metadata and copying it would be a copy that can diverge."""
 
     chain: str
     address: str
-    contract: str
-    source: str  # normalised, repo-qualified: "@bao/BaoPauser_v1.sol"
+    contract_type: str
+    source: str  # normalised and repo-qualified, resolvable at `commit`
     commit: str
     creation_bytecode_hash: str
 
@@ -85,7 +101,10 @@ def read_baselines(repo_root: Path) -> dict[str, Baseline]:
     version = document.get("schemaVersion")
     if version != SCHEMA_VERSION:
         raise UnknownSchema(f"{RECORD} declares schemaVersion {version!r}; this reads {SCHEMA_VERSION}")
-    return {entry_key: Baseline(**fields) for entry_key, fields in (document.get("baselines") or {}).items()}
+    return {
+        entry_key: Baseline(**{name: fields[spelling] for name, spelling in _FIELDS.items()})
+        for entry_key, fields in (document.get("baselines") or {}).items()
+    }
 
 
 def add(baselines: dict[str, Baseline], baseline: Baseline) -> dict[str, Baseline]:
@@ -99,8 +118,8 @@ def add(baselines: dict[str, Baseline], baseline: Baseline) -> dict[str, Baselin
     existing = baselines.get(entry_key)
     if existing is not None and existing != baseline:
         raise Conflict(
-            f"{entry_key} is already recorded as {existing.contract} from {existing.commit[:10]}; "
-            f"refusing to replace it with {baseline.contract} from {baseline.commit[:10]}"
+            f"{entry_key} is already recorded as {existing.contract_type} from {existing.commit[:10]}; "
+            f"refusing to replace it with {baseline.contract_type} from {baseline.commit[:10]}"
         )
     return {**baselines, entry_key: baseline}
 
@@ -114,7 +133,9 @@ def write_baselines(repo_root: Path, baselines: dict[str, Baseline]) -> None:
     document = {
         "schemaVersion": SCHEMA_VERSION,
         "baselines": {
-            entry_key: {name: value for name, value in asdict(baselines[entry_key]).items()}
+            entry_key: {
+                spelling: asdict(baselines[entry_key])[name] for name, spelling in _FIELDS.items()
+            }
             for entry_key in sorted(baselines)
         },
     }

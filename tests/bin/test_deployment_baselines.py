@@ -30,7 +30,7 @@ from deployment_baselines import (  # noqa: E402
 PAUSER = Baseline(
     chain="mainnet",
     address="0xd8785d5C51aaDEb3AD1D015Cd67C8A34dBf58f61",
-    contract="BaoPauser_v1",
+    contract_type="BaoPauser_v1",
     source="@bao/BaoPauser_v1.sol",
     commit="a" * 40,
     creation_bytecode_hash="0x" + "b" * 64,
@@ -65,7 +65,7 @@ def test_recording_the_same_fact_twice_is_a_no_op(tmp_path):
 def test_a_different_claim_about_one_address_is_refused(tmp_path):
     # The artefact at an address never changed, so two claims cannot both be true - and which is true
     # is a question about the chain, not one this file can settle.
-    other = Baseline(**{**PAUSER.__dict__, "commit": "c" * 40, "contract": "HarborPauser_v1"})
+    other = Baseline(**{**PAUSER.__dict__, "commit": "c" * 40, "contract_type": "HarborPauser_v1"})
 
     with pytest.raises(Conflict) as refused:
         add(add({}, PAUSER), other)
@@ -87,6 +87,20 @@ def test_the_record_declares_its_schema(tmp_path):
     write_baselines(tmp_path, add({}, PAUSER))
 
     assert json.loads((tmp_path / RECORD).read_text())["schemaVersion"] == SCHEMA_VERSION
+
+
+def test_the_file_is_camel_case_throughout_and_names_its_fields_as_the_manifests_do(tmp_path):
+    # Every manifest in the fleet is camelCase - `contractSource`, `contractType`, `deploymentTime`,
+    # `chainId` - so a reader moving between them should not have to translate. `contractType` keeps
+    # the manifests' own spelling deliberately: a different name would invite the question of whether
+    # it means something different. Python stays snake_case, because it is Python; the two conventions
+    # meeting inside one JSON file is what this stops.
+    write_baselines(tmp_path, add({}, PAUSER))
+
+    fields = next(iter(json.loads((tmp_path / RECORD).read_text())["baselines"].values()))
+
+    assert set(fields) == {"chain", "address", "contractType", "source", "commit", "creationBytecodeHash"}
+    assert not any("_" in name for name in fields), fields
 
 
 def test_entries_are_written_sorted_so_two_deploys_collide_as_additions(tmp_path):
