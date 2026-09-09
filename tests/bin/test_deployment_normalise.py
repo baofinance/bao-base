@@ -128,11 +128,24 @@ def test_an_entry_with_no_path_is_not_additionally_a_normalisation_failure(repo)
     assert problems == []
 
 
-def test_a_remapping_into_a_submodule_is_not_used_to_normalise(repo):
-    # `@bao/=lib/bao-base/src/` targets a submodule, and expressing a path into one needs the gitlink
-    # at that entry's commit, which no record carries yet. Inverting it against today's checkout would
-    # silently answer a different question.
+def test_a_path_in_a_dependency_normalises_through_its_own_prefix(repo):
+    # This is the test that was missing, and its absence let `normalise` and `source_at` hold opposite
+    # answers to one question: `source_at` searches `lib/` because a contract defined in a dependency
+    # is defined there, while `normalise` refused to name any path inside one.
+    #
+    # `@bao/=lib/bao-base/src/` is exactly how harbor's 46 bao-base-sourced records are already
+    # written, so refusing to produce that form made them unrepresentable.
     settled, problems = normalise([entry("lib/bao-base/src/Foo.sol")], repo)
 
-    assert settled == []
-    assert "no remapping in foundry.toml covers" in problems[0].reason
+    assert problems == [], problems
+    assert settled[0].normalised_path == "@bao/Foo.sol"
+
+
+def test_a_dependency_path_is_not_checked_against_this_repository_s_history(repo):
+    # A submodule's files are never in the parent's history, so the "has this repo ever held it" rule
+    # would reject every one of them. The prefix is unambiguous by construction there - it names the
+    # dependency - so the history check is for THIS repo's own bare paths, which is what it was for.
+    settled, problems = normalise([entry("lib/bao-base/src/NeverInThisRepo.sol")], repo)
+
+    assert problems == []
+    assert settled[0].normalised_path == "@bao/NeverInThisRepo.sol"

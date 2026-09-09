@@ -38,14 +38,23 @@ def strip_metadata(code: bytes) -> bytes:
     recovery differed by precisely those 53 bytes until this was applied, which is the first thing
     anyone repeating this will hit.
 
-    A declared length that cannot fit is left alone rather than applied: stripping everything would
-    compare empty against empty and call it a match, which is the worst answer available."""
+    Two guards, both HERE, where the decision is made, rather than left to a length comparison
+    somewhere downstream - mitigation at a distance is not correctness:
+
+    - a declared length that cannot fit is not applied, or the whole contract is stripped and an empty
+      comparison against empty reads as a match;
+    - the byte the length points at must begin a CBOR MAP (`0xa0 | n`, and solidity emits two or three
+      entries), or real code whose final bytes happen to read as a plausible length loses that many
+      bytes off its end."""
     if len(code) < 2:
         return code
     declared = int.from_bytes(code[-2:], "big")
     if declared + 2 > len(code):
         return code
-    return code[: -(declared + 2)]
+    start = len(code) - declared - 2
+    if not 0xA0 <= code[start] <= 0xAF:
+        return code
+    return code[:start]
 
 
 def mask_immutables(code: bytes, references: dict) -> bytes:
@@ -259,16 +268,24 @@ def artefact_for(out: Path, source: str, contract_type: str) -> dict | None:
 
     Not by `out/<basename>.sol/`, which is a flat namespace this fleet already collides in - two
     different `Aggregator_stETH_USD` contracts live in one build tree. `compilationTarget` is the
-    artefact's own statement of which file it came from, so it cannot be confused by a shared name."""
+    artefact's own statement of which file it came from, so it cannot be confused by a shared name.
+
+    EQUALITY, not a suffix. `endswith` looked safe and is not: `src/XFoo.sol` does not match
+    `src/Foo.sol`, but `myssrc/Foo.sol` does, and so does a vendored `lib/dep/src/Foo.sol`. This
+    decides which bytecode a baseline is compared against.
+
+    More than one claimant returns None. Either would be arbitrary, and arbitrary here means comparing
+    a deployed contract against a different contract's build."""
+    claiming = []
     for candidate in out.rglob(f"{contract_type}.json"):
         try:
             artefact = json.loads(candidate.read_text())
         except json.JSONDecodeError:
             continue
         targets = (artefact.get("metadata") or {}).get("settings", {}).get("compilationTarget") or {}
-        if any(path.endswith(source) and name == contract_type for path, name in targets.items()):
-            return artefact
-    return None
+        if targets.get(source) == contract_type:
+            claiming.append(artefact)
+    return claiming[0] if len(claiming) == 1 else None
 
 
 def matches(onchain: bytes, artefact: dict) -> tuple[bool, list[str]]:

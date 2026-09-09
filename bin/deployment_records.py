@@ -182,10 +182,10 @@ def _remapping_prefixes(repo_root: Path) -> list[tuple[str, str]]:
     is the repo's to choose - `@harbor/`, `@harbor-price/`, `@bao/` - and a table here would be a copy
     that drifts the first time one of them changes.
 
-    Targets under `lib/` are excluded: they name a submodule, and expressing a path into one needs the
-    gitlink at that entry's commit, which no record carries yet. Saying so is the honest boundary; a
-    prefix that pointed into a submodule at TODAY's checkout would silently answer a different
-    question."""
+    Targets under `lib/` are INCLUDED. They were excluded, and that was wrong: `@bao/=lib/bao-base/src/`
+    is exactly how harbor's 46 bao-base-sourced records are already written, so refusing to produce
+    that form made them unrepresentable - and it left this holding the opposite answer to `source_at`,
+    which searches `lib/` because a contract defined in a dependency is defined there."""
     toml = repo_root / "foundry.toml"
     if not toml.is_file():
         return []
@@ -196,7 +196,7 @@ def _remapping_prefixes(repo_root: Path) -> list[tuple[str, str]]:
         prefix, _, target = entry.partition("=")
         # A context remapping (`context:prefix=target`) applies to only part of the tree, so it cannot
         # be inverted into a name for a path in general.
-        if not target or ":" in prefix or target.startswith("lib/"):
+        if not target or ":" in prefix:
             continue
         found.append((target, prefix))
     return sorted(found, key=lambda pair: -len(pair[0]))
@@ -248,7 +248,12 @@ def normalise(entries: list[Entry], repo_root: Path) -> tuple[list[Entry], list[
             continue
         for target, prefix in prefixes:
             if path.startswith(target):
-                if path not in ever:
+                # The history check is for THIS repository's own bare paths, which is the ambiguity it
+                # exists to catch: harbor's `src/BaoPauser_v1.sol` naming bao-base's file. A
+                # dependency's files are never in the parent's history, so applying it there would
+                # reject every one of them - and the prefix is unambiguous by construction anyway,
+                # because it names the dependency.
+                if not target.startswith("lib/") and path not in ever:
                     problems.append(
                         Problem(
                             entry,

@@ -78,6 +78,20 @@ def test_a_declared_length_longer_than_the_code_is_refused_not_applied():
     assert strip_metadata(code) == code
 
 
+def test_nothing_is_stripped_unless_a_cbor_MAP_begins_where_the_length_says():
+    # Real code whose last two bytes happen to read as a plausible length would otherwise lose that
+    # many bytes off the end. Relying on the later length check in `matches` to catch it is mitigation
+    # at a distance; solidity's trailer is a CBOR map, so the header is checked HERE, where the
+    # decision is made.
+    body = bytes.fromhex("60806040") + bytes(20)
+    not_a_trailer = body + b"\x00" * 8 + (8).to_bytes(2, "big")
+
+    assert strip_metadata(not_a_trailer) == not_a_trailer, "0x00 is not a CBOR map header"
+
+    real = body + b"\xa2\x64solc" + (6).to_bytes(2, "big")
+    assert strip_metadata(real) == body, "0xa2 is a two-entry map, which is what solidity emits"
+
+
 def test_immutables_are_masked_on_both_sides_at_the_offsets_the_artefact_declares():
     # The built artefact has zeros where an immutable goes; the chain has the value. Masking both is
     # what lets the rest be compared - BaoPauser_v1 has 6 such regions.
@@ -173,6 +187,37 @@ def test_the_artefact_is_found_by_the_source_it_declares_not_by_its_directory(tm
 
     assert found is not None
     assert found["metadata"]["settings"]["compilationTarget"] == {"src/megaeth/Aggregator.sol": "Aggregator_megaeth"}
+
+
+def artefact_declaring(directory: Path, name: str, source: str) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{name}.json").write_text(
+        json.dumps(
+            {
+                "bytecode": {"object": "0x00"},
+                "deployedBytecode": {"object": "0x00"},
+                "metadata": {"settings": {"compilationTarget": {source: name}}},
+            }
+        )
+    )
+
+
+def test_the_source_must_match_exactly_not_as_a_suffix(tmp_path):
+    # `path.endswith(source)` looked safe and is not: `src/XFoo.sol` does not match `src/Foo.sol`, but
+    # `myssrc/Foo.sol` DOES, and so does any vendored copy at `lib/dep/src/Foo.sol`. This decides
+    # which bytecode a baseline is compared against, so it is equality.
+    artefact_declaring(tmp_path / "Foo.sol", "Foo", "myssrc/Foo.sol")
+
+    assert artefact_for(tmp_path, "src/Foo.sol", "Foo") is None
+
+
+def test_two_artefacts_claiming_one_source_are_refused_not_picked_between(tmp_path):
+    # The flat artefact namespace this fleet already collides in. Returning either would be arbitrary,
+    # and arbitrary here means comparing against the wrong contract's bytecode.
+    artefact_declaring(tmp_path / "Foo.sol", "Foo", "src/Foo.sol")
+    artefact_declaring(tmp_path / "elsewhere" / "Foo.sol", "Foo", "src/Foo.sol")
+
+    assert artefact_for(tmp_path, "src/Foo.sol", "Foo") is None
 
 
 # ── choosing the candidate ────────────────────────────────────────────────────────────────────────

@@ -718,6 +718,8 @@ def _summarise_baselines(found: Review) -> None:
     recording one forces the repair without failing today."""
     for problem in found.unreadable:
         _out(f"\033[33m  {problem.entry.manifest}: {problem.entry.recorded_path} — {problem.reason}\033[0m\n")
+    for conflict in found.conflicts:
+        _out(f"\033[33m  manifests disagree — {conflict}\033[0m\n")
     if found.unrecovered:
         _log(
             f"{len(found.recorded)} of {len(found.recorded) + len(found.unrecovered)} deployed contracts"

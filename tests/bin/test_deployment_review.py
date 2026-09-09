@@ -137,6 +137,39 @@ def test_one_contract_in_two_manifests_is_one_thing_to_recover(repo):
     assert found.unrecovered[0].deployed_at == "2026-03-21T00:00:00Z", "taken from whichever row has it"
 
 
+def test_two_manifests_disagreeing_about_one_contract_is_reported_and_never_guessed(repo):
+    # 11 of the aggregators' addresses are described by two manifests that give DIFFERENT paths - the
+    # older one recorded `src/Aggregator_…` before the file moved to `src/mainnet/`. Keeping whichever
+    # was read first made manifest filename order decide, silently.
+    #
+    # The disagreement is reported, and the field is left UNSET rather than picked: nothing downstream
+    # should act on an arbitrary choice, and recovery finds the real path at the baseline commit by
+    # contract name anyway.
+    # The file really moved, so BOTH paths are in this repo's history - which is the actual situation:
+    # the older manifest recorded where it was, the newer where it went.
+    (repo / "src" / "moved").mkdir()
+    (repo / "src" / "moved" / "Foo.sol").write_text("// foo\n")
+    (repo / "src" / "Foo.sol").unlink()
+    manifests = repo / "deployments" / "mainnet"
+    (manifests / "a-first.json").write_text(
+        json.dumps({"network": "mainnet", "implementations": {"0xAA": {
+            "contractSource": "src/Foo.sol", "contractType": "Foo"}}})
+    )
+    (manifests / "state.json").write_text(
+        json.dumps({"network": "mainnet", "implementations": {"0xAA": {
+            "contractSource": "src/moved/Foo.sol", "contractType": "Foo"}}})
+    )
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "the file moved; two manifests disagree")
+
+    found = review(repo)
+
+    assert len(found.conflicts) == 1, found.conflicts
+    assert "src/Foo.sol" in found.conflicts[0] and "src/moved/Foo.sol" in found.conflicts[0]
+    assert len(found.unrecovered) == 1
+    assert found.unrecovered[0].recorded_path is None, "unset, so nothing acts on an arbitrary pick"
+
+
 def test_a_manifest_path_that_cannot_be_normalised_is_reported_not_failed(repo):
     # Pre-existing record defects - harbor's `src/BaoPauser_v1.sol` naming bao-base's file - must not
     # turn a repo red on the day this check lands. They are reported, and a baseline cannot be written

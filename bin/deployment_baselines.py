@@ -177,6 +177,7 @@ class Review:
     unrecovered: list[Entry]  # deployed, with no baseline yet
     unreadable: list[Problem]  # a manifest path that cannot be normalised
     orphaned: list[Baseline]  # a baseline for an address no manifest mentions any more
+    conflicts: list[str]  # two manifests describing one address differently
 
 
 def review(repo_root: Path) -> Review:
@@ -194,16 +195,24 @@ def review(repo_root: Path) -> Review:
     entries, unreadable = normalise(read_records(repo_root), repo_root)
     baselines = read_baselines(repo_root)
     claimed = {key(entry.chain, entry.address) for entry in entries}
+    unrecovered, conflicts = _by_address(e for e in entries if key(e.chain, e.address) not in baselines)
     return Review(
         recorded=[baselines[k] for k in sorted(baselines) if k in claimed],
-        unrecovered=_by_address(e for e in entries if key(e.chain, e.address) not in baselines),
+        unrecovered=unrecovered,
         unreadable=unreadable,
         orphaned=[baselines[k] for k in sorted(baselines) if k not in claimed],
+        conflicts=conflicts,
     )
 
 
-def _by_address(entries: Iterable[Entry]) -> list[Entry]:
-    """One entry per deployed contract, taking each field from whichever manifest supplied it.
+# The fields a disagreement is reported for. `normalised_path` is deliberately absent: it is DERIVED
+# from `recorded_path`, so reporting it too says one thing twice - twenty-two lines for eleven
+# disagreements, in the aggregators. It follows its source instead.
+_MERGED = ("name", "recorded_path", "deployed_at")
+
+
+def _by_address(entries: Iterable[Entry]) -> tuple[list[Entry], list[str]]:
+    """One entry per deployed contract, and the disagreements between the manifests describing it.
 
     A contract is often described by two manifests: 44 of the aggregators' 85 addresses are in both
     `v3-aggregators.json` and `v3-oracles.json`, and only the first carries `deploymentTime`. Listed
@@ -211,19 +220,34 @@ def _by_address(entries: Iterable[Entry]) -> list[Entry]:
     while the time sat in the other row - 64 of 152 outcomes in the first run.
 
     It is the same rule as everywhere else here: the ADDRESS is the identity of a deployed contract, so
-    two rows about one address are two descriptions of one thing, not two things."""
+    two rows about one address are two descriptions of one thing, not two things.
+
+    A field one manifest supplies and the other omits is taken. A field they give DIFFERENTLY is a
+    disagreement about one immutable artefact: it is reported, and left UNSET. Keeping the first was
+    letting manifest filename order decide, silently - and there is no right pick, because the older
+    manifest recorded the path the file had before it moved. Recovery finds the real one at the
+    baseline commit by contract name, so nothing needs the guess."""
     merged: dict[str, Entry] = {}
+    conflicts: list[str] = []
     for entry in entries:
         entry_key = key(entry.chain, entry.address)
         held = merged.get(entry_key)
         if held is None:
             merged[entry_key] = entry
             continue
-        merged[entry_key] = replace(
-            held,
-            name=held.name or entry.name,
-            recorded_path=held.recorded_path or entry.recorded_path,
-            normalised_path=held.normalised_path or entry.normalised_path,
-            deployed_at=held.deployed_at or entry.deployed_at,
+        settled = {}
+        for field in _MERGED:
+            ours, theirs = getattr(held, field), getattr(entry, field)
+            if ours and theirs and ours != theirs:
+                conflicts.append(
+                    f"{entry_key} {field}: {held.manifest} says {ours!r}, {entry.manifest} says {theirs!r}"
+                )
+                settled[field] = None
+            else:
+                settled[field] = ours or theirs
+        # Follows its source: a path nobody can settle has no normalised form either.
+        settled["normalised_path"] = (
+            (held.normalised_path or entry.normalised_path) if settled["recorded_path"] else None
         )
-    return list(merged.values())
+        merged[entry_key] = replace(held, **settled)
+    return list(merged.values()), conflicts
