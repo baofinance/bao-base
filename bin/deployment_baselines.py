@@ -147,7 +147,12 @@ def write_baselines(repo_root: Path, baselines: dict[str, Baseline]) -> None:
 
     Sorted so that two deploys racing collide as two disjoint ADDITIONS a human can resolve by eye,
     rather than as a reordering of the whole file. A trailing newline because every other file in the
-    tree has one and a diff that says "no newline at end of file" wastes a reader's attention."""
+    tree has one and a diff that says "no newline at end of file" wastes a reader's attention.
+
+    Written through a temporary file and renamed, because callers write it REPEATEDLY - a recovery run
+    saves after each contract it verifies, so a run over 85 of them that is interrupted keeps what it
+    proved rather than losing all of it. A rename is atomic, so an interrupted write leaves the
+    previous complete file rather than half of the new one."""
     document = {
         "schemaVersion": SCHEMA_VERSION,
         "baselines": {
@@ -155,7 +160,10 @@ def write_baselines(repo_root: Path, baselines: dict[str, Baseline]) -> None:
             for entry_key in sorted(baselines)
         },
     }
-    (repo_root / RECORD).write_text(json.dumps(document, indent=2) + "\n")
+    final = repo_root / RECORD
+    pending = final.with_suffix(final.suffix + ".pending")
+    pending.write_text(json.dumps(document, indent=2) + "\n")
+    pending.replace(final)
 
 
 # ── reviewing: what the manifests say against what the record holds ────────────────────────────────

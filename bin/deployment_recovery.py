@@ -76,12 +76,16 @@ def candidate_commits(repo_root: Path, deployed_at: str, limit: int = 12) -> lis
     3. Then the commits AFTER it, oldest first: a deploy from a DIRTY tree has its source committed
        afterwards, which is exactly what bao-base's own pauser did three days later.
 
-    `--first-parent` throughout, because what was checked out was a point on the main line, not a
-    commit inside a branch that was later merged."""
+    NOT `--first-parent`. It was, on the reasoning that a deploy runs from a point on the main line -
+    and that is simply false: deploys run from whatever is checked out, which is often a feature
+    branch. The arbitrum aggregators were deployed from `l2feeds`, whose tip carried "Remove BASE_NAME
+    storage from Arbitrum and Base oracles", exactly the change that decides their bytecode.
+    `--first-parent` offered 11 commits in a window holding 63, and none of them could have built what
+    is on chain."""
 
     def line(*extra: str) -> list[str]:
         done = subprocess.run(
-            ["git", "log", "--first-parent", "--format=%H", *extra],
+            ["git", "log", "--format=%H", *extra],
             cwd=repo_root,
             capture_output=True,
             text=True,

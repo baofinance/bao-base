@@ -51,11 +51,14 @@ def test_a_repository_with_no_deployments_records_nothing(repo):
     assert read_records(repo) == []
 
 
-def test_an_untracked_record_is_not_this_repositorys_claim(repo):
+def test_an_ignored_record_is_not_this_repositorys_claim(repo):
     # harbor gitignores `deployments/local*/`, where a local fork deploy leaves a state file that
-    # looks exactly like the real one. Walking the filesystem read it and reported a finding against
-    # a file nobody shares - so the rule is the same one `ratchet` and `doctor` use: the INDEX is the
-    # baseline. Tracked counts; untracked is one machine's scratch.
+    # looks exactly like the real one. Reading it reported findings against one machine's scratch.
+    #
+    # The rule is IGNORED, not untracked: this is read by a manually-run script, which must see a
+    # record that has been written but not yet staged. Using the index for that would hide a fresh
+    # deploy's own output from the tool that has to check it.
+    (repo / ".gitignore").write_text("deployments/local*/\n")
     write(
         repo,
         "mainnet/real.state.json",
@@ -67,8 +70,14 @@ def test_an_untracked_record_is_not_this_repositorys_claim(repo):
         {"implementations": {"0xBB": {"contractSource": "src/Scratch.sol", "contractType": "Scratch"}}},
         track=False,
     )
+    write(
+        repo,
+        "mainnet/fresh.state.json",
+        {"implementations": {"0xCC": {"contractSource": "src/Fresh.sol", "contractType": "Fresh"}}},
+        track=False,
+    )
 
-    assert [e.name for e in read_records(repo)] == ["Real"]
+    assert sorted(e.name for e in read_records(repo)) == ["Fresh", "Real"]
 
 
 def test_format_a_pairs_the_address_it_is_keyed_by_with_the_source_it_names(repo):

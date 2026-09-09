@@ -230,6 +230,26 @@ def test_candidates_continue_backwards_then_forwards(repo):
     assert found.index("c0") < found.index("c2"), "earlier before later: the tree was more likely behind"
 
 
+def test_a_commit_on_a_merged_branch_is_a_candidate(repo):
+    # Deploys run from whatever was checked out, and that is often a feature branch: the arbitrum
+    # aggregators were deployed from `l2feeds`, whose tip held "Remove BASE_NAME storage from Arbitrum
+    # and Base oracles" - exactly the change that decides the bytecode. `--first-parent` saw 11 commits
+    # in the window where there were 63, and none of them could have built what is on chain.
+    subprocess.run(["git", "checkout", "-q", "-b", "feature", "HEAD~1"], cwd=repo, check=True, capture_output=True)
+    (repo / "on-branch.txt").write_text("x")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "on the branch"], cwd=repo, check=True, capture_output=True)
+    branch_tip = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True
+    ).stdout.strip()
+    subprocess.run(["git", "checkout", "-q", "main"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "merge", "-q", "--no-ff", "-m", "merge the branch", "feature"], cwd=repo, check=True, capture_output=True
+    )
+
+    assert branch_tip in candidate_commits(repo, "2030-01-01T00:00:00Z"), "a branch commit must be reachable"
+
+
 def test_a_deploy_older_than_the_repository_still_offers_the_commits_after_it(repo):
     # Nothing precedes it, but the source may have been committed later - which is exactly the
     # dirty-tree case. Returning nothing would refuse to look where the answer actually is.

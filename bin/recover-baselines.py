@@ -200,11 +200,15 @@ def main() -> int:
             ),
         )
         recovered += 1
+        # Saved here rather than at the end: a run over eighty-five contracts that is interrupted -
+        # and these runs are long enough to be interrupted - must keep what it has already proved.
+        # Each baseline is an independent fact, so there is no transaction spanning them to preserve.
+        if arguments.write:
+            write_baselines(root, baselines)
 
     print(f"\n{recovered} of {len(outstanding)} recovered")
     if recovered and arguments.write:
-        write_baselines(root, baselines)
-        print(f"written to deployed.json — {len(baselines)} baseline(s)")
+        print(f"deployed.json holds {len(baselines)} baseline(s)")
     elif recovered:
         print("not written; pass --write to record them")
     return 0

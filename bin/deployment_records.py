@@ -111,30 +111,47 @@ def _entries(document: dict, manifest: Path, repo_root: Path) -> list[Entry]:
     return found
 
 
+def _not_ignored(repo_root: Path, paths: list[Path]) -> list[Path]:
+    """`paths` without the ones git ignores, asked in one call.
+
+    `git check-ignore` exits 1 when NOTHING matches, which is the ordinary case and not an error - so
+    the return code is not consulted, only the output. Asking per file would be one process each."""
+    if not paths:
+        return []
+    done = subprocess.run(
+        ["git", "check-ignore", "--stdin"],
+        cwd=repo_root,
+        input="\n".join(str(p.relative_to(repo_root)) for p in paths),
+        capture_output=True,
+        text=True,
+    )
+    ignored = {repo_root / line for line in done.stdout.splitlines() if line}
+    return [p for p in paths if p not in ignored]
+
+
 def read_records(repo_root: Path) -> list[Entry]:
     """Every deployed contract this repository records, from every manifest under `deployments/`.
 
-    Read from the INDEX, not from the filesystem - the same rule `ratchet` and `doctor` use. A record
-    is this repository's claim about what it deployed, so a file nobody tracks is not one: harbor
-    gitignores `deployments/local*/`, where a local fork deploy leaves a state file indistinguishable
-    from the real thing, and walking the directory reported findings against one machine's scratch.
-    Tracked means staged as well as committed, so a record written and `git add`ed by a deploy counts
-    before it is committed.
+    Read from the FILESYSTEM minus what git ignores - not from the index. The distinction matters
+    because this is read by a manually-run script that has to see a record a deploy has just written
+    and not yet staged; taking the index would hide a fresh deploy's own output from the tool whose
+    job is to check it.
+
+    IGNORED is the right exclusion, and it is a real one: harbor gitignores `deployments/local*/`,
+    where a local fork deploy leaves a state file indistinguishable from the real thing, and reading
+    it reported findings against one machine's scratch.
 
     A file that describes no deployed contract yields nothing and needs no exclusion list: harbor's
     per-market `harbor_v1::ETH::fxUSD.json` holds deploy CONFIGURATION under `contracts` (fee
     receivers, minter bands, salts), and forge's broadcast files hold transactions - neither has a
     section this recognises. Dispatching on the sections rather than on a list of known filenames is
     what makes that automatic, and what stops a new manifest being silently skipped."""
-    listing = subprocess.run(
-        ["git", "ls-files", "-z", "--", "deployments"],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-    )
-    tracked = sorted(repo_root / name for name in listing.stdout.split("\0") if name.endswith(".json"))
+    deployments = repo_root / "deployments"
+    if not deployments.is_dir():
+        return []
+    present = sorted(deployments.rglob("*.json"))
     found: list[Entry] = []
-    for manifest in tracked:
+    for manifest in _not_ignored(repo_root, present):
         try:
             document = json.loads(manifest.read_text())
         except (json.JSONDecodeError, OSError):
