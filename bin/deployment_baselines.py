@@ -60,6 +60,9 @@ _FIELDS = {
     "contract_type": "contractType",
     "source": "source",
     "commit": "commit",
+    "commit_timestamp": "commitTimestamp",
+    "deploy_block": "deployBlock",
+    "deploy_timestamp": "deployTimestamp",
     "creation_bytecode_hash": "creationBytecodeHash",
 }
 
@@ -73,13 +76,27 @@ class Baseline:
     write-once facts about one immutable artefact, and calling it something else would invite the
     question of whether it means something else. `deployedAt` is NOT duplicated, for the opposite
     reason - harbor's history shows it repaired twice (a null filled in, a date reformatted), so it is
-    mutable metadata and copying it would be a copy that can diverge."""
+    mutable metadata and copying it would be a copy that can diverge.
+
+
+    Every timestamp is UTC, written with a `Z`. Both come from Unix seconds - the block's own, and
+    `git log --format=%ct` - rather than from any formatter that carries a local offset, so a record
+    does not depend on where the person recovering it was sitting.
+
+    `commit_timestamp` beside `deploy_timestamp` is diagnostic, not decoration: a commit made AFTER
+    the deploy proves the deploy ran from a tree that was not committed yet, which is the ambiguity
+    the tags could never settle. And `deploy_timestamp` is the CHAIN's, where the manifests record the
+    deploy script's clock - measured 2m55s late for BaoPauser, and shared across a whole batch of
+    aggregators that were deployed at different moments."""
 
     chain: str
     address: str
     contract_type: str
     source: str  # normalised and repo-qualified, resolvable at `commit`
     commit: str
+    commit_timestamp: str
+    deploy_block: int
+    deploy_timestamp: str
     creation_bytecode_hash: str
 
 

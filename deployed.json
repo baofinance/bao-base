@@ -7,6 +7,9 @@
       "contractType": "BaoPauser_v1",
       "source": "src/BaoPauser_v1.sol",
       "commit": "f3df1931592b7b54c9ffa69f50a6663097955869",
+      "commitTimestamp": "2026-03-19T20:50:21Z",
+      "deployBlock": 24706244,
+      "deployTimestamp": "2026-03-21T13:41:23Z",
       "creationBytecodeHash": "sha256:f5d373b426e8215ae6a47851ed7c66591d053e3b2174fbb2b3471c1e254f9e3a"
     }
   }

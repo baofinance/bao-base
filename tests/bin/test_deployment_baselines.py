@@ -31,9 +31,12 @@ PAUSER = Baseline(
     chain="mainnet",
     address="0xd8785d5C51aaDEb3AD1D015Cd67C8A34dBf58f61",
     contract_type="BaoPauser_v1",
-    source="@bao/BaoPauser_v1.sol",
+    source="src/BaoPauser_v1.sol",
     commit="a" * 40,
-    creation_bytecode_hash="0x" + "b" * 64,
+    commit_timestamp="2026-03-19T20:50:21Z",
+    deploy_block=24706244,
+    deploy_timestamp="2026-03-21T13:41:23Z",
+    creation_bytecode_hash="sha256:" + "b" * 64,
 )
 
 
@@ -99,8 +102,37 @@ def test_the_file_is_camel_case_throughout_and_names_its_fields_as_the_manifests
 
     fields = next(iter(json.loads((tmp_path / RECORD).read_text())["baselines"].values()))
 
-    assert set(fields) == {"chain", "address", "contractType", "source", "commit", "creationBytecodeHash"}
+    assert set(fields) == {
+        "chain",
+        "address",
+        "contractType",
+        "source",
+        "commit",
+        "commitTimestamp",
+        "deployBlock",
+        "deployTimestamp",
+        "creationBytecodeHash",
+    }
     assert not any("_" in name for name in fields), fields
+
+
+def test_every_timestamp_is_utc(tmp_path):
+    # Both come from Unix seconds - the block's own, and `git log --format=%ct` - never from a
+    # formatter carrying a local offset, so a record does not depend on where the person recovering it
+    # was sitting.
+    write_baselines(tmp_path, add({}, PAUSER))
+
+    fields = next(iter(json.loads((tmp_path / RECORD).read_text())["baselines"].values()))
+
+    for name in ("commitTimestamp", "deployTimestamp"):
+        assert fields[name].endswith("Z"), (name, fields[name])
+
+
+def test_the_commit_predates_the_deploy_in_the_ordinary_case(tmp_path):
+    # Not enforced - a commit made AFTER the deploy is a real and recordable state, meaning the deploy
+    # ran from an uncommitted tree - but the two are stored so that it can be SEEN, which the tags
+    # could never show.
+    assert PAUSER.commit_timestamp < PAUSER.deploy_timestamp
 
 
 def test_entries_are_written_sorted_so_two_deploys_collide_as_additions(tmp_path):

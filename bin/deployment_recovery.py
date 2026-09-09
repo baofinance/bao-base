@@ -25,6 +25,8 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -89,6 +91,52 @@ def candidate_commits(repo_root: Path, deployed_at: str, limit: int = 12) -> lis
     before = line("--before", deployed_at, f"-{limit}")
     after = list(reversed(line("--since", deployed_at)))[:limit]
     return before + after
+
+
+def creation_block(has_code: Callable[[int], bool], upper: int, floor: int = 0) -> int | None:
+    """The first block at which the contract's code exists, or None if it cannot be bracketed.
+
+    `upper` is a block KNOWN to have the code, and in practice a close one: the manifest's
+    `deploymentTime` is the deploy script's clock written after the broadcast, so a block found from
+    it always sits just past the answer - fifteen blocks past, for BaoPauser, whose manifest was 2m55s
+    late. Walking back in doubling steps from a close bound and then bisecting costs a handful of
+    calls; bisecting the whole chain blindly costs about twenty-five.
+
+    None rather than a guess in both failure modes: if `upper` has no code the answer is above the
+    range, and if even `floor` has code it is below. Returning either bound would record a block the
+    contract did not exist at."""
+    if not has_code(upper):
+        return None
+    low, step = upper, 1
+    while low > floor:
+        low = max(floor, upper - step)
+        if not has_code(low):
+            break
+        step *= 2
+    else:
+        return None
+    if has_code(low):
+        return None
+    while upper - low > 1:
+        middle = (low + upper) // 2
+        if has_code(middle):
+            upper = middle
+        else:
+            low = middle
+    return upper
+
+
+def commit_timestamp(repo_root: Path, commit: str) -> str | None:
+    """When `commit` was made, in UTC.
+
+    From Unix seconds rather than `%cI`, which carries the committer's local offset - two identical
+    commits made in different zones would otherwise record differently, and a record of facts should
+    not depend on where someone was sitting."""
+    done = subprocess.run(["git", "log", "-1", "--format=%ct", commit], cwd=repo_root, capture_output=True, text=True)
+    seconds = done.stdout.strip()
+    if not seconds.isdigit():
+        return None
+    return datetime.fromtimestamp(int(seconds), tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def source_at(repo_root: Path, commit: str, contract_type: str) -> str | None:

@@ -22,6 +22,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bin"))
 from deployment_recovery import (  # noqa: E402
     artefact_for,
     candidate_commits,
+    commit_timestamp,
+    creation_block,
     mask_immutables,
     matches,
     place_worktree,
@@ -297,6 +299,44 @@ def test_the_declaration_decides_not_the_filename(repo):
     git(repo, "commit", "-qm", "misleading filename")
 
     assert source_at(repo, "HEAD", "Foo") == "src/Elsewhere.sol"
+
+
+# ── when it was deployed, and when the commit was made ────────────────────────────────────────────
+
+
+def test_the_creation_block_is_found_from_an_upper_bound_in_a_handful_of_calls():
+    # The manifest's `deploymentTime` is the deploy SCRIPT's clock, written after the broadcast, so a
+    # block found from it is always an upper bound - measured at 15 blocks past the truth for
+    # BaoPauser, whose manifest was 2m55s late. Walking back from a close upper bound costs a handful
+    # of calls; a blind bisect of the whole chain would cost ~25, which is what this exists to avoid.
+    asked: list[int] = []
+
+    def has_code(block: int) -> bool:
+        asked.append(block)
+        return block >= 24706244
+
+    assert creation_block(has_code, upper=24706259) == 24706244
+    assert len(asked) <= 12, f"took {len(asked)} calls: {asked}"
+
+
+def test_a_contract_present_at_the_floor_cannot_be_bracketed():
+    # Every block searched has the code, so the creation block is below the range and guessing the
+    # floor would record a block the contract did not exist at.
+    assert creation_block(lambda block: True, upper=1000, floor=900) is None
+
+
+def test_the_upper_bound_must_actually_have_the_code():
+    # Otherwise the answer is somewhere above, and returning the upper bound would be a fabrication.
+    assert creation_block(lambda block: False, upper=1000) is None
+
+
+def test_a_commit_timestamp_is_utc_whatever_the_committer_s_clock_said(repo):
+    # `%cI` carries the committer's local offset, so two identical commits made in different zones
+    # would record differently. Unix seconds formatted as UTC removes the question.
+    found = commit_timestamp(repo, "HEAD")
+
+    assert found.endswith("Z"), found
+    assert found == "2026-03-24T00:00:00Z", "the fixture's last commit, in UTC"
 
 
 # ── the worktrees, which touch the repository ─────────────────────────────────────────────────────

@@ -55,9 +55,12 @@ def baseline_for(address: str = "0xAA") -> Baseline:
         chain="mainnet",
         address=address,
         contract_type="Foo",
-        source="@harbor/Foo.sol",
+        source="src/Foo.sol",
         commit="a" * 40,
-        creation_bytecode_hash="0x" + "b" * 64,
+        commit_timestamp="2026-03-19T20:50:21Z",
+        deploy_block=24706244,
+        deploy_timestamp="2026-03-21T13:41:23Z",
+        creation_bytecode_hash="sha256:" + "b" * 64,
     )
 
 

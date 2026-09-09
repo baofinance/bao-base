@@ -16,12 +16,15 @@ import os
 import subprocess
 import sys
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 from deployment_baselines import Baseline, add, read_baselines, review, write_baselines
 from deployment_recovery import (
     artefact_for,
     candidate_commits,
+    commit_timestamp,
+    creation_block,
     matches,
     place_worktree,
     remove_worktree,
@@ -42,6 +45,38 @@ def _deployed_code(address: str, chain: str) -> bytes | None:
         return None
     body = done.stdout.strip()[2:]
     return bytes.fromhex(body) if body else None
+
+
+def _cast(*arguments: str) -> str | None:
+    done = subprocess.run(["cast", *arguments], capture_output=True, text=True)
+    return done.stdout.strip() if done.returncode == 0 else None
+
+
+def _deployment(address: str, chain: str, claimed: str) -> tuple[int, str] | None:
+    """The block the contract was created in and that block's UTC timestamp, or None.
+
+    `claimed` - the manifest's `deploymentTime` - is only used to get an upper bound, because it is
+    the deploy SCRIPT's clock written after the broadcast and so always sits after the transaction:
+    2m55s after, for BaoPauser, and shared across a whole batch of aggregators deployed at different
+    moments. `cast find-block` turns it into a block just past the answer, and the search walks back
+    from there in a handful of calls."""
+    at = _cast(
+        "find-block", str(int(datetime.fromisoformat(claimed.replace("Z", "+00:00")).timestamp())), "--rpc-url", chain
+    )
+    if at is None or not at.isdigit():
+        return None
+
+    def has_code(block: int) -> bool:
+        code = _cast("code", address, "--rpc-url", chain, "--block", str(block))
+        return bool(code) and code != "0x"
+
+    block = creation_block(has_code, upper=int(at))
+    if block is None:
+        return None
+    seconds = _cast("block", str(block), "--rpc-url", chain, "--field", "timestamp")
+    if seconds is None or not seconds.isdigit():
+        return None
+    return block, datetime.fromtimestamp(int(seconds), tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _build(worktree: Path, source: str, out: Path) -> bool:
@@ -132,12 +167,24 @@ def main() -> int:
             print(f"  could not read the deployed code over the {entry.chain} RPC")
             continue
 
-        found = _search(root, entry.deployed_at, entry.name, onchain, arguments.limit)
+        deployment = _deployment(entry.address, entry.chain, entry.deployed_at)
+        if deployment is None:
+            print(f"  could not find the block it was created in over the {entry.chain} RPC")
+            continue
+        block, deployed = deployment
+        print(f"  created in block {block} at {deployed} (the manifest said {entry.deployed_at})")
+
+        # The chain's timestamp, not the manifest's, anchors the search: the manifest's is the deploy
+        # script's clock and is late, so it opens the window in the wrong place.
+        found = _search(root, deployed, entry.name, onchain, arguments.limit)
         if found is None:
             continue
         commit, source, artefact, immutables = found
         creation = bytes.fromhex(artefact["bytecode"]["object"][2:])
+        made = commit_timestamp(root, commit)
         print(f"  MATCHES at {commit[:10]} ({source}); immutables on chain: {' '.join(immutables) or 'none'}")
+        if made and made > deployed:
+            print(f"  NOTE: that commit was made at {made}, AFTER the deploy — it ran from an uncommitted tree")
         baselines = add(
             baselines,
             Baseline(
@@ -146,6 +193,9 @@ def main() -> int:
                 contract_type=entry.name,
                 source=source,
                 commit=commit,
+                commit_timestamp=made or "",
+                deploy_block=block,
+                deploy_timestamp=deployed,
                 creation_bytecode_hash="sha256:" + hashlib.sha256(creation).hexdigest(),
             ),
         )
