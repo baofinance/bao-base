@@ -9,6 +9,7 @@ deploy, and a test that read them would pass or fail on what someone shipped tha
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -19,14 +20,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bin"))
 from deployment_records import read_records  # noqa: E402
 
 
-def write(repo: Path, relative: str, document: dict) -> None:
+def git(where: Path, *arguments: str) -> None:
+    subprocess.run(["git", *arguments], cwd=where, capture_output=True, text=True, check=True)
+
+
+def write(repo: Path, relative: str, document: dict, track: bool = True) -> None:
+    """Write a record and, unless asked not to, put it in the index - which is what makes it a record
+    of this repository rather than one machine's scratch."""
     path = repo / "deployments" / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(document, indent=2))
+    if track:
+        git(repo, "add", str(path.relative_to(repo)))
 
 
 @pytest.fixture
 def repo(tmp_path):
+    git(tmp_path, "init", "-q", "-b", "main")
+    git(tmp_path, "config", "user.email", "t@t")
+    git(tmp_path, "config", "user.name", "test")
     (tmp_path / "deployments").mkdir()
     return tmp_path
 
@@ -35,8 +47,21 @@ def by_name(entries):
     return {e.name: e for e in entries}
 
 
-def test_a_repository_with_no_deployments_records_nothing(tmp_path):
-    assert read_records(tmp_path) == []
+def test_a_repository_with_no_deployments_records_nothing(repo):
+    assert read_records(repo) == []
+
+
+def test_an_untracked_record_is_not_this_repositorys_claim(repo):
+    # harbor gitignores `deployments/local*/`, where a local fork deploy leaves a state file that
+    # looks exactly like the real one. Walking the filesystem read it and reported a finding against
+    # a file nobody shares - so the rule is the same one `ratchet` and `doctor` use: the INDEX is the
+    # baseline. Tracked counts; untracked is one machine's scratch.
+    write(repo, "mainnet/real.state.json", {"implementations": {"0xAA": {
+        "contractSource": "src/Real.sol", "contractType": "Real"}}})
+    write(repo, "local/mainnet/scratch.state.json", {"implementations": {"0xBB": {
+        "contractSource": "src/Scratch.sol", "contractType": "Scratch"}}}, track=False)
+
+    assert [e.name for e in read_records(repo)] == ["Real"]
 
 
 def test_format_a_pairs_the_address_it_is_keyed_by_with_the_source_it_names(repo):
@@ -189,6 +214,7 @@ def test_an_unreadable_manifest_is_raised_not_skipped(repo):
     # Silently returning a shorter list reads as "this repository deploys less than it does", which is
     # the failure this whole plan exists to stop.
     (repo / "deployments" / "broken.json").write_text("{not json")
+    git(repo, "add", "deployments/broken.json")
 
     with pytest.raises(json.JSONDecodeError):
         read_records(repo)

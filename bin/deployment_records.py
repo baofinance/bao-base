@@ -13,17 +13,18 @@ business"). That answers "which paths", and cannot pair an address with a name a
 what identifying a deployed contract requires: the address is the identity of the deployed thing, the
 name the identity of its source, and the path a fact about the tree at the moment it was written.
 
-WHAT IS NOT HERE. No resolution and no judgement: a recorded path is returned exactly as written, with
-its `@bao/` or bare `src/` prefix intact and no attempt to find it in any tree. Both are ambiguous -
-harbor records `src/BaoPauser_v1.sol` for a file in bao-base - and resolving them needs a remapping
-table AND the commit it applied at, neither of which a record carries today. Reading has to be
-separable from that, or nothing can report what a record actually says.
+TWO LAYERS, deliberately separate. `read_records` reports what a record SAYS - a path comes back
+exactly as written, `@bao/` or bare `src/` intact - because nothing can report on a record it has
+already reinterpreted. `normalise` then says what a record MEANS, and is where every judgement and
+every failure lives.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import subprocess
+import tomllib
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 # The sections a record can carry, and the field each spells its source path with. Dispatch is on
@@ -52,6 +53,9 @@ class Entry:
     deployed_at: str | None
     manifest: str  # repo-relative, so a finding can name the file a human has to edit
     section: str
+    # Filled by `normalise`. Kept BESIDE `recorded_path` rather than replacing it: what a record says
+    # is a fact about the record, and a finding that cannot quote it cannot be acted on.
+    normalised_path: str | None = None
 
 
 def _chain(document: dict, manifest: Path, repo_root: Path) -> str:
@@ -110,16 +114,27 @@ def _entries(document: dict, manifest: Path, repo_root: Path) -> list[Entry]:
 def read_records(repo_root: Path) -> list[Entry]:
     """Every deployed contract this repository records, from every manifest under `deployments/`.
 
+    Read from the INDEX, not from the filesystem - the same rule `ratchet` and `doctor` use. A record
+    is this repository's claim about what it deployed, so a file nobody tracks is not one: harbor
+    gitignores `deployments/local*/`, where a local fork deploy leaves a state file indistinguishable
+    from the real thing, and walking the directory reported findings against one machine's scratch.
+    Tracked means staged as well as committed, so a record written and `git add`ed by a deploy counts
+    before it is committed.
+
     A file that describes no deployed contract yields nothing and needs no exclusion list: harbor's
     per-market `harbor_v1::ETH::fxUSD.json` holds deploy CONFIGURATION under `contracts` (fee
     receivers, minter bands, salts), and forge's broadcast files hold transactions - neither has a
     section this recognises. Dispatching on the sections rather than on a list of known filenames is
     what makes that automatic, and what stops a new manifest being silently skipped."""
-    deployments = repo_root / "deployments"
-    if not deployments.is_dir():
-        return []
+    listing = subprocess.run(
+        ["git", "ls-files", "-z", "--", "deployments"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    tracked = sorted(repo_root / name for name in listing.stdout.split("\0") if name.endswith(".json"))
     found: list[Entry] = []
-    for manifest in sorted(deployments.rglob("*.json")):
+    for manifest in tracked:
         try:
             document = json.loads(manifest.read_text())
         except (json.JSONDecodeError, OSError):
@@ -129,3 +144,104 @@ def read_records(repo_root: Path) -> list[Entry]:
         if isinstance(document, dict):
             found.extend(_entries(document, manifest, repo_root))
     return found
+
+
+# ── normalising: what a record MEANS ──────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class Problem:
+    """A record that cannot be normalised, and why. Carries the entry so a report can quote what the
+    record actually says - a finding a human cannot trace back to a file and a line is not actionable."""
+
+    entry: Entry
+    reason: str
+
+
+def _remapping_prefixes(repo_root: Path) -> list[tuple[str, str]]:
+    """(target, prefix) for every remapping whose target is a directory of THIS repo, longest first.
+
+    Read from `foundry.toml` rather than hardcoded, because the prefix a repo uses for its own source
+    is the repo's to choose - `@harbor/`, `@harbor-price/`, `@bao/` - and a table here would be a copy
+    that drifts the first time one of them changes.
+
+    Targets under `lib/` are excluded: they name a submodule, and expressing a path into one needs the
+    gitlink at that entry's commit, which no record carries yet. Saying so is the honest boundary; a
+    prefix that pointed into a submodule at TODAY's checkout would silently answer a different
+    question."""
+    toml = repo_root / "foundry.toml"
+    if not toml.is_file():
+        return []
+    with toml.open("rb") as stream:
+        profiles = tomllib.load(stream).get("profile", {})
+    found: list[tuple[str, str]] = []
+    for entry in profiles.get("default", {}).get("remappings", []):
+        prefix, _, target = entry.partition("=")
+        # A context remapping (`context:prefix=target`) applies to only part of the tree, so it cannot
+        # be inverted into a name for a path in general.
+        if not target or ":" in prefix or target.startswith("lib/"):
+            continue
+        found.append((target, prefix))
+    return sorted(found, key=lambda pair: -len(pair[0]))
+
+
+def _paths_ever(repo_root: Path) -> set[str]:
+    """Every path this repository has ever held, across all refs.
+
+    One `git log` rather than one per entry: 462 records over five repos is 462 subprocesses, and this
+    answers all of them at once. Membership is what separates a path that MOVED - the ordinary case,
+    since records are historical and `v3-oracles.json`'s eleven paths have all moved - from a path
+    this repo never had, which is the failure."""
+    done = subprocess.run(
+        ["git", "log", "--all", "--pretty=format:", "--name-only"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    return {line for line in done.stdout.splitlines() if line}
+
+
+def normalise(entries: list[Entry], repo_root: Path) -> tuple[list[Entry], list[Problem]]:
+    """Entries with `chain` and `normalised_path` settled, and the ones that could not be.
+
+    Chain is lowercased: eight spellings for four chains were found across the aggregators' manifests
+    (`Mainnet`/`mainnet`, `MegaETH`/`megaeth`), the cased ones from the records' own fields and the
+    lowercase from the directories they sit in. Lowercase is what the directories and the source tree
+    already use, so it is the form that agrees with everything else.
+
+    A path already carrying a prefix is left alone. A bare path is given the prefix its repo uses for
+    that directory, and is then checked against every path this repo has ever held - because a bare
+    path silently means "this repo", and harbor's `src/BaoPauser_v1.sol` means bao-base's `src/`.
+    THAT is what fails here, and it fails rather than guessing: no prefix can be invented for a file
+    that was never in this repository."""
+    normalised: list[Entry] = []
+    problems: list[Problem] = []
+    ever = _paths_ever(repo_root)
+    prefixes = _remapping_prefixes(repo_root)
+
+    for entry in entries:
+        settled = replace(entry, chain=entry.chain.lower())
+        path = entry.recorded_path
+        if path is None:
+            # Already reported as a gap by the reader; it is not additionally a normalisation failure.
+            normalised.append(settled)
+            continue
+        if path.startswith("@"):
+            normalised.append(replace(settled, normalised_path=path))
+            continue
+        for target, prefix in prefixes:
+            if path.startswith(target):
+                if path not in ever:
+                    problems.append(
+                        Problem(
+                            entry,
+                            f"no file at {path} has ever been in this repository, so the bare path "
+                            f"cannot mean this repo's {target} - name the repo it belongs to",
+                        )
+                    )
+                    break
+                normalised.append(replace(settled, normalised_path=prefix + path[len(target) :]))
+                break
+        else:
+            problems.append(Problem(entry, f"no remapping in foundry.toml covers {path}"))
+    return normalised, problems
