@@ -29,6 +29,8 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from deployment_records import Entry, Problem, normalise, read_records
+
 SCHEMA_VERSION = 1
 RECORD = "deployed.json"
 
@@ -83,9 +85,7 @@ def read_baselines(repo_root: Path) -> dict[str, Baseline]:
     version = document.get("schemaVersion")
     if version != SCHEMA_VERSION:
         raise UnknownSchema(f"{RECORD} declares schemaVersion {version!r}; this reads {SCHEMA_VERSION}")
-    return {
-        entry_key: Baseline(**fields) for entry_key, fields in (document.get("baselines") or {}).items()
-    }
+    return {entry_key: Baseline(**fields) for entry_key, fields in (document.get("baselines") or {}).items()}
 
 
 def add(baselines: dict[str, Baseline], baseline: Baseline) -> dict[str, Baseline]:
@@ -119,3 +119,39 @@ def write_baselines(repo_root: Path, baselines: dict[str, Baseline]) -> None:
         },
     }
     (repo_root / RECORD).write_text(json.dumps(document, indent=2) + "\n")
+
+
+# ── reviewing: what the manifests say against what the record holds ────────────────────────────────
+
+
+@dataclass(frozen=True)
+class Review:
+    """What a repository's manifests and its record say about each other."""
+
+    recorded: list[Baseline]  # a baseline whose contract a manifest still names
+    unrecovered: list[Entry]  # deployed, with no baseline yet
+    unreadable: list[Problem]  # a manifest path that cannot be normalised
+    orphaned: list[Baseline]  # a baseline for an address no manifest mentions any more
+
+
+def review(repo_root: Path) -> Review:
+    """Compare every deployed contract a repository records against the baselines it holds.
+
+    ORPHANED is the one with teeth, and it is why this can enforce "an entry is never removed" without
+    reading git history: deleting a manifest entry leaves its baseline pointing at a contract nothing
+    claims any more. harbor did exactly that - eleven `Minter_v2` implementations dropped in one commit
+    when they were redeployed, still on chain, and nothing in the file says what built them. Once a
+    baseline exists, that deletion cannot happen quietly again.
+
+    UNRECOVERED is a backlog, not a fault. Every repository starts with all of them, so failing on it
+    would make the check red on the day it lands and red for as long as the backlog takes - which is
+    how a check stops being read. It is reported and counted instead."""
+    entries, unreadable = normalise(read_records(repo_root), repo_root)
+    baselines = read_baselines(repo_root)
+    claimed = {key(entry.chain, entry.address) for entry in entries}
+    return Review(
+        recorded=[baselines[k] for k in sorted(baselines) if k in claimed],
+        unrecovered=[entry for entry in entries if key(entry.chain, entry.address) not in baselines],
+        unreadable=unreadable,
+        orphaned=[baselines[k] for k in sorted(baselines) if k not in claimed],
+    )

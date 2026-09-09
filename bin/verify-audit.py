@@ -53,6 +53,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from deployment_baselines import review
+
 # Where audited source may live. Rename detection pairs only among the paths that survive the
 # pathspec, so any location a source file can legitimately move TO must be listed here: otherwise
 # the move looks like an unpaired deletion inside src, and git pairs it with whatever unrelated new
@@ -686,6 +688,40 @@ def _print_diff(sha: str, path: str, rename_src: dict[str, str]) -> None:
         _out(changes + "\n")
 
 
+def _report_baselines() -> int:
+    """The record check, which runs BESIDE the tag comparison rather than instead of it.
+
+    Purely additive: no repository holds a record yet, so this is green everywhere on the day it lands
+    and cannot break a repo by existing. What it fails on is a baseline for a contract the manifests no
+    longer name - a deletion, which harbor did to eleven live `Minter_v2` implementations in one commit.
+    Unrecovered contracts are a BACKLOG and are counted, not failed: every repository starts with all
+    of them, and a check that is red until a long migration finishes is one people learn to skip.
+
+    A manifest path that cannot be normalised is reported for the same reason - harbor's
+    `src/BaoPauser_v1.sol` names bao-base's file, and that predates this check. A baseline cannot be
+    written for such an entry anyway, so recording one forces the repair without failing today.
+    """
+    found = review(Path.cwd())
+    for problem in found.unreadable:
+        _out(f"\033[33m  {problem.entry.manifest}: {problem.entry.recorded_path} — {problem.reason}\033[0m\n")
+    if found.orphaned:
+        _err(
+            f"\033[31mERROR: {len(found.orphaned)} recorded contract(s) are named by no manifest — a"
+            " deployment record was removed, and the contract is still on chain:\033[0m\n"
+        )
+        for baseline in found.orphaned:
+            _err(f"\033[31m  {baseline.chain} {baseline.address} {baseline.contract}\033[0m\n")
+        return 1
+    if found.unrecovered:
+        _log(
+            f"{len(found.recorded)} of {len(found.recorded) + len(found.unrecovered)} deployed contracts"
+            " have a recorded source commit"
+        )
+    elif found.recorded:
+        _log(f"all {len(found.recorded)} deployed contracts have a recorded source commit")
+    return 0
+
+
 def main() -> int:
     return _run(sys.argv[1:] or ["audit*", "deploy*"])
 
@@ -727,6 +763,9 @@ def _run(args: list[str]) -> int:
     if conflicts != 0:
         return conflicts
     _log("every dependency shared with a repository this one depends on is staged at the same commit")
+
+    if _report_baselines() != 0:
+        return 1
 
     ignores, scopes = _parse_ignore_file()
 

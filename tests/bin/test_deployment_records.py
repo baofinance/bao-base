@@ -56,10 +56,17 @@ def test_an_untracked_record_is_not_this_repositorys_claim(repo):
     # looks exactly like the real one. Walking the filesystem read it and reported a finding against
     # a file nobody shares - so the rule is the same one `ratchet` and `doctor` use: the INDEX is the
     # baseline. Tracked counts; untracked is one machine's scratch.
-    write(repo, "mainnet/real.state.json", {"implementations": {"0xAA": {
-        "contractSource": "src/Real.sol", "contractType": "Real"}}})
-    write(repo, "local/mainnet/scratch.state.json", {"implementations": {"0xBB": {
-        "contractSource": "src/Scratch.sol", "contractType": "Scratch"}}}, track=False)
+    write(
+        repo,
+        "mainnet/real.state.json",
+        {"implementations": {"0xAA": {"contractSource": "src/Real.sol", "contractType": "Real"}}},
+    )
+    write(
+        repo,
+        "local/mainnet/scratch.state.json",
+        {"implementations": {"0xBB": {"contractSource": "src/Scratch.sol", "contractType": "Scratch"}}},
+        track=False,
+    )
 
     assert [e.name for e in read_records(repo)] == ["Real"]
 
@@ -204,8 +211,11 @@ def test_the_chain_falls_back_to_the_directory_when_the_record_does_not_say(repo
     # Records written before either spelling of the field exist, and they are organised by directory,
     # so that is the honest last resort. chainId is deliberately not consulted - mapping a number back
     # to a name would duplicate a table that belongs elsewhere.
-    write(repo, "arbitrum/v3-aggregators.json", {"chainId": 42161, "implementations": {"0xAA": {
-        "contractSource": "src/A.sol", "contractType": "A"}}})
+    write(
+        repo,
+        "arbitrum/v3-aggregators.json",
+        {"chainId": 42161, "implementations": {"0xAA": {"contractSource": "src/A.sol", "contractType": "A"}}},
+    )
 
     assert read_records(repo)[0].chain == "arbitrum"
 

@@ -32,6 +32,4 @@ def rows(cells: Sequence[Sequence[str]], indent: str = "", gap: str = "  ") -> l
     if not cells:
         return []
     widths = [max(len(row[index]) if index < len(row) else 0 for row in cells) for index in range(max(map(len, cells)))]
-    return [
-        (indent + gap.join(cell.ljust(widths[index]) for index, cell in enumerate(row))).rstrip() for row in cells
-    ]
+    return [(indent + gap.join(cell.ljust(widths[index]) for index, cell in enumerate(row))).rstrip() for row in cells]
