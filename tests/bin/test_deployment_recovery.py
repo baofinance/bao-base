@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bin"))
 
 from deployment_recovery import (  # noqa: E402
     artefact_for,
+    build_fingerprint,
     candidate_commits,
     commit_timestamp,
     creation_block,
@@ -229,8 +230,11 @@ def repo(tmp_path):
     git(tmp_path, "init", "-q", "-b", "main")
     git(tmp_path, "config", "user.email", "t@t")
     git(tmp_path, "config", "user.name", "test")
+    # Under `src/`, because a commit touching nothing a build reads is deliberately not a candidate -
+    # so a fixture of `.txt` files would exercise the empty case and call it the ordinary one.
+    (tmp_path / "src").mkdir()
     for n, when in enumerate(["2026-03-01T00:00:00", "2026-03-19T00:00:00", "2026-03-24T00:00:00"]):
-        (tmp_path / f"f{n}.txt").write_text(str(n))
+        (tmp_path / "src" / f"f{n}.sol").write_text(f"contract F{n} {{}}\n")
         git(tmp_path, "add", "-A")
         subprocess.run(
             ["git", "commit", "-qm", f"c{n}"],
@@ -258,6 +262,63 @@ def subjects(repo: Path, commits: list[str]) -> list[str]:
     ]
 
 
+def commit_at(repo: Path, when: str, path: str, body: str = "x") -> str:
+    target = repo / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(body)
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-qm", f"touch {path}"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        env={
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(repo),
+            "GIT_AUTHOR_DATE": when,
+            "GIT_COMMITTER_DATE": when,
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@t",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@t",
+        },
+    )
+    return subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True).stdout.strip()
+
+
+def test_a_commit_touching_nothing_a_build_reads_is_still_a_candidate(repo):
+    # It was excluded, to save building it - and that lost the true answer. `BaoPauser_v1` was
+    # deployed from a commit whose only change was `bin/coverage`; dropping it recorded a two-month
+    # older commit that compiled identically. Right bytecode, wrong provenance.
+    docs = commit_at(repo, "2026-03-10T00:00:00", "README.md")
+
+    assert docs in candidate_commits(repo, "2026-03-20T00:00:00Z")
+
+
+def test_commits_reading_the_same_build_inputs_share_a_fingerprint(repo):
+    # Which is where the saving actually belongs: the second need not be BUILT, and no candidate is
+    # dropped to get it.
+    before = commit_at(repo, "2026-03-10T00:00:00", "src/Thing.sol", "contract Thing {}")
+    docs = commit_at(repo, "2026-03-11T00:00:00", "README.md")
+    changed = commit_at(repo, "2026-03-12T00:00:00", "src/Thing.sol", "contract Thing { uint256 x; }")
+
+    assert build_fingerprint(repo, docs) == build_fingerprint(repo, before), "a README changes no build"
+    assert build_fingerprint(repo, changed) != build_fingerprint(repo, before)
+
+
+def test_candidates_are_bounded_by_time_not_by_a_count(repo):
+    # The bound was `--limit 12`, a number with nothing behind it - and one that was not even the
+    # constraint: twelve commits already reached two months back in the aggregators. A window says
+    # what it means and is the same bound the user gave for the search.
+    old = commit_at(repo, "2024-01-01T00:00:00", "src/Old.sol", "contract Old {}")
+    recent = commit_at(repo, "2026-03-11T00:00:00", "src/New.sol", "contract New {}")
+
+    found = candidate_commits(repo, "2026-03-20T00:00:00Z", before_days=90, after_days=30)
+
+    assert recent in found
+    assert old not in found, "two years before the deploy is outside any sane window"
+
+
 def test_the_first_candidate_is_the_last_commit_before_the_deploy(repo):
     # The measured pattern: the commit that RECORDS a deploy lands days after it, so the likeliest
     # source is the last commit BEFORE the deployment timestamp.
@@ -281,7 +342,7 @@ def test_a_commit_on_a_merged_branch_is_a_candidate(repo):
     # and Base oracles" - exactly the change that decides the bytecode. `--first-parent` saw 11 commits
     # in the window where there were 63, and none of them could have built what is on chain.
     subprocess.run(["git", "checkout", "-q", "-b", "feature", "HEAD~1"], cwd=repo, check=True, capture_output=True)
-    (repo / "on-branch.txt").write_text("x")
+    (repo / "src" / "OnBranch.sol").write_text("contract OnBranch {}\n")
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-qm", "on the branch"], cwd=repo, check=True, capture_output=True)
     branch_tip = subprocess.run(
@@ -292,20 +353,30 @@ def test_a_commit_on_a_merged_branch_is_a_candidate(repo):
         ["git", "merge", "-q", "--no-ff", "-m", "merge the branch", "feature"], cwd=repo, check=True, capture_output=True
     )
 
-    assert branch_tip in candidate_commits(repo, "2030-01-01T00:00:00Z"), "a branch commit must be reachable"
+    # Derived from the repository rather than a magic future date: "a moment just after everything".
+    latest = subprocess.run(
+        ["git", "log", "-1", "--format=%cI"], cwd=repo, capture_output=True, text=True
+    ).stdout.strip()
+
+    assert branch_tip in candidate_commits(repo, latest), "a branch commit must be reachable"
 
 
-def test_a_deploy_older_than_the_repository_still_offers_the_commits_after_it(repo):
-    # Nothing precedes it, but the source may have been committed later - which is exactly the
-    # dirty-tree case. Returning nothing would refuse to look where the answer actually is.
-    assert subjects(repo, candidate_commits(repo, "2020-01-01T00:00:00Z"))[0] == "c0"
+def test_a_deploy_far_outside_the_window_finds_nothing_until_the_window_is_widened(repo):
+    # With a bounded window this is honest rather than a failure: a deploy six years before any commit
+    # cannot have been built from one. The caller widens deliberately - which is what an entry with no
+    # recorded time needs, since its bracket is "somewhere between now and last year" rather than a
+    # few months either side of a known moment.
+    far = "2020-01-01T00:00:00Z"
+
+    assert candidate_commits(repo, far) == []
+    assert subjects(repo, candidate_commits(repo, far, after_days=365 * 10))[0] == "c0", "oldest first, after"
 
 
 def test_the_source_is_found_at_the_candidate_commit_not_at_the_recorded_path(repo, tmp_path):
     # `v3-oracles.json` records `src/Aggregator_…` where the tree now holds `src/mainnet/Aggregator_…`.
     # Building the recorded path at an older commit gave "No source files found" 40 times. The
     # contract NAME is what survives a move, so the file is located in that commit's own tree.
-    (repo / "src").mkdir()
+    (repo / "src").mkdir(exist_ok=True)
     (repo / "src" / "Foo.sol").write_text("contract Foo {}\n")
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-qm", "add Foo"], cwd=repo, check=True, capture_output=True)
@@ -414,7 +485,7 @@ def test_placing_and_removing_a_worktree_leaves_the_repository_as_it_was(repo, t
 
     at = tmp_path / "placed"
     place_worktree(repo, "HEAD", at)
-    assert (at / "f0.txt").is_file(), "the commit's content is actually there"
+    assert (at / "src" / "f0.sol").is_file(), "the commit's content is actually there"
     assert len(
         subprocess.run(["git", "worktree", "list"], cwd=repo, capture_output=True, text=True).stdout.splitlines()
     ) > len(before.splitlines())

@@ -26,7 +26,7 @@ import json
 import re
 import subprocess
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 
@@ -74,7 +74,29 @@ def mask_immutables(code: bytes, references: dict) -> bytes:
     return bytes(masked)
 
 
-def candidate_commits(repo_root: Path, deployed_at: str, limit: int = 12) -> list[str]:
+# What a build reads. Used to DEDUPE work, never to exclude a candidate: a commit touching none of
+# these cannot change any bytecode, but it is still a tree someone may have deployed from, and
+# excluding it loses the true answer to save a build. `BaoPauser_v1` was deployed from a commit whose
+# only change was to `bin/coverage`, and filtering it out recorded a two-month-older commit that
+# happened to compile identically - equivalent bytecode, wrong provenance.
+_BUILD_INPUTS = ["src", "lib", "foundry.toml", "remappings.txt", ".gitmodules", "foundry.lock"]
+
+
+def build_fingerprint(repo_root: Path, commit: str) -> str:
+    """What a build at `commit` would read, as one value.
+
+    Two commits with the same fingerprint compile to the same bytecode, so the second need not be
+    built - which is where the saving is, without any candidate being dropped. Tree object ids, so git
+    does the hashing and an unchanged directory costs nothing to compare."""
+    done = subprocess.run(
+        ["git", "ls-tree", commit, "--", *_BUILD_INPUTS], cwd=repo_root, capture_output=True, text=True
+    )
+    return done.stdout
+
+
+def candidate_commits(
+    repo_root: Path, deployed_at: str, before_days: int = 120, after_days: int = 30
+) -> list[str]:
     """Commits that might hold the deployed source, likeliest first.
 
     ONE guess is not enough - ten of the aggregators' contracts built cleanly at the last commit
@@ -85,12 +107,23 @@ def candidate_commits(repo_root: Path, deployed_at: str, limit: int = 12) -> lis
     3. Then the commits AFTER it, oldest first: a deploy from a DIRTY tree has its source committed
        afterwards, which is exactly what bao-base's own pauser did three days later.
 
+    BOUNDED BY TIME, not by a count. `--limit 12` was a number with nothing behind it, and not even
+    the binding constraint - twelve commits already reached two months back in the aggregators. A
+    window says what it means.
+
+    NOT narrowed to commits that touch a build input, though the saving would be large. A commit that
+    changes nothing a build reads is still a tree someone deployed from: `BaoPauser_v1` was deployed
+    from one whose only change was `bin/coverage`, and excluding it recorded a two-month-older commit
+    that compiled identically - right bytecode, wrong provenance. `build_fingerprint` deduplicates the
+    WORK instead, which saves the same builds and drops no candidate.
+
     NOT `--first-parent`. It was, on the reasoning that a deploy runs from a point on the main line -
     and that is simply false: deploys run from whatever is checked out, which is often a feature
     branch. The arbitrum aggregators were deployed from `l2feeds`, whose tip carried "Remove BASE_NAME
     storage from Arbitrum and Base oracles", exactly the change that decides their bytecode.
     `--first-parent` offered 11 commits in a window holding 63, and none of them could have built what
     is on chain."""
+    deployed = datetime.fromisoformat(deployed_at.replace("Z", "+00:00"))
 
     def line(*extra: str) -> list[str]:
         done = subprocess.run(
@@ -101,8 +134,11 @@ def candidate_commits(repo_root: Path, deployed_at: str, limit: int = 12) -> lis
         )
         return [c for c in done.stdout.split() if c]
 
-    before = line("--before", deployed_at, f"-{limit}")
-    after = list(reversed(line("--since", deployed_at)))[:limit]
+    def stamp(days: int) -> str:
+        return (deployed + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S%z")
+
+    before = line("--before", deployed_at, "--since", stamp(-before_days))
+    after = list(reversed(line("--since", deployed_at, "--before", stamp(after_days))))
     return before + after
 
 

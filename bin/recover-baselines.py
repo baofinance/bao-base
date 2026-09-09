@@ -19,9 +19,12 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from deployment_baselines import Baseline, add, read_baselines, review, write_baselines
+from dataclasses import dataclass
+
+from deployment_baselines import Baseline, add, key, read_baselines, review, write_baselines
 from deployment_recovery import (
     artefact_for,
+    build_fingerprint,
     candidate_commits,
     commit_timestamp,
     creation_block,
@@ -79,10 +82,13 @@ def _deployment(address: str, chain: str, claimed: str) -> tuple[int, str] | Non
     return block, datetime.fromtimestamp(int(seconds), tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _build(worktree: Path, source: str, out: Path) -> bool:
-    """Compile one source file and its closure, with metadata off so the comparison can be made."""
+def _build(worktree: Path, sources: list[str], out: Path) -> bool:
+    """Compile these source files and their closure, with metadata off so comparisons can be made.
+
+    Several at once because they share the closure: twenty aggregators at one commit compile their
+    common base and libraries once between them rather than twenty times."""
     done = subprocess.run(
-        ["forge", "build", source],
+        ["forge", "build", *sources],
         cwd=worktree,
         capture_output=True,
         text=True,
@@ -102,47 +108,70 @@ def _environment() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if not k.startswith("FOUNDRY_") or k == "FOUNDRY_DIR"}
 
 
-def _search(root: Path, deployed_at: str, contract_type: str, onchain: bytes, limit: int):
-    """The first candidate commit whose build is what is deployed, or None with the reasons printed.
+@dataclass
+class _Wanted:
+    """One contract still looking for its baseline, and everything already known about it."""
 
-    Each candidate is tried in full - locate, place, build, compare - because a commit that cannot
-    build or does not hold the contract says nothing about the next one. The reasons are counted
-    rather than printed per candidate: twelve lines saying "does not build" for one contract buries
-    the one line that matters."""
-    why: dict[str, int] = {}
-    for commit in candidate_commits(root, deployed_at, limit):
-        source = source_at(root, commit, contract_type)
-        if source is None:
-            why["not in that tree"] = why.get("not in that tree", 0) + 1
-            continue
-        with tempfile.TemporaryDirectory(prefix="recover-baseline-") as scratch:
-            worktree, out = Path(scratch) / "wt", Path(scratch) / "out"
-            place_worktree(root, commit, worktree)
-            try:
-                if not _build(worktree, source, out):
-                    why["does not build"] = why.get("does not build", 0) + 1
-                    continue
-                artefact = artefact_for(out, source, contract_type)
+    entry: object
+    onchain: bytes
+    block: int
+    deployed: str
+    candidates: list[str]
+
+
+def _dated(root: Path, commits: set[str]) -> list[tuple[str, str]]:
+    """(commit, its UTC timestamp) for each, newest first. One `git log`, not a call each."""
+    done = subprocess.run(
+        ["git", "log", "--format=%H %ct", "--no-walk", *commits], cwd=root, capture_output=True, text=True
+    )
+    dated = []
+    for line in done.stdout.splitlines():
+        commit, _, seconds = line.partition(" ")
+        if commit in commits and seconds.isdigit():
+            dated.append((commit, datetime.fromtimestamp(int(seconds), tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")))
+    return dated
+
+
+def _try_commit(root: Path, commit: str, pending: dict[str, _Wanted]) -> dict[str, tuple]:
+    """Build ONE worktree at `commit` and compare every contract that is looking there.
+
+    This is the whole point of grouping. Twenty arbitrum aggregators share a deploy and therefore share
+    candidates; building the closure once per (contract, commit) made 44 candidates into 880 builds,
+    where one build per commit makes it 44. Nothing about the answer changes - only how many times the
+    same compilation is repeated."""
+    looking = {k: source_at(root, commit, w.entry.name) for k, w in pending.items() if commit in w.candidates}
+    sources = {k: s for k, s in looking.items() if s}
+    if not sources:
+        return {}
+    with tempfile.TemporaryDirectory(prefix="recover-baseline-") as scratch:
+        worktree, out = Path(scratch) / "wt", Path(scratch) / "out"
+        missing = place_worktree(root, commit, worktree)
+        try:
+            if not _build(worktree, sorted(set(sources.values())), out):
+                # Named here because a build failing right after something could not be placed is
+                # almost always that, and reporting only "does not build" sends the reader nowhere.
+                if missing:
+                    print(f"  {commit[:10]}: build failed, and these were not placed: {' '.join(missing)}")
+                return {}
+            found = {}
+            for entry_key, source in sources.items():
+                artefact = artefact_for(out, source, pending[entry_key].entry.name)
                 if artefact is None:
-                    why["built, no such artefact"] = why.get("built, no such artefact", 0) + 1
                     continue
-                agreed, immutables = matches(onchain, artefact)
+                agreed, immutables = matches(pending[entry_key].onchain, artefact)
                 if agreed:
-                    return commit, source, artefact, immutables
-                why["bytecode differs"] = why.get("bytecode differs", 0) + 1
-            finally:
-                remove_worktree(root, worktree)
-    print("  no candidate matches: " + ", ".join(f"{n}x {reason}" for reason, n in why.items()))
-    return None
+                    found[entry_key] = (commit, source, artefact, immutables)
+            return found
+        finally:
+            remove_worktree(root, worktree)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--write", action="store_true", help="record the baselines that verify (default: report)")
     parser.add_argument("--only", help="recover just this address")
-    parser.add_argument(
-        "--limit", type=int, default=12, help="candidate commits to try each side of the deploy (default 12)"
-    )
+    parser.add_argument("--before-days", type=int, default=120, help="how far before the deploy to look")
+    parser.add_argument("--after-days", type=int, default=30, help="how far after, for a dirty-tree deploy")
     arguments = parser.parse_args()
 
     root = Path.cwd()
@@ -153,58 +182,90 @@ def main() -> int:
         return 0
 
     baselines = read_baselines(root)
-    recovered = 0
+
+    # Every contract's chain facts first, because they decide its candidate window and cost only RPC.
+    pending: dict[str, _Wanted] = {}
     for entry in outstanding:
         print(f"{entry.chain}/{entry.address}  {entry.name}")
-        if not entry.deployed_at:
-            print("  no deployment time recorded, so no candidate commit can be chosen")
-            continue
         if not entry.name:
             print("  the manifest names no contract, so nothing can be located or built")
+            continue
+        if not entry.deployed_at:
+            print("  no deployment time recorded, so the window cannot be placed")
             continue
         onchain = _deployed_code(entry.address, entry.chain)
         if onchain is None:
             print(f"  could not read the deployed code over the {entry.chain} RPC")
             continue
-
         deployment = _deployment(entry.address, entry.chain, entry.deployed_at)
         if deployment is None:
             print(f"  could not find the block it was created in over the {entry.chain} RPC")
             continue
         block, deployed = deployment
-        print(f"  created in block {block} at {deployed} (the manifest said {entry.deployed_at})")
+        # The chain's timestamp, not the manifest's, anchors the window: the manifest's is the deploy
+        # script's clock and is late, so it opens the search in the wrong place.
+        candidates = candidate_commits(root, deployed, arguments.before_days, arguments.after_days)
+        print(f"  created in block {block} at {deployed}; {len(candidates)} candidate commits")
+        pending[key(entry.chain, entry.address)] = _Wanted(entry, onchain, block, deployed, candidates)
 
-        # The chain's timestamp, not the manifest's, anchors the search: the manifest's is the deploy
-        # script's clock and is late, so it opens the window in the wrong place.
-        found = _search(root, deployed, entry.name, onchain, arguments.limit)
-        if found is None:
-            continue
-        commit, source, artefact, immutables = found
-        creation = bytes.fromhex(artefact["bytecode"]["object"][2:])
-        made = commit_timestamp(root, commit)
-        print(f"  MATCHES at {commit[:10]} ({source}); immutables on chain: {' '.join(immutables) or 'none'}")
-        if made and made > deployed:
-            print(f"  NOTE: that commit was made at {made}, AFTER the deploy — it ran from an uncommitted tree")
-        baselines = add(
-            baselines,
-            Baseline(
-                chain=entry.chain,
-                address=entry.address,
-                contract_type=entry.name,
-                source=source,
-                commit=commit,
-                commit_timestamp=made or "",
-                deploy_block=block,
-                deploy_timestamp=deployed,
-                creation_bytecode_hash="sha256:" + hashlib.sha256(creation).hexdigest(),
-            ),
-        )
-        recovered += 1
-        # Saved here rather than at the end: a run over eighty-five contracts that is interrupted -
-        # and these runs are long enough to be interrupted - must keep what it has already proved.
-        # Each baseline is an independent fact, so there is no transaction spanning them to preserve.
-        if arguments.write:
-            write_baselines(root, baselines)
+    # THE DEPLOY BLOCK DECIDES WHICH COMMIT, not the order things happen to be tried in. Many commits
+    # compile identically, so "the first that matches" is arbitrary; "the LATEST at or before the
+    # moment the contract was created" is the tree that was actually checked out, and is unique.
+    #
+    # So: newest first, accepting only commits at or before each contract's deploy. Whatever is still
+    # unmatched then had no committed source at deploy time - a dirty tree - and takes the EARLIEST
+    # commit after it, which is where that source first landed.
+    dated = _dated(root, {c for w in pending.values() for c in w.candidates})
+    passes = [
+        ("at or before the deploy", dated, lambda when, deployed: when <= deployed),
+        ("after it (an uncommitted tree)", list(reversed(dated)), lambda when, deployed: when > deployed),
+    ]
+    print(f"\ntrying {len(dated)} commits for {len(pending)} contracts\n")
+    recovered = 0
+    tried: set[str] = set()
+    for _, order, admits in passes:
+        for commit, when in order:
+            if not pending:
+                break
+            looking = {k: w for k, w in pending.items() if commit in w.candidates and admits(when, w.deployed)}
+            if not looking:
+                continue
+            # Two commits reading the same build inputs compile the same, so the second is free.
+            print_key = build_fingerprint(root, commit)
+            if print_key in tried:
+                continue
+            tried.add(print_key)
+            for entry_key, (found, source, artefact, immutables) in _try_commit(root, commit, looking).items():
+                wants = pending.pop(entry_key)
+                entry = wants.entry
+                creation = bytes.fromhex(artefact["bytecode"]["object"][2:])
+                made = commit_timestamp(root, found)
+                print(f"{entry.chain}/{entry.address}  {entry.name}")
+                print(f"  MATCHES at {found[:10]} ({source}); immutables: {' '.join(immutables) or 'none'}")
+                if made and made > wants.deployed:
+                    print(f"  NOTE: committed at {made}, AFTER the deploy — it ran from an uncommitted tree")
+                baselines = add(
+                    baselines,
+                    Baseline(
+                        chain=entry.chain,
+                        address=entry.address,
+                        contract_type=entry.name,
+                        source=source,
+                        commit=found,
+                        commit_timestamp=made or "",
+                        deploy_block=wants.block,
+                        deploy_timestamp=wants.deployed,
+                        creation_bytecode_hash="sha256:" + hashlib.sha256(creation).hexdigest(),
+                    ),
+                )
+                recovered += 1
+                # Saved as each is proved rather than at the end: these runs are long enough to be
+                # interrupted, and each baseline is an independent fact with nothing spanning them.
+                if arguments.write:
+                    write_baselines(root, baselines)
+
+    for entry_key, wants in pending.items():
+        print(f"{entry_key}  {wants.entry.name}: no candidate built what is deployed")
 
     print(f"\n{recovered} of {len(outstanding)} recovered")
     if recovered and arguments.write:
