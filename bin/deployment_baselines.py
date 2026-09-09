@@ -26,7 +26,8 @@ transactions. A baseline carries facts about an artefact and no judgements about
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from collections.abc import Iterable
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from deployment_records import Entry, Problem, normalise, read_records
@@ -133,9 +134,7 @@ def write_baselines(repo_root: Path, baselines: dict[str, Baseline]) -> None:
     document = {
         "schemaVersion": SCHEMA_VERSION,
         "baselines": {
-            entry_key: {
-                spelling: asdict(baselines[entry_key])[name] for name, spelling in _FIELDS.items()
-            }
+            entry_key: {spelling: asdict(baselines[entry_key])[name] for name, spelling in _FIELDS.items()}
             for entry_key in sorted(baselines)
         },
     }
@@ -172,7 +171,34 @@ def review(repo_root: Path) -> Review:
     claimed = {key(entry.chain, entry.address) for entry in entries}
     return Review(
         recorded=[baselines[k] for k in sorted(baselines) if k in claimed],
-        unrecovered=[entry for entry in entries if key(entry.chain, entry.address) not in baselines],
+        unrecovered=_by_address(e for e in entries if key(e.chain, e.address) not in baselines),
         unreadable=unreadable,
         orphaned=[baselines[k] for k in sorted(baselines) if k not in claimed],
     )
+
+
+def _by_address(entries: Iterable[Entry]) -> list[Entry]:
+    """One entry per deployed contract, taking each field from whichever manifest supplied it.
+
+    A contract is often described by two manifests: 44 of the aggregators' 85 addresses are in both
+    `v3-aggregators.json` and `v3-oracles.json`, and only the first carries `deploymentTime`. Listed
+    separately they became two things to recover, one of which reported "no deployment time recorded"
+    while the time sat in the other row - 64 of 152 outcomes in the first run.
+
+    It is the same rule as everywhere else here: the ADDRESS is the identity of a deployed contract, so
+    two rows about one address are two descriptions of one thing, not two things."""
+    merged: dict[str, Entry] = {}
+    for entry in entries:
+        entry_key = key(entry.chain, entry.address)
+        held = merged.get(entry_key)
+        if held is None:
+            merged[entry_key] = entry
+            continue
+        merged[entry_key] = replace(
+            held,
+            name=held.name or entry.name,
+            recorded_path=held.recorded_path or entry.recorded_path,
+            normalised_path=held.normalised_path or entry.normalised_path,
+            deployed_at=held.deployed_at or entry.deployed_at,
+        )
+    return list(merged.values())

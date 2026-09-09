@@ -23,6 +23,7 @@ FOUR STEPS, of which only the first is guesswork:
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -62,20 +63,72 @@ def mask_immutables(code: bytes, references: dict) -> bytes:
     return bytes(masked)
 
 
-def candidate_commit(repo_root: Path, deployed_at: str) -> str | None:
-    """The commit that was HEAD when the deploy ran, or None if the repository is younger than it.
+def candidate_commits(repo_root: Path, deployed_at: str, limit: int = 12) -> list[str]:
+    """Commits that might hold the deployed source, likeliest first.
 
-    `--first-parent` so a merged branch's commits cannot be picked: what was checked out at the moment
-    of the deploy was a point on the main line. None rather than the oldest commit, because handing
-    back something arbitrary would see it recorded as a baseline and believed."""
-    done = subprocess.run(
-        ["git", "log", "--first-parent", "--format=%H", "--before", deployed_at, "-1"],
+    ONE guess is not enough - ten of the aggregators' contracts built cleanly at the last commit
+    before their deploy and did not match. The order encodes what the measurements showed:
+
+    1. The last commit BEFORE the deploy: the tree that was checked out when forge ran.
+    2. Progressively earlier ones: the deploy may have run from a tree behind the tip.
+    3. Then the commits AFTER it, oldest first: a deploy from a DIRTY tree has its source committed
+       afterwards, which is exactly what bao-base's own pauser did three days later.
+
+    `--first-parent` throughout, because what was checked out was a point on the main line, not a
+    commit inside a branch that was later merged."""
+
+    def line(*extra: str) -> list[str]:
+        done = subprocess.run(
+            ["git", "log", "--first-parent", "--format=%H", *extra],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+        return [c for c in done.stdout.split() if c]
+
+    before = line("--before", deployed_at, f"-{limit}")
+    after = list(reversed(line("--since", deployed_at)))[:limit]
+    return before + after
+
+
+def source_at(repo_root: Path, commit: str, contract_type: str) -> str | None:
+    """Where the file defining `contract_type` lived at `commit`, or None if it is not there.
+
+    NOT the recorded path: that is the path at DEPLOY time, and a candidate commit may predate a move.
+    `v3-oracles.json` records `src/Aggregator_…` where the tree later held `src/mainnet/Aggregator_…`,
+    and building the recorded path against an older commit produced "No source files found" forty
+    times. The contract NAME is what survives a move, so the file is located in that commit's own tree.
+
+    `lib/` is searched like anywhere else: a contract defined in a dependency is defined there, and
+    nothing about the directory makes it a different kind of source. That is also why this greps the
+    commit in ONE call rather than reading files - the closure includes every submodule, and a `git
+    show` per file would be thousands of processes.
+
+    The DECLARATION decides, never the filename: a `Foo.sol` holding `contract Bar` must not answer
+    for `Foo`. A basename match only breaks a tie between two files that both declare it, and if that
+    leaves two, the answer is None - two files declaring one name is the flat-namespace problem this
+    fleet already has (three such names at HEAD, none of them deployed), and picking one would be
+    arbitrary."""
+    found = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-l",
+            "--extended-regexp",
+            rf"^[[:space:]]*(abstract[[:space:]]+)?contract[[:space:]]+{re.escape(contract_type)}\b",
+            commit,
+            "--",
+            "*.sol",
+        ],
         cwd=repo_root,
         capture_output=True,
         text=True,
     )
-    found = done.stdout.strip()
-    return found or None
+    declaring = [line.split(":", 1)[1] for line in found.stdout.splitlines() if ":" in line]
+    if len(declaring) == 1:
+        return declaring[0]
+    named = [p for p in declaring if p.rsplit("/", 1)[-1] == f"{contract_type}.sol"]
+    return named[0] if len(named) == 1 else None
 
 
 def place_worktree(repo_root: Path, commit: str, at: Path) -> list[str]:

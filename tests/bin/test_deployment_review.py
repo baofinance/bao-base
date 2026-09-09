@@ -102,6 +102,38 @@ def test_an_address_matches_however_either_side_spells_it(repo):
     assert len(found.recorded) == 1 and found.orphaned == [] and found.unrecovered == []
 
 
+def test_one_contract_in_two_manifests_is_one_thing_to_recover(repo):
+    # 44 of the aggregators' 85 addresses are in both `v3-aggregators.json` and `v3-oracles.json`, and
+    # only one of the two carries `deploymentTime`. Listing them separately made 64 of 152 outcomes
+    # read "no deployment time recorded" while the time sat in the other row - the address-is-the-
+    # identity lesson, applied one layer up.
+    manifests = repo / "deployments" / "mainnet"
+    (manifests / "with-time.json").write_text(
+        json.dumps(
+            {
+                "network": "mainnet",
+                "implementations": {
+                    "0xAA": {
+                        "contractSource": "src/Foo.sol",
+                        "contractType": "Foo",
+                        "deploymentTime": "2026-03-21T00:00:00Z",
+                    }
+                },
+            }
+        )
+    )
+    (manifests / "state.json").write_text(
+        json.dumps({"network": "mainnet", "oracles": {"FOO": {"address": "0xAA", "contractPath": "src/Foo.sol:Foo"}}})
+    )
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "two manifests, one contract")
+
+    found = review(repo)
+
+    assert len(found.unrecovered) == 1, [e.manifest for e in found.unrecovered]
+    assert found.unrecovered[0].deployed_at == "2026-03-21T00:00:00Z", "taken from whichever row has it"
+
+
 def test_a_manifest_path_that_cannot_be_normalised_is_reported_not_failed(repo):
     # Pre-existing record defects - harbor's `src/BaoPauser_v1.sol` naming bao-base's file - must not
     # turn a repo red on the day this check lands. They are reported, and a baseline cannot be written
