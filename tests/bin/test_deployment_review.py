@@ -51,14 +51,14 @@ def repo(tmp_path):
     return tmp_path
 
 
-def baseline_for(address: str = "0xAA") -> Baseline:
+def baseline_for(address: str = "0xAA", commit: str = "a" * 40) -> Baseline:
     return Baseline(
         chain_id=1,
         chain="mainnet",
         address=address,
         contract_type="Foo",
         source="src/Foo.sol",
-        commit="a" * 40,
+        commit=commit,
         commit_timestamp="2026-03-19T20:50:21Z",
         deploy_block=24706244,
         deploy_timestamp="2026-03-21T13:41:23Z",
@@ -187,6 +187,49 @@ def test_two_manifests_disagreeing_about_one_contract_is_reported_and_never_gues
     assert "src/Foo.sol" in found.conflicts[0] and "src/moved/Foo.sol" in found.conflicts[0]
     assert len(found.unrecovered) == 1
     assert found.unrecovered[0].recorded_path is None, "unset, so nothing acts on an arbitrary pick"
+
+
+def push_to_a_new_remote(repo: Path, tmp_path: Path) -> None:
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True, capture_output=True)
+    git(repo, "remote", "add", "origin", str(remote))
+    git(repo, "push", "-q", "origin", "main")
+
+
+def head_of(repo: Path) -> str:
+    return subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True).stdout.strip()
+
+
+def test_a_baseline_on_a_pushed_commit_is_not_reported(repo, tmp_path):
+    push_to_a_new_remote(repo, tmp_path)
+    write_baselines(repo, add({}, baseline_for(commit=head_of(repo))))
+
+    assert review(repo).not_on_a_remote == []
+
+
+def test_a_baseline_on_a_commit_only_this_clone_has_is_reported_with_where_it_lives(repo, tmp_path):
+    # Recordable locally, rejected by CI. Carrying the REACH rather than a boolean is what lets one
+    # definition serve both: the recorder tolerates "local", the CI check does not.
+    push_to_a_new_remote(repo, tmp_path)
+    (repo / "src" / "Later.sol").write_text("// later\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "not pushed")
+    write_baselines(repo, add({}, baseline_for(commit=head_of(repo))))
+
+    found = review(repo)
+
+    assert [(b.contract_type, reach) for b, reach in found.not_on_a_remote] == [("Foo", "local")]
+
+
+def test_a_baseline_on_a_commit_this_repository_has_lost_is_reported_as_absent(repo, tmp_path):
+    # The reachability failure itself: a force-push, an orphaning rebase, or garbage collection, and
+    # the record points at nothing. Distinguished from "not pushed" because the remedy differs.
+    push_to_a_new_remote(repo, tmp_path)
+    write_baselines(repo, add({}, baseline_for(commit="0" * 40)))
+
+    found = review(repo)
+
+    assert [(b.contract_type, reach) for b, reach in found.not_on_a_remote] == [("Foo", "absent")]
 
 
 def test_a_contract_whose_manifest_gives_no_chain_id_is_reported_not_silently_dropped(repo):

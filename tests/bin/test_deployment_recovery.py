@@ -25,6 +25,7 @@ from deployment_recovery import (  # noqa: E402
     build_id,
     commit_timestamp,
     creation_block,
+    differences,
     mask_immutables,
     matches,
     place_worktree,
@@ -182,6 +183,94 @@ def test_a_length_mismatch_is_not_a_match():
     agreed, _ = matches(with_trailer(bytes(20)), artefact(bytes(21)))
 
     assert not agreed
+
+
+# ── constructing, rather than masking ─────────────────────────────────────────────────────────────
+#
+# Masking an immutable makes the comparison possible but weakens what it proves: a match becomes a
+# match MODULO the immutables, and two sources differing only in a value that becomes an immutable are
+# indistinguishable. They need not be excluded - these constructors take no arguments, so the values
+# are determined by the source, and executing the creation code reproduces them. What remains after
+# that is genuinely deployment-specific and must be NAMED, never excluded as a class.
+
+
+def spans(*regions: tuple[int, int]) -> dict:
+    return {str(index): [{"start": start, "length": length}] for index, (start, length) in enumerate(regions)}
+
+
+def word(value: bytes) -> bytes:
+    """A 32-byte slot holding `value`, left-padded, as the EVM stores one."""
+    return bytes(32 - len(value)) + value
+
+
+SELF = "0x003056C3a3262b37C59143149D062Ad3a6a45BF7"
+
+
+def test_code_the_constructor_reproduces_exactly_has_nothing_to_explain():
+    body = bytes.fromhex("6080604052") + word(bytes.fromhex("aabb"))
+
+    explained, unexplained = differences(body, body, spans((5, 32)), SELF)
+
+    assert (explained, unexplained) == ([], [])
+
+
+def test_a_difference_that_is_the_contract_s_own_address_is_explained():
+    # The one immutable a local construction cannot reproduce: `address(this)` is where the code runs,
+    # and the construction runs somewhere else. OpenZeppelin's UUPS `__self` is exactly this.
+    deployed = bytes.fromhex("6080604052") + word(bytes.fromhex(SELF[2:]))
+    produced = bytes.fromhex("6080604052") + word(bytes.fromhex("11" * 20))
+
+    explained, unexplained = differences(deployed, produced, spans((5, 32)), SELF)
+
+    assert unexplained == []
+    assert len(explained) == 1 and "own address" in explained[0]
+
+
+def test_a_difference_inside_an_immutable_that_is_not_the_address_is_NOT_explained():
+    # The case the whole change exists for. Two aggregators differing only in their feed address have
+    # identical code once that immutable is masked, so masking would call this a match. Constructing
+    # reproduces the feed address, so a mismatch here means the source is not what was deployed.
+    feed = bytes.fromhex("cfe54b5cd566ab89272946f602d76ea879cab4a8")
+    other = bytes.fromhex("9babfc1a1952a6ed2cac1922bffe80c0506364a2")
+    deployed = bytes.fromhex("6080604052") + word(feed)
+    produced = bytes.fromhex("6080604052") + word(other)
+
+    explained, unexplained = differences(deployed, produced, spans((5, 32)), SELF)
+
+    assert explained == []
+    assert len(unexplained) == 1
+    assert feed.hex() in unexplained[0] and other.hex() in unexplained[0], "both values are named"
+
+
+def test_a_difference_outside_every_immutable_region_is_never_explained():
+    # Nothing about a deployment can move a byte the constructor did not write. This must reject
+    # however many immutables the artefact declares.
+    deployed = bytes.fromhex("6080604052")
+    produced = bytes.fromhex("60806040ff")
+
+    explained, unexplained = differences(deployed, produced, spans((0, 4)), SELF)
+
+    assert explained == []
+    assert len(unexplained) == 1 and "outside" in unexplained[0]
+
+
+def test_a_length_difference_is_never_explained():
+    explained, unexplained = differences(bytes(20), bytes(21), {}, SELF)
+
+    assert explained == []
+    assert len(unexplained) == 1 and "length" in unexplained[0]
+
+
+def test_several_immutables_are_judged_one_at_a_time():
+    # A contract has many - the pauser six, an aggregator ten - and one being explicable says nothing
+    # about the next. Mixing them into a single verdict is what masking did.
+    feed = bytes.fromhex("cfe54b5cd566ab89272946f602d76ea879cab4a8")
+    deployed = word(bytes.fromhex(SELF[2:])) + word(feed)
+    produced = word(bytes.fromhex("11" * 20)) + word(bytes.fromhex("22" * 20))
+
+    explained, unexplained = differences(deployed, produced, spans((0, 32), (32, 32)), SELF)
+
+    assert len(explained) == 1 and len(unexplained) == 1
 
 
 # ── not building the same thing twice, without losing a contract to it ────────────────────────────

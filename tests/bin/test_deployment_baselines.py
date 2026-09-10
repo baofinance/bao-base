@@ -8,6 +8,7 @@ rather than misreads a schema it does not know.
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from deployment_baselines import (  # noqa: E402
     Conflict,
     UnknownSchema,
     add,
+    commit_reach,
     key,
     read_baselines,
     write_baselines,
@@ -39,6 +41,77 @@ PAUSER = Baseline(
     deploy_timestamp="2026-03-21T13:41:23Z",
     creation_bytecode_keccak256="b" * 64,
 )
+
+
+# ── where a commit lives, which decides whether a baseline may name it ─────────────────────────────
+#
+# A baseline is only as good as the commit it names. The three failures are different and need
+# different answers: a commit on no branch will NEVER be pushed by any normal operation and can be
+# destroyed by `git stash drop`; a commit on a local branch is the ordinary state of work in progress
+# and will be pushed in the usual course; a commit git no longer holds at all is a baseline already
+# broken. Measured in harbor-price-aggregators: a recorded baseline names a stash entry, and HEAD
+# itself is on two local branches and no remote - so "must be on origin" alone would refuse ordinary
+# local work, and "will be caught by CI" alone would let a droppable commit be recorded.
+
+
+def git(where: Path, *arguments: str) -> None:
+    subprocess.run(["git", *arguments], cwd=where, capture_output=True, text=True, check=True)
+
+
+@pytest.fixture
+def repo(tmp_path):
+    """A repository with a remote, one pushed commit, and a `main` that tracks it."""
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True, capture_output=True)
+    work = tmp_path / "work"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(work)], check=True, capture_output=True)
+    git(work, "config", "user.email", "t@t")
+    git(work, "config", "user.name", "test")
+    git(work, "remote", "add", "origin", str(remote))
+    (work / "one.txt").write_text("one\n")
+    git(work, "add", "-A")
+    git(work, "commit", "-qm", "pushed")
+    git(work, "push", "-q", "origin", "main")
+    return work
+
+
+def head(repo: Path) -> str:
+    return subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True).stdout.strip()
+
+
+def test_a_commit_a_remote_has_may_be_recorded_anywhere(repo):
+    assert commit_reach(repo, head(repo)) == "remote"
+
+
+def test_a_commit_on_a_local_branch_only_is_the_ordinary_state_of_work(repo):
+    # A deploy is committed and the record written before anything is pushed, so refusing this would
+    # make the tool unusable in its own normal flow. It is recordable locally and rejected by CI, which
+    # is a real safety net here because a branch commit survives until it is pushed or deliberately
+    # discarded.
+    (repo / "two.txt").write_text("two\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "not pushed")
+
+    assert commit_reach(repo, head(repo)) == "local"
+
+
+def test_a_commit_on_no_branch_may_never_be_recorded(repo):
+    # A stash. `git push` pushes branches, so nothing will ever carry this to a remote, and
+    # `git stash drop` destroys it - which is why "CI will catch it" is not a safety net: the object
+    # can be gone before CI ever sees it.
+    (repo / "dirty.txt").write_text("dirty\n")
+    git(repo, "add", "-A")
+    git(repo, "stash", "-q")
+    stashed = subprocess.run(["git", "rev-parse", "stash@{0}"], cwd=repo, capture_output=True, text=True).stdout.strip()
+
+    assert commit_reach(repo, stashed) == "none"
+
+
+def test_a_commit_this_repository_no_longer_holds_is_reported_as_absent(repo):
+    # The case the whole reachability concern is about: a force-push, an orphaning rebase, or garbage
+    # collection, and a recorded baseline points at nothing. It is a different answer from "on no
+    # branch" because the remedy differs - fetch it, or the baseline is dead.
+    assert commit_reach(repo, "0" * 40) == "absent"
 
 
 def test_a_repository_that_has_not_started_records_nothing(tmp_path):

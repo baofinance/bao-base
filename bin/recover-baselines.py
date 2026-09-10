@@ -22,19 +22,21 @@ from pathlib import Path
 
 from Crypto.Hash import keccak
 
-from deployment_baselines import Baseline, add, key, read_baselines, review, write_baselines
+from deployment_baselines import Baseline, add, commit_reach, key, read_baselines, review, write_baselines
 from deployment_recovery import (
     all_commits,
     artefact_for,
     build_id,
     commit_timestamp,
     creation_block,
+    differences,
     matches,
     place_worktree,
     remove_worktree,
     search_passes,
     source_at,
     still_to_compare,
+    strip_metadata,
 )
 
 
@@ -92,6 +94,33 @@ def _deployment(address: str, chain: str, claimed: str) -> tuple[int, str] | Non
     if seconds is None or not seconds.isdigit():
         return None
     return block, datetime.fromtimestamp(int(seconds), tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _construct(creation: str, chain: str, block: int) -> bytes | None:
+    """The runtime code this creation bytecode produces, by running its constructor. None if it cannot.
+
+    `eth_call` against a creation payload returns what the constructor returns, which IS the runtime
+    code - so the immutables it writes are in the answer, and the comparison no longer has to exclude
+    them. No transaction, no key, nothing written.
+
+    AT THE DEPLOY BLOCK, because a constructor can capture chain state: one of the pauser's immutables
+    is a `block.timestamp`, and running now would reproduce today's rather than the deploy's. It needs
+    an archive node, which is the same thing the creation-block search already needs.
+
+    No arguments are passed, and none are needed by anything recovered so far -
+    `constructor() Aggregator_PAXG_USD(PAXG_USD.FEED, PAXG_USD.HEARTBEAT, 1, false) {}` hard-codes
+    everything. A constructor that DOES take arguments cannot be run without them: it fails here, and a
+    failure to construct means the baseline is not written, because a comparison that cannot see the
+    immutables is the weaker check this replaced."""
+    done = subprocess.run(
+        ["cast", "call", "--rpc-url", chain, "--block", str(block), "--create", creation],
+        capture_output=True,
+        text=True,
+    )
+    answer = done.stdout.strip()
+    if done.returncode != 0 or not answer.startswith("0x") or len(answer) <= 2:
+        return None
+    return bytes.fromhex(answer[2:])
 
 
 def _build(worktree: Path, sources: list[str], out: Path) -> bool:
@@ -286,6 +315,10 @@ def main() -> int:
     print(f"\ntrying every one of this repository's {len(dated)} commits for {len(pending)} contract(s)")
     recovered = 0
     built = 0
+    # Proved, but not recordable — or recordable here and not yet anywhere else.
+    refused: list[tuple[str, str, str]] = []
+    unpushed: list[tuple[str, str, str]] = []
+    unproven: list[tuple[str, str, str]] = []
     # Which contracts have already been compared against each build (keyed by `build_id`), and which
     # commit first carried that build - so a skip can say what it duplicates rather than leaving a gap
     # in the numbering that reads like a contract being dropped.
@@ -327,13 +360,45 @@ def main() -> int:
                     # Said out loud because it changes what the baseline means: the manifest's name is
                     # today's, and this is what the contract was called when it was deployed.
                     print(f"      NOTE: declared {declared} there — renamed to {entry.name} since")
-                # The immutables are the part the comparison could NOT check, so they are the part a
-                # human still has to look at - for the aggregators, the Chainlink feed addresses.
-                print(f"      immutables (excluded from the comparison): {len(immutables)}")
+                # The screen above ignored the immutables. Run the constructor and compare what it
+                # actually produces, so they are IN the verdict rather than excluded from it.
+                immutable_regions = artefact["deployedBytecode"].get("immutableReferences") or {}
+                produced = _construct(artefact["bytecode"]["object"], entry.chain, wants.block)
+                if produced is None:
+                    print(f"      NOT RECORDED: the constructor could not be run at block {wants.block},")
+                    print("      so the immutables cannot be checked and the match is unproven")
+                    unproven.append((entry_key, entry.name, found))
+                    continue
+                explained, unexplained = differences(
+                    strip_metadata(wants.onchain), strip_metadata(produced), immutable_regions, entry.address
+                )
+                if unexplained:
+                    print("      NOT RECORDED: the constructor does not reproduce what is deployed —")
+                    for line in unexplained:
+                        print(f"        {line}")
+                    unproven.append((entry_key, entry.name, found))
+                    continue
+                print(f"      constructor reproduces the deployed code; {len(immutables)} immutables:")
                 for value in immutables:
                     print(f"        {value}")
+                for line in explained:
+                    print(f"      {line} — differs by construction, as expected")
                 if made and made > wants.deployed:
                     print(f"      NOTE: committed AFTER the {wants.deployed} deploy — it ran from an uncommitted tree")
+                # A baseline is only as good as the commit it names, and a commit on NO branch will
+                # never reach a remote by any normal operation - `git push` pushes branches. Refused
+                # here rather than left to the check, because `git stash drop` can destroy it before
+                # any check runs.
+                reach = commit_reach(root, found)
+                if reach == "none":
+                    print(f"      REFUSED: {found[:10]} is on no branch, so no remote can ever have it.")
+                    print("      It is the only source for this deployment — put it on a branch and push it:")
+                    print(f"        git branch deployed/{entry.name} {found}")
+                    print(f"        git push origin deployed/{entry.name}")
+                    refused.append((entry_key, entry.name, found))
+                    continue
+                if reach == "local":
+                    unpushed.append((entry_key, entry.name, found))
                 baselines = add(
                     baselines,
                     Baseline(
@@ -362,6 +427,29 @@ def main() -> int:
                 f"  {entry_key}  {wants.entry.name}  "
                 f"({sum(1 for seen in compared.values() if entry_key in seen)} distinct builds compared)"
             )
+
+    if refused:
+        print(f"\n{len(refused)} proved but NOT recorded — the commit is on no branch, so no remote can have it:")
+        for entry_key, name, found in refused:
+            print(f"  {entry_key}  {name}  at {found[:10]}")
+        print("  Put each on a branch and push it, then run again. Until then these are unrecoverable:")
+        print("  a stash entry is destroyed by `git stash drop`, and nothing else built this bytecode.")
+
+    if unproven:
+        print(f"\n{len(unproven)} screened but NOT recorded — the constructor does not account for them:")
+        for entry_key, name, found in unproven:
+            print(f"  {entry_key}  {name}  at {found[:10]}")
+        print("  The code outside the immutables matches, so the source is close — but an immutable")
+        print("  the source determines came out differently, which a masked comparison would have hidden.")
+
+    if unpushed:
+        # Said at the end rather than per contract: the record and the commits it names have to reach
+        # the remote TOGETHER, and pushing deployed.json alone is the mistake this prevents.
+        print(f"\n{len(unpushed)} recorded at commits no remote has yet:")
+        for entry_key, name, found in unpushed:
+            print(f"  {entry_key}  {name}  at {found[:10]}")
+        print("  Push the branches holding them BEFORE pushing deployed.json, or the record names")
+        print("  commits nobody else can resolve. CI rejects a record in that state.")
 
     print(f"\n{recovered} of {len(outstanding)} recovered, from {built} build(s) over {len(dated)} candidate commits")
     if recovered and arguments.write:

@@ -26,6 +26,7 @@ transactions. A baseline carries facts about an artefact and no judgements about
 from __future__ import annotations
 
 import json
+import subprocess
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -117,6 +118,46 @@ def key(chain_id: int, address: str) -> str:
     return f"{chain_id}/{address.lower()}"
 
 
+def commit_reach(repo_root: Path, commit: str) -> str:
+    """Where a commit lives, which decides whether a baseline may name it.
+
+    A baseline is only as good as its commit, and there are three ways for that to go wrong, needing
+    three different answers:
+
+    - `"remote"` - a remote branch contains it, so everyone can resolve it. Recordable anywhere, and
+      what CI requires.
+    - `"local"` - only a local branch contains it. The ORDINARY state of work in progress: a deploy is
+      committed and the record written before anything is pushed, so refusing this would make the tool
+      unusable in its own normal flow. Recordable locally with a warning, rejected by CI - and there
+      the "CI will catch it" safety net is real, because a branch commit survives until it is pushed or
+      deliberately discarded.
+    - `"none"` - no branch contains it. A stash entry, or a dangling commit. NEVER recordable, not even
+      locally: `git push` pushes branches, so nothing will ever carry it to a remote, and `git stash
+      drop` destroys it. A downstream check is no safety net when the object can be gone before the
+      check runs.
+    - `"absent"` - this repository does not have the commit at all. The case the whole reachability
+      concern is about: a force-push, an orphaning rebase, or garbage collection, leaving a baseline
+      pointing at nothing. Distinguished from `"none"` because the remedy differs - fetch it, or the
+      baseline is dead.
+
+    Measured in harbor-price-aggregators, which holds both edge cases at once: a recorded baseline
+    names a stash entry, and HEAD itself sits on two local branches and no remote. So "must be on
+    origin" alone would refuse ordinary local work, and "CI will catch it" alone would let a droppable
+    commit be recorded."""
+    known = subprocess.run(
+        ["git", "cat-file", "-e", f"{commit}^{{commit}}"], cwd=repo_root, capture_output=True, text=True
+    )
+    if known.returncode != 0:
+        return "absent"
+    for scope, answer in ((["-r"], "remote"), ([], "local")):
+        containing = subprocess.run(
+            ["git", "branch", *scope, "--contains", commit], cwd=repo_root, capture_output=True, text=True
+        )
+        if containing.returncode == 0 and containing.stdout.strip():
+            return answer
+    return "none"
+
+
 def read_baselines(repo_root: Path) -> dict[str, Baseline]:
     """Every baseline this repository records, keyed by `key`. Absent file means none recorded yet -
     which is the ordinary state of a repo that has not started, not an error."""
@@ -186,6 +227,10 @@ class Review:
     unreadable: list[Problem]  # a manifest path that cannot be normalised
     orphaned: list[Baseline]  # a baseline for an address no manifest mentions any more
     conflicts: list[str]  # two manifests describing one address differently
+    # (baseline, reach) for every recorded commit no remote has — see `commit_reach`. The REACH is
+    # carried rather than a boolean because one definition serves two thresholds: a local run tolerates
+    # "local" (work not yet pushed is the ordinary state), and CI does not.
+    not_on_a_remote: list[tuple[Baseline, str]]
 
 
 def review(repo_root: Path) -> Review:
@@ -220,12 +265,20 @@ def review(repo_root: Path) -> Review:
     baselines = read_baselines(repo_root)
     claimed = {key(e.chain_id, e.address) for e in identified}
     unrecovered, conflicts = _by_address(e for e in identified if key(e.chain_id, e.address) not in baselines)
+    # Asked once per distinct COMMIT, not once per baseline: twelve commits carry the aggregators'
+    # eighty-three records, so this is twelve `git branch --contains` calls rather than eighty-three.
+    reaches = {commit: commit_reach(repo_root, commit) for commit in {b.commit for b in baselines.values()}}
     return Review(
         recorded=[baselines[k] for k in sorted(baselines) if k in claimed],
         unrecovered=unrecovered,
         unreadable=unreadable,
         orphaned=[baselines[k] for k in sorted(baselines) if k not in claimed],
         conflicts=conflicts,
+        not_on_a_remote=[
+            (baselines[k], reaches[baselines[k].commit])
+            for k in sorted(baselines)
+            if reaches[baselines[k].commit] != "remote"
+        ],
     )
 
 

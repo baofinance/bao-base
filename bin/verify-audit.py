@@ -696,16 +696,39 @@ def _check_baselines(found: Review) -> int:
     longer name - a deletion, which harbor did to eleven live `Minter_v2` implementations in one commit.
     That STOPS the run, like a dependency disagreement: the tag comparison below is about source that a
     deleted record can no longer be tied to anything.
+
+    It also fails on a baseline naming a commit NO REMOTE HAS, which is the stricter of the two
+    thresholds `commit_reach` serves. A local run tolerates a commit on a local branch, because writing
+    the record before pushing is the ordinary flow; CI cannot, because the record it is checking is one
+    everybody else will read, and a commit only one machine holds makes it unreadable. A commit on no
+    branch at all, or one this repository has lost, is worse and is reported as what it is.
     """
-    if not found.orphaned:
-        return 0
-    _err(
-        f"\033[31mERROR: {len(found.orphaned)} recorded contract(s) are named by no manifest — a"
-        " deployment record was removed, and the contract is still on chain:\033[0m\n"
-    )
-    for baseline in found.orphaned:
-        _err(f"\033[31m  {baseline.chain} {baseline.address} {baseline.contract_type}\033[0m\n")
-    return 1
+    failures = 0
+    if found.orphaned:
+        failures = 1
+        _err(
+            f"\033[31mERROR: {len(found.orphaned)} recorded contract(s) are named by no manifest — a"
+            " deployment record was removed, and the contract is still on chain:\033[0m\n"
+        )
+        for baseline in found.orphaned:
+            _err(f"\033[31m  {baseline.chain} {baseline.address} {baseline.contract_type}\033[0m\n")
+
+    if found.not_on_a_remote:
+        failures = 1
+        _err(
+            f"\033[31mERROR: {len(found.not_on_a_remote)} baseline(s) name a commit no remote has, so"
+            " nobody else can resolve them:\033[0m\n"
+        )
+        for baseline, reach in found.not_on_a_remote:
+            says = {
+                "local": "only a local branch has it — push that branch",
+                "none": "on no branch, so nothing will ever push it — put it on one and push that",
+                "absent": "this repository does not have this commit at all — fetch it, or the baseline is dead",
+            }[reach]
+            _err(f"\033[31m  {baseline.chain} {baseline.address} {baseline.contract_type}\033[0m\n")
+            _err(f"\033[31m    {baseline.commit[:10]}: {says}\033[0m\n")
+
+    return failures
 
 
 def _summarise_baselines(found: Review) -> None:

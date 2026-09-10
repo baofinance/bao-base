@@ -425,8 +425,64 @@ def artefact_for(out: Path, source: str, contract_type: str) -> dict | None:
     return claiming[0] if len(claiming) == 1 else None
 
 
+def differences(onchain: bytes, produced: bytes, references: dict, address: str) -> tuple[list[str], list[str]]:
+    """Every way the deployed code differs from the code its constructor produced, split into the ones
+    the deployment explains and the ones it does not. Empty `unexplained` is the verdict.
+
+    This replaces masking as the thing that DECIDES. Masking makes a comparison possible but weakens
+    what it proves: a match becomes a match *modulo the immutables*, so two sources differing only in a
+    value that becomes an immutable - two aggregators with different Chainlink feeds - are
+    indistinguishable, and "the only candidate that matched" is not evidence when the thing that would
+    have told them apart was excluded before looking.
+
+    They need not be excluded. These constructors take no arguments -
+    `constructor() Aggregator_PAXG_USD(PAXG_USD.FEED, PAXG_USD.HEARTBEAT, 1, false) {}` - so every
+    immutable is determined by the source, and executing the creation code reproduces it. Measured on
+    `Aggregator_stETH_USD_mainnet`: 3356 bytes constructed against 3356 deployed, every differing byte
+    inside an immutable region.
+
+    ONE immutable genuinely cannot be reproduced: a contract's own address, because the construction
+    runs somewhere else (OpenZeppelin's UUPS `__self`). That is recognised by its VALUE - the deployed
+    slot holds the deployed address - not by excluding a class of regions, so an immutable that merely
+    happens to be an address is not waved through.
+
+    Everything else is unexplained, and unexplained means the source is not what was deployed. Each is
+    named with both values, because a human deciding whether a baseline is true needs to see them."""
+    if len(onchain) != len(produced):
+        return [], [f"length: {len(onchain)} deployed, {len(produced)} constructed"]
+
+    wanted = address.lower().removeprefix("0x")
+    explained: list[str] = []
+    unexplained: list[str] = []
+    covered: set[int] = set()
+    for regions in references.values():
+        for region in regions:
+            start, stop = region["start"], region["start"] + region["length"]
+            covered.update(range(start, stop))
+            here, there = onchain[start:stop], produced[start:stop]
+            if here == there:
+                continue
+            padding, tail = here[:-20], here[-20:]
+            if tail.hex() == wanted and not any(padding):
+                explained.append(f"immutable at {start}: the contract's own address")
+            else:
+                unexplained.append(f"immutable at {start}: deployed {here.hex()}, constructed {there.hex()}")
+
+    outside = [i for i, (a, b) in enumerate(zip(onchain, produced)) if a != b and i not in covered]
+    if outside:
+        unexplained.append(f"{len(outside)} byte(s) differ outside every immutable region, first at {outside[0]}")
+    return explained, unexplained
+
+
 def matches(onchain: bytes, artefact: dict) -> tuple[bool, list[str]]:
-    """Whether the deployed runtime code is what this artefact builds, and the immutables read off it.
+    """A SCREEN, not a verdict: could this artefact have built the deployed code, ignoring immutables?
+
+    It exists to decide whether constructing is worth an RPC call. `differences` is what decides
+    whether a baseline is true, and it needs the constructor run against the chain; running that for
+    every candidate build would be one call per (contract, build) where this is free. So: screen here,
+    prove there.
+
+    Whether the deployed runtime code is what this artefact builds, and the immutables read off it.
 
     BOTH SIDES ARE STRIPPED. A build carries its own CBOR trailer and it never equals the deployed
     one, because each hashes the sources and settings of the tree it was built in - so the verdict has
