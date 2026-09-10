@@ -213,6 +213,27 @@ def test_a_contract_whose_manifest_gives_no_chain_id_is_reported_not_silently_dr
     assert found.unrecovered == [], "it is not also a recovery backlog item, because it cannot be keyed"
 
 
+def test_a_contract_whose_manifest_gives_no_address_is_reported_not_silently_dropped(repo):
+    # The address IS the identity here, so an entry without one cannot be keyed, cannot be looked up on
+    # any chain, and cannot be recovered. `v4-oracles.json` holds five such placeholders.
+    manifest = repo / "deployments" / "mainnet" / "state.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "network": "mainnet",
+                "chainId": 1,
+                "oracles": {"FOO": {"address": "", "contractPath": "src/Foo.sol:Foo"}},
+            }
+        )
+    )
+
+    found = review(repo)
+
+    assert [problem.entry.name for problem in found.unreadable] == ["Foo"]
+    assert "address" in found.unreadable[0].reason
+    assert found.unrecovered == [], "it cannot be keyed, so it is not a recovery backlog item either"
+
+
 def test_a_manifest_path_that_cannot_be_normalised_is_reported_not_failed(repo):
     # Pre-existing record defects - harbor's `src/BaoPauser_v1.sol` naming bao-base's file - must not
     # turn a repo red on the day this check lands. They are reported, and a baseline cannot be written

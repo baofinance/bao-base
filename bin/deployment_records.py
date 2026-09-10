@@ -31,9 +31,12 @@ from pathlib import Path
 # WHICH KEYS ARE PRESENT, never on the file's name: `v3-oracles.json` carries both sections, and its
 # `implementations` entries hold a `contractName` and no path at all - so a reader keyed on the
 # filename reads the wrong section and silently gets nothing.
+# The third field says whether the section's KEY is the address. Format A keys by address and carries
+# no `address` field, so the key is the only place it is; format B keys by SYMBOL and puts the address
+# in the entry, so falling back to the key there invents an address out of a feed name.
 _SECTIONS = {
-    "implementations": ("contractSource", "contractType"),
-    "oracles": ("contractPath", None),  # name comes from the path's ":Name" suffix
+    "implementations": ("contractSource", "contractType", True),
+    "oracles": ("contractPath", None, False),  # name comes from the path's ":Name" suffix
 }
 
 
@@ -46,7 +49,9 @@ class Entry:
     deployed contract nothing can currently baseline. That is worth returning as a gap rather than
     dropping, so it can be reported."""
 
-    address: str
+    # None when the record names no address: an `oracles` entry whose `address` is empty is a
+    # placeholder beside the deployed ones, and it is a gap to report rather than a contract.
+    address: str | None
     name: str | None
     recorded_path: str | None
     # The chain is its ID; `chain` beside it is the label the manifest used, kept because it is also
@@ -96,7 +101,7 @@ def _entries(document: dict, manifest: Path, repo_root: Path) -> list[Entry]:
     chain_id = _chain_id(document)
     display = str(manifest.relative_to(repo_root))
     found: list[Entry] = []
-    for section, (path_field, name_field) in _SECTIONS.items():
+    for section, (path_field, name_field, keyed_by_address) in _SECTIONS.items():
         entries = document.get(section)
         if not isinstance(entries, dict):
             continue
@@ -115,16 +120,22 @@ def _entries(document: dict, manifest: Path, repo_root: Path) -> list[Entry]:
                 continue
             found.append(
                 Entry(
-                    # Format A keys by address; format B keys by symbol and carries the address in
-                    # the entry. The address is the identity either way, so it is read from wherever
-                    # that format put it.
-                    address=entry.get("address") or key,
+                    # Read from wherever the format put it, and from NOWHERE ELSE: five of
+                    # `v4-oracles.json`'s entries carry `"address": ""` beside the real ones, and
+                    # taking the key there made `USDM_ETH` the address of a deployed contract.
+                    address=entry.get("address") or (key if keyed_by_address else None),
                     name=name,
                     recorded_path=recorded or None,
                     chain_id=chain_id,
                     recorded_chain_id=document.get("chainId"),
                     chain=chain,
-                    deployed_at=entry.get("deploymentTime") or entry.get("deployedAt"),
+                    # The entry's own time, then the MANIFEST's: 21 of the aggregators' contracts
+                    # reported "no deployment time recorded" while their file carried one at the top.
+                    # The document's is a whole batch's and so approximate, which is enough - it is
+                    # used only as an upper bound before the creation block is found on chain.
+                    deployed_at=(
+                        entry.get("deploymentTime") or entry.get("deployedAt") or document.get("deploymentTime")
+                    ),
                     manifest=display,
                     section=section,
                 )

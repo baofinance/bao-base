@@ -264,6 +264,92 @@ def test_a_manifest_that_names_no_chain_id_says_so_rather_than_inventing_one(rep
     assert read_records(repo)[0].chain_id is None
 
 
+def test_an_oracle_entry_with_no_address_does_not_borrow_its_symbol(repo):
+    # `deployments/megaeth/v4-oracles.json` carries five entries with `"address": ""` - placeholders
+    # beside the real `_V3` ones. The oracle sections are keyed by SYMBOL, so falling back to the key
+    # made `USDM_ETH` the address of a deployed contract: an identity invented out of a gap, which then
+    # reads as a contract nothing on any chain can confirm.
+    write(
+        repo,
+        "megaeth/v4-oracles.json",
+        {
+            "chainId": 4326,
+            "oracles": {
+                "USDM_ETH": {"address": "", "contractPath": "src/A.sol:Aggregator_USDM_ETH_megaeth"},
+                "USDM_ETH_V3": {
+                    "address": "0x756B95D0bB61c195d1196EB2143D8D88570036AC",
+                    "contractPath": "src/A.sol:Aggregator_USDM_ETH_megaeth",
+                },
+            },
+        },
+    )
+
+    found = read_records(repo)
+
+    addresses = sorted(entry.address or "" for entry in found)
+    assert addresses == ["", "0x756B95D0bB61c195d1196EB2143D8D88570036AC"]
+    assert "USDM_ETH" not in addresses, "the symbol names the feed, never the contract"
+
+
+def test_an_implementation_entry_still_takes_the_address_it_is_keyed_by(repo):
+    # The other half of the same rule, and why the fallback existed: format A keys BY address and
+    # carries no `address` field, so removing the fallback outright would lose every one of them.
+    write(
+        repo,
+        "mainnet/state.json",
+        {
+            "chainId": 1,
+            "implementations": {
+                "0xd8785d5C51aaDEb3AD1D015Cd67C8A34dBf58f61": {
+                    "contractSource": "src/A.sol",
+                    "contractType": "BaoPauser_v1",
+                }
+            },
+        },
+    )
+
+    assert read_records(repo)[0].address == "0xd8785d5C51aaDEb3AD1D015Cd67C8A34dBf58f61"
+
+
+def test_an_entry_with_no_time_of_its_own_takes_the_manifest_s(repo):
+    # 21 of the aggregators' contracts reported "no deployment time recorded, so the window cannot be
+    # placed" while their file carried one at the top: `mainnet/v4-oracles.json` says
+    # `2026-02-07T01:09:52Z`. It is the whole batch's time and so only approximate, which is enough -
+    # it is used ONLY as an upper bound before the creation block is found by searching the chain.
+    write(
+        repo,
+        "mainnet/v4-oracles.json",
+        {
+            "chainId": 1,
+            "deploymentTime": "2026-02-07T01:09:52Z",
+            "oracles": {"FOO": {"address": "0xAA", "contractPath": "src/Foo.sol:Foo"}},
+        },
+    )
+
+    assert read_records(repo)[0].deployed_at == "2026-02-07T01:09:52Z"
+
+
+def test_an_entry_with_its_own_time_keeps_it(repo):
+    # The entry is the more specific fact - the manifest's is the batch's - so it wins where both exist.
+    write(
+        repo,
+        "mainnet/v4-oracles.json",
+        {
+            "chainId": 1,
+            "deploymentTime": "2026-02-07T01:09:52Z",
+            "oracles": {
+                "FOO": {
+                    "address": "0xAA",
+                    "contractPath": "src/Foo.sol:Foo",
+                    "deploymentTime": "2026-03-21T13:44:18Z",
+                }
+            },
+        },
+    )
+
+    assert read_records(repo)[0].deployed_at == "2026-03-21T13:44:18Z"
+
+
 def test_an_unreadable_manifest_is_raised_not_skipped(repo):
     # Silently returning a shorter list reads as "this repository deploys less than it does", which is
     # the failure this whole plan exists to stop.

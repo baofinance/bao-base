@@ -21,15 +21,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bin"))
 
 from deployment_recovery import (  # noqa: E402
     artefact_for,
-    build_fingerprint,
-    candidate_commits,
+    all_commits,
+    build_id,
     commit_timestamp,
     creation_block,
     mask_immutables,
     matches,
     place_worktree,
     remove_worktree,
+    search_passes,
     source_at,
+    still_to_compare,
     strip_metadata,
 )
 
@@ -182,6 +184,45 @@ def test_a_length_mismatch_is_not_a_match():
     assert not agreed
 
 
+# ── not building the same thing twice, without losing a contract to it ────────────────────────────
+
+
+def test_a_build_is_not_repeated_for_a_contract_already_compared_against_it():
+    # The saving: twenty aggregators share a deploy and so share candidates, and many of those commits
+    # read identical build inputs. Building each again proves nothing new about the same contracts.
+    compared = {}
+
+    assert still_to_compare(compared, "inputs-a", ["1/0xaa", "1/0xbb"]) == ["1/0xaa", "1/0xbb"]
+    assert still_to_compare(compared, "inputs-a", ["1/0xaa", "1/0xbb"]) == []
+
+
+def test_a_contract_that_has_not_seen_a_build_gets_it_even_when_someone_else_has():
+    # The defect this exists to stop, and it cost 52 of 97. Recording the build id alone - a set of
+    # builds already done - skips the commit for a contract whose window opens on it later, so the
+    # contract is reported as "no candidate built what is deployed" having been compared against
+    # nothing at all. `Aggregator_stETH_AAPL_arbitrum` recovers at 3a108494df when run on its own.
+    compared = {}
+    still_to_compare(compared, "inputs-a", ["1/0xaa"])
+
+    assert still_to_compare(compared, "inputs-a", ["1/0xbb"]) == ["1/0xbb"]
+
+
+def test_only_the_contracts_that_have_not_seen_it_are_returned():
+    # A mixed set is the ordinary case once a run is under way: the build is worth doing for the one
+    # that has not seen it, and the comparison is not worth repeating for the one that has.
+    compared = {}
+    still_to_compare(compared, "inputs-a", ["1/0xaa"])
+
+    assert still_to_compare(compared, "inputs-a", ["1/0xaa", "1/0xbb"]) == ["1/0xbb"]
+
+
+def test_a_different_build_is_a_different_question_for_the_same_contract():
+    compared = {}
+    still_to_compare(compared, "inputs-a", ["1/0xaa"])
+
+    assert still_to_compare(compared, "inputs-b", ["1/0xaa"]) == ["1/0xaa"]
+
+
 # ── locating the artefact ─────────────────────────────────────────────────────────────────────────
 
 
@@ -274,6 +315,13 @@ def repo(tmp_path):
     return tmp_path
 
 
+def order_for(repo: Path, deployed: str) -> list[str]:
+    """The commits one contract tries, in order - composed exactly as the run composes them, so these
+    tests exercise the real search rather than a restatement of it."""
+    dated = all_commits(repo)
+    return [commit for _, order, admits in search_passes(dated) for commit, when in order if admits(when, deployed)]
+
+
 def subjects(repo: Path, commits: list[str]) -> list[str]:
     return [
         subprocess.run(["git", "log", "-1", "--format=%s", c], cwd=repo, capture_output=True, text=True).stdout.strip()
@@ -311,44 +359,49 @@ def test_a_commit_touching_nothing_a_build_reads_is_still_a_candidate(repo):
     # older commit that compiled identically. Right bytecode, wrong provenance.
     docs = commit_at(repo, "2026-03-10T00:00:00", "README.md")
 
-    assert docs in candidate_commits(repo, "2026-03-20T00:00:00Z")
+    assert docs in order_for(repo, "2026-03-20T00:00:00Z")
 
 
-def test_commits_reading_the_same_build_inputs_share_a_fingerprint(repo):
+def test_commits_reading_the_same_build_inputs_share_a_build_id(repo):
     # Which is where the saving actually belongs: the second need not be BUILT, and no candidate is
     # dropped to get it.
     before = commit_at(repo, "2026-03-10T00:00:00", "src/Thing.sol", "contract Thing {}")
     docs = commit_at(repo, "2026-03-11T00:00:00", "README.md")
     changed = commit_at(repo, "2026-03-12T00:00:00", "src/Thing.sol", "contract Thing { uint256 x; }")
 
-    assert build_fingerprint(repo, docs) == build_fingerprint(repo, before), "a README changes no build"
-    assert build_fingerprint(repo, changed) != build_fingerprint(repo, before)
+    assert build_id(repo, docs) == build_id(repo, before), "a README changes no build"
+    assert build_id(repo, changed) != build_id(repo, before)
 
 
-def test_candidates_are_bounded_by_time_not_by_a_count(repo):
-    # The bound was `--limit 12`, a number with nothing behind it - and one that was not even the
-    # constraint: twelve commits already reached two months back in the aggregators. A window says
-    # what it means and is the same bound the user gave for the search.
+def test_the_search_is_not_bounded_at_all(repo):
+    # It was `--limit 12`, then a 120/30-day window. Every bound was wrong the same way: THE ERROR IS
+    # ONE-SIDED. Too narrow loses the answer and reports it as "no candidate built what is deployed",
+    # which is indistinguishable from a real miss; too wide costs only time and cannot give a wrong
+    # answer, because every match is verified against the deployed bytecode.
+    #
+    # A time window also measures the calendar, not the repository: the same 120/30 days gave 89
+    # candidates around February 2026 and 23 around May. And it bought almost nothing - 145 commits
+    # carry 89 distinct builds, the window covered 75 of them, at a mean of 1.0s a build.
     old = commit_at(repo, "2024-01-01T00:00:00", "src/Old.sol", "contract Old {}")
     recent = commit_at(repo, "2026-03-11T00:00:00", "src/New.sol", "contract New {}")
 
-    found = candidate_commits(repo, "2026-03-20T00:00:00Z", before_days=90, after_days=30)
+    found = order_for(repo, "2026-03-20T00:00:00Z")
 
     assert recent in found
-    assert old not in found, "two years before the deploy is outside any sane window"
+    assert old in found, "two years earlier is still a tree someone could have deployed from"
 
 
 def test_the_first_candidate_is_the_last_commit_before_the_deploy(repo):
     # The measured pattern: the commit that RECORDS a deploy lands days after it, so the likeliest
     # source is the last commit BEFORE the deployment timestamp.
-    assert subjects(repo, candidate_commits(repo, "2026-03-21T13:44:18Z"))[0] == "c1"
+    assert subjects(repo, order_for(repo, "2026-03-21T13:44:18Z"))[0] == "c1"
 
 
 def test_candidates_continue_backwards_then_forwards(repo):
     # One guess is not enough: ten of the aggregators' contracts built cleanly and did not match, and
     # a deploy from a dirty tree has its source committed AFTERWARDS - bao-base's own pauser was
     # edited three days later. So earlier commits come next, then the ones after the deploy.
-    found = subjects(repo, candidate_commits(repo, "2026-03-21T13:44:18Z"))
+    found = subjects(repo, order_for(repo, "2026-03-21T13:44:18Z"))
 
     assert found[0] == "c1", "likeliest first"
     assert set(found) == {"c0", "c1", "c2"}, "and the rest are reachable"
@@ -364,12 +417,13 @@ def test_a_commit_on_a_merged_branch_is_a_candidate(repo):
     (repo / "src" / "OnBranch.sol").write_text("contract OnBranch {}\n")
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-qm", "on the branch"], cwd=repo, check=True, capture_output=True)
-    branch_tip = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True
-    ).stdout.strip()
+    branch_tip = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True).stdout.strip()
     subprocess.run(["git", "checkout", "-q", "main"], cwd=repo, check=True, capture_output=True)
     subprocess.run(
-        ["git", "merge", "-q", "--no-ff", "-m", "merge the branch", "feature"], cwd=repo, check=True, capture_output=True
+        ["git", "merge", "-q", "--no-ff", "-m", "merge the branch", "feature"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
     )
 
     # Derived from the repository rather than a magic future date: "a moment just after everything".
@@ -377,18 +431,40 @@ def test_a_commit_on_a_merged_branch_is_a_candidate(repo):
         ["git", "log", "-1", "--format=%cI"], cwd=repo, capture_output=True, text=True
     ).stdout.strip()
 
-    assert branch_tip in candidate_commits(repo, latest), "a branch commit must be reachable"
+    assert branch_tip in order_for(repo, latest), "a branch commit must be reachable"
 
 
-def test_a_deploy_far_outside_the_window_finds_nothing_until_the_window_is_widened(repo):
-    # With a bounded window this is honest rather than a failure: a deploy six years before any commit
-    # cannot have been built from one. The caller widens deliberately - which is what an entry with no
-    # recorded time needs, since its bracket is "somewhere between now and last year" rather than a
-    # few months either side of a known moment.
+def test_a_commit_on_an_unmerged_branch_is_still_a_candidate(repo):
+    # Reading only the current branch's history would miss it, and a deploy runs from whatever is
+    # checked out - including a branch that never landed.
+    subprocess.run(["git", "checkout", "-q", "-b", "stranded"], cwd=repo, check=True, capture_output=True)
+    (repo / "src" / "Stranded.sol").write_text("contract Stranded {}\n")
+    git(repo, "add", "-A")
+    subprocess.run(["git", "commit", "-qm", "never merged"], cwd=repo, check=True, capture_output=True)
+    tip = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True).stdout.strip()
+    subprocess.run(["git", "checkout", "-q", "main"], cwd=repo, check=True, capture_output=True)
+
+    assert tip in [commit for commit, _ in all_commits(repo)]
+
+
+def test_a_stashed_tree_is_still_a_candidate(repo):
+    # A deploy from a dirty tree whose source was STASHED rather than committed is findable nowhere
+    # else, and a stash is a real commit that builds like any other.
+    (repo / "src" / "Dirty.sol").write_text("contract Dirty {}\n")
+    git(repo, "add", "-A")
+    subprocess.run(["git", "stash", "-q"], cwd=repo, check=True, capture_output=True)
+
+    stashed = subprocess.run(["git", "rev-parse", "stash@{0}"], cwd=repo, capture_output=True, text=True).stdout.strip()
+
+    assert stashed in [commit for commit, _ in all_commits(repo)]
+
+
+def test_a_deploy_before_every_commit_takes_them_all_oldest_first(repo):
+    # The dirty-tree case at its limit: nothing was committed before the deploy, so the whole history
+    # is in the second pass, and the EARLIEST commit is where that source first landed.
     far = "2020-01-01T00:00:00Z"
 
-    assert candidate_commits(repo, far) == []
-    assert subjects(repo, candidate_commits(repo, far, after_days=365 * 10))[0] == "c0", "oldest first, after"
+    assert subjects(repo, order_for(repo, far)) == ["c0", "c1", "c2"], "oldest first, all after"
 
 
 def test_the_source_is_found_at_the_candidate_commit_not_at_the_recorded_path(repo, tmp_path):
@@ -407,12 +483,47 @@ def test_the_source_is_found_at_the_candidate_commit_not_at_the_recorded_path(re
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-qm", "move Foo"], cwd=repo, check=True, capture_output=True)
 
-    assert source_at(repo, early, "Foo") == "src/Foo.sol"
-    assert source_at(repo, "HEAD", "Foo") == "src/moved/Foo.sol"
+    assert source_at(repo, early, "Foo") == ("src/Foo.sol", "Foo")
+    assert source_at(repo, "HEAD", "Foo") == ("src/moved/Foo.sol", "Foo")
+
+
+def test_a_contract_renamed_after_the_deploy_is_followed_by_its_file(repo):
+    # The megaeth aggregators: the manifest records `Aggregator_USDM_ETH_megaeth`, but at deploy time
+    # the token was USDMY and the contract was `Aggregator_USDMY_ETH_megaeth`. The NAME survives a
+    # move and not a rename, so locating by name alone found nothing at any of 50 builds and reported
+    # "no candidate built what is deployed" for twelve contracts.
+    #
+    # What survives both is git's own rename tracking of the FILE, which is why the recorded path is
+    # the fallback: `git diff -M` reports the old path, and whatever contract it declares THERE is the
+    # one that was deployed.
+    (repo / "src").mkdir(exist_ok=True)
+    (repo / "src" / "Old.sol").write_text("contract Old {\n    uint256 constant A = 1;\n    // body\n}\n")
+    git(repo, "add", "-A")
+    subprocess.run(["git", "commit", "-qm", "before the rename"], cwd=repo, check=True, capture_output=True)
+    early = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True).stdout.strip()
+
+    (repo / "src" / "New.sol").write_text("contract New {\n    uint256 constant A = 1;\n    // body\n}\n")
+    (repo / "src" / "Old.sol").unlink()
+    git(repo, "add", "-A")
+    subprocess.run(["git", "commit", "-qm", "rename it"], cwd=repo, check=True, capture_output=True)
+
+    assert source_at(repo, early, "New", recorded_path="src/New.sol") == ("src/Old.sol", "Old")
+
+
+def test_the_name_wins_over_the_path_when_both_could_answer(repo):
+    # The path is only a fallback. A file that MOVED still declares the recorded name, and following
+    # the path instead would answer with wherever the path happens to point.
+    (repo / "src").mkdir(exist_ok=True)
+    (repo / "src" / "Foo.sol").write_text("contract Foo {}\n")
+    git(repo, "add", "-A")
+    subprocess.run(["git", "commit", "-qm", "add Foo"], cwd=repo, check=True, capture_output=True)
+
+    assert source_at(repo, "HEAD", "Foo", recorded_path="src/somewhere/else/Foo.sol") == ("src/Foo.sol", "Foo")
 
 
 def test_a_contract_absent_from_that_commit_is_not_guessed_at(repo):
     assert source_at(repo, "HEAD", "NeverExisted") is None
+    assert source_at(repo, "HEAD", "NeverExisted", recorded_path="src/NeverExisted.sol") is None
 
 
 def test_a_contract_in_a_dependency_is_found_there_like_anywhere_else(repo):
@@ -424,7 +535,7 @@ def test_a_contract_in_a_dependency_is_found_there_like_anywhere_else(repo):
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "vendored dependency")
 
-    assert source_at(repo, "HEAD", "Pauser") == "lib/dep/src/Pauser.sol"
+    assert source_at(repo, "HEAD", "Pauser") == ("lib/dep/src/Pauser.sol", "Pauser")
 
 
 def test_two_files_declaring_one_contract_is_refused_not_guessed(repo):
@@ -453,7 +564,7 @@ def test_the_declaration_decides_not_the_filename(repo):
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "misleading filename")
 
-    assert source_at(repo, "HEAD", "Foo") == "src/Elsewhere.sol"
+    assert source_at(repo, "HEAD", "Foo") == ("src/Elsewhere.sol", "Foo")
 
 
 # ── when it was deployed, and when the commit was made ────────────────────────────────────────────

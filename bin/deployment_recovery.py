@@ -25,8 +25,8 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from collections.abc import Callable, Iterable
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -38,9 +38,10 @@ def strip_metadata(code: bytes) -> bytes:
     bytecode indicate the length of the CBOR encoded information"). The docs describe the trailer and
     say nothing about what precedes it, which is where the byte that broke this comparison lives; see
     `matches`.
-    A deployed contract carries one and a build with `FOUNDRY_CBOR_METADATA=false` does not - the real
-    recovery differed by precisely those 53 bytes until this was applied, which is the first thing
-    anyone repeating this will hit.
+
+    Applied to BOTH sides, because both carry a trailer and the two never agree - each hashes the
+    sources and settings of the tree it was built in. The real recovery differed by precisely those 53
+    bytes until this was applied, which is the first thing anyone repeating this will hit.
 
     Two guards, both HERE, where the decision is made, rather than left to a length comparison
     somewhere downstream - mitigation at a distance is not correctness:
@@ -86,64 +87,106 @@ def mask_immutables(code: bytes, references: dict) -> bytes:
 _BUILD_INPUTS = ["src", "lib", "foundry.toml", "remappings.txt", ".gitmodules", "foundry.lock"]
 
 
-def build_fingerprint(repo_root: Path, commit: str) -> str:
-    """What a build at `commit` would read, as one value.
+def build_id(repo_root: Path, commit: str) -> str:
+    """Everything a build at `commit` would read, as one value: the id OF THE BUILD, not of the commit.
 
-    Two commits with the same fingerprint compile to the same bytecode, so the second need not be
-    built - which is where the saving is, without any candidate being dropped. Tree object ids, so git
-    does the hashing and an unchanged directory costs nothing to compare."""
+    Two commits with the same build id compile to the same bytecode, so the second need not be built -
+    which is where the saving is, without any candidate being dropped. It is derived, not assigned:
+    the tree object ids of the build's inputs, so git does the hashing and an unchanged directory costs
+    nothing to compare."""
     done = subprocess.run(
         ["git", "ls-tree", commit, "--", *_BUILD_INPUTS], cwd=repo_root, capture_output=True, text=True
     )
     return done.stdout
 
 
-def candidate_commits(
-    repo_root: Path, deployed_at: str, before_days: int = 120, after_days: int = 30
-) -> list[str]:
-    """Commits that might hold the deployed source, likeliest first.
+def still_to_compare(compared: dict[str, set[str]], build: str, keys: Iterable[str]) -> list[str]:
+    """Which of `keys` have not yet been compared against this build (a `build_id`), claiming them.
 
-    ONE guess is not enough - ten of the aggregators' contracts built cleanly at the last commit
-    before their deploy and did not match. The order encodes what the measurements showed:
+    Two commits reading the same build inputs compile the same, so the second need not be built - but
+    ONLY for the contracts the first build was actually compared against. Recording the build id
+    alone, as a set of builds already done, silently drops every contract that becomes eligible later:
+    its candidate window opens on a commit whose inputs were already built for somebody else, the
+    commit is skipped, and the contract is reported as "no candidate built what is deployed" having
+    never been compared with anything.
 
-    1. The last commit BEFORE the deploy: the tree that was checked out when forge ran.
-    2. Progressively earlier ones: the deploy may have run from a tree behind the tip.
-    3. Then the commits AFTER it, oldest first: a deploy from a DIRTY tree has its source committed
-       afterwards, which is exactly what bao-base's own pauser did three days later.
+    Measured: `Aggregator_stETH_AAPL_arbitrum` recovers at 3a108494df in 82 candidates when run on its
+    own, and was reported unrecovered in the run of 97 - one of 52 in that state. The two-pass order
+    makes it worse, because the second pass skips every build id the first pass claimed.
 
-    BOUNDED BY TIME, not by a count. `--limit 12` was a number with nothing behind it, and not even
-    the binding constraint - twelve commits already reached two months back in the aggregators. A
-    window says what it means.
+    So the saving is kept and the loss is not: a build happens whenever some contract has not seen it,
+    and each contract is compared against each distinct build exactly once."""
+    seen = compared.setdefault(build, set())
+    fresh = [entry_key for entry_key in keys if entry_key not in seen]
+    seen.update(fresh)
+    return fresh
+
+
+def all_commits(repo_root: Path) -> list[tuple[str, str]]:
+    """Every commit this repository holds, newest first, each with its UTC timestamp.
+
+    UNBOUNDED, and that is a correction. It was a time window (`--before-days 120 --after-days 30`),
+    and before that `--limit 12` - a number with nothing behind it. Every version of the bound was
+    wrong for the same reason: THE ERROR IS ONE-SIDED. A bound that is too narrow loses the answer and
+    reports it as "no candidate built what is deployed", indistinguishable from a real miss; a bound
+    that is too wide costs only time and cannot produce a wrong answer, because every match is verified
+    against the deployed bytecode and the "latest at or before the deploy" rule fixes which commit wins
+    however many were considered.
+
+    And a time window measures the CALENDAR, not the repository: the same 120/30 days gave 89
+    candidates around February 2026 and 23 around May, a fourfold swing in density for one window. So
+    it never meant "enough candidates".
+
+    What it bought, measured on harbor-price-aggregators: 145 commits carry 89 distinct builds; the
+    150-day window covered 102 commits and 75 builds, at a mean of 1.0s a build. Searching everything
+    costs FOURTEEN SECONDS more, because `build_id` bounds the work by the number of distinct builds
+    in the repository rather than by the size of the window.
+
+    ALL REFS, so an unmerged branch and a stash are both in - the arbitrum aggregators were deployed
+    from `l2feeds`, and a deploy from a dirty tree that was stashed rather than committed is findable
+    nowhere else.
+
+    NOT `--first-parent`. It was, on the reasoning that a deploy runs from a point on the main line -
+    and that is simply false: deploys run from whatever is checked out. `l2feeds`'s tip carried "Remove
+    BASE_NAME storage from Arbitrum and Base oracles", exactly the change that decides that bytecode,
+    and `--first-parent` offered 11 commits in a window holding 63, none of which could have built what
+    is on chain.
 
     NOT narrowed to commits that touch a build input, though the saving would be large. A commit that
     changes nothing a build reads is still a tree someone deployed from: `BaoPauser_v1` was deployed
     from one whose only change was `bin/coverage`, and excluding it recorded a two-month-older commit
-    that compiled identically - right bytecode, wrong provenance. `build_fingerprint` deduplicates the
-    WORK instead, which saves the same builds and drops no candidate.
+    that compiled identically - right bytecode, wrong provenance. `build_id` deduplicates the WORK
+    instead, which saves the same builds and drops no candidate."""
+    done = subprocess.run(["git", "log", "--all", "--format=%H %ct"], cwd=repo_root, capture_output=True, text=True)
+    dated = []
+    for line in done.stdout.splitlines():
+        commit, _, seconds = line.partition(" ")
+        if commit and seconds.isdigit():
+            dated.append((commit, datetime.fromtimestamp(int(seconds), tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")))
+    return sorted(dated, key=lambda pair: pair[1], reverse=True)
 
-    NOT `--first-parent`. It was, on the reasoning that a deploy runs from a point on the main line -
-    and that is simply false: deploys run from whatever is checked out, which is often a feature
-    branch. The arbitrum aggregators were deployed from `l2feeds`, whose tip carried "Remove BASE_NAME
-    storage from Arbitrum and Base oracles", exactly the change that decides their bytecode.
-    `--first-parent` offered 11 commits in a window holding 63, and none of them could have built what
-    is on chain."""
-    deployed = datetime.fromisoformat(deployed_at.replace("Z", "+00:00"))
 
-    def line(*extra: str) -> list[str]:
-        done = subprocess.run(
-            ["git", "log", "--format=%H", *extra],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-        )
-        return [c for c in done.stdout.split() if c]
+def search_passes(
+    dated: list[tuple[str, str]],
+) -> list[tuple[str, list[tuple[str, str]], Callable[[str, str], bool]]]:
+    """The two passes every contract's search is made of, over one shared list of commits.
 
-    def stamp(days: int) -> str:
-        return (deployed + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S%z")
+    ONE guess is not enough - ten of the aggregators' contracts built cleanly at the last commit before
+    their deploy and did not match. The order encodes what the measurements showed:
 
-    before = line("--before", deployed_at, "--since", stamp(-before_days))
-    after = list(reversed(line("--since", deployed_at, "--before", stamp(after_days))))
-    return before + after
+    1. The latest commit AT OR BEFORE the deploy: the tree that was checked out when forge ran.
+    2. Progressively earlier ones: the deploy may have run from a tree behind the tip.
+    3. Then the commits AFTER it, oldest first: a deploy from a DIRTY tree has its source committed
+       afterwards - bao-base's pauser three days later, and the megaeth aggregators twelve minutes.
+
+    Two passes over a SHARED order rather than an order per contract, because that is what lets one
+    build serve every contract looking at that commit. Walking newest-first while admitting only
+    commits at or before each contract's own deploy gives each of them (1) and (2) in the right order
+    anyway, and the reversed second pass gives (3)."""
+    return [
+        ("at or before the deploy", dated, lambda when, deployed: when <= deployed),
+        ("after it (an uncommitted tree)", list(reversed(dated)), lambda when, deployed: when > deployed),
+    ]
 
 
 def creation_block(has_code: Callable[[int], bool], upper: int, floor: int = 0) -> int | None:
@@ -192,8 +235,54 @@ def commit_timestamp(repo_root: Path, commit: str) -> str | None:
     return datetime.fromtimestamp(int(seconds), tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def source_at(repo_root: Path, commit: str, contract_type: str) -> str | None:
-    """Where the file defining `contract_type` lived at `commit`, or None if it is not there.
+def _declared_in(repo_root: Path, commit: str, path: str) -> str | None:
+    """The single contract that `path` declares at `commit`, or None if it declares none or several.
+
+    Several is not resolved by picking: a file declaring two contracts gives no reason to prefer
+    either, and preferring wrongly means comparing a deployed contract against a different one's
+    build."""
+    done = subprocess.run(["git", "show", f"{commit}:{path}"], cwd=repo_root, capture_output=True, text=True)
+    declared = re.findall(r"^[ \t]*(?:abstract[ \t]+)?contract[ \t]+(\w+)", done.stdout, re.MULTILINE)
+    return declared[0] if len(declared) == 1 else None
+
+
+def _path_at(repo_root: Path, commit: str, recorded_path: str) -> str | None:
+    """What `recorded_path` was called at `commit`, following renames, or None if git knows of none.
+
+    Git already computes this, and computes it from CONTENT similarity rather than from names - which
+    is the only thing that can follow a file whose name is the very thing that changed. The megaeth
+    rename comes back as `R075 …Aggregator_USDMY_ETH_megaeth.sol → …Aggregator_USDM_ETH_megaeth.sol`."""
+    done = subprocess.run(
+        ["git", "diff", "-M", "--name-status", commit, "HEAD"], cwd=repo_root, capture_output=True, text=True
+    )
+    for line in done.stdout.splitlines():
+        fields = line.split("\t")
+        if len(fields) == 3 and fields[0].startswith("R") and fields[2] == recorded_path:
+            return fields[1]
+    return None
+
+
+def source_at(
+    repo_root: Path, commit: str, contract_type: str, recorded_path: str | None = None
+) -> tuple[str, str] | None:
+    """The file defining this contract at `commit` and the name it goes by THERE, or None.
+
+    Two identities, because neither survives everything on its own:
+
+    - The NAME survives a MOVE, which is the common case: `v3-oracles.json` records
+      `src/Aggregator_…` where the tree later held `src/mainnet/Aggregator_…`, and building the
+      recorded path at an older commit gave "No source files found" forty times. So the name is tried
+      first, against that commit's own tree.
+    - The recorded PATH, followed through git's rename detection, survives a RENAME - which the name
+      cannot, by definition. The megaeth aggregators were `Aggregator_USDMY_*` when they were deployed
+      and the token was renamed to USDM afterwards, so the manifest records a name that did not exist
+      at the deploy: twelve contracts, fifty builds each, and not one comparison made.
+
+    The name is tried FIRST because the path is the weaker fact - it is the path at deploy time, not
+    at the candidate commit, and a moved file would otherwise be looked for where it no longer is.
+
+    Returning the name AS DECLARED THERE is what makes the rename usable: the artefact must then be
+    located by the name the build actually produced, not the one the manifest remembers.
 
     NOT the recorded path: that is the path at DEPLOY time, and a candidate commit may predate a move.
     `v3-oracles.json` records `src/Aggregator_…` where the tree later held `src/mainnet/Aggregator_…`,
@@ -226,10 +315,18 @@ def source_at(repo_root: Path, commit: str, contract_type: str) -> str | None:
         text=True,
     )
     declaring = [line.split(":", 1)[1] for line in found.stdout.splitlines() if ":" in line]
+    if len(declaring) != 1:
+        named = [p for p in declaring if p.rsplit("/", 1)[-1] == f"{contract_type}.sol"]
+        declaring = named if len(named) == 1 else declaring
     if len(declaring) == 1:
-        return declaring[0]
-    named = [p for p in declaring if p.rsplit("/", 1)[-1] == f"{contract_type}.sol"]
-    return named[0] if len(named) == 1 else None
+        return declaring[0], contract_type
+    if not recorded_path:
+        return None
+    was = _path_at(repo_root, commit, recorded_path)
+    if was is None:
+        return None
+    declared = _declared_in(repo_root, commit, was)
+    return (was, declared) if declared else None
 
 
 def place_worktree(repo_root: Path, commit: str, at: Path) -> list[str]:

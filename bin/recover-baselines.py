@@ -24,15 +24,17 @@ from Crypto.Hash import keccak
 
 from deployment_baselines import Baseline, add, key, read_baselines, review, write_baselines
 from deployment_recovery import (
+    all_commits,
     artefact_for,
-    build_fingerprint,
-    candidate_commits,
+    build_id,
     commit_timestamp,
     creation_block,
     matches,
     place_worktree,
     remove_worktree,
+    search_passes,
     source_at,
+    still_to_compare,
 )
 
 
@@ -151,20 +153,6 @@ class _Wanted:
     onchain: bytes
     block: int
     deployed: str
-    candidates: list[str]
-
-
-def _dated(root: Path, commits: set[str]) -> list[tuple[str, str]]:
-    """(commit, its UTC timestamp) for each, newest first. One `git log`, not a call each."""
-    done = subprocess.run(
-        ["git", "log", "--format=%H %ct", "--no-walk", *commits], cwd=root, capture_output=True, text=True
-    )
-    dated = []
-    for line in done.stdout.splitlines():
-        commit, _, seconds = line.partition(" ")
-        if commit in commits and seconds.isdigit():
-            dated.append((commit, datetime.fromtimestamp(int(seconds), tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")))
-    return dated
 
 
 def _try_commit(root: Path, commit: str, pending: dict[str, _Wanted]) -> dict[str, tuple]:
@@ -174,28 +162,36 @@ def _try_commit(root: Path, commit: str, pending: dict[str, _Wanted]) -> dict[st
     candidates; building the closure once per (contract, commit) made 44 candidates into 880 builds,
     where one build per commit makes it 44. Nothing about the answer changes - only how many times the
     same compilation is repeated."""
-    looking = {k: source_at(root, commit, w.entry.name) for k, w in pending.items() if commit in w.candidates}
-    sources = {k: s for k, s in looking.items() if s}
+    # (path, name as declared THERE) - the two differ wherever the contract was renamed after its
+    # deploy, and it is the declared name the build produces an artefact under.
+    found_at = {
+        k: source_at(root, commit, w.entry.name, w.entry.recorded_path) for k, w in pending.items() if w.entry.name
+    }
+    sources = {k: located for k, located in found_at.items() if located}
     if not sources:
         return {}
     with tempfile.TemporaryDirectory(prefix="recover-baseline-") as scratch:
         worktree, out = Path(scratch) / "wt", Path(scratch) / "out"
         missing = place_worktree(root, commit, worktree)
         try:
-            if not _build(worktree, sorted(set(sources.values())), out):
+            if not _build(worktree, sorted({path for path, _ in sources.values()}), out):
                 # Named here because a build failing right after something could not be placed is
                 # almost always that, and reporting only "does not build" sends the reader nowhere.
                 if missing:
                     print(f"  {commit[:10]}: build failed, and these were not placed: {' '.join(missing)}")
                 return {}
             found = {}
-            for entry_key, source in sources.items():
-                artefact = artefact_for(out, source, pending[entry_key].entry.name)
+            for entry_key, (source, declared) in sources.items():
+                artefact = artefact_for(out, source, declared)
                 if artefact is None:
+                    # Reported, not skipped: the fleet has twelve contract names declared in two files
+                    # at once, and a silent skip makes that read as "no candidate built what is
+                    # deployed" - a search that found nothing rather than one that could not look.
+                    print(f"  {commit[:10]}: {source} built no single artefact declaring {declared}")
                     continue
                 agreed, immutables = matches(pending[entry_key].onchain, artefact)
                 if agreed:
-                    found[entry_key] = (commit, source, artefact, immutables)
+                    found[entry_key] = (commit, source, declared, artefact, immutables)
             return found
         finally:
             remove_worktree(root, worktree)
@@ -204,14 +200,26 @@ def _try_commit(root: Path, commit: str, pending: dict[str, _Wanted]) -> dict[st
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--write", action="store_true", help="record the baselines that verify (default: report)")
-    parser.add_argument("--only", help="recover just this address")
-    parser.add_argument("--before-days", type=int, default=120, help="how far before the deploy to look")
-    parser.add_argument("--after-days", type=int, default=30, help="how far after, for a dirty-tree deploy")
+    parser.add_argument(
+        "--only",
+        metavar="CHAIN/ADDRESS",
+        help="recover just this contract, as 42161/0x… or arbitrum/0x… — an address alone names a "
+        "contract on every chain that has one at it, which is not one contract",
+    )
     arguments = parser.parse_args()
 
     root = Path.cwd()
     found = review(root)
-    outstanding = [e for e in found.unrecovered if not arguments.only or e.address.lower() == arguments.only.lower()]
+    # A deployed contract is a chain AND an address: `0xA8643E35…` is `Aggregator_stETH_AAPL_arbitrum`
+    # on 42161 and `Aggregator_hsfxUSD_ETH_USD_mainnet` on 1, and an address alone selected both. The
+    # id is the identity, and the name is accepted too because it is what the progress lines print and
+    # a person copies what they see.
+    wanted = (arguments.only or "").lower()
+    outstanding = [
+        entry
+        for entry in found.unrecovered
+        if not wanted or wanted in (key(entry.chain_id, entry.address), f"{entry.chain}/{entry.address}".lower())
+    ]
 
     # Said out loud because this run is long, occasional, and otherwise silent for minutes at a time -
     # and because every number here is one a reader would otherwise have to infer from what is missing.
@@ -230,6 +238,11 @@ def main() -> int:
     if arguments.only:
         print(f"  --only {arguments.only}: {len(outstanding)} of them")
     if not outstanding:
+        if arguments.only:
+            # Distinguished from "nothing to recover", because a selector that names nothing is a
+            # mistyped argument and reads exactly like a finished job otherwise.
+            print(f"no contract without a baseline is {arguments.only!r}; the form is 42161/0x… or arbitrum/0x…")
+            return 1
         print("nothing to recover")
         return 0
 
@@ -255,14 +268,11 @@ def main() -> int:
             print(f"  could not find the block it was created in over the {entry.chain} RPC")
             continue
         block, deployed = deployment
-        # The chain's timestamp, not the manifest's, anchors the window: the manifest's is the deploy
-        # script's clock and is late, so it opens the search in the wrong place.
-        candidates = candidate_commits(root, deployed, arguments.before_days, arguments.after_days)
-        print(
-            f"          created in block {block} at {deployed}, {len(onchain)} bytes on chain; "
-            f"{len(candidates)} candidate commits from -{arguments.before_days}d to +{arguments.after_days}d"
-        )
-        pending[key(entry.chain_id, entry.address)] = _Wanted(entry, onchain, block, deployed, candidates)
+        # The CHAIN's timestamp, not the manifest's: the manifest records the deploy script's clock,
+        # which is written after the broadcast and so always sits late. It decides which commits count
+        # as before the deploy and which as after, which is the whole two-pass split.
+        print(f"          created in block {block} at {deployed}, {len(onchain)} bytes on chain")
+        pending[key(entry.chain_id, entry.address)] = _Wanted(entry, onchain, block, deployed)
 
     # THE DEPLOY BLOCK DECIDES WHICH COMMIT, not the order things happen to be tried in. Many commits
     # compile identically, so "the first that matches" is arbitrary; "the LATEST at or before the
@@ -271,17 +281,16 @@ def main() -> int:
     # So: newest first, accepting only commits at or before each contract's deploy. Whatever is still
     # unmatched then had no committed source at deploy time - a dirty tree - and takes the EARLIEST
     # commit after it, which is where that source first landed.
-    dated = _dated(root, {c for w in pending.values() for c in w.candidates})
-    passes = [
-        ("at or before the deploy", dated, lambda when, deployed: when <= deployed),
-        ("after it (an uncommitted tree)", list(reversed(dated)), lambda when, deployed: when > deployed),
-    ]
-    print(f"\ntrying {len(dated)} commits for {len(pending)} contract(s)")
+    dated = all_commits(root)
+    passes = search_passes(dated)
+    print(f"\ntrying every one of this repository's {len(dated)} commits for {len(pending)} contract(s)")
     recovered = 0
     built = 0
-    # Which commit first claimed each set of build inputs, so a skip can say what it duplicates rather
-    # than leaving a gap in the numbering that reads like a contract being dropped.
-    tried: dict[str, str] = {}
+    # Which contracts have already been compared against each build (keyed by `build_id`), and which
+    # commit first carried that build - so a skip can say what it duplicates rather than leaving a gap
+    # in the numbering that reads like a contract being dropped.
+    compared: dict[str, set[str]] = {}
+    claimed_by: dict[str, str] = {}
     for label, order, admits in passes:
         if not pending:
             break
@@ -289,28 +298,35 @@ def main() -> int:
         for position, (commit, when) in enumerate(order, start=1):
             if not pending:
                 break
-            looking = {k: w for k, w in pending.items() if commit in w.candidates and admits(when, w.deployed)}
+            looking = {k: w for k, w in pending.items() if admits(when, w.deployed)}
             if not looking:
                 continue
             place = f"[{position:>3}/{len(order)}] {commit[:10]} {when}"
-            # Two commits reading the same build inputs compile the same, so the second is free.
-            print_key = build_fingerprint(root, commit)
-            if print_key in tried:
-                print(f"{place}  same build inputs as {tried[print_key][:10]}, so it compiles the same — skipped")
+            identity = build_id(root, commit)
+            fresh = still_to_compare(compared, identity, looking)
+            if not fresh:
+                print(f"{place}  same build inputs as {claimed_by[identity][:10]}, already compared — skipped")
                 continue
-            tried[print_key] = commit
-            print(f"{place}  {len(looking)} waiting, building…", flush=True)
+            claimed_by.setdefault(identity, commit)
+            waiting = f"{len(fresh)} waiting"
+            if len(fresh) != len(looking):
+                waiting += f" ({len(looking) - len(fresh)} already compared against these inputs)"
+            print(f"{place}  {waiting}, building…", flush=True)
             started = time.monotonic()
-            outcome = _try_commit(root, commit, looking)
+            outcome = _try_commit(root, commit, {k: looking[k] for k in fresh})
             built += 1
             print(f"{' ' * len(place)}  {time.monotonic() - started:.1f}s, {len(outcome)} matched")
-            for entry_key, (found, source, artefact, immutables) in outcome.items():
+            for entry_key, (found, source, declared, artefact, immutables) in outcome.items():
                 wants = pending.pop(entry_key)
                 entry = wants.entry
                 creation = bytes.fromhex(artefact["bytecode"]["object"][2:])
                 made = commit_timestamp(root, found)
                 print(f"    MATCHES {entry.chain}/{entry.address}  {entry.name}")
                 print(f"      built from {source} at {found[:10]}, committed {made or 'unknown'}")
+                if declared != entry.name:
+                    # Said out loud because it changes what the baseline means: the manifest's name is
+                    # today's, and this is what the contract was called when it was deployed.
+                    print(f"      NOTE: declared {declared} there — renamed to {entry.name} since")
                 # The immutables are the part the comparison could NOT check, so they are the part a
                 # human still has to look at - for the aggregators, the Chainlink feed addresses.
                 print(f"      immutables (excluded from the comparison): {len(immutables)}")
@@ -342,7 +358,10 @@ def main() -> int:
     if pending:
         print(f"\n{len(pending)} not recovered — no candidate built what is deployed:")
         for entry_key, wants in pending.items():
-            print(f"  {entry_key}  {wants.entry.name}  ({len(wants.candidates)} candidates tried)")
+            print(
+                f"  {entry_key}  {wants.entry.name}  "
+                f"({sum(1 for seen in compared.values() if entry_key in seen)} distinct builds compared)"
+            )
 
     print(f"\n{recovered} of {len(outstanding)} recovered, from {built} build(s) over {len(dated)} candidate commits")
     if recovered and arguments.write:

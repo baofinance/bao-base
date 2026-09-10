@@ -201,17 +201,25 @@ def review(repo_root: Path) -> Review:
     would make the check red on the day it lands and red for as long as the backlog takes - which is
     how a check stops being read. It is reported and counted instead."""
     entries, unreadable = normalise(read_records(repo_root), repo_root)
-    # A contract whose manifest gives no usable chain id cannot be keyed, so it would silently vanish
-    # from every count - which is the failure mode this whole model exists to remove. One MegaETH
-    # manifest records `chainId: 0` where four others say 4326.
-    unreadable = unreadable + [
-        Problem(entry, f"chainId is {entry.recorded_chain_id!r}, so the chain cannot be identified")
-        for entry in entries
-        if not entry.chain_id
-    ]
+    # A deployed contract IS a chain and an address, so an entry missing either cannot be keyed - and
+    # an entry that cannot be keyed would silently vanish from every count, which is the failure this
+    # whole model exists to remove. Both gaps are real in one file: `megaeth/v4-oracles.json` records
+    # `chainId: 0` where four other manifests say 4326, and carries five entries whose `address` is an
+    # empty string beside the deployed ones.
+    unreadable = list(unreadable)
+    identified: list[Entry] = []
+    for entry in entries:
+        if not entry.chain_id:
+            unreadable.append(
+                Problem(entry, f"chainId is {entry.recorded_chain_id!r}, so the chain cannot be identified")
+            )
+        elif not entry.address:
+            unreadable.append(Problem(entry, "the record gives no address, so the contract cannot be identified"))
+        else:
+            identified.append(entry)
     baselines = read_baselines(repo_root)
-    claimed = {key(e.chain_id, e.address) for e in entries if e.chain_id}
-    unrecovered, conflicts = _by_address(e for e in entries if e.chain_id and key(e.chain_id, e.address) not in baselines)
+    claimed = {key(e.chain_id, e.address) for e in identified}
+    unrecovered, conflicts = _by_address(e for e in identified if key(e.chain_id, e.address) not in baselines)
     return Review(
         recorded=[baselines[k] for k in sorted(baselines) if k in claimed],
         unrecovered=unrecovered,
