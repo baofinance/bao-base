@@ -338,6 +338,59 @@ def _listings(account: list[Problem], found: Review, searched: str = "") -> None
     )
 
 
+def _reprove(root: Path, baselines: dict[str, Baseline], say: Callable[..., None]) -> list[tuple[str, str, str, str]]:
+    """Rebuild each baseline from what it records and check it still produces the bytecode it claims.
+
+    `creationBytecodeKeccak256` is where the chain's verdict lives on. The screen and the constructor
+    proof ran once, at recovery, against the deployed code; afterwards that hash is the only thing
+    carrying the result, and nothing has ever read it back. This reads it back.
+
+    ONE worktree per COMMIT rather than per baseline - twelve commits carry the aggregators' eighty-three
+    records - and the compiler comes from the baseline, whose version prefix is what `--use` takes.
+
+    No chain and no search: the commit, the source, the compiler and the settings are all recorded, so
+    this says whether the repository still holds a tree that builds what was deployed. It cannot say
+    that a fresh search would choose the same commit; only a full re-derive does that."""
+    failed: list[tuple[str, str, str, str]] = []
+    at_commit: dict[str, list[Baseline]] = {}
+    for baseline in baselines.values():
+        at_commit.setdefault(baseline.commit, []).append(baseline)
+    for position, (commit, wanted) in enumerate(sorted(at_commit.items()), start=1):
+        say(1, f"[{position:>3}/{len(at_commit)}] {commit[:10]}  {len(wanted)} baseline(s)")
+        with tempfile.TemporaryDirectory(prefix="reprove-") as scratch:
+            worktree = Path(scratch) / "wt"
+            missing = place_worktree(root, commit, worktree)
+            try:
+                for index, baseline in enumerate(sorted(wanted, key=lambda b: b.address)):
+                    entry_key = key(baseline.chainId, baseline.address)
+                    row = (entry_key, baseline.contractType, baseline.source)
+                    out = Path(scratch) / f"out-{index}"
+                    # The version prefix, because that is what `--use` resolves; the record carries the
+                    # full `0.8.30+commit.73712a01`, which is what the artefact is then checked against.
+                    if not _build(worktree, baseline.source, out, baseline.compiler.split("+")[0]):
+                        note = f"does not rebuild at {commit[:10]}: {baseline.source} no longer compiles"
+                        if missing:
+                            note += f", and these were not placed: {' '.join(missing)}"
+                        failed.append((*row, note))
+                        continue
+                    artefact = artefact_for(out, baseline.source, baseline.contractType)
+                    if artefact is None:
+                        failed.append((*row, f"does not rebuild at {commit[:10]}: no artefact declares it"))
+                        continue
+                    digest = _keccak256(bytes.fromhex(artefact["bytecode"]["object"][2:]))
+                    if digest != baseline.creationBytecodeKeccak256:
+                        built_by = (artefact.get("metadata") or {}).get("compiler", {}).get("version", "")
+                        note = f"does not rebuild to {baseline.creationBytecodeKeccak256[:16]}… at {commit[:10]}"
+                        if built_by and built_by != baseline.compiler:
+                            # Said only here: a compiler difference is the likeliest cause, and naming it
+                            # beside a passing hash would be noise.
+                            note += f" (built by {built_by}, recorded {baseline.compiler})"
+                        failed.append((*row, note))
+            finally:
+                remove_worktree(root, worktree)
+    return failed
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--write", action="store_true", help="record the baselines that verify (default: report)")
@@ -346,6 +399,14 @@ def main() -> int:
         metavar="CHAIN/ADDRESS",
         help="recover just this contract, as 42161/0x… or arbitrum/0x… — an address alone names a "
         "contract on every chain that has one at it, which is not one contract",
+    )
+    # Asked for, never automatic. `verify-audit` checks on every build that the recorded INPUTS still
+    # resolve, which is milliseconds; this rebuilds from them and compares what comes out, which is
+    # minutes. Run it before a deploy, or when the record is in doubt.
+    parser.add_argument(
+        "--reprove",
+        action="store_true",
+        help="rebuild every recorded baseline and check it still produces the bytecode it records",
     )
     # Not derived from how many contracts are being recovered, which was the first design and was
     # clever in the wrong direction: it would make a bulk run impossible to make loud, which is exactly
@@ -402,6 +463,22 @@ def main() -> int:
         # anything, and stayed invisible for it.
         + (f", {len(found.unreadable)} that cannot be identified" if found.unreadable else "")
     )
+    if arguments.reprove:
+        # Over the RECORD, not the backlog: `--only` filters what has no baseline yet, so it can never
+        # name a contract that has one - which is exactly what needs re-proving.
+        recorded = read_baselines(root)
+        if not recorded:
+            print("nothing recorded to re-prove")
+            return 0
+        print(f"\nrebuilding {len(recorded)} recorded baseline(s) from what each one records")
+        failed = _reprove(root, recorded, say)
+        _listing("not reproduced by a rebuild", failed)
+        if failed:
+            print("  The inputs still resolve, and what they build is not what was deployed.")
+            return 1
+        print(f"\n{len(recorded)} rebuilt and matched the creation bytecode each one records")
+        return 0
+
     if arguments.only:
         print(f"  --only {arguments.only}: {len(outstanding)} of them")
     if not outstanding:

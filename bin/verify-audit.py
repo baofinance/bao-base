@@ -728,6 +728,29 @@ def _check_baselines(found: Review) -> int:
             _err(f"\033[31m  {baseline.chain} {baseline.address} {baseline.contractType}\033[0m\n")
             _err(f"\033[31m    {baseline.commit[:10]}: {says}\033[0m\n")
 
+    if found.inputs_missing:
+        failures = 1
+        _err(
+            f"\033[31mERROR: {len(found.inputs_missing)} baseline(s) name inputs this repository no"
+            " longer holds, so nothing here rebuilds what they record:\033[0m\n"
+        )
+        for baseline, paths in found.inputs_missing:
+            _err(f"\033[31m  {baseline.chain} {baseline.address} {baseline.contractType}\033[0m\n")
+            for path in paths:
+                _err(f"\033[31m    {path}\033[0m\n")
+        _err(
+            "\033[31m  The record names the exact bytes each source had at its commit. Either history was"
+            " rewritten under it, or a submodule pin went away.\033[0m\n"
+        )
+
+    if found.inputs_unchecked:
+        # NOT a failure: a clone without every submodule cannot answer, and saying nothing about what it
+        # cannot see is honest where failing would be theatre. CI clones recursively and does answer.
+        _out(
+            f"\033[33mWARNING: {len(found.inputs_unchecked)} baseline(s) have inputs inside submodules this"
+            " clone does not hold, so they were not checked\033[0m\n"
+        )
+
     if found.misnamed:
         failures = 1
         _err(

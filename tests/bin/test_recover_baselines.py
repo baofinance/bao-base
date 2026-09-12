@@ -870,3 +870,97 @@ def test_every_count_in_the_head_line_has_rows_at_the_end(tmp_path, monkeypatch,
     assert NO_ADDRESS in printed, "the entry that cannot be keyed"
     assert "src/moved/A.sol" in printed, "the disagreement, naming what each manifest says"
     assert "Ghost" in printed, "and the baseline no manifest claims"
+
+
+# ── tier 2: rebuild what the record claims and compare the hash ────────────────────────────────────
+#
+# `creationBytecodeKeccak256` is the field that carries the chain proof forward, and nothing has ever
+# read it. Checking it means rebuilding - minutes, not milliseconds - so it is asked for explicitly,
+# where the per-build check settles for the inputs being unchanged. It selects over the RECORD, unlike
+# `--only`, which filters the backlog and so cannot name a contract that already has a baseline.
+
+
+def recorded_baseline(repo: Path, scratch: Path, commit: str, digest: str):
+    """A baseline for A at `commit`, claiming `digest` as the hash of its creation bytecode."""
+    from deployment_baselines import Baseline
+
+    return Baseline(
+        chainId=1,
+        chain="mainnet",
+        address=ADDRESS_A,
+        contractType="A",
+        source="src/A.sol",
+        commit=commit,
+        commitTimestamp=DEPLOYED,
+        deployBlock=100,
+        deployTimestamp=DEPLOYED,
+        creationBytecodeKeccak256=digest,
+        compiler="0.8.30+commit.73712a01",
+        settings={},
+        sources={},
+        submodules={},
+    )
+
+
+def a_recorded_repository(tmp_path):
+    """A repository with A committed and nothing else, plus the creation hash a rebuild of it gives."""
+    repo, scratch = repository_of_oracles(
+        tmp_path, {"A_USD": {"name": "A/USD", "address": ADDRESS_A, "contractPath": "src/A.sol:A"}}
+    )
+    (repo / "src" / "A.sol").write_text(contract_source("A", 1))
+    creation = artefact_of(repo, "src/A.sol", "A", scratch)["bytecode"]["object"]
+    head = commit(repo, "2026-01-01T00:00:00+00:00", "the source")
+    return repo, scratch, head, bytes.fromhex(creation[2:])
+
+
+def test_a_rebuild_that_reproduces_the_recorded_hash_passes(tmp_path, monkeypatch, capsys):
+    # The ordinary case: the commit still builds what the record says it built, so the proof the chain
+    # gave once still holds without asking the chain again.
+    from deployment_baselines import add, write_baselines
+
+    repo, scratch, head, creation = a_recorded_repository(tmp_path)
+    recover = load_recover_baselines()
+    write_baselines(repo, add({}, recorded_baseline(repo, scratch, head, recover._keccak256(creation))))
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--reprove"])
+
+    assert recover.main() == 0
+
+    printed = capsys.readouterr().out
+    assert "1 rebuilt" in printed, "it says what it did, so a silent pass cannot be mistaken for a skip"
+
+
+def test_a_rebuild_that_does_not_reproduce_the_recorded_hash_is_reported(tmp_path, monkeypatch, capsys):
+    # The failure the field exists to catch: the inputs still resolve, and what they build is not what
+    # was deployed. Nothing else in the system would notice - the screen and the constructor proof ran
+    # once, at recovery, and their verdict lives on in this hash alone.
+    from deployment_baselines import add, write_baselines
+
+    repo, scratch, head, _ = a_recorded_repository(tmp_path)
+    recover = load_recover_baselines()
+    write_baselines(repo, add({}, recorded_baseline(repo, scratch, head, "f" * 64)))
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--reprove"])
+
+    assert recover.main() != 0, "a record that no longer rebuilds is a failure, not a note"
+
+    printed = capsys.readouterr().out
+    assert ADDRESS_A in printed.lower()
+    assert "does not rebuild" in printed
+
+
+def test_the_rebuild_is_not_run_unless_asked(tmp_path, monkeypatch, capsys):
+    # The per-build path stays cheap. A plain run says nothing about the hash, however wrong it is -
+    # rebuilding eighty-three baselines is minutes, which is why the inputs check exists instead.
+    from deployment_baselines import add, write_baselines
+
+    repo, scratch, head, _ = a_recorded_repository(tmp_path)
+    recover = load_recover_baselines()
+    write_baselines(repo, add({}, recorded_baseline(repo, scratch, head, "f" * 64)))
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["recover-baselines"])
+
+    assert recover.main() == 0
+
+    printed = capsys.readouterr().out
+    assert "rebuilt" not in printed and "does not rebuild" not in printed

@@ -17,6 +17,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bin"))
 
+from dataclasses import replace  # noqa: E402
+
 from deployment_baselines import Baseline, add, review, write_baselines  # noqa: E402
 
 REMAPPINGS = '[profile.default]\nsrc = "src"\nremappings = ["@harbor/=src/"]\n'
@@ -447,3 +449,164 @@ def test_a_manifest_path_that_cannot_be_normalised_is_reported_not_failed(repo):
     assert len(found.unreadable) == 1
     assert found.unreadable[0].entry.name == "Ghost"
     assert found.unrecovered == [], "an entry that cannot be read is not also a recovery backlog item"
+
+
+# ── the record's inputs, checked on every build ────────────────────────────────────────────────────
+#
+# `creationBytecodeKeccak256` is written once and read by nothing: the record states "these inputs
+# produce this bytecode" and never asks again. Rebuilding to check it costs minutes, so the per-build
+# check is on the INPUTS - every recorded source blob and submodule gitlink still resolving at the
+# recorded commit. With the compiler and settings pinned in the record and solc deterministic,
+# identical inputs mean identical output, so this is the cheap half of the same guarantee. It catches
+# what actually threatens a record: history rewritten underneath it.
+
+
+def real_sources(repo: Path, commit: str, paths: list[str]) -> dict[str, str]:
+    from deployment_recovery import source_blobs
+
+    return source_blobs(repo, commit, paths)
+
+
+def test_a_record_whose_inputs_all_resolve_is_silent(repo, tmp_path):
+    # The ordinary case: the commit is there, the sources are the bytes it holds, and nothing is said.
+    push_to_a_new_remote(repo, tmp_path)
+    head = head_of(repo)
+    write_baselines(
+        repo, add({}, replace(baseline_for(commit=head), sources=real_sources(repo, head, ["src/Foo.sol"])))
+    )
+
+    found = review(repo)
+
+    assert found.inputs_missing == [], "every recorded blob is what that commit holds"
+    assert found.inputs_unchecked == []
+
+
+def test_a_recorded_source_whose_bytes_changed_at_its_commit_is_reported(repo, tmp_path):
+    # The failure this exists for: a force-push, a filtered branch or a rewritten tag leaves the commit
+    # resolvable while the bytes under it are not the ones that were built. Existence alone would pass
+    # that, so the check compares the blob the path has NOW at that commit against the recorded one.
+    push_to_a_new_remote(repo, tmp_path)
+    head = head_of(repo)
+    write_baselines(repo, add({}, replace(baseline_for(commit=head), sources={"src/Foo.sol": "d" * 40})))
+
+    found = review(repo)
+
+    assert [b.contractType for b, _ in found.inputs_missing] == ["Foo"]
+    assert found.inputs_missing[0][1] == ["src/Foo.sol"], "named, so the reader knows which file moved under it"
+
+
+def test_a_baseline_whose_commit_is_absent_is_not_also_reported_as_missing_inputs(repo, tmp_path):
+    # Reported once, as the thing it is. A commit this repository has lost cannot have its sources
+    # checked either, and saying "32 sources missing" beside "commit absent" sends the reader after the
+    # wrong fix - the same reasoning `misnamed` already follows.
+    push_to_a_new_remote(repo, tmp_path)
+    write_baselines(repo, add({}, baseline_for(commit="0" * 40)))
+
+    found = review(repo)
+
+    assert [(b.contractType, reach) for b, reach in found.not_on_a_remote] == [("Foo", "absent")]
+    assert found.inputs_missing == [], "the absent commit is the finding, and it is made once"
+
+
+def test_inputs_in_a_submodule_this_clone_does_not_have_are_unchecked_not_missing(repo, tmp_path):
+    # A partial checkout can say nothing about what is inside a submodule it does not hold. Calling that
+    # "missing" would fail every developer's build for a clone CI does not make, so it is reported as
+    # what it is: not checked.
+    push_to_a_new_remote(repo, tmp_path)
+    head = head_of(repo)
+    baseline = replace(
+        baseline_for(commit=head),
+        sources={"lib/ghost/src/Dep.sol": "e" * 40},
+        submodules={"lib/ghost": "f" * 40},
+    )
+    write_baselines(repo, add({}, baseline))
+
+    found = review(repo)
+
+    assert found.inputs_missing == [], "nothing can be asserted about a submodule that is not here"
+    assert [b.contractType for b, _ in found.inputs_unchecked] == ["Foo"]
+    assert "lib/ghost" in " ".join(found.inputs_unchecked[0][1])
+
+
+def test_a_submodule_gitlink_this_clone_has_lost_is_reported(repo, tmp_path):
+    # The submodule IS here, so the question can be asked - and the commit the superproject records for
+    # it is not in it. That is a dependency pin that went away, which no rebuild could reproduce.
+    origin = tmp_path / "dep-origin"
+    origin.mkdir()
+    for arguments in (("init", "-q"), ("config", "user.email", "t@t"), ("config", "user.name", "test")):
+        git(origin, *arguments)
+    (origin / "Dep.sol").write_text("// dep\n")
+    git(origin, "add", "-A")
+    git(origin, "commit", "-qm", "dependency")
+    subprocess.run(
+        ["git", "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(origin), "lib/dep"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "with a submodule")
+    push_to_a_new_remote(repo, tmp_path)
+    head = head_of(repo)
+    write_baselines(
+        repo,
+        add(
+            {},
+            replace(
+                baseline_for(commit=head),
+                sources={"lib/dep/Dep.sol": "e" * 40},
+                submodules={"lib/dep": "0" * 40},
+            ),
+        ),
+    )
+
+    found = review(repo)
+
+    assert [b.contractType for b, _ in found.inputs_missing] == ["Foo"]
+    named = " ".join(found.inputs_missing[0][1])
+    assert "lib/dep" in named, "the pin that went away"
+    assert "lib/dep/Dep.sol" in named, "and the source that needed it, which went with it"
+
+
+def test_every_baseline_is_checked_not_only_the_first(repo, tmp_path):
+    # A loop over the record, so the second one's broken inputs are found as readily as the first's.
+    push_to_a_new_remote(repo, tmp_path)
+    head = head_of(repo)
+    (repo / "src" / "Bar.sol").write_text("contract Bar {}\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "a second contract")
+    later = head_of(repo)
+    baselines = add({}, replace(baseline_for(commit=head), sources=real_sources(repo, head, ["src/Foo.sol"])))
+    second = replace(
+        baseline_for(address="0xBB", commit=later),
+        contractType="Bar",
+        source="src/Bar.sol",
+        sources={"src/Bar.sol": "c" * 40},
+    )
+    write_baselines(repo, add(baselines, second))
+
+    found = review(repo)
+
+    assert [b.contractType for b, _ in found.inputs_missing] == ["Bar"], "the first being sound does not end the check"
+
+
+def test_a_gitlink_for_a_submodule_holding_no_recorded_source_is_not_checked(repo, tmp_path):
+    # The record names 32 gitlinks per baseline and compiles sources from three of them; the rest are
+    # pins of dependencies the build never read. Reporting those as unchecked warns on every build about
+    # something nobody can act on except by checking out ds-test for no benefit - and the aggregators'
+    # own recovery proves they are outside the closure, building successfully while reporting them
+    # unplaced. What reproduces the bytecode is the SOURCES plus the pinned compiler and settings, so a
+    # submodule that supplied none of them cannot change the answer.
+    push_to_a_new_remote(repo, tmp_path)
+    head = head_of(repo)
+    baseline = replace(
+        baseline_for(commit=head),
+        sources=real_sources(repo, head, ["src/Foo.sol"]),
+        submodules={"lib/ghost": "f" * 40},
+    )
+    write_baselines(repo, add({}, baseline))
+
+    found = review(repo)
+
+    assert found.inputs_unchecked == [], "no recorded source lives in it, so there is nothing to check"
+    assert found.inputs_missing == []

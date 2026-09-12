@@ -235,6 +235,13 @@ class Review:
     # carried rather than a boolean because one definition serves two thresholds: a local run tolerates
     # "local" (work not yet pushed is the ordinary state), and CI does not.
     not_on_a_remote: list[tuple[Baseline, str]]
+    # (baseline, the recorded inputs that no longer resolve). The record names every source by its git
+    # BLOB at the commit that built it, so this asks whether that commit still holds those exact bytes.
+    inputs_missing: list[tuple[Baseline, list[str]]]
+    # (baseline, the inputs this clone cannot look at) - inside a submodule it does not hold. Separate
+    # from missing because a partial checkout is not a defect, and failing on it would fail every
+    # developer's build for a clone only CI makes.
+    inputs_unchecked: list[tuple[Baseline, list[str]]]
     # (baseline, what its source actually declares) where the two disagree, `None` when the source
     # declares no single contract. A deployment record is a record of a DEPLOYMENT, so its contract
     # name is the name at deploy time and the source at that commit declares exactly that. Twelve of
@@ -256,6 +263,76 @@ def drop(pending: dict[str, object], account: list[Problem], entry_key: str, ent
     both, and there is no second way to record a drop that could fall out of step with this one."""
     pending.pop(entry_key, None)
     account.append(Problem(entry, reason))
+
+
+def _inputs_gone(
+    repo_root: Path, baselines: list[Baseline]
+) -> tuple[list[tuple[Baseline, list[str]]], list[tuple[Baseline, list[str]]]]:
+    """Which recorded inputs no longer resolve, and which this clone cannot look at.
+
+    `creationBytecodeKeccak256` states that these inputs produce that bytecode, and nothing has ever
+    asked again. Rebuilding to check costs minutes; this asks the cheap half of the same question - are
+    the INPUTS still what was built - and with the compiler and the settings pinned in the record, and
+    solc deterministic, identical inputs mean identical output.
+
+    It asks the STRONG form: does this path at this commit still hold these bytes. Whether the blob
+    exists somewhere is a weaker question that a rewritten history passes, because the object survives
+    in the odb while the tree at that commit says something else.
+
+    A source inside a submodule is resolved against the gitlink THE RECORD holds for it, never the
+    submodule's tip - the same routing that wrote the blob ids, so the question matches the answer.
+
+    One `git cat-file` per holding repository, not per source: eighty-three baselines naming thirty-two
+    sources each is two and a half thousand lookups, asked as about thirty."""
+    unchecked_by: dict[int, list[str]] = {}
+    by_holder: dict[Path, list[tuple[int, str, str, str]]] = {}
+    for index, baseline in enumerate(baselines):
+        for path, blob in sorted(baseline.sources.items()):
+            # The longest match, so a file in a nested submodule is read against the nested gitlink.
+            prefix = max((p for p in baseline.submodules if path.startswith(f"{p}/")), key=len, default=None)
+            holder = repo_root if prefix is None else repo_root / prefix
+            at = baseline.commit if prefix is None else baseline.submodules[prefix]
+            inside = path if prefix is None else path[len(prefix) + 1 :]
+            if prefix is not None and not (holder / ".git").exists():
+                unchecked_by.setdefault(index, []).append(path)
+                continue
+            by_holder.setdefault(holder, []).append((index, path, f"{at}:{inside}", blob))
+        for path, gitlink in sorted(baseline.submodules.items()):
+            # Only a submodule some recorded source lives in. A baseline names thirty-two gitlinks and
+            # compiles from three of them; the rest are pins of dependencies the build never read, and
+            # the aggregators hold three that are not even checked out - so checking all of them warns
+            # on every build about something nobody can act on. What reproduces the bytecode is the
+            # SOURCES plus the pinned compiler and settings, so a submodule that supplied none of them
+            # cannot change the answer, which recovery demonstrates by building while reporting exactly
+            # those three unplaced.
+            if not any(source.startswith(f"{path}/") for source in baseline.sources):
+                continue
+            holder = repo_root / path
+            if not (holder / ".git").exists():
+                unchecked_by.setdefault(index, []).append(path)
+                continue
+            by_holder.setdefault(holder, []).append((index, path, gitlink, gitlink))
+
+    missing_by: dict[int, list[str]] = {}
+    for holder, asked in by_holder.items():
+        answered = subprocess.run(
+            ["git", "cat-file", "--batch-check"],
+            cwd=holder,
+            input="\n".join(expression for _, _, expression, _ in asked) + "\n",
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        for position, (index, path, _, expected) in enumerate(asked):
+            # An unanswered line is counted as missing rather than skipped: `--batch-check` answers one
+            # line per input, so a short read means something is wrong, and passing it would be silent.
+            said = answered[position] if position < len(answered) else "missing"
+            if said.endswith(" missing") or said.split()[0] != expected:
+                missing_by.setdefault(index, []).append(path)
+
+    return (
+        [(baselines[index], paths) for index, paths in sorted(missing_by.items())],
+        [(baselines[index], paths) for index, paths in sorted(unchecked_by.items())],
+    )
 
 
 def review(repo_root: Path) -> Review:
@@ -298,12 +375,20 @@ def review(repo_root: Path) -> Review:
     # Asked once per distinct COMMIT, not once per baseline: twelve commits carry the aggregators'
     # eighty-three records, so this is twelve `git branch --contains` calls rather than eighty-three.
     reaches = {commit: commit_reach(repo_root, commit) for commit in {b.commit for b in baselines.values()}}
+    # Only where the commit is present, for the reason `misnamed` gives below: a baseline whose commit
+    # this repository has lost would report every one of its sources as missing too, sending the reader
+    # after thirty-two files when the finding is one lost commit.
+    inputs_missing, inputs_unchecked = _inputs_gone(
+        repo_root, [baselines[k] for k in sorted(baselines) if reaches[baselines[k].commit] != "absent"]
+    )
     return Review(
         recorded=[baselines[k] for k in sorted(baselines) if k in claimed],
         unrecovered=unrecovered,
         unreadable=unreadable,
         orphaned=[baselines[k] for k in sorted(baselines) if k not in claimed],
         conflicts=conflicts,
+        inputs_missing=inputs_missing,
+        inputs_unchecked=inputs_unchecked,
         not_on_a_remote=[
             (baselines[k], reaches[baselines[k].commit])
             for k in sorted(baselines)
