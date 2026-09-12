@@ -757,3 +757,116 @@ def test_the_entries_that_cannot_be_read_are_named_when_there_is_nothing_to_reco
     printed = capsys.readouterr().out
     assert "1 not recorded:" in printed, "said even when there was nothing to search for"
     assert NO_ADDRESS in printed, "with the reason, which is the whole point of naming it"
+
+
+# ── every count has rows, including the two the record itself raises ───────────────────────────────
+#
+# Two conditions are about the manifests and the record rather than about recovery: an address two
+# manifests describe differently, and a baseline no manifest claims any more. `verify-audit` names both;
+# this run reduced them to counts at the top. An orphan IS recorded, so it does not belong among the
+# contracts with no baseline - it gets its own listing, and so does a disagreement.
+
+ADDRESS_GHOST = "0x" + "ee" * 20
+
+
+def orphan_baseline(address: str, name: str):
+    """A baseline for an address no manifest mentions: what deleting a manifest entry leaves behind."""
+    from deployment_baselines import Baseline
+
+    return Baseline(
+        chainId=1,
+        chain="mainnet",
+        address=address,
+        contractType=name,
+        source=f"src/{name}.sol",
+        commit="a" * 40,
+        commitTimestamp=DEPLOYED,
+        deployBlock=100,
+        deployTimestamp=DEPLOYED,
+        creationBytecodeKeccak256="b" * 64,
+        compiler="0.8.30+commit.73712a01",
+        settings={},
+        sources={},
+        submodules={},
+    )
+
+
+def test_a_baseline_no_manifest_claims_is_named_in_the_summary(tmp_path, monkeypatch, capsys):
+    # harbor dropped eleven manifest entries in one commit, leaving eleven baselines nothing claimed and
+    # nothing saying what built the contracts still on chain. A count cannot be acted on: the reader
+    # needs the address and the name to know which entry was deleted.
+    from deployment_baselines import add, write_baselines
+
+    repo, scratch = repository_of_oracles(
+        tmp_path, {"A_USD": {"name": "A/USD", "address": ADDRESS_A, "contractPath": "src/A.sol:A"}}
+    )
+    (repo / "src" / "A.sol").write_text(contract_source("A", 1))
+    deployed_a = runtime(repo, "src/A.sol", "A", scratch)
+    commit(repo, "2026-01-01T00:00:00+00:00", "the source")
+    write_baselines(repo, add({}, orphan_baseline(ADDRESS_GHOST, "Ghost")))
+
+    recover = load_recover_baselines()
+    chain = Chain({ADDRESS_A: deployed_a})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
+
+    recover.main()
+
+    printed = capsys.readouterr().out
+    assert ADDRESS_GHOST in printed.lower(), "the orphan is named, not counted"
+    assert "Ghost" in printed, "with the contract it records, which is what says which entry went"
+
+
+def test_every_count_in_the_head_line_has_rows_at_the_end(tmp_path, monkeypatch, capsys):
+    # The rule itself, over one run holding all three: an entry review cannot key, an address two
+    # manifests describe differently, and a baseline no manifest claims. Nothing may be counted that is
+    # not also listed, whichever stage or side of the record it came from.
+    from deployment_baselines import add, write_baselines
+
+    repo, scratch = repository_of_oracles(
+        tmp_path,
+        {
+            "A_USD": {"name": "A/USD", "address": ADDRESS_A, "contractPath": "src/A.sol:A"},
+            "P_USD": {"name": "P/USD", "address": "", "contractPath": "src/Placeholder.sol:Placeholder"},
+        },
+    )
+    for name, value in (("A", 1), ("Placeholder", 2)):
+        (repo / "src" / f"{name}.sol").write_text(contract_source(name, value))
+    # The file moved, and an older manifest still describes A where it was - both paths real in history,
+    # which is the situation behind eleven of the aggregators' addresses.
+    (repo / "src" / "moved").mkdir()
+    (repo / "src" / "moved" / "A.sol").write_text(contract_source("A", 1))
+    (repo / "deployments" / "mainnet" / "older.json").write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "network": "mainnet",
+                "chainId": 1,
+                "deploymentTime": DEPLOYED,
+                "oracles": {"A_USD": {"name": "A/USD", "address": ADDRESS_A, "contractPath": "src/moved/A.sol:A"}},
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    deployed_a = runtime(repo, "src/A.sol", "A", scratch)
+    commit(repo, "2026-01-01T00:00:00+00:00", "two descriptions of A, and a placeholder")
+    write_baselines(repo, add({}, orphan_baseline(ADDRESS_GHOST, "Ghost")))
+
+    recover = load_recover_baselines()
+    chain = Chain({ADDRESS_A: deployed_a})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
+
+    recover.main()
+
+    printed = capsys.readouterr().out
+    assert NO_ADDRESS in printed, "the entry that cannot be keyed"
+    assert "src/moved/A.sol" in printed, "the disagreement, naming what each manifest says"
+    assert "Ghost" in printed, "and the baseline no manifest claims"

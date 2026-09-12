@@ -106,8 +106,10 @@ def test_a_third_manifest_disagreeing_is_reported_rather_than_quietly_winning(tm
         "deployments/mainnet/two.json",
         "deployments/mainnet/three.json",
     )
-    assert any("three.json" in line for line in conflicts), "the third manifest is named too"
-    assert sum("name:" in line for line in conflicts) >= 2, "and its disagreement is reported, not absorbed"
+    assert any("three.json" in problem.reason for problem in conflicts), "the third manifest is named too"
+    assert all(value in problem.reason for problem in conflicts for value in ("Foo", "Bar", "Baz")), (
+        "and its disagreement is reported, not absorbed into a field two others already contested"
+    )
 
 
 def baseline_for(address: str = "0xAA", commit: str = "a" * 40) -> Baseline:
@@ -209,6 +211,29 @@ def test_one_contract_in_two_manifests_is_one_thing_to_recover(repo):
     assert found.unrecovered[0].deployed_at == "2026-03-21T00:00:00Z", "taken from whichever row has it"
 
 
+def two_manifests_disagreeing(repo: Path) -> None:
+    """Two manifests describing one address with DIFFERENT paths, both real in this repo's history.
+
+    The situation behind eleven of the aggregators' addresses: the file moved, and the older manifest
+    recorded where it was while the newer recorded where it went."""
+    (repo / "src" / "moved").mkdir()
+    (repo / "src" / "moved" / "Foo.sol").write_text("// foo\n")
+    (repo / "src" / "Foo.sol").unlink()
+    manifests = repo / "deployments" / "mainnet"
+    for name, path in (("a-first.json", "src/Foo.sol"), ("state.json", "src/moved/Foo.sol")):
+        (manifests / name).write_text(
+            json.dumps(
+                {
+                    "network": "mainnet",
+                    "chainId": 1,
+                    "implementations": {"0xAA": {"contractSource": path, "contractType": "Foo"}},
+                }
+            )
+        )
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "the file moved; two manifests disagree")
+
+
 def test_two_manifests_disagreeing_about_one_contract_is_reported_and_never_guessed(repo):
     # 11 of the aggregators' addresses are described by two manifests that give DIFFERENT paths - the
     # older one recorded `src/Aggregator_…` before the file moved to `src/mainnet/`. Keeping whichever
@@ -217,39 +242,52 @@ def test_two_manifests_disagreeing_about_one_contract_is_reported_and_never_gues
     # The disagreement is reported, and the field is left UNSET rather than picked: nothing downstream
     # should act on an arbitrary choice, and recovery finds the real path at the baseline commit by
     # contract name anyway.
-    # The file really moved, so BOTH paths are in this repo's history - which is the actual situation:
-    # the older manifest recorded where it was, the newer where it went.
-    (repo / "src" / "moved").mkdir()
-    (repo / "src" / "moved" / "Foo.sol").write_text("// foo\n")
-    (repo / "src" / "Foo.sol").unlink()
-    manifests = repo / "deployments" / "mainnet"
-    (manifests / "a-first.json").write_text(
-        json.dumps(
-            {
-                "network": "mainnet",
-                "chainId": 1,
-                "implementations": {"0xAA": {"contractSource": "src/Foo.sol", "contractType": "Foo"}},
-            }
-        )
-    )
-    (manifests / "state.json").write_text(
-        json.dumps(
-            {
-                "network": "mainnet",
-                "chainId": 1,
-                "implementations": {"0xAA": {"contractSource": "src/moved/Foo.sol", "contractType": "Foo"}},
-            }
-        )
-    )
-    git(repo, "add", "-A")
-    git(repo, "commit", "-qm", "the file moved; two manifests disagree")
+    two_manifests_disagreeing(repo)
 
     found = review(repo)
 
     assert len(found.conflicts) == 1, found.conflicts
-    assert "src/Foo.sol" in found.conflicts[0] and "src/moved/Foo.sol" in found.conflicts[0]
+    assert "src/Foo.sol" in found.conflicts[0].reason and "src/moved/Foo.sol" in found.conflicts[0].reason
     assert len(found.unrecovered) == 1
     assert found.unrecovered[0].recorded_path is None, "unset, so nothing acts on an arbitrary pick"
+
+
+def test_a_disagreement_is_reported_even_when_the_contract_is_already_recorded(repo):
+    # The merge ran over the UNRECORDED entries only, so a disagreement about an address that already
+    # had a baseline was never computed at all: a complete record drove the count to zero, and zero read
+    # as health. What the manifests say about each other cannot depend on how full the record is.
+    two_manifests_disagreeing(repo)
+    write_baselines(repo, add({}, baseline_for()))
+
+    found = review(repo)
+
+    assert [b.contractType for b in found.recorded] == ["Foo"], "it is recorded"
+    assert found.unrecovered == [], "so it is not a backlog item"
+    assert len(found.conflicts) == 1, "and the manifests still disagree about it"
+    assert "src/moved/Foo.sol" in found.conflicts[0].reason
+
+
+def test_a_conflict_row_names_every_manifest_and_the_field_in_dispute(repo):
+    # One row per contested ADDRESS, built from the merged entry so it carries every manifest describing
+    # it - where a row per field named two files and left a third description of the same address unnamed.
+    from deployment_baselines import _by_address
+
+    merged, conflicts = _by_address(
+        [
+            described_by("deployments/mainnet/one.json", "Foo"),
+            described_by("deployments/mainnet/two.json", "Bar"),
+            described_by("deployments/mainnet/three.json", "Baz"),
+        ]
+    )
+
+    assert len(conflicts) == 1, "one contested address is one row, however many fields and files differ"
+    assert conflicts[0].entry.manifests == merged[0].manifests, "the row is the merged entry, so it knows them all"
+    reason = conflicts[0].reason
+    for manifest in ("one.json", "two.json", "three.json"):
+        assert manifest in reason, reason
+    for value in ("Foo", "Bar", "Baz"):
+        assert value in reason, reason
+    assert "name" in reason and "recorded_path" in reason, "and which fields are in dispute"
 
 
 def push_to_a_new_remote(repo: Path, tmp_path: Path) -> None:

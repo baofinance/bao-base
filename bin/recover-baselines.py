@@ -23,7 +23,7 @@ from pathlib import Path
 
 from Crypto.Hash import keccak
 
-from deployment_baselines import Baseline, add, commit_reach, drop, key, read_baselines, review, write_baselines
+from deployment_baselines import Baseline, Review, add, commit_reach, drop, key, read_baselines, review, write_baselines
 from deployment_records import Entry, Problem
 from deployment_recovery import (
     all_commits,
@@ -277,21 +277,30 @@ def _try_commit(root: Path, commit: str, pending: dict[str, _Wanted], say: Calla
             remove_worktree(root, worktree)
 
 
-def _unrecorded(account: list[Problem], searched: str = "") -> None:
-    """Every contract a run did not record, with its reason, whatever stage it left at.
+def _listing(title: str, rows: list[tuple[str, str, str, str]], footer: str = "") -> None:
+    """One titled block with the rows behind its count, aligned, and a footer said once if there is one.
 
-    ONE list for every stage, because the stages are independent code paths and a reader should not have
-    to know which one applied in order to find out what happened. Printed on the early exit too: a
-    repository whose keyable contracts all have baselines returns before the search, and that was the
-    path on which five of the aggregators' entries were a count at the top of the run and nothing else.
-
-    Each row names EVERY manifest describing the contract, not the one the merge happened to keep -
-    where two disagree, the kept one is as likely to be the innocent file. An entry `review` could not
-    key has no address to be named by, since not having one is what it is, so it is identified by the
-    path it records, which is what a reader greps for."""
-    if not account:
+    EVERY count this run prints ends up here. A count on its own is not a report: nobody can act on "5
+    cannot be read" or "11 described by two manifests that disagree" without going to find out which,
+    and in a long run those numbers sit eighty lines above the end with nothing next to them."""
+    if not rows:
         return
-    rows = [
+    print(f"\n{len(rows)} {title}:")
+    widths = [max(len(row[column]) for row in rows) for column in range(3)]
+    for identity, name, where, reason in sorted(rows):
+        print(f"  {identity:<{widths[0]}}  {name:<{widths[1]}}  {where:<{widths[2]}}  {reason}")
+    if footer:
+        print(f"  {footer}")
+
+
+def _problem_rows(problems: list[Problem]) -> list[tuple[str, str, str, str]]:
+    """One row per problem: what identifies it, what it is called, where it is written, and what is wrong.
+
+    Each row names EVERY manifest describing the contract, not the one the merge happened to keep - where
+    two disagree, the kept one is as likely to be the innocent file. An entry `review` could not key has
+    no address to be named by, since not having one is what it is, so it is identified by the path it
+    records, which is what a reader greps for."""
+    return [
         (
             key(problem.entry.chain_id, problem.entry.address)
             if problem.entry.chain_id and problem.entry.address
@@ -300,14 +309,33 @@ def _unrecorded(account: list[Problem], searched: str = "") -> None:
             ", ".join(problem.entry.manifests or (problem.entry.manifest,)),
             problem.reason,
         )
-        for problem in account
+        for problem in problems
     ]
-    print(f"\n{len(rows)} not recorded:")
-    widths = [max(len(row[column]) for row in rows) for column in range(3)]
-    for identity, name, manifest, reason in sorted(rows):
-        print(f"  {identity:<{widths[0]}}  {name:<{widths[1]}}  {manifest:<{widths[2]}}  {reason}")
-    if searched:
-        print(f"  {searched}")
+
+
+def _listings(account: list[Problem], found: Review, searched: str = "") -> None:
+    """Everything this run leaves unsettled: the contracts with no baseline, and what the record raises.
+
+    An orphan IS recorded, so it does not belong among the contracts with no baseline - it is its own
+    listing, as is a disagreement between manifests, which can be about an address that already has a
+    baseline. `verify-audit` names both; this run counted them, and it is the same data either way.
+
+    Called on the early exit as well, because a repository whose keyable contracts all have baselines
+    returns before the search - and that is the state a finished one sits in permanently."""
+    _listing("not recorded", _problem_rows(account), searched)
+    _listing("described by two manifests that disagree", _problem_rows(found.conflicts))
+    _listing(
+        "recorded but no manifest claims them any more",
+        [
+            (
+                key(baseline.chainId, baseline.address),
+                baseline.contractType,
+                baseline.source,
+                f"recorded at {baseline.commit[:10]}, and no manifest describes this address",
+            )
+            for baseline in found.orphaned
+        ],
+    )
 
 
 def main() -> int:
@@ -359,7 +387,7 @@ def main() -> int:
     # `review` could not even key, because those never become candidates and so no later stage is in a
     # position to report them. `drop` is the only way anything else joins them.
     account: list[Problem] = list(found.unreadable)
-    # Captured here because the outcome loop below binds `found` to a commit, shadowing the review.
+    # Named once because both the head-line below and the closing reconciliation read them.
     already, searching = len(found.recorded), len(found.unrecovered)
     described = already + searching + len(found.unreadable)
 
@@ -374,12 +402,6 @@ def main() -> int:
         # anything, and stayed invisible for it.
         + (f", {len(found.unreadable)} that cannot be identified" if found.unreadable else "")
     )
-    for label, items in (
-        ("recorded but no manifest claims them any more", found.orphaned),
-        ("described by two manifests that disagree", found.conflicts),
-    ):
-        if items:
-            print(f"  {len(items)} {label}")
     if arguments.only:
         print(f"  --only {arguments.only}: {len(outstanding)} of them")
     if not outstanding:
@@ -389,7 +411,7 @@ def main() -> int:
             print(f"no contract without a baseline is {arguments.only!r}; the form is 42161/0x… or arbitrum/0x…")
             return 1
         print("nothing to recover")
-        _unrecorded(account)
+        _listings(account, found)
         return 0
 
     baselines = read_baselines(root)
@@ -488,15 +510,15 @@ def main() -> int:
                     flush=True,
                 )
             say(1, f"{' ' * len(place)}  {time.monotonic() - started:.1f}s, {len(outcome)} matched")
-            for entry_key, (found, source, declared, artefact, immutables) in outcome.items():
+            for entry_key, (built_at, source, declared, artefact, immutables) in outcome.items():
                 # NOT popped here. What follows can still refuse this commit, and a contract taken out
                 # of the search on a SCREEN is one no later commit is ever tried for.
                 wants = pending[entry_key]
                 entry = wants.entry
                 creation = bytes.fromhex(artefact["bytecode"]["object"][2:])
-                made = commit_timestamp(root, found)
+                made = commit_timestamp(root, built_at)
                 print(f"    MATCHES {entry.chain}/{entry.address}  {entry.name}")
-                print(f"      built from {source} at {found[:10]}, committed {made or 'unknown'}")
+                print(f"      built from {source} at {built_at[:10]}, committed {made or 'unknown'}")
                 if declared != entry.name:
                     # Said out loud because it changes what the baseline means: the manifest's name is
                     # today's, and this is what the contract was called when it was deployed.
@@ -508,7 +530,7 @@ def main() -> int:
                 if produced is None:
                     print(f"      NOT PROVED HERE: the constructor could not be run at block {wants.block},")
                     print("      so the immutables cannot be checked — still looking at the other commits")
-                    screened.setdefault(entry_key, []).append(found)
+                    screened.setdefault(entry_key, []).append(built_at)
                     continue
                 explained, unexplained = differences(
                     strip_metadata(wants.onchain), strip_metadata(produced), immutable_regions, entry.address
@@ -523,7 +545,7 @@ def main() -> int:
                     # aggregators screened at the commit before their deploy, where the staleness
                     # constant was an hour, against a chain holding a day - written by the commit two
                     # minutes AFTER they were created, which the second pass reaches.
-                    screened.setdefault(entry_key, []).append(found)
+                    screened.setdefault(entry_key, []).append(built_at)
                     continue
                 # Proved. Nothing later can be a better answer, so the search for it ends here.
                 del pending[entry_key]
@@ -538,16 +560,16 @@ def main() -> int:
                 # never reach a remote by any normal operation - `git push` pushes branches. Refused
                 # here rather than left to the check, because `git stash drop` can destroy it before
                 # any check runs.
-                reach = commit_reach(root, found)
+                reach = commit_reach(root, built_at)
                 if reach == "none":
-                    print(f"      REFUSED: {found[:10]} is on no branch, so no remote can ever have it.")
+                    print(f"      REFUSED: {built_at[:10]} is on no branch, so no remote can ever have it.")
                     print("      It is the only source for this deployment — put it on a branch and push it:")
-                    print(f"        git branch deployed/{entry.name} {found}")
+                    print(f"        git branch deployed/{entry.name} {built_at}")
                     print(f"        git push origin deployed/{entry.name}")
-                    refused.append((entry_key, entry, found))
+                    refused.append((entry_key, entry, built_at))
                     continue
                 if reach == "local":
-                    unpushed.append((entry_key, entry, found))
+                    unpushed.append((entry_key, entry, built_at))
                 # What the commit alone does not settle, taken from the build that just proved it.
                 # solc writes its own metadata into the artefact, so the compiler and the settings are
                 # the ones that produced this bytecode rather than a second reading of foundry.toml,
@@ -561,7 +583,7 @@ def main() -> int:
                         address=entry.address,
                         contractType=entry.name,
                         source=source,
-                        commit=found,
+                        commit=built_at,
                         commitTimestamp=made or "",
                         deployBlock=wants.block,
                         deployTimestamp=wants.deployed,
@@ -571,8 +593,8 @@ def main() -> int:
                         settings={
                             name: value for name, value in metadata["settings"].items() if name != "compilationTarget"
                         },
-                        sources=source_blobs(root, found, metadata["sources"]),
-                        submodules=submodule_commits(root, found),
+                        sources=source_blobs(root, built_at, metadata["sources"]),
+                        submodules=submodule_commits(root, built_at),
                     ),
                 )
                 recovered += 1
@@ -638,7 +660,7 @@ def main() -> int:
     # What was searched, said once rather than per row: `all_commits` is `git log --all`, so an unmerged
     # branch and a stash are both in it, and "nothing built it" means nothing in ANY of them did - which
     # is a different statement from "nothing on this branch did".
-    _unrecorded(account, f"searched {len(dated)} commit(s) from every ref, {dated[-1][1]} to {dated[0][1]}")
+    _listings(account, found, f"searched {len(dated)} commit(s) from every ref, {dated[-1][1]} to {dated[0][1]}")
 
     print(f"\n{recovered} of {len(outstanding)} recovered, from {built} build(s) over {len(dated)} candidate commits")
     # described = already recorded + recovered here + accounted for + never selected, and nothing is

@@ -230,7 +230,7 @@ class Review:
     unrecovered: list[Entry]  # deployed, with no baseline yet
     unreadable: list[Problem]  # a manifest path that cannot be normalised
     orphaned: list[Baseline]  # a baseline for an address no manifest mentions any more
-    conflicts: list[str]  # two manifests describing one address differently
+    conflicts: list[Problem]  # two manifests describing one address differently, one row per address
     # (baseline, reach) for every recorded commit no remote has — see `commit_reach`. The REACH is
     # carried rather than a boolean because one definition serves two thresholds: a local run tolerates
     # "local" (work not yet pushed is the ordinary state), and CI does not.
@@ -289,7 +289,12 @@ def review(repo_root: Path) -> Review:
             identified.append(entry)
     baselines = read_baselines(repo_root)
     claimed = {key(e.chain_id, e.address) for e in identified}
-    unrecovered, conflicts = _by_address(e for e in identified if key(e.chain_id, e.address) not in baselines)
+    # Over EVERY identified entry, not only the unrecorded ones. Merging just the ones without a baseline
+    # meant a disagreement about a RECORDED address was never computed, so a complete record drove the
+    # count to zero - and zero read as health. What the manifests say about each other cannot depend on
+    # how much of the record happens to be filled in.
+    merged, conflicts = _by_address(identified)
+    unrecovered = [entry for entry in merged if key(entry.chain_id, entry.address) not in baselines]
     # Asked once per distinct COMMIT, not once per baseline: twelve commits carry the aggregators'
     # eighty-three records, so this is twelve `git branch --contains` calls rather than eighty-three.
     reaches = {commit: commit_reach(repo_root, commit) for commit in {b.commit for b in baselines.values()}}
@@ -323,7 +328,7 @@ def review(repo_root: Path) -> Review:
 _MERGED = ("name", "recorded_path", "deployed_at")
 
 
-def _by_address(entries: Iterable[Entry]) -> tuple[list[Entry], list[str]]:
+def _by_address(entries: Iterable[Entry]) -> tuple[list[Entry], list[Problem]]:
     """One entry per deployed contract, and the disagreements between the manifests describing it.
 
     A contract is often described by two manifests: 44 of the aggregators' 85 addresses are in both
@@ -340,7 +345,10 @@ def _by_address(entries: Iterable[Entry]) -> tuple[list[Entry], list[str]]:
     manifest recorded the path the file had before it moved. Recovery finds the real one at the
     baseline commit by contract name, so nothing needs the guess."""
     merged: dict[str, Entry] = {}
-    conflicts: list[str] = []
+    # Per address, per contested field, every description of it in the order met - so ONE row can name
+    # them all. Collected rather than formatted where the disagreement is found, because the row belongs
+    # to the MERGED entry, and that only knows every manifest describing the address once the merge ends.
+    disagreements: dict[str, dict[str, list[tuple[str, object]]]] = {}
     # The FIRST manifest to claim each field of each address, with its value, and the fields that have
     # been contested. Comparing against what is HELD is not enough once three manifests describe one
     # address: a disagreement unsets the field, so the third row meets an empty value, `ours or theirs`
@@ -370,7 +378,9 @@ def _by_address(entries: Iterable[Entry]) -> tuple[list[Entry], list[str]]:
             if theirs and claim is None:
                 claims[field] = (entry.manifest, theirs)
             elif theirs and claim is not None and claim[1] != theirs:
-                conflicts.append(f"{entry_key} {field}: {claim[0]} says {claim[1]!r}, {entry.manifest} says {theirs!r}")
+                # Seeded with the CLAIM, so the row carries the description being disagreed with and not
+                # only the ones that disagree.
+                disagreements.setdefault(entry_key, {}).setdefault(field, [claim]).append((entry.manifest, theirs))
                 disputed.add(field)
             # A field a manifest supplies and another omits is taken; one they give DIFFERENTLY is left
             # UNSET, and stays unset however many more manifests offer a value for it.
@@ -380,4 +390,16 @@ def _by_address(entries: Iterable[Entry]) -> tuple[list[Entry], list[str]]:
             (held.normalised_path or entry.normalised_path) if settled["recorded_path"] else None
         )
         merged[entry_key] = replace(held, **settled)
-    return list(merged.values()), conflicts
+    # ONE row per contested address. A row per FIELD named the first manifest and one other, so a third
+    # description of the same address was unnamed in every row it did not appear in - and four rows said
+    # "one address is wrong" four times where the reader needed one row saying which files to open.
+    return list(merged.values()), [
+        Problem(
+            merged[entry_key],
+            "; ".join(
+                f"{field}: " + ", ".join(f"{manifest} says {value!r}" for manifest, value in said)
+                for field, said in fields_in_dispute.items()
+            ),
+        )
+        for entry_key, fields_in_dispute in disagreements.items()
+    ]
