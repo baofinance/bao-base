@@ -325,22 +325,40 @@ def _by_address(entries: Iterable[Entry]) -> tuple[list[Entry], list[str]]:
     baseline commit by contract name, so nothing needs the guess."""
     merged: dict[str, Entry] = {}
     conflicts: list[str] = []
+    # The FIRST manifest to claim each field of each address, with its value, and the fields that have
+    # been contested. Comparing against what is HELD is not enough once three manifests describe one
+    # address: a disagreement unsets the field, so the third row meets an empty value, `ours or theirs`
+    # takes it, and the reader is told about one disagreement while a third description quietly becomes
+    # the answer. A claim survives being contested, so every later description is judged against it.
+    claimed: dict[str, dict[str, tuple[str, object]]] = {}
+    contested: dict[str, set[str]] = {}
     for entry in entries:
         entry_key = key(entry.chain_id, entry.address)
+        claims = claimed.setdefault(entry_key, {})
+        disputed = contested.setdefault(entry_key, set())
         held = merged.get(entry_key)
         if held is None:
-            merged[entry_key] = entry
+            # Every entry that leaves here knows which manifests describe it, so a report never has to
+            # ask again - one for most, and for the contested ones all of them, in the order met.
+            merged[entry_key] = replace(entry, manifests=(entry.manifest,))
+            for field in _MERGED:
+                if value := getattr(entry, field):
+                    claims[field] = (entry.manifest, value)
             continue
-        settled = {}
+        settled: dict[str, object] = {
+            "manifests": held.manifests + tuple(m for m in (entry.manifest,) if m not in held.manifests)
+        }
         for field in _MERGED:
-            ours, theirs = getattr(held, field), getattr(entry, field)
-            if ours and theirs and ours != theirs:
-                conflicts.append(
-                    f"{entry_key} {field}: {held.manifest} says {ours!r}, {entry.manifest} says {theirs!r}"
-                )
-                settled[field] = None
-            else:
-                settled[field] = ours or theirs
+            theirs = getattr(entry, field)
+            claim = claims.get(field)
+            if theirs and claim is None:
+                claims[field] = (entry.manifest, theirs)
+            elif theirs and claim is not None and claim[1] != theirs:
+                conflicts.append(f"{entry_key} {field}: {claim[0]} says {claim[1]!r}, {entry.manifest} says {theirs!r}")
+                disputed.add(field)
+            # A field a manifest supplies and another omits is taken; one they give DIFFERENTLY is left
+            # UNSET, and stays unset however many more manifests offer a value for it.
+            settled[field] = None if field in disputed else (claims.get(field) or (None, None))[1]
         # Follows its source: a path nobody can settle has no normalised form either.
         settled["normalised_path"] = (
             (held.normalised_path or entry.normalised_path) if settled["recorded_path"] else None

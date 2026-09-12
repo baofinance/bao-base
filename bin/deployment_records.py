@@ -70,6 +70,10 @@ class Entry:
     # Filled by `normalise`. Kept BESIDE `recorded_path` rather than replacing it: what a record says
     # is a fact about the record, and a finding that cannot quote it cannot be acted on.
     normalised_path: str | None = None
+    # Every manifest describing this address, filled when they are merged by address. `manifest` above
+    # is the one this row came from; a contract two manifests describe has two, and a report about a
+    # DISAGREEMENT has to name both - naming one is as likely to send the reader to the innocent file.
+    manifests: tuple[str, ...] = ()
 
 
 def _chain(document: dict, manifest: Path, repo_root: Path) -> str:

@@ -24,6 +24,7 @@ from deployment_recovery import (  # noqa: E402
     all_commits,
     build_id,
     commit_timestamp,
+    compiler_in,
     creation_block,
     differences,
     mask_immutables,
@@ -144,6 +145,40 @@ def test_every_submodule_the_commit_records_is_named(tmp_path):
     assert submodule_commits(superproject, commit) == {
         "lib/dependency": git_output(superproject, "rev-parse", f"{commit}:lib/dependency")
     }
+
+
+# ── which compiler built what is deployed, from the deployed code itself ───────────────────────────
+#
+# The commit fixes the settings only as far as `foundry.toml` pins them, and the compiler comes from
+# the pragma plus whatever versions are installed - so a rebuild here can pick a different one from the
+# deploy's and still be asked to match. The deployed code says which one built it: solc writes the
+# version into the CBOR trailer. Measured on two real contracts, `BaoPauser_v1` and
+# `Aggregator_stETH_USD_mainnet`, whose trailers both end
+# `64736f6c634300081e0033` - the key `solc`, a 3-byte string header `0x43`, then `00 08 1e`.
+
+
+def with_solc_trailer(body: bytes, version: tuple[int, int, int] = (0, 8, 30)) -> bytes:
+    """`body` as solc leaves it: a CBOR map carrying an ipfs hash and the compiler, then its length."""
+    trailer = b"\xa2\x64ipfs\x58\x22" + bytes(34) + b"\x64solc\x43" + bytes(version)
+    return body + trailer + len(trailer).to_bytes(2, "big")
+
+
+def test_the_compiler_is_read_from_the_deployed_code_s_trailer():
+    assert compiler_in(with_solc_trailer(bytes.fromhex("6080604052"))) == "0.8.30"
+
+
+def test_a_different_compiler_is_read_as_itself():
+    assert compiler_in(with_solc_trailer(bytes.fromhex("6080604052"), (0, 7, 6))) == "0.7.6"
+
+
+def test_code_with_no_trailer_names_no_compiler():
+    # Not a guess and not a default: nothing to pin a rebuild to, which the caller has to be told.
+    assert compiler_in(bytes.fromhex("6080604052")) is None
+
+
+def test_a_trailer_that_does_not_name_solc_names_no_compiler():
+    trailer = b"\xa1\x64ipfs\x58\x22" + bytes(34)
+    assert compiler_in(bytes.fromhex("6080604052") + trailer + len(trailer).to_bytes(2, "big")) is None
 
 
 def test_a_source_the_commit_does_not_have_is_reported(tmp_path):

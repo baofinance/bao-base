@@ -29,6 +29,7 @@ from deployment_recovery import (
     artefact_for,
     build_id,
     commit_timestamp,
+    compiler_in,
     creation_block,
     differences,
     matches,
@@ -126,11 +127,23 @@ def _construct(creation: str, chain: str, block: int) -> bytes | None:
     return bytes.fromhex(answer[2:])
 
 
-def _build(worktree: Path, sources: list[str], out: Path) -> bool:
-    """Compile these source files and their closure, exactly as the deploy would have.
+def _build(worktree: Path, source: str, out: Path, compiler: str) -> bool:
+    """Compile this source file and its closure, exactly as the deploy would have.
 
-    Several at once because they share the closure: twenty aggregators at one commit compile their
-    common base and libraries once between them rather than twenty times.
+    PINNED to `compiler`, which is REQUIRED, because a commit does not fix the compiler on its own: it
+    fixes it only as far as the pragma and `foundry.toml` do, and the rest is whatever versions this
+    machine has installed. The aggregators pin `0.8.30` exactly, bao-base's sources are mostly ranges,
+    and a rebuild that picks a different version from the deploy's is asked to match bytecode it cannot
+    produce. A contract whose deployed code names no compiler is refused by the caller and never
+    reaches here - building it unpinned would be this function choosing a version nothing vouches for.
+
+    ONE source per build, and the exit code is that source's answer. Compiling the group together was
+    cheaper - twenty aggregators at one commit share a closure - but `forge` writes no artefact for ANY
+    source when one of them does not compile, so one broken file discarded every contract waiting at
+    that commit, each then reported as "no candidate built what is deployed": a search that found
+    nothing, where in truth it never looked. Measured at 1.6-1.7x the time for the whole run, against a
+    defect that hides contracts, and it also removes the split-on-failure path that recovering the
+    group's other answers would otherwise need.
 
     METADATA IS LEFT ON, and that one setting decides whether anything matches at all. It was forced
     off - `FOUNDRY_CBOR_METADATA=false`, `FOUNDRY_BYTECODE_HASH=none` - because the metadata embeds
@@ -157,7 +170,7 @@ def _build(worktree: Path, sources: list[str], out: Path) -> bool:
     back where stripping the trailer does not reach - which is how a defect survives its first
     success."""
     done = subprocess.run(
-        ["forge", "build", *sources],
+        ["forge", "build", source, "--use", compiler],
         cwd=worktree,
         capture_output=True,
         text=True,
@@ -188,12 +201,14 @@ class _Wanted:
 
 
 def _try_commit(root: Path, commit: str, pending: dict[str, _Wanted], say: Callable[..., None]) -> dict[str, tuple]:
-    """Build ONE worktree at `commit` and compare every contract that is looking there.
+    """Place ONE worktree at `commit`, then build each contract that is looking there on its own.
 
-    This is the whole point of grouping. Twenty arbitrum aggregators share a deploy and therefore share
-    candidates; building the closure once per (contract, commit) made 44 candidates into 880 builds,
-    where one build per commit makes it 44. Nothing about the answer changes - only how many times the
-    same compilation is repeated."""
+    The worktree is shared because placing it is expensive and identical for every contract at this
+    commit - a checkout plus every submodule at its recorded gitlink, recursively. The BUILDS are not
+    shared, because `forge` writes no artefact for any source in a build that fails, so grouping them
+    made one source's syntax error into every waiting contract's missing baseline. `build_id` still
+    keeps the work bounded by the number of distinct builds in the repository rather than by the number
+    of candidates."""
     # (path, name as declared THERE) - the two differ wherever the contract was renamed after its
     # deploy, and it is the declared name the build produces an artefact under.
     found_at = {
@@ -203,23 +218,52 @@ def _try_commit(root: Path, commit: str, pending: dict[str, _Wanted], say: Calla
     if not sources:
         return {}
     with tempfile.TemporaryDirectory(prefix="recover-baseline-") as scratch:
-        worktree, out = Path(scratch) / "wt", Path(scratch) / "out"
+        worktree = Path(scratch) / "wt"
         missing = place_worktree(root, commit, worktree)
         try:
-            if not _build(worktree, sorted({path for path, _ in sources.values()}), out):
-                # Named here because a build failing right after something could not be placed is
-                # almost always that, and reporting only "does not build" sends the reader nowhere.
-                if missing:
-                    say(0, f"  {commit[:10]}: build failed, and these were not placed: {' '.join(missing)}")
-                return {}
             found = {}
-            for entry_key, (source, declared) in sources.items():
+            for position, (entry_key, (source, declared)) in enumerate(sorted(sources.items())):
+                # Its OWN output directory, so no artefact can be read as another source's: a failed
+                # build writes none, and a shared directory would leave whatever was there before.
+                out = Path(scratch) / f"out-{position}"
+                # The deployed code says which compiler built it. Without that the rebuild takes
+                # whatever this machine has installed, and a version that merely happens to be here
+                # would end up recorded as the one that produced the bytecode.
+                wanted = compiler_in(pending[entry_key].onchain)
+                if wanted is None:
+                    say(0, f"  {commit[:10]}: {source} — the deployed code names no compiler, so nothing pins it")
+                    continue
+                if not _build(worktree, source, out, wanted):
+                    # One source's failure is one source's answer. Building the whole group at once
+                    # made it everybody's: `forge` writes no artefact for ANY source when one of them
+                    # does not compile, so a single broken file discarded every contract waiting at
+                    # this commit and each was reported as "no candidate built what is deployed" -
+                    # a search that found nothing, where in truth it never looked. Measured twice in
+                    # the aggregators' own history, at fa8d73f7ae and at HEAD.
+                    note = f"  {commit[:10]}: {source} does not compile here"
+                    # A build failing right after something could not be placed is almost always that,
+                    # and reporting only "does not build" sends the reader nowhere.
+                    if missing:
+                        note += f", and these were not placed: {' '.join(missing)}"
+                    say(0, note)
+                    continue
                 artefact = artefact_for(out, source, declared)
                 if artefact is None:
                     # Reported, not skipped: the fleet has twelve contract names declared in two files
                     # at once, and a silent skip makes that read as "no candidate built what is
                     # deployed" - a search that found nothing rather than one that could not look.
                     say(1, f"  {commit[:10]}: {source} built no single artefact declaring {declared}")
+                    continue
+                # solc writes into the artefact which version produced it, so the pin is CHECKED rather
+                # than trusted: `--use` resolving to something else, or being ignored, would otherwise
+                # leave a match that says it was built by a compiler it was not.
+                built_by = (artefact.get("metadata") or {}).get("compiler", {}).get("version", "")
+                if not built_by.startswith(wanted):
+                    say(
+                        0,
+                        f"  {commit[:10]}: {source} was built by {built_by or 'an unnamed compiler'}, "
+                        f"not the {wanted} the deployed code names",
+                    )
                     continue
                 agreed, immutables = matches(pending[entry_key].onchain, artefact)
                 if agreed:
@@ -312,27 +356,27 @@ def main() -> int:
     for position, entry in enumerate(outstanding, start=1):
         entry_key = key(entry.chain_id, entry.address) if entry.chain_id else f"{entry.chain}/{entry.address}"
         print(f"[{position:>3}/{len(outstanding)}] {entry.chain}/{entry.address}  {entry.name}")
+        # EVERY manifest describing it, not the one the merge happened to keep: where two disagree, the
+        # kept one is as likely to be the innocent file - and a contract whose name they contest has no
+        # name to look for, which is the reason it is in this list at all.
+        named_by = ", ".join(entry.manifests or (entry.manifest,))
         if not entry.name:
             print("  the manifest names no contract, so nothing can be located or built")
-            dropped.append((entry_key, entry.name or "", entry.manifest, "the manifest names no contract"))
+            dropped.append((entry_key, entry.name or "", named_by, "the manifest names no contract"))
             continue
         if not entry.deployed_at:
             print("  no deployment time recorded, so the window cannot be placed")
-            dropped.append((entry_key, entry.name, entry.manifest, "no deployment time recorded"))
+            dropped.append((entry_key, entry.name, named_by, "no deployment time recorded"))
             continue
         onchain = _deployed_code(entry.address, entry.chain)
         if onchain is None:
             print(f"  could not read the deployed code over the {entry.chain} RPC")
-            dropped.append(
-                (entry_key, entry.name, entry.manifest, f"deployed code unreadable over the {entry.chain} RPC")
-            )
+            dropped.append((entry_key, entry.name, named_by, f"deployed code unreadable over the {entry.chain} RPC"))
             continue
         deployment = _deployment(entry.address, entry.chain, entry.deployed_at)
         if deployment is None:
             print(f"  could not find the block it was created in over the {entry.chain} RPC")
-            dropped.append(
-                (entry_key, entry.name, entry.manifest, f"creation block not found over the {entry.chain} RPC")
-            )
+            dropped.append((entry_key, entry.name, named_by, f"creation block not found over the {entry.chain} RPC"))
             continue
         block, deployed = deployment
         # The CHAIN's timestamp, not the manifest's: the manifest records the deploy script's clock,
@@ -419,7 +463,7 @@ def main() -> int:
                 if produced is None:
                     print(f"      NOT RECORDED: the constructor could not be run at block {wants.block},")
                     print("      so the immutables cannot be checked and the match is unproven")
-                    unproven.append((entry_key, entry.name, entry.manifest, found))
+                    unproven.append((entry_key, entry.name, ", ".join(entry.manifests or (entry.manifest,)), found))
                     continue
                 explained, unexplained = differences(
                     strip_metadata(wants.onchain), strip_metadata(produced), immutable_regions, entry.address
@@ -428,7 +472,7 @@ def main() -> int:
                     print("      NOT RECORDED: the constructor does not reproduce what is deployed —")
                     for line in unexplained:
                         print(f"        {line}")
-                    unproven.append((entry_key, entry.name, entry.manifest, found))
+                    unproven.append((entry_key, entry.name, ", ".join(entry.manifests or (entry.manifest,)), found))
                     continue
                 say(2, f"      constructor reproduces the deployed code; {len(immutables)} immutables:")
                 for value in immutables:
@@ -447,10 +491,10 @@ def main() -> int:
                     print("      It is the only source for this deployment — put it on a branch and push it:")
                     print(f"        git branch deployed/{entry.name} {found}")
                     print(f"        git push origin deployed/{entry.name}")
-                    refused.append((entry_key, entry.name, entry.manifest, found))
+                    refused.append((entry_key, entry.name, ", ".join(entry.manifests or (entry.manifest,)), found))
                     continue
                 if reach == "local":
-                    unpushed.append((entry_key, entry.name, entry.manifest, found))
+                    unpushed.append((entry_key, entry.name, ", ".join(entry.manifests or (entry.manifest,)), found))
                 # What the commit alone does not settle, taken from the build that just proved it.
                 # solc writes its own metadata into the artefact, so the compiler and the settings are
                 # the ones that produced this bytecode rather than a second reading of foundry.toml,
@@ -525,7 +569,7 @@ def main() -> int:
             (
                 entry_key,
                 wants.entry.name,
-                wants.entry.manifest,
+                ", ".join(wants.entry.manifests or (wants.entry.manifest,)),
                 f"no candidate built what is deployed (deployed {wants.deployed}, compared against "
                 f"{sum(1 for seen in compared.values() if entry_key in seen)} distinct build(s))",
             )

@@ -62,6 +62,33 @@ def strip_metadata(code: bytes) -> bytes:
     return code[:start]
 
 
+def compiler_in(code: bytes) -> str | None:
+    """The solc version that built `code`, read from its CBOR metadata trailer. None if it says none.
+
+    The deployed code is the only place this is stated. A commit fixes the compiler only as far as its
+    pragma and `foundry.toml` do - the aggregators pin `0.8.30` exactly, bao-base's sources mostly give
+    a range - so a rebuild takes whatever version is installed and can differ from the deploy's while
+    being asked to match it. Reading it here pins the rebuild to the compiler the artefact names.
+
+    Solidity writes `{"ipfs": …, "solc": <3 bytes>}` and then the trailer's length, so the version is
+    the three bytes after the key. Measured on two deployed contracts, `BaoPauser_v1` at 0xd8785d5C and
+    `Aggregator_stETH_USD_mainnet` at 0x003056C3, both ending `64736f6c634300081e0033`: the key `solc`,
+    a 3-byte string header `0x43`, then `00 08 1e` - 0.8.30.
+
+    A NIGHTLY build writes a string there instead, and a contract built by one names no release: None
+    is returned rather than a guess, because pinning a rebuild to the wrong compiler would be a match
+    that proves nothing about what is deployed."""
+    trailer = code[len(strip_metadata(code)) :]
+    at = trailer.find(b"solc")
+    if at < 0:
+        return None
+    marker = at + len(b"solc")
+    # `0x43` is CBOR for "three bytes follow", which is how a RELEASE records major.minor.patch.
+    if marker >= len(trailer) or trailer[marker] != 0x43 or marker + 4 > len(trailer):
+        return None
+    return ".".join(str(part) for part in trailer[marker + 1 : marker + 4])
+
+
 def mask_immutables(code: bytes, references: dict) -> bytes:
     """`code` with each declared immutable region zeroed.
 

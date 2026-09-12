@@ -51,6 +51,65 @@ def repo(tmp_path):
     return tmp_path
 
 
+def described_by(manifest: str, name: str):
+    """One manifest's description of the same deployed contract, differing only in the name it gives."""
+    from deployment_records import Entry
+
+    return Entry(
+        address="0xAA",
+        name=name,
+        recorded_path=f"src/{name}.sol",
+        chain_id=1,
+        recorded_chain_id=1,
+        chain="mainnet",
+        deployed_at="2026-03-21T13:41:23Z",
+        manifest=manifest,
+        section="implementations",
+    )
+
+
+def test_a_contract_two_manifests_describe_remembers_both_of_them(tmp_path):
+    # A disagreement names both files, but the merged entry kept only the first manifest it saw - so a
+    # report built from the entry sends the reader to one file, and for a CONFLICT that is as likely to
+    # be the innocent one as the guilty one. Measured: the MegaETH aggregators' row named
+    # v3-aggregators.json, where the disagreement was with v4-oracles.json.
+    from deployment_baselines import _by_address
+
+    merged, conflicts = _by_address(
+        [described_by("deployments/mainnet/one.json", "Foo"), described_by("deployments/mainnet/two.json", "Bar")]
+    )
+
+    assert len(merged) == 1, "one address is one contract, however many manifests describe it"
+    assert merged[0].manifests == ("deployments/mainnet/one.json", "deployments/mainnet/two.json")
+    assert conflicts, "and the disagreement is still reported"
+
+
+def test_a_third_manifest_disagreeing_is_reported_rather_than_quietly_winning(tmp_path):
+    # The merge compares each new row against what is HELD, and a field the first two contested is held
+    # as unset - so `ours or theirs` takes the third's value, and the reader is told about one
+    # disagreement while a third description silently becomes the answer. A contested field stays
+    # contested, and every manifest that differs is named.
+    from deployment_baselines import _by_address
+
+    merged, conflicts = _by_address(
+        [
+            described_by("deployments/mainnet/one.json", "Foo"),
+            described_by("deployments/mainnet/two.json", "Bar"),
+            described_by("deployments/mainnet/three.json", "Baz"),
+        ]
+    )
+
+    assert len(merged) == 1
+    assert merged[0].name is None, "no description wins a three-way disagreement"
+    assert merged[0].manifests == (
+        "deployments/mainnet/one.json",
+        "deployments/mainnet/two.json",
+        "deployments/mainnet/three.json",
+    )
+    assert any("three.json" in line for line in conflicts), "the third manifest is named too"
+    assert sum("name:" in line for line in conflicts) >= 2, "and its disagreement is reported, not absorbed"
+
+
 def baseline_for(address: str = "0xAA", commit: str = "a" * 40) -> Baseline:
     return Baseline(
         chainId=1,

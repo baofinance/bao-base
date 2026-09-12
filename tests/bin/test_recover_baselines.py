@@ -1,9 +1,10 @@
 """Recovering baselines for many contracts in one run.
 
-`recover-baselines` builds every contract waiting at a commit in ONE `forge build`, because they share
-most of their closure. That grouping may make a run cheaper; it must never change an answer. A
-contract's baseline has to be the same whether it is recovered alone or beside contracts whose source
-does not compile at the same commit.
+`recover-baselines` places one worktree per commit and builds each contract waiting there on its own.
+Grouping them into a single `forge build` was cheaper and changed answers: forge writes no artefact for
+any source in a build that fails, so one file that did not compile discarded every contract at that
+commit. A contract's baseline has to be the same whether it is recovered alone or beside contracts
+whose source does not compile at the same commit.
 
 These tests drive the real recovery loop against a small repository with real builds. Only the chain is
 replaced, because it is the one input a test cannot reach: the code at each address, the block each
@@ -244,3 +245,136 @@ def test_every_contract_that_was_not_recorded_is_listed_with_its_reason_at_the_e
     assert "1 distinct build" in unmatched, "and how many distinct builds it was actually compared against"
     assert "every ref" in summary, "the search is `git log --all`, not a branch, and says so"
     assert "1 commit" in summary, "with the size of the space it covered"
+
+
+# ── built by the compiler the deployed code names ──────────────────────────────────────────────────
+#
+# A commit fixes the compiler only as far as its pragma and foundry.toml do: the aggregators pin 0.8.30
+# exactly, but bao-base's sources are mostly ranges, so a rebuild takes whatever version is installed
+# and can differ from the one the deploy used while being asked to match its bytecode. The deployed
+# code says which built it - solc writes the version into its CBOR trailer - so the rebuild is pinned
+# to that, and the artefact is checked to have been built by it.
+
+
+def test_the_build_is_pinned_to_the_compiler_the_deployed_code_names(monkeypatch, tmp_path):
+    recover = load_recover_baselines()
+    invoked = {}
+
+    class Done:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def record(command, **kwargs):
+        invoked["command"] = command
+        return Done()
+
+    monkeypatch.setattr(recover.subprocess, "run", record)
+
+    recover._build(tmp_path, "src/A.sol", tmp_path / "out", "0.8.30")
+
+    assert "--use" in invoked["command"], "the version is pinned, not left to whatever is installed"
+    assert invoked["command"][invoked["command"].index("--use") + 1] == "0.8.30"
+
+
+def test_a_deployed_contract_naming_no_compiler_is_reported_not_guessed(tmp_path, monkeypatch, capsys):
+    # A contract whose code carries no trailer names no compiler. Recovering it anyway would record a
+    # compiler that merely happens to be installed here, which is the claim this record exists to stop.
+    repo, scratch = tmp_path / "repo", tmp_path / "scratch"
+    (repo / "src").mkdir(parents=True)
+    scratch.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True, capture_output=True)
+    for setting, value in (("user.email", "t@t"), ("user.name", "test")):
+        subprocess.run(["git", "config", setting, value], cwd=repo, check=True, capture_output=True)
+    (repo / "foundry.toml").write_text('[profile.default]\nsrc = "src"\nlibs = []\nremappings = ["@fixture/=src/"]\n')
+    manifest = repo / "deployments" / "mainnet" / "state.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "network": "mainnet",
+                "chainId": 1,
+                "implementations": {
+                    ADDRESS_A: {"contractSource": "src/A.sol", "contractType": "A", "deploymentTime": DEPLOYED}
+                },
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    (repo / "src" / "A.sol").write_text(contract_source("A", 1))
+    deployed_a = runtime(repo, "src/A.sol", "A", scratch)
+    commit(repo, "2026-01-01T00:00:00+00:00", "the contract")
+
+    recover = load_recover_baselines()
+    # Its trailer removed: the code is otherwise exactly what was built.
+    from deployment_recovery import strip_metadata
+
+    chain = Chain({ADDRESS_A: strip_metadata(deployed_a)})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
+
+    recover.main()
+
+    printed = capsys.readouterr().out
+    assert key(1, ADDRESS_A) not in read_baselines(repo), "nothing is recorded for it"
+    assert "names no compiler" in printed, "and the reason is said, not left as a silent miss"
+
+
+def test_a_contract_two_manifests_disagree_about_names_both_of_them(tmp_path, monkeypatch, capsys):
+    # The row has to name every manifest describing the contract, not just the one the reader kept:
+    # when two disagree, the kept one is as likely to be the innocent file. Measured on the MegaETH
+    # aggregators, whose row named v3-aggregators.json where the disagreement was with v4-oracles.json.
+    repo, scratch = tmp_path / "repo", tmp_path / "scratch"
+    (repo / "src").mkdir(parents=True)
+    scratch.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True, capture_output=True)
+    for setting, value in (("user.email", "t@t"), ("user.name", "test")):
+        subprocess.run(["git", "config", setting, value], cwd=repo, check=True, capture_output=True)
+    (repo / "foundry.toml").write_text('[profile.default]\nsrc = "src"\nlibs = []\nremappings = ["@fixture/=src/"]\n')
+    (repo / "deployments" / "mainnet").mkdir(parents=True)
+    for manifest, declared in (
+        ("old.json", "A"),
+        ("new.json", "Renamed"),
+    ):
+        (repo / "deployments" / "mainnet" / manifest).write_text(
+            json.dumps(
+                {
+                    "network": "mainnet",
+                    "chainId": 1,
+                    "implementations": {
+                        ADDRESS_A: {
+                            "contractSource": f"src/{declared}.sol",
+                            "contractType": declared,
+                            "deploymentTime": DEPLOYED,
+                        }
+                    },
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+    # BOTH sources exist: a path no file in the repository has ever had is rejected before the merge,
+    # as a record naming another repository's file, so the two descriptions would never meet.
+    (repo / "src" / "A.sol").write_text(contract_source("A", 1))
+    (repo / "src" / "Renamed.sol").write_text(contract_source("Renamed", 1))
+    deployed_a = runtime(repo, "src/A.sol", "A", scratch)
+    commit(repo, "2026-01-01T00:00:00+00:00", "the contract, under both of its names")
+
+    recover = load_recover_baselines()
+    chain = Chain({ADDRESS_A: deployed_a})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
+
+    recover.main()
+
+    printed = capsys.readouterr().out
+    summary = printed[printed.rindex("not recorded") :]
+    assert "deployments/mainnet/old.json" in summary, "the manifest the reader kept"
+    assert "deployments/mainnet/new.json" in summary, "and the one it disagrees with"
