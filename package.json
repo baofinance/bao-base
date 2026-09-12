@@ -38,6 +38,7 @@
   },
   "dependencies": {
     "@openzeppelin/upgrades-core": "1.44.0",
+    "@solidity-parser/parser": "^0.20.2",
     "bats": "^1.11.1",
     "bats-assert": "^2.0.0",
     "bats-support": "^0.3.0",

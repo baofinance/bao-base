@@ -31,6 +31,7 @@ from collections.abc import Iterable
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
+from deployment_recovery import declared_in
 from deployment_records import Entry, Problem, normalise, read_records
 
 SCHEMA_VERSION = 1
@@ -231,6 +232,11 @@ class Review:
     # carried rather than a boolean because one definition serves two thresholds: a local run tolerates
     # "local" (work not yet pushed is the ordinary state), and CI does not.
     not_on_a_remote: list[tuple[Baseline, str]]
+    # (baseline, what its source actually declares) where the two disagree, `None` when the source
+    # declares no single contract. A deployment record is a record of a DEPLOYMENT, so its contract
+    # name is the name at deploy time and the source at that commit declares exactly that. Twelve of
+    # the aggregators' eighty-three disagree, every one a rewrite after a rename.
+    misnamed: list[tuple[Baseline, str | None]]
 
 
 def review(repo_root: Path) -> Review:
@@ -278,6 +284,16 @@ def review(repo_root: Path) -> Review:
             (baselines[k], reaches[baselines[k].commit])
             for k in sorted(baselines)
             if reaches[baselines[k].commit] != "remote"
+        ],
+        # Only where the commit is present: a baseline whose commit this repository has lost cannot be
+        # read at all, and `not_on_a_remote` already says so. Reporting it twice, once as "absent" and
+        # once as "declares nothing", would send the reader after the wrong fix.
+        misnamed=[
+            (baselines[k], declared)
+            for k in sorted(baselines)
+            if reaches[baselines[k].commit] != "absent"
+            and (declared := declared_in(repo_root, baselines[k].commit, baselines[k].source))
+            != baselines[k].contract_type
         ],
     )
 

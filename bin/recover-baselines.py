@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -184,7 +185,7 @@ class _Wanted:
     deployed: str
 
 
-def _try_commit(root: Path, commit: str, pending: dict[str, _Wanted]) -> dict[str, tuple]:
+def _try_commit(root: Path, commit: str, pending: dict[str, _Wanted], say: Callable[..., None]) -> dict[str, tuple]:
     """Build ONE worktree at `commit` and compare every contract that is looking there.
 
     This is the whole point of grouping. Twenty arbitrum aggregators share a deploy and therefore share
@@ -207,7 +208,7 @@ def _try_commit(root: Path, commit: str, pending: dict[str, _Wanted]) -> dict[st
                 # Named here because a build failing right after something could not be placed is
                 # almost always that, and reporting only "does not build" sends the reader nowhere.
                 if missing:
-                    print(f"  {commit[:10]}: build failed, and these were not placed: {' '.join(missing)}")
+                    say(0, f"  {commit[:10]}: build failed, and these were not placed: {' '.join(missing)}")
                 return {}
             found = {}
             for entry_key, (source, declared) in sources.items():
@@ -216,7 +217,7 @@ def _try_commit(root: Path, commit: str, pending: dict[str, _Wanted]) -> dict[st
                     # Reported, not skipped: the fleet has twelve contract names declared in two files
                     # at once, and a silent skip makes that read as "no candidate built what is
                     # deployed" - a search that found nothing rather than one that could not look.
-                    print(f"  {commit[:10]}: {source} built no single artefact declaring {declared}")
+                    say(1, f"  {commit[:10]}: {source} built no single artefact declaring {declared}")
                     continue
                 agreed, immutables = matches(pending[entry_key].onchain, artefact)
                 if agreed:
@@ -235,7 +236,28 @@ def main() -> int:
         help="recover just this contract, as 42161/0x… or arbitrum/0x… — an address alone names a "
         "contract on every chain that has one at it, which is not one contract",
     )
+    # Not derived from how many contracts are being recovered, which was the first design and was
+    # clever in the wrong direction: it would make a bulk run impossible to make loud, which is exactly
+    # when you want it loud. This is not a knob in the sense the search bound was - that one encoded a
+    # judgement, and getting it wrong lost answers silently. This one only chooses how much is printed.
+    #
+    # USE `--verbose`. `bin/run/logging` strips `-v`/`-vv` from the argument list wherever they appear
+    # and turns them into `BAO_BASE_VERBOSITY`, so the short form never reaches this parser while that
+    # wrapper is in front of it. The short form is declared anyway, for when it is not.
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="--verbose adds every commit tried, twice adds the immutables and the construction detail",
+    )
     arguments = parser.parse_args()
+
+    def say(level: int, message: str = "", flush: bool = False) -> None:
+        """Print when the caller asked for at least this much. A closure rather than a module global,
+        so nothing carries the setting between calls invisibly."""
+        if arguments.verbose >= level:
+            print(message, flush=flush)
 
     root = Path.cwd()
     found = review(root)
@@ -300,7 +322,7 @@ def main() -> int:
         # The CHAIN's timestamp, not the manifest's: the manifest records the deploy script's clock,
         # which is written after the broadcast and so always sits late. It decides which commits count
         # as before the deploy and which as after, which is the whole two-pass split.
-        print(f"          created in block {block} at {deployed}, {len(onchain)} bytes on chain")
+        say(1, f"          created in block {block} at {deployed}, {len(onchain)} bytes on chain")
         pending[key(entry.chain_id, entry.address)] = _Wanted(entry, onchain, block, deployed)
 
     # THE DEPLOY BLOCK DECIDES WHICH COMMIT, not the order things happen to be tried in. Many commits
@@ -315,6 +337,7 @@ def main() -> int:
     print(f"\ntrying every one of this repository's {len(dated)} commits for {len(pending)} contract(s)")
     recovered = 0
     built = 0
+    opened = beat = time.monotonic()
     # Proved, but not recordable — or recordable here and not yet anywhere else.
     refused: list[tuple[str, str, str]] = []
     unpushed: list[tuple[str, str, str]] = []
@@ -327,7 +350,7 @@ def main() -> int:
     for label, order, admits in passes:
         if not pending:
             break
-        print(f"\npass: commits {label} — {len(pending)} contract(s) still looking")
+        say(1, f"\npass: commits {label} — {len(pending)} contract(s) still looking")
         for position, (commit, when) in enumerate(order, start=1):
             if not pending:
                 break
@@ -338,17 +361,28 @@ def main() -> int:
             identity = build_id(root, commit)
             fresh = still_to_compare(compared, identity, looking)
             if not fresh:
-                print(f"{place}  same build inputs as {claimed_by[identity][:10]}, already compared — skipped")
+                say(1, f"{place}  same build inputs as {claimed_by[identity][:10]}, already compared — skipped")
                 continue
             claimed_by.setdefault(identity, commit)
             waiting = f"{len(fresh)} waiting"
             if len(fresh) != len(looking):
                 waiting += f" ({len(looking) - len(fresh)} already compared against these inputs)"
-            print(f"{place}  {waiting}, building…", flush=True)
+            say(1, f"{place}  {waiting}, building…", flush=True)
             started = time.monotonic()
-            outcome = _try_commit(root, commit, {k: looking[k] for k in fresh})
+            outcome = _try_commit(root, commit, {k: looking[k] for k in fresh}, say)
             built += 1
-            print(f"{' ' * len(place)}  {time.monotonic() - started:.1f}s, {len(outcome)} matched")
+            # At the default level the per-commit lines are hidden, so a long stretch of builds that
+            # match nothing would print nothing at all - which is the silence C3 hid behind. A line
+            # every half minute keeps the run legible without becoming the flood `-v` is for.
+            if arguments.verbose == 0 and time.monotonic() - beat > 30:
+                beat = time.monotonic()
+                elapsed = int(time.monotonic() - opened)
+                print(
+                    f"  … {built} builds, {recovered} recorded, {len(pending)} still looking,"
+                    f" {elapsed // 60}m{elapsed % 60:02d}s elapsed",
+                    flush=True,
+                )
+            say(1, f"{' ' * len(place)}  {time.monotonic() - started:.1f}s, {len(outcome)} matched")
             for entry_key, (found, source, declared, artefact, immutables) in outcome.items():
                 wants = pending.pop(entry_key)
                 entry = wants.entry
@@ -359,7 +393,7 @@ def main() -> int:
                 if declared != entry.name:
                     # Said out loud because it changes what the baseline means: the manifest's name is
                     # today's, and this is what the contract was called when it was deployed.
-                    print(f"      NOTE: declared {declared} there — renamed to {entry.name} since")
+                    say(2, f"      NOTE: declared {declared} there — renamed to {entry.name} since")
                 # The screen above ignored the immutables. Run the constructor and compare what it
                 # actually produces, so they are IN the verdict rather than excluded from it.
                 immutable_regions = artefact["deployedBytecode"].get("immutableReferences") or {}
@@ -378,11 +412,11 @@ def main() -> int:
                         print(f"        {line}")
                     unproven.append((entry_key, entry.name, found))
                     continue
-                print(f"      constructor reproduces the deployed code; {len(immutables)} immutables:")
+                say(2, f"      constructor reproduces the deployed code; {len(immutables)} immutables:")
                 for value in immutables:
-                    print(f"        {value}")
+                    say(2, f"        {value}")
                 for line in explained:
-                    print(f"      {line} — differs by construction, as expected")
+                    say(2, f"      {line} — differs by construction, as expected")
                 if made and made > wants.deployed:
                     print(f"      NOTE: committed AFTER the {wants.deployed} deploy — it ran from an uncommitted tree")
                 # A baseline is only as good as the commit it names, and a commit on NO branch will

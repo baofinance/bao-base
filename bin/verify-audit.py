@@ -728,6 +728,27 @@ def _check_baselines(found: Review) -> int:
             _err(f"\033[31m  {baseline.chain} {baseline.address} {baseline.contract_type}\033[0m\n")
             _err(f"\033[31m    {baseline.commit[:10]}: {says}\033[0m\n")
 
+    if found.misnamed:
+        failures = 1
+        _err(
+            f"\033[31mERROR: {len(found.misnamed)} deployment record(s) name a contract their own source"
+            " does not declare:\033[0m\n"
+        )
+        for baseline, declares in found.misnamed:
+            _err(f"\033[31m  {baseline.chain} {baseline.address}\033[0m\n")
+            _err(
+                f"\033[31m    the record says {baseline.contract_type}, but {baseline.source} at"
+                f" {baseline.commit[:10]} declares {declares or 'no single contract'}\033[0m\n"
+            )
+        _err(
+            "\033[31m  A deployment record is a record of a DEPLOYMENT, so its name is the name at deploy"
+            " time.\033[0m\n"
+        )
+        _err(
+            "\033[31m  A disagreement means the record was rewritten afterwards — restore what it said"
+            " when the deploy happened.\033[0m\n"
+        )
+
     return failures
 
 

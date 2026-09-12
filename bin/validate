@@ -62,6 +62,29 @@ is_ignored() { [[ -v validate_ignores["$1 $2"] ]]; }
 #   echo "Default bash version: $(bash --version 2>/dev/null | head -n1 || echo 'unknown')" >&2
 # fi
 
+# ================================================================
+# Pinned compiler — every deployable contract and library in src pins one compiler version
+# ================================================================
+# Read from source text and run before the build: what a build produces depends on the compilers installed,
+# and a pragma allowing more than one version is exactly what makes it so (bin/pinned-pragma.js).
+echo
+echo "checking deployable code pins one compiler version..."
+echo "-----------------------------------------------------"
+echo
+
+# pass this check's .validate-ignore entries through, guarded as for broadcast-scope below
+pinned_pragma_ignores=()
+if [[ ${#validate_ignores[@]} -gt 0 ]]; then
+  for _ignore_key in "${!validate_ignores[@]}"; do
+    if [[ "$_ignore_key" == "pragma "* ]]; then
+      pinned_pragma_ignores+=(--ignore "${_ignore_key#pragma }")
+    fi
+  done
+fi
+
+node "$BAO_BASE_BIN_DIR"/pinned-pragma.js ${pinned_pragma_ignores[@]+"${pinned_pragma_ignores[@]}"} src ||
+  error "pinned-pragma validate failed (a deployable contract or library allows more than one compiler version)"
+
 # separate build output & cache
 FOUNDRY_OUT="out/_validate"
 export FOUNDRY_CACHE_PATH=cache/_validate
@@ -410,7 +433,7 @@ fi
 echo "SUCCESS: (no contracts have root storage or constructor-initialized storage)"
 
 # ================================================================
-# Source file naming and pragma checks
+# Source file naming check
 # ================================================================
 echo
 echo "checking source file conventions..."
@@ -440,42 +463,14 @@ while IFS= read -r -d '' file; do
     echo " ✘  $file: filename '$basename' does not match '$contract_name'"
     src_failed=1
   fi
-
-  # Check: deployable code must pin pragma (not use a range)
-  # Deployable = concrete contract, or library with public/external functions
-  is_abstract=$(grep -cE '^\s*abstract\s+contract\s' "$file" || true)
-  is_library=$(grep -cE '^\s*library\s' "$file" || true)
-  is_deployable_library=0
-  if [[ "$is_library" -gt 0 ]]; then
-    # Library is deployable only if it has public or external functions
-    has_external=$(grep -cE '^\s+function\s+\w+.*(public|external)' "$file" || true)
-    if [[ "$has_external" -gt 0 ]]; then
-      is_deployable_library=1
-    fi
-  fi
-  if [[ ("$is_abstract" -eq 0 && "$is_library" -eq 0) || "$is_deployable_library" -gt 0 ]]; then
-    # Concrete contract or deployable library — pragma should be pinned
-    pragma=$(grep -oE 'pragma solidity\s+[^;]+' "$file" | sed 's/pragma solidity[[:space:]]*//' || true)
-    if is_ignored "pragma" "$file"; then
-      if ! echo "$pragma" | grep -qE '[<>]'; then
-        printf '\033[31m ✘  stale .validate-ignore entry: pragma "%s" — check passes, remove from .validate-ignore\033[0m\n' "$file"
-        src_failed=1
-      else
-        printf '\033[2m ⚠  %s: pragma check ignored via .validate-ignore (pragma '\''%s'\'')\033[0m\n' "$file" "$pragma"
-      fi
-    elif echo "$pragma" | grep -qE '[<>]'; then
-      echo " ✘  $file: deployable '$contract_name' uses version range '$pragma' — should pin (e.g. 0.8.30)"
-      src_failed=1
-    fi
-  fi
 done < <(find src -name '*.sol' -print0)
 
 if [[ $src_failed -ne 0 ]]; then
   echo
-  echo "ERROR: some source files have naming or pragma issues"
+  echo "ERROR: some source files have naming issues"
   return 1
 fi
-echo "SUCCESS: (all source files follow naming and pragma conventions)"
+echo "SUCCESS: (all source files follow naming conventions)"
 
 # ================================================================
 # Import path checks — bare imports (src/test/script prefix)

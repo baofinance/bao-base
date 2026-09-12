@@ -235,7 +235,7 @@ def commit_timestamp(repo_root: Path, commit: str) -> str | None:
     return datetime.fromtimestamp(int(seconds), tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _declared_in(repo_root: Path, commit: str, path: str) -> str | None:
+def declared_in(repo_root: Path, commit: str, path: str) -> str | None:
     """The single contract that `path` declares at `commit`, or None if it declares none or several.
 
     Several is not resolved by picking: a file declaring two contracts gives no reason to prefer
@@ -325,7 +325,7 @@ def source_at(
     was = _path_at(repo_root, commit, recorded_path)
     if was is None:
         return None
-    declared = _declared_in(repo_root, commit, was)
+    declared = declared_in(repo_root, commit, was)
     return (was, declared) if declared else None
 
 

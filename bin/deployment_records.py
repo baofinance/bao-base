@@ -22,6 +22,7 @@ every failure lives.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import tomllib
 from dataclasses import dataclass, replace
@@ -161,6 +162,18 @@ def _not_ignored(repo_root: Path, paths: list[Path]) -> list[Path]:
     return [p for p in paths if p not in ignored]
 
 
+def _archived(path: Path) -> bool:
+    """Whether any directory on the way to `path` is an archive.
+
+    An archive holds a superseded COPY of entries the live record also holds, so reading it doubles
+    every finding, and correcting one would mean correcting history that has already been superseded.
+    Out of scope entirely: not read, so not reported and not corrected.
+
+    A directory NAMED archive or archived, not any path containing those letters - a deploy could
+    legitimately write to one whose name merely begins with them."""
+    return any(re.fullmatch(r"[Aa]rchived?", part) for part in path.parts)
+
+
 def read_records(repo_root: Path) -> list[Entry]:
     """Every deployed contract this repository records, from every manifest under `deployments/`.
 
@@ -181,7 +194,7 @@ def read_records(repo_root: Path) -> list[Entry]:
     deployments = repo_root / "deployments"
     if not deployments.is_dir():
         return []
-    present = sorted(deployments.rglob("*.json"))
+    present = [path for path in sorted(deployments.rglob("*.json")) if not _archived(path)]
     found: list[Entry] = []
     for manifest in _not_ignored(repo_root, present):
         try:

@@ -196,6 +196,13 @@ def push_to_a_new_remote(repo: Path, tmp_path: Path) -> None:
     git(repo, "push", "-q", "origin", "main")
 
 
+def declare(repo: Path, path: str, contract: str) -> None:
+    """Commit `path` declaring `contract`, so the source says something a record can agree with."""
+    (repo / path).write_text(f"contract {contract} {{}}\n")
+    git(repo, "add", "-A")
+    subprocess.run(["git", "commit", "-qm", f"declare {contract}"], cwd=repo, check=True, capture_output=True)
+
+
 def head_of(repo: Path) -> str:
     return subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True).stdout.strip()
 
@@ -230,6 +237,48 @@ def test_a_baseline_on_a_commit_this_repository_has_lost_is_reported_as_absent(r
     found = review(repo)
 
     assert [(b.contract_type, reach) for b, reach in found.not_on_a_remote] == [("Foo", "absent")]
+
+
+def test_a_record_naming_a_contract_its_source_does_not_declare_is_reported(repo, tmp_path):
+    # A deployment record is a record of a deployment, so its contract name is the name at deploy time
+    # and the source at that commit declares exactly that. Twelve of the aggregators' eighty-three
+    # disagree, every one a rewrite after a rename: `deployments/mainnet/v4-oracles.json` said
+    # `Aggregator_sUSDe_BTC_mainnet` on 2026-02-07 and `Aggregator_USDE_BTC_mainnet` from 2026-04-24 —
+    # same address, same bytecode, name changed underneath it.
+    #
+    # The bytecode match does not rescue it: a RENAME CHANGES NO BYTECODE, so a match is never evidence
+    # about the name. Which is why this is an error rather than a note.
+    push_to_a_new_remote(repo, tmp_path)
+    declare(repo, "src/Foo.sol", "Renamed")
+    write_baselines(repo, add({}, baseline_for(commit=head_of(repo))))
+
+    found = review(repo)
+
+    assert len(found.misnamed) == 1
+    baseline, declares = found.misnamed[0]
+    assert (baseline.contract_type, declares) == ("Foo", "Renamed"), "both names, so the fix is obvious"
+
+
+def test_a_record_agreeing_with_its_source_is_not_reported(repo, tmp_path):
+    # The ordinary case, including a contract renamed AFTER its deploy: the record keeps the deploy-time
+    # name, the source at that commit declares it, and they agree. Only a rewritten record disagrees.
+    push_to_a_new_remote(repo, tmp_path)
+    declare(repo, "src/Foo.sol", "Foo")
+    write_baselines(repo, add({}, baseline_for(commit=head_of(repo))))
+
+    assert review(repo).misnamed == []
+
+
+def test_a_record_whose_source_declares_no_contract_at_all_is_reported(repo, tmp_path):
+    # The record points at a file that is not a contract, so nothing can be built from it and nothing
+    # can be compared. Reported with the same finding rather than a separate one - the record and its
+    # source disagree either way, and the fix is the same: make the record say what the source says.
+    push_to_a_new_remote(repo, tmp_path)
+    write_baselines(repo, add({}, baseline_for(commit=head_of(repo))))
+
+    found = review(repo)
+
+    assert [declares for _, declares in found.misnamed] == [None]
 
 
 def test_a_contract_whose_manifest_gives_no_chain_id_is_reported_not_silently_dropped(repo):

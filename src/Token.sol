@@ -87,22 +87,4 @@ library Token {
         (bool success, ) = contract_.staticcall(data);
         return success;
     }
-
-    function hasNonMutatingParameterlessFunction(
-        address contract_,
-        string memory funcName
-    ) external view returns (bool) {
-        bytes4 selector = bytes4(keccak256(bytes(string.concat(funcName, "()"))));
-        return _hasNonMutatingFunction(contract_, abi.encodeWithSelector(selector));
-    }
-
-    /**
-     * @notice Checks if a contract contains a function corresponding to a given function selector and then calls it.
-     * @dev First performs a low-level `call` to check if the target contract responds to the given selector. If it exists, performs a second `call` to invoke it.
-     * @param target The address of the contract to check and call.
-     * @param selector The 4-byte function selector (first 4 bytes of the Keccak-256 hash of the function signature).
-     * @param calldataParams The encoded calldata to pass when calling the function (excluding the selector).
-     * @return success Boolean indicating whether the function call succeeded.
-     * @return returnData The data returned from the function call.
-     */
 }

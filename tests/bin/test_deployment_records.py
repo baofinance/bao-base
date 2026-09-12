@@ -350,6 +350,41 @@ def test_an_entry_with_its_own_time_keeps_it(repo):
     assert read_records(repo)[0].deployed_at == "2026-03-21T13:44:18Z"
 
 
+def test_an_archived_record_is_not_read(repo):
+    # An `Archive/` directory holds a superseded copy of entries the live record also holds. Reading it
+    # makes every finding double, and correcting it would mean correcting history that has already been
+    # superseded. Archived records are out of scope entirely: not read, so not reported and not
+    # corrected. Both spellings, both cases, because all four occur.
+    for where in ("chain/Archive/superseded.json", "chain/archived/older.json"):
+        write(
+            repo,
+            where,
+            {
+                "chainId": 1,
+                "implementations": {"0xAA": {"contractSource": "src/Old.sol", "contractType": "OnlyInTheArchive"}},
+            },
+        )
+    write(
+        repo,
+        "chain/state.json",
+        {"chainId": 1, "implementations": {"0xBB": {"contractSource": "src/New.sol", "contractType": "StillLive"}}},
+    )
+
+    assert [entry.name for entry in read_records(repo)] == ["StillLive"]
+
+
+def test_a_directory_merely_containing_the_word_is_still_read(repo):
+    # The exclusion is a directory NAMED archive or archived, not any path containing those letters -
+    # a real deploy could write to a directory whose name merely starts with them.
+    write(
+        repo,
+        "archiveable/state.json",
+        {"chainId": 1, "implementations": {"0xCC": {"contractSource": "src/C.sol", "contractType": "NotArchived"}}},
+    )
+
+    assert [entry.name for entry in read_records(repo)] == ["NotArchived"]
+
+
 def test_an_unreadable_manifest_is_raised_not_skipped(repo):
     # Silently returning a shorter list reads as "this repository deploys less than it does", which is
     # the failure this whole plan exists to stop.

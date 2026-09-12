@@ -36,26 +36,6 @@ contract MockNonERC20 {
     }
 }
 
-// Mock contract with specific test functions
-contract MockFunctions {
-    uint256 public stateValue;
-
-    function noParamsNoReturn() external pure {}
-
-    function noParamsWithReturn() external pure returns (uint256) {
-        return 42;
-    }
-
-    function withParamsNoReturn(uint256 value) external {
-        stateValue = value;
-    }
-
-    function withParamsWithReturn(uint256 value) external returns (uint256) {
-        stateValue = value;
-        return value * 2;
-    }
-}
-
 /**
  * @title TokenLibraryWrapper
  * @dev Wrapper contract that converts all internal Token library functions to external functions
@@ -99,16 +79,6 @@ contract TokenLibraryWrapper {
      */
     function ensureUUPSUpgradeable(address addr) external view {
         TokenUUPS.ensureUUPSUpgradeable(addr);
-    }
-
-    /**
-     * @dev External wrapper for Token.hasNonMutatingParameterlessFunction
-     */
-    function hasNonMutatingParameterlessFunction(
-        address contractAddr,
-        string memory funcName
-    ) external view returns (bool) {
-        return Token.hasNonMutatingParameterlessFunction(contractAddr, funcName);
     }
 }
 
@@ -161,7 +131,6 @@ contract TokenLibraryTest is Test {
 
     MockERC20 public token;
     MockNonERC20 public nonERC20;
-    MockFunctions public testFunctions;
 
     address public user;
 
@@ -171,7 +140,6 @@ contract TokenLibraryTest is Test {
         // Create mock contracts
         token = new MockERC20("Test Token", "TEST", 18);
         nonERC20 = new MockNonERC20();
-        testFunctions = new MockFunctions();
 
         // Setup user
         user = address(0xABCD);
@@ -265,27 +233,6 @@ contract TokenLibraryTest is Test {
     function test_sanityCheckERC20Token_zeroAddressReverts() public {
         vm.expectRevert(Token.ZeroAddress.selector);
         tokenLibExt.sanityCheckERC20Token(ZERO_ADDRESS);
-    }
-
-    // --- hasNonMutatingParameterlessFunction tests ---
-
-    function test_hasNonMutatingParameterlessFunction_exists() public view {
-        bool exists = tokenLibExt.hasNonMutatingParameterlessFunction(address(testFunctions), "noParamsNoReturn");
-        assertTrue(exists, "Should return true for existing function");
-
-        exists = tokenLibExt.hasNonMutatingParameterlessFunction(address(testFunctions), "noParamsWithReturn");
-        assertTrue(exists, "Should return true for existing function with return");
-    }
-
-    function test_hasNonMutatingParameterlessFunction_notExists() public view {
-        bool exists = tokenLibExt.hasNonMutatingParameterlessFunction(address(testFunctions), "nonExistentFunction");
-        assertFalse(exists, "Should return false for non-existent function");
-    }
-
-    function test_hasNonMutatingParameterlessFunction_withParams() public view {
-        // Functions with parameters will revert when called without parameters
-        bool exists = tokenLibExt.hasNonMutatingParameterlessFunction(address(testFunctions), "withParamsNoReturn");
-        assertFalse(exists, "Should return false for function with parameters");
     }
 
     // --- ensureUUPSUpgradeable tests ---
