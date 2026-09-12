@@ -711,7 +711,7 @@ def _check_baselines(found: Review) -> int:
             " deployment record was removed, and the contract is still on chain:\033[0m\n"
         )
         for baseline in found.orphaned:
-            _err(f"\033[31m  {baseline.chain} {baseline.address} {baseline.contract_type}\033[0m\n")
+            _err(f"\033[31m  {baseline.chain} {baseline.address} {baseline.contractType}\033[0m\n")
 
     if found.not_on_a_remote:
         failures = 1
@@ -725,7 +725,7 @@ def _check_baselines(found: Review) -> int:
                 "none": "on no branch, so nothing will ever push it — put it on one and push that",
                 "absent": "this repository does not have this commit at all — fetch it, or the baseline is dead",
             }[reach]
-            _err(f"\033[31m  {baseline.chain} {baseline.address} {baseline.contract_type}\033[0m\n")
+            _err(f"\033[31m  {baseline.chain} {baseline.address} {baseline.contractType}\033[0m\n")
             _err(f"\033[31m    {baseline.commit[:10]}: {says}\033[0m\n")
 
     if found.misnamed:
@@ -737,7 +737,7 @@ def _check_baselines(found: Review) -> int:
         for baseline, declares in found.misnamed:
             _err(f"\033[31m  {baseline.chain} {baseline.address}\033[0m\n")
             _err(
-                f"\033[31m    the record says {baseline.contract_type}, but {baseline.source} at"
+                f"\033[31m    the record says {baseline.contractType}, but {baseline.source} at"
                 f" {baseline.commit[:10]} declares {declares or 'no single contract'}\033[0m\n"
             )
         _err(

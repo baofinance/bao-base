@@ -53,16 +53,20 @@ def repo(tmp_path):
 
 def baseline_for(address: str = "0xAA", commit: str = "a" * 40) -> Baseline:
     return Baseline(
-        chain_id=1,
+        chainId=1,
         chain="mainnet",
         address=address,
-        contract_type="Foo",
+        contractType="Foo",
         source="src/Foo.sol",
         commit=commit,
-        commit_timestamp="2026-03-19T20:50:21Z",
-        deploy_block=24706244,
-        deploy_timestamp="2026-03-21T13:41:23Z",
-        creation_bytecode_keccak256="b" * 64,
+        commitTimestamp="2026-03-19T20:50:21Z",
+        deployBlock=24706244,
+        deployTimestamp="2026-03-21T13:41:23Z",
+        creationBytecodeKeccak256="b" * 64,
+        compiler="0.8.30+commit.73712a01",
+        settings={"evmVersion": "cancun", "optimizer": {"enabled": True, "runs": 700}},
+        sources={"src/Foo.sol": "d" * 40},
+        submodules={},
     )
 
 
@@ -80,7 +84,7 @@ def test_a_recorded_contract_stops_being_unrecovered(repo):
 
     found = review(repo)
 
-    assert [b.contract_type for b in found.recorded] == ["Foo"]
+    assert [b.contractType for b in found.recorded] == ["Foo"]
     assert found.unrecovered == []
 
 
@@ -92,7 +96,7 @@ def test_deleting_a_manifest_entry_orphans_its_baseline(repo):
 
     found = review(repo)
 
-    assert [b.contract_type for b in found.orphaned] == ["Foo"]
+    assert [b.contractType for b in found.orphaned] == ["Foo"]
     assert found.recorded == []
 
 
@@ -225,7 +229,7 @@ def test_a_baseline_on_a_commit_only_this_clone_has_is_reported_with_where_it_li
 
     found = review(repo)
 
-    assert [(b.contract_type, reach) for b, reach in found.not_on_a_remote] == [("Foo", "local")]
+    assert [(b.contractType, reach) for b, reach in found.not_on_a_remote] == [("Foo", "local")]
 
 
 def test_a_baseline_on_a_commit_this_repository_has_lost_is_reported_as_absent(repo, tmp_path):
@@ -236,7 +240,7 @@ def test_a_baseline_on_a_commit_this_repository_has_lost_is_reported_as_absent(r
 
     found = review(repo)
 
-    assert [(b.contract_type, reach) for b, reach in found.not_on_a_remote] == [("Foo", "absent")]
+    assert [(b.contractType, reach) for b, reach in found.not_on_a_remote] == [("Foo", "absent")]
 
 
 def test_a_record_naming_a_contract_its_source_does_not_declare_is_reported(repo, tmp_path):
@@ -256,7 +260,7 @@ def test_a_record_naming_a_contract_its_source_does_not_declare_is_reported(repo
 
     assert len(found.misnamed) == 1
     baseline, declares = found.misnamed[0]
-    assert (baseline.contract_type, declares) == ("Foo", "Renamed"), "both names, so the fix is obvious"
+    assert (baseline.contractType, declares) == ("Foo", "Renamed"), "both names, so the fix is obvious"
 
 
 def test_a_record_agreeing_with_its_source_is_not_reported(repo, tmp_path):

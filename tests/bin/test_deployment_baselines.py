@@ -29,17 +29,30 @@ from deployment_baselines import (  # noqa: E402
     write_baselines,
 )
 
+SETTINGS = {
+    "evmVersion": "cancun",
+    "optimizer": {"enabled": True, "runs": 700},
+    "viaIR": True,
+    "metadata": {"bytecodeHash": "ipfs"},
+    "remappings": ["@bao/=lib/bao-base/src/"],
+    "libraries": {},
+}
+
 PAUSER = Baseline(
-    chain_id=1,
+    chainId=1,
     chain="mainnet",
     address="0xd8785d5C51aaDEb3AD1D015Cd67C8A34dBf58f61",
-    contract_type="BaoPauser_v1",
+    contractType="BaoPauser_v1",
     source="src/BaoPauser_v1.sol",
     commit="a" * 40,
-    commit_timestamp="2026-03-19T20:50:21Z",
-    deploy_block=24706244,
-    deploy_timestamp="2026-03-21T13:41:23Z",
-    creation_bytecode_keccak256="b" * 64,
+    commitTimestamp="2026-03-19T20:50:21Z",
+    deployBlock=24706244,
+    deployTimestamp="2026-03-21T13:41:23Z",
+    creationBytecodeKeccak256="b" * 64,
+    compiler="0.8.30+commit.73712a01",
+    settings=SETTINGS,
+    sources={"src/BaoPauser_v1.sol": "d" * 40, "lib/bao-base/src/ERC165.sol": "e" * 40},
+    submodules={"lib/bao-base": "f" * 40},
 )
 
 
@@ -122,7 +135,7 @@ def test_a_repository_that_has_not_started_records_nothing(tmp_path):
 def test_a_baseline_survives_the_round_trip(tmp_path):
     write_baselines(tmp_path, add({}, PAUSER))
 
-    assert read_baselines(tmp_path) == {key(PAUSER.chain_id, PAUSER.address): PAUSER}
+    assert read_baselines(tmp_path) == {key(PAUSER.chainId, PAUSER.address): PAUSER}
 
 
 def test_an_address_is_one_identity_however_it_is_spelled(tmp_path):
@@ -150,7 +163,7 @@ def test_recording_the_same_fact_twice_is_a_no_op(tmp_path):
 def test_a_different_claim_about_one_address_is_refused(tmp_path):
     # The artefact at an address never changed, so two claims cannot both be true - and which is true
     # is a question about the chain, not one this file can settle.
-    other = Baseline(**{**PAUSER.__dict__, "commit": "c" * 40, "contract_type": "HarborPauser_v1"})
+    other = Baseline(**{**PAUSER.__dict__, "commit": "c" * 40, "contractType": "HarborPauser_v1"})
 
     with pytest.raises(Conflict) as refused:
         add(add({}, PAUSER), other)
@@ -195,12 +208,16 @@ def test_the_file_is_camel_case_throughout_and_names_its_fields_as_the_manifests
         "deployBlock",
         "deployTimestamp",
         "creationBytecodeKeccak256",
+        "compiler",
+        "settings",
+        "sources",
+        "submodules",
     }
     assert not any("_" in name for name in fields), fields
     assert "Hash" not in "".join(fields), "the algorithm is named, not left for the value to declare"
 
 
-def test_every_timestamp_is_utc(tmp_path):
+def test_everyTimestamp_is_utc(tmp_path):
     # Both come from Unix seconds - the block's own, and `git log --format=%ct` - never from a
     # formatter carrying a local offset, so a record does not depend on where the person recovering it
     # was sitting.
@@ -216,7 +233,7 @@ def test_the_commit_predates_the_deploy_in_the_ordinary_case(tmp_path):
     # Not enforced - a commit made AFTER the deploy is a real and recordable state, meaning the deploy
     # ran from an uncommitted tree - but the two are stored so that it can be SEEN, which the tags
     # could never show.
-    assert PAUSER.commit_timestamp < PAUSER.deploy_timestamp
+    assert PAUSER.commitTimestamp < PAUSER.deployTimestamp
 
 
 def test_entries_are_written_sorted_so_two_deploys_collide_as_additions(tmp_path):
@@ -234,3 +251,56 @@ def test_the_file_ends_with_a_newline(tmp_path):
     write_baselines(tmp_path, add({}, PAUSER))
 
     assert (tmp_path / RECORD).read_text().endswith("}\n")
+
+
+# ── the compiler input beside the commit ───────────────────────────────────────────────────────────
+#
+# A commit alone leaves the build to whatever the machine running it has: the compiler comes from the
+# pragma and whatever versions are installed, and the settings from one forge release's reading of that
+# commit's foundry.toml. Measured: one deployed contract's explorer record says `prague` where a
+# rebuild here chose `osaka`, and both build the deployed code. So a baseline states what proved it -
+# the compiler, solc's settings, the blob id of every source the build read, and the submodule commit
+# holding each blob that lives in one, since a blob id resolves only where the object is.
+
+
+def test_the_compiler_input_is_part_of_the_record(tmp_path):
+    write_baselines(tmp_path, add({}, PAUSER))
+
+    fields = next(iter(json.loads((tmp_path / RECORD).read_text())["baselines"].values()))
+
+    assert fields["compiler"] == "0.8.30+commit.73712a01"
+    assert fields["settings"]["evmVersion"] == "cancun", "the EVM version no pragma pins"
+    assert fields["settings"]["remappings"], "remappings decide which file each import resolves to"
+    assert fields["sources"]["lib/bao-base/src/ERC165.sol"] == "e" * 40, "a dependency, by blob id"
+    assert fields["submodules"]["lib/bao-base"] == "f" * 40, "the repository that holds that blob"
+
+
+def test_a_record_that_cannot_say_what_built_it_is_refused(tmp_path):
+    # The gap this record exists to close, so it is not silently readable as "built by anything".
+    without = {spelling: value for spelling, value in _written(PAUSER).items() if spelling != "settings"}
+    (tmp_path / RECORD).write_text(
+        json.dumps({"schemaVersion": SCHEMA_VERSION, "baselines": {key(PAUSER.chainId, PAUSER.address): without}})
+    )
+
+    with pytest.raises(KeyError) as refused:
+        read_baselines(tmp_path)
+
+    assert "settings" in str(refused.value), "the refusal names the field that is missing"
+
+
+def test_a_different_compiler_input_for_one_address_is_refused(tmp_path):
+    # Same rule as the commit: the artefact never changed, so two claims about what built it cannot
+    # both be true, and which is true is a question about the chain.
+    other = Baseline(**{**PAUSER.__dict__, "settings": {**SETTINGS, "evmVersion": "prague"}})
+
+    with pytest.raises(Conflict):
+        add(add({}, PAUSER), other)
+
+
+def _written(baseline: Baseline) -> dict:
+    """The record's own spelling of one baseline, taken from the file it writes."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as directory:
+        write_baselines(Path(directory), {key(baseline.chainId, baseline.address): baseline})
+        return next(iter(json.loads((Path(directory) / RECORD).read_text())["baselines"].values()))

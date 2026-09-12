@@ -11,7 +11,70 @@
       "commitTimestamp": "2026-03-19T20:50:21Z",
       "deployBlock": 24706244,
       "deployTimestamp": "2026-03-21T13:41:23Z",
-      "creationBytecodeKeccak256": "19d60ec0618ee7eaeee3e21e4dd4b2194105acf731ea057cfa575b1f98370c36"
+      "creationBytecodeKeccak256": "19d60ec0618ee7eaeee3e21e4dd4b2194105acf731ea057cfa575b1f98370c36",
+      "compiler": "0.8.30+commit.73712a01",
+      "settings": {
+        "remappings": [
+          "@bao-factory-test/=lib/bao-factory/test/",
+          "@bao-factory/=lib/bao-factory/src/",
+          "@bao-script/=script/",
+          "@bao-test/=test/",
+          "@bao/=src/",
+          "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+          "@openzeppelin/contracts/=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
+          "@solady/=lib/solady/src/",
+          "ds-test/=lib/forge-std/lib/ds-test/src/",
+          "forge-std/=lib/forge-std/src/",
+          "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
+          "solidity-stringutils/=lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils/"
+        ],
+        "optimizer": {
+          "enabled": true,
+          "runs": 200
+        },
+        "metadata": {
+          "bytecodeHash": "ipfs"
+        },
+        "evmVersion": "osaka",
+        "libraries": {}
+      },
+      "sources": {
+        "lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/Initializable.sol": "b3d82b586e2209f08e45f9b624aacc9517ad1083",
+        "lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/UUPSUpgradeable.sol": "e0feb3ff14e8c31d64501aeb714c02dbc040e0b9",
+        "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/interfaces/IERC1967.sol": "d285ec889e88ba5f9d106714561307e93920931f",
+        "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/interfaces/IERC5313.sol": "62f8d75c570bb191ca4b302e7bcb525644fdfde0",
+        "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/interfaces/draft-IERC1822.sol": "f846ea6bf0ef6089ce61910390065d6a896cb370",
+        "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Utils.sol": "1f320135277553bc41ce604836f9dca7277726c0",
+        "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/beacon/IBeacon.sol": "36a3c76e926c0ed5038a2cbe074cd26e09517548",
+        "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/utils/Address.sol": "a1c8af296ce30bcc91fea345e8f5947fcfe445a8",
+        "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/utils/Errors.sol": "442fc18920f87e8d8923e8e86c4b3de6b529d01c",
+        "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/utils/StorageSlot.sol": "aebb10524a2c82aa78ceb8394e5f3c1b0e5abeea",
+        "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/utils/introspection/IERC165.sol": "719ec358659d3bb92f2c6de3ca77ed7aad249d90",
+        "src/BaoFixedOwnable.sol": "84d58d521d2a2641a78689e04ed6fe14016618eb",
+        "src/BaoPauser_v1.sol": "233dd17d6176b0cf50174df5697037abaf93bc26",
+        "src/ERC165.sol": "d63a2b901f3a193e48e9d817ba58d95e9a64e008",
+        "src/interfaces/IBaoFixedOwnable.sol": "d4e962cf0546969517382c9e3477abf374a0ab18"
+      },
+      "submodules": {
+        "lib/bao-factory": "b49a45ff1aaebb1e56164091020e2bbe4c27cfcb",
+        "lib/bao-factory/lib/forge-std": "7117c90c8cf6c68e5acce4f09a6b24715cea4de6",
+        "lib/bao-factory/lib/solady": "acd959aa4bd04720d640bf4e6a5c71037510cc4b",
+        "lib/forge-std": "b93cf4bc34ff214c099dc970b153f85ade8c9f66",
+        "lib/openzeppelin-contracts-upgradeable": "fa525310e45f91eb20a6d3baa2644be8e0adba31",
+        "lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests": "8b1d7c2ac248c33c3506b1bff8321758943c5e11",
+        "lib/openzeppelin-contracts-upgradeable/lib/forge-std": "ae570fec082bfe1c1f45b0acca4a2b4f84d345ce",
+        "lib/openzeppelin-contracts-upgradeable/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
+        "lib/openzeppelin-contracts-upgradeable/lib/halmos-cheatcodes": "c0d865508c0fee0a11b97732c5e90f9cad6b65a5",
+        "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts": "69c8def5f222ff96f2b5beff05dfba996368aa79",
+        "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/erc4626-tests": "8b1d7c2ac248c33c3506b1bff8321758943c5e11",
+        "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/forge-std": "ae570fec082bfe1c1f45b0acca4a2b4f84d345ce",
+        "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/forge-std/lib/ds-test": "e282159d5170298eb2455a6c05280ab5a73a4ef0",
+        "lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/lib/halmos-cheatcodes": "c0d865508c0fee0a11b97732c5e90f9cad6b65a5",
+        "lib/openzeppelin-foundry-upgrades": "16e0ae21e0e39049f619f2396fa28c57fad07368",
+        "lib/openzeppelin-foundry-upgrades/lib/forge-std": "b6a506db2262cad5ff982a87789ee6d1558ec861",
+        "lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils": "4b2fcc43fa0426e19ce88b1f1ec16f5903a2e461",
+        "lib/solady": "717c0a860a83dc9a1520d32384577aec51cecd84"
+      }
     }
   }
 }

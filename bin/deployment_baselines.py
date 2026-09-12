@@ -28,7 +28,7 @@ from __future__ import annotations
 import json
 import subprocess
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, fields, replace
 from pathlib import Path
 
 from deployment_recovery import declared_in
@@ -51,32 +51,20 @@ class Conflict(Exception):
     which of the two is true is a question about the chain, not about a file."""
 
 
-# Python names on the left, the file's names on the right. The file is camelCase throughout, because
-# every manifest in the fleet already is (`contractSource`, `contractType`, `deploymentTime`,
-# `chainId`) and a reader moving between them should not have to translate; Python stays snake_case,
-# because it is Python. Mixing the two conventions in one file - which the first draft did, with
-# `schemaVersion` beside `creation_bytecode_hash` - reads as two authors who never met.
-_FIELDS = {
-    "chain_id": "chainId",
-    "chain": "chain",
-    "address": "address",
-    "contract_type": "contractType",
-    "source": "source",
-    "commit": "commit",
-    "commit_timestamp": "commitTimestamp",
-    "deploy_block": "deployBlock",
-    "deploy_timestamp": "deployTimestamp",
-    # The algorithm is in the NAME, not smuggled into the value as a prefix: a reader checking it runs
-    # `cast keccak` and compares, with nothing to strip first.
-    "creation_bytecode_keccak256": "creationBytecodeKeccak256",
-}
+# A field is named ONCE, by the dataclass below, and that name is the file's name. The file is
+# camelCase because every manifest in the fleet already is (`contractSource`, `contractType`,
+# `deploymentTime`, `chainId`) and a reader moving between them should not have to translate. The
+# first draft carried a table of Python name to file name instead; every one of its fourteen rows was
+# the mechanical snake-to-camel of the field beside it, so it stated the field list a second time and
+# said nothing - a second place to forget a field. `Entry`, which mirrors the manifests rather than
+# this file, keeps Python spelling: the two are different objects and only this one IS the record.
 
 
 @dataclass(frozen=True)
 class Baseline:
     """One deployed contract's source, as a fact.
 
-    `contract_type` duplicates the manifest's field of that name, deliberately and under the same
+    `contractType` duplicates the manifest's field of that name, deliberately and under the same
     spelling: it is what makes the record readable on its own, it cannot drift because both are
     write-once facts about one immutable artefact, and calling it something else would invite the
     question of whether it means something else. `deployedAt` is NOT duplicated, for the opposite
@@ -88,22 +76,36 @@ class Baseline:
     `git log --format=%ct` - rather than from any formatter that carries a local offset, so a record
     does not depend on where the person recovering it was sitting.
 
-    `commit_timestamp` beside `deploy_timestamp` is diagnostic, not decoration: a commit made AFTER
+    `commitTimestamp` beside `deployTimestamp` is diagnostic, not decoration: a commit made AFTER
     the deploy proves the deploy ran from a tree that was not committed yet, which is the ambiguity
-    the tags could never settle. And `deploy_timestamp` is the CHAIN's, where the manifests record the
+    the tags could never settle. And `deployTimestamp` is the CHAIN's, where the manifests record the
     deploy script's clock - measured 2m55s late for BaoPauser, and shared across a whole batch of
     aggregators that were deployed at different moments."""
 
-    chain_id: int  # the chain. `chain` beside it is a label for reading and for the RPC alias
+    chainId: int  # the chain. `chain` beside it is a label for reading and for the RPC alias
     chain: str
     address: str
-    contract_type: str
+    contractType: str
     source: str  # normalised and repo-qualified, resolvable at `commit`
     commit: str
-    commit_timestamp: str
-    deploy_block: int
-    deploy_timestamp: str
-    creation_bytecode_keccak256: str
+    commitTimestamp: str
+    deployBlock: int
+    deployTimestamp: str
+    # The algorithm is in the NAME, not smuggled into the value as a prefix: a reader checking it runs
+    # `cast keccak` and compares, with nothing to strip first.
+    creationBytecodeKeccak256: str
+    # What the commit alone does not settle, and every baseline carries. The compiler comes from the
+    # pragma and whatever versions a machine has installed; the settings come from one forge release's
+    # reading of that commit's foundry.toml. Both move under the record's feet - one deployed
+    # contract's explorer record says `prague` where a rebuild here chose `osaka`, and both build the
+    # deployed code - so a proof states what it was proved with.
+    compiler: str
+    # solc's own settings, minus `compilationTarget`, which is `source` and `contractType` said twice.
+    settings: dict[str, object]
+    # The closure the build read, each source as its git blob id, and the repository each blob lives
+    # in: a blob id resolves only in the object store that holds it, and most of these are submodules.
+    sources: dict[str, str]
+    submodules: dict[str, str]
 
 
 def key(chain_id: int, address: str) -> str:
@@ -169,9 +171,12 @@ def read_baselines(repo_root: Path) -> dict[str, Baseline]:
     version = document.get("schemaVersion")
     if version != SCHEMA_VERSION:
         raise UnknownSchema(f"{RECORD} declares schemaVersion {version!r}; this reads {SCHEMA_VERSION}")
+    # Every field by name, and a field the record does not carry raises rather than defaulting: a
+    # baseline that cannot say what built it is the gap this record exists to close, so it is not
+    # readable as one that merely omits it.
     return {
-        entry_key: Baseline(**{name: fields[spelling] for name, spelling in _FIELDS.items()})
-        for entry_key, fields in (document.get("baselines") or {}).items()
+        entry_key: Baseline(**{field.name: written[field.name] for field in fields(Baseline)})
+        for entry_key, written in (document.get("baselines") or {}).items()
     }
 
 
@@ -182,12 +187,12 @@ def add(baselines: dict[str, Baseline], baseline: Baseline) -> dict[str, Baselin
     already covered is safe. Recording something DIFFERENT for an address that already has a baseline
     is refused: the artefact at that address never changed, so the two claims cannot both be true and
     this is not the place to decide which is."""
-    entry_key = key(baseline.chain_id, baseline.address)
+    entry_key = key(baseline.chainId, baseline.address)
     existing = baselines.get(entry_key)
     if existing is not None and existing != baseline:
         raise Conflict(
-            f"{entry_key} is already recorded as {existing.contract_type} from {existing.commit[:10]}; "
-            f"refusing to replace it with {baseline.contract_type} from {baseline.commit[:10]}"
+            f"{entry_key} is already recorded as {existing.contractType} from {existing.commit[:10]}; "
+            f"refusing to replace it with {baseline.contractType} from {baseline.commit[:10]}"
         )
     return {**baselines, entry_key: baseline}
 
@@ -205,10 +210,8 @@ def write_baselines(repo_root: Path, baselines: dict[str, Baseline]) -> None:
     previous complete file rather than half of the new one."""
     document = {
         "schemaVersion": SCHEMA_VERSION,
-        "baselines": {
-            entry_key: {spelling: asdict(baselines[entry_key])[name] for name, spelling in _FIELDS.items()}
-            for entry_key in sorted(baselines)
-        },
+        # `asdict` IS the file's shape: a field is named once, and that name serves both sides.
+        "baselines": {entry_key: asdict(baselines[entry_key]) for entry_key in sorted(baselines)},
     }
     final = repo_root / RECORD
     pending = final.with_suffix(final.suffix + ".pending")
@@ -293,7 +296,7 @@ def review(repo_root: Path) -> Review:
             for k in sorted(baselines)
             if reaches[baselines[k].commit] != "absent"
             and (declared := declared_in(repo_root, baselines[k].commit, baselines[k].source))
-            != baselines[k].contract_type
+            != baselines[k].contractType
         ],
     )
 

@@ -32,8 +32,10 @@ from deployment_recovery import (  # noqa: E402
     remove_worktree,
     search_passes,
     source_at,
+    source_blobs,
     still_to_compare,
     strip_metadata,
+    submodule_commits,
 )
 
 
@@ -55,6 +57,103 @@ def with_trailer(body: bytes, filler: int = 0x00) -> bytes:
 
 def git(where: Path, *arguments: str) -> None:
     subprocess.run(["git", *arguments], cwd=where, capture_output=True, text=True, check=True)
+
+
+def git_output(where: Path, *arguments: str) -> str:
+    return subprocess.run(["git", *arguments], cwd=where, capture_output=True, text=True, check=True).stdout.strip()
+
+
+# ── naming the build's inputs, so a record can be checked without building ─────────────────────────
+#
+# A commit plus a path is enough to FIND a source, but a check that wants to know whether two trees
+# would build the same bytecode should not have to build them. Blob ids answer that with git alone -
+# which is what the tag check needs, and what re-proving a record needs when the build is expensive.
+#
+# The catch is submodules: most of a contract's closure lives in one, a blob id resolves only in the
+# object store that holds it, and the superproject records WHICH commit of the submodule it had. A
+# submodule that has moved on since must not change the answer, or the record dates itself.
+
+
+def repository_with_submodule(tmp_path: Path) -> tuple[Path, str, str, str]:
+    """A superproject with `lib/dependency` at a recorded commit, whose tip has since moved on.
+
+    Returns the superproject, its commit, and the dependency's first and second source blob ids."""
+    dependency = tmp_path / "dependency"
+    (dependency / "src").mkdir(parents=True)
+    git(dependency, "init", "-q", "-b", "main")
+    git(dependency, "config", "user.email", "t@t")
+    git(dependency, "config", "user.name", "test")
+    (dependency / "src" / "Dependency.sol").write_text("// the version the superproject records\n")
+    git(dependency, "add", "-A")
+    git(dependency, "commit", "-qm", "recorded")
+    recorded_blob = git_output(dependency, "rev-parse", "HEAD:src/Dependency.sol")
+
+    superproject = tmp_path / "superproject"
+    (superproject / "src").mkdir(parents=True)
+    git(superproject, "init", "-q", "-b", "main")
+    git(superproject, "config", "user.email", "t@t")
+    git(superproject, "config", "user.name", "test")
+    (superproject / "src" / "Own.sol").write_text("// the superproject's own source\n")
+    git(
+        superproject,
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "--quiet",
+        "add",
+        str(dependency),
+        "lib/dependency",
+    )
+    git(superproject, "add", "-A")
+    git(superproject, "commit", "-qm", "with the dependency")
+    commit = git_output(superproject, "rev-parse", "HEAD")
+
+    # The dependency moves on afterwards, without the superproject following it.
+    (dependency / "src" / "Dependency.sol").write_text("// a later version nothing records\n")
+    git(dependency, "add", "-A")
+    git(dependency, "commit", "-qm", "later")
+    later_blob = git_output(dependency, "rev-parse", "HEAD:src/Dependency.sol")
+
+    return superproject, commit, recorded_blob, later_blob
+
+
+def test_a_source_of_the_superproject_is_named_by_its_blob_id(tmp_path):
+    superproject, commit, _, _ = repository_with_submodule(tmp_path)
+
+    named = source_blobs(superproject, commit, ["src/Own.sol"])
+
+    assert named == {"src/Own.sol": git_output(superproject, "rev-parse", f"{commit}:src/Own.sol")}
+
+
+def test_a_source_inside_a_submodule_is_read_at_the_commit_the_superproject_records(tmp_path):
+    # The failure this prevents: reading the submodule's tip instead, so the record says what the
+    # dependency looks like today rather than what the build actually read.
+    superproject, commit, recorded_blob, later_blob = repository_with_submodule(tmp_path)
+
+    named = source_blobs(superproject, commit, ["lib/dependency/src/Dependency.sol"])
+
+    assert named == {"lib/dependency/src/Dependency.sol": recorded_blob}
+    assert recorded_blob != later_blob, "the dependency did move on, so the two are distinguishable"
+
+
+def test_every_submodule_the_commit_records_is_named(tmp_path):
+    # The cheap check compares these as well as the sources: a tree with identical sources but a
+    # different dependency builds different bytecode.
+    superproject, commit, _, _ = repository_with_submodule(tmp_path)
+
+    assert submodule_commits(superproject, commit) == {
+        "lib/dependency": git_output(superproject, "rev-parse", f"{commit}:lib/dependency")
+    }
+
+
+def test_a_source_the_commit_does_not_have_is_reported(tmp_path):
+    # A record missing a source would be a record that cannot be rebuilt, so this cannot pass quietly.
+    superproject, commit, _, _ = repository_with_submodule(tmp_path)
+
+    with pytest.raises(FileNotFoundError) as missing:
+        source_blobs(superproject, commit, ["src/Own.sol", "src/NeverExisted.sol"])
+
+    assert "src/NeverExisted.sol" in str(missing.value)
 
 
 # ── the comparison arithmetic ─────────────────────────────────────────────────────────────────────

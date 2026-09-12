@@ -36,8 +36,10 @@ from deployment_recovery import (
     remove_worktree,
     search_passes,
     source_at,
+    source_blobs,
     still_to_compare,
     strip_metadata,
+    submodule_commits,
 )
 
 
@@ -433,19 +435,31 @@ def main() -> int:
                     continue
                 if reach == "local":
                     unpushed.append((entry_key, entry.name, found))
+                # What the commit alone does not settle, taken from the build that just proved it.
+                # solc writes its own metadata into the artefact, so the compiler and the settings are
+                # the ones that produced this bytecode rather than a second reading of foundry.toml,
+                # and `sources` there is the closure it actually read.
+                metadata = artefact["metadata"]
                 baselines = add(
                     baselines,
                     Baseline(
-                        chain_id=entry.chain_id,
+                        chainId=entry.chain_id,
                         chain=entry.chain,
                         address=entry.address,
-                        contract_type=entry.name,
+                        contractType=entry.name,
                         source=source,
                         commit=found,
-                        commit_timestamp=made or "",
-                        deploy_block=wants.block,
-                        deploy_timestamp=wants.deployed,
-                        creation_bytecode_keccak256=_keccak256(creation),
+                        commitTimestamp=made or "",
+                        deployBlock=wants.block,
+                        deployTimestamp=wants.deployed,
+                        creationBytecodeKeccak256=_keccak256(creation),
+                        compiler=metadata["compiler"]["version"],
+                        # `compilationTarget` is `source` and `contractType` said again.
+                        settings={
+                            name: value for name, value in metadata["settings"].items() if name != "compilationTarget"
+                        },
+                        sources=source_blobs(root, found, metadata["sources"]),
+                        submodules=submodule_commits(root, found),
                     ),
                 )
                 recovered += 1

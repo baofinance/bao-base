@@ -329,6 +329,64 @@ def source_at(
     return (was, declared) if declared else None
 
 
+def submodule_commits(repo_root: Path, commit: str) -> dict[str, str]:
+    """Every submodule the tree at `commit` records: path from this repository's root, to its commit.
+
+    Read from the TREE, not from `.gitmodules`: the gitlink is what a checkout of this commit would
+    place, where `.gitmodules` only says where to fetch it from. Recursive, because the closure reaches
+    nested submodules - the OpenZeppelin contracts live inside contracts-upgradeable - and a blob in
+    one resolves only against the commit its own parent records.
+
+    A submodule that is not checked out here is still recorded, because the parent's tree says so, but
+    cannot be descended into. That is the same trade `place_worktree` makes: it may hold nothing the
+    build needs, and `source_blobs` raises if it does.
+    """
+    found: dict[str, str] = {}
+
+    def walk(parent: Path, parent_commit: str, prefix: str) -> None:
+        listing = subprocess.run(["git", "ls-tree", "-r", parent_commit], cwd=parent, capture_output=True, text=True)
+        for line in listing.stdout.splitlines():
+            fields = line.split(maxsplit=3)
+            if len(fields) < 4 or fields[1] != "commit":
+                continue
+            gitlink, path = fields[2], fields[3]
+            found[f"{prefix}{path}"] = gitlink
+            if (parent / path).is_dir():
+                walk(parent / path, gitlink, f"{prefix}{path}/")
+
+    walk(repo_root, commit, "")
+    return found
+
+
+def source_blobs(repo_root: Path, commit: str, paths: Iterable[str]) -> dict[str, str]:
+    """Each path's git blob id at `commit` — the identity of the exact bytes a build read.
+
+    A path inside a submodule is read against the commit the superproject RECORDS for that submodule,
+    never the submodule's tip: otherwise the record would say what the dependency looks like today
+    rather than what was built, and would change meaning every time the dependency moved.
+
+    A path the commit does not have raises, because a record that cannot name every source is a record
+    that cannot be rebuilt, and a missing one would leave a hole nothing else reports.
+    """
+    submodules = submodule_commits(repo_root, commit)
+    found: dict[str, str] = {}
+    for path in paths:
+        # The longest match, so a file in a nested submodule is read against the nested gitlink rather
+        # than its parent's.
+        prefix = max((p for p in submodules if path.startswith(f"{p}/")), key=len, default=None)
+        if prefix is None:
+            holder, holder_commit, inside = repo_root, commit, path
+        else:
+            holder, holder_commit, inside = repo_root / prefix, submodules[prefix], path[len(prefix) + 1 :]
+        shown = subprocess.run(
+            ["git", "rev-parse", f"{holder_commit}:{inside}"], cwd=holder, capture_output=True, text=True
+        )
+        if shown.returncode != 0:
+            raise FileNotFoundError(f"{path} is not in the tree at {commit[:10]}")
+        found[path] = shown.stdout.strip()
+    return found
+
+
 def place_worktree(repo_root: Path, commit: str, at: Path) -> list[str]:
     """A checkout of `commit` at `at`, with every submodule at its recorded gitlink. Returns failures.
 
