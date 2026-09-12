@@ -406,7 +406,10 @@ def main() -> int:
     # sends the reader to grep for it.
     refused: list[tuple[str, str, str, str]] = []
     unpushed: list[tuple[str, str, str, str]] = []
-    unproven: list[tuple[str, str, str, str]] = []
+    # Every commit each contract screened at without being proved. A screen masks the immutables, so
+    # matching it is a candidacy and not an answer - which is why these do not end the search, and why
+    # they are only an OUTCOME for a contract that was never proved anywhere.
+    screened: dict[str, list[str]] = {}
     # Which contracts have already been compared against each build (keyed by `build_id`), and which
     # commit first carried that build - so a skip can say what it duplicates rather than leaving a gap
     # in the numbering that reads like a contract being dropped.
@@ -449,7 +452,9 @@ def main() -> int:
                 )
             say(1, f"{' ' * len(place)}  {time.monotonic() - started:.1f}s, {len(outcome)} matched")
             for entry_key, (found, source, declared, artefact, immutables) in outcome.items():
-                wants = pending.pop(entry_key)
+                # NOT popped here. What follows can still refuse this commit, and a contract taken out
+                # of the search on a SCREEN is one no later commit is ever tried for.
+                wants = pending[entry_key]
                 entry = wants.entry
                 creation = bytes.fromhex(artefact["bytecode"]["object"][2:])
                 made = commit_timestamp(root, found)
@@ -464,19 +469,27 @@ def main() -> int:
                 immutable_regions = artefact["deployedBytecode"].get("immutableReferences") or {}
                 produced = _construct(artefact["bytecode"]["object"], entry.chain, wants.block)
                 if produced is None:
-                    print(f"      NOT RECORDED: the constructor could not be run at block {wants.block},")
-                    print("      so the immutables cannot be checked and the match is unproven")
-                    unproven.append((entry_key, entry.name, ", ".join(entry.manifests or (entry.manifest,)), found))
+                    print(f"      NOT PROVED HERE: the constructor could not be run at block {wants.block},")
+                    print("      so the immutables cannot be checked — still looking at the other commits")
+                    screened.setdefault(entry_key, []).append(found)
                     continue
                 explained, unexplained = differences(
                     strip_metadata(wants.onchain), strip_metadata(produced), immutable_regions, entry.address
                 )
                 if unexplained:
-                    print("      NOT RECORDED: the constructor does not reproduce what is deployed —")
+                    print("      NOT PROVED HERE: the constructor does not reproduce what is deployed —")
                     for line in unexplained:
                         print(f"        {line}")
-                    unproven.append((entry_key, entry.name, ", ".join(entry.manifests or (entry.manifest,)), found))
+                    print("      the code outside the immutables matches — still looking at the other commits")
+                    # The tree that differs only in a value that becomes an immutable screens exactly
+                    # like the tree that was deployed, so the search has to go on. Both mainnet BTC
+                    # aggregators screened at the commit before their deploy, where the staleness
+                    # constant was an hour, against a chain holding a day - written by the commit two
+                    # minutes AFTER they were created, which the second pass reaches.
+                    screened.setdefault(entry_key, []).append(found)
                     continue
+                # Proved. Nothing later can be a better answer, so the search for it ends here.
+                del pending[entry_key]
                 say(2, f"      constructor reproduces the deployed code; {len(immutables)} immutables:")
                 for value in immutables:
                     say(2, f"        {value}")
@@ -538,10 +551,23 @@ def main() -> int:
         print("  Put each on a branch and push it, then run again. Until then these are unrecoverable:")
         print("  a stash entry is destroyed by `git stash drop`, and nothing else built this bytecode.")
 
+    # Read from what is STILL being looked for, not from every screen that happened: a contract proved
+    # at a later commit passed through the screen that failed on its way there, and listing it as an
+    # outcome would report a recovered contract as a failure.
+    unproven = [
+        (
+            entry_key,
+            wants.entry.name,
+            ", ".join(wants.entry.manifests or (wants.entry.manifest,)),
+            screened[entry_key],
+        )
+        for entry_key, wants in pending.items()
+        if entry_key in screened
+    ]
     if unproven:
         print(f"\n{len(unproven)} screened but NOT recorded — the constructor does not account for them:")
-        for entry_key, name, _, found in unproven:
-            print(f"  {entry_key}  {name}  at {found[:10]}")
+        for entry_key, name, _, commits in unproven:
+            print(f"  {entry_key}  {name}  at {', '.join(found[:10] for found in commits)}")
         print("  The code outside the immutables matches, so the source is close — but an immutable")
         print("  the source determines came out differently, which a masked comparison would have hidden.")
 
@@ -569,14 +595,23 @@ def main() -> int:
                 f"{sum(1 for seen in compared.values() if entry_key in seen)} distinct build(s))",
             )
             for entry_key, wants in pending.items()
+            # "Nothing built it" would be untrue of a contract something built everywhere except an
+            # immutable; that one is named below, with the commits that came close.
+            if entry_key not in screened
         ),
         *(
             (entry_key, name, manifest, f"proved at {found[:10]}, but that commit is on no branch")
             for entry_key, name, manifest, found in refused
         ),
         *(
-            (entry_key, name, manifest, f"screened at {found[:10]}, but the constructor does not account for it")
-            for entry_key, name, manifest, found in unproven
+            (
+                entry_key,
+                name,
+                manifest,
+                f"screened at {', '.join(found[:10] for found in commits)}, but the constructor does not "
+                "account for it",
+            )
+            for entry_key, name, manifest, commits in unproven
         ),
     ]
     if missing:

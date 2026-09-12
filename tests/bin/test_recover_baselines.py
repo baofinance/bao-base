@@ -62,8 +62,8 @@ def commit(repo: Path, when: str, message: str) -> str:
     ).stdout.strip()
 
 
-def runtime(repo: Path, source: str, contract: str, scratch: Path) -> bytes:
-    """What `contract` compiles to in the working tree now: the code a deploy from this tree places."""
+def artefact_of(repo: Path, source: str, contract: str, scratch: Path) -> dict:
+    """The whole artefact `contract` compiles to in the working tree now."""
     environment = {k: v for k, v in os.environ.items() if not k.startswith("FOUNDRY_") or k == "FOUNDRY_DIR"}
     out = scratch / f"out-{contract}"
     subprocess.run(
@@ -74,8 +74,12 @@ def runtime(repo: Path, source: str, contract: str, scratch: Path) -> bytes:
         text=True,
         env={**environment, "FOUNDRY_OUT": str(out), "FOUNDRY_CACHE_PATH": str(scratch / f"cache-{contract}")},
     )
-    artefact = json.loads((out / Path(source).name / f"{contract}.json").read_text())
-    return bytes.fromhex(artefact["deployedBytecode"]["object"][2:])
+    return json.loads((out / Path(source).name / f"{contract}.json").read_text())
+
+
+def runtime(repo: Path, source: str, contract: str, scratch: Path) -> bytes:
+    """What `contract` compiles to in the working tree now: the code a deploy from this tree places."""
+    return bytes.fromhex(artefact_of(repo, source, contract, scratch)["deployedBytecode"]["object"][2:])
 
 
 class Chain:
@@ -378,3 +382,184 @@ def test_a_contract_two_manifests_disagree_about_names_both_of_them(tmp_path, mo
     summary = printed[printed.rindex("not recorded") :]
     assert "deployments/mainnet/old.json" in summary, "the manifest the reader kept"
     assert "deployments/mainnet/new.json" in summary, "and the one it disagrees with"
+
+
+# ── a screen is not a proof, so a contract stays in the search until it gets one ───────────────────
+#
+# The screen masks the immutables, so every tree whose only difference becomes an immutable matches it.
+# `Aggregator_wBTC_USD_mainnet` screened at the commit before its deploy, where the staleness constant
+# was 3600, while the chain holds 86400 — written by the commit two minutes AFTER the contract was
+# created, from the dirty tree it was deployed from. A contract that leaves the search on a screen never
+# reaches that commit, and is reported as though nothing in the repository built it.
+
+STALENESS_COMMITTED = 3600
+STALENESS_DEPLOYED = 86400
+
+# Its immutable comes from a constant another file holds, so a commit can change what this contract
+# builds without touching it — which is what makes two trees screen the same and prove differently.
+IMMUTABLE_CONTRACT = (
+    "pragma solidity 0.8.30;\n"
+    'import {Staleness} from "@fixture/Staleness.sol";\n'
+    "contract A {\n"
+    "    uint256 public immutable staleness = Staleness.VALUE;\n"
+    "}\n"
+)
+
+
+def staleness_library(value: int, note: str = "") -> str:
+    return f"pragma solidity 0.8.30;\nlibrary Staleness {{\n    uint256 internal constant VALUE = {value};\n}}\n{note}"
+
+
+def repository_with_an_immutable(tmp_path) -> tuple[Path, Path]:
+    """A repository holding that contract, and nothing committed yet.
+
+    Each test commits the trees it needs, because what separates them is which trees exist and when."""
+    repo, scratch = tmp_path / "repo", tmp_path / "scratch"
+    (repo / "src").mkdir(parents=True)
+    scratch.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True, capture_output=True)
+    for setting, value in (("user.email", "t@t"), ("user.name", "test")):
+        subprocess.run(["git", "config", setting, value], cwd=repo, check=True, capture_output=True)
+    (repo / "foundry.toml").write_text('[profile.default]\nsrc = "src"\nlibs = []\nremappings = ["@fixture/=src/"]\n')
+    manifest = repo / "deployments" / "mainnet" / "state.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "network": "mainnet",
+                "chainId": 1,
+                "implementations": {
+                    ADDRESS_A: {"contractSource": "src/A.sol", "contractType": "A", "deploymentTime": DEPLOYED}
+                },
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    (repo / "src" / "A.sol").write_text(IMMUTABLE_CONTRACT)
+    return repo, scratch
+
+
+def tree_with_staleness(repo: Path, scratch: Path, value: int, note: str = "") -> tuple[dict, bytes]:
+    """Put `value` in the constant, build, and return the artefact with the code a deploy from here holds.
+
+    The artefact carries zeros where the immutable goes and the constructor writes the value into every
+    reference to it before returning the code, so filling them is what the chain ends up with."""
+    (repo / "src" / "Staleness.sol").write_text(staleness_library(value, note))
+    artefact = artefact_of(repo, "src/A.sol", "A", scratch)
+    references = artefact["deployedBytecode"]["immutableReferences"]
+    assert references, "the fixture contract must carry an immutable, or the screen masks nothing"
+    code = bytearray(bytes.fromhex(artefact["deployedBytecode"]["object"][2:]))
+    for regions in references.values():
+        for region in regions:
+            code[region["start"] : region["start"] + region["length"]] = value.to_bytes(region["length"], "big")
+    return artefact, bytes(code)
+
+
+class ImmutableChain:
+    """The chain for a contract whose immutable the tree's own constant decides.
+
+    `construct` answers per BUILD, as the real one does: it runs the creation code a candidate commit
+    produced, so the value written is THAT tree's constant rather than the chain's. A creation code
+    carries its runtime verbatim, metadata trailer included, and the trailer hashes the sources of the
+    tree it was built in — so the build that produced a given creation code is identified by it."""
+
+    def __init__(self, onchain: bytes, builds: list[tuple[dict, bytes]]):
+        self.onchain = onchain
+        self.builds = builds
+
+    def code(self, address: str, chain: str) -> bytes | None:
+        return self.onchain if address.lower() == ADDRESS_A else None
+
+    def deployment(self, address: str, chain: str, claimed: str) -> tuple[int, str]:
+        return 100, DEPLOYED
+
+    def construct(self, creation: str, chain: str, block: int) -> bytes:
+        for artefact, produced in self.builds:
+            if artefact["deployedBytecode"]["object"][2:].lower() in creation.lower():
+                return produced
+        raise AssertionError("no build in this fixture produced that creation code")
+
+
+def test_a_screened_candidate_that_fails_the_constructor_stays_in_the_search(tmp_path, monkeypatch):
+    # The tree committed BEFORE the deploy holds 3600 where the chain holds 86400, in an immutable: it
+    # screens, and cannot be the answer. The tree committed AFTER holds 86400 — the dirty tree the
+    # contract was deployed from, committed later. The first screen must not end the search.
+    repo, scratch = repository_with_an_immutable(tmp_path)
+    committed = tree_with_staleness(repo, scratch, STALENESS_COMMITTED)
+    commit(repo, "2026-01-01T00:00:00+00:00", "staleness of an hour")
+    deployed = tree_with_staleness(repo, scratch, STALENESS_DEPLOYED)
+    later = commit(repo, "2026-01-04T00:00:00+00:00", "staleness of a day, committed after the deploy")
+
+    recover = load_recover_baselines()
+    chain = ImmutableChain(deployed[1], [committed, deployed])
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
+
+    recover.main()
+
+    record = read_baselines(repo)
+    assert key(1, ADDRESS_A) in record, "the commit after the deploy builds what is deployed, immutable included"
+    assert record[key(1, ADDRESS_A)].commit == later, "and it is that commit, not the one that only screened"
+
+
+def test_a_contract_proved_after_an_unproven_screen_is_not_also_reported_unproven(tmp_path, monkeypatch, capsys):
+    # A failed constructor at one commit is a step in the search, not an outcome, so a contract proved
+    # at a later one appears nowhere in the closing lists.
+    repo, scratch = repository_with_an_immutable(tmp_path)
+    committed = tree_with_staleness(repo, scratch, STALENESS_COMMITTED)
+    commit(repo, "2026-01-01T00:00:00+00:00", "staleness of an hour")
+    deployed = tree_with_staleness(repo, scratch, STALENESS_DEPLOYED)
+    commit(repo, "2026-01-04T00:00:00+00:00", "staleness of a day, committed after the deploy")
+
+    recover = load_recover_baselines()
+    chain = ImmutableChain(deployed[1], [committed, deployed])
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
+
+    recover.main()
+
+    printed = capsys.readouterr().out
+    assert "1 of 1 recovered" in printed
+    assert "not recorded:" not in printed, "it was recorded, so nothing is gathered as missing"
+    assert "screened but NOT recorded" not in printed, "and the screen it failed on the way is not an outcome"
+
+
+def test_a_contract_never_proved_names_every_commit_it_screened_at(tmp_path, monkeypatch, capsys):
+    # Two commits screen and neither proves. "No candidate built what is deployed" would be untrue of a
+    # contract whose code matched everywhere except an immutable, and the commits that came close are
+    # what the reader needs: the next step is to look at that immutable, not to widen the search.
+    repo, scratch = repository_with_an_immutable(tmp_path)
+    first_build = tree_with_staleness(repo, scratch, STALENESS_COMMITTED)
+    first = commit(repo, "2026-01-01T00:00:00+00:00", "staleness of an hour")
+    # The same constant in a file whose bytes changed: a second distinct build, screening as the first
+    # does, so there are two commits to name rather than one.
+    second_build = tree_with_staleness(repo, scratch, STALENESS_COMMITTED, note="// a note added later\n")
+    second = commit(repo, "2026-01-02T00:00:00+00:00", "a note in the constant's file")
+    # What the chain holds was never committed, so nothing here can prove it.
+    onchain = tree_with_staleness(repo, scratch, STALENESS_DEPLOYED)[1]
+
+    recover = load_recover_baselines()
+    chain = ImmutableChain(onchain, [first_build, second_build])
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
+
+    recover.main()
+
+    printed = capsys.readouterr().out
+    assert "1 screened but NOT recorded" in printed, "the remedy is the immutable, so it keeps its own block"
+    summary = printed[printed.rindex("not recorded") :]
+    row = next(line for line in summary.splitlines() if ADDRESS_A in line)
+    assert first[:10] in row, "the first commit that came close"
+    assert second[:10] in row, "and the second, so the reader sees every one of them"
+    assert "constructor does not account for it" in row
+    assert "no candidate built" not in row, "something did build it — everywhere but an immutable"
