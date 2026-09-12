@@ -76,22 +76,25 @@ def _cast(*arguments: str) -> str | None:
 def _deployment(address: str, chain: str, claimed: str) -> tuple[int, str] | None:
     """The block the contract was created in and that block's UTC timestamp, or None.
 
-    `claimed` - the manifest's `deploymentTime` - is only used to get an upper bound, because it is
-    the deploy SCRIPT's clock written after the broadcast and so always sits after the transaction:
-    2m55s after, for BaoPauser, and shared across a whole batch of aggregators deployed at different
-    moments. `cast find-block` turns it into a block just past the answer, and the search walks back
-    from there in a handful of calls."""
+    `claimed` - the manifest's `deploymentTime` - only ESTIMATES where to look, because it is the
+    deploy SCRIPT's clock: written after the broadcast, so usually just after the transaction - 2m55s
+    after, for BaoPauser - and shared across a whole batch of aggregators deployed at different
+    moments. Two mainnet aggregators record a time whose block holds no code at all, so the search
+    runs both ways from the estimate, and the head of the chain bounds the half that runs forward."""
     at = _cast(
         "find-block", str(int(datetime.fromisoformat(claimed.replace("Z", "+00:00")).timestamp())), "--rpc-url", chain
     )
     if at is None or not at.isdigit():
+        return None
+    head = _cast("block-number", "--rpc-url", chain)
+    if head is None or not head.isdigit():
         return None
 
     def has_code(block: int) -> bool:
         code = _cast("code", address, "--rpc-url", chain, "--block", str(block))
         return bool(code) and code != "0x"
 
-    block = creation_block(has_code, upper=int(at))
+    block = creation_block(has_code, near=int(at), ceiling=int(head))
     if block is None:
         return None
     seconds = _cast("block", str(block), "--rpc-url", chain, "--field", "timestamp")
@@ -527,14 +530,6 @@ def main() -> int:
                 # interrupted, and each baseline is an independent fact with nothing spanning them.
                 if arguments.write:
                     write_baselines(root, baselines)
-
-    if pending:
-        print(f"\n{len(pending)} not recovered — no candidate built what is deployed:")
-        for entry_key, wants in pending.items():
-            print(
-                f"  {entry_key}  {wants.entry.name}  "
-                f"({sum(1 for seen in compared.values() if entry_key in seen)} distinct builds compared)"
-            )
 
     if refused:
         print(f"\n{len(refused)} proved but NOT recorded — the commit is on no branch, so no remote can have it:")

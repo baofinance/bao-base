@@ -793,30 +793,53 @@ def test_the_declaration_decides_not_the_filename(repo):
 # ── when it was deployed, and when the commit was made ────────────────────────────────────────────
 
 
-def test_the_creation_block_is_found_from_an_upper_bound_in_a_handful_of_calls():
+def test_the_creation_block_is_found_from_a_late_estimate_in_a_handful_of_calls():
     # The manifest's `deploymentTime` is the deploy SCRIPT's clock, written after the broadcast, so a
-    # block found from it is always an upper bound - measured at 15 blocks past the truth for
-    # BaoPauser, whose manifest was 2m55s late. Walking back from a close upper bound costs a handful
-    # of calls; a blind bisect of the whole chain would cost ~25, which is what this exists to avoid.
+    # block found from it usually sits just past the truth - fifteen blocks past, for BaoPauser, whose
+    # manifest was 2m55s late. Walking back from a close estimate costs a handful of calls; a blind
+    # bisect of the whole chain would cost ~25, which is what this exists to avoid.
     asked: list[int] = []
 
     def has_code(block: int) -> bool:
         asked.append(block)
         return block >= 24706244
 
-    assert creation_block(has_code, upper=24706259) == 24706244
+    assert creation_block(has_code, near=24706259, ceiling=24800000) == 24706244
     assert len(asked) <= 12, f"took {len(asked)} calls: {asked}"
+
+
+def test_a_contract_created_after_the_estimate_is_found_by_searching_forward():
+    # The estimate can also land BEFORE the creation, when the manifest's time is not the time the
+    # transaction landed: two mainnet aggregators record a time whose block holds no code while the
+    # code is there now. The search is symmetric - double forward until a block has the code, then
+    # bisect - so a distance of a hundred thousand blocks costs tens of calls, not one per block.
+    asked: list[int] = []
+
+    def has_code(block: int) -> bool:
+        asked.append(block)
+        return block >= 24512345
+
+    assert creation_block(has_code, near=24401569, ceiling=26000000) == 24512345
+    assert len(asked) <= 45, f"took {len(asked)} calls: {asked}"
 
 
 def test_a_contract_present_at_the_floor_cannot_be_bracketed():
     # Every block searched has the code, so the creation block is below the range and guessing the
     # floor would record a block the contract did not exist at.
-    assert creation_block(lambda block: True, upper=1000, floor=900) is None
+    assert creation_block(lambda block: True, near=1000, floor=900, ceiling=2000) is None
 
 
-def test_the_upper_bound_must_actually_have_the_code():
-    # Otherwise the answer is somewhere above, and returning the upper bound would be a fabrication.
-    assert creation_block(lambda block: False, upper=1000) is None
+def test_a_contract_with_no_code_by_the_ceiling_is_not_found():
+    # Nothing up to the head of the chain has the code, so there is no creation block to record - and
+    # the walk forward reaches that verdict by doubling to the ceiling, not by stepping to it.
+    asked: list[int] = []
+
+    def has_code(block: int) -> bool:
+        asked.append(block)
+        return False
+
+    assert creation_block(has_code, near=1000, ceiling=26000000) is None
+    assert len(asked) <= 30, f"took {len(asked)} calls: {asked}"
 
 
 def test_a_commit_timestamp_is_utc_whatever_the_committer_s_clock_said(repo):

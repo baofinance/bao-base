@@ -216,37 +216,51 @@ def search_passes(
     ]
 
 
-def creation_block(has_code: Callable[[int], bool], upper: int, floor: int = 0) -> int | None:
+def creation_block(has_code: Callable[[int], bool], *, near: int, ceiling: int, floor: int = 0) -> int | None:
     """The first block at which the contract's code exists, or None if it cannot be bracketed.
 
-    `upper` is a block KNOWN to have the code, and in practice a close one: the manifest's
-    `deploymentTime` is the deploy script's clock written after the broadcast, so a block found from
-    it always sits just past the answer - fifteen blocks past, for BaoPauser, whose manifest was 2m55s
-    late. Walking back in doubling steps from a close bound and then bisecting costs a handful of
-    calls; bisecting the whole chain blindly costs about twenty-five.
+    `near` is an ESTIMATE and lands on either side of the answer. The manifest's `deploymentTime` is
+    the deploy script's clock written after the broadcast, so the block found from it usually sits
+    just past the creation - fifteen blocks past, for BaoPauser, whose manifest was 2m55s late. But
+    two of the mainnet aggregators record a time whose block holds no code at all, so for them the
+    creation is somewhere ABOVE the estimate.
 
-    None rather than a guess in both failure modes: if `upper` has no code the answer is above the
-    range, and if even `floor` has code it is below. Returning either bound would record a block the
-    contract did not exist at."""
-    if not has_code(upper):
-        return None
-    low, step = upper, 1
-    while low > floor:
-        low = max(floor, upper - step)
-        if not has_code(low):
-            break
-        step *= 2
+    The search is therefore symmetric: double away from `near` in whichever direction the answer must
+    lie until a block answers differently, then bisect the bracket that pins. From a close estimate
+    that is a handful of calls, and from a distant one twice the logarithm of the distance - where a
+    blind bisect of the whole chain costs about twenty-five however good the estimate was.
+
+    None rather than a guess when the range cannot bracket it: every block down to `floor` has the
+    code, so the creation is below it; or nothing up to `ceiling` - the head of the chain - has the
+    code, so there is no creation to record. Returning either bound would name a block the contract
+    did not exist at."""
+    low = high = near
+    step = 1
+    if has_code(near):
+        # Back towards the floor for the last block WITHOUT the code: the creation is just above it.
+        while low > floor:
+            low = max(floor, near - step)
+            if not has_code(low):
+                break
+            step *= 2
+        else:
+            return None
     else:
-        return None
-    if has_code(low):
-        return None
-    while upper - low > 1:
-        middle = (low + upper) // 2
+        # Forward towards the head for the first block WITH it: the creation is at or below that.
+        while high < ceiling:
+            high = min(ceiling, near + step)
+            if has_code(high):
+                break
+            step *= 2
+        else:
+            return None
+    while high - low > 1:
+        middle = (low + high) // 2
         if has_code(middle):
-            upper = middle
+            high = middle
         else:
             low = middle
-    return upper
+    return high
 
 
 def commit_timestamp(repo_root: Path, commit: str) -> str | None:
