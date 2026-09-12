@@ -23,7 +23,8 @@ from pathlib import Path
 
 from Crypto.Hash import keccak
 
-from deployment_baselines import Baseline, add, commit_reach, key, read_baselines, review, write_baselines
+from deployment_baselines import Baseline, add, commit_reach, drop, key, read_baselines, review, write_baselines
+from deployment_records import Entry, Problem
 from deployment_recovery import (
     all_commits,
     artefact_for,
@@ -276,6 +277,39 @@ def _try_commit(root: Path, commit: str, pending: dict[str, _Wanted], say: Calla
             remove_worktree(root, worktree)
 
 
+def _unrecorded(account: list[Problem], searched: str = "") -> None:
+    """Every contract a run did not record, with its reason, whatever stage it left at.
+
+    ONE list for every stage, because the stages are independent code paths and a reader should not have
+    to know which one applied in order to find out what happened. Printed on the early exit too: a
+    repository whose keyable contracts all have baselines returns before the search, and that was the
+    path on which five of the aggregators' entries were a count at the top of the run and nothing else.
+
+    Each row names EVERY manifest describing the contract, not the one the merge happened to keep -
+    where two disagree, the kept one is as likely to be the innocent file. An entry `review` could not
+    key has no address to be named by, since not having one is what it is, so it is identified by the
+    path it records, which is what a reader greps for."""
+    if not account:
+        return
+    rows = [
+        (
+            key(problem.entry.chain_id, problem.entry.address)
+            if problem.entry.chain_id and problem.entry.address
+            else (problem.entry.recorded_path or problem.entry.name or "(unidentified)"),
+            problem.entry.name or "(unnamed)",
+            ", ".join(problem.entry.manifests or (problem.entry.manifest,)),
+            problem.reason,
+        )
+        for problem in account
+    ]
+    print(f"\n{len(rows)} not recorded:")
+    widths = [max(len(row[column]) for row in rows) for column in range(3)]
+    for identity, name, manifest, reason in sorted(rows):
+        print(f"  {identity:<{widths[0]}}  {name:<{widths[1]}}  {manifest:<{widths[2]}}  {reason}")
+    if searched:
+        print(f"  {searched}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--write", action="store_true", help="record the baselines that verify (default: report)")
@@ -321,15 +355,26 @@ def main() -> int:
         if not wanted or wanted in (key(entry.chain_id, entry.address), f"{entry.chain}/{entry.address}".lower())
     ]
 
+    # Every contract that will NOT be in the record when this run ends, and why - seeded with what
+    # `review` could not even key, because those never become candidates and so no later stage is in a
+    # position to report them. `drop` is the only way anything else joins them.
+    account: list[Problem] = list(found.unreadable)
+    # Captured here because the outcome loop below binds `found` to a commit, shadowing the review.
+    already, searching = len(found.recorded), len(found.unrecovered)
+    described = already + searching + len(found.unreadable)
+
     # Said out loud because this run is long, occasional, and otherwise silent for minutes at a time -
     # and because every number here is one a reader would otherwise have to infer from what is missing.
     print(f"{root}")
     print(
-        f"  manifests describe {len(found.recorded) + len(found.unrecovered)} deployed contracts: "
-        f"{len(found.recorded)} already recorded, {len(found.unrecovered)} without a baseline"
+        f"  manifests describe {described} deployed contracts: "
+        f"{already} already recorded, {len(found.unrecovered)} without a baseline"
+        # INSIDE the total rather than beside it. An entry that cannot be keyed used to sit outside the
+        # arithmetic entirely, so five of the aggregators' eighty-eight could not be reconciled against
+        # anything, and stayed invisible for it.
+        + (f", {len(found.unreadable)} that cannot be identified" if found.unreadable else "")
     )
     for label, items in (
-        ("cannot be read, so cannot be recovered", found.unreadable),
         ("recorded but no manifest claims them any more", found.orphaned),
         ("described by two manifests that disagree", found.conflicts),
     ):
@@ -344,6 +389,7 @@ def main() -> int:
             print(f"no contract without a baseline is {arguments.only!r}; the form is 42161/0x… or arbitrum/0x…")
             return 1
         print("nothing to recover")
+        _unrecorded(account)
         return 0
 
     baselines = read_baselines(root)
@@ -351,35 +397,26 @@ def main() -> int:
     # Every contract's chain facts first, because they decide its candidate window and cost only RPC.
     print(f"\nreading the chain for {len(outstanding)} contract(s)")
     pending: dict[str, _Wanted] = {}
-    # Every contract that leaves this loop without being searched for, and why. Each reason is printed
-    # where it happens AND kept, because in a real run that line sits eighty lines above the end,
-    # interleaved with the progress listing: the aggregators' run dropped six contracts here and the
-    # closing tally showed them only as the gap between 83 and 76.
-    dropped: list[tuple[str, str, str, str]] = []
     for position, entry in enumerate(outstanding, start=1):
         entry_key = key(entry.chain_id, entry.address) if entry.chain_id else f"{entry.chain}/{entry.address}"
         print(f"[{position:>3}/{len(outstanding)}] {entry.chain}/{entry.address}  {entry.name}")
-        # EVERY manifest describing it, not the one the merge happened to keep: where two disagree, the
-        # kept one is as likely to be the innocent file - and a contract whose name they contest has no
-        # name to look for, which is the reason it is in this list at all.
-        named_by = ", ".join(entry.manifests or (entry.manifest,))
         if not entry.name:
             print("  the manifest names no contract, so nothing can be located or built")
-            dropped.append((entry_key, entry.name or "", named_by, "the manifest names no contract"))
+            drop(pending, account, entry_key, entry, "the manifest names no contract")
             continue
         if not entry.deployed_at:
             print("  no deployment time recorded, so the window cannot be placed")
-            dropped.append((entry_key, entry.name, named_by, "no deployment time recorded"))
+            drop(pending, account, entry_key, entry, "no deployment time recorded")
             continue
         onchain = _deployed_code(entry.address, entry.chain)
         if onchain is None:
             print(f"  could not read the deployed code over the {entry.chain} RPC")
-            dropped.append((entry_key, entry.name, named_by, f"deployed code unreadable over the {entry.chain} RPC"))
+            drop(pending, account, entry_key, entry, f"deployed code unreadable over the {entry.chain} RPC")
             continue
         deployment = _deployment(entry.address, entry.chain, entry.deployed_at)
         if deployment is None:
             print(f"  could not find the block it was created in over the {entry.chain} RPC")
-            dropped.append((entry_key, entry.name, named_by, f"creation block not found over the {entry.chain} RPC"))
+            drop(pending, account, entry_key, entry, f"creation block not found over the {entry.chain} RPC")
             continue
         block, deployed = deployment
         # The CHAIN's timestamp, not the manifest's: the manifest records the deploy script's clock,
@@ -404,8 +441,8 @@ def main() -> int:
     # Proved, but not recordable — or recordable here and not yet anywhere else. Each carries the
     # manifest that names the contract, because a fleet has many and "this address is broken" otherwise
     # sends the reader to grep for it.
-    refused: list[tuple[str, str, str, str]] = []
-    unpushed: list[tuple[str, str, str, str]] = []
+    refused: list[tuple[str, Entry, str]] = []
+    unpushed: list[tuple[str, Entry, str]] = []
     # Every commit each contract screened at without being proved. A screen masks the immutables, so
     # matching it is a candidacy and not an answer - which is why these do not end the search, and why
     # they are only an OUTCOME for a contract that was never proved anywhere.
@@ -507,10 +544,10 @@ def main() -> int:
                     print("      It is the only source for this deployment — put it on a branch and push it:")
                     print(f"        git branch deployed/{entry.name} {found}")
                     print(f"        git push origin deployed/{entry.name}")
-                    refused.append((entry_key, entry.name, ", ".join(entry.manifests or (entry.manifest,)), found))
+                    refused.append((entry_key, entry, found))
                     continue
                 if reach == "local":
-                    unpushed.append((entry_key, entry.name, ", ".join(entry.manifests or (entry.manifest,)), found))
+                    unpushed.append((entry_key, entry, found))
                 # What the commit alone does not settle, taken from the build that just proved it.
                 # solc writes its own metadata into the artefact, so the compiler and the settings are
                 # the ones that produced this bytecode rather than a second reading of foundry.toml,
@@ -546,8 +583,8 @@ def main() -> int:
 
     if refused:
         print(f"\n{len(refused)} proved but NOT recorded — the commit is on no branch, so no remote can have it:")
-        for entry_key, name, _, found in refused:
-            print(f"  {entry_key}  {name}  at {found[:10]}")
+        for entry_key, entry, proved_at in refused:
+            print(f"  {entry_key}  {entry.name}  at {proved_at[:10]}")
         print("  Put each on a branch and push it, then run again. Until then these are unrecoverable:")
         print("  a stash entry is destroyed by `git stash drop`, and nothing else built this bytecode.")
 
@@ -555,19 +592,12 @@ def main() -> int:
     # at a later commit passed through the screen that failed on its way there, and listing it as an
     # outcome would report a recovered contract as a failure.
     unproven = [
-        (
-            entry_key,
-            wants.entry.name,
-            ", ".join(wants.entry.manifests or (wants.entry.manifest,)),
-            screened[entry_key],
-        )
-        for entry_key, wants in pending.items()
-        if entry_key in screened
+        (entry_key, wants.entry, screened[entry_key]) for entry_key, wants in pending.items() if entry_key in screened
     ]
     if unproven:
         print(f"\n{len(unproven)} screened but NOT recorded — the constructor does not account for them:")
-        for entry_key, name, _, commits in unproven:
-            print(f"  {entry_key}  {name}  at {', '.join(found[:10] for found in commits)}")
+        for entry_key, entry, commits in unproven:
+            print(f"  {entry_key}  {entry.name}  at {', '.join(at[:10] for at in commits)}")
         print("  The code outside the immutables matches, so the source is close — but an immutable")
         print("  the source determines came out differently, which a masked comparison would have hidden.")
 
@@ -575,58 +605,50 @@ def main() -> int:
         # Said at the end rather than per contract: the record and the commits it names have to reach
         # the remote TOGETHER, and pushing deployed.json alone is the mistake this prevents.
         print(f"\n{len(unpushed)} recorded at commits no remote has yet:")
-        for entry_key, name, _, found in unpushed:
-            print(f"  {entry_key}  {name}  at {found[:10]}")
+        for entry_key, entry, recorded_at in unpushed:
+            print(f"  {entry_key}  {entry.name}  at {recorded_at[:10]}")
         print("  Push the branches holding them BEFORE pushing deployed.json, or the record names")
         print("  commits nobody else can resolve. CI rejects a record in that state.")
 
-    # Everything that was NOT recorded, in one place, whatever stage it fell out at. The blocks above
-    # carry the remedies - push the branch, look at the immutable - and this carries the completeness:
-    # a reader can tell from one section how many contracts are missing and why, rather than inferring
-    # it from the difference between two numbers.
-    missing = [
-        *dropped,
-        *(
-            (
-                entry_key,
-                wants.entry.name,
-                ", ".join(wants.entry.manifests or (wants.entry.manifest,)),
-                f"no candidate built what is deployed (deployed {wants.deployed}, compared against "
-                f"{sum(1 for seen in compared.values() if entry_key in seen)} distinct build(s))",
-            )
-            for entry_key, wants in pending.items()
-            # "Nothing built it" would be untrue of a contract something built everywhere except an
-            # immutable; that one is named below, with the commits that came close.
-            if entry_key not in screened
-        ),
-        *(
-            (entry_key, name, manifest, f"proved at {found[:10]}, but that commit is on no branch")
-            for entry_key, name, manifest, found in refused
-        ),
-        *(
-            (
-                entry_key,
-                name,
-                manifest,
-                f"screened at {', '.join(found[:10] for found in commits)}, but the constructor does not "
-                "account for it",
-            )
-            for entry_key, name, manifest, commits in unproven
-        ),
-    ]
-    if missing:
-        print(f"\n{len(missing)} not recorded:")
-        keys = max(len(entry_key) for entry_key, _, _, _ in missing)
-        names = max(len(name or "(unnamed)") for _, name, _, _ in missing)
-        manifests = max(len(manifest) for _, _, manifest, _ in missing)
-        for entry_key, name, manifest, reason in sorted(missing):
-            print(f"  {entry_key:<{keys}}  {name or '(unnamed)':<{names}}  {manifest:<{manifests}}  {reason}")
-        # What was searched, said once rather than per row: `all_commits` is `git log --all`, so an
-        # unmerged branch and a stash are both in it, and "nothing built it" means nothing in ANY of
-        # them did - which is a different statement from "nothing on this branch did".
-        print(f"  searched {len(dated)} commit(s) from every ref, {dated[-1][1]} to {dated[0][1]}")
+    # Everything that was NOT recorded, gathered by the same call that takes it out of the run, so a
+    # contract cannot leave without a row. The blocks above carry the remedies - push the branch, look
+    # at the immutable - and this carries the completeness.
+    for entry_key, entry, proved_at in refused:
+        drop(pending, account, entry_key, entry, f"proved at {proved_at[:10]}, but that commit is on no branch")
+    for entry_key, entry, commits in unproven:
+        drop(
+            pending,
+            account,
+            entry_key,
+            entry,
+            f"screened at {', '.join(at[:10] for at in commits)}, but the constructor does not account for it",
+        )
+    # Whatever is left was searched for and not found. "Nothing built it" would be untrue of a contract
+    # something built everywhere except an immutable, and those have just been taken out above with the
+    # commits that came close. Snapshotted because `drop` removes as it records.
+    for entry_key, wants in list(pending.items()):
+        drop(
+            pending,
+            account,
+            entry_key,
+            wants.entry,
+            f"no candidate built what is deployed (deployed {wants.deployed}, compared against "
+            f"{sum(1 for seen in compared.values() if entry_key in seen)} distinct build(s))",
+        )
+    # What was searched, said once rather than per row: `all_commits` is `git log --all`, so an unmerged
+    # branch and a stash are both in it, and "nothing built it" means nothing in ANY of them did - which
+    # is a different statement from "nothing on this branch did".
+    _unrecorded(account, f"searched {len(dated)} commit(s) from every ref, {dated[-1][1]} to {dated[0][1]}")
 
     print(f"\n{recovered} of {len(outstanding)} recovered, from {built} build(s) over {len(dated)} candidate commits")
+    # described = already recorded + recovered here + accounted for + never selected, and nothing is
+    # still being looked for by now. Said as arithmetic so a removal that skipped the account can only
+    # show up as a mismatch, instead of as a contract nobody mentions - which is how a screen took two
+    # of them out silently.
+    settled = already + recovered + len(account) + (searching - len(outstanding))
+    if settled != described:
+        print(f"  ACCOUNTING ERROR: {described} described but {settled} accounted for;")
+        print(f"  {abs(described - settled)} contract(s) left this run without a row above.")
     if recovered and arguments.write:
         print(f"deployed.json holds {len(baselines)} baseline(s)")
     elif recovered:

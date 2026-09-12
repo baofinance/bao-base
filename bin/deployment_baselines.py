@@ -242,6 +242,22 @@ class Review:
     misnamed: list[tuple[Baseline, str | None]]
 
 
+def drop(pending: dict[str, object], account: list[Problem], entry_key: str, entry: Entry, reason: str) -> None:
+    """Take a contract out of a run and record why, in ONE call so neither can happen without the other.
+
+    Every stage of a recovery narrows what is still being looked for - an entry that cannot be keyed, a
+    chain that will not answer for an address, a screen no constructor bears out - and each narrowing was
+    two statements: remove it, then append a row. A `continue` between them is all it takes for a contract
+    to leave without a trace, which is what happened to both mainnet BTC aggregators: they left on a
+    screen and were reported as though nothing in the repository had built them.
+
+    `entry_key` need not be in `pending`. The stages BEFORE the search have nothing to remove, and they
+    are exactly the ones whose reasons were reduced to a count at the top of the run - so one call serves
+    both, and there is no second way to record a drop that could fall out of step with this one."""
+    pending.pop(entry_key, None)
+    account.append(Problem(entry, reason))
+
+
 def review(repo_root: Path) -> Review:
     """Compare every deployed contract a repository records against the baselines it holds.
 

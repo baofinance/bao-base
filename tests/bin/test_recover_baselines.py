@@ -563,3 +563,197 @@ def test_a_contract_never_proved_names_every_commit_it_screened_at(tmp_path, mon
     assert second[:10] in row, "and the second, so the reader sees every one of them"
     assert "constructor does not account for it" in row
     assert "no candidate built" not in row, "something did build it — everywhere but an immutable"
+
+
+# ── nothing leaves a run without being named ──────────────────────────────────────────────────────
+#
+# A contract stops being a candidate at one of several stages: `review` cannot key its manifest entry,
+# the chain will not answer for it, nothing in the repository builds it. Each stage narrows what the run
+# works on, and the closing account has to carry every one of them - a count at the top of a long run is
+# not a report, it is a number the reader has to go and explain for themselves. Measured on the
+# aggregators: five entries in `megaeth/v4-oracles.json` carry `"address": ""`, and the run said
+# `5 cannot be read, so cannot be recovered` without ever naming one of them.
+
+NO_ADDRESS = "the record gives no address, so the contract cannot be identified"
+
+
+def repository_of_oracles(tmp_path, oracles: dict) -> tuple[Path, Path]:
+    """A repository whose manifest uses the `oracles` shape: keyed by label, with an `address` field.
+
+    The only shape in which an entry can name no address at all - `implementations` is keyed BY address,
+    so the gap cannot arise there - and the shape the aggregators' own placeholders are written in."""
+    repo, scratch = tmp_path / "repo", tmp_path / "scratch"
+    (repo / "src").mkdir(parents=True)
+    scratch.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True, capture_output=True)
+    for setting, value in (("user.email", "t@t"), ("user.name", "test")):
+        subprocess.run(["git", "config", setting, value], cwd=repo, check=True, capture_output=True)
+    (repo / "foundry.toml").write_text('[profile.default]\nsrc = "src"\nlibs = []\nremappings = ["@fixture/=src/"]\n')
+    manifest = repo / "deployments" / "mainnet" / "state.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {"schemaVersion": 1, "network": "mainnet", "chainId": 1, "deploymentTime": DEPLOYED, "oracles": oracles},
+            indent=2,
+        )
+        + "\n"
+    )
+    return repo, scratch
+
+
+def test_an_entry_with_no_address_is_named_in_the_closing_list(tmp_path, monkeypatch, capsys):
+    # An entry review cannot key never reaches the search, so no later stage can report it - and it is
+    # the one row whose identity cannot be an address, because not having one is what it is.
+    repo, scratch = repository_of_oracles(
+        tmp_path,
+        {
+            "A_USD": {"name": "A/USD", "address": ADDRESS_A, "contractPath": "src/A.sol:A"},
+            "P_USD": {"name": "P/USD", "address": "", "contractPath": "src/Placeholder.sol:Placeholder"},
+        },
+    )
+    (repo / "src" / "A.sol").write_text(contract_source("A", 1))
+    (repo / "src" / "Placeholder.sol").write_text(contract_source("Placeholder", 2))
+    deployed_a = runtime(repo, "src/A.sol", "A", scratch)
+    commit(repo, "2026-01-01T00:00:00+00:00", "both sources")
+
+    recover = load_recover_baselines()
+    chain = Chain({ADDRESS_A: deployed_a})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
+
+    recover.main()
+
+    printed = capsys.readouterr().out
+    assert key(1, ADDRESS_A) in read_baselines(repo), "the keyable one is recovered as usual"
+    summary = printed[printed.rindex("not recorded") :]
+    row = next(line for line in summary.splitlines() if "Placeholder" in line)
+    assert "deployments/mainnet/state.json" in row, "the file a human has to edit"
+    assert "src/Placeholder.sol" in row, "and what identifies it, since it has no address to be named by"
+    assert NO_ADDRESS in row, "with the reason review already wrote, not a count"
+
+
+def test_the_described_total_accounts_for_every_entry_the_manifests_hold(tmp_path, monkeypatch, capsys):
+    # "manifests describe N" was recorded + unrecovered, leaving the unkeyable ones outside the
+    # arithmetic: 83 described where the files held 88. A total that excludes what it could not read
+    # cannot be reconciled against anything, which is how five entries stayed invisible.
+    repo, scratch = repository_of_oracles(
+        tmp_path,
+        {
+            "A_USD": {"name": "A/USD", "address": ADDRESS_A, "contractPath": "src/A.sol:A"},
+            "P_USD": {"name": "P/USD", "address": "", "contractPath": "src/Placeholder.sol:Placeholder"},
+        },
+    )
+    (repo / "src" / "A.sol").write_text(contract_source("A", 1))
+    (repo / "src" / "Placeholder.sol").write_text(contract_source("Placeholder", 2))
+    deployed_a = runtime(repo, "src/A.sol", "A", scratch)
+    commit(repo, "2026-01-01T00:00:00+00:00", "both sources")
+
+    recover = load_recover_baselines()
+    chain = Chain({ADDRESS_A: deployed_a})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
+
+    recover.main()
+
+    printed = capsys.readouterr().out
+    assert "manifests describe 2 deployed contracts" in printed, "both entries, including the unkeyable one"
+    assert "1 that cannot be identified" in printed, "counted INSIDE the total it belongs to"
+
+
+def test_a_drop_removes_the_contract_and_records_its_reason_in_one_call():
+    # The shared call exists so that leaving the run and being accounted for cannot happen separately;
+    # it also serves the stages BEFORE the search, where the key was never in the working set at all.
+    from deployment_baselines import drop
+    from deployment_records import Entry, Problem
+
+    def entry_for(address: str | None) -> Entry:
+        return Entry(
+            address=address,
+            name="A",
+            recorded_path="src/A.sol",
+            chain_id=1,
+            recorded_chain_id=1,
+            chain="mainnet",
+            deployed_at=DEPLOYED,
+            manifest="deployments/mainnet/state.json",
+            section="oracles",
+        )
+
+    held, never_held = entry_for(ADDRESS_A), entry_for(None)
+    pending = {key(1, ADDRESS_A): "the chain facts"}
+    account: list[Problem] = []
+
+    drop(pending, account, key(1, ADDRESS_A), held, "nothing built it")
+    assert pending == {}, "out of the working set"
+    assert [(problem.entry, problem.reason) for problem in account] == [(held, "nothing built it")]
+
+    drop(pending, account, "deployments/mainnet/state.json:src/A.sol", never_held, NO_ADDRESS)
+    assert [problem.reason for problem in account] == ["nothing built it", NO_ADDRESS], "a key the set never held"
+
+
+def test_every_drop_reason_reaches_the_summary_from_every_stage(tmp_path, monkeypatch, capsys):
+    # Three contracts leaving at three different stages - unkeyable, unreadable on chain, built by
+    # nothing - and one closing list holding all three. The stages are independent code paths, and a
+    # reader should not have to know which one applied to find out what happened.
+    repo, scratch = repository_of_oracles(
+        tmp_path,
+        {
+            "P_USD": {"name": "P/USD", "address": "", "contractPath": "src/Placeholder.sol:Placeholder"},
+            "B_USD": {"name": "B/USD", "address": ADDRESS_B, "contractPath": "src/B.sol:B"},
+            "C_USD": {"name": "C/USD", "address": ADDRESS_C, "contractPath": "src/C.sol:C"},
+        },
+    )
+    for name, value in (("Placeholder", 1), ("B", 2), ("C", 3)):
+        (repo / "src" / f"{name}.sol").write_text(contract_source(name, value))
+    deployed_c = runtime(repo, "src/C.sol", "C", scratch).replace(b"\x60\x03", b"\x60\x09")
+    commit(repo, "2026-01-01T00:00:00+00:00", "every source")
+
+    recover = load_recover_baselines()
+    # B's code cannot be read, which in a real run is an RPC that will not answer for it.
+    chain = Chain({ADDRESS_C: deployed_c})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
+
+    recover.main()
+
+    printed = capsys.readouterr().out
+    assert "3 not recorded:" in printed, "every stage's casualties under one heading"
+    summary = printed[printed.rindex("not recorded") :]
+    assert NO_ADDRESS in summary, "the entry review could not key"
+    assert "deployed code unreadable" in summary, "the one the chain would not answer for"
+    assert "no candidate built what is deployed" in summary, "and the one nothing built"
+
+
+def test_the_entries_that_cannot_be_read_are_named_when_there_is_nothing_to_recover(tmp_path, monkeypatch, capsys):
+    # The state a finished repository is in: every keyable contract already has a baseline, so the run
+    # exits before the search - and that early exit is the one path on which nothing at all would be
+    # said about the entries review could not key. The aggregators sat here, reporting five as a count.
+    repo, scratch = repository_of_oracles(
+        tmp_path,
+        {"P_USD": {"name": "P/USD", "address": "", "contractPath": "src/Placeholder.sol:Placeholder"}},
+    )
+    (repo / "src" / "Placeholder.sol").write_text(contract_source("Placeholder", 2))
+    commit(repo, "2026-01-01T00:00:00+00:00", "the source")
+
+    recover = load_recover_baselines()
+    chain = Chain({})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
+
+    recover.main()
+
+    printed = capsys.readouterr().out
+    assert "1 not recorded:" in printed, "said even when there was nothing to search for"
+    assert NO_ADDRESS in printed, "with the reason, which is the whole point of naming it"
