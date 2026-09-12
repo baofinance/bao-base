@@ -964,3 +964,94 @@ def test_the_rebuild_is_not_run_unless_asked(tmp_path, monkeypatch, capsys):
 
     printed = capsys.readouterr().out
     assert "rebuilt" not in printed and "does not rebuild" not in printed
+
+
+def test_a_selector_that_names_nothing_still_reports_what_is_wrong(tmp_path, monkeypatch, capsys):
+    # `--only` filters the BACKLOG, so once a contract is recorded the selector matches nothing - and
+    # that path returned before the listings, reporting less than the same run would without a selector.
+    # A focused question is no reason to stop saying what is wrong: the head-line still counts the
+    # entries that cannot be identified, and a count with no rows is what this section exists to remove.
+    from deployment_baselines import add, write_baselines
+
+    repo, scratch = repository_of_oracles(
+        tmp_path,
+        {
+            "A_USD": {"name": "A/USD", "address": ADDRESS_A, "contractPath": "src/A.sol:A"},
+            "P_USD": {"name": "P/USD", "address": "", "contractPath": "src/Placeholder.sol:Placeholder"},
+        },
+    )
+    for name, value in (("A", 1), ("Placeholder", 2)):
+        (repo / "src" / f"{name}.sol").write_text(contract_source(name, value))
+    commit(repo, "2026-01-01T00:00:00+00:00", "both sources")
+    write_baselines(repo, add({}, orphan_baseline(ADDRESS_A, "A")))
+
+    recover = load_recover_baselines()
+    chain = Chain({})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--only", f"mainnet/{ADDRESS_A}"])
+
+    assert recover.main() == 1, "a selector naming nothing is still a mistyped argument"
+
+    printed = capsys.readouterr().out
+    assert NO_ADDRESS in printed, "and the run still says what it knows is wrong"
+
+
+def two_recorded_baselines(tmp_path, recover):
+    """A and B committed and recorded, where A's recorded hash is right and B's is not."""
+    from dataclasses import replace
+
+    from deployment_baselines import add
+
+    repo, scratch = repository_of_oracles(
+        tmp_path,
+        {
+            "A_USD": {"name": "A/USD", "address": ADDRESS_A, "contractPath": "src/A.sol:A"},
+            "B_USD": {"name": "B/USD", "address": ADDRESS_B, "contractPath": "src/B.sol:B"},
+        },
+    )
+    (repo / "src" / "A.sol").write_text(contract_source("A", 1))
+    (repo / "src" / "B.sol").write_text(contract_source("B", 2))
+    creation = artefact_of(repo, "src/A.sol", "A", scratch)["bytecode"]["object"]
+    head = commit(repo, "2026-01-01T00:00:00+00:00", "both sources")
+    sound = recorded_baseline(repo, scratch, head, recover._keccak256(bytes.fromhex(creation[2:])))
+    broken = replace(sound, address=ADDRESS_B, contractType="B", source="src/B.sol", creationBytecodeKeccak256="f" * 64)
+    return repo, add(add({}, sound), broken)
+
+
+def test_only_chooses_which_baseline_is_reproved(tmp_path, monkeypatch, capsys):
+    # The same selector, over the other set. `--only` narrows what is SEARCHED when recovering and what
+    # is REBUILT when re-proving, which is one idea either way - and re-proving eighty-three baselines
+    # to ask about one is the cost that makes a selector worth having.
+    from deployment_baselines import write_baselines
+
+    recover = load_recover_baselines()
+    repo, baselines = two_recorded_baselines(tmp_path, recover)
+    write_baselines(repo, baselines)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--reprove", "--only", f"mainnet/{ADDRESS_A}"])
+
+    assert recover.main() == 0, "the one asked about rebuilds to what it records"
+
+    printed = capsys.readouterr().out
+    assert "1 rebuilt" in printed, "one, not both — the broken one was not asked about"
+
+
+def test_a_selector_naming_no_recorded_baseline_is_refused(tmp_path, monkeypatch, capsys):
+    # A mistyped selector reads exactly like a clean run otherwise. The message differs from the
+    # recovery one because the set does: there, a contract is missing from the backlog; here, from the
+    # record.
+    from deployment_baselines import write_baselines
+
+    recover = load_recover_baselines()
+    repo, baselines = two_recorded_baselines(tmp_path, recover)
+    write_baselines(repo, baselines)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--reprove", "--only", "mainnet/0x" + "de" * 20])
+
+    assert recover.main() == 1
+
+    printed = capsys.readouterr().out
+    assert "no recorded baseline is" in printed, "named for the set it was looked for in"

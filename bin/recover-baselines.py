@@ -338,6 +338,19 @@ def _listings(account: list[Problem], found: Review, searched: str = "") -> None
     )
 
 
+def _selected(wanted: str, chain_id: int | None, chain: str, address: str) -> bool:
+    """Whether `--only` names this deployed contract, by either spelling. An empty selector names all.
+
+    ONE definition for both modes. Recovery narrows the backlog and `--reprove` narrows the record -
+    disjoint sets, since a contract leaves one by entering the other - but "only this contract" is the
+    same idea either way, and two copies of the matching would drift apart at the first fix.
+
+    A deployed contract is a chain AND an address: `0xA8643E35…` is `Aggregator_stETH_AAPL_arbitrum` on
+    42161 and `Aggregator_hsfxUSD_ETH_USD_mainnet` on 1, so an address alone selects both. The name is
+    accepted too, because it is what the progress lines print and a person copies what they see."""
+    return not wanted or wanted in (key(chain_id, address), f"{chain}/{address}".lower())
+
+
 def _reprove(root: Path, baselines: dict[str, Baseline], say: Callable[..., None]) -> list[tuple[str, str, str, str]]:
     """Rebuild each baseline from what it records and check it still produces the bytecode it claims.
 
@@ -397,8 +410,9 @@ def main() -> int:
     parser.add_argument(
         "--only",
         metavar="CHAIN/ADDRESS",
-        help="recover just this contract, as 42161/0x… or arbitrum/0x… — an address alone names a "
-        "contract on every chain that has one at it, which is not one contract",
+        help="act on just this contract, as 42161/0x… or arbitrum/0x… — what is recovered, or with "
+        "--reprove what is rebuilt. An address alone names a contract on every chain that has one at "
+        "it, which is not one contract",
     )
     # Asked for, never automatic. `verify-audit` checks on every build that the recorded INPUTS still
     # resolve, which is milliseconds; this rebuilds from them and compares what comes out, which is
@@ -439,9 +453,7 @@ def main() -> int:
     # a person copies what they see.
     wanted = (arguments.only or "").lower()
     outstanding = [
-        entry
-        for entry in found.unrecovered
-        if not wanted or wanted in (key(entry.chain_id, entry.address), f"{entry.chain}/{entry.address}".lower())
+        entry for entry in found.unrecovered if _selected(wanted, entry.chain_id, entry.chain, entry.address)
     ]
 
     # Every contract that will NOT be in the record when this run ends, and why - seeded with what
@@ -466,8 +478,17 @@ def main() -> int:
     if arguments.reprove:
         # Over the RECORD, not the backlog: `--only` filters what has no baseline yet, so it can never
         # name a contract that has one - which is exactly what needs re-proving.
-        recorded = read_baselines(root)
+        recorded = {
+            entry_key: baseline
+            for entry_key, baseline in read_baselines(root).items()
+            if _selected(wanted, baseline.chainId, baseline.chain, baseline.address)
+        }
         if not recorded:
+            # The message names the set it looked in. "No contract without a baseline" would be true of
+            # every recorded contract, which is exactly the set this mode is about.
+            if arguments.only:
+                print(f"no recorded baseline is {arguments.only!r}; the form is 42161/0x… or arbitrum/0x…")
+                return 1
             print("nothing recorded to re-prove")
             return 0
         print(f"\nrebuilding {len(recorded)} recorded baseline(s) from what each one records")
@@ -486,6 +507,10 @@ def main() -> int:
             # Distinguished from "nothing to recover", because a selector that names nothing is a
             # mistyped argument and reads exactly like a finished job otherwise.
             print(f"no contract without a baseline is {arguments.only!r}; the form is 42161/0x… or arbitrum/0x…")
+            # Said even here. A selector narrows what is SEARCHED for, never what is reported: the
+            # head-line counts the entries that cannot be identified either way, and returning before
+            # this made a focused run say less about the repository than a plain one.
+            _listings(account, found)
             return 1
         print("nothing to recover")
         _listings(account, found)
