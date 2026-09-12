@@ -152,3 +152,95 @@ def test_one_uncompilable_source_does_not_hide_the_others_at_that_commit(tmp_pat
     assert record[key(1, ADDRESS_B)].commit == earlier
     assert key(1, ADDRESS_A) in record, "A was never compared at the commit where B failed to compile beside it"
     assert record[key(1, ADDRESS_A)].commit == latest
+
+
+# ── every contract that was not recorded, gathered where a reader will see it ──────────────────────
+#
+# A contract can drop out at four different places before the search even starts - its manifest names
+# no contract, it has no deployment time, its code cannot be read, its creation block cannot be found -
+# and each of those prints one line and continues. In a real run those lines sit eighty lines above the
+# end, interleaved with the progress listing, and the closing tally says only "76 of 83 recovered": the
+# other seven exist as an arithmetic gap and nothing else. Measured on the aggregators, that gap held
+# four contracts whose manifests disagree about their name and two whose creation block was not found.
+#
+# So the run ends with every unrecorded contract and its reason, in one place.
+
+ADDRESS_C = "0x" + "cc" * 20
+ADDRESS_D = "0x" + "dd" * 20
+
+
+def test_every_contract_that_was_not_recorded_is_listed_with_its_reason_at_the_end(tmp_path, monkeypatch, capsys):
+    # Four contracts, four outcomes: one recorded, one the manifest does not name, one whose creation
+    # block the chain will not give, and one nothing in the repository builds.
+    repo, scratch = tmp_path / "repo", tmp_path / "scratch"
+    (repo / "src").mkdir(parents=True)
+    scratch.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True, capture_output=True)
+    for setting, value in (("user.email", "t@t"), ("user.name", "test")):
+        subprocess.run(["git", "config", setting, value], cwd=repo, check=True, capture_output=True)
+    (repo / "foundry.toml").write_text('[profile.default]\nsrc = "src"\nlibs = []\nremappings = ["@fixture/=src/"]\n')
+    manifest = repo / "deployments" / "mainnet" / "state.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "network": "mainnet",
+                "chainId": 1,
+                "implementations": {
+                    ADDRESS_A: {"contractSource": "src/A.sol", "contractType": "A", "deploymentTime": DEPLOYED},
+                    # No contractType: two manifests disagreeing about a name leave exactly this.
+                    ADDRESS_B: {"contractSource": "src/B.sol", "deploymentTime": DEPLOYED},
+                    ADDRESS_C: {"contractSource": "src/C.sol", "contractType": "C", "deploymentTime": DEPLOYED},
+                    ADDRESS_D: {"contractSource": "src/D.sol", "contractType": "D", "deploymentTime": DEPLOYED},
+                },
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    for name, value in (("A", 1), ("B", 2), ("C", 3), ("D", 4)):
+        (repo / "src" / f"{name}.sol").write_text(contract_source(name, value))
+    deployed_a = runtime(repo, "src/A.sol", "A", scratch)
+    deployed_c = runtime(repo, "src/C.sol", "C", scratch)
+    commit(repo, "2026-01-01T00:00:00+00:00", "every contract's source")
+
+    # D's deployed code is not what any commit here builds.
+    deployed_d = runtime(repo, "src/D.sol", "D", scratch).replace(b"\x60\x04", b"\x60\x05")
+
+    recover = load_recover_baselines()
+    chain = Chain({ADDRESS_A: deployed_a, ADDRESS_C: deployed_c, ADDRESS_D: deployed_d})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    # C's creation block cannot be found, which in a real run is an RPC that will not answer for it.
+    monkeypatch.setattr(
+        recover,
+        "_deployment",
+        lambda address, chain_name, claimed: None if address.lower() == ADDRESS_C else (100, DEPLOYED),
+    )
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
+
+    recover.main()
+
+    printed = capsys.readouterr().out
+    summary = printed[printed.rindex("not recorded") :]
+    assert ADDRESS_B in summary, "the manifest names no contract for it, so it was never looked for"
+    assert "names no contract" in summary
+    assert ADDRESS_C in summary, "its creation block could not be found, so it was never searched for"
+    assert "creation block" in summary
+    assert ADDRESS_D in summary, "it was searched for and nothing built it"
+    assert ADDRESS_A not in summary, "it was recorded, so it is not among the failures"
+    assert "3 not recorded:" in printed, "all three are gathered under one heading"
+    assert "1 of 4 recovered" in printed, "and the tally reconciles with it: 1 recorded, 3 listed, 4 described"
+
+    # A row has to say WHERE the entry it is complaining about lives: a fleet has many state files, and
+    # "this address is broken" sends the reader to grep for it.
+    assert summary.count("deployments/mainnet/state.json") == 3, "every row names the state file holding it"
+
+    # And "nothing built it" has to say what was actually looked at, or it reads as a dead end rather
+    # than as a search that can be widened.
+    unmatched = next(line for line in summary.splitlines() if ADDRESS_D in line)
+    assert DEPLOYED in unmatched, "the deploy time, which decides which commits are candidates"
+    assert "1 distinct build" in unmatched, "and how many distinct builds it was actually compared against"
+    assert "every ref" in summary, "the search is `git log --all`, not a branch, and says so"
+    assert "1 commit" in summary, "with the size of the space it covered"

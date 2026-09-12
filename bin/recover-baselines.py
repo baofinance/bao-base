@@ -304,21 +304,35 @@ def main() -> int:
     # Every contract's chain facts first, because they decide its candidate window and cost only RPC.
     print(f"\nreading the chain for {len(outstanding)} contract(s)")
     pending: dict[str, _Wanted] = {}
+    # Every contract that leaves this loop without being searched for, and why. Each reason is printed
+    # where it happens AND kept, because in a real run that line sits eighty lines above the end,
+    # interleaved with the progress listing: the aggregators' run dropped six contracts here and the
+    # closing tally showed them only as the gap between 83 and 76.
+    dropped: list[tuple[str, str, str, str]] = []
     for position, entry in enumerate(outstanding, start=1):
+        entry_key = key(entry.chain_id, entry.address) if entry.chain_id else f"{entry.chain}/{entry.address}"
         print(f"[{position:>3}/{len(outstanding)}] {entry.chain}/{entry.address}  {entry.name}")
         if not entry.name:
             print("  the manifest names no contract, so nothing can be located or built")
+            dropped.append((entry_key, entry.name or "", entry.manifest, "the manifest names no contract"))
             continue
         if not entry.deployed_at:
             print("  no deployment time recorded, so the window cannot be placed")
+            dropped.append((entry_key, entry.name, entry.manifest, "no deployment time recorded"))
             continue
         onchain = _deployed_code(entry.address, entry.chain)
         if onchain is None:
             print(f"  could not read the deployed code over the {entry.chain} RPC")
+            dropped.append(
+                (entry_key, entry.name, entry.manifest, f"deployed code unreadable over the {entry.chain} RPC")
+            )
             continue
         deployment = _deployment(entry.address, entry.chain, entry.deployed_at)
         if deployment is None:
             print(f"  could not find the block it was created in over the {entry.chain} RPC")
+            dropped.append(
+                (entry_key, entry.name, entry.manifest, f"creation block not found over the {entry.chain} RPC")
+            )
             continue
         block, deployed = deployment
         # The CHAIN's timestamp, not the manifest's: the manifest records the deploy script's clock,
@@ -340,10 +354,12 @@ def main() -> int:
     recovered = 0
     built = 0
     opened = beat = time.monotonic()
-    # Proved, but not recordable — or recordable here and not yet anywhere else.
-    refused: list[tuple[str, str, str]] = []
-    unpushed: list[tuple[str, str, str]] = []
-    unproven: list[tuple[str, str, str]] = []
+    # Proved, but not recordable — or recordable here and not yet anywhere else. Each carries the
+    # manifest that names the contract, because a fleet has many and "this address is broken" otherwise
+    # sends the reader to grep for it.
+    refused: list[tuple[str, str, str, str]] = []
+    unpushed: list[tuple[str, str, str, str]] = []
+    unproven: list[tuple[str, str, str, str]] = []
     # Which contracts have already been compared against each build (keyed by `build_id`), and which
     # commit first carried that build - so a skip can say what it duplicates rather than leaving a gap
     # in the numbering that reads like a contract being dropped.
@@ -403,7 +419,7 @@ def main() -> int:
                 if produced is None:
                     print(f"      NOT RECORDED: the constructor could not be run at block {wants.block},")
                     print("      so the immutables cannot be checked and the match is unproven")
-                    unproven.append((entry_key, entry.name, found))
+                    unproven.append((entry_key, entry.name, entry.manifest, found))
                     continue
                 explained, unexplained = differences(
                     strip_metadata(wants.onchain), strip_metadata(produced), immutable_regions, entry.address
@@ -412,7 +428,7 @@ def main() -> int:
                     print("      NOT RECORDED: the constructor does not reproduce what is deployed —")
                     for line in unexplained:
                         print(f"        {line}")
-                    unproven.append((entry_key, entry.name, found))
+                    unproven.append((entry_key, entry.name, entry.manifest, found))
                     continue
                 say(2, f"      constructor reproduces the deployed code; {len(immutables)} immutables:")
                 for value in immutables:
@@ -431,10 +447,10 @@ def main() -> int:
                     print("      It is the only source for this deployment — put it on a branch and push it:")
                     print(f"        git branch deployed/{entry.name} {found}")
                     print(f"        git push origin deployed/{entry.name}")
-                    refused.append((entry_key, entry.name, found))
+                    refused.append((entry_key, entry.name, entry.manifest, found))
                     continue
                 if reach == "local":
-                    unpushed.append((entry_key, entry.name, found))
+                    unpushed.append((entry_key, entry.name, entry.manifest, found))
                 # What the commit alone does not settle, taken from the build that just proved it.
                 # solc writes its own metadata into the artefact, so the compiler and the settings are
                 # the ones that produced this bytecode rather than a second reading of foundry.toml,
@@ -478,14 +494,14 @@ def main() -> int:
 
     if refused:
         print(f"\n{len(refused)} proved but NOT recorded — the commit is on no branch, so no remote can have it:")
-        for entry_key, name, found in refused:
+        for entry_key, name, _, found in refused:
             print(f"  {entry_key}  {name}  at {found[:10]}")
         print("  Put each on a branch and push it, then run again. Until then these are unrecoverable:")
         print("  a stash entry is destroyed by `git stash drop`, and nothing else built this bytecode.")
 
     if unproven:
         print(f"\n{len(unproven)} screened but NOT recorded — the constructor does not account for them:")
-        for entry_key, name, found in unproven:
+        for entry_key, name, _, found in unproven:
             print(f"  {entry_key}  {name}  at {found[:10]}")
         print("  The code outside the immutables matches, so the source is close — but an immutable")
         print("  the source determines came out differently, which a masked comparison would have hidden.")
@@ -494,10 +510,47 @@ def main() -> int:
         # Said at the end rather than per contract: the record and the commits it names have to reach
         # the remote TOGETHER, and pushing deployed.json alone is the mistake this prevents.
         print(f"\n{len(unpushed)} recorded at commits no remote has yet:")
-        for entry_key, name, found in unpushed:
+        for entry_key, name, _, found in unpushed:
             print(f"  {entry_key}  {name}  at {found[:10]}")
         print("  Push the branches holding them BEFORE pushing deployed.json, or the record names")
         print("  commits nobody else can resolve. CI rejects a record in that state.")
+
+    # Everything that was NOT recorded, in one place, whatever stage it fell out at. The blocks above
+    # carry the remedies - push the branch, look at the immutable - and this carries the completeness:
+    # a reader can tell from one section how many contracts are missing and why, rather than inferring
+    # it from the difference between two numbers.
+    missing = [
+        *dropped,
+        *(
+            (
+                entry_key,
+                wants.entry.name,
+                wants.entry.manifest,
+                f"no candidate built what is deployed (deployed {wants.deployed}, compared against "
+                f"{sum(1 for seen in compared.values() if entry_key in seen)} distinct build(s))",
+            )
+            for entry_key, wants in pending.items()
+        ),
+        *(
+            (entry_key, name, manifest, f"proved at {found[:10]}, but that commit is on no branch")
+            for entry_key, name, manifest, found in refused
+        ),
+        *(
+            (entry_key, name, manifest, f"screened at {found[:10]}, but the constructor does not account for it")
+            for entry_key, name, manifest, found in unproven
+        ),
+    ]
+    if missing:
+        print(f"\n{len(missing)} not recorded:")
+        keys = max(len(entry_key) for entry_key, _, _, _ in missing)
+        names = max(len(name or "(unnamed)") for _, name, _, _ in missing)
+        manifests = max(len(manifest) for _, _, manifest, _ in missing)
+        for entry_key, name, manifest, reason in sorted(missing):
+            print(f"  {entry_key:<{keys}}  {name or '(unnamed)':<{names}}  {manifest:<{manifests}}  {reason}")
+        # What was searched, said once rather than per row: `all_commits` is `git log --all`, so an
+        # unmerged branch and a stash are both in it, and "nothing built it" means nothing in ANY of
+        # them did - which is a different statement from "nothing on this branch did".
+        print(f"  searched {len(dated)} commit(s) from every ref, {dated[-1][1]} to {dated[0][1]}")
 
     print(f"\n{recovered} of {len(outstanding)} recovered, from {built} build(s) over {len(dated)} candidate commits")
     if recovered and arguments.write:
