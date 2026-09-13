@@ -52,7 +52,6 @@ contract MintableBurnableERC20_v2_Reinit is
         string memory symbol_
     ) public initializer {
         _initializeOwner(pendingOwner, owner_);
-        __UUPSUpgradeable_init();
         __ERC20_init(name_, symbol_);
         __ERC20Permit_init(name_);
     }
@@ -66,7 +65,6 @@ contract MintableBurnableERC20_v2_Reinit is
         string memory symbol_
     ) public reinitializer(1) {
         _initializeOwner(pendingOwner, owner_);
-        __UUPSUpgradeable_init();
         __ERC20_init(name_, symbol_);
         __ERC20Permit_init(name_);
     }

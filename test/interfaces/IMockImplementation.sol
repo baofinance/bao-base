@@ -55,8 +55,9 @@ interface IMockImplementation {
 }
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-abstract contract MockImplementationWithStateBase is UUPSUpgradeable, IMockImplementation {
+abstract contract MockImplementationWithStateBase is Initializable, UUPSUpgradeable, IMockImplementation {
     // Events
     event ValueChanged(uint256 oldValue, uint256 newValue);
 
@@ -129,13 +130,13 @@ abstract contract MockImplementationWithStateBase is UUPSUpgradeable, IMockImple
     // }
 
     bytes32 private constant INITIALIZABLE_STORAGE = 0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
-    function $_getInitializableStorage() private pure returns (InitializableStorage storage $) {
+    function $_getInitializableStorage() private pure returns (Initializable.InitializableStorage storage $) {
         assembly {
             $.slot := INITIALIZABLE_STORAGE
         }
     }
     modifier $reinitializer(uint64 version) {
-        InitializableStorage storage $ = $_getInitializableStorage();
+        Initializable.InitializableStorage storage $ = $_getInitializableStorage();
 
         // console2.log("MockImplementation.$reinitializer called with version: %s", version);
         // console2.log("_initializing=%s.", $._initializing);

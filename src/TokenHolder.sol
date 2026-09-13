@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {ReentrancyGuardTransientUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {BaoCheckOwner} from "@bao/internal/BaoCheckOwner.sol";
 import {Token} from "./Token.sol";
 import {ITokenHolder} from "./interfaces/ITokenHolder.sol";
 
-abstract contract TokenHolder is ReentrancyGuardTransientUpgradeable, BaoCheckOwner, ITokenHolder {
+abstract contract TokenHolder is ReentrancyGuardTransient, BaoCheckOwner, ITokenHolder {
     using SafeERC20 for IERC20;
 
     /// @notice function to transfer owned owned balance of a token

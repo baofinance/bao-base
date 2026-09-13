@@ -14,10 +14,10 @@
 | DerivedHarborOwnableRoles      |              1,763 |               22,813 |               1,805 |      370,650 |             37.07 |
 | DerivedOwnable                 |                916 |               23,660 |                 944 |      192,640 |             19.26 |
 | DerivedOwnableRoles            |              1,555 |               23,021 |               1,583 |      326,830 |             32.68 |
-| DerivedTokenHolder             |              1,972 |               22,604 |               2,000 |      414,400 |             41.44 |
+| DerivedTokenHolder             |              1,894 |               22,682 |               1,922 |      398,020 |             39.80 |
 | DerivedTokenHolder_v2          |              1,894 |               22,682 |               1,922 |      398,020 |             39.80 |
-| HarborPauser_v1                |              2,057 |               22,519 |               2,555 |      436,950 |             43.70 |
-| MintableBurnableERC20_v1       |              8,052 |               16,524 |               8,301 |    1,693,410 |            169.34 |
+| HarborPauser_v1                |              2,057 |               22,519 |               2,353 |      434,930 |             43.49 |
+| MintableBurnableERC20_v1       |              8,036 |               16,540 |               8,285 |    1,690,050 |            169.00 |
 | MintableBurnableERC20_v2       |              8,055 |               16,521 |               8,304 |    1,694,040 |            169.40 |
 | Stem_v1                        |              1,973 |               22,603 |               2,333 |      417,930 |             41.79 |
 | UUPSProxyDeployStub            |                940 |               23,636 |               1,027 |      198,270 |             19.83 |

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {BaoERC1967Proxy} from "@bao/openzeppelin-compat/BaoERC1967Proxy.sol";
+import {BaoERC1967Proxy} from "@bao/BaoERC1967Proxy.sol";
 
 import {Test} from "forge-std/Test.sol";
 

@@ -6,15 +6,15 @@ import {TokenHolder} from "@bao/TokenHolder.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 
 import {TokenHolderTestBase} from "@bao-test/TokenHolderTestBase.t.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 /// @notice Canary mirroring downstream deployed consumers: it calls the reentrancy-guard initializer inside an
 ///         `initializer` context, so a change to TokenHolder that removes that init API (or drifts the guard bytecode)
 ///         fails the build here - surfacing a base change that would break the bytecode of downstream deployed
 ///         contracts that inherit TokenHolder and call the init in their own initializers.
-contract DerivedTokenHolder is TokenHolder, BaoOwnable {
+contract DerivedTokenHolder is Initializable, TokenHolder, BaoOwnable {
     function initialize(address owner) public initializer {
         _initializeOwner(owner);
-        __ReentrancyGuardTransient_init();
         transferOwnership(owner);
     }
 }

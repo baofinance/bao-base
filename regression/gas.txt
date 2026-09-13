@@ -8,6 +8,11 @@ script/deployment/UUPSProxyDeployStub.sol:UUPSProxyDeployStub
 | upgradeTo        | 44050 | 4.405e+04 |
 | upgradeToAndCall | 99010 | 9.901e+04 |
 
+src/BaoERC1967Proxy.sol:BaoERC1967Proxy
+| function name   |    max |   display |
+|-----------------|--------|-----------|
+| fallback        | 190066 | 1.901e+05 |
+
 src/HarborPauser_v1.sol:HarborPauser_v1
 | function name     |   max |   display |
 |-------------------|-------|-----------|
@@ -54,17 +59,12 @@ src/Stem_v1.sol:Stem_v1
 | proxiableUUID             |   325 | 3.250e+02 |
 | upgradeToAndCall          |  8896 | 8.896e+03 |
 
-src/openzeppelin-compat/BaoERC1967Proxy.sol:BaoERC1967Proxy
-| function name   |    max |   display |
-|-----------------|--------|-----------|
-| fallback        | 190066 | 1.901e+05 |
-
 test/mocks/MintableBurnableERC20_v2_Reinit.sol:MintableBurnableERC20_v2_Reinit
 | function name     |    max |   display |
 |-------------------|--------|-----------|
 | balanceOf         |   2712 | 2.712e+03 |
 | hasAnyRole        |   2614 | 2.614e+03 |
-| initialize        | 162833 | 1.628e+05 |
+| initialize        | 162560 | 1.626e+05 |
 | mint              |  31980 | 3.198e+04 |
 | owner             |   2440 | 2.440e+03 |
 | proxiableUUID     |    393 | 3.930e+02 |

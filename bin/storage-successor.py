@@ -50,6 +50,11 @@ _BAO_RENAMED = re.compile(r"custom:bao-renamed-from\s+(\w+)\s+(\w+)")
 # you add a new bao tag + its regex, add it here too.
 _BAO_TAG = re.compile(r"custom:(bao-[a-z-]+)")
 _RECOGNIZED_BAO_TAGS = frozenset({"bao-upgrades-from", "bao-retyped-from", "bao-added", "bao-renamed-from"})
+# the namespace OpenZeppelin's Initializable declares on its storage struct. Identifying Initializable by its
+# namespace rather than by the contract name ties this to the same string bin/validate hashes into the slot it
+# looks for in the creation bytecode, so the two cannot drift; it also means a home-grown contract that happens
+# to be called Initializable cannot pass for it.
+_OZ_INITIALIZABLE_NAMESPACE = "openzeppelin.storage.Initializable"
 
 
 # ── the successor rule (pure; unit-testable with synthetic storageLayout dicts + declarations) ──────────────
@@ -338,6 +343,21 @@ def _namespaces(build_info, contract_node):
         if m:
             out.setdefault(m.group(1), member.get("name"))  # most-derived wins (linearized is derived-first)
     return out
+
+
+def initializable_contracts(build_info):
+    """'<source>:<Name>' for every contract that inherits OpenZeppelin's Initializable, directly or indirectly.
+
+    bin/validate asks this to decide what a production implementation's constructor must do: one inheriting
+    Initializable must disable them, one that does not has no initializer to disable and must write no storage
+    at all. Answering from the inheritance chain rather than from the bytecode is what keeps the check
+    unfakeable — a contract that inherits Initializable and omits `_disableInitializers()` still has to satisfy
+    the stricter rule, instead of being read as a contract that never had initializers."""
+    return [
+        f"{path}:{node.get('name')}"
+        for path, node in _contracts(build_info)
+        if _OZ_INITIALIZABLE_NAMESPACE in _namespaces(build_info, node)
+    ]
 
 
 def _retyped(build_info, contract_node):
@@ -721,12 +741,21 @@ def main(argv=None):
         action="store_true",
         help="print '<successor> <predecessor>' for each @custom:bao-upgrades-from link (no probe build) and exit — for validate's reference audit",
     )
+    parser.add_argument(
+        "--list-initializable",
+        action="store_true",
+        help="print '<source>:<Name>' for each contract inheriting OpenZeppelin's Initializable (no probe build) and exit — for validate's constructor check",
+    )
     args = parser.parse_args(argv)
 
     build_info = _latest_build_info(args.build_info_dir)
     if args.list:
         for _succ_path, succ, _pred_path, pred in _pairs(build_info):
             print(f"{succ} {pred}")
+        return 0
+    if args.list_initializable:
+        for contract in initializable_contracts(build_info):
+            print(contract)
         return 0
 
     checked, failures = check_build(build_info, args.root)

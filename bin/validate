@@ -307,6 +307,23 @@ ALLOWED_OZ_INIT_SLOT="f0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c22
 # _UPGRADEABLE_BEACON_IMPLEMENTATION_SLOT = 0x911c5a209f08d5ec5e
 BEACON_IMPL_SLOT="911c5a209f08d5ec5e"
 
+# Which contracts inherit Initializable (directly or indirectly), read from the compiled inheritance chain.
+# A contract that inherits it must disable initializers in its constructor; one that does not has no
+# initializer to disable — with OZ 5's UUPSUpgradeable no longer carrying Initializable, a constructor-owned
+# implementation has none in its chain at all. Reading this from the AST rather than inferring it from the
+# bytecode is what keeps the rule unfakeable: a contract that inherits Initializable and simply forgets
+# _disableInitializers() produces no SSTORE, and would otherwise be indistinguishable from one that never
+# had initializers.
+# (assigned before the loop, not read through a process substitution, so a failure of the query is seen)
+initializable_contracts=$("$BAO_BASE_BIN_DIR"/run-python storage-successor "${BUILD_INFO_DIR}" --list-initializable) ||
+  error "could not determine which contracts inherit Initializable"
+declare -A inherits_initializable=()
+while read -r _icontract; do
+  if [[ -n "$_icontract" ]]; then
+    inherits_initializable["$_icontract"]=1
+  fi
+done <<<"$initializable_contracts"
+
 failed=0
 for contract in ${contracts}; do
   this_failed=0
@@ -341,9 +358,13 @@ for contract in ${contracts}; do
   fi
 
   ################################################################
-  # check for constructor initialised storage
-  # - Must SSTORE exactly once, to OZ Initializable slot
-  # - No second SSTORE allowed (any other constructor write is disallowed)
+  # check for constructor initialised storage, in three shapes:
+  # - a beacon writes its implementation slot exactly once
+  # - a contract inheriting Initializable must SSTORE exactly once, to the OZ Initializable slot
+  #   (_disableInitializers())
+  # - a contract that does not inherit it has no initializer to disable, so it must SSTORE not at all
+  # In every shape no other constructor write is allowed: a proxy never runs the constructor, so storage
+  # initialised there would be absent from the proxy's state.
   ################################################################
 
   init=$(forge inspect --out ${FOUNDRY_OUT} "$contract" bytecode | tr -d '\n')
@@ -401,8 +422,9 @@ for contract in ${contracts}; do
           echo "ERROR: Beacon constructor performs multiple SSTOREs in $contract"
           this_failed=1
         fi
-      else
-        # UUPS proxy implementation: must SSTORE exactly once, to the OZ Initializable slot.
+      elif [ -n "${inherits_initializable[$contract]:-}" ]; then
+        # UUPS proxy implementation inheriting Initializable: must SSTORE exactly once, to the OZ
+        # Initializable slot.
         if [ "${sstore_count:-0}" -eq 0 ]; then
           echo "ERROR: Constructor does not call _disableInitializers() (no SSTORE) in $contract"
           this_failed=1
@@ -412,6 +434,17 @@ for contract in ${contracts}; do
         fi
         if [ "$has_init_slot" -eq 0 ]; then
           echo "ERROR: Constructor does not reference Initializable slot (erc7201) in $contract"
+          this_failed=1
+        fi
+      else
+        # Implementation with no Initializable in its inheritance chain: nothing to disable, and nothing it
+        # may write — this arm is stricter than the one above, not a relaxation of it.
+        if [ "${sstore_count:-0}" -gt 0 ]; then
+          echo "ERROR: Constructor performs ${sstore_count} SSTORE(s) in $contract (does not inherit Initializable, so must write no storage)"
+          this_failed=1
+        fi
+        if [ "$has_init_slot" -eq 1 ]; then
+          echo "ERROR: Constructor references the Initializable slot (erc7201) in $contract, which does not inherit Initializable"
           this_failed=1
         fi
       fi

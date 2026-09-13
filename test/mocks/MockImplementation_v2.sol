@@ -22,7 +22,6 @@ contract MockImplementation_v2 is Initializable, UUPSUpgradeable, BaoOwnable_v2 
      * This follows the Initializable Contract Pattern
      */
     function initialize(uint256 initialValue) external initializer {
-        __UUPSUpgradeable_init();
         _value = initialValue;
     }
 

@@ -17,29 +17,6 @@ deny = "warnings"
 remappings = [
   "ds-test/=lib/forge-std/lib/ds-test/src/",
   "forge-std/=lib/forge-std/src/",
-  # OZ 5.7.0 reduced contracts-upgradeable's UUPSUpgradeable to a re-export of the non-upgradeable
-  # core, dropping Initializable from its base list — and with it the initializer/_disableInitializers
-  # that deployed contracts reach through it — and the empty __UUPSUpgradeable_init shims their
-  # on-chain initializers call. This directory restores the 5.1 file.
-  #
-  # Redirecting the PATH rather than editing the imports is what lets deployed sources keep the exact
-  # import they were audited with, and what lets old revisions still build under verify-audit, which
-  # compiles a tag's source against HEAD's foundry.toml.
-  #
-  # Whole-directory prefixes, and FIRST in this list, for two measured reasons. Forge resolves an
-  # exact-file remapping literally in its dependency pre-pass: where OZ still ships the file it
-  # compiles OZ's copy anyway, leaving a second UUPSUpgradeable for the collision check to reject, and
-  # where OZ has DELETED the file it logs "Unable to resolve imports" on every build that reaches it.
-  # A prefix it honours, so OZ's proxy/utils/ and utils/ never enter the build at all — which is why
-  # Initializable.sol is re-exported alongside. And matching is by ORDER here, not by longest prefix:
-  # below the broader contracts-upgradeable/ rule these silently do nothing, and HarborPauser_v1 fails
-  # to find _disableInitializers.
-  #
-  # These shadow the whole of two OZ directories, which is safe only because nothing here imports
-  # anything else from either: an import of some other file under them would fail to resolve, loudly,
-  # and the answer would be to mirror that file too.
-  "@openzeppelin/contracts-upgradeable/proxy/utils/=src/openzeppelin-compat/proxy/utils/",
-  "@openzeppelin/contracts-upgradeable/utils/=src/openzeppelin-compat/utils/",
   "@openzeppelin/contracts/=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
   "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
   "@solady/=lib/solady/src/",

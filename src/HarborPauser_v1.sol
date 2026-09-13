@@ -51,9 +51,7 @@ contract HarborPauser_v1 is UUPSUpgradeable, HarborFixedOwnable, IERC5313 {
     /// @notice Deploy the pauser with fixed ownership to Harbor multisig
     /// @dev No parameters - deterministic bytecode for CREATE3 deployment
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() HarborFixedOwnable(address(0), _OWNER, 0) {
-        _disableInitializers();
-    }
+    constructor() HarborFixedOwnable(address(0), _OWNER, 0) {}
 
     /*//////////////////////////////////////////////////////////////////////////
                                   PUBLIC FUNCTIONS

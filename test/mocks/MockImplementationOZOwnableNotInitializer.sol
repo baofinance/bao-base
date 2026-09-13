@@ -38,7 +38,6 @@ contract MockImplementationOZOwnableNotInitializer is Initializable, UUPSUpgrade
         require(!$.initialized, "Already initialized");
         $.initialized = true;
         __Ownable_init(owner_);
-        __UUPSUpgradeable_init();
         $.value = initialValue;
     }
 

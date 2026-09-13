@@ -356,7 +356,7 @@ contract TestUpgrade is TestLeveragedTokensSetUp {
 }
 
 import {MintableBurnableERC20_v2_Reinit} from "@bao-test/mocks/MintableBurnableERC20_v2_Reinit.sol";
-import {BaoERC1967Proxy} from "@bao/openzeppelin-compat/BaoERC1967Proxy.sol";
+import {BaoERC1967Proxy} from "@bao/BaoERC1967Proxy.sol";
 
 /// @notice Tests for recovering from botched proxy deployments via upgrade
 /// Pattern: Upgrade to v2 with reinitializer to fix initialization issues

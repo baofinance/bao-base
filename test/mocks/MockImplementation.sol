@@ -23,7 +23,6 @@ contract MockImplementation is Initializable, UUPSUpgradeable, BaoOwnable {
      */
     function initialize(address owner_, uint256 initialValue) external initializer {
         _initializeOwner(owner_);
-        __UUPSUpgradeable_init();
         _value = initialValue;
     }
 

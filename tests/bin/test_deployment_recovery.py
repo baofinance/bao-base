@@ -11,6 +11,7 @@ Every constant below came from the real recovery of `BaoPauser_v1` at 0xd8785d5C
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +27,7 @@ from deployment_recovery import (  # noqa: E402
     commit_timestamp,
     compiler_in,
     creation_block,
+    declaration_of,
     differences,
     mask_immutables,
     matches,
@@ -34,7 +36,7 @@ from deployment_recovery import (  # noqa: E402
     search_passes,
     source_at,
     source_blobs,
-    still_to_compare,
+    still_to_try,
     strip_metadata,
     submodule_commits,
 )
@@ -413,10 +415,10 @@ def test_several_immutables_are_judged_one_at_a_time():
 def test_a_build_is_not_repeated_for_a_contract_already_compared_against_it():
     # The saving: twenty aggregators share a deploy and so share candidates, and many of those commits
     # read identical build inputs. Building each again proves nothing new about the same contracts.
-    compared = {}
+    tried = {}
 
-    assert still_to_compare(compared, "inputs-a", ["1/0xaa", "1/0xbb"]) == ["1/0xaa", "1/0xbb"]
-    assert still_to_compare(compared, "inputs-a", ["1/0xaa", "1/0xbb"]) == []
+    assert still_to_try(tried, "inputs-a", ["1/0xaa", "1/0xbb"]) == ["1/0xaa", "1/0xbb"]
+    assert still_to_try(tried, "inputs-a", ["1/0xaa", "1/0xbb"]) == []
 
 
 def test_a_contract_that_has_not_seen_a_build_gets_it_even_when_someone_else_has():
@@ -424,26 +426,26 @@ def test_a_contract_that_has_not_seen_a_build_gets_it_even_when_someone_else_has
     # builds already done - skips the commit for a contract whose window opens on it later, so the
     # contract is reported as "no candidate built what is deployed" having been compared against
     # nothing at all. `Aggregator_stETH_AAPL_arbitrum` recovers at 3a108494df when run on its own.
-    compared = {}
-    still_to_compare(compared, "inputs-a", ["1/0xaa"])
+    tried = {}
+    still_to_try(tried, "inputs-a", ["1/0xaa"])
 
-    assert still_to_compare(compared, "inputs-a", ["1/0xbb"]) == ["1/0xbb"]
+    assert still_to_try(tried, "inputs-a", ["1/0xbb"]) == ["1/0xbb"]
 
 
 def test_only_the_contracts_that_have_not_seen_it_are_returned():
     # A mixed set is the ordinary case once a run is under way: the build is worth doing for the one
     # that has not seen it, and the comparison is not worth repeating for the one that has.
-    compared = {}
-    still_to_compare(compared, "inputs-a", ["1/0xaa"])
+    tried = {}
+    still_to_try(tried, "inputs-a", ["1/0xaa"])
 
-    assert still_to_compare(compared, "inputs-a", ["1/0xaa", "1/0xbb"]) == ["1/0xbb"]
+    assert still_to_try(tried, "inputs-a", ["1/0xaa", "1/0xbb"]) == ["1/0xbb"]
 
 
 def test_a_different_build_is_a_different_question_for_the_same_contract():
-    compared = {}
-    still_to_compare(compared, "inputs-a", ["1/0xaa"])
+    tried = {}
+    still_to_try(tried, "inputs-a", ["1/0xaa"])
 
-    assert still_to_compare(compared, "inputs-b", ["1/0xaa"]) == ["1/0xaa"]
+    assert still_to_try(tried, "inputs-b", ["1/0xaa"]) == ["1/0xaa"]
 
 
 # ── locating the artefact ─────────────────────────────────────────────────────────────────────────
@@ -788,6 +790,48 @@ def test_the_declaration_decides_not_the_filename(repo):
     git(repo, "commit", "-qm", "misleading filename")
 
     assert source_at(repo, "HEAD", "Foo") == ("src/Elsewhere.sol", "Foo")
+
+
+def as_posix_reads_it(pattern: str) -> str:
+    """`pattern` as an engine with no GNU extensions reads it, which is the engine macOS git uses.
+
+    `git grep --extended-regexp` compiles the pattern with whatever `regcomp` the platform provides.
+    On Linux that is glibc's, which accepts the GNU extensions; on macOS it is the system one, which
+    does not, and git adds Apple's `REG_ENHANCED` - the flag that would restore them - only to patterns
+    compiled WITHOUT `REG_EXTENDED` (`compat/regcomp_enhanced.c`), so an extended pattern never gets
+    it. `re_format(7)` then reads a backslash before an ordinary character as "that character taken as
+    an ordinary character, as if the `\\` had not been present", which is what this drops. So a pattern
+    leaning on a GNU extension passes every test on Linux and finds nothing at all on a Mac."""
+    special = "^.[$()|*+?{\\"
+    return re.sub(r"\\(.)", lambda escape: escape.group(0 if escape.group(1) in special else 1), pattern)
+
+
+def test_the_search_works_on_a_posix_engine_and_not_only_on_glibc(repo, monkeypatch):
+    # `contract F0\b` is a word boundary to glibc and the literal `contract F0b` to macOS, so every
+    # contract went unfound there and every row read "no candidate built what is deployed" - a search
+    # that never looked, reported as one that found nothing. The pattern has to mean the same to both.
+    monkeypatch.setattr(
+        "deployment_recovery.declaration_of",
+        lambda contract_type: as_posix_reads_it(declaration_of(contract_type)),
+    )
+
+    assert source_at(repo, "HEAD", "F0") == ("src/f0.sol", "F0")
+
+
+def test_the_name_ends_where_an_identifier_ends_and_nowhere_else(repo):
+    # What the boundary is FOR: `Foo` is not declared by `contract Foob`, and `contract Foo` with its
+    # brace on the next line is still a declaration. Answering with `Foob` would be worse than
+    # answering with nothing - it compares a deployed contract against a different one's build.
+    (repo / "src" / "Foo.sol").write_text("contract Foo {}\n")
+    (repo / "src" / "Foob.sol").write_text("contract Foob {}\n")
+    (repo / "src" / "FooBar.sol").write_text("contract FooBar is Foo {}\n")
+    (repo / "src" / "Split.sol").write_text("contract Split\n{\n}\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "names that share a prefix")
+
+    assert source_at(repo, "HEAD", "Foo") == ("src/Foo.sol", "Foo")
+    assert source_at(repo, "HEAD", "Foob") == ("src/Foob.sol", "Foob")
+    assert source_at(repo, "HEAD", "Split") == ("src/Split.sol", "Split")
 
 
 # ── when it was deployed, and when the commit was made ────────────────────────────────────────────

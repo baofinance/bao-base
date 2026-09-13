@@ -567,3 +567,62 @@ def test_unrecognized_bao_tag_is_flagged_recognized_ones_ignored():
         }
     }
     assert mod.unrecognized_bao_tags(build_info) == [("C.S", "bao-renamd-from")]
+
+
+# ── which contracts inherit OpenZeppelin's Initializable. bin/validate asks this to decide what a production
+#    implementation's constructor must do: one inheriting Initializable must disable them (one SSTORE, to the
+#    Initializable slot), while one that does not has no initializer to disable and must write no storage at
+#    all. The inheritance chain is the signal, not the bytecode, so a contract that DOES inherit Initializable
+#    and omits `_disableInitializers()` cannot opt out of the check by producing no SSTORE. Identity comes from
+#    the ERC-7201 namespace its storage struct declares, not the contract's name — the same namespace whose
+#    hash validate greps for in the creation bytecode, so the two halves of that check cannot drift apart. ──
+
+
+def _contract(node_id, name, bases, structs=()):
+    return {
+        "nodeType": "ContractDefinition",
+        "id": node_id,
+        "name": name,
+        "linearizedBaseContracts": [node_id] + list(bases),
+        "nodes": [
+            {"nodeType": "StructDefinition", "id": node_id * 100 + i, "name": n, "documentation": {"text": d}}
+            for i, (n, d) in enumerate(structs)
+        ],
+    }
+
+
+_OZ_INITIALIZABLE = _contract(
+    10,
+    "Initializable",
+    [],
+    [("InitializableStorage", "@custom:storage-location erc7201:openzeppelin.storage.Initializable")],
+)
+_UUPS = _contract(20, "UUPSUpgradeable", [])  # OZ 5.x: no longer inherits Initializable
+
+
+def _tree(*contracts):
+    return {"output": {"sources": {"X.sol": {"ast": {"nodes": list(contracts)}}}}}
+
+
+def test_contract_inheriting_initializable_indirectly_is_listed():
+    # Impl -> Base -> Initializable: the namespace is two levels up, reached via the linearized chain.
+    # Initializable is listed too — it declares the namespace, so it trivially has it.
+    base = _contract(30, "Base", [10])
+    impl = _contract(40, "Impl", [30, 10])
+    listed = mod.initializable_contracts(_tree(_OZ_INITIALIZABLE, base, impl))
+    assert listed == ["X.sol:Initializable", "X.sol:Base", "X.sol:Impl"]
+
+
+def test_contract_without_initializable_is_not_listed():
+    # the fixed-owner UUPS shape: owner set in the constructor, no initializer anywhere in the chain. Neither
+    # the implementation nor either of its bases is listed, though Initializable is compiled alongside them.
+    fixed = _contract(50, "FixedOwnable", [])
+    impl = _contract(60, "Impl", [50, 20])
+    listed = mod.initializable_contracts(_tree(_OZ_INITIALIZABLE, _UUPS, fixed, impl))
+    assert listed == ["X.sol:Initializable"]
+
+
+def test_another_namespace_does_not_count_as_initializable():
+    # a contract with namespaced storage of its own must not be mistaken for an initializable one.
+    minter = _contract(70, "Minter", [], [("MinterStorage", "@custom:storage-location erc7201:bao.storage.Minter")])
+    assert mod.initializable_contracts(_tree(minter)) == []

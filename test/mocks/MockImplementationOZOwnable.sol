@@ -23,7 +23,6 @@ contract MockImplementationOZOwnable is Initializable, MockImplementationWithSta
     // See https://docs.openzeppelin.com/contracts/5.x/api/proxy#Initializable for initializer
     function initialize(address owner_, uint256 initialValue) external initializer {
         __Ownable_init(owner_);
-        __UUPSUpgradeable_init();
         _getStateStorage().value = initialValue;
     }
 

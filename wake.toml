@@ -17,8 +17,6 @@ remappings = [
   # when wake and forge resolve an import differently, because then wake analyses a program that is
   # not the one built, and matching here is by order rather than by longest prefix. The reasoning for
   # each entry is in foundry.toml, which is where it belongs; this is the copy wake reads.
-  "@openzeppelin/contracts-upgradeable/proxy/utils/=src/openzeppelin-compat/proxy/utils/",
-  "@openzeppelin/contracts-upgradeable/utils/=src/openzeppelin-compat/utils/",
   "@openzeppelin/contracts/=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/",
   "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
   "@solady/=lib/solady/src/",

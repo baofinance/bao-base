@@ -23,9 +23,7 @@ contract MockImplementationV1WithImmutables_v2 is Initializable, UUPSUpgradeable
     }
 
     // Add overload with owner parameter
-    function initialize() external initializer {
-        __UUPSUpgradeable_init();
-    }
+    function initialize() external initializer {}
 
     function stateValue() external view returns (uint256) {
         return _stateValue;

@@ -22,7 +22,6 @@ contract MockImplementationWithState_v2 is Initializable, MockImplementationWith
 
     // See https://docs.openzeppelin.com/contracts/5.x/api/proxy#Initializable for initializer
     function initialize(uint256 initialValue) external initializer {
-        __UUPSUpgradeable_init();
         _getStateStorage().value = initialValue;
     }
 

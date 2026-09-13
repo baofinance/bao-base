@@ -247,6 +247,39 @@ def test_every_contract_that_was_not_recorded_is_listed_with_its_reason_at_the_e
     assert "1 commit" in summary, "with the size of the space it covered"
 
 
+def test_a_commit_predating_the_source_is_not_counted_as_a_comparison(tmp_path, monkeypatch, capsys):
+    # Two candidate commits, and B's source exists at only the later one. The count claimed each
+    # commit's build for every contract waiting there the moment the commit was reached - before the
+    # sources were looked for, and so before anything could be built or compared - so the commit that
+    # declares B nowhere was counted as a build B had been compared against. "Compared against 2" and
+    # "compared against 1 of 2" send the reader to different places: the first says the search covered
+    # the ground and the source is not in this repository, the second says half of it was never looked
+    # at.
+    repo, scratch = repository_of_oracles(
+        tmp_path, {"B_USD": {"name": "B/USD", "address": ADDRESS_B, "contractPath": "src/B.sol:B"}}
+    )
+    (repo / "src" / "A.sol").write_text(contract_source("A", 1))
+    commit(repo, "2026-01-01T00:00:00+00:00", "before B's source existed")
+
+    (repo / "src" / "B.sol").write_text(contract_source("B", 2))
+    deployed_b = runtime(repo, "src/B.sol", "B", scratch)
+    commit(repo, "2026-01-02T00:00:00+00:00", "B's source lands")
+
+    recover = load_recover_baselines()
+    # What is deployed is not what either commit builds, so B stays unrecovered and reaches the summary.
+    chain = Chain({ADDRESS_B: deployed_b.replace(b"\x60\x02", b"\x60\x07")})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.chdir(repo)
+
+    recover.run(repo, say=recover.Printer(0), write=True)
+
+    printed = capsys.readouterr().out
+    row = next(line for line in printed.splitlines() if ADDRESS_B in line and "no candidate" in line)
+    assert "compared against 1 of 2 distinct build(s)" in row, "one commit declares B; the other was never built"
+
+
 # ── built by the compiler the deployed code names ──────────────────────────────────────────────────
 #
 # A commit fixes the compiler only as far as its pragma and foundry.toml do: the aggregators pin 0.8.30

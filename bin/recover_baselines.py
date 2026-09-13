@@ -50,7 +50,7 @@ from deployment_recovery import (
     search_passes,
     source_at,
     source_blobs,
-    still_to_compare,
+    still_to_try,
     strip_metadata,
     submodule_commits,
 )
@@ -215,7 +215,9 @@ class _Wanted:
     deployed: str
 
 
-def _try_commit(root: Path, commit: str, pending: dict[str, _Wanted], say: Callable[..., None]) -> dict[str, tuple]:
+def _try_commit(
+    root: Path, commit: str, pending: dict[str, _Wanted], say: Callable[..., None]
+) -> tuple[dict[str, tuple], set[str]]:
     """Place ONE worktree at `commit`, then build each contract that is looking there on its own.
 
     The worktree is shared because placing it is expensive and identical for every contract at this
@@ -223,7 +225,13 @@ def _try_commit(root: Path, commit: str, pending: dict[str, _Wanted], say: Calla
     shared, because `forge` writes no artefact for any source in a build that fails, so grouping them
     made one source's syntax error into every waiting contract's missing baseline. `build_id` still
     keeps the work bounded by the number of distinct builds in the repository rather than by the number
-    of candidates."""
+    of candidates.
+
+    Returns what matched, and which contracts were actually COMPARED here - the second being every
+    contract this commit produced a build for, matching or not. It is smaller than `pending` whenever a
+    source is declared nowhere at this commit, does not compile, or was built by a compiler the chain
+    does not name, and the caller needs it because "compared against 5 builds" and "reached 5 commits
+    and built at one of them" are different reports of a failed search."""
     # (path, name as declared THERE) - the two differ wherever the contract was renamed after its
     # deploy, and it is the declared name the build produces an artefact under.
     found_at = {
@@ -231,12 +239,13 @@ def _try_commit(root: Path, commit: str, pending: dict[str, _Wanted], say: Calla
     }
     sources = {k: located for k, located in found_at.items() if located}
     if not sources:
-        return {}
+        return {}, set()
     with tempfile.TemporaryDirectory(prefix="recover-baseline-") as scratch:
         worktree = Path(scratch) / "wt"
         missing = place_worktree(root, commit, worktree)
         try:
             found = {}
+            compared: set[str] = set()
             for position, (entry_key, (source, declared)) in enumerate(sorted(sources.items())):
                 # Its OWN output directory, so no artefact can be read as another source's: a failed
                 # build writes none, and a shared directory would leave whatever was there before.
@@ -280,10 +289,11 @@ def _try_commit(root: Path, commit: str, pending: dict[str, _Wanted], say: Calla
                         f"not the {wanted} the deployed code names",
                     )
                     continue
+                compared.add(entry_key)
                 agreed, immutables = matches(pending[entry_key].onchain, artefact)
                 if agreed:
                     found[entry_key] = (commit, source, declared, artefact, immutables)
-            return found
+            return found, compared
         finally:
             remove_worktree(root, worktree)
 
@@ -535,11 +545,16 @@ def recover(
     # matching it is a candidacy and not an answer - which is why these do not end the search, and why
     # they are only an OUTCOME for a contract that was never proved anywhere.
     screened: dict[str, list[str]] = {}
-    # Which contracts have already been compared against each build (keyed by `build_id`), and which
-    # commit first carried that build - so a skip can say what it duplicates rather than leaving a gap
-    # in the numbering that reads like a contract being dropped.
-    compared: dict[str, set[str]] = {}
+    # Which contracts each build (keyed by `build_id`) has already been TRIED for, and which commit
+    # first carried that build - so a skip can say what it duplicates rather than leaving a gap in the
+    # numbering that reads like a contract being dropped.
+    tried: dict[str, set[str]] = {}
     claimed_by: dict[str, str] = {}
+    # And which it was actually compared against, which is the smaller thing: a build is claimed above
+    # before its sources are located, so a commit declaring the contract nowhere claims a build that
+    # never ran. Counting the claims made every unrecovered contract read as having been compared
+    # against every commit the run had reached.
+    compared: dict[str, set[str]] = {}
     for label, order, admits in passes:
         if not pending:
             break
@@ -552,17 +567,18 @@ def recover(
                 continue
             place = f"[{position:>3}/{len(order)}] {commit[:10]} {when}"
             identity = build_id(root, commit)
-            fresh = still_to_compare(compared, identity, looking)
+            fresh = still_to_try(tried, identity, looking)
             if not fresh:
-                say(1, f"{place}  same build inputs as {claimed_by[identity][:10]}, already compared — skipped")
+                say(1, f"{place}  same build inputs as {claimed_by[identity][:10]}, already tried — skipped")
                 continue
             claimed_by.setdefault(identity, commit)
             waiting = f"{len(fresh)} waiting"
             if len(fresh) != len(looking):
-                waiting += f" ({len(looking) - len(fresh)} already compared against these inputs)"
+                waiting += f" ({len(looking) - len(fresh)} already tried against these inputs)"
             say(1, f"{place}  {waiting}, building…")
             started = time.monotonic()
-            outcome = _try_commit(root, commit, {k: looking[k] for k in fresh}, say)
+            outcome, compared_here = _try_commit(root, commit, {k: looking[k] for k in fresh}, say)
+            compared.setdefault(identity, set()).update(compared_here)
             built += 1
             # At the default level the per-commit lines are hidden, so a long stretch of builds that
             # match nothing would print nothing at all - which is the silence C3 hid behind. A line
@@ -697,8 +713,12 @@ def recover(
             account,
             entry_key,
             wants.entry,
+            # Both numbers, because their GAP is the diagnosis: compared against all of them says the
+            # source is not in this repository, and compared against few of them says most candidates
+            # never produced a build to compare - a broken source, or a name declared nowhere there.
             f"no candidate built what is deployed (deployed {wants.deployed}, compared against "
-            f"{sum(1 for seen in compared.values() if entry_key in seen)} distinct build(s))",
+            f"{sum(1 for seen in compared.values() if entry_key in seen)} of "
+            f"{sum(1 for seen in tried.values() if entry_key in seen)} distinct build(s))",
         )
     return Recovery(
         baselines=baselines,

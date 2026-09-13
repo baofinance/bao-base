@@ -48,7 +48,6 @@ contract MintableBurnableERC20_v1 is
     /// @param symbol_ The symbol of the ERC20 token. This expected to reflect the collateral and pegged token symbols
     function initialize(address owner_, string memory name_, string memory symbol_) public initializer {
         _initializeOwner(owner_);
-        __UUPSUpgradeable_init();
         __ERC20_init(name_, symbol_);
         __ERC20Permit_init(name_);
     }

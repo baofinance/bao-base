@@ -127,23 +127,28 @@ def build_id(repo_root: Path, commit: str) -> str:
     return done.stdout
 
 
-def still_to_compare(compared: dict[str, set[str]], build: str, keys: Iterable[str]) -> list[str]:
-    """Which of `keys` have not yet been compared against this build (a `build_id`), claiming them.
+def still_to_try(tried: dict[str, set[str]], build: str, keys: Iterable[str]) -> list[str]:
+    """Which of `keys` this build (a `build_id`) has not been tried for yet, claiming them.
 
     Two commits reading the same build inputs compile the same, so the second need not be built - but
-    ONLY for the contracts the first build was actually compared against. Recording the build id
-    alone, as a set of builds already done, silently drops every contract that becomes eligible later:
-    its candidate window opens on a commit whose inputs were already built for somebody else, the
-    commit is skipped, and the contract is reported as "no candidate built what is deployed" having
-    never been compared with anything.
+    ONLY for the contracts the first build was actually tried for. Recording the build id alone, as a
+    set of builds already done, silently drops every contract that becomes eligible later: its
+    candidate window opens on a commit whose inputs were already built for somebody else, the commit is
+    skipped, and the contract is reported as "no candidate built what is deployed" having never been
+    compared with anything.
 
     Measured: `Aggregator_stETH_AAPL_arbitrum` recovers at 3a108494df in 82 candidates when run on its
     own, and was reported unrecovered in the run of 97 - one of 52 in that state. The two-pass order
     makes it worse, because the second pass skips every build id the first pass claimed.
 
-    So the saving is kept and the loss is not: a build happens whenever some contract has not seen it,
-    and each contract is compared against each distinct build exactly once."""
-    seen = compared.setdefault(build, set())
+    TRIED, not compared, and the two must not be conflated: a build is claimed here before the sources
+    are looked for, and the commit may then declare the contract nowhere, fail to compile, or name a
+    compiler that is not the one the chain names - in each of which nothing is built and nothing is
+    compared. Claiming is still right, because a second commit with the same inputs would reach the
+    same dead end; counting it as a comparison is not, and the run reported contracts as having been
+    compared against every commit it had merely reached. What was actually compared is recorded by the
+    caller, from what the build returns."""
+    seen = tried.setdefault(build, set())
     fresh = [entry_key for entry_key in keys if entry_key not in seen]
     seen.update(fresh)
     return fresh
@@ -303,6 +308,25 @@ def _path_at(repo_root: Path, commit: str, recorded_path: str) -> str | None:
     return None
 
 
+def declaration_of(contract_type: str) -> str:
+    """The line where `contract_type` is declared, as a POSIX extended regular expression.
+
+    POSIX and not GNU, which is why this is named rather than written inline at its one call site.
+    `git grep --extended-regexp` compiles the pattern with whatever `regcomp` the platform provides:
+    glibc's on Linux, which accepts the GNU extensions, and the system one on macOS, which does not.
+    Git adds Apple's `REG_ENHANCED` - the flag that would make `\\b` a word boundary there - only to
+    patterns compiled WITHOUT `REG_EXTENDED` (`compat/regcomp_enhanced.c`), so an extended pattern
+    never gets it, and `re_format(7)` reads a backslash before an ordinary character as that character.
+    `Foo\\b` therefore searched for `Foob`: on macOS nothing was ever found, and every contract was
+    reported as "no candidate built what is deployed" - a search that never looked, reported as one
+    that found nothing.
+
+    So the boundary is spelled the way both engines read alike: the name is not followed by another
+    identifier character, or the line ends there - which a declaration whose brace is on the next line
+    does."""
+    return rf"^[[:space:]]*(abstract[[:space:]]+)?contract[[:space:]]+{re.escape(contract_type)}([^[:alnum:]_]|$)"
+
+
 def source_at(
     repo_root: Path, commit: str, contract_type: str, recorded_path: str | None = None
 ) -> tuple[str, str] | None:
@@ -346,7 +370,7 @@ def source_at(
             "grep",
             "-l",
             "--extended-regexp",
-            rf"^[[:space:]]*(abstract[[:space:]]+)?contract[[:space:]]+{re.escape(contract_type)}\b",
+            declaration_of(contract_type),
             commit,
             "--",
             "*.sol",

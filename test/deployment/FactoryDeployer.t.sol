@@ -23,7 +23,6 @@ contract MockUpgradeableOwnable is Initializable, UUPSUpgradeable, BaoOwnable {
 
     function initialize(address owner_, uint256 value_) external initializer {
         _initializeOwner(owner_);
-        __UUPSUpgradeable_init();
         value = value_;
     }
 
@@ -41,7 +40,6 @@ contract MockHarborOwnable is Initializable, UUPSUpgradeable, HarborOwnable {
 
     function initialize(address deployerOwner_, address pendingOwner_, uint256 value_) external initializer {
         _initializeOwner(deployerOwner_, pendingOwner_);
-        __UUPSUpgradeable_init();
         value = value_;
     }
 

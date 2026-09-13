@@ -23,7 +23,6 @@ contract MockImplementationWithImmutables is Initializable, UUPSUpgradeable, Bao
     // Add overload with owner parameter
     function initialize(address owner_) external initializer {
         _initializeOwner(owner_);
-        __UUPSUpgradeable_init();
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}

@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {BaoTest} from "@bao-test/BaoTest.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
-import {BaoERC1967Proxy} from "@bao/openzeppelin-compat/BaoERC1967Proxy.sol";
+import {BaoERC1967Proxy} from "@bao/BaoERC1967Proxy.sol";
 
 contract UpgradeTarget {
     uint256 internal storedValue;

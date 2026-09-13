@@ -23,7 +23,6 @@ contract MockImplementationWithState is Initializable, MockImplementationWithSta
     // See https://docs.openzeppelin.com/contracts/5.x/api/proxy#Initializable for initializer
     function initialize(address owner_, uint256 initialValue) external initializer {
         _initializeOwner(owner_);
-        __UUPSUpgradeable_init();
         _getStateStorage().value = initialValue;
         _getStateStorage().stableValue = initialValue;
     }

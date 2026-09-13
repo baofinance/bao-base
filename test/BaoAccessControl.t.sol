@@ -17,14 +17,13 @@ import {UUPSOwnableTestBase} from "@bao-test/UUPSOwnableTestBase.t.sol";
 
 import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 
-contract MockBaoAccessControl is BaoOwnableRoles, UUPSUpgradeable {
+contract MockBaoAccessControl is Initializable, BaoOwnableRoles, UUPSUpgradeable {
     uint256 public constant ANOTHER_ROLE = _ROLE_0;
     uint256 public constant ANOTHER_ROLE_ADMIN_ROLE = _ROLE_1;
     uint256 public constant ANOTHER_ROLE2 = _ROLE_2;
 
     function initialize(address owner) external initializer {
         _initializeOwner(owner);
-        __UUPSUpgradeable_init();
     }
 
     /// @notice In UUPS proxies the constructor is used only to stop the implementation being initialized to any version

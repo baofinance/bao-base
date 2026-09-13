@@ -5,7 +5,7 @@ import {Vm, VmSafe} from "forge-std/Vm.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
-import {BaoERC1967Proxy} from "@bao/openzeppelin-compat/BaoERC1967Proxy.sol";
+import {BaoERC1967Proxy} from "@bao/BaoERC1967Proxy.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
