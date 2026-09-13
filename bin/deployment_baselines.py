@@ -131,6 +131,41 @@ def key(chain_id: int, address: str) -> str:
     return f"{chain_id}/{address.lower()}"
 
 
+def tag_names(state_files: Iterable[str], commit: str) -> list[str]:
+    """The tag each state file wants for this commit: `deploy/<chain>/<file>@<commit>`.
+
+    DERIVED, not agreed. A state file lives at `deployments/<chain>/<file>.json`, so the tag is that
+    path with the directory and the suffix removed - which makes "does this tag match the record"
+    string equality rather than a naming convention someone has to keep, and puts the chain in the name
+    for free.
+
+    One per state file, because a commit serves several: 25 such pairs across the aggregators' twelve
+    recorded commits, since 44 of their addresses are described by two manifests. Naming the commit
+    alone would need something to CHOOSE which file names it.
+
+    `<commit>` cannot be a path segment - `refs/tags/deploy/mainnet/v4-oracles` as a file blocks any
+    directory of that name, so `deploy/mainnet/v4-oracles/abc123` cannot be created beside it. `@`
+    keeps the relation inside the last segment, where it can."""
+    return sorted(
+        f"deploy/{path.removeprefix('deployments/').removesuffix('.json')}@{commit[:10]}" for path in state_files
+    )
+
+
+def deploy_tags(baseline: Baseline) -> list[str]:
+    """The tags this baseline's commit wants, one per state file that claimed the deployment."""
+    return tag_names(baseline.stateFiles, baseline.commit)
+
+
+def reached_by(repo_root: Path, commit: str) -> list[str]:
+    """Every ref that reaches `commit` - branches first, then tags.
+
+    "Push that branch" without saying WHICH is a remedy the reader has to go and derive, and the answer
+    was already in hand: `commit_reach` runs these very queries and keeps only whether the output was
+    empty. Every one is named rather than the first, because naming one of several would send someone
+    to push a branch they did not mean."""
+    return _contains(repo_root, "branch", commit) + _contains(repo_root, "tag", commit)
+
+
 def remote_tags(repo_root: Path) -> dict[str, str]:
     """Every tag the REMOTE has, name to commit. Empty when no remote answers.
 
@@ -287,6 +322,13 @@ class Review:
     # from missing because a partial checkout is not a defect, and failing on it would fail every
     # developer's build for a clone only CI makes.
     inputs_unchecked: list[tuple[Baseline, list[str]]]
+    # Baselines whose commit NO TAG points at. A branch holding it is not preservation: branches move,
+    # are force-pushed and are deleted when work merges, where a tag does none of those. Any tag counts,
+    # not only the `deploy/…` name `deploy_tags` would generate - preservation is the job here, and
+    # failing a repository that tags by another convention would impose a naming policy nobody asked
+    # for. The NAME matters for the other job, naming a state file's capture, which is what the
+    # suggested tag is for.
+    untagged: list[Baseline]
     # (baseline, what its source actually declares) where the two disagree, `None` when the source
     # declares no single contract. A deployment record is a record of a DEPLOYMENT, so its contract
     # name is the name at deploy time and the source at that commit declares exactly that. Twelve of
@@ -424,6 +466,16 @@ def review(repo_root: Path) -> Review:
     # a single `ls-remote` rather than one network round trip per baseline.
     has = remote_tags(repo_root)
     reaches = {commit: commit_reach(repo_root, commit, has) for commit in {b.commit for b in baselines.values()}}
+    # `--points-at`, not `--contains`: a commit some later tag happens to contain is safe from
+    # collection but is not NAMED by it, and asked once per distinct commit rather than per baseline.
+    named = {
+        commit: bool(
+            subprocess.run(
+                ["git", "tag", "--points-at", commit], cwd=repo_root, capture_output=True, text=True
+            ).stdout.strip()
+        )
+        for commit in {b.commit for b in baselines.values()}
+    }
     # Only where the commit is present, for the reason `misnamed` gives below: a baseline whose commit
     # this repository has lost would report every one of its sources as missing too, sending the reader
     # after thirty-two files when the finding is one lost commit.
@@ -438,6 +490,7 @@ def review(repo_root: Path) -> Review:
         conflicts=conflicts,
         inputs_missing=inputs_missing,
         inputs_unchecked=inputs_unchecked,
+        untagged=[baselines[k] for k in sorted(baselines) if not named[baselines[k].commit]],
         not_on_a_remote=[
             (baselines[k], reaches[baselines[k].commit])
             for k in sorted(baselines)

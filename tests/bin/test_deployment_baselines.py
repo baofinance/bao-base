@@ -306,3 +306,34 @@ def _written(baseline: Baseline) -> dict:
     with tempfile.TemporaryDirectory() as directory:
         write_baselines(Path(directory), {key(baseline.chainId, baseline.address): baseline})
         return next(iter(json.loads((Path(directory) / RECORD).read_text())["baselines"].values()))
+
+
+# ── the tag a baseline wants, derived rather than agreed ───────────────────────────────────────────
+#
+# A state file lives at `deployments/<chain>/<file>.json`, so the tag IS that path with the directory
+# and the suffix removed. Derivation rather than convention: "does this tag match the record" becomes
+# string equality, not a naming agreement someone has to keep.
+
+
+def test_the_tag_a_baseline_wants_is_named_for_its_state_file():
+    from deployment_baselines import deploy_tags
+
+    assert deploy_tags(PAUSER) == [f"deploy/mainnet/state@{PAUSER.commit[:10]}"]
+
+
+def test_a_baseline_two_state_files_claim_wants_a_tag_for_each():
+    # 44 of the aggregators' addresses are in two manifests, and one commit serves several files - so
+    # the pair, not the commit alone, is what a preservation tag names.
+    from deployment_baselines import deploy_tags
+
+    both = Baseline(
+        **{
+            **PAUSER.__dict__,
+            "stateFiles": ["deployments/mainnet/v3-aggregators.json", "deployments/mainnet/v3-oracles.json"],
+        }
+    )
+
+    assert deploy_tags(both) == [
+        f"deploy/mainnet/v3-aggregators@{PAUSER.commit[:10]}",
+        f"deploy/mainnet/v3-oracles@{PAUSER.commit[:10]}",
+    ]

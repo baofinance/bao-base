@@ -681,3 +681,51 @@ def test_a_clone_that_cannot_reach_its_remote_does_not_promote_a_tagged_commit(t
 
     assert remote_tags(tmp_path) == {}, "nothing answers, and that is not an error"
     assert commit_reach(tmp_path, only) == "local", "a tag nobody else has is not a remote"
+
+
+# ── naming the refs, and the tags that are missing ─────────────────────────────────────────────────
+#
+# "push that branch" without saying WHICH is a remedy the reader has to derive, and `commit_reach`
+# already has the names in hand and throws them away. And a recorded commit no tag NAMES is one whose
+# preservation rests on a branch, which moves and is deleted in the ordinary course of work.
+
+
+def test_a_local_commit_is_reported_with_the_branch_holding_it(repo, tmp_path):
+    from deployment_baselines import reached_by
+
+    push_to_a_new_remote(repo, tmp_path)
+    git(repo, "commit", "-q", "--allow-empty", "-m", "not pushed")
+
+    assert reached_by(repo, head_of(repo)) == ["main"]
+
+
+def test_a_commit_on_several_branches_names_them_all(repo, tmp_path):
+    # Naming one of them would send the reader to push a branch that may not be the one they meant.
+    from deployment_baselines import reached_by
+
+    push_to_a_new_remote(repo, tmp_path)
+    git(repo, "commit", "-q", "--allow-empty", "-m", "not pushed")
+    git(repo, "branch", "also-here")
+
+    assert reached_by(repo, head_of(repo)) == ["also-here", "main"]
+
+
+def test_a_recorded_commit_no_tag_names_is_listed(repo, tmp_path):
+    # Preservation is the tag's first job. A branch holding it is not enough: branches move.
+    push_to_a_new_remote(repo, tmp_path)
+    write_baselines(repo, add({}, baseline_for(commit=head_of(repo))))
+
+    assert [b.contractType for b in review(repo).untagged] == ["Foo"]
+
+
+def test_a_recorded_commit_a_tag_names_is_not_listed(repo, tmp_path):
+    # `--points-at`, not `--contains`: a commit some later tag happens to contain is safe from
+    # collection but is not NAMED, and naming a state file's capture is the tag's second job.
+    from deployment_baselines import deploy_tags
+
+    push_to_a_new_remote(repo, tmp_path)
+    baseline = baseline_for(commit=head_of(repo))
+    write_baselines(repo, add({}, baseline))
+    git(repo, "tag", deploy_tags(baseline)[0], baseline.commit)
+
+    assert review(repo).untagged == []

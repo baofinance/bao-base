@@ -53,7 +53,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from deployment_baselines import Review, review
+from deployment_baselines import Review, deploy_tags, reached_by, review
 
 # Where audited source may live. Rename detection pairs only among the paths that survive the
 # pathspec, so any location a source file can legitimately move TO must be listed here: otherwise
@@ -720,13 +720,20 @@ def _check_baselines(found: Review) -> int:
             " nobody else can resolve them:\033[0m\n"
         )
         for baseline, reach in found.not_on_a_remote:
+            # NAMED, because "push that branch" leaves the reader to work out which - and where nothing
+            # holds it, the tag it wants is derivable from the state file that claimed the deployment.
+            holding = ", ".join(reached_by(Path.cwd(), baseline.commit))
             says = {
-                "local": "only a local branch has it — push that branch",
-                "none": "on no branch, so nothing will ever push it — put it on one and push that",
+                "local": f"only {holding} has it — push that",
+                "none": "on no branch and no tag, so nothing will ever push it",
                 "absent": "this repository does not have this commit at all — fetch it, or the baseline is dead",
             }[reach]
             _err(f"\033[31m  {baseline.chain} {baseline.address} {baseline.contractType}\033[0m\n")
             _err(f"\033[31m    {baseline.commit[:10]}: {says}\033[0m\n")
+            if reach in ("local", "none"):
+                for tag in deploy_tags(baseline):
+                    _err(f"\033[31m      git tag {tag} {baseline.commit}\033[0m\n")
+                    _err(f"\033[31m      git push origin tag {tag}\033[0m\n")
 
     if found.inputs_missing:
         failures = 1
@@ -785,6 +792,15 @@ def _summarise_baselines(found: Review) -> None:
     recording one forces the repair without failing today."""
     for problem in found.unreadable:
         _out(f"\033[33m  {problem.entry.manifest}: {problem.entry.recorded_path} — {problem.reason}\033[0m\n")
+    if found.untagged:
+        # A WARNING, not a failure: the commits are reachable today, and a branch is what recovery
+        # leaves behind. It says what to create because a tag is the only ref that does not move, and
+        # the record's commits are what everything downstream resolves.
+        _out(f"\033[33m{len(found.untagged)} recorded commit(s) no tag names — a branch is not preservation:\033[0m\n")
+        for baseline in found.untagged:
+            for tag in deploy_tags(baseline):
+                _out(f"\033[33m  git tag {tag} {baseline.commit}\033[0m\n")
+
     for problem in found.conflicts:
         # The address here rather than in the reason: the reason is about the FIELDS in dispute, and the
         # row has to say which deployed contract they are disputing.
