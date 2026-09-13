@@ -167,25 +167,49 @@ back, and going back needs each recorded baseline's gitlink closure to still res
 
 ## Using it
 
+There is one command, with one switch:
+
+- `lib/bao-base/run verify-audit` — **the check**, and what CI runs. It fails if a deployed contract has
+  no baseline, if a baseline's recorded source no longer resolves, or if a baseline names a commit no
+  remote holds.
+- `lib/bao-base/run verify-audit --write` — **the fix**, run when the check fails, the way `fmt` answers
+  `fmt --check`.
+
 ### After a deploy
 
 1. Deploy as usual. The manifest is written by the deploy script.
 2. Commit the source and the manifest.
-3. `lib/bao-base/run recover-baselines --write` — finds every deployed contract without a baseline,
-   proves each against the chain, and records what it proved.
-4. **Push the branches holding those commits before pushing `deployed.json`.** The record and the
-   commits it names must reach the remote together; a record naming commits nobody else has is a record
-   nobody else can use, and CI rejects it.
+3. `lib/bao-base/run verify-audit --write` — finds every deployed contract without a baseline, proves
+   each against the chain, records what it proved, and creates the tags that name those commits. All
+   of it locally: it never pushes.
+4. **Push the tags as well as the files** — `git push --tags` alongside the commit that carries
+   `deployed.json`. The record and the refs that keep its commits reachable have to arrive together, or
+   a fresh checkout resolves neither.
 
-### Recovering one contract
+### It only ever looks at this checkout
 
-`lib/bao-base/run recover-baselines --only 42161/0x…` — the chain and the address, because an address
-alone names a different contract on every chain that has one at it. The chain's name works too
-(`arbitrum/0x…`), since that is what the progress lines print.
+Nothing in the check asks a remote. In CI the checkout holds exactly what was pushed, so "is this commit
+here" already answers "was it pushed", with no network call. On your own machine the same question
+answers the weaker "is it in my tree" — so a run can pass locally and fail in CI, and that difference IS
+the "you forgot to push" signal. It is the same bargain a formatter makes: it goes green as soon as you
+have fixed the file, and the build is what notices you never pushed the fix.
 
-Reports by default; `--write` records. There are no other options: the search covers the whole history
-because a bound that is too narrow loses answers silently, and fourteen seconds is what removing it
-costs.
+The one exception runs only when something is already failing: if a commit cannot be resolved here, it
+asks origin whether a tag names it, so the message can say to fetch rather than send you hunting for
+something you have not lost.
+
+### Rebuilding the record
+
+`--write` only ever ADDS. So rebuilding from nothing is not a mode of its own: delete `deployed.json`
+and run it again, and every contract is missing, so every one is derived afresh. A single wrong entry is
+corrected the same way — delete that entry first. Overwriting in place is the one edit a record of what
+is already deployed should never make silently.
+
+### Which repositories this applies to
+
+The presence of `deployed.json` is the switch. A repository holding one is audited by its record; a
+repository without one keeps the older comparison against deployment tags. A repository converts by
+gaining the file, so this rolls out one repository at a time and none is left unchecked in between.
 
 ### When it refuses
 

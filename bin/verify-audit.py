@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
-"""Usage: verify-audit [revision-or-pattern ...]
+"""Usage: verify-audit [revision-or-pattern ...] | verify-audit --write
 
-Defaults to `audit*` and `deploy*`. Fails if a deployed contract's creation bytecode has drifted
-since a resolved revision (new files are OK).
+Fails if a deployed contract's source is not accounted for. HOW it checks depends on whether the
+repository holds a `deployed.json`: with one, every deployed contract must have a baseline naming the
+commit whose source built it; without one, the older comparison against deployment tags applies -
+defaulting to `audit*` and `deploy*`, and failing where creation bytecode has drifted since a resolved
+revision (new files are OK). The record's presence is the switch, so repositories convert one at a time
+and none is left unchecked in between.
+
+`--write` is the fix, run when the check above fails, the way `fmt` answers `fmt --check`. It records a
+baseline for every deployed contract that has none, proving each against the chain. That is minutes and
+needs an RPC, which is why it is a switch and not part of every run. It is ADDITIVE and never replaces
+an entry: delete `deployed.json` to rebuild the record from nothing, or delete one entry to correct it.
 
 An argument holding a glob metacharacter is a PATTERN, expanded via `git tag -l` (so `deploy-*`
 works - quote it to avoid shell globbing); matching no tags is information, not a failure. Any other
@@ -53,7 +62,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-from deployment_baselines import Review, deploy_tags, reached_by, review
+from deployment_baselines import RECORD, Review, remote_tags, review
+from recover_baselines import Printer, run
 
 # Where audited source may live. Rename detection pairs only among the paths that survive the
 # pathspec, so any location a source file can legitimately move TO must be listed here: otherwise
@@ -713,27 +723,29 @@ def _check_baselines(found: Review) -> int:
         for baseline in found.orphaned:
             _err(f"\033[31m  {baseline.chain} {baseline.address} {baseline.contractType}\033[0m\n")
 
-    if found.not_on_a_remote:
+    if found.unreachable:
         failures = 1
         _err(
-            f"\033[31mERROR: {len(found.not_on_a_remote)} baseline(s) name a commit no remote has, so"
-            " nobody else can resolve them:\033[0m\n"
+            f"\033[31mERROR: {len(found.unreachable)} baseline(s) name a commit this checkout cannot"
+            " resolve:\033[0m\n"
         )
-        for baseline, reach in found.not_on_a_remote:
-            # NAMED, because "push that branch" leaves the reader to work out which - and where nothing
-            # holds it, the tag it wants is derivable from the state file that claimed the deployment.
-            holding = ", ".join(reached_by(Path.cwd(), baseline.commit))
+        # The ONE remote call left, and it runs only once something is already wrong: if origin names
+        # the commit, the repair is to fetch rather than to go hunting for something believed lost.
+        # A check that passes must never need the network; a check that is failing may improve its
+        # advice with it, and degrades to saying less when nothing answers.
+        on_origin = remote_tags(Path.cwd())
+        for baseline, reach in found.unreachable:
             says = {
-                "local": f"only {holding} has it — push that",
-                "none": "on no branch and no tag, so nothing will ever push it",
+                "none": "here, but no branch or tag reaches it — put it on one",
                 "absent": "this repository does not have this commit at all — fetch it, or the baseline is dead",
             }[reach]
             _err(f"\033[31m  {baseline.chain} {baseline.address} {baseline.contractType}\033[0m\n")
             _err(f"\033[31m    {baseline.commit[:10]}: {says}\033[0m\n")
-            if reach in ("local", "none"):
-                for tag in deploy_tags(baseline):
-                    _err(f"\033[31m      git tag {tag} {baseline.commit}\033[0m\n")
-                    _err(f"\033[31m      git push origin tag {tag}\033[0m\n")
+            if held := [tag for tag, at in on_origin.items() if at == baseline.commit]:
+                _err(
+                    f"\033[31m      origin has {', '.join(sorted(held))} naming it —"
+                    " `git fetch --tags` and run again\033[0m\n"
+                )
 
     if found.inputs_missing:
         failures = 1
@@ -751,11 +763,11 @@ def _check_baselines(found: Review) -> int:
         )
 
     if found.inputs_unchecked:
-        # NOT a failure: a clone without every submodule cannot answer, and saying nothing about what it
-        # cannot see is honest where failing would be theatre. CI clones recursively and does answer.
-        _out(
-            f"\033[33mWARNING: {len(found.inputs_unchecked)} baseline(s) have inputs inside submodules this"
-            " clone does not hold, so they were not checked\033[0m\n"
+        # A LOG, not an error: a clone without every submodule cannot answer, and saying nothing about
+        # what it cannot see is honest where failing would be theatre. CI clones recursively and answers.
+        _log(
+            f"{len(found.inputs_unchecked)} baseline(s) have inputs inside submodules this clone does not"
+            " hold, so they were not checked"
         )
 
     if found.misnamed:
@@ -783,29 +795,24 @@ def _check_baselines(found: Review) -> int:
 
 
 def _summarise_baselines(found: Review) -> None:
-    """What is left to record, said AFTER the findings.
+    """What is left to record in a repository with no record yet — a LOG, never a warning.
 
-    Unrecovered contracts are a BACKLOG, not a fault: every repository starts with all of them, and a
-    check red until a long migration finishes is one people learn to skip. A manifest path that cannot
-    be normalised is reported for the same reason - harbor's `src/BaoPauser_v1.sol` names bao-base's
-    file and predates this check - and a baseline cannot be written for such an entry anyway, so
-    recording one forces the repair without failing today."""
+    Everything here is a fact about a repository part-way through converting, not a fault: it starts
+    with every contract unrecorded, and a check red until a long migration finishes is one people learn
+    to skip. Harbor's `src/BaoPauser_v1.sol` names bao-base's file and predates this check, so a
+    manifest path that cannot be normalised is in the same position.
+
+    A repository that HAS a record is audited by it instead, and the same facts are errors there.
+
+    Missing TAGS are not reported at all. They are derived from the record and never read as truth - if
+    every one vanished, nothing would be lost but the view - so an absent tag is neither an error nor
+    something to act on, and creating one is never the repair for anything."""
     for problem in found.unreadable:
-        _out(f"\033[33m  {problem.entry.manifest}: {problem.entry.recorded_path} — {problem.reason}\033[0m\n")
-    if found.untagged:
-        # A WARNING, not a failure: the commits are reachable today, and a branch is what recovery
-        # leaves behind. It says what to create because a tag is the only ref that does not move, and
-        # the record's commits are what everything downstream resolves.
-        _out(f"\033[33m{len(found.untagged)} recorded commit(s) no tag names — a branch is not preservation:\033[0m\n")
-        for baseline in found.untagged:
-            for tag in deploy_tags(baseline):
-                _out(f"\033[33m  git tag {tag} {baseline.commit}\033[0m\n")
-
+        _log(f"  {problem.entry.manifest}: {problem.entry.recorded_path} — {problem.reason}")
     for problem in found.conflicts:
         # The address here rather than in the reason: the reason is about the FIELDS in dispute, and the
         # row has to say which deployed contract they are disputing.
-        where = f"{problem.entry.chain_id}/{problem.entry.address}"
-        _out(f"\033[33m  manifests disagree — {where} {problem.reason}\033[0m\n")
+        _log(f"  manifests disagree — {problem.entry.chain_id}/{problem.entry.address} {problem.reason}")
     if found.unrecovered:
         _log(
             f"{len(found.recorded)} of {len(found.recorded) + len(found.unrecovered)} deployed contracts"
@@ -857,9 +864,90 @@ def _run(args: list[str]) -> int:
         return conflicts
     _log("every dependency shared with a repository this one depends on is staged at the same commit")
 
+    if "--write" in args:
+        # The FIX, and the only thing in the system that writes the record - what a developer runs when
+        # the check below fails, the way `fmt` answers `fmt --check`.
+        #
+        # ADDITIVE: it records a baseline for every deployed contract that has none, and never replaces
+        # one already there. So rebuilding a record from nothing is not a mode of its own - delete
+        # deployed.json and run this: every contract is then missing, so every one is derived again.
+        # A single WRONG entry is corrected the same way, by deleting that entry first, because an
+        # overwrite is the one edit a record of what is already deployed should never make silently.
+        #
+        # Placed AFTER the two guards above so it inherits them: this compiles, so a FOUNDRY_PROFILE
+        # would decide its settings too, and a record built under mismatched dependency versions is a
+        # record built with the wrong dependencies.
+        #
+        # The recovery narrates wherever this command reports, which is one stream - so its verdict
+        # cannot arrive above the work that produced it, and nothing has to be flushed to prevent it.
+        say = Printer(int(os.environ.get("BAO_BASE_VERBOSITY") or "0"), write=lambda line: _err(f"{line}\n"))
+        return run(Path.cwd(), say=say, write=True)
+
     found = review(Path.cwd())
     if _check_baselines(found) != 0:
         return 1
+
+    # THE RECORD IS THE SWITCH. A repository holding deployed.json is audited BY that record, which
+    # names per deployed contract the commit whose source built it - the thing the tag comparison below
+    # only ever approximated, against tags a human had to remember to create. A repository without one
+    # keeps the tag comparison, so this converts one repository at a time and none is left unchecked in
+    # between; a repository converts by gaining the file.
+    if (Path.cwd() / RECORD).is_file():
+        # Everything below is an ERROR here and a log in a repository that has not converted. Once the
+        # record IS the audit, a deployed contract it does not describe is a contract nothing checks,
+        # and an entry it cannot read or cannot settle is a hole in the same coverage.
+        gaps = 0
+        if found.unrecovered:
+            gaps = 1
+            _err(
+                f"\033[31mERROR: {len(found.unrecovered)} deployed contract(s) have no baseline, so the"
+                f" record does not cover what is deployed:\033[0m\n"
+            )
+            for entry in found.unrecovered:
+                _err(f"\033[31m  {entry.chain}/{entry.address}  {entry.name or '(unnamed)'}\033[0m\n")
+            _err("       run `verify-audit --write` to record them\n")
+
+        if found.unreadable:
+            gaps = 1
+            _err(
+                f"\033[31mERROR: {len(found.unreadable)} deployment record(s) cannot be identified, so no"
+                " baseline can cover them:\033[0m\n"
+            )
+            for problem in found.unreadable:
+                _err(f"\033[31m  {problem.entry.manifest}: {problem.entry.recorded_path} — {problem.reason}\033[0m\n")
+
+        if found.untagged:
+            gaps = 1
+            # An ERROR because `--write` repairs it, which is what separates this from advice. A branch
+            # holding a recorded commit is not preservation - branches move, are force-pushed, and are
+            # deleted when work merges - and the check reads the CHECKOUT, so a commit nothing names
+            # here is one a fresh clone may not be able to resolve at all.
+            _err(
+                f"\033[31mERROR: {len(found.untagged)} recorded commit(s) that no tag names, so nothing"
+                " keeps them reachable:\033[0m\n"
+            )
+            for baseline in found.untagged:
+                _err(
+                    f"\033[31m  {baseline.chain} {baseline.address} {baseline.contractType}"
+                    f" at {baseline.commit[:10]}\033[0m\n"
+                )
+            _err("       run `verify-audit --write` to create them, then push them with the files\n")
+
+        if found.conflicts:
+            gaps = 1
+            _err(
+                f"\033[31mERROR: {len(found.conflicts)} address(es) are described by manifests that"
+                " disagree, so what is deployed there is unsettled:\033[0m\n"
+            )
+            for problem in found.conflicts:
+                where = f"{problem.entry.chain_id}/{problem.entry.address}"
+                _err(f"\033[31m  {where} {problem.reason}\033[0m\n")
+                _err(f"\033[31m    claimed by {', '.join(problem.entry.manifests or (problem.entry.manifest,))}\033[0m\n")
+
+        if gaps:
+            return 1
+        _log(f"{RECORD} covers every deployed contract the manifests describe")
+        return 0
 
     ignores, scopes = _parse_ignore_file()
 
@@ -872,7 +960,7 @@ def _run(args: list[str]) -> int:
     # Its failure is not fatal, and says so: a clone with no reachable remote can still audit the
     # tags it holds, and the per-pattern match counts below are what make a short list visible.
     if _git("fetch", "--tags", "--no-recurse-submodules").returncode != 0:
-        _err("\033[33mWARNING: could not refresh the tags; auditing the tag list this clone holds\033[0m\n")
+        _log("could not refresh the tags; auditing the tag list this clone holds")
 
     # A shallow repository is refused rather than audited. It holds an unknown subset of the tagged
     # commits - the tag at the cloned tip is there, older ones are not - so the patterns below would

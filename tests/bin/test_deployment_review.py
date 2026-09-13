@@ -311,16 +311,18 @@ def head_of(repo: Path) -> str:
     return subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True).stdout.strip()
 
 
-def test_a_baseline_on_a_pushed_commit_is_not_reported(repo, tmp_path):
+def test_a_baseline_on_a_commit_this_checkout_holds_is_not_reported(repo, tmp_path):
     push_to_a_new_remote(repo, tmp_path)
     write_baselines(repo, add({}, baseline_for(commit=head_of(repo))))
 
-    assert review(repo).not_on_a_remote == []
+    assert review(repo).unreachable == []
 
 
-def test_a_baseline_on_a_commit_only_this_clone_has_is_reported_with_where_it_lives(repo, tmp_path):
-    # Recordable locally, rejected by CI. Carrying the REACH rather than a boolean is what lets one
-    # definition serve both: the recorder tolerates "local", the CI check does not.
+def test_a_baseline_on_an_unpushed_commit_is_not_reported_here(repo, tmp_path):
+    # A review asks only what THIS checkout can resolve, and a local branch reaches it - so an unpushed
+    # commit is silent here and reported in CI, whose checkout holds only what was pushed. That is the
+    # same bargain a formatter makes: it passes locally once you have fixed the file, and the build is
+    # what notices you never pushed it. Nothing asks a remote to decide it.
     push_to_a_new_remote(repo, tmp_path)
     (repo / "src" / "Later.sol").write_text("// later\n")
     git(repo, "add", "-A")
@@ -329,7 +331,7 @@ def test_a_baseline_on_a_commit_only_this_clone_has_is_reported_with_where_it_li
 
     found = review(repo)
 
-    assert [(b.contractType, reach) for b, reach in found.not_on_a_remote] == [("Foo", "local")]
+    assert found.unreachable == [], "a local branch reaches it, so this checkout can resolve it"
 
 
 def test_a_baseline_on_a_commit_this_repository_has_lost_is_reported_as_absent(repo, tmp_path):
@@ -340,7 +342,7 @@ def test_a_baseline_on_a_commit_this_repository_has_lost_is_reported_as_absent(r
 
     found = review(repo)
 
-    assert [(b.contractType, reach) for b, reach in found.not_on_a_remote] == [("Foo", "absent")]
+    assert [(b.contractType, reach) for b, reach in found.unreachable] == [("Foo", "absent")]
 
 
 def test_a_record_naming_a_contract_its_source_does_not_declare_is_reported(repo, tmp_path):
@@ -505,7 +507,7 @@ def test_a_baseline_whose_commit_is_absent_is_not_also_reported_as_missing_input
 
     found = review(repo)
 
-    assert [(b.contractType, reach) for b, reach in found.not_on_a_remote] == [("Foo", "absent")]
+    assert [(b.contractType, reach) for b, reach in found.unreachable] == [("Foo", "absent")]
     assert found.inputs_missing == [], "the absent commit is the finding, and it is made once"
 
 
@@ -638,19 +640,20 @@ def test_a_commit_only_a_tag_reaches_is_recordable(repo, tmp_path):
     push_to_a_new_remote(repo, tmp_path)
     only = tag_only_commit(repo, "deploy/mainnet/state@local")
 
-    assert commit_reach(repo, only) == "local", "a tag reaches it, even though no branch does"
+    assert commit_reach(repo, only) == "reachable", "a tag reaches it, even though no branch does"
 
 
-def test_a_commit_a_remote_tag_reaches_counts_as_remote(repo, tmp_path):
-    # The CI threshold. A pushed tag is as resolvable by everybody else as a pushed branch, and it cannot
-    # be answered from refs alone: a fetched tag and a local-only one look identical in refs/tags.
+def test_whether_the_remote_has_the_tag_makes_no_difference(repo, tmp_path):
+    # A pushed tag and a local-only one are indistinguishable in refs, and this no longer tries to tell
+    # them apart: the question is only whether THIS checkout can resolve the commit. In CI the checkout
+    # holds what was pushed, so the same local question answers "was it pushed" there for free.
     from deployment_baselines import commit_reach
 
     push_to_a_new_remote(repo, tmp_path)
     only = tag_only_commit(repo, "deploy/mainnet/state@pushed")
     git(repo, "push", "-q", "origin", "deploy/mainnet/state@pushed")
 
-    assert commit_reach(repo, only) == "remote", "the remote has the tag, so anyone can resolve it"
+    assert commit_reach(repo, only) == "reachable", "the tag reaches it; whose tag it is does not enter into it"
 
 
 def test_a_dangling_commit_is_still_refused(repo, tmp_path):
@@ -666,11 +669,11 @@ def test_a_dangling_commit_is_still_refused(repo, tmp_path):
     assert commit_reach(repo, dangling) == "none", "no branch and no tag reaches it"
 
 
-def test_a_clone_that_cannot_reach_its_remote_does_not_promote_a_tagged_commit(tmp_path):
-    # Degradation has a safe direction and an unsafe one. With no remote to ask, a tagged commit must
-    # read as `local` - recordable here, rejected by CI - and never as `remote`, which would let a commit
-    # only this machine holds into the record as though everybody could resolve it. Asking costs a
-    # network call on every `review`, so what happens when it fails is not a corner case.
+def test_a_clone_with_no_reachable_remote_is_still_answered(tmp_path):
+    # The check never needs the network, so having no remote at all changes nothing. This used to cost
+    # an `ls-remote` on every review, which made "what happens when it fails" a live question; now the
+    # only remote call left runs when something is ALREADY failing, to say whether origin holds what is
+    # missing.
     from deployment_baselines import commit_reach, remote_tags
 
     git(tmp_path, "init", "-q", "-b", "main")
@@ -679,8 +682,8 @@ def test_a_clone_that_cannot_reach_its_remote_does_not_promote_a_tagged_commit(t
     git(tmp_path, "commit", "-q", "--allow-empty", "-m", "one")
     only = tag_only_commit(tmp_path, "deploy/mainnet/state@unreachable")
 
-    assert remote_tags(tmp_path) == {}, "nothing answers, and that is not an error"
-    assert commit_reach(tmp_path, only) == "local", "a tag nobody else has is not a remote"
+    assert commit_reach(tmp_path, only) == "reachable", "a tag here reaches it, with nothing to ask"
+    assert remote_tags(tmp_path) == {}, "and the diagnostic degrades to saying nothing, not to failing"
 
 
 # ── naming the refs, and the tags that are missing ─────────────────────────────────────────────────

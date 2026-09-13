@@ -1370,3 +1370,119 @@ def test_differing_compiler_settings_do_change_the_bytecode(fix, tmp_path, monke
     with_ir = verify_audit._file_signature(tmp_path / "via-ir", "src/Loop.sol")
     assert verify_audit._signature_identifies(without)
     assert without != with_ir
+
+
+def test_the_recovery_is_imported_not_spawned(fix):
+    # `verify-audit` is the only command there is, and it reaches the recovery by IMPORT, running it in
+    # this process - rather than spawning a second script and forwarding a child's exit code back.
+    assert callable(verify_audit.run), "the work is imported by name"
+
+    status, output = fix.verify_audit("--write")
+
+    assert status == 0, output
+    assert "nothing to recover" in output, "a fixture describing no deployment has nothing to record"
+
+
+def _recorded(fix, contract="Foo"):
+    """A repository holding one deployed contract and a baseline for it, with nothing else wrong.
+
+    Written out rather than taken from a helper because every OTHER check has to stay quiet for a test
+    about one of them: the address is claimed by a manifest (so not orphaned), the source at that commit
+    declares the contract (so not misnamed), and it records no source blobs (so none can be missing)."""
+    import json
+
+    # A remapping covering src/, written here rather than into the shared FOUNDRY_TOML so no other
+    # test's build changes. A manifest path is normalised THROUGH foundry.toml's remappings, and an
+    # entry whose path none of them covers cannot be identified at all - which makes its baseline look
+    # orphaned, and a test about one check would then be failing on another.
+    fix.write("foundry.toml", FOUNDRY_TOML.rstrip("\n") + '\nremappings = ["@fixture/=src/"]\n')
+    fix.write("src/Foo.sol", FOO)
+    head = fix.commit("the source")
+    address = "0x" + "aa" * 20
+    fix.write(
+        "deployments/mainnet/state.json",
+        json.dumps(
+            {
+                "network": "mainnet",
+                "chainId": 1,
+                "implementations": {
+                    address: {
+                        "contractSource": "src/Foo.sol",
+                        "contractType": contract,
+                        "deploymentTime": "2026-01-01T00:00:00Z",
+                    }
+                },
+            }
+        ),
+    )
+    fix.write(
+        "deployed.json",
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "baselines": {
+                    f"1/{address}": {
+                        "chainId": 1,
+                        "chain": "mainnet",
+                        "address": address,
+                        "contractType": contract,
+                        "source": "src/Foo.sol",
+                        "stateFiles": ["deployments/mainnet/state.json"],
+                        "commit": head,
+                        "commitTimestamp": "2026-01-01T00:00:00Z",
+                        "deployBlock": 1,
+                        "deployTimestamp": "2026-01-01T00:00:00Z",
+                        "creationBytecodeKeccak256": "a" * 64,
+                        "compiler": "0.8.20+commit.a1b79de6",
+                        "settings": {},
+                        "sources": {},
+                        "submodules": {},
+                    }
+                },
+            }
+        ),
+    )
+    return head
+
+
+def test_a_recorded_commit_that_no_tag_names_fails_and_names_its_repair(fix):
+    # The complaint that started this: it printed the finding and exited 0. A tag is what keeps a
+    # recorded commit reachable once the branch holding it moves, and `--write` creates them - so it is
+    # an error now, because an error is a finding with a repair.
+    head = _recorded(fix)
+
+    status, output = fix.verify_audit()
+
+    assert status == 1, output
+    assert "no tag names" in output, "it says what is wrong"
+    assert "verify-audit --write" in output, "and how to repair it, which is never a git tag by hand"
+
+    fix.git("tag", f"deploy/mainnet/state@{head[:10]}", head)
+
+    status, output = fix.verify_audit()
+
+    assert status == 0, output
+    assert "covers every deployed contract" in output
+
+
+def test_the_record_switches_off_the_tag_comparison(fix):
+    # How this converts one repository at a time. A repository WITHOUT deployed.json keeps the tag
+    # comparison; one WITH it is audited by the record instead, which names the commit that built each
+    # deployed contract rather than relying on a tag somebody remembered to create. Nothing is left
+    # unchecked in between, and a repository converts simply by gaining the file.
+    fix.write("src/Foo.sol", FOO)
+    fix.tag("deploy/test")
+
+    status, before = fix.verify_audit("deploy/test")
+
+    assert status == 0, before
+    assert "=== deploy/test ===" in before, "with no record, the tags are still what is compared"
+
+    fix.write("deployed.json", '{"schemaVersion": 1, "baselines": {}}\n')
+    fix.commit("the record arrives")
+
+    status, after = fix.verify_audit("deploy/test")
+
+    assert status == 0, after
+    assert "=== deploy/test ===" not in after, "the record REPLACES the tag comparison rather than joining it"
+    assert "covers every deployed contract" in after, "and says so in its own terms"

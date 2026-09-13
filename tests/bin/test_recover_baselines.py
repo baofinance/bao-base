@@ -1,6 +1,6 @@
 """Recovering baselines for many contracts in one run.
 
-`recover-baselines` places one worktree per commit and builds each contract waiting there on its own.
+The recovery places one worktree per commit and builds each contract waiting there on its own.
 Grouping them into a single `forge build` was cheaper and changed answers: forge writes no artefact for
 any source in a build that fails, so one file that did not compile discarded every contract at that
 commit. A contract's baseline has to be the same whether it is recovered alone or beside contracts
@@ -13,7 +13,6 @@ contract was created in, and what running a constructor returns.
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import subprocess
@@ -32,14 +31,13 @@ DEPLOYED = "2026-01-03T00:00:00Z"
 
 
 def load_recover_baselines():
-    """The script under test, loaded by path because its file name is not a module name."""
-    spec = importlib.util.spec_from_file_location("recover_baselines", BIN / "recover-baselines.py")
-    module = importlib.util.module_from_spec(spec)
-    # Registered before it runs: `dataclasses` resolves the script's string annotations through
-    # `sys.modules[<module name>]`, where an unregistered module is None.
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    """The orchestration under test, imported by name.
+
+    It was loaded by path through `importlib` while it lived in a hyphenated script that nothing could
+    import - the same fact that made `verify-audit` spawn a process to reach it. Both are gone."""
+    import recover_baselines
+
+    return recover_baselines
 
 
 def contract_source(name: str, value: int) -> str:
@@ -148,9 +146,8 @@ def test_one_uncompilable_source_does_not_hide_the_others_at_that_commit(tmp_pat
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
 
-    recover.main()
+    recover.run(repo, say=recover.Printer(0), write=True)
 
     record = read_baselines(repo)
     assert key(1, ADDRESS_B) in record, "B compiles at the earlier commit, which built what was deployed"
@@ -223,9 +220,8 @@ def test_every_contract_that_was_not_recorded_is_listed_with_its_reason_at_the_e
     )
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
 
-    recover.main()
+    recover.run(repo, say=recover.Printer(0), write=True)
 
     printed = capsys.readouterr().out
     summary = printed[printed.rindex("not recorded") :]
@@ -319,9 +315,8 @@ def test_a_deployed_contract_naming_no_compiler_is_reported_not_guessed(tmp_path
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
 
-    recover.main()
+    recover.run(repo, say=recover.Printer(0), write=True)
 
     printed = capsys.readouterr().out
     assert key(1, ADDRESS_A) not in read_baselines(repo), "nothing is recorded for it"
@@ -374,9 +369,8 @@ def test_a_contract_two_manifests_disagree_about_names_both_of_them(tmp_path, mo
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
 
-    recover.main()
+    recover.run(repo, say=recover.Printer(0), write=True)
 
     printed = capsys.readouterr().out
     summary = printed[printed.rindex("not recorded") :]
@@ -497,9 +491,8 @@ def test_a_screened_candidate_that_fails_the_constructor_stays_in_the_search(tmp
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
 
-    recover.main()
+    recover.run(repo, say=recover.Printer(0), write=True)
 
     record = read_baselines(repo)
     assert key(1, ADDRESS_A) in record, "the commit after the deploy builds what is deployed, immutable included"
@@ -521,9 +514,8 @@ def test_a_contract_proved_after_an_unproven_screen_is_not_also_reported_unprove
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
 
-    recover.main()
+    recover.run(repo, say=recover.Printer(0), write=True)
 
     printed = capsys.readouterr().out
     assert "1 of 1 recovered" in printed
@@ -551,9 +543,8 @@ def test_a_contract_never_proved_names_every_commit_it_screened_at(tmp_path, mon
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
 
-    recover.main()
+    recover.run(repo, say=recover.Printer(0), write=True)
 
     printed = capsys.readouterr().out
     assert "1 screened but NOT recorded" in printed, "the remedy is the immutable, so it keeps its own block"
@@ -622,9 +613,8 @@ def test_an_entry_with_no_address_is_named_in_the_closing_list(tmp_path, monkeyp
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
 
-    recover.main()
+    recover.run(repo, say=recover.Printer(0), write=True)
 
     printed = capsys.readouterr().out
     assert key(1, ADDRESS_A) in read_baselines(repo), "the keyable one is recovered as usual"
@@ -657,9 +647,8 @@ def test_the_described_total_accounts_for_every_entry_the_manifests_hold(tmp_pat
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
 
-    recover.main()
+    recover.run(repo, say=recover.Printer(0), write=True)
 
     printed = capsys.readouterr().out
     assert "manifests describe 2 deployed contracts" in printed, "both entries, including the unkeyable one"
@@ -721,9 +710,8 @@ def test_every_drop_reason_reaches_the_summary_from_every_stage(tmp_path, monkey
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
 
-    recover.main()
+    recover.run(repo, say=recover.Printer(0), write=True)
 
     printed = capsys.readouterr().out
     assert "3 not recorded:" in printed, "every stage's casualties under one heading"
@@ -750,9 +738,8 @@ def test_the_entries_that_cannot_be_read_are_named_when_there_is_nothing_to_reco
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
 
-    recover.main()
+    recover.run(repo, say=recover.Printer(0), write=True)
 
     printed = capsys.readouterr().out
     assert "1 not recorded:" in printed, "said even when there was nothing to search for"
@@ -812,9 +799,8 @@ def test_a_baseline_no_manifest_claims_is_named_in_the_summary(tmp_path, monkeyp
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
 
-    recover.main()
+    recover.run(repo, say=recover.Printer(0), write=True)
 
     printed = capsys.readouterr().out
     assert ADDRESS_GHOST in printed.lower(), "the orphan is named, not counted"
@@ -863,9 +849,8 @@ def test_every_count_in_the_head_line_has_rows_at_the_end(tmp_path, monkeypatch,
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
 
-    recover.main()
+    recover.run(repo, say=recover.Printer(0), write=True)
 
     printed = capsys.readouterr().out
     assert NO_ADDRESS in printed, "the entry that cannot be keyed"
@@ -924,9 +909,8 @@ def test_a_rebuild_that_reproduces_the_recorded_hash_passes(tmp_path, monkeypatc
     recover = load_recover_baselines()
     write_baselines(repo, add({}, recorded_baseline(repo, scratch, head, recover._keccak256(creation))))
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--reprove"])
 
-    assert recover.main() == 0
+    assert recover.run(repo, say=recover.Printer(0), reprove=True) == 0
 
     printed = capsys.readouterr().out
     assert "1 rebuilt" in printed, "it says what it did, so a silent pass cannot be mistaken for a skip"
@@ -942,9 +926,8 @@ def test_a_rebuild_that_does_not_reproduce_the_recorded_hash_is_reported(tmp_pat
     recover = load_recover_baselines()
     write_baselines(repo, add({}, recorded_baseline(repo, scratch, head, "f" * 64)))
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--reprove"])
 
-    assert recover.main() != 0, "a record that no longer rebuilds is a failure, not a note"
+    assert recover.run(repo, say=recover.Printer(0), reprove=True) != 0, "a record that no longer rebuilds is a failure, not a note"
 
     printed = capsys.readouterr().out
     assert ADDRESS_A in printed.lower()
@@ -960,9 +943,8 @@ def test_the_rebuild_is_not_run_unless_asked(tmp_path, monkeypatch, capsys):
     recover = load_recover_baselines()
     write_baselines(repo, add({}, recorded_baseline(repo, scratch, head, "f" * 64)))
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines"])
 
-    assert recover.main() == 0
+    assert recover.run(repo, say=recover.Printer(0)) == 0
 
     printed = capsys.readouterr().out
     assert "rebuilt" not in printed and "does not rebuild" not in printed
@@ -993,9 +975,8 @@ def test_a_selector_that_names_nothing_still_reports_what_is_wrong(tmp_path, mon
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--only", f"mainnet/{ADDRESS_A}"])
 
-    assert recover.main() == 1, "a selector naming nothing is still a mistyped argument"
+    assert recover.run(repo, say=recover.Printer(0), only=f"mainnet/{ADDRESS_A}") == 1, "a selector naming nothing is still a mistyped argument"
 
     printed = capsys.readouterr().out
     assert NO_ADDRESS in printed, "and the run still says what it knows is wrong"
@@ -1033,9 +1014,8 @@ def test_only_chooses_which_baseline_is_reproved(tmp_path, monkeypatch, capsys):
     repo, baselines = two_recorded_baselines(tmp_path, recover)
     write_baselines(repo, baselines)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--reprove", "--only", f"mainnet/{ADDRESS_A}"])
 
-    assert recover.main() == 0, "the one asked about rebuilds to what it records"
+    assert recover.run(repo, say=recover.Printer(0), reprove=True, only=f"mainnet/{ADDRESS_A}") == 0, "the one asked about rebuilds to what it records"
 
     printed = capsys.readouterr().out
     assert "1 rebuilt" in printed, "one, not both — the broken one was not asked about"
@@ -1051,9 +1031,8 @@ def test_a_selector_naming_no_recorded_baseline_is_refused(tmp_path, monkeypatch
     repo, baselines = two_recorded_baselines(tmp_path, recover)
     write_baselines(repo, baselines)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--reprove", "--only", "mainnet/0x" + "de" * 20])
 
-    assert recover.main() == 1
+    assert recover.run(repo, say=recover.Printer(0), reprove=True, only="mainnet/0x" + "de" * 20) == 1
 
     printed = capsys.readouterr().out
     assert "no recorded baseline is" in printed, "named for the set it was looked for in"
@@ -1081,9 +1060,8 @@ def test_a_baseline_records_the_state_file_it_came_from(tmp_path, monkeypatch):
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
 
-    recover.main()
+    recover.run(repo, say=recover.Printer(0), write=True)
 
     assert read_baselines(repo)[key(1, ADDRESS_A)].stateFiles == ["deployments/mainnet/state.json"]
 
@@ -1118,11 +1096,175 @@ def test_a_contract_two_manifests_describe_records_both_state_files(tmp_path, mo
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
 
-    recover.main()
+    recover.run(repo, say=recover.Printer(0), write=True)
 
     assert read_baselines(repo)[key(1, ADDRESS_A)].stateFiles == [
         "deployments/mainnet/older.json",
         "deployments/mainnet/state.json",
     ]
+
+
+# ── regeneration the tool owns ─────────────────────────────────────────────────────────────────────
+#
+# Recovery skips what is already recorded, so a wrong entry can only be corrected by deleting the file
+# and running again - a manual deletion, which is the one operation the record's history should never
+# need. `--regenerate` derives from the state files WITHOUT reading the existing record, and with
+# `--write` replaces it; without, it reports every difference and touches nothing, which is a check CI
+# can run because it cannot lose anything.
+
+
+def a_repository_recording(tmp_path, existing):
+    """A repo where A is recoverable at HEAD, with `existing` already written as its record."""
+    repo, scratch = repository_of_oracles(
+        tmp_path, {"A_USD": {"name": "A/USD", "address": ADDRESS_A, "contractPath": "src/A.sol:A"}}
+    )
+    (repo / "src" / "A.sol").write_text(contract_source("A", 1))
+    deployed_a = runtime(repo, "src/A.sol", "A", scratch)
+    head = commit(repo, "2026-01-01T00:00:00+00:00", "the source")
+    (repo / "deployed.json").write_text(existing)
+    return repo, deployed_a, head
+
+
+def driven(recover, monkeypatch, repo, deployed_a):
+    chain = Chain({ADDRESS_A: deployed_a})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.chdir(repo)
+
+
+def test_regeneration_replaces_a_baseline_the_existing_record_holds_wrongly(tmp_path, monkeypatch):
+    # The reason this exists: an ordinary run sees the address as recorded and leaves the wrong commit
+    # standing. Correcting it by hand is the edit the record refuses to sanction.
+    from deployment_baselines import add, write_baselines
+
+    repo, deployed_a, head = a_repository_recording(tmp_path, "{}")
+    write_baselines(repo, add({}, orphan_baseline(ADDRESS_A, "A")))
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+
+    assert recover.run(repo, say=recover.Printer(0), regenerate=True, write=True) == 0
+
+    assert read_baselines(repo)[key(1, ADDRESS_A)].commit == head, "the tool corrected it, not a human"
+
+
+def test_regeneration_never_reads_the_existing_record(tmp_path, monkeypatch):
+    # Output depends only on the state files. Proved with a record that cannot be READ at all - the
+    # state a mandatory new field leaves every existing record in, and precisely when regeneration is
+    # the remedy: a mode that had to parse the old file first could not rescue it.
+    repo, deployed_a, head = a_repository_recording(
+        tmp_path, '{"schemaVersion": 1, "baselines": {"1/0x": {"chain": "mainnet"}}}\n'
+    )
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+
+    assert recover.run(repo, say=recover.Printer(0), regenerate=True, write=True) == 0, "an unreadable record is what this replaces, not something it trips over"
+
+    assert read_baselines(repo)[key(1, ADDRESS_A)].commit == head
+
+
+def test_verify_reports_a_record_regeneration_would_change(tmp_path, monkeypatch, capsys):
+    # The check half: regenerate in memory, say what differs, write nothing. A hand-edited record that
+    # is internally consistent passes every other check in the system - this is what catches it.
+    from deployment_baselines import add, write_baselines
+
+    repo, deployed_a, head = a_repository_recording(tmp_path, "{}")
+    write_baselines(repo, add({}, orphan_baseline(ADDRESS_A, "A")))
+    before = (repo / "deployed.json").read_text()
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+
+    assert recover.run(repo, say=recover.Printer(0), regenerate=True) == 1, "a record regeneration would change is a failure, not a note"
+
+    printed = capsys.readouterr().out
+    assert "regeneration would change" in printed
+    assert ADDRESS_A in printed.lower() and head[:10] in printed, "the address, and what it should say"
+    assert (repo / "deployed.json").read_text() == before, "the check writes nothing"
+
+
+def test_verify_says_an_unreadable_record_would_be_replaced(tmp_path, monkeypatch, capsys):
+    # Asked as a question rather than performed as an action. A record that cannot be read is the case
+    # this mode exists to repair, so the check must not trip over one - and "would regeneration change
+    # this" has an obvious answer for it: entirely. Without this the `except` path ships untested, and
+    # an exception tuple is only evaluated when something raises, so a missing name there stays green.
+    repo, deployed_a, head = a_repository_recording(
+        tmp_path, '{"schemaVersion": 1, "baselines": {"1/0x": {"chain": "mainnet"}}}\n'
+    )
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+
+    assert recover.run(repo, say=recover.Printer(0), regenerate=True) == 1, "a record that cannot be read is a failure, and a repairable one"
+
+    printed = capsys.readouterr().out
+    assert "cannot be read" in printed and "would replace it" in printed
+    assert (repo / "deployed.json").read_text().startswith('{"schemaVersion": 1'), "the check writes nothing"
+
+
+def test_write_creates_the_missing_tags_locally(tmp_path, monkeypatch):
+    # The repair CREATES them, rather than printing a checklist of `git tag` lines for a reader to
+    # retype - the names are derived from the record, so nothing about them needed a human. Locally
+    # only: what leaves the machine stays one decision the user makes knowingly.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+
+    recover.run(repo, say=recover.Printer(0), write=True)
+
+    at_head = subprocess.run(
+        ["git", "tag", "--points-at", head], cwd=repo, capture_output=True, text=True
+    ).stdout.split()
+    assert at_head == [f"deploy/mainnet/state@{head[:10]}"], "derived from the state file that claimed it"
+
+
+def test_writing_again_does_not_pile_up_tags(tmp_path, monkeypatch):
+    # Run twice on an unchanged tree and the second run has nothing to create: a commit any tag already
+    # names is preserved, which is the same question `Review.untagged` asks.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    recover.run(repo, say=recover.Printer(0), write=True)
+    after_one = subprocess.run(
+        ["git", "tag", "--points-at", head], cwd=repo, capture_output=True, text=True
+    ).stdout.split()
+
+    recover.run(repo, say=recover.Printer(0), write=True)
+
+    after_two = subprocess.run(
+        ["git", "tag", "--points-at", head], cwd=repo, capture_output=True, text=True
+    ).stdout.split()
+    assert after_two == after_one, "the second run created nothing"
+
+
+def test_regeneration_returns_its_differences_as_data(tmp_path):
+    # The caller reports the differences, so it is handed the differences themselves - not a transcript
+    # to parse, and not an exit code that has forgotten which baseline moved. Two commands ask this
+    # question and word the answer differently, which only one shared comparison can keep consistent.
+    from deployment_baselines import add, write_baselines
+
+    recover = load_recover_baselines()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    write_baselines(repo, add({}, orphan_baseline(ADDRESS_A, "A")))
+
+    difference = recover.regeneration_changes(repo, add({}, orphan_baseline(ADDRESS_B, "B")))
+
+    assert difference.unreadable == "", "the committed record read cleanly"
+    assert [(entry_key, was is None, now is None) for entry_key, was, now in difference.changes] == [
+        (key(1, ADDRESS_A), False, True),
+        (key(1, ADDRESS_B), True, False),
+    ], "A recorded and not regenerated, B regenerated and not recorded - each named, in key order"
+
+
+def test_an_unreadable_record_is_returned_as_a_difference_not_raised(tmp_path):
+    # The one case regeneration exists to repair must not come back as an exception the caller has to
+    # know to catch: it is an answer to "would this change", and the answer is "entirely".
+    recover = load_recover_baselines()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "deployed.json").write_text('{"schemaVersion": 99, "baselines": {}}\n')
+
+    difference = recover.regeneration_changes(repo, {})
+
+    assert "99" in difference.unreadable, "it says what it found, not merely that something was wrong"
+    assert difference.changes == [], "nothing can be compared against a record that cannot be read"

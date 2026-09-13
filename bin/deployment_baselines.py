@@ -156,6 +156,32 @@ def deploy_tags(baseline: Baseline) -> list[str]:
     return tag_names(baseline.stateFiles, baseline.commit)
 
 
+def create_missing_tags(repo_root: Path, baselines: Iterable[Baseline]) -> list[str]:
+    """Create, LOCALLY, the tag each recorded commit wants and has not got. Never pushes.
+
+    Part of the repair rather than advice printed for someone to retype: a checklist of `git tag` lines
+    is a repair the reader has to perform by hand, and the names are derived from the record anyway.
+
+    Pushing is deliberately NOT done here. The record and its tags are written together on the machine
+    that made them, and what leaves that machine stays one decision the user makes knowingly - the same
+    way this writes `deployed.json` without committing it.
+
+    "Has not got" is ANY tag pointing at the commit, matching what `Review.untagged` asks. A commit some
+    other convention already names is preserved, and imposing a second name on it would be a naming
+    policy nobody asked for."""
+    created: list[str] = []
+    for baseline in baselines:
+        named = subprocess.run(
+            ["git", "tag", "--points-at", baseline.commit], cwd=repo_root, capture_output=True, text=True
+        ).stdout.strip()
+        if named:
+            continue
+        for tag in deploy_tags(baseline):
+            if subprocess.run(["git", "tag", tag, baseline.commit], cwd=repo_root, capture_output=True).returncode == 0:
+                created.append(tag)
+    return sorted(created)
+
+
 def reached_by(repo_root: Path, commit: str) -> list[str]:
     """Every ref that reaches `commit` - branches first, then tags.
 
@@ -186,50 +212,34 @@ def remote_tags(repo_root: Path) -> dict[str, str]:
     return found
 
 
-def commit_reach(repo_root: Path, commit: str, remote: dict[str, str] | None = None) -> str:
-    """Where a commit lives, which decides whether a baseline may name it.
+def commit_reach(repo_root: Path, commit: str) -> str:
+    """Where a commit lives in THIS checkout, which decides whether a baseline may name it.
 
-    A baseline is only as good as its commit, and there are three ways for that to go wrong, needing
-    three different answers:
+    Purely local, and deliberately so: nothing here asks a remote. In CI the checkout holds exactly
+    what was pushed, so "is it here" already answers "was it pushed" - with no network call, and with
+    the tool needing no opinion about what anybody else can resolve. On a developer's machine the same
+    question answers the weaker "is it in my tree", and CI is what catches the difference. That is the
+    same bargain a formatter makes: it passes locally once you have fixed the file, and the build is
+    what notices you never pushed it.
 
-    - `"remote"` - a remote branch contains it, so everyone can resolve it. Recordable anywhere, and
-      what CI requires.
-    - `"local"` - only a local branch contains it. The ORDINARY state of work in progress: a deploy is
-      committed and the record written before anything is pushed, so refusing this would make the tool
-      unusable in its own normal flow. Recordable locally with a warning, rejected by CI - and there
-      the "CI will catch it" safety net is real, because a branch commit survives until it is pushed or
-      deliberately discarded.
-    - `"none"` - no branch contains it. A stash entry, or a dangling commit. NEVER recordable, not even
-      locally: `git push` pushes branches, so nothing will ever carry it to a remote, and `git stash
-      drop` destroys it. A downstream check is no safety net when the object can be gone before the
-      check runs.
-    - `"absent"` - this repository does not have the commit at all. The case the whole reachability
-      concern is about: a force-push, an orphaning rebase, or garbage collection, leaving a baseline
-      pointing at nothing. Distinguished from `"none"` because the remedy differs - fetch it, or the
-      baseline is dead.
+    Three answers:
 
-    Measured in harbor-price-aggregators, which holds both edge cases at once: a recorded baseline
-    names a stash entry, and HEAD itself sits on two local branches and no remote. So "must be on
-    origin" alone would refuse ordinary local work, and "CI will catch it" alone would let a droppable
-    commit be recorded."""
+    - `"reachable"` - a branch or a tag here contains it, so this checkout can resolve it.
+    - `"none"` - the object is here, but no ref reaches it: a stash entry, or a dangling commit. NEVER
+      recordable. `git push` pushes refs, so nothing will ever carry it anywhere, and `git stash drop`
+      destroys it - a downstream check is no safety net when the object can be gone before it runs.
+    - `"absent"` - this repository does not have the commit at all. A force-push, an orphaning rebase,
+      or garbage collection, leaving a baseline pointing at nothing. Distinguished from `"none"`
+      because the remedy differs: fetch it, or the baseline is dead."""
     known = subprocess.run(
         ["git", "cat-file", "-e", f"{commit}^{{commit}}"], cwd=repo_root, capture_output=True, text=True
     )
     if known.returncode != 0:
         return "absent"
-    if _contains(repo_root, "branch", commit, "-r"):
-        return "remote"
-    # A TAG reaches it too, and is the better ref for the job: it does not move and is not deleted in the
-    # ordinary course of work, where the branch a recorded commit sits on can be force-pushed or dropped.
-    # Which of them the remote has cannot be read from refs, so the names are intersected with what the
-    # remote lists and the commits compared - a local-only tag cannot pass as a pushed one.
-    reaching = _contains(repo_root, "tag", commit)
-    if reaching:
-        has = remote_tags(repo_root) if remote is None else remote
-        if any(has.get(name) for name in reaching if has.get(name)):
-            return "remote"
-    if _contains(repo_root, "branch", commit) or reaching:
-        return "local"
+    # A tag counts as well as a branch. It is the better ref for the job - it does not move and is not
+    # deleted in the ordinary course of work - but either means this checkout can resolve the commit.
+    if _contains(repo_root, "branch", commit) or _contains(repo_root, "tag", commit):
+        return "reachable"
     return "none"
 
 
@@ -311,10 +321,11 @@ class Review:
     unreadable: list[Problem]  # a manifest path that cannot be normalised
     orphaned: list[Baseline]  # a baseline for an address no manifest mentions any more
     conflicts: list[Problem]  # two manifests describing one address differently, one row per address
-    # (baseline, reach) for every recorded commit no remote has — see `commit_reach`. The REACH is
-    # carried rather than a boolean because one definition serves two thresholds: a local run tolerates
-    # "local" (work not yet pushed is the ordinary state), and CI does not.
-    not_on_a_remote: list[tuple[Baseline, str]]
+    # (baseline, reach) for every recorded commit THIS checkout cannot resolve — see `commit_reach`.
+    # The reach is carried rather than a boolean because the remedy differs: a commit on no ref has to
+    # be put on one, and an absent commit has to be fetched. In CI the checkout holds only what was
+    # pushed, so this is also what catches a record pushed without the commits it names.
+    unreachable: list[tuple[Baseline, str]]
     # (baseline, the recorded inputs that no longer resolve). The record names every source by its git
     # BLOB at the commit that built it, so this asks whether that commit still holds those exact bytes.
     inputs_missing: list[tuple[Baseline, list[str]]]
@@ -422,7 +433,7 @@ def _inputs_gone(
     )
 
 
-def review(repo_root: Path) -> Review:
+def review(repo_root: Path, *, ignoring_the_record: bool = False) -> Review:
     """Compare every deployed contract a repository records against the baselines it holds.
 
     ORPHANED is the one with teeth, and it is why this can enforce "an entry is never removed" without
@@ -451,7 +462,12 @@ def review(repo_root: Path) -> Review:
             unreadable.append(Problem(entry, "the record gives no address, so the contract cannot be identified"))
         else:
             identified.append(entry)
-    baselines = read_baselines(repo_root)
+    # `ignoring_the_record` is what REGENERATION is: the manifests read as if nothing were recorded, so
+    # every identified contract is a candidate again. It must not merely discard the record after
+    # reading it - a mode whose purpose is replacing an unreadable record cannot begin by parsing one -
+    # so the read does not happen at all, and every question below that asks about baselines answers
+    # empty by itself.
+    baselines = {} if ignoring_the_record else read_baselines(repo_root)
     claimed = {key(e.chain_id, e.address) for e in identified}
     # Over EVERY identified entry, not only the unrecorded ones. Merging just the ones without a baseline
     # meant a disagreement about a RECORDED address was never computed, so a complete record drove the
@@ -460,12 +476,9 @@ def review(repo_root: Path) -> Review:
     merged, conflicts = _by_address(identified)
     unrecovered = [entry for entry in merged if key(entry.chain_id, entry.address) not in baselines]
     # Asked once per distinct COMMIT, not once per baseline: twelve commits carry the aggregators'
-    # eighty-three records, so this is twelve `git branch --contains` calls rather than eighty-three.
-    # Asked once per distinct COMMIT, and the remote's tag list fetched ONCE for all of them: twelve
-    # commits carry the aggregators' eighty-three records, so this is twelve local `--contains` calls and
-    # a single `ls-remote` rather than one network round trip per baseline.
-    has = remote_tags(repo_root)
-    reaches = {commit: commit_reach(repo_root, commit, has) for commit in {b.commit for b in baselines.values()}}
+    # eighty-three records, so this is twelve `--contains` calls rather than eighty-three. Every one of
+    # them local - a review touches no remote at all.
+    reaches = {commit: commit_reach(repo_root, commit) for commit in {b.commit for b in baselines.values()}}
     # `--points-at`, not `--contains`: a commit some later tag happens to contain is safe from
     # collection but is not NAMED by it, and asked once per distinct commit rather than per baseline.
     named = {
@@ -491,13 +504,13 @@ def review(repo_root: Path) -> Review:
         inputs_missing=inputs_missing,
         inputs_unchecked=inputs_unchecked,
         untagged=[baselines[k] for k in sorted(baselines) if not named[baselines[k].commit]],
-        not_on_a_remote=[
+        unreachable=[
             (baselines[k], reaches[baselines[k].commit])
             for k in sorted(baselines)
-            if reaches[baselines[k].commit] != "remote"
+            if reaches[baselines[k].commit] != "reachable"
         ],
         # Only where the commit is present: a baseline whose commit this repository has lost cannot be
-        # read at all, and `not_on_a_remote` already says so. Reporting it twice, once as "absent" and
+        # read at all, and `unreachable` already says so. Reporting it twice, once as "absent" and
         # once as "declares nothing", would send the reader after the wrong fix.
         misnamed=[
             (baselines[k], declared)

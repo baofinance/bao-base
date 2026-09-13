@@ -93,20 +93,19 @@ def head(repo: Path) -> str:
     return subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True).stdout.strip()
 
 
-def test_a_commit_a_remote_has_may_be_recorded_anywhere(repo):
-    assert commit_reach(repo, head(repo)) == "remote"
+def test_a_commit_a_ref_reaches_may_be_recorded(repo):
+    assert commit_reach(repo, head(repo)) == "reachable"
 
 
 def test_a_commit_on_a_local_branch_only_is_the_ordinary_state_of_work(repo):
     # A deploy is committed and the record written before anything is pushed, so refusing this would
-    # make the tool unusable in its own normal flow. It is recordable locally and rejected by CI, which
-    # is a real safety net here because a branch commit survives until it is pushed or deliberately
-    # discarded.
+    # make the tool unusable in its own normal flow. Nothing here asks whether it was pushed: CI's
+    # checkout holds only what was, so the same local question answers that there, with no network.
     (repo / "two.txt").write_text("two\n")
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "not pushed")
 
-    assert commit_reach(repo, head(repo)) == "local"
+    assert commit_reach(repo, head(repo)) == "reachable"
 
 
 def test_a_commit_on_no_branch_may_never_be_recorded(repo):
