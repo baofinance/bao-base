@@ -7,6 +7,9 @@
       "address": "0xd8785d5C51aaDEb3AD1D015Cd67C8A34dBf58f61",
       "contractType": "BaoPauser_v1",
       "source": "src/BaoPauser_v1.sol",
+      "stateFiles": [
+        "deployments/mainnet/state.json"
+      ],
       "commit": "f3df1931592b7b54c9ffa69f50a6663097955869",
       "commitTimestamp": "2026-03-19T20:50:21Z",
       "deployBlock": 24706244,

@@ -23,7 +23,18 @@ from pathlib import Path
 
 from Crypto.Hash import keccak
 
-from deployment_baselines import Baseline, Review, add, commit_reach, drop, key, read_baselines, review, write_baselines
+from deployment_baselines import (
+    Baseline,
+    Review,
+    add,
+    commit_reach,
+    drop,
+    key,
+    read_baselines,
+    remote_tags,
+    review,
+    write_baselines,
+)
 from deployment_records import Entry, Problem
 from deployment_recovery import (
     all_commits,
@@ -517,6 +528,9 @@ def main() -> int:
         return 0
 
     baselines = read_baselines(root)
+    # ONCE, for every contract this run proves. `commit_reach` asks the remote which tags it has, because
+    # git has no remote namespace for them - and asked per contract that is a network round trip each.
+    has_tags = remote_tags(root)
 
     # Every contract's chain facts first, because they decide its candidate window and cost only RPC.
     print(f"\nreading the chain for {len(outstanding)} contract(s)")
@@ -662,7 +676,7 @@ def main() -> int:
                 # never reach a remote by any normal operation - `git push` pushes branches. Refused
                 # here rather than left to the check, because `git stash drop` can destroy it before
                 # any check runs.
-                reach = commit_reach(root, built_at)
+                reach = commit_reach(root, built_at, has_tags)
                 if reach == "none":
                     print(f"      REFUSED: {built_at[:10]} is on no branch, so no remote can ever have it.")
                     print("      It is the only source for this deployment — put it on a branch and push it:")
@@ -685,6 +699,9 @@ def main() -> int:
                         address=entry.address,
                         contractType=entry.name,
                         source=source,
+                        # EVERY manifest describing it, in the order met - the merge already gathered
+                        # them so a conflict row could name them all, and this is the same fact kept.
+                        stateFiles=list(entry.manifests or (entry.manifest,)),
                         commit=built_at,
                         commitTimestamp=made or "",
                         deployBlock=wants.block,

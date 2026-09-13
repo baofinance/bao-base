@@ -121,6 +121,7 @@ def baseline_for(address: str = "0xAA", commit: str = "a" * 40) -> Baseline:
         address=address,
         contractType="Foo",
         source="src/Foo.sol",
+        stateFiles=["deployments/mainnet/state.json"],
         commit=commit,
         commitTimestamp="2026-03-19T20:50:21Z",
         deployBlock=24706244,
@@ -610,3 +611,73 @@ def test_a_gitlink_for_a_submodule_holding_no_recorded_source_is_not_checked(rep
 
     assert found.inputs_unchecked == [], "no recorded source lives in it, so there is nothing to check"
     assert found.inputs_missing == []
+
+
+# ── a tag reaches a commit, and a branch is not the only ref that does ─────────────────────────────
+#
+# `commit_reach` asked `git branch --contains`, so a commit only a TAG reaches read as "on no branch, so
+# nothing will ever push it" - which is false of a tag: `git push origin <tag>` exists and `git fetch`
+# retrieves tags by default. A tag is also the better ref for this job, being the only one that does not
+# move and is not deleted in the ordinary course of work, where the branch the record's commits sit on
+# can be force-pushed or dropped.
+
+
+def tag_only_commit(repo: Path, name: str) -> str:
+    """A commit reachable by `name` and by no branch: committed, tagged, then the branch moved back."""
+    git(repo, "commit", "--allow-empty", "-qm", "reachable only by its tag")
+    only = head_of(repo)
+    git(repo, "tag", name, only)
+    git(repo, "reset", "--hard", "-q", "HEAD~1")
+    return only
+
+
+def test_a_commit_only_a_tag_reaches_is_recordable(repo, tmp_path):
+    # The tag holds it, so it is not the dangling commit "none" means - and a baseline may name it.
+    from deployment_baselines import commit_reach
+
+    push_to_a_new_remote(repo, tmp_path)
+    only = tag_only_commit(repo, "deploy/mainnet/state@local")
+
+    assert commit_reach(repo, only) == "local", "a tag reaches it, even though no branch does"
+
+
+def test_a_commit_a_remote_tag_reaches_counts_as_remote(repo, tmp_path):
+    # The CI threshold. A pushed tag is as resolvable by everybody else as a pushed branch, and it cannot
+    # be answered from refs alone: a fetched tag and a local-only one look identical in refs/tags.
+    from deployment_baselines import commit_reach
+
+    push_to_a_new_remote(repo, tmp_path)
+    only = tag_only_commit(repo, "deploy/mainnet/state@pushed")
+    git(repo, "push", "-q", "origin", "deploy/mainnet/state@pushed")
+
+    assert commit_reach(repo, only) == "remote", "the remote has the tag, so anyone can resolve it"
+
+
+def test_a_dangling_commit_is_still_refused(repo, tmp_path):
+    # The case the check exists for, unchanged: no ref of any kind reaches it, so nothing will ever carry
+    # it to a remote and `git gc` may take it.
+    from deployment_baselines import commit_reach
+
+    push_to_a_new_remote(repo, tmp_path)
+    git(repo, "commit", "--allow-empty", "-qm", "about to be orphaned")
+    dangling = head_of(repo)
+    git(repo, "reset", "--hard", "-q", "HEAD~1")
+
+    assert commit_reach(repo, dangling) == "none", "no branch and no tag reaches it"
+
+
+def test_a_clone_that_cannot_reach_its_remote_does_not_promote_a_tagged_commit(tmp_path):
+    # Degradation has a safe direction and an unsafe one. With no remote to ask, a tagged commit must
+    # read as `local` - recordable here, rejected by CI - and never as `remote`, which would let a commit
+    # only this machine holds into the record as though everybody could resolve it. Asking costs a
+    # network call on every `review`, so what happens when it fails is not a corner case.
+    from deployment_baselines import commit_reach, remote_tags
+
+    git(tmp_path, "init", "-q", "-b", "main")
+    git(tmp_path, "config", "user.email", "t@t")
+    git(tmp_path, "config", "user.name", "test")
+    git(tmp_path, "commit", "-q", "--allow-empty", "-m", "one")
+    only = tag_only_commit(tmp_path, "deploy/mainnet/state@unreachable")
+
+    assert remote_tags(tmp_path) == {}, "nothing answers, and that is not an error"
+    assert commit_reach(tmp_path, only) == "local", "a tag nobody else has is not a remote"

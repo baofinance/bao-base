@@ -779,6 +779,7 @@ def orphan_baseline(address: str, name: str):
         address=address,
         contractType=name,
         source=f"src/{name}.sol",
+        stateFiles=["deployments/mainnet/state.json"],
         commit="a" * 40,
         commitTimestamp=DEPLOYED,
         deployBlock=100,
@@ -890,6 +891,7 @@ def recorded_baseline(repo: Path, scratch: Path, commit: str, digest: str):
         address=ADDRESS_A,
         contractType="A",
         source="src/A.sol",
+        stateFiles=["deployments/mainnet/state.json"],
         commit=commit,
         commitTimestamp=DEPLOYED,
         deployBlock=100,
@@ -1055,3 +1057,72 @@ def test_a_selector_naming_no_recorded_baseline_is_refused(tmp_path, monkeypatch
 
     printed = capsys.readouterr().out
     assert "no recorded baseline is" in printed, "named for the set it was looked for in"
+
+
+# ── which state file a baseline came from ──────────────────────────────────────────────────────────
+#
+# Recovery knows it and throws it away: the entry it recovered from carries every manifest describing
+# the address. Recorded, it gives provenance - and more usefully makes COVERAGE computable, since "is
+# every contract this state file records now recorded" stops being a hand classification. It also
+# derives the deploy tag's name, `deployments/<chain>/<file>.json` becoming `deploy/<chain>/<file>`.
+
+
+def test_a_baseline_records_the_state_file_it_came_from(tmp_path, monkeypatch):
+    repo, scratch = repository_of_oracles(
+        tmp_path, {"A_USD": {"name": "A/USD", "address": ADDRESS_A, "contractPath": "src/A.sol:A"}}
+    )
+    (repo / "src" / "A.sol").write_text(contract_source("A", 1))
+    deployed_a = runtime(repo, "src/A.sol", "A", scratch)
+    commit(repo, "2026-01-01T00:00:00+00:00", "the source")
+
+    recover = load_recover_baselines()
+    chain = Chain({ADDRESS_A: deployed_a})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
+
+    recover.main()
+
+    assert read_baselines(repo)[key(1, ADDRESS_A)].stateFiles == ["deployments/mainnet/state.json"]
+
+
+def test_a_contract_two_manifests_describe_records_both_state_files(tmp_path, monkeypatch):
+    # 44 of the aggregators' addresses are in two manifests. Recording one of them would be the same
+    # arbitrary pick the merge refuses to make elsewhere - and the wrong one would send a reader, or a
+    # coverage check, to the file that does not claim it.
+    repo, scratch = repository_of_oracles(
+        tmp_path, {"A_USD": {"name": "A/USD", "address": ADDRESS_A, "contractPath": "src/A.sol:A"}}
+    )
+    (repo / "src" / "A.sol").write_text(contract_source("A", 1))
+    (repo / "deployments" / "mainnet" / "older.json").write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "network": "mainnet",
+                "chainId": 1,
+                "deploymentTime": DEPLOYED,
+                "oracles": {"A_USD": {"name": "A/USD", "address": ADDRESS_A, "contractPath": "src/A.sol:A"}},
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    deployed_a = runtime(repo, "src/A.sol", "A", scratch)
+    commit(repo, "2026-01-01T00:00:00+00:00", "two manifests, one contract")
+
+    recover = load_recover_baselines()
+    chain = Chain({ADDRESS_A: deployed_a})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["recover-baselines", "--write"])
+
+    recover.main()
+
+    assert read_baselines(repo)[key(1, ADDRESS_A)].stateFiles == [
+        "deployments/mainnet/older.json",
+        "deployments/mainnet/state.json",
+    ]

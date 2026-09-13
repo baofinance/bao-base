@@ -87,6 +87,16 @@ class Baseline:
     address: str
     contractType: str
     source: str  # normalised and repo-qualified, resolvable at `commit`
+    # Which manifest CLAIMED this deployment. Recovery knew it and threw it away, and without it
+    # "is every contract this state file records now recorded" is a hand classification rather than a
+    # query - which is what a deploy revision's coverage has to be before its tag check can retire. It
+    # also derives the deploy tag: `deployments/<chain>/<file>.json` names `deploy/<chain>/<file>`.
+    #
+    # PLURAL, because 44 of the aggregators' addresses are in two manifests, and recording one of them
+    # would be the arbitrary pick the merge refuses to make everywhere else. A list rather than a tuple
+    # because `add` compares baselines whole, and a tuple read back from JSON is a list - which would
+    # make a re-run of the same fact look like a conflicting one.
+    stateFiles: list[str]
     commit: str
     commitTimestamp: str
     deployBlock: int
@@ -121,7 +131,27 @@ def key(chain_id: int, address: str) -> str:
     return f"{chain_id}/{address.lower()}"
 
 
-def commit_reach(repo_root: Path, commit: str) -> str:
+def remote_tags(repo_root: Path) -> dict[str, str]:
+    """Every tag the REMOTE has, name to commit. Empty when no remote answers.
+
+    Git has no remote namespace for tags. A remote BRANCH is visible locally as `refs/remotes/origin/…`,
+    but a fetched tag and a local-only tag are the same object in `refs/tags/` - so whether everybody
+    else can resolve a tagged commit can only be settled by asking. `verify-audit` already fetches tags
+    at startup for exactly this reason: "whether the local tag list is stale cannot be answered locally".
+
+    An annotated tag is listed twice, the `^{}` line carrying the commit it dereferences to, and it comes
+    second - so the later line wins and the map holds commits rather than tag objects."""
+    listed = subprocess.run(["git", "ls-remote", "--tags", "origin"], cwd=repo_root, capture_output=True, text=True)
+    found: dict[str, str] = {}
+    for line in listed.stdout.splitlines():
+        sha, _, ref = line.partition("\t")
+        name = ref.removeprefix("refs/tags/").removesuffix("^{}")
+        if name:
+            found[name] = sha
+    return found
+
+
+def commit_reach(repo_root: Path, commit: str, remote: dict[str, str] | None = None) -> str:
     """Where a commit lives, which decides whether a baseline may name it.
 
     A baseline is only as good as its commit, and there are three ways for that to go wrong, needing
@@ -152,13 +182,28 @@ def commit_reach(repo_root: Path, commit: str) -> str:
     )
     if known.returncode != 0:
         return "absent"
-    for scope, answer in ((["-r"], "remote"), ([], "local")):
-        containing = subprocess.run(
-            ["git", "branch", *scope, "--contains", commit], cwd=repo_root, capture_output=True, text=True
-        )
-        if containing.returncode == 0 and containing.stdout.strip():
-            return answer
+    if _contains(repo_root, "branch", commit, "-r"):
+        return "remote"
+    # A TAG reaches it too, and is the better ref for the job: it does not move and is not deleted in the
+    # ordinary course of work, where the branch a recorded commit sits on can be force-pushed or dropped.
+    # Which of them the remote has cannot be read from refs, so the names are intersected with what the
+    # remote lists and the commits compared - a local-only tag cannot pass as a pushed one.
+    reaching = _contains(repo_root, "tag", commit)
+    if reaching:
+        has = remote_tags(repo_root) if remote is None else remote
+        if any(has.get(name) for name in reaching if has.get(name)):
+            return "remote"
+    if _contains(repo_root, "branch", commit) or reaching:
+        return "local"
     return "none"
+
+
+def _contains(repo_root: Path, kind: str, commit: str, *scope: str) -> list[str]:
+    """The branches or tags reaching `commit`, by name. Empty when none do, or the question failed."""
+    listed = subprocess.run(["git", kind, *scope, "--contains", commit], cwd=repo_root, capture_output=True, text=True)
+    if listed.returncode != 0:
+        return []
+    return [line.lstrip("* ").strip() for line in listed.stdout.splitlines() if line.strip()]
 
 
 def read_baselines(repo_root: Path) -> dict[str, Baseline]:
@@ -374,7 +419,11 @@ def review(repo_root: Path) -> Review:
     unrecovered = [entry for entry in merged if key(entry.chain_id, entry.address) not in baselines]
     # Asked once per distinct COMMIT, not once per baseline: twelve commits carry the aggregators'
     # eighty-three records, so this is twelve `git branch --contains` calls rather than eighty-three.
-    reaches = {commit: commit_reach(repo_root, commit) for commit in {b.commit for b in baselines.values()}}
+    # Asked once per distinct COMMIT, and the remote's tag list fetched ONCE for all of them: twelve
+    # commits carry the aggregators' eighty-three records, so this is twelve local `--contains` calls and
+    # a single `ls-remote` rather than one network round trip per baseline.
+    has = remote_tags(repo_root)
+    reaches = {commit: commit_reach(repo_root, commit, has) for commit in {b.commit for b in baselines.values()}}
     # Only where the commit is present, for the reason `misnamed` gives below: a baseline whose commit
     # this repository has lost would report every one of its sources as missing too, sending the reader
     # after thirty-two files when the finding is one lost commit.
