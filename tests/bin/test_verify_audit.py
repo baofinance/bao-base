@@ -1449,7 +1449,7 @@ def test_a_recorded_commit_that_no_tag_names_fails_and_names_its_repair(fix):
     # The complaint that started this: it printed the finding and exited 0. A tag is what keeps a
     # recorded commit reachable once the branch holding it moves, and `--write` creates them - so it is
     # an error now, because an error is a finding with a repair.
-    head = _recorded(fix)
+    _recorded(fix)
 
     status, output = fix.verify_audit()
 
@@ -1457,7 +1457,11 @@ def test_a_recorded_commit_that_no_tag_names_fails_and_names_its_repair(fix):
     assert "no tag names" in output, "it says what is wrong"
     assert "verify-audit --write" in output, "and how to repair it, which is never a git tag by hand"
 
-    fix.git("tag", f"deploy/mainnet/state@{head[:10]}", head)
+    # THE REPAIR ITSELF, rather than a tag made by hand here. Making one proves only that the check CAN
+    # be satisfied; running what the message tells you to run proves that it satisfies it. The first
+    # version of this test made the tag itself, and so passed while `--write` did nothing at all.
+    repaired, repairing = fix.verify_audit("--write")
+    assert repaired == 0, repairing
 
     status, output = fix.verify_audit()
 

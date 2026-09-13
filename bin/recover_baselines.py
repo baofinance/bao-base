@@ -15,7 +15,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -748,6 +748,22 @@ def regeneration_changes(root: Path, baselines: dict[str, Baseline]) -> Regenera
     )
 
 
+def _write_tags(root: Path, baselines: Iterable[Baseline], say: Printer) -> None:
+    """Create the tags the record wants, locally, and say that pushing them is a step of its own.
+
+    Called from BOTH of `--write`'s endings, which is the whole reason it is a function. A repository
+    whose contracts are ALL recorded already has nothing to recover and every reason to need this - the
+    check fails on an untagged commit, so a `--write` that returned before reaching here left standing
+    the exact failure it had just been told to repair."""
+    created = create_missing_tags(root, baselines)
+    if created:
+        say(0, f"\ncreated {len(created)} tag(s), locally:")
+        for tag in created:
+            say(0, f"  {tag}")
+    say(0, "\nPush the TAGS as well as the files — `git push --tags` — or a fresh checkout resolves")
+    say(0, "neither, and the check reads the checkout rather than the machine that wrote it.")
+
+
 def run(
     root: Path,
     *,
@@ -824,6 +840,10 @@ def run(
             _listings(say, list(found.unreadable), found)
             return 1
         say(0, "nothing to recover")
+        # Nothing to RECORD is not nothing to do: the tags are the other half of the repair, and this
+        # is the ending a converted repository reaches every time.
+        if write:
+            _write_tags(root, found.untagged, say)
         _listings(say, list(found.unreadable), found)
         return 0
 
@@ -900,13 +920,7 @@ def run(
         # Over the WHOLE record, not just what this run proved: a repository converting to the record
         # arrives with every one of its commits untagged, and none of those is something this run
         # recovered.
-        created = create_missing_tags(root, baselines.values())
-        if created:
-            say(0, f"\ncreated {len(created)} tag(s), locally:")
-            for tag in created:
-                say(0, f"  {tag}")
-        say(0, "\nPush the TAGS as well as the files — `git push --tags` — or a fresh checkout resolves")
-        say(0, "neither, and the check reads the checkout rather than the machine that wrote it.")
+        _write_tags(root, baselines.values(), say)
 
     if recovered and write:
         say(0, f"deployed.json holds {len(baselines)} baseline(s)")

@@ -1236,6 +1236,27 @@ def test_writing_again_does_not_pile_up_tags(tmp_path, monkeypatch):
     assert after_two == after_one, "the second run created nothing"
 
 
+def test_write_creates_tags_when_there_is_nothing_to_recover(tmp_path, monkeypatch):
+    # The case the repair actually exists for: every contract already recorded, and no tag naming the
+    # commit. Nothing is recovered, and the tags must still be created - the check FAILS on them, so a
+    # `--write` that returned early would leave the very failure it was run to repair still standing.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    recover.run(repo, say=recover.Printer(0), write=True)
+    at_head = subprocess.run(
+        ["git", "tag", "--points-at", head], cwd=repo, capture_output=True, text=True
+    ).stdout.split()
+    subprocess.run(["git", "tag", "-d", *at_head], cwd=repo, check=True, capture_output=True)
+
+    recover.run(repo, say=recover.Printer(0), write=True)
+
+    again = subprocess.run(
+        ["git", "tag", "--points-at", head], cwd=repo, capture_output=True, text=True
+    ).stdout.split()
+    assert again == at_head, "there was nothing to recover, and the tag still had to be created"
+
+
 def test_regeneration_returns_its_differences_as_data(tmp_path):
     # The caller reports the differences, so it is handed the differences themselves - not a transcript
     # to parse, and not an exit code that has forgotten which baseline moved. Two commands ask this
