@@ -726,8 +726,7 @@ def _check_baselines(found: Review) -> int:
     if found.unreachable:
         failures = 1
         _err(
-            f"\033[31mERROR: {len(found.unreachable)} baseline(s) name a commit this checkout cannot"
-            " resolve:\033[0m\n"
+            f"\033[31mERROR: {len(found.unreachable)} baseline(s) name a commit this checkout cannot resolve:\033[0m\n"
         )
         # The ONE remote call left, and it runs only once something is already wrong: if origin names
         # the commit, the repair is to fetch rather than to go hunting for something believed lost.
@@ -880,6 +879,15 @@ def _run(args: list[str]) -> int:
         #
         # The recovery narrates wherever this command reports, which is one stream - so its verdict
         # cannot arrive above the work that produced it, and nothing has to be flushed to prevent it.
+        # A detached HEAD is refused rather than written to. The TAGS would be placed correctly - they
+        # go on the commits the record names, never on HEAD - but the other half of the repair cannot
+        # be finished here: `deployed.json` has to be committed, and there is no branch to commit it
+        # onto. A detached HEAD is also nearly always a throwaway checkout - a CI job, a bisect, a
+        # worktree - where leaving persistent refs behind is a surprise rather than a repair.
+        if _git("symbolic-ref", "--quiet", "HEAD").returncode != 0:
+            _err("\033[31mERROR: HEAD is detached, so the record this writes could not be committed\033[0m\n")
+            _err("       check out the branch it belongs on and run this again\n")
+            return 1
         say = Printer(int(os.environ.get("BAO_BASE_VERBOSITY") or "0"), write=lambda line: _err(f"{line}\n"))
         return run(Path.cwd(), say=say, write=True)
 
@@ -942,7 +950,9 @@ def _run(args: list[str]) -> int:
             for problem in found.conflicts:
                 where = f"{problem.entry.chain_id}/{problem.entry.address}"
                 _err(f"\033[31m  {where} {problem.reason}\033[0m\n")
-                _err(f"\033[31m    claimed by {', '.join(problem.entry.manifests or (problem.entry.manifest,))}\033[0m\n")
+                _err(
+                    f"\033[31m    claimed by {', '.join(problem.entry.manifests or (problem.entry.manifest,))}\033[0m\n"
+                )
 
         if gaps:
             return 1

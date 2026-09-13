@@ -1469,6 +1469,36 @@ def test_a_recorded_commit_that_no_tag_names_fails_and_names_its_repair(fix):
     assert "covers every deployed contract" in output
 
 
+def test_write_refuses_on_a_detached_head(fix):
+    # The tags would land correctly - they go on the commits the record names, not on HEAD - but the
+    # record could not be committed, so the repair would only ever be half done. A detached HEAD is
+    # nearly always a throwaway checkout too, where leaving refs behind is a surprise.
+    head = _recorded(fix)
+    fix.git("checkout", "--detach", "--quiet")
+
+    status, output = fix.verify_audit("--write")
+
+    assert status == 1, output
+    assert "detached" in output.lower(), "it says what is wrong"
+    assert fix.git("tag", "--points-at", head) == "", "and wrote nothing while refusing"
+
+
+def test_a_tag_that_cannot_be_created_is_reported_and_fails(fix):
+    # Creating fewer tags than the record needs and exiting 0 would leave the check red with nothing
+    # anywhere saying why - and the next thing done is pushing a record whose commits are unpreserved.
+    # Here the derived name is already taken by a different commit, which is what `git tag` refuses.
+    head = _recorded(fix)
+    taken = f"deploy/mainnet/state@{head[:10]}"
+    fix.git("commit", "--allow-empty", "-qm", "a later commit")
+    fix.git("tag", taken)
+
+    status, output = fix.verify_audit("--write")
+
+    assert status == 1, output
+    assert "could not be created" in output, "it says the repair did not complete"
+    assert taken in output, "and which tag it was"
+
+
 def test_the_record_switches_off_the_tag_comparison(fix):
     # How this converts one repository at a time. A repository WITHOUT deployed.json keeps the tag
     # comparison; one WITH it is audited by the record instead, which names the commit that built each

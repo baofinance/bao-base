@@ -927,7 +927,9 @@ def test_a_rebuild_that_does_not_reproduce_the_recorded_hash_is_reported(tmp_pat
     write_baselines(repo, add({}, recorded_baseline(repo, scratch, head, "f" * 64)))
     monkeypatch.chdir(repo)
 
-    assert recover.run(repo, say=recover.Printer(0), reprove=True) != 0, "a record that no longer rebuilds is a failure, not a note"
+    assert recover.run(repo, say=recover.Printer(0), reprove=True) != 0, (
+        "a record that no longer rebuilds is a failure, not a note"
+    )
 
     printed = capsys.readouterr().out
     assert ADDRESS_A in printed.lower()
@@ -976,7 +978,9 @@ def test_a_selector_that_names_nothing_still_reports_what_is_wrong(tmp_path, mon
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.chdir(repo)
 
-    assert recover.run(repo, say=recover.Printer(0), only=f"mainnet/{ADDRESS_A}") == 1, "a selector naming nothing is still a mistyped argument"
+    assert recover.run(repo, say=recover.Printer(0), only=f"mainnet/{ADDRESS_A}") == 1, (
+        "a selector naming nothing is still a mistyped argument"
+    )
 
     printed = capsys.readouterr().out
     assert NO_ADDRESS in printed, "and the run still says what it knows is wrong"
@@ -1015,7 +1019,9 @@ def test_only_chooses_which_baseline_is_reproved(tmp_path, monkeypatch, capsys):
     write_baselines(repo, baselines)
     monkeypatch.chdir(repo)
 
-    assert recover.run(repo, say=recover.Printer(0), reprove=True, only=f"mainnet/{ADDRESS_A}") == 0, "the one asked about rebuilds to what it records"
+    assert recover.run(repo, say=recover.Printer(0), reprove=True, only=f"mainnet/{ADDRESS_A}") == 0, (
+        "the one asked about rebuilds to what it records"
+    )
 
     printed = capsys.readouterr().out
     assert "1 rebuilt" in printed, "one, not both — the broken one was not asked about"
@@ -1159,7 +1165,9 @@ def test_regeneration_never_reads_the_existing_record(tmp_path, monkeypatch):
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
 
-    assert recover.run(repo, say=recover.Printer(0), regenerate=True, write=True) == 0, "an unreadable record is what this replaces, not something it trips over"
+    assert recover.run(repo, say=recover.Printer(0), regenerate=True, write=True) == 0, (
+        "an unreadable record is what this replaces, not something it trips over"
+    )
 
     assert read_baselines(repo)[key(1, ADDRESS_A)].commit == head
 
@@ -1175,7 +1183,9 @@ def test_verify_reports_a_record_regeneration_would_change(tmp_path, monkeypatch
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
 
-    assert recover.run(repo, say=recover.Printer(0), regenerate=True) == 1, "a record regeneration would change is a failure, not a note"
+    assert recover.run(repo, say=recover.Printer(0), regenerate=True) == 1, (
+        "a record regeneration would change is a failure, not a note"
+    )
 
     printed = capsys.readouterr().out
     assert "regeneration would change" in printed
@@ -1194,7 +1204,9 @@ def test_verify_says_an_unreadable_record_would_be_replaced(tmp_path, monkeypatc
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
 
-    assert recover.run(repo, say=recover.Printer(0), regenerate=True) == 1, "a record that cannot be read is a failure, and a repairable one"
+    assert recover.run(repo, say=recover.Printer(0), regenerate=True) == 1, (
+        "a record that cannot be read is a failure, and a repairable one"
+    )
 
     printed = capsys.readouterr().out
     assert "cannot be read" in printed and "would replace it" in printed
@@ -1251,9 +1263,7 @@ def test_write_creates_tags_when_there_is_nothing_to_recover(tmp_path, monkeypat
 
     recover.run(repo, say=recover.Printer(0), write=True)
 
-    again = subprocess.run(
-        ["git", "tag", "--points-at", head], cwd=repo, capture_output=True, text=True
-    ).stdout.split()
+    again = subprocess.run(["git", "tag", "--points-at", head], cwd=repo, capture_output=True, text=True).stdout.split()
     assert again == at_head, "there was nothing to recover, and the tag still had to be created"
 
 

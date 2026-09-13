@@ -748,20 +748,30 @@ def regeneration_changes(root: Path, baselines: dict[str, Baseline]) -> Regenera
     )
 
 
-def _write_tags(root: Path, baselines: Iterable[Baseline], say: Printer) -> None:
+def _write_tags(root: Path, baselines: Iterable[Baseline], say: Printer) -> list[tuple[str, str]]:
     """Create the tags the record wants, locally, and say that pushing them is a step of its own.
 
     Called from BOTH of `--write`'s endings, which is the whole reason it is a function. A repository
     whose contracts are ALL recorded already has nothing to recover and every reason to need this - the
     check fails on an untagged commit, so a `--write` that returned before reaching here left standing
-    the exact failure it had just been told to repair."""
-    created = create_missing_tags(root, baselines)
+    the exact failure it had just been told to repair.
+
+    Returns what could NOT be created, which the caller turns into a failing exit status: a repair that
+    half worked and said it was fine is worse than one that refused, because the next thing the user
+    does is push a record whose commits nothing preserves."""
+    created, failed = create_missing_tags(root, baselines)
     if created:
         say(0, f"\ncreated {len(created)} tag(s), locally:")
         for tag in created:
             say(0, f"  {tag}")
+    if failed:
+        say(0, f"\n{len(failed)} tag(s) could not be created:")
+        for tag, reason in failed:
+            say(0, f"  {tag}: {reason}")
+        say(0, "  Those commits are not preserved, so the check still fails on them.")
     say(0, "\nPush the TAGS as well as the files — `git push --tags` — or a fresh checkout resolves")
     say(0, "neither, and the check reads the checkout rather than the machine that wrote it.")
+    return failed
 
 
 def run(
@@ -794,13 +804,14 @@ def run(
     # Said out loud because this run is long, occasional, and otherwise silent for minutes at a time -
     # and because every number here is one a reader would otherwise have to infer from what is missing.
     say(0, f"{root}")
-    say(0,
+    say(
+        0,
         f"  manifests describe {described} deployed contracts: "
         f"{already} already recorded, {len(found.unrecovered)} without a baseline"
         # INSIDE the total rather than beside it. An entry that cannot be keyed used to sit outside the
         # arithmetic entirely, so five of the aggregators' eighty-eight could not be reconciled against
         # anything, and stayed invisible for it.
-        + (f", {len(found.unreadable)} that cannot be identified" if found.unreadable else "")
+        + (f", {len(found.unreadable)} that cannot be identified" if found.unreadable else ""),
     )
     if reprove:
         # Over the RECORD, not the backlog: `--only` filters what has no baseline yet, so it can never
@@ -842,10 +853,9 @@ def run(
         say(0, "nothing to recover")
         # Nothing to RECORD is not nothing to do: the tags are the other half of the repair, and this
         # is the ending a converted repository reaches every time.
-        if write:
-            _write_tags(root, found.untagged, say)
+        unmade = _write_tags(root, found.untagged, say) if write else []
         _listings(say, list(found.unreadable), found)
-        return 0
+        return 1 if unmade else 0
 
     done = recover(
         root,
@@ -909,21 +919,20 @@ def run(
                     # of those were contracts it could no longer recover rather than entries it fixed.
                     say(0, f"  {entry_key}  {was.contractType}  would be REMOVED, recorded at {was.commit[:10]}")
                 else:
-                    say(0,
-                        f"  {entry_key}  {now.contractType}  recorded at {was.commit[:10]}, regenerates at {now.commit[:10]}"
+                    say(
+                        0,
+                        f"  {entry_key}  {now.contractType}  recorded at {was.commit[:10]}, regenerates at {now.commit[:10]}",
                     )
             return 1
         say(0, f"\nthe record is exactly what regeneration produces: {len(baselines)} baseline(s)")
         return 0
 
-    if write:
-        # Over the WHOLE record, not just what this run proved: a repository converting to the record
-        # arrives with every one of its commits untagged, and none of those is something this run
-        # recovered.
-        _write_tags(root, baselines.values(), say)
+    # Over the WHOLE record, not just what this run proved: a repository converting to the record
+    # arrives with every one of its commits untagged, and none of those is something this run recovered.
+    unmade = _write_tags(root, baselines.values(), say) if write else []
 
     if recovered and write:
         say(0, f"deployed.json holds {len(baselines)} baseline(s)")
     elif recovered:
         say(0, "not written; pass --write to record them")
-    return 0
+    return 1 if unmade else 0

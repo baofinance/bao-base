@@ -156,7 +156,7 @@ def deploy_tags(baseline: Baseline) -> list[str]:
     return tag_names(baseline.stateFiles, baseline.commit)
 
 
-def create_missing_tags(repo_root: Path, baselines: Iterable[Baseline]) -> list[str]:
+def create_missing_tags(repo_root: Path, baselines: Iterable[Baseline]) -> tuple[list[str], list[tuple[str, str]]]:
     """Create, LOCALLY, the tag each recorded commit wants and has not got. Never pushes.
 
     Part of the repair rather than advice printed for someone to retype: a checklist of `git tag` lines
@@ -168,8 +168,14 @@ def create_missing_tags(repo_root: Path, baselines: Iterable[Baseline]) -> list[
 
     "Has not got" is ANY tag pointing at the commit, matching what `Review.untagged` asks. A commit some
     other convention already names is preserved, and imposing a second name on it would be a naming
-    policy nobody asked for."""
+    policy nobody asked for.
+
+    Returns what it created AND what it could not, because `git tag` fails for reasons that matter: the
+    commit is absent from a shallow checkout, the derived name is already taken by a different commit,
+    refs are read-only. Swallowing those would leave the record written, the commits unpreserved, and
+    the check still red with nothing anywhere saying why."""
     created: list[str] = []
+    failed: list[tuple[str, str]] = []
     for baseline in baselines:
         named = subprocess.run(
             ["git", "tag", "--points-at", baseline.commit], cwd=repo_root, capture_output=True, text=True
@@ -177,9 +183,13 @@ def create_missing_tags(repo_root: Path, baselines: Iterable[Baseline]) -> list[
         if named:
             continue
         for tag in deploy_tags(baseline):
-            if subprocess.run(["git", "tag", tag, baseline.commit], cwd=repo_root, capture_output=True).returncode == 0:
+            done = subprocess.run(["git", "tag", tag, baseline.commit], cwd=repo_root, capture_output=True, text=True)
+            if done.returncode == 0:
                 created.append(tag)
-    return sorted(created)
+                continue
+            said = (done.stderr or done.stdout or "").strip()
+            failed.append((tag, said.splitlines()[-1] if said else f"git tag exited {done.returncode}"))
+    return sorted(created), sorted(failed)
 
 
 def reached_by(repo_root: Path, commit: str) -> list[str]:
