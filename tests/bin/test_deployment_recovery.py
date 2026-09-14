@@ -30,7 +30,7 @@ from deployment_recovery import (  # noqa: E402
     creation_block,
     declaration_of,
     differences,
-    mask_immutables,
+    mask_regions,
     matches,
     checkouts_by_repository,
     export_tree,
@@ -40,7 +40,7 @@ from deployment_recovery import (  # noqa: E402
     source_blobs,
     still_to_try,
     strip_metadata,
-    submodule_commits,
+    submodules_at,
 )
 
 
@@ -77,6 +77,12 @@ def git_output(where: Path, *arguments: str) -> str:
 # The catch is submodules: most of a contract's closure lives in one, a blob id resolves only in the
 # object store that holds it, and the superproject records WHICH commit of the submodule it had. A
 # submodule that has moved on since must not change the answer, or the record dates itself.
+
+
+def placed_in(repo: Path, commit: str) -> dict:
+    """Where each submodule `commit` records can be read from - what a caller works out once and
+    passes to everything that needs it."""
+    return submodules_at(repo, commit, checkouts_by_repository(repo))
 
 
 def repository_with_submodule(tmp_path: Path) -> tuple[Path, str, str, str]:
@@ -125,7 +131,7 @@ def repository_with_submodule(tmp_path: Path) -> tuple[Path, str, str, str]:
 def test_a_source_of_the_superproject_is_named_by_its_blob_id(tmp_path):
     superproject, commit, _, _ = repository_with_submodule(tmp_path)
 
-    named = source_blobs(superproject, commit, ["src/Own.sol"])
+    named = source_blobs(superproject, commit, ["src/Own.sol"], placed_in(superproject, commit))
 
     assert named == {"src/Own.sol": git_output(superproject, "rev-parse", f"{commit}:src/Own.sol")}
 
@@ -135,7 +141,8 @@ def test_a_source_inside_a_submodule_is_read_at_the_commit_the_superproject_reco
     # dependency looks like today rather than what the build actually read.
     superproject, commit, recorded_blob, later_blob = repository_with_submodule(tmp_path)
 
-    named = source_blobs(superproject, commit, ["lib/dependency/src/Dependency.sol"])
+    inside = ["lib/dependency/src/Dependency.sol"]
+    named = source_blobs(superproject, commit, inside, placed_in(superproject, commit))
 
     assert named == {"lib/dependency/src/Dependency.sol": recorded_blob}
     assert recorded_blob != later_blob, "the dependency did move on, so the two are distinguishable"
@@ -146,9 +153,11 @@ def test_every_submodule_the_commit_records_is_named(tmp_path):
     # different dependency builds different bytecode.
     superproject, commit, _, _ = repository_with_submodule(tmp_path)
 
-    assert submodule_commits(superproject, commit) == {
-        "lib/dependency": git_output(superproject, "rev-parse", f"{commit}:lib/dependency")
-    }
+    placed = submodules_at(superproject, commit, checkouts_by_repository(superproject))
+
+    recorded = git_output(superproject, "rev-parse", f"{commit}:lib/dependency")
+    assert {path: at for path, (at, _) in placed.items()} == {"lib/dependency": recorded}
+    assert placed["lib/dependency"][1] == superproject / "lib" / "dependency", "read from where it sits"
 
 
 # ── which compiler built what is deployed, from the deployed code itself ───────────────────────────
@@ -190,7 +199,7 @@ def test_a_source_the_commit_does_not_have_is_reported(tmp_path):
     superproject, commit, _, _ = repository_with_submodule(tmp_path)
 
     with pytest.raises(FileNotFoundError) as missing:
-        source_blobs(superproject, commit, ["src/Own.sol", "src/NeverExisted.sol"])
+        source_blobs(superproject, commit, ["src/Own.sol", "src/NeverExisted.sol"], placed_in(superproject, commit))
 
     assert "src/NeverExisted.sol" in str(missing.value)
 
@@ -244,7 +253,7 @@ def test_immutables_are_masked_on_both_sides_at_the_offsets_the_artefact_declare
     onchain = bytes(8) + bytes.fromhex("d8785d5c51aa") + bytes(6)
     refs = {"42": [{"start": 8, "length": 6}]}
 
-    assert mask_immutables(onchain, refs) == mask_immutables(built, refs)
+    assert mask_regions(onchain, refs) == mask_regions(built, refs)
 
 
 def test_masking_leaves_everything_outside_the_declared_regions_alone():
@@ -253,10 +262,8 @@ def test_masking_leaves_everything_outside_the_declared_regions_alone():
     a = bytes.fromhex("aabbccdd")
     b = bytes.fromhex("aabbcc00")
 
-    assert mask_immutables(a, {}) != mask_immutables(b, {})
-    assert mask_immutables(a, {"1": [{"start": 3, "length": 1}]}) == mask_immutables(
-        b, {"1": [{"start": 3, "length": 1}]}
-    )
+    assert mask_regions(a, {}) != mask_regions(b, {})
+    assert mask_regions(a, {"1": [{"start": 3, "length": 1}]}) == mask_regions(b, {"1": [{"start": 3, "length": 1}]})
 
 
 # ── the verdict itself ────────────────────────────────────────────────────────────────────────────
@@ -272,6 +279,51 @@ def test_the_deployed_code_matches_the_artefact_that_built_it():
     agreed, immutables = matches(with_trailer(body), artefact(body))
 
     assert agreed and immutables == []
+
+
+def unlinked(runtime: bytes, at: int, library: str = "Config_v1") -> dict:
+    """`runtime` as a build that has not been linked leaves it: the 20 bytes where a library address
+    goes replaced by solc's `__$<34 hex>$__` placeholder, and a linkReferences entry saying where.
+
+    Placeholders are not hex, which is the whole difficulty - `bytes.fromhex` refuses them."""
+    placeholder = "__$" + "0" * 34 + "$__"
+    text = runtime.hex()
+    built = "0x" + text[: at * 2] + placeholder + text[(at + 20) * 2 :]
+    return {
+        "bytecode": {"object": "0x6080"},
+        "deployedBytecode": {
+            "object": built,
+            "immutableReferences": {},
+            "linkReferences": {f"src/{library}.sol": {library: [{"start": at, "length": 20}]}},
+        },
+    }
+
+
+def test_a_build_that_links_a_library_is_compared_with_the_address_left_out():
+    # An external library's address is a deployment input, exactly like an immutable: the same source
+    # linked against a different deployment of the same library is still the source that built this.
+    # harbor's Minter_v1 and Minter_v2 both carry one, and it is why the whole run stopped.
+    body = bytes.fromhex("6080604052" + "11" * 60)
+    deployed = bytearray(body)
+    deployed[10:30] = bytes.fromhex("aa" * 20)
+
+    agreed, immutables = matches(with_trailer(bytes(deployed)), unlinked(body, at=10))
+
+    assert agreed, "the address is masked out, so it cannot decide the comparison"
+    assert immutables == []
+
+
+def test_a_build_that_links_a_library_still_fails_on_a_difference_outside_the_address():
+    # The masking must not turn into a blanket pass: everything outside the linked address is still
+    # compared byte for byte.
+    body = bytes.fromhex("6080604052" + "11" * 60)
+    deployed = bytearray(body)
+    deployed[10:30] = bytes.fromhex("aa" * 20)
+    deployed[45] = 0x22
+
+    agreed, _ = matches(with_trailer(bytes(deployed)), unlinked(body, at=10))
+
+    assert not agreed
 
 
 def test_the_artefact_is_stripped_too_because_a_real_build_carries_its_own_metadata():
@@ -999,6 +1051,19 @@ def moved_dependency(tmp_path: Path) -> tuple[Path, str]:
     # The path the commit records, no longer on disk - the dependency moved after the deploy.
     shutil.rmtree(superproject / "lib" / "gone")
     return superproject, commit
+
+
+def test_a_source_inside_a_moved_dependency_is_still_named(tmp_path):
+    # Naming a build's inputs asks the same question exporting does - which store holds this commit -
+    # and answering it by the recorded path ended a run with FileNotFoundError on a dependency that
+    # had moved. One resolution, used by both.
+    superproject, commit = moved_dependency(tmp_path)
+    placed = submodules_at(superproject, commit, checkouts_by_repository(superproject))
+
+    named = source_blobs(superproject, commit, ["lib/gone/src/D.sol"], placed)
+
+    assert list(named) == ["lib/gone/src/D.sol"]
+    assert named["lib/gone/src/D.sol"], "a blob id, read from wherever that commit actually lives"
 
 
 def test_a_dependency_that_moved_is_exported_from_a_checkout_that_still_holds_it(tmp_path):

@@ -53,7 +53,7 @@ from deployment_recovery import (
     source_blobs,
     still_to_try,
     strip_metadata,
-    submodule_commits,
+    submodules_at,
 )
 
 
@@ -607,6 +607,19 @@ def recover(
                 # of the search on a SCREEN is one no later commit is ever tried for.
                 wants = pending[entry_key]
                 entry = wants.entry
+                # A build that links a library cannot be CONSTRUCTED as it stands: `__$<34 hex>$__`
+                # is not code, and running it would produce something that was never deployed. The
+                # screen above can look past that by masking the addresses; proving cannot, because
+                # what it proves is the constructor's actual output. Reported and left to the other
+                # commits rather than raised on - the addresses ARE readable, from the deployed
+                # runtime code at the offsets `linkReferences` declares, which is the fix.
+                if artefact["bytecode"].get("linkReferences"):
+                    say(0, f"    SCREENED mainnet/{entry.address}  {entry.name}")
+                    say(0, f"      built from {source} at {built_at[:10]}")
+                    say(0, "      NOT PROVED HERE: it links a library, and an unlinked build cannot be")
+                    say(0, "      constructed — still looking at the other commits")
+                    screened.setdefault(entry_key, []).append(built_at)
+                    continue
                 creation = bytes.fromhex(artefact["bytecode"]["object"][2:])
                 made = commit_timestamp(root, built_at)
                 say(0, f"    MATCHES {entry.chain}/{entry.address}  {entry.name}")
@@ -664,6 +677,7 @@ def recover(
                 # the ones that produced this bytecode rather than a second reading of foundry.toml,
                 # and `sources` there is the closure it actually read.
                 metadata = artefact["metadata"]
+                placed = submodules_at(root, built_at, checkouts)
                 baselines = add(
                     baselines,
                     Baseline(
@@ -685,8 +699,10 @@ def recover(
                         settings={
                             name: value for name, value in metadata["settings"].items() if name != "compilationTarget"
                         },
-                        sources=source_blobs(root, built_at, metadata["sources"]),
-                        submodules=submodule_commits(root, built_at),
+                        # One walk, shared: naming the sources needs to know WHERE each submodule
+                        # can be read, and the record needs the commits it names - the same answer.
+                        sources=source_blobs(root, built_at, metadata["sources"], placed),
+                        submodules={path: at for path, (at, _) in placed.items()},
                     ),
                 )
                 recovered += 1

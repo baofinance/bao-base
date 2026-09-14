@@ -465,9 +465,9 @@ def test_a_manifest_path_that_cannot_be_normalised_is_reported_not_failed(repo):
 
 
 def real_sources(repo: Path, commit: str, paths: list[str]) -> dict[str, str]:
-    from deployment_recovery import source_blobs
+    from deployment_recovery import checkouts_by_repository, source_blobs, submodules_at
 
-    return source_blobs(repo, commit, paths)
+    return source_blobs(repo, commit, paths, submodules_at(repo, commit, checkouts_by_repository(repo)))
 
 
 def test_a_record_whose_inputs_all_resolve_is_silent(repo, tmp_path):

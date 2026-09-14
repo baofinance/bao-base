@@ -91,14 +91,18 @@ def compiler_in(code: bytes) -> str | None:
     return ".".join(str(part) for part in trailer[marker + 1 : marker + 4])
 
 
-def mask_immutables(code: bytes, references: dict) -> bytes:
-    """`code` with each declared immutable region zeroed.
+def mask_regions(code: bytes, references: dict) -> bytes:
+    """`code` with each declared region zeroed.
 
-    An immutable is written into the runtime code at construction, so the built artefact has zeros
-    where the chain has a value. Masking both sides is what leaves the rest comparable. The regions
-    come from the artefact's own `immutableReferences`, never from a guess - masking too widely is how
-    a comparison starts accepting contracts it should reject, and the aggregators' immutables ARE
-    their feed addresses, so what is masked must be reported beside the verdict rather than forgotten.
+    Two things are written into runtime code after the compiler has finished with it, and neither is
+    decided by the source: an IMMUTABLE, written at construction, and a LIBRARY ADDRESS, written when
+    the build is linked. The artefact has zeros or a placeholder where the chain has a value, so
+    masking both sides is what leaves the rest comparable.
+
+    The regions come from the artefact's own `immutableReferences` and `linkReferences`, never from a
+    guess - masking too widely is how a comparison starts accepting contracts it should reject, and
+    the aggregators' immutables ARE their feed addresses, so what is masked must be reported beside
+    the verdict rather than forgotten.
     """
     masked = bytearray(code)
     for regions in references.values():
@@ -396,19 +400,61 @@ def source_at(
     return (was, declared) if declared else None
 
 
-def submodule_commits(repo_root: Path, commit: str) -> dict[str, str]:
-    """Every submodule the tree at `commit` records: path from this repository's root, to its commit.
+def holder_of(parent_repo: Path, parent_commit: str, path: str, gitlink: str, checkouts: dict) -> Path | None:
+    """The checkout to read `gitlink` from, or None if nothing in the tree holds it.
+
+    THE question every caller here asks about a dependency, asked once: a gitlink names an immutable
+    tree, so any store holding it gives the same bytes, and where the superproject mounts it is a
+    different matter entirely. Exporting a tree, walking the submodules a commit records and naming a
+    build's inputs all need this answer, and answering it separately is how one of them ended a run
+    with FileNotFoundError on a dependency that had moved.
+
+    The recorded path is tried first because it is the declared home, not because it is trusted - it
+    faces the same test as every other candidate, which is what stops a checkout that is present but
+    lacks the commit from hiding a sibling that has it."""
+
+    def candidates() -> Iterable[Path]:
+        """Lazily, so the URL and the index are reached only when the recorded checkout does not
+        answer - which is almost always - without that being a second policy."""
+        yield parent_repo / path
+        # The URL the COMMIT records, not today's: what matters is what that dependency was then.
+        named = subprocess.run(
+            ["git", "config", "--blob", f"{parent_commit}:.gitmodules", "--get-regexp", r"\.path$"],
+            cwd=parent_repo,
+            capture_output=True,
+            text=True,
+        )
+        for line in named.stdout.splitlines():
+            key, _, declared_path = line.partition(" ")
+            if declared_path.strip() != path:
+                continue
+            url = subprocess.run(
+                ["git", "config", "--blob", f"{parent_commit}:.gitmodules", "--get", f"{key[: -len('.path')]}.url"],
+                cwd=parent_repo,
+                capture_output=True,
+                text=True,
+            )
+            if url.returncode == 0:
+                yield from checkouts.get(_repository_identity(url.stdout), [])
+            return
+
+    return next((holder for holder in candidates() if _holds(holder, gitlink)), None)
+
+
+def submodules_at(repo_root: Path, commit: str, checkouts: dict) -> dict[str, tuple[str, Path | None]]:
+    """Every submodule `commit` records, at any depth: path -> (the commit recorded, where to read it).
 
     Read from the TREE, not from `.gitmodules`: the gitlink is what a checkout of this commit would
     place, where `.gitmodules` only says where to fetch it from. Recursive, because the closure reaches
     nested submodules - the OpenZeppelin contracts live inside contracts-upgradeable - and a blob in
     one resolves only against the commit its own parent records.
 
-    A submodule that is not checked out here is still recorded, because the parent's tree says so, but
-    cannot be descended into. That is the same trade `export_tree` makes: it may hold nothing the
-    build needs, and `source_blobs` raises if it does.
-    """
-    found: dict[str, str] = {}
+    The holder travels WITH the commit because they are one answer: a caller that kept only the commit
+    would have to ask where to read it AGAIN, by the path, which is exactly what fails once a
+    dependency has moved. It is None when nothing in the tree holds that commit - the submodule is
+    still RECORDED, because the parent's tree says so and a record of what was built must say so too,
+    but it cannot be descended into and `source_blobs` raises for anything inside it."""
+    found: dict[str, tuple[str, Path | None]] = {}
 
     def walk(parent: Path, parent_commit: str, prefix: str) -> None:
         listing = subprocess.run(["git", "ls-tree", "-r", parent_commit], cwd=parent, capture_output=True, text=True)
@@ -417,15 +463,18 @@ def submodule_commits(repo_root: Path, commit: str) -> dict[str, str]:
             if len(fields) < 4 or fields[1] != "commit":
                 continue
             gitlink, path = fields[2], fields[3]
-            found[f"{prefix}{path}"] = gitlink
-            if (parent / path).is_dir():
-                walk(parent / path, gitlink, f"{prefix}{path}/")
+            holder = holder_of(parent, parent_commit, path, gitlink, checkouts)
+            found[f"{prefix}{path}"] = (gitlink, holder)
+            if holder is not None:
+                walk(holder, gitlink, f"{prefix}{path}/")
 
     walk(repo_root, commit, "")
     return found
 
 
-def source_blobs(repo_root: Path, commit: str, paths: Iterable[str]) -> dict[str, str]:
+def source_blobs(
+    repo_root: Path, commit: str, paths: Iterable[str], placed: dict[str, tuple[str, Path | None]]
+) -> dict[str, str]:
     """Each path's git blob id at `commit` — the identity of the exact bytes a build read.
 
     A path inside a submodule is read against the commit the superproject RECORDS for that submodule,
@@ -435,16 +484,18 @@ def source_blobs(repo_root: Path, commit: str, paths: Iterable[str]) -> dict[str
     A path the commit does not have raises, because a record that cannot name every source is a record
     that cannot be rebuilt, and a missing one would leave a hole nothing else reports.
     """
-    submodules = submodule_commits(repo_root, commit)
     found: dict[str, str] = {}
     for path in paths:
         # The longest match, so a file in a nested submodule is read against the nested gitlink rather
         # than its parent's.
-        prefix = max((p for p in submodules if path.startswith(f"{p}/")), key=len, default=None)
+        prefix = max((p for p in placed if path.startswith(f"{p}/")), key=len, default=None)
         if prefix is None:
             holder, holder_commit, inside = repo_root, commit, path
         else:
-            holder, holder_commit, inside = repo_root / prefix, submodules[prefix], path[len(prefix) + 1 :]
+            holder_commit, found_at = placed[prefix]
+            if found_at is None:
+                raise FileNotFoundError(f"{path} is in {prefix}, which no checkout in this tree holds")
+            holder, inside = found_at, path[len(prefix) + 1 :]
         shown = subprocess.run(
             ["git", "rev-parse", f"{holder_commit}:{inside}"], cwd=holder, capture_output=True, text=True
         )
@@ -596,35 +647,6 @@ def export_tree(repo_root: Path, commit: str, at: Path, checkouts: dict[str, lis
     that is silent."""
     failures: list[str] = []
 
-    def candidates(parent_repo: Path, parent_commit: str, path: str) -> Iterable[Path]:
-        """Every checkout that could hold the dependency at `path`, the recorded one first.
-
-        A generator, so the URL and the index are reached only when the recorded checkout does not
-        answer - which is almost always - WITHOUT that being a second policy. Every candidate faces
-        the same test; only the order is fixed, and the recorded path leads because it is the
-        declared home, not because it is trusted."""
-        yield parent_repo / path
-        # The URL the COMMIT records, not today's: what matters is what that dependency was then.
-        named = subprocess.run(
-            ["git", "config", "--blob", f"{parent_commit}:.gitmodules", "--get-regexp", r"\.path$"],
-            cwd=parent_repo,
-            capture_output=True,
-            text=True,
-        )
-        for line in named.stdout.splitlines():
-            key, _, declared_path = line.partition(" ")
-            if declared_path.strip() != path:
-                continue
-            url = subprocess.run(
-                ["git", "config", "--blob", f"{parent_commit}:.gitmodules", "--get", f"{key[: -len('.path')]}.url"],
-                cwd=parent_repo,
-                capture_output=True,
-                text=True,
-            )
-            if url.returncode == 0:
-                yield from checkouts.get(_repository_identity(url.stdout), [])
-            return
-
     def export(parent_repo: Path, parent_commit: str, parent_at: Path, prefix: str) -> None:
         listing = subprocess.run(
             ["git", "ls-tree", parent_commit, "lib/"], cwd=parent_repo, capture_output=True, text=True
@@ -634,10 +656,7 @@ def export_tree(repo_root: Path, commit: str, at: Path, checkouts: dict[str, lis
             if len(fields) < 4 or fields[1] != "commit":
                 continue
             gitlink, path = fields[2], fields[3]
-            source = next(
-                (holder for holder in candidates(parent_repo, parent_commit, path) if _holds(holder, gitlink)),
-                None,
-            )
+            source = holder_of(parent_repo, parent_commit, path, gitlink, checkouts)
             if source is None:
                 failures.append(f"{prefix}{path}@{gitlink[:10]} (no checkout in this tree holds it)")
                 continue
@@ -760,8 +779,26 @@ def matches(onchain: bytes, artefact: dict) -> tuple[bool, list[str]]:
     addresses, which is exactly the thing an audit is about."""
     # The regions are offsets from the START, and the trailer is at the end, so stripping moves none
     # of them.
-    built = strip_metadata(bytes.fromhex(artefact["deployedBytecode"]["object"][2:]))
     references = artefact["deployedBytecode"].get("immutableReferences") or {}
+    # An UNLINKED build carries `__$<34 hex>$__` where each library address will go - not hex, and
+    # what stopped a whole run: harbor's Minter_v1 and Minter_v2 both link Config_v1. Keyed by file
+    # and library, because `linkReferences` nests one level deeper than `immutableReferences` and the
+    # same library name can appear in two files.
+    links = {
+        f"{file}:{library}": regions
+        for file, libraries in (artefact["deployedBytecode"].get("linkReferences") or {}).items()
+        for library, regions in libraries.items()
+    }
+    # Zeroed so the code parses at all. What fills them does not matter: they are masked out below,
+    # for the same reason immutables are - a library address is fixed when the build is LINKED, not
+    # by the source, so the same source linked against another deployment of the same library is
+    # still the source that built this.
+    body = list(artefact["deployedBytecode"]["object"][2:])
+    for regions in links.values():
+        for region in regions:
+            for position in range(region["start"] * 2, (region["start"] + region["length"]) * 2):
+                body[position] = "0"
+    built = strip_metadata(bytes.fromhex("".join(body)))
     stripped = strip_metadata(onchain)
     if len(stripped) != len(built):
         return False, []
@@ -770,4 +807,6 @@ def matches(onchain: bytes, artefact: dict) -> tuple[bool, list[str]]:
         for regions in references.values()
         for region in regions[:1]
     ]
-    return mask_immutables(stripped, references) == mask_immutables(built, references), values
+    # Everything the source does not decide, excluded from the comparison in one place.
+    excluded = {**references, **links}
+    return mask_regions(stripped, excluded) == mask_regions(built, excluded), values
