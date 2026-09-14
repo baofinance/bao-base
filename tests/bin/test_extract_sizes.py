@@ -93,3 +93,25 @@ def test_is_excluded_filters_test_contracts(monkeypatch):
 
 if __name__ == "__main__":
     raise SystemExit("Run this test with pytest or python -m pytest")
+
+
+def test_a_qualified_contract_cell_yields_its_path_without_a_lookup():
+    """forge appends " (path)" to the Contract column only when the bare name is ambiguous. The path
+    is then the answer outright - and the artifact lookup cannot help anyway, because the
+    parenthesised string is not an artifact filename, so it finds nothing and the row escapes the
+    lib/test exclusion it should have been caught by.
+    """
+    module = load_module()
+
+    assert (
+        module.get_contract_source_path("Aggregator_USDE_BTC (src/aggregators/megaeth/Aggregator_USDE_BTC.sol)")
+        == "src/aggregators/megaeth/Aggregator_USDE_BTC.sol"
+    )
+
+
+def test_a_qualified_library_contract_is_still_excluded():
+    """The exclusion is what the path is read for: a lib/ contract that happens to share its name with
+    one of ours must not be counted as deployable."""
+    module = load_module()
+
+    assert module.is_excluded_contract("UUPSUpgradeable (lib/solady/src/utils/UUPSUpgradeable.sol)") is True

@@ -312,24 +312,67 @@ def _forge_build(out: Path, cache: Path, paths: list[str], cwd: Path | None = No
     return done.returncode == 0, done.stdout + done.stderr
 
 
+def _artifacts_for(out_dir: Path, sol_path: str) -> list[dict[str, object]]:
+    """Every artifact forge wrote for `sol_path`, and only for it.
+
+    forge writes to <out>/<basename>.sol/<Contract>.json, and when two sources share a basename it
+    NESTS the later one under enough of its parent path to keep the artifact path unique -
+    `out/Dup.sol/` and `out/b/Dup.sol/`. Nothing is overwritten and nothing is lost, so the file asked
+    for always has its own artifact somewhere; taking whatever sits at the top-level path would just
+    return the other file's bytecode.
+
+    The direct path is tried first because it is right in every project that has no basename clash,
+    which is nearly all of them. `metadata.settings.compilationTarget` names an artifact's true
+    source, so it decides whether what was found belongs to the file asked for; only when it says no
+    is the nested form searched for.
+    """
+
+    def owns(data: dict[str, object]) -> bool | None:
+        """True/False when the artifact declares its source, None when it does not say."""
+        metadata = data.get("metadata")
+        settings = metadata.get("settings") if isinstance(metadata, dict) else None
+        targets = settings.get("compilationTarget") if isinstance(settings, dict) else None
+        return (sol_path in targets) if isinstance(targets, dict) and targets else None
+
+    def read(directory: Path) -> list[dict[str, object]]:
+        found: list[dict[str, object]] = []
+        for artifact in directory.glob("*.json"):
+            try:
+                found.append(json.loads(artifact.read_text()))
+            except json.JSONDecodeError:
+                # An unreadable artifact contributes nothing, as it did when this read it through jq.
+                continue
+        return found
+
+    basename = sol_path.rsplit("/", 1)[-1]
+    direct = read(out_dir / basename)
+    # No metadata at all (a build with it switched off) leaves nothing to check against, so the
+    # direct hit is taken at face value exactly as it always was.
+    if direct and all(owns(d) is not False for d in direct):
+        return direct
+    for nested in sorted(out_dir.glob(f"**/{basename}")):
+        if nested == out_dir / basename or not nested.is_dir():
+            continue
+        candidate = read(nested)
+        if candidate and all(owns(d) is not False for d in candidate):
+            return candidate
+    return []
+
+
 def _file_signature(out_dir: Path, sol_path: str) -> str:
     """Sorted concat of the creation bytecode of every contract compiled from one .sol file.
 
-    forge writes artifacts to <out>/<basename>.sol/<Contract>.json. Names are not used, so this is
-    robust to renames; a multi-contract file compares its whole set. "__MISSING__" if the file
-    produced no artifacts (e.g. deleted/uncompiled).
+    Contract names are not used, so this is robust to renames; a multi-contract file compares its
+    whole set. "__MISSING__" if the file produced no artifacts (e.g. deleted/uncompiled).
     """
-    directory = out_dir / sol_path.rsplit("/", 1)[-1]
-    if not directory.is_dir():
+    artifacts = _artifacts_for(out_dir, sol_path)
+    if not artifacts:
         return _MISSING
-    objects = []
-    for artifact in directory.glob("*.json"):
-        try:
-            data = json.loads(artifact.read_text())
-        except json.JSONDecodeError:
-            # An unreadable artifact contributes nothing, as it did when this read it through jq.
-            continue
-        objects.append((data.get("bytecode") or {}).get("object") or "")
+    objects: list[str] = []
+    for data in artifacts:
+        bytecode = data.get("bytecode")
+        obj = bytecode.get("object") if isinstance(bytecode, dict) else None
+        objects.append(obj if isinstance(obj, str) else "")
     return "".join(sorted(objects))
 
 

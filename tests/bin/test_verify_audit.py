@@ -1520,3 +1520,31 @@ def test_the_record_switches_off_the_tag_comparison(fix):
     assert status == 0, after
     assert "=== deploy/test ===" not in after, "the record REPLACES the tag comparison rather than joining it"
     assert "covers every deployed contract" in after, "and says so in its own terms"
+
+
+def test_a_signature_is_the_requested_files_own_bytecode(fix, tmp_path, monkeypatch):
+    """forge writes artifacts to out/<basename>.sol/, and when two sources share a basename it NESTS
+    the second under enough of its parent path to disambiguate - it does not overwrite. So both
+    artifacts exist, and a lookup that only ever tries the top-level path silently returns whichever
+    file happens to own it. Each file must get its own bytecode, wherever forge put it.
+    """
+    head = "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\n"
+    body = "contract Dup {{ function f() external pure returns (uint256) {{ return {}; }} }}\n"
+    fix.write("src/a/Dup.sol", head + body.format(111))
+    fix.write("src/b/Dup.sol", head + body.format(222))
+    fix.commit("two files, one basename")
+
+    monkeypatch.chdir(fix.work)
+    out = tmp_path / "out"
+    built, report = verify_audit._forge_build(out, tmp_path / "cache", ["src/a/Dup.sol", "src/b/Dup.sol"])
+    assert built, report
+
+    signature_a = verify_audit._file_signature(out, "src/a/Dup.sol")
+    signature_b = verify_audit._file_signature(out, "src/b/Dup.sol")
+
+    assert verify_audit._signature_identifies(signature_a), signature_a
+    assert verify_audit._signature_identifies(signature_b), signature_b
+    assert signature_a != signature_b, "each file must get its OWN bytecode, not the other's"
+    # 111 = 0x6f and 222 = 0xde, each pushed by its own contract
+    assert "606f" in signature_a and "60de" not in signature_a
+    assert "60de" in signature_b and "606f" not in signature_b

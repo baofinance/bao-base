@@ -9,15 +9,11 @@ set -euo pipefail
 # Fix hash randomisation so slither's analysis is deterministic across platforms
 export PYTHONHASHSEED=0
 
-# Build into dedicated out AND cache directories, emptied first. Three things depend on this:
-#  - crytic_compile runs `forge clean` before building, and `forge clean` removes BOTH the out and the
-#    cache directory - so redirecting out alone still destroys the developer's incremental build,
-#    because the cache is what makes it incremental;
-#  - the contract-name check below reads build-info, which forge NEVER prunes, so a shared directory
-#    accumulates entries for files that have since moved and would report them as collisions;
-#  - each sits UNDER the directory the repo already ignores (`out/`, `cache/`), so no consuming repo
-#    needs a .gitignore change - which is exactly the per-repo wiring this script exists to avoid.
-# build_info_path defaults to <out>/build-info, so redirecting out carries build-info with it.
+# Build into dedicated out AND cache directories, emptied first, so a slither run leaves the
+# developer's build alone. crytic_compile runs `forge clean` before building, and `forge clean` removes
+# BOTH the out and the cache directory - so redirecting out alone still destroys the incremental build,
+# because the cache is what makes it incremental. Each sits UNDER a directory the repo already ignores
+# (`out/`, `cache/`), so no consuming repo needs a .gitignore change.
 export FOUNDRY_OUT="out/_slither"
 export FOUNDRY_CACHE_PATH="cache/_slither"
 rm -rf "$FOUNDRY_OUT" "$FOUNDRY_CACHE_PATH"
@@ -61,22 +57,10 @@ if grep -q '^ERROR:' "$slither_log"; then
   parsing_status=1
 fi
 
-# Two source files compiling one contract name is silent everywhere else: forge writes both to
-# out/<file>.sol/<Contract>.json so the second overwrites the first, and slither's own name-reused
-# detector reports nothing (measured: 0 findings against 11 real collisions). build-info keys
-# contracts by SOURCE PATH, so both declarations survive there. It rides along here because slither
-# has just done the clean build it needs - and because living in a shared bin script is what makes it
-# run in every consuming repo, rather than needing a line added to each one's package.json.
-names_status=0
-"$BAO_BASE_BIN_DIR"/run-python lint-contract-names.py "$FOUNDRY_OUT/build-info" || names_status=$?
-
-# Report all three, then fail with the first that failed. Deliberately not `set -e` after slither: a
-# repo with slither findings would otherwise never learn it also has a name collision or a parse error.
+# Report both, then fail with the first that failed. Deliberately not `set -e` after slither: a repo
+# with slither findings would otherwise never learn it also has a parse error.
 worst_status=$slither_status
 if [[ $worst_status -eq 0 ]]; then
   worst_status=$parsing_status
-fi
-if [[ $worst_status -eq 0 ]]; then
-  worst_status=$names_status
 fi
 (exit "$worst_status")

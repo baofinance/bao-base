@@ -12,8 +12,21 @@ INITCODE_AVG_GAS_PER_BYTE = 10  # Half of the init bytes are assumed zero (4 gas
 USD_PER_GAS = 0.10 / 1_000  # $0.10 per 1k gas
 
 
+_QUALIFIED_CELL = re.compile(r"^\S+ \((?P<path>.+\.sol)\)$")
+
+
 def get_contract_source_path(contract_name: str) -> str | None:
-    """Look up source path from compiled artifact metadata."""
+    """Look up source path from compiled artifact metadata.
+
+    `forge build --sizes` appends " (path)" to the Contract column ONLY where the bare name is
+    ambiguous - two contracts of one name, ours and a dependency's, say. Where it is present it is the
+    answer outright, and the artifact lookup below cannot substitute for it: the parenthesised string
+    is not an artifact filename, so the glob finds nothing, the source path comes back None, and the
+    row silently escapes the lib/ and test/ exclusion this function exists to apply.
+    """
+    qualified = _QUALIFIED_CELL.match(contract_name)
+    if qualified:
+        return qualified.group("path")
     out_dir = Path("out")
     # Artifact is at out/**/{SourceFile}.sol/{ContractName}.json
     # The directory name is the source file (may differ from contract name),
