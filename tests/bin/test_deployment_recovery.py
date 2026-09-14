@@ -32,6 +32,7 @@ from deployment_recovery import (  # noqa: E402
     differences,
     mask_immutables,
     matches,
+    checkouts_by_repository,
     export_tree,
     install_toolchain,
     search_passes,
@@ -947,7 +948,7 @@ def test_the_export_holds_the_commit_and_its_dependency_at_the_recorded_version(
     superproject, commit, _, _ = repository_with_submodule(tmp_path)
 
     at = tmp_path / "exported"
-    assert export_tree(superproject, commit, at) == []
+    assert export_tree(superproject, commit, at, checkouts_by_repository(superproject)) == []
 
     assert (at / "src" / "Own.sol").is_file(), "the superproject's own source"
     assert (at / "lib" / "dependency" / "src" / "Dependency.sol").read_text() == (
@@ -962,9 +963,126 @@ def test_the_export_is_files_only_and_carries_no_repository(tmp_path):
     superproject, commit, _, _ = repository_with_submodule(tmp_path)
 
     at = tmp_path / "exported"
-    export_tree(superproject, commit, at)
+    export_tree(superproject, commit, at, checkouts_by_repository(superproject))
 
     assert list(at.rglob(".git")) == []
+
+
+def moved_dependency(tmp_path: Path) -> tuple[Path, str]:
+    """A superproject recording `lib/gone` and `lib/kept` as the SAME repository, with `lib/gone` no
+    longer checked out.
+
+    harbor's shape at a deployed commit: `@bao/` pointed at `lib/bao-base-audit-2025-07` and
+    `@bao-factory/` at `lib/bao-factory`, both since moved, and both the same repository as a
+    checkout that is still there."""
+    dependency = tmp_path / "dependency"
+    (dependency / "src").mkdir(parents=True)
+    git(dependency, "init", "-q", "-b", "main")
+    git(dependency, "config", "user.email", "t@t")
+    git(dependency, "config", "user.name", "test")
+    (dependency / "src" / "D.sol").write_text("// the version the superproject records\n")
+    git(dependency, "add", "-A")
+    git(dependency, "commit", "-qm", "recorded")
+
+    superproject = tmp_path / "superproject"
+    (superproject / "src").mkdir(parents=True)
+    git(superproject, "init", "-q", "-b", "main")
+    git(superproject, "config", "user.email", "t@t")
+    git(superproject, "config", "user.name", "test")
+    (superproject / "src" / "Own.sol").write_text("// the superproject's own source\n")
+    for path in ("lib/gone", "lib/kept"):
+        git(superproject, "-c", "protocol.file.allow=always", "submodule", "--quiet", "add", str(dependency), path)
+    git(superproject, "add", "-A")
+    git(superproject, "commit", "-qm", "with the dependency twice")
+    commit = git_output(superproject, "rev-parse", "HEAD")
+
+    # The path the commit records, no longer on disk - the dependency moved after the deploy.
+    shutil.rmtree(superproject / "lib" / "gone")
+    return superproject, commit
+
+
+def test_a_dependency_that_moved_is_exported_from_a_checkout_that_still_holds_it(tmp_path):
+    # The recorded PATH says where a dependency once sat; the recorded URL says what it IS. A
+    # checkout of the same repository holding the same commit gives the same bytes, so the build
+    # gets what was deployed rather than a gap.
+    superproject, commit = moved_dependency(tmp_path)
+
+    at = tmp_path / "exported"
+    failures = export_tree(superproject, commit, at, checkouts_by_repository(superproject))
+
+    assert failures == [], failures
+    assert (at / "lib" / "gone" / "src" / "D.sol").read_text() == "// the version the superproject records\n"
+
+
+def test_a_checkout_is_matched_on_the_repository_not_on_how_its_remote_is_written(tmp_path):
+    # One repository is named `git@host:org/repo.git`, `https://host/org/repo` and with a trailing
+    # slash, depending on who cloned it. Matching the text would miss the checkout that has the
+    # objects.
+    superproject, commit = moved_dependency(tmp_path)
+    kept = superproject / "lib" / "kept"
+    plain = git_output(kept, "remote", "get-url", "origin")
+    git(kept, "remote", "set-url", "origin", f"ssh://git@example.invalid/{Path(plain).name}.git")
+    git(
+        superproject,
+        "config",
+        "-f",
+        ".gitmodules",
+        "submodule.lib/gone.url",
+        f"https://example.invalid/{Path(plain).name}/",
+    )
+    # Only .gitmodules: `add -A` would stage the removed checkout as a deleted gitlink, and the
+    # commit would then not record the dependency this is about at all.
+    git(superproject, "add", ".gitmodules")
+    git(superproject, "commit", "-qm", "the same repository, written three ways")
+    commit = git_output(superproject, "rev-parse", "HEAD")
+
+    at = tmp_path / "exported"
+    failures = export_tree(superproject, commit, at, checkouts_by_repository(superproject))
+
+    assert failures == [], failures
+    assert (at / "lib" / "gone" / "src" / "D.sol").is_file()
+
+
+def test_a_checkout_that_is_present_but_lacks_the_commit_does_not_hide_one_that_has_it(tmp_path):
+    # Being AT the recorded path is not what makes a checkout a source - holding the commit is.
+    # harbor carries nine checkouts of forge-std at four commits, and their object stores genuinely
+    # differ, so the one the commit names can be the one that cannot answer.
+    dependency = tmp_path / "dependency"
+    (dependency / "src").mkdir(parents=True)
+    git(dependency, "init", "-q", "-b", "main")
+    git(dependency, "config", "user.email", "t@t")
+    git(dependency, "config", "user.name", "test")
+    (dependency / "src" / "D.sol").write_text("// first\n")
+    git(dependency, "add", "-A")
+    git(dependency, "commit", "-qm", "first")
+
+    superproject = tmp_path / "superproject"
+    (superproject / "src").mkdir(parents=True)
+    git(superproject, "init", "-q", "-b", "main")
+    git(superproject, "config", "user.email", "t@t")
+    git(superproject, "config", "user.name", "test")
+    (superproject / "src" / "Own.sol").write_text("// own\n")
+    # Cloned before the second commit exists, so its store can never hold it.
+    git(superproject, "-c", "protocol.file.allow=always", "submodule", "--quiet", "add", str(dependency), "lib/stale")
+
+    (dependency / "src" / "D.sol").write_text("// the version the superproject records\n")
+    git(dependency, "add", "-A")
+    git(dependency, "commit", "-qm", "second")
+    wanted = git_output(dependency, "rev-parse", "HEAD")
+    # Cloned after, so this one has it.
+    git(superproject, "-c", "protocol.file.allow=always", "submodule", "--quiet", "add", str(dependency), "lib/fresh")
+
+    # The superproject records the LATER commit at the path whose checkout stops short of it.
+    git(superproject, "update-index", "--cacheinfo", f"160000,{wanted},lib/stale")
+    git(superproject, "add", ".gitmodules", "src")
+    git(superproject, "commit", "-qm", "recording a commit lib/stale does not hold")
+    commit = git_output(superproject, "rev-parse", "HEAD")
+
+    at = tmp_path / "exported"
+    failures = export_tree(superproject, commit, at, checkouts_by_repository(superproject))
+
+    assert failures == [], failures
+    assert (at / "lib" / "stale" / "src" / "D.sol").read_text() == "// the version the superproject records\n"
 
 
 def test_a_dependency_that_cannot_be_exported_is_named_rather_than_raised(tmp_path):
@@ -974,9 +1092,11 @@ def test_a_dependency_that_cannot_be_exported_is_named_rather_than_raised(tmp_pa
     shutil.rmtree(superproject / "lib" / "dependency")
 
     at = tmp_path / "exported"
-    failures = export_tree(superproject, commit, at)
+    failures = export_tree(superproject, commit, at, checkouts_by_repository(superproject))
 
     assert len(failures) == 1, failures
     assert failures[0].startswith("lib/dependency@"), failures[0]
-    assert "not checked out" in failures[0], failures[0]
+    # What was actually established, which is stronger than "not checked out here": every checkout
+    # in the tree was asked, and none of them has this commit.
+    assert "no checkout in this tree holds it" in failures[0], failures[0]
     assert (at / "src" / "Own.sol").is_file(), "the rest of the commit is still exported"

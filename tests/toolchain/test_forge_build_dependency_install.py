@@ -25,7 +25,7 @@ from pathlib import Path
 BAO_BASE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BAO_BASE / "bin"))
 
-from deployment_recovery import export_tree  # noqa: E402
+from deployment_recovery import checkouts_by_repository, export_tree  # noqa: E402
 
 FOUNDRY_TOML = '[profile.default]\nsrc = "src"\nlibs = ["lib"]\nauto_detect_remappings = false\n'
 SOURCE = "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.0;\n"
@@ -181,7 +181,7 @@ def test_a_build_in_an_exported_tree_leaves_the_repository_it_came_from_untouche
     before = worktrees_of(project)
 
     at = tmp_path / "exported"
-    failures = export_tree(project, "HEAD", at)
+    failures = export_tree(project, "HEAD", at, checkouts_by_repository(project))
     assert any(failure.startswith("lib/absent@") for failure in failures), failures
 
     forge_build(at)

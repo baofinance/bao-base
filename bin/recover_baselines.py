@@ -45,6 +45,7 @@ from deployment_recovery import (
     creation_block,
     differences,
     matches,
+    checkouts_by_repository,
     export_tree,
     install_toolchain,
     search_passes,
@@ -216,7 +217,11 @@ class _Wanted:
 
 
 def _try_commit(
-    root: Path, commit: str, pending: dict[str, _Wanted], say: Callable[..., None]
+    root: Path,
+    commit: str,
+    pending: dict[str, _Wanted],
+    say: Callable[..., None],
+    checkouts: dict[str, list[Path]],
 ) -> tuple[dict[str, tuple], set[str]]:
     """Export ONE tree at `commit`, then build each contract that is looking there on its own.
 
@@ -242,7 +247,7 @@ def _try_commit(
         return {}, set()
     with tempfile.TemporaryDirectory(prefix="recover-baseline-") as scratch:
         tree = Path(scratch) / "tree"
-        missing = export_tree(root, commit, tree)
+        missing = export_tree(root, commit, tree, checkouts)
         # Said once per export rather than per build: every contract at this commit would otherwise
         # repeat it, and it only explains a build failure that has not happened yet.
         if unavailable := install_toolchain(tree):
@@ -388,6 +393,8 @@ def _reprove(root: Path, baselines: dict[str, Baseline], say: Callable[..., None
     this says whether the repository still holds a tree that builds what was deployed. It cannot say
     that a fresh search would choose the same commit; only a full re-derive does that."""
     failed: list[tuple[str, str, str, str]] = []
+    # The tree's own layout, which every export reads and no export changes - so once, here.
+    checkouts = checkouts_by_repository(root)
     at_commit: dict[str, list[Baseline]] = {}
     for baseline in baselines.values():
         at_commit.setdefault(baseline.commit, []).append(baseline)
@@ -395,7 +402,7 @@ def _reprove(root: Path, baselines: dict[str, Baseline], say: Callable[..., None
         say(1, f"[{position:>3}/{len(at_commit)}] {commit[:10]}  {len(wanted)} baseline(s)")
         with tempfile.TemporaryDirectory(prefix="reprove-") as scratch:
             tree = Path(scratch) / "tree"
-            missing = export_tree(root, commit, tree)
+            missing = export_tree(root, commit, tree, checkouts)
             if unavailable := install_toolchain(tree):
                 say(1, f"  {commit[:10]}: the pinned toolchain could not be installed: {unavailable}")
             for index, baseline in enumerate(sorted(wanted, key=lambda b: b.address)):
@@ -489,6 +496,9 @@ def recover(
     # `review` could not even key, because those never become candidates and so no later stage is in a
     # position to report them. `drop` is the only way anything else joins them.
     account: list[Problem] = list(found.unreadable)
+    # The tree's own layout, which every export reads and no export changes - so once, here, rather
+    # than rebuilt for each of the hundreds of commits a search walks.
+    checkouts = checkouts_by_repository(root)
     # Regeneration accumulates into an EMPTY record: what it derives is the answer, and reading the old
     # one to add to it would make the output depend on what was there.
     baselines = {} if regenerate else read_baselines(root)
@@ -577,7 +587,7 @@ def recover(
                 waiting += f" ({len(looking) - len(fresh)} already tried against these inputs)"
             say(1, f"{place}  {waiting}, building…")
             started = time.monotonic()
-            outcome, compared_here = _try_commit(root, commit, {k: looking[k] for k in fresh}, say)
+            outcome, compared_here = _try_commit(root, commit, {k: looking[k] for k in fresh}, say, checkouts)
             compared.setdefault(identity, set()).update(compared_here)
             built += 1
             # At the default level the per-commit lines are hidden, so a long stretch of builds that

@@ -454,6 +454,66 @@ def source_blobs(repo_root: Path, commit: str, paths: Iterable[str]) -> dict[str
     return found
 
 
+def _repository_identity(url: str) -> str:
+    """What a remote URL NAMES, independent of how it happens to be written.
+
+    `git@host:org/repo.git`, `https://host/org/repo` and `ssh://git@host/org/repo/` are one
+    repository. Comparing the text instead would miss the checkout that holds the objects, purely
+    because it was cloned over a different transport."""
+    text = url.strip().rstrip("/")
+    for scheme in ("https://", "http://", "ssh://", "git://"):
+        if text.startswith(scheme):
+            text = text[len(scheme) :]
+    if "@" in text:
+        # `user@host:org/repo` - the colon separates host from path in scp-style form, and is not
+        # one in any of the others by this point.
+        text = text.partition("@")[2].replace(":", "/", 1)
+    if text.endswith(".git"):
+        text = text[: -len(".git")]
+    return text.lower()
+
+
+def _holds(repo: Path, commit: str) -> bool:
+    """Whether `repo`'s object store has `commit`. The only thing that makes a checkout a source.
+
+    A path with no checkout at it has no store and so holds nothing - the same answer as a checkout
+    that simply does not have the commit, and for the same reason. Being somewhere is not the test."""
+    if not (repo / ".git").exists():
+        return False
+    done = subprocess.run(["git", "cat-file", "-e", f"{commit}^{{commit}}"], cwd=repo, capture_output=True)
+    return done.returncode == 0
+
+
+def checkouts_by_repository(repo_root: Path) -> dict[str, list[Path]]:
+    """Every checkout in the tree, indexed by the repository it holds.
+
+    A property of the WORKING TREE, not of any commit being exported, so it is built once by the
+    caller and passed to each `export_tree` - a run rebuilding a thousand commits builds it once.
+
+    Walked through `.gitmodules` rather than by searching for `.git` entries: that visits exactly the
+    dependencies this tree declares, and never wanders into a build directory or an unrelated clone
+    that happens to sit inside it."""
+    found: dict[str, list[Path]] = {}
+
+    def visit(repo: Path) -> None:
+        origin = subprocess.run(["git", "remote", "get-url", "origin"], cwd=repo, capture_output=True, text=True)
+        if origin.returncode == 0:
+            found.setdefault(_repository_identity(origin.stdout), []).append(repo)
+        listing = subprocess.run(
+            ["git", "config", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.path$"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+        )
+        for line in listing.stdout.splitlines():
+            path = line.partition(" ")[2].strip()
+            if path and (repo / path / ".git").exists():
+                visit(repo / path)
+
+    visit(repo_root)
+    return found
+
+
 def install_toolchain(tree: Path) -> str | None:
     """Install the python toolchain `tree`'s own `uv.lock` pins. Returns what failed, or None.
 
@@ -502,7 +562,7 @@ def export_commit(source_repo: Path, tree: str, into: Path) -> None:
         archive.extractall(into, filter="tar")
 
 
-def export_tree(repo_root: Path, commit: str, at: Path) -> list[str]:
+def export_tree(repo_root: Path, commit: str, at: Path, checkouts: dict[str, list[Path]]) -> list[str]:
     """`commit`'s FILES at `at`, with every submodule at its recorded gitlink. Returns failures.
 
     Files, with no `.git` anywhere under `at`, and that is the whole point rather than an economy.
@@ -521,11 +581,49 @@ def export_tree(repo_root: Path, commit: str, at: Path) -> list[str]:
     contracts-upgradeable, and a build without them does not fail cleanly, it fails as an unresolved
     import a long way from the cause.
 
-    A submodule that cannot be exported is REPORTED rather than fatal: it may not be in the closure at
-    all (`solidity-stringutils` was not, in the real recovery), and a build that needs it fails loudly
+    A dependency is read from whichever checkout HOLDS the commit, which is a different question from
+    where the superproject mounts it. A gitlink names an immutable tree, so any store holding it gives
+    the same bytes; `checkouts` is what makes the others reachable. Two things follow, and the second
+    is why the recorded path gets no privilege: harbor at f05319fac8 reached its audited sources
+    through `lib/bao-base-audit-2025-07` and `lib/bao-factory`, both since MOVED - and harbor also
+    carries nine checkouts of forge-std at four commits whose object stores differ, so the checkout at
+    the recorded path can be present and still not have what the commit names. Deciding on presence
+    rather than on content would let that one hide a sibling that can answer.
+
+    A submodule no checkout holds is REPORTED rather than fatal: it may not be in the closure at all
+    (`solidity-stringutils` was not, in the real recovery), and a build that needs it fails loudly
     naming the file, which is actionable. Guessing which are needed and placing too few is the failure
     that is silent."""
     failures: list[str] = []
+
+    def candidates(parent_repo: Path, parent_commit: str, path: str) -> Iterable[Path]:
+        """Every checkout that could hold the dependency at `path`, the recorded one first.
+
+        A generator, so the URL and the index are reached only when the recorded checkout does not
+        answer - which is almost always - WITHOUT that being a second policy. Every candidate faces
+        the same test; only the order is fixed, and the recorded path leads because it is the
+        declared home, not because it is trusted."""
+        yield parent_repo / path
+        # The URL the COMMIT records, not today's: what matters is what that dependency was then.
+        named = subprocess.run(
+            ["git", "config", "--blob", f"{parent_commit}:.gitmodules", "--get-regexp", r"\.path$"],
+            cwd=parent_repo,
+            capture_output=True,
+            text=True,
+        )
+        for line in named.stdout.splitlines():
+            key, _, declared_path = line.partition(" ")
+            if declared_path.strip() != path:
+                continue
+            url = subprocess.run(
+                ["git", "config", "--blob", f"{parent_commit}:.gitmodules", "--get", f"{key[: -len('.path')]}.url"],
+                cwd=parent_repo,
+                capture_output=True,
+                text=True,
+            )
+            if url.returncode == 0:
+                yield from checkouts.get(_repository_identity(url.stdout), [])
+            return
 
     def export(parent_repo: Path, parent_commit: str, parent_at: Path, prefix: str) -> None:
         listing = subprocess.run(
@@ -536,20 +634,19 @@ def export_tree(repo_root: Path, commit: str, at: Path) -> list[str]:
             if len(fields) < 4 or fields[1] != "commit":
                 continue
             gitlink, path = fields[2], fields[3]
-            # A submodule the parent records but that is not checked out HERE has no object store to
-            # read the recorded commit from. Reported rather than raised: it may not be in the closure
-            # at all, and the build says so loudly if it is.
-            if not (parent_repo / path).is_dir():
-                failures.append(f"{prefix}{path}@{gitlink[:10]} (not checked out)")
+            source = next(
+                (holder for holder in candidates(parent_repo, parent_commit, path) if _holds(holder, gitlink)),
+                None,
+            )
+            if source is None:
+                failures.append(f"{prefix}{path}@{gitlink[:10]} (no checkout in this tree holds it)")
                 continue
-            try:
-                export_commit(parent_repo / path, gitlink, parent_at / path)
-            except subprocess.CalledProcessError:
-                # The one failure expected here: the checkout exists but its object store does not
-                # hold the commit the parent records, which is the same "cannot be exported" answer.
-                failures.append(f"{prefix}{path}@{gitlink[:10]}")
-                continue
-            export(parent_repo / path, gitlink, parent_at / path, f"{prefix}{path}/")
+            # Unguarded: the store has been shown to hold the commit, so a failure here is not the
+            # absent-dependency case and must not be reported as one.
+            export_commit(source, gitlink, parent_at / path)
+            # `source`, not the recorded path: a dependency read from elsewhere carries its OWN
+            # nested dependencies, and the recorded path may have no object store to read them from.
+            export(source, gitlink, parent_at / path, f"{prefix}{path}/")
 
     export_commit(repo_root, commit, at)
     export(repo_root, commit, at, "")
