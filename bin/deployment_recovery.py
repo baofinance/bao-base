@@ -454,6 +454,25 @@ def source_blobs(repo_root: Path, commit: str, paths: Iterable[str]) -> dict[str
     return found
 
 
+def export_commit(source_repo: Path, tree: str, into: Path) -> None:
+    """`tree`'s files, read from `source_repo`'s own object store, written into `into`.
+
+    ONE repository's files: a gitlink is not followed, so a caller that wants the dependencies too
+    asks for each of them. `export_tree` is that caller for the whole closure; `verify-audit` is one
+    that wants only the dependencies its remappings can reach.
+
+    Local, and that is what makes it usable against work in progress: the objects come from the
+    checkout in hand, so a dependency sitting at an unpushed commit exports as readily as any other,
+    where a clone would have to ask a remote that has never heard of it.
+
+    Raises `subprocess.CalledProcessError` when git cannot produce the archive - most often because
+    the object store does not hold `tree`."""
+    done = subprocess.run(["git", "archive", "--format=tar", tree], cwd=source_repo, capture_output=True, check=True)
+    into.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(fileobj=io.BytesIO(done.stdout)) as archive:
+        archive.extractall(into, filter="tar")
+
+
 def export_tree(repo_root: Path, commit: str, at: Path) -> list[str]:
     """`commit`'s FILES at `at`, with every submodule at its recorded gitlink. Returns failures.
 
@@ -479,15 +498,6 @@ def export_tree(repo_root: Path, commit: str, at: Path) -> list[str]:
     that is silent."""
     failures: list[str] = []
 
-    def unpack(source_repo: Path, tree: str, into: Path) -> None:
-        """`tree`'s files, read from `source_repo`'s object store, written into `into`."""
-        done = subprocess.run(
-            ["git", "archive", "--format=tar", tree], cwd=source_repo, capture_output=True, check=True
-        )
-        into.mkdir(parents=True, exist_ok=True)
-        with tarfile.open(fileobj=io.BytesIO(done.stdout)) as archive:
-            archive.extractall(into, filter="tar")
-
     def export(parent_repo: Path, parent_commit: str, parent_at: Path, prefix: str) -> None:
         listing = subprocess.run(
             ["git", "ls-tree", parent_commit, "lib/"], cwd=parent_repo, capture_output=True, text=True
@@ -504,7 +514,7 @@ def export_tree(repo_root: Path, commit: str, at: Path) -> list[str]:
                 failures.append(f"{prefix}{path}@{gitlink[:10]} (not checked out)")
                 continue
             try:
-                unpack(parent_repo / path, gitlink, parent_at / path)
+                export_commit(parent_repo / path, gitlink, parent_at / path)
             except subprocess.CalledProcessError:
                 # The one failure expected here: the checkout exists but its object store does not
                 # hold the commit the parent records, which is the same "cannot be exported" answer.
@@ -512,7 +522,7 @@ def export_tree(repo_root: Path, commit: str, at: Path) -> list[str]:
                 continue
             export(parent_repo / path, gitlink, parent_at / path, f"{prefix}{path}/")
 
-    unpack(repo_root, commit, at)
+    export_commit(repo_root, commit, at)
     export(repo_root, commit, at, "")
     return failures
 

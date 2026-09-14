@@ -1336,10 +1336,10 @@ def test_file_signature_is_identical_across_a_pure_rename(fix, tmp_path, monkeyp
     try:
         built, report = verify_audit._forge_build(head_out, tmp_path / "head-cache", ["src/New.sol"])
         assert built, report
-        assert builds.ensure_worktree()
+        assert builds.ensure_tree()
         built, report = builds.overlay_and_build_revision("deploy/test", ["src/Old.sol"], ["src/Old.sol"])
         assert built, report
-        signature_old = verify_audit._file_signature(builds.wt_out, "src/Old.sol")
+        signature_old = verify_audit._file_signature(builds.tree_out, "src/Old.sol")
         signature_new = verify_audit._file_signature(head_out, "src/New.sol")
         builds.restore_overlay(["src/Old.sol"])
     finally:
@@ -1347,6 +1347,50 @@ def test_file_signature_is_identical_across_a_pure_rename(fix, tmp_path, monkeyp
 
     assert verify_audit._signature_identifies(signature_old)
     assert signature_old == signature_new
+
+
+def test_the_tree_a_revision_is_built_in_holds_no_repository(fix, monkeypatch):
+    """A `.git` in the build tree is what lets `forge build` reach back into this repository.
+
+    Its submodules would share this repository's `.git/modules`, and forge - settling a dependency
+    it judges missing, which it does unbidden - re-points every shared gitdir at a directory the run
+    then deletes. What that does to the repository is pinned in
+    tests/toolchain/test_forge_build_dependency_install.py; what is checked here is that this build
+    tree never gives it the opening.
+    """
+    fix.write("src/Thing.sol", "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\ncontract Thing {}\n")
+    fix.commit("a thing")
+
+    monkeypatch.chdir(fix.work)
+    base = verify_audit._snapshot_commit()
+    assert base is not None
+    builds = verify_audit._Builds(base)
+    try:
+        assert builds.ensure_tree()
+        assert builds.tree is not None
+        assert (builds.tree / "src" / "Thing.sol").is_file(), "the snapshot's source is there to build"
+        assert list(builds.tree.rglob(".git")) == [], "and no repository came with it"
+    finally:
+        builds.cleanup()
+
+
+def test_cleanup_leaves_no_trace_of_the_build_tree(fix, monkeypatch):
+    """Deleting the directory is the whole of cleanup, so it has to actually be gone."""
+    fix.write("src/Thing.sol", "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\ncontract Thing {}\n")
+    fix.commit("a thing")
+
+    monkeypatch.chdir(fix.work)
+    base = verify_audit._snapshot_commit()
+    assert base is not None
+    builds = verify_audit._Builds(base)
+    assert builds.ensure_tree()
+    root = builds.root
+
+    builds.cleanup()
+
+    assert root is not None and not root.exists()
+    # Idempotent: it runs from a `finally` that a failure earlier in the run may reach twice.
+    builds.cleanup()
 
 
 def test_differing_compiler_settings_do_change_the_bytecode(fix, tmp_path, monkeypatch):

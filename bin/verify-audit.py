@@ -21,8 +21,8 @@ that is both a tag and a branch resolves as the tag, and says so.
 
 A changed file is auto-cleared when it is meaning-neutral: its version at that revision and in the
 current tree compile to the same metadata-stripped creation bytecode. Both sides are compiled with
-the current toolchain (FOUNDRY_BYTECODE_HASH=none, FOUNDRY_CBOR_METADATA=false) in a throwaway git
-worktree taken from a snapshot of the current tree - staged, unstaged and untracked content included
+the current toolchain (FOUNDRY_BYTECODE_HASH=none, FOUNDRY_CBOR_METADATA=false) in a throwaway
+export of a snapshot of the current tree - staged, unstaged and untracked content included
 - so the revision compiles under the configuration and dependencies the tree actually has rather
 than the last commit's; only the changed files and their import closure are built, and a guard fails
 loudly if those switches stop disabling metadata. This clears renames, comment/NatSpec, and
@@ -63,6 +63,7 @@ import tempfile
 from pathlib import Path
 
 from deployment_baselines import RECORD, Review, remote_tags, review
+from deployment_recovery import export_commit
 from recover_baselines import Printer, run
 
 # Where audited source may live. Rename detection pairs only among the paths that survive the
@@ -211,20 +212,21 @@ def _submodules(base: str) -> dict[str, str]:
     return found
 
 
-def _needed_submodules(worktree: Path, submodules: dict[str, str]) -> dict[str, str] | None:
+def _needed_submodules(tree: Path, submodules: dict[str, str]) -> dict[str, str] | None:
     """The submodules the build can reach, from the remappings it will compile with; None on failure.
 
     With auto_detect_remappings off, a remapping target is the only way a path inside a submodule can
-    be reached, so one that no target points into is never read and need not be placed at all - 8 of
-    harbor's 29. With auto-detection on forge may resolve through any of them, so all are placed.
+    be reached, so one that no target points into is never read and need not be exported at all -
+    harbor's 18 remappings reach 8 of its 29, leaving 21 out. With auto-detection on forge may
+    resolve through any of them, so all are exported.
 
     The set is a superset of what the build imports rather than exactly it, which is the safe
     direction: a path that resolves outside every remapping fails as an unresolved import naming the
     file, which is actionable, where guessing too small a set silently changes what compiles.
     """
-    done = subprocess.run(["forge", "config", "--json"], cwd=worktree, capture_output=True, text=True, env=_forge_env())
+    done = subprocess.run(["forge", "config", "--json"], cwd=tree, capture_output=True, text=True, env=_forge_env())
     if done.returncode != 0:
-        _err("\033[31m  `forge config --json` failed, so the submodules to place cannot be worked out:\033[0m\n")
+        _err("\033[31m  `forge config --json` failed, so the submodules to export cannot be worked out:\033[0m\n")
         _err(done.stderr)
         return None
     try:
@@ -396,12 +398,20 @@ def _signature_matches(signature: str, head_out: Path, candidates: list[str]) ->
 
 
 class _Builds:
-    """The throwaway build directories and worktree a run compiles in.
+    """The throwaway build directories and exported tree a run compiles in.
 
-    One worktree checked out at `base` - the snapshot of the current tree, so its foundry.toml, lib
-    and settings are the ones the tree actually has - with a persistent forge cache, so the import
-    closure compiles once and is reused across every revision. Created lazily on the first revision
-    that needs a build.
+    One export of `base` - the snapshot of the current tree, so its foundry.toml, lib and settings
+    are the ones the tree actually has - with a persistent forge cache, so the import closure
+    compiles once and is reused across every revision. Created lazily on the first revision that
+    needs a build.
+
+    FILES, with no `.git` in them. `forge build` settles the project's dependencies before it
+    compiles: finding one it judges missing it installs recursively, unbidden. Where the tree is a
+    linked worktree its submodules share THIS repository's `.git/modules`, so that install re-points
+    every shared gitdir's `core.worktree` at a directory the run is about to delete - which is how
+    harbor lost all 29 of its submodule gitdirs on 2026-09-13. Exporting gives forge nothing to
+    install into and nothing shared to reach back through, and leaves cleanup as deleting a
+    directory. Pinned in tests/toolchain/test_forge_build_dependency_install.py.
     """
 
     def __init__(self, base: str) -> None:
@@ -409,10 +419,9 @@ class _Builds:
         self.root: Path | None = None  # everything this run compiles into, created on first use
         self.head_out: Path | None = None  # reused build dir for the current tree
         self.head_cache: Path | None = None
-        self.wt: Path | None = None  # shared worktree of the current tree, the revision's source in it
-        self.nested: list[tuple[Path, Path]] = []  # (submodule checkout, its worktree in self.wt)
-        self.wt_out: Path | None = None
-        self.wt_cache: Path | None = None  # persistent forge cache for the worktree
+        self.tree: Path | None = None  # shared export of the snapshot, the revision's source in it
+        self.tree_out: Path | None = None
+        self.tree_cache: Path | None = None  # persistent forge cache for the exported tree
 
     def _in_root(self, name: str) -> Path:
         """A path under this run's throwaway root, which is created on the first request."""
@@ -429,26 +438,35 @@ class _Builds:
         self.head_cache = self._in_root("current-cache")
         return True
 
-    def ensure_worktree(self) -> bool:
-        if self.wt is not None:
-            return True
-        wt = self._in_root("worktree")  # `git worktree add` creates it; it must not pre-exist
-        done = _git("worktree", "add", "--detach", "--quiet", str(wt), self.base)
-        if done.returncode != 0:
-            _err(f"\033[31m  `git worktree add` failed:\033[0m\n{done.stderr}")
-            return False
-        # Recorded before the submodules are placed, so that a failure there still leaves cleanup
-        # something to remove: the registration exists from this point on, whatever happens next.
-        self.wt = wt
+    def _write_blob(self, spec: str, into: Path) -> str | None:
+        """One object's bytes at `into`; git's message when it cannot be read.
 
-        # Each submodule is placed as a worktree of its OWN checkout here, not cloned from its
-        # remote. That is what makes a run local: the objects are already in this clone, so a
-        # submodule sitting at an unpushed commit - the normal state while one is being worked on -
-        # is readable, where a clone would ask a remote that has never heard of it. It is also what
-        # keeps the run cheap, since a worktree shares the object store instead of copying it, and
-        # what keeps it safe: the submodule gets its own checkout, so the one being worked in is not
-        # touched.
-        needed = _needed_submodules(wt, _submodules(self.base))
+        Bytes rather than text, so nothing here can alter what the revision actually held."""
+        done = subprocess.run(["git", "show", spec], capture_output=True)
+        if done.returncode != 0:
+            return done.stderr.decode(errors="replace")
+        into.parent.mkdir(parents=True, exist_ok=True)
+        into.write_bytes(done.stdout)
+        return None
+
+    def ensure_tree(self) -> bool:
+        if self.tree is not None:
+            return True
+        tree = self._in_root("tree")
+        try:
+            export_commit(Path.cwd(), self.base, tree)
+        except subprocess.CalledProcessError as failed:
+            _err(f"\033[31m  could not export {self.base}:\033[0m\n{failed.stderr.decode(errors='replace')}")
+            return False
+        # Recorded before the dependencies go in, so that a failure there still leaves cleanup
+        # something to remove.
+        self.tree = tree
+
+        # Each dependency is exported from its OWN checkout, not cloned from its remote. That is what
+        # makes a run local: the objects are already in this clone, so a dependency sitting at an
+        # unpushed commit - the normal state while one is being worked on - is readable, where a
+        # clone would ask a remote that has never heard of it.
+        needed = _needed_submodules(tree, _submodules(self.base))
         if needed is None:
             return False
         for path in sorted(needed, key=lambda p: p.count("/")):  # parents before their children
@@ -457,61 +475,56 @@ class _Builds:
                 _err(f'\033[31m  submodule "{path}" is not checked out here, so it cannot be read\033[0m\n')
                 _err(f"       run `git submodule update --init {path}` and try again\n")
                 return False
-            done = _git("worktree", "add", "--detach", "--quiet", str(wt / path), needed[path], cwd=repo)
-            if done.returncode != 0:
-                _err(f'\033[31m  could not place submodule "{path}" in the worktree:\033[0m\n{done.stderr}')
+            try:
+                export_commit(repo, needed[path], tree / path)
+            except subprocess.CalledProcessError as failed:
+                message = failed.stderr.decode(errors="replace")
+                _err(f'\033[31m  could not export submodule "{path}":\033[0m\n{message}')
                 return False
-            self.nested.append((repo, wt / path))
-        self.wt_out = self._in_root("revision-out")
-        self.wt_cache = self._in_root("revision-cache")
+        self.tree_out = self._in_root("revision-out")
+        self.tree_cache = self._in_root("revision-cache")
         return True
 
     def overlay_and_build_revision(self, rev: str, overlay: list[str], build: list[str]) -> tuple[bool, str]:
-        """Overlay the revision's source into the shared worktree and build the requested contracts.
+        """Overlay the revision's source into the shared export and build the requested contracts.
 
         The overlay set is the WHOLE changed cascade (so a built contract's renamed dependencies
         resolve to the files they had at that revision); only the build set is compiled and later
-        compared. `git restore --source` only touches working-tree files - never HEAD.
+        compared. The files are written from the object store into the export, which is a plain
+        directory - so this cannot reach the working tree or HEAD however it fails.
         """
-        assert self.wt is not None and self.wt_out is not None and self.wt_cache is not None
-        done = _git("restore", f"--source={rev}", "--worktree", "--", *overlay, cwd=self.wt)
-        if done.returncode != 0:
-            return False, done.stderr
-        return _forge_build(self.wt_out, self.wt_cache, build, cwd=self.wt)
+        assert self.tree is not None and self.tree_out is not None and self.tree_cache is not None
+        for path in overlay:
+            failure = self._write_blob(f"{rev}:{path}", self.tree / path)
+            if failure is not None:
+                return False, failure
+        return _forge_build(self.tree_out, self.tree_cache, build, cwd=self.tree)
 
     def restore_overlay(self, paths: list[str]) -> None:
         """Restore overlaid paths back to the snapshot so an overlaid dependency cannot leak into a
         later revision's build. A path absent from the snapshot (a rename's old path) is removed."""
-        assert self.wt is not None
+        assert self.tree is not None
         for path in paths:
-            if _git("cat-file", "-e", f"{self.base}:{path}").returncode == 0:
-                _git("restore", f"--source={self.base}", "--worktree", "--", path, cwd=self.wt)
-            else:
-                (self.wt / path).unlink(missing_ok=True)
+            if _git("cat-file", "-e", f"{self.base}:{path}").returncode != 0:
+                (self.tree / path).unlink(missing_ok=True)
+                continue
+            failure = self._write_blob(f"{self.base}:{path}", self.tree / path)
+            if failure is not None:
+                # The snapshot holds it - `cat-file -e` just said so - so a read that fails here is
+                # not the absent-path case and would otherwise leave the previous revision's source
+                # in place for the next build to read.
+                _err(f"\033[31m  could not restore {path} to the snapshot:\033[0m\n{failure}")
 
     def cleanup(self) -> None:
-        """Remove the worktree and build dirs. Idempotent.
+        """Remove the exported tree and build dirs. Idempotent.
 
-        `git worktree remove` can fail on a submodule-populated worktree, so follow it with a
-        removal and a prune to guarantee the registration is cleared. The prune needs
-        `--expire=now`: a bare `git worktree prune` honours gc.worktreePruneExpire, three months by
-        default, so it leaves the registration this run just made listed as prunable.
-        """
-        # Each submodule's registration lives in that submodule's own gitdir, so it has to be cleared
-        # there. Deepest first, and before the worktree they sit inside is removed from under them.
-        for repo, target in reversed(self.nested):
-            _git("worktree", "remove", "--force", str(target), cwd=repo)
-            _git("worktree", "prune", "--expire=now", cwd=repo)
-        self.nested = []
-        if self.wt is not None:
-            _git("worktree", "remove", "--force", str(self.wt))
-            shutil.rmtree(self.wt, ignore_errors=True)
-            _git("worktree", "prune", "--expire=now")
-            self.wt = None
+        Deleting the directory is the whole of it: the export holds no repository, so there is no
+        registration in this one, or in any dependency's, left to clear."""
         if self.root is not None:
             shutil.rmtree(self.root, ignore_errors=True)
             self.root = None
-        self.head_out = self.head_cache = self.wt_out = self.wt_cache = None
+        self.tree = None
+        self.head_out = self.head_cache = self.tree_out = self.tree_cache = None
 
 
 def _in_scope(path: str, scope_dirs: list[str], deployed: set[str], rename_src: dict[str, str]) -> bool:
@@ -1179,7 +1192,7 @@ def _compare_revisions(args: list[str], builds: _Builds, ignores: dict[str, str]
                     _err("\033[31m  ERROR: the current tree failed to build — cannot compare bytecode\033[0m\n")
                     _err(report)
                     return 1
-                if not builds.ensure_worktree():
+                if not builds.ensure_tree():
                     _err(
                         "\033[31m  ERROR: could not set up the worktree for the current tree"
                         " — cannot compare bytecode\033[0m\n"
@@ -1209,10 +1222,10 @@ def _compare_revisions(args: list[str], builds: _Builds, ignores: dict[str, str]
                         _err("       forge reports:\n")
                     _err(report)
                     return 1
-                assert builds.wt_out is not None
+                assert builds.tree_out is not None
 
                 for f, old_path, is_ignore in zip(compare, compare_old, compare_is_ignore):
-                    signature_old = _file_signature(builds.wt_out, old_path)
+                    signature_old = _file_signature(builds.tree_out, old_path)
                     signature_new = _file_signature(builds.head_out, f)
                     if signature_old == signature_new and signature_old != _MISSING:
                         # git pairs by textual similarity. Where an ADDED file compiles to the same
@@ -1249,7 +1262,7 @@ def _compare_revisions(args: list[str], builds: _Builds, ignores: dict[str, str]
                 # which is what the audit exists to catch, and more than one match is a question
                 # this tool must not answer by guessing.
                 for f in vanished:
-                    signature_old = _file_signature(builds.wt_out, f)
+                    signature_old = _file_signature(builds.tree_out, f)
                     matches: list[str] = []
                     if _signature_identifies(signature_old):
                         matches = _signature_matches(signature_old, builds.head_out, added)
