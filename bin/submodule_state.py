@@ -132,10 +132,11 @@ def at_risk(repo_dir: Path, display: str = "") -> list[AtRisk]:
 class Facts:
     """Every claim about one submodule, gathered in a single read.
 
-    `worktree` is None when the submodule is not checked out. `edits` counts only the developer's own
-    file changes - it is read with --ignore-submodules=all, because a submodule's plain status also
-    reports its NESTED submodules being off their pins, and conflating the two is what makes a tool
-    tell you to commit and push a repository you do not own.
+    `worktree` is None when the submodule is not checked out, and ALSO when it is checked out but git
+    will not read it - `unreadable` is what separates those two, carrying git's own refusal. `edits`
+    counts only the developer's own file changes - it is read with --ignore-submodules=all, because a
+    submodule's plain status also reports its NESTED submodules being off their pins, and conflating
+    the two is what makes a tool tell you to commit and push a repository you do not own.
     """
 
     path: str
@@ -148,6 +149,10 @@ class Facts:
     gitmodules_url: str | None
     remote_tip: str | None
     worktree_ref: str | None = None
+    # Git's refusal, when the checkout is present but cannot be read. None whenever git answered -
+    # including for a checkout that is genuinely absent, which is a different fault with a different
+    # repair.
+    unreadable: str | None = None
     edits: list[str] = field(default_factory=list)
     unpushed: list[str] = field(default_factory=list)
     nested_drift: list[str] = field(default_factory=list)
@@ -439,18 +444,26 @@ def read_facts(repo_root: Path, path: str, pin: Pin | None = None, display: str 
     staged = git(repo_root, "ls-files", "-s", path).stdout.split()
     checked_out = git(submodule, "rev-parse", "HEAD") if (submodule / ".git").exists() else None
 
-    origin = git(submodule, "remote", "get-url", "origin") if checked_out else None
+    # A `.git` that is there but that git will not read is a different fault from a checkout that is
+    # not there, and every reading below is gated on which. `checked_out` alone cannot carry that:
+    # a CompletedProcess is truthy whether or not the command worked, so gating on it ran a further
+    # dozen git calls that could only fail too, and a failed read then arrived indistinguishable from
+    # an absent one.
+    readable = checked_out is not None and checked_out.returncode == 0
+    refusal = checked_out.stderr.strip().splitlines() if checked_out is not None and not readable else []
+
+    origin = git(submodule, "remote", "get-url", "origin") if readable else None
     declared = git(repo_root, "config", "-f", ".gitmodules", "--get", f"submodule.{path}.url")
 
     # The branch tip as of the last fetch. Read from the remote-tracking ref rather than the network:
     # doctor must not reach out, and "behind as of your last fetch" is the honest claim either way.
-    tip = git(submodule, "rev-parse", f"origin/{pin.name}") if checked_out and pin.moving else None
+    tip = git(submodule, "rev-parse", f"origin/{pin.name}") if readable and pin.moving else None
 
     # The tag the checked-out commit IS, when it is one. This is what makes a disagreement
     # answerable: the GUI checks a tag out by name, so its bump leaves the intended version readable
     # here. forge checks out a branch, whose tip need not be tagged, so after a forge run this is
     # often None and the user has to say what they meant.
-    named = git(submodule, "describe", "--tags", "--exact-match", "HEAD") if checked_out else None
+    named = git(submodule, "describe", "--tags", "--exact-match", "HEAD") if readable else None
 
     return Facts(
         path=display or path,
@@ -458,16 +471,19 @@ def read_facts(repo_root: Path, path: str, pin: Pin | None = None, display: str 
         lock=pin,
         head_gitlink=head.stdout.strip() if head.returncode == 0 else None,
         index_gitlink=staged[1] if len(staged) > 1 else None,
-        worktree=checked_out.stdout.strip() if checked_out and checked_out.returncode == 0 else None,
+        worktree=checked_out.stdout.strip() if readable else None,
         origin_url=origin.stdout.strip() if origin and origin.returncode == 0 else None,
         gitmodules_url=declared.stdout.strip() if declared.returncode == 0 else None,
         remote_tip=tip.stdout.strip() if tip and tip.returncode == 0 else None,
         worktree_ref=named.stdout.strip() if named and named.returncode == 0 else None,
-        edits=_edits(submodule) if checked_out else [],
-        unpushed=_unpushed(submodule) if checked_out else [],
-        nested_drift=_nested_drift(submodule) if checked_out else [],
-        litter=_litter(submodule) if checked_out else [],
-        at_risk=at_risk(submodule) if checked_out else [],
+        # The first line only: git puts what it could not do there, and repeats itself afterwards
+        # about which command it gave up on, which the reader already knows.
+        unreadable=refusal[0] if refusal else None,
+        edits=_edits(submodule) if readable else [],
+        unpushed=_unpushed(submodule) if readable else [],
+        nested_drift=_nested_drift(submodule) if readable else [],
+        litter=_litter(submodule) if readable else [],
+        at_risk=at_risk(submodule) if readable else [],
     )
 
 
@@ -532,6 +548,7 @@ class Condition:
     # have to learn.
     SUMMARIES = {
         "uninitialised": "recorded as a dependency but not checked out",
+        "unreadable": "is checked out, but git will not read it",
         "at-risk-content": "holds work that exists nowhere else",
         "litter-present": "has leftover directories from an older version",
         "nested-drift": "its own dependencies are not at the commits it records",
@@ -574,6 +591,12 @@ def condition(facts: Facts) -> Condition:
     """Name what is wrong, most fundamental first: a submodule that is not checked out has no other
     meaningful state, and work that a repair would destroy outranks the disagreement that prompted the
     repair."""
+    # Ahead of `uninitialised`, which it would otherwise be read as: both leave `worktree` unset, and
+    # only this one means the checkout is sitting right there. Git's own words are the detail, per
+    # "error messages report facts, not assumptions" - a dangling core.worktree, a gitdir that was
+    # moved and a corrupt object store all arrive here, and naming one of them would be a guess.
+    if facts.unreadable:
+        return Condition("unreadable", facts.unreadable)
     if not facts.initialised:
         return Condition("uninitialised", "recorded but not checked out")
 
@@ -759,7 +782,9 @@ def repair(facts: Facts, found: Condition) -> str:
     # to a different repository, moving one that was fine and leaving the reported problem untouched.
     # `resolve_path` accepts a full path, so this costs nothing for the ordinary top-level case.
     name = facts.path
-    if found.name == "uninitialised":
+    if found.name in ("uninitialised", "unreadable"):
+        # The same command for both: it writes the gitdir's `core.worktree` afresh, which is what
+        # mends a checkout git has lost track of, and fetches one that is not there at all.
         return f"git submodule update --init --recursive {facts.path}"
     if found.name == "at-risk-content":
         return f"commit and push it, or discard it: git -C {facts.path} status --untracked-files=all"

@@ -185,6 +185,21 @@ def test_an_uncommitted_edit_stops_the_update_before_anything_moves(project):
     assert (project / "lib" / "dep" / "README.md").read_text() == "edited\n", "the edit must survive"
 
 
+def test_a_checkout_git_cannot_read_is_refused_in_gits_own_words(project):
+    # It refuses either way, but WHY decides what the reader does next: "nothing to record" sends
+    # them to fetch a dependency that is already on disk. The gitdir is what needs mending, and only
+    # git's refusal says so.
+    config = project / ".git" / "modules" / "lib" / "dep" / "config"
+    git("config", "-f", str(config), "core.worktree", "../../../../nowhere/lib/dep", cwd=project)
+
+    result = update_submodule("dep@main")
+
+    assert result.returncode != 0
+    assert "nothing to record" not in result.stdout, result.stdout
+    assert "nowhere/lib/dep" in result.stdout, result.stdout
+    assert "git submodule update --init --recursive lib/dep" in result.stdout, result.stdout
+
+
 def test_force_is_the_answer_to_a_refusal(project):
     # --force is a decision the user makes after being told what is at stake, which is why the tool
     # stops rather than warning and proceeding.

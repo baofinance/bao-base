@@ -222,10 +222,16 @@ def submodule_problems(repo_root: Path) -> tuple[list[str], list[str]]:
         # commit foundry.lock names other than that one is a deviation to be fixed, and must be said
         # even when something more urgent was named, or the more pressing fault silently hides it.
         if facts.lock.rev and facts.lock.rev != facts.worktree and found.name != "bumped-not-locked":
-            weigh.append(
-                f"and foundry.lock names {facts.lock.rev[:10]}, not the "
-                f"{(facts.worktree or 'absent')[:10]} checked out here"
-            )
+            # A deviation is a comparison, and an unreadable gitdir leaves only one side of it. The
+            # checkout may be on the very commit the lock names - nothing here can tell - so what is
+            # said is that it could not be read, never that it differs.
+            if facts.unreadable:
+                weigh.append(f"and foundry.lock names {facts.lock.rev[:10]}; what is here could not be read")
+            else:
+                weigh.append(
+                    f"and foundry.lock names {facts.lock.rev[:10]}, not the "
+                    f"{(facts.worktree or 'absent')[:10]} checked out here"
+                )
         if facts.unpushed:
             weigh.append(
                 f"and {len(facts.unpushed)} commit(s) here are on no remote - pushing them first is the only backup"

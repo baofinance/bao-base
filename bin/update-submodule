@@ -182,6 +182,10 @@ def relock(repo_root: Path, dependency: str, check_only: bool) -> int:
     print(f"{path}:")
     facts = read_facts(repo_root, path)
 
+    if facts.unreadable:
+        print(f"  refusing: {facts.unreadable}")
+        print(f"  mend the gitdir first: `git submodule update --init --recursive {path}`")
+        return 1
     if facts.worktree is None:
         print("  refusing: not checked out, so there is nothing to record")
         return 1
@@ -224,6 +228,15 @@ def converge(repo_root: Path, dependency: str, check_only: bool, force: bool) ->
         return 1
 
     facts = read_facts(repo_root, path)
+
+    # Ahead of every guard below, because with the gitdir unreadable each of them reads a blank: no
+    # commits, no edits, nothing at risk. They would all pass, and the move would then run over a
+    # dependency whose contents nothing was able to look at.
+    if facts.unreadable:
+        print(f"  refusing: {facts.unreadable}")
+        print("  the checkout is present, but git will not read it, so nothing here can be judged")
+        print(f"  mend the gitdir first: `git submodule update --init --recursive {path}`")
+        return 1
 
     # Stage 0, before anything is touched. git would refuse a move over an uncommitted edit anyway,
     # but it cannot see unpushed commits or a nested submodule's own work, and its message names one

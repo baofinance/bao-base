@@ -211,6 +211,63 @@ def test_an_uninitialised_submodule_outranks_every_other_reading(world):
     assert found.name == "uninitialised"
 
 
+def unreadable_checkout(project: Path) -> None:
+    """Point the dependency's core.worktree at a directory that does not exist.
+
+    What a `git worktree` run that did not clean up after itself leaves behind: every file of the
+    checkout is still there, and every git command inside it refuses.
+
+    Relative, as git itself writes it and as the observed damage carried it - git reports a relative
+    worktree it cannot reach differently from an absolute one, so an absolute stand-in would pin a
+    message no real checkout produces.
+    """
+    git(
+        project,
+        "config",
+        "-f",
+        str(project / ".git" / "modules" / "lib" / "dep" / "config"),
+        "core.worktree",
+        "../../../../nowhere/lib/dep",
+    )
+
+
+def test_a_checkout_git_cannot_read_is_not_reported_as_absent(world):
+    # The two are opposite repairs: an absent checkout is fetched, an unreadable one is already on
+    # disk and its gitdir is what needs mending. Reporting the second as the first sends the reader
+    # to look for a directory that is right in front of them.
+    unreadable_checkout(world.project)
+
+    found = condition(facts_for(world.project))
+
+    assert (world.project / "lib" / "dep" / "A.sol").is_file(), "every file of the checkout is present"
+    assert found.name == "unreadable", found
+
+
+def test_an_unreadable_checkout_is_reported_in_gits_own_words(world):
+    # The same refusal covers a dangling core.worktree, a gitdir that moved and a corrupt object
+    # store. Which one it is belongs to git, so its message is carried rather than a guess at it.
+    unreadable_checkout(world.project)
+
+    found = condition(facts_for(world.project))
+
+    # Git's line, carried verbatim - not a phrase of ours chosen to describe it. The wording is git's
+    # to change between versions; what must hold is that the reader is told what git refused and
+    # which path it refused, so the finding names the thing to go and mend.
+    assert found.detail.startswith("fatal:"), found.detail
+    assert "nowhere/lib/dep" in found.detail, found.detail
+
+
+def test_an_unreadable_checkout_is_a_fault_with_a_repair(world):
+    # It stops every other reading of the dependency, so doctor must report it and say what mends it.
+    unreadable_checkout(world.project)
+
+    facts = facts_for(world.project)
+    found = condition(facts)
+
+    assert found.is_fault, found
+    assert repair(facts, found) == "git submodule update --init --recursive lib/dep"
+
+
 def test_a_developer_edit_blocks_a_delete_and_nested_drift_does_not(world):
     # The distinction the old tools could not make. A modified file is the developer's work and blocks
     # a delete; a nested submodule off its pin belongs to the dependency and is fixed by recursing.

@@ -494,3 +494,24 @@ def test_a_lock_deviation_is_stated_even_when_something_else_is_named(tmp_path):
 
     assert problems[0].startswith("lib/dep: is at more than one version"), problems
     assert "0000000000  foundry.lock" in problems[0], problems
+
+
+def test_a_lock_deviation_is_not_claimed_against_a_checkout_that_was_never_read(tmp_path):
+    # The deviation is a comparison, and with the gitdir unreadable only one side of it exists. The
+    # checkout may well be on the very commit the lock names - nothing here can tell - so stating a
+    # difference would assert something nothing measured.
+    host = _nest(tmp_path)
+    _git(
+        host,
+        "config",
+        "-f",
+        str(host / ".git" / "modules" / "lib" / "dep" / "config"),
+        "core.worktree",
+        "../../../../nowhere/lib/dep",
+    )
+
+    problems = [p for p in doctor.submodule_problems(host)[0] if p.startswith("lib/dep:")]
+
+    assert problems, "an unreadable dependency is a finding"
+    assert "not the absent checked out here" not in problems[0], problems[0]
+    assert "could not be read" in problems[0], problems[0]
