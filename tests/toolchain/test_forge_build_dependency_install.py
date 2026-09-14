@@ -102,6 +102,39 @@ def readable(project: Path, name: str) -> bool:
     return done.returncode == 0
 
 
+def test_a_declared_vyper_compiler_must_exist_even_to_build_solidity(tmp_path):
+    """Why an export has to carry a toolchain, not just sources.
+
+    A solidity file cannot import a vyper one, so nothing here needs vyper to compile - but forge
+    resolves the whole project before compiling anything, and refuses when the vyper compiler the
+    project declares is not there. harbor names one by a RELATIVE path into an untracked `.venv`,
+    which reaches no export and no checkout, so one vyper TEST MOCK failed every recovery build.
+
+    Skipping does not avoid it - `--skip` is measured here, and a `skip` setting and a profile
+    carrying one were measured the same way. Forge resolves the compiler before any filter applies.
+    """
+    project = tmp_path / "project"
+    (project / "src").mkdir(parents=True)
+    (project / "foundry.toml").write_text(f"{FOUNDRY_TOML}[vyper]\npath = '.venv/bin/vyper'\n")
+    (project / "src" / "A.sol").write_text(SOURCE)
+    (project / "src" / "Mock.vy").write_text("@external\ndef value() -> uint256:\n    return 1\n")
+
+    plain = forge_build(project)
+    assert "vyper" in plain, plain
+
+    environment = {k: v for k, v in os.environ.items() if not k.startswith("FOUNDRY_") or k == "FOUNDRY_DIR"}
+    skipped = subprocess.run(
+        ["forge", "build", "src/A.sol", "--skip", ".vy"],
+        cwd=project,
+        capture_output=True,
+        text=True,
+        env=environment,
+        timeout=600,
+    )
+    assert skipped.returncode != 0, "--skip does not avoid needing the compiler"
+    assert "vyper" in skipped.stdout + skipped.stderr, skipped.stdout + skipped.stderr
+
+
 def test_forge_build_installs_a_dependency_it_finds_missing(tmp_path):
     # Unbidden: the command is `forge build`, and settling dependencies is something it does on the
     # way. This is the behaviour the export exists to keep away from a real repository, so if forge

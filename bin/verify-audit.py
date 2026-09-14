@@ -63,7 +63,7 @@ import tempfile
 from pathlib import Path
 
 from deployment_baselines import RECORD, Review, remote_tags, review
-from deployment_recovery import export_commit
+from deployment_recovery import export_commit, install_toolchain
 from recover_baselines import Printer, run
 
 # Where audited source may live. Rename detection pairs only among the paths that survive the
@@ -481,6 +481,12 @@ class _Builds:
                 message = failed.stderr.decode(errors="replace")
                 _err(f'\033[31m  could not export submodule "{path}":\033[0m\n{message}')
                 return False
+        # The export carries the snapshot's `uv.lock` but never its `.venv`, which is untracked - and
+        # forge resolves a declared vyper compiler before it compiles anything, including a solidity
+        # file that could never import vyper. Reported rather than fatal: a tree with no vyper in it
+        # builds without this, so the build's own error is the verdict if one follows.
+        if unavailable := install_toolchain(tree):
+            _err(f"\033[31m  the pinned toolchain could not be installed:\033[0m\n{unavailable}\n")
         self.tree_out = self._in_root("revision-out")
         self.tree_cache = self._in_root("revision-cache")
         return True

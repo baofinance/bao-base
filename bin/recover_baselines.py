@@ -46,6 +46,7 @@ from deployment_recovery import (
     differences,
     matches,
     export_tree,
+    install_toolchain,
     search_passes,
     source_at,
     source_blobs,
@@ -242,6 +243,10 @@ def _try_commit(
     with tempfile.TemporaryDirectory(prefix="recover-baseline-") as scratch:
         tree = Path(scratch) / "tree"
         missing = export_tree(root, commit, tree)
+        # Said once per export rather than per build: every contract at this commit would otherwise
+        # repeat it, and it only explains a build failure that has not happened yet.
+        if unavailable := install_toolchain(tree):
+            say(1, f"  {commit[:10]}: the pinned toolchain could not be installed: {unavailable}")
         found = {}
         compared: set[str] = set()
         for position, (entry_key, (source, declared)) in enumerate(sorted(sources.items())):
@@ -391,6 +396,8 @@ def _reprove(root: Path, baselines: dict[str, Baseline], say: Callable[..., None
         with tempfile.TemporaryDirectory(prefix="reprove-") as scratch:
             tree = Path(scratch) / "tree"
             missing = export_tree(root, commit, tree)
+            if unavailable := install_toolchain(tree):
+                say(1, f"  {commit[:10]}: the pinned toolchain could not be installed: {unavailable}")
             for index, baseline in enumerate(sorted(wanted, key=lambda b: b.address)):
                 entry_key = key(baseline.chainId, baseline.address)
                 row = (entry_key, baseline.contractType, baseline.source)

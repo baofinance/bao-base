@@ -454,6 +454,35 @@ def source_blobs(repo_root: Path, commit: str, paths: Iterable[str]) -> dict[str
     return found
 
 
+def install_toolchain(tree: Path) -> str | None:
+    """Install the python toolchain `tree`'s own `uv.lock` pins. Returns what failed, or None.
+
+    A build needs this because `forge build` resolves the WHOLE project before it compiles anything,
+    and a project declaring a vyper compiler must have one - even to build a solidity file that could
+    never import vyper. harbor names it by a RELATIVE path into `.venv`, which is UNTRACKED and so
+    reaches no export and no checkout of a commit: one vyper TEST MOCK in the tree was enough to
+    report every contract in the repository as "does not compile here".
+
+    Skipping the vyper sources instead does not work, measured three ways on forge 1.8.1 - `--skip`,
+    a `skip` setting, and a profile carrying one all still fail with the compiler's path. Forge
+    resolves it before any filter applies.
+
+    `--frozen`, because the point is the version the REVISION pinned: `pyproject.toml` and `uv.lock`
+    are tracked, so the export carries them and installs what that commit named (harbor: vyper
+    0.3.10). A resolve would take today's instead, which is the thing pinning exists to stop - the
+    same rule `--use` applies to solc, reached from the other end.
+
+    NOT fatal, and returned rather than raised: a tree with no vyper in it builds perfectly well
+    without this, so a failure here is only worth reporting beside the build error that follows if
+    one does. A tree with no `uv.lock` has nothing pinned and is left alone."""
+    if not (tree / "uv.lock").is_file():
+        return None
+    done = subprocess.run(["uv", "sync", "--frozen"], cwd=tree, capture_output=True, text=True)
+    if done.returncode != 0:
+        return (done.stdout + done.stderr).strip()
+    return None
+
+
 def export_commit(source_repo: Path, tree: str, into: Path) -> None:
     """`tree`'s files, read from `source_repo`'s own object store, written into `into`.
 

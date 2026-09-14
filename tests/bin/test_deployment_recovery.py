@@ -33,6 +33,7 @@ from deployment_recovery import (  # noqa: E402
     mask_immutables,
     matches,
     export_tree,
+    install_toolchain,
     search_passes,
     source_at,
     source_blobs,
@@ -896,6 +897,47 @@ def test_a_commit_timestamp_is_utc_whatever_the_committer_s_clock_said(repo):
 
 
 # ── the worktrees, which touch the repository ─────────────────────────────────────────────────────
+
+
+def locked_project(at: Path, dependencies: str = "") -> Path:
+    """A uv project with its lock already written, as a tracked `pyproject.toml`/`uv.lock` pair gives
+    an export. Locked here rather than shipped as a fixture file so the lock matches the uv in use."""
+    at.mkdir(parents=True, exist_ok=True)
+    (at / "pyproject.toml").write_text(
+        f'[project]\nname = "fixture"\nversion = "0"\nrequires-python = ">=3.9"\ndependencies = [{dependencies}]\n'
+    )
+    subprocess.run(["uv", "lock"], cwd=at, capture_output=True, text=True, check=True)
+    return at
+
+
+def test_a_tree_whose_lock_pins_a_toolchain_gets_it_installed(tmp_path):
+    # `forge build` resolves a declared vyper compiler before compiling anything, and `.venv` is
+    # untracked so no export carries one. The lock IS tracked, so the export can rebuild it.
+    tree = locked_project(tmp_path / "tree")
+
+    assert install_toolchain(tree) is None
+    assert (tree / ".venv").is_dir(), "the environment the lock pins is there to be found"
+
+
+def test_a_tree_with_nothing_pinned_is_left_alone(tmp_path):
+    # Most repositories pin no python toolchain at all, and must not pay for one.
+    tree = tmp_path / "tree"
+    (tree / "src").mkdir(parents=True)
+
+    assert install_toolchain(tree) is None
+    assert not (tree / ".venv").exists()
+
+
+def test_an_install_that_fails_is_returned_rather_than_raised(tmp_path):
+    # A tree with no vyper in it builds perfectly well without this, so a failure is worth reporting
+    # beside the build error that follows if one does - not worth ending the run over.
+    tree = locked_project(tmp_path / "tree")
+    (tree / "uv.lock").write_text("this is not a lock\n")
+
+    failure = install_toolchain(tree)
+
+    assert failure is not None
+    assert failure.strip() != "", "the reader is told what uv said"
 
 
 def test_the_export_holds_the_commit_and_its_dependency_at_the_recorded_version(tmp_path):
