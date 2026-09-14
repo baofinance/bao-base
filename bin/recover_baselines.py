@@ -45,8 +45,7 @@ from deployment_recovery import (
     creation_block,
     differences,
     matches,
-    place_worktree,
-    remove_worktree,
+    export_tree,
     search_passes,
     source_at,
     source_blobs,
@@ -142,7 +141,7 @@ def _construct(creation: str, chain: str, block: int) -> bytes | None:
     return bytes.fromhex(answer[2:])
 
 
-def _build(worktree: Path, source: str, out: Path, compiler: str) -> bool:
+def _build(tree: Path, source: str, out: Path, compiler: str) -> bool:
     """Compile this source file and its closure, exactly as the deploy would have.
 
     PINNED to `compiler`, which is REQUIRED, because a commit does not fix the compiler on its own: it
@@ -186,7 +185,7 @@ def _build(worktree: Path, source: str, out: Path, compiler: str) -> bool:
     success."""
     done = subprocess.run(
         ["forge", "build", source, "--use", compiler],
-        cwd=worktree,
+        cwd=tree,
         capture_output=True,
         text=True,
         env={**_environment(), "FOUNDRY_OUT": str(out)},
@@ -218,10 +217,10 @@ class _Wanted:
 def _try_commit(
     root: Path, commit: str, pending: dict[str, _Wanted], say: Callable[..., None]
 ) -> tuple[dict[str, tuple], set[str]]:
-    """Place ONE worktree at `commit`, then build each contract that is looking there on its own.
+    """Export ONE tree at `commit`, then build each contract that is looking there on its own.
 
-    The worktree is shared because placing it is expensive and identical for every contract at this
-    commit - a checkout plus every submodule at its recorded gitlink, recursively. The BUILDS are not
+    The export is shared because making it is expensive and identical for every contract at this
+    commit - the commit's files plus every submodule at its recorded gitlink, recursively. The BUILDS are not
     shared, because `forge` writes no artefact for any source in a build that fails, so grouping them
     made one source's syntax error into every waiting contract's missing baseline. `build_id` still
     keeps the work bounded by the number of distinct builds in the repository rather than by the number
@@ -241,61 +240,58 @@ def _try_commit(
     if not sources:
         return {}, set()
     with tempfile.TemporaryDirectory(prefix="recover-baseline-") as scratch:
-        worktree = Path(scratch) / "wt"
-        missing = place_worktree(root, commit, worktree)
-        try:
-            found = {}
-            compared: set[str] = set()
-            for position, (entry_key, (source, declared)) in enumerate(sorted(sources.items())):
-                # Its OWN output directory, so no artefact can be read as another source's: a failed
-                # build writes none, and a shared directory would leave whatever was there before.
-                out = Path(scratch) / f"out-{position}"
-                # The deployed code says which compiler built it. Without that the rebuild takes
-                # whatever this machine has installed, and a version that merely happens to be here
-                # would end up recorded as the one that produced the bytecode.
-                wanted = compiler_in(pending[entry_key].onchain)
-                if wanted is None:
-                    say(0, f"  {commit[:10]}: {source} — the deployed code names no compiler, so nothing pins it")
-                    continue
-                if not _build(worktree, source, out, wanted):
-                    # One source's failure is one source's answer. Building the whole group at once
-                    # made it everybody's: `forge` writes no artefact for ANY source when one of them
-                    # does not compile, so a single broken file discarded every contract waiting at
-                    # this commit and each was reported as "no candidate built what is deployed" -
-                    # a search that found nothing, where in truth it never looked. Measured twice in
-                    # the aggregators' own history, at fa8d73f7ae and at HEAD.
-                    note = f"  {commit[:10]}: {source} does not compile here"
-                    # A build failing right after something could not be placed is almost always that,
-                    # and reporting only "does not build" sends the reader nowhere.
-                    if missing:
-                        note += f", and these were not placed: {' '.join(missing)}"
-                    say(0, note)
-                    continue
-                artefact = artefact_for(out, source, declared)
-                if artefact is None:
-                    # Reported, not skipped: the fleet has twelve contract names declared in two files
-                    # at once, and a silent skip makes that read as "no candidate built what is
-                    # deployed" - a search that found nothing rather than one that could not look.
-                    say(1, f"  {commit[:10]}: {source} built no single artefact declaring {declared}")
-                    continue
-                # solc writes into the artefact which version produced it, so the pin is CHECKED rather
-                # than trusted: `--use` resolving to something else, or being ignored, would otherwise
-                # leave a match that says it was built by a compiler it was not.
-                built_by = (artefact.get("metadata") or {}).get("compiler", {}).get("version", "")
-                if not built_by.startswith(wanted):
-                    say(
-                        0,
-                        f"  {commit[:10]}: {source} was built by {built_by or 'an unnamed compiler'}, "
-                        f"not the {wanted} the deployed code names",
-                    )
-                    continue
-                compared.add(entry_key)
-                agreed, immutables = matches(pending[entry_key].onchain, artefact)
-                if agreed:
-                    found[entry_key] = (commit, source, declared, artefact, immutables)
-            return found, compared
-        finally:
-            remove_worktree(root, worktree)
+        tree = Path(scratch) / "tree"
+        missing = export_tree(root, commit, tree)
+        found = {}
+        compared: set[str] = set()
+        for position, (entry_key, (source, declared)) in enumerate(sorted(sources.items())):
+            # Its OWN output directory, so no artefact can be read as another source's: a failed
+            # build writes none, and a shared directory would leave whatever was there before.
+            out = Path(scratch) / f"out-{position}"
+            # The deployed code says which compiler built it. Without that the rebuild takes
+            # whatever this machine has installed, and a version that merely happens to be here
+            # would end up recorded as the one that produced the bytecode.
+            wanted = compiler_in(pending[entry_key].onchain)
+            if wanted is None:
+                say(0, f"  {commit[:10]}: {source} — the deployed code names no compiler, so nothing pins it")
+                continue
+            if not _build(tree, source, out, wanted):
+                # One source's failure is one source's answer. Building the whole group at once
+                # made it everybody's: `forge` writes no artefact for ANY source when one of them
+                # does not compile, so a single broken file discarded every contract waiting at
+                # this commit and each was reported as "no candidate built what is deployed" -
+                # a search that found nothing, where in truth it never looked. Measured twice in
+                # the aggregators' own history, at fa8d73f7ae and at HEAD.
+                note = f"  {commit[:10]}: {source} does not compile here"
+                # A build failing right after something could not be exported is almost always that,
+                # and reporting only "does not build" sends the reader nowhere.
+                if missing:
+                    note += f", and these could not be exported: {' '.join(missing)}"
+                say(0, note)
+                continue
+            artefact = artefact_for(out, source, declared)
+            if artefact is None:
+                # Reported, not skipped: the fleet has twelve contract names declared in two files
+                # at once, and a silent skip makes that read as "no candidate built what is
+                # deployed" - a search that found nothing rather than one that could not look.
+                say(1, f"  {commit[:10]}: {source} built no single artefact declaring {declared}")
+                continue
+            # solc writes into the artefact which version produced it, so the pin is CHECKED rather
+            # than trusted: `--use` resolving to something else, or being ignored, would otherwise
+            # leave a match that says it was built by a compiler it was not.
+            built_by = (artefact.get("metadata") or {}).get("compiler", {}).get("version", "")
+            if not built_by.startswith(wanted):
+                say(
+                    0,
+                    f"  {commit[:10]}: {source} was built by {built_by or 'an unnamed compiler'}, "
+                    f"not the {wanted} the deployed code names",
+                )
+                continue
+            compared.add(entry_key)
+            agreed, immutables = matches(pending[entry_key].onchain, artefact)
+            if agreed:
+                found[entry_key] = (commit, source, declared, artefact, immutables)
+        return found, compared
 
 
 def _listing(say: Printer, title: str, rows: list[tuple[str, str, str, str]], footer: str = "") -> None:
@@ -380,7 +376,7 @@ def _reprove(root: Path, baselines: dict[str, Baseline], say: Callable[..., None
     proof ran once, at recovery, against the deployed code; afterwards that hash is the only thing
     carrying the result, and nothing has ever read it back. This reads it back.
 
-    ONE worktree per COMMIT rather than per baseline - twelve commits carry the aggregators' eighty-three
+    ONE export per COMMIT rather than per baseline - twelve commits carry the aggregators' eighty-three
     records - and the compiler comes from the baseline, whose version prefix is what `--use` takes.
 
     No chain and no search: the commit, the source, the compiler and the settings are all recorded, so
@@ -393,36 +389,33 @@ def _reprove(root: Path, baselines: dict[str, Baseline], say: Callable[..., None
     for position, (commit, wanted) in enumerate(sorted(at_commit.items()), start=1):
         say(1, f"[{position:>3}/{len(at_commit)}] {commit[:10]}  {len(wanted)} baseline(s)")
         with tempfile.TemporaryDirectory(prefix="reprove-") as scratch:
-            worktree = Path(scratch) / "wt"
-            missing = place_worktree(root, commit, worktree)
-            try:
-                for index, baseline in enumerate(sorted(wanted, key=lambda b: b.address)):
-                    entry_key = key(baseline.chainId, baseline.address)
-                    row = (entry_key, baseline.contractType, baseline.source)
-                    out = Path(scratch) / f"out-{index}"
-                    # The version prefix, because that is what `--use` resolves; the record carries the
-                    # full `0.8.30+commit.73712a01`, which is what the artefact is then checked against.
-                    if not _build(worktree, baseline.source, out, baseline.compiler.split("+")[0]):
-                        note = f"does not rebuild at {commit[:10]}: {baseline.source} no longer compiles"
-                        if missing:
-                            note += f", and these were not placed: {' '.join(missing)}"
-                        failed.append((*row, note))
-                        continue
-                    artefact = artefact_for(out, baseline.source, baseline.contractType)
-                    if artefact is None:
-                        failed.append((*row, f"does not rebuild at {commit[:10]}: no artefact declares it"))
-                        continue
-                    digest = _keccak256(bytes.fromhex(artefact["bytecode"]["object"][2:]))
-                    if digest != baseline.creationBytecodeKeccak256:
-                        built_by = (artefact.get("metadata") or {}).get("compiler", {}).get("version", "")
-                        note = f"does not rebuild to {baseline.creationBytecodeKeccak256[:16]}… at {commit[:10]}"
-                        if built_by and built_by != baseline.compiler:
-                            # Said only here: a compiler difference is the likeliest cause, and naming it
-                            # beside a passing hash would be noise.
-                            note += f" (built by {built_by}, recorded {baseline.compiler})"
-                        failed.append((*row, note))
-            finally:
-                remove_worktree(root, worktree)
+            tree = Path(scratch) / "tree"
+            missing = export_tree(root, commit, tree)
+            for index, baseline in enumerate(sorted(wanted, key=lambda b: b.address)):
+                entry_key = key(baseline.chainId, baseline.address)
+                row = (entry_key, baseline.contractType, baseline.source)
+                out = Path(scratch) / f"out-{index}"
+                # The version prefix, because that is what `--use` resolves; the record carries the
+                # full `0.8.30+commit.73712a01`, which is what the artefact is then checked against.
+                if not _build(tree, baseline.source, out, baseline.compiler.split("+")[0]):
+                    note = f"does not rebuild at {commit[:10]}: {baseline.source} no longer compiles"
+                    if missing:
+                        note += f", and these could not be exported: {' '.join(missing)}"
+                    failed.append((*row, note))
+                    continue
+                artefact = artefact_for(out, baseline.source, baseline.contractType)
+                if artefact is None:
+                    failed.append((*row, f"does not rebuild at {commit[:10]}: no artefact declares it"))
+                    continue
+                digest = _keccak256(bytes.fromhex(artefact["bytecode"]["object"][2:]))
+                if digest != baseline.creationBytecodeKeccak256:
+                    built_by = (artefact.get("metadata") or {}).get("compiler", {}).get("version", "")
+                    note = f"does not rebuild to {baseline.creationBytecodeKeccak256[:16]}… at {commit[:10]}"
+                    if built_by and built_by != baseline.compiler:
+                        # Said only here: a compiler difference is the likeliest cause, and naming it
+                        # beside a passing hash would be noise.
+                        note += f" (built by {built_by}, recorded {baseline.compiler})"
+                    failed.append((*row, note))
     return failed
 
 

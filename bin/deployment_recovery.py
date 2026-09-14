@@ -22,9 +22,11 @@ FOUR STEPS, of which only the first is guesswork:
 
 from __future__ import annotations
 
+import io
 import json
 import re
 import subprocess
+import tarfile
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -403,7 +405,7 @@ def submodule_commits(repo_root: Path, commit: str) -> dict[str, str]:
     one resolves only against the commit its own parent records.
 
     A submodule that is not checked out here is still recorded, because the parent's tree says so, but
-    cannot be descended into. That is the same trade `place_worktree` makes: it may hold nothing the
+    cannot be descended into. That is the same trade `export_tree` makes: it may hold nothing the
     build needs, and `source_blobs` raises if it does.
     """
     found: dict[str, str] = {}
@@ -452,27 +454,41 @@ def source_blobs(repo_root: Path, commit: str, paths: Iterable[str]) -> dict[str
     return found
 
 
-def place_worktree(repo_root: Path, commit: str, at: Path) -> list[str]:
-    """A checkout of `commit` at `at`, with every submodule at its recorded gitlink. Returns failures.
+def export_tree(repo_root: Path, commit: str, at: Path) -> list[str]:
+    """`commit`'s FILES at `at`, with every submodule at its recorded gitlink. Returns failures.
+
+    Files, with no `.git` anywhere under `at`, and that is the whole point rather than an economy.
+    A scratch made of linked worktrees shares the real repository's `.git/modules`, and `forge build`
+    run in it settles the project's dependencies first: finding one it judges missing, it installs
+    recursively, and that install re-points every SHARED gitdir's `core.worktree` at the scratch.
+    The scratch is then deleted, leaving every dependency of the real checkout unreadable
+    (`fatal: cannot chdir`). Measured both ways: forge installs nothing when there is no repository
+    to install into, and the build fails instead with the file it could not resolve.
+
+    Removing git from the scratch is also what makes this function's own promise keepable. Nothing
+    here can now alter the repository it reads from, so there is no cleanup to get right and no
+    worktree administration to leak - deleting the directory is the whole of it.
 
     Recursive, because the closure reaches nested submodules - the OpenZeppelin contracts live inside
     contracts-upgradeable, and a build without them does not fail cleanly, it fails as an unresolved
     import a long way from the cause.
 
-    A submodule that cannot be placed is REPORTED rather than fatal: it may not be in the closure at
+    A submodule that cannot be exported is REPORTED rather than fatal: it may not be in the closure at
     all (`solidity-stringutils` was not, in the real recovery), and a build that needs it fails loudly
     naming the file, which is actionable. Guessing which are needed and placing too few is the failure
     that is silent."""
     failures: list[str] = []
-    subprocess.run(
-        ["git", "worktree", "add", "--detach", "--quiet", str(at), commit],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
 
-    def place(parent_repo: Path, parent_commit: str, parent_at: Path, prefix: str) -> None:
+    def unpack(source_repo: Path, tree: str, into: Path) -> None:
+        """`tree`'s files, read from `source_repo`'s object store, written into `into`."""
+        done = subprocess.run(
+            ["git", "archive", "--format=tar", tree], cwd=source_repo, capture_output=True, check=True
+        )
+        into.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(fileobj=io.BytesIO(done.stdout)) as archive:
+            archive.extractall(into, filter="tar")
+
+    def export(parent_repo: Path, parent_commit: str, parent_at: Path, prefix: str) -> None:
         listing = subprocess.run(
             ["git", "ls-tree", parent_commit, "lib/"], cwd=parent_repo, capture_output=True, text=True
         )
@@ -481,46 +497,24 @@ def place_worktree(repo_root: Path, commit: str, at: Path) -> list[str]:
             if len(fields) < 4 or fields[1] != "commit":
                 continue
             gitlink, path = fields[2], fields[3]
-            target = parent_at / path
             # A submodule the parent records but that is not checked out HERE has no object store to
-            # take a worktree from. Reported rather than raised: it may not be in the closure at all,
-            # and the build says so loudly if it is.
+            # read the recorded commit from. Reported rather than raised: it may not be in the closure
+            # at all, and the build says so loudly if it is.
             if not (parent_repo / path).is_dir():
                 failures.append(f"{prefix}{path}@{gitlink[:10]} (not checked out)")
                 continue
-            if target.exists() and not any(target.iterdir()):
-                target.rmdir()
-            done = subprocess.run(
-                ["git", "worktree", "add", "--detach", "--quiet", str(target), gitlink],
-                cwd=parent_repo / path,
-                capture_output=True,
-                text=True,
-            )
-            if done.returncode != 0:
+            try:
+                unpack(parent_repo / path, gitlink, parent_at / path)
+            except subprocess.CalledProcessError:
+                # The one failure expected here: the checkout exists but its object store does not
+                # hold the commit the parent records, which is the same "cannot be exported" answer.
                 failures.append(f"{prefix}{path}@{gitlink[:10]}")
                 continue
-            place(parent_repo / path, gitlink, target, f"{prefix}{path}/")
+            export(parent_repo / path, gitlink, parent_at / path, f"{prefix}{path}/")
 
-    place(repo_root, commit, at, "")
+    unpack(repo_root, commit, at)
+    export(repo_root, commit, at, "")
     return failures
-
-
-def remove_worktree(repo_root: Path, at: Path) -> None:
-    """Undo `place_worktree`, deepest first so a parent is never removed from under a child.
-
-    `prune --expire=now` afterwards because a bare prune honours `gc.worktreePruneExpire`, three
-    months by default, which would leave the administrative files behind in every repository this
-    touched."""
-    for gitdir in sorted(at.rglob(".git"), key=lambda p: len(p.parts), reverse=True):
-        subprocess.run(
-            ["git", "worktree", "remove", "--force", str(gitdir.parent)],
-            cwd=gitdir.parent,
-            capture_output=True,
-            text=True,
-        )
-    subprocess.run(["git", "worktree", "remove", "--force", str(at)], cwd=repo_root, capture_output=True, text=True)
-    for repo in [repo_root, *(p.parent for p in repo_root.glob("lib/*/.git"))]:
-        subprocess.run(["git", "worktree", "prune", "--expire=now"], cwd=repo, capture_output=True, text=True)
 
 
 def artefact_for(out: Path, source: str, contract_type: str) -> dict | None:

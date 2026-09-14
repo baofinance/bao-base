@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -31,8 +32,7 @@ from deployment_recovery import (  # noqa: E402
     differences,
     mask_immutables,
     matches,
-    place_worktree,
-    remove_worktree,
+    export_tree,
     search_passes,
     source_at,
     source_blobs,
@@ -898,18 +898,43 @@ def test_a_commit_timestamp_is_utc_whatever_the_committer_s_clock_said(repo):
 # ── the worktrees, which touch the repository ─────────────────────────────────────────────────────
 
 
-def test_placing_and_removing_a_worktree_leaves_the_repository_as_it_was(repo, tmp_path):
-    # These are the only functions here with side effects OUTSIDE a temporary directory. A regression
-    # in cleanup accumulates worktrees in every repository this is run against, silently.
-    before = subprocess.run(["git", "worktree", "list"], cwd=repo, capture_output=True, text=True).stdout
+def test_the_export_holds_the_commit_and_its_dependency_at_the_recorded_version(tmp_path):
+    # The dependency's tip has moved on since. What a build reads has to be the commit the
+    # superproject RECORDS, or the rebuild says what the dependency looks like today rather than
+    # what was deployed.
+    superproject, commit, _, _ = repository_with_submodule(tmp_path)
 
-    at = tmp_path / "placed"
-    place_worktree(repo, "HEAD", at)
-    assert (at / "src" / "f0.sol").is_file(), "the commit's content is actually there"
-    assert len(
-        subprocess.run(["git", "worktree", "list"], cwd=repo, capture_output=True, text=True).stdout.splitlines()
-    ) > len(before.splitlines())
+    at = tmp_path / "exported"
+    assert export_tree(superproject, commit, at) == []
 
-    remove_worktree(repo, at)
+    assert (at / "src" / "Own.sol").is_file(), "the superproject's own source"
+    assert (at / "lib" / "dependency" / "src" / "Dependency.sol").read_text() == (
+        "// the version the superproject records\n"
+    )
 
-    assert subprocess.run(["git", "worktree", "list"], cwd=repo, capture_output=True, text=True).stdout == before
+
+def test_the_export_is_files_only_and_carries_no_repository(tmp_path):
+    # A `.git` anywhere under the export is what let `forge build` reach back into the repository it
+    # came from: a linked worktree shares that repository's `.git/modules`, and forge settling a
+    # dependency re-points every shared gitdir at the export, which is then deleted.
+    superproject, commit, _, _ = repository_with_submodule(tmp_path)
+
+    at = tmp_path / "exported"
+    export_tree(superproject, commit, at)
+
+    assert list(at.rglob(".git")) == []
+
+
+def test_a_dependency_that_cannot_be_exported_is_named_rather_than_raised(tmp_path):
+    # It may not be in the closure at all, so this is not fatal - but a build that does need it fails
+    # naming the file, and the caller says both together.
+    superproject, commit, _, _ = repository_with_submodule(tmp_path)
+    shutil.rmtree(superproject / "lib" / "dependency")
+
+    at = tmp_path / "exported"
+    failures = export_tree(superproject, commit, at)
+
+    assert len(failures) == 1, failures
+    assert failures[0].startswith("lib/dependency@"), failures[0]
+    assert "not checked out" in failures[0], failures[0]
+    assert (at / "src" / "Own.sol").is_file(), "the rest of the commit is still exported"
