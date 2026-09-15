@@ -49,6 +49,7 @@ from deployment_recovery import (
     export_tree,
     install_toolchain,
     link_libraries,
+    pins_other_than,
     search_passes,
     source_at,
     source_blobs,
@@ -346,6 +347,13 @@ def _try_commit(
             wanted = compiler_in(pending[entry_key].onchain)
             if wanted is None:
                 say(0, f"  {commit[:10]}: {source} — the deployed code names no compiler, so nothing pins it")
+                continue
+            # Before forge is asked: a source pinning one compiler exactly cannot have produced
+            # bytecode another one wrote, and reading the pragma costs a file read against a build
+            # that costs seconds.
+            pinned = pins_other_than((tree / source).read_text(encoding="utf-8", errors="replace"), wanted)
+            if pinned is not None:
+                say(1, f"  {commit[:10]}: {source} pins {pinned}, and the deployed code names {wanted}")
                 continue
             compiled, forge_said = _build(tree, source, out, wanted)
             if not compiled:

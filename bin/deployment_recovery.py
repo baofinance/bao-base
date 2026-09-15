@@ -621,6 +621,27 @@ def checkouts_by_repository(repo_root: Path) -> dict[str, list[Path]]:
     return found
 
 
+def pins_other_than(source: str, compiler: str) -> str | None:
+    """The version `source` pins, when it pins one EXACTLY and it is not `compiler`. None otherwise.
+
+    A commit whose source demands one compiler cannot have produced bytecode another one wrote, and
+    that is decided by reading two strings - no build, no toolchain, nothing that depends on this
+    machine. It is what rules out most of a long search: harbor's `MintableBurnableERC20_v1` moved
+    from 0.8.28 to 0.8.30, so hundreds of commits were handed to forge only for it to refuse them.
+
+    ONLY an exact pin answers. A range admits many versions and choosing among them is solc's
+    resolver's job, not this function's - so a range rules nothing out and the build decides, as
+    before. Saying otherwise would discard a commit that could have built the contract, which is the
+    one mistake a search must not make."""
+    found = re.search(r"^\s*pragma\s+solidity\s+([^;]+);", source, re.MULTILINE)
+    if found is None:
+        return None
+    pinned = found.group(1).strip().removeprefix("=").strip()
+    if not re.fullmatch(r"\d+\.\d+\.\d+", pinned):
+        return None
+    return None if pinned == compiler else pinned
+
+
 def install_toolchain(tree: Path) -> str | None:
     """Install the python toolchain `tree`'s own `uv.lock` pins. Returns what failed, or None.
 

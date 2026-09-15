@@ -36,6 +36,7 @@ from deployment_recovery import (  # noqa: E402
     export_tree,
     install_toolchain,
     link_libraries,
+    pins_other_than,
     search_passes,
     source_at,
     source_blobs,
@@ -1027,6 +1028,29 @@ def locked_project(at: Path, dependencies: str = "") -> Path:
     )
     subprocess.run(["uv", "lock"], cwd=at, capture_output=True, text=True, check=True)
     return at
+
+
+def test_an_exact_pragma_that_is_not_the_deployed_compiler_rules_the_commit_out(tmp_path):
+    # Knowable without building: a source pinning one version cannot have been built by another, and
+    # harbor's MintableBurnableERC20_v1 moved 0.8.28 -> 0.8.30, so most of a 1204-commit search was
+    # forge being asked to do the impossible.
+    assert pins_other_than("pragma solidity 0.8.28;\ncontract A {}\n", "0.8.30") == "0.8.28"
+    assert pins_other_than("pragma solidity =0.8.28;\n", "0.8.30") == "0.8.28"
+
+
+def test_an_exact_pragma_that_matches_rules_nothing_out(tmp_path):
+    assert pins_other_than("pragma solidity 0.8.30;\n", "0.8.30") is None
+
+
+def test_a_pragma_that_is_a_RANGE_rules_nothing_out(tmp_path):
+    # A range admits many versions, and deciding which without solc's own resolver would be guessing.
+    # It is not a mismatch, so it is not this filter's business.
+    for spec in ("^0.8.0", ">=0.8.20 <0.9.0", ">0.8.0", "~0.8.20"):
+        assert pins_other_than(f"pragma solidity {spec};\n", "0.8.30") is None, spec
+
+
+def test_a_source_with_no_pragma_rules_nothing_out(tmp_path):
+    assert pins_other_than("contract A {}\n", "0.8.30") is None
 
 
 def test_a_tree_whose_lock_pins_a_toolchain_gets_it_installed(tmp_path):
