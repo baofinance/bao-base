@@ -12,11 +12,10 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
 import tempfile
 import time
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -30,6 +29,7 @@ from deployment_baselines import (
     commit_reach,
     create_missing_tags,
     drop,
+    remove_deploy_tags,
     key,
     read_baselines,
     review,
@@ -221,7 +221,7 @@ def _constructor_arguments(address: str, chain: str, creation: bytes) -> str | N
     return deployed[len(creation) :].hex(), ""
 
 
-def _build(tree: Path, source: str, out: Path, compiler: str) -> bool:
+def _build(tree: Path, source: str, out: Path, compiler: str) -> tuple[bool, str]:
     """Compile this source file and its closure, exactly as the deploy would have.
 
     PINNED to `compiler`, which is REQUIRED, because a commit does not fix the compiler on its own: it
@@ -270,9 +270,13 @@ def _build(tree: Path, source: str, out: Path, compiler: str) -> bool:
         text=True,
         env={**_environment(), "FOUNDRY_OUT": str(out)},
     )
-    if done.returncode != 0:
-        sys.stderr.write(done.stdout + done.stderr)
-    return done.returncode == 0
+    # RETURNED, not printed. A build that fails is the ordinary way a commit is ruled out - a source
+    # whose pragma pins a compiler the deployed code does not name cannot have built it - and a search
+    # over a thousand commits rules out most of them. Writing forge's whole output each time buried the
+    # run in `Error:` lines for its most expected outcome, and made the tool look broken while it
+    # worked. The caller decides: one line always, this behind a verbosity level, where it is what a
+    # diagnosis needs.
+    return done.returncode == 0, (done.stdout + done.stderr).strip()
 
 
 def _environment() -> dict[str, str]:
@@ -343,7 +347,8 @@ def _try_commit(
             if wanted is None:
                 say(0, f"  {commit[:10]}: {source} — the deployed code names no compiler, so nothing pins it")
                 continue
-            if not _build(tree, source, out, wanted):
+            compiled, forge_said = _build(tree, source, out, wanted)
+            if not compiled:
                 # One source's failure is one source's answer. Building the whole group at once
                 # made it everybody's: `forge` writes no artefact for ANY source when one of them
                 # does not compile, so a single broken file discarded every contract waiting at
@@ -356,6 +361,11 @@ def _try_commit(
                 if missing:
                     note += f", and these could not be exported: {' '.join(missing)}"
                 say(0, note)
+                # What forge actually said, for the reader who has to work out WHY this commit was
+                # ruled out - a pragma pinning a compiler the deployed code does not name reads very
+                # differently from a source that genuinely does not compile.
+                for line in forge_said.splitlines():
+                    say(2, f"      {line}")
                 continue
             artefact, unusable = artefact_for(out, source, declared)
             if artefact is None:
@@ -504,11 +514,13 @@ def _reprove(root: Path, baselines: dict[str, Baseline], say: Callable[..., None
                 out = Path(scratch) / f"out-{index}"
                 # The version prefix, because that is what `--use` resolves; the record carries the
                 # full `0.8.30+commit.73712a01`, which is what the artefact is then checked against.
-                if not _build(tree, baseline.source, out, baseline.compiler.split("+")[0]):
+                compiled, forge_said = _build(tree, baseline.source, out, baseline.compiler.split("+")[0])
+                if not compiled:
                     note = f"does not rebuild at {commit[:10]}: {baseline.source} no longer compiles"
                     if missing:
                         note += f", and these could not be exported: {' '.join(missing)}"
                     failed.append((*row, note))
+                    say(2, f"      {forge_said}")
                     continue
                 artefact, unusable = artefact_for(out, baseline.source, baseline.contractType)
                 if artefact is None:
@@ -570,6 +582,9 @@ class Recovery:
     # Every commit the search ran over, newest first, as (commit, timestamp). The provenance of a
     # "nothing built it": that means nothing in ANY ref did, which is worth saying with the range.
     dated: list[tuple[str, str]]
+    # The tags written as each baseline was proved, and the ones that could not be.
+    tagged: list[str] = field(default_factory=list)
+    untaggable: list[tuple[str, str]] = field(default_factory=list)
 
 
 def recover(
@@ -646,6 +661,8 @@ def recover(
     passes = search_passes(dated)
     say(0, f"\ntrying every one of this repository's {len(dated)} commits for {len(pending)} contract(s)")
     recovered = 0
+    created_tags: list[str] = []
+    failed_tags: list[tuple[str, str]] = []
     built = 0
     opened = beat = time.monotonic()
     # Proved, but not recordable — or recordable here and not yet anywhere else. Each carries the
@@ -822,8 +839,13 @@ def recover(
                 recovered += 1
                 # Saved as each is proved rather than at the end: these runs are long enough to be
                 # interrupted, and each baseline is an independent fact with nothing spanning them.
+                # The TAG goes with it, for the same reason and more so - it is what keeps the commit
+                # reachable, so a record saved without one is the half worth less.
                 if write:
                     write_baselines(root, baselines)
+                    tagged, untaggable = create_missing_tags(root, [baselines[entry_key]])
+                    created_tags.extend(tagged)
+                    failed_tags.extend(untaggable)
 
     # Read from what is STILL being looked for, not from every screen that happened: a contract proved
     # at a later commit passed through the screen that failed on its way there, and listing it as an
@@ -868,6 +890,8 @@ def recover(
         recovered=recovered,
         built=built,
         dated=dated,
+        tagged=created_tags,
+        untaggable=failed_tags,
     )
 
 
@@ -908,7 +932,12 @@ def regeneration_changes(root: Path, baselines: dict[str, Baseline]) -> Regenera
     )
 
 
-def _write_tags(root: Path, baselines: Iterable[Baseline], say: Printer) -> list[tuple[str, str]]:
+def _write_tags(
+    root: Path,
+    baselines: Iterable[Baseline],
+    say: Printer,
+    already: tuple[list[str], list[tuple[str, str]]] = ([], []),
+) -> list[tuple[str, str]]:
     """Create the tags the record wants, locally, and say that pushing them is a step of its own.
 
     Called from BOTH of `--write`'s endings, which is the whole reason it is a function. A repository
@@ -919,7 +948,11 @@ def _write_tags(root: Path, baselines: Iterable[Baseline], say: Printer) -> list
     Returns what could NOT be created, which the caller turns into a failing exit status: a repair that
     half worked and said it was fine is worse than one that refused, because the next thing the user
     does is push a record whose commits nothing preserves."""
-    created, failed = create_missing_tags(root, baselines)
+    # `already` is what the search tagged as it proved each baseline; this sweep covers the rest - a
+    # repository arriving with a full record and no tags has nothing for the search to do. Creating a
+    # tag skips a commit that has one, so the two cannot both make the same tag.
+    swept, unmade = create_missing_tags(root, baselines)
+    created, failed = already[0] + swept, already[1] + unmade
     if created:
         say(0, f"\ncreated {len(created)} tag(s), locally:")
         for tag in created:
@@ -942,11 +975,17 @@ def run(
     write: bool = False,
     regenerate: bool = False,
     reprove: bool = False,
+    retag: bool = False,
 ) -> int:
     """Everything the command does apart from parsing its arguments. The exit status is the answer.
 
     Values and a sink, not an argument list: a second caller reaches this by saying what it wants, and
     never by assembling flags for somebody else's parser and reading a transcript back."""
+    # Before anything reads which commits are tagged: the whole point is that the creation below then
+    # finds them missing and writes them again, so tagging keeps ONE path and this is only a deletion.
+    if retag and write:
+        gone = remove_deploy_tags(root, read_baselines(root).values())
+        say(0, f"removed {len(gone)} tag(s) to be written again" if gone else "no tags of ours to remove")
     found = review(root, ignoring_the_record=regenerate)
     # A deployed contract is a chain AND an address: `0xA8643E35…` is `Aggregator_stETH_AAPL_arbitrum`
     # on 42161 and `Aggregator_hsfxUSD_ETH_USD_mainnet` on 1, and an address alone selected both. The
@@ -1089,7 +1128,7 @@ def run(
 
     # Over the WHOLE record, not just what this run proved: a repository converting to the record
     # arrives with every one of its commits untagged, and none of those is something this run recovered.
-    unmade = _write_tags(root, baselines.values(), say) if write else []
+    unmade = _write_tags(root, baselines.values(), say, (done.tagged, done.untaggable)) if write else []
 
     if recovered and write:
         say(0, f"deployed.json holds {len(baselines)} baseline(s)")

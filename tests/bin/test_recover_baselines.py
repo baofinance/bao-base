@@ -1369,6 +1369,83 @@ def test_write_creates_the_missing_tags_locally(tmp_path, monkeypatch):
     assert at_head == [f"deploy/mainnet/state@{head[:10]}"], "derived from the state file that claimed it"
 
 
+def test_a_tag_that_exists_is_left_alone(tmp_path, monkeypatch):
+    # Tagging is incremental, like the record: a second run rewrites neither. Without that, every run
+    # rewrites refs somebody may already have pushed and pulled.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    recover.run(repo, say=recover.Printer(0), write=True)
+    tag = f"deploy/mainnet/state@{head[:10]}"
+    was = subprocess.run(["git", "rev-parse", tag], cwd=repo, capture_output=True, text=True).stdout.strip()
+
+    recover.run(repo, say=recover.Printer(0), write=True)
+
+    now = subprocess.run(["git", "rev-parse", tag], cwd=repo, capture_output=True, text=True).stdout.strip()
+    assert now == was, "the same tag object, so nothing was rewritten"
+
+
+def test_retag_writes_the_tags_again(tmp_path, monkeypatch):
+    # The way to regenerate them once their content changes, since an existing tag is otherwise kept.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    recover.run(repo, say=recover.Printer(0), write=True)
+    tag = f"deploy/mainnet/state@{head[:10]}"
+
+    printed: list[str] = []
+    recover.run(repo, say=recover.Printer(0, printed.append), write=True, retag=True)
+    said = "\n".join(printed)
+
+    # The tag OBJECT is not compared: git is content-addressed, so a tag deleted and written again
+    # from the same record is the same object. What is observable is that it was removed and remade.
+    assert "removed 1 tag(s)" in said, said
+    assert "created 1 tag(s)" in said, said
+    points_at = subprocess.run(["git", "rev-parse", f"{tag}^{{commit}}"], cwd=repo, capture_output=True, text=True)
+    assert points_at.stdout.strip() == head, "and it is back, on the same commit"
+
+
+def test_retag_leaves_tags_that_are_not_ours(tmp_path, monkeypatch):
+    # A commit can carry a release tag, or somebody's bookmark. The record says what IT names, and
+    # deleting anything else on that commit is not its business.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    recover.run(repo, say=recover.Printer(0), write=True)
+    subprocess.run(["git", "tag", "v1.2.3", head], cwd=repo, check=True, capture_output=True)
+
+    recover.run(repo, say=recover.Printer(0), write=True, retag=True)
+
+    survived = subprocess.run(["git", "tag", "-l", "v1.2.3"], cwd=repo, capture_output=True, text=True).stdout.strip()
+    assert survived == "v1.2.3"
+
+
+def test_the_tag_is_annotated_with_what_it_preserves(tmp_path, monkeypatch):
+    # A lightweight tag has no message, and `git tag -n` then prints the COMMIT's subject instead -
+    # which says nothing about why the tag exists while looking exactly like an annotation that does.
+    # The timestamp is here in full ISO 8601 because a message may hold the colons a ref name cannot.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+
+    recover.run(repo, say=recover.Printer(0), write=True)
+
+    kind = subprocess.run(
+        ["git", "cat-file", "-t", f"deploy/mainnet/state@{head[:10]}"], cwd=repo, capture_output=True, text=True
+    ).stdout.strip()
+    assert kind == "tag", "an annotated tag is an object; a lightweight one is only a ref"
+
+    message = subprocess.run(
+        ["git", "tag", "-n99", "-l", f"deploy/mainnet/state@{head[:10]}"], cwd=repo, capture_output=True, text=True
+    ).stdout
+    assert "source of deployed code" in message, message
+    assert "recorded in deployed.json" in message, message
+    # The same spelling the record uses, so a reader can compare the two by eye.
+    recorded = json.loads((repo / "deployed.json").read_text())["baselines"]
+    stamped = next(iter(recorded.values()))["commitTimestamp"]
+    assert stamped in message, f"{stamped} not in {message}"
+
+
 def test_writing_again_does_not_pile_up_tags(tmp_path, monkeypatch):
     # Run twice on an unchanged tree and the second run has nothing to create: a commit any tag already
     # names is preserved, which is the same question `Review.untagged` asks.

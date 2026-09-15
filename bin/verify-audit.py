@@ -951,7 +951,10 @@ def _run(args: list[str]) -> int:
             _err("       check out the branch it belongs on and run this again\n")
             return 1
         say = Printer(int(os.environ.get("BAO_BASE_VERBOSITY") or "0"), write=lambda line: _err(f"{line}\n"))
-        return run(Path.cwd(), say=say, write=True)
+        # `--retag` deletes the tags the record names so they are written again. The record itself is
+        # untouched: tagging is incremental like the record, so without this a tag that exists is left
+        # alone however its message has since changed.
+        return run(Path.cwd(), say=say, write=True, retag="--retag" in args)
 
     found = review(Path.cwd())
     if _check_baselines(found) != 0:

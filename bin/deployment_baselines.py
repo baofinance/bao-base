@@ -172,6 +172,24 @@ def deploy_tags(baseline: Baseline) -> list[str]:
     return tag_names(baseline.stateFiles, baseline.commit)
 
 
+def remove_deploy_tags(repo_root: Path, baselines: Iterable[Baseline]) -> list[str]:
+    """Delete the tags this record's baselines name, so the next creation writes them afresh.
+
+    ONLY the names `deploy_tags` derives. A commit may carry tags from other conventions - a release,
+    somebody's bookmark - and this is not entitled to those: the record says what IT names, and
+    nothing else on that commit is its business.
+
+    Deleting is local, like creating. A tag already pushed lives on until somebody deletes it there
+    too, so this changes what a fresh clone resolves only once the deletion is pushed."""
+    removed: list[str] = []
+    for baseline in baselines:
+        for tag in deploy_tags(baseline):
+            done = subprocess.run(["git", "tag", "-d", tag], cwd=repo_root, capture_output=True, text=True)
+            if done.returncode == 0:
+                removed.append(tag)
+    return sorted(removed)
+
+
 def create_missing_tags(repo_root: Path, baselines: Iterable[Baseline]) -> tuple[list[str], list[tuple[str, str]]]:
     """Create, LOCALLY, the tag each recorded commit wants and has not got. Never pushes.
 
@@ -192,14 +210,40 @@ def create_missing_tags(repo_root: Path, baselines: Iterable[Baseline]) -> tuple
     the check still red with nothing anywhere saying why."""
     created: list[str] = []
     failed: list[tuple[str, str]] = []
-    for baseline in baselines:
+    recorded = list(baselines)
+    # One commit is the source for many contracts - twenty-two of harbor's share one - so the
+    # annotation is built from ALL the baselines at that commit rather than from whichever one
+    # happened to reach the tag first.
+    at_commit: dict[str, list[Baseline]] = {}
+    for baseline in recorded:
+        at_commit.setdefault(baseline.commit, []).append(baseline)
+    annotation: dict[str, str] = {}
+    for commit, sharing in at_commit.items():
+        # The tag names the COMMIT, not the contracts: many contracts share one, and deployed.json is
+        # where which-contracts is answered. The timestamp is in full ISO 8601 because a message may
+        # hold the colons a ref name cannot, so it matches `commitTimestamp` exactly.
+        annotation[commit] = (
+            f"source of deployed code, committed {sharing[0].commitTimestamp}\n"
+            "recorded in deployed.json; this tag is what keeps the commit reachable"
+        )
+    for baseline in recorded:
         named = subprocess.run(
             ["git", "tag", "--points-at", baseline.commit], cwd=repo_root, capture_output=True, text=True
         ).stdout.strip()
         if named:
             continue
         for tag in deploy_tags(baseline):
-            done = subprocess.run(["git", "tag", tag, baseline.commit], cwd=repo_root, capture_output=True, text=True)
+            # ANNOTATED. A lightweight tag has no message, and `git tag -n` then prints the COMMIT's
+            # subject line instead - which describes whatever that commit was about and says nothing
+            # about why the tag exists, while looking exactly like an annotation that does. It also
+            # records when the tag was made, which is a fact nothing else here keeps: a baseline
+            # recorded today from a commit of eight months ago.
+            done = subprocess.run(
+                ["git", "tag", "-a", tag, "-m", annotation[baseline.commit], baseline.commit],
+                cwd=repo_root,
+                capture_output=True,
+                text=True,
+            )
             if done.returncode == 0:
                 created.append(tag)
                 continue
