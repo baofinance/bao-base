@@ -48,12 +48,14 @@ from deployment_recovery import (
     checkouts_by_repository,
     export_tree,
     install_toolchain,
+    link_libraries,
     search_passes,
     source_at,
     source_blobs,
     still_to_try,
     strip_metadata,
     submodules_at,
+    without_link_addresses,
 )
 
 
@@ -421,7 +423,9 @@ def _reprove(root: Path, baselines: dict[str, Baseline], say: Callable[..., None
                 if artefact is None:
                     failed.append((*row, f"does not rebuild at {commit[:10]}: no artefact declares it"))
                     continue
-                digest = _keccak256(bytes.fromhex(artefact["bytecode"]["object"][2:]))
+                # The same unlinked form the baseline recorded, so this needs no chain to reproduce
+                # it: a library address is not part of what the source, compiler and settings decide.
+                digest = _keccak256(without_link_addresses(artefact["bytecode"]))
                 if digest != baseline.creationBytecodeKeccak256:
                     built_by = (artefact.get("metadata") or {}).get("compiler", {}).get("version", "")
                     note = f"does not rebuild to {baseline.creationBytecodeKeccak256[:16]}… at {commit[:10]}"
@@ -607,20 +611,13 @@ def recover(
                 # of the search on a SCREEN is one no later commit is ever tried for.
                 wants = pending[entry_key]
                 entry = wants.entry
-                # A build that links a library cannot be CONSTRUCTED as it stands: `__$<34 hex>$__`
-                # is not code, and running it would produce something that was never deployed. The
-                # screen above can look past that by masking the addresses; proving cannot, because
-                # what it proves is the constructor's actual output. Reported and left to the other
-                # commits rather than raised on - the addresses ARE readable, from the deployed
-                # runtime code at the offsets `linkReferences` declares, which is the fix.
-                if artefact["bytecode"].get("linkReferences"):
-                    say(0, f"    SCREENED mainnet/{entry.address}  {entry.name}")
-                    say(0, f"      built from {source} at {built_at[:10]}")
-                    say(0, "      NOT PROVED HERE: it links a library, and an unlinked build cannot be")
-                    say(0, "      constructed — still looking at the other commits")
-                    screened.setdefault(entry_key, []).append(built_at)
-                    continue
-                creation = bytes.fromhex(artefact["bytecode"]["object"][2:])
+                # A build that links a library cannot be CONSTRUCTED as it stands, so its addresses
+                # are read from the deployed runtime code first. The HASH is taken from the unlinked
+                # form, which is what the source, compiler and settings determine - the addresses are
+                # recorded separately, as the deployment inputs they are, exactly as the creation
+                # bytecode already excludes constructor arguments.
+                linked, libraries = link_libraries(artefact, wants.onchain)
+                creation = without_link_addresses(artefact["bytecode"])
                 made = commit_timestamp(root, built_at)
                 say(0, f"    MATCHES {entry.chain}/{entry.address}  {entry.name}")
                 say(0, f"      built from {source} at {built_at[:10]}, committed {made or 'unknown'}")
@@ -631,7 +628,12 @@ def recover(
                 # The screen above ignored the immutables. Run the constructor and compare what it
                 # actually produces, so they are IN the verdict rather than excluded from it.
                 immutable_regions = artefact["deployedBytecode"].get("immutableReferences") or {}
-                produced = _construct(artefact["bytecode"]["object"], entry.chain, wants.block)
+                if linked is None:
+                    say(0, "      NOT PROVED HERE: it links a library that the deployed code never names,")
+                    say(0, "      so nothing here says what address it had — still looking at the other commits")
+                    screened.setdefault(entry_key, []).append(built_at)
+                    continue
+                produced = _construct(linked, entry.chain, wants.block)
                 if produced is None:
                     say(0, f"      NOT PROVED HERE: the constructor could not be run at block {wants.block},")
                     say(0, "      so the immutables cannot be checked — still looking at the other commits")
@@ -703,6 +705,7 @@ def recover(
                         # can be read, and the record needs the commits it names - the same answer.
                         sources=source_blobs(root, built_at, metadata["sources"], placed),
                         submodules={path: at for path, (at, _) in placed.items()},
+                        libraries=libraries,
                     ),
                 )
                 recovered += 1

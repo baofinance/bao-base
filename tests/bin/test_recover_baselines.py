@@ -809,6 +809,7 @@ def orphan_baseline(address: str, name: str):
         settings={},
         sources={},
         submodules={},
+        libraries={},
     )
 
 
@@ -919,6 +920,7 @@ def recorded_baseline(repo: Path, scratch: Path, commit: str, digest: str):
         settings={},
         sources={},
         submodules={},
+        libraries={},
     )
 
 

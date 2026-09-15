@@ -131,6 +131,7 @@ def baseline_for(address: str = "0xAA", commit: str = "a" * 40) -> Baseline:
         settings={"evmVersion": "cancun", "optimizer": {"enabled": True, "runs": 700}},
         sources={"src/Foo.sol": "d" * 40},
         submodules={},
+        libraries={},
     )
 
 
@@ -521,6 +522,7 @@ def test_inputs_in_a_submodule_this_clone_does_not_have_are_unchecked_not_missin
         baseline_for(commit=head),
         sources={"lib/ghost/src/Dep.sol": "e" * 40},
         submodules={"lib/ghost": "f" * 40},
+        libraries={},
     )
     write_baselines(repo, add({}, baseline))
 
@@ -559,6 +561,7 @@ def test_a_submodule_gitlink_this_clone_has_lost_is_reported(repo, tmp_path):
                 baseline_for(commit=head),
                 sources={"lib/dep/Dep.sol": "e" * 40},
                 submodules={"lib/dep": "0" * 40},
+                libraries={},
             ),
         ),
     )
@@ -606,6 +609,7 @@ def test_a_gitlink_for_a_submodule_holding_no_recorded_source_is_not_checked(rep
         baseline_for(commit=head),
         sources=real_sources(repo, head, ["src/Foo.sol"]),
         submodules={"lib/ghost": "f" * 40},
+        libraries={},
     )
     write_baselines(repo, add({}, baseline))
 

@@ -35,6 +35,7 @@ from deployment_recovery import (  # noqa: E402
     checkouts_by_repository,
     export_tree,
     install_toolchain,
+    link_libraries,
     search_passes,
     source_at,
     source_blobs,
@@ -297,6 +298,57 @@ def unlinked(runtime: bytes, at: int, library: str = "Config_v1") -> dict:
             "linkReferences": {f"src/{library}.sol": {library: [{"start": at, "length": 20}]}},
         },
     }
+
+
+def linkable(creation: bytes, runtime: bytes, at_creation: int, at_runtime: int, library: str = "Config_v1") -> dict:
+    """An unlinked build of a contract that links one library, in both halves of the artefact."""
+    placeholder = "__$" + "0" * 34 + "$__"
+
+    def unlinked(code: bytes, at: int) -> str:
+        text = code.hex()
+        return "0x" + text[: at * 2] + placeholder + text[(at + 20) * 2 :]
+
+    references = {f"src/{library}.sol": {library: [{"start": 0, "length": 20}]}}
+    creation_refs = json.loads(json.dumps(references))
+    creation_refs[f"src/{library}.sol"][library] = [{"start": at_creation, "length": 20}]
+    runtime_refs = json.loads(json.dumps(references))
+    runtime_refs[f"src/{library}.sol"][library] = [{"start": at_runtime, "length": 20}]
+    return {
+        "bytecode": {"object": unlinked(creation, at_creation), "linkReferences": creation_refs},
+        "deployedBytecode": {
+            "object": unlinked(runtime, at_runtime),
+            "immutableReferences": {},
+            "linkReferences": runtime_refs,
+        },
+    }
+
+
+def test_the_creation_code_is_linked_with_the_address_the_deployed_code_carries():
+    # A build that links a library cannot be constructed as it stands, and the address is not a guess:
+    # the deployed RUNTIME code carries it at the offsets the artefact itself declares.
+    creation = bytes.fromhex("6080" + "33" * 60)
+    runtime = bytes.fromhex("6040" + "44" * 60)
+    deployed = bytearray(runtime)
+    deployed[10:30] = bytes.fromhex("cd" * 20)
+
+    linked, addresses = link_libraries(linkable(creation, runtime, 25, 10), bytes(deployed))
+
+    assert addresses == {"src/Config_v1.sol:Config_v1": "0x" + "cd" * 20}
+    assert linked is not None
+    assert bytes.fromhex(linked[2:])[25:45] == bytes.fromhex("cd" * 20), "filled into the creation code"
+
+
+def test_a_library_the_deployed_code_never_names_is_refused_rather_than_guessed():
+    # It appears in the creation code and nowhere in the runtime code, so nothing in this contract
+    # says what address it had. Filling one in would be invention.
+    creation = bytes.fromhex("6080" + "33" * 60)
+    artefact = linkable(creation, bytes.fromhex("6040" + "44" * 60), 25, 10)
+    artefact["deployedBytecode"]["linkReferences"] = {}
+
+    linked, addresses = link_libraries(artefact, bytes.fromhex("6040" + "44" * 60))
+
+    assert linked is None
+    assert addresses == {}
 
 
 def test_a_build_that_links_a_library_is_compared_with_the_address_left_out():

@@ -91,6 +91,62 @@ def compiler_in(code: bytes) -> str | None:
     return ".".join(str(part) for part in trailer[marker + 1 : marker + 4])
 
 
+def link_references(section: dict) -> dict:
+    """A bytecode section's library regions as `{file:Library: [regions]}`, the shape `mask_regions`
+    takes. Keyed by both because `linkReferences` nests a level deeper than `immutableReferences`,
+    and one library name can appear in two files."""
+    return {
+        f"{file}:{library}": regions
+        for file, libraries in (section.get("linkReferences") or {}).items()
+        for library, regions in libraries.items()
+    }
+
+
+def without_link_addresses(section: dict) -> bytes:
+    """`section`'s code as bytes, with every library address region zeroed.
+
+    A build that has not been linked carries solc's `__$<34 hex>$__` where each address goes, which is
+    not hex - `bytes.fromhex` refuses it, and that ended a `--write` run at position 6304 on harbor's
+    Minter_v1.
+
+    Zeroing gives ONE canonical form for the code the compiler produced, independent of what it was
+    later linked against. That is what makes two builds comparable, and what lets a recorded hash of
+    it be reproduced later without the chain - the addresses are recorded separately, as the
+    deployment inputs they are."""
+    body = list(section["object"][2:])
+    for regions in link_references(section).values():
+        for region in regions:
+            for position in range(region["start"] * 2, (region["start"] + region["length"]) * 2):
+                body[position] = "0"
+    return bytes.fromhex("".join(body))
+
+
+def link_libraries(artefact: dict, onchain: bytes) -> tuple[str | None, dict[str, str]]:
+    """The creation bytecode with each library address filled in, and the addresses used.
+
+    An unlinked build cannot be CONSTRUCTED: a placeholder is not code, and running it would produce
+    something that was never deployed. The addresses are not guessed - the deployed RUNTIME code
+    carries each one at the offsets the artefact's own `deployedBytecode.linkReferences` declares, so
+    they are read from the very contract being proved.
+
+    None when a library appears in the creation code but NOWHERE in the runtime code: nothing in this
+    contract then says what address it had, and filling one in would be invention. The caller reports
+    it rather than proving on a guess."""
+    addresses = {
+        name: "0x" + onchain[region["start"] : region["start"] + region["length"]].hex()
+        for name, regions in link_references(artefact["deployedBytecode"]).items()
+        for region in regions[:1]
+    }
+    body = list(artefact["bytecode"]["object"][2:])
+    for name, regions in link_references(artefact["bytecode"]).items():
+        if name not in addresses:
+            return None, addresses
+        for region in regions:
+            for offset, character in enumerate(addresses[name][2:]):
+                body[region["start"] * 2 + offset] = character
+    return "0x" + "".join(body), addresses
+
+
 def mask_regions(code: bytes, references: dict) -> bytes:
     """`code` with each declared region zeroed.
 
@@ -780,25 +836,11 @@ def matches(onchain: bytes, artefact: dict) -> tuple[bool, list[str]]:
     # The regions are offsets from the START, and the trailer is at the end, so stripping moves none
     # of them.
     references = artefact["deployedBytecode"].get("immutableReferences") or {}
-    # An UNLINKED build carries `__$<34 hex>$__` where each library address will go - not hex, and
-    # what stopped a whole run: harbor's Minter_v1 and Minter_v2 both link Config_v1. Keyed by file
-    # and library, because `linkReferences` nests one level deeper than `immutableReferences` and the
-    # same library name can appear in two files.
-    links = {
-        f"{file}:{library}": regions
-        for file, libraries in (artefact["deployedBytecode"].get("linkReferences") or {}).items()
-        for library, regions in libraries.items()
-    }
-    # Zeroed so the code parses at all. What fills them does not matter: they are masked out below,
-    # for the same reason immutables are - a library address is fixed when the build is LINKED, not
-    # by the source, so the same source linked against another deployment of the same library is
-    # still the source that built this.
-    body = list(artefact["deployedBytecode"]["object"][2:])
-    for regions in links.values():
-        for region in regions:
-            for position in range(region["start"] * 2, (region["start"] + region["length"]) * 2):
-                body[position] = "0"
-    built = strip_metadata(bytes.fromhex("".join(body)))
+    # A library address is fixed when the build is LINKED, not by the source, so the same source
+    # linked against another deployment of the same library is still the source that built this -
+    # the same reason immutables are excluded, reached from the other end.
+    links = link_references(artefact["deployedBytecode"])
+    built = strip_metadata(without_link_addresses(artefact["deployedBytecode"]))
     stripped = strip_metadata(onchain)
     if len(stripped) != len(built):
         return False, []

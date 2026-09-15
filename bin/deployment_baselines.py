@@ -116,6 +116,12 @@ class Baseline:
     # in: a blob id resolves only in the object store that holds it, and most of these are submodules.
     sources: dict[str, str]
     submodules: dict[str, str]
+    # Each external library this contract was LINKED against, `<file>:<Library>` to its address, read
+    # from the deployed runtime code at the offsets the build declared. Recorded rather than folded
+    # into `creationBytecodeKeccak256` because an address is decided when the build is linked, not by
+    # the source - the same reason that hash already excludes constructor arguments. Empty for a
+    # contract that links nothing, which is most of them.
+    libraries: dict[str, str]
 
 
 def key(chain_id: int, address: str) -> str:
