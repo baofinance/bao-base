@@ -1482,6 +1482,7 @@ def _recorded(fix, contract="Foo"):
                         "sources": {},
                         "submodules": {},
                         "libraries": {},
+                        "constructorArguments": "",
                     }
                 },
             }

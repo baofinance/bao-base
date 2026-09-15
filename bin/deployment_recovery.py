@@ -728,7 +728,7 @@ def export_tree(repo_root: Path, commit: str, at: Path, checkouts: dict[str, lis
     return failures
 
 
-def artefact_for(out: Path, source: str, contract_type: str) -> dict | None:
+def artefact_for(out: Path, source: str, contract_type: str) -> tuple[dict | None, str]:
     """The compiled artefact for one contract, located by the source path it declares.
 
     Not by `out/<basename>.sol/`, which is a flat namespace this fleet already collides in - two
@@ -740,17 +740,28 @@ def artefact_for(out: Path, source: str, contract_type: str) -> dict | None:
     decides which bytecode a baseline is compared against.
 
     More than one claimant returns None. Either would be arbitrary, and arbitrary here means comparing
-    a deployed contract against a different contract's build."""
+    a deployed contract against a different contract's build.
+
+    An artefact that will not PARSE is reported, never skipped. Every file this looks at is named for
+    the contract being recovered, so one that cannot be read may be the very build wanted - and
+    passing over it silently made a broken build output read as "nothing here built that source",
+    which is a statement about the sources instead of about the build."""
     claiming = []
-    for candidate in out.rglob(f"{contract_type}.json"):
+    unreadable = []
+    for candidate in sorted(out.rglob(f"{contract_type}.json")):
         try:
             artefact = json.loads(candidate.read_text())
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as broken:
+            unreadable.append(f"{candidate.name} does not parse: {broken}")
             continue
         targets = (artefact.get("metadata") or {}).get("settings", {}).get("compilationTarget") or {}
         if targets.get(source) == contract_type:
             claiming.append(artefact)
-    return claiming[0] if len(claiming) == 1 else None
+    if len(claiming) == 1:
+        return claiming[0], ""
+    if claiming:
+        return None, f"{len(claiming)} artefacts declare {contract_type} from {source}"
+    return None, "; ".join(unreadable) or f"no artefact declares {contract_type} from {source}"
 
 
 def differences(onchain: bytes, produced: bytes, references: dict, address: str) -> tuple[list[str], list[str]]:

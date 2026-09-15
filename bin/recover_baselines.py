@@ -70,56 +70,86 @@ def _keccak256(data: bytes) -> str:
     return digest.hexdigest()
 
 
-def _deployed_code(address: str, chain: str) -> bytes | None:
-    """The runtime code at an address, over the RPC the repo already configures for its fork tests.
+class _ChainRefused(Exception):
+    """A `cast` command did not answer, carrying what it said.
+
+    Raised rather than returned as an absence, because the two are different findings and only one of
+    them is about the contract: a chain that cannot be reached, a key that has expired and a node
+    without the history are all problems with the ASKING, while "there is no code at this address" is
+    an answer. Collapsing them told the reader their contract could not be proved when in truth it
+    had never been examined."""
+
+
+def _cast(*arguments: str) -> str:
+    """One `cast` command's output. Raises `_ChainRefused` with its own words if it did not answer."""
+    done = subprocess.run(["cast", *arguments], capture_output=True, text=True)
+    if done.returncode != 0:
+        said = (done.stderr or done.stdout or "").strip().splitlines()
+        raise _ChainRefused(f"`cast {arguments[0]}` failed: {said[0] if said else 'it said nothing'}")
+    return done.stdout.strip()
+
+
+def _deployed_code(address: str, chain: str) -> tuple[bytes | None, str]:
+    """The runtime code at an address, and what stopped the reading if it could not be read.
 
     `cast` reads the endpoint from foundry.toml and the environment itself, so no key is handled here.
     Etherscan is deliberately not used: the creation transaction would need it, and this comparison
-    does not - which matters because CI has an RPC and does not have an Etherscan key."""
-    done = subprocess.run(["cast", "code", address, "--rpc-url", chain], capture_output=True, text=True)
-    if done.returncode != 0 or not done.stdout.strip().startswith("0x"):
-        return None
-    body = done.stdout.strip()[2:]
-    return bytes.fromhex(body) if body else None
+    does not - which matters because CI has an RPC and does not have an Etherscan key.
+
+    An address with NO code answers `(None, "")`: the chain replied, and what it said is that nothing
+    is deployed there. A chain that could not be asked answers `(None, <its words>)`, and the caller
+    says which - the two are different findings about different things."""
+    try:
+        answer = _cast("code", address, "--rpc-url", chain)
+    except _ChainRefused as refused:
+        return None, str(refused)
+    if not answer.startswith("0x"):
+        return None, f"`cast code` answered {answer[:60]!r}, which is not code"
+    body = answer[2:]
+    return (bytes.fromhex(body) if body else None), ""
 
 
-def _cast(*arguments: str) -> str | None:
-    done = subprocess.run(["cast", *arguments], capture_output=True, text=True)
-    return done.stdout.strip() if done.returncode == 0 else None
-
-
-def _deployment(address: str, chain: str, claimed: str) -> tuple[int, str] | None:
+def _deployment(address: str, chain: str, claimed: str) -> tuple[tuple[int, str] | None, str]:
     """The block the contract was created in and that block's UTC timestamp, or None.
 
     `claimed` - the manifest's `deploymentTime` - only ESTIMATES where to look, because it is the
     deploy SCRIPT's clock: written after the broadcast, so usually just after the transaction - 2m55s
     after, for BaoPauser - and shared across a whole batch of aggregators deployed at different
     moments. Two mainnet aggregators record a time whose block holds no code at all, so the search
-    runs both ways from the estimate, and the head of the chain bounds the half that runs forward."""
-    at = _cast(
-        "find-block", str(int(datetime.fromisoformat(claimed.replace("Z", "+00:00")).timestamp())), "--rpc-url", chain
-    )
-    if at is None or not at.isdigit():
-        return None
-    head = _cast("block-number", "--rpc-url", chain)
-    if head is None or not head.isdigit():
-        return None
+    runs both ways from the estimate, and the head of the chain bounds the half that runs forward.
 
-    def has_code(block: int) -> bool:
-        code = _cast("code", address, "--rpc-url", chain, "--block", str(block))
-        return bool(code) and code != "0x"
+    The second half of the answer is what stopped the search, said in the chain's own words where the
+    chain is what stopped it. A search that ran and found nothing is `(None, "")`: the blocks were
+    read and none of them is where this contract began."""
+    try:
+        at = _cast(
+            "find-block",
+            str(int(datetime.fromisoformat(claimed.replace("Z", "+00:00")).timestamp())),
+            "--rpc-url",
+            chain,
+        )
+        if not at.isdigit():
+            return None, f"`cast find-block` answered {at[:60]!r}, which is not a block number"
+        head = _cast("block-number", "--rpc-url", chain)
+        if not head.isdigit():
+            return None, f"`cast block-number` answered {head[:60]!r}, which is not a block number"
 
-    block = creation_block(has_code, near=int(at), ceiling=int(head))
-    if block is None:
-        return None
-    seconds = _cast("block", str(block), "--rpc-url", chain, "--field", "timestamp")
-    if seconds is None or not seconds.isdigit():
-        return None
-    return block, datetime.fromtimestamp(int(seconds), tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        def has_code(block: int) -> bool:
+            return _cast("code", address, "--rpc-url", chain, "--block", str(block)) not in ("", "0x")
+
+        block = creation_block(has_code, near=int(at), ceiling=int(head))
+        if block is None:
+            return None, ""
+        seconds = _cast("block", str(block), "--rpc-url", chain, "--field", "timestamp")
+    except _ChainRefused as refused:
+        return None, str(refused)
+    if not seconds.isdigit():
+        return None, f"`cast block` answered {seconds[:60]!r}, which is not a timestamp"
+    return (block, datetime.fromtimestamp(int(seconds), tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")), ""
 
 
-def _construct(creation: str, chain: str, block: int) -> bytes | None:
-    """The runtime code this creation bytecode produces, by running its constructor. None if it cannot.
+def _construct(creation: str, chain: str, block: int) -> tuple[bytes | None, str]:
+    """The runtime code this creation bytecode produces, by running its constructor.
 
     `eth_call` against a creation payload returns what the constructor returns, which IS the runtime
     code - so the immutables it writes are in the answer, and the comparison no longer has to exclude
@@ -129,20 +159,66 @@ def _construct(creation: str, chain: str, block: int) -> bytes | None:
     is a `block.timestamp`, and running now would reproduce today's rather than the deploy's. It needs
     an archive node, which is the same thing the creation-block search already needs.
 
-    No arguments are passed, and none are needed by anything recovered so far -
-    `constructor() Aggregator_PAXG_USD(PAXG_USD.FEED, PAXG_USD.HEARTBEAT, 1, false) {}` hard-codes
-    everything. A constructor that DOES take arguments cannot be run without them: it fails here, and a
-    failure to construct means the baseline is not written, because a comparison that cannot see the
-    immutables is the weaker check this replaced."""
-    done = subprocess.run(
-        ["cast", "call", "--rpc-url", chain, "--block", str(block), "--create", creation],
-        capture_output=True,
-        text=True,
-    )
-    answer = done.stdout.strip()
-    if done.returncode != 0 or not answer.startswith("0x") or len(answer) <= 2:
-        return None
-    return bytes.fromhex(answer[2:])
+    `creation` is the payload as DEPLOYED - the creation bytecode with the constructor's arguments
+    appended, which is how a deployment transaction carries them. The aggregators need none
+    (`constructor() Aggregator_PAXG_USD(PAXG_USD.FEED, PAXG_USD.HEARTBEAT, 1, false) {}` hard-codes
+    everything), so for them the payload IS the bytecode; harbor's do
+    (`Genesis_v1(address minter_)`, `StabilityPool_v1(address minter_, address liquidationToken_, …)`)
+    and running those without arguments silently constructs a contract whose immutables are zero -
+    which then fails the comparison as though the SOURCE were wrong. `constructor_arguments` is where
+    the real ones come from.
+
+    The second half of the answer is why there is no code, said in the chain's own words. A
+    constructor that REVERTED and a node that could not be reached both leave nothing to compare, and
+    only the first is about this contract - so the reason travels up rather than being flattened into
+    an absence the caller has to guess at."""
+    try:
+        answer = _cast("call", "--rpc-url", chain, "--block", str(block), "--create", creation)
+    except _ChainRefused as refused:
+        return None, str(refused)
+    if not answer.startswith("0x"):
+        return None, f"`cast call` answered {answer[:60]!r}, which is not code"
+    if len(answer) <= 2:
+        return None, "the constructor returned no code"
+    return bytes.fromhex(answer[2:]), ""
+
+
+def _constructor_arguments(address: str, chain: str, creation: bytes) -> str | None:
+    """The arguments the deployment appended to `creation`, as hex, and why there are none if so.
+
+    The two halves are different findings: an explorer that could not be asked is a problem with the
+    ASKING, while a payload that is not this build is a statement about this contract - it says the
+    tail is somebody else's arguments and must not be used. Only the second should ever read as a
+    reason not to trust a candidate.
+
+    READ, not guessed: a deployment transaction carries the creation bytecode with the arguments
+    ABI-encoded after it, so whatever follows our own build's bytecode in the deployed payload IS
+    what was passed. Nothing needs to know the constructor's signature, and nothing is decoded.
+
+    The prefix is CHECKED rather than assumed: if the payload does not begin with the bytecode this
+    build produced, the tail is not this contract's arguments and returning it would construct
+    something arbitrary. That check is also why an empty answer is a real one - a constructor that
+    takes nothing leaves the payload equal to the bytecode.
+
+    Checked with the METADATA STRIPPED, though the tail is taken by LENGTH. A rebuild's CBOR trailer
+    never equals the deployed one - each hashes the sources and settings of the tree it was built in,
+    which is why every other comparison here strips both sides - so a byte-exact prefix would refuse
+    every contract rather than the wrong ones. The trailer's LENGTH is part of the code either way,
+    so where the arguments begin is not in doubt.
+
+    `cast creation-code` reads it from a block explorer, which is the only thing that knows which
+    transaction created an address: these implementations are deployed with a plain `new`, so no
+    receipt names them, and the explorer's index is what maps address to creation."""
+    try:
+        payload = _cast("creation-code", address, "--rpc-url", chain)
+    except _ChainRefused as refused:
+        return None, str(refused)
+    if not payload.startswith("0x"):
+        return None, f"`cast creation-code` answered {payload[:60]!r}, which is not a payload"
+    deployed = bytes.fromhex(payload[2:])
+    if len(deployed) < len(creation) or strip_metadata(deployed[: len(creation)]) != strip_metadata(creation):
+        return None, "the deployed creation payload is not what this build produces"
+    return deployed[len(creation) :].hex(), ""
 
 
 def _build(tree: Path, source: str, out: Path, compiler: str) -> bool:
@@ -281,12 +357,12 @@ def _try_commit(
                     note += f", and these could not be exported: {' '.join(missing)}"
                 say(0, note)
                 continue
-            artefact = artefact_for(out, source, declared)
+            artefact, unusable = artefact_for(out, source, declared)
             if artefact is None:
                 # Reported, not skipped: the fleet has twelve contract names declared in two files
                 # at once, and a silent skip makes that read as "no candidate built what is
                 # deployed" - a search that found nothing rather than one that could not look.
-                say(1, f"  {commit[:10]}: {source} built no single artefact declaring {declared}")
+                say(1, f"  {commit[:10]}: {source}: {unusable}")
                 continue
             # solc writes into the artefact which version produced it, so the pin is CHECKED rather
             # than trusted: `--use` resolving to something else, or being ignored, would otherwise
@@ -304,6 +380,21 @@ def _try_commit(
             if agreed:
                 found[entry_key] = (commit, source, declared, artefact, immutables)
         return found, compared
+
+
+def _screening(commits: list[tuple[str, str]]) -> str:
+    """How a contract's screens read in a report: how many, a few of them, and WHY none proved it.
+
+    COUNTED, not listed: a contract that screens everywhere printed hundreds of hashes on one line,
+    which is the same fact repeated rather than information. The REASONS are said because they are
+    different remedies - a constructor that disagreed is a source question, one that was never run
+    because a library address is unknown is not - and a single sentence covering all of them told the
+    reader the constructor disagreed about contracts whose constructor never ran."""
+    shown = ", ".join(at[:10] for at, _ in commits[:3])
+    if len(commits) > 3:
+        shown += f", and {len(commits) - 3} more"
+    reasons = " / ".join(dict.fromkeys(reason for _, reason in commits))
+    return f"screened at {len(commits)} commit(s) ({shown}); {reasons}"
 
 
 def _listing(say: Printer, title: str, rows: list[tuple[str, str, str, str]], footer: str = "") -> None:
@@ -419,9 +510,9 @@ def _reprove(root: Path, baselines: dict[str, Baseline], say: Callable[..., None
                         note += f", and these could not be exported: {' '.join(missing)}"
                     failed.append((*row, note))
                     continue
-                artefact = artefact_for(out, baseline.source, baseline.contractType)
+                artefact, unusable = artefact_for(out, baseline.source, baseline.contractType)
                 if artefact is None:
-                    failed.append((*row, f"does not rebuild at {commit[:10]}: no artefact declares it"))
+                    failed.append((*row, f"does not rebuild at {commit[:10]}: {unusable}"))
                     continue
                 # The same unlinked form the baseline recorded, so this needs no chain to reproduce
                 # it: a library address is not part of what the source, compiler and settings decide.
@@ -471,7 +562,9 @@ class Recovery:
     baselines: dict[str, Baseline]
     account: list[Problem]
     refused: list[tuple[str, Entry, str]]
-    unproven: list[tuple[str, Entry, list[str]]]
+    # Each screen that did not prove it, as (commit, why) - the reasons differ and so do their
+    # remedies, so a caller must be able to say which rather than one sentence for all of them.
+    unproven: list[tuple[str, Entry, list[tuple[str, str]]]]
     recovered: int
     built: int
     # Every commit the search ran over, newest first, as (commit, timestamp). The provenance of a
@@ -521,15 +614,19 @@ def recover(
             say(0, "  no deployment time recorded, so the window cannot be placed")
             drop(pending, account, entry_key, entry, "no deployment time recorded")
             continue
-        onchain = _deployed_code(entry.address, entry.chain)
+        onchain, refused = _deployed_code(entry.address, entry.chain)
         if onchain is None:
-            say(0, f"  could not read the deployed code over the {entry.chain} RPC")
-            drop(pending, account, entry_key, entry, f"deployed code unreadable over the {entry.chain} RPC")
+            # The chain's own words where the chain is what stopped it, so a broken endpoint does not
+            # read as a finding about the contract.
+            why = refused or f"nothing is deployed at that address on {entry.chain}"
+            say(0, f"  no deployed code to compare against: {why}")
+            drop(pending, account, entry_key, entry, f"no deployed code to compare against: {why}")
             continue
-        deployment = _deployment(entry.address, entry.chain, entry.deployed_at)
+        deployment, refused = _deployment(entry.address, entry.chain, entry.deployed_at)
         if deployment is None:
-            say(0, f"  could not find the block it was created in over the {entry.chain} RPC")
-            drop(pending, account, entry_key, entry, f"creation block not found over the {entry.chain} RPC")
+            why = refused or f"no block on {entry.chain} is where it was created"
+            say(0, f"  could not place the deploy: {why}")
+            drop(pending, account, entry_key, entry, f"could not place the deploy: {why}")
             continue
         block, deployed = deployment
         # The CHAIN's timestamp, not the manifest's: the manifest records the deploy script's clock,
@@ -558,7 +655,7 @@ def recover(
     # Every commit each contract screened at without being proved. A screen masks the immutables, so
     # matching it is a candidacy and not an answer - which is why these do not end the search, and why
     # they are only an OUTCOME for a contract that was never proved anywhere.
-    screened: dict[str, list[str]] = {}
+    screened: dict[str, list[tuple[str, str]]] = {}
     # Which contracts each build (keyed by `build_id`) has already been TRIED for, and which commit
     # first carried that build - so a skip can say what it duplicates rather than leaving a gap in the
     # numbering that reads like a contract being dropped.
@@ -631,13 +728,24 @@ def recover(
                 if linked is None:
                     say(0, "      NOT PROVED HERE: it links a library that the deployed code never names,")
                     say(0, "      so nothing here says what address it had — still looking at the other commits")
-                    screened.setdefault(entry_key, []).append(built_at)
+                    screened.setdefault(entry_key, []).append(
+                        (built_at, "the constructor was never run: a library address is unknown")
+                    )
                     continue
-                produced = _construct(linked, entry.chain, wants.block)
+                # The deployed payload is the bytecode plus whatever the constructor was given, and
+                # only the chain knows the second part. Without it a constructor taking arguments
+                # runs against zeros and the contract it builds is not the one deployed.
+                arguments, refused = _constructor_arguments(entry.address, entry.chain, bytes.fromhex(linked[2:]))
+                if arguments is None:
+                    say(0, f"      NOT PROVED HERE: {refused}")
+                    say(0, "      so the constructor's arguments are unknown — still looking at the other commits")
+                    screened.setdefault(entry_key, []).append((built_at, refused))
+                    continue
+                produced, refused = _construct(linked + arguments, entry.chain, wants.block)
                 if produced is None:
-                    say(0, f"      NOT PROVED HERE: the constructor could not be run at block {wants.block},")
+                    say(0, f"      NOT PROVED HERE: at block {wants.block}, {refused}")
                     say(0, "      so the immutables cannot be checked — still looking at the other commits")
-                    screened.setdefault(entry_key, []).append(built_at)
+                    screened.setdefault(entry_key, []).append((built_at, refused))
                     continue
                 explained, unexplained = differences(
                     strip_metadata(wants.onchain), strip_metadata(produced), immutable_regions, entry.address
@@ -652,7 +760,9 @@ def recover(
                     # aggregators screened at the commit before their deploy, where the staleness
                     # constant was an hour, against a chain holding a day - written by the commit two
                     # minutes AFTER they were created, which the second pass reaches.
-                    screened.setdefault(entry_key, []).append(built_at)
+                    screened.setdefault(entry_key, []).append(
+                        (built_at, "the constructor ran but did not reproduce what is deployed")
+                    )
                     continue
                 # Proved. Nothing later can be a better answer, so the search for it ends here.
                 del pending[entry_key]
@@ -706,6 +816,7 @@ def recover(
                         sources=source_blobs(root, built_at, metadata["sources"], placed),
                         submodules={path: at for path, (at, _) in placed.items()},
                         libraries=libraries,
+                        constructorArguments=arguments,
                     ),
                 )
                 recovered += 1
@@ -731,7 +842,7 @@ def recover(
             account,
             entry_key,
             entry,
-            f"screened at {', '.join(at[:10] for at in commits)}, but the constructor does not account for it",
+            _screening(commits),
         )
     # Whatever is left was searched for and not found. "Nothing built it" would be untrue of a contract
     # something built everywhere except an immutable, and those have just been taken out above with the
@@ -927,11 +1038,11 @@ def run(
         say(0, "  a stash entry is destroyed by `git stash drop`, and nothing else built this bytecode.")
 
     if unproven:
-        say(0, f"\n{len(unproven)} screened but NOT recorded — the constructor does not account for them:")
+        say(0, f"\n{len(unproven)} screened but NOT recorded:")
         for entry_key, entry, commits in unproven:
-            say(0, f"  {entry_key}  {entry.name}  at {', '.join(at[:10] for at in commits)}")
-        say(0, "  The code outside the immutables matches, so the source is close — but an immutable")
-        say(0, "  the source determines came out differently, which a masked comparison would have hidden.")
+            say(0, f"  {entry_key}  {entry.name}  {_screening(commits)}")
+        say(0, "  A screen says the source is close: the code matches outside what the source does not")
+        say(0, "  decide. What stopped each of them is on its own row — they do not share a remedy.")
 
     # What was searched, said once rather than per row: `all_commits` is `git log --all`, so an unmerged
     # branch and a stash are both in it, and "nothing built it" means nothing in ANY of them did - which

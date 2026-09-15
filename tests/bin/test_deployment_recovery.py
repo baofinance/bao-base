@@ -575,9 +575,9 @@ def test_the_artefact_is_found_by_the_source_it_declares_not_by_its_directory(tm
             )
         )
 
-    found = artefact_for(tmp_path, "src/megaeth/Aggregator.sol", "Aggregator_megaeth")
+    found, unusable = artefact_for(tmp_path, "src/megaeth/Aggregator.sol", "Aggregator_megaeth")
 
-    assert found is not None
+    assert found is not None, unusable
     assert found["metadata"]["settings"]["compilationTarget"] == {"src/megaeth/Aggregator.sol": "Aggregator_megaeth"}
 
 
@@ -600,7 +600,7 @@ def test_the_source_must_match_exactly_not_as_a_suffix(tmp_path):
     # which bytecode a baseline is compared against, so it is equality.
     artefact_declaring(tmp_path / "Foo.sol", "Foo", "myssrc/Foo.sol")
 
-    assert artefact_for(tmp_path, "src/Foo.sol", "Foo") is None
+    assert artefact_for(tmp_path, "src/Foo.sol", "Foo")[0] is None
 
 
 def test_two_artefacts_claiming_one_source_are_refused_not_picked_between(tmp_path):
@@ -609,7 +609,21 @@ def test_two_artefacts_claiming_one_source_are_refused_not_picked_between(tmp_pa
     artefact_declaring(tmp_path / "Foo.sol", "Foo", "src/Foo.sol")
     artefact_declaring(tmp_path / "elsewhere" / "Foo.sol", "Foo", "src/Foo.sol")
 
-    assert artefact_for(tmp_path, "src/Foo.sol", "Foo") is None
+    assert artefact_for(tmp_path, "src/Foo.sol", "Foo")[0] is None
+
+
+def test_an_artefact_that_will_not_parse_is_reported_rather_than_passed_over(tmp_path):
+    # Every file looked at is named for the contract being recovered, so one that cannot be read may
+    # be the very build wanted. Skipping it made a broken BUILD read as "nothing built that source" -
+    # a statement about the sources, and the wrong thing to go and investigate.
+    (tmp_path / "Foo.sol").mkdir()
+    (tmp_path / "Foo.sol" / "Foo.json").write_text("{ this is not json")
+
+    found, unusable = artefact_for(tmp_path, "src/Foo.sol", "Foo")
+
+    assert found is None
+    assert "does not parse" in unusable, unusable
+    assert "Foo.json" in unusable, unusable
 
 
 # ── choosing the candidate ────────────────────────────────────────────────────────────────────────
@@ -1200,6 +1214,23 @@ def test_a_checkout_that_is_present_but_lacks_the_commit_does_not_hide_one_that_
 
     assert failures == [], failures
     assert (at / "lib" / "stale" / "src" / "D.sol").read_text() == "// the version the superproject records\n"
+
+
+def test_a_dependency_no_checkout_holds_is_reported_rather_than_fetched(tmp_path):
+    # What is on disk is the whole of what a run may read. A remote could supply this commit, and
+    # reaching for it would make a baseline depend on the network and on what that remote still
+    # serves - so it would record here and fail to reproduce on a fresh checkout, which is exactly
+    # what CI is.
+    superproject, commit = moved_dependency(tmp_path)
+    shutil.rmtree(superproject / "lib" / "kept")
+
+    at = tmp_path / "exported"
+    failures = export_tree(superproject, commit, at, checkouts_by_repository(superproject))
+
+    # Both of them: removing the sibling leaves neither path with a store, and each is named.
+    assert [failure.partition("@")[0] for failure in failures] == ["lib/gone", "lib/kept"], failures
+    assert all("no checkout in this tree holds it" in failure for failure in failures), failures
+    assert not (superproject / ".git" / "recovery-cache").exists(), "nothing was fetched"
 
 
 def test_a_dependency_that_cannot_be_exported_is_named_rather_than_raised(tmp_path):

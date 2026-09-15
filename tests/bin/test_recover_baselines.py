@@ -60,6 +60,15 @@ def commit(repo: Path, when: str, message: str) -> str:
     ).stdout.strip()
 
 
+def no_constructor_arguments(address: str, chain: str, creation: bytes) -> tuple[str, str]:
+    """These fixtures' contracts take no constructor arguments, so the deployed payload IS the
+    bytecode and the tail after it is empty.
+
+    Patched in beside the chain itself: reading the arguments is a second thing only the chain
+    knows, so a test that stands in for the chain has to stand in for this too."""
+    return "", ""
+
+
 def artefact_of(repo: Path, source: str, contract: str, scratch: Path) -> dict:
     """The whole artefact `contract` compiles to in the working tree now."""
     environment = {k: v for k, v in os.environ.items() if not k.startswith("FOUNDRY_") or k == "FOUNDRY_DIR"}
@@ -89,17 +98,17 @@ class Chain:
     def __init__(self, deployed: dict[str, bytes]):
         self.deployed = {address.lower(): code for address, code in deployed.items()}
 
-    def code(self, address: str, chain: str) -> bytes | None:
-        return self.deployed.get(address.lower())
+    def code(self, address: str, chain: str) -> tuple[bytes | None, str]:
+        return self.deployed.get(address.lower()), ""
 
-    def deployment(self, address: str, chain: str, claimed: str) -> tuple[int, str]:
-        return 100, DEPLOYED
+    def deployment(self, address: str, chain: str, claimed: str) -> tuple[tuple[int, str], str]:
+        return (100, DEPLOYED), ""
 
-    def construct(self, creation: str, chain: str, block: int) -> bytes | None:
+    def construct(self, creation: str, chain: str, block: int) -> tuple[bytes | None, str]:
         for code in self.deployed.values():
             if strip_metadata(code).hex() in creation.lower():
-                return code
-        return None
+                return code, ""
+        return None, "the constructor returned no code"
 
 
 def test_one_uncompilable_source_does_not_hide_the_others_at_that_commit(tmp_path, monkeypatch):
@@ -145,6 +154,7 @@ def test_one_uncompilable_source_does_not_hide_the_others_at_that_commit(tmp_pat
     monkeypatch.setattr(recover, "_deployed_code", chain.code)
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -216,9 +226,10 @@ def test_every_contract_that_was_not_recorded_is_listed_with_its_reason_at_the_e
     monkeypatch.setattr(
         recover,
         "_deployment",
-        lambda address, chain_name, claimed: None if address.lower() == ADDRESS_C else (100, DEPLOYED),
+        lambda address, chain_name, claimed: (None, "") if address.lower() == ADDRESS_C else ((100, DEPLOYED), ""),
     )
     monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -228,7 +239,9 @@ def test_every_contract_that_was_not_recorded_is_listed_with_its_reason_at_the_e
     assert ADDRESS_B in summary, "the manifest names no contract for it, so it was never looked for"
     assert "names no contract" in summary
     assert ADDRESS_C in summary, "its creation block could not be found, so it was never searched for"
-    assert "creation block" in summary
+    # The search ran and no block was where it began - a finding about the address, said as that
+    # rather than as a failure to look.
+    assert "could not place the deploy" in summary
     assert ADDRESS_D in summary, "it was searched for and nothing built it"
     assert ADDRESS_A not in summary, "it was recorded, so it is not among the failures"
     assert "3 not recorded:" in printed, "all three are gathered under one heading"
@@ -271,6 +284,7 @@ def test_a_commit_predating_the_source_is_not_counted_as_a_comparison(tmp_path, 
     monkeypatch.setattr(recover, "_deployed_code", chain.code)
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -310,6 +324,76 @@ def test_the_build_is_pinned_to_the_compiler_the_deployed_code_names(monkeypatch
     assert invoked["command"][invoked["command"].index("--use") + 1] == "0.8.30"
 
 
+def with_trailer(body: bytes, filler: int = 0x00) -> bytes:
+    """`body` as a build carries it: a CBOR trailer and its length.
+
+    `filler` varies the trailer, because two trailers over the same code are NOT equal - each hashes
+    the sources and settings of the tree it was built in."""
+    trailer = b"\xa2\x64solc" + bytes([filler]) * 45
+    return body + trailer + len(trailer).to_bytes(2, "big")
+
+
+def creation_payload(monkeypatch, recover, payload: bytes):
+    """What `cast creation-code` reports for the deployed contract."""
+
+    class Done:
+        returncode = 0
+        stdout = "0x" + payload.hex()
+        stderr = ""
+
+    monkeypatch.setattr(recover.subprocess, "run", lambda *args, **kwargs: Done())
+
+
+def test_the_constructor_arguments_are_whatever_follows_the_bytecode(tmp_path, monkeypatch):
+    # Nothing is decoded, so the argument TYPES cannot matter: an array, an array of structs and a
+    # single word all leave a tail after the creation bytecode, and the tail is what was passed.
+    recover = load_recover_baselines()
+    built = with_trailer(bytes.fromhex("6080604052" + "11" * 40))
+    encoded = bytes.fromhex("ab" * 320)  # longer than any fixed-size encoding: a dynamic argument
+    creation_payload(monkeypatch, recover, built + encoded)
+
+    assert recover._constructor_arguments("0xdead", "mainnet", built) == (encoded.hex(), "")
+
+
+def test_a_constructor_taking_nothing_leaves_no_arguments(tmp_path, monkeypatch):
+    # An empty answer is a real one, and must not read as a failure to find them.
+    recover = load_recover_baselines()
+    built = with_trailer(bytes.fromhex("6080604052" + "11" * 40))
+    creation_payload(monkeypatch, recover, built)
+
+    assert recover._constructor_arguments("0xdead", "mainnet", built) == ("", "")
+
+
+def test_the_arguments_are_found_though_the_rebuild_carries_its_own_metadata(tmp_path, monkeypatch):
+    # The rebuild's CBOR trailer never equals the deployed one - each hashes the sources and settings
+    # of the tree it was built in - so demanding a byte-exact prefix would refuse every contract whose
+    # metadata differs, which is all of them.
+    recover = load_recover_baselines()
+    body = bytes.fromhex("6080604052" + "11" * 40)
+    built = with_trailer(body, filler=0x00)
+    deployed = with_trailer(body, filler=0xEE)
+    encoded = bytes.fromhex("cd" * 64)
+    creation_payload(monkeypatch, recover, deployed + encoded)
+
+    assert recover._constructor_arguments("0xdead", "mainnet", built) == (encoded.hex(), "")
+
+
+def test_a_payload_that_is_not_this_build_yields_no_arguments(tmp_path, monkeypatch):
+    # The tail is only this contract's arguments if what precedes it is this contract. Without that
+    # check the constructor would be handed whatever happened to follow someone else's bytecode.
+    recover = load_recover_baselines()
+    built = with_trailer(bytes.fromhex("6080604052" + "11" * 40))
+    other = with_trailer(bytes.fromhex("6080604052" + "22" * 40))
+    creation_payload(monkeypatch, recover, other + bytes.fromhex("cd" * 32))
+
+    arguments, refused = recover._constructor_arguments("0xdead", "mainnet", built)
+
+    assert arguments is None
+    # And the reason is about THIS contract, not about the asking: a caller must be able to tell a
+    # candidate it should reject from an explorer it could not reach.
+    assert refused == "the deployed creation payload is not what this build produces"
+
+
 def test_a_deployed_contract_naming_no_compiler_is_reported_not_guessed(tmp_path, monkeypatch, capsys):
     # A contract whose code carries no trailer names no compiler. Recovering it anyway would record a
     # compiler that merely happens to be installed here, which is the claim this record exists to stop.
@@ -347,6 +431,7 @@ def test_a_deployed_contract_naming_no_compiler_is_reported_not_guessed(tmp_path
     monkeypatch.setattr(recover, "_deployed_code", chain.code)
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -401,6 +486,7 @@ def test_a_contract_two_manifests_disagree_about_names_both_of_them(tmp_path, mo
     monkeypatch.setattr(recover, "_deployed_code", chain.code)
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -495,16 +581,16 @@ class ImmutableChain:
         self.onchain = onchain
         self.builds = builds
 
-    def code(self, address: str, chain: str) -> bytes | None:
-        return self.onchain if address.lower() == ADDRESS_A else None
+    def code(self, address: str, chain: str) -> tuple[bytes | None, str]:
+        return (self.onchain if address.lower() == ADDRESS_A else None), ""
 
-    def deployment(self, address: str, chain: str, claimed: str) -> tuple[int, str]:
-        return 100, DEPLOYED
+    def deployment(self, address: str, chain: str, claimed: str) -> tuple[tuple[int, str], str]:
+        return (100, DEPLOYED), ""
 
-    def construct(self, creation: str, chain: str, block: int) -> bytes:
+    def construct(self, creation: str, chain: str, block: int) -> tuple[bytes, str]:
         for artefact, produced in self.builds:
             if artefact["deployedBytecode"]["object"][2:].lower() in creation.lower():
-                return produced
+                return produced, ""
         raise AssertionError("no build in this fixture produced that creation code")
 
 
@@ -523,6 +609,7 @@ def test_a_screened_candidate_that_fails_the_constructor_stays_in_the_search(tmp
     monkeypatch.setattr(recover, "_deployed_code", chain.code)
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -546,6 +633,7 @@ def test_a_contract_proved_after_an_unproven_screen_is_not_also_reported_unprove
     monkeypatch.setattr(recover, "_deployed_code", chain.code)
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -575,6 +663,7 @@ def test_a_contract_never_proved_names_every_commit_it_screened_at(tmp_path, mon
     monkeypatch.setattr(recover, "_deployed_code", chain.code)
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -585,7 +674,9 @@ def test_a_contract_never_proved_names_every_commit_it_screened_at(tmp_path, mon
     row = next(line for line in summary.splitlines() if ADDRESS_A in line)
     assert first[:10] in row, "the first commit that came close"
     assert second[:10] in row, "and the second, so the reader sees every one of them"
-    assert "constructor does not account for it" in row
+    # The reason, not a single sentence covering every way a screen can fail to prove: a constructor
+    # that disagreed is a different remedy from one that was never run.
+    assert "the constructor ran but did not reproduce what is deployed" in row
     assert "no candidate built" not in row, "something did build it — everywhere but an immutable"
 
 
@@ -645,6 +736,7 @@ def test_an_entry_with_no_address_is_named_in_the_closing_list(tmp_path, monkeyp
     monkeypatch.setattr(recover, "_deployed_code", chain.code)
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -679,6 +771,7 @@ def test_the_described_total_accounts_for_every_entry_the_manifests_hold(tmp_pat
     monkeypatch.setattr(recover, "_deployed_code", chain.code)
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -742,6 +835,7 @@ def test_every_drop_reason_reaches_the_summary_from_every_stage(tmp_path, monkey
     monkeypatch.setattr(recover, "_deployed_code", chain.code)
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -750,7 +844,9 @@ def test_every_drop_reason_reaches_the_summary_from_every_stage(tmp_path, monkey
     assert "3 not recorded:" in printed, "every stage's casualties under one heading"
     summary = printed[printed.rindex("not recorded") :]
     assert NO_ADDRESS in summary, "the entry review could not key"
-    assert "deployed code unreadable" in summary, "the one the chain would not answer for"
+    # The chain ANSWERED here, and what it said is that nothing is deployed - which is a finding
+    # about the address, not about the RPC. "unreadable" claimed the opposite.
+    assert "nothing is deployed at that address" in summary, "the one with no code on the chain"
     assert "no candidate built what is deployed" in summary, "and the one nothing built"
 
 
@@ -770,6 +866,7 @@ def test_the_entries_that_cannot_be_read_are_named_when_there_is_nothing_to_reco
     monkeypatch.setattr(recover, "_deployed_code", chain.code)
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -810,6 +907,7 @@ def orphan_baseline(address: str, name: str):
         sources={},
         submodules={},
         libraries={},
+        constructorArguments="",
     )
 
 
@@ -832,6 +930,7 @@ def test_a_baseline_no_manifest_claims_is_named_in_the_summary(tmp_path, monkeyp
     monkeypatch.setattr(recover, "_deployed_code", chain.code)
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -882,6 +981,7 @@ def test_every_count_in_the_head_line_has_rows_at_the_end(tmp_path, monkeypatch,
     monkeypatch.setattr(recover, "_deployed_code", chain.code)
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -921,6 +1021,7 @@ def recorded_baseline(repo: Path, scratch: Path, commit: str, digest: str):
         sources={},
         submodules={},
         libraries={},
+        constructorArguments="",
     )
 
 
@@ -1011,6 +1112,7 @@ def test_a_selector_that_names_nothing_still_reports_what_is_wrong(tmp_path, mon
     monkeypatch.setattr(recover, "_deployed_code", chain.code)
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
     monkeypatch.chdir(repo)
 
     assert recover.run(repo, say=recover.Printer(0), only=f"mainnet/{ADDRESS_A}") == 1, (
@@ -1100,6 +1202,7 @@ def test_a_baseline_records_the_state_file_it_came_from(tmp_path, monkeypatch):
     monkeypatch.setattr(recover, "_deployed_code", chain.code)
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -1136,6 +1239,7 @@ def test_a_contract_two_manifests_describe_records_both_state_files(tmp_path, mo
     monkeypatch.setattr(recover, "_deployed_code", chain.code)
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -1172,6 +1276,7 @@ def driven(recover, monkeypatch, repo, deployed_a):
     monkeypatch.setattr(recover, "_deployed_code", chain.code)
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
     monkeypatch.chdir(repo)
 
 

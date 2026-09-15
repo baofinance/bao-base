@@ -171,16 +171,23 @@ class Facts:
         return bool(self.at_risk)
 
 
+class UnreadableLock(Exception):
+    """foundry.lock exists and will not parse. Raised rather than read as an absence, because the two
+    mean opposite things: a project with NO lock pins nothing, which is exactly true of a repository
+    that never used forge, while a lock somebody wrote and that cannot be read is a defect in the
+    file - and answering {} for it makes every check downstream agree the tree is in order."""
+
+
 def read_lock(repo_root: Path) -> dict[str, Pin]:
-    """foundry.lock as {path: Pin}. An unreadable or absent lock yields {}, which reads downstream as
-    every dependency being unpinned - true, and better than half a picture."""
+    """foundry.lock as {path: Pin}. An ABSENT lock yields {} - nothing is pinned, which is an answer.
+    One that exists and will not parse raises `UnreadableLock` for the caller to report."""
     lock_file = repo_root / "foundry.lock"
     if not lock_file.is_file():
         return {}
     try:
         raw = json.loads(lock_file.read_text())
-    except json.JSONDecodeError:
-        return {}
+    except json.JSONDecodeError as broken:
+        raise UnreadableLock(f"{lock_file} does not parse: {broken}") from broken
     pins: dict[str, Pin] = {}
     for path, entry in raw.items():
         for kind in ("tag", "branch"):

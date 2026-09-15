@@ -23,6 +23,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bin"))
 
 from submodule_state import (  # noqa: E402
+    UnreadableLock,
     checklist,
     condition,
     conflicting_dependencies,
@@ -355,9 +356,21 @@ def test_the_lock_records_which_kind_of_pin_it_is(world):
 
 
 def test_a_missing_lock_leaves_every_dependency_unpinned(tmp_path):
-    # Better than half a picture: no lock means nothing claims a ref, which is exactly true.
-    (tmp_path / "foundry.lock").write_text("{ not json")
+    # An answer, not a failure: a project with no lock pins nothing, which is exactly true of a
+    # repository that never used forge.
     assert read_lock(tmp_path) == {}
+
+
+def test_a_lock_that_cannot_be_READ_is_refused_rather_than_read_as_empty(tmp_path):
+    # Opposite meanings from the same value. A lock somebody wrote and that will not parse is a
+    # defect in the file; answering {} says the project deliberately pins nothing, and every check
+    # downstream then agrees that a tree with no pins is in order.
+    (tmp_path / "foundry.lock").write_text("{ not json")
+
+    with pytest.raises(UnreadableLock) as refused:
+        read_lock(tmp_path)
+
+    assert "foundry.lock" in str(refused.value)
 
 
 def test_a_consistent_tree_has_nothing_left_on_the_checklist(world):

@@ -55,6 +55,7 @@ PAUSER = Baseline(
     sources={"src/BaoPauser_v1.sol": "d" * 40, "lib/bao-base/src/ERC165.sol": "e" * 40},
     submodules={"lib/bao-base": "f" * 40},
     libraries={},
+    constructorArguments="",
 )
 
 
@@ -215,6 +216,7 @@ def test_the_file_is_camel_case_throughout_and_names_its_fields_as_the_manifests
         "sources",
         "submodules",
         "libraries",
+        "constructorArguments",
     }
     assert not any("_" in name for name in fields), fields
     assert "Hash" not in "".join(fields), "the algorithm is named, not left for the value to declare"

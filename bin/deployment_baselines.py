@@ -122,6 +122,16 @@ class Baseline:
     # the source - the same reason that hash already excludes constructor arguments. Empty for a
     # contract that links nothing, which is most of them.
     libraries: dict[str, str]
+    # What the constructor was given, ABI-encoded, as the deployment appended it to the creation
+    # bytecode. Empty for a constructor that takes nothing.
+    #
+    # The ONLY deployment input here that the deployed contract does not carry: an immutable and a
+    # library address are both readable from the runtime code, which is why neither is recorded and
+    # both can be re-derived whenever they are wanted. An argument lives only in the creation
+    # payload, and nothing but a block explorer maps an address back to the transaction that carried
+    # it - so a baseline that does not name it cannot be re-proved without going out to one, and the
+    # re-prove is deliberately offline.
+    constructorArguments: str
 
 
 def key(chain_id: int, address: str) -> str:

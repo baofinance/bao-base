@@ -132,6 +132,7 @@ def baseline_for(address: str = "0xAA", commit: str = "a" * 40) -> Baseline:
         sources={"src/Foo.sol": "d" * 40},
         submodules={},
         libraries={},
+        constructorArguments="",
     )
 
 
@@ -523,6 +524,7 @@ def test_inputs_in_a_submodule_this_clone_does_not_have_are_unchecked_not_missin
         sources={"lib/ghost/src/Dep.sol": "e" * 40},
         submodules={"lib/ghost": "f" * 40},
         libraries={},
+        constructorArguments="",
     )
     write_baselines(repo, add({}, baseline))
 
@@ -562,6 +564,7 @@ def test_a_submodule_gitlink_this_clone_has_lost_is_reported(repo, tmp_path):
                 sources={"lib/dep/Dep.sol": "e" * 40},
                 submodules={"lib/dep": "0" * 40},
                 libraries={},
+                constructorArguments="",
             ),
         ),
     )
@@ -610,6 +613,7 @@ def test_a_gitlink_for_a_submodule_holding_no_recorded_source_is_not_checked(rep
         sources=real_sources(repo, head, ["src/Foo.sol"]),
         submodules={"lib/ghost": "f" * 40},
         libraries={},
+        constructorArguments="",
     )
     write_baselines(repo, add({}, baseline))
 
