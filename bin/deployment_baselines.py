@@ -31,7 +31,7 @@ from collections.abc import Iterable
 from dataclasses import asdict, dataclass, fields, replace
 from pathlib import Path
 
-from deployment_recovery import declared_in
+from deployment_recovery import checkouts_by_repository, checkouts_of, declared_in, holds, placement
 from deployment_records import Entry, Problem, normalise, read_records
 
 SCHEMA_VERSION = 1
@@ -399,9 +399,9 @@ class Review:
     # (baseline, the recorded inputs that no longer resolve). The record names every source by its git
     # BLOB at the commit that built it, so this asks whether that commit still holds those exact bytes.
     inputs_missing: list[tuple[Baseline, list[str]]]
-    # (baseline, the inputs this clone cannot look at) - inside a submodule it does not hold. Separate
-    # from missing because a partial checkout is not a defect, and failing on it would fail every
-    # developer's build for a clone only CI makes.
+    # (baseline, the inputs this clone cannot look at) - inside a submodule whose repository has no
+    # checkout anywhere in the tree. Separate from missing because a partial checkout is not a defect,
+    # and failing on it would fail every developer's build for a clone only CI makes.
     inputs_unchecked: list[tuple[Baseline, list[str]]]
     # Baselines whose commit NO TAG points at. A branch holding it is not preservation: branches move,
     # are force-pushed and are deleted when work merges, where a tag does none of those. Any tag counts,
@@ -434,7 +434,7 @@ def drop(pending: dict[str, object], account: list[Problem], entry_key: str, ent
 
 
 def _inputs_gone(
-    repo_root: Path, baselines: list[Baseline]
+    repo_root: Path, baselines: list[Baseline], placed: dict[str, dict[str, tuple[str, Path | None]]]
 ) -> tuple[list[tuple[Baseline, list[str]]], list[tuple[Baseline, list[str]]]]:
     """Which recorded inputs no longer resolve, and which this clone cannot look at.
 
@@ -449,34 +449,22 @@ def _inputs_gone(
 
     A source inside a submodule is resolved against the gitlink THE RECORD holds for it, never the
     submodule's tip - the same routing that wrote the blob ids, so the question matches the answer.
+    `placed` gives, per baseline key, the submodules its sources live in as `placement` takes them.
 
     One `git cat-file` per holding repository, not per source: eighty-three baselines naming thirty-two
     sources each is two and a half thousand lookups, asked as about thirty."""
     unchecked_by: dict[int, list[str]] = {}
     by_holder: dict[Path, list[tuple[int, str, str, str]]] = {}
     for index, baseline in enumerate(baselines):
+        submodules = placed[key(baseline.chainId, baseline.address)]
         for path, blob in sorted(baseline.sources.items()):
-            # The longest match, so a file in a nested submodule is read against the nested gitlink.
-            prefix = max((p for p in baseline.submodules if path.startswith(f"{p}/")), key=len, default=None)
-            holder = repo_root if prefix is None else repo_root / prefix
-            at = baseline.commit if prefix is None else baseline.submodules[prefix]
-            inside = path if prefix is None else path[len(prefix) + 1 :]
-            if prefix is not None and not (holder / ".git").exists():
+            _, holder, at, inside = placement(repo_root, baseline.commit, path, submodules)
+            if holder is None:
                 unchecked_by.setdefault(index, []).append(path)
                 continue
             by_holder.setdefault(holder, []).append((index, path, f"{at}:{inside}", blob))
-        for path, gitlink in sorted(baseline.submodules.items()):
-            # Only a submodule some recorded source lives in. A baseline names thirty-two gitlinks and
-            # compiles from three of them; the rest are pins of dependencies the build never read, and
-            # the aggregators hold three that are not even checked out - so checking all of them warns
-            # on every build about something nobody can act on. What reproduces the bytecode is the
-            # SOURCES plus the pinned compiler and settings, so a submodule that supplied none of them
-            # cannot change the answer, which recovery demonstrates by building while reporting exactly
-            # those three unplaced.
-            if not any(source.startswith(f"{path}/") for source in baseline.sources):
-                continue
-            holder = repo_root / path
-            if not (holder / ".git").exists():
+        for path, (gitlink, holder) in sorted(submodules.items()):
+            if holder is None:
                 unchecked_by.setdefault(index, []).append(path)
                 continue
             by_holder.setdefault(holder, []).append((index, path, gitlink, gitlink))
@@ -562,9 +550,63 @@ def review(repo_root: Path, *, ignoring_the_record: bool = False) -> Review:
     # Only where the commit is present, for the reason `misnamed` gives below: a baseline whose commit
     # this repository has lost would report every one of its sources as missing too, sending the reader
     # after thirty-two files when the finding is one lost commit.
-    inputs_missing, inputs_unchecked = _inputs_gone(
-        repo_root, [baselines[k] for k in sorted(baselines) if reaches[baselines[k].commit] != "absent"]
-    )
+    present = [baselines[k] for k in sorted(baselines) if reaches[baselines[k].commit] != "absent"]
+    # Where each present baseline's submodules are read, as `placement` takes them.
+    #
+    # Only a submodule some recorded source lives in. A baseline names thirty-two gitlinks and compiles
+    # from three of them; the rest are pins of dependencies the build never read, and the aggregators
+    # hold three that are not even checked out - so checking all of them warns on every build about
+    # something nobody can act on. What reproduces the bytecode is the SOURCES plus the pinned compiler
+    # and settings, so a submodule that supplied none of them cannot change the answer, which recovery
+    # demonstrates by building while reporting exactly those three unplaced.
+    #
+    # Each gitlink is THE RECORD's, and its checkout is the first `checkouts_of` offers that holds it: a
+    # gitlink names a commit, and any checkout of that repository holding it gives the same bytes. That
+    # is what reads harbor's 153 records built from `lib/bao-base-audit-2025-07` - bao-base at the audit
+    # tag, a mount since removed from the tree - out of `lib/bao-base`. When none holds it, the first
+    # checkout of the repository that exists is taken anyway, so the commit is asked for there and
+    # reported missing: a pin that went away. None only when the tree has no checkout of the repository
+    # at all, which is a clone that cannot answer.
+    #
+    # Parents before children, so a nested submodule is looked for from its parent's checkout at the
+    # parent's gitlink. Resolved once per distinct commit and submodule set, not per baseline: ten
+    # commits carry harbor's 154 records.
+    checkouts = checkouts_by_repository(repo_root)
+    resolved: dict[tuple[str, tuple[tuple[str, str], ...]], dict[str, tuple[str, Path | None]]] = {}
+    placed: dict[str, dict[str, tuple[str, Path | None]]] = {}
+    for baseline in present:
+        question = (
+            baseline.commit,
+            tuple(
+                sorted(
+                    (path, gitlink)
+                    for path, gitlink in baseline.submodules.items()
+                    if any(source.startswith(f"{path}/") for source in baseline.sources)
+                )
+            ),
+        )
+        if question not in resolved:
+            submodules: dict[str, tuple[str, Path | None]] = {}
+            for path, gitlink in sorted(question[1], key=lambda item: len(item[0])):
+                _, parent_repo, parent_commit, inside = placement(repo_root, baseline.commit, path, submodules)
+                checkout = None
+                if parent_repo is not None:
+                    for candidate in checkouts_of(parent_repo, parent_commit, inside, checkouts):
+                        if holds(candidate, gitlink):
+                            checkout = candidate
+                            break
+                        if checkout is None and (candidate / ".git").exists():
+                            checkout = candidate
+                submodules[path] = (gitlink, checkout)
+            resolved[question] = submodules
+        placed[key(baseline.chainId, baseline.address)] = resolved[question]
+    inputs_missing, inputs_unchecked = _inputs_gone(repo_root, present, placed)
+    # The name check reads a source's bytes at its commit, so it asks only where those ARE the recorded
+    # bytes. A source not checked, or not what was built, is already reported as that; its name at the
+    # commit would be a finding about some other file than the one deployed.
+    inputs_reported: dict[str, set[str]] = {}
+    for baseline, paths in (*inputs_missing, *inputs_unchecked):
+        inputs_reported.setdefault(key(baseline.chainId, baseline.address), set()).update(paths)
     return Review(
         recorded=[baselines[k] for k in sorted(baselines) if k in claimed],
         unrecovered=unrecovered,
@@ -586,7 +628,8 @@ def review(repo_root: Path, *, ignoring_the_record: bool = False) -> Review:
             (baselines[k], declared)
             for k in sorted(baselines)
             if reaches[baselines[k].commit] != "absent"
-            and (declared := declared_in(repo_root, baselines[k].commit, baselines[k].source))
+            and baselines[k].source not in inputs_reported.get(k, set())
+            and (declared := declared_in(repo_root, baselines[k].commit, baselines[k].source, placed[k]))
             != baselines[k].contractType
         ],
     )

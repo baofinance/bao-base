@@ -27,7 +27,7 @@ import json
 import re
 import subprocess
 import tarfile
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -344,13 +344,24 @@ def commit_timestamp(repo_root: Path, commit: str) -> str | None:
     return datetime.fromtimestamp(int(seconds), tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def declared_in(repo_root: Path, commit: str, path: str) -> str | None:
+def declared_in(repo_root: Path, commit: str, path: str, placed: dict[str, tuple[str, Path | None]]) -> str | None:
     """The single contract that `path` declares at `commit`, or None if it declares none or several.
 
     Several is not resolved by picking: a file declaring two contracts gives no reason to prefer
     either, and preferring wrongly means comparing a deployed contract against a different one's
-    build."""
-    done = subprocess.run(["git", "show", f"{commit}:{path}"], cwd=repo_root, capture_output=True, text=True)
+    build.
+
+    Read through `placement`, so a source inside a submodule is read where it exists. `placed` is as
+    `placement` takes it.
+
+    A file that cannot be read raises: it declares nothing that can be known, and None would report a
+    question never asked as the answer "declares no single contract"."""
+    prefix, holder, holder_commit, inside = placement(repo_root, commit, path, placed)
+    if holder is None:
+        raise FileNotFoundError(f"{path} is in {prefix}, which no checkout in this tree holds")
+    done = subprocess.run(["git", "show", f"{holder_commit}:{inside}"], cwd=holder, capture_output=True, text=True)
+    if done.returncode != 0:
+        raise FileNotFoundError(f"{path} is not in the tree at {commit[:10]}")
     declared = re.findall(r"^[ \t]*(?:abstract[ \t]+)?contract[ \t]+(\w+)", done.stdout, re.MULTILINE)
     return declared[0] if len(declared) == 1 else None
 
@@ -458,7 +469,9 @@ def source_at(
     was = _path_at(repo_root, commit, recorded_path)
     if was is None:
         return None
-    declared = declared_in(repo_root, commit, was)
+    # No submodules to place: `git diff` reports a submodule as its one gitlink, never as paths inside
+    # it, so a path `_path_at` follows is always in this repository's own tree.
+    declared = declared_in(repo_root, commit, was, {})
     return (was, declared) if declared else None
 
 
@@ -474,33 +487,41 @@ def holder_of(parent_repo: Path, parent_commit: str, path: str, gitlink: str, ch
     The recorded path is tried first because it is the declared home, not because it is trusted - it
     faces the same test as every other candidate, which is what stops a checkout that is present but
     lacks the commit from hiding a sibling that has it."""
+    return next(
+        (holder for holder in checkouts_of(parent_repo, parent_commit, path, checkouts) if holds(holder, gitlink)), None
+    )
 
-    def candidates() -> Iterable[Path]:
-        """Lazily, so the URL and the index are reached only when the recorded checkout does not
-        answer - which is almost always - without that being a second policy."""
-        yield parent_repo / path
-        # The URL the COMMIT records, not today's: what matters is what that dependency was then.
-        named = subprocess.run(
-            ["git", "config", "--blob", f"{parent_commit}:.gitmodules", "--get-regexp", r"\.path$"],
+
+def checkouts_of(parent_repo: Path, parent_commit: str, path: str, checkouts: dict) -> Iterator[Path]:
+    """Every place the dependency `parent_commit` mounts at `path` might be read from, declared home first.
+
+    The mount path, then each checkout in the tree of the repository `parent_commit`'s `.gitmodules`
+    names for it - the URL the COMMIT records, not today's: what matters is what that dependency was
+    then, and a mount since removed from the tree is still named there. None of them is known to hold
+    anything; that is the caller's test.
+
+    Lazily, so the URL and the index are reached only when the declared home does not answer - which is
+    almost always - without that being a second policy."""
+    yield parent_repo / path
+    named = subprocess.run(
+        ["git", "config", "--blob", f"{parent_commit}:.gitmodules", "--get-regexp", r"\.path$"],
+        cwd=parent_repo,
+        capture_output=True,
+        text=True,
+    )
+    for line in named.stdout.splitlines():
+        key, _, declared_path = line.partition(" ")
+        if declared_path.strip() != path:
+            continue
+        url = subprocess.run(
+            ["git", "config", "--blob", f"{parent_commit}:.gitmodules", "--get", f"{key[: -len('.path')]}.url"],
             cwd=parent_repo,
             capture_output=True,
             text=True,
         )
-        for line in named.stdout.splitlines():
-            key, _, declared_path = line.partition(" ")
-            if declared_path.strip() != path:
-                continue
-            url = subprocess.run(
-                ["git", "config", "--blob", f"{parent_commit}:.gitmodules", "--get", f"{key[: -len('.path')]}.url"],
-                cwd=parent_repo,
-                capture_output=True,
-                text=True,
-            )
-            if url.returncode == 0:
-                yield from checkouts.get(_repository_identity(url.stdout), [])
-            return
-
-    return next((holder for holder in candidates() if _holds(holder, gitlink)), None)
+        if url.returncode == 0:
+            yield from checkouts.get(_repository_identity(url.stdout), [])
+        return
 
 
 def submodules_at(repo_root: Path, commit: str, checkouts: dict) -> dict[str, tuple[str, Path | None]]:
@@ -534,6 +555,29 @@ def submodules_at(repo_root: Path, commit: str, checkouts: dict) -> dict[str, tu
     return found
 
 
+def placement(
+    repo_root: Path, commit: str, path: str, placed: dict[str, tuple[str, Path | None]]
+) -> tuple[str | None, Path | None, str, str]:
+    """Where `path` as of `commit` is read: (the submodule it is in, its checkout, the commit to read
+    there, the path inside it).
+
+    The superproject's tree holds only a gitlink where a submodule is mounted, so a file inside one
+    exists at the commit the superproject records for that submodule, in that submodule's own store -
+    never at the superproject's commit. `placed` maps each submodule path to (that recorded commit, the
+    checkout holding it or None), as `submodules_at` answers it. A path in no submodule is read from
+    `repo_root` at `commit`, with the submodule None.
+
+    The longest match wins, so a file in a nested submodule is read against the nested gitlink rather
+    than its parent's. The checkout is None when nothing holds the submodule, and reading is the
+    caller's decision: a record cannot be written without it, and a review can only say it did not look.
+    """
+    prefix = max((p for p in placed if path.startswith(f"{p}/")), key=len, default=None)
+    if prefix is None:
+        return None, repo_root, commit, path
+    holder_commit, holder = placed[prefix]
+    return prefix, holder, holder_commit, path[len(prefix) + 1 :]
+
+
 def source_blobs(
     repo_root: Path, commit: str, paths: Iterable[str], placed: dict[str, tuple[str, Path | None]]
 ) -> dict[str, str]:
@@ -548,16 +592,9 @@ def source_blobs(
     """
     found: dict[str, str] = {}
     for path in paths:
-        # The longest match, so a file in a nested submodule is read against the nested gitlink rather
-        # than its parent's.
-        prefix = max((p for p in placed if path.startswith(f"{p}/")), key=len, default=None)
-        if prefix is None:
-            holder, holder_commit, inside = repo_root, commit, path
-        else:
-            holder_commit, found_at = placed[prefix]
-            if found_at is None:
-                raise FileNotFoundError(f"{path} is in {prefix}, which no checkout in this tree holds")
-            holder, inside = found_at, path[len(prefix) + 1 :]
+        prefix, holder, holder_commit, inside = placement(repo_root, commit, path, placed)
+        if holder is None:
+            raise FileNotFoundError(f"{path} is in {prefix}, which no checkout in this tree holds")
         shown = subprocess.run(
             ["git", "rev-parse", f"{holder_commit}:{inside}"], cwd=holder, capture_output=True, text=True
         )
@@ -586,7 +623,7 @@ def _repository_identity(url: str) -> str:
     return text.lower()
 
 
-def _holds(repo: Path, commit: str) -> bool:
+def holds(repo: Path, commit: str) -> bool:
     """Whether `repo`'s object store has `commit`. The only thing that makes a checkout a source.
 
     A path with no checkout at it has no store and so holds nothing - the same answer as a checkout

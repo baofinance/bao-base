@@ -824,8 +824,9 @@ def _check_baselines(found: Review) -> int:
         )
 
     if found.inputs_unchecked:
-        # A LOG, not an error: a clone without every submodule cannot answer, and saying nothing about
-        # what it cannot see is honest where failing would be theatre. CI clones recursively and answers.
+        # A LOG, not an error: it means no checkout of that dependency's repository is in this tree at
+        # all - a clone without its submodules - and a clone that cannot look cannot answer. A mount
+        # since removed from the tree is not this: it is read from any checkout of the same repository.
         _log(
             f"{len(found.inputs_unchecked)} baseline(s) have inputs inside submodules this clone does not"
             " hold, so they were not checked"

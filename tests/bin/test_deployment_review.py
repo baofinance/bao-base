@@ -358,7 +358,10 @@ def test_a_record_naming_a_contract_its_source_does_not_declare_is_reported(repo
     # about the name. Which is why this is an error rather than a note.
     push_to_a_new_remote(repo, tmp_path)
     declare(repo, "src/Foo.sol", "Renamed")
-    write_baselines(repo, add({}, baseline_for(commit=head_of(repo))))
+    head = head_of(repo)
+    write_baselines(
+        repo, add({}, replace(baseline_for(commit=head), sources=real_sources(repo, head, ["src/Foo.sol"])))
+    )
 
     found = review(repo)
 
@@ -382,11 +385,121 @@ def test_a_record_whose_source_declares_no_contract_at_all_is_reported(repo, tmp
     # can be compared. Reported with the same finding rather than a separate one - the record and its
     # source disagree either way, and the fix is the same: make the record say what the source says.
     push_to_a_new_remote(repo, tmp_path)
-    write_baselines(repo, add({}, baseline_for(commit=head_of(repo))))
+    head = head_of(repo)
+    write_baselines(
+        repo, add({}, replace(baseline_for(commit=head), sources=real_sources(repo, head, ["src/Foo.sol"])))
+    )
 
     found = review(repo)
 
     assert [declares for _, declares in found.misnamed] == [None]
+
+
+def a_dependency(tmp_path: Path, contract: str) -> Path:
+    """A repository whose `Dep.sol` declares `contract`, to be mounted as a submodule."""
+    origin = tmp_path / "dep-origin"
+    origin.mkdir()
+    for arguments in (("init", "-q"), ("config", "user.email", "t@t"), ("config", "user.name", "test")):
+        git(origin, *arguments)
+    (origin / "Dep.sol").write_text(f"contract {contract} {{}}\n")
+    git(origin, "add", "-A")
+    git(origin, "commit", "-qm", "dependency")
+    return origin
+
+
+def mount(repo: Path, origin: Path, path: str) -> None:
+    """Commit `origin` mounted as a submodule at `path`.
+
+    Commits only what `submodule add` staged: the repositories a test creates sit inside `repo`'s own
+    directory, and staging everything would commit them as gitlinks no `.gitmodules` declares."""
+    subprocess.run(
+        ["git", "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(origin), path],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    git(repo, "commit", "-qm", f"mount {path}")
+
+
+def with_a_submodule(repo: Path, tmp_path: Path, contract: str) -> str:
+    """Add `lib/dep`, whose `Dep.sol` declares `contract`, and commit it. Returns the gitlink recorded."""
+    mount(repo, a_dependency(tmp_path, contract), "lib/dep")
+    return head_of(repo / "lib" / "dep")
+
+
+def recorded_from_the_submodule(repo: Path, contract_type: str) -> Baseline:
+    """A record of `lib/dep/Dep.sol` built at HEAD, whose inputs all resolve."""
+    head = head_of(repo)
+    return replace(
+        baseline_for(commit=head),
+        contractType=contract_type,
+        source="lib/dep/Dep.sol",
+        sources=real_sources(repo, head, ["lib/dep/Dep.sol"]),
+        submodules={"lib/dep": head_of(repo / "lib" / "dep")},
+    )
+
+
+def test_a_record_agreeing_with_its_source_in_a_submodule_is_not_reported(repo, tmp_path):
+    # A contract deployed from this repository and defined in a dependency - harbor's
+    # `MintableBurnableERC20_v1`, from bao-base. The superproject's tree holds only a gitlink there, so
+    # the source is read inside the submodule at the commit the record holds for it.
+    with_a_submodule(repo, tmp_path, "Dep")
+    push_to_a_new_remote(repo, tmp_path)
+    write_baselines(repo, add({}, recorded_from_the_submodule(repo, "Dep")))
+
+    assert review(repo).misnamed == []
+
+
+def test_a_record_disagreeing_with_its_source_in_a_submodule_is_reported_with_what_it_declares(repo, tmp_path):
+    # A submodule source is read, not waved through: a record renamed after its deploy is caught the same
+    # wherever the file lives, and the name the source declares is reported beside the record's.
+    with_a_submodule(repo, tmp_path, "Dep")
+    push_to_a_new_remote(repo, tmp_path)
+    write_baselines(repo, add({}, recorded_from_the_submodule(repo, "Renamed")))
+
+    assert [(b.contractType, declares) for b, declares in review(repo).misnamed] == [("Renamed", "Dep")]
+
+
+def test_a_record_whose_source_is_in_a_submodule_this_clone_does_not_have_is_not_reported_as_misnamed(
+    repo, tmp_path
+):
+    # Nothing can be said about a file that cannot be read, and the source is already reported as
+    # unchecked. Saying it "declares no single contract" asserts something nobody looked at.
+    push_to_a_new_remote(repo, tmp_path)
+    baseline = replace(
+        baseline_for(commit=head_of(repo)),
+        source="lib/ghost/src/Foo.sol",
+        sources={"lib/ghost/src/Foo.sol": "e" * 40},
+        submodules={"lib/ghost": "f" * 40},
+    )
+    write_baselines(repo, add({}, baseline))
+
+    found = review(repo)
+
+    assert found.misnamed == []
+    assert [b.contractType for b, _ in found.inputs_unchecked] == ["Foo"], "it is reported, as unchecked"
+
+
+def test_a_record_whose_source_is_not_the_bytes_it_recorded_is_reported_once_as_missing(repo, tmp_path):
+    # The name check reads the source at the commit; when those are not the recorded bytes it would be
+    # reading some other file than the one deployed. Reported once, as the thing it is.
+    push_to_a_new_remote(repo, tmp_path)
+    declare(repo, "src/Foo.sol", "Renamed")
+    write_baselines(repo, add({}, replace(baseline_for(commit=head_of(repo)), sources={"src/Foo.sol": "d" * 40})))
+
+    found = review(repo)
+
+    assert [b.contractType for b, _ in found.inputs_missing] == ["Foo"]
+    assert found.misnamed == [], "a disagreement with bytes nobody deployed is not a finding about the record"
+
+
+def test_what_a_source_declares_cannot_be_read_from_a_path_its_commit_does_not_have(repo):
+    # An unreadable file declares nothing that can be known. Answering None - "declares no single
+    # contract" - reported a question never asked as an answer; the path and commit are the facts.
+    from deployment_recovery import declared_in
+
+    with pytest.raises(FileNotFoundError, match=r"src/Absent\.sol is not in the tree at [0-9a-f]{10}"):
+        declared_in(repo, head_of(repo), "src/Absent.sol", {})
 
 
 def test_a_contract_whose_manifest_gives_no_chain_id_is_reported_not_silently_dropped(repo):
@@ -538,21 +651,7 @@ def test_inputs_in_a_submodule_this_clone_does_not_have_are_unchecked_not_missin
 def test_a_submodule_gitlink_this_clone_has_lost_is_reported(repo, tmp_path):
     # The submodule IS here, so the question can be asked - and the commit the superproject records for
     # it is not in it. That is a dependency pin that went away, which no rebuild could reproduce.
-    origin = tmp_path / "dep-origin"
-    origin.mkdir()
-    for arguments in (("init", "-q"), ("config", "user.email", "t@t"), ("config", "user.name", "test")):
-        git(origin, *arguments)
-    (origin / "Dep.sol").write_text("// dep\n")
-    git(origin, "add", "-A")
-    git(origin, "commit", "-qm", "dependency")
-    subprocess.run(
-        ["git", "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(origin), "lib/dep"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-    )
-    git(repo, "add", "-A")
-    git(repo, "commit", "-qm", "with a submodule")
+    with_a_submodule(repo, tmp_path, "Dep")
     push_to_a_new_remote(repo, tmp_path)
     head = head_of(repo)
     write_baselines(
@@ -597,6 +696,99 @@ def test_every_baseline_is_checked_not_only_the_first(repo, tmp_path):
     found = review(repo)
 
     assert [b.contractType for b, _ in found.inputs_missing] == ["Bar"], "the first being sound does not end the check"
+
+
+def recorded_before_a_second_mount_was_removed(repo: Path, tmp_path: Path) -> Baseline:
+    """A record built while one dependency was mounted twice, the second mount since removed.
+
+    harbor's shape: `lib/bao-base-audit-2025-07` was bao-base itself at the audit tag, mounted beside
+    `lib/bao-base`, and was removed from the tree after 153 contracts were built from it."""
+    origin = a_dependency(tmp_path, "Dep")
+    mount(repo, origin, "lib/dep")
+    mount(repo, origin, "lib/dep-audit")
+    built = replace(
+        baseline_for(commit=head_of(repo)),
+        contractType="Dep",
+        source="lib/dep-audit/Dep.sol",
+        sources=real_sources(repo, head_of(repo), ["lib/dep-audit/Dep.sol"]),
+        submodules={"lib/dep-audit": head_of(repo / "lib" / "dep-audit")},
+    )
+    git(repo, "rm", "-q", "lib/dep-audit")
+    git(repo, "commit", "-qm", "unmount lib/dep-audit")
+    push_to_a_new_remote(repo, tmp_path)
+    return built
+
+
+def test_inputs_in_a_submodule_since_removed_are_checked_in_another_checkout_of_its_repository(repo, tmp_path):
+    # A gitlink names a commit, and any checkout of that repository holding the commit gives the same
+    # bytes - where it is mounted does not matter. A removed mount is not a partial clone: no clone,
+    # recursive or not, will ever put a checkout there again, so "not checked" would be permanent.
+    write_baselines(repo, add({}, recorded_before_a_second_mount_was_removed(repo, tmp_path)))
+
+    found = review(repo)
+
+    assert not (repo / "lib" / "dep-audit").exists(), "the mount the record names is gone"
+    assert found.inputs_unchecked == [], "the same repository is checked out at lib/dep and holds the commit"
+    assert found.inputs_missing == []
+    assert found.misnamed == [], "and the name is read from it too"
+
+
+def test_changed_bytes_in_a_submodule_since_removed_are_reported(repo, tmp_path):
+    # The other checkout is READ, not taken as a pass: a recorded source it does not hold is missing.
+    built = recorded_before_a_second_mount_was_removed(repo, tmp_path)
+    write_baselines(repo, add({}, replace(built, sources={"lib/dep-audit/Dep.sol": "d" * 40})))
+
+    found = review(repo)
+
+    assert [(b.contractType, paths) for b, paths in found.inputs_missing] == [("Dep", ["lib/dep-audit/Dep.sol"])]
+    assert found.inputs_unchecked == []
+
+
+def test_inputs_in_a_nested_submodule_are_read_from_the_checkout_of_its_parent(repo, tmp_path):
+    # The OpenZeppelin contracts live inside contracts-upgradeable, and a gitlink resolves only against
+    # the commit its own parent records - so the parent is placed first and the child is looked for
+    # from the parent's checkout. The parent here is a mount since removed, so its checkout is another
+    # one of the same repository and the child's recorded path names nothing on disk.
+    inner = tmp_path / "inner-origin"
+    inner.mkdir()
+    for arguments in (("init", "-q"), ("config", "user.email", "t@t"), ("config", "user.name", "test")):
+        git(inner, *arguments)
+    (inner / "Inner.sol").write_text("contract Inner {}\n")
+    git(inner, "add", "-A")
+    git(inner, "commit", "-qm", "inner")
+    origin = a_dependency(tmp_path, "Dep")
+    mount(origin, inner, "lib/inner")
+    mount(repo, origin, "lib/dep")
+    mount(repo, origin, "lib/dep-audit")
+    updated = subprocess.run(
+        ["git", "-c", "protocol.file.allow=always", "submodule", "update", "-q", "--init", "--recursive"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    assert updated.returncode == 0, updated.stderr
+    head = head_of(repo)
+    built = replace(
+        baseline_for(commit=head),
+        contractType="Inner",
+        source="lib/dep-audit/lib/inner/Inner.sol",
+        sources=real_sources(repo, head, ["lib/dep-audit/lib/inner/Inner.sol"]),
+        submodules={
+            "lib/dep-audit": head_of(repo / "lib" / "dep-audit"),
+            "lib/dep-audit/lib/inner": head_of(repo / "lib" / "dep-audit" / "lib" / "inner"),
+        },
+    )
+    git(repo, "rm", "-q", "lib/dep-audit")
+    git(repo, "commit", "-qm", "unmount lib/dep-audit")
+    push_to_a_new_remote(repo, tmp_path)
+    write_baselines(repo, add({}, built))
+
+    found = review(repo)
+
+    assert not (repo / "lib" / "dep-audit").exists(), "the parent mount the record names is gone"
+    assert found.inputs_unchecked == []
+    assert found.inputs_missing == []
+    assert found.misnamed == [], "the name is read from the nested checkout too"
 
 
 def test_a_gitlink_for_a_submodule_holding_no_recorded_source_is_not_checked(repo, tmp_path):
