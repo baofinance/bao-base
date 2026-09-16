@@ -77,7 +77,9 @@
         "lib/openzeppelin-foundry-upgrades/lib/forge-std": "b6a506db2262cad5ff982a87789ee6d1558ec861",
         "lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils": "4b2fcc43fa0426e19ce88b1f1ec16f5903a2e461",
         "lib/solady": "717c0a860a83dc9a1520d32384577aec51cecd84"
-      }
+      },
+      "libraries": {},
+      "constructorArguments": ""
     }
   }
 }

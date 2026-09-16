@@ -28,6 +28,7 @@ import re
 import subprocess
 import tarfile
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -785,52 +786,146 @@ def artefact_for(out: Path, source: str, contract_type: str) -> tuple[dict | Non
     return None, "; ".join(unreadable) or f"no artefact declares {contract_type} from {source}"
 
 
-def differences(onchain: bytes, produced: bytes, references: dict, address: str) -> tuple[list[str], list[str]]:
-    """Every way the deployed code differs from the code its constructor produced, split into the ones
-    the deployment explains and the ones it does not. Empty `unexplained` is the verdict.
+@dataclass(frozen=True)
+class Explanation:
+    """One reason two builds of the same source may legitimately differ, and where it applies.
+
+    A region MASKED out of a comparison is never looked at, so a wrong value in it passes and the match
+    quietly means less than it says - and each mask added weakens every later verdict, with nothing in
+    the output to show that it did. An EXPLANATION is looked at: it names a region and then asserts the
+    difference found there is the one it predicts. `differences` takes a list of them, so a newly
+    discovered reason is one more entry - the comparison, its callers and the report do not change.
+
+    `accounts_for` receives the two differing slices and returns WHY, or None when the difference is not
+    the one this explains. An explanation that returns a reason unconditionally is a mask wearing a
+    different name, and buys nothing over the thing it replaced."""
+
+    # Names the region in the report, so a reader sees WHICH explanation accounted for what, rather than
+    # a verdict that quietly covers more ground each time one is added.
+    what: str
+    regions: tuple[tuple[int, int], ...]  # (start, length), offsets into both sides
+    accounts_for: Callable[[bytes, bytes], str | None]
+
+
+def own_address_immutable(references: dict, address: str) -> Explanation:
+    """The one immutable a local construction cannot reproduce: `address(this)` is where the code runs,
+    and a construction performed for comparison runs somewhere else. OpenZeppelin's UUPS `__self` is
+    exactly this.
+
+    Recognised by its VALUE - the deployed slot holds the deployed address, left-padded into a word -
+    rather than by excusing immutables as a class, so one that merely happens to hold an address is not
+    waved through. Every other immutable IS decided by the source: these constructors take no arguments,
+    so executing the creation code reproduces them, and a difference means the source is not what was
+    deployed."""
+    wanted = address.lower().removeprefix("0x")
+    return Explanation(
+        what="immutable",
+        regions=tuple((region["start"], region["length"]) for regions in references.values() for region in regions),
+        accounts_for=lambda deployed, produced: (
+            "the contract's own address" if deployed[-20:].hex() == wanted and not any(deployed[:-20]) else None
+        ),
+    )
+
+
+def embedded_metadata(artefact: dict) -> tuple[Explanation | None, str]:
+    """The metadata trailer of the runtime code a CREATION code carries, as a region of that creation
+    code - and why it cannot be placed, if it cannot.
+
+    A creation code does not end with its metadata. The trailer belongs to the runtime sub-assembly
+    embedded inside it, and lands last only when the creation assembly has nothing after it - so
+    stripping a trailer off the end takes the right bytes for some contracts and nothing at all for
+    others. Measured across 956 distinct builds in four repositories: 804 with nothing after the
+    embedded runtime, 151 with a 32-byte data item, one with a whole nested contract. The runtime is
+    embedded verbatim, and exactly once, in every one of them.
+
+    The extent is DECLARED, not read off the code. `legacyAssembly` gives the creation assembly as
+    `.code` plus `.data`, where `.data["0"]` is the runtime sub-assembly and its `.auxdata` is the
+    trailer byte for byte, and the creation assembly carries no `.auxdata` of its own. A build that does
+    not say so is REFUSED rather than masked on a guess - the rule `mask_regions` already states, that a
+    region comes from what the artefact declares.
+
+    Only the sub-assembly's OFFSET is found by content, because no compiler output gives byte offsets.
+    That is asserted rather than assumed: a runtime not appearing exactly once is refused."""
+    assembly = artefact.get("legacyAssembly")
+    if assembly is None:
+        return None, "the build does not declare its assembly, so the metadata trailer cannot be placed"
+    if ".auxdata" in assembly:
+        return None, "the creation assembly carries metadata of its own, which this does not describe"
+    runtime_assembly = (assembly.get(".data") or {}).get("0")
+    if not isinstance(runtime_assembly, dict) or ".auxdata" not in runtime_assembly:
+        return None, "the creation assembly declares no runtime sub-assembly carrying metadata"
+    trailer = bytes.fromhex(runtime_assembly[".auxdata"])
+    # Both sides zeroed the same way, so the runtime is found whether or not the contract links a
+    # library - and zeroing moves no byte, so the offset holds for the linked form too.
+    creation = without_link_addresses(artefact["bytecode"])
+    runtime = without_link_addresses(artefact["deployedBytecode"])
+    embedded = creation.count(runtime)
+    if embedded != 1:
+        return None, f"the runtime code appears {embedded} times in the creation code, so its trailer has no place"
+    start = creation.find(runtime) + len(runtime) - len(trailer)
+    if creation[start : start + len(trailer)] != trailer:
+        return None, "the declared metadata is not where the end of the embedded runtime puts it"
+    return (
+        Explanation(
+            what="the embedded runtime's metadata trailer",
+            regions=((start, len(trailer)),),
+            # Both sides must BE a trailer and name the same compiler. The digest hashes the tree each
+            # was built in, so it never matches - but everything else about the trailer still must.
+            accounts_for=lambda deployed, produced: (
+                "the digest hashes the tree each was built in"
+                if strip_metadata(deployed) == b""
+                and strip_metadata(produced) == b""
+                and compiler_in(deployed) is not None
+                and compiler_in(deployed) == compiler_in(produced)
+                else None
+            ),
+        ),
+        "",
+    )
+
+
+def differences(onchain: bytes, produced: bytes, explanations: Iterable[Explanation]) -> tuple[list[str], list[str]]:
+    """Every way `onchain` differs from `produced`, split into the ones something accounts for and the
+    ones nothing does. Empty `unexplained` is the verdict.
 
     This replaces masking as the thing that DECIDES. Masking makes a comparison possible but weakens
-    what it proves: a match becomes a match *modulo the immutables*, so two sources differing only in a
-    value that becomes an immutable - two aggregators with different Chainlink feeds - are
+    what it proves: a match becomes a match *modulo the masked regions*, so two sources differing only
+    in a value that becomes an immutable - two aggregators with different Chainlink feeds - are
     indistinguishable, and "the only candidate that matched" is not evidence when the thing that would
     have told them apart was excluded before looking.
 
-    They need not be excluded. These constructors take no arguments -
-    `constructor() Aggregator_PAXG_USD(PAXG_USD.FEED, PAXG_USD.HEARTBEAT, 1, false) {}` - so every
-    immutable is determined by the source, and executing the creation code reproduces it. Measured on
-    `Aggregator_stETH_USD_mainnet`: 3356 bytes constructed against 3356 deployed, every differing byte
-    inside an immutable region.
-
-    ONE immutable genuinely cannot be reproduced: a contract's own address, because the construction
-    runs somewhere else (OpenZeppelin's UUPS `__self`). That is recognised by its VALUE - the deployed
-    slot holds the deployed address - not by excluding a class of regions, so an immutable that merely
-    happens to be an address is not waved through.
+    They need not be excluded. Most immutables are decided by the source -
+    `constructor() Aggregator_PAXG_USD(PAXG_USD.FEED, PAXG_USD.HEARTBEAT, 1, false) {}` - so executing
+    the creation code reproduces them. Measured on `Aggregator_stETH_USD_mainnet`: 3356 bytes
+    constructed against 3356 deployed, every differing byte inside an immutable region. What genuinely
+    cannot be reproduced is named by an `Explanation` and CHECKED there, rather than skipped here.
 
     Everything else is unexplained, and unexplained means the source is not what was deployed. Each is
-    named with both values, because a human deciding whether a baseline is true needs to see them."""
+    named with both values and its offset, because a human deciding whether a baseline is true needs to
+    see them - and because an offset is what makes a difference nothing yet explains diagnosable rather
+    than mysterious."""
     if len(onchain) != len(produced):
-        return [], [f"length: {len(onchain)} deployed, {len(produced)} constructed"]
+        return [], [f"length: {len(onchain)} deployed, {len(produced)} produced"]
 
-    wanted = address.lower().removeprefix("0x")
     explained: list[str] = []
     unexplained: list[str] = []
     covered: set[int] = set()
-    for regions in references.values():
-        for region in regions:
-            start, stop = region["start"], region["start"] + region["length"]
+    for explanation in explanations:
+        for start, length in explanation.regions:
+            stop = start + length
             covered.update(range(start, stop))
             here, there = onchain[start:stop], produced[start:stop]
             if here == there:
                 continue
-            padding, tail = here[:-20], here[-20:]
-            if tail.hex() == wanted and not any(padding):
-                explained.append(f"immutable at {start}: the contract's own address")
+            reason = explanation.accounts_for(here, there)
+            if reason is None:
+                unexplained.append(f"{explanation.what} at {start}: deployed {here.hex()}, produced {there.hex()}")
             else:
-                unexplained.append(f"immutable at {start}: deployed {here.hex()}, constructed {there.hex()}")
+                explained.append(f"{explanation.what} at {start}: {reason}")
 
     outside = [i for i, (a, b) in enumerate(zip(onchain, produced)) if a != b and i not in covered]
     if outside:
-        unexplained.append(f"{len(outside)} byte(s) differ outside every immutable region, first at {outside[0]}")
+        unexplained.append(f"{len(outside)} byte(s) differ outside every explained region, first at {outside[0]}")
     return explained, unexplained
 
 

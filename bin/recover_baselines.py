@@ -44,7 +44,10 @@ from deployment_recovery import (
     compiler_in,
     creation_block,
     differences,
+    embedded_metadata,
+    Explanation,
     matches,
+    own_address_immutable,
     checkouts_by_repository,
     export_tree,
     install_toolchain,
@@ -184,7 +187,9 @@ def _construct(creation: str, chain: str, block: int) -> tuple[bytes | None, str
     return bytes.fromhex(answer[2:]), ""
 
 
-def _constructor_arguments(address: str, chain: str, creation: bytes) -> str | None:
+def _constructor_arguments(
+    address: str, chain: str, creation: bytes, explanations: Iterable[Explanation]
+) -> tuple[str | None, str]:
     """The arguments the deployment appended to `creation`, as hex, and why there are none if so.
 
     The two halves are different findings: an explorer that could not be asked is a problem with the
@@ -201,11 +206,14 @@ def _constructor_arguments(address: str, chain: str, creation: bytes) -> str | N
     something arbitrary. That check is also why an empty answer is a real one - a constructor that
     takes nothing leaves the payload equal to the bytecode.
 
-    Checked with the METADATA STRIPPED, though the tail is taken by LENGTH. A rebuild's CBOR trailer
-    never equals the deployed one - each hashes the sources and settings of the tree it was built in,
-    which is why every other comparison here strips both sides - so a byte-exact prefix would refuse
-    every contract rather than the wrong ones. The trailer's LENGTH is part of the code either way,
-    so where the arguments begin is not in doubt.
+    The prefix is compared with the metadata EXPLAINED, not stripped. A rebuild's CBOR trailer never
+    equals the deployed one - each hashes the sources and settings of the tree it was built in - so a
+    byte-exact prefix would refuse every contract rather than the wrong ones. Stripping cannot reach it
+    either: a creation code's trailer belongs to the runtime embedded inside it, so it is interior
+    wherever the creation assembly has a data section or a nested contract after it, and stripping the
+    end then removes nothing. `embedded_metadata` names that region from the compiler's declaration and
+    checks the difference there is a digest and nothing else. The trailer's LENGTH is part of the code
+    either way, so where the arguments begin is not in doubt.
 
     `cast creation-code` reads it from a block explorer, which is the only thing that knows which
     transaction created an address: these implementations are deployed with a plain `new`, so no
@@ -217,8 +225,14 @@ def _constructor_arguments(address: str, chain: str, creation: bytes) -> str | N
     if not payload.startswith("0x"):
         return None, f"`cast creation-code` answered {payload[:60]!r}, which is not a payload"
     deployed = bytes.fromhex(payload[2:])
-    if len(deployed) < len(creation) or strip_metadata(deployed[: len(creation)]) != strip_metadata(creation):
-        return None, "the deployed creation payload is not what this build produces"
+    if len(deployed) < len(creation):
+        return None, (
+            f"the deployed creation payload is {len(deployed)} bytes, shorter than the {len(creation)} this build "
+            "produces, so none of it can be this contract's arguments"
+        )
+    _, unexplained = differences(deployed[: len(creation)], creation, explanations)
+    if unexplained:
+        return None, "the deployed creation payload is not what this build produces: " + "; ".join(unexplained)
     return deployed[len(creation) :].hex(), ""
 
 
@@ -265,7 +279,12 @@ def _build(tree: Path, source: str, out: Path, compiler: str) -> tuple[bool, str
     back where stripping the trailer does not reach - which is how a defect survives its first
     success."""
     done = subprocess.run(
-        ["forge", "build", source, "--use", compiler],
+        # `legacyAssembly` is what DECLARES the creation code's layout - which of its sections is the
+        # runtime, and the metadata trailer that section carries - so the comparison against the
+        # deployed creation payload reads the compiler's own answer instead of inferring one. Requesting
+        # it selects an output and does not change the code emitted, which is checked by
+        # `test_asking_for_the_assembly_does_not_change_the_code`.
+        ["forge", "build", source, "--use", compiler, "--extra-output", "evm.legacyAssembly"],
         cwd=tree,
         capture_output=True,
         text=True,
@@ -637,17 +656,17 @@ def recover(
             say(0, "  no deployment time recorded, so the window cannot be placed")
             drop(pending, account, entry_key, entry, "no deployment time recorded")
             continue
-        onchain, refused = _deployed_code(entry.address, entry.chain)
+        onchain, refusal = _deployed_code(entry.address, entry.chain)
         if onchain is None:
             # The chain's own words where the chain is what stopped it, so a broken endpoint does not
             # read as a finding about the contract.
-            why = refused or f"nothing is deployed at that address on {entry.chain}"
+            why = refusal or f"nothing is deployed at that address on {entry.chain}"
             say(0, f"  no deployed code to compare against: {why}")
             drop(pending, account, entry_key, entry, f"no deployed code to compare against: {why}")
             continue
-        deployment, refused = _deployment(entry.address, entry.chain, entry.deployed_at)
+        deployment, refusal = _deployment(entry.address, entry.chain, entry.deployed_at)
         if deployment is None:
-            why = refused or f"no block on {entry.chain} is where it was created"
+            why = refusal or f"no block on {entry.chain} is where it was created"
             say(0, f"  could not place the deploy: {why}")
             drop(pending, account, entry_key, entry, f"could not place the deploy: {why}")
             continue
@@ -760,20 +779,32 @@ def recover(
                 # The deployed payload is the bytecode plus whatever the constructor was given, and
                 # only the chain knows the second part. Without it a constructor taking arguments
                 # runs against zeros and the contract it builds is not the one deployed.
-                arguments, refused = _constructor_arguments(entry.address, entry.chain, bytes.fromhex(linked[2:]))
-                if arguments is None:
-                    say(0, f"      NOT PROVED HERE: {refused}")
-                    say(0, "      so the constructor's arguments are unknown — still looking at the other commits")
-                    screened.setdefault(entry_key, []).append((built_at, refused))
+                # A creation code's metadata sits INSIDE it, where the runtime it carries ends, so the
+                # comparison below needs to be told where before it can judge anything.
+                metadata, unplaceable = embedded_metadata(artefact)
+                if metadata is None:
+                    say(0, f"      NOT PROVED HERE: {unplaceable}")
+                    say(0, "      so the creation payload cannot be compared — still looking at the other commits")
+                    screened.setdefault(entry_key, []).append((built_at, unplaceable))
                     continue
-                produced, refused = _construct(linked + arguments, entry.chain, wants.block)
+                arguments, refusal = _constructor_arguments(
+                    entry.address, entry.chain, bytes.fromhex(linked[2:]), [metadata]
+                )
+                if arguments is None:
+                    say(0, f"      NOT PROVED HERE: {refusal}")
+                    say(0, "      so the constructor's arguments are unknown — still looking at the other commits")
+                    screened.setdefault(entry_key, []).append((built_at, refusal))
+                    continue
+                produced, refusal = _construct(linked + arguments, entry.chain, wants.block)
                 if produced is None:
-                    say(0, f"      NOT PROVED HERE: at block {wants.block}, {refused}")
+                    say(0, f"      NOT PROVED HERE: at block {wants.block}, {refusal}")
                     say(0, "      so the immutables cannot be checked — still looking at the other commits")
-                    screened.setdefault(entry_key, []).append((built_at, refused))
+                    screened.setdefault(entry_key, []).append((built_at, refusal))
                     continue
                 explained, unexplained = differences(
-                    strip_metadata(wants.onchain), strip_metadata(produced), immutable_regions, entry.address
+                    strip_metadata(wants.onchain),
+                    strip_metadata(produced),
+                    [own_address_immutable(immutable_regions, entry.address)],
                 )
                 if unexplained:
                     say(0, "      NOT PROVED HERE: the constructor does not reproduce what is deployed —")

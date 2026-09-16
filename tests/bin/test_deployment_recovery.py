@@ -31,6 +31,7 @@ from deployment_recovery import (  # noqa: E402
     declaration_of,
     differences,
     mask_regions,
+    own_address_immutable,
     matches,
     checkouts_by_repository,
     export_tree,
@@ -452,7 +453,7 @@ SELF = "0x003056C3a3262b37C59143149D062Ad3a6a45BF7"
 def test_code_the_constructor_reproduces_exactly_has_nothing_to_explain():
     body = bytes.fromhex("6080604052") + word(bytes.fromhex("aabb"))
 
-    explained, unexplained = differences(body, body, spans((5, 32)), SELF)
+    explained, unexplained = differences(body, body, [own_address_immutable(spans((5, 32)), SELF)])
 
     assert (explained, unexplained) == ([], [])
 
@@ -463,7 +464,7 @@ def test_a_difference_that_is_the_contract_s_own_address_is_explained():
     deployed = bytes.fromhex("6080604052") + word(bytes.fromhex(SELF[2:]))
     produced = bytes.fromhex("6080604052") + word(bytes.fromhex("11" * 20))
 
-    explained, unexplained = differences(deployed, produced, spans((5, 32)), SELF)
+    explained, unexplained = differences(deployed, produced, [own_address_immutable(spans((5, 32)), SELF)])
 
     assert unexplained == []
     assert len(explained) == 1 and "own address" in explained[0]
@@ -478,7 +479,7 @@ def test_a_difference_inside_an_immutable_that_is_not_the_address_is_NOT_explain
     deployed = bytes.fromhex("6080604052") + word(feed)
     produced = bytes.fromhex("6080604052") + word(other)
 
-    explained, unexplained = differences(deployed, produced, spans((5, 32)), SELF)
+    explained, unexplained = differences(deployed, produced, [own_address_immutable(spans((5, 32)), SELF)])
 
     assert explained == []
     assert len(unexplained) == 1
@@ -491,14 +492,14 @@ def test_a_difference_outside_every_immutable_region_is_never_explained():
     deployed = bytes.fromhex("6080604052")
     produced = bytes.fromhex("60806040ff")
 
-    explained, unexplained = differences(deployed, produced, spans((0, 4)), SELF)
+    explained, unexplained = differences(deployed, produced, [own_address_immutable(spans((0, 4)), SELF)])
 
     assert explained == []
     assert len(unexplained) == 1 and "outside" in unexplained[0]
 
 
 def test_a_length_difference_is_never_explained():
-    explained, unexplained = differences(bytes(20), bytes(21), {}, SELF)
+    explained, unexplained = differences(bytes(20), bytes(21), [])
 
     assert explained == []
     assert len(unexplained) == 1 and "length" in unexplained[0]
@@ -511,7 +512,7 @@ def test_several_immutables_are_judged_one_at_a_time():
     deployed = word(bytes.fromhex(SELF[2:])) + word(feed)
     produced = word(bytes.fromhex("11" * 20)) + word(bytes.fromhex("22" * 20))
 
-    explained, unexplained = differences(deployed, produced, spans((0, 32), (32, 32)), SELF)
+    explained, unexplained = differences(deployed, produced, [own_address_immutable(spans((0, 32), (32, 32)), SELF)])
 
     assert len(explained) == 1 and len(unexplained) == 1
 

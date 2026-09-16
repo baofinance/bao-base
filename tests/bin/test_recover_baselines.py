@@ -23,7 +23,12 @@ BIN = Path(__file__).resolve().parents[2] / "bin"
 sys.path.insert(0, str(BIN))
 
 from deployment_baselines import key, read_baselines  # noqa: E402
-from deployment_recovery import strip_metadata  # noqa: E402
+from deployment_recovery import (  # noqa: E402
+    Explanation,
+    artefact_for,
+    embedded_metadata,
+    strip_metadata,
+)
 
 ADDRESS_A = "0x" + "aa" * 20
 ADDRESS_B = "0x" + "bb" * 20
@@ -60,7 +65,7 @@ def commit(repo: Path, when: str, message: str) -> str:
     ).stdout.strip()
 
 
-def no_constructor_arguments(address: str, chain: str, creation: bytes) -> tuple[str, str]:
+def no_constructor_arguments(address: str, chain: str, creation: bytes, explanations) -> tuple[str, str]:
     """These fixtures' contracts take no constructor arguments, so the deployed payload IS the
     bytecode and the tail after it is empty.
 
@@ -327,10 +332,30 @@ def test_the_build_is_pinned_to_the_compiler_the_deployed_code_names(monkeypatch
 def with_trailer(body: bytes, filler: int = 0x00) -> bytes:
     """`body` as a build carries it: a CBOR trailer and its length.
 
-    `filler` varies the trailer, because two trailers over the same code are NOT equal - each hashes
-    the sources and settings of the tree it was built in."""
-    trailer = b"\xa2\x64solc" + bytes([filler]) * 45
+    The trailer is the real shape - `{"ipfs": <32 bytes>, "solc": <3 bytes>}` - because what reads it
+    checks that it IS one and which compiler it names, so a stand-in that only looked roughly right
+    would test something the tool never meets.
+
+    `filler` varies the DIGEST, because two trailers over the same code are NOT equal - each hashes the
+    sources and settings of the tree it was built in, and that digest is the only part that differs."""
+    trailer = b"\xa2\x64ipfs\x58\x22\x12\x20" + bytes([filler]) * 32 + b"\x64solc\x43\x00\x08\x1e"
     return body + trailer + len(trailer).to_bytes(2, "big")
+
+
+def metadata_of(built: bytes) -> Explanation:
+    """The trailer explanation for a synthetic build whose creation code is its whole runtime.
+
+    Placed by `embedded_metadata` rather than by hand, so a test that exercises the comparison is
+    exercising the region the tool really computes."""
+    explanation, why = embedded_metadata(
+        {
+            "legacyAssembly": {".data": {"0": {".auxdata": built[len(strip_metadata(built)) :].hex()}}},
+            "bytecode": {"object": "0x" + built.hex()},
+            "deployedBytecode": {"object": "0x" + built.hex()},
+        }
+    )
+    assert explanation is not None, why
+    return explanation
 
 
 def creation_payload(monkeypatch, recover, payload: bytes):
@@ -352,7 +377,7 @@ def test_the_constructor_arguments_are_whatever_follows_the_bytecode(tmp_path, m
     encoded = bytes.fromhex("ab" * 320)  # longer than any fixed-size encoding: a dynamic argument
     creation_payload(monkeypatch, recover, built + encoded)
 
-    assert recover._constructor_arguments("0xdead", "mainnet", built) == (encoded.hex(), "")
+    assert recover._constructor_arguments("0xdead", "mainnet", built, [metadata_of(built)]) == (encoded.hex(), "")
 
 
 def test_a_constructor_taking_nothing_leaves_no_arguments(tmp_path, monkeypatch):
@@ -361,7 +386,7 @@ def test_a_constructor_taking_nothing_leaves_no_arguments(tmp_path, monkeypatch)
     built = with_trailer(bytes.fromhex("6080604052" + "11" * 40))
     creation_payload(monkeypatch, recover, built)
 
-    assert recover._constructor_arguments("0xdead", "mainnet", built) == ("", "")
+    assert recover._constructor_arguments("0xdead", "mainnet", built, [metadata_of(built)]) == ("", "")
 
 
 def test_the_arguments_are_found_though_the_rebuild_carries_its_own_metadata(tmp_path, monkeypatch):
@@ -375,7 +400,7 @@ def test_the_arguments_are_found_though_the_rebuild_carries_its_own_metadata(tmp
     encoded = bytes.fromhex("cd" * 64)
     creation_payload(monkeypatch, recover, deployed + encoded)
 
-    assert recover._constructor_arguments("0xdead", "mainnet", built) == (encoded.hex(), "")
+    assert recover._constructor_arguments("0xdead", "mainnet", built, [metadata_of(built)]) == (encoded.hex(), "")
 
 
 def test_a_payload_that_is_not_this_build_yields_no_arguments(tmp_path, monkeypatch):
@@ -386,12 +411,14 @@ def test_a_payload_that_is_not_this_build_yields_no_arguments(tmp_path, monkeypa
     other = with_trailer(bytes.fromhex("6080604052" + "22" * 40))
     creation_payload(monkeypatch, recover, other + bytes.fromhex("cd" * 32))
 
-    arguments, refused = recover._constructor_arguments("0xdead", "mainnet", built)
+    arguments, refused = recover._constructor_arguments("0xdead", "mainnet", built, [metadata_of(built)])
 
     assert arguments is None
     # And the reason is about THIS contract, not about the asking: a caller must be able to tell a
     # candidate it should reject from an explorer it could not reach.
-    assert refused == "the deployed creation payload is not what this build produces"
+    assert refused.startswith("the deployed creation payload is not what this build produces")
+    # With WHERE, so a difference nothing yet explains is diagnosable rather than mysterious.
+    assert "outside every explained region, first at 5" in refused, "the first byte that differs is named"
 
 
 def test_a_deployed_contract_naming_no_compiler_is_reported_not_guessed(tmp_path, monkeypatch, capsys):
@@ -678,6 +705,314 @@ def test_a_contract_never_proved_names_every_commit_it_screened_at(tmp_path, mon
     # that disagreed is a different remedy from one that was never run.
     assert "the constructor ran but did not reproduce what is deployed" in row
     assert "no candidate built" not in row, "something did build it — everywhere but an immutable"
+
+
+def test_a_contract_whose_payload_is_not_this_build_is_named_rather_than_ending_the_run(tmp_path, monkeypatch, capsys):
+    # The only commit screens, and the payload the explorer holds does not begin with the bytecode that
+    # build produces - so the arguments cannot be read and nothing proves it. It leaves the run as a
+    # screened contract carrying that refusal, which is a different remedy from a constructor that ran
+    # and disagreed. The refusal is the LAST thing the search met, and the closing account still runs.
+    repo, scratch = tmp_path / "repo", tmp_path / "scratch"
+    (repo / "src").mkdir(parents=True)
+    scratch.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True, capture_output=True)
+    for setting, value in (("user.email", "t@t"), ("user.name", "test")):
+        subprocess.run(["git", "config", setting, value], cwd=repo, check=True, capture_output=True)
+    (repo / "foundry.toml").write_text('[profile.default]\nsrc = "src"\nlibs = []\nremappings = ["@fixture/=src/"]\n')
+    manifest = repo / "deployments" / "mainnet" / "state.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "network": "mainnet",
+                "chainId": 1,
+                "implementations": {
+                    ADDRESS_A: {"contractSource": "src/A.sol", "contractType": "A", "deploymentTime": DEPLOYED}
+                },
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    (repo / "src" / "A.sol").write_text(contract_source("A", 1))
+    deployed_a = runtime(repo, "src/A.sol", "A", scratch)
+    commit(repo, "2026-01-01T00:00:00+00:00", "A's source")
+
+    recover = load_recover_baselines()
+    chain = Chain({ADDRESS_A: deployed_a})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(
+        recover,
+        "_constructor_arguments",
+        lambda address, chain_name, creation, explanations: (
+            None,
+            "the deployed creation payload is not what this build produces",
+        ),
+    )
+    monkeypatch.chdir(repo)
+
+    recover.run(repo, say=recover.Printer(0), write=True)
+
+    printed = capsys.readouterr().out
+    assert "1 screened but NOT recorded" in printed, "it matched a commit, so it is not an unsearched contract"
+    summary = printed[printed.rindex("not recorded") :]
+    row = next(line for line in summary.splitlines() if ADDRESS_A in line)
+    assert "the deployed creation payload is not what this build produces" in row
+    assert read_baselines(repo) == {}, "nothing was proved, so nothing is recorded"
+
+
+def carrying_a_data_section(note: str) -> str:
+    """A contract whose creation code carries a DATA SECTION, so its metadata trailer is NOT last.
+
+    The event's topic is a 32-byte constant, and emitting the event TWICE while constructing is what
+    makes solc hoist it into a data item read by `CODECOPY` rather than repeat a `PUSH32` - which needs
+    the optimizer on, as the fixture's `foundry.toml` has it. That is the shape `BaoPauser_v1` has, and
+    151 of the 956 builds measured across the four repositories.
+
+    `note` changes the source bytes without changing the code, which makes two builds differ in their
+    metadata digest and in nothing else - the only difference a rebuild of the deployed source can
+    legitimately have."""
+    return (
+        "pragma solidity 0.8.30;\n"
+        f"// {note}\n"
+        "contract Twice {\n"
+        "    event Moved(address indexed from, address indexed to);\n"
+        "    address private owner;\n"
+        "    constructor() {\n"
+        "        emit Moved(address(0), msg.sender);\n"
+        "        owner = msg.sender;\n"
+        "        emit Moved(msg.sender, msg.sender);\n"
+        "    }\n"
+        "    function move(address to) external {\n"
+        "        emit Moved(owner, to);\n"
+        "        owner = to;\n"
+        "    }\n"
+        "}\n"
+    )
+
+
+def test_a_contract_whose_metadata_trailer_is_not_last_is_still_proved(tmp_path, monkeypatch):
+    # The creation code embeds the runtime, trailer and all, and then a data item - so the trailer is
+    # INTERIOR and the two builds' digests differ inside the payload rather than at its end. The rebuild
+    # is the deployed source with only a comment changed, so the digest is the one and only difference,
+    # and it must not stop the contract being proved.
+    repo, scratch = tmp_path / "repo", tmp_path / "scratch"
+    (repo / "src").mkdir(parents=True)
+    scratch.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True, capture_output=True)
+    for setting, value in (("user.email", "t@t"), ("user.name", "test")):
+        subprocess.run(["git", "config", setting, value], cwd=repo, check=True, capture_output=True)
+    # The optimizer is what puts the repeated constant in a data section, and every deployed contract
+    # in the fleet is built with it on.
+    (repo / "foundry.toml").write_text(
+        '[profile.default]\nsrc = "src"\nlibs = []\noptimizer = true\nremappings = ["@fixture/=src/"]\n'
+    )
+    manifest = repo / "deployments" / "mainnet" / "state.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "network": "mainnet",
+                "chainId": 1,
+                "implementations": {
+                    ADDRESS_A: {"contractSource": "src/Twice.sol", "contractType": "Twice", "deploymentTime": DEPLOYED}
+                },
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    # What was DEPLOYED, built from a tree that is not the one committed.
+    (repo / "src" / "Twice.sol").write_text(carrying_a_data_section("the tree this was deployed from"))
+    deployed = artefact_of(repo, "src/Twice.sol", "Twice", scratch)
+    deployed_creation = bytes.fromhex(deployed["bytecode"]["object"][2:])
+    deployed_runtime = bytes.fromhex(deployed["deployedBytecode"]["object"][2:])
+    assert deployed_creation.find(deployed_runtime) + len(deployed_runtime) < len(deployed_creation), (
+        "the fixture must carry bytes AFTER the embedded runtime, or its trailer is last and nothing is proved"
+    )
+    # The only commit: the same code, one comment different, so only the metadata digest moves.
+    (repo / "src" / "Twice.sol").write_text(carrying_a_data_section("the tree that is committed"))
+    commit(repo, "2026-01-01T00:00:00+00:00", "Twice, with a different comment")
+
+    recover = load_recover_baselines()
+    chain = Chain({ADDRESS_A: deployed_runtime})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    # The real `_constructor_arguments` runs: it is what reads the payload, and the payload is the one
+    # thing here only the chain knows.
+    monkeypatch.setattr(recover, "_cast", lambda *arguments: "0x" + deployed_creation.hex())
+    monkeypatch.chdir(repo)
+
+    recover.run(repo, say=recover.Printer(0), write=True)
+
+    record = read_baselines(repo)
+    assert key(1, ADDRESS_A) in record, "the digest is the only difference, and a digest never matches"
+    assert record[key(1, ADDRESS_A)].constructorArguments == "", "the constructor takes nothing, so the tail is empty"
+
+
+def a_repository_building(tmp_path, source: str, contract: str) -> tuple[Path, Path]:
+    """A one-contract repository with the optimizer on, which is what the fleet's builds use and what
+    decides whether a repeated constant becomes a data section."""
+    repo, scratch = tmp_path / "repo", tmp_path / "scratch"
+    (repo / "src").mkdir(parents=True)
+    scratch.mkdir()
+    (repo / "foundry.toml").write_text(
+        '[profile.default]\nsrc = "src"\nlibs = []\noptimizer = true\nremappings = ["@fixture/=src/"]\n'
+    )
+    (repo / "src" / f"{contract}.sol").write_text(source)
+    return repo, scratch
+
+
+def test_asking_for_the_assembly_does_not_change_the_code(tmp_path):
+    # The recovery asks every build for `legacyAssembly`, and every baseline it writes claims the
+    # bytecode it compared is what the source produces. An output selection that changed the output
+    # would make every one of those claims about a build nobody else can reproduce.
+    repo, scratch = a_repository_building(tmp_path, carrying_a_data_section("either way"), "Twice")
+    recover = load_recover_baselines()
+
+    plain = artefact_of(repo, "src/Twice.sol", "Twice", scratch)
+    out = scratch / "with-assembly"
+    compiled, said = recover._build(repo, "src/Twice.sol", out, "0.8.30")
+    assert compiled, said
+    asked, unusable = artefact_for(out, "src/Twice.sol", "Twice")
+    assert asked is not None, unusable
+
+    assert asked["bytecode"]["object"] == plain["bytecode"]["object"]
+    assert asked["deployedBytecode"]["object"] == plain["deployedBytecode"]["object"]
+    assert asked.get("legacyAssembly"), "and the build asked for it does carry the declaration"
+
+
+def test_the_compiler_puts_the_metadata_inside_the_runtime_not_at_the_creation_code_s_end(tmp_path):
+    # What `embedded_metadata` relies on, asserted against the compiler's own words rather than
+    # assumed: the trailer belongs to the runtime sub-assembly, the creation assembly has none of its
+    # own, and where the runtime ENDS is where the trailer sits. A compiler that changed any of it
+    # would fail here rather than silently move what the comparison excuses.
+    repo, scratch = a_repository_building(tmp_path, carrying_a_data_section("with a data section"), "Twice")
+    recover = load_recover_baselines()
+    out = scratch / "declared"
+    compiled, said = recover._build(repo, "src/Twice.sol", out, "0.8.30")
+    assert compiled, said
+    artefact, unusable = artefact_for(out, "src/Twice.sol", "Twice")
+    assert artefact is not None, unusable
+
+    assembly = artefact["legacyAssembly"]
+    assert ".auxdata" not in assembly, "the creation assembly carries no metadata of its own"
+    declared = bytes.fromhex(assembly[".data"]["0"][".auxdata"])
+    creation = bytes.fromhex(artefact["bytecode"]["object"][2:])
+    runtime = bytes.fromhex(artefact["deployedBytecode"]["object"][2:])
+
+    assert declared == runtime[len(strip_metadata(runtime)) :], "the declaration is the runtime's own trailer"
+    assert creation.count(runtime) == 1, "the runtime is embedded verbatim, and once, so its trailer has one place"
+    assert creation.find(runtime) + len(runtime) < len(creation), "and this fixture has a data section after it"
+    assert strip_metadata(creation) == creation, "so stripping the creation code's END reaches nothing"
+
+
+def test_a_contract_whose_creation_code_ends_in_its_trailer_is_still_proved(tmp_path, monkeypatch):
+    # The other half of the fleet: 804 of the 956 builds have nothing after the embedded runtime, so
+    # their trailer IS last. They were passing by accident, and must keep passing on purpose.
+    repo, scratch = a_repository_building(tmp_path, contract_source("A", 1) + "// deployed from here\n", "A")
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True, capture_output=True)
+    for setting, value in (("user.email", "t@t"), ("user.name", "test")):
+        subprocess.run(["git", "config", setting, value], cwd=repo, check=True, capture_output=True)
+    manifest = repo / "deployments" / "mainnet" / "state.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "network": "mainnet",
+                "chainId": 1,
+                "implementations": {
+                    ADDRESS_A: {"contractSource": "src/A.sol", "contractType": "A", "deploymentTime": DEPLOYED}
+                },
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    deployed = artefact_of(repo, "src/A.sol", "A", scratch)
+    deployed_creation = bytes.fromhex(deployed["bytecode"]["object"][2:])
+    deployed_runtime = bytes.fromhex(deployed["deployedBytecode"]["object"][2:])
+    assert deployed_creation.find(deployed_runtime) + len(deployed_runtime) == len(deployed_creation), (
+        "this fixture must have NOTHING after the embedded runtime, or it is the other shape"
+    )
+    (repo / "src" / "A.sol").write_text(contract_source("A", 1) + "// committed from here\n")
+    commit(repo, "2026-01-01T00:00:00+00:00", "A, with a different comment")
+
+    recover = load_recover_baselines()
+    chain = Chain({ADDRESS_A: deployed_runtime})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_cast", lambda *arguments: "0x" + deployed_creation.hex())
+    monkeypatch.chdir(repo)
+
+    recover.run(repo, say=recover.Printer(0), write=True)
+
+    assert key(1, ADDRESS_A) in read_baselines(repo)
+
+
+def test_a_difference_nothing_explains_names_where_it_is(tmp_path, monkeypatch, capsys):
+    # A contract whose constructor deploys another carries that contract's whole creation code - its
+    # own metadata trailer included - after the runtime. Nothing explains a SECOND trailer, so the
+    # candidate is refused; the offset is what makes that a thing to look at rather than a mystery.
+    def deploying_another(note: str) -> str:
+        return (
+            "pragma solidity 0.8.30;\n"
+            f"// {note}\n"
+            "contract Inner {\n"
+            "    function value() external pure returns (uint256) {\n"
+            "        return 7;\n"
+            "    }\n"
+            "}\n"
+            "contract Outer {\n"
+            "    address public inner;\n"
+            "    constructor() {\n"
+            "        inner = address(new Inner());\n"
+            "    }\n"
+            "}\n"
+        )
+
+    repo, scratch = a_repository_building(tmp_path, deploying_another("deployed from here"), "Outer")
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True, capture_output=True)
+    for setting, value in (("user.email", "t@t"), ("user.name", "test")):
+        subprocess.run(["git", "config", setting, value], cwd=repo, check=True, capture_output=True)
+    manifest = repo / "deployments" / "mainnet" / "state.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "network": "mainnet",
+                "chainId": 1,
+                "implementations": {
+                    ADDRESS_A: {"contractSource": "src/Outer.sol", "contractType": "Outer", "deploymentTime": DEPLOYED}
+                },
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    deployed = artefact_of(repo, "src/Outer.sol", "Outer", scratch)
+    deployed_creation = bytes.fromhex(deployed["bytecode"]["object"][2:])
+    deployed_runtime = bytes.fromhex(deployed["deployedBytecode"]["object"][2:])
+    (repo / "src" / "Outer.sol").write_text(deploying_another("committed from here"))
+    commit(repo, "2026-01-01T00:00:00+00:00", "Outer, with a different comment")
+
+    recover = load_recover_baselines()
+    chain = Chain({ADDRESS_A: deployed_runtime})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_cast", lambda *arguments: "0x" + deployed_creation.hex())
+    monkeypatch.chdir(repo)
+
+    recover.run(repo, say=recover.Printer(0), write=True)
+
+    assert read_baselines(repo) == {}, "a second trailer is not explained, so nothing is proved on it"
+    printed = capsys.readouterr().out
+    assert "outside every explained region, first at " in printed, "and the reader is told where to look"
 
 
 # ── nothing leaves a run without being named ──────────────────────────────────────────────────────
