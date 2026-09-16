@@ -131,6 +131,34 @@ def repository_with_submodule(tmp_path: Path) -> tuple[Path, str, str, str]:
     return superproject, commit, recorded_blob, later_blob
 
 
+def test_a_contract_declared_inside_a_submodule_is_found(tmp_path):
+    # Most of harbor's closure lives in bao-base, and `MintableBurnableERC20_v1` is DEFINED there and
+    # deployed from harbor - the constructor is what makes each deployment differ. A search that
+    # cannot see into a dependency reports "no candidate built what is deployed" about a contract
+    # whose source it never looked at.
+    dependency = tmp_path / "dependency"
+    (dependency / "src").mkdir(parents=True)
+    git(dependency, "init", "-q", "-b", "main")
+    git(dependency, "config", "user.email", "t@t")
+    git(dependency, "config", "user.name", "test")
+    (dependency / "src" / "Token.sol").write_text("pragma solidity 0.8.30;\ncontract Token {}\n")
+    git(dependency, "add", "-A")
+    git(dependency, "commit", "-qm", "the contract lives here")
+
+    superproject = tmp_path / "superproject"
+    (superproject / "src").mkdir(parents=True)
+    git(superproject, "init", "-q", "-b", "main")
+    git(superproject, "config", "user.email", "t@t")
+    git(superproject, "config", "user.name", "test")
+    (superproject / "src" / "Own.sol").write_text("pragma solidity 0.8.30;\ncontract Own {}\n")
+    git(superproject, "-c", "protocol.file.allow=always", "submodule", "--quiet", "add", str(dependency), "lib/dep")
+    git(superproject, "add", "-A")
+    git(superproject, "commit", "-qm", "with the dependency")
+    commit = git_output(superproject, "rev-parse", "HEAD")
+
+    assert source_at(superproject, commit, "Token") == ("lib/dep/src/Token.sol", "Token")
+
+
 def test_a_source_of_the_superproject_is_named_by_its_blob_id(tmp_path):
     superproject, commit, _, _ = repository_with_submodule(tmp_path)
 

@@ -341,10 +341,34 @@ def _try_commit(
     and built at one of them" are different reports of a failed search."""
     # (path, name as declared THERE) - the two differ wherever the contract was renamed after its
     # deploy, and it is the declared name the build produces an artefact under.
-    found_at = {
-        k: source_at(root, commit, w.entry.name, w.entry.recorded_path) for k, w in pending.items() if w.entry.name
-    }
-    sources = {k: located for k, located in found_at.items() if located}
+    # ONE resolution per question, not per contract. Locating a source greps the whole commit, and the
+    # question it answers is (name, recorded path) - so twenty-three deployments of one contract type
+    # ask it twenty-three times and get the same answer. Measured on harbor: 26ms a time, 1204 commits
+    # by 23 contracts, twelve minutes of a thirty-three minute run.
+    resolved: dict[tuple[str, str], tuple[str, str] | None] = {}
+    found_at = {}
+    for k, w in pending.items():
+        if not w.entry.name:
+            continue
+        question = (w.entry.name, w.entry.recorded_path or "")
+        if question not in resolved:
+            resolved[question] = source_at(root, commit, w.entry.name, w.entry.recorded_path)
+        found_at[k] = resolved[question]
+    located = {k: found for k, found in found_at.items() if found}
+    # BEFORE the export, which costs about a second per commit and dwarfs what it saves afterwards: a
+    # source pinning one compiler exactly cannot have produced bytecode another one wrote, and both
+    # are readable from git. A commit every candidate is ruled out at never needs a tree at all.
+    sources = {}
+    for entry_key, (source, declared) in located.items():
+        wanted = compiler_in(pending[entry_key].onchain)
+        shown = subprocess.run(["git", "show", f"{commit}:{source}"], cwd=root, capture_output=True, text=True)
+        # Unreadable here means the source lives in a submodule, whose blob this cannot reach: not a
+        # mismatch, so it rules nothing out and the build decides as before.
+        pinned = pins_other_than(shown.stdout, wanted) if wanted and shown.returncode == 0 else None
+        if pinned is not None:
+            say(1, f"  {commit[:10]}: {source} pins {pinned}, and the deployed code names {wanted}")
+            continue
+        sources[entry_key] = (source, declared)
     if not sources:
         return {}, set()
     with tempfile.TemporaryDirectory(prefix="recover-baseline-") as scratch:
@@ -366,13 +390,6 @@ def _try_commit(
             wanted = compiler_in(pending[entry_key].onchain)
             if wanted is None:
                 say(0, f"  {commit[:10]}: {source} — the deployed code names no compiler, so nothing pins it")
-                continue
-            # Before forge is asked: a source pinning one compiler exactly cannot have produced
-            # bytecode another one wrote, and reading the pragma costs a file read against a build
-            # that costs seconds.
-            pinned = pins_other_than((tree / source).read_text(encoding="utf-8", errors="replace"), wanted)
-            if pinned is not None:
-                say(1, f"  {commit[:10]}: {source} pins {pinned}, and the deployed code names {wanted}")
                 continue
             compiled, forge_said = _build(tree, source, out, wanted)
             if not compiled:

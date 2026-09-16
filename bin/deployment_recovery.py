@@ -432,6 +432,11 @@ def source_at(
             "git",
             "grep",
             "-l",
+            # Without this a contract DEFINED in a dependency is invisible: `git grep` stops at a
+            # gitlink, so harbor's `MintableBurnableERC20_v1` - which lives in bao-base and is
+            # deployed from harbor, the constructor being what makes each deployment differ - was
+            # reported as "no candidate built what is deployed" about a source never looked at.
+            "--recurse-submodules",
             "--extended-regexp",
             declaration_of(contract_type),
             commit,

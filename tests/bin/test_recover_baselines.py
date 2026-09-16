@@ -421,6 +421,33 @@ def test_a_payload_that_is_not_this_build_yields_no_arguments(tmp_path, monkeypa
     assert "outside every explained region, first at 5" in refused, "the first byte that differs is named"
 
 
+def test_one_contract_type_is_located_once_however_many_are_deployed(tmp_path, monkeypatch):
+    # Locating a source greps the whole commit, and the question it answers is (name, recorded path).
+    # harbor deploys twenty-three of one type, which asked it twenty-three times per commit for the
+    # same answer - twelve minutes of a thirty-three minute run.
+    recover = load_recover_baselines()
+
+    class Entry:
+        def __init__(self, name):
+            self.name = name
+            self.recorded_path = "src/Token.sol"
+
+    asked = []
+
+    def counting(root, commit, contract_type, recorded_path=None):
+        asked.append((contract_type, recorded_path))
+        return None
+
+    monkeypatch.setattr(recover, "source_at", counting)
+
+    pending = {f"1/0x{index:040x}": recover._Wanted(Entry("Token"), b"", 1, DEPLOYED) for index in range(5)}
+    pending["1/0xffff"] = recover._Wanted(Entry("Other"), b"", 1, DEPLOYED)
+
+    recover._try_commit(tmp_path, "c0ffee", pending, recover.Printer(0), {})
+
+    assert sorted(asked) == [("Other", "src/Token.sol"), ("Token", "src/Token.sol")], asked
+
+
 def test_a_deployed_contract_naming_no_compiler_is_reported_not_guessed(tmp_path, monkeypatch, capsys):
     # A contract whose code carries no trailer names no compiler. Recovering it anyway would record a
     # compiler that merely happens to be installed here, which is the claim this record exists to stop.
