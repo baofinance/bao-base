@@ -131,4 +131,38 @@ contract BaoTestLibTest is Test {
 
         assertEq(BaoTestLib.join(three, ""), "abc", "empty separator concatenates");
     }
+
+    /// @notice A timestamp renders as fixed-width UTC, in a form a reader can act on.
+    /// @dev The epoch and a known recent instant. Every field is checked in one string, so a
+    ///      month/day transposition or an hour offset shows as a mismatch rather than passing.
+    function test_toUtcString() public pure {
+        assertEq(BaoTestLib.toUtcString(0), "1970-01-01 00:00:00 UTC", "the epoch itself");
+        assertEq(BaoTestLib.toUtcString(1735500000), "2024-12-29 19:20:00 UTC", "a known instant");
+    }
+
+    /// @notice Single-digit fields keep their leading zero, so the width never varies.
+    /// @dev Fixed width is what lets these strings line up in a log and sort chronologically; a
+    ///      formatter that dropped the padding would still read correctly to a person and break both.
+    function test_toUtcString_padsEveryFieldToItsWidth() public pure {
+        // 2001-02-03 04:05:06 UTC — every field but the year is a single digit.
+        assertEq(BaoTestLib.toUtcString(981173106), "2001-02-03 04:05:06 UTC", "single digits stay padded");
+        assertEq(bytes(BaoTestLib.toUtcString(981173106)).length, 23, "always 23 characters");
+        assertEq(bytes(BaoTestLib.toUtcString(0)).length, 23, "including at the epoch");
+    }
+
+    /// @notice A leap day is a real date and renders as one.
+    /// @dev The calendar rule the format most easily gets wrong: 2024 is a leap year, so 29 February
+    ///      exists and the day after it is 1 March.
+    function test_toUtcString_rendersALeapDay() public pure {
+        assertEq(BaoTestLib.toUtcString(1709164800), "2024-02-29 00:00:00 UTC", "29 February 2024");
+        assertEq(BaoTestLib.toUtcString(1709251200), "2024-03-01 00:00:00 UTC", "the day after it");
+    }
+
+    /// @notice The last second of a day and the first of the next are distinct and adjacent.
+    /// @dev Pins the midnight boundary, where an off-by-one in the seconds-of-day split would put the
+    ///      date one day out for a single second.
+    function test_toUtcString_crossesMidnight() public pure {
+        assertEq(BaoTestLib.toUtcString(1735689599), "2024-12-31 23:59:59 UTC", "the last second of 2024");
+        assertEq(BaoTestLib.toUtcString(1735689600), "2025-01-01 00:00:00 UTC", "the first of 2025");
+    }
 }

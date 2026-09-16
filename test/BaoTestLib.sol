@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+import {DateTimeLib} from "@solady/utils/DateTimeLib.sol";
+
 /// @notice Number and string helpers for tests, covering the cases Solady's `LibString` does not:
 ///         fixed-point decimal formatting, thousands separators, parsing a decimal string back to a
-///         scaled integer, and joining. For plain integer-to-string, hex, and equality use
-///         `LibString` / `LibBytes` directly.
+///         scaled integer, joining, and rendering a unix timestamp as readable UTC. For plain
+///         integer-to-string, hex, and equality use `LibString` / `LibBytes` directly, and for
+///         calendar arithmetic use `DateTimeLib`.
 library BaoTestLib {
     bytes16 private constant _SYMBOLS = "0123456789abcdef";
 
@@ -153,5 +156,50 @@ library BaoTestLib {
         assembly {
             result := mload(add(data, endian))
         }
+    }
+
+    /// @notice A unix timestamp as `"YYYY-MM-DD HH:MM:SS UTC"`, for a log line a person has to read.
+    /// @dev A block timestamp logged as a number tells a reader nothing about when a fork is pinned,
+    ///      how stale a feed is, or how far apart two rounds fell. Every field is fixed width and the
+    ///      most significant comes first, so the strings also sort chronologically.
+    ///
+    ///      The calendar arithmetic is Solady's `DateTimeLib` — this only lays the digits out. Years
+    ///      of five digits or more cannot fit the four-digit field and wrap within it, which is the
+    ///      same limit the format itself has.
+    /// @param timestamp Seconds since the unix epoch, as `block.timestamp` reports it.
+    function toUtcString(uint256 timestamp) internal pure returns (string memory) {
+        (uint256 year, uint256 month, uint256 day, uint256 hour, uint256 minute, uint256 second) = DateTimeLib
+            .timestampToDateTime(timestamp);
+
+        bytes memory out = new bytes(23);
+        out[0] = _digit((year / 1000) % 10);
+        out[1] = _digit((year / 100) % 10);
+        out[2] = _digit((year / 10) % 10);
+        out[3] = _digit(year % 10);
+        out[4] = "-";
+        out[5] = _digit(month / 10);
+        out[6] = _digit(month % 10);
+        out[7] = "-";
+        out[8] = _digit(day / 10);
+        out[9] = _digit(day % 10);
+        out[10] = " ";
+        out[11] = _digit(hour / 10);
+        out[12] = _digit(hour % 10);
+        out[13] = ":";
+        out[14] = _digit(minute / 10);
+        out[15] = _digit(minute % 10);
+        out[16] = ":";
+        out[17] = _digit(second / 10);
+        out[18] = _digit(second % 10);
+        out[19] = " ";
+        out[20] = "U";
+        out[21] = "T";
+        out[22] = "C";
+        return string(out);
+    }
+
+    /// @dev One decimal digit as its ASCII character.
+    function _digit(uint256 value) private pure returns (bytes1) {
+        return bytes1(uint8(48 + value));
     }
 }
