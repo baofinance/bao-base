@@ -1,3 +1,11 @@
+> **Status.** Filed as https://github.com/foundry-rs/foundry/issues/16682 and closed by
+> https://github.com/foundry-rs/foundry/pull/16686, released in forge 1.8.3. The reproduction below
+> (a remapped import of the project's own `src/`) is correct on 1.8.3. A contract OUTSIDE the `src`
+> directory still loses the body change on forge 1.8.3 (commit cae51ad), whether imported relatively or
+> through a remapping, while `--no-dynamic-test-linking` or `--force` sees it. Filed as
+> https://github.com/foundry-rs/foundry/issues/16901 (body in `foundry-1-8-3-test-dynamic-linking-outside-src.md`),
+> the case `tests/toolchain/test_forge_dynamic_test_linking.py` now tracks.
+
 ### Component
 
 Forge
