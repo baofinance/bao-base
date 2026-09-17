@@ -270,18 +270,54 @@ def converge(repo_root: Path, dependency: str, check_only: bool, force: bool) ->
         print(f"  refusing: '{ref}' is not a tag, branch or commit in {path}")
         return 1
 
+    # A branch pin is followed by standing ON the branch - where a person working inside the dependency
+    # leaves HEAD, and how forge checks one out. Checking out the bare commit would detach HEAD and
+    # strand the local branch behind its remote. A tag or commit has no branch to stand on.
+    #
+    # Stage 0 reads `HEAD --not --remotes`, so with HEAD detached it cannot see commits that are only on
+    # the local branch. Putting the branch at the target would take them off it, which is decided here,
+    # before anything moves.
+    on_branch = False
+    stranded_on_branch: list[str] = []
+    if target.kind == MOVING:
+        local = f"refs/heads/{target.name}"
+        if git(submodule, "rev-parse", "--verify", "--quiet", local).returncode == 0:
+            lacking = git(submodule, "log", "--oneline", local, "--not", target.rev)
+            if lacking.returncode != 0:
+                print(f"  could not compare branch {target.name} with {ref}:\n{lacking.stderr.rstrip()}")
+                return 1
+            stranded_on_branch = lacking.stdout.splitlines()
+        if stranded_on_branch and not force:
+            for line in stranded_on_branch:
+                print(f"  ! branch {target.name} holds {line}")
+            print(f"  refusing: branch {target.name} holds commits {ref} ({target.rev[:10]}) does not,")
+            print("  and standing it at that commit would take them off the branch.")
+            print("  Merge or move them yourself, then run this again - or repeat with --force, which moves")
+            print(f"  HEAD detached and leaves branch {target.name} as it is.")
+            return 1
+        on_branch = git(submodule, "symbolic-ref", "--quiet", "HEAD").stdout.strip() == local
+
     stages = checklist(facts, ref, target.rev)
     if check_only:
         report(facts, stages, [])
         return 0
 
     performed: list[str] = []
-    if facts.worktree != target.rev:
-        moved = git(submodule, "checkout", "--quiet", target.rev)
+    attach = target.kind == MOVING and not stranded_on_branch
+    if facts.worktree != target.rev or (attach and not on_branch):
+        # `origin/<name>` is the ref `classify` resolved target.rev from, so the branch lands on
+        # exactly the commit the checks above were made against.
+        move = ["--track", "-B", target.name, f"origin/{target.name}"] if attach else [target.rev]
+        moved = git(submodule, "checkout", "--quiet", *move)
         if moved.returncode != 0:
             print(f"  git refused to move it, and changed nothing:\n{moved.stderr.rstrip()}")
             return 1
-        performed.append(f"moved to {ref} ({target.rev[:10]})")
+        if facts.worktree != target.rev:
+            performed.append(f"moved to {ref} ({target.rev[:10]})")
+        else:
+            performed.append(f"put HEAD on branch {target.name}")
+    if target.kind == MOVING and not attach:
+        performed.append(f"left branch {target.name} as it is, holding commits {ref} does not; HEAD is detached")
 
     recursed = git(submodule, "submodule", "update", "--init", "--recursive")
     if recursed.returncode != 0:

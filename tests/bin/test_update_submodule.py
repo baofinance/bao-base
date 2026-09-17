@@ -92,13 +92,23 @@ def update_submodule(*args: str, path_prefix: Path | None = None) -> subprocess.
     return subprocess.run([str(UPDATE_SUBMODULE), *args], capture_output=True, text=True, env=env)
 
 
-def head(project: Path, name: str) -> str:
+def head(project: Path, name: str, ref: str = "HEAD") -> str:
     return subprocess.run(
-        ["git", "-C", str(project / "lib" / name), "rev-parse", "HEAD"],
+        ["git", "-C", str(project / "lib" / name), "rev-parse", ref],
         check=True,
         capture_output=True,
         text=True,
     ).stdout.strip()
+
+
+def branch_of(project: Path, name: str) -> str | None:
+    """The branch HEAD is on, or None when HEAD is detached."""
+    result = subprocess.run(
+        ["git", "-C", str(project / "lib" / name), "symbolic-ref", "--quiet", "--short", "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip() or None
 
 
 # ── locating the dependency: the ref must never make the lookup fail ──────────────────────────────
@@ -349,6 +359,123 @@ def test_doctor_advises_exactly_what_update_would_do_next(project, stop_after):
     assert first_undone, "and update must actually have something undone"
 
 
+# ── where HEAD is left: on the branch a branch pin follows, detached for anything else ────────────
+#
+# A person working inside a dependency stands on its branch, and forge checks a branch pin out by
+# name. Moving to the bare commit would detach HEAD and strand the local branch behind its remote.
+
+
+def advance_remote(tmp_path: Path, name: str) -> None:
+    """Push a new commit to a dependency's upstream `main`, leaving every checkout of it untouched."""
+    source = tmp_path / "root" / name
+    (source / "README.md").write_text("moved on\n")
+    git("add", "-A", cwd=source)
+    git("commit", "-qm", "moved on", cwd=source)
+    # The fixture's sources have no remote of their own; the bare clone the submodule points at sits
+    # beside them, so it is named by path.
+    git("push", "-q", str(tmp_path / "root" / f"{name}.git"), "main", cwd=source)
+
+
+def test_a_branch_pin_lands_on_its_branch(project, tmp_path):
+    # Updating a dependency someone is working on must leave them where they were: on the branch, now
+    # at the remote's tip.
+    assert branch_of(project, "dep") == "main"
+    advance_remote(tmp_path, "dep")
+
+    result = update_submodule("dep@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert branch_of(project, "dep") == "main", "HEAD must stay on the branch"
+    assert head(project, "dep") == head(project, "dep", "origin/main")
+
+
+def test_a_detached_branch_pin_already_at_its_commit_is_put_on_its_branch(project):
+    # Running it again repairs a detached HEAD even though there is no version to move, so the fix
+    # for an earlier detach is the same command that caused it.
+    git("checkout", "-q", "--detach", cwd=project / "lib" / "dep")
+    before = head(project, "dep")
+
+    result = update_submodule("dep@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert branch_of(project, "dep") == "main"
+    assert head(project, "dep") == before, "the working tree must not move"
+
+
+def test_a_branch_pin_with_no_local_branch_gains_one_tracking_the_remote(project, tmp_path):
+    dep = project / "lib" / "dep"
+    git("checkout", "-q", "--detach", cwd=dep)
+    git("branch", "-q", "-D", "main", cwd=dep)
+    advance_remote(tmp_path, "dep")
+
+    result = update_submodule("dep@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert branch_of(project, "dep") == "main"
+    assert head(project, "dep") == head(project, "dep", "origin/main")
+    upstream = subprocess.run(
+        ["git", "-C", str(dep), "rev-parse", "--abbrev-ref", "main@{upstream}"], capture_output=True, text=True
+    ).stdout.strip()
+    assert upstream == "origin/main", upstream
+
+
+def diverge_local_branch(project: Path, tmp_path: Path) -> str:
+    """Give local `main` a commit its remote lacks, detach HEAD at the remote, then advance the remote.
+
+    HEAD itself holds nothing unpushed, so stage 0 has nothing to refuse: the commit is only on the
+    branch. Returns that commit.
+    """
+    dep = project / "lib" / "dep"
+    (dep / "mine.txt").write_text("a day of work\n")
+    git("add", "-A", cwd=dep)
+    git("commit", "-qm", "mine", cwd=dep)
+    git("checkout", "-q", "--detach", "origin/main", cwd=dep)
+    advance_remote(tmp_path, "dep")
+    return head(project, "dep", "main")
+
+
+def test_a_local_branch_holding_commits_the_target_lacks_is_refused(project, tmp_path):
+    # Putting HEAD on the branch at the target would take those commits off the branch. That is the
+    # user's decision, so nothing moves.
+    mine = diverge_local_branch(project, tmp_path)
+    before = head(project, "dep")
+
+    result = update_submodule("dep@main")
+
+    assert result.returncode != 0
+    assert "mine" in result.stdout, f"the refusal must name the commit: {result.stdout}"
+    assert head(project, "dep") == before, "HEAD must not move"
+    assert branch_of(project, "dep") is None
+    assert head(project, "dep", "main") == mine, "the branch must keep its commit"
+    assert not (project / "foundry.lock").exists(), "and the lock must not be written"
+
+
+def test_force_over_a_diverged_local_branch_moves_detached_and_keeps_the_branch(project, tmp_path):
+    mine = diverge_local_branch(project, tmp_path)
+
+    result = update_submodule("--force", "dep@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert branch_of(project, "dep") is None, "HEAD is detached, since the branch cannot be stood on"
+    assert head(project, "dep") == head(project, "dep", "origin/main")
+    assert head(project, "dep", "main") == mine, "the branch must keep its commit"
+    assert "left branch main" in result.stdout, f"and it must say so: {result.stdout}"
+
+
+def test_a_tag_pin_moves_detached(project, tmp_path):
+    # A tag names one commit and there is no branch to stand on, so moving to one detaches HEAD.
+    advance_remote(tmp_path, "dep")
+    source = tmp_path / "root" / "dep"
+    git("tag", "v1.0.0", cwd=source)
+    git("push", "-q", str(tmp_path / "root" / "dep.git"), "v1.0.0", cwd=source)
+
+    result = update_submodule("dep@v1.0.0")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert branch_of(project, "dep") is None
+    assert head(project, "dep") == head(project, "dep", "v1.0.0^{commit}")
+
+
 # ── --relock: the lock follows the tree, instead of the tree following a ref ──────────────────────
 #
 # The reverse direction. `converge` moves a dependency to a ref the caller names; this records where
@@ -358,13 +485,7 @@ def test_doctor_advises_exactly_what_update_would_do_next(project, stop_after):
 
 def bump_and_stage(project: Path, tmp_path: Path, name: str = "dep") -> str:
     """Move a dependency to a new upstream commit and stage it, without touching foundry.lock."""
-    source = tmp_path / "root" / name
-    (source / "README.md").write_text("moved on\n")
-    git("add", "-A", cwd=source)
-    git("commit", "-qm", "moved on", cwd=source)
-    # The fixture's sources have no remote of their own; the bare clone the submodule points at sits
-    # beside them, so it is named by path.
-    git("push", "-q", str(tmp_path / "root" / f"{name}.git"), "main", cwd=source)
+    advance_remote(tmp_path, name)
     git("fetch", "-q", "origin", cwd=project / "lib" / name)
     git("checkout", "-q", "origin/main", cwd=project / "lib" / name)
     git("add", f"lib/{name}", cwd=project)
