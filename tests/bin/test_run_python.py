@@ -45,3 +45,28 @@ def test_a_script_that_ran_is_not_reported_as_having_failed_to_run():
 def test_successful_script_still_exits_zero():
     result = run_script("nothing-python")
     assert result.returncode == 0
+
+
+UV_CACHE_PROBE = """
+import subprocess
+from pathlib import Path
+
+
+def test_the_uv_cache_does_not_depend_on_where_a_child_runs(tmp_path):
+    said = subprocess.run(["uv", "cache", "dir"], cwd=tmp_path, capture_output=True, text=True, check=True)
+    assert Path(said.stdout.strip()).is_absolute(), said.stdout
+"""
+
+
+def test_a_script_sees_one_uv_cache_wherever_its_children_run(tmp_path):
+    # A script's children inherit the environment run-python exports, and some run elsewhere: recovery
+    # syncs each commit's toolchain inside that commit's temporary export. A relative cache path there
+    # names an empty cache inside the export, so every sync downloaded everything again - thirteen
+    # seconds each, seventy-six times, in the aggregators' recovery. uv reports a relative
+    # `UV_CACHE_DIR` back unchanged, so the probe asks for an absolute path rather than comparing two.
+    probe = tmp_path / "test_uv_cache_probe.py"
+    probe.write_text(UV_CACHE_PROBE)
+
+    result = run_script("pytest", str(probe))
+
+    assert result.returncode == 0, result.stdout + result.stderr

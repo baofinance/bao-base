@@ -43,7 +43,9 @@ UV_DIR="$BAO_BASE_TOOLS_DIR/uv"
 
 # environment variables used by uv
 export UV_PYTHON_BIN_DIR="$BAO_BASE_TOOLS_DIR/python/bin" # where it installs python
-export UV_CACHE_DIR="$BAO_BASE_TOOLS_DIR/uv-cache"        # cache directory for dependencies
+# uv's cache is left at its default (~/.cache/uv): absolute, and shared by every repository. A path under
+# BAO_BASE_TOOLS_DIR is relative to this directory, so a child that runs elsewhere - a recovery syncing a
+# commit's toolchain inside its export - would name an empty cache there and download everything again.
 
 # Define uv and virtual environment paths based on OS
 if [[ "$BAO_BASE_OS" == "windows" ]]; then
