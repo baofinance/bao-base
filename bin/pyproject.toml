@@ -16,6 +16,9 @@ dependencies = [
   # keccak` is what anyone checking a value by hand will reach for; sha256 was chosen only because it
   # is in the stdlib, which is convenience deciding a format others have to verify against.
   "pycryptodome~=3.20",
+  # Stage timings for deployment recovery: a named timer per stage writes its own line and keeps
+  # per-stage totals for the closing summary, so nothing is parsed back out of the log.
+  "codetiming~=1.4",
   # [tool.pytest.ini_options]
   # testpaths = ["tests"]
   # python_files = "test_*.py"

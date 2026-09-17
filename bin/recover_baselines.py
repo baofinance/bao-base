@@ -20,7 +20,9 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from codetiming import Timer
 from Crypto.Hash import keccak
+from tabulate import tabulate
 
 from deployment_baselines import (
     Baseline,
@@ -88,12 +90,28 @@ class _ChainRefused(Exception):
 
 
 def _cast(*arguments: str) -> str:
-    """One `cast` command's output. Raises `_ChainRefused` with its own words if it did not answer."""
-    done = subprocess.run(["cast", *arguments], capture_output=True, text=True)
+    """One `cast` command's output. Raises `_ChainRefused` with its own words if it did not answer.
+
+    Every chain call passes through here, so this is where they are counted and timed, by kind - the
+    `rpc` method is part of the kind, since `eth_getBlockReceipts` and `eth_call` cost very differently.
+    A refused call is timed too: a rate limit spends its wait whether or not it answers. There is no line
+    per call, only the summary's rows, because a run makes thousands of them."""
+    kind = " ".join(arguments[:2]) if arguments[0] == "rpc" else arguments[0]
+    with Timer(name=f"cast {kind}", logger=None):
+        done = subprocess.run(["cast", *arguments], capture_output=True, text=True)
     if done.returncode != 0:
         said = (done.stderr or done.stdout or "").strip().splitlines()
         raise _ChainRefused(f"`cast {arguments[0]}` failed: {said[0] if said else 'it said nothing'}")
     return done.stdout.strip()
+
+
+def _stage(name: str, what: str, say: Callable[..., None]) -> Timer:
+    """A timer for one stage of a run: its line, at verbosity 2, is `what` and the seconds it took, and
+    its time is added to `name`'s row in the summary `run` closes with.
+
+    The NAME is the stage and the line carries the particulars - which contract, commit, source - so the
+    summary adds up a stage however many things it ran for, and nothing reads a line back to do it."""
+    return Timer(name=name, text=lambda seconds: f"  {what}: {seconds:.2f}s", logger=lambda line: say(2, line))
 
 
 def _json_or_none(answer: str) -> object | None:
@@ -406,7 +424,8 @@ def _try_commit(
             continue
         question = (w.entry.name, w.entry.recorded_path or "")
         if question not in resolved:
-            resolved[question] = source_at(root, commit, w.entry.name, w.entry.recorded_path)
+            with _stage("locate source", f"locate source {w.entry.name} at {commit[:10]}", say):
+                resolved[question] = source_at(root, commit, w.entry.name, w.entry.recorded_path)
         found_at[k] = resolved[question]
     located = {k: found for k, found in found_at.items() if found}
     # BEFORE the export, which costs about a second per commit and dwarfs what it saves afterwards: a
@@ -421,7 +440,8 @@ def _try_commit(
         # A source inside a submodule is read at the commit the superproject records for it, like one in
         # this repository's own tree. `source_at` found it by reading exactly there, so it is readable.
         if wanted and source not in texts:
-            texts[source] = source_text(root, commit, source, submodules_along(root, commit, source, checkouts))
+            with _stage("pin screen", f"pin screen {source} at {commit[:10]}", say):
+                texts[source] = source_text(root, commit, source, submodules_along(root, commit, source, checkouts))
         pinned = pins_other_than(texts[source], wanted) if wanted else None
         if pinned is not None:
             say(1, f"  {commit[:10]}: {source} pins {pinned}, and the deployed code names {wanted}")
@@ -431,10 +451,13 @@ def _try_commit(
         return {}, set()
     with tempfile.TemporaryDirectory(prefix="recover-baseline-") as scratch:
         tree = Path(scratch) / "tree"
-        missing = export_tree(root, commit, tree, checkouts)
+        with _stage("export tree", f"export tree at {commit[:10]}", say):
+            missing = export_tree(root, commit, tree, checkouts)
+        with _stage("install toolchain", f"install toolchain at {commit[:10]}", say):
+            unavailable = install_toolchain(tree)
         # Said once per export rather than per build: every contract at this commit would otherwise
         # repeat it, and it only explains a build failure that has not happened yet.
-        if unavailable := install_toolchain(tree):
+        if unavailable:
             say(1, f"  {commit[:10]}: the pinned toolchain could not be installed: {unavailable}")
         found = {}
         compared: set[str] = set()
@@ -449,7 +472,8 @@ def _try_commit(
             if wanted is None:
                 say(0, f"  {commit[:10]}: {source} — the deployed code names no compiler, so nothing pins it")
                 continue
-            compiled, forge_said = _build(tree, source, out, wanted)
+            with _stage("build", f"build {source} at {commit[:10]}", say):
+                compiled, forge_said = _build(tree, source, out, wanted)
             if not compiled:
                 # One source's failure is one source's answer. Building the whole group at once
                 # made it everybody's: `forge` writes no artefact for ANY source when one of them
@@ -607,8 +631,11 @@ def _reprove(root: Path, baselines: dict[str, Baseline], say: Callable[..., None
         say(1, f"[{position:>3}/{len(at_commit)}] {commit[:10]}  {len(wanted)} baseline(s)")
         with tempfile.TemporaryDirectory(prefix="reprove-") as scratch:
             tree = Path(scratch) / "tree"
-            missing = export_tree(root, commit, tree, checkouts)
-            if unavailable := install_toolchain(tree):
+            with _stage("export tree", f"export tree at {commit[:10]}", say):
+                missing = export_tree(root, commit, tree, checkouts)
+            with _stage("install toolchain", f"install toolchain at {commit[:10]}", say):
+                unavailable = install_toolchain(tree)
+            if unavailable:
                 say(1, f"  {commit[:10]}: the pinned toolchain could not be installed: {unavailable}")
             for index, baseline in enumerate(sorted(wanted, key=lambda b: b.address)):
                 entry_key = key(baseline.chainId, baseline.address)
@@ -616,7 +643,8 @@ def _reprove(root: Path, baselines: dict[str, Baseline], say: Callable[..., None
                 out = Path(scratch) / f"out-{index}"
                 # The version prefix, because that is what `--use` resolves; the record carries the
                 # full `0.8.30+commit.73712a01`, which is what the artefact is then checked against.
-                compiled, forge_said = _build(tree, baseline.source, out, baseline.compiler.split("+")[0])
+                with _stage("build", f"build {baseline.source} at {commit[:10]}", say):
+                    compiled, forge_said = _build(tree, baseline.source, out, baseline.compiler.split("+")[0])
                 if not compiled:
                     note = f"does not rebuild at {commit[:10]}: {baseline.source} no longer compiles"
                     if missing:
@@ -731,7 +759,8 @@ def recover(
             say(0, "  no deployment time recorded, so the window cannot be placed")
             drop(pending, account, entry_key, entry, "no deployment time recorded")
             continue
-        onchain, refusal = _deployed_code(entry.address, entry.chain)
+        with _stage("chain: deployed code", f"chain: deployed code of {entry.address}", say):
+            onchain, refusal = _deployed_code(entry.address, entry.chain)
         if onchain is None:
             # The chain's own words where the chain is what stopped it, so a broken endpoint does not
             # read as a finding about the contract.
@@ -739,7 +768,8 @@ def recover(
             say(0, f"  no deployed code to compare against: {why}")
             drop(pending, account, entry_key, entry, f"no deployed code to compare against: {why}")
             continue
-        deployment, refusal = _deployment(entry.address, entry.chain, entry.deployed_at)
+        with _stage("chain: creation block", f"chain: creation block of {entry.address}", say):
+            deployment, refusal = _deployment(entry.address, entry.chain, entry.deployed_at)
         if deployment is None:
             why = refusal or f"no block on {entry.chain} is where it was created"
             say(0, f"  could not place the deploy: {why}")
@@ -750,7 +780,8 @@ def recover(
         # which is written after the broadcast and so always sits late. It decides which commits count
         # as before the deploy and which as after, which is the whole two-pass split.
         say(1, f"          created in block {block} at {deployed}, {len(onchain)} bytes on chain")
-        payload, why = _creation_payload(entry.address, entry.chain, block)
+        with _stage("chain: creation payload", f"chain: creation payload of {entry.address}", say):
+            payload, why = _creation_payload(entry.address, entry.chain, block)
         if payload is None:
             say(0, f"  not searched: {why}")
             drop(pending, account, entry_key, entry, f"not searched: {why}")
@@ -811,8 +842,9 @@ def recover(
             if len(fresh) != len(looking):
                 waiting += f" ({len(looking) - len(fresh)} already tried against these inputs)"
             say(1, f"{place}  {waiting}, building…")
-            started = time.monotonic()
-            outcome, compared_here = _try_commit(root, commit, {k: looking[k] for k in fresh}, say, checkouts)
+            # No line of its own: the one below says it, with what matched, which is known only afterwards.
+            with Timer(name="commit", logger=None) as this_commit:
+                outcome, compared_here = _try_commit(root, commit, {k: looking[k] for k in fresh}, say, checkouts)
             compared.setdefault(identity, set()).update(compared_here)
             built += 1
             # At the default level the per-commit lines are hidden, so a long stretch of builds that
@@ -826,7 +858,7 @@ def recover(
                     f"  … {built} builds, {recovered} recorded, {len(pending)} still looking,"
                     f" {elapsed // 60}m{elapsed % 60:02d}s elapsed",
                 )
-            say(1, f"{' ' * len(place)}  {time.monotonic() - started:.1f}s, {len(outcome)} matched")
+            say(1, f"{' ' * len(place)}  {this_commit.last:.1f}s, {len(outcome)} matched")
             for entry_key, (built_at, source, declared, artefact, immutables) in outcome.items():
                 # NOT popped here. What follows can still refuse this commit, and a contract taken out
                 # of the search on a SCREEN is one no later commit is ever tried for.
@@ -873,7 +905,8 @@ def recover(
                     say(0, "      so the constructor's arguments are unknown — still looking at the other commits")
                     screened.setdefault(entry_key, []).append((built_at, refusal))
                     continue
-                produced, refusal = _construct(linked + arguments, entry.chain, wants.block)
+                with _stage("construct", f"construct {entry.address} at block {wants.block}", say):
+                    produced, refusal = _construct(linked + arguments, entry.chain, wants.block)
                 if produced is None:
                     say(0, f"      NOT PROVED HERE: at block {wants.block}, {refusal}")
                     say(0, "      so the immutables cannot be checked — still looking at the other commits")
@@ -923,7 +956,12 @@ def recover(
                 # the ones that produced this bytecode rather than a second reading of foundry.toml,
                 # and `sources` there is the closure it actually read.
                 metadata = artefact["metadata"]
-                placed = submodules_at(root, built_at, checkouts)
+                with _stage("record: submodules", f"record: submodules at {built_at[:10]}", say):
+                    placed = submodules_at(root, built_at, checkouts)
+                # One walk, shared: naming the sources needs to know WHERE each submodule can be read, and
+                # the record needs the commits it names - the same answer.
+                with _stage("record: source blobs", f"record: source blobs of {entry.address}", say):
+                    blobs = source_blobs(root, built_at, metadata["sources"], placed)
                 baselines = add(
                     baselines,
                     Baseline(
@@ -945,9 +983,7 @@ def recover(
                         settings={
                             name: value for name, value in metadata["settings"].items() if name != "compilationTarget"
                         },
-                        # One walk, shared: naming the sources needs to know WHERE each submodule
-                        # can be read, and the record needs the commits it names - the same answer.
-                        sources=source_blobs(root, built_at, metadata["sources"], placed),
+                        sources=blobs,
                         submodules={path: at for path, (at, _) in placed.items()},
                         libraries=libraries,
                         constructorArguments=arguments,
@@ -959,8 +995,9 @@ def recover(
                 # The TAG goes with it, for the same reason and more so - it is what keeps the commit
                 # reachable, so a record saved without one is the half worth less.
                 if write:
-                    write_baselines(root, baselines)
-                    tagged, untaggable = create_missing_tags(root, [baselines[entry_key]])
+                    with _stage("record: write and tag", f"record: write and tag {entry.address}", say):
+                        write_baselines(root, baselines)
+                        tagged, untaggable = create_missing_tags(root, [baselines[entry_key]])
                     created_tags.extend(tagged)
                     failed_tags.extend(untaggable)
 
@@ -1097,158 +1134,221 @@ def run(
     """Everything the command does apart from parsing its arguments. The exit status is the answer.
 
     Values and a sink, not an argument list: a second caller reaches this by saying what it wants, and
-    never by assembling flags for somebody else's parser and reading a transcript back."""
-    # Before anything reads which commits are tagged: the whole point is that the creation below then
-    # finds them missing and writes them again, so tagging keeps ONE path and this is only a deletion.
-    if retag and write:
-        gone = remove_deploy_tags(root, read_baselines(root).values())
-        say(0, f"removed {len(gone)} tag(s) to be written again" if gone else "no tags of ours to remove")
-    found = review(root, ignoring_the_record=regenerate)
-    # A deployed contract is a chain AND an address: `0xA8643E35…` is `Aggregator_stETH_AAPL_arbitrum`
-    # on 42161 and `Aggregator_hsfxUSD_ETH_USD_mainnet` on 1, and an address alone selected both. The
-    # id is the identity, and the name is accepted too because it is what the progress lines print and
-    # a person copies what they see.
-    wanted = only.lower()
-    outstanding = [
-        entry for entry in found.unrecovered if _selected(wanted, entry.chain_id, entry.chain, entry.address)
-    ]
+    never by assembling flags for somebody else's parser and reading a transcript back.
 
-    # Named once because both the head-line below and the closing reconciliation read them.
-    already, searching = len(found.recorded), len(found.unrecovered)
-    described = already + searching + len(found.unreadable)
+    EVERY ending closes the same way: at verbosity 2 the run's timings, stage by stage, and then - when it
+    failed, at every verbosity - the verdict. The table says where the time went; the verdict is what a
+    reader looks for last, so it goes under the table rather than above it."""
+    # The timers are kept per process, so a second run in one process must not report the first's stages.
+    Timer.timers.clear()
+    opened = time.monotonic()
+    # The failing endings' closing line, said after the timings.
+    verdict = ""
+    try:
+        # Before anything reads which commits are tagged: the whole point is that the creation below then
+        # finds them missing and writes them again, so tagging keeps ONE path and this is only a deletion.
+        if retag and write:
+            gone = remove_deploy_tags(root, read_baselines(root).values())
+            say(0, f"removed {len(gone)} tag(s) to be written again" if gone else "no tags of ours to remove")
+        with _stage("review", "review the manifests and the record", say):
+            found = review(root, ignoring_the_record=regenerate)
+        # A deployed contract is a chain AND an address: `0xA8643E35…` is `Aggregator_stETH_AAPL_arbitrum`
+        # on 42161 and `Aggregator_hsfxUSD_ETH_USD_mainnet` on 1, and an address alone selected both. The
+        # id is the identity, and the name is accepted too because it is what the progress lines print and
+        # a person copies what they see.
+        wanted = only.lower()
+        outstanding = [
+            entry for entry in found.unrecovered if _selected(wanted, entry.chain_id, entry.chain, entry.address)
+        ]
 
-    # Said out loud because this run is long, occasional, and otherwise silent for minutes at a time -
-    # and because every number here is one a reader would otherwise have to infer from what is missing.
-    say(0, f"{root}")
-    say(
-        0,
-        f"  manifests describe {described} deployed contracts: "
-        f"{already} already recorded, {len(found.unrecovered)} without a baseline"
-        # INSIDE the total rather than beside it. An entry that cannot be keyed used to sit outside the
-        # arithmetic entirely, so five of the aggregators' eighty-eight could not be reconciled against
-        # anything, and stayed invisible for it.
-        + (f", {len(found.unreadable)} that cannot be identified" if found.unreadable else ""),
-    )
-    if reprove:
-        # Over the RECORD, not the backlog: `--only` filters what has no baseline yet, so it can never
-        # name a contract that has one - which is exactly what needs re-proving.
-        recorded = {
-            entry_key: baseline
-            for entry_key, baseline in read_baselines(root).items()
-            if _selected(wanted, baseline.chainId, baseline.chain, baseline.address)
-        }
-        if not recorded:
-            # The message names the set it looked in. "No contract without a baseline" would be true of
-            # every recorded contract, which is exactly the set this mode is about.
-            if only:
-                say(0, f"no recorded baseline is {only!r}; the form is 42161/0x… or arbitrum/0x…")
+        # Named once because both the head-line below and the closing reconciliation read them.
+        already, searching = len(found.recorded), len(found.unrecovered)
+        described = already + searching + len(found.unreadable)
+
+        # Said out loud because this run is long, occasional, and otherwise silent for minutes at a time -
+        # and because every number here is one a reader would otherwise have to infer from what is missing.
+        say(0, f"{root}")
+        say(
+            0,
+            f"  manifests describe {described} deployed contracts: "
+            f"{already} already recorded, {len(found.unrecovered)} without a baseline"
+            # INSIDE the total rather than beside it. An entry that cannot be keyed used to sit outside the
+            # arithmetic entirely, so five of the aggregators' eighty-eight could not be reconciled against
+            # anything, and stayed invisible for it.
+            + (f", {len(found.unreadable)} that cannot be identified" if found.unreadable else ""),
+        )
+        if reprove:
+            # Over the RECORD, not the backlog: `--only` filters what has no baseline yet, so it can never
+            # name a contract that has one - which is exactly what needs re-proving.
+            recorded = {
+                entry_key: baseline
+                for entry_key, baseline in read_baselines(root).items()
+                if _selected(wanted, baseline.chainId, baseline.chain, baseline.address)
+            }
+            if not recorded:
+                # The message names the set it looked in. "No contract without a baseline" would be true of
+                # every recorded contract, which is exactly the set this mode is about.
+                if only:
+                    say(0, f"no recorded baseline is {only!r}; the form is 42161/0x… or arbitrum/0x…")
+                    return 1
+                say(0, "nothing recorded to re-prove")
+                return 0
+            say(0, f"\nrebuilding {len(recorded)} recorded baseline(s) from what each one records")
+            failed = _reprove(root, recorded, say)
+            _listing(say, "not reproduced by a rebuild", failed)
+            if failed:
+                say(0, "  The inputs still resolve, and what they build is not what was deployed.")
                 return 1
-            say(0, "nothing recorded to re-prove")
+            say(0, f"\n{len(recorded)} rebuilt and matched the creation bytecode each one records")
             return 0
-        say(0, f"\nrebuilding {len(recorded)} recorded baseline(s) from what each one records")
-        failed = _reprove(root, recorded, say)
-        _listing(say, "not reproduced by a rebuild", failed)
-        if failed:
-            say(0, "  The inputs still resolve, and what they build is not what was deployed.")
-            return 1
-        say(0, f"\n{len(recorded)} rebuilt and matched the creation bytecode each one records")
-        return 0
 
-    if only:
-        say(0, f"  --only {only}: {len(outstanding)} of them")
-    if not outstanding:
         if only:
-            # Distinguished from "nothing to recover", because a selector that names nothing is a
-            # mistyped argument and reads exactly like a finished job otherwise.
-            say(0, f"no contract without a baseline is {only!r}; the form is 42161/0x… or arbitrum/0x…")
-            # Said even here. A selector narrows what is SEARCHED for, never what is reported: the
-            # head-line counts the entries that cannot be identified either way, and returning before
-            # this made a focused run say less about the repository than a plain one.
+            say(0, f"  --only {only}: {len(outstanding)} of them")
+        if not outstanding:
+            if only:
+                # Distinguished from "nothing to recover", because a selector that names nothing is a
+                # mistyped argument and reads exactly like a finished job otherwise.
+                say(0, f"no contract without a baseline is {only!r}; the form is 42161/0x… or arbitrum/0x…")
+                # Said even here. A selector narrows what is SEARCHED for, never what is reported: the
+                # head-line counts the entries that cannot be identified either way, and returning before
+                # this made a focused run say less about the repository than a plain one.
+                _listings(say, list(found.unreadable), found)
+                return 1
+            say(0, "nothing to recover")
+            # Nothing to RECORD is not nothing to do: the tags are the other half of the repair, and this
+            # is the ending a converted repository reaches every time.
+            unmade = _write_tags(root, found.untagged, say) if write else []
             _listings(say, list(found.unreadable), found)
-            return 1
-        say(0, "nothing to recover")
-        # Nothing to RECORD is not nothing to do: the tags are the other half of the repair, and this
-        # is the ending a converted repository reaches every time.
-        unmade = _write_tags(root, found.untagged, say) if write else []
-        _listings(say, list(found.unreadable), found)
-        return 1 if unmade else 0
+            if found.unreadable:
+                verdict = f"{len(found.unreadable)} deployed contract(s) have no baseline, so this run fails"
+            return 1 if found.unreadable or unmade else 0
 
-    done = recover(
-        root,
-        found,
-        outstanding,
-        regenerate=regenerate,
-        write=write,
-        say=say,
-    )
-    # Named locally because everything below is the report ON this one result, and `done.` in the middle
-    # of a dozen f-strings buys no clarity where nothing else is in scope.
-    account, refused, unproven = done.account, done.refused, done.unproven
-    baselines, recovered, built, dated = done.baselines, done.recovered, done.built, done.dated
+        done = recover(
+            root,
+            found,
+            outstanding,
+            regenerate=regenerate,
+            write=write,
+            say=say,
+        )
+        # Named locally because everything below is the report ON this one result, and `done.` in the middle
+        # of a dozen f-strings buys no clarity where nothing else is in scope.
+        account, refused, unproven = done.account, done.refused, done.unproven
+        baselines, recovered, built, dated = done.baselines, done.recovered, done.built, done.dated
 
-    if refused:
-        say(0, f"\n{len(refused)} proved but NOT recorded — the commit is on no branch, so no remote can have it:")
-        for entry_key, entry, proved_at in refused:
-            say(0, f"  {entry_key}  {entry.name}  at {proved_at[:10]}")
-        say(0, "  Put each on a branch and push it, then run again. Until then these are unrecoverable:")
-        say(0, "  a stash entry is destroyed by `git stash drop`, and nothing else built this bytecode.")
+        if refused:
+            say(0, f"\n{len(refused)} proved but NOT recorded — the commit is on no branch, so no remote can have it:")
+            for entry_key, entry, proved_at in refused:
+                say(0, f"  {entry_key}  {entry.name}  at {proved_at[:10]}")
+            say(0, "  Put each on a branch and push it, then run again. Until then these are unrecoverable:")
+            say(0, "  a stash entry is destroyed by `git stash drop`, and nothing else built this bytecode.")
 
-    if unproven:
-        say(0, f"\n{len(unproven)} screened but NOT recorded:")
-        for entry_key, entry, commits in unproven:
-            say(0, f"  {entry_key}  {entry.name}  {_screening(commits)}")
-        say(0, "  A screen says the source is close: the code matches outside what the source does not")
-        say(0, "  decide. What stopped each of them is on its own row — they do not share a remedy.")
+        if unproven:
+            say(0, f"\n{len(unproven)} screened but NOT recorded:")
+            for entry_key, entry, commits in unproven:
+                say(0, f"  {entry_key}  {entry.name}  {_screening(commits)}")
+            say(0, "  A screen says the source is close: the code matches outside what the source does not")
+            say(0, "  decide. What stopped each of them is on its own row — they do not share a remedy.")
 
-    # What was searched, said once rather than per row: `all_commits` is `git log --all`, so an unmerged
-    # branch and a stash are both in it, and "nothing built it" means nothing in ANY of them did - which
-    # is a different statement from "nothing on this branch did".
-    _listings(say, account, found, f"searched {len(dated)} commit(s) from every ref, {dated[-1][1]} to {dated[0][1]}")
+        # What was searched, said once rather than per row: `all_commits` is `git log --all`, so an unmerged
+        # branch and a stash are both in it, and "nothing built it" means nothing in ANY of them did - which
+        # is a different statement from "nothing on this branch did".
+        _listings(
+            say, account, found, f"searched {len(dated)} commit(s) from every ref, {dated[-1][1]} to {dated[0][1]}"
+        )
 
-    say(0, f"\n{recovered} of {len(outstanding)} recovered, from {built} build(s) over {len(dated)} candidate commits")
-    # described = already recorded + recovered here + accounted for + never selected, and nothing is
-    # still being looked for by now. Said as arithmetic so a removal that skipped the account can only
-    # show up as a mismatch, instead of as a contract nobody mentions - which is how a screen took two
-    # of them out silently.
-    settled = already + recovered + len(account) + (searching - len(outstanding))
-    if settled != described:
-        say(0, f"  ACCOUNTING ERROR: {described} described but {settled} accounted for;")
-        say(0, f"  {abs(described - settled)} contract(s) left this run without a row above.")
-    if regenerate and not write:
-        # The check half: what regeneration produces, against what is committed, writing nothing. It
-        # proves CORRECTNESS where the currency checks prove freshness - a hand-edited record that is
-        # internally consistent passes everything else in the system, and this is what catches it.
-        difference = regeneration_changes(root, baselines)
-        if difference.unreadable:
-            # Not a crash: an unreadable record is the case regeneration exists to repair, and saying so
-            # is the answer to "would regeneration change this" - it would replace it entirely.
-            say(0, f"\nthe committed record cannot be read ({difference.unreadable}), so regeneration would replace it")
-            return 1
-        changes = difference.changes
-        if changes:
-            say(0, f"\n{len(changes)} baseline(s) regeneration would change:")
-            for entry_key, was, now in changes:
-                if was is None:
-                    say(0, f"  {entry_key}  {now.contractType}  would be ADDED, at {now.commit[:10]}")
-                elif now is None:
-                    # The hazard E16 measured: a from-scratch run took a record from 85 to 80, and six
-                    # of those were contracts it could no longer recover rather than entries it fixed.
-                    say(0, f"  {entry_key}  {was.contractType}  would be REMOVED, recorded at {was.commit[:10]}")
-                else:
-                    say(
-                        0,
-                        f"  {entry_key}  {now.contractType}  recorded at {was.commit[:10]}, regenerates at {now.commit[:10]}",
+        say(
+            0,
+            f"\n{recovered} of {len(outstanding)} recovered, from {built} build(s) over {len(dated)} candidate commits",
+        )
+        # described = already recorded + recovered here + accounted for + never selected, and nothing is
+        # still being looked for by now. Said as arithmetic so a removal that skipped the account can only
+        # show up as a mismatch, instead of as a contract nobody mentions - which is how a screen took two
+        # of them out silently.
+        settled = already + recovered + len(account) + (searching - len(outstanding))
+        if settled != described:
+            say(0, f"  ACCOUNTING ERROR: {described} described but {settled} accounted for;")
+            say(0, f"  {abs(described - settled)} contract(s) left this run without a row above.")
+        if regenerate and not write:
+            # The check half: what regeneration produces, against what is committed, writing nothing. It
+            # proves CORRECTNESS where the currency checks prove freshness - a hand-edited record that is
+            # internally consistent passes everything else in the system, and this is what catches it.
+            difference = regeneration_changes(root, baselines)
+            if difference.unreadable:
+                # Not a crash: an unreadable record is the case regeneration exists to repair, and saying so
+                # is the answer to "would regeneration change this" - it would replace it entirely.
+                say(
+                    0,
+                    f"\nthe committed record cannot be read ({difference.unreadable}), so regeneration would replace it",
+                )
+                return 1
+            changes = difference.changes
+            if changes:
+                say(0, f"\n{len(changes)} baseline(s) regeneration would change:")
+                for entry_key, was, now in changes:
+                    if was is None:
+                        say(0, f"  {entry_key}  {now.contractType}  would be ADDED, at {now.commit[:10]}")
+                    elif now is None:
+                        # The hazard E16 measured: a from-scratch run took a record from 85 to 80, and six
+                        # of those were contracts it could no longer recover rather than entries it fixed.
+                        say(0, f"  {entry_key}  {was.contractType}  would be REMOVED, recorded at {was.commit[:10]}")
+                    else:
+                        say(
+                            0,
+                            f"  {entry_key}  {now.contractType}  recorded at {was.commit[:10]}, regenerates at {now.commit[:10]}",
+                        )
+                return 1
+            say(0, f"\nthe record is exactly what regeneration produces: {len(baselines)} baseline(s)")
+            return 0
+
+        # Over the WHOLE record, not just what this run proved: a repository converting to the record
+        # arrives with every one of its commits untagged, and none of those is something this run recovered.
+        unmade = _write_tags(root, baselines.values(), say, (done.tagged, done.untaggable)) if write else []
+
+        if recovered and write:
+            say(0, f"deployed.json holds {len(baselines)} baseline(s)")
+        elif recovered:
+            say(0, "not written; pass --write to record them")
+        # Every contract under "not recorded" is one the record still does not cover, and the check fails on
+        # each of them - so the status says so, however much else was recorded, and the verdict closes the
+        # run, because the listing that explains it sits under a long transcript. A reconciliation that does
+        # not add up is a contract that left without a row at all, and fails the run the same way.
+        if account:
+            verdict = f"{len(account)} deployed contract(s) have no baseline, so this run fails"
+        return 1 if account or settled != described or unmade else 0
+    finally:
+        # Read from the timers, never from the transcript. The chain calls are a group of their own because
+        # each is inside a chain stage above them - adding the groups together would count that time twice -
+        # and `commit` is the whole of one commit's work, so the stages timed inside it are inside it the
+        # same way. Said even when the run raised, since where the time went is part of explaining that.
+        wall = time.monotonic() - opened
+        say(2, f"\ntimings, {wall:.1f}s in all:")
+        for group, names in (
+            ("stage", [name for name in Timer.timers.data if not name.startswith("cast ")]),
+            ("chain call", [name for name in Timer.timers.data if name.startswith("cast ")]),
+        ):
+            if not names:
+                continue
+            rows = sorted(
+                (
+                    (
+                        name,
+                        int(Timer.timers.count(name)),
+                        Timer.timers.total(name),
+                        Timer.timers.mean(name),
+                        Timer.timers.max(name),
+                        100 * Timer.timers.total(name) / wall if wall else 0.0,
                     )
-            return 1
-        say(0, f"\nthe record is exactly what regeneration produces: {len(baselines)} baseline(s)")
-        return 0
-
-    # Over the WHOLE record, not just what this run proved: a repository converting to the record
-    # arrives with every one of its commits untagged, and none of those is something this run recovered.
-    unmade = _write_tags(root, baselines.values(), say, (done.tagged, done.untaggable)) if write else []
-
-    if recovered and write:
-        say(0, f"deployed.json holds {len(baselines)} baseline(s)")
-    elif recovered:
-        say(0, "not written; pass --write to record them")
-    return 1 if unmade else 0
+                    for name in names
+                ),
+                key=lambda row: -row[2],
+            )
+            table = tabulate(
+                rows,
+                headers=[group, "count", "total s", "mean s", "max s", "% of run"],
+                floatfmt=("", "", ".1f", ".3f", ".3f", ".0f"),
+            )
+            for line in table.splitlines():
+                say(2, f"  {line}")
+        if verdict:
+            say(0, f"\n{verdict}")

@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from codetiming import Timer
 
 BIN = Path(__file__).resolve().parents[2] / "bin"
 sys.path.insert(0, str(BIN))
@@ -182,6 +183,273 @@ def test_one_uncompilable_source_does_not_hide_the_others_at_that_commit(tmp_pat
     assert record[key(1, ADDRESS_B)].commit == earlier
     assert key(1, ADDRESS_A) in record, "A was never compared at the commit where B failed to compile beside it"
     assert record[key(1, ADDRESS_A)].commit == latest
+
+
+# ── the exit status says whether every outstanding contract was recorded ────────────────────────────
+#
+# A run that recorded 150 of 154 and exited 0 read as done. Nothing was lost - running again picks the
+# four up - but nothing said to run again either: the listing is at the end of a long transcript, and a
+# script or a person reading the status took it as success. The run still goes to the end first, since
+# the chain work already done for every other contract would be wasted by stopping at the first failure.
+
+
+def two_deployed_contracts(tmp_path: Path) -> tuple[Path, bytes, bytes]:
+    """A repository whose one commit builds exactly what is deployed at ADDRESS_A and ADDRESS_B."""
+    repo, scratch = tmp_path / "repo", tmp_path / "scratch"
+    (repo / "src").mkdir(parents=True)
+    scratch.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True, capture_output=True)
+    for setting, value in (("user.email", "t@t"), ("user.name", "test")):
+        subprocess.run(["git", "config", setting, value], cwd=repo, check=True, capture_output=True)
+    (repo / "foundry.toml").write_text('[profile.default]\nsrc = "src"\nlibs = []\nremappings = ["@fixture/=src/"]\n')
+    manifest = repo / "deployments" / "mainnet" / "state.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "network": "mainnet",
+                "chainId": 1,
+                "implementations": {
+                    ADDRESS_A: {"contractSource": "src/A.sol", "contractType": "A", "deploymentTime": DEPLOYED},
+                    ADDRESS_B: {"contractSource": "src/B.sol", "contractType": "B", "deploymentTime": DEPLOYED},
+                },
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    (repo / "src" / "A.sol").write_text(contract_source("A", 1))
+    (repo / "src" / "B.sol").write_text(contract_source("B", 2))
+    deployed_a, deployed_b = runtime(repo, "src/A.sol", "A", scratch), runtime(repo, "src/B.sol", "B", scratch)
+    commit(repo, "2026-01-01T00:00:00+00:00", "A and B as deployed")
+    return repo, deployed_a, deployed_b
+
+
+def answered_by(recover, monkeypatch, repo: Path, chain: Chain) -> None:
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
+    monkeypatch.setattr(recover, "_creation_payload", created_by_its_own_transaction)
+    monkeypatch.chdir(repo)
+
+
+def test_a_write_that_leaves_a_contract_unrecorded_fails_after_recording_the_rest(tmp_path, monkeypatch, capsys):
+    # B's node refuses - a rate limit, the case that made this matter - and A is proved regardless.
+    repo, deployed_a, deployed_b = two_deployed_contracts(tmp_path)
+    recover = load_recover_baselines()
+    chain = Chain({ADDRESS_A: deployed_a, ADDRESS_B: deployed_b})
+    answered_by(recover, monkeypatch, repo, chain)
+    refusal = "`cast code` failed: Error: Max retries exceeded HTTP error 429 with body: "
+    monkeypatch.setattr(
+        recover,
+        "_deployed_code",
+        lambda address, chain_name: (
+            (None, refusal) if address.lower() == ADDRESS_B else chain.code(address, chain_name)
+        ),
+    )
+
+    status = recover.run(repo, say=recover.Printer(0), write=True)
+
+    assert status == 1, "one deployed contract is still not recorded"
+    assert key(1, ADDRESS_A) in read_baselines(repo), "the run went on and recorded everything it could"
+    assert key(1, ADDRESS_B) not in read_baselines(repo)
+    printed = capsys.readouterr().out
+    assert "1 deployed contract(s) have no baseline, so this run fails" in printed[printed.rindex("not recorded:") :], (
+        "said last, under the listing, so the reason for the status is where the transcript ends"
+    )
+
+
+def test_a_write_that_records_every_contract_succeeds(tmp_path, monkeypatch):
+    repo, deployed_a, deployed_b = two_deployed_contracts(tmp_path)
+    recover = load_recover_baselines()
+    answered_by(recover, monkeypatch, repo, Chain({ADDRESS_A: deployed_a, ADDRESS_B: deployed_b}))
+
+    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
+    assert {key(1, ADDRESS_A), key(1, ADDRESS_B)} <= set(read_baselines(repo))
+
+
+def test_a_write_fails_on_an_entry_that_cannot_be_identified_when_there_is_nothing_to_search(tmp_path, monkeypatch):
+    # The early exit a finished repository takes: nothing to search, and still a deployment record no
+    # baseline can ever cover. The check fails on it, so the write that is meant to repair the check does.
+    repo, _ = repository_of_oracles(
+        tmp_path,
+        {"P_USD": {"name": "P/USD", "address": "", "contractPath": "src/Placeholder.sol:Placeholder"}},
+    )
+    (repo / "src" / "Placeholder.sol").write_text(contract_source("Placeholder", 2))
+    commit(repo, "2026-01-01T00:00:00+00:00", "the source")
+    recover = load_recover_baselines()
+    answered_by(recover, monkeypatch, repo, Chain({}))
+
+    assert recover.run(repo, say=recover.Printer(0), write=True) == 1
+
+
+def test_a_contract_that_leaves_the_run_without_a_row_fails_it(tmp_path, monkeypatch, capsys):
+    # The reconciliation exists because two contracts once left a run silently. A mismatch is a defect in
+    # the run itself, so it fails the run rather than being a line a reader may scroll past.
+    repo, deployed_a, deployed_b = two_deployed_contracts(tmp_path)
+    recover = load_recover_baselines()
+    answered_by(recover, monkeypatch, repo, Chain({ADDRESS_A: deployed_a}))
+    monkeypatch.setattr(
+        recover, "drop", lambda pending, account, entry_key, entry, reason: pending.pop(entry_key, None)
+    )
+
+    status = recover.run(repo, say=recover.Printer(0), write=True)
+
+    assert "ACCOUNTING ERROR" in capsys.readouterr().out
+    assert status == 1
+
+
+# ── every stage timed, and the whole run summarised at its end ─────────────────────────────────────
+#
+# A run is minutes long, and where the minutes go decides what is worth making faster - measured on
+# harbor, chain calls were 81% of 839s and every build together 63s. The numbers are named timers kept
+# in memory, so these tests read the timers rather than the transcript, and a line can be reworded freely.
+
+
+def timed() -> dict[str, int]:
+    """How many times each stage was timed in the latest run."""
+    return {name: Timer.timers.count(name) for name in Timer.timers.data}
+
+
+def last_line(printed: str) -> str:
+    return [line for line in printed.splitlines() if line.strip()][-1]
+
+
+def test_a_run_ends_with_a_summary_of_every_stage_it_timed(tmp_path, monkeypatch, capsys):
+    # Two contracts at one commit: the chain stages and the proof run per contract, the export per commit,
+    # and each source is located and screened once.
+    repo, deployed_a, deployed_b = two_deployed_contracts(tmp_path)
+    recover = load_recover_baselines()
+    answered_by(recover, monkeypatch, repo, Chain({ADDRESS_A: deployed_a, ADDRESS_B: deployed_b}))
+
+    assert recover.run(repo, say=recover.Printer(2), write=True) == 0
+
+    assert timed() == {
+        "review": 1,
+        "chain: deployed code": 2,
+        "chain: creation block": 2,
+        "chain: creation payload": 2,
+        "commit": 1,
+        "locate source": 2,
+        "pin screen": 2,
+        "export tree": 1,
+        "install toolchain": 1,
+        "build": 2,
+        "construct": 2,
+        "record: submodules": 2,
+        "record: source blobs": 2,
+        "record: write and tag": 2,
+    }
+    summary = capsys.readouterr().out.rsplit("timings", 1)[-1]
+    assert all(stage in summary for stage in timed()), "every stage has a row in the closing summary"
+
+
+def test_the_failure_line_stays_last_after_the_summary(tmp_path, monkeypatch, capsys):
+    # The verdict is what a reader looks for at the end, so the timings go above it.
+    repo, deployed_a, deployed_b = two_deployed_contracts(tmp_path)
+    recover = load_recover_baselines()
+    chain = Chain({ADDRESS_A: deployed_a, ADDRESS_B: deployed_b})
+    answered_by(recover, monkeypatch, repo, chain)
+    monkeypatch.setattr(
+        recover,
+        "_deployed_code",
+        lambda address, chain_name: (
+            (None, "`cast code` failed: Error: Max retries exceeded HTTP error 429 with body: ")
+            if address.lower() == ADDRESS_B
+            else chain.code(address, chain_name)
+        ),
+    )
+
+    assert recover.run(repo, say=recover.Printer(2), write=True) == 1
+
+    printed = capsys.readouterr().out
+    assert "timings" in printed
+    assert last_line(printed) == "1 deployed contract(s) have no baseline, so this run fails"
+
+
+def test_each_stage_has_its_own_line_only_from_verbosity_two(tmp_path, monkeypatch):
+    recover = load_recover_baselines()
+    lines: dict[int, list[str]] = {1: [], 2: []}
+    for level in (1, 2):
+        repo, deployed_a, deployed_b = two_deployed_contracts(tmp_path / f"verbosity-{level}")
+        answered_by(recover, monkeypatch, repo, Chain({ADDRESS_A: deployed_a, ADDRESS_B: deployed_b}))
+        recover.run(repo, say=recover.Printer(level, lines[level].append), write=True)
+
+    assert any("build src/A.sol at " in line for line in lines[2]), "each build has a line of its own"
+    assert any("timings" in line for line in lines[2]), "and the summary closes the run"
+    assert not any("build src/A.sol at " in line for line in lines[1]), "neither is said below verbosity two"
+    assert not any("timings" in line for line in lines[1])
+
+
+def test_a_second_run_in_one_process_counts_only_its_own_stages(tmp_path, monkeypatch):
+    # The totals are kept per process. The second run finds everything recorded and builds nothing, so a
+    # count carried over from the first would report builds that did not happen.
+    repo, deployed_a, deployed_b = two_deployed_contracts(tmp_path)
+    recover = load_recover_baselines()
+    answered_by(recover, monkeypatch, repo, Chain({ADDRESS_A: deployed_a, ADDRESS_B: deployed_b}))
+    recover.run(repo, say=recover.Printer(0), write=True)
+
+    recover.run(repo, say=recover.Printer(0), write=True)
+
+    assert timed() == {"review": 1}
+
+
+def test_every_chain_call_is_counted_by_kind(monkeypatch):
+    # Every chain call goes through `_cast`, so its timer counts them all, a refused one included - a
+    # rate limit costs its wait whether or not it answers. The rpc method is part of the kind.
+    recover = load_recover_baselines()
+
+    class Answered:
+        returncode, stdout, stderr = 0, "0x", ""
+
+    class Refused:
+        returncode, stdout, stderr = 1, "", "Error: Max retries exceeded HTTP error 429 with body: "
+
+    replies = iter([Answered(), Answered(), Answered(), Answered(), Refused()])
+    monkeypatch.setattr(recover.subprocess, "run", lambda *arguments, **options: next(replies))
+    Timer.timers.clear()
+
+    recover._cast("code", "0xaa", "--rpc-url", "mainnet")
+    recover._cast("code", "0xbb", "--rpc-url", "mainnet")
+    recover._cast("block-number", "--rpc-url", "mainnet")
+    recover._cast("rpc", "eth_getBlockReceipts", "0x64", "--rpc-url", "mainnet")
+    with pytest.raises(recover._ChainRefused):
+        recover._cast("find-block", "1767225600", "--rpc-url", "mainnet")
+
+    assert timed() == {"cast code": 2, "cast block-number": 1, "cast rpc eth_getBlockReceipts": 1, "cast find-block": 1}
+
+
+def test_the_nothing_to_recover_ending_prints_a_summary(tmp_path, monkeypatch, capsys):
+    repo, _ = repository_of_oracles(
+        tmp_path,
+        {"P_USD": {"name": "P/USD", "address": "", "contractPath": "src/Placeholder.sol:Placeholder"}},
+    )
+    (repo / "src" / "Placeholder.sol").write_text(contract_source("Placeholder", 2))
+    commit(repo, "2026-01-01T00:00:00+00:00", "the source")
+    recover = load_recover_baselines()
+    answered_by(recover, monkeypatch, repo, Chain({}))
+
+    assert recover.run(repo, say=recover.Printer(2), write=True) == 1
+
+    assert timed() == {"review": 1}
+    printed = capsys.readouterr().out
+    assert "timings" in printed
+    assert last_line(printed) == "1 deployed contract(s) have no baseline, so this run fails"
+
+
+def test_reprove_ends_with_a_summary_of_its_stages(tmp_path, monkeypatch, capsys):
+    from deployment_baselines import add, write_baselines
+
+    repo, scratch, head, creation = a_recorded_repository(tmp_path)
+    recover = load_recover_baselines()
+    write_baselines(repo, add({}, recorded_baseline(repo, scratch, head, recover._keccak256(creation))))
+    monkeypatch.chdir(repo)
+
+    assert recover.run(repo, say=recover.Printer(2), reprove=True) == 0
+
+    assert timed() == {"review": 1, "export tree": 1, "install toolchain": 1, "build": 1}
+    assert "timings" in capsys.readouterr().out
 
 
 # ── every contract that was not recorded, gathered where a reader will see it ──────────────────────
