@@ -131,8 +131,8 @@ def test_an_entry_with_no_path_is_not_additionally_a_normalisation_failure(repo)
 
 
 def test_a_path_in_a_dependency_normalises_through_its_own_prefix(repo):
-    # This is the test that was missing, and its absence let `normalise` and `source_at` hold opposite
-    # answers to one question: `source_at` searches `lib/` because a contract defined in a dependency
+    # This is the test that was missing, and its absence let `normalise` and `sources_at` hold opposite
+    # answers to one question: `sources_at` searches `lib/` because a contract defined in a dependency
     # is defined there, while `normalise` refused to name any path inside one.
     #
     # `@bao/=lib/bao-base/src/` is exactly how harbor's 46 bao-base-sourced records are already

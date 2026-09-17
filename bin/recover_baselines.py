@@ -57,8 +57,8 @@ from deployment_recovery import (
     link_libraries,
     pins_other_than,
     search_passes,
-    source_at,
     source_blobs,
+    sources_at,
     source_text,
     still_to_try,
     strip_metadata,
@@ -416,18 +416,15 @@ def _try_commit(
     # ONE resolution per question, not per contract. Locating a source greps the whole commit, and the
     # question it answers is (name, recorded path) - so twenty-three deployments of one contract type
     # ask it twenty-three times and get the same answer. Measured on harbor: 26ms a time, 1204 commits
-    # by 23 contracts, twelve minutes of a thirty-three minute run.
-    resolved: dict[tuple[str, str], tuple[str, str] | None] = {}
-    found_at = {}
-    for k, w in pending.items():
-        if not w.entry.name:
-            continue
-        question = (w.entry.name, w.entry.recorded_path or "")
-        if question not in resolved:
-            with _stage("locate source", f"locate source {w.entry.name} at {commit[:10]}", say):
-                resolved[question] = source_at(root, commit, w.entry.name, w.entry.recorded_path)
-        found_at[k] = resolved[question]
-    located = {k: found for k, found in found_at.items() if found}
+    # by 23 contracts, twelve minutes of a thirty-three minute run. And every question goes to one search.
+    questions = {(w.entry.name, w.entry.recorded_path or "") for w in pending.values() if w.entry.name}
+    with _stage("locate source", f"locate {len(questions)} source(s) at {commit[:10]}", say):
+        resolved = sources_at(root, commit, questions)
+    located = {
+        k: found
+        for k, w in pending.items()
+        if w.entry.name and (found := resolved[(w.entry.name, w.entry.recorded_path or "")])
+    }
     # BEFORE the export, which costs about a second per commit and dwarfs what it saves afterwards: a
     # source pinning one compiler exactly cannot have produced bytecode another one wrote, and both
     # are readable from git. A commit every candidate is ruled out at never needs a tree at all.
@@ -438,7 +435,7 @@ def _try_commit(
     for entry_key, (source, declared) in located.items():
         wanted = compiler_in(pending[entry_key].onchain)
         # A source inside a submodule is read at the commit the superproject records for it, like one in
-        # this repository's own tree. `source_at` found it by reading exactly there, so it is readable.
+        # this repository's own tree. `sources_at` found it by reading exactly there, so it is readable.
         if wanted and source not in texts:
             with _stage("pin screen", f"pin screen {source} at {commit[:10]}", say):
                 texts[source] = source_text(root, commit, source, submodules_along(root, commit, source, checkouts))

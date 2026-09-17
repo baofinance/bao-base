@@ -390,8 +390,11 @@ def _path_at(repo_root: Path, commit: str, recorded_path: str) -> str | None:
     return None
 
 
-def declaration_of(contract_type: str) -> str:
-    """The line where `contract_type` is declared, as a POSIX extended regular expression.
+def declaration_of(*contract_types: str) -> str:
+    """The line where any of `contract_types` is declared, as a POSIX extended regular expression.
+
+    The names are one alternation group, so one search asks for all of them; which name a matching line
+    declares is read back from the line itself.
 
     POSIX and not GNU, which is why this is named rather than written inline at its one call site.
     `git grep --extended-regexp` compiles the pattern with whatever `regcomp` the platform provides:
@@ -406,13 +409,21 @@ def declaration_of(contract_type: str) -> str:
     So the boundary is spelled the way both engines read alike: the name is not followed by another
     identifier character, or the line ends there - which a declaration whose brace is on the next line
     does."""
-    return rf"^[[:space:]]*(abstract[[:space:]]+)?contract[[:space:]]+{re.escape(contract_type)}([^[:alnum:]_]|$)"
+    names = "|".join(re.escape(contract_type) for contract_type in contract_types)
+    return rf"^[[:space:]]*(abstract[[:space:]]+)?contract[[:space:]]+({names})([^[:alnum:]_]|$)"
 
 
-def source_at(
-    repo_root: Path, commit: str, contract_type: str, recorded_path: str | None = None
-) -> tuple[str, str] | None:
-    """The file defining this contract at `commit` and the name it goes by THERE, or None.
+def sources_at(
+    repo_root: Path, commit: str, questions: Iterable[tuple[str, str | None]]
+) -> dict[tuple[str, str | None], tuple[str, str] | None]:
+    """For each (contract name, recorded path) question: the file defining that contract at `commit` and
+    the name it goes by THERE, or None.
+
+    ONE search for every question. The search walks the whole commit, submodules included, and that walk
+    is the cost: 0.36s a name on the aggregators, thirteen names waiting at a commit, 578s of one run.
+    Asked for all 142 of its names at once it measured twice one name's cost. Each match prints the line
+    it matched, and the name that line declares is what says which question it answers - so a name is
+    never credited with a line declaring another that merely begins the same way.
 
     Two identities, because neither survives everything on its own:
 
@@ -446,41 +457,55 @@ def source_at(
     leaves two, the answer is None - two files declaring one name is the flat-namespace problem this
     fleet already has (three such names at HEAD, none of them deployed), and picking one would be
     arbitrary."""
-    found = subprocess.run(
-        [
-            "git",
-            "grep",
-            "-l",
-            # Without this a contract DEFINED in a dependency is invisible: `git grep` stops at a
-            # gitlink, so harbor's `MintableBurnableERC20_v1` - which lives in bao-base and is
-            # deployed from harbor, the constructor being what makes each deployment differ - was
-            # reported as "no candidate built what is deployed" about a source never looked at.
-            "--recurse-submodules",
-            "--extended-regexp",
-            declaration_of(contract_type),
-            commit,
-            "--",
-            "*.sol",
-        ],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-    )
-    declaring = [line.split(":", 1)[1] for line in found.stdout.splitlines() if ":" in line]
-    if len(declaring) != 1:
-        named = [p for p in declaring if p.rsplit("/", 1)[-1] == f"{contract_type}.sol"]
-        declaring = named if len(named) == 1 else declaring
-    if len(declaring) == 1:
-        return declaring[0], contract_type
-    if not recorded_path:
-        return None
-    was = _path_at(repo_root, commit, recorded_path)
-    if was is None:
-        return None
-    # No submodules to place: `git diff` reports a submodule as its one gitlink, never as paths inside
-    # it, so a path `_path_at` follows is always in this repository's own tree.
-    declared = declared_in(repo_root, commit, was, {})
-    return (was, declared) if declared else None
+    questions = list(questions)
+    declaring: dict[str, list[str]] = {name: [] for name, _ in questions}
+    if declaring:
+        found = subprocess.run(
+            [
+                "git",
+                "grep",
+                # A NUL after `commit:path` rather than a colon, so a path is never split at a colon of its own.
+                "-z",
+                # Without this a contract DEFINED in a dependency is invisible: `git grep` stops at a
+                # gitlink, so harbor's `MintableBurnableERC20_v1` - which lives in bao-base and is
+                # deployed from harbor, the constructor being what makes each deployment differ - was
+                # reported as "no candidate built what is deployed" about a source never looked at.
+                "--recurse-submodules",
+                "--extended-regexp",
+                declaration_of(*declaring),
+                commit,
+                "--",
+                "*.sol",
+            ],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+        for line in found.stdout.split("\n"):
+            located, separator, text = line.partition("\0")
+            # The same declaration the search matched, read back to say which name this line declares.
+            declared = re.match(r"\s*(?:abstract\s+)?contract\s+(\w+)", text)
+            if not separator or declared is None or declared.group(1) not in declaring:
+                continue
+            path = located.split(":", 1)[1]
+            if path not in declaring[declared.group(1)]:
+                declaring[declared.group(1)].append(path)
+
+    answers: dict[tuple[str, str | None], tuple[str, str] | None] = {}
+    for name, recorded_path in questions:
+        files = declaring[name]
+        if len(files) != 1:
+            named = [path for path in files if path.rsplit("/", 1)[-1] == f"{name}.sol"]
+            files = named if len(named) == 1 else files
+        if len(files) == 1:
+            answers[(name, recorded_path)] = (files[0], name)
+            continue
+        was = _path_at(repo_root, commit, recorded_path) if recorded_path else None
+        # No submodules to place: `git diff` reports a submodule as its one gitlink, never as paths inside
+        # it, so a path `_path_at` follows is always in this repository's own tree.
+        declared = declared_in(repo_root, commit, was, {}) if was else None
+        answers[(name, recorded_path)] = (was, declared) if was and declared else None
+    return answers
 
 
 def holder_of(parent_repo: Path, parent_commit: str, path: str, gitlink: str, checkouts: dict) -> Path | None:

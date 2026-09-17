@@ -331,7 +331,7 @@ def test_a_run_ends_with_a_summary_of_every_stage_it_timed(tmp_path, monkeypatch
         "chain: creation block": 2,
         "chain: creation payload": 2,
         "commit": 1,
-        "locate source": 2,
+        "locate source": 1,
         "pin screen": 2,
         "export tree": 1,
         "install toolchain": 1,
@@ -1033,7 +1033,8 @@ def test_the_factory_address_is_the_one_bao_factory_declares():
 def test_one_contract_type_is_located_once_however_many_are_deployed(tmp_path, monkeypatch):
     # Locating a source greps the whole commit, and the question it answers is (name, recorded path).
     # harbor deploys twenty-three of one type, which asked it twenty-three times per commit for the
-    # same answer - twelve minutes of a thirty-three minute run.
+    # same answer - twelve minutes of a thirty-three minute run. And every question waiting at a commit
+    # goes to ONE search: the aggregators' thirteen names a commit were 578s of a run.
     recover = load_recover_baselines()
 
     class Entry:
@@ -1043,18 +1044,19 @@ def test_one_contract_type_is_located_once_however_many_are_deployed(tmp_path, m
 
     asked = []
 
-    def counting(root, commit, contract_type, recorded_path=None):
-        asked.append((contract_type, recorded_path))
-        return None
+    def counting(root, commit, questions):
+        questions = list(questions)
+        asked.append(sorted(questions))
+        return {question: None for question in questions}
 
-    monkeypatch.setattr(recover, "source_at", counting)
+    monkeypatch.setattr(recover, "sources_at", counting)
 
     pending = {f"1/0x{index:040x}": recover._Wanted(Entry("Token"), b"", 1, DEPLOYED, b"") for index in range(5)}
     pending["1/0xffff"] = recover._Wanted(Entry("Other"), b"", 1, DEPLOYED, b"")
 
     recover._try_commit(tmp_path, "c0ffee", pending, recover.Printer(0), {})
 
-    assert sorted(asked) == [("Other", "src/Token.sol"), ("Token", "src/Token.sol")], asked
+    assert asked == [[("Other", "src/Token.sol"), ("Token", "src/Token.sol")]], "one search, each question once"
 
 
 class Located:
@@ -1159,7 +1161,9 @@ def test_one_source_is_read_once_for_its_pin_however_many_contracts_it_built(tmp
     # The screen runs at every commit a search reaches, and harbor's twenty-three deployments of one
     # contract type share one file - so the file is read once for all of them, not once each.
     recover = load_recover_baselines()
-    monkeypatch.setattr(recover, "source_at", lambda root, commit, name, recorded_path=None: (recorded_path, name))
+    monkeypatch.setattr(
+        recover, "sources_at", lambda root, commit, questions: {(name, path): (path, name) for name, path in questions}
+    )
     read: list[str] = []
 
     def reading(root, commit, path, placed):

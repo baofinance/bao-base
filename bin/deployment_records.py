@@ -233,7 +233,7 @@ def _remapping_prefixes(repo_root: Path) -> list[tuple[str, str]]:
 
     Targets under `lib/` are INCLUDED. They were excluded, and that was wrong: `@bao/=lib/bao-base/src/`
     is exactly how harbor's 46 bao-base-sourced records are already written, so refusing to produce
-    that form made them unrepresentable - and it left this holding the opposite answer to `source_at`,
+    that form made them unrepresentable - and it left this holding the opposite answer to `sources_at`,
     which searches `lib/` because a contract defined in a dependency is defined there."""
     toml = repo_root / "foundry.toml"
     if not toml.is_file():

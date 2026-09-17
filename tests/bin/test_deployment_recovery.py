@@ -39,8 +39,8 @@ from deployment_recovery import (  # noqa: E402
     link_libraries,
     pins_other_than,
     search_passes,
-    source_at,
     source_blobs,
+    sources_at,
     still_to_try,
     strip_metadata,
     submodules_at,
@@ -131,11 +131,29 @@ def repository_with_submodule(tmp_path: Path) -> tuple[Path, str, str, str]:
     return superproject, commit, recorded_blob, later_blob
 
 
-def test_a_contract_declared_inside_a_submodule_is_found(tmp_path):
-    # Most of harbor's closure lives in bao-base, and `MintableBurnableERC20_v1` is DEFINED there and
-    # deployed from harbor - the constructor is what makes each deployment differ. A search that
-    # cannot see into a dependency reports "no candidate built what is deployed" about a contract
-    # whose source it never looked at.
+def located(repo: Path, commit: str, name: str, recorded_path: str | None = None) -> tuple[str, str] | None:
+    """The answer for one contract, asked on its own."""
+    return sources_at(repo, commit, [(name, recorded_path)])[(name, recorded_path)]
+
+
+def git_searches(monkeypatch) -> list[list[str]]:
+    """Every `git grep` run from here on, as the list it fills."""
+    import deployment_recovery
+
+    searches: list[list[str]] = []
+    real = subprocess.run
+
+    def run(command, *arguments, **options):
+        if list(command[:2]) == ["git", "grep"]:
+            searches.append(list(command))
+        return real(command, *arguments, **options)
+
+    monkeypatch.setattr(deployment_recovery.subprocess, "run", run)
+    return searches
+
+
+def superproject_with_a_dependency(tmp_path: Path) -> tuple[Path, str]:
+    """A superproject declaring `Own` in `src/`, with `Token` declared in its `lib/dep` submodule."""
     dependency = tmp_path / "dependency"
     (dependency / "src").mkdir(parents=True)
     git(dependency, "init", "-q", "-b", "main")
@@ -154,9 +172,17 @@ def test_a_contract_declared_inside_a_submodule_is_found(tmp_path):
     git(superproject, "-c", "protocol.file.allow=always", "submodule", "--quiet", "add", str(dependency), "lib/dep")
     git(superproject, "add", "-A")
     git(superproject, "commit", "-qm", "with the dependency")
-    commit = git_output(superproject, "rev-parse", "HEAD")
+    return superproject, git_output(superproject, "rev-parse", "HEAD")
 
-    assert source_at(superproject, commit, "Token") == ("lib/dep/src/Token.sol", "Token")
+
+def test_a_contract_declared_inside_a_submodule_is_found(tmp_path):
+    # Most of harbor's closure lives in bao-base, and `MintableBurnableERC20_v1` is DEFINED there and
+    # deployed from harbor - the constructor is what makes each deployment differ. A search that
+    # cannot see into a dependency reports "no candidate built what is deployed" about a contract
+    # whose source it never looked at.
+    superproject, commit = superproject_with_a_dependency(tmp_path)
+
+    assert located(superproject, commit, "Token") == ("lib/dep/src/Token.sol", "Token")
 
 
 def test_a_source_of_the_superproject_is_named_by_its_blob_id(tmp_path):
@@ -858,8 +884,8 @@ def test_the_source_is_found_at_the_candidate_commit_not_at_the_recorded_path(re
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-qm", "move Foo"], cwd=repo, check=True, capture_output=True)
 
-    assert source_at(repo, early, "Foo") == ("src/Foo.sol", "Foo")
-    assert source_at(repo, "HEAD", "Foo") == ("src/moved/Foo.sol", "Foo")
+    assert located(repo, early, "Foo") == ("src/Foo.sol", "Foo")
+    assert located(repo, "HEAD", "Foo") == ("src/moved/Foo.sol", "Foo")
 
 
 def test_a_contract_renamed_after_the_deploy_is_followed_by_its_file(repo):
@@ -882,7 +908,7 @@ def test_a_contract_renamed_after_the_deploy_is_followed_by_its_file(repo):
     git(repo, "add", "-A")
     subprocess.run(["git", "commit", "-qm", "rename it"], cwd=repo, check=True, capture_output=True)
 
-    assert source_at(repo, early, "New", recorded_path="src/New.sol") == ("src/Old.sol", "Old")
+    assert located(repo, early, "New", recorded_path="src/New.sol") == ("src/Old.sol", "Old")
 
 
 def test_the_name_wins_over_the_path_when_both_could_answer(repo):
@@ -893,12 +919,12 @@ def test_the_name_wins_over_the_path_when_both_could_answer(repo):
     git(repo, "add", "-A")
     subprocess.run(["git", "commit", "-qm", "add Foo"], cwd=repo, check=True, capture_output=True)
 
-    assert source_at(repo, "HEAD", "Foo", recorded_path="src/somewhere/else/Foo.sol") == ("src/Foo.sol", "Foo")
+    assert located(repo, "HEAD", "Foo", recorded_path="src/somewhere/else/Foo.sol") == ("src/Foo.sol", "Foo")
 
 
 def test_a_contract_absent_from_that_commit_is_not_guessed_at(repo):
-    assert source_at(repo, "HEAD", "NeverExisted") is None
-    assert source_at(repo, "HEAD", "NeverExisted", recorded_path="src/NeverExisted.sol") is None
+    assert located(repo, "HEAD", "NeverExisted") is None
+    assert located(repo, "HEAD", "NeverExisted", recorded_path="src/NeverExisted.sol") is None
 
 
 def test_a_contract_in_a_dependency_is_found_there_like_anywhere_else(repo):
@@ -910,7 +936,7 @@ def test_a_contract_in_a_dependency_is_found_there_like_anywhere_else(repo):
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "vendored dependency")
 
-    assert source_at(repo, "HEAD", "Pauser") == ("lib/dep/src/Pauser.sol", "Pauser")
+    assert located(repo, "HEAD", "Pauser") == ("lib/dep/src/Pauser.sol", "Pauser")
 
 
 def test_two_files_declaring_one_contract_is_refused_not_guessed(repo):
@@ -927,7 +953,7 @@ def test_two_files_declaring_one_contract_is_refused_not_guessed(repo):
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "one name, two files")
 
-    assert source_at(repo, "HEAD", "Aggregator") is None
+    assert located(repo, "HEAD", "Aggregator") is None
 
 
 def test_the_declaration_decides_not_the_filename(repo):
@@ -939,7 +965,7 @@ def test_the_declaration_decides_not_the_filename(repo):
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "misleading filename")
 
-    assert source_at(repo, "HEAD", "Foo") == ("src/Elsewhere.sol", "Foo")
+    assert located(repo, "HEAD", "Foo") == ("src/Elsewhere.sol", "Foo")
 
 
 def as_posix_reads_it(pattern: str) -> str:
@@ -962,10 +988,10 @@ def test_the_search_works_on_a_posix_engine_and_not_only_on_glibc(repo, monkeypa
     # that never looked, reported as one that found nothing. The pattern has to mean the same to both.
     monkeypatch.setattr(
         "deployment_recovery.declaration_of",
-        lambda contract_type: as_posix_reads_it(declaration_of(contract_type)),
+        lambda *contract_types: as_posix_reads_it(declaration_of(*contract_types)),
     )
 
-    assert source_at(repo, "HEAD", "F0") == ("src/f0.sol", "F0")
+    assert located(repo, "HEAD", "F0") == ("src/f0.sol", "F0")
 
 
 def test_the_name_ends_where_an_identifier_ends_and_nowhere_else(repo):
@@ -979,9 +1005,86 @@ def test_the_name_ends_where_an_identifier_ends_and_nowhere_else(repo):
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "names that share a prefix")
 
-    assert source_at(repo, "HEAD", "Foo") == ("src/Foo.sol", "Foo")
-    assert source_at(repo, "HEAD", "Foob") == ("src/Foob.sol", "Foob")
-    assert source_at(repo, "HEAD", "Split") == ("src/Split.sol", "Split")
+    assert located(repo, "HEAD", "Foo") == ("src/Foo.sol", "Foo")
+    assert located(repo, "HEAD", "Foob") == ("src/Foob.sol", "Foob")
+    assert located(repo, "HEAD", "Split") == ("src/Split.sol", "Split")
+
+
+# ── every name at a commit, in one search ──────────────────────────────────────────────────────────
+#
+# The search walks the whole commit, submodules included, and the walk is the cost: 0.36s a name on the
+# aggregators, thirteen names waiting at a commit, 578s of one run. Asked for all 142 of its names at once
+# it measured twice one name's cost, so every question at a commit shares one search, and the line each
+# match prints says which name it declares.
+
+
+def test_every_name_at_a_commit_is_located_by_one_search(tmp_path, monkeypatch):
+    superproject, commit = superproject_with_a_dependency(tmp_path)
+    searches = git_searches(monkeypatch)
+
+    answers = sources_at(superproject, commit, [("Own", None), ("Token", None), ("NeverExisted", None)])
+
+    assert answers == {
+        ("Own", None): ("src/Own.sol", "Own"),
+        ("Token", None): ("lib/dep/src/Token.sol", "Token"),
+        ("NeverExisted", None): None,
+    }
+    assert len(searches) == 1, searches
+
+
+def test_asking_about_no_names_searches_nothing(repo, monkeypatch):
+    searches = git_searches(monkeypatch)
+
+    assert sources_at(repo, "HEAD", []) == {}
+    assert searches == []
+
+
+def test_names_sharing_a_prefix_in_one_search_each_find_their_own_file(repo):
+    # Asked together, a line has to go to the name it declares and to no other. No file here is named
+    # after its contract, so a tie-break by filename cannot hide a line given to the wrong name.
+    (repo / "src" / "A.sol").write_text("contract Foo {}\n")
+    (repo / "src" / "B.sol").write_text("contract Foob {}\n")
+    (repo / "src" / "C.sol").write_text("contract FooBar is Foo {}\n")
+    (repo / "src" / "D.sol").write_text("contract Split\n{\n}\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "names that share a prefix, in files named for none of them")
+
+    assert sources_at(repo, "HEAD", [("Foo", None), ("Foob", None), ("Split", None)]) == {
+        ("Foo", None): ("src/A.sol", "Foo"),
+        ("Foob", None): ("src/B.sol", "Foob"),
+        ("Split", None): ("src/D.sol", "Split"),
+    }
+
+
+def test_one_search_answers_a_found_a_missing_an_ambiguous_and_a_renamed_contract(repo, monkeypatch):
+    # Each question keeps its own rules after the shared search: a unique declaration answers, two files
+    # declaring one name refuse, a name declared nowhere answers None, and a renamed contract is followed
+    # by its recorded path.
+    (repo / "src" / "A.sol").write_text("contract Foo {}\n")
+    for chain in ("mainnet", "megaeth"):
+        (repo / "src" / chain).mkdir(parents=True, exist_ok=True)
+        (repo / "src" / chain / "Aggregator.sol").write_text("contract Aggregator {}\n")
+    (repo / "src" / "Old.sol").write_text("contract Old {\n    uint256 constant A = 1;\n    // body\n}\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "before the rename")
+    early = git_output(repo, "rev-parse", "HEAD")
+    (repo / "src" / "New.sol").write_text("contract New {\n    uint256 constant A = 1;\n    // body\n}\n")
+    (repo / "src" / "Old.sol").unlink()
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "rename it")
+    searches = git_searches(monkeypatch)
+
+    answers = sources_at(
+        repo, early, [("Foo", None), ("NeverExisted", None), ("Aggregator", None), ("New", "src/New.sol")]
+    )
+
+    assert answers == {
+        ("Foo", None): ("src/A.sol", "Foo"),
+        ("NeverExisted", None): None,
+        ("Aggregator", None): None,
+        ("New", "src/New.sol"): ("src/Old.sol", "Old"),
+    }
+    assert len(searches) == 1, searches
 
 
 # ── when it was deployed, and when the commit was made ────────────────────────────────────────────
