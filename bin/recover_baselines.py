@@ -10,6 +10,7 @@ not match is reported and skipped - an unrecovered baseline is a known gap, and 
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
@@ -95,12 +96,18 @@ def _cast(*arguments: str) -> str:
     return done.stdout.strip()
 
 
+def _json_or_none(answer: str) -> object | None:
+    """`answer` parsed as JSON, or None when it is not JSON - for the caller to report what was said."""
+    try:
+        return json.loads(answer)
+    except json.JSONDecodeError:
+        return None
+
+
 def _deployed_code(address: str, chain: str) -> tuple[bytes | None, str]:
     """The runtime code at an address, and what stopped the reading if it could not be read.
 
     `cast` reads the endpoint from foundry.toml and the environment itself, so no key is handled here.
-    Etherscan is deliberately not used: the creation transaction would need it, and this comparison
-    does not - which matters because CI has an RPC and does not have an Etherscan key.
 
     An address with NO code answers `(None, "")`: the chain replied, and what it said is that nothing
     is deployed there. A chain that could not be asked answers `(None, <its words>)`, and the caller
@@ -154,6 +161,61 @@ def _deployment(address: str, chain: str, claimed: str) -> tuple[tuple[int, str]
     return (block, datetime.fromtimestamp(int(seconds), tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")), ""
 
 
+# BaoFactory's address, the same on every chain. A copy of `BaoFactoryBytecode.PREDICTED_PROXY` in
+# lib/bao-factory, which Python cannot import; a test holds the two equal.
+BAO_FACTORY = "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458"
+
+
+def _creation_payload(address: str, chain: str, block: int) -> tuple[bytes | None, str]:
+    """The payload that created the contract - its creation bytecode with the constructor's arguments
+    appended - and, where there is none to read, what the deploy block says instead.
+
+    Read from the node, not a block explorer: CI has an RPC and no Etherscan key, and Etherscan's free
+    plan does not serve Base at all. The deploy block is where the address first holds code, so the
+    transaction that created it is in that block, and a transaction that creates a contract at top level
+    names it in its receipt's `contractAddress`. That transaction's input IS the payload.
+
+    A contract created INSIDE another transaction has no receipt naming it. In this fleet that is
+    BaoFactory, which creates every proxy and names each in its `Deployed` event; its source is not
+    proved, so the answer is that fact rather than a payload. Anything else - no receipt, no event - is
+    said with the block it was read from.
+
+    Which of these it was is a fact about the deployment, the same at every commit, so it is read once,
+    before the search. A node that cannot be asked answers in its own words, because that is a problem
+    with the asking and says nothing about how the contract was created."""
+    wanted = address.lower()
+    try:
+        answer = _cast("rpc", "eth_getBlockReceipts", hex(block), "--rpc-url", chain)
+        receipts = _json_or_none(answer)
+        if not isinstance(receipts, list):
+            return None, f"`cast rpc eth_getBlockReceipts` answered {answer[:60]!r}, which is not a list of receipts"
+        created = [receipt for receipt in receipts if (receipt.get("contractAddress") or "").lower() == wanted]
+        if created:
+            answer = _cast("rpc", "eth_getTransactionByHash", created[0]["transactionHash"], "--rpc-url", chain)
+            sent = _json_or_none(answer)
+            if not isinstance(sent, dict) or not str(sent.get("input", "")).startswith("0x"):
+                return None, f"`cast rpc eth_getTransactionByHash` answered {answer[:60]!r}, which is not a transaction"
+            return bytes.fromhex(sent["input"][2:]), ""
+    except _ChainRefused as refused:
+        return None, str(refused)
+    # `Deployed(address indexed deployed, bytes32 indexed salt, uint256 indexed value)`, as IBaoFactory declares it.
+    topic = "0x" + _keccak256(b"Deployed(address,bytes32,uint256)")
+    for receipt in receipts:
+        for log in receipt.get("logs") or []:
+            topics = log.get("topics") or []
+            if (
+                log.get("address", "").lower() == BAO_FACTORY.lower()
+                and len(topics) > 1
+                and topics[0] == topic
+                and "0x" + topics[1][-40:].lower() == wanted
+            ):
+                return None, (
+                    f"created by BaoFactory in transaction {receipt['transactionHash']}, and a contract the factory "
+                    "creates is not proved against source"
+                )
+    return None, f"no transaction in block {block} created it, and no BaoFactory `Deployed` event there names it"
+
+
 def _construct(creation: str, chain: str, block: int) -> tuple[bytes | None, str]:
     """The runtime code this creation bytecode produces, by running its constructor.
 
@@ -190,14 +252,13 @@ def _construct(creation: str, chain: str, block: int) -> tuple[bytes | None, str
 
 
 def _constructor_arguments(
-    address: str, chain: str, creation: bytes, explanations: Iterable[Explanation]
+    payload: bytes, creation: bytes, explanations: Iterable[Explanation]
 ) -> tuple[str | None, str]:
     """The arguments the deployment appended to `creation`, as hex, and why there are none if so.
 
-    The two halves are different findings: an explorer that could not be asked is a problem with the
-    ASKING, while a payload that is not this build is a statement about this contract - it says the
-    tail is somebody else's arguments and must not be used. Only the second should ever read as a
-    reason not to trust a candidate.
+    `payload` is what created the contract, read once from its creating transaction by
+    `_creation_payload`. A payload that is not this build says the tail is somebody else's arguments and
+    must not be used, which is a reason not to trust this candidate and nothing more.
 
     READ, not guessed: a deployment transaction carries the creation bytecode with the arguments
     ABI-encoded after it, so whatever follows our own build's bytecode in the deployed payload IS
@@ -215,27 +276,16 @@ def _constructor_arguments(
     wherever the creation assembly has a data section or a nested contract after it, and stripping the
     end then removes nothing. `embedded_metadata` names that region from the compiler's declaration and
     checks the difference there is a digest and nothing else. The trailer's LENGTH is part of the code
-    either way, so where the arguments begin is not in doubt.
-
-    `cast creation-code` reads it from a block explorer, which is the only thing that knows which
-    transaction created an address: these implementations are deployed with a plain `new`, so no
-    receipt names them, and the explorer's index is what maps address to creation."""
-    try:
-        payload = _cast("creation-code", address, "--rpc-url", chain)
-    except _ChainRefused as refused:
-        return None, str(refused)
-    if not payload.startswith("0x"):
-        return None, f"`cast creation-code` answered {payload[:60]!r}, which is not a payload"
-    deployed = bytes.fromhex(payload[2:])
-    if len(deployed) < len(creation):
+    either way, so where the arguments begin is not in doubt."""
+    if len(payload) < len(creation):
         return None, (
-            f"the deployed creation payload is {len(deployed)} bytes, shorter than the {len(creation)} this build "
+            f"the deployed creation payload is {len(payload)} bytes, shorter than the {len(creation)} this build "
             "produces, so none of it can be this contract's arguments"
         )
-    _, unexplained = differences(deployed[: len(creation)], creation, explanations)
+    _, unexplained = differences(payload[: len(creation)], creation, explanations)
     if unexplained:
         return None, "the deployed creation payload is not what this build produces: " + "; ".join(unexplained)
-    return deployed[len(creation) :].hex(), ""
+    return payload[len(creation) :].hex(), ""
 
 
 def _build(tree: Path, source: str, out: Path, compiler: str) -> tuple[bool, str]:
@@ -318,6 +368,8 @@ class _Wanted:
     onchain: bytes
     block: int
     deployed: str
+    # What created it: the creation bytecode with the constructor's arguments appended.
+    payload: bytes
 
 
 def _try_commit(
@@ -698,7 +750,12 @@ def recover(
         # which is written after the broadcast and so always sits late. It decides which commits count
         # as before the deploy and which as after, which is the whole two-pass split.
         say(1, f"          created in block {block} at {deployed}, {len(onchain)} bytes on chain")
-        pending[key(entry.chain_id, entry.address)] = _Wanted(entry, onchain, block, deployed)
+        payload, why = _creation_payload(entry.address, entry.chain, block)
+        if payload is None:
+            say(0, f"  not searched: {why}")
+            drop(pending, account, entry_key, entry, f"not searched: {why}")
+            continue
+        pending[key(entry.chain_id, entry.address)] = _Wanted(entry, onchain, block, deployed, payload)
 
     # THE DEPLOY BLOCK DECIDES WHICH COMMIT, not the order things happen to be tried in. Many commits
     # compile identically, so "the first that matches" is arbitrary; "the LATEST at or before the
@@ -810,9 +867,7 @@ def recover(
                     say(0, "      so the creation payload cannot be compared — still looking at the other commits")
                     screened.setdefault(entry_key, []).append((built_at, unplaceable))
                     continue
-                arguments, refusal = _constructor_arguments(
-                    entry.address, entry.chain, bytes.fromhex(linked[2:]), [metadata]
-                )
+                arguments, refusal = _constructor_arguments(wants.payload, bytes.fromhex(linked[2:]), [metadata])
                 if arguments is None:
                     say(0, f"      NOT PROVED HERE: {refusal}")
                     say(0, "      so the constructor's arguments are unknown — still looking at the other commits")

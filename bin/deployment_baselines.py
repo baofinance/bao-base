@@ -128,9 +128,9 @@ class Baseline:
     # The ONLY deployment input here that the deployed contract does not carry: an immutable and a
     # library address are both readable from the runtime code, which is why neither is recorded and
     # both can be re-derived whenever they are wanted. An argument lives only in the creation
-    # payload, and nothing but a block explorer maps an address back to the transaction that carried
-    # it - so a baseline that does not name it cannot be re-proved without going out to one, and the
-    # re-prove is deliberately offline.
+    # payload, which only the transaction that created the contract carries - so a baseline that does
+    # not name it cannot be re-proved without reading the chain again, and the re-prove is deliberately
+    # offline.
     constructorArguments: str
 
 

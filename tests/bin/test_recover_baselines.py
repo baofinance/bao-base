@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -67,13 +68,22 @@ def commit(repo: Path, when: str, message: str) -> str:
     ).stdout.strip()
 
 
-def no_constructor_arguments(address: str, chain: str, creation: bytes, explanations) -> tuple[str, str]:
+def no_constructor_arguments(payload: bytes, creation: bytes, explanations) -> tuple[str, str]:
     """These fixtures' contracts take no constructor arguments, so the deployed payload IS the
     bytecode and the tail after it is empty.
 
-    Patched in beside the chain itself: reading the arguments is a second thing only the chain
-    knows, so a test that stands in for the chain has to stand in for this too."""
+    Patched in so a fixture need not reproduce the creation payload its contract was deployed with,
+    which adds nothing to what these tests are about."""
     return "", ""
+
+
+def created_by_its_own_transaction(address: str, chain: str, block: int) -> tuple[bytes, str]:
+    """The chain's answer for a contract a transaction of its own created, standing in for the node.
+
+    The payload is empty rather than invented: every fixture using this also replaces
+    `_constructor_arguments`, so nothing reads it, and a test that stops replacing that fails on a payload
+    shorter than any build instead of passing on bytes nobody deployed."""
+    return b"", ""
 
 
 def artefact_of(repo: Path, source: str, contract: str, scratch: Path) -> dict:
@@ -162,6 +172,7 @@ def test_one_uncompilable_source_does_not_hide_the_others_at_that_commit(tmp_pat
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
+    monkeypatch.setattr(recover, "_creation_payload", created_by_its_own_transaction)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -237,6 +248,7 @@ def test_every_contract_that_was_not_recorded_is_listed_with_its_reason_at_the_e
     )
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
+    monkeypatch.setattr(recover, "_creation_payload", created_by_its_own_transaction)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -292,6 +304,7 @@ def test_a_commit_predating_the_source_is_not_counted_as_a_comparison(tmp_path, 
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
+    monkeypatch.setattr(recover, "_creation_payload", created_by_its_own_transaction)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -360,38 +373,25 @@ def metadata_of(built: bytes) -> Explanation:
     return explanation
 
 
-def creation_payload(monkeypatch, recover, payload: bytes):
-    """What `cast creation-code` reports for the deployed contract."""
-
-    class Done:
-        returncode = 0
-        stdout = "0x" + payload.hex()
-        stderr = ""
-
-    monkeypatch.setattr(recover.subprocess, "run", lambda *args, **kwargs: Done())
-
-
-def test_the_constructor_arguments_are_whatever_follows_the_bytecode(tmp_path, monkeypatch):
+def test_the_constructor_arguments_are_whatever_follows_the_bytecode():
     # Nothing is decoded, so the argument TYPES cannot matter: an array, an array of structs and a
     # single word all leave a tail after the creation bytecode, and the tail is what was passed.
     recover = load_recover_baselines()
     built = with_trailer(bytes.fromhex("6080604052" + "11" * 40))
     encoded = bytes.fromhex("ab" * 320)  # longer than any fixed-size encoding: a dynamic argument
-    creation_payload(monkeypatch, recover, built + encoded)
 
-    assert recover._constructor_arguments("0xdead", "mainnet", built, [metadata_of(built)]) == (encoded.hex(), "")
+    assert recover._constructor_arguments(built + encoded, built, [metadata_of(built)]) == (encoded.hex(), "")
 
 
-def test_a_constructor_taking_nothing_leaves_no_arguments(tmp_path, monkeypatch):
+def test_a_constructor_taking_nothing_leaves_no_arguments():
     # An empty answer is a real one, and must not read as a failure to find them.
     recover = load_recover_baselines()
     built = with_trailer(bytes.fromhex("6080604052" + "11" * 40))
-    creation_payload(monkeypatch, recover, built)
 
-    assert recover._constructor_arguments("0xdead", "mainnet", built, [metadata_of(built)]) == ("", "")
+    assert recover._constructor_arguments(built, built, [metadata_of(built)]) == ("", "")
 
 
-def test_the_arguments_are_found_though_the_rebuild_carries_its_own_metadata(tmp_path, monkeypatch):
+def test_the_arguments_are_found_though_the_rebuild_carries_its_own_metadata():
     # The rebuild's CBOR trailer never equals the deployed one - each hashes the sources and settings
     # of the tree it was built in - so demanding a byte-exact prefix would refuse every contract whose
     # metadata differs, which is all of them.
@@ -400,27 +400,366 @@ def test_the_arguments_are_found_though_the_rebuild_carries_its_own_metadata(tmp
     built = with_trailer(body, filler=0x00)
     deployed = with_trailer(body, filler=0xEE)
     encoded = bytes.fromhex("cd" * 64)
-    creation_payload(monkeypatch, recover, deployed + encoded)
 
-    assert recover._constructor_arguments("0xdead", "mainnet", built, [metadata_of(built)]) == (encoded.hex(), "")
+    assert recover._constructor_arguments(deployed + encoded, built, [metadata_of(built)]) == (encoded.hex(), "")
 
 
-def test_a_payload_that_is_not_this_build_yields_no_arguments(tmp_path, monkeypatch):
+def test_a_payload_that_is_not_this_build_yields_no_arguments():
     # The tail is only this contract's arguments if what precedes it is this contract. Without that
     # check the constructor would be handed whatever happened to follow someone else's bytecode.
     recover = load_recover_baselines()
     built = with_trailer(bytes.fromhex("6080604052" + "11" * 40))
     other = with_trailer(bytes.fromhex("6080604052" + "22" * 40))
-    creation_payload(monkeypatch, recover, other + bytes.fromhex("cd" * 32))
 
-    arguments, refused = recover._constructor_arguments("0xdead", "mainnet", built, [metadata_of(built)])
+    arguments, refused = recover._constructor_arguments(other + bytes.fromhex("cd" * 32), built, [metadata_of(built)])
 
     assert arguments is None
-    # And the reason is about THIS contract, not about the asking: a caller must be able to tell a
-    # candidate it should reject from an explorer it could not reach.
+    # And the reason says the payload is not this build, which is a verdict on the candidate rather than
+    # on anything that could not be read.
     assert refused.startswith("the deployed creation payload is not what this build produces")
     # With WHERE, so a difference nothing yet explains is diagnosable rather than mysterious.
     assert "outside every explained region, first at 5" in refused, "the first byte that differs is named"
+
+
+# ── the creation payload is read from the node, once, before the search ────────────────────────────
+#
+# The payload - the creation bytecode with the constructor's arguments appended - is a fact about the
+# deployment, the same at every commit. The deploy block is already known, and within it the receipt of
+# the transaction that created the contract names it in `contractAddress`, so that transaction's input IS
+# the payload. No block explorer is involved: Etherscan's free plan does not serve Base at all.
+#
+# A contract no transaction of its own created was created by BaoFactory, which names it in a `Deployed`
+# event - that is how proxies are made - and its source is not proved. Which of the two it was is settled
+# before any commit is searched, not discovered when something fails.
+
+BAO_FACTORY = "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458"
+# keccak256("Deployed(address,bytes32,uint256)"), from `cast keccak`: BaoFactory's event naming what it created.
+DEPLOYED_TOPIC = "0xc877950e53df8be800e454c6b5998cc737fca2ea44c18e91aac5f37b60419fc4"
+BLOCK = 100
+BLOCK_HASH = "0x" + "b1" * 32
+DEPLOYER = "0x" + "de" * 20
+UNRELATED = "0x" + "01" * 20
+BASE_REFUSAL = (
+    "`cast creation-code` failed: Error: Received error response: status=0,message=NOTOK, "
+    'result=Some("Free API access is not supported for this chain.")'
+)
+
+
+def transaction(index: int, *, to: str | None, sent: bytes, creates: str | None = None, logs=()) -> tuple[dict, dict]:
+    """The `index`th transaction in `BLOCK` and its receipt, in the shapes `eth_getTransactionByHash` and
+    `eth_getBlockReceipts` answer with. A node writes addresses in lower case, whatever case a manifest uses."""
+    transaction_hash = "0x" + f"{index + 1:064x}"
+    placed = {"blockHash": BLOCK_HASH, "blockNumber": hex(BLOCK), "transactionIndex": hex(index)}
+    sent_transaction = {
+        **placed,
+        "hash": transaction_hash,
+        "from": DEPLOYER,
+        "to": to,
+        "input": "0x" + sent.hex(),
+        "nonce": hex(index),
+        "value": "0x0",
+        "gas": "0x1e8480",
+        "gasPrice": "0x3b9aca00",
+        "maxFeePerGas": "0x77359400",
+        "maxPriorityFeePerGas": "0x3b9aca00",
+        "type": "0x2",
+        "chainId": "0x1",
+        "accessList": [],
+        "v": "0x0",
+        "r": "0x" + "11" * 32,
+        "s": "0x" + "22" * 32,
+    }
+    receipt = {
+        **placed,
+        "transactionHash": transaction_hash,
+        "from": DEPLOYER,
+        "to": to,
+        "contractAddress": creates,
+        "status": "0x1",
+        "type": "0x2",
+        "gasUsed": "0x5208",
+        "cumulativeGasUsed": hex(21000 * (index + 1)),
+        "effectiveGasPrice": "0x3b9aca00",
+        "logsBloom": "0x" + "00" * 256,
+        "logs": [
+            {**placed, **log, "transactionHash": transaction_hash, "logIndex": hex(position), "removed": False}
+            for position, log in enumerate(logs)
+        ],
+    }
+    return sent_transaction, receipt
+
+
+def deployed_event(named: str, emitted_by: str = BAO_FACTORY) -> dict:
+    """A `Deployed(address indexed deployed, bytes32 indexed salt, uint256 indexed value)` log naming `named`."""
+    return {
+        "address": emitted_by.lower(),
+        "topics": [DEPLOYED_TOPIC, "0x" + "00" * 12 + named[2:].lower(), "0x" + "5a" * 32, "0x" + "00" * 32],
+        "data": "0x",
+    }
+
+
+class Node:
+    """A node holding `BLOCK`, answering the `cast` commands recovery sends, and recording every one.
+
+    `creation-code` is answered the way the block explorer answers it - the input of the transaction that
+    created the address - so a test can tell asking the explorer from not asking it. Or refused, as
+    Etherscan's free plan refuses Base. Anything else is not something recovery should ask for."""
+
+    def __init__(self, transactions: list[tuple[dict, dict]], refuse_explorer=None):
+        self.transactions = {sent["hash"]: sent for sent, _ in transactions}
+        self.receipts = [receipt for _, receipt in transactions]
+        self.refuse_explorer = refuse_explorer
+        self.asked: list[tuple[str, ...]] = []
+
+    def cast(self, *arguments: str) -> str:
+        self.asked.append(arguments)
+        if arguments[:2] == ("rpc", "eth_getBlockReceipts"):
+            assert int(arguments[2], 16) == BLOCK, f"asked for block {arguments[2]}, which is not the deploy block"
+            return json.dumps(self.receipts)
+        if arguments[:2] == ("rpc", "eth_getTransactionByHash"):
+            return json.dumps(self.transactions.get(arguments[2]))
+        if arguments[0] == "creation-code":
+            if self.refuse_explorer is not None:
+                raise self.refuse_explorer
+            created = [r for r in self.receipts if (r["contractAddress"] or "") == arguments[1].lower()]
+            if not created:
+                raise AssertionError(f"no transaction in this block created {arguments[1]}")
+            return self.transactions[created[0]["transactionHash"]]["input"]
+        raise AssertionError(f"this node has no answer for `cast {' '.join(arguments)}`")
+
+
+def payload_reads(node: Node) -> int:
+    """How many times the creation payload itself was fetched, by either route."""
+    return sum(
+        1 for asked in node.asked if asked[0] == "creation-code" or asked[:2] == ("rpc", "eth_getTransactionByHash")
+    )
+
+
+def repository_deploying(tmp_path, contracts: dict[str, str]) -> tuple[Path, Path]:
+    """A repository whose one manifest describes `contracts` - address to name - each built from `src/<name>.sol`,
+    with the optimizer on as the fleet's builds have it. Nothing is committed."""
+    repo, scratch = tmp_path / "repo", tmp_path / "scratch"
+    (repo / "src").mkdir(parents=True)
+    scratch.mkdir()
+    (repo / "foundry.toml").write_text(
+        '[profile.default]\nsrc = "src"\nlibs = []\noptimizer = true\nremappings = ["@fixture/=src/"]\n'
+    )
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True, capture_output=True)
+    for setting, value in (("user.email", "t@t"), ("user.name", "test")):
+        subprocess.run(["git", "config", setting, value], cwd=repo, check=True, capture_output=True)
+    manifest = repo / "deployments" / "mainnet" / "state.json"
+    manifest.parent.mkdir(parents=True)
+    implementations = {
+        address: {"contractSource": f"src/{name}.sol", "contractType": name, "deploymentTime": DEPLOYED}
+        for address, name in contracts.items()
+    }
+    manifest.write_text(
+        json.dumps({"network": "mainnet", "chainId": 1, "implementations": implementations}, indent=2) + "\n"
+    )
+    for value, name in enumerate(contracts.values(), start=1):
+        (repo / "src" / f"{name}.sol").write_text(contract_source(name, value))
+    return repo, scratch
+
+
+def test_a_contract_created_by_its_own_transaction_takes_its_payload_from_that_transaction(tmp_path, monkeypatch):
+    # The chain Etherscan's free plan refuses: the payload comes from the creating transaction in the deploy
+    # block, and the arguments recorded are what follows the bytecode in it.
+    repo, scratch = repository_deploying(tmp_path, {ADDRESS_A: "A"})
+    deployed = artefact_of(repo, "src/A.sol", "A", scratch)
+    commit(repo, "2026-01-01T00:00:00+00:00", "A's source")
+    encoded = bytes.fromhex("00" * 12 + "ab" * 20)  # one address argument, as a constructor would take it
+    creation = bytes.fromhex(deployed["bytecode"]["object"][2:])
+
+    recover = load_recover_baselines()
+    node = Node(
+        [transaction(0, to=None, sent=creation + encoded, creates=ADDRESS_A)],
+        refuse_explorer=recover._ChainRefused(BASE_REFUSAL),
+    )
+    chain = Chain({ADDRESS_A: bytes.fromhex(deployed["deployedBytecode"]["object"][2:])})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_cast", node.cast)
+    monkeypatch.chdir(repo)
+
+    recover.run(repo, say=recover.Printer(0), write=True)
+
+    record = read_baselines(repo)
+    assert key(1, ADDRESS_A) in record, "the node carries the payload, so the explorer's refusal does not matter"
+    assert record[key(1, ADDRESS_A)].constructorArguments == encoded.hex()
+
+
+def test_the_creating_transaction_is_found_among_several_in_one_block(monkeypatch):
+    # A deploy block holds other people's transactions and, in a batch deploy, other creations. The payload
+    # is the one whose receipt names this address - not the first creation, not the first transaction - and
+    # the manifest's checksummed spelling of the address is the same address as the node's lower case.
+    recover = load_recover_baselines()
+    checksummed = "0x2877330d6fbA9BC0299588BcBaf16bA42d12b05a"
+    other = with_trailer(bytes.fromhex("6080604052" + "22" * 40))
+    wanted = with_trailer(bytes.fromhex("6080604052" + "11" * 40)) + bytes.fromhex("cd" * 32)
+    node = Node(
+        [
+            transaction(0, to=UNRELATED, sent=bytes.fromhex("a9059cbb" + "00" * 64)),
+            transaction(1, to=None, sent=other, creates=ADDRESS_B),
+            transaction(2, to=None, sent=wanted, creates=checksummed.lower()),
+            transaction(3, to=UNRELATED, sent=b""),
+        ]
+    )
+    monkeypatch.setattr(recover, "_cast", node.cast)
+
+    assert recover._creation_payload(checksummed, "base", BLOCK) == (wanted, "")
+    assert all(asked[-2:] == ("--rpc-url", "base") for asked in node.asked), "every read went to the chain named"
+
+
+def test_the_payload_is_read_once_per_contract_however_many_commits_screen_it(tmp_path, monkeypatch):
+    # Two commits screen and neither proves, so the proof is attempted twice. The payload is the same at
+    # both - it belongs to the deployment, not to a commit - so it is fetched once, before the search.
+    repo, scratch = repository_with_an_immutable(tmp_path)
+    first_build = tree_with_staleness(repo, scratch, STALENESS_COMMITTED)
+    commit(repo, "2026-01-01T00:00:00+00:00", "staleness of an hour")
+    second_build = tree_with_staleness(repo, scratch, STALENESS_COMMITTED, note="// a note added later\n")
+    commit(repo, "2026-01-02T00:00:00+00:00", "a note in the constant's file")
+    onchain_artefact, onchain = tree_with_staleness(repo, scratch, STALENESS_DEPLOYED)
+
+    recover = load_recover_baselines()
+    node = Node(
+        [transaction(0, to=None, sent=bytes.fromhex(onchain_artefact["bytecode"]["object"][2:]), creates=ADDRESS_A)]
+    )
+    chain = ImmutableChain(onchain, [first_build, second_build])
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_cast", node.cast)
+    monkeypatch.chdir(repo)
+
+    recover.run(repo, say=recover.Printer(0), write=True)
+
+    assert payload_reads(node) == 1, node.asked
+
+
+def test_a_contract_the_factory_created_is_reported_and_never_searched(tmp_path, monkeypatch, capsys):
+    # B is a proxy: BaoFactory created it, inside a transaction calling the factory, and named it in its
+    # `Deployed` event. It is not searched for - nothing is built for it - and its row says why, naming the
+    # transaction. A, created by a transaction of its own in the same block, is recovered as usual.
+    repo, scratch = repository_deploying(tmp_path, {ADDRESS_A: "A", ADDRESS_B: "B"})
+    deployed_a = artefact_of(repo, "src/A.sol", "A", scratch)
+    deployed_b = runtime(repo, "src/B.sol", "B", scratch)
+    commit(repo, "2026-01-01T00:00:00+00:00", "A and B")
+
+    recover = load_recover_baselines()
+    node = Node(
+        [
+            transaction(0, to=None, sent=bytes.fromhex(deployed_a["bytecode"]["object"][2:]), creates=ADDRESS_A),
+            transaction(
+                1, to=BAO_FACTORY.lower(), sent=bytes.fromhex("5f1c9d3a" + "00" * 96), logs=[deployed_event(ADDRESS_B)]
+            ),
+        ],
+        refuse_explorer=recover._ChainRefused(BASE_REFUSAL),
+    )
+    chain = Chain({ADDRESS_A: bytes.fromhex(deployed_a["deployedBytecode"]["object"][2:]), ADDRESS_B: deployed_b})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_cast", node.cast)
+    built: list[str] = []
+    real_build = recover._build
+
+    def building(tree, source, out, compiler):
+        built.append(source)
+        return real_build(tree, source, out, compiler)
+
+    monkeypatch.setattr(recover, "_build", building)
+    monkeypatch.chdir(repo)
+
+    recover.run(repo, say=recover.Printer(0), write=True)
+
+    assert "src/B.sol" not in built, "a contract the factory created is never searched for"
+    assert key(1, ADDRESS_A) in read_baselines(repo), "and the contract created by its own transaction still is"
+    printed = capsys.readouterr().out
+    row = next(line for line in printed[printed.rindex("not recorded") :].splitlines() if ADDRESS_B in line)
+    assert "created by BaoFactory" in row
+    assert "0x" + f"{2:064x}" in row, "naming the transaction that created it"
+
+
+def test_a_deployed_event_for_another_address_or_from_another_contract_is_not_the_factory(monkeypatch):
+    # The factory's event names ANOTHER contract here, and the event naming this one comes from a contract
+    # that is not BaoFactory. Neither says the factory created this address.
+    recover = load_recover_baselines()
+    node = Node(
+        [
+            transaction(0, to=BAO_FACTORY.lower(), sent=b"\x5f\x1c\x9d\x3a", logs=[deployed_event(ADDRESS_B)]),
+            transaction(
+                1, to=UNRELATED, sent=b"\x5f\x1c\x9d\x3a", logs=[deployed_event(ADDRESS_A, emitted_by=UNRELATED)]
+            ),
+        ]
+    )
+    monkeypatch.setattr(recover, "_cast", node.cast)
+
+    payload, reason = recover._creation_payload(ADDRESS_A, "mainnet", BLOCK)
+
+    assert payload is None
+    assert "BaoFactory" in reason and "created by BaoFactory" not in reason, reason
+
+
+def test_a_contract_neither_created_nor_deployed_by_the_factory_names_its_block(monkeypatch):
+    # Nothing in the deploy block creates the address and no factory event names it. That is reported with
+    # the block it was read from - and settled from the node alone, with no other source asked instead.
+    recover = load_recover_baselines()
+    node = Node([transaction(0, to=UNRELATED, sent=b""), transaction(1, to=None, sent=b"\x60\x80", creates=ADDRESS_B)])
+    monkeypatch.setattr(recover, "_cast", node.cast)
+
+    payload, reason = recover._creation_payload(ADDRESS_A, "mainnet", BLOCK)
+
+    assert payload is None
+    assert f"block {BLOCK}" in reason, reason
+    assert all(asked[0] == "rpc" for asked in node.asked), node.asked
+
+
+def test_a_node_that_cannot_be_asked_is_reported_as_the_asking(monkeypatch):
+    # A node that does not answer says nothing about how the contract was created, so the reason is the
+    # node's own words and nothing is added that reads as a finding about the contract.
+    recover = load_recover_baselines()
+    refusal = "`cast rpc` failed: Error: Max retries exceeded HTTP error 429 with body:"
+
+    def refusing(*arguments):
+        raise recover._ChainRefused(refusal)
+
+    monkeypatch.setattr(recover, "_cast", refusing)
+
+    assert recover._creation_payload(ADDRESS_A, "mainnet", BLOCK) == (None, refusal)
+
+
+def test_recovery_never_asks_a_block_explorer(tmp_path, monkeypatch):
+    # Here the explorer WOULD answer, and correctly - so only not asking it passes. The node has the payload,
+    # and a second source consulted anyway is a dependency on a key, a rate limit and a chain list.
+    repo, scratch = repository_deploying(tmp_path, {ADDRESS_A: "A"})
+    deployed = artefact_of(repo, "src/A.sol", "A", scratch)
+    commit(repo, "2026-01-01T00:00:00+00:00", "A's source")
+
+    recover = load_recover_baselines()
+    node = Node([transaction(0, to=None, sent=bytes.fromhex(deployed["bytecode"]["object"][2:]), creates=ADDRESS_A)])
+    chain = Chain({ADDRESS_A: bytes.fromhex(deployed["deployedBytecode"]["object"][2:])})
+    monkeypatch.setattr(recover, "_deployed_code", chain.code)
+    monkeypatch.setattr(recover, "_deployment", chain.deployment)
+    monkeypatch.setattr(recover, "_construct", chain.construct)
+    monkeypatch.setattr(recover, "_cast", node.cast)
+    monkeypatch.chdir(repo)
+
+    recover.run(repo, say=recover.Printer(0), write=True)
+
+    assert key(1, ADDRESS_A) in read_baselines(repo)
+    assert not [asked for asked in node.asked if asked[0] == "creation-code"], node.asked
+
+
+def test_the_factory_address_is_the_one_bao_factory_declares():
+    # The tool holds a copy of BaoFactory's address, because Python cannot import the Solidity constant that
+    # declares it. The copy must be that constant, or the factory's events would be read from the wrong place.
+    recover = load_recover_baselines()
+    declaration = (BIN.parent / "lib" / "bao-factory" / "src" / "BaoFactoryBytecode.sol").read_text()
+    declared = re.search(r"address internal constant PREDICTED_PROXY = (0x[0-9a-fA-F]{40});", declaration)
+    assert declared, "BaoFactoryBytecode.sol declares PREDICTED_PROXY"
+
+    assert recover.BAO_FACTORY == declared.group(1)
 
 
 def test_one_contract_type_is_located_once_however_many_are_deployed(tmp_path, monkeypatch):
@@ -442,8 +781,8 @@ def test_one_contract_type_is_located_once_however_many_are_deployed(tmp_path, m
 
     monkeypatch.setattr(recover, "source_at", counting)
 
-    pending = {f"1/0x{index:040x}": recover._Wanted(Entry("Token"), b"", 1, DEPLOYED) for index in range(5)}
-    pending["1/0xffff"] = recover._Wanted(Entry("Other"), b"", 1, DEPLOYED)
+    pending = {f"1/0x{index:040x}": recover._Wanted(Entry("Token"), b"", 1, DEPLOYED, b"") for index in range(5)}
+    pending["1/0xffff"] = recover._Wanted(Entry("Other"), b"", 1, DEPLOYED, b"")
 
     recover._try_commit(tmp_path, "c0ffee", pending, recover.Printer(0), {})
 
@@ -511,8 +850,8 @@ def test_a_source_pinning_another_compiler_is_ruled_out_before_the_tree_is_expor
     exported = exports_at(monkeypatch, recover)
     built_by_0_8_30 = with_trailer(bytes.fromhex("6080604052"))
     pending = {
-        "1/0xaa": recover._Wanted(Located("Own", "src/Own.sol"), built_by_0_8_30, 1, DEPLOYED),
-        "1/0xbb": recover._Wanted(Located("Dep", "lib/dep/Dep.sol"), built_by_0_8_30, 1, DEPLOYED),
+        "1/0xaa": recover._Wanted(Located("Own", "src/Own.sol"), built_by_0_8_30, 1, DEPLOYED, b""),
+        "1/0xbb": recover._Wanted(Located("Dep", "lib/dep/Dep.sol"), built_by_0_8_30, 1, DEPLOYED, b""),
     }
 
     said: list[str] = []
@@ -538,7 +877,7 @@ def test_a_source_in_a_dependency_pinning_the_deployed_compiler_is_built(tmp_pat
     exported = exports_at(monkeypatch, recover)
     pending = {
         "1/0xbb": recover._Wanted(
-            Located("Dep", "lib/dep/Dep.sol"), with_trailer(bytes.fromhex("6080604052")), 1, DEPLOYED
+            Located("Dep", "lib/dep/Dep.sol"), with_trailer(bytes.fromhex("6080604052")), 1, DEPLOYED, b""
         )
     }
 
@@ -564,10 +903,10 @@ def test_one_source_is_read_once_for_its_pin_however_many_contracts_it_built(tmp
     exported = exports_at(monkeypatch, recover)
     built_by_0_8_30 = with_trailer(bytes.fromhex("6080604052"))
     pending = {
-        f"1/0x{index:040x}": recover._Wanted(Located("Token", "lib/dep/Token.sol"), built_by_0_8_30, 1, DEPLOYED)
+        f"1/0x{index:040x}": recover._Wanted(Located("Token", "lib/dep/Token.sol"), built_by_0_8_30, 1, DEPLOYED, b"")
         for index in range(5)
     }
-    pending["1/0xffff"] = recover._Wanted(Located("Other", "src/Other.sol"), built_by_0_8_30, 1, DEPLOYED)
+    pending["1/0xffff"] = recover._Wanted(Located("Other", "src/Other.sol"), built_by_0_8_30, 1, DEPLOYED, b"")
 
     recover._try_commit(tmp_path, "c0ffee", pending, recover.Printer(0), {})
 
@@ -648,6 +987,7 @@ def test_a_deployed_contract_naming_no_compiler_is_reported_not_guessed(tmp_path
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
+    monkeypatch.setattr(recover, "_creation_payload", created_by_its_own_transaction)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -703,6 +1043,7 @@ def test_a_contract_two_manifests_disagree_about_names_both_of_them(tmp_path, mo
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
+    monkeypatch.setattr(recover, "_creation_payload", created_by_its_own_transaction)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -826,6 +1167,7 @@ def test_a_screened_candidate_that_fails_the_constructor_stays_in_the_search(tmp
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
+    monkeypatch.setattr(recover, "_creation_payload", created_by_its_own_transaction)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -850,6 +1192,7 @@ def test_a_contract_proved_after_an_unproven_screen_is_not_also_reported_unprove
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
+    monkeypatch.setattr(recover, "_creation_payload", created_by_its_own_transaction)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -880,6 +1223,7 @@ def test_a_contract_never_proved_names_every_commit_it_screened_at(tmp_path, mon
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
+    monkeypatch.setattr(recover, "_creation_payload", created_by_its_own_transaction)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -897,8 +1241,8 @@ def test_a_contract_never_proved_names_every_commit_it_screened_at(tmp_path, mon
 
 
 def test_a_contract_whose_payload_is_not_this_build_is_named_rather_than_ending_the_run(tmp_path, monkeypatch, capsys):
-    # The only commit screens, and the payload the explorer holds does not begin with the bytecode that
-    # build produces - so the arguments cannot be read and nothing proves it. It leaves the run as a
+    # The only commit screens, and the payload its creating transaction carries does not begin with the
+    # bytecode that build produces - so the arguments cannot be read and nothing proves it. It leaves the run as a
     # screened contract carrying that refusal, which is a different remedy from a constructor that ran
     # and disagreed. The refusal is the LAST thing the search met, and the closing account still runs.
     repo, scratch = tmp_path / "repo", tmp_path / "scratch"
@@ -935,11 +1279,12 @@ def test_a_contract_whose_payload_is_not_this_build_is_named_rather_than_ending_
     monkeypatch.setattr(
         recover,
         "_constructor_arguments",
-        lambda address, chain_name, creation, explanations: (
+        lambda payload, creation, explanations: (
             None,
             "the deployed creation payload is not what this build produces",
         ),
     )
+    monkeypatch.setattr(recover, "_creation_payload", created_by_its_own_transaction)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -1032,7 +1377,7 @@ def test_a_contract_whose_metadata_trailer_is_not_last_is_still_proved(tmp_path,
     monkeypatch.setattr(recover, "_construct", chain.construct)
     # The real `_constructor_arguments` runs: it is what reads the payload, and the payload is the one
     # thing here only the chain knows.
-    monkeypatch.setattr(recover, "_cast", lambda *arguments: "0x" + deployed_creation.hex())
+    monkeypatch.setattr(recover, "_creation_payload", lambda address, chain, block: (deployed_creation, ""))
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -1135,7 +1480,7 @@ def test_a_contract_whose_creation_code_ends_in_its_trailer_is_still_proved(tmp_
     monkeypatch.setattr(recover, "_deployed_code", chain.code)
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
-    monkeypatch.setattr(recover, "_cast", lambda *arguments: "0x" + deployed_creation.hex())
+    monkeypatch.setattr(recover, "_creation_payload", lambda address, chain, block: (deployed_creation, ""))
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -1194,7 +1539,7 @@ def test_a_difference_nothing_explains_names_where_it_is(tmp_path, monkeypatch, 
     monkeypatch.setattr(recover, "_deployed_code", chain.code)
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
-    monkeypatch.setattr(recover, "_cast", lambda *arguments: "0x" + deployed_creation.hex())
+    monkeypatch.setattr(recover, "_creation_payload", lambda address, chain, block: (deployed_creation, ""))
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -1261,6 +1606,7 @@ def test_an_entry_with_no_address_is_named_in_the_closing_list(tmp_path, monkeyp
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
+    monkeypatch.setattr(recover, "_creation_payload", created_by_its_own_transaction)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -1296,6 +1642,7 @@ def test_the_described_total_accounts_for_every_entry_the_manifests_hold(tmp_pat
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
+    monkeypatch.setattr(recover, "_creation_payload", created_by_its_own_transaction)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -1360,6 +1707,7 @@ def test_every_drop_reason_reaches_the_summary_from_every_stage(tmp_path, monkey
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
+    monkeypatch.setattr(recover, "_creation_payload", created_by_its_own_transaction)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -1391,6 +1739,7 @@ def test_the_entries_that_cannot_be_read_are_named_when_there_is_nothing_to_reco
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
+    monkeypatch.setattr(recover, "_creation_payload", created_by_its_own_transaction)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -1455,6 +1804,7 @@ def test_a_baseline_no_manifest_claims_is_named_in_the_summary(tmp_path, monkeyp
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
+    monkeypatch.setattr(recover, "_creation_payload", created_by_its_own_transaction)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -1506,6 +1856,7 @@ def test_every_count_in_the_head_line_has_rows_at_the_end(tmp_path, monkeypatch,
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
+    monkeypatch.setattr(recover, "_creation_payload", created_by_its_own_transaction)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -1637,6 +1988,7 @@ def test_a_selector_that_names_nothing_still_reports_what_is_wrong(tmp_path, mon
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
+    monkeypatch.setattr(recover, "_creation_payload", created_by_its_own_transaction)
     monkeypatch.chdir(repo)
 
     assert recover.run(repo, say=recover.Printer(0), only=f"mainnet/{ADDRESS_A}") == 1, (
@@ -1727,6 +2079,7 @@ def test_a_baseline_records_the_state_file_it_came_from(tmp_path, monkeypatch):
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
+    monkeypatch.setattr(recover, "_creation_payload", created_by_its_own_transaction)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -1764,6 +2117,7 @@ def test_a_contract_two_manifests_describe_records_both_state_files(tmp_path, mo
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
+    monkeypatch.setattr(recover, "_creation_payload", created_by_its_own_transaction)
     monkeypatch.chdir(repo)
 
     recover.run(repo, say=recover.Printer(0), write=True)
@@ -1801,6 +2155,7 @@ def driven(recover, monkeypatch, repo, deployed_a):
     monkeypatch.setattr(recover, "_deployment", chain.deployment)
     monkeypatch.setattr(recover, "_construct", chain.construct)
     monkeypatch.setattr(recover, "_constructor_arguments", no_constructor_arguments)
+    monkeypatch.setattr(recover, "_creation_payload", created_by_its_own_transaction)
     monkeypatch.chdir(repo)
 
 

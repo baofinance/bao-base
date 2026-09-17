@@ -624,7 +624,9 @@ def submodules_along(
             recorded,
             holder_of(holder, at, entry, recorded, checkouts),
         )
-    raise RuntimeError(f"placing the submodules on the route to {path} at {commit[:10]} did not end: placed {sorted(found)}")
+    raise RuntimeError(
+        f"placing the submodules on the route to {path} at {commit[:10]} did not end: placed {sorted(found)}"
+    )
 
 
 def source_blobs(
