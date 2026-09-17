@@ -351,19 +351,27 @@ def declared_in(repo_root: Path, commit: str, path: str, placed: dict[str, tuple
     either, and preferring wrongly means comparing a deployed contract against a different one's
     build.
 
-    Read through `placement`, so a source inside a submodule is read where it exists. `placed` is as
-    `placement` takes it.
+    A file that cannot be read raises, as `source_text` says: it declares nothing that can be known, and
+    None would report a question never asked as the answer "declares no single contract"."""
+    declared = re.findall(
+        r"^[ \t]*(?:abstract[ \t]+)?contract[ \t]+(\w+)", source_text(repo_root, commit, path, placed), re.MULTILINE
+    )
+    return declared[0] if len(declared) == 1 else None
 
-    A file that cannot be read raises: it declares nothing that can be known, and None would report a
-    question never asked as the answer "declares no single contract"."""
+
+def source_text(repo_root: Path, commit: str, path: str, placed: dict[str, tuple[str, Path | None]]) -> str:
+    """What `path` holds at `commit`, read through `placement` - so a file inside a submodule is read
+    where it exists, exactly as one in this repository's own tree is. `placed` is as `placement` takes it.
+
+    Raises when the file cannot be read, with the facts: which path, and whether no checkout holds its
+    submodule or the tree at that commit has no such file."""
     prefix, holder, holder_commit, inside = placement(repo_root, commit, path, placed)
     if holder is None:
         raise FileNotFoundError(f"{path} is in {prefix}, which no checkout in this tree holds")
     done = subprocess.run(["git", "show", f"{holder_commit}:{inside}"], cwd=holder, capture_output=True, text=True)
     if done.returncode != 0:
         raise FileNotFoundError(f"{path} is not in the tree at {commit[:10]}")
-    declared = re.findall(r"^[ \t]*(?:abstract[ \t]+)?contract[ \t]+(\w+)", done.stdout, re.MULTILINE)
-    return declared[0] if len(declared) == 1 else None
+    return done.stdout
 
 
 def _path_at(repo_root: Path, commit: str, recorded_path: str) -> str | None:
@@ -576,6 +584,47 @@ def placement(
         return None, repo_root, commit, path
     holder_commit, holder = placed[prefix]
     return prefix, holder, holder_commit, path[len(prefix) + 1 :]
+
+
+def submodules_along(
+    repo_root: Path, commit: str, path: str, checkouts: dict[str, list[Path]]
+) -> dict[str, tuple[str, Path | None]]:
+    """The submodules `path` lies inside at `commit`, as `placement` takes them - `submodules_at`'s
+    answer for the one route to one file.
+
+    One `git ls-tree` per level of nesting, naming every directory on the route at once, where the whole
+    walk lists every submodule in the tree: 0.13-0.2s a commit on harbor, which a question asked at each
+    of a search's thousand commits cannot afford. Stops where nothing holds a submodule, which leaves
+    that submodule placed with no checkout, as `submodules_at` does.
+
+    Bounded by the route itself: every submodule placed is one more directory on it, so a route of N
+    directories places at most N. Running past that means a lookup placed something that is not on the
+    route, and it raises rather than asking the same question forever."""
+    found: dict[str, tuple[str, Path | None]] = {}
+    for _ in range(path.count("/") + 1):
+        prefix, holder, at, inside = placement(repo_root, commit, path, found)
+        directories = inside.split("/")[:-1]
+        if holder is None or not directories:
+            return found
+        route = ["/".join(directories[: depth + 1]) for depth in range(len(directories))]
+        listing = subprocess.run(["git", "ls-tree", at, "--", *route], cwd=holder, capture_output=True, text=True)
+        # Only an entry that IS a directory on the route. Naming `lib` to reach `lib/bao-base` lists
+        # everything in `lib` - harbor's `lib/solady` among it - and at most one directory on the route
+        # is a gitlink at this level, because everything below it is inside it.
+        submodule = None
+        for line in listing.stdout.splitlines():
+            fields, _, entry = line.partition("\t")
+            mode_type_object = fields.split()
+            if len(mode_type_object) == 3 and mode_type_object[1] == "commit" and entry in route:
+                submodule = (entry, mode_type_object[2])
+        if submodule is None:
+            return found
+        entry, recorded = submodule
+        found[entry if prefix is None else f"{prefix}/{entry}"] = (
+            recorded,
+            holder_of(holder, at, entry, recorded, checkouts),
+        )
+    raise RuntimeError(f"placing the submodules on the route to {path} at {commit[:10]} did not end: placed {sorted(found)}")
 
 
 def source_blobs(

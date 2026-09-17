@@ -19,6 +19,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 BIN = Path(__file__).resolve().parents[2] / "bin"
 sys.path.insert(0, str(BIN))
 
@@ -446,6 +448,166 @@ def test_one_contract_type_is_located_once_however_many_are_deployed(tmp_path, m
     recover._try_commit(tmp_path, "c0ffee", pending, recover.Printer(0), {})
 
     assert sorted(asked) == [("Other", "src/Token.sol"), ("Token", "src/Token.sol")], asked
+
+
+class Located:
+    """The manifest's word on one contract - all that locating its source needs."""
+
+    def __init__(self, name: str, recorded_path: str):
+        self.name = name
+        self.recorded_path = recorded_path
+
+
+def repository_with_a_dependency(tmp_path: Path, own: str, dependency: str) -> tuple[Path, str]:
+    """A repository whose `src/Own.sol` is `own`, with `lib/dep` mounted, whose `Dep.sol` is `dependency`.
+
+    `lib/zeta` is mounted beside it and sorts after it, as harbor's `lib/solady` sorts after
+    `lib/bao-base`: listing a directory on the route to a source names every submodule in it, so one
+    dependency alone would never show a lookup taking a sibling for the one on the route."""
+    origin, sibling, repo = tmp_path / "dep-origin", tmp_path / "zeta-origin", tmp_path / "repo"
+    for made in (origin, sibling, repo):
+        made.mkdir()
+        subprocess.run(["git", "init", "-q", "-b", "main", str(made)], check=True, capture_output=True)
+        for setting, value in (("user.email", "t@t"), ("user.name", "test")):
+            subprocess.run(["git", "config", setting, value], cwd=made, check=True, capture_output=True)
+    (origin / "Dep.sol").write_text(dependency)
+    commit(origin, DEPLOYED, "dependency")
+    (sibling / "Zeta.sol").write_text("contract Zeta {}\n")
+    commit(sibling, DEPLOYED, "a sibling dependency")
+    (repo / "src").mkdir()
+    (repo / "src" / "Own.sol").write_text(own)
+    for mounted, path in ((origin, "lib/dep"), (sibling, "lib/zeta")):
+        subprocess.run(
+            ["git", "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(mounted), path],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+    return repo, commit(repo, DEPLOYED, "own source and its dependencies")
+
+
+def exports_at(monkeypatch, recover) -> list[str]:
+    """The commits a tree is exported at. The export is stubbed to fail, so nothing is built afterwards."""
+    exported: list[str] = []
+
+    def export(root, commit, tree, checkouts):
+        exported.append(commit)
+        raise RuntimeError("exported")
+
+    monkeypatch.setattr(recover, "export_tree", export)
+    return exported
+
+
+def test_a_source_pinning_another_compiler_is_ruled_out_before_the_tree_is_exported(tmp_path, monkeypatch):
+    # Code built by 0.8.30 cannot have come from a source that demands 0.8.28, and both are read from git
+    # - so the commit is ruled out without the second-long export. A source in a dependency is read the
+    # same way as the repository's own, at the commit the superproject records for it: harbor deploys
+    # `MintableBurnableERC20_v1` from bao-base, whose pin moved from 0.8.28 to 0.8.30.
+    recover = load_recover_baselines()
+    pinned_elsewhere = "pragma solidity 0.8.28;\n"
+    repo, head = repository_with_a_dependency(
+        tmp_path, pinned_elsewhere + "contract Own {}\n", pinned_elsewhere + "contract Dep {}\n"
+    )
+    exported = exports_at(monkeypatch, recover)
+    built_by_0_8_30 = with_trailer(bytes.fromhex("6080604052"))
+    pending = {
+        "1/0xaa": recover._Wanted(Located("Own", "src/Own.sol"), built_by_0_8_30, 1, DEPLOYED),
+        "1/0xbb": recover._Wanted(Located("Dep", "lib/dep/Dep.sol"), built_by_0_8_30, 1, DEPLOYED),
+    }
+
+    said: list[str] = []
+    outcome = recover._try_commit(
+        repo, head, pending, recover.Printer(1, said.append), recover.checkouts_by_repository(repo)
+    )
+
+    assert exported == [], "every candidate is ruled out, so no tree is needed"
+    assert outcome == ({}, set())
+    assert sorted(line for line in said if "pins 0.8.28" in line) == [
+        f"  {head[:10]}: lib/dep/Dep.sol pins 0.8.28, and the deployed code names 0.8.30",
+        f"  {head[:10]}: src/Own.sol pins 0.8.28, and the deployed code names 0.8.30",
+    ]
+
+
+def test_a_source_in_a_dependency_pinning_the_deployed_compiler_is_built(tmp_path, monkeypatch):
+    # Reading a dependency's pin rules out only what it contradicts: the source that agrees goes on to
+    # the export and the build.
+    recover = load_recover_baselines()
+    repo, head = repository_with_a_dependency(
+        tmp_path, "pragma solidity 0.8.28;\ncontract Own {}\n", "pragma solidity 0.8.30;\ncontract Dep {}\n"
+    )
+    exported = exports_at(monkeypatch, recover)
+    pending = {
+        "1/0xbb": recover._Wanted(
+            Located("Dep", "lib/dep/Dep.sol"), with_trailer(bytes.fromhex("6080604052")), 1, DEPLOYED
+        )
+    }
+
+    with pytest.raises(RuntimeError, match="^exported$"):
+        recover._try_commit(repo, head, pending, recover.Printer(0), recover.checkouts_by_repository(repo))
+
+    assert exported == [head]
+
+
+def test_one_source_is_read_once_for_its_pin_however_many_contracts_it_built(tmp_path, monkeypatch):
+    # The screen runs at every commit a search reaches, and harbor's twenty-three deployments of one
+    # contract type share one file - so the file is read once for all of them, not once each.
+    recover = load_recover_baselines()
+    monkeypatch.setattr(recover, "source_at", lambda root, commit, name, recorded_path=None: (recorded_path, name))
+    read: list[str] = []
+
+    def reading(root, commit, path, placed):
+        read.append(path)
+        return "pragma solidity 0.8.28;\n"
+
+    monkeypatch.setattr(recover, "source_text", reading)
+    monkeypatch.setattr(recover, "submodules_along", lambda root, commit, path, checkouts: {})
+    exported = exports_at(monkeypatch, recover)
+    built_by_0_8_30 = with_trailer(bytes.fromhex("6080604052"))
+    pending = {
+        f"1/0x{index:040x}": recover._Wanted(Located("Token", "lib/dep/Token.sol"), built_by_0_8_30, 1, DEPLOYED)
+        for index in range(5)
+    }
+    pending["1/0xffff"] = recover._Wanted(Located("Other", "src/Other.sol"), built_by_0_8_30, 1, DEPLOYED)
+
+    recover._try_commit(tmp_path, "c0ffee", pending, recover.Printer(0), {})
+
+    assert sorted(read) == ["lib/dep/Token.sol", "src/Other.sol"], read
+    assert exported == [], "and every one of them is still ruled out by what was read"
+
+
+def test_the_submodules_on_a_route_are_what_the_whole_walk_says_they_are(tmp_path):
+    # The route to one file is asked of every commit a search reaches, so it is resolved level by level
+    # instead of walking every submodule in the tree - and must give the same answer the walk gives for
+    # that file, at no nesting, one level, and two.
+    from deployment_recovery import checkouts_by_repository, submodules_along, submodules_at
+
+    repo, _ = repository_with_a_dependency(tmp_path, "contract Own {}\n", "contract Dep {}\n")
+    inner = tmp_path / "inner-origin"
+    inner.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(inner)], check=True, capture_output=True)
+    for setting, value in (("user.email", "t@t"), ("user.name", "test")):
+        subprocess.run(["git", "config", setting, value], cwd=inner, check=True, capture_output=True)
+    (inner / "Inner.sol").write_text("contract Inner {}\n")
+    commit(inner, DEPLOYED, "inner")
+    dependency = repo / "lib" / "dep"
+    for setting, value in (("user.email", "t@t"), ("user.name", "test")):
+        subprocess.run(["git", "config", setting, value], cwd=dependency, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(inner), "lib/inner"],
+        cwd=dependency,
+        check=True,
+        capture_output=True,
+    )
+    commit(dependency, DEPLOYED, "nest inner")
+    head = commit(repo, DEPLOYED, "move the dependency to its nesting commit")
+    checkouts = checkouts_by_repository(repo)
+    walked = submodules_at(repo, head, checkouts)
+
+    for path, depth in (("src/Own.sol", 0), ("lib/dep/Dep.sol", 1), ("lib/dep/lib/inner/Inner.sol", 2)):
+        along = submodules_along(repo, head, path, checkouts)
+        assert len(along) == depth, (path, along)
+        assert along == {mounted: placed for mounted, placed in walked.items() if path.startswith(f"{mounted}/")}, path
+        assert all(holder is not None for _, holder in along.values()), "every level is checked out here"
 
 
 def test_a_deployed_contract_naming_no_compiler_is_reported_not_guessed(tmp_path, monkeypatch, capsys):

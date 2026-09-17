@@ -56,8 +56,10 @@ from deployment_recovery import (
     search_passes,
     source_at,
     source_blobs,
+    source_text,
     still_to_try,
     strip_metadata,
+    submodules_along,
     submodules_at,
     without_link_addresses,
 )
@@ -359,12 +361,16 @@ def _try_commit(
     # source pinning one compiler exactly cannot have produced bytecode another one wrote, and both
     # are readable from git. A commit every candidate is ruled out at never needs a tree at all.
     sources = {}
+    # Each source read once, for the reason `resolved` gives: twenty-three deployments of one contract
+    # type share one file.
+    texts: dict[str, str] = {}
     for entry_key, (source, declared) in located.items():
         wanted = compiler_in(pending[entry_key].onchain)
-        shown = subprocess.run(["git", "show", f"{commit}:{source}"], cwd=root, capture_output=True, text=True)
-        # Unreadable here means the source lives in a submodule, whose blob this cannot reach: not a
-        # mismatch, so it rules nothing out and the build decides as before.
-        pinned = pins_other_than(shown.stdout, wanted) if wanted and shown.returncode == 0 else None
+        # A source inside a submodule is read at the commit the superproject records for it, like one in
+        # this repository's own tree. `source_at` found it by reading exactly there, so it is readable.
+        if wanted and source not in texts:
+            texts[source] = source_text(root, commit, source, submodules_along(root, commit, source, checkouts))
+        pinned = pins_other_than(texts[source], wanted) if wanted else None
         if pinned is not None:
             say(1, f"  {commit[:10]}: {source} pins {pinned}, and the deployed code names {wanted}")
             continue

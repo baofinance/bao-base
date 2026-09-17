@@ -460,9 +460,7 @@ def test_a_record_disagreeing_with_its_source_in_a_submodule_is_reported_with_wh
     assert [(b.contractType, declares) for b, declares in review(repo).misnamed] == [("Renamed", "Dep")]
 
 
-def test_a_record_whose_source_is_in_a_submodule_this_clone_does_not_have_is_not_reported_as_misnamed(
-    repo, tmp_path
-):
+def test_a_record_whose_source_is_in_a_submodule_this_clone_does_not_have_is_not_reported_as_misnamed(repo, tmp_path):
     # Nothing can be said about a file that cannot be read, and the source is already reported as
     # unchecked. Saying it "declares no single contract" asserts something nobody looked at.
     push_to_a_new_remote(repo, tmp_path)
