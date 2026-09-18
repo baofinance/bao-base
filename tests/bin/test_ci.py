@@ -1,9 +1,10 @@
-"""Tests for bin/CI — how an unrecognised action name is reported.
+"""Tests for bin/CI, which replays what GitHub runs — in sections, each headed by what it covers.
 
-The action name is bin/CI's sole positional argument, and the set of valid values is not written
-down anywhere a caller can see: it is whichever directories under .github/actions/ contain an
-action.yml. Naming the file that was not found tells you the guess was wrong but not what to guess
-instead, so the message has to enumerate the actions that do exist.
+This first one is how an unrecognised action name is reported. The action name is bin/CI's only
+positional argument, and the set of valid values is not written down anywhere a caller can see: it is
+whichever directories under .github/actions/ contain an action.yml. Naming the file that was not
+found tells you the guess was wrong but not what to guess instead, so the message has to enumerate
+the actions that do exist.
 
 The expected names are read from the filesystem here rather than hardcoded, so adding an action
 does not make this test stale.
@@ -31,13 +32,18 @@ def run_ci(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run([str(RUN), "CI", *args], cwd=BAO_BASE, capture_output=True, text=True)
 
 
-def run_ci_against(base_dir: Path, *args: str) -> subprocess.CompletedProcess:
+def run_ci_against(base_dir: Path, *args: str, cwd: Path = None) -> subprocess.CompletedProcess:
     """bin/CI against a substitute BAO_BASE_DIR, so the actions it finds can be controlled.
 
     Invoked directly rather than through `run`, which would supply the real BAO_BASE_DIR.
+
+    cwd is the calling repo, which is where the workflows naming those actions are read from, and it
+    defaults to the same fixture. The two are separate arguments because in a consumer they are
+    separate directories: the workflows are the repo's, the actions are bao-base's.
     """
     return subprocess.run(
         ["bash", str(BAO_BASE / "bin" / "CI"), *args],
+        cwd=str(cwd or base_dir),
         env={**os.environ, "BAO_BASE_DIR": str(base_dir)},
         capture_output=True,
         text=True,
@@ -99,12 +105,12 @@ def test_a_valid_action_is_accepted():
 # in a pull request rather than before pushing.
 
 
-def _action_with_steps(base_dir, body):
+def _action_with_steps(base_dir, body, name="an-action"):
     """An actions directory holding one action whose action.yml contains `body`."""
-    action_dir = base_dir / ".github" / "actions" / "an-action"
+    action_dir = base_dir / ".github" / "actions" / name
     action_dir.mkdir(parents=True)
     (action_dir / "action.yml").write_text(body)
-    return "an-action"
+    return name
 
 
 def test_marked_run_command_is_executed(tmp_path):
@@ -250,8 +256,16 @@ TWO_STEPS_THE_SECOND_BLOCKING = (
 )
 
 
-def _state_file(base_dir, action):
-    return base_dir / "tmp" / f".ci-state-{action}"
+def _state_file(base_dir):
+    """The single resume record for a run. One file rather than one per action: a run covers several
+    actions, so the record has to say which of them stopped as well as where."""
+    return base_dir / "tmp" / ".ci-state"
+
+
+def _state(base_dir):
+    """The resume record as {keyword: words}: the action argument the run was given (empty when its
+    actions were derived), where it stopped, and the actions it had finished."""
+    return {line.split()[0]: line.split()[1:] for line in _state_file(base_dir).read_text().splitlines()}
 
 
 def _stub_yarn_that_blocks_on(directory, blocking_argument):
@@ -309,8 +323,8 @@ def test_an_interrupted_step_is_recorded_as_the_one_to_resume_at(tmp_path):
     name = _action_with_steps(tmp_path, TWO_STEPS_THE_SECOND_BLOCKING)
     stub = _stub_yarn_that_blocks_on(tmp_path / "stub", "blocks")
     interrupt_ci_during_the_blocking_step(tmp_path, name, stub_bin=stub)
-    # 0-based, so the second of the two steps
-    assert _state_file(tmp_path, name).read_text().strip() == "1"
+    # the action, then its step index 0-based — so the second of the two steps
+    assert _state(tmp_path)["stopped"] == [name, "1"]
 
 
 # Each of the two resumption flags has a long and a short spelling, and both are exercised here: a
@@ -327,8 +341,8 @@ def test_retry_after_an_interrupt_resumes_at_the_interrupted_step(tmp_path, flag
     # the same argument no longer hangs, so the retried step can finish
     result = execute_ci_against(tmp_path, name, flag, stub_bin=_stub_yarn(tmp_path / "stub", 0))
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "=== [2/2]" in result.stdout
-    assert "=== [1/2]" not in result.stdout, "the step that had already passed was run again"
+    assert f"=== {name} [2/2]" in result.stdout
+    assert f"=== {name} [1/2]" not in result.stdout, "the step that had already passed was run again"
 
 
 @pytest.mark.parametrize("flag", ["--skip", "-s"])
@@ -339,9 +353,9 @@ def test_skip_after_an_interrupt_moves_past_the_interrupted_step(tmp_path, flag)
 
     result = execute_ci_against(tmp_path, name, flag, stub_bin=_stub_yarn(tmp_path / "stub", 0))
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "Skipping step 2 of 2" in result.stdout
-    assert "=== [2/2]" not in result.stdout, "the skipped step was run"
-    assert not _state_file(tmp_path, name).exists()
+    assert f"Skipping {name} step 2 of 2" in result.stdout
+    assert f"=== {name} [2/2]" not in result.stdout, "the skipped step was run"
+    assert not _state_file(tmp_path).exists()
 
 
 # ── what a stopped run tells you to do next ───────────────────────────────────────────────────────
@@ -366,7 +380,7 @@ def test_an_interrupt_says_which_step_it_stopped_at(tmp_path):
     name = _action_with_steps(tmp_path, TWO_STEPS_THE_SECOND_BLOCKING)
     stub = _stub_yarn_that_blocks_on(tmp_path / "stub", "blocks")
     result = interrupt_ci_during_the_blocking_step(tmp_path, name, stub_bin=stub)
-    assert "INTERRUPTED at step 2/2: yarn blocks" in result.stderr
+    assert f"INTERRUPTED at {name} step 2/2: yarn blocks" in result.stderr
 
 
 def test_an_interrupt_names_both_spellings_of_both_ways_to_resume(tmp_path):
@@ -416,4 +430,322 @@ def test_a_successful_run_leaves_no_state_file(tmp_path):
     )
     result = execute_ci_against(tmp_path, name, stub_bin=_stub_yarn(tmp_path / "stub", 0))
     assert result.returncode == 0
-    assert not _state_file(tmp_path, name).exists()
+    assert not _state_file(tmp_path).exists()
+
+
+# ── which actions a run covers ────────────────────────────────────────────────────────────────────
+# GitHub runs every workflow the repo has, so a local replay that runs one action passes while the
+# rest was never tried. The list is derived from the CALLING repo's .github/workflows — each workflow
+# names the action it uses — so a repo replays the jobs it actually has and no others. Workflows
+# ending "latest.yml" are left out: they differ from their stable twin only in the foundry version,
+# which the local replay never installs, so running one would repeat the other step for step.
+
+
+def _workflow(base_dir, filename, action_path):
+    """A workflow file whose job reaches `action_path`, alongside the checkout step every real
+    workflow starts with."""
+    workflows = base_dir / ".github" / "workflows"
+    workflows.mkdir(parents=True, exist_ok=True)
+    (workflows / filename).write_text(
+        "name: a workflow\n"
+        "on:\n"
+        "  push:\n"
+        "jobs:\n"
+        "  a_job:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        "      - name: Checkout repository with submodules\n"
+        "        uses: actions/checkout@v6\n"
+        "      - name: Run Bao-base CI actions\n"
+        f"        uses: {action_path}\n"
+    )
+    return workflows / filename
+
+
+def _action_announcing_itself(base_dir, name):
+    """An action whose one marked command names the action, so the output of a run says which actions
+    it covered and in what order."""
+    return _action_with_steps(
+        base_dir,
+        f"runs:\n  steps:\n    - run: |\n        # ci-execute-next-line\n        yarn {name}\n",
+        name,
+    )
+
+
+def test_every_workflows_action_is_run(tmp_path):
+    _action_announcing_itself(tmp_path, "first")
+    _action_announcing_itself(tmp_path, "second")
+    _workflow(tmp_path, "CI-first.yml", "./.github/actions/first")
+    _workflow(tmp_path, "CI-second.yml", "./.github/actions/second")
+
+    result = run_ci_against(tmp_path, "--debug")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "yarn first" in result.stdout
+    assert "yarn second" in result.stdout
+
+
+def test_actions_run_in_workflow_filename_order(tmp_path):
+    # the order is derived from the filenames, so it is the same on every machine — the fixture
+    # writes them in the opposite order to prove the glob is what sorts them
+    _action_announcing_itself(tmp_path, "beta")
+    _action_announcing_itself(tmp_path, "alpha")
+    _workflow(tmp_path, "2-beta.yml", "./.github/actions/beta")
+    _workflow(tmp_path, "1-alpha.yml", "./.github/actions/alpha")
+
+    result = run_ci_against(tmp_path, "--debug")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.index("yarn alpha") < result.stdout.index("yarn beta")
+
+
+def test_a_latest_workflow_is_excluded(tmp_path):
+    _action_announcing_itself(tmp_path, "stable-action")
+    _action_announcing_itself(tmp_path, "nightly-action")
+    _workflow(tmp_path, "CI-thing-stable.yml", "./.github/actions/stable-action")
+    _workflow(tmp_path, "CI-thing-latest.yml", "./.github/actions/nightly-action")
+
+    result = run_ci_against(tmp_path, "--debug")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "yarn stable-action" in result.stdout
+    assert "yarn nightly-action" not in result.stdout
+
+
+def test_each_action_is_announced_with_the_workflow_that_named_it(tmp_path):
+    # a run covers several workflows and the longest takes tens of minutes, so what is under way is
+    # named the way GitHub names it — by the workflow file, not only by the action it reaches
+    _action_announcing_itself(tmp_path, "an-action")
+    _workflow(tmp_path, "CI-a-workflow.yml", "./.github/actions/an-action")
+
+    result = run_ci_against(tmp_path, "--debug")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "CI-a-workflow.yml" in result.stdout
+    assert result.stdout.index("CI-a-workflow.yml") < result.stdout.index("yarn an-action")
+
+
+def test_an_action_named_as_the_argument_is_announced_without_a_workflow(tmp_path):
+    # it was not reached through one, and naming the workflow that happens to mention it would say
+    # this run covers that workflow when it does not
+    _action_announcing_itself(tmp_path, "an-action")
+    _workflow(tmp_path, "CI-a-workflow.yml", "./.github/actions/an-action")
+
+    result = run_ci_against(tmp_path, "an-action", "--debug")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "CI-a-workflow.yml" not in result.stdout
+
+
+def test_two_workflows_naming_one_action_run_it_once(tmp_path):
+    # the stable and latest workflows use the same action, and so may any other pair — replaying its
+    # steps twice would double the longest part of a run for nothing
+    _action_announcing_itself(tmp_path, "shared")
+    _workflow(tmp_path, "CI-one.yml", "./.github/actions/shared")
+    _workflow(tmp_path, "CI-two.yml", "./.github/actions/shared")
+
+    result = run_ci_against(tmp_path, "--debug")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.count("yarn shared") == 1
+
+
+def test_a_consumer_spelling_of_the_action_path_is_recognised(tmp_path):
+    # A consumer's workflow is a copy of bao-base's with one difference: the action is under
+    # lib/bao-base rather than at the repo root. So the two directories are genuinely separate there
+    # — the workflows are the consumer's, the actions are bao-base's — and both spellings of the path
+    # name the same action.
+    consumer = tmp_path / "consumer"
+    bao_base = tmp_path / "consumer" / "lib" / "bao-base"
+    bao_base.mkdir(parents=True)
+    _action_announcing_itself(bao_base, "an-action-under-bao-base")
+    _workflow(consumer, "CI-stable.yml", "./lib/bao-base/.github/actions/an-action-under-bao-base")
+
+    result = run_ci_against(bao_base, "--debug", cwd=consumer)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "yarn an-action-under-bao-base" in result.stdout
+
+
+def test_a_published_action_reference_is_not_taken_for_a_local_one(tmp_path):
+    # every workflow starts by using actions/checkout, which is a published action and not a
+    # directory in this repo — taking it for one would look for an action named "checkout@v6"
+    _action_announcing_itself(tmp_path, "local-action")
+    _workflow(tmp_path, "CI-thing.yml", "./.github/actions/local-action")
+
+    result = run_ci_against(tmp_path, "--debug")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "checkout" not in result.stdout + result.stderr
+
+
+def test_no_workflows_is_an_error_naming_where_it_looked(tmp_path):
+    # a repo with no workflows has nothing for CI to replay, and saying so beats exiting zero on a
+    # run that did nothing
+    _action_announcing_itself(tmp_path, "an-action")
+
+    result = run_ci_against(tmp_path, "--debug")
+    assert result.returncode != 0
+    assert ".github/workflows" in result.stderr
+
+
+def test_workflows_that_name_no_local_action_is_an_error_naming_where_it_looked(tmp_path):
+    # the other way to end up with nothing to run: workflow files exist, but none of them reaches an
+    # action in this repo. Silently doing nothing would read as a clean run.
+    _action_announcing_itself(tmp_path, "an-action")
+    (tmp_path / ".github" / "workflows").mkdir(parents=True)
+    (tmp_path / ".github" / "workflows" / "CI-thing.yml").write_text(
+        "jobs:\n  a_job:\n    steps:\n      - uses: actions/checkout@v6\n"
+    )
+
+    result = run_ci_against(tmp_path, "--debug")
+    assert result.returncode != 0
+    assert ".github/workflows" in result.stderr
+
+
+def test_an_action_argument_replaces_the_derived_list(tmp_path):
+    # the argument is how you run one action on its own, so it has to override the derivation rather
+    # than add to it
+    _action_announcing_itself(tmp_path, "derived")
+    _action_announcing_itself(tmp_path, "given")
+    _workflow(tmp_path, "CI-derived.yml", "./.github/actions/derived")
+
+    result = run_ci_against(tmp_path, "given", "--debug")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "yarn given" in result.stdout
+    assert "yarn derived" not in result.stdout
+
+
+# ── resuming a run that covers several actions ────────────────────────────────────────────────────
+# The resume record has to name the action as well as the step: the run that stopped had more actions
+# behind it, and carrying on means finishing the one that stopped and then running the rest.
+
+
+def _stub_yarn_logging(directory, failing_argument=None):
+    """A `yarn` on PATH that records each invocation in ran.log and fails on one chosen argument.
+
+    The log is how a test tells which steps ran: bin/CI echoes each command before running it, so a
+    command's presence in stdout says only that it was announced.
+    """
+    directory.mkdir(exist_ok=True)
+    stub = directory / "yarn"
+    stub.write_text(
+        f'#!/usr/bin/env bash\necho "$1" >>ran.log\nif [[ "$1" == "{failing_argument}" ]]; then\n  exit 3\nfi\n'
+    )
+    stub.chmod(0o755)
+    return directory
+
+
+def _two_actions_from_workflows(base_dir):
+    """Two actions of two steps each, reached through one workflow apiece."""
+    for name in ("first", "second"):
+        _action_with_steps(
+            base_dir,
+            "runs:\n"
+            "  steps:\n"
+            "    - run: |\n"
+            "        # ci-execute-next-line\n"
+            f"        yarn {name}-one\n"
+            "    - run: |\n"
+            "        # ci-execute-next-line\n"
+            f"        yarn {name}-two\n",
+            name,
+        )
+        _workflow(base_dir, f"CI-{name}.yml", f"./.github/actions/{name}")
+
+
+def test_a_failure_records_the_action_as_well_as_the_step(tmp_path):
+    _two_actions_from_workflows(tmp_path)
+    result = execute_ci_against(tmp_path, stub_bin=_stub_yarn_logging(tmp_path / "stub", "second-one"))
+    assert result.returncode != 0
+    # 0-based, so the first step of the second action
+    assert _state(tmp_path)["stopped"] == ["second", "0"]
+    assert _state(tmp_path)["completed"] == ["first"]
+
+
+def test_a_failure_records_the_run_it_belongs_to(tmp_path):
+    # the argument the run was given, so carrying on resumes that run — an empty record is the run
+    # that named no action and derived its own
+    _two_actions_from_workflows(tmp_path)
+    execute_ci_against(tmp_path, stub_bin=_stub_yarn_logging(tmp_path / "stub", "first-one"))
+    assert _state(tmp_path)["action"] == []
+
+    execute_ci_against(tmp_path, "first", stub_bin=_stub_yarn_logging(tmp_path / "stub", "first-one"))
+    assert _state(tmp_path)["action"] == ["first"]
+
+
+def test_retry_resumes_in_the_failing_action_then_runs_the_rest(tmp_path):
+    # three actions so there is both a step left in the failing action and a whole action after it
+    _two_actions_from_workflows(tmp_path)
+    _action_announcing_itself(tmp_path, "third")
+    _workflow(tmp_path, "CI-third.yml", "./.github/actions/third")
+
+    execute_ci_against(tmp_path, stub_bin=_stub_yarn_logging(tmp_path / "stub", "first-two"))
+    (tmp_path / "ran.log").unlink()
+
+    result = execute_ci_against(tmp_path, "--retry", stub_bin=_stub_yarn_logging(tmp_path / "stub"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (tmp_path / "ran.log").read_text().split() == ["first-two", "second-one", "second-two", "third"]
+
+
+def test_skip_moves_past_the_failed_step_within_its_action(tmp_path):
+    _two_actions_from_workflows(tmp_path)
+    execute_ci_against(tmp_path, stub_bin=_stub_yarn_logging(tmp_path / "stub", "first-one"))
+    (tmp_path / "ran.log").unlink()
+
+    result = execute_ci_against(tmp_path, "--skip", stub_bin=_stub_yarn_logging(tmp_path / "stub"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (tmp_path / "ran.log").read_text().split() == ["first-two", "second-one", "second-two"]
+
+
+def test_skip_past_an_actions_last_step_continues_into_the_next_action(tmp_path):
+    # the boundary the per-action record could not express: the step to resume at is the first step
+    # of the action after the one that stopped
+    _two_actions_from_workflows(tmp_path)
+    execute_ci_against(tmp_path, stub_bin=_stub_yarn_logging(tmp_path / "stub", "first-two"))
+    (tmp_path / "ran.log").unlink()
+
+    result = execute_ci_against(tmp_path, "--skip", stub_bin=_stub_yarn_logging(tmp_path / "stub"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (tmp_path / "ran.log").read_text().split() == ["second-one", "second-two"]
+
+
+def test_a_bare_retry_carries_on_with_the_run_that_stopped(tmp_path):
+    # the run that stopped named one action, so carrying on is that action and no others — without
+    # having to name it again, which is the whole of what a resume is for
+    _two_actions_from_workflows(tmp_path)
+    execute_ci_against(tmp_path, "first", stub_bin=_stub_yarn_logging(tmp_path / "stub", "first-two"))
+    (tmp_path / "ran.log").unlink()
+
+    result = execute_ci_against(tmp_path, "--retry", stub_bin=_stub_yarn_logging(tmp_path / "stub"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (tmp_path / "ran.log").read_text().split() == ["first-two"]
+
+
+def test_resuming_as_an_action_the_stopped_run_was_not_is_an_error(tmp_path):
+    # An action argument says which action to run, and --retry says to carry on with the run that
+    # stopped. Naming a different run than the one on disk asks for both at once, and either reading
+    # of it does something nobody asked for.
+    _two_actions_from_workflows(tmp_path)
+    execute_ci_against(tmp_path, stub_bin=_stub_yarn_logging(tmp_path / "stub", "second-one"))
+    (tmp_path / "ran.log").unlink()
+
+    result = execute_ci_against(tmp_path, "first", "--retry", stub_bin=_stub_yarn_logging(tmp_path / "stub"))
+    assert result.returncode != 0
+    assert "first" in result.stderr
+    assert not (tmp_path / "ran.log").exists(), "a contradicted resume ran a step anyway"
+
+
+def test_resuming_a_run_whose_action_is_no_longer_covered_says_so(tmp_path):
+    # the actions can change between a stop and a resume — a workflow removed, or one that no longer
+    # names that action. Resuming into a run that does not contain the stopping point would silently
+    # leave it unfinished.
+    _two_actions_from_workflows(tmp_path)
+    execute_ci_against(tmp_path, stub_bin=_stub_yarn_logging(tmp_path / "stub", "second-one"))
+    (tmp_path / ".github" / "workflows" / "CI-second.yml").unlink()
+
+    result = execute_ci_against(tmp_path, "--retry", stub_bin=_stub_yarn_logging(tmp_path / "stub"))
+    assert result.returncode != 0
+    assert "second" in result.stderr
+
+
+def test_a_looped_run_that_passes_leaves_no_state_file(tmp_path):
+    # the record is cleared at the end of the LAST action, not the first — one left behind would make
+    # the next --retry resume a run that had finished
+    _two_actions_from_workflows(tmp_path)
+    result = execute_ci_against(tmp_path, stub_bin=_stub_yarn_logging(tmp_path / "stub"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (tmp_path / "ran.log").read_text().split() == ["first-one", "first-two", "second-one", "second-two"]
+    assert not _state_file(tmp_path).exists()

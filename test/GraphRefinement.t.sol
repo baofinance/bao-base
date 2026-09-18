@@ -164,13 +164,7 @@ abstract contract GraphRefinement {
         }
     }
 
-    function _refineBetween(
-        uint256 x0,
-        int256[] memory y0,
-        uint256 x1,
-        int256[] memory y1,
-        uint8 depthLeft
-    ) private {
+    function _refineBetween(uint256 x0, int256[] memory y0, uint256 x1, int256[] memory y1, uint8 depthLeft) private {
         if (refinementTolerance() == 0) {
             return;
         }
@@ -231,9 +225,7 @@ abstract contract GraphRefinement {
     ) private view returns (bool) {
         uint256 tolerance = refinementTolerance();
         for (uint256 i = 0; i < measured.length; i++) {
-            if (
-                y0[i] == SIGNAL_UNAVAILABLE || y1[i] == SIGNAL_UNAVAILABLE || measured[i] == SIGNAL_UNAVAILABLE
-            ) {
+            if (y0[i] == SIGNAL_UNAVAILABLE || y1[i] == SIGNAL_UNAVAILABLE || measured[i] == SIGNAL_UNAVAILABLE) {
                 continue;
             }
             int256 chord = SignedMath.average(y0[i], y1[i]);

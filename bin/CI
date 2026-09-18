@@ -5,15 +5,18 @@ set -o pipefail
 debug=0
 retry_mode=0
 skip_mode=0
-action="test-foundry" # the .github/actions/<name>/ whose action.yml is run; override as the sole positional arg
-action_set=0
+action=""    # one .github/actions/<name>/, given as the sole positional arg; without it the actions
+action_set=0 # are derived from the calling repo's workflows
+invocation="yarn CI"
 step_in_flight=0
 
 # Both ways to carry on from a run that stopped part-way, in both spellings. The short forms are
 # offered here because this is where they are found: a resume is the one thing a person does over and
-# over in a sitting, and nothing else in the tool would introduce them.
+# over in a sitting, and nothing else in the tool would introduce them. Neither takes the action
+# argument back: the state file records what the run covered, so carrying on is the same two words
+# whatever the run was started as.
 resume_hint() {
-  echo "Run 'yarn CI ${action} --retry' (or -r) to retry this step, or 'yarn CI ${action} --skip' (or -s) to skip it." >&2
+  echo "Run 'yarn CI --retry' (or -r) to retry this step, or 'yarn CI --skip' (or -s) to skip it." >&2
 }
 
 # Ctrl-C reaches this script as well as the step it is running, so the step's own failure path never
@@ -24,7 +27,7 @@ resume_hint() {
 on_interrupt() {
   if [[ "$step_in_flight" == "1" ]]; then
     echo "" >&2
-    echo "=== INTERRUPTED at step $((i + 1))/$total: $cmd ===" >&2
+    echo "=== INTERRUPTED at $action step $((i + 1))/$total: $cmd ===" >&2
     resume_hint
   fi
   exit 130
@@ -47,6 +50,7 @@ for arg in "$@"; do
       fi
       action="$arg"
       action_set=1
+      invocation="yarn CI $action"
       ;;
   esac
 done
@@ -54,32 +58,77 @@ done
 # set by `run`, which sources this; unset it would look for the action under /.github and report the
 # wrong path as missing
 : "${BAO_BASE_DIR:?must be set by the bao-base run script}"
-ACTION_YML="${BAO_BASE_DIR}/.github/actions/${action}/action.yml"
-if [[ ! -f "$ACTION_YML" ]]; then
-  echo "ERROR: actions file not found: $ACTION_YML" >&2
-  # the valid names are not written down anywhere else — they are whichever action directories
-  # hold an action.yml — so list them rather than leaving the caller to go looking
-  valid_actions=()
-  for candidate in "${BAO_BASE_DIR}"/.github/actions/*/action.yml; do
-    if [[ -f "$candidate" ]]; then
-      valid_actions+=("$(basename "$(dirname "$candidate")")")
+
+# The workflows are the CALLING repo's, while the actions they name are bao-base's — the same two
+# directories GitHub uses, and in a consumer they are far apart. A repo's own workflows are what
+# GitHub runs for it, so deriving the list from them replays the jobs that repo actually has: all of
+# bao-base's in bao-base, the one a consumer has copied in a consumer.
+WORKFLOWS_DIR="${PWD}/.github/workflows"
+
+# One record for the whole run, since a run covers several actions: which are finished, and where the
+# one in flight stopped.
+STATE_FILE="${PWD}/tmp/.ci-state"
+
+is_listed() {
+  local needle="$1"
+  shift
+  local candidate
+  for candidate in "$@"; do
+    if [[ "$candidate" == "$needle" ]]; then
+      return 0
     fi
   done
-  if [[ ${#valid_actions[@]} -gt 0 ]]; then
-    echo "valid actions: ${valid_actions[*]}" >&2
-  else
-    echo "no action.yml found under ${BAO_BASE_DIR}/.github/actions/" >&2
-  fi
-  exit 1
-fi
+  return 1
+}
 
-STATE_FILE="${PWD}/tmp/.ci-state-${action}"
 if [[ "$retry_mode" == "1" ]] && [[ "$skip_mode" == "1" ]]; then
   echo "ERROR: --retry and --skip are mutually exclusive" >&2
   exit 1
 fi
 
-if [[ "$retry_mode" == "0" ]] && [[ "$skip_mode" == "0" ]]; then
+# What a stopped run left behind: the run it was (the action argument it was given, if any), where it
+# stopped, and which actions it had already finished.
+resuming=0
+state_argument=""
+state_action=""
+state_step=""
+state_completed=""
+completed=()
+if [[ "$retry_mode" == "1" ]] || [[ "$skip_mode" == "1" ]]; then
+  resuming=1
+  if [[ ! -f "$STATE_FILE" ]]; then
+    echo "ERROR: no .ci-state file found — run '${invocation}' first" >&2
+    exit 1
+  fi
+  {
+    read -r _ state_argument || true
+    read -r _ state_action state_step || true
+    read -r _ state_completed || true
+  } <"$STATE_FILE"
+  if [[ -z "$state_action" ]] || [[ -z "$state_step" ]]; then
+    echo "ERROR: $STATE_FILE does not record where a run stopped; it holds:" >&2
+    cat "$STATE_FILE" >&2
+    exit 1
+  fi
+  read -ra completed <<<"$state_completed"
+
+  # An action argument says which action to run; --retry and --skip say to carry on with the run that
+  # stopped. Naming a different run than the one on disk asks for both at once, and either reading of
+  # it does something nobody asked for — so it is reported rather than resolved.
+  if [[ "$action_set" == "1" ]] && [[ "$action" != "$state_argument" ]]; then
+    if [[ -z "$state_argument" ]]; then
+      echo "ERROR: the run to resume was started with no action, so it cannot be resumed as '$action'" >&2
+    else
+      echo "ERROR: the run to resume was started as '$state_argument', so it cannot be resumed as '$action'" >&2
+    fi
+    exit 1
+  fi
+  # carrying on covers what the stopped run covered, so a bare --retry needs no argument back
+  if [[ "$action_set" == "0" ]] && [[ -n "$state_argument" ]]; then
+    action="$state_argument"
+    action_set=1
+  fi
+else
   rm -f "$STATE_FILE"
 fi
 
@@ -99,96 +148,215 @@ is_replayable() {
   return 1
 }
 
-# Phase 1: parse action.yml — build execute[] and skipped[] lists
-execute=()
-skipped=()
-marker_seen=0
+# Phase 1: which actions to run — the one named as the argument, or every one the calling repo's
+# workflows reach, which is the set GitHub runs for that repo
+actions=()
+action_workflows=() # the workflow each action was found in, for the run to announce
+if [[ "$action_set" == "1" ]]; then
+  actions=("$action")
+  action_workflows=("")
+else
+  # A workflow reaches an action through a `uses:` naming a directory in this repo. The other kind of
+  # `uses:` names a published action (actions/checkout@v6), which has no local path and nothing here
+  # to run.
+  local_action='^(-[[:space:]]+)?uses:[[:space:]]*(\.[^[:space:]]+)[[:space:]]*$'
+  shopt -s nullglob
+  workflows=("$WORKFLOWS_DIR"/*.yml "$WORKFLOWS_DIR"/*.yaml)
+  shopt -u nullglob
+  for workflow in "${workflows[@]}"; do
+    # A "latest" workflow is its stable twin with a different foundry version, and the local replay
+    # installs no foundry — so running it would repeat the stable workflow's steps exactly.
+    case "$workflow" in
+      *latest.yml | *latest.yaml) continue ;;
+    esac
+    while IFS= read -r line; do
+      entry="${line#"${line%%[![:space:]]*}"}"
+      if [[ ! "$entry" =~ $local_action ]]; then
+        continue
+      fi
+      used="${BASH_REMATCH[2]}"
+      if [[ "$used" != *"/.github/actions/"* ]]; then
+        continue
+      fi
+      name="${used%/}"
+      name="${name##*/}"
+      # the stable and latest workflows name one action between them, and so may any other pair;
+      # replaying its steps once per workflow would double the longest part of a run for nothing.
+      # The workflows that named it are kept alongside, so a run says which of them it is covering.
+      listed_at=-1
+      for ((a = 0; a < ${#actions[@]}; a++)); do
+        if [[ "${actions[$a]}" == "$name" ]]; then
+          listed_at=$a
+        fi
+      done
+      if [[ "$listed_at" -lt 0 ]]; then
+        actions+=("$name")
+        action_workflows+=("${workflow##*/}")
+      else
+        action_workflows[$listed_at]="${action_workflows[$listed_at]} ${workflow##*/}"
+      fi
+    done <"$workflow"
+  done
+fi
 
-while IFS= read -r line; do
-  cmd="${line#"${line%%[![:space:]]*}"}"
-
-  if [[ "$marker_seen" == "1" ]]; then
-    if [[ -z "$cmd" ]]; then
-      echo "ERROR: blank line after '# ci-execute-next-line' in $ACTION_YML" >&2
-      exit 1
-    elif ! is_replayable "$cmd"; then
-      echo "ERROR: '# ci-execute-next-line' not followed by a yarn script or a bao-base 'run' target (got: $cmd)" >&2
-      exit 1
-    fi
-    execute+=("$cmd")
-    marker_seen=0
-    continue
-  fi
-
-  if [[ "$cmd" == "# ci-execute-next-line" ]]; then
-    marker_seen=1
-  elif is_replayable "$cmd"; then
-    skipped+=("$cmd")
-  fi
-done <"$ACTION_YML"
-
-if [[ "$marker_seen" == "1" ]]; then
-  echo "ERROR: '# ci-execute-next-line' at end of file with no following command" >&2
+if [[ ${#actions[@]} -eq 0 ]]; then
+  echo "ERROR: no workflow in ${WORKFLOWS_DIR} names an action in this repo" >&2
+  echo "(workflows whose name ends 'latest.yml' are not among those looked at)" >&2
   exit 1
 fi
 
-total=${#execute[@]}
-
-# Determine starting step (0-based index)
-start_index=0
-if [[ "$retry_mode" == "1" ]] || [[ "$skip_mode" == "1" ]]; then
-  if [[ ! -f "$STATE_FILE" ]]; then
-    echo "ERROR: no .ci-state file found — run 'yarn CI ${action}' first" >&2
-    exit 1
-  fi
-  start_index=$(cat "$STATE_FILE")
-  if [[ "$skip_mode" == "1" ]]; then
-    echo "Skipping step $((start_index + 1)) of $total: ${execute[$start_index]}"
-    start_index=$((start_index + 1))
-  else
-    echo "Retrying from step $((start_index + 1)) of $total: ${execute[$start_index]}"
-  fi
+if [[ "$resuming" == "1" ]] && ! is_listed "$state_action" "${actions[@]}"; then
+  echo "ERROR: the run to resume stopped in '$state_action', which this run does not cover" >&2
+  echo "this run covers: ${actions[*]}" >&2
+  exit 1
 fi
 
-# Phase 2: execute (or print in debug mode)
-for ((i = start_index; i < total; i++)); do
-  cmd="${execute[$i]}"
-  echo ""
-  echo "=== [$((i + 1))/$total] $cmd ==="
-  if [[ "$debug" == "1" ]]; then
-    echo "[debug] skipping execution"
-  else
-    # The step to resume at is recorded BEFORE it is run, not when it fails. A run stops three ways
-    # and only one of them can run code as it stops: a failing step returns here, but Ctrl-C signals
-    # this script along with the step so nothing below the step ever runs, and a machine that goes
-    # away allows no code at all. Recording on entry is the single point that covers all three. The
-    # file is removed once every step has passed, so it exists only while a run is unfinished.
-    # dirname of a non-empty literal path, so there is no failure to check
-    mkdir -p "$(dirname "$STATE_FILE")" # lint-bash disable=command-substitution
-    echo "$i" >"$STATE_FILE"
+# the run this is, as the state file will record it, while `action` still holds the argument rather
+# than the action being run
+recorded_argument=""
+if [[ "$action_set" == "1" ]]; then
+  recorded_argument="$action"
+fi
 
-    # Exactly the shell GitHub gives a step, rather than eval in this one. Two reasons, and the
-    # first is a correctness bug: a command placed in a condition has `set -e` suppressed for
-    # everything it expands, so an eval'd compound command runs on past its first failure and ends
-    # up reporting the LAST command's status — a step that fails in CI passes here. Second, a
-    # separate process matches GitHub's step isolation, where a cd or an environment change cannot
-    # leak into the next step.
-    #
-    # BASH_ENV is dropped because --noprofile and --norc do not cover it: they govern the
-    # interactive and login startup files, neither of which a script shell reads, while BASH_ENV is
-    # the one file it does read. Left set, a developer's local replay would source something no
-    # runner has.
-    step_status=0
-    step_in_flight=1
-    env -u BASH_ENV bash --noprofile --norc -eo pipefail -c "$cmd" || step_status=$?
-    step_in_flight=0
-    if [[ "$step_status" -ne 0 ]]; then
-      echo "" >&2
-      echo "=== FAILED at step $((i + 1))/$total: $cmd ===" >&2
-      resume_hint
+skipped=()
+
+for ((a = 0; a < ${#actions[@]}; a++)); do
+  action="${actions[$a]}"
+  if [[ "$resuming" == "1" ]] && is_listed "$action" "${completed[@]}"; then
+    continue
+  fi
+
+  # what GitHub would be running at this point, named as GitHub names it — the workflow file. An
+  # action given as the argument was not reached through one, so there is nothing to name.
+  announcement="$action"
+  if [[ -n "${action_workflows[$a]}" ]]; then
+    announcement="${action_workflows[$a]} -> $action"
+  fi
+  echo ""
+  echo "=== $announcement ==="
+
+  ACTION_YML="${BAO_BASE_DIR}/.github/actions/${action}/action.yml"
+  if [[ ! -f "$ACTION_YML" ]]; then
+    echo "ERROR: actions file not found: $ACTION_YML" >&2
+    # the valid names are not written down anywhere else — they are whichever action directories
+    # hold an action.yml — so list them rather than leaving the caller to go looking
+    valid_actions=()
+    for candidate in "${BAO_BASE_DIR}"/.github/actions/*/action.yml; do
+      if [[ -f "$candidate" ]]; then
+        valid_actions+=("$(basename "$(dirname "$candidate")")")
+      fi
+    done
+    if [[ ${#valid_actions[@]} -gt 0 ]]; then
+      echo "valid actions: ${valid_actions[*]}" >&2
+    else
+      echo "no action.yml found under ${BAO_BASE_DIR}/.github/actions/" >&2
+    fi
+    exit 1
+  fi
+
+  # Phase 2: parse action.yml — build execute[] and add to skipped[]
+  execute=()
+  marker_seen=0
+
+  while IFS= read -r line; do
+    cmd="${line#"${line%%[![:space:]]*}"}"
+
+    if [[ "$marker_seen" == "1" ]]; then
+      if [[ -z "$cmd" ]]; then
+        echo "ERROR: blank line after '# ci-execute-next-line' in $ACTION_YML" >&2
+        exit 1
+      elif ! is_replayable "$cmd"; then
+        echo "ERROR: '# ci-execute-next-line' not followed by a yarn script or a bao-base 'run' target (got: $cmd)" >&2
+        exit 1
+      fi
+      execute+=("$cmd")
+      marker_seen=0
+      continue
+    fi
+
+    if [[ "$cmd" == "# ci-execute-next-line" ]]; then
+      marker_seen=1
+    elif is_replayable "$cmd"; then
+      skipped+=("$action: $cmd")
+    fi
+  done <"$ACTION_YML"
+
+  if [[ "$marker_seen" == "1" ]]; then
+    echo "ERROR: '# ci-execute-next-line' at end of file with no following command" >&2
+    exit 1
+  fi
+
+  total=${#execute[@]}
+
+  # Determine starting step (0-based index). Only the action the run stopped in starts part-way; the
+  # ones after it in the list have not been reached, so they start at their first step.
+  start_index=0
+  if [[ "$resuming" == "1" ]] && [[ "$action" == "$state_action" ]]; then
+    if [[ "$state_step" -ge "$total" ]]; then
+      echo "ERROR: the run to resume stopped at step $((state_step + 1)) of $action, which has $total" >&2
       exit 1
     fi
+    start_index="$state_step"
+    if [[ "$skip_mode" == "1" ]]; then
+      echo "Skipping $action step $((start_index + 1)) of $total: ${execute[$start_index]}"
+      start_index=$((start_index + 1))
+    else
+      echo "Retrying from $action step $((start_index + 1)) of $total: ${execute[$start_index]}"
+    fi
   fi
+
+  # Phase 3: execute (or print in debug mode)
+  for ((i = start_index; i < total; i++)); do
+    cmd="${execute[$i]}"
+    echo ""
+    echo "=== $action [$((i + 1))/$total] $cmd ==="
+    if [[ "$debug" == "1" ]]; then
+      echo "[debug] skipping execution"
+    else
+      # The step to resume at is recorded BEFORE it is run, not when it fails. A run stops three ways
+      # and only one of them can run code as it stops: a failing step returns here, but Ctrl-C
+      # signals this script along with the step so nothing below the step ever runs, and a machine
+      # that goes away allows no code at all. Recording on entry is the single point that covers all
+      # three. The file is removed once every step of every action has passed, so it exists only
+      # while a run is unfinished.
+      #
+      # The run it belongs to is recorded with it: the action argument it was given (empty when the
+      # actions were derived), so carrying on resumes that same run rather than whatever the
+      # workflows name today, and the actions already finished, so a resume skips them by name and
+      # not by their position in a list that may since have changed.
+      # dirname of a non-empty literal path, so there is no failure to check
+      mkdir -p "$(dirname "$STATE_FILE")" # lint-bash disable=command-substitution
+      {
+        echo "action $recorded_argument"
+        echo "stopped $action $i"
+        echo "completed ${completed[*]}"
+      } >"$STATE_FILE"
+
+      # Exactly the shell GitHub gives a step, rather than eval in this one. Two reasons, and the
+      # first is a correctness bug: a command placed in a condition has `set -e` suppressed for
+      # everything it expands, so an eval'd compound command runs on past its first failure and ends
+      # up reporting the LAST command's status — a step that fails in CI passes here. Second, a
+      # separate process matches GitHub's step isolation, where a cd or an environment change cannot
+      # leak into the next step.
+      #
+      # BASH_ENV is dropped because --noprofile and --norc do not cover it: they govern the
+      # interactive and login startup files, neither of which a script shell reads, while BASH_ENV
+      # is the one file it does read. Left set, a developer's local replay would source something no
+      # runner has.
+      step_status=0
+      step_in_flight=1
+      env -u BASH_ENV bash --noprofile --norc -eo pipefail -c "$cmd" || step_status=$?
+      step_in_flight=0
+      if [[ "$step_status" -ne 0 ]]; then
+        echo "" >&2
+        echo "=== FAILED at $action step $((i + 1))/$total: $cmd ===" >&2
+        resume_hint
+        exit 1
+      fi
+    fi
+  done
+
+  completed+=("$action")
 done
 
 rm -f "$STATE_FILE"
