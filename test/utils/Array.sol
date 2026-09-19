@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-// creates arrays of uint, int and address
-
+/// @notice Array literals for tests: `ua(1, 2, 3)` where Solidity offers no way to write one.
+///
+/// @dev Inherited as a mixin by any test that needs to pass a list, and shared across the repos that
+/// build against bao-base rather than copied into each - the arities have to grow as tables widen, and
+/// two copies growing separately is how the two stop being the same thing.
 contract Array {
     function ua() internal pure returns (uint[] memory result) {
         result = new uint[](0);
@@ -625,6 +628,111 @@ contract Array {
         result[10] = k;
         result[11] = l;
         result[12] = m;
+    }
+
+    function sa(
+        string memory a_,
+        string memory b,
+        string memory c,
+        string memory d,
+        string memory e,
+        string memory f,
+        string memory g,
+        string memory h,
+        string memory i,
+        string memory j,
+        string memory k,
+        string memory l,
+        string memory m,
+        string memory n
+    ) internal pure returns (string[] memory result) {
+        result = new string[](14);
+        result[0] = a_;
+        result[1] = b;
+        result[2] = c;
+        result[3] = d;
+        result[4] = e;
+        result[5] = f;
+        result[6] = g;
+        result[7] = h;
+        result[8] = i;
+        result[9] = j;
+        result[10] = k;
+        result[11] = l;
+        result[12] = m;
+        result[13] = n;
+    }
+
+    function sa(
+        string memory a_,
+        string memory b,
+        string memory c,
+        string memory d,
+        string memory e,
+        string memory f,
+        string memory g,
+        string memory h,
+        string memory i,
+        string memory j,
+        string memory k,
+        string memory l,
+        string memory m,
+        string memory n,
+        string memory o
+    ) internal pure returns (string[] memory result) {
+        result = new string[](15);
+        result[0] = a_;
+        result[1] = b;
+        result[2] = c;
+        result[3] = d;
+        result[4] = e;
+        result[5] = f;
+        result[6] = g;
+        result[7] = h;
+        result[8] = i;
+        result[9] = j;
+        result[10] = k;
+        result[11] = l;
+        result[12] = m;
+        result[13] = n;
+        result[14] = o;
+    }
+
+    function sa(
+        string memory a_,
+        string memory b,
+        string memory c,
+        string memory d,
+        string memory e,
+        string memory f,
+        string memory g,
+        string memory h,
+        string memory i,
+        string memory j,
+        string memory k,
+        string memory l,
+        string memory m,
+        string memory n,
+        string memory o,
+        string memory p
+    ) internal pure returns (string[] memory result) {
+        result = new string[](16);
+        result[0] = a_;
+        result[1] = b;
+        result[2] = c;
+        result[3] = d;
+        result[4] = e;
+        result[5] = f;
+        result[6] = g;
+        result[7] = h;
+        result[8] = i;
+        result[9] = j;
+        result[10] = k;
+        result[11] = l;
+        result[12] = m;
+        result[13] = n;
+        result[14] = o;
+        result[15] = p;
     }
 
     function cons(uint car, uint[] memory cdr) internal pure returns (uint[] memory list) {

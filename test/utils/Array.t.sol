@@ -2,7 +2,7 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
-import {Array} from "@bao-script/utils/Array.sol";
+import {Array} from "@bao-test/utils/Array.sol";
 
 contract ArrayTest is Test, Array {
     // ========== ua (uint[]) ==========
