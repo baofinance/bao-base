@@ -2,13 +2,12 @@
 foundry.lock.
 
 bin/update-submodule drives one of these two commands, and they are not interchangeable. Measured on
-forge 1.8.1:
+forge 1.8.1 and 1.8.4:
 
   forge install <url>@<ref>   acts on the dependency named, writes the lock, recurses into nested
                               submodules and repairs ones left off their recorded commit
-  forge update <path>[@<ref>] acts on dependencies it was NOT given, silently does nothing for the one
-                              it WAS given when that pin is a tag, and can leave the lock unwritten
-                              while still exiting 0
+  forge update <path>[@<ref>] silently does nothing for the dependency it was given when that pin is a
+                              tag, and can leave the lock unwritten while still exiting 0
 
 So bin/update-submodule uses `forge install` exclusively, and treats forge's exit code as no evidence
 that anything worked. These tests pin those behaviours: each one fails when forge changes, which is
@@ -243,29 +242,6 @@ def test_update_without_ref_ignores_a_stationary_pin(project, remotes):
     assert "lib/dep" not in result.stdout, (
         f"forge update now reports something for the dependency it was given.\n{result.stdout}"
     )
-
-
-def test_update_without_ref_moves_unnamed_branch_deps(project, remotes):
-    # The dependency named is not the dependency updated: every branch-pinned dependency moves to its
-    # remote tip regardless of what was asked for. This is why bin/update-submodule never calls
-    # forge update - a request to touch one dependency must not change the build of another.
-    remotes.create("dep")
-    remotes.create("other")
-    install(project, remotes, "dep", "v1.0.0")
-    install(project, remotes, "other", "main")
-    # `other` is now behind its remote, so a command that reaches dependencies it was not given has
-    # somewhere to move it to.
-    remotes.commit("other", "moved on")
-    before = head(project, "other")
-
-    result = forge(project, "update", "lib/dep")
-
-    assert result.returncode == 0
-    assert head(project, "other") != before, (
-        "forge update no longer moves dependencies it was not given. If that is fixed, the reason "
-        f"bin/update-submodule avoids it is weaker - re-read this module.\n{result.stdout}"
-    )
-    assert head(project, "other") == remotes.rev("other", "main")
 
 
 def test_update_with_ref_on_a_tag_pin_leaves_the_lock_unwritten(project, remotes):

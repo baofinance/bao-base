@@ -2,23 +2,18 @@
 
 Forge's dynamic test linking, on by default since 1.8.0, rewrites `new Contract(...)` in a test into a
 deploy performed at run time, so the test file no longer needs recompiling when only that contract's
-body changes - and the build cache stops recompiling it. When the rewrite is not applied to a
-contract the cache skips the recompile anyway, so the test keeps running the creation code compiled
-into it earlier, and passes against source that cannot pass.
+body changes - and the build cache stops recompiling it. On forge older than 1.8.4, when the rewrite is
+not applied to a contract the cache skips the recompile anyway, so the test keeps running the creation
+code compiled into it earlier, and passes against source that cannot pass.
 
-Reported as https://github.com/foundry-rs/foundry/issues/16682, which forge 1.8.3
-(foundry-rs/foundry#16686) fixed for contracts in the `src` directory. A contract outside `src` still
-loses the change on 1.8.3, however the test imports it, and that is how these repos reach each other -
-harbor's tests deploy bao-base's contracts from `lib/`. Reported as
-https://github.com/foundry-rs/foundry/issues/16901; both bodies are in bug-reports/. So the project
-below puts its contract in `lib/`.
+Forge 1.8.3 fixed this for contracts in the `src` directory
+(https://github.com/foundry-rs/foundry/issues/16682), and 1.8.4 for contracts outside it
+(https://github.com/foundry-rs/foundry/issues/16901). Outside `src` is how these repos reach each other -
+harbor's tests deploy bao-base's contracts from `lib/` - so the project below puts its contract in
+`lib/`. Both bodies are in bug-reports/.
 
-bin/test and bin/gas pass --no-dynamic-test-linking to avoid it, and the two runner tests below fail if
-either flag is dropped while the defect stands.
-
-The first test is what keeps the other two honest. If forge fixed the defect, bin/test and bin/gas
-would notice the change with or without the flag, and the runner tests would pass while proving
-nothing. So the defect itself is asserted: when forge fixes it, that test fails and says what to do.
+bin/test and bin/gas run with dynamic test linking on, so these tests fail on a forge without the fix,
+or on one that brings the defect back. --no-dynamic-test-linking avoids it there.
 """
 
 import subprocess
@@ -88,38 +83,21 @@ def run(project, *command):
     return subprocess.run(command, cwd=project, capture_output=True, text=True)
 
 
-def test_stock_forge_still_loses_a_remapped_dependency_body_change(project):
-    # Asserts the defect is still present, which is what stops the two runner tests below being
-    # vacuous. A failure here is good news, and the message says what it means.
-    assert run(project, "forge", "test").returncode == 0, "the project must start green"
-
-    returns(project, 222)
-    after = run(project, "forge", "test")
-    version = run(BAO_BASE, "forge", "--version").stdout.strip().splitlines()[0]
-
-    assert after.returncode == 0, (
-        f"forge no longer loses a dependency's body change reached through a remapped import ({version}), "
-        f"so {ISSUE} appears to be FIXED for the case these repos depend on.\n"
-        "Remove --no-dynamic-test-linking from bin/test and bin/gas, and delete this file.\n"
-        f"{after.stdout}"
-    )
-
-
 @pytest.mark.parametrize("runner", ["test", "gas"])
 def test_runner_sees_a_body_change(project, runner):
-    # bin/test and bin/gas each pass --no-dynamic-test-linking. bin/gas needs its own case rather than
-    # trusting bin/test's: it compiles to a separate cache (cache/_gas) and so goes stale separately,
-    # and gas is the one number that pass exists to produce.
+    # bin/gas needs its own case rather than trusting bin/test's: it compiles to a separate cache
+    # (cache/_gas) and so goes stale separately, and gas is the one number that pass exists to produce.
     script = str(BAO_BASE / "bin" / runner)
     assert run(project, script).returncode == 0, "the project must start green"
 
     returns(project, 222)
     after = run(project, script)
+    version = run(BAO_BASE, "forge", "--version").stdout.strip().splitlines()[0]
 
     assert after.returncode != 0, (
-        f"bin/{runner} did not notice a changed contract body, so it is running code compiled earlier.\n"
-        f"Check that --no-dynamic-test-linking is still passed - see {ISSUE}.\n"
-        f"{after.stdout}"
+        f"bin/{runner} did not notice a changed contract body, so it is running code compiled earlier "
+        f"({version}). Forge 1.8.4 fixed this ({ISSUE}); --no-dynamic-test-linking avoids it on a forge "
+        f"without the fix.\n{after.stdout}"
     )
     assert EXPECTED_FAILURE in after.stdout, (
         f"bin/{runner} failed for a reason other than the changed body, so it proves nothing about the "

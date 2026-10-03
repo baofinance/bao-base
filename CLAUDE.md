@@ -336,13 +336,12 @@ not instructions" above and the design-discussion rule under "Other rules".)
 ## Other rules
 - **Submodule dependencies: `forge install` to ADD one, `forge remove` to drop one, `yarn update
   <dependency>@<ref>` to CHANGE the version of one. Never `forge update`.** The split is not
-  stylistic; each command was measured (forge 1.8.1, pinned in
+  stylistic; each command was measured (forge 1.8.1 and 1.8.4, pinned in
   `tests/toolchain/test_forge_submodule_update.py`):
-  - **`forge update` reaches dependencies it was not given.** Naming one dependency leaves it
-    untouched and advances every *branch*-pinned dependency in the project to its remote tip. It also
-    does nothing at all, silently and with exit 0, for a tag-pinned dependency — and when given
-    `@<ref>` against a tag pin it moves the working tree, leaves `foundry.lock` unwritten, and still
-    exits 0. Its exit code is not evidence that anything worked.
+  - **`forge update` exits 0 whether or not it did what was asked.** It does nothing at all, silently,
+    for a tag-pinned dependency — and when given `@<ref>` against a tag pin it moves the working tree,
+    leaves `foundry.lock` unwritten, and still exits 0. Its exit code is not evidence that anything
+    worked.
   - **`forge install` deletes the dependency's working tree whenever it fails**, including when it
     fails *because* git refused to overwrite an uncommitted edit — so the refusal is itself the
     destruction. Safe for a dependency that does not exist yet, since there is nothing there to lose.

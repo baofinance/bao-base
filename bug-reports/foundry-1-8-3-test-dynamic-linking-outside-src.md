@@ -1,4 +1,7 @@
-> **Status.** Filed as https://github.com/foundry-rs/foundry/issues/16901 on 2026-09-16; open. The
+> **Status.** Filed as https://github.com/foundry-rs/foundry/issues/16901 on 2026-09-16 and closed by
+> https://github.com/foundry-rs/foundry/pull/16908, released in forge 1.8.4. The reproduction below
+> is correct on 1.8.4, so our runners no longer pass `--no-dynamic-test-linking`;
+> `tests/toolchain/test_forge_dynamic_test_linking.py` fails if they stop seeing a body change. The
 > text below is the body as filed.
 
 ### Component
