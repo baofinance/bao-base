@@ -1,13 +1,14 @@
 """What `forge update` and `forge install` actually do to a submodule, its nested submodules, and
 foundry.lock.
 
-bin/update-submodule drives one of these two commands, and they are not interchangeable. Measured on
-forge 1.8.1 and 1.8.4:
+bin/update-submodule drives one of these two commands, and they are not interchangeable. As of forge
+1.8.4:
 
   forge install <url>@<ref>   acts on the dependency named, writes the lock, recurses into nested
                               submodules and repairs ones left off their recorded commit
-  forge update <path>[@<ref>] silently does nothing for the dependency it was given when that pin is a
-                              tag, and can leave the lock unwritten while still exiting 0
+  forge update <path>[@<ref>] moves nothing when given a version - neither the checkout nor the lock -
+                              and nothing for a tag pin given none, exiting 0 either way; and it takes
+                              unpushed commits off a branch-pinned dependency
 
 So bin/update-submodule uses `forge install` exclusively, and treats forge's exit code as no evidence
 that anything worked. These tests pin those behaviours: each one fails when forge changes, which is
@@ -244,24 +245,59 @@ def test_update_without_ref_ignores_a_stationary_pin(project, remotes):
     )
 
 
-def test_update_with_ref_on_a_tag_pin_leaves_the_lock_unwritten(project, remotes):
-    # The worst of the three: the working tree moves, the lock is left describing the old commit, and
-    # the exit code is 0. Only a warning distinguishes it from success, so bin/update-submodule
-    # verifies the resulting state instead of trusting the exit code.
+@pytest.mark.parametrize("pin", ["tag", "branch", "rev"])
+def test_update_with_ref_moves_nothing_and_exits_0(project, remotes, pin):
+    # Asked for a specific version, forge update moves nothing - neither the checkout nor the lock -
+    # and exits 0, whatever kind of pin the dependency had. Only a warning on stderr says so. Moving a
+    # dependency to a named version is the job yarn update exists to do, and this is why it does not
+    # hand that job to forge update.
     remotes.create("dep")
-    install(project, remotes, "dep", "v1.0.0")
+    pinned_to = {"tag": "v1.0.0", "branch": "main", "rev": remotes.rev("dep", "main")}[pin]
+    install(project, remotes, "dep", pinned_to)
+    remotes.commit("dep", "two")
     remotes.tag("dep", "v1.2.0")
-    locked = lock(project)["lib/dep"]["tag"]["rev"]
+    pinned = head(project, "dep")
+    locked = lock(project)["lib/dep"]
+    assert pin in locked, f"the dependency must start with a {pin} pin; got {locked!r}"
+    # A requested version on the pinned commit would leave "nothing moved" true whatever forge did.
+    assert remotes.rev("dep", "v1.2.0") != pinned, "the requested version must be a different commit"
 
     result = forge(project, "update", "lib/dep@v1.2.0")
 
     assert result.returncode == 0, "the failure is silent - a non-zero exit would be an improvement"
-    assert head(project, "dep") == remotes.rev("dep", "v1.2.0"), (
-        f"forge update no longer moves the working tree in this case.\n{result.stdout}"
+    assert head(project, "dep") == pinned, (
+        f"forge update now moves a {pin}-pinned dependency to a requested version.\n{result.stderr}"
     )
-    assert lock(project)["lib/dep"]["tag"]["rev"] == locked, (
-        "forge update now writes the lock when overriding a tag pin, so the working tree and the "
-        f"lock agree. bin/update-submodule's post-check would stop catching this.\n{result.stdout}"
+    assert lock(project)["lib/dep"] == locked, (
+        f"forge update now rewrites the lock for a requested version.\n{result.stderr}"
+    )
+
+
+def test_update_takes_unpushed_commits_off_the_branch(project, remotes):
+    # A branch-pinned dependency holding a local commit that no remote has: forge update puts the
+    # branch at the remote tip and exits 0, leaving the commit on no branch - only git's reflog still
+    # has it. This is how a dependency edited in place, as bao-base is inside harbor, loses work, and
+    # why yarn update stops on anything under the dependency that no remote has.
+    remotes.create("dep")
+    install(project, remotes, "dep", "main")
+    remotes.commit("dep", "two")
+    dependency = project / "lib" / "dep"
+    git(dependency, "checkout", "-q", "-B", "main")
+    (dependency / "Local.sol").write_text(CONTRACT)
+    git(dependency, "add", "-A")
+    git(dependency, "commit", "-qm", "local, unpushed")
+    local = head(project, "dep")
+    # Unless the commit starts on a branch, "it is on no branch" would hold whatever forge did.
+    assert "main" in git(dependency, "branch", "--contains", local).stdout, "the local commit must start on main"
+
+    result = forge(project, "update", "lib/dep")
+
+    assert result.returncode == 0
+    assert head(project, "dep") == remotes.rev("dep", "main"), (
+        f"forge update no longer moves a branch pin to its remote tip.\n{result.stderr}"
+    )
+    assert git(dependency, "branch", "--all", "--contains", local).stdout.strip() == "", (
+        f"forge update now keeps unpushed commits on a branch.\n{result.stderr}"
     )
 
 
