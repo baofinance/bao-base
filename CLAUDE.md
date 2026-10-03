@@ -50,7 +50,11 @@ a fenced block, without being asked.
 
 Write it for the reader who meets it while bisecting a regression:
 
-- **What changed.** Short bullets once there is more than one thing
+- **What changed in the source.** Short bullets once there is more than one thing.
+  Doc and test changes made to support a source change get no bullet; a commit
+  that changes only tests or docs says what they now assert or describe, in one
+  line. Never name the plan file, its labels, or test names: the repos have
+  separate lifecycles.
 - **A "why" only where the change would otherwise be undone or misread** — a
   non-obvious mechanism, a constraint that forced an unusual shape, a defect being
   worked around. One clause attached to the item it explains, never a paragraph of
