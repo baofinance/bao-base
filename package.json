@@ -25,6 +25,7 @@
     "slither": "./run slither",
     "test": "./run test",
     "test:duration": "./run test-duration",
+    "test:long": "./run test-long",
     "test:bash": "[ $# -gt 0 ] && ./node_modules/bats/bin/bats tests/**/\"${0}\".bats; [ $# -eq 0 ] && ./node_modules/bats/bin/bats tests/**/*.bats",
     "test:python": "./run pytest tests/",
     "test:addresses": "./lib/bao-base/bin/check_addresses.sh ./lib/bao-base/script/addresses.mainnet.json ./lib/bao-base/script/addresses.arbitrum.json",
@@ -34,6 +35,7 @@
     "pre-checkin": "yarn fmt && yarn slither && yarn lint && yarn test && yarn coverage && yarn gas && yarn sizes && echo \"ready for checkin\"",
     "git-diffs": "./run git-diffs",
     "CI": "./run CI",
+    "CI:long": "./run CI-long",
     "CI-act": "./run CI-act"
   },
   "dependencies": {
