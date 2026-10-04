@@ -11,5 +11,5 @@ debug "BAO_BASE_VERBOSITY=${BAO_BASE_VERBOSITY}."
 set -x
 # `|| true` keeps set -e from aborting here; forge's exit status is deliberately NOT propagated, so
 # the status is discarded rather than captured into a variable nothing reads
-forge build "${VERBOSITY}" --sizes --out out/_sizes --cache-path cache/_sizes --deny never src test/_sizes script || true
+forge build "${VERBOSITY}" --sizes --out out/_sizes --cache-path cache/_sizes --deny never --no-dynamic-test-linking src test/_sizes script || true
 { set +x; } 2>/dev/null

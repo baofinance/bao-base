@@ -28,7 +28,7 @@ mkdir -p results
 # go, and report a change that is not one. The seed bin/gas pins, for the same reason.
 status=0
 set -x
-forge coverage "${VERBOSITY}" --nmp 'script/**/*.t.sol' --fuzz-seed 1 --report summary --report lcov --deny never --disable-block-gas-limit "$@" || status=$?
+forge coverage "${VERBOSITY}" --nmp 'script/**/*.t.sol' --fuzz-seed 1 --report summary --report lcov --deny never --disable-block-gas-limit "$@" --no-dynamic-test-linking || status=$?
 { set +x; } 2>/dev/null
 # make forge's exit status the script's return value: the set +x above would otherwise mask it,
 # and run sources this script under `|| exit_code=$?` which suppresses set -e
