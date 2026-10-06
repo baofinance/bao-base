@@ -2,18 +2,18 @@
 
 Forge's dynamic test linking, on by default since 1.8.0, rewrites `new Contract(...)` in a test into a
 deploy performed at run time, so the test file no longer needs recompiling when only that contract's
-body changes - and the build cache stops recompiling it. On forge older than 1.8.4, when the rewrite is
-not applied to a contract the cache skips the recompile anyway, so the test keeps running the creation
-code compiled into it earlier, and passes against source that cannot pass.
+body changes - and the build cache stops recompiling it. When the rewrite is not applied to a contract
+the cache skips the recompile anyway, so the test keeps running the creation code compiled into it
+earlier, and passes against source that cannot pass.
 
 Forge 1.8.3 fixed this for contracts in the `src` directory
-(https://github.com/foundry-rs/foundry/issues/16682), and 1.8.4 for contracts outside it
-(https://github.com/foundry-rs/foundry/issues/16901). Outside `src` is how these repos reach each other -
-harbor's tests deploy bao-base's contracts from `lib/` - so the project below puts its contract in
-`lib/`. Both bodies are in bug-reports/.
+(https://github.com/foundry-rs/foundry/issues/16682); for contracts outside it
+(https://github.com/foundry-rs/foundry/issues/16901) forge 1.8.4 still has it. Outside `src` is how
+these repos reach each other - harbor's tests deploy bao-base's contracts from `lib/` - so the project
+below puts its contract in `lib/`. Both bodies are in bug-reports/.
 
-bin/test and bin/gas run with dynamic test linking on, so these tests fail on a forge without the fix,
-or on one that brings the defect back. --no-dynamic-test-linking avoids it there.
+bin/test and bin/gas pass --no-dynamic-test-linking, which avoids the defect, so these tests fail if the
+flag is removed while forge still has it.
 """
 
 import subprocess
@@ -96,8 +96,8 @@ def test_runner_sees_a_body_change(project, runner):
 
     assert after.returncode != 0, (
         f"bin/{runner} did not notice a changed contract body, so it is running code compiled earlier "
-        f"({version}). Forge 1.8.4 fixed this ({ISSUE}); --no-dynamic-test-linking avoids it on a forge "
-        f"without the fix.\n{after.stdout}"
+        f"({version}, {ISSUE}); it must pass --no-dynamic-test-linking while forge has that defect.\n"
+        f"{after.stdout}"
     )
     assert EXPECTED_FAILURE in after.stdout, (
         f"bin/{runner} failed for a reason other than the changed body, so it proves nothing about the "

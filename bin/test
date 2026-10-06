@@ -21,8 +21,13 @@ status=0
 # the change on 1.8.3, however it is imported: https://github.com/foundry-rs/foundry/issues/16901.
 # Both bodies are kept in bug-reports/. Remove this flag once forge fixes 16901 - not before.
 # tests/toolchain/test_forge_dynamic_test_linking.py fails if this flag is removed while the defect stands.
+# --deny never keeps the build cache. With warnings denied (foundry.toml's `deny = "warnings"`), forge 1.8.4
+# keeps none, because cached artifacts do not carry the warnings a warm build would have to re-check
+# (https://github.com/foundry-rs/foundry/pull/17202), so every run would recompile the whole project.
+# Warnings are still printed here; bin/gas is the run that fails on them.
+# tests/toolchain/test_forge_deny_warnings_cache.py fails if either half of that changes.
 set -x
-forge test "${VERBOSITY}" --no-dynamic-test-linking --nmp "script/**/*.t.sol" --summary "$@" || status=$?
+forge test "${VERBOSITY}" --no-dynamic-test-linking --deny never --nmp "script/**/*.t.sol" --summary "$@" || status=$?
 { set +x; } 2>/dev/null
 # make forge's exit status the script's return value: the set +x above would otherwise mask it,
 # and run sources this script under `|| exit_code=$?` which suppresses set -e
