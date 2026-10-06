@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import tomllib
@@ -359,6 +360,97 @@ def tracked_but_ignored_problems(repo_root: Path) -> list[str]:
     return ["\n".join(lines)]
 
 
+# an upgrade annotation names a predecessor that validate compiles: a use of that file no import shows
+_UPGRADE_REFERENCE = re.compile(r"@custom:(?:oz|bao)-upgrades-from\s+(\S+\.sol):")
+# directories a tool builds by path: bin/sizes builds test/_sizes, the Python tests build test/fixtures
+_TOOL_BUILT_DIRECTORIES = ("test/_sizes/", "test/fixtures/")
+# one line of `forge tree --charset ascii`: four characters of indent per level below the first, a branch on
+# every line below the top level, the source, then its version requirement when it has a pragma (and " (*)"
+# on a file already expanded above, not needed here: its imports are read where it was expanded)
+_TREE_LINE = re.compile(r"^(?P<indent>(?:\|   |    )*)(?P<branch>[|`]-- )?(?P<path>\S+\.(?:sol|vy|vyi))(?: .*)?$")
+
+
+def unused_file_problems(repo_root: Path) -> list[str]:
+    """Solidity files in the source, test and script directories that nothing reaches. Reached means
+    used, transitively, by an entry point: a test (`*.t.sol`), a script (`*.s.sol`), or a file in a
+    directory a tool builds by path. A file is used by the files that import it, and by any whose
+    `@custom:oz-upgrades-from` / `@custom:bao-upgrades-from` names it. Reachability rather than "imported
+    by nothing" lists a chain of unused files in one run, rather than one layer per removal.
+
+    The imports are forge's own, from `forge tree`, already resolved through the remappings, without
+    compiling: about 2 s on harbor. A build cache is no substitute, because under `deny = "warnings"`
+    forge keeps none (foundry-rs/foundry#17202). `forge tree` does not validate sources — an import that
+    does not resolve is left out rather than reported — which the build and the remapping check catch.
+    Its top level lists every project source; that list must match the disk, since a source it omits
+    would be judged on no data. A failure of `forge tree`, a line it prints that is not understood, or a
+    disagreement with the disk is this check's finding: the import graph is then unknown. Returns one
+    block listing each unused file; [] when every file is reached."""
+    tree = subprocess.run(["forge", "tree", "--charset", "ascii"], cwd=repo_root, capture_output=True, text=True)
+    if tree.returncode != 0:
+        output = "\n".join(f"  {line}" for line in (tree.stdout + tree.stderr).strip().splitlines())
+        return [f"forge tree failed, so which files are unused cannot be read:\n{output}"]
+    uses: dict[str, set[str]] = {}
+    listed: set[str] = set()
+    ancestors: list[str] = []  # the path at each depth above the current line
+    for line in tree.stdout.splitlines():
+        parsed = _TREE_LINE.match(line)
+        depth = 0 if parsed is None or parsed["branch"] is None else len(parsed["indent"]) // 4 + 1
+        if parsed is None or (parsed["branch"] is None and parsed["indent"]) or depth > len(ancestors):
+            return [f"forge tree printed an unrecognised line, so which files are unused cannot be read:\n  {line}"]
+        if depth == 0:
+            listed.add(parsed["path"])
+        else:
+            uses.setdefault(ancestors[depth - 1], set()).add(parsed["path"])
+        del ancestors[depth:]
+        ancestors.append(parsed["path"])
+
+    config = json.loads(
+        subprocess.run(
+            ["forge", "config", "--json"], cwd=repo_root, capture_output=True, text=True, check=True
+        ).stdout
+    )
+    source_directories = tuple(f"{config[key]}/" for key in ("src", "test", "script"))
+    on_disk = {
+        path.relative_to(repo_root).as_posix()
+        for directory in source_directories
+        for path in (repo_root / directory).rglob("*.sol")
+    }
+    in_tree = {path for path in listed if path.startswith(source_directories)}
+    if on_disk != in_tree:
+        lines = ["forge tree and the disk disagree on the project's sources, so which files are unused cannot be read:"]
+        lines += [f"  on disk but not in forge tree: {path}" for path in sorted(on_disk - in_tree)]
+        lines += [f"  in forge tree but not on disk: {path}" for path in sorted(in_tree - on_disk)]
+        return ["\n".join(lines)]
+
+    own = sorted(on_disk)
+    for path in own:
+        uses.setdefault(path, set()).update(_UPGRADE_REFERENCE.findall((repo_root / path).read_text()))
+
+    reached = {path for path in own if path.endswith((".t.sol", ".s.sol")) or path.startswith(_TOOL_BUILT_DIRECTORIES)}
+    pending = list(reached)
+    while pending:
+        for used in uses.get(pending.pop(), ()):
+            if used not in reached:
+                reached.add(used)
+                pending.append(used)
+    unused = [path for path in own if path not in reached]
+    if not unused:
+        return []
+
+    lines = ["Not reached from any test, script, test/_sizes/ or test/fixtures/ file:"]
+    for path in unused:
+        # every user of an unused file is itself unused, else the file would have been reached
+        users = [user for user in unused if path in uses[user]]
+        lines.append(f"  {path}" + (f"  (used only by {', '.join(users)})" if users else ""))
+    lines.append(
+        "  Repair: first check that no other repo uses it — a repo that depends on this one may import it, or "
+        "reach it from Python through wake's pytypes, and neither is seen here. Then delete it, or park it "
+        "by moving it to deprecated/<its path> and recording what superseded it; which of the two is the "
+        "owner's call. A file used only by others in this list goes with them."
+    )
+    return ["\n".join(lines)]
+
+
 def vscode_ruff_settings_problems(repo_root: Path) -> list[str]:
     """Check .vscode/settings.json wires the editor to bao-base's shared ruff, matching bao-base's own
     canonical settings. ruff.path is a per-workspace path (a consumer's under `lib/bao-base/` vs
@@ -585,7 +677,9 @@ def claude_permission_scope_problems(repo_root: Path) -> list[str]:
     return problems
 
 
-def build_checks(repo_root: Path, foundry_remappings: list[str], wake_remappings: list[str]) -> list[Check]:
+def build_checks(
+    repo_root: Path, foundry_remappings: list[str], wake_remappings: list[str], unused_files: bool
+) -> list[Check]:
     """Every check doctor runs, in report order. Separate from `main` so the list is a value that can
     be asserted on: a check function that is written but never added here silently never runs, and
     reads as covered — which is exactly what happened to `tracked_but_ignored_problems`.
@@ -594,10 +688,14 @@ def build_checks(repo_root: Path, foundry_remappings: list[str], wake_remappings
     passes when there are none. `why` and `cost` are read on the failing path, and `yarn doctor -v`
     puts `why` back on every check — see `checks.report`.
 
+    The unused-file check runs only when `unused_files` asks for it (`yarn doctor --unused-files`): it
+    sees uses within this repo only, so a file another repo imports, or Python reaches through wake's
+    pytypes, is listed as unused, and a plain run would fail on files that are in use.
+
     The submodule traversal runs once and its findings are split, because it walks every submodule
     and runs git in each; calling it per check would double that to say the same things."""
     version_problems, leftover_problems = submodule_problems(repo_root)
-    return [
+    checks = [
         Check(
             "foundry/wake remappings agree",
             "wake and forge must resolve every import to the same file — otherwise wake analyses a "
@@ -670,6 +768,20 @@ def build_checks(repo_root: Path, foundry_remappings: list[str], wake_remappings
             tracked_but_ignored_problems(repo_root),
         ),
     ]
+    if unused_files:
+        checks.append(
+            Check(
+                "no unused Solidity files",
+                "a file that no test, script or tool-built directory reaches is still compiled and still "
+                "read as part of the code, but nothing exercises it, so it falls further out of date with "
+                "every change around it. Only this repo's uses are seen: another repo's imports, and "
+                "Python's through wake's pytypes, are not",
+                "each is a candidate to delete or park once no other repo is found to use it; until then it "
+                "costs build time and review attention, and offers code for reuse that nothing has checked",
+                unused_file_problems(repo_root),
+            )
+        )
+    return checks
 
 
 def main() -> None:
@@ -680,6 +792,11 @@ def main() -> None:
         action="store_true",
         help="say what every check is for, not only the ones that fired",
     )
+    parser.add_argument(
+        "--unused-files",
+        action="store_true",
+        help="also list Solidity files nothing in this repo reaches; uses from other repos and from Python are not seen",
+    )
     arguments = parser.parse_args()
     repo_root = Path(
         subprocess.run(
@@ -687,7 +804,10 @@ def main() -> None:
         ).stdout.strip()
     )
     foundry_remappings, wake_remappings = load_remappings(repo_root)
-    report(build_checks(repo_root, foundry_remappings, wake_remappings), verbose=arguments.verbose)
+    report(
+        build_checks(repo_root, foundry_remappings, wake_remappings, arguments.unused_files),
+        verbose=arguments.verbose,
+    )
 
 
 if __name__ == "__main__":

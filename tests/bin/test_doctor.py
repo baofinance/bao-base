@@ -11,6 +11,8 @@ import json
 import pathlib
 import subprocess
 
+import pytest
+
 # Load bin/doctor.py by path (import-safe — see module guard). This file lives in tests/bin/, so the
 # repo root (containing bin/) is two parents up.
 _module_path = pathlib.Path(__file__).resolve().parents[2] / "bin" / "doctor.py"
@@ -244,12 +246,181 @@ def test_tracked_but_ignored_lists_every_matching_file(tmp_path):
     assert "one.json" in p and "two.json" in p and "three.json" in p
 
 
+# ── unused_file_problems: every Solidity file is reached from a test, a script or a tool-built directory ──
+#
+# Each test builds a small forge project in tmp_path, so the import graph read is the one forge resolves.
+_SOLIDITY_HEADER = "// SPDX-License-Identifier: MIT\npragma solidity >=0.8.0;\n"
+
+
+def _forge_project(root: pathlib.Path, files: dict[str, str]) -> pathlib.Path:
+    """A git repo at `root` holding `files` (path -> body), each body given the licence and pragma lines."""
+    _init_repo(root)
+    for path, body in files.items():
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_text(_SOLIDITY_HEADER + body)
+    return root
+
+
+def _used_by_a_test_and_a_script() -> dict[str, str]:
+    return {
+        "src/A.sol": "contract A {}\n",
+        "src/B.sol": "contract B {}\n",
+        "test/A.t.sol": 'import {A} from "../src/A.sol";\ncontract ATest {}\n',
+        "script/Deploy.s.sol": 'import {B} from "../src/B.sol";\ncontract Deploy {}\n',
+    }
+
+
+def test_unused_files_none_when_every_file_is_reached(tmp_path):
+    # files a test or a script imports are in use
+    repo = _forge_project(tmp_path / "host", _used_by_a_test_and_a_script())
+    assert doctor.unused_file_problems(repo) == []
+
+
+def test_unused_files_none_in_a_project_with_no_sources(tmp_path):
+    # forge compiles nothing and writes no cache, which is not a fault when there is nothing to compile
+    repo = _init_repo(tmp_path / "host")
+    assert doctor.unused_file_problems(repo) == []
+
+
+def test_unused_files_lists_an_unimported_mock(tmp_path):
+    repo = _forge_project(
+        tmp_path / "host", _used_by_a_test_and_a_script() | {"test/mocks/MockC.sol": "contract MockC {}\n"}
+    )
+    problems = doctor.unused_file_problems(repo)
+    assert len(problems) == 1
+    assert "test/mocks/MockC.sol" in problems[0]
+    assert "src/A.sol" not in problems[0]
+    assert "src/B.sol" not in problems[0]
+
+
+def test_unused_files_lists_a_dead_chain_whole(tmp_path):
+    # a file imported only by an unused file is unused too, and is listed in the same run, not the next
+    repo = _forge_project(
+        tmp_path / "host",
+        _used_by_a_test_and_a_script()
+        | {
+            "test/mocks/MockD.sol": "contract MockD {}\n",
+            "test/helpers/Helper.sol": 'import {MockD} from "../mocks/MockD.sol";\ncontract Helper {}\n',
+        },
+    )
+    problems = doctor.unused_file_problems(repo)
+    assert len(problems) == 1
+    lines = problems[0].splitlines()
+    assert any(line.strip() == "test/helpers/Helper.sol" for line in lines)
+    assert any(
+        "test/mocks/MockD.sol" in line and "used only by test/helpers/Helper.sol" in line for line in lines
+    )
+
+
+def test_unused_files_reads_an_import_listed_below_the_top_level(tmp_path):
+    # forge tree lists a file's imports once, where the file first appears: here B's import of C appears only
+    # inside the unused A's tree, and B's own top-level line is a bare "(*)"
+    repo = _forge_project(
+        tmp_path / "host",
+        {
+            "src/A.sol": 'import {B} from "./B.sol";\ncontract A {}\n',
+            "src/B.sol": 'import {C} from "./C.sol";\ncontract B {}\n',
+            "src/C.sol": "contract C {}\n",
+            "test/B.t.sol": 'import {B} from "../src/B.sol";\ncontract BTest {}\n',
+        },
+    )
+    problems = doctor.unused_file_problems(repo)
+    assert len(problems) == 1
+    listed = [line.strip() for line in problems[0].splitlines()[1:] if line.strip().startswith("src/")]
+    assert listed == ["src/A.sol"]
+
+
+@pytest.mark.parametrize("tag", ["oz-upgrades-from", "bao-upgrades-from"])
+def test_unused_files_counts_an_upgrade_annotation_as_use(tmp_path, tag):
+    # validate compiles the predecessor an upgrade annotation names, though nothing imports it
+    repo = _forge_project(
+        tmp_path / "host",
+        {
+            "src/Foo_v1.sol": "contract Foo_v1 {}\n",
+            "src/Foo_v2.sol": f"/// @custom:{tag} src/Foo_v1.sol:Foo_v1\ncontract Foo_v2 {{}}\n",
+            "test/Foo.t.sol": 'import {Foo_v2} from "../src/Foo_v2.sol";\ncontract FooTest {}\n',
+        },
+    )
+    assert doctor.unused_file_problems(repo) == []
+
+
+@pytest.mark.parametrize("directory", ["test/_sizes", "test/fixtures"])
+def test_unused_files_tool_built_directories_are_entry_points(tmp_path, directory):
+    # bin/sizes builds test/_sizes by path and the Python tests build test/fixtures by path, so what they
+    # hold, and what it imports, is in use
+    repo = _forge_project(
+        tmp_path / "host",
+        {
+            "src/A.sol": "contract A {}\n",
+            f"{directory}/Built.sol": 'import {A} from "../../src/A.sol";\ncontract Built {}\n',
+        },
+    )
+    assert doctor.unused_file_problems(repo) == []
+
+
+def test_unused_files_none_when_warnings_are_denied(tmp_path):
+    # harbor and bao-base set deny = "warnings", under which forge keeps no build cache; the check must
+    # not depend on one
+    repo = _forge_project(tmp_path / "host", _used_by_a_test_and_a_script())
+    (repo / "foundry.toml").write_text('[profile.default]\ndeny = "warnings"\n')
+    assert doctor.unused_file_problems(repo) == []
+
+
+def test_unused_files_reports_forge_tree_failing(tmp_path):
+    # without the import graph nothing can be said, so forge's failure is this check's finding, not a crash
+    repo = _forge_project(tmp_path / "host", _used_by_a_test_and_a_script())
+    (repo / "foundry.toml").write_text("[profile.default\n")
+    problems = doctor.unused_file_problems(repo)
+    assert len(problems) == 1
+    assert problems[0].startswith("forge tree failed")
+
+
+def _with_forge_tree_output(monkeypatch, stdout: str) -> None:
+    """Make `forge tree` print `stdout`; every other command runs for real."""
+    real_run = subprocess.run
+
+    def run(command, *args, **kwargs):
+        if command[:2] == ["forge", "tree"]:
+            return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+        return real_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(doctor.subprocess, "run", run)
+
+
+def test_unused_files_reports_an_unrecognised_tree_line(tmp_path, monkeypatch):
+    # the tree is a display format; a line it cannot read means the graph is unknown, not that nothing is unused
+    repo = _forge_project(tmp_path / "host", {"src/A.sol": "contract A {}\n"})
+    _with_forge_tree_output(monkeypatch, "src/A.sol >=0.8.0\n  something else\n")
+    problems = doctor.unused_file_problems(repo)
+    assert len(problems) == 1
+    assert "unrecognised" in problems[0]
+    assert "something else" in problems[0]
+
+
+def test_unused_files_reports_a_tree_that_disagrees_with_the_disk(tmp_path, monkeypatch):
+    # a source the tree does not list would be judged on no data at all
+    repo = _forge_project(tmp_path / "host", {"src/A.sol": "contract A {}\n", "src/B.sol": "contract B {}\n"})
+    _with_forge_tree_output(monkeypatch, "src/A.sol >=0.8.0\n")
+    problems = doctor.unused_file_problems(repo)
+    assert len(problems) == 1
+    assert "src/B.sol" in problems[0]
+    assert "on disk but not in forge tree" in problems[0]
+
+
+def test_unused_file_check_runs_only_when_asked(tmp_path):
+    # it cannot see uses from other repos or from Python, so a plain doctor run leaves it out
+    repo = _init_repo(tmp_path / "host")
+    by_default = {check.name for check in doctor.build_checks(repo, [], [], unused_files=False)}
+    when_asked = {check.name for check in doctor.build_checks(repo, [], [], unused_files=True)}
+    assert when_asked - by_default == {"no unused Solidity files"}
+
+
 def test_every_check_function_is_registered(tmp_path):
     # The guard for what actually went wrong: `tracked_but_ignored_problems` was written, tested by
     # hand, and then never added to the checks list, so it silently never ran. A check that exists
     # but is not registered is worse than one that does not exist — it reads as covered.
     repo = _init_repo(tmp_path / "host")
-    registered = {check.name for check in doctor.build_checks(repo, [], [])}
+    registered = {check.name for check in doctor.build_checks(repo, [], [], unused_files=True)}
     helpers: set[str] = set()
     defined = {
         name for name in dir(doctor) if name.endswith("_problems") and not name.startswith("_") and name not in helpers

@@ -77,11 +77,13 @@ Three outcomes, in order of preference:
 
 1. **Fix it.** The default. If it needs updating, update it.
 2. **Park it**, when the file still has value that has not been captured yet —
-   its replacement is not written, or it holds intent that would be lost. Rename
-   it so the toolchain no longer sees it: append a suffix AFTER the extension so
-   it stops matching the compiled pattern, e.g.
-   `Foo.t.sol` → `Foo.t.sol.superseded`. Do not comment the contents out and do
-   not leave it where it still compiles.
+   its replacement is not written, or it holds intent that would be lost. Move
+   it so the toolchain no longer sees it: into `deprecated/` at the repo root,
+   under its original path, e.g. `src/minter/Minter_v1.sol` →
+   `deprecated/src/minter/Minter_v1.sol`. forge compiles only `src`, `test` and
+   `script` and what they import, so nothing there is built, and the kept path
+   says where it came from. Do not comment the contents out and do not leave it
+   where it still compiles.
 3. **Delete it.** When nothing is left to recover, because version control
    already holds the content.
 
