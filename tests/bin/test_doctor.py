@@ -307,9 +307,7 @@ def test_unused_files_lists_a_dead_chain_whole(tmp_path):
     assert len(problems) == 1
     lines = problems[0].splitlines()
     assert any(line.strip() == "test/helpers/Helper.sol" for line in lines)
-    assert any(
-        "test/mocks/MockD.sol" in line and "used only by test/helpers/Helper.sol" in line for line in lines
-    )
+    assert any("test/mocks/MockD.sol" in line and "used only by test/helpers/Helper.sol" in line for line in lines)
 
 
 def test_unused_files_reads_an_import_listed_below_the_top_level(tmp_path):

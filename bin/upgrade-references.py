@@ -45,9 +45,7 @@ _VERSIONED = re.compile(r"^(?P<family>.+)_v(?P<version>\d+)$")
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Check versioned upgradeable contracts name their predecessor.")
     parser.add_argument("report", type=Path, help="the output of OpenZeppelin upgrades-core validate")
-    parser.add_argument(
-        "--bao-links", type=Path, required=True, help="the output of storage-successor --list"
-    )
+    parser.add_argument("--bao-links", type=Path, required=True, help="the output of storage-successor --list")
     parser.add_argument("--scope", required=True, help="audit only contracts whose path starts with this")
     args = parser.parse_args(argv)
 
@@ -89,9 +87,7 @@ def main(argv=None):
             if predecessor_versioned is None or predecessor_versioned["family"] != family:
                 message = f"{name}: @custom:{tag}-upgrades-from references a non-{family}_v* contract ({predecessor})"
             else:
-                console.print(
-                    f" ✔  {name} upgrades from {predecessor}{' (bao)' if tag == 'bao' else ''}", markup=False
-                )
+                console.print(f" ✔  {name} upgrades from {predecessor}{' (bao)' if tag == 'bao' else ''}", markup=False)
                 continue
         elif version < 2:
             continue

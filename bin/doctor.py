@@ -405,9 +405,7 @@ def unused_file_problems(repo_root: Path) -> list[str]:
         ancestors.append(parsed["path"])
 
     config = json.loads(
-        subprocess.run(
-            ["forge", "config", "--json"], cwd=repo_root, capture_output=True, text=True, check=True
-        ).stdout
+        subprocess.run(["forge", "config", "--json"], cwd=repo_root, capture_output=True, text=True, check=True).stdout
     )
     source_directories = tuple(f"{config[key]}/" for key in ("src", "test", "script"))
     on_disk = {
