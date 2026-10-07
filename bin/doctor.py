@@ -780,8 +780,7 @@ def build_checks(
             "wake compiles every Solidity file in the project that wake.toml's exclude_paths does not cover, "
             "while forge builds only its source, test and script directories and what they import, so a "
             "parked file, a scratch copy or a tool's output is analysed as part of a program that nothing builds",
-            "the editor reports errors and findings in code that is never built, mixed in with those in code "
-            "that is",
+            "the editor reports errors and findings in code that is never built, mixed in with those in code that is",
             wake_scope_problems(repo_root),
         ),
         Check(

@@ -10,6 +10,7 @@ import importlib.util
 import json
 import pathlib
 import subprocess
+import typing
 
 import pytest
 
@@ -413,20 +414,28 @@ def test_unused_file_check_runs_only_when_asked(tmp_path):
     assert when_asked - by_default == {"no unused Solidity files"}
 
 
-def test_every_check_function_is_registered(tmp_path):
+def test_every_check_function_is_registered(tmp_path, monkeypatch):
     # The guard for what actually went wrong: `tracked_but_ignored_problems` was written, tested by
     # hand, and then never added to the checks list, so it silently never ran. A check that exists
-    # but is not registered is worse than one that does not exist — it reads as covered.
+    # but is not registered is worse than one that does not exist — it reads as covered. Registered
+    # means the function's findings reach a check, so each function is replaced by one returning a
+    # marker of its own, and every marker must come out of `build_checks`. A function returning a
+    # tuple of lists feeds one check per list, so it returns one marker per list.
     repo = _init_repo(tmp_path / "host")
-    registered = {check.name for check in doctor.build_checks(repo, [], [], unused_files=True)}
-    helpers: set[str] = set()
-    defined = {
-        name for name in dir(doctor) if name.endswith("_problems") and not name.startswith("_") and name not in helpers
-    }
-    unregistered = {
-        name for name in defined if not any(name.split("_problems")[0].split("_")[0] in check for check in registered)
-    }
-    assert not unregistered, f"check functions never reached the checks list: {sorted(unregistered)}"
+    markers: set[str] = set()
+    for name in dir(doctor):
+        if name.startswith("_") or not name.endswith("_problems"):
+            continue
+        returned = typing.get_type_hints(getattr(doctor, name))["return"]
+        per_check = typing.get_args(returned) if typing.get_origin(returned) is tuple else (returned,)
+        lists = [[f"{name}[{index}]"] for index in range(len(per_check))]
+        markers.update(marker for problems in lists for marker in problems)
+        result = tuple(lists) if typing.get_origin(returned) is tuple else lists[0]
+        monkeypatch.setattr(doctor, name, lambda *args, result=result, **kwargs: result)
+    assert markers, "no check functions were found to stub"
+
+    reported = {problem for check in doctor.build_checks(repo, [], [], unused_files=True) for problem in check.problems}
+    assert markers <= reported, f"check functions whose findings reach no check: {sorted(markers - reported)}"
 
 
 # ── scope is checked on TRACKED settings only: an untracked file is not the repository's business ──
