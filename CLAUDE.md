@@ -7,6 +7,9 @@ and report — do not continue to the next batch without the user confirming. Us
 the plan file in `~/.claude/plans/` to track multi-session work; update it after
 each completed step and commit the change.
 
+A plan file opens with a running status: brief, so what is done and what remains
+can be seen at a glance, and kept current with every step.
+
 ### Size a batch by the decisions it needs, not by the work in it
 The checkpoint exists for the user's decisions. Combine steps into one batch —
 two or three where they fit — when together they need few decisions; split where
@@ -25,8 +28,8 @@ of it is crisp.
 4. **The commit message** (see Git).
 5. **Summary of the decisions needed** — the first part again, a line each.
 
-A planning report uses the same parts; with no repository change, it has no
-commit message.
+A planning report uses the same parts, opened by the plan's running status; with
+no repository change, it has no commit message.
 
 Never end a planning pass with "is the plan good to go?" and then immediately
 execute on confirmation. Planning and execution are separate sessions. After
@@ -43,6 +46,15 @@ documented behaviour invites accidental misuse (a 'footgun')" — and reuse the 
 freely afterwards, since it is now defined. A reader must never need prior
 knowledge of the slang to understand the point. (This is the prose counterpart of
 the "no unexplained abbreviations in code" rule below.)
+
+### International English
+Write all prose — reports, plans, code comments, commit messages — in plain
+international English: US spelling, software's common default ("behavior",
+"initialize"), but nothing US-centric in vocabulary, idiom or convention — no
+regional or sporting metaphors, dates as ISO 8601 (2026-10-07) — so it reads
+naturally to a reader anywhere. The rule governs what is newly written: existing
+text is not rewritten for spelling alone, and an identifier keeps the spelling it
+already has.
 
 ## Git
 
@@ -74,10 +86,10 @@ should see what changed and, from the same words, why:
   tightened" says it twice. Where the reason is not evident, choose words that
   make it so rather than appending a clause.
 - **Crisp, not complete.** Leave out the detail - which functions, which values,
-  how. A line per change worth recognising; bullets once there is more than one.
-  Test and doc changes made to support a source change get no line; a commit that
-  changes only tests or docs says what they now check or describe.
-- **British English** - British spelling and terms, nothing US-specific.
+  how. A line per change worth recognizing: one change is a single line with no
+  bullet, and bullets only when there is more than one. Test and doc changes made
+  to support a source change get no line; a commit that changes only tests or docs
+  says what they now check or describe.
 - **No rationale.** No "because" or "so that" clauses, no alternatives weighed, no
   evidence that it works ("all tests pass"), no restating the report the message
   sits under.
