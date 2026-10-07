@@ -684,3 +684,160 @@ def test_a_lock_deviation_is_not_claimed_against_a_checkout_that_was_never_read(
     assert problems, "an unreadable dependency is a finding"
     assert "not the absent checked out here" not in problems[0], problems[0]
     assert "could not be read" in problems[0], problems[0]
+
+
+# ── wake_scope_problems: wake compiles only what forge builds ──
+#
+# wake compiles every Solidity file in the project that wake.toml's exclude_paths does not cover; forge
+# builds only its source, test and script directories and what they import. Each test builds a project
+# in tmp_path, so the directories read are the ones `forge config` resolves.
+def _with_wake_excludes(repo: pathlib.Path, exclude_paths: list[str]) -> pathlib.Path:
+    (repo / "wake.toml").write_text(f"[compiler.solc]\nexclude_paths = {json.dumps(exclude_paths)}\n")
+    return repo
+
+
+def _wake_scope_rows(problem: str) -> list[str]:
+    """The rows of a wake-scope finding: every line between its heading and its repair, unindented."""
+    return [line.strip() for line in problem.splitlines()[1:] if not line.strip().startswith("Repair:")]
+
+
+def test_wake_scope_clean_when_only_forge_directories_hold_solidity(tmp_path):
+    repo = _with_wake_excludes(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), [])
+    assert doctor.wake_scope_problems(repo) == []
+
+
+def test_wake_scope_reports_a_directory_forge_does_not_build(tmp_path):
+    # a parked file is outside forge's directories, so nothing builds it, but wake compiles it
+    repo = _with_wake_excludes(
+        _forge_project(
+            tmp_path / "host", _used_by_a_test_and_a_script() | {"deprecated/src/Old.sol": "contract Old {}\n"}
+        ),
+        [],
+    )
+    problems = doctor.wake_scope_problems(repo)
+    assert len(problems) == 1
+    assert _wake_scope_rows(problems[0]) == ["deprecated  1 file"]
+    assert "compiler.solc.exclude_paths in wake.toml" in problems[0]
+
+
+def test_wake_scope_clean_once_the_directory_is_excluded(tmp_path):
+    repo = _with_wake_excludes(
+        _forge_project(
+            tmp_path / "host", _used_by_a_test_and_a_script() | {"deprecated/src/Old.sol": "contract Old {}\n"}
+        ),
+        ["deprecated"],
+    )
+    assert doctor.wake_scope_problems(repo) == []
+
+
+def test_wake_scope_names_each_directory_once_with_its_file_count(tmp_path):
+    repo = _with_wake_excludes(
+        _forge_project(
+            tmp_path / "host",
+            _used_by_a_test_and_a_script()
+            | {
+                "deprecated/src/Old.sol": "contract Old {}\n",
+                "deprecated/script/OldDeploy.s.sol": "contract OldDeploy {}\n",
+                "tmp/copy/src/A.sol": "contract A {}\n",
+            },
+        ),
+        [],
+    )
+    problems = doctor.wake_scope_problems(repo)
+    assert len(problems) == 1
+    assert _wake_scope_rows(problems[0]) == ["deprecated  2 files", "tmp         1 file"]
+
+
+def test_wake_scope_exclusion_covers_whole_directories_not_name_prefixes(tmp_path):
+    # wake matches an exclusion against whole path components: `lib` covers lib/ and not library/
+    repo = _with_wake_excludes(
+        _forge_project(
+            tmp_path / "host",
+            _used_by_a_test_and_a_script()
+            | {"lib/dep/Dep.sol": "contract Dep {}\n", "library/Helper.sol": "contract Helper {}\n"},
+        ),
+        ["lib"],
+    )
+    problems = doctor.wake_scope_problems(repo)
+    assert len(problems) == 1
+    assert _wake_scope_rows(problems[0]) == ["library  1 file"]
+
+
+def test_wake_scope_skips_hidden_directories_and_files(tmp_path):
+    # wake's search for Solidity files enters no directory, and matches no file, whose name starts with a dot
+    repo = _with_wake_excludes(
+        _forge_project(
+            tmp_path / "host",
+            _used_by_a_test_and_a_script()
+            | {".cache/Hidden.sol": "contract Hidden {}\n", "notes/.Draft.sol": "contract Draft {}\n"},
+        ),
+        [],
+    )
+    assert doctor.wake_scope_problems(repo) == []
+
+
+def test_wake_scope_follows_a_symlinked_directory(tmp_path):
+    # wake's search follows a symlink to a directory, so Solidity reached through one is compiled
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (outside / "Linked.sol").write_text(_SOLIDITY_HEADER + "contract Linked {}\n")
+    repo = _with_wake_excludes(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), [])
+    (repo / "linked").symlink_to(outside, target_is_directory=True)
+    problems = doctor.wake_scope_problems(repo)
+    assert len(problems) == 1
+    assert _wake_scope_rows(problems[0]) == ["linked  1 file"]
+
+
+def test_wake_scope_reads_the_directories_forge_builds_from_its_config(tmp_path):
+    # which directories forge builds is forge's to say: with src = "contracts", src/ is no longer built
+    repo = _with_wake_excludes(
+        _forge_project(
+            tmp_path / "host", {"contracts/A.sol": "contract A {}\n", "src/Stale.sol": "contract Stale {}\n"}
+        ),
+        [],
+    )
+    (repo / "foundry.toml").write_text('[profile.default]\nsrc = "contracts"\n')
+    problems = doctor.wake_scope_problems(repo)
+    assert len(problems) == 1
+    assert _wake_scope_rows(problems[0]) == ["src  1 file"]
+
+
+def test_wake_scope_names_the_shallowest_path_that_holds_no_forge_directory(tmp_path):
+    # excluding a directory that holds one of forge's would hide that one from wake too, so the finding
+    # names the path a level below it, or the file itself when the file sits directly beside forge's
+    repo = _with_wake_excludes(
+        _forge_project(
+            tmp_path / "host",
+            {
+                "contracts/src/A.sol": "contract A {}\n",
+                "contracts/legacy/Old.sol": "contract Old {}\n",
+                "contracts/Loose.sol": "contract Loose {}\n",
+            },
+        ),
+        [],
+    )
+    (repo / "foundry.toml").write_text('[profile.default]\nsrc = "contracts/src"\n')
+    problems = doctor.wake_scope_problems(repo)
+    assert len(problems) == 1
+    assert _wake_scope_rows(problems[0]) == ["contracts/Loose.sol  1 file", "contracts/legacy     1 file"]
+
+
+@pytest.mark.parametrize(
+    ("wake_toml", "reported"),
+    [
+        (None, "wake.toml is missing"),
+        ("[compiler.solc]\n", "does not set compiler.solc.exclude_paths"),
+        ('[compiler.solc]\nexclude_paths = "lib"\n', "'lib'"),
+        ("[compiler.solc]\nexclude_paths = [1]\n", "[1]"),
+    ],
+)
+def test_wake_scope_reports_exclusions_it_cannot_read(tmp_path, wake_toml, reported):
+    # without a list of paths what wake compiles is unknown, and wake's built-in default, used when the key
+    # is absent, is wake's to change, so each is this check's finding rather than a guess
+    repo = _forge_project(tmp_path / "host", _used_by_a_test_and_a_script())
+    if wake_toml is not None:
+        (repo / "wake.toml").write_text(wake_toml)
+    problems = doctor.wake_scope_problems(repo)
+    assert len(problems) == 1
+    assert reported in problems[0]
+    assert "what wake compiles cannot be read" in problems[0]

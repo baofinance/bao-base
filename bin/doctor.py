@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import tomllib
+from collections import Counter
 from collections.abc import Sequence
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any, cast
 
 import json5
@@ -291,6 +293,80 @@ def remapping_problems(foundry_remappings: list[str], wake_remappings: list[str]
     return ["Remapping mismatch detected:\n" + "\n".join(mismatch_details)]
 
 
+def forge_source_directories(repo_root: Path) -> tuple[str, ...]:
+    """The directories forge builds every Solidity file in - source, test and script - as `forge config`
+    resolves them, relative to the repo root."""
+    config = json.loads(
+        subprocess.run(["forge", "config", "--json"], cwd=repo_root, capture_output=True, text=True, check=True).stdout
+    )
+    return tuple(config[key] for key in ("src", "test", "script"))
+
+
+def wake_scope_problems(repo_root: Path) -> list[str]:
+    """Solidity files wake compiles that forge does not build. Wake compiles every `*.sol` in the project
+    that `compiler.solc.exclude_paths` does not cover, found by a recursive glob: directories and files
+    whose names start with a dot are skipped, symlinked directories are followed, and an exclusion covers
+    whole path components, so `lib` covers lib/ and not library/. Forge builds its source, test and script
+    directories and what they import. Excluding a path never hides code forge builds, because wake still
+    compiles an excluded file that a compiled one imports.
+
+    Each finding names the path to exclude: the shallowest one holding none of forge's directories, so
+    the file itself when it sits directly beside one. A wake.toml whose exclusions cannot be read is this
+    check's finding, the key's absence included: wake then applies a built-in default that is wake's to
+    change. Returns one block listing each path with the number of files under it; [] when wake compiles
+    only what forge builds."""
+    wake_path = repo_root / "wake.toml"
+    if not wake_path.is_file():
+        return [f"{wake_path} is missing, so what wake compiles cannot be read."]
+    exclude_paths = load_toml(wake_path).get("compiler", {}).get("solc", {}).get("exclude_paths")
+    if exclude_paths is None:
+        return ["wake.toml does not set compiler.solc.exclude_paths, so what wake compiles cannot be read."]
+    if not isinstance(exclude_paths, list) or not all(isinstance(path, str) for path in cast(list[Any], exclude_paths)):
+        return [
+            f"compiler.solc.exclude_paths in wake.toml is {exclude_paths!r}, not a list of paths, so what wake "
+            f"compiles cannot be read."
+        ]
+
+    # wake resolves each exclusion and compares the paths its glob finds, unresolved, against them
+    excluded = [(repo_root / path).resolve() for path in cast(list[str], exclude_paths)]
+    directories = forge_source_directories(repo_root)
+    built = [repo_root / directory for directory in directories]
+    unbuilt: Counter[PurePath] = Counter()
+    for directory, subdirectories, files in os.walk(repo_root, followlinks=True):
+        here = Path(directory)
+        subdirectories[:] = [
+            name
+            for name in subdirectories
+            if not name.startswith(".") and not any((here / name).is_relative_to(path) for path in excluded + built)
+        ]
+        for name in files:
+            if name.startswith(".") or not name.endswith(".sol"):
+                continue
+            if any((here / name).is_relative_to(path) for path in excluded + built):
+                continue
+            parts = (here / name).relative_to(repo_root).parts
+            unbuilt[
+                next(
+                    PurePath(*parts[:depth])
+                    for depth in range(1, len(parts) + 1)
+                    if not any(path.is_relative_to(repo_root.joinpath(*parts[:depth])) for path in built)
+                )
+            ] += 1
+    if not unbuilt:
+        return []
+
+    lines = ["Solidity files wake compiles that forge does not build:"]
+    lines += columns.rows(
+        [[path.as_posix(), f"{count} file{'' if count == 1 else 's'}"] for path, count in sorted(unbuilt.items())],
+        indent="  ",
+    )
+    lines.append(
+        "  Repair: add each path above to compiler.solc.exclude_paths in wake.toml. Code that should be built "
+        f"belongs under {', '.join(directories[:-1])} or {directories[-1]} instead."
+    )
+    return ["\n".join(lines)]
+
+
 def submodule_url_drift_problems(repo_root: Path) -> list[str]:
     """`submodule_url_drift` formatted as a problem block. Returns [] when URLs agree."""
     drift = submodule_url_drift(repo_root)
@@ -404,10 +480,7 @@ def unused_file_problems(repo_root: Path) -> list[str]:
         del ancestors[depth:]
         ancestors.append(parsed["path"])
 
-    config = json.loads(
-        subprocess.run(["forge", "config", "--json"], cwd=repo_root, capture_output=True, text=True, check=True).stdout
-    )
-    source_directories = tuple(f"{config[key]}/" for key in ("src", "test", "script"))
+    source_directories = tuple(f"{directory}/" for directory in forge_source_directories(repo_root))
     on_disk = {
         path.relative_to(repo_root).as_posix()
         for directory in source_directories
@@ -701,6 +774,15 @@ def build_checks(
             "until they agree, every wake detection is suspect: it may be reporting on code that "
             "does not build, or missing code that does",
             remapping_problems(foundry_remappings, wake_remappings),
+        ),
+        Check(
+            "wake compiles only what forge builds",
+            "wake compiles every Solidity file in the project that wake.toml's exclude_paths does not cover, "
+            "while forge builds only its source, test and script directories and what they import, so a "
+            "parked file, a scratch copy or a tool's output is analysed as part of a program that nothing builds",
+            "the editor reports errors and findings in code that is never built, mixed in with those in code "
+            "that is",
+            wake_scope_problems(repo_root),
         ),
         Check(
             "submodule URLs (.git/config vs .gitmodules)",

@@ -7,7 +7,7 @@ runs = 1
 
 [compiler.solc]
 # Exclude paths define locations of Solidity files that should not be compiled unless imported from another non-excluded file.
-exclude_paths = ["node_modules", "venv", "lib"]
+exclude_paths = ["node_modules", "venv", "lib", "deprecated", "out", "samples"]
 # include paths are for import resolution
 include_paths = []
 remappings = [
