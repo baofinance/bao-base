@@ -8,14 +8,23 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 
 /// @title PermitTestBase
-/// @notice Reusable EIP-2612 permit test suite. Override `_permitTarget` (required)
-///         and `_permitVersion` (defaults to `"1"`); inherit five standard permit tests.
+/// @notice Reusable EIP-2612 permit test suite. Override `_permitTarget`, `_permitExpiredRevert` and
+///         `_permitInvalidSignerRevert` (required) and `_permitVersion` (defaults to `"1"`); inherit five standard
+///         permit tests.
 abstract contract PermitTestBase is Test {
     function _permitTarget() internal view virtual returns (address);
 
     function _permitVersion() internal view virtual returns (string memory) {
         return "1";
     }
+
+    /// @dev The revert data the target's `permit` gives for a deadline already passed. Token families word it
+    ///      differently (OpenZeppelin carries the deadline, Solady does not), so each consumer supplies its own.
+    function _permitExpiredRevert(uint256 deadline) internal view virtual returns (bytes memory);
+
+    /// @dev The revert data the target's `permit` gives for a signature that does not recover `owner`. `recovered` is
+    ///      the address the token's own digest recovers from the signature (OpenZeppelin carries it, Solady does not).
+    function _permitInvalidSignerRevert(address recovered, address owner) internal view virtual returns (bytes memory);
 
     function _permitDigest(
         address owner,
@@ -64,7 +73,7 @@ abstract contract PermitTestBase is Test {
         assertEq(IERC20Permit(target).nonces(signer), nonceBefore + 1, "nonce incremented");
     }
 
-    /// @notice A permit with a deadline in the past reverts.
+    /// @notice A permit with a deadline in the past reverts with the token's expired-deadline error.
     function test_permit_expiredDeadline_reverts() public virtual {
         address target = _permitTarget();
         (address signer, uint256 pk) = makeAddrAndKey("permit.signer");
@@ -79,15 +88,16 @@ abstract contract PermitTestBase is Test {
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, _permitDigest(signer, spender, 1 ether, nonce, deadline));
 
-        vm.expectRevert();
+        bytes memory expiredRevert = _permitExpiredRevert(deadline);
+        vm.expectRevert(expiredRevert);
         IERC20Permit(target).permit(signer, spender, 1 ether, deadline, v, r, s);
     }
 
-    /// @notice A signature from an address other than `owner` reverts.
+    /// @notice A signature from an address other than `owner` reverts with the token's invalid-signer error.
     function test_permit_wrongSigner_reverts() public virtual {
         address target = _permitTarget();
         (address signer, ) = makeAddrAndKey("permit.signer");
-        (, uint256 attackerPk) = makeAddrAndKey("permit.attacker");
+        (address attacker, uint256 attackerPk) = makeAddrAndKey("permit.attacker");
         address spender = makeAddr("permit.spender");
         uint256 value = 1 ether;
         uint256 deadline = block.timestamp + 1 hours;
@@ -95,11 +105,14 @@ abstract contract PermitTestBase is Test {
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(attackerPk, _permitDigest(signer, spender, value, nonce, deadline));
 
-        vm.expectRevert();
+        // the token's digest is the one signed, so the signature recovers the attacker
+        bytes memory invalidSignerRevert = _permitInvalidSignerRevert(attacker, signer);
+        vm.expectRevert(invalidSignerRevert);
         IERC20Permit(target).permit(signer, spender, value, deadline, v, r, s);
     }
 
-    /// @notice A previously-used signature cannot be replayed — the nonce has advanced.
+    /// @notice A previously-used signature cannot be replayed — the nonce has advanced, so it no longer recovers `owner`
+    ///         and reverts with the token's invalid-signer error.
     function test_permit_replay_reverts() public virtual {
         address target = _permitTarget();
         (address signer, uint256 pk) = makeAddrAndKey("permit.signer");
@@ -112,7 +125,11 @@ abstract contract PermitTestBase is Test {
 
         IERC20Permit(target).permit(signer, spender, value, deadline, v, r, s);
 
-        vm.expectRevert();
+        // the nonce has advanced, so the token's digest is no longer the one signed: the signature recovers some other
+        // address, the one `ecrecover` gives over the digest with the new nonce
+        address recovered = ecrecover(_permitDigest(signer, spender, value, nonce + 1, deadline), v, r, s);
+        bytes memory invalidSignerRevert = _permitInvalidSignerRevert(recovered, signer);
+        vm.expectRevert(invalidSignerRevert);
         IERC20Permit(target).permit(signer, spender, value, deadline, v, r, s);
     }
 

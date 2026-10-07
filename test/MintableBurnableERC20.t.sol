@@ -669,4 +669,15 @@ contract TestLeveragedTokenPermit is TestLeveragedTokensSetUp, PermitTestBase {
     function _permitTarget() internal view override returns (address) {
         return leveragedToken;
     }
+
+    function _permitExpiredRevert(uint256 deadline) internal pure override returns (bytes memory) {
+        return abi.encodeWithSelector(ERC20PermitUpgradeable.ERC2612ExpiredSignature.selector, deadline);
+    }
+
+    function _permitInvalidSignerRevert(
+        address recovered,
+        address owner
+    ) internal pure override returns (bytes memory) {
+        return abi.encodeWithSelector(ERC20PermitUpgradeable.ERC2612InvalidSigner.selector, recovered, owner);
+    }
 }
