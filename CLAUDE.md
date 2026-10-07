@@ -2,14 +2,31 @@
 
 ## Working mode
 
-Work in small, explicit batches with a checkpoint between each batch. After
-completing a batch of changes, stop and report what was done — do not continue
-to the next batch without the user confirming. Use the plan file in
-`~/.claude/plans/` to track multi-session work; update it after each completed
-step and commit the change.
-When presenting what was done, also present the next step so I have everything I need
-to know what was done and what I'm now saying yes to.
+Work in batches with a checkpoint between each. After completing a batch, stop
+and report — do not continue to the next batch without the user confirming. Use
+the plan file in `~/.claude/plans/` to track multi-session work; update it after
+each completed step and commit the change.
 
+### Size a batch by the decisions it needs, not by the work in it
+The checkpoint exists for the user's decisions. Combine steps into one batch —
+two or three where they fit — when together they need few decisions; split where
+a batch would carry several decisions, or one weighty enough to deserve its own
+checkpoint. A bigger batch has a longer commit message, which is fine: each line
+of it is crisp.
+
+### Report in five parts, in this order
+1. **Decisions needed to continue** — each with a recommendation, the reason for
+   it, and the viable options where there are any. Approving the next step is one
+   of them: say what saying yes starts.
+2. **Decisions taken that need validating** — each call made on the user's
+   behalf, and why. When there are none, say "None": it is read first, and
+   nothing to check is the answer the user wants.
+3. **What changed** — a bullet per change: a bold headline, then the detail.
+4. **The commit message** (see Git).
+5. **Summary of the decisions needed** — the first part again, a line each.
+
+A planning report uses the same parts; with no repository change, it has no
+commit message.
 
 Never end a planning pass with "is the plan good to go?" and then immediately
 execute on confirmation. Planning and execution are separate sessions. After
@@ -42,30 +59,40 @@ them. Read-only inspection (`git status`, `git log`, `git diff`, `git show`) is 
 After updating a plan, commit the change yourself (as in Working mode). Do this
 without being asked; it is an obligation, not a tolerated exception.
 
-### Every batch ends with a commit message, and it says WHAT changed
+### Every batch ends with a commit message: a crisp memory-jogger
 
 The user runs every commit in the project repos, so a batch report without a
 ready-to-paste message is not actionable. Supply one at the end of each batch, in
 a fenced block, without being asked.
 
-Write it for the reader who meets it while bisecting a regression:
+The detail is in the code; the message jogs the memory. A reader scanning the log
+should see what changed and, from the same words, why:
 
-- **What changed in the source.** Short bullets once there is more than one thing.
-  Doc and test changes made to support a source change get no bullet; a commit
-  that changes only tests or docs says what they now assert or describe, in one
-  line. Never name the plan file, its labels, or test names: the repos have
-  separate lifecycles.
-- **A "why" only where the change would otherwise be undone or misread** — a
-  non-obvious mechanism, a constraint that forced an unusual shape, a defect being
-  worked around. One clause attached to the item it explains, never a paragraph of
-  its own.
-- **Nothing else.** No rationale essays, no alternatives weighed, no evidence that
-  it works ("all tests pass"), no restating the report the message sits under.
+- **What and why are one.** Name the change so its reason is evident from the
+  naming. "Tightened the stability pool's test tolerances" needs no reason - too
+  loose is the obvious one; "the tolerances were too loose, so they were
+  tightened" says it twice. Where the reason is not evident, choose words that
+  make it so rather than appending a clause.
+- **Crisp, not complete.** Leave out the detail - which functions, which values,
+  how. A line per change worth recognising; bullets once there is more than one.
+  Test and doc changes made to support a source change get no line; a commit that
+  changes only tests or docs says what they now check or describe.
+- **British English** - British spelling and terms, nothing US-specific.
+- **No rationale.** No "because" or "so that" clauses, no alternatives weighed, no
+  evidence that it works ("all tests pass"), no restating the report the message
+  sits under.
+- **No plan references.** Never name the plan file, its labels, or test names: the
+  repos have separate lifecycles.
+
+For a tests-only commit:
+- ✗ `assert the stability pool's deposit events in order, its ceiling on a
+  non-empty pool, the sender's request cancelled at the window's end and zeroed,
+  and previewDeposit's zero and its freedom from the floor and ceiling`
+- ✓ `covered the stability pool's untested deposit edge cases`
 
 The reasoning, the options and the evidence go in the plan file, the PR
 description, and the batch report — all read at decision time, with room to
-argue. The commit is read at speed by someone who wants to know what a revision
-did, and every sentence that is not that is in the way.
+argue.
 
 ## Design principles
 
