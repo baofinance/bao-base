@@ -56,6 +56,24 @@ naturally to a reader anywhere. The rule governs what is newly written: existing
 text is not rewritten for spelling alone, and an identifier keeps the spelling it
 already has.
 
+### Clear and crisp
+Write international English that is understood on the first reading. This applies
+to all prose, including replies to the user, and to every message a tool prints:
+check titles, explanations, findings, refusals, repair lines.
+
+- **One fact per sentence.** Short sentences. No nested clauses, no long dash asides.
+- **The concrete thing.** "Not pushed", "only on this computer" - not an
+  abstraction such as "exists nowhere else". No noun stacks such as "each nested
+  path a remapping reads from it".
+- **No invented terms.** Do not coin shorthand for a concept ("record" as a noun,
+  "leftovers", "nested pin"). Say what the thing is.
+- **No tool-internal terms the reader must decode.** Say what happens, not the
+  tool's model: "the commit harbor points to", not "the staged commit" or "the
+  pinned commit". `git add` changes where it points; `git commit` saves it.
+- **Each choice with its effect.** "To keep the folder's version: ... To go back:
+  ...".
+- **No word without meaning.** If a sentence needs a second reading, rewrite it.
+
 ## Git
 
 Two repos, opposite rules:
@@ -95,6 +113,8 @@ should see what changed and, from the same words, why:
   sits under.
 - **No plan references.** Never name the plan file, its labels, or test names: the
   repos have separate lifecycles.
+- **No attribution.** No `Co-Authored-By:` trailer and no "Generated with" line, in
+  commit messages or PR descriptions.
 
 For a tests-only commit:
 - ✗ `assert the stability pool's deposit events in order, its ceiling on a
