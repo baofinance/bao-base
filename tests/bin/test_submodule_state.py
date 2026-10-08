@@ -31,6 +31,7 @@ from submodule_state import (  # noqa: E402
     declared_submodules,
     read_facts,
     read_lock,
+    recorded_entry,
     repair,
 )
 
@@ -104,23 +105,6 @@ def test_a_tree_that_agrees_is_consistent(world):
     assert not condition(facts_for(world.project)).is_fault
 
 
-def test_a_branch_pin_behind_its_remote_is_not_a_fault(world):
-    # bao-base's main moves daily. Reporting that as a problem every morning is how a check stops
-    # being read, so it is named but excluded from what doctor reports.
-    dep = world.project / "lib" / "dep"
-    here = git(dep, "rev-parse", "HEAD").stdout.strip()
-    # Every claim agrees on the commit checked out; only the remote has moved past it.
-    write_lock(world.project, "lib/dep", "branch", "main", here)
-    git(world.project, "add", "-A")
-    git(world.project, "commit", "-qm", "track main")
-    add_commit(world.dep_source, "moved on")
-    git(dep, "fetch", "-q", "origin")
-
-    found = condition(facts_for(world.project))
-    assert found.name == "behind-moving-pin", found
-    assert not found.is_fault
-
-
 def test_working_in_a_dependency_still_blocks_a_delete_but_is_not_a_finding(world):
     # Two different questions that used to share one answer. Whether something would be DESTROYED is
     # what guards `yarn update`, and must stay as wide as it is. Whether something is WRONG is what
@@ -144,66 +128,70 @@ def test_working_in_a_dependency_still_blocks_a_delete_but_is_not_a_finding(worl
     assert not condition(facts).is_fault, "but doctor does not grade work in progress"
 
 
-def test_work_in_progress_does_not_hide_a_real_disagreement(world):
-    # The reason it cannot merely be excluded from `is_fault`: it was returned AHEAD of the version
-    # comparison, so a dependency being edited reported "holds work that exists nowhere else" and
-    # buried the lock disagreement underneath it as an afterthought.
+def move_dep_to_v2(world: World) -> Path:
+    """Publish v2 of the dependency and check it out, staging nothing. Returns the checkout."""
     dep = world.project / "lib" / "dep"
     add_commit(world.dep_source, "v2")
     git(world.dep_source, "tag", "v2")
     git(dep, "fetch", "-q", "origin", "--tags")
-    git(dep, "checkout", "-q", "v2")  # the checkout moves, so the lock is genuinely behind
+    git(dep, "checkout", "-q", "v2")
+    return dep
+
+
+def test_work_in_progress_does_not_hide_a_real_disagreement(world):
+    # The reason it cannot merely be excluded from `is_fault`: it was returned AHEAD of the version
+    # comparison, so a dependency being edited reported "holds work that exists nowhere else" and
+    # buried the version disagreement underneath it as an afterthought.
+    dep = move_dep_to_v2(world)
     (dep / "B.sol").write_text("// and work is in progress here\n")
 
     facts = facts_for(world.project)
     found = condition(facts)
 
     assert facts.has_own_work, "the edit is still seen, for the delete guard"
-    assert found.name == "bumped-not-locked", f"the version disagreement is the finding: {found}"
-    assert any("foundry.lock" in claimants for _, claimants in found.rows), found.rows
+    assert found.name == "ahead-of-record", f"the version disagreement is the finding: {found}"
 
 
-@pytest.mark.parametrize(
-    "stop_after, expected_reach",
-    [("checkout", "the working tree"), ("stage", "the index"), ("commit", "HEAD")],
-)
-def test_a_version_bump_is_named_by_how_far_it_travelled(world, stop_after, expected_reach):
-    # The three states a VSCode bump passes through, captured from a real v5.4.0 -> v5.7.0 bump. The
-    # lock is stale in all three; what differs is how much of the parent has caught up, which is what
-    # the user still has left to do.
-    add_commit(world.dep_source, "v2")
-    git(world.dep_source, "tag", "v2")
-    git(world.project / "lib" / "dep", "fetch", "-q", "origin", "--tags")
-    git(world.project / "lib" / "dep", "checkout", "-q", "v2")
-    if stop_after in ("stage", "commit"):
-        git(world.project, "add", "lib/dep")
-    if stop_after == "commit":
-        git(world.project, "commit", "-qm", "bump dep to v2")
+def test_a_checkout_ahead_of_the_record_is_a_move_not_yet_staged(world):
+    # A dependency checked out at a later commit than the one staged is a move someone has started and
+    # not recorded. Staging records it and sync drops it; only the user knows which was meant.
+    move_dep_to_v2(world)
 
     found = condition(facts_for(world.project))
-    assert found.name == "bumped-not-locked", found
-    assert found.reach == expected_reach, found
+
+    assert found.name == "ahead-of-record", found
     assert found.is_fault
+    # One row per claim, the commit first because its width is fixed.
+    assert [claimants for _, claimants in found.rows] == ["working tree", "index"], found.rows
 
 
-def test_a_bump_that_is_staged_and_locked_is_ready_regardless_of_head(world):
-    # doctor is what you run BEFORE committing, so it must not withhold a pass until you commit -
-    # that makes the tool demand the very thing it exists to prepare you for. The checkout, what is
-    # staged, and foundry.lock are what it judges; HEAD lagging is only "not committed yet", which is
-    # what every piece of work in progress looks like.
-    dep = world.project / "lib" / "dep"
-    add_commit(world.dep_source, "v2")
-    git(world.dep_source, "tag", "v2")
-    git(dep, "fetch", "-q", "origin", "--tags")
-    git(dep, "checkout", "-q", "v2")
-    moved = git(dep, "rev-parse", "HEAD").stdout.strip()
-    write_lock(world.project, "lib/dep", "tag", "v2", moved)
-    git(world.project, "add", "lib/dep", "foundry.lock")
+def test_a_staged_move_is_consistent_whatever_head_says(world):
+    # doctor is what you run BEFORE committing, so it must not withhold a pass until you commit - that
+    # makes the tool demand the very thing it exists to prepare you for. The checkout and what is staged
+    # are what it judges; HEAD lagging is only "not committed yet", which is what all work in progress
+    # looks like.
+    move_dep_to_v2(world)
+    git(world.project, "add", "lib/dep")
 
     found = condition(facts_for(world.project))
 
     assert not found.is_fault, found
     assert found.name == "consistent", found
+
+
+def test_an_unrelated_checkout_states_the_relation_and_names_both_repairs(world):
+    # Neither commit leads to the other, so whether this is a move or a stale checkout cannot be read off
+    # the graph. The relation is stated as found and both repairs are offered.
+    dep = world.project / "lib" / "dep"
+    git(dep, "checkout", "-q", "--orphan", "elsewhere")
+    add_commit(dep, "no shared history")
+
+    facts = facts_for(world.project)
+    found = condition(facts)
+
+    assert found.name == "off-record", found
+    assert found.relation == "unrelated histories", found
+    assert repair(facts, found) == "git add lib/dep to record it, or yarn dep sync to drop it"
 
 
 def test_an_uninitialised_submodule_outranks_every_other_reading(world):
@@ -268,7 +256,7 @@ def test_an_unreadable_checkout_is_a_fault_with_a_repair(world):
     found = condition(facts)
 
     assert found.is_fault, found
-    assert repair(facts, found) == "git submodule update --init --recursive lib/dep"
+    assert repair(facts, found) == "git submodule update --init -- lib/dep"
 
 
 def test_a_developer_edit_blocks_a_delete_and_nested_drift_does_not(world):
@@ -318,32 +306,6 @@ def test_an_untracked_repository_inside_a_dependency_is_litter(world):
     assert facts.litter == ["lib/stranded"], facts.litter
     assert facts.edits == [], "litter is not a file the developer edited"
     assert condition(facts).name == "litter-present"
-
-
-def test_litter_in_a_nested_dependency_is_repaired_at_its_own_path(world):
-    # The repair for a NESTED submodule must name that submodule, not its bare directory name: a
-    # dependency's dependency routinely shares a name with one of ours (both bao-base and OZ carry
-    # `lib/forge-std`), so a basename sends `yarn update` to a different repository - moving one that
-    # was fine and leaving the litter where it was.
-    inner = make_repo(world.remotes, "inner")
-    git(world.dep_source, "submodule", "add", "-q", str(inner), "lib/inner")
-    git(world.dep_source, "commit", "-qm", "add inner")
-    dep = world.project / "lib" / "dep"
-    git(dep, "fetch", "-q", "origin")
-    git(dep, "checkout", "-q", "origin/main")
-    git(dep, "submodule", "update", "--init", "-q")
-    # A same-named dependency of our own, which the basename form would target instead.
-    git(world.project, "submodule", "add", "-q", str(inner), "lib/inner")
-    orphan = dep / "lib" / "inner" / "lib" / "stranded"
-    orphan.mkdir(parents=True)
-    git(orphan, "init", "-q")
-
-    facts = read_facts(world.project, "lib/dep/lib/inner")
-    found = condition(facts)
-    assert found.name == "litter-present", found
-    fix = repair(facts, found)
-    assert "lib/dep/lib/inner" in fix, fix
-    assert not fix.endswith(" inner"), f"a bare name resolves to our own lib/inner: {fix}"
 
 
 def test_the_lock_records_which_kind_of_pin_it_is(world):
@@ -508,62 +470,35 @@ def test_a_gitignored_nested_repository_is_not_litter(world):
     assert facts_for(world.project).litter == []
 
 
-def test_a_version_disagreement_is_never_repaired_by_staging(world):
-    # The mistake the old doctor made, now impossible: `git add` moves the gitlink and cannot touch
-    # foundry.lock, so offering it for a version disagreement records the disagreement instead of
-    # resolving it. The repair must be the one command that writes both.
-    add_commit(world.dep_source, "v2")
-    git(world.dep_source, "tag", "v2")
-    git(world.project / "lib" / "dep", "fetch", "-q", "origin", "--tags")
-    git(world.project / "lib" / "dep", "checkout", "-q", "v2")
+def record_v2_then_check_out_v1(world: World) -> None:
+    """Stage and commit the dependency at v2, then put its checkout back at v1: behind its record, as a
+    pull that moves a gitlink leaves it."""
+    dep = move_dep_to_v2(world)
+    git(world.project, "add", "lib/dep")
+    git(world.project, "commit", "-qm", "record v2")
+    git(dep, "checkout", "-q", "v1")
+
+
+def test_a_checkout_behind_the_record_is_stale(world):
+    # The checkout is behind what is staged - a pull moved the gitlink and nothing moved the checkout.
+    record_v2_then_check_out_v1(world)
+
+    found = condition(facts_for(world.project))
+
+    assert found.name == "behind-record", found
+    assert found.is_fault
+    assert [claimants for _, claimants in found.rows] == ["working tree", "index"], found.rows
+
+
+def test_a_stale_checkout_is_never_repaired_by_staging(world):
+    # Staging a checkout that is behind its record would record the older commit, moving the dependency
+    # backwards for everyone who pulls. Bringing the checkout to the record is the repair.
+    record_v2_then_check_out_v1(world)
 
     facts = facts_for(world.project)
     fix = repair(facts, condition(facts))
 
-    assert fix == "yarn update lib/dep@v2", fix
-    assert "git add" not in fix and "git submodule update" not in fix
-
-
-def test_the_repair_names_the_tag_the_working_tree_is_on(world):
-    # What makes the refusal answerable. The GUI checks a tag out by name, so the intended version is
-    # still readable from the commit; a commit that is no tag leaves a placeholder for the user.
-    dep = world.project / "lib" / "dep"
-    add_commit(world.dep_source, "v2")
-    git(world.dep_source, "tag", "v2")
-    git(dep, "fetch", "-q", "origin", "--tags")
-
-    git(dep, "checkout", "-q", "v2")
-    assert facts_for(world.project).worktree_ref == "v2"
-
-    # A commit made AFTER the tag, so it carries no tag of its own.
-    add_commit(world.dep_source, "past the tag")
-    git(dep, "fetch", "-q", "origin")
-    git(dep, "checkout", "-q", "origin/main")
-    untagged = facts_for(world.project)
-    assert untagged.worktree_ref is None, "an untagged commit must not be presented as a version"
-    assert repair(untagged, condition(untagged)) == "yarn update lib/dep@<ref>"
-
-
-def test_a_lock_that_is_the_only_thing_behind_is_repaired_by_relocking(world):
-    # The live case: lib/bao-base staged at a commit foundry.lock had not caught up with. The
-    # ref-bearing repair cannot serve it - `worktree_ref` is an exact tag match, so a branch bump
-    # lands on no tag and the advice asks for a `<ref>` the user has no way to name. `--relock` reads
-    # the staged commit instead of being told it, which is why it needs none.
-    #
-    # Staged is the whole condition, and `relock` refuses without it for the same reason: an
-    # accidental checkout would become the recorded pin, and the disagreement that would have shown
-    # it up would be gone. The unstaged case is the test above, which still asks for a ref.
-    dep = world.project / "lib" / "dep"
-    add_commit(world.dep_source, "past the tag")
-    git(dep, "fetch", "-q", "origin")
-    git(dep, "checkout", "-q", "origin/main")
-    git(world.project, "add", "lib/dep")
-
-    facts = facts_for(world.project)
-    assert facts.worktree_ref is None, "the case is precisely that no ref can be named"
-    assert facts.index_gitlink == facts.worktree, "staged is what makes the staged commit answerable"
-
-    assert repair(facts, condition(facts)) == "yarn update --relock lib/dep"
+    assert fix == "yarn dep sync", fix
 
 
 def test_a_nested_submodules_own_commits_block_a_delete(world):
@@ -715,49 +650,20 @@ def test_a_gitignored_file_is_not_treated_as_at_risk(world):
     assert not facts.has_own_work
 
 
-def test_a_disagreement_that_is_not_a_bump_is_not_narrated_as_one(world):
-    # Found in a third repository the tests had never seen: the working tree and foundry.lock agreed
-    # while what was staged named something else. The old rule fell through to "the change has reached
-    # HEAD; foundry.lock is behind it" - the exact opposite of the truth. `reach` is now set only for
-    # the three shapes a version bump actually produces; every other disagreement is stated as the
-    # grouping of who agrees with whom, which is always true.
-    dep = world.project / "lib" / "dep"
-    add_commit(world.dep_source, "v2")
-    git(world.dep_source, "tag", "v2")
-    git(dep, "fetch", "-q", "origin", "--tags")
-    git(dep, "checkout", "-q", "v2")
-    git(world.project, "add", "lib/dep")
-    git(world.project, "commit", "-qm", "record v2")
-    # ...then go back, leaving the recorded gitlink ahead of both the working tree and the lock.
-    git(dep, "checkout", "-q", "v1")
-
-    found = condition(facts_for(world.project))
-
-    assert found.name == "bumped-not-locked"
-    assert found.reach is None, f"this is not a bump, so nothing may be claimed about one: {found}"
-    # One row per distinct commit, so which claims agree is the shape of the finding rather than
-    # something to read out of a sentence. The commit is first because its width is fixed.
-    assert [claimants for _, claimants in found.rows] == ["working tree + foundry.lock", "index"], found.rows
-
-    # (A bump staged, locked, and not yet committed once had its own test here, asserting doctor
-    # advised `git commit`. That state is no longer a fault at all - see
-    # test_a_bump_that_is_staged_and_locked_is_ready_regardless_of_head - so the advice has nowhere to
-    # be given from. `yarn update --check` still reports the commit as outstanding, which is its job.)
-
-
-def test_the_repair_asks_for_staging_when_that_is_what_is_missing(world):
-    # The lock entry is staged with the gitlink: staging the gitlink alone would commit a pin and a
-    # lock that disagree, the very fault this repair is for.
-    dep = world.project / "lib" / "dep"
-    add_commit(world.dep_source, "v2")
-    git(world.dep_source, "tag", "v2")
-    git(dep, "fetch", "-q", "origin", "--tags")
-    git(dep, "checkout", "-q", "v2")
-    write_lock(world.project, "lib/dep", "tag", "v2", git(dep, "rev-parse", "HEAD").stdout.strip())
+@pytest.mark.parametrize("branch_recorded", [False, True], ids=["gitlink only", "with gitmodules"])
+def test_a_move_names_gitmodules_beside_the_gitlink_when_its_entry_is_unstaged(world, branch_recorded):
+    # A move to a branch also changes what .gitmodules records, and staging the gitlink alone would record
+    # a dependency at a new commit following nothing new. The repair names exactly what is unstaged, as
+    # `yarn dep update` hands it over.
+    move_dep_to_v2(world)
+    if branch_recorded:
+        git(world.project, "config", "-f", ".gitmodules", "submodule.lib/dep.branch", "main")
 
     facts = facts_for(world.project)
+    fix = repair(facts, condition(facts), recorded_entry(world.project, "lib/dep"))
 
-    assert repair(facts, condition(facts)) == "git add lib/dep foundry.lock"
+    staged = "git add lib/dep .gitmodules" if branch_recorded else "git add lib/dep"
+    assert fix == f"{staged} to record it, or yarn dep sync to drop it", fix
 
 
 # ── one version per dependency, within a tree ─────────────────────────────────────────────────────

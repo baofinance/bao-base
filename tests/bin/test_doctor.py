@@ -71,6 +71,18 @@ def test_url_drift_detected_when_gitmodules_url_changes(tmp_path):
     _git(host, "config", "-f", ".gitmodules", "submodule.lib/sub.url", "https://example.com/moved.git")
     drift = doctor.submodule_url_drift(host)
     assert any("lib/sub" in display for display, _gm, _gc in drift)
+    reported = "\n".join(doctor.submodule_url_drift_problems(host))
+    assert "Repair (rewrites .git/config from .gitmodules): yarn dep sync" in reported, reported
+
+
+def test_url_drift_inside_a_dependency_is_not_reported(tmp_path):
+    # A dependency's own .gitmodules and its nested checkouts are its business; only this repository's
+    # submodule urls are this repository's to keep in step.
+    host = _nest(tmp_path)
+    dependency = host / "lib" / "dep"
+    _git(dependency, "config", "-f", ".gitmodules", "submodule.lib/child.url", "https://example.com/moved.git")
+
+    assert doctor.submodule_url_drift(host) == []
 
 
 # ── remapping_problems (item 6): a wake entry carrying foundry's context syntax names the bare fix ──
@@ -481,32 +493,33 @@ def test_submodule_problems_says_nothing_when_every_claim_agrees(tmp_path):
     sha = _submodule_at(host, sub)
     (host / "foundry.lock").write_text(json.dumps({"lib/sub": {"tag": {"name": "v1", "rev": sha}}}))
 
-    assert doctor.submodule_problems(host) == ([], [])
+    assert doctor.submodule_problems(host, []) == ([], [])
 
 
 def test_submodule_problems_reports_one_finding_carrying_its_own_repair(tmp_path):
-    # What replaced four checks reporting the same cause four ways with two contradictory repairs.
-    # The repair must be the command that writes BOTH the working tree and the lock: `git add` moves
-    # the gitlink only, so offering it here would record the disagreement rather than resolve it.
-    # Here the tree and the index already agree and the lock alone is behind, so the command that
-    # closes that gap is `--relock`, which reads the staged commit rather than asking for a ref.
+    # What replaced four checks reporting the same cause four ways with two contradictory repairs. A
+    # checkout moved ahead of what is staged is a move not yet recorded, and only the user knows whether
+    # it was meant: the repair names recording it and dropping it, and nothing else.
     sub = _init_repo(tmp_path / "sub")
     (sub / "a.txt").write_text("a")
     _git(sub, "add", ".")
     _git(sub, "commit", "-qm", "content")
     host = _init_repo(tmp_path / "host")
-    _submodule_at(host, sub)
-    (host / "foundry.lock").write_text(json.dumps({"lib/sub": {"tag": {"name": "v1", "rev": "0" * 40}}}))
+    recorded = _submodule_at(host, sub)
+    (host / "lib" / "sub" / "a.txt").write_text("moved on\n")
+    _git(host / "lib" / "sub", "commit", "-qam", "moved on")
+    moved = subprocess.run(
+        ["git", "-C", str(host / "lib" / "sub"), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
 
-    problems, leftovers = doctor.submodule_problems(host)
+    problems, leftovers = doctor.submodule_problems(host, [])
 
     assert len(problems) == 1 and leftovers == [], (problems, leftovers)
-    assert problems[0].startswith("lib/sub: is at more than one version")
-    # The claims arrive as aligned rows - commit first, then who says it - so which of them agree is
-    # read off the shape rather than out of a sentence.
-    assert "0000000000  foundry.lock" in problems[0], problems[0]
-    assert "Repair: yarn update --relock lib/sub" in problems[0]
-    assert "git add" not in problems[0]
+    assert problems[0].startswith("lib/sub: is checked out ahead of the commit recorded for it"), problems[0]
+    # The claims arrive as aligned rows - commit first, then who says it.
+    assert f"{moved[:10]}  working tree" in problems[0], problems[0]
+    assert f"{recorded[:10]}  index" in problems[0], problems[0]
+    assert "Repair: git add lib/sub to record it, or yarn dep sync to drop it" in problems[0], problems[0]
 
 
 # ── the coverage the four superseded checks had, which iterating foundry.lock alone did not ──
@@ -553,22 +566,47 @@ def test_a_stray_clone_in_our_own_tree_is_reported(tmp_path):
     host = _nest(tmp_path)
     _init_repo(host / "lib" / "strayclone")
 
-    versions, leftovers = doctor.submodule_problems(host)
+    versions, leftovers = doctor.submodule_problems(host, [])
 
     assert any(p.startswith("lib/strayclone:") and "nothing tracks" in p for p in leftovers), leftovers
     assert not any("strayclone" in p for p in versions), "a directory to delete is not a version to move"
 
 
-def test_litter_inside_a_grandchild_is_reported(tmp_path):
-    # The shape of the real orphans: they sat two levels down, inside a dependency's dependency.
-    # Reading each submodule against its own parent is what reaches them.
+def commit_in(checkout: pathlib.Path, message: str) -> None:
+    """Move a checkout to a new commit of its own, off whatever its parent records."""
+    (checkout / "a.txt").write_text(f"{message}\n")
+    _git(checkout, "commit", "-qam", message)
+
+
+@pytest.mark.parametrize("shape", ["off its record", "not checked out", "holding litter"])
+def test_a_dependencys_own_nested_submodules_are_not_reported(tmp_path, shape):
+    # A dependency's nested submodules are its own lockfile: nothing here builds from one unless a remapping
+    # names it, so whatever state it is in is not this repository's finding.
     host = _nest(tmp_path)
-    _init_repo(host / "lib" / "dep" / "lib" / "child" / "lib" / "orphan")
+    child = host / "lib" / "dep" / "lib" / "child"
+    if shape == "off its record":
+        commit_in(child, "moved on")
+    elif shape == "not checked out":
+        _git(host / "lib" / "dep", "submodule", "deinit", "-q", "-f", "lib/child")
+    else:
+        _init_repo(child / "lib" / "orphan")
 
-    versions, leftovers = doctor.submodule_problems(host)
+    problems = sum(doctor.submodule_problems(host, []), [])
 
-    assert any("lib/dep/lib/child" in p and "lib/orphan" in p for p in leftovers), leftovers
-    assert not any("lib/orphan" in p for p in versions), versions
+    assert not any(p.startswith(("lib/dep:", "lib/dep/lib/child:")) for p in problems), problems
+
+
+def test_a_remapped_nested_path_off_its_record_is_reported(tmp_path):
+    # Once a remapping names a nested path, the build reads it, so its being off the commit the dependency
+    # records is this repository's finding - and sync is what brings it back.
+    host = _nest(tmp_path)
+    commit_in(host / "lib" / "dep" / "lib" / "child", "moved on")
+
+    problems, _ = doctor.submodule_problems(host, ["child/=lib/dep/lib/child/"])
+
+    finding = next((p for p in problems if p.startswith("lib/dep:")), None)
+    assert finding is not None, problems
+    assert "lib/dep/lib/child" in finding and "Repair: yarn dep sync" in finding, finding
 
 
 def test_a_dependency_at_the_wrong_version_with_leftovers_is_in_both_lists(tmp_path):
@@ -577,13 +615,11 @@ def test_a_dependency_at_the_wrong_version_with_leftovers_is_in_both_lists(tmp_p
     # stranded directory - one tree, two answers, which is what splitting the check must not cost.
     host = _nest(tmp_path)
     _init_repo(host / "lib" / "dep" / "lib" / "orphan")
-    lock = json.loads((host / "foundry.lock").read_text())
-    lock["lib/dep"] = {"tag": {"name": "v1", "rev": "0" * 40}}
-    (host / "foundry.lock").write_text(json.dumps(lock))
+    commit_in(host / "lib" / "dep", "moved on")
 
-    versions, leftovers = doctor.submodule_problems(host)
+    versions, leftovers = doctor.submodule_problems(host, [])
 
-    assert any(p.startswith("lib/dep: is at more than one version") for p in versions), versions
+    assert any(p.startswith("lib/dep: is checked out ahead of the commit recorded for it") for p in versions), versions
     assert any(p.startswith("lib/dep: has leftover directories") and "lib/orphan" in p for p in leftovers), leftovers
     # Each carries the command for its own fault, and neither offers the other's.
     version_finding = next(p for p in versions if p.startswith("lib/dep:"))
@@ -591,93 +627,30 @@ def test_a_dependency_at_the_wrong_version_with_leftovers_is_in_both_lists(tmp_p
     assert "--sweep lib/dep" in next(p for p in leftovers if p.startswith("lib/dep:"))
 
 
-def test_a_submodule_absent_from_foundry_lock_is_still_checked(tmp_path):
-    # The lock is forge's record and need not mention every submodule. Enumerating from .gitmodules
-    # is what stops one going unlooked-at precisely because nothing pinned it.
+def test_an_uninitialised_dependency_is_reported(tmp_path):
+    # Enumerated from .gitmodules, so a dependency nothing has checked out is looked at all the same, and
+    # checking it out at its record is sync's job.
     host = _nest(tmp_path)
-    _git(host, "submodule", "deinit", "-f", "lib/unlocked")
+    _git(host, "submodule", "deinit", "-q", "-f", "lib/unlocked")
 
-    problems, _ = doctor.submodule_problems(host)
+    problems, _ = doctor.submodule_problems(host, [])
 
-    assert any(p.startswith("lib/unlocked: recorded as a dependency but not checked out") for p in problems), problems
-
-
-def test_a_parent_is_not_reported_for_drift_its_children_already_explain(tmp_path):
-    # One cause, one finding. The child's own reading carries the repair, so repeating it as the
-    # parent's drift is the duplication this check replaced.
-    host = _nest(tmp_path)
-    _git(host / "lib" / "dep", "submodule", "deinit", "-f", "lib/child")
-
-    problems = sum(doctor.submodule_problems(host), [])
-
-    assert any(p.startswith("lib/dep/lib/child: recorded as a dependency but not checked out") for p in problems), (
-        problems
-    )
-    assert not any(p.startswith("lib/dep: its own dependencies are not at the commits it records") for p in problems), (
-        problems
-    )
+    finding = next((p for p in problems if p.startswith("lib/unlocked:")), "")
+    assert finding.startswith("lib/unlocked: recorded as a dependency but not checked out"), problems
+    assert "Repair: yarn dep sync" in finding, finding
 
 
-def test_a_lock_entry_for_a_departed_submodule_is_reported(tmp_path):
-    # The mirror of enumerating from .gitmodules: a removed dependency leaves its pin behind, and
-    # nothing that walks the submodule tree would ever look at it again.
-    host = _nest(tmp_path)
-    lock = json.loads((host / "foundry.lock").read_text())
-    lock["lib/departed"] = {"tag": {"name": "v9", "rev": "0" * 40}}
-    (host / "foundry.lock").write_text(json.dumps(lock))
-
-    versions, leftovers = doctor.submodule_problems(host)
-
-    assert any(p.startswith("lib/departed:") and "not a submodule" in p for p in leftovers), leftovers
-    assert not any(p.startswith("lib/departed:") for p in versions), "an entry pinning nothing is deleted, not moved"
-
-
-def test_a_submodule_a_foundry_project_never_pinned_is_reported(tmp_path):
-    # forge warns on drift only for what the lock names, so an unpinned dependency can move without
-    # anything noticing. `lib/unlocked` is in .gitmodules and in no lock entry.
-    host = _nest(tmp_path)
-
-    problems, _ = doctor.submodule_problems(host)
-
-    assert any(p.startswith("lib/unlocked: missing from foundry.lock") for p in problems), problems
-
-
-def test_a_third_party_dependency_without_a_lock_is_not_called_unpinned(tmp_path):
-    # `lib/dep` keeps no foundry.lock, so its own submodule being absent from one means nothing —
-    # most dependencies have never used forge. Only a project that keeps a lock has a gap.
-    host = _nest(tmp_path)
-
-    problems = sum(doctor.submodule_problems(host), [])
-
-    assert not any(p.startswith("lib/dep/lib/child: missing from foundry.lock") for p in problems), problems
-
-
-def test_a_lock_deviation_is_stated_even_when_something_else_is_named(tmp_path):
-    # The working tree is the truth, so any other commit the lock names is a deviation to fix.
-    # Editing a file in the dependency is work in progress and reported by nothing, so the lock
-    # deviation has to stand on its own - it used to arrive as a footnote under "holds work that
-    # exists nowhere else", which outranked it and read as the lesser problem.
+def test_a_hand_edited_file_in_a_dependency_is_not_a_finding(tmp_path):
+    # Editing inside a dependency is what working in one looks like, not a defect.
     host = _nest(tmp_path)
     (host / "lib" / "dep" / "a.txt").write_text("edited by hand\n")
 
-    assert [p for p in sum(doctor.submodule_problems(host), []) if p.startswith("lib/dep:")] == [], (
-        "a hand-edited file in a dependency is not a finding"
-    )
-
-    lock = json.loads((host / "foundry.lock").read_text())
-    lock["lib/dep"] = {"tag": {"name": "v1", "rev": "0" * 40}}
-    (host / "foundry.lock").write_text(json.dumps(lock))
-
-    problems = [p for p in doctor.submodule_problems(host)[0] if p.startswith("lib/dep:")]
-
-    assert problems[0].startswith("lib/dep: is at more than one version"), problems
-    assert "0000000000  foundry.lock" in problems[0], problems
+    assert [p for p in sum(doctor.submodule_problems(host, []), []) if p.startswith("lib/dep:")] == []
 
 
-def test_a_lock_deviation_is_not_claimed_against_a_checkout_that_was_never_read(tmp_path):
-    # The deviation is a comparison, and with the gitdir unreadable only one side of it exists. The
-    # checkout may well be on the very commit the lock names - nothing here can tell - so stating a
-    # difference would assert something nothing measured.
+def test_an_unreadable_dependency_is_reported_in_gits_words(tmp_path):
+    # With the gitdir unreadable nothing about the checkout can be compared, so git's refusal is the
+    # finding, with the command that mends the gitdir - and no version claim nothing measured.
     host = _nest(tmp_path)
     _git(
         host,
@@ -688,11 +661,38 @@ def test_a_lock_deviation_is_not_claimed_against_a_checkout_that_was_never_read(
         "../../../../nowhere/lib/dep",
     )
 
-    problems = [p for p in doctor.submodule_problems(host)[0] if p.startswith("lib/dep:")]
+    problems = [p for p in doctor.submodule_problems(host, [])[0] if p.startswith("lib/dep:")]
 
     assert problems, "an unreadable dependency is a finding"
-    assert "not the absent checked out here" not in problems[0], problems[0]
-    assert "could not be read" in problems[0], problems[0]
+    assert problems[0].startswith("lib/dep: is checked out, but git will not read it"), problems[0]
+    assert "fatal:" in problems[0], problems[0]
+    assert "Repair: git submodule update --init -- lib/dep" in problems[0], problems[0]
+    assert "ahead of" not in problems[0] and "behind" not in problems[0], problems[0]
+
+
+# ── remapping_target_problems: every remapping leads to a path a submodule provides ──
+def test_a_remapping_no_submodule_provides_is_reported(tmp_path):
+    # The two shapes found in harbor-yield: a path inside a dependency that declares nothing there
+    # (ds-test, dropped by forge-std) and a path no submodule declares at all (@uniswap). Each resolves no
+    # import, and a nested one would be checked out by nothing.
+    host = _nest(tmp_path)
+    remappings = ["ds-test/=lib/dep/lib/ds-test/src/", "@uniswap/v3-core/=lib/v3-core/", "dep/=lib/dep/"]
+
+    problems = doctor.remapping_target_problems(host, remappings)
+
+    assert len(problems) == 1, problems
+    listed = [line.strip() for line in problems[0].splitlines()[1:] if not line.strip().startswith("Repair:")]
+    assert listed == ["ds-test/=lib/dep/lib/ds-test/src/", "@uniswap/v3-core/=lib/v3-core/"], problems[0]
+    assert "Repair: remove each from foundry.toml and wake.toml" in problems[0], problems[0]
+
+
+def test_a_remapping_into_a_dependency_not_checked_out_is_not_called_dead(tmp_path):
+    # The path is missing because its dependency is not checked out - a finding of its own, repaired by
+    # sync - not because nothing provides it.
+    host = _nest(tmp_path)
+    _git(host, "submodule", "deinit", "-q", "-f", "lib/unlocked")
+
+    assert doctor.remapping_target_problems(host, ["unlocked/=lib/unlocked/src/"]) == []
 
 
 # ── wake_scope_problems: wake compiles only what forge builds ──

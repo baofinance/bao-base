@@ -21,14 +21,18 @@ from forge_config import forge_config
 from submodule_state import (
     Condition,
     Facts,
+    Recorded,
+    at_record,
     condition,
+    declared_submodules,
     litter_condition,
+    nested_levels,
     read_facts,
-    read_lock,
+    recorded_entry,
+    remapping_target,
     repair,
-    stale_lock_entries,
     stray_clones,
-    submodules,
+    submodule_levels,
 )
 
 
@@ -91,12 +95,12 @@ def strip_context_prefix(entry: str) -> str:
     return entry
 
 
-def submodule_url_drift(repo_dir: Path, prefix: str = "") -> list[tuple[str, str, str]]:
-    """Find submodules whose initialized URL in .git/config disagrees with the committed
-    .gitmodules. `git submodule update` trusts .git/config (written once at init/sync) and
-    never reconciles it when .gitmodules changes, so a stale .git/config silently clones the
-    wrong URL. Read-only: compares the two configs, recursing into populated submodules so
-    drift at any nesting level is reported. Returns (display path, .gitmodules url, .git/config url)."""
+def submodule_url_drift(repo_dir: Path) -> list[tuple[str, str, str]]:
+    """Find this repository's submodules whose initialized URL in .git/config disagrees with the
+    committed .gitmodules. `git submodule update` trusts .git/config (written once at init/sync) and
+    never reconciles it when .gitmodules changes, so a stale .git/config silently clones the wrong URL.
+    Read-only: compares the two configs. A dependency's own nested submodules are its business, so they
+    are not read. Returns (path, .gitmodules url, .git/config url)."""
     gitmodules = repo_dir / ".gitmodules"
     if not gitmodules.is_file():
         return []
@@ -121,7 +125,6 @@ def submodule_url_drift(repo_dir: Path, prefix: str = "") -> list[tuple[str, str
             text=True,
         )
         sub_path = path_result.stdout.strip() or name
-        display = f"{prefix}{sub_path}"
 
         # --local is the .git/config that `submodule update` reads. A non-zero return means
         # this submodule isn't initialized in this clone, so there is no stored URL to drift.
@@ -134,53 +137,47 @@ def submodule_url_drift(repo_dir: Path, prefix: str = "") -> list[tuple[str, str
         if local.returncode == 0:
             gitconfig_url = local.stdout.strip()
             if gitconfig_url != gitmodules_url:
-                drift.append((display, gitmodules_url, gitconfig_url))
-
-        nested = repo_dir / sub_path
-        if (nested / ".git").exists():
-            drift.extend(submodule_url_drift(nested, prefix=f"{display}/"))
+                drift.append((sub_path, gitmodules_url, gitconfig_url))
 
     return drift
 
 
-def _finding(facts: Facts, found: Condition, weigh: Sequence[str] = ()) -> str:
+def _finding(facts: Facts, found: Condition, weigh: Sequence[str] = (), entry: Recorded | None = None) -> str:
     """One finding as doctor prints it: what is wrong, the facts behind it, anything a reader must
     weigh before acting, and the one command that fixes it.
 
     Shared by the version findings and the leftovers, so the two checks cannot come to look like
     different tools reporting on the same tree."""
     lines = [f"{facts.path}: {found.summary}"]
-    # A comparison of claims arrives as rows and is aligned; every other condition is one fact in
-    # words. Same alignment as the cross-repo table in `dependency-conflicts.py`, from the same code,
-    # so a reader meets one column discipline rather than one per report.
+    # A comparison arrives as rows and is aligned; every other condition is one fact in words. Same
+    # alignment as the cross-repo table in `dependency-conflicts.py`, from the same code, so a reader
+    # meets one column discipline rather than one per report.
     lines.extend(columns.rows(found.rows, indent="  ") if found.rows else [f"  {found.detail}"])
+    if found.relation:
+        lines.append(f"  {found.relation}")
     lines.extend(f"  {item}" for item in weigh)
-    if fix := repair(facts, found):
+    if fix := repair(facts, found, entry):
         lines.append(f"  Repair: {fix}")
     return "\n".join(lines)
 
 
-def submodule_problems(repo_root: Path) -> tuple[list[str], list[str]]:
-    """One finding per submodule, from bin/submodule_state.py, split into (versions, leftovers).
+def submodule_problems(repo_root: Path, remappings: list[str]) -> tuple[list[str], list[str]]:
+    """One finding per dependency of this repository, from bin/submodule_state.py, split into
+    (versions, leftovers).
 
     Split by what the reader must DO, which is what a check title has to be true of: a version is
-    moved, staged or locked, and a leftover is deleted. Three findings reading "has leftover
-    directories from an older version" under a check titled "each dependency is at one version" made
-    the title false of half its contents, and the check's rationale had grown a clause about stranded
-    directories to cover them.
+    moved or staged, and a leftover is deleted. Three findings reading "has leftover directories from
+    an older version" under a check titled "each dependency is at one version" made the title false of
+    half its contents.
 
-    One traversal, because it walks every submodule and runs git in each: the split is which list a
-    finding lands in, never a second pass to find it.
+    Only this repository's own submodules are read. A dependency's nested submodules are its own
+    lockfile: the only ones that count are the paths `remappings` point into, judged as part of the
+    dependency that holds them, because those are what the build reads. The rest are not reported in any
+    state - checked out, stale or absent.
 
-    This replaces four checks that each compared a different pair of pins and each invented its own
-    repair - which is how one came to advise `git add` for a version disagreement while its sibling
-    documented that `git add` cannot fix one. Every reading and every repair now comes from the same
-    module `yarn update` converges against, so the two tools cannot disagree.
-
-    Consequences are nested UNDER their cause rather than listed beside it: a dependency whose nested
-    submodules are stale because its version was bumped without recursing is ONE finding, not two.
-    States that are normal are not reported at all - a branch pin behind its remote (bao-base's main
-    moves daily) and a dependency carrying local commits (what working in one looks like)."""
+    Every reading and every repair comes from the module `yarn dep` acts on, so the two tools cannot
+    disagree. States that are normal are not reported at all: a dependency carrying local commits is
+    what working in one looks like."""
     versions: list[str] = []
     leftovers: list[str] = []
     for stray in stray_clones(repo_root):
@@ -189,19 +186,14 @@ def submodule_problems(repo_root: Path) -> tuple[list[str], list[str]]:
             f"  its contents are invisible to everyone else, and no .gitmodules records it\n"
             f"  Repair: delete {stray} and, if one exists, its .git/modules/{stray} gitdir"
         )
-    for entry, pins in stale_lock_entries(repo_root):
-        leftovers.append(
-            f"{entry}: foundry.lock pins it ({pins}) but it is not a submodule\n"
-            f"  nothing reads the entry, and it misstates what this project depends on\n"
-            f"  Repair: remove the {entry} entry from foundry.lock"
-        )
-    readings = [
-        (facts, condition(facts))
-        for parent, name, display in submodules(repo_root)
-        for facts in [read_facts(parent, name, read_lock(parent).get(name), display)]
-    ]
-    reported = {facts.path for facts, found in readings if found.is_fault}
-    for facts, found in readings:
+    for dependency in declared_submodules(repo_root):
+        facts = read_facts(repo_root, dependency.path)
+        nested_off = [
+            (directory / level.path).relative_to(repo_root).as_posix()
+            for directory, level in nested_levels(repo_root, dependency.path, remappings)
+            if not at_record(directory, level)
+        ]
+        found = condition(facts, list(dict.fromkeys(nested_off)))
         # Leftovers are read on their own rather than through `condition`, which names one thing and
         # ranks a version disagreement above them. A dependency can be at the wrong version AND have
         # stranded directories - two faults, two commands - and a check titled "no dependency has
@@ -211,39 +203,35 @@ def submodule_problems(repo_root: Path) -> tuple[list[str], list[str]]:
             leftovers.append(_finding(facts, stranded))
         if not found.is_fault or found.name == "litter-present":
             continue
-        # A dependency whose only fault is that its own submodules are off their pins says nothing
-        # the reading of those submodules does not say better - and each of them carries the repair
-        # for its own case. Reporting both is the duplication this check exists to remove.
-        if found.name == "nested-drift" and any(other.startswith(f"{facts.path}/") for other in reported):
-            continue
-
         # Facts a reader must weigh before acting, which `condition` did not name because something
         # more urgent outranked it. Without these a repair can look safe when it is not.
         weigh = []
-        if found.reach:
-            weigh.append(f"a version bump has reached {found.reach}; foundry.lock has not caught up")
-        # The working tree is the truth - it is what builds here and what CI checks out - so any
-        # commit foundry.lock names other than that one is a deviation to be fixed, and must be said
-        # even when something more urgent was named, or the more pressing fault silently hides it.
-        if facts.lock.rev and facts.lock.rev != facts.worktree and found.name != "bumped-not-locked":
-            # A deviation is a comparison, and an unreadable gitdir leaves only one side of it. The
-            # checkout may be on the very commit the lock names - nothing here can tell - so what is
-            # said is that it could not be read, never that it differs.
-            if facts.unreadable:
-                weigh.append(f"and foundry.lock names {facts.lock.rev[:10]}; what is here could not be read")
-            else:
-                weigh.append(
-                    f"and foundry.lock names {facts.lock.rev[:10]}, not the "
-                    f"{(facts.worktree or 'absent')[:10]} checked out here"
-                )
         if facts.unpushed:
             weigh.append(
                 f"and {len(facts.unpushed)} commit(s) here are on no remote - pushing them first is the only backup"
             )
-        if facts.nested_drift and found.name != "nested-drift":
-            weigh.append(f"and {len(facts.nested_drift)} nested submodule(s) are off their recorded commits")
-        versions.append(_finding(facts, found, weigh))
+        versions.append(_finding(facts, found, weigh, recorded_entry(repo_root, dependency.path)))
     return versions, leftovers
+
+
+def remapping_target_problems(repo_root: Path, remappings: list[str]) -> list[str]:
+    """Remappings that lead to no path, though every submodule on the way is checked out at its record -
+    so no submodule provides the path, rather than one not yet being checked out (which the dependency
+    check reports, with its own repair). Such a remapping resolves no import, misstates what the build
+    reads, and points `yarn dep` at a nested path nothing declares. Returns one block listing each, or
+    []."""
+    dead = [
+        remapping
+        for remapping in remappings
+        if not (repo_root / remapping_target(remapping)).exists()
+        and all(at_record(directory, level) for directory, level in submodule_levels(repo_root, remapping_target(remapping)))
+    ]
+    if not dead:
+        return []
+    lines = ["Remappings that lead to no path, though every submodule on the way is at its recorded commit:"]
+    lines.extend(f"  {remapping}" for remapping in dead)
+    lines.append("  Repair: remove each from foundry.toml and wake.toml, which list the same remappings")
+    return ["\n".join(lines)]
 
 
 def remapping_problems(foundry_remappings: list[str], wake_remappings: list[str]) -> list[str]:
@@ -397,7 +385,7 @@ def submodule_url_drift_problems(repo_root: Path) -> list[str]:
         lines.append(f"  {display}")
         lines.append(f"    .git/config: {gitconfig_url}")
         lines.append(f"    .gitmodules: {gitmodules_url}")
-    lines.append("Repair (rewrites .git/config from .gitmodules): git submodule sync")
+    lines.append("Repair (rewrites .git/config from .gitmodules): yarn dep sync")
     return ["\n".join(lines)]
 
 
@@ -785,7 +773,9 @@ def build_checks(
 
     The submodule traversal runs once and its findings are split, because it walks every submodule
     and runs git in each; calling it per check would double that to say the same things."""
-    version_problems, leftover_problems = submodule_problems(repo_root)
+    # What forge resolves, as `yarn dep` reads it, so the two judge the same nested paths.
+    remappings: list[str] = forge_config(repo_root)["remappings"]
+    version_problems, leftover_problems = submodule_problems(repo_root, remappings)
     checks = [
         Check(
             "forge uses only the remappings foundry.toml writes",
@@ -805,6 +795,15 @@ def build_checks(
             remapping_problems(foundry_remappings, wake_remappings),
         ),
         Check(
+            "every remapping leads to a path a submodule provides",
+            "a remapping into a path no submodule declares resolves no import, yet reads as something the "
+            "build depends on - and for a path inside a dependency it names a nested checkout nothing "
+            "will ever make",
+            "readers and tools are told the build reads code that does not exist, and the remapping stays "
+            "to mislead the next reader long after whatever it once named was dropped",
+            remapping_target_problems(repo_root, remappings),
+        ),
+        Check(
             "wake compiles only what forge builds",
             "wake compiles every Solidity file in the project that wake.toml's exclude_paths does not cover, "
             "while forge builds only its source, test and script directories and what they import, so a "
@@ -821,22 +820,19 @@ def build_checks(
         ),
         Check(
             "each dependency is at one version",
-            "the checkout, what you have staged and foundry.lock must name one commit, and no single "
-            "tool writes all three — git writes the first two and forge the third. HEAD is not "
-            "consulted: this is what you run BEFORE committing, so a commit not yet made is not a "
-            "fault",
+            "each dependency's checkout, and each nested path a remapping reads from it, must be at the "
+            "commit staged for it. HEAD is not consulted: this is what you run BEFORE committing, so a "
+            "commit not yet made is not a fault",
             "a disagreement means the version you are building is not the version you are about to "
             "record, and whichever of them is wrong will be wrong for everyone who clones it",
             version_problems,
         ),
         Check(
             "no dependency has leftovers from an older version",
-            "a version change that moves or drops a nested dependency strands its directory, and a "
-            "dependency that is removed strands its foundry.lock entry — nothing walks the tree to "
-            "clear either, so both sit there until someone does",
+            "a version change that moves or drops a nested dependency strands its directory, and "
+            "nothing walks the tree to clear it, so it sits there until someone does",
             "forge and git read what is present, not what is recorded: a stranded checkout still "
-            "resolves imports, and an entry that pins nothing still misstates what this project "
-            "depends on",
+            "resolves imports",
             leftover_problems,
         ),
         workflow_copy.check(repo_root),

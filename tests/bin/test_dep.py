@@ -15,6 +15,7 @@ The repositories here are real, served from local paths, and the remappings are 
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import NamedTuple
 
@@ -22,6 +23,9 @@ import pytest
 
 BAO_BASE = Path(__file__).resolve().parents[2]
 DEP = BAO_BASE / "bin" / "dep"
+
+sys.path.insert(0, str(BAO_BASE / "bin"))
+import doctor  # noqa: E402 - importable only once bin is on the path
 
 # Cloning a submodule from a path on disk is refused by default (CVE-2022-39253). Allowing it through the
 # environment reaches every git call - the fixture's and the ones bin/dep makes - without touching a config.
@@ -783,6 +787,21 @@ def test_update_of_a_move_already_committed_leaves_nothing_to_run(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert "git add" not in result.stdout and "git commit" not in result.stdout, result.stdout
     assert "Nothing for you to run" in result.stdout, result.stdout
+
+
+def test_doctor_names_the_staging_dep_update_hands_over(tmp_path):
+    # The two tools must not give different answers about one tree. After a move, the staging doctor
+    # offers is the staging `dep update` handed over - the gitlink and, here, the .gitmodules entry.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    advance(world, "dep")
+    moved = update(here, "dep@main")
+    assert "Now yours to run:  git add lib/dep .gitmodules && git commit" in moved.stdout, moved.stdout
+
+    findings = [p for p in sum(doctor.submodule_problems(here, ["dep/=lib/dep/src/"]), []) if p.startswith("lib/dep:")]
+
+    assert len(findings) == 1, findings
+    assert "Repair: git add lib/dep .gitmodules to record it, or yarn dep sync to drop it" in findings[0], findings[0]
 
 
 def test_another_dependencys_gitmodules_entry_does_not_hold_this_one_back(tmp_path):

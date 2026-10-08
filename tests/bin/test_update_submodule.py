@@ -18,7 +18,6 @@ warns-and-proceeds: it either says nothing or it stops.
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -356,39 +355,6 @@ def test_a_stranded_directory_holding_work_is_not_removed(project, tmp_path):
     assert stranded.is_dir(), "it must still be there"
     assert (stranded / "mine.txt").is_file()
     assert "exists nowhere else" in result.stdout
-
-
-@pytest.mark.parametrize("stop_after", ["nothing", "stage", "commit"])
-def test_doctor_advises_exactly_what_update_would_do_next(project, stop_after):
-    # The two tools must not give different answers about the same tree. Doctor's Repair line is taken
-    # from the same checklist `yarn update` converges, so whatever update reports as its first undone
-    # stage is what doctor tells the user to run - across every point a bump can be abandoned at.
-    sys.path.insert(0, str(BAO_BASE / "bin"))
-    import doctor
-
-    git("fetch", "-q", "origin", cwd=project / "lib" / "dep")
-    update_submodule("dep@main")  # brings the working tree and the lock into line
-    if stop_after in ("stage", "commit"):
-        git("add", "lib/dep", "foundry.lock", cwd=project)
-    if stop_after == "commit":
-        git("commit", "-qm", "record dep", cwd=project)
-
-    findings = [p for p in sum(doctor.submodule_problems(project), []) if p.startswith("lib/dep:")]
-    checked = update_submodule("--check", "dep@main")
-
-    if not findings:
-        # Doctor judges the working tree's foundry.lock and does not judge HEAD, so its silence
-        # answers for every stage `yarn update` performs - the user's own staging and committing of
-        # the lock entry, stages 6 and 7, can still be open.
-        undone = [line.strip() for line in checked.stdout.splitlines() if line.strip().startswith("[ ]")]
-        assert all(line.startswith(("[ ] 6.", "[ ] 7.")) for line in undone), (
-            f"doctor is quiet, so update must have nothing left of its own: {undone}"
-        )
-        return
-    advice = next(line.split("Repair: ", 1)[1] for line in findings[0].splitlines() if "Repair: " in line)
-    first_undone = next(line.strip() for line in checked.stdout.splitlines() if line.strip().startswith("[ ]"))
-    assert advice in checked.stdout, f"doctor advises {advice!r}, which update never mentions"
-    assert first_undone, "and update must actually have something undone"
 
 
 # ── where HEAD is left: on the branch a branch pin follows, detached for anything else ────────────

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
@@ -419,6 +419,20 @@ def staged_gitlink(repo_dir: Path, path: str) -> str | None:
     return fields[1] if len(fields) > 1 else None
 
 
+def checked_out(checkout: Path) -> str | None:
+    """The commit a checkout is on, or None when there is no checkout git can read."""
+    if not (checkout / ".git").exists():
+        return None
+    head = git(checkout, "rev-parse", "HEAD")
+    return head.stdout.strip() if head.returncode == 0 else None
+
+
+def at_record(directory: Path, level: Declared) -> bool:
+    """Whether the submodule `directory` declares is checked out at the commit `directory` records."""
+    have = checked_out(directory / level.path)
+    return have is not None and have == staged_gitlink(directory, level.path)
+
+
 def _about(commit: str | None, checkouts: list[Path]) -> Pinned:
     """Describe `commit` from whichever checkout holds the object.
 
@@ -657,17 +671,18 @@ def _litter(submodule: Path) -> list[str]:
 @dataclass(frozen=True)
 class Condition:
     """What is wrong with one submodule, named. The facts behind the name never speculate about how
-    the state arose: a working tree ahead of the recorded pins looks identical whether a GUI bumped it
-    or a forge run half-finished, so claiming either would be invention.
+    the state arose: a checkout ahead of its record looks identical whether someone moved it on purpose
+    or a run stopped half-way, so claiming either would be invention.
 
     They arrive as `detail` OR as `rows`, never both - one representation per condition, so a sentence
-    and a table cannot drift apart. `rows` is for the one condition that is a COMPARISON of claims,
-    where which of them agree is the thing a reader acts on and a sentence hides it; every other
-    condition is a single fact and says it in words."""
+    and a table cannot drift apart. `rows` is for the conditions that COMPARE the checkout with its
+    record, where the two commits side by side are what a reader acts on; every other condition is a
+    single fact and says it in words. `relation` says how the two commits relate when neither leads to
+    the other, which the name alone cannot."""
 
     name: str
     detail: str
-    reach: str | None = None
+    relation: str | None = None
     # Cells for `columns.rows`, laid out by whoever renders them - the alignment is not this module's
     # business, and neither is the indent it will sit under.
     rows: tuple[tuple[str, ...], ...] = ()
@@ -679,13 +694,12 @@ class Condition:
     SUMMARIES = {
         "uninitialised": "recorded as a dependency but not checked out",
         "unreadable": "is checked out, but git will not read it",
-        "at-risk-content": "holds work that exists nowhere else",
         "litter-present": "has leftover directories from an older version",
-        "nested-drift": "its own dependencies are not at the commits it records",
-        "unpinned": "missing from foundry.lock",
-        "bumped-not-locked": "is at more than one version",
-        "behind-moving-pin": "is behind the branch it tracks",
-        "consistent": "agrees with the commit",
+        "nested-drift": "has remapped nested paths that are not at the commits it records",
+        "behind-record": "is checked out behind the commit recorded for it",
+        "ahead-of-record": "is checked out ahead of the commit recorded for it",
+        "off-record": "is checked out at a commit the recorded one neither leads to nor follows",
+        "consistent": "agrees with the commit recorded for it",
     }
 
     @property
@@ -694,12 +708,10 @@ class Condition:
 
     @property
     def is_fault(self) -> bool:
-        """Whether doctor should report it. Only a branch pin behind its remote is excluded: that is
-        the remote moving, not this repository holding anything, and bao-base's main moves daily.
-
-        Work in progress inside a dependency is not among these at all - see `condition`. Doctor
-        grades what has been DONE, and unfinished work is not a defect."""
-        return self.name not in ("consistent", "behind-moving-pin")
+        """Whether doctor should report it: anything but agreement. Work in progress inside a dependency
+        is not among the conditions at all - see `condition`. Doctor grades what has been DONE, and
+        unfinished work is not a defect."""
+        return self.name != "consistent"
 
 
 def litter_condition(facts: Facts) -> Condition | None:
@@ -717,10 +729,13 @@ def litter_condition(facts: Facts) -> Condition | None:
     return Condition("litter-present", "untracked repositories: " + ", ".join(facts.litter))
 
 
-def condition(facts: Facts) -> Condition:
-    """Name what is wrong, most fundamental first: a submodule that is not checked out has no other
-    meaningful state, and work that a repair would destroy outranks the disagreement that prompted the
-    repair."""
+def condition(facts: Facts, nested_off: Sequence[str] = ()) -> Condition:
+    """Name what is wrong with one of this repository's own dependencies, most fundamental first: a
+    submodule that is not checked out has no other meaningful state.
+
+    `nested_off` is each remapped nested path beneath it that is not at its record. Those are the only
+    nested submodules the build reads, so they are the only ones that count; the dependency's others are
+    its own lockfile, whatever state they are in."""
     # Ahead of `uninitialised`, which it would otherwise be read as: both leave `worktree` unset, and
     # only this one means the checkout is sitting right there. Git's own words are the detail, per
     # "error messages report facts, not assumptions" - a dangling core.worktree, a gitdir that was
@@ -741,48 +756,31 @@ def condition(facts: Facts) -> Condition:
     # else" and buried a real lock disagreement under it as an afterthought.
 
     # URL drift is deliberately NOT named here. doctor owns it in its own check, which compares
-    # .git/config (what `git submodule update` actually reads) rather than the submodule's `origin`,
-    # and recurses. Two checks reporting one fault in two vocabularies is the thing this module
-    # exists to stop, so there is exactly one owner.
+    # .git/config (what `git submodule update` actually reads) rather than the submodule's `origin`.
+    # Two checks reporting one fault in two vocabularies is the thing this module exists to stop, so
+    # there is exactly one owner.
 
     # HEAD is deliberately absent. doctor is what you run BEFORE committing, so a check that withholds
     # a pass until you commit demands the very thing it exists to prepare you for - and HEAD lagging is
     # only "not committed yet", which is what all work in progress looks like. What it judges is the
-    # checkout, what you have STAGED, and foundry.lock: the same index-is-the-baseline rule as
-    # `ratchet.resolve` and the dependency-version check. HEAD still narrates `reach` below, because
-    # how far a bump travelled is worth saying once something else has already made it a fault.
-    pins = {
-        "working tree": facts.worktree,
-        "index": facts.index_gitlink,
-        "foundry.lock": facts.lock.rev,
-    }
-    distinct = {value for value in pins.values() if value}
-
-    if len(distinct) > 1:
-        # Grouped by the commit they name rather than listed flat: which claims AGREE is the thing a
-        # reader acts on, and three values in a row hides it. One row per distinct commit, the commit
-        # first because its width is fixed and the list of claimants' is not.
-        agreeing: dict[str, list[str]] = {}
-        for where, what in pins.items():
-            if what:
-                agreeing.setdefault(what, []).append(where)
-        disagreement = tuple((what[:10], " + ".join(names)) for what, names in agreeing.items())
-
-        # `reach` narrates how far a version bump travelled, and is set ONLY for the three shapes a
-        # bump actually produces - the lock behind, and the change having reached the working tree,
-        # the index, or HEAD. Any other disagreement is not a bump, and guessing at one produced a
-        # message that said the lock was behind when the lock and the working tree in fact agreed.
-        # The grouping above is always true; this is the part that can only be said sometimes.
-        behind = facts.lock.rev
-        reach = None
-        if facts.worktree != behind:
-            if facts.head_gitlink == facts.index_gitlink == behind:
-                reach = "the working tree"
-            elif facts.worktree == facts.index_gitlink and facts.head_gitlink == behind:
-                reach = "the index"
-            elif facts.worktree == facts.index_gitlink == facts.head_gitlink:
-                reach = "HEAD"
-        return Condition("bumped-not-locked", "", reach, disagreement)
+    # checkout against what you have STAGED: the same index-is-the-baseline rule as `ratchet.resolve`
+    # and the dependency-version check. foundry.lock is not read at all.
+    if facts.worktree != facts.index_gitlink:
+        # The two commits side by side, the commit first because its width is fixed.
+        rows = (((facts.worktree or "")[:10], "working tree"), ((facts.index_gitlink or "absent")[:10], "index"))
+        # Which is later decides the repair - a checkout behind its record is stale and goes forward to
+        # it, one ahead is a move not yet recorded - and only the graph can say which.
+        relation = _relation(facts.worktree, facts.index_gitlink, [facts.directory])
+        if relation == "ours is later":
+            return Condition("ahead-of-record", "", None, rows)
+        if relation == "theirs is later":
+            return Condition("behind-record", "", None, rows)
+        return Condition(
+            "off-record",
+            "",
+            relation or "which is later cannot be read: the checkout does not hold both commits",
+            rows,
+        )
 
     # No branch for unpushed commits: `at_risk` above already collects them, running the same
     # `git log HEAD --not --remotes`, so anything this could match has returned already. One measure
@@ -791,20 +789,8 @@ def condition(facts: Facts) -> Condition:
     if leftovers := litter_condition(facts):
         return leftovers
 
-    if facts.nested_drift:
-        return Condition(
-            "nested-drift",
-            f"{len(facts.nested_drift)} nested submodule(s) off their recorded commits",
-        )
-
-    if facts.lock.kind == "unpinned":
-        return Condition(
-            "unpinned",
-            "a submodule of a foundry project, but foundry.lock does not name it",
-        )
-
-    if facts.lock.moving and facts.remote_tip and facts.remote_tip != facts.worktree:
-        return Condition("behind-moving-pin", f"behind origin/{facts.lock.name}")
+    if nested_off:
+        return Condition("nested-drift", ", ".join(nested_off))
 
     return Condition("consistent", f"agrees on {(facts.worktree or '')[:10]}")
 
@@ -1007,92 +993,27 @@ def move_checklist(
     ]
 
 
-def repair(facts: Facts, found: Condition) -> str:
+def repair(facts: Facts, found: Condition, entry: Recorded | None = None) -> str:
     """The one action that reaches a consistent state, looked up rather than composed.
 
-    Every repair here is read off the same action->effect knowledge the checklist uses, which is what
-    stops two checks recommending opposite things. In particular `git add` is never offered for a
-    version disagreement: staging moves the gitlink and cannot touch foundry.lock, so it records the
-    disagreement instead of resolving it - the mistake the old doctor made.
-    """
-    # The PATH, never the basename. A dependency's dependency routinely shares a name with one of
-    # ours - bao-base and OpenZeppelin both carry `lib/forge-std` - so a basename sends `yarn update`
-    # to a different repository, moving one that was fine and leaving the reported problem untouched.
-    # `resolve_path` accepts a full path, so this costs nothing for the ordinary top-level case.
-    name = facts.path
-    if found.name in ("uninitialised", "unreadable"):
-        # The same command for both: it writes the gitdir's `core.worktree` afresh, which is what
-        # mends a checkout git has lost track of, and fetches one that is not there at all.
-        return f"git submodule update --init --recursive {facts.path}"
-    if found.name == "at-risk-content":
-        return f"commit and push it, or discard it: git -C {facts.path} status --untracked-files=all"
-    if found.name == "nested-drift":
-        return f"git -C {facts.path} submodule update --init --recursive"
+    `entry` is the dependency's `.gitmodules` entry. Recording a move stages that entry beside the
+    gitlink when its working-tree version is not staged, exactly as `yarn dep update` hands a move over,
+    so the two tools never name different staging for one tree."""
+    if found.name == "unreadable":
+        # git's own mend: it writes the gitdir's `core.worktree` afresh.
+        return f"git submodule update --init -- {facts.path}"
+    if found.name in ("uninitialised", "behind-record", "nested-drift"):
+        # Each is a checkout not at what is recorded, and checking out what is recorded is sync's job.
+        # Never `git add` for a stale checkout: that records the older commit, moving the dependency
+        # backwards for everyone who pulls.
+        return "yarn dep sync"
     if found.name == "litter-present":
         # Not a version change: the directory outlived the move that stranded it, and clearing it
-        # touches no pin, lock or gitlink. Kept separate so it can also be offered for a submodule of
-        # a submodule, whose version is its own parent's to change but whose litter is still here.
+        # touches no gitlink.
         return f"yarn update --sweep {facts.path}"
-    if found.name == "unpinned":
-        # forge writes the entry when it installs, so pinning it is the same command as updating it.
-        return f"yarn update {name}@{facts.worktree_ref or '<ref>'}"
-    if found.name in ("bumped-not-locked", "litter-present"):
-        # When the checkout and the index already agree and only the lock is behind them, the repair
-        # needs no ref: `--relock` reads the staged commit rather than being told it. That matters
-        # because `worktree_ref` is an EXACT tag match, so a branch bump - which is what most bumps
-        # are - lands on no tag, and the ref-bearing advice below degrades to a literal `<ref>` the
-        # user has no way to answer.
-        #
-        # Staged is the whole condition, and it is `relock`'s own precondition for the same reason:
-        # what it records is what is there, so an accidental checkout would become the recorded pin
-        # and the disagreement that would have shown it up would be gone. Unstaged, the checkout is
-        # exactly the thing that might be wrong, and the user has to say what they meant.
-        if facts.worktree is not None and facts.index_gitlink == facts.worktree and facts.lock.rev != facts.worktree:
-            return f"yarn update --relock {name}"
-        # Taken from the CHECKLIST rather than written here, against the version the working tree is
-        # actually on - the working tree being the truth. So doctor's advice is literally the next
-        # thing `yarn update` would do, and the two cannot drift apart or contradict each other.
-        #
-        # It also gets the case a fixed string got wrong: when every claim agrees except HEAD, the
-        # dependency is staged and not committed, and the fix is `git commit` - not an update.
-        # When the lock's REV already names the checked-out commit, the lock is right and the ref in
-        # play is the one it records - even if that commit carries no tag of its own, which is the
-        # usual case for a branch. Passing the working tree's tag there instead reported a correct
-        # lock as out of step, and sent the user to `yarn update` when all that was left was to stage
-        # or commit.
-        target_ref = facts.lock.name if facts.lock.rev == facts.worktree else facts.worktree_ref
-        undone = [
-            stage for stage in checklist(facts, target_ref, facts.worktree) if not stage.done and 2 <= stage.number <= 7
-        ]
-        # Stages 2-5 are `yarn update`'s to perform, 6 and 7 are the user's - so the first stage that
-        # is not done says which of the two is being asked for. That is what stops doctor telling
-        # someone to update a dependency whose only remaining need is `git commit`.
-        if undone and undone[0].number >= 6:
-            return undone[0].action
-        return f"yarn update {name}@{facts.worktree_ref or '<ref>'}"
+    if found.name in ("ahead-of-record", "off-record"):
+        # Only the user knows whether the checkout was meant, so both directions are named.
+        unstaged_entry = entry is not None and entry.staged != entry.working
+        staging = " ".join([facts.path, *([".gitmodules"] if unstaged_entry else [])])
+        return f"git add {staging} to record it, or yarn dep sync to drop it"
     return ""
-
-
-def stale_lock_entries(repo_root: Path) -> list[tuple[str, str]]:
-    """foundry.lock entries naming a path that is not a submodule, as (display path, what it pins).
-
-    The mirror of enumerating from .gitmodules: a dependency that was removed leaves its pin behind,
-    and nothing that walks the submodule tree would ever look at it. It pins nothing, so it misleads
-    every reader of the lock about what the project depends on. Checked for every parent that keeps a
-    lock, since a consumer repository and bao-base each have their own.
-    """
-    prefixes: dict[Path, str] = {repo_root: ""}
-    children: dict[Path, set[str]] = {repo_root: set()}
-    for parent, name, display in submodules(repo_root):
-        children.setdefault(parent, set()).add(name)
-        prefixes[parent / name] = f"{display}/"
-        children.setdefault(parent / name, set())
-
-    stale: list[tuple[str, str]] = []
-    for repo, names in children.items():
-        if not (repo / "foundry.lock").is_file():
-            continue
-        for path, pin in read_lock(repo).items():
-            if path not in names:
-                stale.append((f"{prefixes.get(repo, '')}{path}", f"{pin.kind} {pin.name or (pin.rev or '')[:10]}"))
-    return stale

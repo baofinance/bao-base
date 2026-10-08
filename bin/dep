@@ -35,7 +35,9 @@ from submodule_state import (
     MOVING,
     Declared,
     Pin,
+    at_record,
     at_risk,
+    checked_out,
     declared_submodules,
     git,
     move_checklist,
@@ -78,20 +80,6 @@ def run(repo_root: Path, where: Path, *arguments: str) -> None:
     for line in (result.stdout + result.stderr).rstrip().splitlines():
         print(f"    {line}", flush=True)
     raise StepFailed(command)
-
-
-def checked_out(checkout: Path) -> str | None:
-    """The commit a checkout is on, or None when there is no checkout git can read."""
-    if not (checkout / ".git").exists():
-        return None
-    head = git(checkout, "rev-parse", "HEAD")
-    return head.stdout.strip() if head.returncode == 0 else None
-
-
-def at_record(directory: Path, level: Declared) -> bool:
-    """Whether the submodule `directory` declares is checked out at the commit `directory` records."""
-    have = checked_out(directory / level.path)
-    return have is not None and have == staged_gitlink(directory, level.path)
 
 
 def report(repo_root: Path, dependencies: list[Declared], remappings: list[str]) -> bool:
