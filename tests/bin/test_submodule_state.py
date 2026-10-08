@@ -191,7 +191,11 @@ def test_an_unrelated_checkout_states_the_relation_and_names_both_repairs(world)
 
     assert found.name == "off-record", found
     assert found.relation == "unrelated histories", found
-    assert repair(facts, found) == "git add lib/dep to record it, or yarn dep sync to drop it"
+    # The commit was made here and never pushed, so either way it is dealt with first.
+    assert repair(facts, found) == (
+        "To keep the folder's version: push it (git -C lib/dep push), then git add lib/dep. "
+        "To go back to the version this repository points to: remove the unpushed commit, then yarn dep sync."
+    )
 
 
 def test_an_uninitialised_submodule_outranks_every_other_reading(world):
@@ -256,7 +260,7 @@ def test_an_unreadable_checkout_is_a_fault_with_a_repair(world):
     found = condition(facts)
 
     assert found.is_fault, found
-    assert repair(facts, found) == "git submodule update --init -- lib/dep"
+    assert repair(facts, found) == "git submodule update --init -- lib/dep (this repairs git's link to the folder)"
 
 
 def test_a_developer_edit_blocks_a_delete_and_nested_drift_does_not(world):
@@ -498,7 +502,7 @@ def test_a_stale_checkout_is_never_repaired_by_staging(world):
     facts = facts_for(world.project)
     fix = repair(facts, condition(facts))
 
-    assert fix == "yarn dep sync", fix
+    assert fix == "yarn dep sync (this checks out the commits this repository points to)", fix
 
 
 def test_a_nested_submodules_own_commits_block_a_delete(world):
@@ -662,8 +666,11 @@ def test_a_move_names_gitmodules_beside_the_gitlink_when_its_entry_is_unstaged(w
     facts = facts_for(world.project)
     fix = repair(facts, condition(facts), recorded_entry(world.project, "lib/dep"))
 
-    staged = "git add lib/dep .gitmodules" if branch_recorded else "git add lib/dep"
-    assert fix == f"{staged} to record it, or yarn dep sync to drop it", fix
+    adding = "git add lib/dep .gitmodules" if branch_recorded else "git add lib/dep"
+    assert fix == (
+        f"To keep the folder's version: {adding} (this repository then points to it). "
+        "To go back to the version this repository points to: yarn dep sync."
+    ), fix
 
 
 # ── one version per dependency, within a tree ─────────────────────────────────────────────────────

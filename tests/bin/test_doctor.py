@@ -72,7 +72,7 @@ def test_url_drift_detected_when_gitmodules_url_changes(tmp_path):
     drift = doctor.submodule_url_drift(host)
     assert any("lib/sub" in display for display, _gm, _gc in drift)
     reported = "\n".join(doctor.submodule_url_drift_problems(host))
-    assert "Repair (rewrites .git/config from .gitmodules): yarn dep sync" in reported, reported
+    assert "Repair: yarn dep sync (this copies the URLs from .gitmodules to .git/config)" in reported, reported
 
 
 def test_url_drift_inside_a_dependency_is_not_reported(tmp_path):
@@ -496,18 +496,39 @@ def test_submodule_problems_says_nothing_when_every_claim_agrees(tmp_path):
     assert doctor.submodule_problems(host, []) == ([], [])
 
 
+def test_a_folder_holding_unpushed_commits_is_repaired_by_pushing_or_removing_them(tmp_path):
+    # Making the repository point to a commit no remote holds breaks every other clone - the fault that
+    # started this work - and `yarn dep sync` refuses to move a folder that holds one. So the repair
+    # says to push first, or to remove the commits first.
+    sub = _init_repo(tmp_path / "sub")
+    (sub / "a.txt").write_text("a")
+    _git(sub, "add", ".")
+    _git(sub, "commit", "-qm", "content")
+    host = _init_repo(tmp_path / "host")
+    _submodule_at(host, sub)
+    (host / "lib" / "sub" / "a.txt").write_text("only here\n")
+    _git(host / "lib" / "sub", "commit", "-qam", "only here")
+
+    problems, _ = doctor.submodule_problems(host, [])
+
+    repair = next(line for line in problems[0].splitlines() if "Repair:" in line)
+    assert "git -C lib/sub push" in repair, repair
+    assert "remove the unpushed commit" in repair, repair
+
+
 def test_submodule_problems_reports_one_finding_carrying_its_own_repair(tmp_path):
-    # What replaced four checks reporting the same cause four ways with two contradictory repairs. A
-    # checkout moved ahead of what is staged is a move not yet recorded, and only the user knows whether
-    # it was meant: the repair names recording it and dropping it, and nothing else.
+    # What replaced four checks reporting the same cause four ways with two contradictory repairs. A folder
+    # moved to a newer commit than the repository points to is a move not yet added, and only the user
+    # knows whether it was meant: the repair names keeping it and going back, and nothing else.
     sub = _init_repo(tmp_path / "sub")
     (sub / "a.txt").write_text("a")
     _git(sub, "add", ".")
     _git(sub, "commit", "-qm", "content")
     host = _init_repo(tmp_path / "host")
     recorded = _submodule_at(host, sub)
-    (host / "lib" / "sub" / "a.txt").write_text("moved on\n")
-    _git(host / "lib" / "sub", "commit", "-qam", "moved on")
+    # The newer commit is the remote's, so nothing in the folder is only on this computer.
+    commit_in(sub, "moved on")
+    _git(host / "lib" / "sub", "pull", "-q", "--ff-only")
     moved = subprocess.run(
         ["git", "-C", str(host / "lib" / "sub"), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
     ).stdout.strip()
@@ -515,11 +536,14 @@ def test_submodule_problems_reports_one_finding_carrying_its_own_repair(tmp_path
     problems, leftovers = doctor.submodule_problems(host, [])
 
     assert len(problems) == 1 and leftovers == [], (problems, leftovers)
-    assert problems[0].startswith("lib/sub: is checked out ahead of the commit recorded for it"), problems[0]
-    # The claims arrive as aligned rows - commit first, then who says it.
-    assert f"{moved[:10]}  working tree" in problems[0], problems[0]
-    assert f"{recorded[:10]}  index" in problems[0], problems[0]
-    assert "Repair: git add lib/sub to record it, or yarn dep sync to drop it" in problems[0], problems[0]
+    assert problems[0].startswith("lib/sub: the folder has a newer commit than the one host points to"), problems[0]
+    # The two commits arrive as aligned rows, the commit first, then where it is.
+    assert f"{moved[:10]}  in the lib/sub folder" in problems[0], problems[0]
+    assert f"{recorded[:10]}  host points to" in problems[0], problems[0]
+    assert (
+        "Repair: To keep the folder's version: git add lib/sub (host then points to it). "
+        "To go back to the version host points to: yarn dep sync."
+    ) in problems[0], problems[0]
 
 
 # ── the coverage the four superseded checks had, which iterating foundry.lock alone did not ──
@@ -568,7 +592,7 @@ def test_a_stray_clone_in_our_own_tree_is_reported(tmp_path):
 
     versions, leftovers = doctor.submodule_problems(host, [])
 
-    assert any(p.startswith("lib/strayclone:") and "nothing tracks" in p for p in leftovers), leftovers
+    assert any(p.startswith("lib/strayclone:") and "is not a submodule" in p for p in leftovers), leftovers
     assert not any("strayclone" in p for p in versions), "a directory to delete is not a version to move"
 
 
@@ -606,7 +630,7 @@ def test_a_remapped_nested_path_off_its_record_is_reported(tmp_path):
 
     finding = next((p for p in problems if p.startswith("lib/dep:")), None)
     assert finding is not None, problems
-    assert "lib/dep/lib/child" in finding and "Repair: yarn dep sync" in finding, finding
+    assert "lib/dep/lib/child" in finding and "Repair: yarn dep sync (" in finding, finding
 
 
 def test_a_dependency_at_the_wrong_version_with_leftovers_is_in_both_lists(tmp_path):
@@ -619,8 +643,10 @@ def test_a_dependency_at_the_wrong_version_with_leftovers_is_in_both_lists(tmp_p
 
     versions, leftovers = doctor.submodule_problems(host, [])
 
-    assert any(p.startswith("lib/dep: is checked out ahead of the commit recorded for it") for p in versions), versions
-    assert any(p.startswith("lib/dep: has leftover directories") and "lib/orphan" in p for p in leftovers), leftovers
+    assert any(p.startswith("lib/dep: the folder has a newer commit than the one host points to") for p in versions), (
+        versions
+    )
+    assert any(p.startswith("lib/dep: contains old git repositories") and "lib/orphan" in p for p in leftovers), leftovers
     # Each carries the command for its own fault, and neither offers the other's.
     version_finding = next(p for p in versions if p.startswith("lib/dep:"))
     assert "--sweep" not in version_finding, version_finding
@@ -636,8 +662,8 @@ def test_an_uninitialised_dependency_is_reported(tmp_path):
     problems, _ = doctor.submodule_problems(host, [])
 
     finding = next((p for p in problems if p.startswith("lib/unlocked:")), "")
-    assert finding.startswith("lib/unlocked: recorded as a dependency but not checked out"), problems
-    assert "Repair: yarn dep sync" in finding, finding
+    assert finding.startswith("lib/unlocked: is in .gitmodules, but nothing is checked out in its folder"), problems
+    assert "Repair: yarn dep sync (" in finding, finding
 
 
 def test_a_hand_edited_file_in_a_dependency_is_not_a_finding(tmp_path):
@@ -664,10 +690,10 @@ def test_an_unreadable_dependency_is_reported_in_gits_words(tmp_path):
     problems = [p for p in doctor.submodule_problems(host, [])[0] if p.startswith("lib/dep:")]
 
     assert problems, "an unreadable dependency is a finding"
-    assert problems[0].startswith("lib/dep: is checked out, but git will not read it"), problems[0]
+    assert problems[0].startswith("lib/dep: has a folder that git cannot read"), problems[0]
     assert "fatal:" in problems[0], problems[0]
     assert "Repair: git submodule update --init -- lib/dep" in problems[0], problems[0]
-    assert "ahead of" not in problems[0] and "behind" not in problems[0], problems[0]
+    assert "commit than the one" not in problems[0], f"no comparison can be claimed: {problems[0]}"
 
 
 # ── remapping_target_problems: every remapping leads to a path a submodule provides ──
@@ -683,7 +709,7 @@ def test_a_remapping_no_submodule_provides_is_reported(tmp_path):
     assert len(problems) == 1, problems
     listed = [line.strip() for line in problems[0].splitlines()[1:] if not line.strip().startswith("Repair:")]
     assert listed == ["ds-test/=lib/dep/lib/ds-test/src/", "@uniswap/v3-core/=lib/v3-core/"], problems[0]
-    assert "Repair: remove each from foundry.toml and wake.toml" in problems[0], problems[0]
+    assert "Repair: remove each one from foundry.toml and from wake.toml" in problems[0], problems[0]
 
 
 def test_a_remapping_into_a_dependency_not_checked_out_is_not_called_dead(tmp_path):
@@ -876,8 +902,8 @@ def test_remapping_detection_reported_at_forges_default(tmp_path, monkeypatch):
     repo = _with_foundry_toml(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), "")
     problems = doctor.remapping_detection_problems(repo)
     assert len(problems) == 1
-    assert "forge config resolves auto_detect_remappings to true" in problems[0]
-    assert "Repair: set auto_detect_remappings = false under [profile.default] in foundry.toml" in problems[0]
+    assert "forge config gives auto_detect_remappings = true" in problems[0], problems[0]
+    assert "Repair: set auto_detect_remappings = false in [profile.default] in foundry.toml" in problems[0], problems[0]
 
 
 def test_remapping_detection_reads_what_forge_resolves_not_the_file(tmp_path, monkeypatch):
@@ -888,7 +914,7 @@ def test_remapping_detection_reads_what_forge_resolves_not_the_file(tmp_path, mo
     )
     problems = doctor.remapping_detection_problems(repo)
     assert len(problems) == 1
-    assert "forge config resolves auto_detect_remappings to true" in problems[0]
+    assert "forge config gives auto_detect_remappings = true" in problems[0], problems[0]
 
 
 def test_remapping_detection_reported_when_forge_does_not_report_it(tmp_path, monkeypatch):
@@ -896,4 +922,4 @@ def test_remapping_detection_reported_when_forge_does_not_report_it(tmp_path, mo
     monkeypatch.setattr(doctor, "forge_config", lambda repo_root: {})
     problems = doctor.remapping_detection_problems(tmp_path)
     assert len(problems) == 1
-    assert "forge config does not report auto_detect_remappings" in problems[0]
+    assert "forge config does not give auto_detect_remappings" in problems[0], problems[0]

@@ -248,8 +248,10 @@ def test_sync_reports_remappings_no_submodule_provides(tmp_path):
     result = sync(here)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "! ds-test/=lib/dep/lib/ds-test/src/ - no submodule provides lib/dep/lib/ds-test/src" in result.stdout
-    assert "! @uniswap/v3-core/=lib/v3-core/ - no submodule provides lib/v3-core" in result.stdout
+    assert "! remapping ds-test/=lib/dep/lib/ds-test/src/ points to lib/dep/lib/ds-test/src, which does not exist" in (
+        result.stdout
+    )
+    assert "! remapping @uniswap/v3-core/=lib/v3-core/ points to lib/v3-core, which does not exist" in result.stdout
     assert checked_out_paths(here) == TOP_LEVEL
 
 
@@ -266,7 +268,8 @@ def test_sync_refuses_work_that_exists_nowhere_else(tmp_path):
     result = sync(here)
 
     assert result.returncode != 0
-    assert "lib/dep/notes.txt" in result.stdout and "exists nowhere else" in result.stdout, result.stdout
+    assert "lib/dep/notes.txt: not tracked by git" in result.stdout, result.stdout
+    assert "exist only on this computer" in result.stdout, result.stdout
     assert steps(result.stdout) == [], "nothing may run"
     assert checked_out(dependency) == stale
 
@@ -333,9 +336,9 @@ def test_a_sync_failure_reports_gits_error_the_steps_run_and_where_things_stand(
     assert re.fullmatch(r"failed \(exit \d+\): git -C lib/dep submodule update --init -- lib/inner", ran[-1]), ran
     assert unpushed in result.stdout, f"git's own error names the commit it could not fetch:\n{result.stdout}"
     assert "[x] lib/dep - at " in result.stdout, result.stdout
-    assert "[ ] lib/dep/lib/inner - recorded " in result.stdout, result.stdout
+    assert "[ ] lib/dep/lib/inner - the folder has " in result.stdout, result.stdout
     # inner does provide the remapped path; it is the checkout that failed, and the row above says so
-    assert "no submodule provides" not in result.stdout, result.stdout
+    assert "which does not exist" not in result.stdout, result.stdout
 
 
 # ── update: moving one dependency to a named version ──────────────────────────────────────────────
@@ -399,10 +402,31 @@ def test_update_an_uncommitted_edit_stops_it_before_anything_moves(tmp_path):
     result = update(here, "dep@main")
 
     assert result.returncode != 0
-    assert "exists nowhere else" in result.stdout and "src/dep.sol" in result.stdout, result.stdout
+    assert "exist only on this computer" in result.stdout, result.stdout
+    assert "lib/dep/src/dep.sol: changed and not committed" in result.stdout, result.stdout
     assert steps(result.stdout) == [], "nothing may run"
     assert checked_out(dependency) == before
     assert (dependency / "src" / "dep.sol").read_text() == "// edited\n", "the edit must survive"
+
+
+def test_an_update_refusal_names_what_is_at_risk_by_its_path_and_offers_both_choices(tmp_path):
+    # The reader must see where each thing is, and that pushing is not the only way out: a commit nobody
+    # wants - lib/harbor's downgrade was one - should be removed, not published.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    dependency = here / "lib" / "dep"
+    git(dependency, "checkout", "-q", "-B", "main", "origin/main")
+    (dependency / "src" / "Mine.sol").write_text("// mine\n")
+    git(dependency, "add", "-A")
+    git(dependency, "commit", "-qm", "mine")
+    unpushed = git(dependency, "log", "-1", "--format=%h")
+
+    result = update(here, "dep@main")
+
+    assert result.returncode != 0
+    named = next(line.strip() for line in result.stdout.splitlines() if unpushed in line)
+    assert named.startswith("lib/dep"), f"the commit must be named with the dependency's path: {named}"
+    assert "remove what you do not" in result.stdout, result.stdout
 
 
 def test_update_force_is_the_answer_to_a_refusal(tmp_path):
@@ -461,7 +485,7 @@ def test_update_force_over_a_diverged_local_branch_moves_detached_and_keeps_the_
     assert branch_of(dependency) is None, "HEAD is detached, since the branch cannot be stood on"
     assert checked_out(dependency) == git(world.remotes / "dep", "rev-parse", "HEAD")
     assert git(dependency, "rev-parse", "refs/heads/main") == mine, "the branch must keep its commit"
-    assert "left branch main" in result.stdout, result.stdout
+    assert "Your branch main keeps its own commits" in result.stdout, result.stdout
 
 
 def test_update_refuses_a_ref_that_names_nothing(tmp_path):
@@ -480,7 +504,7 @@ def test_update_refuses_a_nested_dependency(tmp_path):
     result = update(here, "lib/dep/lib/inner@main")
 
     assert result.returncode != 0
-    assert "not a dependency of this repository" in result.stdout, result.stdout
+    assert "is a submodule inside another submodule" in result.stdout, result.stdout
 
 
 def test_update_a_branch_lands_on_it_at_the_remote_tip(tmp_path):
@@ -554,7 +578,7 @@ def test_update_without_a_ref_follows_the_recorded_branch_and_says_so(tmp_path):
     result = update(here, "dep")
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "following branch main, as .gitmodules records" in result.stdout, result.stdout
+    assert "Following branch main (set in .gitmodules)." in result.stdout, result.stdout
     assert branch_of(here / "lib" / "dep") == "main"
     assert checked_out(here / "lib" / "dep") == tip
 
@@ -570,7 +594,8 @@ def test_update_without_a_ref_is_refused_when_no_branch_is_recorded(tmp_path):
     result = update(here, "dep")
 
     assert result.returncode != 0
-    assert "records no branch" in result.stdout and "yarn dep update lib/dep@<ref>" in result.stdout, result.stdout
+    assert "does not say which branch lib/dep follows" in result.stdout, result.stdout
+    assert "yarn dep update lib/dep@<tag, branch or commit>" in result.stdout, result.stdout
     assert steps(result.stdout) == [], "nothing may run"
     assert checked_out(here / "lib" / "dep") == before
 
@@ -669,7 +694,7 @@ def test_an_update_whose_ref_never_resolves_does_not_judge_what_gitmodules_shoul
 
     assert result.returncode != 0
     stage_five = next(line for line in result.stdout.splitlines() if line.strip().startswith("[ ] 5."))
-    assert "until the ref resolves" in stage_five, result.stdout
+    assert "unknown until the version is found" in stage_five, result.stdout
     assert "--unset" not in result.stdout, result.stdout
 
 
@@ -727,7 +752,7 @@ def test_update_keeps_a_stranded_directory_holding_work(tmp_path):
 
     assert result.returncode != 0
     assert (stranded / "src" / "Mine.sol").is_file()
-    assert "exists nowhere else" in result.stdout, result.stdout
+    assert "exist only on this computer" in result.stdout, result.stdout
 
 
 def test_a_leftover_that_cannot_be_removed_is_reported_not_claimed(tmp_path):
@@ -762,7 +787,7 @@ def test_update_hands_over_staging_and_committing_without_running_them(tmp_path)
     result = update(here, "dep@main")
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "Now yours to run:  git add lib/dep .gitmodules && git commit" in result.stdout, result.stdout
+    assert "Next, run: git add lib/dep .gitmodules && git commit" in result.stdout, result.stdout
     assert git(here, "ls-files", "--stage") == staged
 
 
@@ -785,8 +810,8 @@ def test_update_of_a_move_already_committed_leaves_nothing_to_run(tmp_path):
     result = update(here, "dep@main")
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "git add" not in result.stdout and "git commit" not in result.stdout, result.stdout
-    assert "Nothing for you to run" in result.stdout, result.stdout
+    assert "Next, run" not in result.stdout, result.stdout
+    assert "Nothing to do" in result.stdout, result.stdout
 
 
 def test_doctor_names_the_staging_dep_update_hands_over(tmp_path):
@@ -796,12 +821,12 @@ def test_doctor_names_the_staging_dep_update_hands_over(tmp_path):
     here = synced(world)
     advance(world, "dep")
     moved = update(here, "dep@main")
-    assert "Now yours to run:  git add lib/dep .gitmodules && git commit" in moved.stdout, moved.stdout
+    assert "Next, run: git add lib/dep .gitmodules && git commit" in moved.stdout, moved.stdout
 
     findings = [p for p in sum(doctor.submodule_problems(here, ["dep/=lib/dep/src/"]), []) if p.startswith("lib/dep:")]
 
     assert len(findings) == 1, findings
-    assert "Repair: git add lib/dep .gitmodules to record it, or yarn dep sync to drop it" in findings[0], findings[0]
+    assert "Repair: To keep the folder's version: git add lib/dep .gitmodules (" in findings[0], findings[0]
 
 
 def test_another_dependencys_gitmodules_entry_does_not_hold_this_one_back(tmp_path):
@@ -816,4 +841,4 @@ def test_another_dependencys_gitmodules_entry_does_not_hold_this_one_back(tmp_pa
     result = update(here, "dep@main")
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "Nothing for you to run" in result.stdout, result.stdout
+    assert "Nothing to do" in result.stdout, result.stdout

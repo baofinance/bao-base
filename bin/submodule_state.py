@@ -689,22 +689,27 @@ class Condition:
 
     # What a READER is told. `name` stays the identifier this module and its tests branch on, but it
     # is shorthand for whoever wrote it - "litter-present" describes a data structure, not a thing
-    # that happened to your checkout. Anything a person sees says what is wrong in words they did not
-    # have to learn.
+    # that happened to your checkout. Anything a person sees says what is wrong in plain words, one fact
+    # at a time, naming the repository rather than using git's internal terms for where it points.
     SUMMARIES = {
-        "uninitialised": "recorded as a dependency but not checked out",
-        "unreadable": "is checked out, but git will not read it",
-        "litter-present": "has leftover directories from an older version",
-        "nested-drift": "has remapped nested paths that are not at the commits it records",
-        "behind-record": "is checked out behind the commit recorded for it",
-        "ahead-of-record": "is checked out ahead of the commit recorded for it",
-        "off-record": "is checked out at a commit the recorded one neither leads to nor follows",
-        "consistent": "agrees with the commit recorded for it",
+        "uninitialised": "is in .gitmodules, but nothing is checked out in its folder",
+        "unreadable": "has a folder that git cannot read",
+        "litter-present": "contains old git repositories that nothing uses",
+        "nested-drift": "contains a submodule that a remapping uses, at a different commit than it points to",
+        "behind-record": "the folder has an older commit than the one {repository} points to",
+        "ahead-of-record": "the folder has a newer commit than the one {repository} points to",
+        "off-record": "the folder has a different commit from the one {repository} points to",
+        "consistent": "the folder has the commit {repository} points to",
+    }
+    # How the two commits of an `off-record` relate, in the same plain words.
+    RELATIONS = {
+        "diverged": "Each of the two commits has history that the other does not have.",
+        "unrelated histories": "The two commits have no history in common.",
+        "not comparable": "Git cannot tell which is newer, because the folder does not have both commits.",
     }
 
-    @property
-    def summary(self) -> str:
-        return self.SUMMARIES.get(self.name, self.name)
+    def describe(self, repository: str) -> str:
+        return self.SUMMARIES.get(self.name, self.name).format(repository=repository)
 
     @property
     def is_fault(self) -> bool:
@@ -726,7 +731,7 @@ def litter_condition(facts: Facts) -> Condition | None:
     version finding beside it named a stranded directory."""
     if not facts.litter:
         return None
-    return Condition("litter-present", "untracked repositories: " + ", ".join(facts.litter))
+    return Condition("litter-present", "old git repositories: " + ", ".join(facts.litter))
 
 
 def condition(facts: Facts, nested_off: Sequence[str] = ()) -> Condition:
@@ -743,7 +748,7 @@ def condition(facts: Facts, nested_off: Sequence[str] = ()) -> Condition:
     if facts.unreadable:
         return Condition("unreadable", facts.unreadable)
     if not facts.initialised:
-        return Condition("uninitialised", "recorded but not checked out")
+        return Condition("uninitialised", "the folder is empty")
 
     # `at_risk` is deliberately NOT a condition. It answers "would this be destroyed", which is what
     # guards `yarn update`'s deleting steps and must stay as wide as it is - `has_own_work` still
@@ -778,7 +783,7 @@ def condition(facts: Facts, nested_off: Sequence[str] = ()) -> Condition:
         return Condition(
             "off-record",
             "",
-            relation or "which is later cannot be read: the checkout does not hold both commits",
+            relation or "not comparable",
             rows,
         )
 
@@ -790,7 +795,7 @@ def condition(facts: Facts, nested_off: Sequence[str] = ()) -> Condition:
         return leftovers
 
     if nested_off:
-        return Condition("nested-drift", ", ".join(nested_off))
+        return Condition("nested-drift", "at a different commit: " + ", ".join(nested_off))
 
     return Condition("consistent", f"agrees on {(facts.worktree or '')[:10]}")
 
@@ -808,45 +813,6 @@ class Stage:
     action: str
 
 
-def _safety_stage(facts: Facts) -> Stage:
-    """Stage 0 of either checklist: nothing under the dependency exists only here."""
-    safe = not facts.has_own_work
-    # Named individually rather than counted: the point of stopping is that only the user can say
-    # whether a given thing is a day's work or a stray file, and they cannot judge a number.
-    listed = "; ".join(f"{item.path} ({item.kind}: {item.detail})" for item in facts.at_risk[:8])
-    if len(facts.at_risk) > 8:
-        listed += f"; and {len(facts.at_risk) - 8} more"
-    return Stage(
-        0,
-        "nothing here exists only here",
-        safe,
-        "no remote is missing anything under this dependency" if safe else f"exists only here: {listed}",
-        "" if safe else "commit and push what matters, then run this again - or repeat it with --force to move anyway",
-    )
-
-
-def _checkout_stage(facts: Facts, target_ref: str | None, target_rev: str | None) -> Stage:
-    """Stage 2 of either checklist: the working tree is at the ref."""
-    return Stage(
-        2,
-        "working tree at that ref",
-        bool(target_rev) and facts.worktree == target_rev,
-        f"working tree {(facts.worktree or 'absent')[:10]}, wanted {(target_rev or '?')[:10]}",
-        f"git -C {facts.path} fetch --tags origin && git -C {facts.path} checkout {target_ref or '<ref>'}",
-    )
-
-
-def _leftovers_stage(facts: Facts) -> Stage:
-    """Stage 4 of either checklist: no directory a version change stranded."""
-    return Stage(
-        4,
-        "no orphaned directories",
-        not facts.litter,
-        ", ".join(facts.litter) if facts.litter else "none",
-        "remove each directory and its gitdir - recursing is what strands them",
-    )
-
-
 def checklist(facts: Facts, target_ref: str | None, target_rev: str | None) -> list[Stage]:
     """What is left to do to bring `facts` to `target_ref` (whose commit is `target_rev`).
 
@@ -854,6 +820,12 @@ def checklist(facts: Facts, target_ref: str | None, target_rev: str | None) -> l
     network. `target_ref` of None means the caller could not resolve one, which is itself a stage-1
     failure rather than an error here.
     """
+    safe = not facts.has_own_work
+    # Named individually rather than counted: the point of stopping is that only the user can say
+    # whether a given thing is a day's work or a stray file, and they cannot judge a number.
+    listed = "; ".join(f"{item.path} ({item.kind}: {item.detail})" for item in facts.at_risk[:8])
+    if len(facts.at_risk) > 8:
+        listed += f"; and {len(facts.at_risk) - 8} more"
     # The move is the gitlink AND this dependency's lock entry, which stage 5 writes: staging or
     # committing the gitlink alone records a pin and a lock that disagree. The working tree's entry is
     # put in the terms the index's and HEAD's are read in - None where there is none, for either of
@@ -866,7 +838,15 @@ def checklist(facts: Facts, target_ref: str | None, target_rev: str | None) -> l
     if not lock_staged:
         unstaged.append("foundry.lock")
     return [
-        _safety_stage(facts),
+        Stage(
+            0,
+            "nothing here exists only here",
+            safe,
+            "no remote is missing anything under this dependency" if safe else f"exists only here: {listed}",
+            ""
+            if safe
+            else "commit and push what matters, then run this again - or repeat it with --force to move anyway",
+        ),
         Stage(
             1,
             "a ref to move to",
@@ -874,7 +854,13 @@ def checklist(facts: Facts, target_ref: str | None, target_rev: str | None) -> l
             f"{target_ref}" if target_ref else f"{facts.lock.kind} pin cannot resolve itself",
             "" if target_ref else f"name one: `yarn update {facts.path}@<ref>`",
         ),
-        _checkout_stage(facts, target_ref, target_rev),
+        Stage(
+            2,
+            "working tree at that ref",
+            bool(target_rev) and facts.worktree == target_rev,
+            f"working tree {(facts.worktree or 'absent')[:10]}, wanted {(target_rev or '?')[:10]}",
+            f"git -C {facts.path} fetch --tags origin && git -C {facts.path} checkout {target_ref or '<ref>'}",
+        ),
         Stage(
             3,
             "nested submodules at their recorded commits",
@@ -882,7 +868,13 @@ def checklist(facts: Facts, target_ref: str | None, target_rev: str | None) -> l
             f"{len(facts.nested_drift)} off their pins" if facts.nested_drift else "all at their pins",
             f"git -C {facts.path} submodule update --init --recursive",
         ),
-        _leftovers_stage(facts),
+        Stage(
+            4,
+            "no orphaned directories",
+            not facts.litter,
+            ", ".join(facts.litter) if facts.litter else "none",
+            "remove each directory and its gitdir - recursing is what strands them",
+        ),
         Stage(
             5,
             "foundry.lock names that ref",
@@ -912,6 +904,17 @@ def checklist(facts: Facts, target_ref: str | None, target_rev: str | None) -> l
     ]
 
 
+def describe_at_risk(item: AtRisk, under: str) -> str:
+    """One thing that exists only on this computer, in plain words, named by its path from the repository
+    root. `under` is the dependency the item was found in; `at_risk` names items relative to it, and the
+    dependency's own unpushed commits as `.`."""
+    where = under if item.path == "." else f"{under}/{item.path}"
+    if item.kind == "unpushed":
+        commit, _, message = item.detail.partition(" ")
+        return f'{where}: commit {commit} "{message}" is not pushed'
+    return f"{where}: {'not tracked by git' if item.kind == 'untracked' else 'changed and not committed'}"
+
+
 def move_checklist(
     facts: Facts,
     target_ref: str | None,
@@ -921,49 +924,75 @@ def move_checklist(
     nested_off: list[tuple[str, str]],
 ) -> list[Stage]:
     """What is left to do to move a dependency to `target_ref` (whose commit is `target_rev`) for bin/dep:
-    `checklist` without foundry.lock.
+    `checklist` without foundry.lock, in plain words.
 
     What the dependency follows - `follows`, a branch, or None at a tag or commit - is recorded in
-    `.gitmodules`, so staging and committing the move cover this dependency's entry there beside its
-    gitlink. Only this entry is compared, never the whole file, whose other entries belong to other
-    dependencies' moves. `nested_off` is each remapped nested path not at its record, with the command
-    that checks it out.
+    `.gitmodules`, so adding and committing the move cover this dependency's entry there beside its
+    folder. Only this entry is compared, never the whole file, whose other entries belong to other
+    dependencies' moves. `nested_off` is each remapped nested path not at the commit its parent points to,
+    with the command that checks it out.
     """
-    name = entry.working.name if entry.working is not None else facts.path
+    path = facts.path
+    safe = not facts.has_own_work
+    # Named individually rather than counted: only the user can say whether a given thing is a day's work
+    # or a stray file, and they cannot judge a number.
+    listed = "; ".join(describe_at_risk(item, path) for item in facts.at_risk[:8])
+    if len(facts.at_risk) > 8:
+        listed += f"; and {len(facts.at_risk) - 8} more"
+    name = entry.working.name if entry.working is not None else path
     recorded_branch = entry.working.branch if entry.working is not None else None
     entry_staged = entry.staged == entry.working
     entry_committed = entry.committed == entry.working
-    unstaged = [facts.path] if facts.index_gitlink != facts.worktree else []
+    unstaged = [path] if facts.index_gitlink != facts.worktree else []
     if not entry_staged:
         unstaged.append(".gitmodules")
+    folder = (facts.worktree or "nothing")[:10]
     return [
-        _safety_stage(facts),
+        Stage(
+            0,
+            f"nothing in {path} is only on this computer",
+            safe,
+            "nothing found" if safe else f"found: {listed}",
+            "" if safe else "push what you want to keep, or remove what you do not - or use --force",
+        ),
         Stage(
             1,
-            "a ref to move to",
+            "a version to move to",
             target_ref is not None,
-            f"{target_ref}" if target_ref else "none named, and .gitmodules records no branch to follow",
-            "" if target_ref else f"name one: `yarn dep update {facts.path}@<ref>`",
+            f"{target_ref}" if target_ref else ".gitmodules does not say which branch to follow",
+            "" if target_ref else f"name one: yarn dep update {path}@<tag, branch or commit>",
         ),
-        _checkout_stage(facts, target_ref, target_rev),
+        Stage(
+            2,
+            "the folder has that version",
+            bool(target_rev) and facts.worktree == target_rev,
+            f"the folder has {folder}, wanted {(target_rev or 'unknown')[:10]}",
+            f"git -C {path} fetch --tags origin && git -C {path} checkout {target_ref or '<version>'}",
+        ),
         Stage(
             3,
-            "remapped nested paths at their recorded commits",
+            "submodules inside it that remappings use are at the commits it points to",
             not nested_off,
-            ", ".join(path for path, _ in nested_off) if nested_off else "all at their records",
+            ("not: " + ", ".join(nested for nested, _ in nested_off)) if nested_off else "all are",
             " && ".join(command for _, command in nested_off),
         ),
-        _leftovers_stage(facts),
+        Stage(
+            4,
+            "no old git repositories are left inside it",
+            not facts.litter,
+            ", ".join(facts.litter) if facts.litter else "none",
+            "remove each folder and its git data",
+        ),
         Stage(
             5,
-            ".gitmodules records what it follows",
+            ".gitmodules says which branch it follows",
             # Unjudgeable until the ref resolves: whether it is a branch decides what should be recorded.
             target_rev is not None and recorded_branch == follows,
-            f"records {f'branch {recorded_branch}' if recorded_branch else 'no branch'},"
+            f"it says {f'branch {recorded_branch}' if recorded_branch else 'no branch'}"
             + (
-                f" wanted {f'branch {follows}' if follows else 'none'}"
+                f", wanted {f'branch {follows}' if follows else 'no branch'}"
                 if target_rev is not None
-                else " and what it should record is unknown until the ref resolves"
+                else "; what it should say is unknown until the version is found"
             ),
             ""
             if target_rev is None
@@ -973,47 +1002,59 @@ def move_checklist(
         ),
         Stage(
             6,
-            "the move is staged",
+            "the change is added (git add)",
             not unstaged,
-            f"index {(facts.index_gitlink or 'absent')[:10]}, working tree {(facts.worktree or 'absent')[:10]};"
-            f" .gitmodules entry {'staged' if entry_staged else 'not staged'}",
+            f"this repository points to {(facts.index_gitlink or 'nothing')[:10]}, the folder has {folder};"
+            f" the .gitmodules change is {'added' if entry_staged else 'not added'}",
             f"git add {' '.join(unstaged)}",
         ),
         Stage(
             7,
-            "the move is committed",
-            # Against the WORKING TREE, not the index - the gitlink and the entry alike: while neither has
-            # moved they agree with each other, and comparing them would report the stage done when nothing
-            # had happened.
+            "the change is committed",
+            # Against the FOLDER, not what is added - the gitlink and the entry alike: while neither has moved
+            # they agree with each other, and comparing them would report the step done when nothing had
+            # happened.
             facts.head_gitlink == facts.worktree and entry_committed,
-            f"HEAD {(facts.head_gitlink or 'absent')[:10]}, working tree {(facts.worktree or 'absent')[:10]};"
-            f" .gitmodules entry {'committed' if entry_committed else 'not committed'}",
+            f"the last commit points to {(facts.head_gitlink or 'nothing')[:10]}, the folder has {folder};"
+            f" the .gitmodules change is {'committed' if entry_committed else 'not committed'}",
             "git commit",
         ),
     ]
 
 
-def repair(facts: Facts, found: Condition, entry: Recorded | None = None) -> str:
-    """The one action that reaches a consistent state, looked up rather than composed.
+def repair(facts: Facts, found: Condition, entry: Recorded | None = None, repository: str = "this repository") -> str:
+    """The one action that reaches a consistent state, looked up rather than composed, in plain words.
 
-    `entry` is the dependency's `.gitmodules` entry. Recording a move stages that entry beside the
-    gitlink when its working-tree version is not staged, exactly as `yarn dep update` hands a move over,
-    so the two tools never name different staging for one tree."""
+    `entry` is the dependency's `.gitmodules` entry. Keeping the folder's version adds that entry beside
+    the folder when its working-tree version is not added, exactly as `yarn dep update` hands a move over,
+    so the two tools never name different commands for one tree."""
     if found.name == "unreadable":
         # git's own mend: it writes the gitdir's `core.worktree` afresh.
-        return f"git submodule update --init -- {facts.path}"
+        return f"git submodule update --init -- {facts.path} (this repairs git's link to the folder)"
     if found.name in ("uninitialised", "behind-record", "nested-drift"):
-        # Each is a checkout not at what is recorded, and checking out what is recorded is sync's job.
-        # Never `git add` for a stale checkout: that records the older commit, moving the dependency
-        # backwards for everyone who pulls.
-        return "yarn dep sync"
+        # Each is a folder not at the commit the repository points to, and checking that out is sync's
+        # job. Never `git add` for an older commit: that points the repository backwards for everyone
+        # who pulls.
+        return f"yarn dep sync (this checks out the commits {repository} points to)"
     if found.name == "litter-present":
         # Not a version change: the directory outlived the move that stranded it, and clearing it
         # touches no gitlink.
         return f"yarn update --sweep {facts.path}"
     if found.name in ("ahead-of-record", "off-record"):
-        # Only the user knows whether the checkout was meant, so both directions are named.
+        # Only the user knows whether the folder's commit was meant, so both directions are named.
         unstaged_entry = entry is not None and entry.staged != entry.working
-        staging = " ".join([facts.path, *([".gitmodules"] if unstaged_entry else [])])
-        return f"git add {staging} to record it, or yarn dep sync to drop it"
+        adding = " ".join([facts.path, *([".gitmodules"] if unstaged_entry else [])])
+        if facts.unpushed:
+            # Pointing the repository at a commit no remote holds breaks every other clone, and sync
+            # refuses to move a folder holding one - so the commits are dealt with first, either way.
+            commits = "commit" if len(facts.unpushed) == 1 else "commits"
+            return (
+                f"To keep the folder's version: push it (git -C {facts.path} push), then git add {adding}. "
+                f"To go back to the version {repository} points to: remove the unpushed {commits}, then "
+                f"yarn dep sync."
+            )
+        return (
+            f"To keep the folder's version: git add {adding} ({repository} then points to it). "
+            f"To go back to the version {repository} points to: yarn dep sync."
+        )
     return ""

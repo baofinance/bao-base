@@ -142,21 +142,26 @@ def submodule_url_drift(repo_dir: Path) -> list[tuple[str, str, str]]:
     return drift
 
 
-def _finding(facts: Facts, found: Condition, weigh: Sequence[str] = (), entry: Recorded | None = None) -> str:
+def _finding(
+    facts: Facts, found: Condition, repository: str, weigh: Sequence[str] = (), entry: Recorded | None = None
+) -> str:
     """One finding as doctor prints it: what is wrong, the facts behind it, anything a reader must
-    weigh before acting, and the one command that fixes it.
+    weigh before acting, and the one command that fixes it - in plain words, naming the repository.
 
     Shared by the version findings and the leftovers, so the two checks cannot come to look like
     different tools reporting on the same tree."""
-    lines = [f"{facts.path}: {found.summary}"]
+    lines = [f"{facts.path}: {found.describe(repository)}"]
     # A comparison arrives as rows and is aligned; every other condition is one fact in words. Same
     # alignment as the cross-repo table in `dependency-conflicts.py`, from the same code, so a reader
-    # meets one column discipline rather than one per report.
-    lines.extend(columns.rows(found.rows, indent="  ") if found.rows else [f"  {found.detail}"])
+    # meets one column discipline rather than one per report. The rows carry which side each commit is
+    # from; the reader is told it in words.
+    sides = {"working tree": f"in the {facts.path} folder", "index": f"{repository} points to"}
+    rows = [(commit, sides.get(side, side)) for commit, side in found.rows]
+    lines.extend(columns.rows(rows, indent="  ") if rows else [f"  {found.detail}"])
     if found.relation:
-        lines.append(f"  {found.relation}")
+        lines.append(f"  {Condition.RELATIONS.get(found.relation, found.relation)}")
     lines.extend(f"  {item}" for item in weigh)
-    if fix := repair(facts, found, entry):
+    if fix := repair(facts, found, entry, repository):
         lines.append(f"  Repair: {fix}")
     return "\n".join(lines)
 
@@ -178,13 +183,14 @@ def submodule_problems(repo_root: Path, remappings: list[str]) -> tuple[list[str
     Every reading and every repair comes from the module `yarn dep` acts on, so the two tools cannot
     disagree. States that are normal are not reported at all: a dependency carrying local commits is
     what working in one looks like."""
+    repository = repo_root.name
     versions: list[str] = []
     leftovers: list[str] = []
     for stray in stray_clones(repo_root):
         leftovers.append(
-            f"{stray}: a git repository nothing tracks, in our own tree\n"
-            f"  its contents are invisible to everyone else, and no .gitmodules records it\n"
-            f"  Repair: delete {stray} and, if one exists, its .git/modules/{stray} gitdir"
+            f"{stray}: a git repository inside {repository} that is not a submodule\n"
+            f"  Nobody else can see what is in it, because .gitmodules does not name it.\n"
+            f"  Repair: delete {stray}, and the .git/modules/{stray} folder if there is one"
         )
     for dependency in declared_submodules(repo_root):
         facts = read_facts(repo_root, dependency.path)
@@ -200,17 +206,16 @@ def submodule_problems(repo_root: Path, remappings: list[str]) -> tuple[list[str
         # leftovers" that could only see them when nothing outranked them would report all-clear
         # beside a version finding that named one.
         if stranded := litter_condition(facts):
-            leftovers.append(_finding(facts, stranded))
+            leftovers.append(_finding(facts, stranded, repository))
         if not found.is_fault or found.name == "litter-present":
             continue
         # Facts a reader must weigh before acting, which `condition` did not name because something
         # more urgent outranked it. Without these a repair can look safe when it is not.
         weigh = []
         if facts.unpushed:
-            weigh.append(
-                f"and {len(facts.unpushed)} commit(s) here are on no remote - pushing them first is the only backup"
-            )
-        versions.append(_finding(facts, found, weigh, recorded_entry(repo_root, dependency.path)))
+            count = len(facts.unpushed)
+            weigh.append(f"{count} commit{'s' if count > 1 else ''} in the folder {'are' if count > 1 else 'is'} not pushed.")
+        versions.append(_finding(facts, found, repository, weigh, recorded_entry(repo_root, dependency.path)))
     return versions, leftovers
 
 
@@ -228,9 +233,9 @@ def remapping_target_problems(repo_root: Path, remappings: list[str]) -> list[st
     ]
     if not dead:
         return []
-    lines = ["Remappings that lead to no path, though every submodule on the way is at its recorded commit:"]
+    lines = ["These remappings point to folders that do not exist, and no submodule provides them:"]
     lines.extend(f"  {remapping}" for remapping in dead)
-    lines.append("  Repair: remove each from foundry.toml and wake.toml, which list the same remappings")
+    lines.append("  Repair: remove each one from foundry.toml and from wake.toml (the two files list the same remappings)")
     return ["\n".join(lines)]
 
 
@@ -299,14 +304,15 @@ def remapping_detection_problems(repo_root: Path) -> list[str]:
     if resolved.get("auto_detect_remappings") is False:
         return []
     found = (
-        f"forge config resolves auto_detect_remappings to {json.dumps(resolved['auto_detect_remappings'])}"
+        f"forge config gives auto_detect_remappings = {json.dumps(resolved['auto_detect_remappings'])},"
+        " so forge adds remappings of its own"
         if "auto_detect_remappings" in resolved
-        else "forge config does not report auto_detect_remappings, so whether forge adds remappings cannot be read"
+        else "forge config does not give auto_detect_remappings, so doctor cannot tell whether forge adds"
+        " remappings of its own"
     )
     return [
-        f"{found}\n  Repair: set auto_detect_remappings = false under [profile.default] in foundry.toml. forge "
-        "config also reads the active FOUNDRY_PROFILE and FOUNDRY_* environment variables, either of which can "
-        "override it."
+        f"{found}\n  Repair: set auto_detect_remappings = false in [profile.default] in foundry.toml. If it is"
+        " already set there, the FOUNDRY_PROFILE or a FOUNDRY_* environment variable is changing it."
     ]
 
 
@@ -380,12 +386,12 @@ def submodule_url_drift_problems(repo_root: Path) -> list[str]:
     drift = submodule_url_drift(repo_root)
     if not drift:
         return []
-    lines = ["Submodule URL drift — .git/config disagrees with the committed .gitmodules:"]
+    lines = ["These submodules have a different URL in .git/config than in .gitmodules:"]
     for display, gitmodules_url, gitconfig_url in drift:
         lines.append(f"  {display}")
         lines.append(f"    .git/config: {gitconfig_url}")
         lines.append(f"    .gitmodules: {gitmodules_url}")
-    lines.append("Repair (rewrites .git/config from .gitmodules): yarn dep sync")
+    lines.append("Repair: yarn dep sync (this copies the URLs from .gitmodules to .git/config)")
     return ["\n".join(lines)]
 
 
@@ -778,12 +784,13 @@ def build_checks(
     version_problems, leftover_problems = submodule_problems(repo_root, remappings)
     checks = [
         Check(
-            "forge uses only the remappings foundry.toml writes",
-            "with auto_detect_remappings on, forge adds remappings it derives from every library directory it "
-            "finds, including those nested inside dependencies, so what an import resolves to depends on which "
-            "checkouts happen to be present - and the remapping comparison below reads only the written list",
-            "a build can compile a dependency's own copy of a library this project never chose, differently on "
-            "each machine, while wake analyses a program forge does not build",
+            "forge uses only the remappings in foundry.toml",
+            "When auto_detect_remappings is on, forge adds remappings of its own. It makes them from the "
+            "library folders it finds, including folders inside submodules. So an import can use a different "
+            "library on each computer, depending on what is checked out there. Also, the wake check below "
+            "compares only the remappings that foundry.toml lists",
+            "a build can use a library version that this project did not choose, it can differ between "
+            "computers, and wake checks a different program from the one forge builds",
             remapping_detection_problems(repo_root),
         ),
         Check(
@@ -795,12 +802,11 @@ def build_checks(
             remapping_problems(foundry_remappings, wake_remappings),
         ),
         Check(
-            "every remapping leads to a path a submodule provides",
-            "a remapping into a path no submodule declares resolves no import, yet reads as something the "
-            "build depends on - and for a path inside a dependency it names a nested checkout nothing "
-            "will ever make",
-            "readers and tools are told the build reads code that does not exist, and the remapping stays "
-            "to mislead the next reader long after whatever it once named was dropped",
+            "every remapping points to a folder that exists",
+            "A remapping to a folder that no submodule provides cannot work for any import. But it looks like "
+            "something the build needs. If the folder is inside a submodule, yarn dep will never check it out",
+            "people and tools believe the build uses code that does not exist, and the remapping stays to "
+            "confuse the next person who reads it",
             remapping_target_problems(repo_root, remappings),
         ),
         Check(
@@ -812,27 +818,27 @@ def build_checks(
             wake_scope_problems(repo_root),
         ),
         Check(
-            "submodule URLs (.git/config vs .gitmodules)",
-            "a drifted URL means your checkout tracks a different remote from the one committed, so "
-            "you build code that no one else can fetch",
-            "your builds pass and everyone else's fail, on source that looks identical in the diff",
+            "submodule URLs in .git/config match .gitmodules",
+            "git fetches a submodule from the URL in .git/config, not from the URL in .gitmodules. If they are "
+            "different, your copy comes from a place that other people do not use",
+            "your builds work and other people's fail, although the code looks the same",
             submodule_url_drift_problems(repo_root),
         ),
         Check(
-            "each dependency is at one version",
-            "each dependency's checkout, and each nested path a remapping reads from it, must be at the "
-            "commit staged for it. HEAD is not consulted: this is what you run BEFORE committing, so a "
-            "commit not yet made is not a fault",
-            "a disagreement means the version you are building is not the version you are about to "
-            "record, and whichever of them is wrong will be wrong for everyone who clones it",
+            "each submodule folder has the commit this repository points to",
+            "Each submodule folder should have the commit that this repository points to. git add <folder> "
+            "changes where it points, and git commit saves that. This also applies to a submodule inside "
+            "another submodule when a remapping uses it. Doctor does not need you to commit first",
+            "if they are different, you build one version but save another, and everyone who clones the "
+            "repository gets the saved one",
             version_problems,
         ),
         Check(
-            "no dependency has leftovers from an older version",
-            "a version change that moves or drops a nested dependency strands its directory, and "
-            "nothing walks the tree to clear it, so it sits there until someone does",
-            "forge and git read what is present, not what is recorded: a stranded checkout still "
-            "resolves imports",
+            "no submodule contains old git repositories",
+            "When a submodule moves to a version that no longer uses one of its own submodules, git leaves "
+            "that folder behind. Nothing removes it",
+            "forge and git use the files that are there, not the files that should be there, so an old folder "
+            "can still be used by imports",
             leftover_problems,
         ),
         workflow_copy.check(repo_root),
