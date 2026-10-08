@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""Manage this repository's dependencies with git alone, and never touch the index.
+
+`sync` brings the checkouts to what this repository records: every top-level submodule at its gitlink,
+plus exactly the nested submodules forge's remappings point into. The build reads nothing else. A
+dependency's other nested submodules are its own lockfile, wanted only by someone working inside it, so
+they are never fetched - and one of them pinned to a commit no remote holds cannot stop this checkout.
+A clone made without --recurse-submodules needs nothing more than this.
+
+Every command that changes something is printed as it finishes, in order. A failure prints the tool's
+own error beneath the command that failed, then where each checkout now stands, and undoes nothing:
+what happened is there to be read and unpicked, and running again once the cause is fixed finishes the
+job.
+
+What is staged and committed is the developer's, so nothing here runs a command that changes the index.
+"""
+
+from __future__ import annotations
+
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+from forge_config import forge_config
+from submodule_state import Declared, _staged, at_risk, declared_submodules, git, remapping_target, submodule_levels
+
+USAGE = """\
+dep sync
+
+  sync   check out every top-level dependency at the commit this repository records, then the nested
+         dependencies forge's remappings point into, and nothing else - for a clone made without
+         --recurse-submodules, or after a pull moves a recorded commit"""
+
+
+class StepFailed(Exception):
+    """A command that changes something exited non-zero. `run` has already printed it and its error."""
+
+
+def run(repo_root: Path, where: Path, *arguments: str) -> None:
+    """Run one git command that changes something, and print it as it finishes. A failure also prints
+    everything git said, then raises `StepFailed`, which stops the run where it stands."""
+    result = subprocess.run(["git", *arguments], cwd=where, capture_output=True, text=True)
+    located = where.relative_to(repo_root).as_posix()
+    command = " ".join(["git", *(["-C", located] if located != "." else []), *arguments])
+    if result.returncode == 0:
+        print(f"  ran: {command}", flush=True)
+        return
+    print(f"  failed (exit {result.returncode}): {command}", flush=True)
+    for line in (result.stdout + result.stderr).rstrip().splitlines():
+        print(f"    {line}", flush=True)
+    raise StepFailed(command)
+
+
+def checked_out(checkout: Path) -> str | None:
+    """The commit a checkout is on, or None when there is no checkout git can read."""
+    if not (checkout / ".git").exists():
+        return None
+    head = git(checkout, "rev-parse", "HEAD")
+    return head.stdout.strip() if head.returncode == 0 else None
+
+
+def at_record(directory: Path, level: Declared) -> bool:
+    """Whether the submodule `directory` declares is checked out at the commit `directory` records."""
+    have = checked_out(directory / level.path)
+    return have is not None and have == _staged(directory, level.path)
+
+
+def report(repo_root: Path, dependencies: list[Declared], remappings: list[str]) -> bool:
+    """Print where each dependency and each nested path a remapping reaches now stands, then each remapping
+    no submodule provides. Returns whether every one of them is at the commit recorded for it."""
+    rows: dict[str, tuple[Path, Declared]] = {entry.path: (repo_root, entry) for entry in dependencies}
+    for remapping in remappings:
+        for directory, level in submodule_levels(repo_root, remapping_target(remapping)):
+            rows.setdefault((directory / level.path).relative_to(repo_root).as_posix(), (directory, level))
+    for display, (directory, level) in rows.items():
+        have, want = checked_out(directory / level.path), _staged(directory, level.path)
+        if at_record(directory, level):
+            print(f"  [x] {display} - at {(have or '')[:10]}")
+        else:
+            print(f"  [ ] {display} - recorded {(want or 'nothing')[:10]}, checked out {(have or 'nothing')[:10]}")
+    for remapping in remappings:
+        # Reported, not failed: an unused remapping into nothing builds, and doctor is what grades it. Said
+        # only once every level on the way is at its record - before that, the missing path is the
+        # unfinished checkout a row above already shows, not something no submodule provides.
+        target = remapping_target(remapping)
+        levels = list(submodule_levels(repo_root, target))
+        if not (repo_root / target).exists() and all(at_record(directory, level) for directory, level in levels):
+            print(f"  ! {remapping} - no submodule provides {target}")
+    return all(at_record(directory, level) for directory, level in rows.values())
+
+
+def sync(repo_root: Path) -> int:
+    print("sync:")
+    try:
+        remappings: list[str] = forge_config(repo_root)["remappings"]
+    except subprocess.CalledProcessError as failed:
+        print(f"  failed (exit {failed.returncode}): forge config --json")
+        for line in failed.stderr.rstrip().splitlines():
+            print(f"    {line}")
+        return 1
+    dependencies = declared_submodules(repo_root)
+
+    # Before anything runs. Moving a checkout is what would put work at risk, so a dependency sync would
+    # move must hold nothing that exists only here. One already at its record is not moved.
+    at_stake = [
+        item
+        for entry in dependencies
+        if checked_out(repo_root / entry.path) is not None and not at_record(repo_root, entry)
+        for item in at_risk(repo_root / entry.path, f"{entry.path}/")
+    ]
+    if at_stake:
+        for item in at_stake:
+            print(f"  ! {item.path} ({item.kind}: {item.detail})")
+        print("  refusing: the above exists nowhere else, and sync would move the checkout holding it.")
+        print("  Commit and push what matters, then run this again.")
+        return 1
+
+    try:
+        run(repo_root, repo_root, "submodule", "sync")
+        for entry in dependencies:
+            if not at_record(repo_root, entry):
+                run(repo_root, repo_root, "submodule", "update", "--init", "--", entry.path)
+            # A dependency that follows a branch stands on it only where the branch already holds the
+            # recorded commit. A branch anywhere else is the developer's, and moving it is not sync's.
+            if entry.branch is not None:
+                checkout = repo_root / entry.path
+                tip = git(checkout, "rev-parse", "--verify", "--quiet", f"refs/heads/{entry.branch}").stdout.strip()
+                standing = git(checkout, "symbolic-ref", "--quiet", "HEAD").stdout.strip()
+                if tip == _staged(repo_root, entry.path) and standing != f"refs/heads/{entry.branch}":
+                    run(repo_root, checkout, "checkout", "--quiet", entry.branch)
+        for remapping in remappings:
+            # Lazy, so each level is checked out before the walk reads the next level's .gitmodules from it.
+            for directory, level in submodule_levels(repo_root, remapping_target(remapping)):
+                if not at_record(directory, level):
+                    run(repo_root, directory, "submodule", "update", "--init", "--", level.path)
+    except StepFailed:
+        report(repo_root, dependencies, remappings)
+        return 1
+    return 0 if report(repo_root, dependencies, remappings) else 1
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="dep", usage=USAGE)
+    subcommands = parser.add_subparsers(dest="subcommand", required=True)
+    subcommands.add_parser("sync")
+    parser.parse_args()
+
+    top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    if top.returncode != 0:
+        print("error: not inside a git repository", file=sys.stderr)
+        return 1
+    return sync(Path(top.stdout.strip()))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

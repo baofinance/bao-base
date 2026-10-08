@@ -17,6 +17,7 @@ import json5
 import columns
 import workflow_copy
 from checks import Check, report
+from forge_config import forge_config
 from submodule_state import (
     Condition,
     Facts,
@@ -291,14 +292,6 @@ def remapping_problems(foundry_remappings: list[str], wake_remappings: list[str]
         mismatch_details.append("Remapping lists differ but no specific difference found.")
 
     return ["Remapping mismatch detected:\n" + "\n".join(mismatch_details)]
-
-
-def forge_config(repo_root: Path) -> dict[str, Any]:
-    """The configuration forge builds with, as `forge config` resolves it: foundry.toml, the active profile
-    and `FOUNDRY_*` environment variables together."""
-    return json.loads(
-        subprocess.run(["forge", "config", "--json"], cwd=repo_root, capture_output=True, text=True, check=True).stdout
-    )
 
 
 def forge_source_directories(repo_root: Path) -> tuple[str, ...]:

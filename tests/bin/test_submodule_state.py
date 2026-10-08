@@ -23,10 +23,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bin"))
 
 from submodule_state import (  # noqa: E402
+    UnreadableGitmodules,
     UnreadableLock,
     checklist,
     condition,
     conflicting_dependencies,
+    declared_submodules,
     read_facts,
     read_lock,
     repair,
@@ -371,6 +373,18 @@ def test_a_lock_that_cannot_be_READ_is_refused_rather_than_read_as_empty(tmp_pat
         read_lock(tmp_path)
 
     assert "foundry.lock" in str(refused.value)
+
+
+def test_a_gitmodules_git_cannot_read_is_reported(tmp_path):
+    # Read as empty, a broken .gitmodules would make every dependency vanish and every check over them pass,
+    # so git's own refusal is what the caller gets instead.
+    git(tmp_path, "init", "-q")
+    (tmp_path / ".gitmodules").write_text('[submodule "lib/x"\n\tpath = lib/x\n')
+
+    with pytest.raises(UnreadableGitmodules) as refused:
+        declared_submodules(tmp_path)
+
+    assert ".gitmodules" in str(refused.value), refused.value
 
 
 def test_a_consistent_tree_has_nothing_left_on_the_checklist(world):

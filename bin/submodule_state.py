@@ -26,8 +26,9 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Iterator
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 # The pin kinds foundry.lock records, and what each means for a bare `yarn update <dep>`.
 # A branch is the only one that can move on its own, so it is the only one that resolves without
@@ -303,6 +304,70 @@ def _declared(repo_dir: Path) -> list[tuple[str, str]]:
         if name and field in ("path", "url"):
             fields.setdefault(name, {})[field] = value.strip()
     return [(entry["path"], entry["url"]) for entry in fields.values() if "path" in entry and "url" in entry]
+
+
+class UnreadableGitmodules(Exception):
+    """A `.gitmodules` exists and git will not read it. Raised rather than read as declaring nothing, for
+    the reason `UnreadableLock` gives: the two mean opposite things, and reading the defect as the absence
+    makes every check over the dependencies agree that there is nothing wrong."""
+
+
+@dataclass(frozen=True)
+class Declared:
+    """One submodule as a `.gitmodules` declares it. `branch` is the branch it follows, when it names one."""
+
+    name: str
+    path: str
+    url: str | None
+    branch: str | None
+
+
+def declared_submodules(repo_dir: Path) -> list[Declared]:
+    """Every submodule the `.gitmodules` in `repo_dir`'s working tree declares, in the order it lists them.
+
+    No `.gitmodules` declares nothing. One git will not read raises `UnreadableGitmodules` in git's words.
+    Read NUL-separated, because a submodule's name is free text and may hold a space."""
+    if not (repo_dir / ".gitmodules").is_file():
+        return []
+    listing = git(repo_dir, "config", "-z", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.(path|url|branch)$")
+    # git's answer for "no key matches" is exit 1 with nothing said - a file holding only comments gives it
+    if listing.returncode == 1 and not listing.stderr.strip():
+        return []
+    if listing.returncode != 0:
+        raise UnreadableGitmodules(f"{repo_dir / '.gitmodules'}: {listing.stderr.strip()}")
+    fields: dict[str, dict[str, str]] = {}
+    for item in listing.stdout.split("\0"):
+        if not item:
+            continue
+        key, _, value = item.partition("\n")
+        name, _, field_name = key.removeprefix("submodule.").rpartition(".")
+        fields.setdefault(name, {})[field_name] = value
+    return [
+        Declared(name, entry["path"], entry.get("url"), entry.get("branch"))
+        for name, entry in fields.items()
+        if "path" in entry
+    ]
+
+
+def remapping_target(remapping: str) -> str:
+    """The path a remapping sends imports to, relative to the project. A remapping is
+    `[context:]prefix=target`, and the context sits before the `=`, so the target is everything after it."""
+    return remapping.partition("=")[2].rstrip("/")
+
+
+def submodule_levels(repo_root: Path, path: str) -> Iterator[tuple[Path, Declared]]:
+    """The submodules `path` (relative to `repo_root`) lies inside, outermost first, each with the directory
+    that declares it.
+
+    Lazy on purpose. Each level's `.gitmodules` is in that level's own checkout, so it is read only when the
+    walk reaches it: a caller can check a level out before the next one is read, and a level that is not
+    checked out declares nothing, which ends the walk there."""
+    directory, remainder = repo_root, PurePosixPath(path)
+    while (
+        level := next((entry for entry in declared_submodules(directory) if remainder.is_relative_to(entry.path)), None)
+    ) is not None:
+        yield directory, level
+        directory, remainder = directory / level.path, remainder.relative_to(level.path)
 
 
 def _staged(repo_dir: Path, path: str) -> str | None:
