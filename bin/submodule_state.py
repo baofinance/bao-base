@@ -142,6 +142,10 @@ class Facts:
     path: str
     directory: Path
     lock: Pin
+    # This dependency's foundry.lock entry as the index and HEAD record it - None where they record
+    # none - read beside the gitlinks they record, because writing the entry is part of every move.
+    index_lock: Pin | None
+    head_lock: Pin | None
     head_gitlink: str | None
     index_gitlink: str | None
     worktree: str | None
@@ -184,10 +188,24 @@ def read_lock(repo_root: Path) -> dict[str, Pin]:
     lock_file = repo_root / "foundry.lock"
     if not lock_file.is_file():
         return {}
+    return _parse_lock(lock_file.read_text(), str(lock_file))
+
+
+def _recorded_lock(repo_root: Path, revision: str) -> dict[str, Pin]:
+    """foundry.lock as `revision` records it - "HEAD", or "" for the index - read as `read_lock` reads
+    the working tree's. A failed read is an absence, as it is for `head_gitlink`: no foundry.lock
+    recorded there, or no HEAD yet."""
+    shown = git(repo_root, "show", f"{revision}:foundry.lock")
+    if shown.returncode != 0:
+        return {}
+    return _parse_lock(shown.stdout, f"foundry.lock in {revision or 'the index'}")
+
+
+def _parse_lock(text: str, source: str) -> dict[str, Pin]:
     try:
-        raw = json.loads(lock_file.read_text())
+        raw = json.loads(text)
     except json.JSONDecodeError as broken:
-        raise UnreadableLock(f"{lock_file} does not parse: {broken}") from broken
+        raise UnreadableLock(f"{source} does not parse: {broken}") from broken
     pins: dict[str, Pin] = {}
     for path, entry in raw.items():
         for kind in ("tag", "branch"):
@@ -476,6 +494,8 @@ def read_facts(repo_root: Path, path: str, pin: Pin | None = None, display: str 
         path=display or path,
         directory=submodule,
         lock=pin,
+        index_lock=_recorded_lock(repo_root, "").get(path),
+        head_lock=_recorded_lock(repo_root, "HEAD").get(path),
         head_gitlink=head.stdout.strip() if head.returncode == 0 else None,
         index_gitlink=staged[1] if len(staged) > 1 else None,
         worktree=checked_out.stdout.strip() if readable else None,
@@ -712,6 +732,17 @@ def checklist(facts: Facts, target_ref: str | None, target_rev: str | None) -> l
     listed = "; ".join(f"{item.path} ({item.kind}: {item.detail})" for item in facts.at_risk[:8])
     if len(facts.at_risk) > 8:
         listed += f"; and {len(facts.at_risk) - 8} more"
+    # The move is the gitlink AND this dependency's lock entry, which stage 5 writes: staging or
+    # committing the gitlink alone records a pin and a lock that disagree. The working tree's entry is
+    # put in the terms the index's and HEAD's are read in - None where there is none, for either of
+    # the two reasons `Pin` keeps apart - and only this entry is compared, never the whole file, whose
+    # other entries belong to other dependencies' moves.
+    entry = facts.lock if facts.lock.kind not in ("unpinned", "unmanaged") else None
+    lock_staged = facts.index_lock == entry
+    lock_committed = facts.head_lock == entry
+    unstaged = [facts.path] if facts.index_gitlink != facts.worktree else []
+    if not lock_staged:
+        unstaged.append("foundry.lock")
     return [
         Stage(
             0,
@@ -760,17 +791,20 @@ def checklist(facts: Facts, target_ref: str | None, target_rev: str | None) -> l
         Stage(
             6,
             "the move is staged",
-            facts.index_gitlink == facts.worktree,
-            f"index {(facts.index_gitlink or 'absent')[:10]}, working tree {(facts.worktree or 'absent')[:10]}",
-            f"git add {facts.path}",
+            not unstaged,
+            f"index {(facts.index_gitlink or 'absent')[:10]}, working tree {(facts.worktree or 'absent')[:10]};"
+            f" foundry.lock entry {'staged' if lock_staged else 'not staged'}",
+            f"git add {' '.join(unstaged)}",
         ),
         Stage(
             7,
             "the move is committed",
-            # Against the WORKING TREE, not the index: while neither has moved they agree with each
-            # other, and comparing them would report the stage done when nothing had happened.
-            facts.head_gitlink == facts.worktree,
-            f"HEAD {(facts.head_gitlink or 'absent')[:10]}, working tree {(facts.worktree or 'absent')[:10]}",
+            # Against the WORKING TREE, not the index - the gitlink and the lock entry alike: while
+            # neither has moved they agree with each other, and comparing them would report the stage
+            # done when nothing had happened.
+            facts.head_gitlink == facts.worktree and lock_committed,
+            f"HEAD {(facts.head_gitlink or 'absent')[:10]}, working tree {(facts.worktree or 'absent')[:10]};"
+            f" foundry.lock entry {'committed' if lock_committed else 'not committed'}",
             "git commit",
         ),
     ]

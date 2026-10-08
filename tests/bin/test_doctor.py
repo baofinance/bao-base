@@ -850,3 +850,50 @@ def test_wake_scope_reports_exclusions_it_cannot_read(tmp_path, wake_toml, repor
     assert len(problems) == 1
     assert reported in problems[0]
     assert "what wake compiles cannot be read" in problems[0]
+
+
+# ── remapping_detection_problems: forge uses only the remappings foundry.toml writes ──
+#
+# With auto_detect_remappings on, forge adds remappings it derives from the library directories it finds,
+# nested ones inside dependencies included. Each test builds a project in tmp_path, so the value read is the
+# one `forge config` resolves; the environment variable that overrides it is set or removed explicitly.
+def _with_foundry_toml(repo: pathlib.Path, default_profile: str) -> pathlib.Path:
+    (repo / "foundry.toml").write_text(f"[profile.default]\n{default_profile}")
+    return repo
+
+
+def test_remapping_detection_clean_when_forge_resolves_it_off(tmp_path, monkeypatch):
+    monkeypatch.delenv("FOUNDRY_AUTO_DETECT_REMAPPINGS", raising=False)
+    repo = _with_foundry_toml(
+        _forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), "auto_detect_remappings = false\n"
+    )
+    assert doctor.remapping_detection_problems(repo) == []
+
+
+def test_remapping_detection_reported_at_forges_default(tmp_path, monkeypatch):
+    # forge detects remappings unless told not to, so a foundry.toml that says nothing is a finding
+    monkeypatch.delenv("FOUNDRY_AUTO_DETECT_REMAPPINGS", raising=False)
+    repo = _with_foundry_toml(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), "")
+    problems = doctor.remapping_detection_problems(repo)
+    assert len(problems) == 1
+    assert "forge config resolves auto_detect_remappings to true" in problems[0]
+    assert "Repair: set auto_detect_remappings = false under [profile.default] in foundry.toml" in problems[0]
+
+
+def test_remapping_detection_reads_what_forge_resolves_not_the_file(tmp_path, monkeypatch):
+    # an environment variable overrides foundry.toml, and forge builds with what it resolves
+    monkeypatch.setenv("FOUNDRY_AUTO_DETECT_REMAPPINGS", "true")
+    repo = _with_foundry_toml(
+        _forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), "auto_detect_remappings = false\n"
+    )
+    problems = doctor.remapping_detection_problems(repo)
+    assert len(problems) == 1
+    assert "forge config resolves auto_detect_remappings to true" in problems[0]
+
+
+def test_remapping_detection_reported_when_forge_does_not_report_it(tmp_path, monkeypatch):
+    # a forge whose config does not carry the key leaves the question unanswered, which is a finding, not a pass
+    monkeypatch.setattr(doctor, "forge_config", lambda repo_root: {})
+    problems = doctor.remapping_detection_problems(tmp_path)
+    assert len(problems) == 1
+    assert "forge config does not report auto_detect_remappings" in problems[0]

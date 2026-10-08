@@ -258,15 +258,41 @@ def test_the_lock_is_written_and_then_verified(project):
     assert "[x] 5." in result.stdout, "and re-read afterwards rather than assumed"
 
 
-def test_staging_and_committing_are_printed_not_run(project):
+def test_staging_and_committing_are_printed_not_run(project, tmp_path):
+    # A move changes both the gitlink and the lock entry, so both are what the user is handed to stage.
+    advance_remote(tmp_path, "dep")
+
     result = update_submodule("dep@main")
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "git add lib/dep" in result.stdout
+    assert "Now yours to run:  git add lib/dep foundry.lock && git commit" in result.stdout, result.stdout
     staged = subprocess.run(
         ["git", "diff", "--cached", "--name-only"], cwd=project, capture_output=True, text=True
     ).stdout
     assert staged.strip() == "", "the superproject's git is the user's"
+
+
+def test_a_lock_written_while_the_gitlink_stands_still_is_still_to_be_staged(project):
+    # The dependency is already at the ref, so its gitlink needs nothing - but the lock entry has just
+    # been written, and it is what the user must stage and commit.
+    result = update_submodule("dep@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Now yours to run:  git add foundry.lock && git commit" in result.stdout, result.stdout
+
+
+def test_a_move_already_committed_leaves_nothing_to_run(project):
+    # Run over a dependency whose move is already staged and committed, it says so, rather than
+    # handing the user a `git add` and `git commit` that would record nothing.
+    update_submodule("dep@main")
+    git("add", "lib/dep", "foundry.lock", cwd=project)
+    git("commit", "-qm", "record dep", cwd=project)
+
+    result = update_submodule("dep@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "git add" not in result.stdout and "git commit" not in result.stdout, result.stdout
+    assert "Nothing for you to run" in result.stdout, result.stdout
 
 
 def test_a_stranded_directory_is_removed(project, tmp_path):
@@ -351,7 +377,13 @@ def test_doctor_advises_exactly_what_update_would_do_next(project, stop_after):
     checked = update_submodule("--check", "dep@main")
 
     if not findings:
-        assert "[ ]" not in checked.stdout, "doctor is quiet, so update must have nothing left"
+        # Doctor judges the working tree's foundry.lock and does not judge HEAD, so its silence
+        # answers for every stage `yarn update` performs - the user's own staging and committing of
+        # the lock entry, stages 6 and 7, can still be open.
+        undone = [line.strip() for line in checked.stdout.splitlines() if line.strip().startswith("[ ]")]
+        assert all(line.startswith(("[ ] 6.", "[ ] 7.")) for line in undone), (
+            f"doctor is quiet, so update must have nothing left of its own: {undone}"
+        )
         return
     advice = next(line.split("Repair: ", 1)[1] for line in findings[0].splitlines() if "Repair: " in line)
     first_undone = next(line.strip() for line in checked.stdout.splitlines() if line.strip().startswith("[ ]"))

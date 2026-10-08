@@ -347,7 +347,13 @@ def converge(repo_root: Path, dependency: str, check_only: bool, force: bool) ->
     if outstanding:
         print(f"  FAILED: {len(outstanding)} stage(s) did not complete")
         return 1
-    print(f"  Now yours to run:  git add {path} && git commit")
+    # What is handed over is exactly the user's stages still open, so a move already staged and
+    # committed is told so rather than sent to record nothing.
+    yours = [stage.action for stage in stages if not stage.done and stage.number >= 6]
+    if not yours:
+        print(f"  Nothing for you to run: HEAD already records {ref} ({target.rev[:10]}) and its foundry.lock entry")
+        return 0
+    print(f"  Now yours to run:  {' && '.join(yours)}")
     return 0
 
 

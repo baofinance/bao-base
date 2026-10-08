@@ -293,13 +293,40 @@ def remapping_problems(foundry_remappings: list[str], wake_remappings: list[str]
     return ["Remapping mismatch detected:\n" + "\n".join(mismatch_details)]
 
 
+def forge_config(repo_root: Path) -> dict[str, Any]:
+    """The configuration forge builds with, as `forge config` resolves it: foundry.toml, the active profile
+    and `FOUNDRY_*` environment variables together."""
+    return json.loads(
+        subprocess.run(["forge", "config", "--json"], cwd=repo_root, capture_output=True, text=True, check=True).stdout
+    )
+
+
 def forge_source_directories(repo_root: Path) -> tuple[str, ...]:
     """The directories forge builds every Solidity file in - source, test and script - as `forge config`
     resolves them, relative to the repo root."""
-    config = json.loads(
-        subprocess.run(["forge", "config", "--json"], cwd=repo_root, capture_output=True, text=True, check=True).stdout
-    )
+    config = forge_config(repo_root)
     return tuple(config[key] for key in ("src", "test", "script"))
+
+
+def remapping_detection_problems(repo_root: Path) -> list[str]:
+    """Whether forge adds remappings of its own. Unless `auto_detect_remappings` is false, forge derives
+    remappings from the library directories it finds - nested ones inside dependencies included - and uses
+    them beside the ones foundry.toml writes. Read from `forge config` rather than foundry.toml, because an
+    environment variable or the active profile overrides the file and forge builds with what it resolves.
+    Returns one finding, or [] when forge resolves it to false."""
+    resolved = forge_config(repo_root)
+    if resolved.get("auto_detect_remappings") is False:
+        return []
+    found = (
+        f"forge config resolves auto_detect_remappings to {json.dumps(resolved['auto_detect_remappings'])}"
+        if "auto_detect_remappings" in resolved
+        else "forge config does not report auto_detect_remappings, so whether forge adds remappings cannot be read"
+    )
+    return [
+        f"{found}\n  Repair: set auto_detect_remappings = false under [profile.default] in foundry.toml. forge "
+        "config also reads the active FOUNDRY_PROFILE and FOUNDRY_* environment variables, either of which can "
+        "override it."
+    ]
 
 
 def wake_scope_problems(repo_root: Path) -> list[str]:
@@ -767,6 +794,15 @@ def build_checks(
     and runs git in each; calling it per check would double that to say the same things."""
     version_problems, leftover_problems = submodule_problems(repo_root)
     checks = [
+        Check(
+            "forge uses only the remappings foundry.toml writes",
+            "with auto_detect_remappings on, forge adds remappings it derives from every library directory it "
+            "finds, including those nested inside dependencies, so what an import resolves to depends on which "
+            "checkouts happen to be present - and the remapping comparison below reads only the written list",
+            "a build can compile a dependency's own copy of a library this project never chose, differently on "
+            "each machine, while wake analyses a program forge does not build",
+            remapping_detection_problems(repo_root),
+        ),
         Check(
             "foundry/wake remappings agree",
             "wake and forge must resolve every import to the same file — otherwise wake analyses a "

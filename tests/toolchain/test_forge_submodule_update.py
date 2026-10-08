@@ -9,6 +9,8 @@ bin/update-submodule drives one of these two commands, and they are not intercha
   forge update <path>[@<ref>] moves nothing when given a version - neither the checkout nor the lock -
                               and nothing for a tag pin given none, exiting 0 either way; and it takes
                               unpushed commits off a branch-pinned dependency
+  forge build [--locked]      reads nothing from foundry.lock unless given --locked, which fails when a
+                              dependency's checkout is not the commit the lock names
 
 So bin/update-submodule uses `forge install` exclusively, and treats forge's exit code as no evidence
 that anything worked. These tests pin those behaviours: each one fails when forge changes, which is
@@ -584,3 +586,61 @@ def test_the_lock_we_write_matches_the_one_forge_writes(project, remotes):
         "our foundry.lock no longer matches forge's byte for byte:\n"
         f"forge: {forge_wrote!r}\nours : {(project / 'foundry.lock').read_bytes()!r}"
     )
+
+
+def install_pinned(project, remotes, pin):
+    """Install `dep` with a pin of kind `pin` and commit it. Returns the commit the lock names."""
+    remotes.create("dep")
+    install(project, remotes, "dep", {"tag": "v1.0.0", "branch": "main", "rev": remotes.rev("dep", "main")}[pin])
+    entry = lock(project)["lib/dep"]
+    assert pin in entry, f"the dependency must start with a {pin} pin; got {entry!r}"
+    return entry["rev"] if pin == "rev" else entry[pin]["rev"]
+
+
+def move_checkout_past_the_lock(project, remotes):
+    """Publish a commit past the locked one and check it out in the dependency, staging nothing - what an
+    editor bump leaves before foundry.lock is rewritten. Returns the commit now checked out."""
+    remotes.commit("dep", "two")
+    git(project / "lib" / "dep", "fetch", "-q", "origin")
+    git(project / "lib" / "dep", "checkout", "-q", remotes.rev("dep", "main"))
+    return head(project, "dep")
+
+
+@pytest.mark.parametrize("pin", ["tag", "branch", "rev"])
+def test_build_ignores_a_lock_that_disagrees_with_the_checkout(project, remotes, pin):
+    # A plain build reads nothing from foundry.lock - checking it is opt-in through `--locked`
+    # (foundry-rs/foundry#16863) - so a checkout moved off the locked commit builds without a word and
+    # nothing is touched. Only our own tools notice a stale lock, which is what doctor's version check
+    # is for.
+    locked = install_pinned(project, remotes, pin)
+    moved = move_checkout_past_the_lock(project, remotes)
+    # Unless they differ, "nothing was said" would hold however forge treated the lock.
+    assert moved != locked, "the checkout must start off the locked commit"
+    before = (project / "foundry.lock").read_text()
+
+    result = forge(project, "build")
+
+    assert result.returncode == 0, result.stderr
+    assert "lib/dep" not in result.stdout + result.stderr, (
+        f"forge build now reports a lock that disagrees with the checkout, so it reads foundry.lock.\n{result.stderr}"
+    )
+    assert (project / "foundry.lock").read_text() == before, "forge build now rewrites foundry.lock"
+    assert head(project, "dep") == moved, "forge build now moves the dependency's checkout"
+
+
+@pytest.mark.parametrize("pin", ["tag", "branch", "rev"])
+def test_build_locked_refuses_a_lock_that_disagrees_with_the_checkout(project, remotes, pin):
+    # `--locked` is where forge reads foundry.lock: it compares each dependency's CHECKOUT with the commit
+    # the lock names and fails on a difference, naming both. The gitlink still agreeing with the lock does
+    # not satisfy it.
+    locked = install_pinned(project, remotes, pin)
+    agreeing = forge(project, "build", "--locked")
+    # Unless it passes while they agree, the refusal below could have some other cause.
+    assert agreeing.returncode == 0, f"forge build --locked fails with the lock and checkout agreeing.\n{agreeing.stderr}"
+    moved = move_checkout_past_the_lock(project, remotes)
+    assert index_gitlink(project, "dep") == locked, "the gitlink must still name the locked commit"
+
+    result = forge(project, "build", "--locked")
+
+    assert result.returncode != 0, f"forge build --locked now accepts a lock the checkout disagrees with.\n{result.stdout}"
+    assert f"lib/dep: expected {locked}, found {moved}" in result.stderr, result.stderr

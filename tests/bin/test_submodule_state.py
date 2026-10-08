@@ -398,6 +398,59 @@ def test_the_checklist_leaves_only_what_is_undone(world):
     assert stages[6].action == "git add lib/dep"
 
 
+def move_to_v2_and_lock_it(world: World) -> str:
+    """Move the dependency to a new tag v2 and write foundry.lock to record it, staging nothing."""
+    dep = world.project / "lib" / "dep"
+    add_commit(world.dep_source, "v2")
+    git(world.dep_source, "tag", "v2")
+    git(dep, "fetch", "-q", "origin", "--tags")
+    git(dep, "checkout", "-q", "v2")
+    moved = git(dep, "rev-parse", "HEAD").stdout.strip()
+    write_lock(world.project, "lib/dep", "tag", "v2", moved)
+    return moved
+
+
+def test_a_lock_entry_left_unstaged_leaves_the_move_unstaged(world):
+    # The lock entry is half of the move: committing the gitlink without it records a pin and a lock
+    # that disagree. So staging is done only when both are staged, and the action names what is not.
+    moved = move_to_v2_and_lock_it(world)
+    git(world.project, "add", "lib/dep")
+
+    stages = {stage.number: stage for stage in checklist(facts_for(world.project), "v2", moved)}
+
+    assert stages[5].done, "the lock itself is right"
+    assert not stages[6].done, stages[6]
+    assert stages[6].action == "git add foundry.lock"
+    assert not stages[7].done, stages[7]
+
+
+def test_a_lock_entry_left_uncommitted_leaves_the_move_uncommitted(world):
+    # Committing only the gitlink leaves the lock entry staged and nowhere in HEAD.
+    moved = move_to_v2_and_lock_it(world)
+    git(world.project, "add", "lib/dep", "foundry.lock")
+    git(world.project, "commit", "-qm", "the gitlink alone", "--", "lib/dep")
+
+    stages = {stage.number: stage for stage in checklist(facts_for(world.project), "v2", moved)}
+
+    assert stages[6].done, stages[6]
+    assert not stages[7].done, stages[7]
+    assert stages[7].action == "git commit"
+
+
+def test_another_dependencys_lock_entry_does_not_hold_this_one_back(world):
+    # Staged and committed are asked of THIS dependency's entry, not of the whole file: a lock that is
+    # also part-way through other dependencies' updates must not leave this one forever unfinished.
+    lock = world.project / "foundry.lock"
+    entries = json.loads(lock.read_text())
+    entries["lib/elsewhere"] = {"tag": {"name": "v9", "rev": "9" * 40}}
+    lock.write_text(json.dumps(entries, indent=2))
+
+    facts = facts_for(world.project)
+    stages = checklist(facts, "v1", facts.worktree)
+
+    assert all(stage.done for stage in stages), [s for s in stages if not s.done]
+
+
 def test_a_stationary_pin_with_no_ref_fails_the_checklist_rather_than_guessing(world):
     # Two pins disagree and the tool cannot know which was intended, so it must ask. The stage carries
     # the command that answers it rather than only refusing.
@@ -679,6 +732,8 @@ def test_a_disagreement_that_is_not_a_bump_is_not_narrated_as_one(world):
 
 
 def test_the_repair_asks_for_staging_when_that_is_what_is_missing(world):
+    # The lock entry is staged with the gitlink: staging the gitlink alone would commit a pin and a
+    # lock that disagree, the very fault this repair is for.
     dep = world.project / "lib" / "dep"
     add_commit(world.dep_source, "v2")
     git(world.dep_source, "tag", "v2")
@@ -688,7 +743,7 @@ def test_the_repair_asks_for_staging_when_that_is_what_is_missing(world):
 
     facts = facts_for(world.project)
 
-    assert repair(facts, condition(facts)) == "git add lib/dep"
+    assert repair(facts, condition(facts)) == "git add lib/dep foundry.lock"
 
 
 # ── one version per dependency, within a tree ─────────────────────────────────────────────────────
