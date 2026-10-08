@@ -322,19 +322,28 @@ class Declared:
     branch: str | None
 
 
-def declared_submodules(repo_dir: Path) -> list[Declared]:
-    """Every submodule the `.gitmodules` in `repo_dir`'s working tree declares, in the order it lists them.
+def declared_submodules(repo_dir: Path, revision: str | None = None) -> list[Declared]:
+    """Every submodule a `.gitmodules` in `repo_dir` declares, in the order it lists them: the working
+    tree's, or the one `revision` records - "HEAD", or "" for the index.
 
     No `.gitmodules` declares nothing. One git will not read raises `UnreadableGitmodules` in git's words.
     Read NUL-separated, because a submodule's name is free text and may hold a space."""
-    if not (repo_dir / ".gitmodules").is_file():
-        return []
-    listing = git(repo_dir, "config", "-z", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.(path|url|branch)$")
+    if revision is None:
+        if not (repo_dir / ".gitmodules").is_file():
+            return []
+        source, named = ["-f", ".gitmodules"], str(repo_dir / ".gitmodules")
+    else:
+        recorded = f"{revision}:.gitmodules"
+        # quiet and non-zero exactly when no such object exists: none recorded there, or no HEAD yet
+        if git(repo_dir, "rev-parse", "--verify", "--quiet", recorded).returncode != 0:
+            return []
+        source, named = ["--blob", recorded], f".gitmodules in {revision or 'the index'}"
+    listing = git(repo_dir, "config", "-z", *source, "--get-regexp", r"^submodule\..*\.(path|url|branch)$")
     # git's answer for "no key matches" is exit 1 with nothing said - a file holding only comments gives it
     if listing.returncode == 1 and not listing.stderr.strip():
         return []
     if listing.returncode != 0:
-        raise UnreadableGitmodules(f"{repo_dir / '.gitmodules'}: {listing.stderr.strip()}")
+        raise UnreadableGitmodules(f"{named}: {listing.stderr.strip()}")
     fields: dict[str, dict[str, str]] = {}
     for item in listing.stdout.split("\0"):
         if not item:
@@ -370,7 +379,36 @@ def submodule_levels(repo_root: Path, path: str) -> Iterator[tuple[Path, Declare
         directory, remainder = directory / level.path, remainder.relative_to(level.path)
 
 
-def _staged(repo_dir: Path, path: str) -> str | None:
+def nested_levels(repo_root: Path, path: str, remappings: list[str]) -> Iterator[tuple[Path, Declared]]:
+    """The submodules beneath the dependency at `path` that remappings reach - the nested paths the build
+    reads from it - each with the directory declaring it, outermost first for each remapping. Lazy, as
+    `submodule_levels` is, so a caller can check each one out before the next is read."""
+    for remapping in remappings:
+        levels = submodule_levels(repo_root, remapping_target(remapping))
+        first = next(levels, None)
+        if first is not None and first[1].path == path:
+            yield from levels
+
+
+@dataclass(frozen=True)
+class Recorded:
+    """One dependency's `.gitmodules` entry as the working tree, the index and HEAD hold it - None where that
+    version declares no submodule at its path."""
+
+    working: Declared | None
+    staged: Declared | None
+    committed: Declared | None
+
+
+def recorded_entry(repo_root: Path, path: str) -> Recorded:
+    entries = [
+        next((entry for entry in declared_submodules(repo_root, revision) if entry.path == path), None)
+        for revision in (None, "", "HEAD")
+    ]
+    return Recorded(*entries)
+
+
+def staged_gitlink(repo_dir: Path, path: str) -> str | None:
     """The commit a repository STAGES for a submodule.
 
     The index rather than HEAD, following `ratchet.resolve`: what is staged is what you mean to depend
@@ -485,8 +523,8 @@ def conflicting_dependencies(repo_root: Path, owner: str | None = None, toolchai
             our_path = ours.get(identity)
             if our_path is None:
                 continue
-            our_commit = _staged(repo_root, our_path)
-            their_commit = _staged(repo_root / path, their_path)
+            our_commit = staged_gitlink(repo_root, our_path)
+            their_commit = staged_gitlink(repo_root / path, their_path)
             if our_commit == their_commit:
                 continue
             checkouts = [repo_root / our_path, repo_root / path / their_path]
@@ -784,6 +822,45 @@ class Stage:
     action: str
 
 
+def _safety_stage(facts: Facts) -> Stage:
+    """Stage 0 of either checklist: nothing under the dependency exists only here."""
+    safe = not facts.has_own_work
+    # Named individually rather than counted: the point of stopping is that only the user can say
+    # whether a given thing is a day's work or a stray file, and they cannot judge a number.
+    listed = "; ".join(f"{item.path} ({item.kind}: {item.detail})" for item in facts.at_risk[:8])
+    if len(facts.at_risk) > 8:
+        listed += f"; and {len(facts.at_risk) - 8} more"
+    return Stage(
+        0,
+        "nothing here exists only here",
+        safe,
+        "no remote is missing anything under this dependency" if safe else f"exists only here: {listed}",
+        "" if safe else "commit and push what matters, then run this again - or repeat it with --force to move anyway",
+    )
+
+
+def _checkout_stage(facts: Facts, target_ref: str | None, target_rev: str | None) -> Stage:
+    """Stage 2 of either checklist: the working tree is at the ref."""
+    return Stage(
+        2,
+        "working tree at that ref",
+        bool(target_rev) and facts.worktree == target_rev,
+        f"working tree {(facts.worktree or 'absent')[:10]}, wanted {(target_rev or '?')[:10]}",
+        f"git -C {facts.path} fetch --tags origin && git -C {facts.path} checkout {target_ref or '<ref>'}",
+    )
+
+
+def _leftovers_stage(facts: Facts) -> Stage:
+    """Stage 4 of either checklist: no directory a version change stranded."""
+    return Stage(
+        4,
+        "no orphaned directories",
+        not facts.litter,
+        ", ".join(facts.litter) if facts.litter else "none",
+        "remove each directory and its gitdir - recursing is what strands them",
+    )
+
+
 def checklist(facts: Facts, target_ref: str | None, target_rev: str | None) -> list[Stage]:
     """What is left to do to bring `facts` to `target_ref` (whose commit is `target_rev`).
 
@@ -791,12 +868,6 @@ def checklist(facts: Facts, target_ref: str | None, target_rev: str | None) -> l
     network. `target_ref` of None means the caller could not resolve one, which is itself a stage-1
     failure rather than an error here.
     """
-    safe = not facts.has_own_work
-    # Named individually rather than counted: the point of stopping is that only the user can say
-    # whether a given thing is a day's work or a stray file, and they cannot judge a number.
-    listed = "; ".join(f"{item.path} ({item.kind}: {item.detail})" for item in facts.at_risk[:8])
-    if len(facts.at_risk) > 8:
-        listed += f"; and {len(facts.at_risk) - 8} more"
     # The move is the gitlink AND this dependency's lock entry, which stage 5 writes: staging or
     # committing the gitlink alone records a pin and a lock that disagree. The working tree's entry is
     # put in the terms the index's and HEAD's are read in - None where there is none, for either of
@@ -809,15 +880,7 @@ def checklist(facts: Facts, target_ref: str | None, target_rev: str | None) -> l
     if not lock_staged:
         unstaged.append("foundry.lock")
     return [
-        Stage(
-            0,
-            "nothing here exists only here",
-            safe,
-            "no remote is missing anything under this dependency" if safe else f"exists only here: {listed}",
-            ""
-            if safe
-            else "commit and push what matters, then run this again - or repeat it with --force to move anyway",
-        ),
+        _safety_stage(facts),
         Stage(
             1,
             "a ref to move to",
@@ -825,13 +888,7 @@ def checklist(facts: Facts, target_ref: str | None, target_rev: str | None) -> l
             f"{target_ref}" if target_ref else f"{facts.lock.kind} pin cannot resolve itself",
             "" if target_ref else f"name one: `yarn update {facts.path}@<ref>`",
         ),
-        Stage(
-            2,
-            "working tree at that ref",
-            bool(target_rev) and facts.worktree == target_rev,
-            f"working tree {(facts.worktree or 'absent')[:10]}, wanted {(target_rev or '?')[:10]}",
-            f"git -C {facts.path} fetch --tags origin && git -C {facts.path} checkout {target_ref or '<ref>'}",
-        ),
+        _checkout_stage(facts, target_ref, target_rev),
         Stage(
             3,
             "nested submodules at their recorded commits",
@@ -839,13 +896,7 @@ def checklist(facts: Facts, target_ref: str | None, target_rev: str | None) -> l
             f"{len(facts.nested_drift)} off their pins" if facts.nested_drift else "all at their pins",
             f"git -C {facts.path} submodule update --init --recursive",
         ),
-        Stage(
-            4,
-            "no orphaned directories",
-            not facts.litter,
-            ", ".join(facts.litter) if facts.litter else "none",
-            "remove each directory and its gitdir - recursing is what strands them",
-        ),
+        _leftovers_stage(facts),
         Stage(
             5,
             "foundry.lock names that ref",
@@ -870,6 +921,87 @@ def checklist(facts: Facts, target_ref: str | None, target_rev: str | None) -> l
             facts.head_gitlink == facts.worktree and lock_committed,
             f"HEAD {(facts.head_gitlink or 'absent')[:10]}, working tree {(facts.worktree or 'absent')[:10]};"
             f" foundry.lock entry {'committed' if lock_committed else 'not committed'}",
+            "git commit",
+        ),
+    ]
+
+
+def move_checklist(
+    facts: Facts,
+    target_ref: str | None,
+    target_rev: str | None,
+    follows: str | None,
+    entry: Recorded,
+    nested_off: list[tuple[str, str]],
+) -> list[Stage]:
+    """What is left to do to move a dependency to `target_ref` (whose commit is `target_rev`) for bin/dep:
+    `checklist` without foundry.lock.
+
+    What the dependency follows - `follows`, a branch, or None at a tag or commit - is recorded in
+    `.gitmodules`, so staging and committing the move cover this dependency's entry there beside its
+    gitlink. Only this entry is compared, never the whole file, whose other entries belong to other
+    dependencies' moves. `nested_off` is each remapped nested path not at its record, with the command
+    that checks it out.
+    """
+    name = entry.working.name if entry.working is not None else facts.path
+    recorded_branch = entry.working.branch if entry.working is not None else None
+    entry_staged = entry.staged == entry.working
+    entry_committed = entry.committed == entry.working
+    unstaged = [facts.path] if facts.index_gitlink != facts.worktree else []
+    if not entry_staged:
+        unstaged.append(".gitmodules")
+    return [
+        _safety_stage(facts),
+        Stage(
+            1,
+            "a ref to move to",
+            target_ref is not None,
+            f"{target_ref}" if target_ref else "none named, and .gitmodules records no branch to follow",
+            "" if target_ref else f"name one: `yarn dep update {facts.path}@<ref>`",
+        ),
+        _checkout_stage(facts, target_ref, target_rev),
+        Stage(
+            3,
+            "remapped nested paths at their recorded commits",
+            not nested_off,
+            ", ".join(path for path, _ in nested_off) if nested_off else "all at their records",
+            " && ".join(command for _, command in nested_off),
+        ),
+        _leftovers_stage(facts),
+        Stage(
+            5,
+            ".gitmodules records what it follows",
+            # Unjudgeable until the ref resolves: whether it is a branch decides what should be recorded.
+            target_rev is not None and recorded_branch == follows,
+            f"records {f'branch {recorded_branch}' if recorded_branch else 'no branch'},"
+            + (
+                f" wanted {f'branch {follows}' if follows else 'none'}"
+                if target_rev is not None
+                else " and what it should record is unknown until the ref resolves"
+            ),
+            ""
+            if target_rev is None
+            else f"git config -f .gitmodules submodule.{name}.branch {follows}"
+            if follows
+            else f"git config -f .gitmodules --unset submodule.{name}.branch",
+        ),
+        Stage(
+            6,
+            "the move is staged",
+            not unstaged,
+            f"index {(facts.index_gitlink or 'absent')[:10]}, working tree {(facts.worktree or 'absent')[:10]};"
+            f" .gitmodules entry {'staged' if entry_staged else 'not staged'}",
+            f"git add {' '.join(unstaged)}",
+        ),
+        Stage(
+            7,
+            "the move is committed",
+            # Against the WORKING TREE, not the index - the gitlink and the entry alike: while neither has
+            # moved they agree with each other, and comparing them would report the stage done when nothing
+            # had happened.
+            facts.head_gitlink == facts.worktree and entry_committed,
+            f"HEAD {(facts.head_gitlink or 'absent')[:10]}, working tree {(facts.worktree or 'absent')[:10]};"
+            f" .gitmodules entry {'committed' if entry_committed else 'not committed'}",
             "git commit",
         ),
     ]

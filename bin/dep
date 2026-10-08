@@ -7,6 +7,12 @@ dependency's other nested submodules are its own lockfile, wanted only by someon
 they are never fetched - and one of them pinned to a commit no remote holds cannot stop this checkout.
 A clone made without --recurse-submodules needs nothing more than this.
 
+`update` moves one dependency to a named version, checking out beneath it the same nested paths and no
+others. The branch a dependency follows is recorded where git records it, as `branch` in `.gitmodules`,
+so a later update named without a ref follows that branch - and one with no branch recorded has nothing
+it was told to follow, and asks. Nothing is fetched or moved until the pre-checks pass: nothing under the
+dependency may exist only here, and a local branch it would stand on may hold no commit the target lacks.
+
 Every command that changes something is printed as it finishes, in order. A failure prints the tool's
 own error beneath the command that failed, then where each checkout now stands, and undoes nothing:
 what happened is there to be read and unpicked, and running again once the cause is fixed finishes the
@@ -18,19 +24,41 @@ What is staged and committed is the developer's, so nothing here runs a command 
 from __future__ import annotations
 
 import argparse
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 from forge_config import forge_config
-from submodule_state import Declared, _staged, at_risk, declared_submodules, git, remapping_target, submodule_levels
+from submodule_state import (
+    MOVING,
+    Declared,
+    Pin,
+    at_risk,
+    declared_submodules,
+    git,
+    move_checklist,
+    nested_levels,
+    read_facts,
+    recorded_entry,
+    remapping_target,
+    staged_gitlink,
+    submodule_levels,
+)
 
 USAGE = """\
 dep sync
+dep update [--force] <dependency>[@<ref>] ...
 
-  sync   check out every top-level dependency at the commit this repository records, then the nested
-         dependencies forge's remappings point into, and nothing else - for a clone made without
-         --recurse-submodules, or after a pull moves a recorded commit"""
+  sync          check out every top-level dependency at the commit this repository records, then the
+                nested dependencies forge's remappings point into, and nothing else - for a clone made
+                without --recurse-submodules, or after a pull moves a recorded commit
+  update        move each named dependency to <ref>, a tag, branch or commit, and record in .gitmodules
+                the branch it follows, or none. Without @<ref>, follow the branch .gitmodules records.
+  <dependency>  a directory under lib/, or a path to a submodule
+  --force       move even though something under the dependency exists nowhere else, or its local
+                branch holds commits the target lacks (HEAD is then left detached and the branch alone)"""
 
 
 class StepFailed(Exception):
@@ -63,7 +91,7 @@ def checked_out(checkout: Path) -> str | None:
 def at_record(directory: Path, level: Declared) -> bool:
     """Whether the submodule `directory` declares is checked out at the commit `directory` records."""
     have = checked_out(directory / level.path)
-    return have is not None and have == _staged(directory, level.path)
+    return have is not None and have == staged_gitlink(directory, level.path)
 
 
 def report(repo_root: Path, dependencies: list[Declared], remappings: list[str]) -> bool:
@@ -74,7 +102,7 @@ def report(repo_root: Path, dependencies: list[Declared], remappings: list[str])
         for directory, level in submodule_levels(repo_root, remapping_target(remapping)):
             rows.setdefault((directory / level.path).relative_to(repo_root).as_posix(), (directory, level))
     for display, (directory, level) in rows.items():
-        have, want = checked_out(directory / level.path), _staged(directory, level.path)
+        have, want = checked_out(directory / level.path), staged_gitlink(directory, level.path)
         if at_record(directory, level):
             print(f"  [x] {display} - at {(have or '')[:10]}")
         else:
@@ -90,14 +118,21 @@ def report(repo_root: Path, dependencies: list[Declared], remappings: list[str])
     return all(at_record(directory, level) for directory, level in rows.values())
 
 
-def sync(repo_root: Path) -> int:
-    print("sync:")
+def read_remappings(repo_root: Path) -> list[str] | None:
+    """The remappings forge resolves, or None when forge cannot resolve them - forge's own error printed."""
     try:
-        remappings: list[str] = forge_config(repo_root)["remappings"]
+        return forge_config(repo_root)["remappings"]
     except subprocess.CalledProcessError as failed:
         print(f"  failed (exit {failed.returncode}): forge config --json")
         for line in failed.stderr.rstrip().splitlines():
             print(f"    {line}")
+        return None
+
+
+def sync(repo_root: Path) -> int:
+    print("sync:")
+    remappings = read_remappings(repo_root)
+    if remappings is None:
         return 1
     dependencies = declared_submodules(repo_root)
 
@@ -127,7 +162,7 @@ def sync(repo_root: Path) -> int:
                 checkout = repo_root / entry.path
                 tip = git(checkout, "rev-parse", "--verify", "--quiet", f"refs/heads/{entry.branch}").stdout.strip()
                 standing = git(checkout, "symbolic-ref", "--quiet", "HEAD").stdout.strip()
-                if tip == _staged(repo_root, entry.path) and standing != f"refs/heads/{entry.branch}":
+                if tip == staged_gitlink(repo_root, entry.path) and standing != f"refs/heads/{entry.branch}":
                     run(repo_root, checkout, "checkout", "--quiet", entry.branch)
         for remapping in remappings:
             # Lazy, so each level is checked out before the walk reads the next level's .gitmodules from it.
@@ -140,17 +175,199 @@ def sync(repo_root: Path) -> int:
     return 0 if report(repo_root, dependencies, remappings) else 1
 
 
+def resolve_path(repo_root: Path, dependency: str) -> str:
+    """A dependency is named by its directory under lib/, but a full path is accepted too."""
+    for candidate in (dependency, f"lib/{dependency}"):
+        if (repo_root / candidate / ".git").exists():
+            return candidate
+    raise SystemExit(f"error: no submodule at '{dependency}' or 'lib/{dependency}'")
+
+
+def classify(submodule: Path, ref: str) -> Pin:
+    """Which kind of ref `ref` is, asked of git rather than of the string's shape, because a branch and a
+    tag can be named anything. A branch is what a dependency can follow; a tag or commit stays put."""
+    tag = git(submodule, "rev-parse", "--verify", "--quiet", f"refs/tags/{ref}^{{commit}}")
+    if tag.returncode == 0:
+        return Pin("tag", ref, tag.stdout.strip())
+    branch = git(submodule, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{ref}^{{commit}}")
+    if branch.returncode == 0:
+        return Pin(MOVING, ref, branch.stdout.strip())
+    commit = git(submodule, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
+    if commit.returncode == 0:
+        return Pin("rev", None, commit.stdout.strip())
+    return Pin("absent", None, None)
+
+
+def delete(repo_root: Path, directory: Path) -> None:
+    """Delete a directory a version change stranded, with its gitdir when that lives elsewhere (git would
+    reuse it if the path ever returned), printing each as it goes. A failure prints the system's error and
+    raises `StepFailed`: nothing is reported as removed that was not."""
+    marker = directory / ".git"
+    pointer = marker.read_text().partition("gitdir:")[2].strip() if marker.is_file() else ""
+    gitdir = (directory / pointer).resolve() if pointer else None
+    for target in ([gitdir] if gitdir is not None and gitdir.exists() else []) + [directory]:
+        shown = f"rm -rf {os.path.relpath(target, repo_root)}"
+        try:
+            shutil.rmtree(target)
+        except OSError as failed:
+            print(f"  failed: {shown}", flush=True)
+            print(f"    {failed}", flush=True)
+            raise StepFailed(shown) from failed
+        print(f"  ran: {shown}", flush=True)
+
+
+def update(repo_root: Path, dependency: str, force: bool) -> int:
+    """Move one dependency to a version, doing only what is not already done. Returns 0 on success."""
+    requested_ref = None
+    if "@" in dependency:
+        dependency, _, requested_ref = dependency.partition("@")
+    path = resolve_path(repo_root, dependency)
+    submodule = repo_root / path
+    print(f"{path}:")
+
+    # A submodule of a submodule is recorded, and so versioned, by its own parent.
+    entry = next((declared for declared in declared_submodules(repo_root) if declared.path == path), None)
+    if entry is None:
+        print("  refusing: not a dependency of this repository - it belongs to its own parent,")
+        print("  whose version of it changes when that parent's version does.")
+        return 1
+
+    facts = read_facts(repo_root, path)
+    # Ahead of the work check, which reads a blank from a gitdir git will not read and would pass.
+    if facts.unreadable:
+        print(f"  refusing: {facts.unreadable}")
+        print("  the checkout is present, but git will not read it, so nothing here can be judged")
+        print(f"  mend the gitdir first: `git submodule update --init {path}`")
+        return 1
+    if facts.has_own_work and not force:
+        for item in facts.at_risk:
+            print(f"  ! {item.path} ({item.kind}: {item.detail})")
+        print("  refusing: the above exists nowhere else.")
+        print("  Commit and push what matters, then run this again - or repeat with --force.")
+        return 1
+
+    ref = requested_ref or entry.branch
+    if ref is None:
+        print(f"  refusing: .gitmodules records no branch for {path} to follow, so there is nothing to move it to.")
+        print(f"  Name the version: `yarn dep update {path}@<ref>`")
+        return 1
+    if requested_ref is None:
+        print(f"  following branch {ref}, as .gitmodules records")
+    remappings = read_remappings(repo_root)
+    if remappings is None:
+        return 1
+
+    target: Pin | None = None
+    try:
+        # The dependency alone. git's fetch otherwise follows any nested submodule that happens to be checked
+        # out (fetch.recurseSubmodules defaults to on-demand) and fails on a nested pin no remote holds, for a
+        # submodule nothing here may build from. The nested paths the build reads are fetched below, by name.
+        run(repo_root, submodule, "fetch", "--tags", "--quiet", "--no-recurse-submodules", "origin")
+        target = classify(submodule, ref)
+        if target.rev is None:
+            print(f"  refusing: '{ref}' is not a tag, branch or commit in {path}")
+            return 1
+
+        # Following a branch means standing on it, where someone working inside the dependency leaves HEAD.
+        # The work check reads HEAD, so it cannot see commits only the local branch holds; standing the
+        # branch at the target would take them off it, which is decided here, before anything moves.
+        stranded_on_branch: list[str] = []
+        if target.kind == MOVING:
+            local = f"refs/heads/{target.name}"
+            if git(submodule, "rev-parse", "--verify", "--quiet", local).returncode == 0:
+                lacking = git(submodule, "log", "--oneline", local, "--not", target.rev)
+                if lacking.returncode != 0:
+                    print(f"  could not compare branch {target.name} with {ref}:\n{lacking.stderr.rstrip()}")
+                    return 1
+                stranded_on_branch = lacking.stdout.splitlines()
+            if stranded_on_branch and not force:
+                for line in stranded_on_branch:
+                    print(f"  ! branch {target.name} holds {line}")
+                print(f"  refusing: branch {target.name} holds commits {ref} ({target.rev[:10]}) does not,")
+                print("  and standing it at that commit would take them off the branch.")
+                print("  Merge or move them yourself, then run this again - or repeat with --force, which moves")
+                print(f"  HEAD detached and leaves branch {target.name} as it is.")
+                return 1
+
+        attach = target.kind == MOVING and not stranded_on_branch
+        on_branch = git(submodule, "symbolic-ref", "--quiet", "HEAD").stdout.strip() == f"refs/heads/{target.name}"
+        if facts.worktree != target.rev or (attach and not on_branch):
+            # `origin/<ref>` is what `classify` resolved a branch from, so it lands on exactly that commit.
+            move: list[str] = ["--track", "-B", ref, f"origin/{ref}"] if attach else [target.rev]
+            run(repo_root, submodule, "checkout", "--quiet", *move)
+        if target.kind == MOVING and not attach:
+            print(f"  left branch {target.name} as it is, holding commits {ref} does not; HEAD is detached")
+
+        follows = target.name if target.kind == MOVING else None
+        if entry.branch != follows:
+            key = f"submodule.{entry.name}.branch"
+            if follows is None:
+                run(repo_root, repo_root, "config", "-f", ".gitmodules", "--unset", key)
+            else:
+                run(repo_root, repo_root, "config", "-f", ".gitmodules", key, follows)
+
+        # Lazy, so each level is checked out before the walk reads the next level's .gitmodules from it.
+        for directory, level in nested_levels(repo_root, path, remappings):
+            if not at_record(directory, level):
+                run(repo_root, directory, "submodule", "update", "--init", "--", level.path)
+
+        for stranded in read_facts(repo_root, path).litter:
+            delete(repo_root, submodule / stranded)
+    except StepFailed:
+        report_move(repo_root, path, ref, target, remappings)
+        return 1
+    return report_move(repo_root, path, ref, target, remappings)
+
+
+def report_move(repo_root: Path, path: str, ref: str, target: Pin | None, remappings: list[str]) -> int:
+    """Print the move's checklist as it now stands, then what is left for the user. Returns 0 when every
+    stage this tool performs is done."""
+    nested_off: dict[str, str] = {}
+    for directory, level in nested_levels(repo_root, path, remappings):
+        if not at_record(directory, level):
+            located = directory.relative_to(repo_root).as_posix()
+            display = (directory / level.path).relative_to(repo_root).as_posix()
+            nested_off[display] = f"git -C {located} submodule update --init -- {level.path}"
+    rev = target.rev if target is not None else None
+    follows = target.name if target is not None and target.kind == MOVING else None
+    stages = move_checklist(
+        read_facts(repo_root, path), ref, rev, follows, recorded_entry(repo_root, path), list(nested_off.items())
+    )
+    for stage in stages:
+        print(f"  [{'x' if stage.done else ' '}] {stage.number}. {stage.name} - {stage.detail}")
+        if not stage.done and stage.action:
+            print(f"        {stage.action}")
+
+    # Stages 2-5 are this tool's to perform; 0 stays open under --force on purpose, and 6-7 are the user's.
+    outstanding = [stage for stage in stages if not stage.done and 2 <= stage.number <= 5]
+    if outstanding:
+        print(f"  FAILED: {len(outstanding)} stage(s) did not complete")
+        return 1
+    yours = [stage.action for stage in stages if not stage.done and stage.number >= 6]
+    if not yours:
+        print(f"  Nothing for you to run: HEAD already records {ref} ({(rev or '')[:10]}) and its .gitmodules entry")
+        return 0
+    print(f"  Now yours to run:  {' && '.join(yours)}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="dep", usage=USAGE)
     subcommands = parser.add_subparsers(dest="subcommand", required=True)
     subcommands.add_parser("sync")
-    parser.parse_args()
+    updating = subcommands.add_parser("update")
+    updating.add_argument("--force", action="store_true")
+    updating.add_argument("dependencies", nargs="+")
+    arguments = parser.parse_args()
 
     top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
     if top.returncode != 0:
         print("error: not inside a git repository", file=sys.stderr)
         return 1
-    return sync(Path(top.stdout.strip()))
+    repo_root = Path(top.stdout.strip())
+    if arguments.subcommand == "update":
+        return max(update(repo_root, dependency, arguments.force) for dependency in arguments.dependencies)
+    return sync(repo_root)
 
 
 if __name__ == "__main__":
