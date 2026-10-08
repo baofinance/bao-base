@@ -258,8 +258,8 @@ def remapping_problems(foundry_remappings: list[str], wake_remappings: list[str]
         bare = strip_context_prefix(entry)
         if bare != entry and bare in foundry_only:
             mismatch_details.append(
-                f"wake.toml has `{entry}` — Wake does not support foundry's context remappings; "
-                f"use the bare form `{bare}`."
+                f"wake.toml has `{entry}`. Wake does not support forge's context remappings (the part "
+                f"before `:`). Use `{bare}` instead."
             )
             wake_only.remove(entry)
             foundry_only.remove(bare)
@@ -273,18 +273,20 @@ def remapping_problems(foundry_remappings: list[str], wake_remappings: list[str]
         for index, pair in enumerate(zip(normalized_foundry, wake_remappings)):
             if pair[0] != pair[1]:
                 mismatch_details.append(
-                    f"Order mismatch at index {index}: foundry.toml has {pair[0]!r} while wake.toml has {pair[1]!r}."
+                    f"The lists are in a different order. At position {index}, foundry.toml has {pair[0]!r} "
+                    f"and wake.toml has {pair[1]!r}."
                 )
                 break
         if len(normalized_foundry) != len(wake_remappings):
             mismatch_details.append(
-                f"The lists have different lengths: {len(normalized_foundry)} vs {len(wake_remappings)}."
+                f"The lists have different lengths: {len(normalized_foundry)} in foundry.toml, "
+                f"{len(wake_remappings)} in wake.toml."
             )
 
     if not mismatch_details:
-        mismatch_details.append("Remapping lists differ but no specific difference found.")
+        mismatch_details.append("The lists are different, but doctor cannot say where.")
 
-    return ["Remapping mismatch detected:\n" + "\n".join(mismatch_details)]
+    return ["The remappings in foundry.toml and wake.toml are different:\n" + "\n".join(mismatch_details)]
 
 
 def forge_source_directories(repo_root: Path) -> tuple[str, ...]:
@@ -312,7 +314,7 @@ def remapping_detection_problems(repo_root: Path) -> list[str]:
     )
     return [
         f"{found}\n  Repair: set auto_detect_remappings = false in [profile.default] in foundry.toml. If it is"
-        " already set there, the FOUNDRY_PROFILE or a FOUNDRY_* environment variable is changing it."
+        " already set there, an environment variable changes it: FOUNDRY_PROFILE, or another FOUNDRY_* variable."
     ]
 
 
@@ -331,14 +333,14 @@ def wake_scope_problems(repo_root: Path) -> list[str]:
     only what forge builds."""
     wake_path = repo_root / "wake.toml"
     if not wake_path.is_file():
-        return [f"{wake_path} is missing, so what wake compiles cannot be read."]
+        return [f"{wake_path} is missing, so doctor cannot tell which files wake compiles."]
     exclude_paths = load_toml(wake_path).get("compiler", {}).get("solc", {}).get("exclude_paths")
     if exclude_paths is None:
-        return ["wake.toml does not set compiler.solc.exclude_paths, so what wake compiles cannot be read."]
+        return ["wake.toml does not set compiler.solc.exclude_paths, so doctor cannot tell which files wake compiles."]
     if not isinstance(exclude_paths, list) or not all(isinstance(path, str) for path in cast(list[Any], exclude_paths)):
         return [
-            f"compiler.solc.exclude_paths in wake.toml is {exclude_paths!r}, not a list of paths, so what wake "
-            f"compiles cannot be read."
+            f"compiler.solc.exclude_paths in wake.toml is {exclude_paths!r}, not a list of paths, so doctor "
+            f"cannot tell which files wake compiles."
         ]
 
     # wake resolves each exclusion and compares the paths its glob finds, unresolved, against them
@@ -369,14 +371,14 @@ def wake_scope_problems(repo_root: Path) -> list[str]:
     if not unbuilt:
         return []
 
-    lines = ["Solidity files wake compiles that forge does not build:"]
+    lines = ["wake compiles these Solidity files, but forge does not build them:"]
     lines += columns.rows(
         [[path.as_posix(), f"{count} file{'' if count == 1 else 's'}"] for path, count in sorted(unbuilt.items())],
         indent="  ",
     )
     lines.append(
-        "  Repair: add each path above to compiler.solc.exclude_paths in wake.toml. Code that should be built "
-        f"belongs under {', '.join(directories[:-1])} or {directories[-1]} instead."
+        "  Repair: add each path above to compiler.solc.exclude_paths in wake.toml. If the code should be "
+        f"built, move it under {', '.join(directories[:-1])} or {directories[-1]} instead."
     )
     return ["\n".join(lines)]
 
@@ -435,17 +437,18 @@ def tracked_but_ignored_problems(repo_root: Path) -> list[str]:
     for path in paths:
         by_rule.setdefault(rule_for.get(path, "(no rule reported by git check-ignore)"), []).append(path)
 
-    lines = ["Tracked files that the ignore rules match — the rule has no effect while the file is tracked:"]
+    lines = ["git tracks these files, but an ignore rule matches them. The rule does nothing while git tracks the file:"]
     for rule, matched in by_rule.items():
         lines.append(f"  {rule}")
         for path in matched:
             lines.append(f"    {path}")
     # Which side is wrong — the tracking or the rule — is intent the doctor cannot know, so offer both.
     lines.append(
-        "  Repair: to untrack them (keeps your working-tree copies) "
-        "`git ls-files -i -c --exclude-standard -z | xargs -0 git rm --cached` then commit — note the "
-        "commit DELETES them from every other clone on pull, being ignored does not protect them. "
-        "To keep them in the repo instead, narrow the ignore rule so it no longer matches."
+        "  Repair: to stop git tracking them, run "
+        "`git ls-files -i -c --exclude-standard -z | xargs -0 git rm --cached`, then commit. Your copies stay "
+        "on this computer. Other clones DELETE their copies when they pull that commit: the ignore rule does "
+        "not keep them. To keep the files in the repository instead, change the ignore rule so it no longer "
+        "matches them."
     )
     return ["\n".join(lines)]
 
@@ -478,7 +481,7 @@ def unused_file_problems(repo_root: Path) -> list[str]:
     tree = subprocess.run(["forge", "tree", "--charset", "ascii"], cwd=repo_root, capture_output=True, text=True)
     if tree.returncode != 0:
         output = "\n".join(f"  {line}" for line in (tree.stdout + tree.stderr).strip().splitlines())
-        return [f"forge tree failed, so which files are unused cannot be read:\n{output}"]
+        return [f"forge tree failed, so doctor cannot tell which files are unused:\n{output}"]
     uses: dict[str, set[str]] = {}
     listed: set[str] = set()
     ancestors: list[str] = []  # the path at each depth above the current line
@@ -486,7 +489,7 @@ def unused_file_problems(repo_root: Path) -> list[str]:
         parsed = _TREE_LINE.match(line)
         depth = 0 if parsed is None or parsed["branch"] is None else len(parsed["indent"]) // 4 + 1
         if parsed is None or (parsed["branch"] is None and parsed["indent"]) or depth > len(ancestors):
-            return [f"forge tree printed an unrecognised line, so which files are unused cannot be read:\n  {line}"]
+            return [f"forge tree printed a line doctor does not understand, so doctor cannot tell which files are unused:\n  {line}"]
         if depth == 0:
             listed.add(parsed["path"])
         else:
@@ -502,7 +505,9 @@ def unused_file_problems(repo_root: Path) -> list[str]:
     }
     in_tree = {path for path in listed if path.startswith(source_directories)}
     if on_disk != in_tree:
-        lines = ["forge tree and the disk disagree on the project's sources, so which files are unused cannot be read:"]
+        lines = [
+            "forge tree lists different source files from the ones on disk, so doctor cannot tell which files are unused:"
+        ]
         lines += [f"  on disk but not in forge tree: {path}" for path in sorted(on_disk - in_tree)]
         lines += [f"  in forge tree but not on disk: {path}" for path in sorted(in_tree - on_disk)]
         return ["\n".join(lines)]
@@ -522,16 +527,16 @@ def unused_file_problems(repo_root: Path) -> list[str]:
     if not unused:
         return []
 
-    lines = ["Not reached from any test, script, test/_sizes/ or test/fixtures/ file:"]
+    lines = ["No test, script, test/_sizes/ or test/fixtures/ file uses these, directly or through other files:"]
     for path in unused:
         # every user of an unused file is itself unused, else the file would have been reached
         users = [user for user in unused if path in uses[user]]
         lines.append(f"  {path}" + (f"  (used only by {', '.join(users)})" if users else ""))
     lines.append(
-        "  Repair: first check that no other repo uses it — a repo that depends on this one may import it, or "
-        "reach it from Python through wake's pytypes, and neither is seen here. Then delete it, or park it "
-        "by moving it to deprecated/<its path> and recording what superseded it; which of the two is the "
-        "owner's call. A file used only by others in this list goes with them."
+        "  Repair: first check that no other repository uses the file. A repository that depends on this one "
+        "may import it, or use it from Python through wake's pytypes, and doctor cannot see either. Then "
+        "delete the file, or move it to deprecated/<its path> and record what replaced it. The owner of the "
+        "code decides which. A file that only other files in this list use goes with them."
     )
     return ["\n".join(lines)]
 
@@ -551,7 +556,7 @@ def vscode_ruff_settings_problems(repo_root: Path) -> list[str]:
     if not canonical_file.is_file():
         return [f"bao-base has no {canonical_file} to compare against."]
     if not repo_file.is_file():
-        return [f"{repo_file} is missing (the editor needs it to use bao-base's ruff)."]
+        return [f"{repo_file} is missing. The editor needs it to use bao-base's ruff."]
 
     try:
         repo = json5.loads(repo_file.read_text())
@@ -569,7 +574,9 @@ def vscode_ruff_settings_problems(repo_root: Path) -> list[str]:
 
     problems: list[str] = []
     if repo.get("[python]") != canonical.get("[python]"):
-        problems.append(f'"[python]" differs from bao-base: {repo.get("[python]")!r} vs {canonical.get("[python]")!r}')
+        problems.append(
+            f'"[python]" is {repo.get("[python]")!r}, but bao-base has {canonical.get("[python]")!r}'
+        )
 
     # ruff.path is a per-workspace path to the shared ruff, so compare it RESOLVED to an absolute path
     # (a consumer reaches it via lib/bao-base/); the other checked ruff.* keys are shared literals,
@@ -583,11 +590,11 @@ def vscode_ruff_settings_problems(repo_root: Path) -> list[str]:
             repo_paths = [str((repo_root / entry).resolve()) for entry in (repo_value or [])]
             if repo_paths != canonical_paths:
                 problems.append(
-                    f'"{key}" resolves to {repo_paths} (from {repo_value!r}), '
-                    f"but bao-base's is {canonical_paths} (from {canonical_value!r})"
+                    f'"{key}" is {repo_value!r}, which leads to {repo_paths}. bao-base has '
+                    f"{canonical_value!r}, which leads to {canonical_paths}"
                 )
         elif repo_value != canonical_value:
-            problems.append(f'"{key}" is {repo_value!r} but bao-base has {canonical_value!r}')
+            problems.append(f'"{key}" is {repo_value!r}, but bao-base has {canonical_value!r}')
 
     return problems
 
@@ -627,9 +634,10 @@ def claude_local_settings_problems(repo_root: Path) -> list[str]:
     )
     if tracked:
         problems.append(
-            f"{_CLAUDE_LOCAL_SETTINGS} is tracked by git. It is a machine-local override, so it "
-            f"should exist only on this machine.\n"
-            f"  Repair: git rm --cached {_CLAUDE_LOCAL_SETTINGS}  (keeps your copy, drops it from the repo)"
+            f"git tracks {_CLAUDE_LOCAL_SETTINGS}. It holds this computer's own settings, so it should not "
+            f"be in the repository.\n"
+            f"  Repair: git rm --cached {_CLAUDE_LOCAL_SETTINGS}  (this removes the file from the repository "
+            f"and keeps your copy)"
         )
 
     if path.is_file():
@@ -649,10 +657,10 @@ def claude_local_settings_problems(repo_root: Path) -> list[str]:
         # `.git/info/exclude` is machine-local too, so it is not accepted either.
         travels = bool(source) and not Path(source).is_absolute() and not source.startswith(".git/")
         if not travels:
-            covered_by = f" (only by {source}, which is not part of the repository)" if source else ""
+            matched_only_by = f" Only {source} matches it, and other clones do not have that file." if source else ""
             problems.append(
-                f"{_CLAUDE_LOCAL_SETTINGS} exists but no ignore rule in this repository covers "
-                f"it{covered_by}, so anyone cloning it can commit the file by accident.\n"
+                f"{_CLAUDE_LOCAL_SETTINGS} exists, but no ignore rule in this repository matches it."
+                f"{matched_only_by} So anyone who clones the repository can commit the file by mistake.\n"
                 f"  Repair: echo '{_CLAUDE_LOCAL_SETTINGS}' >> .gitignore"
             )
 
@@ -683,8 +691,8 @@ def _permission_rule_reasons(rule: str, repo_root: Path) -> list[str]:
         permitted = any(target.is_relative_to(allowed) for allowed in _CLAUDE_PERMITTED_OUTSIDE_PATHS)
         if not permitted and not target.is_relative_to(repo_root):
             reasons.append(
-                f"reaches {target}, which is outside this repository. Work in this repo does not "
-                f"need it, and the grant persists for every future session."
+                f"reaches {target}, which is outside this repository. Work in this repository does not "
+                f"need it, and the rule applies to every future session."
             )
         # A literal /home/<user>/… names one machine and one account, so the file cannot be shared,
         # copied to another checkout, or used by anyone else. `~` is the portable spelling and
@@ -692,21 +700,21 @@ def _permission_rule_reasons(rule: str, repo_root: Path) -> list[str]:
         if not argument.startswith("~") and target.is_relative_to(Path.home()):
             portable = "~/" + str(target.relative_to(Path.home()))
             reasons.append(
-                f"hardcodes a machine-specific path. Write it as `{portable}…` so the rule does not "
-                f"name one machine and one account."
+                f"writes out the home folder in full, which exists only for one user on one computer. "
+                f"Write it as `{portable}…` instead."
             )
 
     if tool == "Bash":
         if argument.rstrip().endswith(" *"):
             reasons.append(
-                "ends in a space then `*`, so it matches any continuation — including "
-                "`&& rm -rf ~`. Bound the arguments instead, or name the exact command."
+                "ends in a space and `*`, so it matches any text after the command, including "
+                "`&& rm -rf ~`. Limit the arguments, or name the exact command."
             )
         for command in _STATE_CHANGING_COMMANDS:
             if re.match(rf"^{re.escape(command)}\b.*[:\s]\*", argument):
                 reasons.append(
-                    f"is a wildcard on `{command}`, which changes state outside the working "
-                    f"tree or reaches the network. Grant the specific invocation you need."
+                    f"uses `*` with `{command}`, which can change files outside the repository or use "
+                    f"the network. Allow only the exact command you need."
                 )
 
     return reasons
@@ -756,7 +764,8 @@ def claude_permission_scope_problems(repo_root: Path) -> list[str]:
         ]
         if found:
             problems.append(
-                f".claude/{name} — {len(found)} of {len(allow)} allow-rules are broader than this repo:\n  "
+                f".claude/{name}: {len(found)} of the {len(allow)} rules in permissions.allow give more access "
+                f"than work in this repository needs:\n  "
                 + "\n  ".join(found)
             )
     return problems
@@ -794,11 +803,10 @@ def build_checks(
             remapping_detection_problems(repo_root),
         ),
         Check(
-            "foundry/wake remappings agree",
-            "wake and forge must resolve every import to the same file — otherwise wake analyses a "
-            "different program from the one that compiles, and its findings apply to neither",
-            "until they agree, every wake detection is suspect: it may be reporting on code that "
-            "does not build, or missing code that does",
+            "wake.toml has the same remappings as foundry.toml",
+            "wake must find each import in the same file as forge. Otherwise wake checks a different program "
+            "from the one forge builds",
+            "until they agree, any wake finding may be about code that is not built, or may miss code that is",
             remapping_problems(foundry_remappings, wake_remappings),
         ),
         Check(
@@ -811,10 +819,10 @@ def build_checks(
         ),
         Check(
             "wake compiles only what forge builds",
-            "wake compiles every Solidity file in the project that wake.toml's exclude_paths does not cover, "
-            "while forge builds only its source, test and script directories and what they import, so a "
-            "parked file, a scratch copy or a tool's output is analysed as part of a program that nothing builds",
-            "the editor reports errors and findings in code that is never built, mixed in with those in code that is",
+            "wake compiles every Solidity file in the project unless exclude_paths in wake.toml lists it. forge "
+            "builds only its source, test and script folders and the files they import. So wake also checks "
+            "files that nothing builds, such as an old file kept in deprecated/, a scratch copy, or a tool's output",
+            "the editor shows errors and findings for code that is never built, mixed with those for code that is",
             wake_scope_problems(repo_root),
         ),
         Check(
@@ -844,37 +852,38 @@ def build_checks(
         workflow_copy.check(repo_root),
         Check(
             ".vscode/settings.json uses bao-base's ruff",
-            "a different ruff, or none, formats and lints Python to a different standard than CI "
-            "enforces, so the editor tells you the file is clean and CI disagrees",
-            "you will keep discovering formatting failures in CI on files the editor called clean, one push at a time",
+            "with a different ruff, or none, the editor formats and checks Python by different rules from CI. "
+            "Then the editor says a file is clean and CI says it is not",
+            "CI fails on formatting in files the editor said were clean, and you find each one only after a push",
             vscode_ruff_settings_problems(repo_root),
         ),
         Check(
-            ".claude/settings.local.json is untracked and ignored",
-            "it holds per-machine permission grants; committing it publishes one developer's grants "
-            "to everyone and turns them into source that outlives the session that needed them",
-            "every clone inherits one developer's grants, and each is reviewed as source rather than "
-            "reconsidered as a permission",
+            "git does not track .claude/settings.local.json, and an ignore rule matches it",
+            "the file holds the permissions one developer gave Claude on one computer. If it is committed, "
+            "everyone who clones the repository gets those permissions, and they stay after the task that "
+            "needed them is finished",
+            "every clone gets one developer's permissions, and reviewers read them as code instead of asking "
+            "whether each one is still needed",
             claude_local_settings_problems(repo_root),
         ),
         Check(
-            "committed .claude allow-rules are scoped to this repo",
-            "a COMMITTED rule reaches everyone who clones and outlives the session that needed it, "
-            "so one reaching outside the repo, ending in a bare ` *`, or wildcarding a "
-            "state-changing command grants far more than any one task needs; one spelling an "
-            "absolute /home/<user>/ path also ties the file to a single machine and account. An "
-            "untracked settings file is a developer's own business and is not read",
-            "each rule below was approved once for one task and now stands permanently. Delete the "
-            "ones whose task is finished; narrow the rest to the path or command actually needed",
+            "committed .claude allow rules give no more access than this repository needs",
+            "a committed rule applies to everyone who clones the repository, and it stays after the task that "
+            "needed it is finished. A rule that reaches outside the repository, ends in ` *`, or uses `*` with a "
+            "command that changes files allows much more than any one task needs. A rule with a full "
+            "/home/<user>/ path also works for only one user on one computer. doctor does not read a settings "
+            "file that git does not track, because it belongs to one developer",
+            "each rule below was approved once, for one task, and now applies to every session. Delete the rules "
+            "whose task is finished. Change the others to allow only the path or command that is needed",
             claude_permission_scope_problems(repo_root),
         ),
         Check(
-            "no tracked file is matched by an ignore rule",
-            "ignore rules apply only to untracked paths, so once a file is in the index the rule "
-            "does nothing — the file keeps appearing in `git status` and keeps being committed, "
-            "while the rule reads as a protection it is not providing",
-            "someone has written a rule believing the file is now private, and it is not; whichever "
-            "side is wrong, the file is being committed against somebody's intent",
+            "no file that git tracks matches an ignore rule",
+            "an ignore rule applies only to files that git does not track. When git tracks a file, the rule "
+            "does nothing: the file still shows in git status and is still committed. But the rule looks as "
+            "if it keeps the file out of the repository",
+            "someone wrote the rule to keep the file out of the repository, and it is still committed. Either "
+            "the rule or the tracking is wrong, and the file is committed against someone's intention",
             tracked_but_ignored_problems(repo_root),
         ),
     ]
@@ -882,12 +891,13 @@ def build_checks(
         checks.append(
             Check(
                 "no unused Solidity files",
-                "a file that no test, script or tool-built directory reaches is still compiled and still "
-                "read as part of the code, but nothing exercises it, so it falls further out of date with "
-                "every change around it. Only this repo's uses are seen: another repo's imports, and "
-                "Python's through wake's pytypes, are not",
-                "each is a candidate to delete or park once no other repo is found to use it; until then it "
-                "costs build time and review attention, and offers code for reuse that nothing has checked",
+                "nothing tests or uses a file that no test, script, test/_sizes/ or test/fixtures/ file reaches. "
+                "It is still compiled and still read as part of the code, so it gets more out of date with every "
+                "change around it. doctor sees only the uses in this repository. It does not see imports from "
+                "other repositories, or uses from Python through wake's pytypes",
+                "once you find that no other repository uses a file, delete it or move it to deprecated/. Until "
+                "then it costs build time and review time, and offers code that nothing has checked to anyone "
+                "who reuses it",
                 unused_file_problems(repo_root),
             )
         )
@@ -895,17 +905,18 @@ def build_checks(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Check this repository for states that are always wrong.")
+    parser = argparse.ArgumentParser(description="Check this repository for settings and files that are always wrong.")
     parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
-        help="say what every check is for, not only the ones that fired",
+        help="say what every check is for, not only the ones that failed",
     )
     parser.add_argument(
         "--unused-files",
         action="store_true",
-        help="also list Solidity files nothing in this repo reaches; uses from other repos and from Python are not seen",
+        help="also list Solidity files that nothing in this repository uses; doctor does not see uses from other "
+        "repositories or from Python",
     )
     arguments = parser.parse_args()
     repo_root = Path(

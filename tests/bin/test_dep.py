@@ -255,23 +255,27 @@ def test_sync_reports_remappings_no_submodule_provides(tmp_path):
     assert checked_out_paths(here) == TOP_LEVEL
 
 
-def test_sync_refuses_work_that_exists_nowhere_else(tmp_path):
-    # Moving a checkout is what would put a developer's files at risk, so anything under a dependency sync
-    # would move that exists on no remote stops it before any step runs.
+def test_sync_skips_a_dependency_holding_work_and_syncs_the_rest(tmp_path):
+    # Moving a folder is what would put a developer's work at risk. So a dependency holding work that only
+    # this computer has stays as it is, and says why; the other dependencies are synced all the same.
     here = clone(make_world(tmp_path, ["dep/=lib/dep/src/"]))
     sync(here)
-    dependency = here / "lib" / "dep"
+    dependency, tool = here / "lib" / "dep", here / "lib" / "tool"
     git(dependency, "checkout", "-q", "HEAD~1")
     (dependency / "notes.txt").write_text("mine\n")
-    stale = checked_out(dependency)
+    git(tool, "checkout", "-q", "HEAD~1")
+    held = checked_out(dependency)
 
     result = sync(here)
 
-    assert result.returncode != 0
+    assert result.returncode != 0, "a dependency left behind is not a finished sync"
+    assert "Skipped lib/dep" in result.stdout, result.stdout
     assert "lib/dep/notes.txt: not tracked by git" in result.stdout, result.stdout
-    assert "exist only on this computer" in result.stdout, result.stdout
-    assert steps(result.stdout) == [], "nothing may run"
-    assert checked_out(dependency) == stale
+    assert checked_out(dependency) == held, "the folder holding work must not move"
+    assert checked_out(tool) == recorded(here, "lib/tool"), "the rest is synced"
+    ran = steps(result.stdout)
+    assert "ran: git submodule update --init -- lib/tool" in ran, ran
+    assert "ran: git submodule update --init -- lib/dep" not in ran, ran
 
 
 def test_sync_leaves_the_index_unchanged(tmp_path):

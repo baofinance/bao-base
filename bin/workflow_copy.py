@@ -106,8 +106,8 @@ def problems(repo_root: Path, bao_base_root: Path) -> list[str]:
         return []
     if not bao_base_root.is_relative_to(repo_root):
         return [
-            f"bao-base is at {bao_base_root}, outside the repo at {repo_root}, so there is no "
-            f"action path a copy in this repo could be expected to use."
+            f"bao-base is at {bao_base_root}, which is outside the repository at {repo_root}. So doctor "
+            f"cannot tell which path to bao-base's actions a copied workflow should use."
         ]
 
     canonical_dir = bao_base_root / ".github" / "workflows"
@@ -150,13 +150,13 @@ def problems(repo_root: Path, bao_base_root: Path) -> list[str]:
 
         detail: list[str] = []
         if upstream_only:
-            detail.append("  in bao-base and missing here:")
+            detail.append("  only in bao-base:")
             detail.extend(f"    {line}" for line in upstream_only)
         if here_only:
-            detail.append("  here and not in bao-base:")
+            detail.append("  only in this repository:")
             detail.extend(f"    {line}" for line in here_only)
         drifted.append(
-            f"{repo_file.relative_to(repo_root)} has drifted from "
+            f"{repo_file.relative_to(repo_root)} is different from "
             f"{canonical_file.relative_to(repo_root)}:\n" + "\n".join(detail)
         )
     return drifted
@@ -167,11 +167,10 @@ def check(repo_root: Path) -> Check:
     `doctor` and a direct run cannot describe the same check differently."""
     return Check(
         "workflows copied from bao-base match their originals",
-        "a workflow here is a hand-copy of bao-base's, entitled to differ only in where the action "
-        "lives and in what its own env: block adds; every other difference means the copy has "
-        "stopped tracking the original, in whichever direction",
-        "an upstream fix does not reach this repo and nothing says so — the copy keeps passing CI "
-        "while running the version of the workflow that had the bug",
+        "each workflow here is a copy of one in bao-base. It may differ only in where its action lives and "
+        "in what its own env: block adds. Any other difference means the copy no longer follows the original",
+        "a fix in bao-base does not reach this repository, and nothing says so. The copy keeps passing CI "
+        "while it runs the version with the bug",
         problems(repo_root, BAO_BASE_ROOT),
     )
 

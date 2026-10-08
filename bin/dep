@@ -112,10 +112,10 @@ def report(repo_root: Path, dependencies: list[Declared], remappings: list[str])
     return all(at_record(directory, level) for directory, level in rows.values())
 
 
-def stop_for_work(found: list[str], moving: str, force_command: str | None) -> None:
-    """The refusal that keeps work only this computer has, printed before anything has run: what it is,
-    why stopping matters, and the choices."""
-    print("  Stopped before changing anything. These exist only on this computer:")
+def stop_for_work(heading: str, found: list[str], moving: str, force_command: str | None) -> None:
+    """The message that keeps work only this computer has: what was not moved, what the work is, why
+    moving matters, and the choices."""
+    print(f"  {heading} These exist only on this computer:")
     for line in found:
         print(f"    {line}")
     print(f"  {moving}")
@@ -143,20 +143,22 @@ def sync(repo_root: Path) -> int:
     dependencies = declared_submodules(repo_root)
 
     # Before anything runs. Moving a checkout is what would put work at risk, so a dependency sync would
-    # move must hold nothing that exists only here. One already at its record is not moved.
-    at_stake = [
-        describe_at_risk(item, entry.path)
-        for entry in dependencies
-        if checked_out(repo_root / entry.path) is not None and not at_record(repo_root, entry)
-        for item in at_risk(repo_root / entry.path)
-    ]
-    if at_stake:
-        stop_for_work(at_stake, "Sync would move the folders that hold them.", None)
-        return 1
+    # move must hold nothing that exists only here. One that does is skipped and named, and the others are
+    # synced all the same. One already at its record is not moved, so it is not checked.
+    skipped: set[str] = set()
+    for entry in dependencies:
+        if checked_out(repo_root / entry.path) is None or at_record(repo_root, entry):
+            continue
+        held = [describe_at_risk(item, entry.path) for item in at_risk(repo_root / entry.path)]
+        if held:
+            skipped.add(entry.path)
+            stop_for_work(f"Skipped {entry.path}.", held, "Sync would move the folder that holds them.", None)
 
     try:
         run(repo_root, repo_root, "submodule", "sync")
         for entry in dependencies:
+            if entry.path in skipped:
+                continue
             if not at_record(repo_root, entry):
                 run(repo_root, repo_root, "submodule", "update", "--init", "--", entry.path)
             # A dependency that follows a branch stands on it only where the branch already holds the
@@ -169,7 +171,13 @@ def sync(repo_root: Path) -> int:
                     run(repo_root, checkout, "checkout", "--quiet", entry.branch)
         for remapping in remappings:
             # Lazy, so each level is checked out before the walk reads the next level's .gitmodules from it.
-            for directory, level in submodule_levels(repo_root, remapping_target(remapping)):
+            # The first level is a dependency, handled above; beneath a skipped one nothing is read, since its
+            # checkout is not at the commit this repository points to.
+            levels = submodule_levels(repo_root, remapping_target(remapping))
+            first = next(levels, None)
+            if first is None or first[1].path in skipped:
+                continue
+            for directory, level in levels:
                 if not at_record(directory, level):
                     run(repo_root, directory, "submodule", "update", "--init", "--", level.path)
     except StepFailed:
@@ -245,6 +253,7 @@ def update(repo_root: Path, dependency: str, force: bool) -> int:
         return 1
     if facts.has_own_work and not force:
         stop_for_work(
+            "Stopped before changing anything.",
             [describe_at_risk(item, path) for item in facts.at_risk],
             "Updating would move the folder that holds them.",
             f"yarn dep update --force {named}",

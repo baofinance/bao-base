@@ -53,7 +53,7 @@ def test_remapping_problems_reports_a_real_path_mismatch():
     foundry = ["@bao/=lib/bao-base/src/"]
     wake = ["@bao/=lib/harbor/lib/bao-base/src/"]
     problems = doctor.remapping_problems(foundry, wake)
-    assert problems and "Remapping mismatch" in problems[0]
+    assert problems and "The remappings in foundry.toml and wake.toml are different" in problems[0]
     assert "@bao/=lib/bao-base/src/" in problems[0]  # foundry-only side
     assert "@bao/=lib/harbor/lib/bao-base/src/" in problems[0]  # wake-only side
 
@@ -92,7 +92,7 @@ def test_remapping_problems_flags_wake_context_syntax():
     problems = doctor.remapping_problems(foundry, wake)
     assert problems
     assert "context remappings" in problems[0]
-    assert "use the bare form `src/=lib/harbor/src/`" in problems[0]
+    assert "Use `src/=lib/harbor/src/` instead" in problems[0]
 
 
 # ── claude_local_settings_problems: the machine-local settings file must stay out of the repo ──
@@ -404,7 +404,7 @@ def test_unused_files_reports_an_unrecognised_tree_line(tmp_path, monkeypatch):
     _with_forge_tree_output(monkeypatch, "src/A.sol >=0.8.0\n  something else\n")
     problems = doctor.unused_file_problems(repo)
     assert len(problems) == 1
-    assert "unrecognised" in problems[0]
+    assert "a line doctor does not understand" in problems[0]
     assert "something else" in problems[0]
 
 
@@ -875,7 +875,7 @@ def test_wake_scope_reports_exclusions_it_cannot_read(tmp_path, wake_toml, repor
     problems = doctor.wake_scope_problems(repo)
     assert len(problems) == 1
     assert reported in problems[0]
-    assert "what wake compiles cannot be read" in problems[0]
+    assert "doctor cannot tell which files wake compiles" in problems[0]
 
 
 # ── remapping_detection_problems: forge uses only the remappings foundry.toml writes ──

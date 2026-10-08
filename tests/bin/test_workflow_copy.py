@@ -61,7 +61,7 @@ def test_copy_missing_an_upstream_line_is_reported(tmp_path):
     )
     problems = workflow_copy.problems(repo, bao_base)
     assert len(problems) == 1
-    assert "in bao-base and missing here" in problems[0]
+    assert "only in bao-base" in problems[0]
     assert "GITHUB_TOKEN: secret" in problems[0]
 
 
@@ -77,7 +77,7 @@ def test_copy_with_an_extra_step_line_is_reported(tmp_path):
     )
     problems = workflow_copy.problems(repo, bao_base)
     assert len(problems) == 1
-    assert "here and not in bao-base" in problems[0]
+    assert "only in this repository" in problems[0]
     assert "fetch-depth: 0" in problems[0]
 
 
