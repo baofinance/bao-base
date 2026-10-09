@@ -71,9 +71,13 @@ def repository(remotes: Path, name: str, submodules: dict[str, Path] | None = No
     return published
 
 
-def foundry_toml(remappings: list[str]) -> str:
+def foundry_toml(remappings: list[str], libs: tuple[str, ...] = ("lib",)) -> str:
     listed = ", ".join(f'"{remapping}"' for remapping in remappings)
-    return f'[profile.default]\nsrc = "src"\nlibs = ["lib"]\nauto_detect_remappings = false\nremappings = [{listed}]\n'
+    folders = ", ".join(f'"{folder}"' for folder in libs)
+    return (
+        f'[profile.default]\nsrc = "src"\nlibs = [{folders}]\nauto_detect_remappings = false\n'
+        f"remappings = [{listed}]\n"
+    )
 
 
 class World(NamedTuple):
@@ -81,28 +85,35 @@ class World(NamedTuple):
     project: Path
 
 
-def make_world(tmp_path: Path, remappings: list[str]) -> World:
-    """A project depending on `dep` - which holds `inner`, itself holding `deepest`, and `spare` - and on
-    `tool`, which holds `helper`; `remappings` are its foundry.toml's. Everything is committed."""
+def empty_world(tmp_path: Path, remappings: list[str], libs: tuple[str, ...] = ("lib",)) -> World:
+    """Published repositories - `dep`, which holds `inner`, itself holding `deepest`, and `spare`; `tool`,
+    which holds `helper` - and a committed project with no dependencies; `remappings` and `libs` are its
+    foundry.toml's."""
     remotes = tmp_path / "remotes"
     deepest = repository(remotes, "deepest")
     inner = repository(remotes, "inner", {"lib/deepest": deepest})
     spare = repository(remotes, "spare")
-    dep = repository(remotes, "dep", {"lib/inner": inner, "lib/spare": spare})
+    repository(remotes, "dep", {"lib/inner": inner, "lib/spare": spare})
     helper = repository(remotes, "helper")
-    tool = repository(remotes, "tool", {"lib/helper": helper})
+    repository(remotes, "tool", {"lib/helper": helper})
 
     project = tmp_path / "project"
     (project / "src").mkdir(parents=True)
     git(project, "init", "-q", "-b", "main")
-    (project / "foundry.toml").write_text(foundry_toml(remappings))
+    (project / "foundry.toml").write_text(foundry_toml(remappings, libs))
     (project / "src" / "Project.sol").write_text("// project\n")
     git(project, "add", "-A")
     git(project, "commit", "-qm", "project")
-    git(project, "submodule", "add", "-q", str(dep), "lib/dep")
-    git(project, "submodule", "add", "-q", str(tool), "lib/tool")
-    git(project, "commit", "-qm", "dependencies")
     return World(remotes, project)
+
+
+def make_world(tmp_path: Path, remappings: list[str]) -> World:
+    """The project of `empty_world` depending on `dep` and `tool`, committed."""
+    world = empty_world(tmp_path, remappings)
+    git(world.project, "submodule", "add", "-q", str(world.remotes / "dep.git"), "lib/dep")
+    git(world.project, "submodule", "add", "-q", str(world.remotes / "tool.git"), "lib/tool")
+    git(world.project, "commit", "-qm", "dependencies")
+    return world
 
 
 def clone(world: World) -> Path:
@@ -253,6 +264,33 @@ def test_sync_reports_remappings_no_submodule_provides(tmp_path):
     )
     assert "! remapping @uniswap/v3-core/=lib/v3-core/ points to lib/v3-core, which does not exist" in result.stdout
     assert checked_out_paths(here) == TOP_LEVEL
+
+
+def unused_checkout_line(path: str) -> str:
+    return f"! {path} is checked out, and no remapping uses it. To remove it: yarn dep remove {path}"
+
+
+def test_sync_reports_a_checked_out_nested_submodule_no_remapping_reads(tmp_path):
+    # A nested checkout the build does not read is left alone - the developer may be about to add its
+    # remapping - and named with the command that removes it. Beneath a remapped one the walk goes on, so an
+    # unread checkout deeper down is named too; the remapped one itself is not.
+    here = clone(make_world(tmp_path, ["inner/=lib/dep/lib/inner/src/"]))
+    plain = sync(here)
+    git(here / "lib" / "dep", "submodule", "update", "--init", "--", "lib/spare")
+    git(here / "lib" / "dep" / "lib" / "inner", "submodule", "update", "--init", "--", "lib/deepest")
+    git(here / "lib" / "tool", "submodule", "update", "--init", "--", "lib/helper")
+
+    result = sync(here)
+
+    assert plain.returncode == 0, plain.stdout + plain.stderr
+    assert "no remapping uses it" not in plain.stdout, "a plain clone checks out nothing unread"
+    assert result.returncode == 0, "an unread checkout is reported, not failed"
+    reported = [line.strip() for line in result.stdout.splitlines() if "no remapping uses it" in line]
+    assert reported == [
+        unused_checkout_line("lib/dep/lib/inner/lib/deepest"),
+        unused_checkout_line("lib/dep/lib/spare"),
+        unused_checkout_line("lib/tool/lib/helper"),
+    ], result.stdout
 
 
 def test_sync_skips_a_dependency_holding_work_and_syncs_the_rest(tmp_path):
@@ -509,6 +547,18 @@ def test_update_refuses_a_nested_dependency(tmp_path):
 
     assert result.returncode != 0
     assert "is a submodule inside another submodule" in result.stdout, result.stdout
+
+
+def test_update_of_a_dependency_not_checked_out_is_refused(tmp_path):
+    # update moves a checkout, so a dependency with none is checked out first, by sync.
+    here = clone(make_world(tmp_path, ["dep/=lib/dep/src/"]))
+
+    result = update(here, "dep@main")
+
+    assert result.returncode != 0
+    assert "Stopped: lib/dep is not checked out." in result.stdout, result.stdout
+    assert "To check it out: yarn dep sync" in result.stdout, result.stdout
+    assert steps(result.stdout) == [], "nothing may run"
 
 
 def test_update_a_branch_lands_on_it_at_the_remote_tip(tmp_path):
@@ -775,6 +825,23 @@ def test_a_leftover_that_cannot_be_removed_is_reported_not_claimed(tmp_path):
     assert stranded.exists()
 
 
+def test_update_reports_a_checked_out_nested_submodule_no_remapping_reads(tmp_path):
+    # update leaves an unread nested checkout in place, as sync does, and names it - for the dependency it
+    # moved only, since that is the one it was asked about.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    git(here / "lib" / "dep", "submodule", "update", "--init", "--", "lib/spare")
+    git(here / "lib" / "tool", "submodule", "update", "--init", "--", "lib/helper")
+    advance(world, "dep")
+
+    result = update(here, "dep@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (here / "lib" / "dep" / "lib" / "spare" / ".git").exists(), "update must not remove it"
+    reported = [line.strip() for line in result.stdout.splitlines() if "no remapping uses it" in line]
+    assert reported == [unused_checkout_line("lib/dep/lib/spare")], result.stdout
+
+
 # ── update: what is left for the user ─────────────────────────────────────────────────────────────
 
 
@@ -846,3 +913,359 @@ def test_another_dependencys_gitmodules_entry_does_not_hold_this_one_back(tmp_pa
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Nothing to do" in result.stdout, result.stdout
+
+
+# ── add: a new dependency ─────────────────────────────────────────────────────────────────────────
+#
+# `add` clones a dependency into the first libs folder, under the name its url ends in, and lays it out as
+# `git submodule add` does - without staging it, which is handed over.
+
+
+def add(here: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run([str(DEP), "add", *arguments], cwd=here, capture_output=True, text=True, env=GIT_ENV)
+
+
+def published(world: World, name: str) -> str:
+    return str(world.remotes / f"{name}.git")
+
+
+def test_add_a_branch_stands_on_it_and_records_it(tmp_path):
+    # A dependency added at a branch follows it: HEAD stands on the branch at the remote tip, tracking it, and
+    # .gitmodules records the branch, so a later bare update follows it.
+    world = empty_world(tmp_path, [])
+    tip = git(world.remotes / "helper", "rev-parse", "HEAD")
+
+    result = add(world.project, f"{published(world, 'helper')}@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    helper = world.project / "lib" / "helper"
+    assert checked_out(helper) == tip
+    assert branch_of(helper) == "main"
+    assert git(helper, "rev-parse", "--abbrev-ref", "main@{upstream}") == "origin/main"
+    assert git(world.project, "config", "-f", ".gitmodules", "submodule.lib/helper.branch") == "main"
+
+
+def test_add_a_tag_records_no_branch_and_detaches(tmp_path):
+    # A tag names one commit, and there is no branch to follow.
+    world = empty_world(tmp_path, [])
+    publish_tag(world, "helper", "v1")
+    tagged = git(world.remotes / "helper", "rev-parse", "HEAD")
+    advance(world, "helper")
+
+    result = add(world.project, f"{published(world, 'helper')}@v1")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    helper = world.project / "lib" / "helper"
+    assert checked_out(helper) == tagged
+    assert branch_of(helper) is None
+    recorded_branch = subprocess.run(
+        ["git", "config", "-f", ".gitmodules", "--get", "submodule.lib/helper.branch"],
+        cwd=world.project,
+        capture_output=True,
+        text=True,
+    )
+    assert recorded_branch.returncode == 1 and recorded_branch.stdout == "", recorded_branch.stdout
+
+
+def test_add_writes_the_layout_git_submodule_add_writes(tmp_path):
+    # Every later git command reads the submodule through this layout, so it must be git's own: what
+    # `git submodule add -b main` writes in a copy of the same project.
+    world = empty_world(tmp_path, [])
+    twin = tmp_path / "twin"
+    git(tmp_path, "clone", "-q", str(world.project), str(twin))
+    git(twin, "submodule", "add", "-q", "-b", "main", published(world, "helper"), "lib/helper")
+
+    result = add(world.project, f"{published(world, 'helper')}@main")
+
+    def layout(here: Path) -> tuple[str, str, str, str]:
+        return (
+            (here / "lib" / "helper" / ".git").read_text(),
+            git(here / "lib" / "helper", "config", "core.worktree"),
+            git(here, "config", "--get-regexp", r"^submodule\."),
+            (here / ".gitmodules").read_text(),
+        )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert layout(world.project) == layout(twin)
+
+
+def test_after_add_the_handed_over_staging_records_a_submodule_silently(tmp_path):
+    # add names the staging rather than running it. The command it names records a submodule - a gitlink, not
+    # the folder's files - and prints nothing while doing so; what it records is what a fresh clone gets from
+    # sync.
+    world = empty_world(tmp_path, [])
+
+    result = add(world.project, f"{published(world, 'helper')}@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Next, run: git add --no-warn-embedded-repo .gitmodules lib/helper && git commit" in result.stdout, (
+        result.stdout
+    )
+    staged = subprocess.run(
+        ["git", "add", "--no-warn-embedded-repo", ".gitmodules", "lib/helper"],
+        cwd=world.project,
+        capture_output=True,
+        text=True,
+        env=GIT_ENV,
+    )
+    assert staged.returncode == 0 and staged.stdout + staged.stderr == "", staged.stdout + staged.stderr
+    assert git(world.project, "ls-files", "-s", "lib/helper").split()[0] == "160000", "a gitlink, not files"
+    git(world.project, "commit", "-qm", "helper")
+    fresh = clone(world)
+    synced_fresh = sync(fresh)
+    assert synced_fresh.returncode == 0, synced_fresh.stdout + synced_fresh.stderr
+    assert checked_out(fresh / "lib" / "helper") == checked_out(world.project / "lib" / "helper")
+
+
+@pytest.mark.parametrize("where", ["disk", "gitmodules", "index", "gitdir"])
+def test_add_refuses_a_path_already_in_use(tmp_path, where):
+    # Each is a place where git already has something at the path, and adding on top of it would mix the new
+    # dependency with what is there. So add says which, and runs nothing.
+    world = empty_world(tmp_path, [])
+    here = world.project
+    folder = here / "lib" / "helper"
+    if where == "disk":
+        folder.mkdir(parents=True)
+        (folder / "notes.txt").write_text("mine\n")
+        reason = "the folder lib/helper exists"
+    elif where == "gitmodules":
+        git(here, "config", "-f", ".gitmodules", "submodule.lib/helper.path", "lib/helper")
+        git(here, "config", "-f", ".gitmodules", "submodule.lib/helper.url", "/elsewhere/helper.git")
+        reason = ".gitmodules lists a submodule at lib/helper"
+    elif where == "index":
+        folder.mkdir(parents=True)
+        (folder / "notes.txt").write_text("staged\n")
+        git(here, "add", "lib/helper/notes.txt")
+        (folder / "notes.txt").unlink()
+        folder.rmdir()
+        reason = "git tracks files in lib/helper"
+    else:
+        (here / ".git" / "modules" / "lib" / "helper").mkdir(parents=True)
+        reason = ".git/modules/lib/helper exists"
+
+    result = add(here, f"{published(world, 'helper')}@main")
+
+    assert result.returncode != 0
+    assert "Stopped: lib/helper is already in use:" in result.stdout, result.stdout
+    assert reason in result.stdout, result.stdout
+    assert steps(result.stdout) == [], "nothing may run"
+    assert not (folder / ".git").exists()
+
+
+def test_add_places_the_dependency_in_the_first_libs_directory(tmp_path):
+    # forge install puts a dependency in the first of foundry.toml's libs folders, and so does add.
+    world = empty_world(tmp_path, [], libs=("deps", "lib"))
+
+    result = add(world.project, f"{published(world, 'helper')}@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert checked_out(world.project / "deps" / "helper") == git(world.remotes / "helper", "rev-parse", "HEAD")
+    assert not (world.project / "lib" / "helper").exists()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "{remotes}/helper.git",
+        "git@github.com:example/helper.git",
+        "https://github.com/example/helper.git",
+        "https://user:token@example.invalid/example/helper.git",
+    ],
+    ids=["path", "scp", "https", "https-credentials"],
+)
+def test_add_without_a_ref_is_refused(tmp_path, url):
+    # Which version to depend on is always the user's to say. The ref follows the url, so the `@` inside an
+    # ssh address, or after the credentials in an https one, is not taken for one.
+    world = empty_world(tmp_path, [])
+    named = url.format(remotes=world.remotes)
+
+    result = add(world.project, named)
+
+    assert result.returncode != 0
+    assert f"yarn dep add {named}@<tag, branch or commit>" in result.stdout, result.stdout
+    assert steps(result.stdout) == [], "nothing may run"
+    assert not (world.project / "lib" / "helper").exists()
+
+
+def test_add_of_a_ref_that_names_nothing_names_how_to_remove_it(tmp_path):
+    # Whether a ref exists is known only once the repository is cloned. By then the submodule is complete and
+    # listed, so the refusal names the command that takes it out again - and that command takes out
+    # everything add made.
+    world = empty_world(tmp_path, [])
+    here = world.project
+
+    result = add(here, f"{published(world, 'helper')}@no-such-ref")
+    removed = subprocess.run(
+        [str(DEP), "remove", "lib/helper"], cwd=here, capture_output=True, text=True, env=GIT_ENV
+    )
+
+    assert result.returncode != 0
+    assert "'no-such-ref' is not a tag, branch or commit" in result.stdout, result.stdout
+    assert "To remove it: yarn dep remove lib/helper" in result.stdout, result.stdout
+    assert removed.returncode == 0, removed.stdout + removed.stderr
+    assert not (here / "lib" / "helper").exists()
+    assert not (here / ".git" / "modules" / "lib" / "helper").exists()
+    assert git(here, "status", "--porcelain", "--untracked-files=all") == "", "nothing add made is left"
+
+
+def test_add_checks_out_a_nested_path_a_remapping_already_names(tmp_path):
+    # A remapping written before the dependency is added already says what the build reads from inside it.
+    # That is checked out, and no other nested submodule.
+    world = empty_world(tmp_path, ["inner/=lib/dep/lib/inner/src/"])
+
+    result = add(world.project, f"{published(world, 'dep')}@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert checked_out_paths(world.project) == {"lib/dep", "lib/dep/lib/inner"}
+
+
+def test_add_leaves_the_index_unchanged(tmp_path):
+    world = empty_world(tmp_path, [])
+    (world.project / "notes.md").write_text("staged\n")
+    git(world.project, "add", "notes.md")
+    staged = git(world.project, "ls-files", "--stage")
+
+    result = add(world.project, f"{published(world, 'helper')}@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert git(world.project, "ls-files", "--stage") == staged
+
+
+# ── naming a dependency ───────────────────────────────────────────────────────────────────────────
+
+
+def remove(here: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run([str(DEP), "remove", *arguments], cwd=here, capture_output=True, text=True, env=GIT_ENV)
+
+
+def test_a_name_is_the_folder_in_the_first_libs_directory(tmp_path):
+    # `dep` means <first libs folder>/dep for update and remove, as it does for add; the path names it too.
+    world = empty_world(tmp_path, ["dep/=deps/dep/src/"], libs=("deps", "lib"))
+    here = world.project
+    git(here, "submodule", "add", "-q", published(world, "dep"), "deps/dep")
+    git(here, "commit", "-qm", "dep")
+    tip = advance(world, "dep")
+
+    by_name = update(here, "dep@main")
+    moved = checked_out(here / "deps" / "dep")
+    by_path = update(here, "deps/dep@main")
+    removed = remove(here, "dep")
+
+    assert by_name.returncode == 0, by_name.stdout + by_name.stderr
+    assert moved == tip
+    assert by_path.returncode == 0, by_path.stdout + by_path.stderr
+    assert removed.returncode == 0, removed.stdout + removed.stderr
+    assert not (here / "deps" / "dep").exists()
+
+
+def test_a_nested_submodule_is_named_by_its_path(tmp_path):
+    # A bare name is a folder in the first libs folder, so a dependency's own submodule needs its full path.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    git(here / "lib" / "dep", "submodule", "update", "--init", "--", "lib/spare")
+
+    by_name = remove(here, "spare")
+    by_path = remove(here, "lib/dep/lib/spare")
+
+    assert by_name.returncode != 0
+    assert "no .gitmodules file lists a submodule at lib/spare" in by_name.stdout, by_name.stdout
+    assert by_path.returncode == 0, by_path.stdout + by_path.stderr
+    assert not (here / "lib" / "dep" / "lib" / "spare" / ".git").exists()
+
+
+# ── remove ────────────────────────────────────────────────────────────────────────────────────────
+
+
+def test_remove_deletes_checkout_gitdir_and_entries(tmp_path):
+    # Removing a dependency takes out everything adding it made: the folder, with the submodules checked out
+    # inside it, the repository git keeps for it, and its entries in .gitmodules and .git/config. The other
+    # dependency is untouched.
+    world = make_world(tmp_path, ["inner/=lib/dep/lib/inner/src/"])
+    here = synced(world)
+    assert (here / "lib" / "dep" / "lib" / "inner" / ".git").exists(), "a nested checkout must start inside it"
+    tool = checked_out(here / "lib" / "tool")
+
+    result = remove(here, "dep")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not (here / "lib" / "dep").exists()
+    assert not (here / ".git" / "modules" / "lib" / "dep").exists()
+    assert git(here, "config", "-f", ".gitmodules", "--get-regexp", r"\.path$") == "submodule.lib/tool.path lib/tool"
+    remaining = git(here, "config", "--get-regexp", r"^submodule\.").splitlines()
+    assert remaining and all(line.startswith("submodule.lib/tool.") for line in remaining), remaining
+    assert checked_out(here / "lib" / "tool") == tool
+
+
+def test_remove_refuses_work_only_this_computer_has(tmp_path):
+    # Removing deletes the folder, so work only this computer has stops it before anything runs. --force is
+    # the user's answer once told what is at stake.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    notes = here / "lib" / "dep" / "notes.txt"
+    notes.write_text("mine\n")
+
+    refused = remove(here, "dep")
+    survived = notes.is_file()
+    forced = remove(here, "--force", "dep")
+
+    assert refused.returncode != 0
+    assert "lib/dep/notes.txt: not tracked by git" in refused.stdout, refused.stdout
+    assert "To continue anyway: yarn dep remove --force dep" in refused.stdout, refused.stdout
+    assert steps(refused.stdout) == [], "nothing may run"
+    assert survived
+    assert forced.returncode == 0, forced.stdout + forced.stderr
+    assert not (here / "lib" / "dep").exists()
+
+
+def test_after_remove_the_handed_over_staging_records_the_removal(tmp_path):
+    # The command remove names records the removal, and a fresh clone of the result syncs without the
+    # dependency.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+
+    result = remove(here, "dep")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Next, run: git add .gitmodules lib/dep && git commit" in result.stdout, result.stdout
+    git(here, "add", ".gitmodules", "lib/dep")
+    git(here, "commit", "-qm", "no dep")
+    fresh = tmp_path / "fresh"
+    git(tmp_path, "clone", "-q", str(here), str(fresh))
+    synced_fresh = sync(fresh)
+    assert synced_fresh.returncode == 0, synced_fresh.stdout + synced_fresh.stderr
+    assert checked_out_paths(fresh) == {"lib/tool"}
+
+
+def test_remove_of_a_nested_path_only_deinitialises_it(tmp_path):
+    # A dependency's own submodule is listed and recorded by that dependency, so removing it only takes away
+    # the checkout. The dependency's .gitmodules and the commit it points to stay as they are, and there is
+    # nothing to add or commit.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    dependency = here / "lib" / "dep"
+    git(dependency, "submodule", "update", "--init", "--", "lib/spare")
+    gitmodules = (dependency / ".gitmodules").read_text()
+    gitlink = git(dependency, "ls-files", "-s", "lib/spare")
+
+    result = remove(here, "lib/dep/lib/spare")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert steps(result.stdout) == ["ran: git -C lib/dep submodule deinit --force --quiet -- lib/spare"], result.stdout
+    assert not (dependency / "lib" / "spare" / ".git").exists()
+    assert (dependency / ".gitmodules").read_text() == gitmodules
+    assert git(dependency, "ls-files", "-s", "lib/spare") == gitlink
+    assert git(here, "status", "--porcelain") == ""
+    assert "Next, run" not in result.stdout, result.stdout
+
+
+def test_remove_leaves_the_index_unchanged(tmp_path):
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    (here / "notes.md").write_text("staged\n")
+    git(here, "add", "notes.md")
+    staged = git(here, "ls-files", "--stage")
+
+    result = remove(here, "dep")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert git(here, "ls-files", "--stage") == staged

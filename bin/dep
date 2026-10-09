@@ -7,11 +7,20 @@ dependency's other nested submodules are its own lockfile, wanted only by someon
 they are never fetched - and one of them pinned to a commit no remote holds cannot stop this checkout.
 A clone made without --recurse-submodules needs nothing more than this.
 
+`add` clones a new dependency into the first of forge's libs folders, under the name its url ends in, as
+`forge install` places one, and writes what `git submodule add` writes - except to the index. The version
+is always named: a branch is recorded in `.gitmodules` as the branch it follows.
+
 `update` moves one dependency to a named version, checking out beneath it the same nested paths and no
 others. The branch a dependency follows is recorded where git records it, as `branch` in `.gitmodules`,
 so a later update named without a ref follows that branch - and one with no branch recorded has nothing
 it was told to follow, and asks. Nothing is fetched or moved until the pre-checks pass: nothing under the
 dependency may exist only here, and a local branch it would stand on may hold no commit the target lacks.
+
+`remove` deletes a dependency: its folder, the repository git keeps for it, and its entries. A submodule
+inside a dependency is the dependency's to list and record, so for one of those it only takes away the
+checkout. sync and update leave a nested checkout no remapping uses where it is, since its remapping may
+be on its way, and name the remove that takes it away.
 
 Every command that changes something is printed as it finishes, in order. A failure prints the tool's
 own error beneath the command that failed, then where each checkout now stands, and undoes nothing:
@@ -25,10 +34,13 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+from collections.abc import Callable
+from pathlib import Path, PurePosixPath
+from typing import Any
 
 from forge_config import forge_config
 from submodule_state import (
@@ -52,17 +64,26 @@ from submodule_state import (
 
 USAGE = """\
 dep sync
+dep add <url>@<version>
 dep update [--force] <dependency>[@<version>] ...
+dep remove [--force] <dependency> ...
 
   sync          Check out each submodule at the commit this repository points to. Inside a submodule,
                 check out only the submodules that a remapping uses. Use it after cloning, or after a
                 pull changes where this repository points.
+  add           Clone a new submodule into <first libs folder>/<name>, where <name> is the last part of
+                <url> without .git. <version> is a tag, a branch or a commit. For a branch, .gitmodules
+                then says it follows that branch.
   update        Move a submodule to <version>: a tag, a branch or a commit. .gitmodules then says which
                 branch it follows, or none. With no <version>, follow the branch .gitmodules names.
-  <dependency>  a folder under lib/, or the path to a submodule
-  --force       Move it even when it holds work that exists only on this computer, or when its local
-                branch has commits that the version does not. HEAD is then detached, and the branch
-                keeps its commits."""
+  remove        Delete a submodule: its folder, the repository git keeps for it, and its entries in
+                .gitmodules and .git/config. For a submodule inside another submodule, only remove the
+                checkout: the submodule that contains it still lists it.
+  <dependency>  a name, meaning that folder in the first libs folder, or the path to a submodule
+  --force       update: move it even when it holds work that exists only on this computer, or when its
+                local branch has commits that the version does not. HEAD is then detached, and the
+                branch keeps its commits.
+                remove: remove it even when it holds work that exists only on this computer."""
 
 
 class StepFailed(Exception):
@@ -84,9 +105,25 @@ def run(repo_root: Path, where: Path, *arguments: str) -> None:
     raise StepFailed(command)
 
 
-def report(repo_root: Path, dependencies: list[Declared], remappings: list[str]) -> bool:
+def report_unused_checkouts(repo_root: Path, path: str, remappings: list[str]) -> None:
+    """Print each submodule checked out beneath `path` that no remapping uses, with the command that removes
+    it. It stays where it is: the developer may be about to add its remapping. The walk goes down through
+    the submodules a remapping uses, and not into an unused one, since removing it removes what it holds."""
+    targets = [PurePosixPath(remapping_target(remapping)) for remapping in remappings]
+    for level in declared_submodules(repo_root / path):
+        nested = f"{path}/{level.path}"
+        if not (repo_root / nested / ".git").exists():
+            continue
+        if any(target.is_relative_to(nested) for target in targets):
+            report_unused_checkouts(repo_root, nested, remappings)
+        else:
+            print(f"  ! {nested} is checked out, and no remapping uses it. To remove it: yarn dep remove {nested}")
+
+
+def report(repo_root: Path, dependencies: list[Declared], remappings: list[str], skipped: set[str]) -> bool:
     """Print where each dependency and each nested path a remapping reaches now stands, then each remapping
-    no submodule provides. Returns whether every one of them is at the commit recorded for it."""
+    no submodule provides, then each nested checkout no remapping uses. Returns whether every dependency and
+    nested path is at the commit recorded for it."""
     rows: dict[str, tuple[Path, Declared]] = {entry.path: (repo_root, entry) for entry in dependencies}
     for remapping in remappings:
         for directory, level in submodule_levels(repo_root, remapping_target(remapping)):
@@ -109,6 +146,10 @@ def report(repo_root: Path, dependencies: list[Declared], remappings: list[str])
         levels = list(submodule_levels(repo_root, target))
         if not (repo_root / target).exists() and all(at_record(directory, level) for directory, level in levels):
             print(f"  ! remapping {remapping} points to {target}, which does not exist")
+    # Beneath a skipped dependency nothing is read: its checkout is not at the commit this repository points to.
+    for entry in dependencies:
+        if entry.path not in skipped and (repo_root / entry.path / ".git").exists():
+            report_unused_checkouts(repo_root, entry.path, remappings)
     return all(at_record(directory, level) for directory, level in rows.values())
 
 
@@ -124,10 +165,10 @@ def stop_for_work(heading: str, found: list[str], moving: str, force_command: st
         print(f"  To continue anyway: {force_command}")
 
 
-def read_remappings(repo_root: Path) -> list[str] | None:
-    """The remappings forge resolves, or None when forge cannot resolve them - forge's own error printed."""
+def read_forge_config(repo_root: Path) -> dict[str, Any] | None:
+    """What forge resolves from foundry.toml, or None when forge cannot resolve it - forge's own error printed."""
     try:
-        return forge_config(repo_root)["remappings"]
+        return forge_config(repo_root)
     except subprocess.CalledProcessError as failed:
         print(f"  failed (exit {failed.returncode}): forge config --json")
         for line in failed.stderr.rstrip().splitlines():
@@ -135,11 +176,8 @@ def read_remappings(repo_root: Path) -> list[str] | None:
         return None
 
 
-def sync(repo_root: Path) -> int:
+def sync(repo_root: Path, remappings: list[str]) -> int:
     print("sync:")
-    remappings = read_remappings(repo_root)
-    if remappings is None:
-        return 1
     dependencies = declared_submodules(repo_root)
 
     # Before anything runs. Moving a checkout is what would put work at risk, so a dependency sync would
@@ -181,17 +219,28 @@ def sync(repo_root: Path) -> int:
                 if not at_record(directory, level):
                     run(repo_root, directory, "submodule", "update", "--init", "--", level.path)
     except StepFailed:
-        report(repo_root, dependencies, remappings)
+        report(repo_root, dependencies, remappings, skipped)
         return 1
-    return 0 if report(repo_root, dependencies, remappings) else 1
+    return 0 if report(repo_root, dependencies, remappings, skipped) else 1
 
 
-def resolve_path(repo_root: Path, dependency: str) -> str:
-    """A dependency is named by its directory under lib/, but a full path is accepted too."""
-    for candidate in (dependency, f"lib/{dependency}"):
-        if (repo_root / candidate / ".git").exists():
-            return candidate
-    raise SystemExit(f"error: no submodule at '{dependency}' or 'lib/{dependency}'")
+def named_path(dependency: str, libs: str) -> str:
+    """The path a dependency is named by: a bare name is that folder in the first libs folder, as `add`
+    places it, and anything with a `/` is a path, which is what names a submodule inside a dependency."""
+    return dependency.rstrip("/") if "/" in dependency else f"{libs}/{dependency}"
+
+
+def locate(repo_root: Path, path: str) -> tuple[Path, Declared] | None:
+    """The submodule at `path`, with the folder whose .gitmodules lists it: this repository for a dependency,
+    a dependency for one of its own submodules. None when no .gitmodules that is checked out lists one there."""
+    return next(
+        (
+            (directory, level)
+            for directory, level in submodule_levels(repo_root, path)
+            if directory / level.path == repo_root / path
+        ),
+        None,
+    )
 
 
 def classify(submodule: Path, ref: str) -> Pin:
@@ -209,37 +258,51 @@ def classify(submodule: Path, ref: str) -> Pin:
     return Pin("absent", None, None)
 
 
+def perform(shown: str, change: Callable[[], object]) -> None:
+    """Make one change without git, printed as the shell command that makes it. A failure prints the
+    system's error and raises `StepFailed`: nothing is reported as done that was not."""
+    try:
+        change()
+    except OSError as failed:
+        print(f"  failed: {shown}", flush=True)
+        print(f"    {failed}", flush=True)
+        raise StepFailed(shown) from failed
+    print(f"  ran: {shown}", flush=True)
+
+
+def delete_path(repo_root: Path, target: Path) -> None:
+    """Delete a folder, or a file, printed as `rm -rf`."""
+    folder = target.is_dir() and not target.is_symlink()
+    perform(f"rm -rf {os.path.relpath(target, repo_root)}", lambda: shutil.rmtree(target) if folder else target.unlink())
+
+
 def delete(repo_root: Path, directory: Path) -> None:
     """Delete a directory a version change stranded, with its gitdir when that lives elsewhere (git would
-    reuse it if the path ever returned), printing each as it goes. A failure prints the system's error and
-    raises `StepFailed`: nothing is reported as removed that was not."""
+    reuse it if the path ever returned), printing each as it goes."""
     marker = directory / ".git"
     pointer = marker.read_text().partition("gitdir:")[2].strip() if marker.is_file() else ""
     gitdir = (directory / pointer).resolve() if pointer else None
     for target in ([gitdir] if gitdir is not None and gitdir.exists() else []) + [directory]:
-        shown = f"rm -rf {os.path.relpath(target, repo_root)}"
-        try:
-            shutil.rmtree(target)
-        except OSError as failed:
-            print(f"  failed: {shown}", flush=True)
-            print(f"    {failed}", flush=True)
-            raise StepFailed(shown) from failed
-        print(f"  ran: {shown}", flush=True)
+        delete_path(repo_root, target)
 
 
-def update(repo_root: Path, dependency: str, force: bool) -> int:
+def update(repo_root: Path, dependency: str, force: bool, libs: str, remappings: list[str]) -> int:
     """Move one dependency to a version, doing only what is not already done. Returns 0 on success."""
     named = dependency
     requested_ref = None
     if "@" in dependency:
         dependency, _, requested_ref = dependency.partition("@")
-    path = resolve_path(repo_root, dependency)
+    path = named_path(dependency, libs)
     submodule = repo_root / path
     print(f"{path}:")
 
+    located = locate(repo_root, path)
+    if located is None:
+        print(f"  Stopped: no .gitmodules file lists a submodule at {path}.")
+        return 1
+    directory, entry = located
     # A submodule of a submodule is recorded, and so versioned, by its own parent.
-    entry = next((declared for declared in declared_submodules(repo_root) if declared.path == path), None)
-    if entry is None:
+    if directory != repo_root:
         print(f"  Stopped: {path} is a submodule inside another submodule, not a submodule of this repository.")
         print("  The submodule that contains it decides its version.")
         return 1
@@ -250,6 +313,10 @@ def update(repo_root: Path, dependency: str, force: bool) -> int:
         print(f"  Stopped: git cannot read the {path} folder. git says:")
         print(f"    {facts.unreadable}")
         print(f"  To repair it: git submodule update --init -- {path}")
+        return 1
+    if not facts.initialised:
+        print(f"  Stopped: {path} is not checked out.")
+        print("  To check it out: yarn dep sync")
         return 1
     if facts.has_own_work and not force:
         stop_for_work(
@@ -267,9 +334,6 @@ def update(repo_root: Path, dependency: str, force: bool) -> int:
         return 1
     if requested_ref is None:
         print(f"  Following branch {ref} (set in .gitmodules).")
-    remappings = read_remappings(repo_root)
-    if remappings is None:
-        return 1
 
     target: Pin | None = None
     try:
@@ -354,6 +418,7 @@ def report_move(repo_root: Path, path: str, ref: str, target: Pin | None, remapp
         print(f"  [{'x' if stage.done else ' '}] {stage.number}. {stage.name} - {stage.detail}")
         if not stage.done and stage.action:
             print(f"        {stage.action}")
+    report_unused_checkouts(repo_root, path, remappings)
 
     # Stages 2-5 are this tool's to perform; 0 stays open under --force on purpose, and 6-7 are the user's.
     outstanding = [stage for stage in stages if not stage.done and 2 <= stage.number <= 5]
@@ -368,13 +433,178 @@ def report_move(repo_root: Path, path: str, ref: str, target: Pin | None, remapp
     return 0
 
 
+def add(repo_root: Path, spec: str, libs: str, remappings: list[str]) -> int:
+    """Clone a new dependency into the first libs folder and lay it out as `git submodule add` does, leaving
+    the index alone. Returns 0 on success."""
+    # An ssh address such as git@host:org/name.git holds an `@` too, and so does an https one with credentials.
+    # So what follows the last `@` is the ref only when what comes before it still has a host and a path:
+    # a `/` after `scheme://`, or, without a scheme, a `/` or the `:` of host:path.
+    url, _, ref = spec.rpartition("@")
+    scheme, separator, rest = url.partition("://")
+    if not url or not ("/" in rest if separator else re.search(r"[/:]", scheme)):
+        url, ref = spec, ""
+    path = f"{libs}/{re.split(r'[/:]', url.rstrip('/'))[-1].removesuffix('.git')}"
+    checkout = repo_root / path
+    print(f"{path}:")
+    if not ref:
+        print("  Stopped: the version is missing. Name it:")
+        print(f"    yarn dep add {url}@<tag, branch or commit>")
+        return 1
+
+    # Where git keeps a submodule's repository, asked of git: it is elsewhere when this repository is itself a
+    # submodule. A new submodule is named by its path, as `git submodule add` names it.
+    gitdir = Path(git(repo_root, "rev-parse", "--path-format=absolute", "--git-path", f"modules/{path}").stdout.strip())
+    listed = any(path in (entry.path, entry.name) for entry in declared_submodules(repo_root))
+    in_use = [
+        reason
+        for reason, found in (
+            (f"the folder {path} exists", checkout.exists()),
+            (f".gitmodules lists a submodule at {path}", listed),
+            (f"git tracks files in {path}", git(repo_root, "ls-files", "--", path).stdout.strip() != ""),
+            (
+                f"{os.path.relpath(gitdir, repo_root)} exists, where git keeps the repository of a submodule at {path}",
+                gitdir.exists(),
+            ),
+        )
+        if found
+    ]
+    if in_use:
+        print(f"  Stopped: {path} is already in use:")
+        for reason in in_use:
+            print(f"    {reason}")
+        print("  Remove what is there, then run this again.")
+        return 1
+
+    try:
+        # The layout `git submodule add` writes, step by step, since that command also stages. The clone points
+        # to its repository by an absolute path, which breaks when the project moves, so the pointer is
+        # rewritten relative, as git writes it.
+        relative_gitdir = os.path.relpath(gitdir, repo_root)
+        # The clone creates the repository's folder but not the folders above it, which a project with no
+        # submodules yet does not have.
+        if not gitdir.parent.is_dir():
+            perform(
+                f"mkdir -p {os.path.dirname(relative_gitdir)}", lambda: gitdir.parent.mkdir(parents=True, exist_ok=True)
+            )
+        run(repo_root, repo_root, "clone", "--quiet", "--no-recurse-submodules", f"--separate-git-dir={relative_gitdir}", url, path)
+        pointer = os.path.relpath(gitdir, checkout)
+        perform(f'echo "gitdir: {pointer}" > {path}/.git', lambda: (checkout / ".git").write_text(f"gitdir: {pointer}\n"))
+        run(repo_root, checkout, "config", "core.worktree", os.path.relpath(checkout, gitdir))
+        run(repo_root, repo_root, "config", "-f", ".gitmodules", f"submodule.{path}.path", path)
+        run(repo_root, repo_root, "config", "-f", ".gitmodules", f"submodule.{path}.url", url)
+        run(repo_root, repo_root, "config", f"submodule.{path}.url", url)
+        run(repo_root, repo_root, "config", f"submodule.{path}.active", "true")
+
+        target = classify(checkout, ref)
+        if target.rev is None:
+            print(f"  Stopped: '{ref}' is not a tag, branch or commit in {url}.")
+            print(f"  {path} is cloned and listed in .gitmodules. To remove it: yarn dep remove {path}")
+            return 1
+        standing = git(checkout, "symbolic-ref", "--quiet", "HEAD").stdout.strip()
+        wanted = f"refs/heads/{ref}" if target.kind == MOVING else ""
+        if checked_out(checkout) != target.rev or standing != wanted:
+            # `origin/<ref>` is what `classify` resolved a branch from, so it lands on exactly that commit.
+            move = ["--track", "-B", ref, f"origin/{ref}"] if target.kind == MOVING else [target.rev]
+            run(repo_root, checkout, "checkout", "--quiet", *move)
+        if target.kind == MOVING:
+            run(repo_root, repo_root, "config", "-f", ".gitmodules", f"submodule.{path}.branch", ref)
+
+        # Lazy, so each level is checked out before the walk reads the next level's .gitmodules from it.
+        for directory, level in nested_levels(repo_root, path, remappings):
+            if not at_record(directory, level):
+                run(repo_root, directory, "submodule", "update", "--init", "--", level.path)
+    except StepFailed:
+        if locate(repo_root, path) is not None:
+            print(f"  {path} is listed in .gitmodules. To remove it: yarn dep remove {path}")
+        return 1
+    print(f"  Next, run: git add --no-warn-embedded-repo .gitmodules {path} && git commit")
+    return 0
+
+
+def remove(repo_root: Path, dependency: str, force: bool, libs: str) -> int:
+    """Delete a dependency, or take away the checkout of a submodule inside one. Returns 0 on success."""
+    path = named_path(dependency, libs)
+    checkout = repo_root / path
+    print(f"{path}:")
+    located = locate(repo_root, path)
+    if located is None:
+        print(f"  Stopped: no .gitmodules file lists a submodule at {path}.")
+        return 1
+    directory, entry = located
+
+    present = (checkout / ".git").exists()
+    if present and not force:
+        # Ahead of the work check, which reads a blank from a gitdir git will not read and would pass.
+        head = git(checkout, "rev-parse", "HEAD")
+        if head.returncode != 0:
+            print(f"  Stopped: git cannot read the {path} folder. git says:")
+            for line in head.stderr.strip().splitlines():
+                print(f"    {line}")
+            print("  So it is not known whether the folder holds work that exists only on this computer.")
+            print(f"  To continue anyway: yarn dep remove --force {dependency}")
+            return 1
+        held = [describe_at_risk(item, path) for item in at_risk(checkout)]
+        if held:
+            stop_for_work(
+                "Stopped before changing anything.",
+                held,
+                "Removing deletes the folder that holds them.",
+                f"yarn dep remove --force {dependency}",
+            )
+            return 1
+
+    try:
+        if directory != repo_root:
+            # The dependency lists this submodule and records its commit. Only the checkout is this repository's.
+            if not present:
+                print(f"  Nothing to do: {path} is not checked out.")
+                return 0
+            run(repo_root, directory, "submodule", "deinit", "--force", "--quiet", "--", entry.path)
+            parent = directory.relative_to(repo_root).as_posix()
+            print(f"  {parent} still lists {entry.path} in its .gitmodules, so there is nothing to add or commit.")
+            return 0
+
+        # Deleted directly rather than through `git submodule deinit`, which works only on a submodule in the
+        # index, and one that `add` cloned may never have been staged.
+        section = f"submodule.{entry.name}"
+        if any(
+            key.startswith(f"{section}.")
+            for key in git(repo_root, "config", "--local", "--name-only", "--list").stdout.splitlines()
+        ):
+            run(repo_root, repo_root, "config", "--remove-section", section)
+        gitdir = Path(
+            git(repo_root, "rev-parse", "--path-format=absolute", "--git-path", f"modules/{entry.name}").stdout.strip()
+        )
+        for target in (checkout, gitdir):
+            if target.exists():
+                delete_path(repo_root, target)
+        run(repo_root, repo_root, "config", "-f", ".gitmodules", "--remove-section", section)
+        # An empty .gitmodules that git does not track holds nothing: `add` wrote it, and nothing recorded it.
+        gitmodules = repo_root / ".gitmodules"
+        if gitmodules.read_text() == "" and git(repo_root, "ls-files", "--error-unmatch", ".gitmodules").returncode != 0:
+            delete_path(repo_root, gitmodules)
+    except StepFailed:
+        return 1
+    changed = [name for name in (".gitmodules", path) if git(repo_root, "status", "--porcelain", "--", name).stdout.strip()]
+    if not changed:
+        print("  Nothing to add or commit.")
+        return 0
+    print(f"  Next, run: git add {' '.join(changed)} && git commit")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="dep", usage=USAGE)
     subcommands = parser.add_subparsers(dest="subcommand", required=True)
     subcommands.add_parser("sync")
+    adding = subcommands.add_parser("add")
+    adding.add_argument("dependency")
     updating = subcommands.add_parser("update")
     updating.add_argument("--force", action="store_true")
     updating.add_argument("dependencies", nargs="+")
+    removing = subcommands.add_parser("remove")
+    removing.add_argument("--force", action="store_true")
+    removing.add_argument("dependencies", nargs="+")
     arguments = parser.parse_args()
 
     top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
@@ -382,9 +612,20 @@ def main() -> int:
         print("error: not inside a git repository", file=sys.stderr)
         return 1
     repo_root = Path(top.stdout.strip())
+    config = read_forge_config(repo_root)
+    if config is None:
+        return 1
+    remappings: list[str] = config["remappings"]
+    libs = PurePosixPath(config["libs"][0]).as_posix()
+    if arguments.subcommand == "add":
+        return add(repo_root, arguments.dependency, libs, remappings)
     if arguments.subcommand == "update":
-        return max(update(repo_root, dependency, arguments.force) for dependency in arguments.dependencies)
-    return sync(repo_root)
+        return max(
+            update(repo_root, dependency, arguments.force, libs, remappings) for dependency in arguments.dependencies
+        )
+    if arguments.subcommand == "remove":
+        return max(remove(repo_root, dependency, arguments.force, libs) for dependency in arguments.dependencies)
+    return sync(repo_root, remappings)
 
 
 if __name__ == "__main__":
