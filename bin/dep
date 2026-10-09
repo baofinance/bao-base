@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Manage this repository's dependencies with git alone, and never touch the index.
 
+A wrapper around git's submodule commands that is forge-aware: it reads forge's remappings, to check out
+only what the build reads, and forge's libs folder, where every dependency lives. Its arguments are
+written as git writes them.
+
 `sync` brings the checkouts to what this repository records: every top-level submodule at its gitlink,
 plus exactly the nested submodules forge's remappings point into. The build reads nothing else. A
 dependency's other nested submodules are its own lockfile, wanted only by someone working inside it, so
@@ -8,19 +12,24 @@ they are never fetched - and one of them pinned to a commit no remote holds cann
 A clone made without --recurse-submodules needs nothing more than this.
 
 `add` clones a new dependency into the first of forge's libs folders, under the name its url ends in, as
-`forge install` places one, and writes what `git submodule add` writes - except to the index. The version
-is always named: a branch is recorded in `.gitmodules` as the branch it follows.
+`forge install` places one, and writes what `git submodule add` writes - except to the index. `-b` and
+`--branch` pass through to `git clone --branch`: a branch or tag, which git asks the remote for before it
+writes anything. Without them, git's default: the remote's default branch. A branch named with `-b` is
+recorded in `.gitmodules`, as `git submodule add -b` records it; git's default is not recorded.
 
 `update` moves one dependency to a named version, checking out beneath it the same nested paths and no
 others. The branch a dependency follows is recorded where git records it, as `branch` in `.gitmodules`,
-so a later update named without a ref follows that branch - and one with no branch recorded has nothing
-it was told to follow, and asks. Nothing is fetched or moved until the pre-checks pass: nothing under the
-dependency may exist only here, and a local branch it would stand on may hold no commit the target lacks.
+so a later update named without a ref follows that branch - and one with no branch recorded follows
+git's default, the remote's default branch, as `git submodule update --remote` does. Nothing is fetched
+or moved until the pre-checks pass: nothing under the dependency may exist only here, and a local branch
+it would stand on may hold no commit the target lacks.
 
-`remove` deletes a dependency: its folder, the repository git keeps for it, and its entries. A submodule
-inside a dependency is the dependency's to list and record, so for one of those it only takes away the
-checkout. sync and update leave a nested checkout no remapping uses where it is, since its remapping may
-be on its way, and name the remove that takes it away.
+`remove` runs `git submodule deinit`, for a dependency or for a submodule inside one. For a dependency it
+then deletes the repository git keeps for it, as gitsubmodules(7) says to, and hands over the `git rm`
+that takes out the folder and the `.gitmodules` entry. A submodule inside a dependency is the
+dependency's to list and record, so for one of those the checkout is all that goes. sync and update leave
+a nested checkout no remapping uses where it is, since its remapping may be on its way, and name the
+remove that takes it away.
 
 Every command that changes something is printed as it finishes, in order. A failure prints the tool's
 own error beneath the command that failed, then where each checkout now stands, and undoes nothing:
@@ -64,7 +73,7 @@ from submodule_state import (
 
 USAGE = """\
 dep sync
-dep add <url>@<version>
+dep add [(-b | --branch) <branch or tag>] <url>
 dep update [--force] <dependency>[@<version>] ...
 dep remove [--force] <dependency> ...
 
@@ -72,14 +81,16 @@ dep remove [--force] <dependency> ...
                 check out only the submodules that a remapping uses. Use it after cloning, or after a
                 pull changes where this repository points.
   add           Clone a new submodule into <first libs folder>/<name>, where <name> is the last part of
-                <url> without .git. <version> is a tag, a branch or a commit. For a branch, .gitmodules
-                then says it follows that branch.
+                <url> without .git, as git submodule add does. For a branch named with -b, .gitmodules
+                then says it follows that branch. Without -b, the remote's default branch, and
+                .gitmodules says none. To depend on a commit, add, then update to the commit.
   update        Move a submodule to <version>: a tag, a branch or a commit. .gitmodules then says which
-                branch it follows, or none. With no <version>, follow the branch .gitmodules names.
-  remove        Delete a submodule: its folder, the repository git keeps for it, and its entries in
-                .gitmodules and .git/config. For a submodule inside another submodule, only remove the
-                checkout: the submodule that contains it still lists it.
-  <dependency>  a name, meaning that folder in the first libs folder, or the path to a submodule
+                branch it follows, or none. With no <version>, follow the branch .gitmodules names, or
+                else the remote's default branch.
+  remove        Take a submodule's checkout away (git submodule deinit). For a submodule of this
+                repository, also delete the repository git keeps for it, then hand over the git rm that
+                removes it. A submodule inside another one stays listed by the one that contains it.
+  <dependency>  its path in the first libs folder, with or without that folder: dep, lib/dep, dep/lib/x
   --force       update: move it even when it holds work that exists only on this computer, or when its
                 local branch has commits that the version does not. HEAD is then detached, and the
                 branch keeps its commits.
@@ -225,9 +236,9 @@ def sync(repo_root: Path, remappings: list[str]) -> int:
 
 
 def named_path(dependency: str, libs: str) -> str:
-    """The path a dependency is named by: a bare name is that folder in the first libs folder, as `add`
-    places it, and anything with a `/` is a path, which is what names a submodule inside a dependency."""
-    return dependency.rstrip("/") if "/" in dependency else f"{libs}/{dependency}"
+    """The path of a dependency, or of a submodule inside one, named by its path in the first libs folder,
+    where `add` places every dependency. A leading libs folder is accepted too: `dep` and `lib/dep` agree."""
+    return f"{libs}/{dependency.strip('/').removeprefix(f'{libs}/')}"
 
 
 def locate(repo_root: Path, path: str) -> tuple[Path, Declared] | None:
@@ -327,12 +338,21 @@ def update(repo_root: Path, dependency: str, force: bool, libs: str, remappings:
         )
         return 1
 
+    # With no branch set in .gitmodules, git's default, as `git submodule update --remote` has it: the
+    # remote's default branch, looked up each time and recorded nowhere.
+    recorded = requested_ref is not None or entry.branch is not None
     ref = requested_ref or entry.branch
     if ref is None:
-        print(f"  Stopped: .gitmodules does not say which branch {path} follows.")
-        print(f"  Name the version: yarn dep update {path}@<tag, branch or commit>")
-        return 1
-    if requested_ref is None:
+        head = git(submodule, "ls-remote", "--symref", "origin", "HEAD")
+        default = re.match(r"ref: refs/heads/(\S+)\tHEAD", head.stdout)
+        if default is None:
+            print(f"  Stopped: git cannot tell which branch is the default of {path}'s remote. git says:")
+            for line in (head.stderr or head.stdout).strip().splitlines():
+                print(f"    {line}")
+            return 1
+        ref = default[1]
+        print(f"  Following branch {ref}, the remote's default branch (.gitmodules sets none).")
+    elif requested_ref is None:
         print(f"  Following branch {ref} (set in .gitmodules).")
 
     target: Pin | None = None
@@ -379,7 +399,7 @@ def update(repo_root: Path, dependency: str, force: bool, libs: str, remappings:
         if target.kind == MOVING and not attach:
             print(f"  Your branch {target.name} keeps its own commits, so HEAD is now detached at {target.rev[:10]}.")
 
-        follows = target.name if target.kind == MOVING else None
+        follows = target.name if recorded and target.kind == MOVING else None
         if entry.branch != follows:
             key = f"submodule.{entry.name}.branch"
             if follows is None:
@@ -395,14 +415,17 @@ def update(repo_root: Path, dependency: str, force: bool, libs: str, remappings:
         for stranded in read_facts(repo_root, path).litter:
             delete(repo_root, submodule / stranded)
     except StepFailed:
-        report_move(repo_root, path, ref, target, remappings)
+        report_move(repo_root, path, ref, target, recorded, remappings)
         return 1
-    return report_move(repo_root, path, ref, target, remappings)
+    return report_move(repo_root, path, ref, target, recorded, remappings)
 
 
-def report_move(repo_root: Path, path: str, ref: str, target: Pin | None, remappings: list[str]) -> int:
-    """Print the move's checklist as it now stands, then what is left for the user. Returns 0 when every
-    stage this tool performs is done."""
+def report_move(
+    repo_root: Path, path: str, ref: str, target: Pin | None, recorded: bool, remappings: list[str]
+) -> int:
+    """Print the move's checklist as it now stands, then what is left for the user. `recorded` is whether
+    .gitmodules is to name the branch: not when it is git's default, the remote's default branch. Returns 0
+    when every stage this tool performs is done."""
     nested_off: dict[str, str] = {}
     for directory, level in nested_levels(repo_root, path, remappings):
         if not at_record(directory, level):
@@ -410,7 +433,7 @@ def report_move(repo_root: Path, path: str, ref: str, target: Pin | None, remapp
             display = (directory / level.path).relative_to(repo_root).as_posix()
             nested_off[display] = f"git -C {located} submodule update --init -- {level.path}"
     rev = target.rev if target is not None else None
-    follows = target.name if target is not None and target.kind == MOVING else None
+    follows = target.name if recorded and target is not None and target.kind == MOVING else None
     stages = move_checklist(
         read_facts(repo_root, path), ref, rev, follows, recorded_entry(repo_root, path), list(nested_off.items())
     )
@@ -433,23 +456,13 @@ def report_move(repo_root: Path, path: str, ref: str, target: Pin | None, remapp
     return 0
 
 
-def add(repo_root: Path, spec: str, libs: str, remappings: list[str]) -> int:
+def add(repo_root: Path, url: str, ref: str | None, libs: str, remappings: list[str]) -> int:
     """Clone a new dependency into the first libs folder and lay it out as `git submodule add` does, leaving
-    the index alone. Returns 0 on success."""
-    # An ssh address such as git@host:org/name.git holds an `@` too, and so does an https one with credentials.
-    # So what follows the last `@` is the ref only when what comes before it still has a host and a path:
-    # a `/` after `scheme://`, or, without a scheme, a `/` or the `:` of host:path.
-    url, _, ref = spec.rpartition("@")
-    scheme, separator, rest = url.partition("://")
-    if not url or not ("/" in rest if separator else re.search(r"[/:]", scheme)):
-        url, ref = spec, ""
+    the index alone. `ref` is `-b` passed through: a branch or tag, or, when not given, git's default - the
+    remote's default branch, recorded nowhere. Returns 0 on success."""
     path = f"{libs}/{re.split(r'[/:]', url.rstrip('/'))[-1].removesuffix('.git')}"
     checkout = repo_root / path
     print(f"{path}:")
-    if not ref:
-        print("  Stopped: the version is missing. Name it:")
-        print(f"    yarn dep add {url}@<tag, branch or commit>")
-        return 1
 
     # Where git keeps a submodule's repository, asked of git: it is elsewhere when this repository is itself a
     # submodule. A new submodule is named by its path, as `git submodule add` names it.
@@ -486,36 +499,39 @@ def add(repo_root: Path, spec: str, libs: str, remappings: list[str]) -> int:
             perform(
                 f"mkdir -p {os.path.dirname(relative_gitdir)}", lambda: gitdir.parent.mkdir(parents=True, exist_ok=True)
             )
-        run(repo_root, repo_root, "clone", "--quiet", "--no-recurse-submodules", f"--separate-git-dir={relative_gitdir}", url, path)
+        # --branch takes a branch or a tag, and asks the remote for it before writing anything. It stands on a
+        # branch, tracking it, and detaches at a tag. Without it, git takes the remote's default branch.
+        branch = ["--branch", ref] if ref is not None else []
+        run(
+            repo_root,
+            repo_root,
+            "clone",
+            "--quiet",
+            "--no-recurse-submodules",
+            *branch,
+            f"--separate-git-dir={relative_gitdir}",
+            url,
+            path,
+        )
         pointer = os.path.relpath(gitdir, checkout)
         perform(f'echo "gitdir: {pointer}" > {path}/.git', lambda: (checkout / ".git").write_text(f"gitdir: {pointer}\n"))
         run(repo_root, checkout, "config", "core.worktree", os.path.relpath(checkout, gitdir))
         run(repo_root, repo_root, "config", "-f", ".gitmodules", f"submodule.{path}.path", path)
         run(repo_root, repo_root, "config", "-f", ".gitmodules", f"submodule.{path}.url", url)
+        # A branch named with -b is recorded, as `git submodule add -b` records it. git's default is not.
+        standing = git(checkout, "symbolic-ref", "--quiet", "--short", "HEAD").stdout.strip()
+        if ref is not None and standing:
+            run(repo_root, repo_root, "config", "-f", ".gitmodules", f"submodule.{path}.branch", ref)
+        if ref is None:
+            print(f"  On {standing}, the remote's default branch. .gitmodules records no branch, as git does.")
         run(repo_root, repo_root, "config", f"submodule.{path}.url", url)
         run(repo_root, repo_root, "config", f"submodule.{path}.active", "true")
-
-        target = classify(checkout, ref)
-        if target.rev is None:
-            print(f"  Stopped: '{ref}' is not a tag, branch or commit in {url}.")
-            print(f"  {path} is cloned and listed in .gitmodules. To remove it: yarn dep remove {path}")
-            return 1
-        standing = git(checkout, "symbolic-ref", "--quiet", "HEAD").stdout.strip()
-        wanted = f"refs/heads/{ref}" if target.kind == MOVING else ""
-        if checked_out(checkout) != target.rev or standing != wanted:
-            # `origin/<ref>` is what `classify` resolved a branch from, so it lands on exactly that commit.
-            move = ["--track", "-B", ref, f"origin/{ref}"] if target.kind == MOVING else [target.rev]
-            run(repo_root, checkout, "checkout", "--quiet", *move)
-        if target.kind == MOVING:
-            run(repo_root, repo_root, "config", "-f", ".gitmodules", f"submodule.{path}.branch", ref)
 
         # Lazy, so each level is checked out before the walk reads the next level's .gitmodules from it.
         for directory, level in nested_levels(repo_root, path, remappings):
             if not at_record(directory, level):
                 run(repo_root, directory, "submodule", "update", "--init", "--", level.path)
     except StepFailed:
-        if locate(repo_root, path) is not None:
-            print(f"  {path} is listed in .gitmodules. To remove it: yarn dep remove {path}")
         return 1
     print(f"  Next, run: git add --no-warn-embedded-repo .gitmodules {path} && git commit")
     return 0
@@ -531,9 +547,16 @@ def remove(repo_root: Path, dependency: str, force: bool, libs: str) -> int:
         print(f"  Stopped: no .gitmodules file lists a submodule at {path}.")
         return 1
     directory, entry = located
+    parent = directory.relative_to(repo_root).as_posix()
 
-    present = (checkout / ".git").exists()
-    if present and not force:
+    # git removes only a submodule it tracks. One that `add` cloned and that is not yet staged is not one.
+    if staged_gitlink(directory, entry.path) is None:
+        in_parent = "git" if directory == repo_root else f"git -C {parent}"
+        print(f"  Stopped: git does not track {path} yet, so git cannot remove it.")
+        print(f"  Stage it first, then run this again: {in_parent} add --no-warn-embedded-repo .gitmodules {entry.path}")
+        return 1
+
+    if (checkout / ".git").exists() and not force:
         # Ahead of the work check, which reads a blank from a gitdir git will not read and would pass.
         head = git(checkout, "rev-parse", "HEAD")
         if head.returncode != 0:
@@ -554,42 +577,22 @@ def remove(repo_root: Path, dependency: str, force: bool, libs: str) -> int:
             return 1
 
     try:
+        run(repo_root, directory, "submodule", "deinit", "--force", "--quiet", "--", entry.path)
         if directory != repo_root:
-            # The dependency lists this submodule and records its commit. Only the checkout is this repository's.
-            if not present:
-                print(f"  Nothing to do: {path} is not checked out.")
-                return 0
-            run(repo_root, directory, "submodule", "deinit", "--force", "--quiet", "--", entry.path)
-            parent = directory.relative_to(repo_root).as_posix()
+            # The dependency lists this submodule and records its commit, so only the checkout goes.
             print(f"  {parent} still lists {entry.path} in its .gitmodules, so there is nothing to add or commit.")
             return 0
-
-        # Deleted directly rather than through `git submodule deinit`, which works only on a submodule in the
-        # index, and one that `add` cloned may never have been staged.
-        section = f"submodule.{entry.name}"
-        if any(
-            key.startswith(f"{section}.")
-            for key in git(repo_root, "config", "--local", "--name-only", "--list").stdout.splitlines()
-        ):
-            run(repo_root, repo_root, "config", "--remove-section", section)
+        # This repository stops depending on it. git keeps a removed submodule's repository, and gitsubmodules(7)
+        # says to delete it by hand to remove the submodule completely.
         gitdir = Path(
             git(repo_root, "rev-parse", "--path-format=absolute", "--git-path", f"modules/{entry.name}").stdout.strip()
         )
-        for target in (checkout, gitdir):
-            if target.exists():
-                delete_path(repo_root, target)
-        run(repo_root, repo_root, "config", "-f", ".gitmodules", "--remove-section", section)
-        # An empty .gitmodules that git does not track holds nothing: `add` wrote it, and nothing recorded it.
-        gitmodules = repo_root / ".gitmodules"
-        if gitmodules.read_text() == "" and git(repo_root, "ls-files", "--error-unmatch", ".gitmodules").returncode != 0:
-            delete_path(repo_root, gitmodules)
+        if gitdir.exists():
+            delete_path(repo_root, gitdir)
     except StepFailed:
         return 1
-    changed = [name for name in (".gitmodules", path) if git(repo_root, "status", "--porcelain", "--", name).stdout.strip()]
-    if not changed:
-        print("  Nothing to add or commit.")
-        return 0
-    print(f"  Next, run: git add {' '.join(changed)} && git commit")
+    # `git rm` takes the folder and the .gitmodules entry out, and stages both.
+    print(f"  Next, run: git rm {path} && git commit")
     return 0
 
 
@@ -598,7 +601,8 @@ def main() -> int:
     subcommands = parser.add_subparsers(dest="subcommand", required=True)
     subcommands.add_parser("sync")
     adding = subcommands.add_parser("add")
-    adding.add_argument("dependency")
+    adding.add_argument("-b", "--branch")
+    adding.add_argument("url")
     updating = subcommands.add_parser("update")
     updating.add_argument("--force", action="store_true")
     updating.add_argument("dependencies", nargs="+")
@@ -618,7 +622,7 @@ def main() -> int:
     remappings: list[str] = config["remappings"]
     libs = PurePosixPath(config["libs"][0]).as_posix()
     if arguments.subcommand == "add":
-        return add(repo_root, arguments.dependency, libs, remappings)
+        return add(repo_root, arguments.url, arguments.branch, libs, remappings)
     if arguments.subcommand == "update":
         return max(
             update(repo_root, dependency, arguments.force, libs, remappings) for dependency in arguments.dependencies

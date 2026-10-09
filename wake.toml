@@ -11,7 +11,6 @@ exclude_paths = ["node_modules", "venv", "lib", "deprecated", "out", "samples"]
 # include paths are for import resolution
 include_paths = []
 remappings = [
-  "ds-test/=lib/forge-std/lib/ds-test/src/",
   "forge-std/=lib/forge-std/src/",
   # Must stay identical to the same block in foundry.toml, in the same ORDER — `yarn doctor` fails
   # when wake and forge resolve an import differently, because then wake analyses a program that is
@@ -21,7 +20,6 @@ remappings = [
   "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
   "@solady/=lib/solady/src/",
   "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
-  "solidity-stringutils/=lib/openzeppelin-foundry-upgrades/lib/solidity-stringutils/",
   "@bao/=src/",
   "@bao-test/=test/",
   "@bao-script/=script/",

@@ -71,6 +71,22 @@ runs:
         # foundry version
         forge --version
 
+    - name: Check out the submodules inside submodules that the build reads
+      shell: bash
+      run: |
+        # The checkout takes each submodule of this repository and none inside them. dep sync adds the
+        # ones inside that a remapping uses, which is all the build reads. It asks forge for the
+        # remappings, so it runs once forge is installed.
+        #
+        # Called through the run script, not `yarn dep`, as in the test-foundry action: a repository
+        # has a "dep" script in its package.json only once it has been updated for it.
+        #
+        # Not marked for bin/CI to replay: on a developer's computer, dep sync would move a submodule
+        # that has been moved on and not yet staged.
+        cd ${{ inputs.cwd }}
+        ./run dep sync
+      id: dep-sync
+
     - name: Install python project dependencies (if any)
       shell: bash
       run: |

@@ -395,11 +395,13 @@ rather than assuming (per the no-"likely" rule below). (Complements "Questions a
 not instructions" above and the design-discussion rule under "Other rules".)
 
 ## Other rules
-- **Submodule dependencies: `forge install` to ADD one, `forge remove` to drop one, `yarn update
-  <dependency>@<ref>` to CHANGE the version of one. Never `forge update`.** `yarn update` moves the
-  dependency with git and writes `foundry.lock` itself; `yarn doctor` reports what it would converge.
-  Why each command is used where it is: `bin/update-submodule`'s docstring, and
-  `tests/toolchain/test_forge_submodule_update.py`, which fails when forge's behaviour changes.
+- **Dependencies are git submodules in `lib/`, managed with `yarn dep` and never with forge's `install`,
+  `update` or `remove`.** `yarn dep add [-b <branch or tag>] <url>` adds one. `yarn dep update
+  <name>@<version>` moves one to a branch, tag or commit. `yarn dep remove <name>` removes one. `yarn dep
+  sync` checks out the commits this repository points to, after a clone or a pull. Inside a dependency,
+  only the submodules a remapping uses are checked out. `yarn dep` never stages: it ends by naming the
+  git commands that stage and commit the change. `yarn doctor` reports a submodule folder that differs
+  from what this repository points to. Why each step is done as it is: `bin/dep`'s docstring.
 - Never use bare `"src/..."`, `"script/..."`, or `"test/..."` import paths in any Solidity file — not in contracts, scripts, or tests. Always use the remapped prefix for the repo the file lives in (e.g. `"@harbor/..."`, `"@harbor-script/..."`, `"@harbor-test/..."` for harbor files; `"@bao/..."`, `"@bao-script/..."`, `"@bao-test/..."` for bao-base files). Bare paths create duplicate type identities when files are consumed as a library by another repo, breaking compilation.
 - In tests and scripts, use interface types (e.g. `IStabilityPool_v3(address)`) not concrete contract types (e.g. `StabilityPool_v3(address)`) when calling functions. This verifies the interface matches the implementation. Concrete types are only for initialisation (constructor, deploy).
   - **Declarations:** use `address`, not typed contract variables. E.g. `address rewardToken = address(new MockERC20(...))`, not `MockERC20 rewardToken = new MockERC20(...)`.

@@ -29,7 +29,9 @@ jobs:
       - name: Checkout repository with submodules
         uses: actions/checkout@v3
         with:
-          submodules: recursive
+          # Each submodule of this repository, and none inside them: the action's dep sync step adds
+          # the ones inside that a remapping uses, which is all the build reads.
+          submodules: true
 
       - name: Run Bao-base CI actions
         uses: ./.github/actions/test-scripting

@@ -917,7 +917,7 @@ def describe_at_risk(item: AtRisk, under: str) -> str:
 
 def move_checklist(
     facts: Facts,
-    target_ref: str | None,
+    target_ref: str,
     target_rev: str | None,
     follows: str | None,
     entry: Recorded,
@@ -955,13 +955,7 @@ def move_checklist(
             "nothing found" if safe else f"found: {listed}",
             "" if safe else "push what you want to keep, or remove what you do not - or use --force",
         ),
-        Stage(
-            1,
-            "a version to move to",
-            target_ref is not None,
-            f"{target_ref}" if target_ref else ".gitmodules does not say which branch to follow",
-            "" if target_ref else f"name one: yarn dep update {path}@<tag, branch or commit>",
-        ),
+        Stage(1, "a version to move to", True, target_ref, ""),
         Stage(
             2,
             "the folder has that version",
