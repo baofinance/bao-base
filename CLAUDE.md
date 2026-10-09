@@ -17,7 +17,7 @@ a batch would carry several decisions, or one weighty enough to deserve its own
 checkpoint. A bigger batch has a longer commit message, which is fine: each line
 of it is crisp.
 
-### Report in five parts, in this order
+### Report in six parts, in this order
 1. **Decisions needed to continue** — each with a recommendation, the reason for
    it, and the viable options where there are any. Approving the next step is one
    of them: say what saying yes starts.
@@ -26,7 +26,10 @@ of it is crisp.
    nothing to check is the answer the user wants.
 3. **What changed** — a bullet per change: a bold headline, then the detail.
 4. **The commit message** (see Git).
-5. **Summary of the decisions needed** — the first part again, a line each.
+5. **Progress** — date and time at the top (Ddd dd-Mmm-yyy HH:MM) and every step in the plan, one line each, marked ✅ done, → next
+   or ⬜ to do. The whole list, not only the next step: what is finished and what
+   remains must be visible without opening the plan.
+6. **Summary of the decisions needed** — the first part again, a line each.
 
 A planning report uses the same parts, opened by the plan's running status; with
 no repository change, it has no commit message.
