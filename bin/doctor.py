@@ -20,17 +20,21 @@ from checks import Check, report
 from forge_config import forge_config
 from submodule_state import (
     Condition,
+    Declared,
     Facts,
     Recorded,
     at_record,
     condition,
     declared_submodules,
+    git,
     litter_condition,
     nested_levels,
     read_facts,
     recorded_entry,
     remapping_target,
+    remote_holds,
     repair,
+    staged_gitlink,
     stray_clones,
     submodule_levels,
 )
@@ -217,6 +221,41 @@ def submodule_problems(repo_root: Path, remappings: list[str]) -> tuple[list[str
             weigh.append(f"{count} commit{'s' if count > 1 else ''} in the folder {'are' if count > 1 else 'is'} not pushed.")
         versions.append(_finding(facts, found, repository, weigh, recorded_entry(repo_root, dependency.path)))
     return versions, leftovers
+
+
+def unpublished_commit_problems(repo_root: Path, remappings: list[str]) -> list[str]:
+    """Commits this repository points to that no remote holds, as each clone knew its remote at its last
+    fetch: for each dependency, and each nested path a remapping uses, judged in the repository that points
+    to it. The version check passes when the folder has the commit pointed to, even when only this computer
+    has that commit, and every other clone then fails to fetch it. Both the index's commit and HEAD's are
+    judged: HEAD's is what a clone gets now, the index's what it gets after the next commit. Returns one
+    finding per such commit, or []."""
+    repository = repo_root.name
+    levels: dict[str, tuple[Path, Declared]] = {}
+    for dependency in declared_submodules(repo_root):
+        levels[dependency.path] = (repo_root, dependency)
+        for directory, level in nested_levels(repo_root, dependency.path, remappings):
+            levels.setdefault((directory / level.path).relative_to(repo_root).as_posix(), (directory, level))
+    problems: list[str] = []
+    for path, (directory, level) in levels.items():
+        parent = repository if directory == repo_root else directory.relative_to(repo_root).as_posix()
+        committed = git(directory, "rev-parse", "--verify", "--quiet", f"HEAD:{level.path}").stdout.strip()
+        # Keyed by commit, so one pointed to by both is judged once, named as the index names it.
+        pointed = {
+            committed: f"the commit {parent}'s last commit points to",
+            staged_gitlink(directory, level.path): f"the commit {parent} points to",
+        }
+        for commit, side in pointed.items():
+            if not commit or remote_holds(directory / level.path, commit) is not False:
+                continue
+            # A nested path's commit is its dependency's to choose, so only pushing it is offered there.
+            moving = f", or move to a version a remote holds: yarn dep update {path}@<version>" if directory == repo_root else ""
+            problems.append(
+                f"{path}: no remote holds {commit[:10]}, {side}\n"
+                f"  Only this computer has it, so any other clone fails to check {path} out.\n"
+                f"  Repair: push it (git -C {path} push){moving}"
+            )
+    return problems
 
 
 def remapping_target_problems(repo_root: Path, remappings: list[str]) -> list[str]:
@@ -834,12 +873,20 @@ def build_checks(
         ),
         Check(
             "each submodule folder has the commit this repository points to",
-            "Each submodule folder should have the commit that this repository points to. git add <folder> "
-            "changes where it points, and git commit saves that. This also applies to a submodule inside "
+            "Each submodule folder should have the commit that this repository points to. yarn dep update moves "
+            "a submodule; git add and git commit record where this repository points. This also applies to a submodule inside "
             "another submodule when a remapping uses it. Doctor does not need you to commit first",
             "if they are different, you build one version but save another, and everyone who clones the "
             "repository gets the saved one",
             version_problems,
+        ),
+        Check(
+            "every commit this repository points to is on a remote",
+            "A commit that only this computer has cannot be fetched by anyone else. The check above passes when "
+            "the folder has the commit this repository points to, even when no remote holds that commit",
+            "once this repository is pushed, CI and every other clone fail to check the submodule out, and only "
+            "this computer can repair it",
+            unpublished_commit_problems(repo_root, remappings),
         ),
         Check(
             "no submodule contains old git repositories",

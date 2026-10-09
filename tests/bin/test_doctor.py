@@ -692,7 +692,7 @@ def test_an_unreadable_dependency_is_reported_in_gits_words(tmp_path):
     assert problems, "an unreadable dependency is a finding"
     assert problems[0].startswith("lib/dep: has a folder that git cannot read"), problems[0]
     assert "fatal:" in problems[0], problems[0]
-    assert "Repair: git submodule update --init -- lib/dep" in problems[0], problems[0]
+    assert "Repair: yarn dep sync" in problems[0], problems[0]
     assert "commit than the one" not in problems[0], f"no comparison can be claimed: {problems[0]}"
 
 

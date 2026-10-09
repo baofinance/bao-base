@@ -427,6 +427,18 @@ def checked_out(checkout: Path) -> str | None:
     return head.stdout.strip() if head.returncode == 0 else None
 
 
+def remote_holds(checkout: Path, commit: str) -> bool | None:
+    """Whether a remote branch or a tag in `checkout` contains `commit`, as of its last fetch: whether anyone
+    who clones can fetch it. None when git cannot tell - no readable checkout, or the commit is not in it.
+
+    Read locally, so doctor can ask it without reaching the network. A tag counts because git fetches
+    tags from the remote; one made on this computer and never pushed would count too."""
+    if checked_out(checkout) is None or git(checkout, "cat-file", "-e", f"{commit}^{{commit}}").returncode != 0:
+        return None
+    holding = git(checkout, "for-each-ref", "--count=1", "--contains", commit, "refs/remotes", "refs/tags")
+    return bool(holding.stdout.strip())
+
+
 def at_record(directory: Path, level: Declared) -> bool:
     """Whether the submodule `directory` declares is checked out at the commit `directory` records."""
     have = checked_out(directory / level.path)
@@ -961,7 +973,7 @@ def move_checklist(
             "the folder has that version",
             bool(target_rev) and facts.worktree == target_rev,
             f"the folder has {folder}, wanted {(target_rev or 'unknown')[:10]}",
-            f"git -C {path} fetch --tags origin && git -C {path} checkout {target_ref or '<version>'}",
+            f"yarn dep update {path}@{target_ref}",
         ),
         Stage(
             3,
@@ -1023,8 +1035,9 @@ def repair(facts: Facts, found: Condition, entry: Recorded | None = None, reposi
     the folder when its working-tree version is not added, exactly as `yarn dep update` hands a move over,
     so the two tools never name different commands for one tree."""
     if found.name == "unreadable":
-        # git's own mend: it writes the gitdir's `core.worktree` afresh.
-        return f"git submodule update --init -- {facts.path} (this repairs git's link to the folder)"
+        # sync runs git's own mend, `git submodule update --init`, which writes the gitdir's `core.worktree`
+        # afresh.
+        return "yarn dep sync (this repairs git's link to the folder)"
     if found.name in ("uninitialised", "behind-record", "nested-drift"):
         # Each is a folder not at the commit the repository points to, and checking that out is sync's
         # job. Never `git add` for an older commit: that points the repository backwards for everyone

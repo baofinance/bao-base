@@ -260,7 +260,7 @@ def test_an_unreadable_checkout_is_a_fault_with_a_repair(world):
     found = condition(facts)
 
     assert found.is_fault, found
-    assert repair(facts, found) == "git submodule update --init -- lib/dep (this repairs git's link to the folder)"
+    assert repair(facts, found) == "yarn dep sync (this repairs git's link to the folder)"
 
 
 def test_a_developer_edit_blocks_a_delete_and_nested_drift_does_not(world):

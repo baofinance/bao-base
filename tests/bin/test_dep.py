@@ -650,23 +650,22 @@ def test_update_without_a_ref_follows_the_recorded_branch_and_says_so(tmp_path):
     assert checked_out(here / "lib" / "dep") == tip
 
 
-def test_update_without_a_ref_or_a_recorded_branch_follows_the_remote_default_branch(tmp_path):
-    # git's default, as `git submodule update --remote` has it: with no branch set in .gitmodules, the
-    # remote's default branch, looked up each time and recorded nowhere.
+def test_update_without_a_ref_is_refused_when_no_branch_is_recorded(tmp_path):
+    # .gitmodules alone says what a bare update does. With no branch named the dependency is pinned, so a
+    # bare update leaves it where it is - whatever the remote's default branch has become - and says how to
+    # move it.
     world = make_world(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world)
-    tip = make_develop_the_default_branch(world, "dep")
+    make_develop_the_default_branch(world, "dep")
+    before = checked_out(here / "lib" / "dep")
 
     result = update(here, "dep")
 
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "Following branch develop, the remote's default branch" in result.stdout, result.stdout
-    assert branch_of(here / "lib" / "dep") == "develop"
-    assert checked_out(here / "lib" / "dep") == tip
-    recorded_branch = subprocess.run(
-        ["git", "config", "-f", ".gitmodules", "--get", "submodule.lib/dep.branch"], cwd=here, capture_output=True, text=True
-    )
-    assert recorded_branch.returncode == 1 and recorded_branch.stdout == "", recorded_branch.stdout
+    assert result.returncode != 0
+    assert "Stopped: lib/dep is pinned. .gitmodules names no branch for it to follow." in result.stdout, result.stdout
+    assert "To move it: yarn dep update lib/dep@<branch, tag or commit>" in result.stdout, result.stdout
+    assert steps(result.stdout) == [], "nothing may run"
+    assert checked_out(here / "lib" / "dep") == before
 
 
 def test_update_to_a_branch_records_it_in_gitmodules(tmp_path):
@@ -680,21 +679,29 @@ def test_update_to_a_branch_records_it_in_gitmodules(tmp_path):
     assert git(here, "config", "-f", ".gitmodules", "submodule.lib/dep.branch") == "main"
 
 
-def test_update_to_a_tag_drops_the_branch_line(tmp_path):
-    # At a tag the dependency follows no branch, and a branch line left behind would have a bare update move
-    # it off the tag.
+@pytest.mark.parametrize("version", ["tag", "commit"])
+def test_update_to_a_tag_or_commit_drops_the_branch_line_and_pins_it(tmp_path, version):
+    # At a tag or a commit the dependency follows no branch, so the line goes, and the bare update that
+    # would otherwise have moved it to the branch's tip leaves it where it was put.
     world = following_main(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world)
-    advance(world, "dep")
+    pinned = advance(world, "dep")
     publish_tag(world, "dep", "v2")
+    advance_again = world.remotes / "dep"
+    (advance_again / "src" / "dep.sol").write_text("// dep, past v2\n")
+    git(advance_again, "commit", "-qam", "dep: past v2")
+    git(advance_again, "push", "-q", str(world.remotes / "dep.git"), "HEAD:main")
 
-    result = update(here, "dep@v2")
+    moved = update(here, f"dep@{'v2' if version == 'tag' else pinned}")
+    bare = update(here, "dep")
 
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert moved.returncode == 0, moved.stdout + moved.stderr
     recorded_branch = subprocess.run(
         ["git", "config", "-f", ".gitmodules", "--get", "submodule.lib/dep.branch"], cwd=here, capture_output=True, text=True
     )
     assert recorded_branch.returncode == 1 and recorded_branch.stdout == "", recorded_branch.stdout
+    assert bare.returncode != 0 and "is pinned" in bare.stdout, bare.stdout
+    assert checked_out(here / "lib" / "dep") == pinned
 
 
 # ── update: beneath the dependency ────────────────────────────────────────────────────────────────
@@ -987,11 +994,12 @@ def test_add_a_tag_records_no_branch_and_detaches(tmp_path):
 @pytest.mark.parametrize("branch", [["-b", "main"], []], ids=["with-b", "without-b"])
 def test_add_writes_the_layout_git_submodule_add_writes(tmp_path, branch):
     # Every later git command reads the submodule through this layout, so it must be git's own: what
-    # `git submodule add`, given the same options, writes in a copy of the same project.
+    # `git submodule add -b main` writes in a copy of the same project. Without -b, add records the remote's
+    # default branch, main here, so it writes what -b main writes.
     world = empty_world(tmp_path, [])
     twin = tmp_path / "twin"
     git(tmp_path, "clone", "-q", str(world.project), str(twin))
-    git(twin, "submodule", "add", "-q", *branch, published(world, "helper"), "lib/helper")
+    git(twin, "submodule", "add", "-q", "-b", "main", published(world, "helper"), "lib/helper")
 
     result = add(world.project, *branch, published(world, "helper"))
 
@@ -1081,9 +1089,10 @@ def test_add_places_the_dependency_in_the_first_libs_directory(tmp_path):
     assert not (world.project / "lib" / "helper").exists()
 
 
-def test_add_without_a_branch_takes_the_remote_default_branch_and_records_none(tmp_path):
-    # git's default, as `git submodule add` has it: the remote's default branch, and no branch in .gitmodules,
-    # so a later bare update follows whatever the remote's default branch is then.
+def test_add_without_a_branch_takes_the_remote_default_branch_and_records_it(tmp_path):
+    # Without -b, add takes the remote's default branch, as git does, and records it in .gitmodules, which git
+    # does not: what the dependency follows is then written down, rather than left to whatever the remote's
+    # default branch becomes.
     world = empty_world(tmp_path, [])
     tip = make_develop_the_default_branch(world, "helper")
 
@@ -1093,13 +1102,10 @@ def test_add_without_a_branch_takes_the_remote_default_branch_and_records_none(t
     helper = world.project / "lib" / "helper"
     assert branch_of(helper) == "develop"
     assert checked_out(helper) == tip
-    recorded_branch = subprocess.run(
-        ["git", "config", "-f", ".gitmodules", "--get", "submodule.lib/helper.branch"],
-        cwd=world.project,
-        capture_output=True,
-        text=True,
+    assert git(world.project, "config", "-f", ".gitmodules", "submodule.lib/helper.branch") == "develop"
+    assert "Following branch develop, the remote's default branch. .gitmodules records it." in result.stdout, (
+        result.stdout
     )
-    assert recorded_branch.returncode == 1 and recorded_branch.stdout == "", recorded_branch.stdout
 
 
 def test_add_takes_the_url_as_given(tmp_path):
@@ -1318,3 +1324,250 @@ def test_remove_leaves_the_index_unchanged(tmp_path):
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert git(here, "ls-files", "--stage") == staged
+
+
+# ── status: seeing the set-up ─────────────────────────────────────────────────────────────────────
+#
+# `status`, after `git submodule status`, shows for each dependency, and each nested path a remapping
+# uses, what it follows, what the commit it points to is, what is newer upstream, whether a remote holds
+# that commit, and what the folder has. It fetches first, so "newer" is current, and changes nothing else.
+
+
+def status(here: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run([str(DEP), "status", *arguments], cwd=here, capture_output=True, text=True, env=GIT_ENV)
+
+
+def field(output: str, path: str, label: str) -> str:
+    """The text of one field in the block `status` prints for `path`."""
+    block = output.split(f"\n  {path}\n", 1)[1].split("\n  lib/", 1)[0]
+    return next(line.strip()[len(label) :].strip() for line in block.splitlines() if line.strip().startswith(label))
+
+
+def test_status_names_what_each_dependency_follows_and_points_to(tmp_path):
+    # A dependency follows the branch .gitmodules names; without one it is pinned. The commit pointed to is
+    # named by what it is: a tag, the tip of the branch followed, or neither.
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    publish_tag(world, "tool", "v1")
+    here = synced(world)
+    dep, tool = recorded(here, "lib/dep"), recorded(here, "lib/tool")
+
+    result = status(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert field(result.stdout, "lib/dep", "follows") == "branch main, set in .gitmodules", result.stdout
+    assert field(result.stdout, "lib/dep", "points to") == f"{dep[:10]}, the tip of origin/main", result.stdout
+    assert field(result.stdout, "lib/dep", "upstream") == "nothing newer on origin/main", result.stdout
+    assert field(result.stdout, "lib/tool", "follows") == "nothing: pinned at tag v1", result.stdout
+    assert field(result.stdout, "lib/tool", "points to") == f"{tool[:10]}, tag v1", result.stdout
+
+
+def test_status_says_a_dependency_with_no_branch_and_no_tag_is_pinned_at_a_commit(tmp_path):
+    here = synced(make_world(tmp_path, ["dep/=lib/dep/src/"]))
+
+    result = status(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert field(result.stdout, "lib/dep", "follows") == "nothing: pinned at a commit", result.stdout
+    assert field(result.stdout, "lib/dep", "upstream") == "no branch or tag to compare with", result.stdout
+
+
+def test_status_reports_what_is_newer_upstream(tmp_path):
+    # Newer is counted on the branch followed; a dependency pinned at a tag is shown the newest tag.
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    publish_tag(world, "tool", "v1")
+    here = synced(world)
+    advance(world, "dep")
+    advance(world, "tool")
+    publish_tag(world, "tool", "v2")
+
+    result = status(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert field(result.stdout, "lib/dep", "upstream") == "1 newer commit on origin/main", result.stdout
+    assert field(result.stdout, "lib/tool", "upstream") == "newest tag v2", result.stdout
+    assert field(result.stdout, "lib/dep", "points to").endswith(", a commit"), result.stdout
+
+
+def test_status_ranks_a_release_above_its_pre_releases_and_keeps_to_one_tag_naming(tmp_path):
+    # Seen on real repositories: OpenZeppelin's v5.7.0 beside its v5.7.0-rc.0, and chainlink's 1.3.0 beside an
+    # older v0.2.1. A pre-release is older than its release, and a tag named in another scheme is not compared.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    publish_tag(world, "tool", "v1.0.0")
+    here = synced(world)
+    advance(world, "tool")
+    publish_tag(world, "tool", "v1.0.0-rc.1")
+    work = world.remotes / "tool"
+    (work / "src" / "tool.sol").write_text("// tool, moved on again\n")
+    git(work, "commit", "-qam", "tool: moved on again")
+    git(work, "push", "-q", str(world.remotes / "tool.git"), "HEAD:main")
+    publish_tag(world, "tool", "2.0.0")
+
+    result = status(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert field(result.stdout, "lib/tool", "upstream") == "no newer tag", result.stdout
+
+
+def test_status_says_when_the_branch_followed_does_not_contain_the_commit(tmp_path):
+    # Seen on OpenZeppelin's upgradeable repository, whose releases are generated on their own branches: the
+    # default branch does not contain the release, so none of its commits is newer than it.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    work = world.remotes / "tool"
+    git(work, "checkout", "-q", "-b", "release")
+    (work / "src" / "tool.sol").write_text("// tool, released\n")
+    git(work, "commit", "-qam", "tool: release")
+    git(work, "tag", "v9")
+    git(work, "push", "-q", str(world.remotes / "tool.git"), "release", "--tags")
+    git(work, "checkout", "-q", "main")
+    here = synced(world)
+    git(here / "lib" / "tool", "fetch", "-q", "--tags", "origin")
+    git(here / "lib" / "tool", "checkout", "-q", "v9")
+    git(here, "add", "lib/tool")
+    git(here, "config", "-f", ".gitmodules", "submodule.lib/tool.branch", "main")
+
+    result = status(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert field(result.stdout, "lib/tool", "upstream") == "origin/main does not contain it", result.stdout
+    assert field(result.stdout, "lib/tool", "remote") == "a remote holds it", result.stdout
+
+
+@pytest.mark.parametrize(
+    ("state", "expected"),
+    [
+        ("same", "the commit it points to"),
+        ("behind", "1 commit behind it"),
+        ("ahead", "1 commit ahead of it; 1 commit not pushed"),
+        ("uncommitted", "the commit it points to; 1 change not committed"),
+    ],
+)
+def test_status_reports_the_folder_against_the_pointed_commit(tmp_path, state, expected):
+    # What the folder has, against the commit this repository points to, and any work only this computer has.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    dependency = here / "lib" / "dep"
+    if state == "behind":
+        git(dependency, "checkout", "-q", "HEAD~1")
+    elif state == "ahead":
+        (dependency / "src" / "Mine.sol").write_text("// mine\n")
+        git(dependency, "add", "-A")
+        git(dependency, "commit", "-qm", "mine")
+    elif state == "uncommitted":
+        (dependency / "src" / "dep.sol").write_text("// edited\n")
+
+    result = status(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert field(result.stdout, "lib/dep", "folder").endswith(expected), result.stdout
+
+
+def test_status_reports_a_pointed_commit_no_remote_holds(tmp_path):
+    # A commit only this computer has cannot be fetched by anyone who clones this repository.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    dependency = here / "lib" / "dep"
+    (dependency / "src" / "Mine.sol").write_text("// mine\n")
+    git(dependency, "add", "-A")
+    git(dependency, "commit", "-qm", "mine")
+    git(here, "add", "lib/dep")
+
+    result = status(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert field(result.stdout, "lib/dep", "remote") == "no remote holds it", result.stdout
+    assert field(result.stdout, "lib/tool", "remote") == "a remote holds it", result.stdout
+
+
+def test_status_changes_no_checkout_and_no_index(tmp_path):
+    # status fetches, which moves only what each clone knows of its remote; checkouts, branches and the
+    # index are as they were.
+    world = following_main(tmp_path, ["inner/=lib/dep/lib/inner/src/"])
+    here = synced(world)
+    advance(world, "dep")
+    before = ({path: checked_out(here / path) for path in checked_out_paths(here)}, git(here, "ls-files", "--stage"))
+
+    result = status(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert ({path: checked_out(here / path) for path in checked_out_paths(here)}, git(here, "ls-files", "--stage")) == before
+    ran = steps(result.stdout)
+    assert ran and all(re.fullmatch(r"ran: git -C \S+ fetch --tags --quiet --no-recurse-submodules origin", step) for step in ran), ran
+
+
+def test_status_without_fetch_reads_what_the_last_fetch_left(tmp_path):
+    # --no-fetch reads only what each clone already knows of its remote, so a newer commit published since
+    # the last fetch is not seen until status fetches.
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    advance(world, "dep")
+
+    offline = status(here, "--no-fetch")
+    fetched = status(here)
+
+    assert offline.returncode == 0, offline.stdout + offline.stderr
+    assert steps(offline.stdout) == [], "nothing may run"
+    assert field(offline.stdout, "lib/dep", "upstream") == "nothing newer on origin/main", offline.stdout
+    assert field(fetched.stdout, "lib/dep", "upstream") == "1 newer commit on origin/main", fetched.stdout
+
+
+# ── doctor: commits this repository points to that no remote holds ────────────────────────────────
+
+
+def test_doctor_finds_nothing_when_every_pointed_commit_is_on_a_remote(tmp_path):
+    here = synced(make_world(tmp_path, ["inner/=lib/dep/lib/inner/src/"]))
+
+    assert doctor.unpublished_commit_problems(here, ["inner/=lib/dep/lib/inner/src/"]) == []
+
+
+def test_doctor_reports_each_pointed_commit_no_remote_holds(tmp_path):
+    # The version check passes when the folder has the commit this repository points to, even when only this
+    # computer has that commit. This check is for that case: for each dependency, and each nested path a
+    # remapping uses, judged against the repository that points to it.
+    remappings = ["inner/=lib/dep/lib/inner/src/"]
+    here = synced(make_world(tmp_path, remappings))
+    for checkout, parent, path in ((here / "lib" / "dep" / "lib" / "inner", here / "lib" / "dep", "lib/inner"), (here / "lib" / "dep", here, "lib/dep")):
+        (checkout / "src" / "Mine.sol").write_text("// mine\n")
+        git(checkout, "add", "-A")
+        git(checkout, "commit", "-qm", "mine")
+        git(parent, "add", path)
+
+    problems = doctor.unpublished_commit_problems(here, remappings)
+
+    assert [problem.splitlines()[0] for problem in problems] == [
+        f"lib/dep: no remote holds {recorded(here, 'lib/dep')[:10]}, the commit {here.name} points to",
+        f"lib/dep/lib/inner: no remote holds {recorded(here, 'lib/dep/lib/inner')[:10]}, the commit lib/dep points to",
+    ], problems
+    assert "Repair: push it (git -C lib/dep push)" in problems[0], problems[0]
+    assert "Repair: push it (git -C lib/dep/lib/inner push)" in problems[1], problems[1]
+    assert [p for p in sum(doctor.submodule_problems(here, remappings), []) if p.startswith("lib/dep:")] == [], (
+        "the version check sees nothing wrong here"
+    )
+
+
+# ── repairs name yarn dep where dep does the job ──────────────────────────────────────────────────
+
+
+def test_sync_repairs_a_folder_git_cannot_read(tmp_path):
+    # Doctor names `yarn dep sync` for a folder git cannot read, so sync must mend it.
+    here = synced(make_world(tmp_path, ["dep/=lib/dep/src/"]))
+    git(here, "config", "-f", str(here / ".git" / "modules" / "lib" / "dep" / "config"), "core.worktree", "../../../../nowhere/lib/dep")
+    unreadable = subprocess.run(["git", "rev-parse", "HEAD"], cwd=here / "lib" / "dep", capture_output=True, text=True)
+    assert unreadable.returncode != 0, "the folder must start unreadable"
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert checked_out(here / "lib" / "dep") == recorded(here, "lib/dep")
+
+
+def test_update_checklist_names_yarn_dep_for_the_move(tmp_path):
+    # When the move is not made, the checklist names the dep command that makes it, not the git steps inside it.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    git(here / "lib" / "dep", "remote", "set-url", "origin", str(tmp_path / "nowhere.git"))
+
+    result = update(here, "dep@main")
+
+    assert result.returncode != 0
+    assert "yarn dep update lib/dep@main" in result.stdout, result.stdout
+    assert "git -C lib/dep checkout" not in result.stdout, result.stdout

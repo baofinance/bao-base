@@ -5,6 +5,11 @@ A wrapper around git's submodule commands that is forge-aware: it reads forge's 
 only what the build reads, and forge's libs folder, where every dependency lives. Its arguments are
 written as git writes them.
 
+`.gitmodules` alone says what a bare `update` does. A `branch` line means the dependency follows that
+branch; with none it is pinned where it points, and a bare update leaves it there. Nothing follows a
+branch .gitmodules does not name - unlike git, whose `update --remote` falls back to whatever the
+remote's default branch is at the time.
+
 `sync` brings the checkouts to what this repository records: every top-level submodule at its gitlink,
 plus exactly the nested submodules forge's remappings point into. The build reads nothing else. A
 dependency's other nested submodules are its own lockfile, wanted only by someone working inside it, so
@@ -14,15 +19,14 @@ A clone made without --recurse-submodules needs nothing more than this.
 `add` clones a new dependency into the first of forge's libs folders, under the name its url ends in, as
 `forge install` places one, and writes what `git submodule add` writes - except to the index. `-b` and
 `--branch` pass through to `git clone --branch`: a branch or tag, which git asks the remote for before it
-writes anything. Without them, git's default: the remote's default branch. A branch named with `-b` is
-recorded in `.gitmodules`, as `git submodule add -b` records it; git's default is not recorded.
+writes anything. Without them, the remote's default branch, as git takes it. The branch it lands on is
+recorded in `.gitmodules` - including the default one, which git does not record - and a tag is pinned.
 
 `update` moves one dependency to a named version, checking out beneath it the same nested paths and no
-others. The branch a dependency follows is recorded where git records it, as `branch` in `.gitmodules`,
-so a later update named without a ref follows that branch - and one with no branch recorded follows
-git's default, the remote's default branch, as `git submodule update --remote` does. Nothing is fetched
-or moved until the pre-checks pass: nothing under the dependency may exist only here, and a local branch
-it would stand on may hold no commit the target lacks.
+others. A branch is recorded as the one it follows; a tag or a commit removes the line, pinning it. A bare
+update follows the recorded branch, and refuses a pinned dependency. Nothing is fetched or moved until the
+pre-checks pass: nothing under the dependency may exist only here, and a local branch it would stand on
+may hold no commit the target lacks.
 
 `remove` runs `git submodule deinit`, for a dependency or for a submodule inside one. For a dependency it
 then deletes the repository git keeps for it, as gitsubmodules(7) says to, and hands over the `git rm`
@@ -67,12 +71,14 @@ from submodule_state import (
     read_facts,
     recorded_entry,
     remapping_target,
+    remote_holds,
     staged_gitlink,
     submodule_levels,
 )
 
 USAGE = """\
 dep sync
+dep status [--no-fetch]
 dep add [(-b | --branch) <branch or tag>] <url>
 dep update [--force] <dependency>[@<version>] ...
 dep remove [--force] <dependency> ...
@@ -80,13 +86,18 @@ dep remove [--force] <dependency> ...
   sync          Check out each submodule at the commit this repository points to. Inside a submodule,
                 check out only the submodules that a remapping uses. Use it after cloning, or after a
                 pull changes where this repository points.
+  status        For each submodule, and each submodule inside one that a remapping uses: the branch it
+                follows, what the commit this repository points to is (a tag, the tip of the branch, or
+                a commit), what is newer upstream, whether a remote holds that commit, and what the
+                folder has. Fetches first; --no-fetch reads what the last fetch left. Changes nothing
+                else.
   add           Clone a new submodule into <first libs folder>/<name>, where <name> is the last part of
-                <url> without .git, as git submodule add does. For a branch named with -b, .gitmodules
-                then says it follows that branch. Without -b, the remote's default branch, and
-                .gitmodules says none. To depend on a commit, add, then update to the commit.
-  update        Move a submodule to <version>: a tag, a branch or a commit. .gitmodules then says which
-                branch it follows, or none. With no <version>, follow the branch .gitmodules names, or
-                else the remote's default branch.
+                <url> without .git, as git submodule add does: at the branch or tag -b names, or else at
+                the remote's default branch. .gitmodules then says which branch it follows; at a tag it
+                follows none and is pinned. To depend on a commit, add, then update to the commit.
+  update        Move a submodule to <version>: a branch, which .gitmodules then says it follows, or a
+                tag or a commit, which pins it there. With no <version>, follow the branch .gitmodules
+                names; a pinned submodule is left where it is.
   remove        Take a submodule's checkout away (git submodule deinit). For a submodule of this
                 repository, also delete the repository git keeps for it, then hand over the git rm that
                 removes it. A submodule inside another one stays listed by the one that contains it.
@@ -131,14 +142,21 @@ def report_unused_checkouts(repo_root: Path, path: str, remappings: list[str]) -
             print(f"  ! {nested} is checked out, and no remapping uses it. To remove it: yarn dep remove {nested}")
 
 
-def report(repo_root: Path, dependencies: list[Declared], remappings: list[str], skipped: set[str]) -> bool:
-    """Print where each dependency and each nested path a remapping reaches now stands, then each remapping
-    no submodule provides, then each nested checkout no remapping uses. Returns whether every dependency and
-    nested path is at the commit recorded for it."""
+def checkout_rows(repo_root: Path, dependencies: list[Declared], remappings: list[str]) -> dict[str, tuple[Path, Declared]]:
+    """Each dependency and each nested path a remapping reaches, by its path from the top, with the folder
+    whose .gitmodules lists it: what the build reads."""
     rows: dict[str, tuple[Path, Declared]] = {entry.path: (repo_root, entry) for entry in dependencies}
     for remapping in remappings:
         for directory, level in submodule_levels(repo_root, remapping_target(remapping)):
             rows.setdefault((directory / level.path).relative_to(repo_root).as_posix(), (directory, level))
+    return rows
+
+
+def report(repo_root: Path, dependencies: list[Declared], remappings: list[str], skipped: set[str]) -> bool:
+    """Print where each dependency and each nested path a remapping reaches now stands, then each remapping
+    no submodule provides, then each nested checkout no remapping uses. Returns whether every dependency and
+    nested path is at the commit recorded for it."""
+    rows = checkout_rows(repo_root, dependencies, remappings)
     for display, (directory, level) in rows.items():
         have, want = checked_out(directory / level.path), staged_gitlink(directory, level.path)
         parent = "this repository" if directory == repo_root else directory.relative_to(repo_root).as_posix()
@@ -235,6 +253,99 @@ def sync(repo_root: Path, remappings: list[str]) -> int:
     return 0 if report(repo_root, dependencies, remappings, skipped) else 1
 
 
+def status(repo_root: Path, remappings: list[str], fetch: bool) -> int:
+    """Print, for each dependency and each nested path a remapping uses, what it follows, what the commit
+    this repository points to is, what is newer upstream, whether a remote holds that commit, and what the
+    folder has. Fetches first, unless `fetch` is false, which changes what each clone knows of its remote and
+    nothing else: no checkout, no branch, no index. Returns 1 when a fetch failed, since what follows it is
+    then as of the last fetch."""
+    print("status:")
+    fetch_failed = False
+    for display, (directory, level) in checkout_rows(repo_root, declared_submodules(repo_root), remappings).items():
+        checkout = directory / level.path
+        pointed = staged_gitlink(directory, level.path)
+        print(f"  {display}")
+        if pointed is None:
+            print(f"    {'points to':<10} nothing: git does not track it yet")
+            continue
+        have = checked_out(checkout)
+        if have is None:
+            print(f"    {'points to':<10} {pointed[:10]}")
+            print(f"    {'folder':<10} not checked out, so nothing more is known (yarn dep sync checks it out)")
+            continue
+        if fetch:
+            try:
+                run(repo_root, checkout, "fetch", "--tags", "--quiet", "--no-recurse-submodules", "origin")
+            except StepFailed:
+                fetch_failed = True
+
+        known = git(checkout, "cat-file", "-e", f"{pointed}^{{commit}}").returncode == 0
+        tags = git(checkout, "tag", "--points-at", pointed).stdout.split() if known else []
+        # A branch .gitmodules names is followed; with none the dependency is pinned where it points.
+        follows = level.branch
+        if follows is not None:
+            where = ".gitmodules" if directory == repo_root else f"{directory.relative_to(repo_root).as_posix()}'s .gitmodules"
+            print(f"    {'follows':<10} branch {follows}, set in {where}")
+        else:
+            print(f"    {'follows':<10} nothing: pinned at {f'tag {tags[0]}' if tags else 'a commit'}")
+
+        tip = (
+            git(checkout, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{follows}^{{commit}}").stdout.strip()
+            if follows is not None
+            else ""
+        )
+        named = [f"tag {tag}" for tag in tags] + ([f"the tip of origin/{follows}"] if tip == pointed else [])
+        print(f"    {'points to':<10} {pointed[:10]}, {', '.join(named) or 'a commit'}")
+
+        newer: list[str] = []
+        if known and tip and git(checkout, "merge-base", "--is-ancestor", pointed, tip).returncode != 0:
+            # A release generated on a branch of its own, as OpenZeppelin's upgradeable ones are: the branch
+            # followed never held it, so none of its commits is newer than it.
+            newer.append(f"origin/{follows} does not contain it")
+        elif known and tip:
+            count = int(git(checkout, "rev-list", "--count", f"{pointed}..{tip}").stdout.strip())
+            newer.append(f"{count} newer commit{'' if count == 1 else 's'} on origin/{follows}" if count else f"nothing newer on origin/{follows}")
+        # Version order, with a pre-release (v1.0.0-rc.1) before its release, among the tags named in the same
+        # scheme as this one's: a repository that moved from 1.3.0 to v0.2.1 names nothing newer by it.
+        family = "v[0-9]*" if tags and tags[0].startswith("v") else "[0-9]*"
+        ranked = git(checkout, "-c", "versionsort.suffix=-", "tag", "--sort=-v:refname", "--list", family).stdout.split()
+        newest = ranked[0] if tags and ranked else None
+        if newest is not None and newest not in tags:
+            newer.append(f"newest tag {newest}")
+        elif newest is not None and follows is None:
+            newer.append("no newer tag")
+        if not newer:
+            newer.append(
+                "no branch or tag to compare with"
+                if follows is None and not tags
+                else "unknown: the commit or the branch is not in this clone"
+            )
+        print(f"    {'upstream':<10} {'; '.join(newer)}")
+
+        held = remote_holds(checkout, pointed)
+        print(f"    {'remote':<10} {'unknown' if held is None else 'a remote holds it' if held else 'no remote holds it'}")
+
+        if have == pointed:
+            folder = "the commit it points to"
+        elif known and git(checkout, "merge-base", "--is-ancestor", pointed, have).returncode == 0:
+            count = int(git(checkout, "rev-list", "--count", f"{pointed}..{have}").stdout.strip())
+            folder = f"{have[:10]}, {count} commit{'' if count == 1 else 's'} ahead of it"
+        elif known and git(checkout, "merge-base", "--is-ancestor", have, pointed).returncode == 0:
+            count = int(git(checkout, "rev-list", "--count", f"{have}..{pointed}").stdout.strip())
+            folder = f"{have[:10]}, {count} commit{'' if count == 1 else 's'} behind it"
+        else:
+            folder = f"{have[:10]}, another commit"
+        held_here = at_risk(checkout)
+        changes = sum(1 for item in held_here if item.kind != "unpushed")
+        unpushed = sum(1 for item in held_here if item.kind == "unpushed")
+        work = [
+            *([f"{changes} change{'' if changes == 1 else 's'} not committed"] if changes else []),
+            *([f"{unpushed} commit{'' if unpushed == 1 else 's'} not pushed"] if unpushed else []),
+        ]
+        print(f"    {'folder':<10} {'; '.join([folder, *work])}")
+    return 1 if fetch_failed else 0
+
+
 def named_path(dependency: str, libs: str) -> str:
     """The path of a dependency, or of a submodule inside one, named by its path in the first libs folder,
     where `add` places every dependency. A leading libs folder is accepted too: `dep` and `lib/dep` agree."""
@@ -323,7 +434,7 @@ def update(repo_root: Path, dependency: str, force: bool, libs: str, remappings:
     if facts.unreadable:
         print(f"  Stopped: git cannot read the {path} folder. git says:")
         print(f"    {facts.unreadable}")
-        print(f"  To repair it: git submodule update --init -- {path}")
+        print("  To repair it: yarn dep sync")
         return 1
     if not facts.initialised:
         print(f"  Stopped: {path} is not checked out.")
@@ -338,21 +449,14 @@ def update(repo_root: Path, dependency: str, force: bool, libs: str, remappings:
         )
         return 1
 
-    # With no branch set in .gitmodules, git's default, as `git submodule update --remote` has it: the
-    # remote's default branch, looked up each time and recorded nowhere.
-    recorded = requested_ref is not None or entry.branch is not None
+    # .gitmodules alone says what a bare update does: a branch it names is followed, and with none the
+    # dependency is pinned where it is, whatever the remote's default branch has become.
     ref = requested_ref or entry.branch
     if ref is None:
-        head = git(submodule, "ls-remote", "--symref", "origin", "HEAD")
-        default = re.match(r"ref: refs/heads/(\S+)\tHEAD", head.stdout)
-        if default is None:
-            print(f"  Stopped: git cannot tell which branch is the default of {path}'s remote. git says:")
-            for line in (head.stderr or head.stdout).strip().splitlines():
-                print(f"    {line}")
-            return 1
-        ref = default[1]
-        print(f"  Following branch {ref}, the remote's default branch (.gitmodules sets none).")
-    elif requested_ref is None:
+        print(f"  Stopped: {path} is pinned. .gitmodules names no branch for it to follow.")
+        print(f"  To move it: yarn dep update {path}@<branch, tag or commit>")
+        return 1
+    if requested_ref is None:
         print(f"  Following branch {ref} (set in .gitmodules).")
 
     target: Pin | None = None
@@ -399,7 +503,8 @@ def update(repo_root: Path, dependency: str, force: bool, libs: str, remappings:
         if target.kind == MOVING and not attach:
             print(f"  Your branch {target.name} keeps its own commits, so HEAD is now detached at {target.rev[:10]}.")
 
-        follows = target.name if recorded and target.kind == MOVING else None
+        # A branch is recorded to be followed; a tag or a commit removes the line, pinning the dependency there.
+        follows = target.name if target.kind == MOVING else None
         if entry.branch != follows:
             key = f"submodule.{entry.name}.branch"
             if follows is None:
@@ -415,17 +520,14 @@ def update(repo_root: Path, dependency: str, force: bool, libs: str, remappings:
         for stranded in read_facts(repo_root, path).litter:
             delete(repo_root, submodule / stranded)
     except StepFailed:
-        report_move(repo_root, path, ref, target, recorded, remappings)
+        report_move(repo_root, path, ref, target, remappings)
         return 1
-    return report_move(repo_root, path, ref, target, recorded, remappings)
+    return report_move(repo_root, path, ref, target, remappings)
 
 
-def report_move(
-    repo_root: Path, path: str, ref: str, target: Pin | None, recorded: bool, remappings: list[str]
-) -> int:
-    """Print the move's checklist as it now stands, then what is left for the user. `recorded` is whether
-    .gitmodules is to name the branch: not when it is git's default, the remote's default branch. Returns 0
-    when every stage this tool performs is done."""
+def report_move(repo_root: Path, path: str, ref: str, target: Pin | None, remappings: list[str]) -> int:
+    """Print the move's checklist as it now stands, then what is left for the user. Returns 0 when every
+    stage this tool performs is done."""
     nested_off: dict[str, str] = {}
     for directory, level in nested_levels(repo_root, path, remappings):
         if not at_record(directory, level):
@@ -433,7 +535,7 @@ def report_move(
             display = (directory / level.path).relative_to(repo_root).as_posix()
             nested_off[display] = f"git -C {located} submodule update --init -- {level.path}"
     rev = target.rev if target is not None else None
-    follows = target.name if recorded and target is not None and target.kind == MOVING else None
+    follows = target.name if target is not None and target.kind == MOVING else None
     stages = move_checklist(
         read_facts(repo_root, path), ref, rev, follows, recorded_entry(repo_root, path), list(nested_off.items())
     )
@@ -518,12 +620,14 @@ def add(repo_root: Path, url: str, ref: str | None, libs: str, remappings: list[
         run(repo_root, checkout, "config", "core.worktree", os.path.relpath(checkout, gitdir))
         run(repo_root, repo_root, "config", "-f", ".gitmodules", f"submodule.{path}.path", path)
         run(repo_root, repo_root, "config", "-f", ".gitmodules", f"submodule.{path}.url", url)
-        # A branch named with -b is recorded, as `git submodule add -b` records it. git's default is not.
+        # The branch it stands on is recorded, whether -b named it or the remote's default branch was taken:
+        # .gitmodules then says what a bare update follows. git records the default branch nowhere. A tag
+        # leaves HEAD detached, so nothing is recorded and the dependency is pinned there.
         standing = git(checkout, "symbolic-ref", "--quiet", "--short", "HEAD").stdout.strip()
-        if ref is not None and standing:
-            run(repo_root, repo_root, "config", "-f", ".gitmodules", f"submodule.{path}.branch", ref)
-        if ref is None:
-            print(f"  On {standing}, the remote's default branch. .gitmodules records no branch, as git does.")
+        if standing:
+            run(repo_root, repo_root, "config", "-f", ".gitmodules", f"submodule.{path}.branch", standing)
+        if ref is None and standing:
+            print(f"  Following branch {standing}, the remote's default branch. .gitmodules records it.")
         run(repo_root, repo_root, "config", f"submodule.{path}.url", url)
         run(repo_root, repo_root, "config", f"submodule.{path}.active", "true")
 
@@ -600,6 +704,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(prog="dep", usage=USAGE)
     subcommands = parser.add_subparsers(dest="subcommand", required=True)
     subcommands.add_parser("sync")
+    showing = subcommands.add_parser("status")
+    showing.add_argument("--no-fetch", action="store_true")
     adding = subcommands.add_parser("add")
     adding.add_argument("-b", "--branch")
     adding.add_argument("url")
@@ -621,6 +727,8 @@ def main() -> int:
         return 1
     remappings: list[str] = config["remappings"]
     libs = PurePosixPath(config["libs"][0]).as_posix()
+    if arguments.subcommand == "status":
+        return status(repo_root, remappings, not arguments.no_fetch)
     if arguments.subcommand == "add":
         return add(repo_root, arguments.url, arguments.branch, libs, remappings)
     if arguments.subcommand == "update":
