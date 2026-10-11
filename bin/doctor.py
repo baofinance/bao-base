@@ -22,15 +22,14 @@ from submodule_state import (
     Condition,
     Declared,
     Facts,
-    Recorded,
     at_record,
     condition,
     declared_submodules,
     git,
+    keep_command,
     litter_condition,
     nested_levels,
     read_facts,
-    recorded_entry,
     remapping_target,
     remote_holds,
     repair,
@@ -147,9 +146,7 @@ def submodule_url_drift(repo_dir: Path) -> list[tuple[str, str, str]]:
     return drift
 
 
-def _finding(
-    facts: Facts, found: Condition, repository: str, weigh: Sequence[str] = (), entry: Recorded | None = None
-) -> str:
+def _finding(facts: Facts, found: Condition, repository: str, weigh: Sequence[str] = (), keep: str = "") -> str:
     """One finding as doctor prints it: what is wrong, the facts behind it, anything a reader must
     weigh before acting, and the one command that fixes it - in plain words, naming the repository.
 
@@ -166,7 +163,7 @@ def _finding(
     if found.relation:
         lines.append(f"  {Condition.RELATIONS.get(found.relation, found.relation)}")
     lines.extend(f"  {item}" for item in weigh)
-    if fix := repair(facts, found, entry, repository):
+    if fix := repair(facts, found, keep, repository):
         lines.append(f"  Repair: {fix}")
     return "\n".join(lines)
 
@@ -220,7 +217,7 @@ def submodule_problems(repo_root: Path, remappings: list[str]) -> tuple[list[str
         if facts.unpushed:
             count = len(facts.unpushed)
             weigh.append(f"{count} commit{'s' if count > 1 else ''} in the folder {'are' if count > 1 else 'is'} not pushed.")
-        versions.append(_finding(facts, found, repository, weigh, recorded_entry(repo_root, dependency.path)))
+        versions.append(_finding(facts, found, repository, weigh, keep_command(repo_root, dependency.path)))
     return versions, leftovers
 
 

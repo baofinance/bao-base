@@ -29,9 +29,9 @@ from submodule_state import (  # noqa: E402
     condition,
     conflicting_dependencies,
     declared_submodules,
+    keep_command,
     read_facts,
     read_lock,
-    recorded_entry,
     repair,
 )
 
@@ -192,7 +192,7 @@ def test_an_unrelated_checkout_states_the_relation_and_names_both_repairs(world)
     assert found.name == "off-record", found
     assert found.relation == "unrelated histories", found
     # The commit was made here and never pushed, so either way it is dealt with first.
-    assert repair(facts, found) == (
+    assert repair(facts, found, keep_command(world.project, "lib/dep")) == (
         "To keep the folder's version: push it (git -C lib/dep push), then git add lib/dep. "
         "To go back to the version this repository points to: remove the unpushed commit, then yarn dep sync lib/dep."
     )
@@ -658,17 +658,18 @@ def test_a_gitignored_file_is_not_treated_as_at_risk(world):
 def test_a_move_names_gitmodules_beside_the_gitlink_when_its_entry_is_unstaged(world, branch_recorded):
     # A move to a branch also changes what .gitmodules records, and staging the gitlink alone would record
     # a dependency at a new commit following nothing new. The repair names exactly what is unstaged, as
-    # `yarn dep update` hands it over.
+    # `yarn dep update` hands it over. With nothing unstaged in .gitmodules, the newer commit is one a plain
+    # sync adds.
     move_dep_to_v2(world)
     if branch_recorded:
         git(world.project, "config", "-f", ".gitmodules", "submodule.lib/dep.branch", "main")
 
     facts = facts_for(world.project)
-    fix = repair(facts, condition(facts), recorded_entry(world.project, "lib/dep"))
+    fix = repair(facts, condition(facts), keep_command(world.project, "lib/dep"))
 
-    adding = "git add lib/dep .gitmodules" if branch_recorded else "git add lib/dep"
+    keeping = "git add lib/dep .gitmodules" if branch_recorded else "yarn dep sync"
     assert fix == (
-        f"To keep the folder's version: {adding} (this repository then points to it). "
+        f"To keep the folder's version: {keeping} (this repository then points to it). "
         "To go back to the version this repository points to: yarn dep sync lib/dep."
     ), fix
 

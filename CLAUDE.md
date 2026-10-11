@@ -403,8 +403,10 @@ not instructions" above and the design-discussion rule under "Other rules".)
   <name>@<version>` moves one to a branch, tag or commit. `yarn dep remove <name>` removes one. `yarn dep
   sync` checks out the commits this repository points to, after a clone or a pull. Inside a dependency,
   only the submodules a remapping uses are checked out. A dependency follows the branch `.gitmodules`
-  names; with none it is pinned, and a bare `yarn dep update` leaves it where it is. `yarn dep` never stages: it ends by naming the
-  git commands that stage and commit the change. `yarn doctor` reports a submodule folder that differs
+  names; with none it is pinned, and a bare `yarn dep update` leaves it where it is. `yarn dep sync` runs
+  `git add` for a dependency whose folder has newer commits, all pushed, that this repository has never
+  pointed to, and says so. Otherwise `yarn dep` never stages: it ends by naming the git commands that
+  stage and commit the change. Nothing in `yarn dep` commits. `yarn doctor` reports a submodule folder that differs
   from what this repository points to. Why each step is done as it is: `bin/dep`'s docstring.
 - Never use bare `"src/..."`, `"script/..."`, or `"test/..."` import paths in any Solidity file — not in contracts, scripts, or tests. Always use the remapped prefix for the repo the file lives in (e.g. `"@harbor/..."`, `"@harbor-script/..."`, `"@harbor-test/..."` for harbor files; `"@bao/..."`, `"@bao-script/..."`, `"@bao-test/..."` for bao-base files). Bare paths create duplicate type identities when files are consumed as a library by another repo, breaking compilation.
 - In tests and scripts, use interface types (e.g. `IStabilityPool_v3(address)`) not concrete contract types (e.g. `StabilityPool_v3(address)`) when calling functions. This verifies the interface matches the implementation. Concrete types are only for initialisation (constructor, deploy).

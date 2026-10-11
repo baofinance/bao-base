@@ -337,8 +337,8 @@ def test_sync_skips_a_dependency_holding_work_and_syncs_the_rest(tmp_path):
 
 
 def test_sync_leaves_the_index_unchanged(tmp_path):
-    # The index is the developer's: sync changes checkouts, and a change already staged is still staged,
-    # exactly as it was.
+    # With no folder holding newer commits to add, sync changes checkouts only: a change already staged is
+    # still staged, exactly as it was.
     here = clone(make_world(tmp_path, ["inner/=lib/dep/lib/inner/src/"]))
     (here / "notes.md").write_text("staged\n")
     git(here, "add", "notes.md")
@@ -1753,8 +1753,9 @@ def test_doctor_names_yarn_dep_sync_for_a_leftover_repository(tmp_path):
 # ── sync never moves a folder backwards over a move not yet recorded ──────────────────────────────────
 #
 # A folder behind the commit this repository points to is stale, and sync moves it forward. A folder ahead of
-# it, or on another commit, is a move someone made and has not recorded: sync leaves it and names both ways
-# out. `sync <dependency>` is the way back.
+# it, with every commit on a remote and none the repository has pointed to before, is finished work: sync
+# adds it. Any other folder ahead of it, or on another commit, is a move someone made and has not recorded:
+# sync leaves it and names both ways out. `sync <dependency>` is the way back.
 
 
 def move_ahead(world: World, here: Path, name: str) -> str:
@@ -1766,22 +1767,122 @@ def move_ahead(world: World, here: Path, name: str) -> str:
     return tip
 
 
-def test_sync_leaves_a_folder_ahead_of_the_recorded_commit(tmp_path):
+def test_sync_adds_a_folder_with_newer_commits_a_remote_holds(tmp_path):
+    # Work finished in a dependency and pushed: newer than the commit the repository points to, and no commit
+    # of the repository has pointed to it. sync points the repository to it, says so, and commits nothing.
     world = make_world(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world)
     pointed = recorded(here, "lib/dep")
+    committed = git(here, "rev-parse", "HEAD:lib/dep")
     tip = move_ahead(world, here, "dep")
 
     result = sync(here)
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert checked_out(here / "lib" / "dep") == tip, "a move not yet recorded is not undone"
+    assert recorded(here, "lib/dep") == tip
+    assert git(here, "rev-parse", "HEAD:lib/dep") == committed, "nothing is committed"
     assert (
-        f"lib/dep: the folder has {tip[:10]}, newer than {pointed[:10]}, which {here.name} points to. "
-        "It is left as it is."
+        f"  lib/dep: the folder has {tip[:10]}, newer than {pointed[:10]}, which {here.name} pointed to.\n"
+        "  ran: git add lib/dep\n"
+        f"  {here.name} now points to {tip[:10]}. To save that: git commit. To go back to the version "
+        f"{here.name}'s last commit points to: git restore --staged lib/dep, then yarn dep sync lib/dep.\n"
     ) in result.stdout, result.stdout
-    assert f"To keep the folder's version: git add lib/dep ({here.name} then points to it)." in result.stdout
-    assert f"To go back to the version {here.name} points to: yarn dep sync lib/dep." in result.stdout
+    assert "[x] lib/dep - at " in result.stdout, result.stdout
+
+
+def test_the_way_back_sync_names_after_adding_returns_the_folder_and_the_record(tmp_path):
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    pointed = recorded(here, "lib/dep")
+    tip = move_ahead(world, here, "dep")
+    sync(here)
+    assert recorded(here, "lib/dep") == tip, "sync must add the folder's commit first"
+
+    git(here, "restore", "--staged", "lib/dep")
+    result = sync(here, "lib/dep")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert recorded(here, "lib/dep") == pointed
+    assert checked_out(here / "lib" / "dep") == pointed
+
+
+def test_finishing_work_in_a_dependency_takes_one_sync_to_a_clean_doctor(tmp_path):
+    # Work in a dependency: sync inside it, commit and push there, then sync in the main directory. The commit
+    # is added, and what the dependency's own build needed is taken away, so doctor finds nothing.
+    remappings = ["dep/=lib/dep/src/"]
+    world = following_main(tmp_path, remappings)
+    here = synced(world)
+    dependency = here / "lib" / "dep"
+    sync_inside(dependency)
+    assert (dependency / "lib" / "spare" / ".git").exists(), "the dependency must start set up to work in"
+    (dependency / "src" / "dep.sol").write_text("// dep, finished\n")
+    git(dependency, "commit", "-qam", "dep: finished")
+    git(dependency, "push", "-q", "origin", "main")
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert recorded(here, "lib/dep") == checked_out(dependency)
+    assert doctor.submodule_problems(here, remappings) == ([], [])
+    assert doctor.unused_checkout_problems(here, remappings) == []
+
+
+def test_sync_leaves_newer_commits_no_remote_holds(tmp_path):
+    # Pointing the repository to a commit no remote holds breaks every other clone.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    pointed = recorded(here, "lib/dep")
+    dependency = here / "lib" / "dep"
+    (dependency / "src" / "dep.sol").write_text("// dep, not pushed\n")
+    git(dependency, "commit", "-qam", "dep: not pushed")
+    mine = checked_out(dependency)
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert recorded(here, "lib/dep") == pointed
+    assert checked_out(dependency) == mine
+    assert "To keep the folder's version: push it (git -C lib/dep push), then yarn dep sync." in result.stdout, (
+        result.stdout
+    )
+
+
+def test_sync_leaves_a_newer_commit_the_repository_has_pointed_to_before(tmp_path):
+    # After checking out an older commit of the repository, a dependency is newer than that commit points to.
+    # That is a version the repository moved on to, not work to record: sync leaves the folder and the index.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    advance(world, "dep")
+    record_dep_in_project(world)
+    here = synced(world)
+    newer = checked_out(here / "lib" / "dep")
+    git(here, "checkout", "-q", "HEAD~1")
+    older = recorded(here, "lib/dep")
+    assert older != newer, "the older commit must point to an older dep"
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert recorded(here, "lib/dep") == older
+    assert checked_out(here / "lib" / "dep") == newer
+    assert f"lib/dep: the folder has {newer[:10]}, newer than {older[:10]}" in result.stdout, result.stdout
+    assert "To keep the folder's version: git add lib/dep (" in result.stdout, result.stdout
+
+
+def test_sync_leaves_a_newer_commit_whose_gitmodules_entry_is_not_added(tmp_path):
+    # The move comes with a .gitmodules change not yet added. sync adds only commits, so it leaves both and
+    # names the git add that records them together.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    pointed = recorded(here, "lib/dep")
+    move_ahead(world, here, "dep")
+    git(here, "config", "-f", ".gitmodules", "submodule.lib/dep.branch", "main")
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert recorded(here, "lib/dep") == pointed
+    assert "To keep the folder's version: git add lib/dep .gitmodules (" in result.stdout, result.stdout
 
 
 def test_sync_leaves_a_folder_on_another_commit(tmp_path):
@@ -1871,6 +1972,17 @@ def test_doctor_go_back_repair_names_yarn_dep_sync_with_the_path(tmp_path):
 
     assert len(found) == 1, found
     assert f"To go back to the version {here.name} points to: yarn dep sync lib/dep." in found[0], found[0]
+
+
+def test_doctor_keep_repair_names_yarn_dep_sync_where_sync_adds_the_commit(tmp_path):
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    move_ahead(world, here, "dep")
+
+    found = [p for p in doctor.submodule_problems(here, ["dep/=lib/dep/src/"])[0] if p.startswith("lib/dep:")]
+
+    assert len(found) == 1, found
+    assert f"To keep the folder's version: yarn dep sync ({here.name} then points to it)." in found[0], found[0]
 
 
 # ── sync inside a submodule sets it up to work in: on its branch, not detached ─────────────────────────

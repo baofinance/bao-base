@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Manage this repository's dependencies with git alone, and never touch the index.
+"""Manage this repository's dependencies with git alone, touching the index only to add finished work.
 
 A wrapper around git's submodule commands that is forge-aware: it reads forge's remappings, to check out
 only what the build reads, and forge's libs folder, where every dependency lives. Its arguments are
@@ -41,7 +41,13 @@ own error beneath the command that failed, then where each checkout now stands, 
 what happened is there to be read and unpicked, and running again once the cause is fixed finishes the
 job.
 
-What is staged and committed is the developer's, so nothing here runs a command that changes the index.
+What is staged and committed is the developer's, with one exception. A plain sync runs `git add` for a
+dependency whose folder holds finished work: commits newer than the one this repository points to, every one
+on a remote, and none that a commit of this repository has pointed to before. That is work done inside the
+dependency and pushed, which the repository is to point to next. It is said as it is done, with how to undo
+it, and nothing is committed. A newer commit the repository has pointed to before is left: after checking
+out an older commit of the repository, every dependency is newer, and recording them would undo the
+checkout. No other command here changes the index.
 """
 
 from __future__ import annotations
@@ -67,6 +73,7 @@ from submodule_state import (
     declared_submodules,
     describe_at_risk,
     git,
+    keep_command,
     keep_or_go_back,
     move_checklist,
     nested_levels,
@@ -76,6 +83,7 @@ from submodule_state import (
     remote_holds,
     staged_gitlink,
     submodule_levels,
+    sync_adds,
     unused_checkouts,
 )
 
@@ -322,38 +330,48 @@ def sync(repo_root: Path, remappings: list[str], named: list[str]) -> int:
     in_scope = [entry for entry in dependencies if not named or entry.path in named]
     repository = repo_root.name
 
-    # Before anything runs, which folders sync moves. Behind the recorded commit, or the recorded commit not yet
-    # fetched (a pull moved it on): forward. Ahead of it or elsewhere: a move not yet recorded, left unless
-    # named. Either way a folder holding work only this computer has is skipped and named, not failed.
+    # Before anything else runs, which folders sync moves. Behind the recorded commit, or the recorded commit not
+    # yet fetched (a pull moved it on): forward. Ahead of it, every commit on a remote, and pointed to by no commit
+    # of this repository: finished work, added. Otherwise ahead of it or elsewhere: a move not yet recorded, left
+    # unless named. Either way a folder holding work only this computer has is skipped and named, not failed.
     left: set[str] = set()
-    for entry in in_scope:
-        folder = repo_root / entry.path
-        have, want = checked_out(folder), staged_gitlink(repo_root, entry.path)
-        if have is None or want is None or have == want:
-            continue
-        known = git(folder, "cat-file", "-e", f"{want}^{{commit}}").returncode == 0
-        behind = not known or git(folder, "merge-base", "--is-ancestor", have, want).returncode == 0
-        if not behind and entry.path not in named:
-            left.add(entry.path)
-            ahead = git(folder, "merge-base", "--is-ancestor", want, have).returncode == 0
-            relation = f"newer than {want[:10]}" if ahead else f"a different commit from {want[:10]}"
-            unpushed = len(git(folder, "log", "--oneline", "HEAD", "--not", "--remotes").stdout.splitlines())
-            print(f"  {entry.path}: the folder has {have[:10]}, {relation}, which {repository} points to. It is left as it is.")
-            print(f"  {keep_or_go_back(entry.path, repository, entry.path, unpushed)}")
-            continue
-        held = [describe_at_risk(item, entry.path) for item in at_risk(folder)]
-        if held:
-            left.add(entry.path)
-            stop_for_work(
-                f"Skipping {entry.path}, because it holds work.",
-                held,
-                "It is left as it is.",
-                None,
-                f"To keep the folder's version: commit and push that work, then git add {entry.path}. To go back to "
-                f"the version {repository} points to: remove that work, then yarn dep sync {entry.path}.",
-            )
-
     try:
+        for entry in in_scope:
+            folder = repo_root / entry.path
+            have, want = checked_out(folder), staged_gitlink(repo_root, entry.path)
+            if have is None or want is None or have == want:
+                continue
+            known = git(folder, "cat-file", "-e", f"{want}^{{commit}}").returncode == 0
+            behind = not known or git(folder, "merge-base", "--is-ancestor", have, want).returncode == 0
+            if not behind and entry.path not in named:
+                unpushed = len(git(folder, "log", "--oneline", "HEAD", "--not", "--remotes").stdout.splitlines())
+                if not unpushed and sync_adds(repo_root, entry.path):
+                    print(f"  {entry.path}: the folder has {have[:10]}, newer than {want[:10]}, which {repository} pointed to.")
+                    run(repo_root, repo_root, "add", entry.path)
+                    print(
+                        f"  {repository} now points to {have[:10]}. To save that: git commit. To go back to the version "
+                        f"{repository}'s last commit points to: git restore --staged {entry.path}, then yarn dep sync "
+                        f"{entry.path}."
+                    )
+                    continue
+                left.add(entry.path)
+                ahead = git(folder, "merge-base", "--is-ancestor", want, have).returncode == 0
+                relation = f"newer than {want[:10]}" if ahead else f"a different commit from {want[:10]}"
+                print(f"  {entry.path}: the folder has {have[:10]}, {relation}, which {repository} points to. It is left as it is.")
+                print(f"  {keep_or_go_back(entry.path, repository, keep_command(repo_root, entry.path), unpushed)}")
+                continue
+            held = [describe_at_risk(item, entry.path) for item in at_risk(folder)]
+            if held:
+                left.add(entry.path)
+                stop_for_work(
+                    f"Skipping {entry.path}, because it holds work.",
+                    held,
+                    "It is left as it is.",
+                    None,
+                    f"To keep the folder's version: commit and push that work, then git add {entry.path}. To go back "
+                    f"to the version {repository} points to: remove that work, then yarn dep sync {entry.path}.",
+                )
+
         run(repo_root, repo_root, "submodule", "sync")
         for entry in in_scope:
             if entry.path in left:

@@ -1046,12 +1046,11 @@ def move_checklist(
     ]
 
 
-def repair(facts: Facts, found: Condition, entry: Recorded | None = None, repository: str = "this repository") -> str:
+def repair(facts: Facts, found: Condition, keep: str = "", repository: str = "this repository") -> str:
     """The one action that reaches a consistent state, looked up rather than composed, in plain words.
 
-    `entry` is the dependency's `.gitmodules` entry. Keeping the folder's version adds that entry beside
-    the folder when its working-tree version is not added, exactly as `yarn dep update` hands a move over,
-    so the two tools never name different commands for one tree."""
+    `keep` is the command that points the repository to the folder's commit, from `keep_command`, so doctor
+    and `yarn dep sync` never name different commands for one tree."""
     if found.name == "unreadable":
         # sync runs git's own mend, `git submodule update --init`, which writes the gitdir's `core.worktree`
         # afresh.
@@ -1067,27 +1066,54 @@ def repair(facts: Facts, found: Condition, entry: Recorded | None = None, reposi
         return "yarn dep sync"
     if found.name in ("ahead-of-record", "off-record"):
         # Only the user knows whether the folder's commit was meant, so both directions are named.
-        unstaged_entry = entry is not None and entry.staged != entry.working
-        adding = " ".join([facts.path, *([".gitmodules"] if unstaged_entry else [])])
-        return keep_or_go_back(facts.path, repository, adding, len(facts.unpushed))
+        return keep_or_go_back(facts.path, repository, keep, len(facts.unpushed))
     return ""
 
 
-def keep_or_go_back(path: str, repository: str, adding: str, unpushed: int) -> str:
+def sync_adds(repo_root: Path, path: str) -> bool:
+    """Whether a plain `yarn dep sync` points the repository at `repo_root` to the commit in the folder `path`,
+    once a remote holds it. That commit must be work not yet recorded: newer than the commit the repository
+    points to, and pointed to by no commit of the repository on any branch. A dependency is also newer after
+    checking out an older commit of the repository; its commit is then one a later commit points to, and is
+    left. The dependency's .gitmodules entry must be added as it stands, since sync adds commits, not edits."""
+    have, want = checked_out(repo_root / path), staged_gitlink(repo_root, path)
+    if have is None or want is None or have == want:
+        return False
+    if git(repo_root / path, "merge-base", "--is-ancestor", want, have).returncode != 0:
+        return False
+    entry = recorded_entry(repo_root, path)
+    if entry.staged != entry.working:
+        return False
+    # Each change to the folder's commit is a line ":<old mode> <new mode> <old commit> <new commit> <status>".
+    changes = git(repo_root, "log", "--all", "--format=", "--raw", "--no-abbrev", "--", path).stdout
+    return all(line.split()[3] != have for line in changes.splitlines() if line.startswith(":"))
+
+
+def keep_command(repo_root: Path, path: str) -> str:
+    """The command that points the repository at `repo_root` to the commit in the folder `path`, once a remote
+    holds it: `yarn dep sync` where that adds it, otherwise git add. The git add names .gitmodules beside the
+    folder when the dependency's entry there is not added, exactly as `yarn dep update` hands a move over."""
+    if sync_adds(repo_root, path):
+        return "yarn dep sync"
+    entry = recorded_entry(repo_root, path)
+    return " ".join(["git add", path, *([".gitmodules"] if entry.staged != entry.working else [])])
+
+
+def keep_or_go_back(path: str, repository: str, keep: str, unpushed: int) -> str:
     """The two ways out for a folder whose commit is not the one `repository` points to, in plain words: record
-    the folder's version, or go back to the recorded one. Shared by doctor and `yarn dep sync`, so the two never
-    advise differently. Going back names the dependency, since a plain sync leaves a folder ahead of its
-    record where it is."""
+    the folder's version with `keep`, or go back to the recorded one. Shared by doctor and `yarn dep sync`, so
+    the two never advise differently. Going back names the dependency, since a plain sync leaves a folder ahead
+    of its record where it is, or adds it."""
     go_back = f"yarn dep sync {path}"
     if unpushed:
         # Pointing the repository at a commit no remote holds breaks every other clone, and sync will not move
         # a folder holding one - so the commits are dealt with first, either way.
         commits = "commit" if unpushed == 1 else "commits"
         return (
-            f"To keep the folder's version: push it (git -C {path} push), then git add {adding}. "
+            f"To keep the folder's version: push it (git -C {path} push), then {keep}. "
             f"To go back to the version {repository} points to: remove the unpushed {commits}, then {go_back}."
         )
     return (
-        f"To keep the folder's version: git add {adding} ({repository} then points to it). "
+        f"To keep the folder's version: {keep} ({repository} then points to it). "
         f"To go back to the version {repository} points to: {go_back}."
     )

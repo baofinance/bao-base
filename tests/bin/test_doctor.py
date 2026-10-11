@@ -519,7 +519,8 @@ def test_a_folder_holding_unpushed_commits_is_repaired_by_pushing_or_removing_th
 def test_submodule_problems_reports_one_finding_carrying_its_own_repair(tmp_path):
     # What replaced four checks reporting the same cause four ways with two contradictory repairs. A folder
     # moved to a newer commit than the repository points to is a move not yet added, and only the user
-    # knows whether it was meant: the repair names keeping it and going back, and nothing else.
+    # knows whether it was meant: the repair names keeping it and going back, and nothing else. The newer
+    # commit is published and new to the repository, so a plain sync is what keeps it.
     sub = _init_repo(tmp_path / "sub")
     (sub / "a.txt").write_text("a")
     _git(sub, "add", ".")
@@ -541,7 +542,7 @@ def test_submodule_problems_reports_one_finding_carrying_its_own_repair(tmp_path
     assert f"{moved[:10]}  in the lib/sub folder" in problems[0], problems[0]
     assert f"{recorded[:10]}  host points to" in problems[0], problems[0]
     assert (
-        "Repair: To keep the folder's version: git add lib/sub (host then points to it). "
+        "Repair: To keep the folder's version: yarn dep sync (host then points to it). "
         "To go back to the version host points to: yarn dep sync lib/sub."
     ) in problems[0], problems[0]
 
