@@ -2067,6 +2067,30 @@ def test_sync_inside_a_submodule_on_its_branch_leaves_changes_being_made_without
     assert "holds work" not in result.stdout, result.stdout
 
 
+def test_sync_inside_says_when_the_branch_and_the_remote_have_each_moved_on(tmp_path):
+    # A commit here and another on the remote: neither contains the other, so there is no fast-forward. sync
+    # moves nothing, and says why and how to combine them.
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    dependency = here / "lib" / "dep"
+    sync_inside(dependency)
+    (dependency / "notes.md").write_text("mine\n")
+    git(dependency, "add", "notes.md")
+    git(dependency, "commit", "-qm", "mine")
+    mine = checked_out(dependency)
+    advance(world, "dep")
+
+    result = sync_inside(dependency)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert branch_of(dependency) == "main"
+    assert checked_out(dependency) == mine
+    assert (
+        f"lib/dep stays at {mine[:10]}: main and origin/main each have commits the other does not. "
+        "To combine them: git pull in lib/dep."
+    ) in result.stdout, result.stdout
+
+
 def test_sync_inside_leaves_a_branch_behind_the_remote_tip_where_its_changes_are(tmp_path):
     # Moving forward would change files under work not committed, so the branch stays, and sync says why and
     # how to move it.

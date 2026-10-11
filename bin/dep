@@ -306,6 +306,13 @@ def sync(repo_root: Path, remappings: list[str], named: list[str]) -> int:
                         )
                     else:
                         run(repo_root, repo_root, "merge", "--ff-only", "--quiet", f"origin/{branch}")
+                elif tip and at != tip and git(repo_root, "merge-base", "--is-ancestor", tip, at or "").returncode != 0:
+                    # Neither contains the other, so moving to either drops the other's commits. Combining them is a
+                    # merge or a rebase, which is the developer's choice.
+                    print(
+                        f"  {here} stays at {(at or '')[:10]}: {branch} and origin/{branch} each have commits the other "
+                        f"does not. To combine them: git pull in {here}."
+                    )
             now = checked_out(repo_root)
             pointed = staged_gitlink(containing, here)
             if now is not None and now != pointed:

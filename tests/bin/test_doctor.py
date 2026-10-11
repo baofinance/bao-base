@@ -925,3 +925,72 @@ def test_remapping_detection_reported_when_forge_does_not_report_it(tmp_path, mo
     problems = doctor.remapping_detection_problems(tmp_path)
     assert len(problems) == 1
     assert "forge config does not give auto_detect_remappings" in problems[0], problems[0]
+
+
+# ── ruff's settings extend bao-base's ──────────────────────────────────────────────────────────────────
+
+_BAO_BASE = _module_path.parents[1]
+
+
+def _consumer(tmp_path: pathlib.Path, pyproject: str | None) -> pathlib.Path:
+    """A repository declaring bao-base at lib/bao-base, as a consumer does, with `pyproject` as its pyproject.toml."""
+    repo = tmp_path / "consumer"
+    (repo / "lib").mkdir(parents=True)
+    (repo / "lib" / "bao-base").symlink_to(_BAO_BASE, target_is_directory=True)
+    (repo / ".gitmodules").write_text(
+        '[submodule "lib/bao-base"]\n\tpath = lib/bao-base\n\turl = https://github.com/baofinance/bao-base.git\n'
+    )
+    if pyproject is not None:
+        (repo / "pyproject.toml").write_text(pyproject)
+    return repo
+
+
+def test_ruff_settings_that_extend_bao_bases_pass(tmp_path):
+    repo = _consumer(tmp_path, '[project]\nname = "consumer"\n\n[tool.ruff]\nextend = "lib/bao-base/pyproject.toml"\n')
+
+    assert doctor.ruff_settings_problems(repo) == []
+
+
+def test_no_ruff_settings_name_the_lines_to_add(tmp_path):
+    # A pyproject.toml without [tool.ruff] is not ruff's: ruff passes over it, so there are no settings to extend.
+    repo = _consumer(tmp_path, '[project]\nname = "consumer"\n')
+
+    assert doctor.ruff_settings_problems(repo) == [
+        "This repository has no ruff settings: no .ruff.toml, no ruff.toml and no [tool.ruff] in pyproject.toml.\n"
+        '  Repair: add [tool.ruff] to pyproject.toml, with extend = "lib/bao-base/pyproject.toml"'
+    ]
+
+
+def test_ruff_settings_that_extend_nothing_name_the_line_to_add(tmp_path):
+    repo = _consumer(tmp_path, '[project]\nname = "consumer"\n\n[tool.ruff]\nline-length = 100\n')
+
+    assert doctor.ruff_settings_problems(repo) == [
+        "[tool.ruff] in pyproject.toml does not extend bao-base's ruff settings.\n"
+        '  Repair: add extend = "lib/bao-base/pyproject.toml" to [tool.ruff] in pyproject.toml'
+    ]
+
+
+def test_ruff_settings_that_extend_another_file_say_where_it_leads(tmp_path):
+    repo = _consumer(tmp_path, '[tool.ruff]\nextend = "shared/ruff.toml"\n')
+
+    assert doctor.ruff_settings_problems(repo) == [
+        f'[tool.ruff] in pyproject.toml extends "shared/ruff.toml", which leads to {repo.resolve()}/shared/ruff.toml, '
+        f"not to bao-base's {_BAO_BASE / 'pyproject.toml'}.\n"
+        '  Repair: set extend = "lib/bao-base/pyproject.toml" in [tool.ruff] in pyproject.toml'
+    ]
+
+
+def test_ruff_reads_ruff_toml_before_pyproject_toml(tmp_path):
+    # ruff takes the first of .ruff.toml, ruff.toml and pyproject.toml in a folder, so the pyproject's extend is
+    # never read here.
+    repo = _consumer(tmp_path, '[tool.ruff]\nextend = "lib/bao-base/pyproject.toml"\n')
+    (repo / "ruff.toml").write_text("line-length = 100\n")
+
+    assert doctor.ruff_settings_problems(repo) == [
+        "ruff.toml does not extend bao-base's ruff settings.\n"
+        '  Repair: add extend = "lib/bao-base/pyproject.toml" to ruff.toml'
+    ]
+
+
+def test_bao_base_itself_has_nothing_to_extend(tmp_path):
+    assert doctor.ruff_settings_problems(_BAO_BASE) == []

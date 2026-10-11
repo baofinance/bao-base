@@ -656,6 +656,52 @@ def vscode_ruff_settings_problems(repo_root: Path) -> list[str]:
     return problems
 
 
+def ruff_settings_problems(repo_root: Path) -> list[str]:
+    """Check this repository's ruff settings extend bao-base's, so ruff - in the editor and on the command line -
+    checks and formats by bao-base's rules and stays out of lib. ruff reads the first of .ruff.toml, ruff.toml and
+    a pyproject.toml holding [tool.ruff] in a folder, so that is the one checked. `extend` is compared RESOLVED,
+    as `ruff.path` is: a consumer reaches bao-base through lib/bao-base/. Inside bao-base the shared settings are
+    the repository's own, so there is nothing to extend. Returns the problem, or [] when the settings extend
+    bao-base's."""
+    bao_base_root = Path(__file__).resolve().parent.parent
+    shared = bao_base_root / "pyproject.toml"
+    root = repo_root.resolve()
+    if root == bao_base_root:
+        return []
+    # bao-base by the folder this repository declares for it, so the repair is the line to write.
+    reached = next(
+        (entry.path for entry in declared_submodules(root) if (root / entry.path).resolve() == bao_base_root),
+        os.path.relpath(bao_base_root, root),
+    )
+    wanted = f'extend = "{reached}/pyproject.toml"'
+
+    settings: dict[str, Any] | None = None
+    where = ""
+    for name in (".ruff.toml", "ruff.toml"):
+        if (root / name).is_file():
+            settings, where = load_toml(root / name), name
+            break
+    else:
+        pyproject = root / "pyproject.toml"
+        settings = load_toml(pyproject).get("tool", {}).get("ruff") if pyproject.is_file() else None
+        where = "[tool.ruff] in pyproject.toml"
+    if settings is None:
+        return [
+            "This repository has no ruff settings: no .ruff.toml, no ruff.toml and no [tool.ruff] in pyproject.toml.\n"
+            f"  Repair: add [tool.ruff] to pyproject.toml, with {wanted}"
+        ]
+    extend = settings.get("extend")
+    if extend is None:
+        return [f"{where} does not extend bao-base's ruff settings.\n  Repair: add {wanted} to {where}"]
+    leads_to = (root / extend).resolve()
+    if leads_to != shared:
+        return [
+            f'{where} extends "{extend}", which leads to {leads_to}, not to bao-base\'s {shared}.\n'
+            f"  Repair: set {wanted} in {where}"
+        ]
+    return []
+
+
 _CLAUDE_LOCAL_SETTINGS = ".claude/settings.local.json"
 
 # CLAUDE.md *requires* committing to the plan repo after every plan update, so a rule reaching it is
@@ -928,6 +974,15 @@ def build_checks(
             "Then the editor says a file is clean and CI says it is not",
             "CI fails on formatting in files the editor said were clean, and you find each one only after a push",
             vscode_ruff_settings_problems(repo_root),
+        ),
+        Check(
+            "ruff's settings extend bao-base's",
+            "ruff takes its settings from this repository: .ruff.toml, ruff.toml or [tool.ruff] in pyproject.toml. "
+            "Extending bao-base's settings gives it bao-base's rules and keeps it out of lib, where a dependency's "
+            "own settings can extend a file that yarn dep does not check out",
+            "the editor checks Python by rules other than bao-base's, and logs an error for each dependency whose "
+            "settings it cannot load",
+            ruff_settings_problems(repo_root),
         ),
         Check(
             "git does not track .claude/settings.local.json, and an ignore rule matches it",

@@ -74,14 +74,14 @@ def report(found: list[Mismatch]) -> str:
         if any(mismatch.relation is None for mismatch in mismatches):
             lines.append("    (no checkout holds both commits, so which is later cannot be read here)")
         lines.append("")
-    lines.append("  run `yarn update <dependency>@<ref>` in whichever repo is the one to move")
+    lines.append("  run `yarn dep update <dependency>@<ref>` in whichever repository is the one to move")
     return "\n".join(lines)
 
 
 def main() -> int:
     """Non-zero when anything disagrees. A mismatch is a defect, not a note: repositories sharing
     bao-base are meant to be on one version of each thing they share, and every finding is one
-    `yarn update` from gone - in whichever of the two repositories is the one to move. It is red until
+    `yarn dep update` from gone - in whichever of the two repositories is the one to move. It is red until
     they converge, which is the point of saying it."""
     found = conflicting_dependencies(Path.cwd())
     if found:
