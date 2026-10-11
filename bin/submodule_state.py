@@ -427,6 +427,24 @@ def checked_out(checkout: Path) -> str | None:
     return head.stdout.strip() if head.returncode == 0 else None
 
 
+def unused_checkouts(repo_root: Path, directory: Path, level: Declared, remappings: list[str]) -> list[tuple[Path, Declared]]:
+    """The submodules checked out beneath the one `directory` lists as `level` that no remapping of
+    `repo_root` uses, each with the folder whose .gitmodules lists it, outermost first. The walk goes down
+    through the ones a remapping uses, and not into an unused one, since removing it removes what it holds."""
+    here = directory / level.path
+    targets = [PurePosixPath(remapping_target(remapping)) for remapping in remappings]
+    found: list[tuple[Path, Declared]] = []
+    for nested in declared_submodules(here):
+        if not (here / nested.path / ".git").exists():
+            continue
+        path = (here / nested.path).relative_to(repo_root).as_posix()
+        if any(target.is_relative_to(path) for target in targets):
+            found.extend(unused_checkouts(repo_root, here, nested, remappings))
+        else:
+            found.append((here, nested))
+    return found
+
+
 def remote_holds(checkout: Path, commit: str) -> bool | None:
     """Whether a remote branch or a tag in `checkout` contains `commit`, as of its last fetch: whether anyone
     who clones can fetch it. None when git cannot tell - no readable checkout, or the commit is not in it.
@@ -1045,8 +1063,8 @@ def repair(facts: Facts, found: Condition, entry: Recorded | None = None, reposi
         return f"yarn dep sync (this checks out the commits {repository} points to)"
     if found.name == "litter-present":
         # Not a version change: the directory outlived the move that stranded it, and clearing it
-        # touches no gitlink.
-        return f"yarn update --sweep {facts.path}"
+        # touches no gitlink. sync removes it, unless it holds work only this computer has.
+        return "yarn dep sync"
     if found.name in ("ahead-of-record", "off-record"):
         # Only the user knows whether the folder's commit was meant, so both directions are named.
         unstaged_entry = entry is not None and entry.staged != entry.working

@@ -54,12 +54,13 @@ def git(where: Path, *arguments: str) -> str:
 
 
 def repository(remotes: Path, name: str, submodules: dict[str, Path] | None = None) -> Path:
-    """A repository holding `src/<name>.sol` and `submodules` (path -> upstream), committed in
-    remotes/<name> and published to remotes/<name>.git. Returns the published copy."""
+    """A forge project holding `src/<name>.sol`, its own foundry.toml, and `submodules` (path -> upstream),
+    committed in remotes/<name> and published to remotes/<name>.git. Returns the published copy."""
     work = remotes / name
     (work / "src").mkdir(parents=True)
     git(work, "init", "-q", "-b", "main")
     (work / "src" / f"{name}.sol").write_text(f"// {name}\n")
+    (work / "foundry.toml").write_text(foundry_toml([]))
     git(work, "add", "-A")
     git(work, "commit", "-qm", f"{name}: first")
     for path, upstream in (submodules or {}).items():
@@ -123,8 +124,8 @@ def clone(world: World) -> Path:
     return target
 
 
-def sync(where: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([str(DEP), "sync"], cwd=where, capture_output=True, text=True, env=GIT_ENV)
+def sync(where: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run([str(DEP), "sync", *arguments], cwd=where, capture_output=True, text=True, env=GIT_ENV)
 
 
 def checked_out(checkout: Path) -> str | None:
@@ -267,35 +268,13 @@ def test_sync_reports_remappings_no_submodule_provides(tmp_path):
 
 
 def unused_checkout_line(path: str) -> str:
-    return f"! {path} is checked out, and no remapping uses it. To remove it: yarn dep remove {path}"
-
-
-def test_sync_reports_a_checked_out_nested_submodule_no_remapping_reads(tmp_path):
-    # A nested checkout the build does not read is left alone - the developer may be about to add its
-    # remapping - and named with the command that removes it. Beneath a remapped one the walk goes on, so an
-    # unread checkout deeper down is named too; the remapped one itself is not.
-    here = clone(make_world(tmp_path, ["inner/=lib/dep/lib/inner/src/"]))
-    plain = sync(here)
-    git(here / "lib" / "dep", "submodule", "update", "--init", "--", "lib/spare")
-    git(here / "lib" / "dep" / "lib" / "inner", "submodule", "update", "--init", "--", "lib/deepest")
-    git(here / "lib" / "tool", "submodule", "update", "--init", "--", "lib/helper")
-
-    result = sync(here)
-
-    assert plain.returncode == 0, plain.stdout + plain.stderr
-    assert "no remapping uses it" not in plain.stdout, "a plain clone checks out nothing unread"
-    assert result.returncode == 0, "an unread checkout is reported, not failed"
-    reported = [line.strip() for line in result.stdout.splitlines() if "no remapping uses it" in line]
-    assert reported == [
-        unused_checkout_line("lib/dep/lib/inner/lib/deepest"),
-        unused_checkout_line("lib/dep/lib/spare"),
-        unused_checkout_line("lib/tool/lib/helper"),
-    ], result.stdout
+    return f"! {path} is checked out, and no remapping uses it. yarn dep sync removes it."
 
 
 def test_sync_skips_a_dependency_holding_work_and_syncs_the_rest(tmp_path):
     # Moving a folder is what would put a developer's work at risk. So a dependency holding work that only
-    # this computer has stays as it is, and says why; the other dependencies are synced all the same.
+    # this computer has stays as it is, and says why; the other dependencies are synced all the same. Holding
+    # work is a reason to skip, not a failure, so sync succeeds.
     here = clone(make_world(tmp_path, ["dep/=lib/dep/src/"]))
     sync(here)
     dependency, tool = here / "lib" / "dep", here / "lib" / "tool"
@@ -306,8 +285,8 @@ def test_sync_skips_a_dependency_holding_work_and_syncs_the_rest(tmp_path):
 
     result = sync(here)
 
-    assert result.returncode != 0, "a dependency left behind is not a finished sync"
-    assert "Skipped lib/dep" in result.stdout, result.stdout
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Skipping lib/dep, because it holds work." in result.stdout, result.stdout
     assert "lib/dep/notes.txt: not tracked by git" in result.stdout, result.stdout
     assert checked_out(dependency) == held, "the folder holding work must not move"
     assert checked_out(tool) == recorded(here, "lib/tool"), "the rest is synced"
@@ -847,9 +826,9 @@ def test_a_leftover_that_cannot_be_removed_is_reported_not_claimed(tmp_path):
     assert stranded.exists()
 
 
-def test_update_reports_a_checked_out_nested_submodule_no_remapping_reads(tmp_path):
-    # update leaves an unread nested checkout in place, as sync does, and names it - for the dependency it
-    # moved only, since that is the one it was asked about.
+def test_update_removes_nested_checkouts_no_remapping_uses_beneath_the_dependency_it_moves(tmp_path):
+    # update leaves the dependency it moved as sync would: what the build does not read beneath it is taken
+    # away. Another dependency is not what it was asked about, so its checkouts stay.
     world = make_world(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world)
     git(here / "lib" / "dep", "submodule", "update", "--init", "--", "lib/spare")
@@ -859,9 +838,8 @@ def test_update_reports_a_checked_out_nested_submodule_no_remapping_reads(tmp_pa
     result = update(here, "dep@main")
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert (here / "lib" / "dep" / "lib" / "spare" / ".git").exists(), "update must not remove it"
-    reported = [line.strip() for line in result.stdout.splitlines() if "no remapping uses it" in line]
-    assert reported == [unused_checkout_line("lib/dep/lib/spare")], result.stdout
+    assert not (here / "lib" / "dep" / "lib" / "spare" / ".git").exists(), result.stdout
+    assert (here / "lib" / "tool" / "lib" / "helper" / ".git").exists(), "another dependency is not touched"
 
 
 # ── update: what is left for the user ─────────────────────────────────────────────────────────────
@@ -1571,3 +1549,161 @@ def test_update_checklist_names_yarn_dep_for_the_move(tmp_path):
     assert result.returncode != 0
     assert "yarn dep update lib/dep@main" in result.stdout, result.stdout
     assert "git -C lib/dep checkout" not in result.stdout, result.stdout
+
+
+# ── a pristine build tree: sync removes what the build does not read ─────────────────────────────────
+#
+# `sync` leaves the directory it is run in ready to build and holding nothing else: inside each dependency,
+# only what a remapping uses is checked out, and no leftover repository remains. Anything holding work only
+# this computer has is kept and named. Run inside a submodule, sync sets that submodule up for building in;
+# run again in the main directory, it takes that set-up away.
+
+INNER_REMAPPED = ["inner/=lib/dep/lib/inner/src/"]
+
+
+def check_out_unused(here: Path) -> None:
+    """Check out three nested submodules no remapping in INNER_REMAPPED uses, at two depths."""
+    git(here / "lib" / "dep", "submodule", "update", "--init", "--", "lib/spare")
+    git(here / "lib" / "dep" / "lib" / "inner", "submodule", "update", "--init", "--", "lib/deepest")
+    git(here / "lib" / "tool", "submodule", "update", "--init", "--", "lib/helper")
+
+
+UNUSED = ["lib/dep/lib/inner/lib/deepest", "lib/dep/lib/spare", "lib/tool/lib/helper"]
+
+
+def test_status_lists_nested_checkouts_no_remapping_uses(tmp_path):
+    # status is where the set-up is seen, so it names them too, with the command that removes each.
+    here = synced(make_world(tmp_path, INNER_REMAPPED))
+    none = status(here, "--no-fetch")
+    check_out_unused(here)
+
+    several = status(here, "--no-fetch")
+
+    assert none.returncode == 0 and several.returncode == 0, none.stdout + several.stdout
+    assert "no remapping uses it" not in none.stdout, none.stdout
+    reported = [line.strip() for line in several.stdout.splitlines() if "no remapping uses it" in line]
+    assert reported == [unused_checkout_line(path) for path in UNUSED], several.stdout
+
+
+def test_sync_removes_nested_checkouts_no_remapping_uses(tmp_path):
+    # Each one's checkout is taken away, as `yarn dep remove` does for a nested path; the one a remapping uses
+    # stays.
+    here = synced(make_world(tmp_path, INNER_REMAPPED))
+    check_out_unused(here)
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not any((here / path / ".git").exists() for path in UNUSED), result.stdout
+    assert (here / "lib" / "dep" / "lib" / "inner" / ".git").exists(), "the remapped one stays"
+    assert "ran: git -C lib/dep submodule deinit --force --quiet -- lib/spare" in steps(result.stdout), result.stdout
+    assert "no remapping uses it" not in result.stdout, result.stdout
+
+
+def test_sync_keeps_and_names_a_nested_checkout_holding_work_only_this_computer_has(tmp_path):
+    # Removing a checkout deletes its folder, so one holding work only this computer has is named and kept,
+    # and the others are still removed.
+    here = synced(make_world(tmp_path, INNER_REMAPPED))
+    check_out_unused(here)
+    (here / "lib" / "dep" / "lib" / "spare" / "notes.txt").write_text("mine\n")
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Skipping lib/dep/lib/spare, because it holds work." in result.stdout, result.stdout
+    assert "lib/dep/lib/spare/notes.txt: not tracked by git" in result.stdout, result.stdout
+    assert (here / "lib" / "dep" / "lib" / "spare" / "notes.txt").is_file()
+    assert not (here / "lib" / "tool" / "lib" / "helper" / ".git").exists(), "the others are removed"
+
+
+def leave_a_repository_behind(world: World, here: Path) -> Path:
+    """A git repository inside lib/dep that nothing tracks: what a version that stops declaring a checked-out
+    submodule leaves. Returns its folder."""
+    stranded = here / "lib" / "dep" / "stranded"
+    git(here, "clone", "-q", str(world.remotes / "helper.git"), str(stranded))
+    return stranded
+
+
+def test_sync_removes_a_leftover_repository_inside_a_dependency(tmp_path):
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    stranded = leave_a_repository_behind(world, here)
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not stranded.exists()
+    assert "ran: rm -rf lib/dep/stranded" in steps(result.stdout), result.stdout
+
+
+def test_sync_keeps_and_names_a_leftover_repository_holding_work(tmp_path):
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    stranded = leave_a_repository_behind(world, here)
+    (stranded / "src" / "Mine.sol").write_text("// a day of work\n")
+    git(stranded, "add", "-A")
+    git(stranded, "commit", "-qm", "unpushed")
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Skipping lib/dep/stranded, because it holds work." in result.stdout, result.stdout
+    assert (stranded / "src" / "Mine.sol").is_file()
+    assert "lib/dep/stranded" in result.stdout and "is not pushed" in result.stdout, result.stdout
+
+
+def sync_inside(checkout: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run([str(DEP), "sync"], cwd=checkout, capture_output=True, text=True, env=GIT_ENV)
+
+
+def test_sync_inside_a_submodule_sets_it_up_for_building_in(tmp_path):
+    # Run inside a dependency, sync checks out what that dependency's own build reads. It changes nothing in
+    # the main directory.
+    here = synced(make_world(tmp_path, ["dep/=lib/dep/src/"]))
+    config = git(here, "config", "--local", "--list")
+
+    result = sync_inside(here / "lib" / "dep")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (here / "lib" / "dep" / "lib" / "inner" / ".git").exists(), "its own dependencies are checked out"
+    assert (here / "lib" / "dep" / "lib" / "spare" / ".git").exists(), "its own dependencies are checked out"
+    assert git(here, "config", "--local", "--list") == config, "the main directory's .git/config is unchanged"
+
+
+def test_sync_in_the_main_directory_takes_away_what_a_sync_inside_set_up(tmp_path):
+    # Stopping work in a submodule: sync in the main directory leaves it pristine again.
+    here = synced(make_world(tmp_path, ["dep/=lib/dep/src/"]))
+    sync_inside(here / "lib" / "dep")
+    assert (here / "lib" / "dep" / "lib" / "spare" / ".git").exists(), "the submodule must start set up"
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not (here / "lib" / "dep" / "lib" / "inner" / ".git").exists()
+    assert not (here / "lib" / "dep" / "lib" / "spare" / ".git").exists()
+
+
+def test_doctor_reports_nested_checkouts_no_remapping_uses(tmp_path):
+    # Doctor names them, with the command that removes them.
+    here = synced(make_world(tmp_path, INNER_REMAPPED))
+    clean = doctor.unused_checkout_problems(here, INNER_REMAPPED)
+    check_out_unused(here)
+
+    found = doctor.unused_checkout_problems(here, INNER_REMAPPED)
+
+    assert clean == []
+    assert len(found) == 1, found
+    assert [line.strip() for line in found[0].splitlines()[1:4]] == UNUSED, found[0]
+    assert "Repair: yarn dep sync" in found[0], found[0]
+    assert "--prune" not in found[0], found[0]
+
+
+def test_doctor_names_yarn_dep_sync_for_a_leftover_repository(tmp_path):
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    leave_a_repository_behind(world, here)
+
+    leftovers = [p for p in doctor.submodule_problems(here, ["dep/=lib/dep/src/"])[1] if p.startswith("lib/dep:")]
+
+    assert len(leftovers) == 1, leftovers
+    assert "Repair: yarn dep sync" in leftovers[0], leftovers[0]

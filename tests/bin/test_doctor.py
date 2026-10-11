@@ -647,10 +647,11 @@ def test_a_dependency_at_the_wrong_version_with_leftovers_is_in_both_lists(tmp_p
         versions
     )
     assert any(p.startswith("lib/dep: contains old git repositories") and "lib/orphan" in p for p in leftovers), leftovers
-    # Each carries the command for its own fault, and neither offers the other's.
+    # Each carries its own fault: the version finding does not name the old repositories, and the leftover
+    # finding's repair is sync, which removes them.
     version_finding = next(p for p in versions if p.startswith("lib/dep:"))
-    assert "--sweep" not in version_finding, version_finding
-    assert "--sweep lib/dep" in next(p for p in leftovers if p.startswith("lib/dep:"))
+    assert "lib/orphan" not in version_finding, version_finding
+    assert "Repair: yarn dep sync" in next(p for p in leftovers if p.startswith("lib/dep:"))
 
 
 def test_an_uninitialised_dependency_is_reported(tmp_path):

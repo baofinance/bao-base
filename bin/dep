@@ -10,11 +10,14 @@ branch; with none it is pinned where it points, and a bare update leaves it ther
 branch .gitmodules does not name - unlike git, whose `update --remote` falls back to whatever the
 remote's default branch is at the time.
 
-`sync` brings the checkouts to what this repository records: every top-level submodule at its gitlink,
-plus exactly the nested submodules forge's remappings point into. The build reads nothing else. A
-dependency's other nested submodules are its own lockfile, wanted only by someone working inside it, so
-they are never fetched - and one of them pinned to a commit no remote holds cannot stop this checkout.
-A clone made without --recurse-submodules needs nothing more than this.
+`sync` leaves the folder it is run in ready to build and holding nothing else: every top-level submodule
+at its gitlink, plus exactly the nested submodules forge's remappings point into. The build reads nothing
+else. A dependency's other nested submodules are its own lockfile, wanted only by someone working inside
+it, so they are never fetched - and one of them pinned to a commit no remote holds cannot stop this
+checkout. One already checked out, and any repository a version change left behind, is taken away unless
+it holds work only this computer has; that is kept and named. Run inside a submodule, sync sets that
+submodule up for building in; run again in the main folder, it takes that set-up away. A clone made
+without --recurse-submodules needs nothing more than this.
 
 `add` clones a new dependency into the first of forge's libs folders, under the name its url ends in, as
 `forge install` places one, and writes what `git submodule add` writes - except to the index. `-b` and
@@ -23,7 +26,7 @@ writes anything. Without them, the remote's default branch, as git takes it. The
 recorded in `.gitmodules` - including the default one, which git does not record - and a tag is pinned.
 
 `update` moves one dependency to a named version, checking out beneath it the same nested paths and no
-others. A branch is recorded as the one it follows; a tag or a commit removes the line, pinning it. A bare
+others, and leaving it as sync would. A branch is recorded as the one it follows; a tag or a commit removes the line, pinning it. A bare
 update follows the recorded branch, and refuses a pinned dependency. Nothing is fetched or moved until the
 pre-checks pass: nothing under the dependency may exist only here, and a local branch it would stand on
 may hold no commit the target lacks.
@@ -31,9 +34,7 @@ may hold no commit the target lacks.
 `remove` runs `git submodule deinit`, for a dependency or for a submodule inside one. For a dependency it
 then deletes the repository git keeps for it, as gitsubmodules(7) says to, and hands over the `git rm`
 that takes out the folder and the `.gitmodules` entry. A submodule inside a dependency is the
-dependency's to list and record, so for one of those the checkout is all that goes. sync and update leave
-a nested checkout no remapping uses where it is, since its remapping may be on its way, and name the
-remove that takes it away.
+dependency's to list and record, so for one of those the checkout is all that goes.
 
 Every command that changes something is printed as it finishes, in order. A failure prints the tool's
 own error beneath the command that failed, then where each checkout now stands, and undoes nothing:
@@ -74,6 +75,7 @@ from submodule_state import (
     remote_holds,
     staged_gitlink,
     submodule_levels,
+    unused_checkouts,
 )
 
 USAGE = """\
@@ -83,9 +85,11 @@ dep add [(-b | --branch) <branch or tag>] <url>
 dep update [--force] <dependency>[@<version>] ...
 dep remove [--force] <dependency> ...
 
-  sync          Check out each submodule at the commit this repository points to. Inside a submodule,
-                check out only the submodules that a remapping uses. Use it after cloning, or after a
-                pull changes where this repository points.
+  sync          Make this folder ready to build, and nothing more: each submodule at the commit this
+                repository points to, inside it only the submodules a remapping uses, and no leftover
+                repositories. Anything holding work only this computer has is kept and named. Use it
+                after cloning or a pull. Run inside a submodule to set it up for building in; run
+                again in the main folder to take that set-up away.
   status        For each submodule, and each submodule inside one that a remapping uses: the branch it
                 follows, what the commit this repository points to is (a tag, the tip of the branch, or
                 a commit), what is newer upstream, whether a remote holds that commit, and what the
@@ -127,19 +131,25 @@ def run(repo_root: Path, where: Path, *arguments: str) -> None:
     raise StepFailed(command)
 
 
-def report_unused_checkouts(repo_root: Path, path: str, remappings: list[str]) -> None:
-    """Print each submodule checked out beneath `path` that no remapping uses, with the command that removes
-    it. It stays where it is: the developer may be about to add its remapping. The walk goes down through
-    the submodules a remapping uses, and not into an unused one, since removing it removes what it holds."""
-    targets = [PurePosixPath(remapping_target(remapping)) for remapping in remappings]
-    for level in declared_submodules(repo_root / path):
-        nested = f"{path}/{level.path}"
-        if not (repo_root / nested / ".git").exists():
-            continue
-        if any(target.is_relative_to(nested) for target in targets):
-            report_unused_checkouts(repo_root, nested, remappings)
-        else:
-            print(f"  ! {nested} is checked out, and no remapping uses it. To remove it: yarn dep remove {nested}")
+def clean(repo_root: Path, entry: Declared, remappings: list[str]) -> None:
+    """Take away, beneath the dependency `entry`, what the build does not read: each nested checkout no
+    remapping uses, as `yarn dep remove` takes one away, and each leftover repository a version change left
+    behind. One holding work only this computer has is skipped, and says so; that is not a failure. A
+    remapping added later is checked out again by the next sync, from the repository git keeps for it."""
+
+    def holds_work(folder: Path) -> bool:
+        path = folder.relative_to(repo_root).as_posix()
+        held = [describe_at_risk(item, path) for item in at_risk(folder)]
+        if held:
+            stop_for_work(f"Skipping {path}, because it holds work.", held, "It is left as it is.", None)
+        return bool(held)
+
+    for parent, nested in unused_checkouts(repo_root, repo_root, entry, remappings):
+        if not holds_work(parent / nested.path):
+            run(repo_root, parent, "submodule", "deinit", "--force", "--quiet", "--", nested.path)
+    for leftover in read_facts(repo_root, entry.path).litter:
+        if not holds_work(repo_root / entry.path / leftover):
+            delete(repo_root, repo_root / entry.path / leftover)
 
 
 def checkout_rows(repo_root: Path, dependencies: list[Declared], remappings: list[str]) -> dict[str, tuple[Path, Declared]]:
@@ -154,8 +164,8 @@ def checkout_rows(repo_root: Path, dependencies: list[Declared], remappings: lis
 
 def report(repo_root: Path, dependencies: list[Declared], remappings: list[str], skipped: set[str]) -> bool:
     """Print where each dependency and each nested path a remapping reaches now stands, then each remapping
-    no submodule provides, then each nested checkout no remapping uses. Returns whether every dependency and
-    nested path is at the commit recorded for it."""
+    no submodule provides. Returns whether every dependency and nested path is at the commit recorded for it,
+    leaving out those beneath a dependency skipped for holding work: skipping it is not a failure."""
     rows = checkout_rows(repo_root, dependencies, remappings)
     for display, (directory, level) in rows.items():
         have, want = checked_out(directory / level.path), staged_gitlink(directory, level.path)
@@ -175,11 +185,11 @@ def report(repo_root: Path, dependencies: list[Declared], remappings: list[str],
         levels = list(submodule_levels(repo_root, target))
         if not (repo_root / target).exists() and all(at_record(directory, level) for directory, level in levels):
             print(f"  ! remapping {remapping} points to {target}, which does not exist")
-    # Beneath a skipped dependency nothing is read: its checkout is not at the commit this repository points to.
-    for entry in dependencies:
-        if entry.path not in skipped and (repo_root / entry.path / ".git").exists():
-            report_unused_checkouts(repo_root, entry.path, remappings)
-    return all(at_record(directory, level) for directory, level in rows.values())
+    return all(
+        at_record(directory, level)
+        for display, (directory, level) in rows.items()
+        if not any(display == path or display.startswith(f"{path}/") for path in skipped)
+    )
 
 
 def stop_for_work(heading: str, found: list[str], moving: str, force_command: str | None) -> None:
@@ -206,6 +216,11 @@ def read_forge_config(repo_root: Path) -> dict[str, Any] | None:
 
 
 def sync(repo_root: Path, remappings: list[str]) -> int:
+    """Leave the directory it is run in ready to build and holding nothing else: each dependency at the
+    commit this repository points to, beneath it what a remapping uses, and nothing more. Run inside a
+    submodule, that submodule is set up for building in; run again in the main directory, that set-up goes.
+    Anything holding work only this computer has is skipped, says so, and is not a failure. Returns 1 only when
+    a step failed."""
     print("sync:")
     dependencies = declared_submodules(repo_root)
 
@@ -219,7 +234,7 @@ def sync(repo_root: Path, remappings: list[str]) -> int:
         held = [describe_at_risk(item, entry.path) for item in at_risk(repo_root / entry.path)]
         if held:
             skipped.add(entry.path)
-            stop_for_work(f"Skipped {entry.path}.", held, "Sync would move the folder that holds them.", None)
+            stop_for_work(f"Skipping {entry.path}, because it holds work.", held, "It is left as it is.", None)
 
     try:
         run(repo_root, repo_root, "submodule", "sync")
@@ -247,6 +262,10 @@ def sync(repo_root: Path, remappings: list[str]) -> int:
             for directory, level in levels:
                 if not at_record(directory, level):
                     run(repo_root, directory, "submodule", "update", "--init", "--", level.path)
+        # Beneath a skipped dependency nothing is read: its checkout is not at the commit this repository points to.
+        for entry in dependencies:
+            if entry.path not in skipped and (repo_root / entry.path / ".git").exists():
+                clean(repo_root, entry, remappings)
     except StepFailed:
         report(repo_root, dependencies, remappings, skipped)
         return 1
@@ -343,6 +362,11 @@ def status(repo_root: Path, remappings: list[str], fetch: bool) -> int:
             *([f"{unpushed} commit{'' if unpushed == 1 else 's'} not pushed"] if unpushed else []),
         ]
         print(f"    {'folder':<10} {'; '.join([folder, *work])}")
+    for entry in declared_submodules(repo_root):
+        if (repo_root / entry.path / ".git").exists():
+            for parent, nested in unused_checkouts(repo_root, repo_root, entry, remappings):
+                path = (parent / nested.path).relative_to(repo_root).as_posix()
+                print(f"  ! {path} is checked out, and no remapping uses it. yarn dep sync removes it.")
     return 1 if fetch_failed else 0
 
 
@@ -517,8 +541,8 @@ def update(repo_root: Path, dependency: str, force: bool, libs: str, remappings:
             if not at_record(directory, level):
                 run(repo_root, directory, "submodule", "update", "--init", "--", level.path)
 
-        for stranded in read_facts(repo_root, path).litter:
-            delete(repo_root, submodule / stranded)
+        # The dependency left as sync leaves it: nothing beneath it that the build does not read.
+        clean(repo_root, entry, remappings)
     except StepFailed:
         report_move(repo_root, path, ref, target, remappings)
         return 1
@@ -543,7 +567,6 @@ def report_move(repo_root: Path, path: str, ref: str, target: Pin | None, remapp
         print(f"  [{'x' if stage.done else ' '}] {stage.number}. {stage.name} - {stage.detail}")
         if not stage.done and stage.action:
             print(f"        {stage.action}")
-    report_unused_checkouts(repo_root, path, remappings)
 
     # Stages 2-5 are this tool's to perform; 0 stays open under --force on purpose, and 6-7 are the user's.
     outstanding = [stage for stage in stages if not stage.done and 2 <= stage.number <= 5]

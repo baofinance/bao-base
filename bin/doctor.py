@@ -37,6 +37,7 @@ from submodule_state import (
     staged_gitlink,
     stray_clones,
     submodule_levels,
+    unused_checkouts,
 )
 
 
@@ -256,6 +257,26 @@ def unpublished_commit_problems(repo_root: Path, remappings: list[str]) -> list[
                 f"  Repair: push it (git -C {path} push){moving}"
             )
     return problems
+
+
+def unused_checkout_problems(repo_root: Path, remappings: list[str]) -> list[str]:
+    """Submodules checked out inside this repository's dependencies that no remapping uses. The build does not
+    read them: they are left from an older recursive checkout, or from a sync run inside a dependency to work
+    on it. Returns one block listing each, or []."""
+    found = [
+        (parent / nested.path).relative_to(repo_root).as_posix()
+        for dependency in declared_submodules(repo_root)
+        if (repo_root / dependency.path / ".git").exists()
+        for parent, nested in unused_checkouts(repo_root, repo_root, dependency, remappings)
+    ]
+    if not found:
+        return []
+    lines = ["These submodules are checked out inside a dependency, and no remapping uses them:"]
+    lines.extend(f"  {path}" for path in found)
+    lines.append(
+        "  Repair: yarn dep sync. It keeps any that holds work only on this computer, and names that work."
+    )
+    return ["\n".join(lines)]
 
 
 def remapping_target_problems(repo_root: Path, remappings: list[str]) -> list[str]:
@@ -895,6 +916,13 @@ def build_checks(
             "forge and git use the files that are there, not the files that should be there, so an old folder "
             "can still be used by imports",
             leftover_problems,
+        ),
+        Check(
+            "inside each dependency, only the submodules the build reads are checked out",
+            "The build reads a submodule inside a dependency only through a remapping. Any other one checked out "
+            "there is left from an older recursive checkout, at whatever commit it had then",
+            "it can be taken for code the build uses, and every tool that walks the submodules reads it",
+            unused_checkout_problems(repo_root, remappings),
         ),
         workflow_copy.check(repo_root),
         Check(
