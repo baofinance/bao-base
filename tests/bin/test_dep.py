@@ -223,31 +223,72 @@ def test_sync_rewrites_a_drifted_url(tmp_path):
     assert git(here, "config", "submodule.lib/dep.url") == git(here, "config", "-f", ".gitmodules", "submodule.lib/dep.url")
 
 
-@pytest.mark.parametrize("branch_at", ["recorded", "elsewhere"])
-def test_sync_puts_head_on_a_branch_only_where_it_already_points(tmp_path, branch_at):
-    # A dependency that follows a branch stands on it when the branch already holds the recorded commit. A
-    # branch anywhere else is the developer's, so sync detaches at the recorded commit rather than move it.
+def followed_and_synced(tmp_path: Path) -> tuple[Path, Path]:
+    """A clone, synced, of a project whose .gitmodules says dep follows main. Returns it and lib/dep."""
     world = make_world(tmp_path, ["dep/=lib/dep/src/"])
     git(world.project, "config", "-f", ".gitmodules", "submodule.lib/dep.branch", "main")
     git(world.project, "commit", "-qam", "dep follows main")
     here = clone(world)
-    dependency = here / "lib" / "dep"
     sync(here)
-    if branch_at == "elsewhere":
-        git(dependency, "checkout", "-q", "--detach")
-        git(dependency, "branch", "-q", "-f", "main", "HEAD~1")
-    branch_before = git(dependency, "rev-parse", "refs/heads/main")
-    assert (branch_before == recorded(here, "lib/dep")) == (branch_at == "recorded"), "the branch must start where named"
+    return here, here / "lib" / "dep"
+
+
+def test_sync_stands_on_the_branch_already_at_the_recorded_commit(tmp_path):
+    # A dependency that follows a branch is left on that branch, not detached, where the branch already holds
+    # the recorded commit.
+    here, dependency = followed_and_synced(tmp_path)
+    git(dependency, "checkout", "-q", "--detach")
 
     result = sync(here)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert git(dependency, "rev-parse", "refs/heads/main") == branch_before, "sync must never move a branch"
     assert checked_out(dependency) == recorded(here, "lib/dep")
-    standing_on = subprocess.run(
-        ["git", "symbolic-ref", "-q", "--short", "HEAD"], cwd=dependency, capture_output=True, text=True
-    ).stdout.strip()
-    assert standing_on == ("main" if branch_at == "recorded" else ""), standing_on
+    assert branch_of(dependency) == "main"
+
+
+def test_sync_creates_the_branch_followed_when_there_is_none(tmp_path):
+    # With no local branch to stand on, sync makes one at the recorded commit, tracking the remote's.
+    here, dependency = followed_and_synced(tmp_path)
+    git(dependency, "checkout", "-q", "--detach")
+    git(dependency, "branch", "-q", "-D", "main")
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert branch_of(dependency) == "main"
+    assert checked_out(dependency) == recorded(here, "lib/dep")
+    assert git(dependency, "rev-parse", "--abbrev-ref", "main@{upstream}") == "origin/main"
+
+
+def test_sync_fast_forwards_a_branch_behind_the_recorded_commit(tmp_path):
+    # A branch behind the recorded commit holds nothing that commit lacks, so moving it up loses nothing.
+    here, dependency = followed_and_synced(tmp_path)
+    git(dependency, "checkout", "-q", "--detach")
+    git(dependency, "branch", "-q", "-f", "main", "HEAD~1")
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert branch_of(dependency) == "main"
+    assert git(dependency, "rev-parse", "refs/heads/main") == recorded(here, "lib/dep")
+
+
+def test_sync_stays_detached_when_the_branch_holds_commits_the_record_lacks(tmp_path):
+    # Moving that branch would take commits off it, so the folder stays detached at the recorded commit, and
+    # sync says why, naming them.
+    here, dependency = followed_and_synced(tmp_path)
+    git(dependency, "checkout", "-q", "-B", "main", "HEAD~1")
+    (dependency / "src" / "Mine.sol").write_text("// mine\n")
+    git(dependency, "add", "-A")
+    git(dependency, "commit", "-qm", "mine")
+    git(dependency, "checkout", "-q", "--detach", recorded(here, "lib/dep"))
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert branch_of(dependency) is None
+    assert checked_out(dependency) == recorded(here, "lib/dep")
+    assert "lib/dep stays detached" in result.stdout and "mine" in result.stdout, result.stdout
 
 
 def test_sync_reports_remappings_no_submodule_provides(tmp_path):
@@ -1707,3 +1748,232 @@ def test_doctor_names_yarn_dep_sync_for_a_leftover_repository(tmp_path):
 
     assert len(leftovers) == 1, leftovers
     assert "Repair: yarn dep sync" in leftovers[0], leftovers[0]
+
+
+# ── sync never moves a folder backwards over a move not yet recorded ──────────────────────────────────
+#
+# A folder behind the commit this repository points to is stale, and sync moves it forward. A folder ahead of
+# it, or on another commit, is a move someone made and has not recorded: sync leaves it and names both ways
+# out. `sync <dependency>` is the way back.
+
+
+def move_ahead(world: World, here: Path, name: str) -> str:
+    """Publish a new commit on `name` and check it out in here's lib/<name>, ahead of what here points to.
+    Returns it."""
+    tip = advance(world, name)
+    git(here / "lib" / name, "fetch", "-q", "origin")
+    git(here / "lib" / name, "checkout", "-q", tip)
+    return tip
+
+
+def test_sync_leaves_a_folder_ahead_of_the_recorded_commit(tmp_path):
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    pointed = recorded(here, "lib/dep")
+    tip = move_ahead(world, here, "dep")
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert checked_out(here / "lib" / "dep") == tip, "a move not yet recorded is not undone"
+    assert (
+        f"lib/dep: the folder has {tip[:10]}, newer than {pointed[:10]}, which {here.name} points to. "
+        "It is left as it is."
+    ) in result.stdout, result.stdout
+    assert f"To keep the folder's version: git add lib/dep ({here.name} then points to it)." in result.stdout
+    assert f"To go back to the version {here.name} points to: yarn dep sync lib/dep." in result.stdout
+
+
+def test_sync_leaves_a_folder_on_another_commit(tmp_path):
+    # Neither older nor newer: a commit on another line of history, published, so nothing is at risk.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    work = world.remotes / "dep"
+    git(work, "checkout", "-q", "-b", "side", "HEAD~1")
+    (work / "src" / "dep.sol").write_text("// dep, on the side\n")
+    git(work, "commit", "-qam", "dep: side")
+    git(work, "push", "-q", str(world.remotes / "dep.git"), "side")
+    side = git(work, "rev-parse", "HEAD")
+    git(work, "checkout", "-q", "main")
+    git(here / "lib" / "dep", "fetch", "-q", "origin")
+    git(here / "lib" / "dep", "checkout", "-q", side)
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert checked_out(here / "lib" / "dep") == side
+    assert f"lib/dep: the folder has {side[:10]}, a different commit from" in result.stdout, result.stdout
+
+
+def test_sync_fetches_a_recorded_commit_the_clone_does_not_have(tmp_path):
+    # After a pull moves the record on, the clone may not hold the new commit yet: that is a folder behind it.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    tip = advance(world, "dep")
+    record_dep_in_project(world)
+    git(here, "pull", "-q", "--no-recurse-submodules")
+    assert recorded(here, "lib/dep") == tip, "the pull must move the record on"
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert checked_out(here / "lib" / "dep") == tip
+
+
+def test_sync_named_brings_a_folder_ahead_back(tmp_path):
+    # Naming a dependency asks for it to be at the recorded commit, ahead or not. The others are untouched.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    pointed = recorded(here, "lib/dep")
+    move_ahead(world, here, "dep")
+    tool_tip = move_ahead(world, here, "tool")
+
+    result = sync(here, "dep")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert checked_out(here / "lib" / "dep") == pointed
+    assert checked_out(here / "lib" / "tool") == tool_tip, "a dependency not named is untouched"
+
+
+def test_sync_named_skips_a_folder_holding_work(tmp_path):
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    tip = move_ahead(world, here, "dep")
+    (here / "lib" / "dep" / "notes.txt").write_text("mine\n")
+
+    result = sync(here, "dep")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert checked_out(here / "lib" / "dep") == tip
+    assert "Skipping lib/dep, because it holds work." in result.stdout, result.stdout
+
+
+def test_sync_skip_message_names_both_choices(tmp_path):
+    here = clone(make_world(tmp_path, ["dep/=lib/dep/src/"]))
+    sync(here)
+    git(here / "lib" / "dep", "checkout", "-q", "HEAD~1")
+    (here / "lib" / "dep" / "notes.txt").write_text("mine\n")
+
+    result = sync(here)
+
+    assert "To keep the folder's version: commit and push that work, then git add lib/dep." in result.stdout, result.stdout
+    assert f"To go back to the version {here.name} points to: remove that work, then yarn dep sync lib/dep." in (
+        result.stdout
+    )
+
+
+def test_doctor_go_back_repair_names_yarn_dep_sync_with_the_path(tmp_path):
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    move_ahead(world, here, "dep")
+
+    found = [p for p in doctor.submodule_problems(here, ["dep/=lib/dep/src/"])[0] if p.startswith("lib/dep:")]
+
+    assert len(found) == 1, found
+    assert f"To go back to the version {here.name} points to: yarn dep sync lib/dep." in found[0], found[0]
+
+
+# ── sync inside a submodule sets it up to work in: on its branch, not detached ─────────────────────────
+
+
+def test_sync_inside_a_submodule_stands_it_on_its_branch_at_the_remote_tip(tmp_path):
+    # Working in a dependency means committing on the branch the main repository says it follows, from its
+    # newest commit. What the main repository then needs to record is named, not done: dep never stages.
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    pointed = recorded(here, "lib/dep")
+    tip = advance(world, "dep")
+
+    result = sync_inside(here / "lib" / "dep")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert branch_of(here / "lib" / "dep") == "main"
+    assert checked_out(here / "lib" / "dep") == tip
+    assert f"{here.name} points to {pointed[:10]}; to record {tip[:10]} there: git add lib/dep (in {here.name})" in (
+        result.stdout
+    ), result.stdout
+
+
+def test_sync_inside_a_detached_submodule_puts_it_on_its_branch(tmp_path):
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    git(here / "lib" / "dep", "checkout", "-q", "--detach")
+
+    result = sync_inside(here / "lib" / "dep")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert branch_of(here / "lib" / "dep") == "main"
+
+
+def test_sync_inside_a_pinned_submodule_leaves_it_and_says_so(tmp_path):
+    # Pinned: the main repository's .gitmodules names no branch for it, so there is none to stand on.
+    here = synced(make_world(tmp_path, ["dep/=lib/dep/src/"]))
+    before = checked_out(here / "lib" / "dep")
+
+    result = sync_inside(here / "lib" / "dep")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert checked_out(here / "lib" / "dep") == before
+    assert "lib/dep is pinned" in result.stdout, result.stdout
+
+
+def test_sync_inside_keeps_detached_work_only_this_computer_has(tmp_path):
+    # A commit made on a detached HEAD is on no branch and no remote: switching away would lose sight of it.
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    dependency = here / "lib" / "dep"
+    git(dependency, "checkout", "-q", "--detach")
+    (dependency / "src" / "Mine.sol").write_text("// mine\n")
+    git(dependency, "add", "-A")
+    git(dependency, "commit", "-qm", "mine")
+    mine = checked_out(dependency)
+
+    result = sync_inside(dependency)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert checked_out(dependency) == mine
+    assert branch_of(dependency) is None
+    assert "mine" in result.stdout and "stays where it is" in result.stdout, result.stdout
+
+
+def test_sync_inside_a_submodule_on_its_branch_leaves_changes_being_made_without_comment(tmp_path):
+    # The everyday case of working in a dependency: on its branch, at the remote's tip, files being changed.
+    # Nothing needs to move, so the changes are not in the way and sync says nothing about them.
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    dependency = here / "lib" / "dep"
+    sync_inside(dependency)
+    at = checked_out(dependency)
+    (dependency / "src" / "dep.sol").write_text("// dep, being changed\n")
+
+    result = sync_inside(dependency)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert branch_of(dependency) == "main"
+    assert checked_out(dependency) == at
+    assert (dependency / "src" / "dep.sol").read_text() == "// dep, being changed\n"
+    assert "holds work" not in result.stdout, result.stdout
+
+
+def test_sync_inside_leaves_a_branch_behind_the_remote_tip_where_its_changes_are(tmp_path):
+    # Moving forward would change files under work not committed, so the branch stays, and sync says why and
+    # how to move it.
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    dependency = here / "lib" / "dep"
+    sync_inside(dependency)
+    at = checked_out(dependency)
+    advance(world, "dep")
+    (dependency / "src" / "dep.sol").write_text("// dep, being changed\n")
+
+    result = sync_inside(dependency)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert branch_of(dependency) == "main"
+    assert checked_out(dependency) == at
+    assert f"lib/dep stays at {at[:10]}, behind origin/main, because it holds work." in result.stdout, result.stdout
+    assert "lib/dep/src/dep.sol: changed and not committed" in result.stdout, result.stdout
+    assert "To move it forward: commit that work and run git pull in lib/dep, or remove that work and run this again." in (
+        result.stdout
+    ), result.stdout
+    assert "Putting it on" not in result.stdout, result.stdout

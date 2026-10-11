@@ -194,7 +194,7 @@ def test_an_unrelated_checkout_states_the_relation_and_names_both_repairs(world)
     # The commit was made here and never pushed, so either way it is dealt with first.
     assert repair(facts, found) == (
         "To keep the folder's version: push it (git -C lib/dep push), then git add lib/dep. "
-        "To go back to the version this repository points to: remove the unpushed commit, then yarn dep sync."
+        "To go back to the version this repository points to: remove the unpushed commit, then yarn dep sync lib/dep."
     )
 
 
@@ -669,7 +669,7 @@ def test_a_move_names_gitmodules_beside_the_gitlink_when_its_entry_is_unstaged(w
     adding = "git add lib/dep .gitmodules" if branch_recorded else "git add lib/dep"
     assert fix == (
         f"To keep the folder's version: {adding} (this repository then points to it). "
-        "To go back to the version this repository points to: yarn dep sync."
+        "To go back to the version this repository points to: yarn dep sync lib/dep."
     ), fix
 
 

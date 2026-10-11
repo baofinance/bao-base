@@ -542,7 +542,7 @@ def test_submodule_problems_reports_one_finding_carrying_its_own_repair(tmp_path
     assert f"{recorded[:10]}  host points to" in problems[0], problems[0]
     assert (
         "Repair: To keep the folder's version: git add lib/sub (host then points to it). "
-        "To go back to the version host points to: yarn dep sync."
+        "To go back to the version host points to: yarn dep sync lib/sub."
     ) in problems[0], problems[0]
 
 

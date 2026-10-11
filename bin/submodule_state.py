@@ -1069,17 +1069,25 @@ def repair(facts: Facts, found: Condition, entry: Recorded | None = None, reposi
         # Only the user knows whether the folder's commit was meant, so both directions are named.
         unstaged_entry = entry is not None and entry.staged != entry.working
         adding = " ".join([facts.path, *([".gitmodules"] if unstaged_entry else [])])
-        if facts.unpushed:
-            # Pointing the repository at a commit no remote holds breaks every other clone, and sync
-            # refuses to move a folder holding one - so the commits are dealt with first, either way.
-            commits = "commit" if len(facts.unpushed) == 1 else "commits"
-            return (
-                f"To keep the folder's version: push it (git -C {facts.path} push), then git add {adding}. "
-                f"To go back to the version {repository} points to: remove the unpushed {commits}, then "
-                f"yarn dep sync."
-            )
-        return (
-            f"To keep the folder's version: git add {adding} ({repository} then points to it). "
-            f"To go back to the version {repository} points to: yarn dep sync."
-        )
+        return keep_or_go_back(facts.path, repository, adding, len(facts.unpushed))
     return ""
+
+
+def keep_or_go_back(path: str, repository: str, adding: str, unpushed: int) -> str:
+    """The two ways out for a folder whose commit is not the one `repository` points to, in plain words: record
+    the folder's version, or go back to the recorded one. Shared by doctor and `yarn dep sync`, so the two never
+    advise differently. Going back names the dependency, since a plain sync leaves a folder ahead of its
+    record where it is."""
+    go_back = f"yarn dep sync {path}"
+    if unpushed:
+        # Pointing the repository at a commit no remote holds breaks every other clone, and sync will not move
+        # a folder holding one - so the commits are dealt with first, either way.
+        commits = "commit" if unpushed == 1 else "commits"
+        return (
+            f"To keep the folder's version: push it (git -C {path} push), then git add {adding}. "
+            f"To go back to the version {repository} points to: remove the unpushed {commits}, then {go_back}."
+        )
+    return (
+        f"To keep the folder's version: git add {adding} ({repository} then points to it). "
+        f"To go back to the version {repository} points to: {go_back}."
+    )
