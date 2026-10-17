@@ -340,3 +340,79 @@ def test_a_baseline_two_state_files_claim_wants_a_tag_for_each():
         f"deploy/mainnet/v3-aggregators@{PAUSER.commit[:10]}",
         f"deploy/mainnet/v3-oracles@{PAUSER.commit[:10]}",
     ]
+
+
+# ── fetching tags: origin's deployment tags replace a clone's own ───────────────────────────────────
+#
+# One fetch serves `verify-audit --write` and `yarn dep`. A deployment tag corrected in one clone has to
+# reach every other, and a plain `git fetch --tags` refuses to replace a tag a clone already holds - it
+# exits 1 with "would clobber existing tag". Origin's version wins only for the deployment tags, whose
+# names the record derives. Any other tag a clone holds is its owner's, so a clash there is still refused.
+
+
+def clone_of(remote: Path, into: Path) -> Path:
+    subprocess.run(["git", "clone", "-q", str(remote), str(into)], check=True, capture_output=True)
+    git(into, "config", "user.email", "t@t")
+    git(into, "config", "user.name", "test")
+    return into
+
+
+def fetch_tags(where: Path) -> subprocess.CompletedProcess:
+    from deployment_baselines import FETCH_TAGS
+
+    return subprocess.run(["git", *FETCH_TAGS], cwd=where, capture_output=True, text=True)
+
+
+def named(where: Path, tag: str) -> tuple[str, str]:
+    """The object `tag` names here and that object's kind: a tag object when annotated, a commit when not."""
+    found = subprocess.run(
+        ["git", "for-each-ref", "--format=%(objectname) %(objecttype)", f"refs/tags/{tag}"],
+        cwd=where,
+        capture_output=True,
+        text=True,
+    ).stdout.split()
+    return (found[0], found[1]) if found else ("", "")
+
+
+def test_the_tag_fetch_takes_origins_version_of_a_deployment_tag(repo, tmp_path):
+    # This clone holds the lightweight tag an older tool made; another clone corrected it on origin.
+    other = clone_of(tmp_path / "remote.git", tmp_path / "other")
+    tag = f"deploy/mainnet/state@{head(repo)[:10]}"
+    git(repo, "tag", tag)
+    git(other, "tag", "-a", tag, "-m", "corrected", head(repo))
+    git(other, "push", "-q", "origin", f"refs/tags/{tag}")
+
+    fetched = fetch_tags(repo)
+
+    assert fetched.returncode == 0, fetched.stderr
+    assert named(repo, tag) == named(other, tag), "origin's annotated tag, the very object"
+    assert named(repo, tag)[1] == "tag"
+
+
+def test_the_tag_fetch_still_refuses_a_clash_outside_deployment_tags(repo, tmp_path):
+    # A tag outside `deploy/` is somebody's own, so which version is right is not this fetch's to decide.
+    other = clone_of(tmp_path / "remote.git", tmp_path / "other")
+    git(repo, "tag", "private-note")
+    git(other, "tag", "-a", "private-note", "-m", "theirs")
+    git(other, "push", "-q", "origin", "refs/tags/private-note")
+    mine = named(repo, "private-note")
+
+    fetched = fetch_tags(repo)
+
+    assert fetched.returncode != 0, "the clash is reported, not settled"
+    assert named(repo, "private-note") == mine, "and this clone's own tag is kept"
+
+
+def test_the_tag_fetch_brings_down_a_new_tag(repo, tmp_path):
+    # Both kinds arrive: a deployment tag, and any other tag origin has.
+    other = clone_of(tmp_path / "remote.git", tmp_path / "other")
+    deployment = f"deploy/mainnet/state@{head(repo)[:10]}"
+    git(other, "tag", "-a", deployment, "-m", "made elsewhere", head(repo))
+    git(other, "tag", "-a", "v1.0.0", "-m", "a release", head(repo))
+    git(other, "push", "-q", "origin", f"refs/tags/{deployment}", "refs/tags/v1.0.0")
+
+    fetched = fetch_tags(repo)
+
+    assert fetched.returncode == 0, fetched.stderr
+    assert named(repo, deployment) == named(other, deployment)
+    assert named(repo, "v1.0.0") == named(other, "v1.0.0")

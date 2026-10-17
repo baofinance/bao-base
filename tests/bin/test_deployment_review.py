@@ -872,7 +872,7 @@ def test_a_clone_with_no_reachable_remote_is_still_answered(tmp_path):
     # an `ls-remote` on every review, which made "what happens when it fails" a live question; now the
     # only remote call left runs when something is ALREADY failing, to say whether origin holds what is
     # missing.
-    from deployment_baselines import commit_reach, remote_tags
+    from deployment_baselines import commit_reach, origin_tags
 
     git(tmp_path, "init", "-q", "-b", "main")
     git(tmp_path, "config", "user.email", "t@t")
@@ -881,7 +881,9 @@ def test_a_clone_with_no_reachable_remote_is_still_answered(tmp_path):
     only = tag_only_commit(tmp_path, "deploy/mainnet/state@unreachable")
 
     assert commit_reach(tmp_path, only) == "reachable", "a tag here reaches it, with nothing to ask"
-    assert remote_tags(tmp_path) == {}, "and the diagnostic degrades to saying nothing, not to failing"
+    assert origin_tags(tmp_path) is None, (
+        "and the diagnostic says origin could not be asked, rather than that origin has no tags"
+    )
 
 
 # ── naming the refs, and the tags that are missing ─────────────────────────────────────────────────

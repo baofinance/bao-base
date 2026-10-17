@@ -16,7 +16,7 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -25,15 +25,19 @@ from Crypto.Hash import keccak
 from tabulate import tabulate
 
 from deployment_baselines import (
+    FETCH_TAGS,
+    RECORD,
     Baseline,
     Review,
     UnknownSchema,
+    UnreadableRecord,
     add,
     commit_reach,
-    create_missing_tags,
     drop,
-    remove_deploy_tags,
     key,
+    make_tags,
+    origin_tags,
+    push_tags,
     read_baselines,
     review,
     write_baselines,
@@ -709,9 +713,6 @@ class Recovery:
     # Every commit the search ran over, newest first, as (commit, timestamp). The provenance of a
     # "nothing built it": that means nothing in ANY ref did, which is worth saying with the range.
     dated: list[tuple[str, str]]
-    # The tags written as each baseline was proved, and the ones that could not be.
-    tagged: list[str] = field(default_factory=list)
-    untaggable: list[tuple[str, str]] = field(default_factory=list)
 
 
 def recover(
@@ -796,8 +797,6 @@ def recover(
     passes = search_passes(dated)
     say(0, f"\ntrying every one of this repository's {len(dated)} commits for {len(pending)} contract(s)")
     recovered = 0
-    created_tags: list[str] = []
-    failed_tags: list[tuple[str, str]] = []
     built = 0
     opened = beat = time.monotonic()
     # Proved, but not recordable — or recordable here and not yet anywhere else. Each carries the
@@ -988,15 +987,12 @@ def recover(
                 )
                 recovered += 1
                 # Saved as each is proved rather than at the end: these runs are long enough to be
-                # interrupted, and each baseline is an independent fact with nothing spanning them.
-                # The TAG goes with it, for the same reason and more so - it is what keeps the commit
-                # reachable, so a record saved without one is the half worth less.
+                # interrupted, and each baseline is an independent fact with nothing spanning them. The
+                # tags are made and pushed once, at the end, over the whole record: that needs origin, and
+                # a run interrupted before then leaves them to the next `--write`.
                 if write:
-                    with _stage("record: write and tag", f"record: write and tag {entry.address}", say):
+                    with _stage("record: write", f"record: write {entry.address}", say):
                         write_baselines(root, baselines)
-                        tagged, untaggable = create_missing_tags(root, [baselines[entry_key]])
-                    created_tags.extend(tagged)
-                    failed_tags.extend(untaggable)
 
     # Read from what is STILL being looked for, not from every screen that happened: a contract proved
     # at a later commit passed through the screen that failed on its way there, and listing it as an
@@ -1041,8 +1037,6 @@ def recover(
         recovered=recovered,
         built=built,
         dated=dated,
-        tagged=created_tags,
-        untaggable=failed_tags,
     )
 
 
@@ -1071,7 +1065,7 @@ def regeneration_changes(root: Path, baselines: dict[str, Baseline]) -> Regenera
     correct rather than merely current, and a re-derive mode would need it again."""
     try:
         committed = read_baselines(root)
-    except (KeyError, UnknownSchema) as refused:
+    except (KeyError, UnknownSchema, UnreadableRecord) as refused:
         return Regeneration(unreadable=str(refused), changes=[])
     return Regeneration(
         unreadable="",
@@ -1083,39 +1077,76 @@ def regeneration_changes(root: Path, baselines: dict[str, Baseline]) -> Regenera
     )
 
 
-def _write_tags(
-    root: Path,
-    baselines: Iterable[Baseline],
-    say: Printer,
-    already: tuple[list[str], list[tuple[str, str]]] = ([], []),
-) -> list[tuple[str, str]]:
-    """Create the tags the record wants, locally, and say that pushing them is a step of its own.
+# The closing line of a run whose only failure is its tags.
+_TAGS_UNFINISHED = "not every tag the record derives is on origin, so this run fails"
+
+
+def _write_tags(root: Path, baselines: Iterable[Baseline], say: Printer) -> list[str]:
+    """Make, correct and push the tags the whole record derives, and say what was done.
 
     Called from BOTH of `--write`'s endings, which is the whole reason it is a function. A repository
     whose contracts are ALL recorded already has nothing to recover and every reason to need this - the
     check fails on an untagged commit, so a `--write` that returned before reaching here left standing
     the exact failure it had just been told to repair.
 
-    Returns what could NOT be created, which the caller turns into a failing exit status: a repair that
-    half worked and said it was fine is worse than one that refused, because the next thing the user
-    does is push a record whose commits nothing preserves."""
-    # `already` is what the search tagged as it proved each baseline; this sweep covers the rest - a
-    # repository arriving with a full record and no tags has nothing for the search to do. Creating a
-    # tag skips a commit that has one, so the two cannot both make the same tag.
-    swept, unmade = create_missing_tags(root, baselines)
-    created, failed = already[0] + swept, already[1] + unmade
-    if created:
-        say(0, f"\ncreated {len(created)} tag(s), locally:")
-        for tag in created:
+    Origin first. A tag another clone already pushed is then taken rather than made again as a different
+    object of the same name, and what origin holds decides what is pushed. If origin cannot be fetched,
+    no tag is made: the record is written regardless, so the chain work is kept, and the next `--write`
+    has only the tags left to do.
+
+    Returns what is left undone, one entry each, which the caller turns into a failing exit status: a
+    repair that half worked and said it was fine is worse than one that refused, because the next thing
+    the user does is push a record whose commits nothing preserves."""
+    recorded = list(baselines)
+    with _stage("tags", "fetch, make and push the tags the record derives", say):
+        # The branches as well as the tags: whether origin holds a tag's commit is read from them.
+        for fetch in (("fetch", "--quiet", "--no-recurse-submodules", "origin"), FETCH_TAGS):
+            fetched = subprocess.run(["git", *fetch], cwd=root, capture_output=True, text=True)
+            if fetched.returncode != 0:
+                say(0, "\ncould not fetch from origin, so no tag was made or pushed:")
+                for line in (fetched.stderr or fetched.stdout).strip().splitlines():
+                    say(0, f"  {line}")
+                return ["the fetch from origin"]
+        origin = origin_tags(root)
+        if origin is None:
+            say(0, "\ncould not list origin's tags, so no tag was made or pushed")
+            return ["the listing of origin's tags"]
+        made = make_tags(root, recorded, origin)
+        sent = push_tags(root, recorded, origin)
+
+    if made.created:
+        say(0, f"\ncreated {len(made.created)} tag(s):")
+        for tag in made.created:
             say(0, f"  {tag}")
-    if failed:
-        say(0, f"\n{len(failed)} tag(s) could not be created:")
-        for tag, reason in failed:
-            say(0, f"  {tag}: {reason}")
-        say(0, "  Those commits are not preserved, so the check still fails on them.")
-    say(0, "\nPush the TAGS as well as the files — `git push --tags` — or a fresh checkout resolves")
-    say(0, "neither, and the check reads the checkout rather than the machine that wrote it.")
-    return failed
+    if made.corrected:
+        say(0, f"\ncorrected {len(made.corrected)} tag(s):")
+        for tag, faults in made.corrected:
+            say(0, f"  {tag}: {faults}" + ("; origin's copy replaced" if tag in sent.replaced else ""))
+    if sent.pushed or sent.replaced:
+        say(0, f"\npushed {len(sent.pushed) + len(sent.replaced)} tag(s) to origin:")
+        for tag in sorted(sent.pushed + sent.replaced):
+            say(0, f"  {tag}")
+    if sent.adopted:
+        say(0, f"\n{len(sent.adopted)} tag(s) taken from origin:")
+        for tag in sent.adopted:
+            say(0, f"  {tag}: another clone pushed it first, and this clone now holds origin's copy")
+    if sent.waiting:
+        say(0, f"\n{len(sent.waiting)} tag(s) not pushed, because origin does not hold the commit:")
+        for tag, commit, branches in sent.waiting:
+            where = f"on {', '.join(branches)}" if branches else "on no branch"
+            say(0, f"  {tag}: {commit[:10]} is {where}. Push it, then run verify-audit --write again")
+    if sent.refused:
+        say(0, f"\n{len(sent.refused)} tag(s) not pushed:")
+        for tag, why in sent.refused:
+            say(0, f"  {tag}: {why}")
+    if made.unmade:
+        say(0, f"\n{len(made.unmade)} tag(s) could not be made:")
+        for tag, why in made.unmade:
+            say(0, f"  {tag}: {why}")
+    changed = subprocess.run(["git", "status", "--porcelain", "--", RECORD], cwd=root, capture_output=True, text=True)
+    if changed.stdout.strip():
+        say(0, f"\n{RECORD} has changes to commit and push.")
+    return [tag for tag, _ in made.unmade] + [tag for tag, _, _ in sent.waiting] + [tag for tag, _ in sent.refused]
 
 
 def run(
@@ -1126,7 +1157,6 @@ def run(
     write: bool = False,
     regenerate: bool = False,
     reprove: bool = False,
-    retag: bool = False,
 ) -> int:
     """Everything the command does apart from parsing its arguments. The exit status is the answer.
 
@@ -1142,11 +1172,6 @@ def run(
     # The failing endings' closing line, said after the timings.
     verdict = ""
     try:
-        # Before anything reads which commits are tagged: the whole point is that the creation below then
-        # finds them missing and writes them again, so tagging keeps ONE path and this is only a deletion.
-        if retag and write:
-            gone = remove_deploy_tags(root, read_baselines(root).values())
-            say(0, f"removed {len(gone)} tag(s) to be written again" if gone else "no tags of ours to remove")
         with _stage("review", "review the manifests and the record", say):
             found = review(root, ignoring_the_record=regenerate)
         # A deployed contract is a chain AND an address: `0xA8643E35…` is `Aggregator_stETH_AAPL_arbitrum`
@@ -1213,11 +1238,14 @@ def run(
                 return 1
             say(0, "nothing to recover")
             # Nothing to RECORD is not nothing to do: the tags are the other half of the repair, and this
-            # is the ending a converted repository reaches every time.
-            unmade = _write_tags(root, found.untagged, say) if write else []
+            # is the ending a converted repository reaches every time. Over the whole record, orphans too:
+            # an orphan's contract is still on chain, and a tag that is not correct is corrected.
+            unmade = _write_tags(root, [*found.recorded, *found.orphaned], say) if write else []
             _listings(say, list(found.unreadable), found)
             if found.unreadable:
                 verdict = f"{len(found.unreadable)} deployed contract(s) have no baseline, so this run fails"
+            elif unmade:
+                verdict = _TAGS_UNFINISHED
             return 1 if found.unreadable or unmade else 0
 
         done = recover(
@@ -1300,7 +1328,7 @@ def run(
 
         # Over the WHOLE record, not just what this run proved: a repository converting to the record
         # arrives with every one of its commits untagged, and none of those is something this run recovered.
-        unmade = _write_tags(root, baselines.values(), say, (done.tagged, done.untaggable)) if write else []
+        unmade = _write_tags(root, baselines.values(), say) if write else []
 
         if recovered and write:
             say(0, f"deployed.json holds {len(baselines)} baseline(s)")
@@ -1312,6 +1340,8 @@ def run(
         # not add up is a contract that left without a row at all, and fails the run the same way.
         if account:
             verdict = f"{len(account)} deployed contract(s) have no baseline, so this run fails"
+        elif unmade:
+            verdict = _TAGS_UNFINISHED
         return 1 if account or settled != described or unmade else 0
     finally:
         # Read from the timers, never from the transcript. The chain calls are a group of their own because

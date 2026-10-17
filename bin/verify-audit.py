@@ -12,6 +12,8 @@ and none is left unchecked in between.
 baseline for every deployed contract that has none, proving each against the chain. That is minutes and
 needs an RPC, which is why it is a switch and not part of every run. It is ADDITIVE and never replaces
 an entry: delete `deployed.json` to rebuild the record from nothing, or delete one entry to correct it.
+Then it makes, corrects and pushes to origin the tag each recorded commit derives - those names only, and
+only for a commit origin already holds - and leaves `deployed.json` for the developer to commit and push.
 
 An argument holding a glob metacharacter is a PATTERN, expanded via `git tag -l` (so `deploy-*`
 works - quote it to avoid shell globbing); matching no tags is information, not a failure. Any other
@@ -62,7 +64,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from deployment_baselines import RECORD, Review, remote_tags, review
+from deployment_baselines import RECORD, Baseline, Review, UnreadableRecord, origin_tags, review
 from deployment_recovery import export_commit, install_toolchain
 from recover_baselines import Printer, run
 
@@ -794,7 +796,7 @@ def _check_baselines(found: Review) -> int:
         # the commit, the repair is to fetch rather than to go hunting for something believed lost.
         # A check that passes must never need the network; a check that is failing may improve its
         # advice with it, and degrades to saying less when nothing answers.
-        on_origin = remote_tags(Path.cwd())
+        on_origin = origin_tags(Path.cwd()) or {}
         for baseline, reach in found.unreachable:
             says = {
                 "none": "here, but no branch or tag reaches it — put it on one",
@@ -802,7 +804,7 @@ def _check_baselines(found: Review) -> int:
             }[reach]
             _err(f"\033[31m  {baseline.chain} {baseline.address} {baseline.contractType}\033[0m\n")
             _err(f"\033[31m    {baseline.commit[:10]}: {says}\033[0m\n")
-            if held := [tag for tag, at in on_origin.items() if at == baseline.commit]:
+            if held := [tag for tag, at in on_origin.items() if at.commit == baseline.commit]:
                 _err(
                     f"\033[31m      origin has {', '.join(sorted(held))} naming it —"
                     " `git fetch --tags` and run again\033[0m\n"
@@ -884,6 +886,16 @@ def _summarise_baselines(found: Review) -> None:
         _log(f"all {len(found.recorded)} deployed contracts have a recorded source commit")
 
 
+def _unreadable_record(unreadable: UnreadableRecord) -> int:
+    """Say that the record cannot be read, and what to do: the check and `--write` both read it first,
+    and stop on it the same way."""
+    first, *rest = str(unreadable).splitlines()
+    _err(f"\033[31mERROR: {first}\033[0m\n")
+    for line in rest:
+        _err(f"       {line}\n")
+    return 1
+
+
 def main() -> int:
     return _run(sys.argv[1:] or ["audit*", "deploy*"])
 
@@ -936,12 +948,21 @@ def _run(args: list[str]) -> int:
         # A single WRONG entry is corrected the same way, by deleting that entry first, because an
         # overwrite is the one edit a record of what is already deployed should never make silently.
         #
+        # Then the TAGS, over the whole record: each one the record derives is made, corrected when it is
+        # not what the record derives, and pushed to origin - only those names, and only for a commit
+        # origin already holds. `deployed.json` is left for the developer to commit and push.
+        #
         # Placed AFTER the two guards above so it inherits them: this compiles, so a FOUNDRY_PROFILE
         # would decide its settings too, and a record built under mismatched dependency versions is a
         # record built with the wrong dependencies.
         #
         # The recovery narrates wherever this command reports, which is one stream - so its verdict
         # cannot arrive above the work that produced it, and nothing has to be flushed to prevent it.
+        #
+        # It takes no other argument, and refuses one by name: an argument it ignored would read as obeyed.
+        if others := [argument for argument in args if argument != "--write"]:
+            _err(f"\033[31mERROR: --write takes no other argument, and was given {' '.join(others)}\033[0m\n")
+            return 1
         # A detached HEAD is refused rather than written to. The TAGS would be placed correctly - they
         # go on the commits the record names, never on HEAD - but the other half of the repair cannot
         # be finished here: `deployed.json` has to be committed, and there is no branch to commit it
@@ -952,12 +973,15 @@ def _run(args: list[str]) -> int:
             _err("       check out the branch it belongs on and run this again\n")
             return 1
         say = Printer(int(os.environ.get("BAO_BASE_VERBOSITY") or "0"), write=lambda line: _err(f"{line}\n"))
-        # `--retag` deletes the tags the record names so they are written again. The record itself is
-        # untouched: tagging is incremental like the record, so without this a tag that exists is left
-        # alone however its message has since changed.
-        return run(Path.cwd(), say=say, write=True, retag="--retag" in args)
+        try:
+            return run(Path.cwd(), say=say, write=True)
+        except UnreadableRecord as unreadable:
+            return _unreadable_record(unreadable)
 
-    found = review(Path.cwd())
+    try:
+        found = review(Path.cwd())
+    except UnreadableRecord as unreadable:
+        return _unreadable_record(unreadable)
     if _check_baselines(found) != 0:
         return 1
 
@@ -996,16 +1020,21 @@ def _run(args: list[str]) -> int:
             # holding a recorded commit is not preservation - branches move, are force-pushed, and are
             # deleted when work merges - and the check reads the CHECKOUT, so a commit nothing names
             # here is one a fresh clone may not be able to resolve at all.
-            _err(
-                f"\033[31mERROR: {len(found.untagged)} recorded commit(s) that no tag names, so nothing"
-                " keeps them reachable:\033[0m\n"
-            )
+            #
+            # Counted and listed by COMMIT, because each one is one tag to make. The contracts built from
+            # a commit are listed under it, so the count of commits and the count of contracts both show.
+            built_from: dict[str, list[Baseline]] = {}
             for baseline in found.untagged:
-                _err(
-                    f"\033[31m  {baseline.chain} {baseline.address} {baseline.contractType}"
-                    f" at {baseline.commit[:10]}\033[0m\n"
-                )
-            _err("       run `verify-audit --write` to create them, then push them with the files\n")
+                built_from.setdefault(baseline.commit, []).append(baseline)
+            _err(
+                f"\033[31mERROR: {len(built_from)} recorded commit(s) that no tag names, so nothing keeps them"
+                f" reachable. They are the source of {len(found.untagged)} deployed contract(s):\033[0m\n"
+            )
+            for commit, built in built_from.items():
+                _err(f"\033[31m  {commit[:10]}, the source of {len(built)}:\033[0m\n")
+                for baseline in built:
+                    _err(f"\033[31m    {baseline.chain} {baseline.address} {baseline.contractType}\033[0m\n")
+            _err("       run `verify-audit --write` to create and push them\n")
 
         if found.conflicts:
             gaps = 1

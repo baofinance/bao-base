@@ -51,6 +51,30 @@ class Conflict(Exception):
     which of the two is true is a question about the chain, not about a file."""
 
 
+class UnreadableRecord(Exception):
+    """The record is not valid JSON. Its message is what was found, and when the file holds the markers a
+    conflicting merge leaves, the repair.
+
+    The record is generated, so the repair is never an edit. Two clones that recorded different contracts
+    conflict as whole files, and either side is a record the generator wrote: keep one, and `--write`
+    records from the state files whatever that side lacks."""
+
+    def __init__(self, broken: json.JSONDecodeError, text: str):
+        markers = [
+            number
+            for number, line in enumerate(text.splitlines(), 1)
+            if line.startswith(("<<<<<<< ", "||||||| ", ">>>>>>> ")) or line == "======="
+        ]
+        lines = [f"{RECORD} is not valid JSON: {broken.msg} at line {broken.lineno}, column {broken.colno}"]
+        if markers:
+            lines += [
+                f"it holds merge-conflict markers at line(s) {', '.join(str(number) for number in markers)}",
+                f"keep one side whole: git checkout --ours {RECORD}, or git checkout --theirs {RECORD}",
+                "then run verify-audit --write, which records from the state files what that side lacks",
+            ]
+        super().__init__("\n".join(lines))
+
+
 # A field is named ONCE, by the dataclass below, and that name is the file's name. The file is
 # camelCase because every manifest in the fleet already is (`contractSource`, `contractType`,
 # `deploymentTime`, `chainId`) and a reader moving between them should not have to translate. The
@@ -147,6 +171,25 @@ def key(chain_id: int, address: str) -> str:
     return f"{chain_id}/{address.lower()}"
 
 
+# Every tag the record derives starts with this, which is what lets one fetch take origin's version of
+# exactly these tags and of no other.
+DEPLOY_TAGS = "deploy/"
+
+# The one tag fetch, used by `verify-audit --write` and by `yarn dep`: every tag origin has, with origin's
+# version of a deployment tag replacing the one held here. A plain `--tags` fetch refuses to replace a tag
+# a clone already holds ("would clobber existing tag"), so a tag corrected in one clone would stop every
+# other clone's fetch instead of reaching it. Only the deployment tags are forced: the record derives their
+# names, so origin's copy is the shared one. Any other tag is its owner's, and a clash there is refused.
+FETCH_TAGS = (
+    "fetch",
+    "--quiet",
+    "--tags",
+    "--no-recurse-submodules",
+    "origin",
+    f"+refs/tags/{DEPLOY_TAGS}*:refs/tags/{DEPLOY_TAGS}*",
+)
+
+
 def tag_names(state_files: Iterable[str], commit: str) -> list[str]:
     """The tag each state file wants for this commit: `deploy/<chain>/<file>@<commit>`.
 
@@ -163,93 +206,14 @@ def tag_names(state_files: Iterable[str], commit: str) -> list[str]:
     directory of that name, so `deploy/mainnet/v4-oracles/abc123` cannot be created beside it. `@`
     keeps the relation inside the last segment, where it can."""
     return sorted(
-        f"deploy/{path.removeprefix('deployments/').removesuffix('.json')}@{commit[:10]}" for path in state_files
+        f"{DEPLOY_TAGS}{path.removeprefix('deployments/').removesuffix('.json')}@{commit[:10]}"
+        for path in state_files
     )
 
 
 def deploy_tags(baseline: Baseline) -> list[str]:
     """The tags this baseline's commit wants, one per state file that claimed the deployment."""
     return tag_names(baseline.stateFiles, baseline.commit)
-
-
-def remove_deploy_tags(repo_root: Path, baselines: Iterable[Baseline]) -> list[str]:
-    """Delete the tags this record's baselines name, so the next creation writes them afresh.
-
-    ONLY the names `deploy_tags` derives. A commit may carry tags from other conventions - a release,
-    somebody's bookmark - and this is not entitled to those: the record says what IT names, and
-    nothing else on that commit is its business.
-
-    Deleting is local, like creating. A tag already pushed lives on until somebody deletes it there
-    too, so this changes what a fresh clone resolves only once the deletion is pushed."""
-    removed: list[str] = []
-    for baseline in baselines:
-        for tag in deploy_tags(baseline):
-            done = subprocess.run(["git", "tag", "-d", tag], cwd=repo_root, capture_output=True, text=True)
-            if done.returncode == 0:
-                removed.append(tag)
-    return sorted(removed)
-
-
-def create_missing_tags(repo_root: Path, baselines: Iterable[Baseline]) -> tuple[list[str], list[tuple[str, str]]]:
-    """Create, LOCALLY, the tag each recorded commit wants and has not got. Never pushes.
-
-    Part of the repair rather than advice printed for someone to retype: a checklist of `git tag` lines
-    is a repair the reader has to perform by hand, and the names are derived from the record anyway.
-
-    Pushing is deliberately NOT done here. The record and its tags are written together on the machine
-    that made them, and what leaves that machine stays one decision the user makes knowingly - the same
-    way this writes `deployed.json` without committing it.
-
-    "Has not got" is ANY tag pointing at the commit, matching what `Review.untagged` asks. A commit some
-    other convention already names is preserved, and imposing a second name on it would be a naming
-    policy nobody asked for.
-
-    Returns what it created AND what it could not, because `git tag` fails for reasons that matter: the
-    commit is absent from a shallow checkout, the derived name is already taken by a different commit,
-    refs are read-only. Swallowing those would leave the record written, the commits unpreserved, and
-    the check still red with nothing anywhere saying why."""
-    created: list[str] = []
-    failed: list[tuple[str, str]] = []
-    recorded = list(baselines)
-    # One commit is the source for many contracts - twenty-two of harbor's share one - so the
-    # annotation is built from ALL the baselines at that commit rather than from whichever one
-    # happened to reach the tag first.
-    at_commit: dict[str, list[Baseline]] = {}
-    for baseline in recorded:
-        at_commit.setdefault(baseline.commit, []).append(baseline)
-    annotation: dict[str, str] = {}
-    for commit, sharing in at_commit.items():
-        # The tag names the COMMIT, not the contracts: many contracts share one, and deployed.json is
-        # where which-contracts is answered. The timestamp is in full ISO 8601 because a message may
-        # hold the colons a ref name cannot, so it matches `commitTimestamp` exactly.
-        annotation[commit] = (
-            f"source of deployed code, committed {sharing[0].commitTimestamp}\n"
-            "recorded in deployed.json; this tag is what keeps the commit reachable"
-        )
-    for baseline in recorded:
-        named = subprocess.run(
-            ["git", "tag", "--points-at", baseline.commit], cwd=repo_root, capture_output=True, text=True
-        ).stdout.strip()
-        if named:
-            continue
-        for tag in deploy_tags(baseline):
-            # ANNOTATED. A lightweight tag has no message, and `git tag -n` then prints the COMMIT's
-            # subject line instead - which describes whatever that commit was about and says nothing
-            # about why the tag exists, while looking exactly like an annotation that does. It also
-            # records when the tag was made, which is a fact nothing else here keeps: a baseline
-            # recorded today from a commit of eight months ago.
-            done = subprocess.run(
-                ["git", "tag", "-a", tag, "-m", annotation[baseline.commit], baseline.commit],
-                cwd=repo_root,
-                capture_output=True,
-                text=True,
-            )
-            if done.returncode == 0:
-                created.append(tag)
-                continue
-            said = (done.stderr or done.stdout or "").strip()
-            failed.append((tag, said.splitlines()[-1] if said else f"git tag exited {done.returncode}"))
-    return sorted(created), sorted(failed)
 
 
 def reached_by(repo_root: Path, commit: str) -> list[str]:
@@ -262,24 +226,285 @@ def reached_by(repo_root: Path, commit: str) -> list[str]:
     return _contains(repo_root, "branch", commit) + _contains(repo_root, "tag", commit)
 
 
-def remote_tags(repo_root: Path) -> dict[str, str]:
-    """Every tag the REMOTE has, name to commit. Empty when no remote answers.
+def tag_message(commit_timestamp: str) -> str:
+    """What a deployment tag says.
 
-    Git has no remote namespace for tags. A remote BRANCH is visible locally as `refs/remotes/origin/…`,
-    but a fetched tag and a local-only tag are the same object in `refs/tags/` - so whether everybody
-    else can resolve a tagged commit can only be settled by asking. `verify-audit` already fetches tags
-    at startup for exactly this reason: "whether the local tag list is stale cannot be answered locally".
+    It names the COMMIT, not the contracts: many contracts share one - twenty-two of harbor's - and
+    deployed.json is where which-contracts is answered. Every baseline at a commit carries that commit's
+    timestamp, so every one derives the same message. The timestamp is in full ISO 8601 because a message
+    may hold the colons a ref name cannot, so it matches `commitTimestamp` exactly."""
+    return (
+        f"source of deployed code, committed {commit_timestamp}\n"
+        "recorded in deployed.json; this tag is what keeps the commit reachable"
+    )
 
-    An annotated tag is listed twice, the `^{}` line carrying the commit it dereferences to, and it comes
-    second - so the later line wins and the map holds commits rather than tag objects."""
+
+def derived_tags(baselines: Iterable[Baseline]) -> dict[str, Baseline]:
+    """Each tag the record derives, sorted by name, to a baseline it derives from. Every baseline at one
+    commit derives the same tag and message, so which of them is kept makes no difference."""
+    tags: dict[str, Baseline] = {}
+    for baseline in baselines:
+        for tag in deploy_tags(baseline):
+            tags.setdefault(tag, baseline)
+    return dict(sorted(tags.items()))
+
+
+@dataclass(frozen=True)
+class Tag:
+    """A tag as one repository holds it."""
+
+    object: str  # what the ref names: a tag object when annotated, the commit itself when lightweight
+    commit: str  # the commit it resolves to
+
+
+def origin_tags(repo_root: Path) -> dict[str, Tag] | None:
+    """Every tag origin has, by name. None when origin cannot be asked.
+
+    Git keeps a copy of each remote BRANCH (`refs/remotes/origin/…`) but none of the remote's tags: a
+    fetched tag and one made here are the same thing in `refs/tags/`. So what origin holds can only be
+    settled by asking it. An annotated tag is listed twice: the tag object, then a `^{}` line with the
+    commit it resolves to."""
     listed = subprocess.run(["git", "ls-remote", "--tags", "origin"], cwd=repo_root, capture_output=True, text=True)
-    found: dict[str, str] = {}
+    if listed.returncode != 0:
+        return None
+    objects: dict[str, str] = {}
+    commits: dict[str, str] = {}
     for line in listed.stdout.splitlines():
         sha, _, ref = line.partition("\t")
-        name = ref.removeprefix("refs/tags/").removesuffix("^{}")
-        if name:
-            found[name] = sha
-    return found
+        name = ref.removeprefix("refs/tags/")
+        if name.endswith("^{}"):
+            commits[name.removesuffix("^{}")] = sha
+        elif name:
+            objects[name] = sha
+    return {name: Tag(found, commits.get(name, found)) for name, found in objects.items()}
+
+
+def _held_tags(repo_root: Path) -> dict[str, Tag]:
+    """The deployment tags this clone holds, by name."""
+    listed = subprocess.run(
+        [
+            "git",
+            "for-each-ref",
+            "--format=%(refname:strip=2) %(objectname) %(objecttype) %(*objectname)",
+            f"refs/tags/{DEPLOY_TAGS}",
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    held: dict[str, Tag] = {}
+    for line in listed.stdout.splitlines():
+        name, found, kind, peeled = (line.split(" ") + [""])[:4]
+        held[name] = Tag(found, peeled if kind == "tag" else found)
+    return held
+
+
+def _faults(repo_root: Path, tag: str, held: Tag, commit: str, message: str) -> list[str]:
+    """How the tag held here differs from what the record derives for it: empty when it does not.
+
+    The tagger and the date are not compared, so a correct tag is never written again, and one another
+    clone made is as good as one made here."""
+    faults: list[str] = []
+    if held.commit != commit:
+        faults.append(f"it was on {held.commit[:10]}")
+    if held.object == held.commit:
+        faults.append("it was lightweight")
+    else:
+        said = subprocess.run(
+            ["git", "for-each-ref", "--format=%(contents)", f"refs/tags/{tag}"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        if said != message:
+            faults.append("its message was not the derived one")
+    return faults
+
+
+@dataclass(frozen=True)
+class Made:
+    """What `make_tags` did here."""
+
+    created: list[str]
+    corrected: list[tuple[str, str]]  # (tag, how it differed from what the record derives)
+    unmade: list[tuple[str, str]]  # (tag, git's words)
+
+
+def make_tags(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, Tag]) -> Made:
+    """Make, here, each tag the record derives and this clone lacks, and correct each one it holds that
+    is not what the record derives. `push_tags` sends them; this touches nothing outside the clone.
+
+    A tag is correct when it is annotated, on the recorded commit, and carries `tag_message`.
+
+    A commit is skipped when a tag ORIGIN has names it: that preserves the commit for everyone, and a
+    second name on it would be a naming policy nobody asked for. A tag only this clone holds does not
+    count, because it preserves the commit here and nowhere else. A deployment tag that exists is still
+    made correct either way.
+
+    Returns what it could not make as well, because `git tag` fails for reasons that matter: the commit
+    absent from a shallow checkout, refs that are read-only. Swallowing those would leave the check red
+    with nothing saying why."""
+    held = _held_tags(repo_root)
+    published = {tag.commit for tag in origin.values()}
+    created: list[str] = []
+    corrected: list[tuple[str, str]] = []
+    unmade: list[tuple[str, str]] = []
+    for tag, baseline in derived_tags(baselines).items():
+        message = tag_message(baseline.commitTimestamp)
+        here = held.get(tag)
+        if here is None and baseline.commit in published:
+            continue
+        faults = [] if here is None else _faults(repo_root, tag, here, baseline.commit, message)
+        if here is not None and not faults:
+            continue
+        # ANNOTATED. A lightweight tag has no message, and `git tag -n` then prints the COMMIT's subject
+        # line instead - which describes whatever that commit was about and says nothing about why the
+        # tag exists, while looking exactly like an annotation that does. It also records when the tag
+        # was made, which is a fact nothing else here keeps: a baseline recorded today from a commit of
+        # eight months ago. `-f` writes over a tag that is not correct, and creating one needs no other path.
+        done = subprocess.run(
+            ["git", "tag", "-a", "-f", tag, "-m", message, baseline.commit],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+        if done.returncode != 0:
+            said = (done.stderr or done.stdout or "").strip()
+            unmade.append((tag, said.splitlines()[-1] if said else f"git tag exited {done.returncode}"))
+        elif here is None:
+            created.append(tag)
+        else:
+            corrected.append((tag, ", ".join(faults)))
+    return Made(created, corrected, unmade)
+
+
+def _origin_holds(repo_root: Path, commit: str, origin: dict[str, Tag]) -> bool:
+    """Whether origin already holds `commit`: on one of its branches, as this clone last fetched them, or
+    under a tag origin has."""
+    on_a_branch = subprocess.run(
+        ["git", "for-each-ref", "--count=1", "--contains", commit, "refs/remotes/origin"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    if on_a_branch.stdout.strip():
+        return True
+    tagged = subprocess.run(
+        ["git", "for-each-ref", "--format=%(refname:strip=2) %(objectname)", "--contains", commit, "refs/tags"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    for line in tagged.stdout.splitlines():
+        name, _, found = line.partition(" ")
+        if name in origin and origin[name].object == found:
+            return True
+    return False
+
+
+@dataclass(frozen=True)
+class Pushed:
+    """What `push_tags` did on origin."""
+
+    pushed: list[str]  # new on origin
+    replaced: list[str]  # origin's copy replaced, by a forced push of that tag alone
+    adopted: list[str]  # origin's copy changed while this push was made, and is correct: taken
+    waiting: list[tuple[str, str, list[str]]]  # (tag, its commit, the branches here holding it)
+    refused: list[tuple[str, str]]  # (tag, why)
+
+
+def push_tags(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, Tag]) -> Pushed:
+    """Push each tag the record derives that origin lacks or holds differently. Only these tags are named,
+    so a tag that has nothing to do with deployments never leaves this clone with them.
+
+    A tag is pushed only when origin already holds its commit, on a branch or under a tag origin has.
+    Pushing a tag carries its commit along, so otherwise this would publish work nobody pushed.
+
+    Each push is leased on the copy `origin` says origin held: `--force-with-lease=<ref>:<that object>`,
+    empty when it held none. So a push replaces only the copy that was looked at, and never one another
+    clone changed in between. When a lease fails, origin is asked again. A tag that is now what the record
+    derives is taken, since which clone made it makes no difference. Anything else is reported, and never
+    forced over.
+
+    Not atomic: a tag origin refuses does not hold back the others."""
+    tags = derived_tags(baselines)
+    held = _held_tags(repo_root)
+    sending: list[tuple[str, str]] = []  # (tag, the lease: what origin held)
+    waiting: list[tuple[str, str, list[str]]] = []
+    for tag in tags:
+        here, there = held.get(tag), origin.get(tag)
+        if here is None or (there is not None and there.object == here.object):
+            continue
+        if not _origin_holds(repo_root, here.commit, origin):
+            waiting.append((tag, here.commit, _contains(repo_root, "branch", here.commit)))
+            continue
+        sending.append((tag, there.object if there is not None else ""))
+    if not sending:
+        return Pushed([], [], [], waiting, [])
+
+    done = subprocess.run(
+        [
+            "git",
+            "push",
+            "--porcelain",
+            "origin",
+            *(f"--force-with-lease=refs/tags/{tag}:{lease}" for tag, lease in sending),
+            *(f"refs/tags/{tag}" for tag, _ in sending),
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    # One line per ref: `<flag>\t<source>:<destination>\t<summary>`. A push that failed before reaching
+    # any ref prints none, and then git's last line of complaint is the reason for every tag.
+    reported: dict[str, tuple[str, str]] = {}
+    for line in done.stdout.splitlines():
+        flag, _, rest = line.partition("\t")
+        refs, _, summary = rest.partition("\t")
+        if refs.startswith("refs/tags/"):
+            reported[refs.partition(":")[0].removeprefix("refs/tags/")] = (flag, summary)
+    complaint = (done.stderr.strip().splitlines() or [f"git push exited {done.returncode}"])[-1]
+    pushed: list[str] = []
+    replaced: list[str] = []
+    rejected: list[tuple[str, str, str]] = []  # (tag, lease, why)
+    for tag, lease in sending:
+        flag, summary = reported.get(tag, ("!", complaint))
+        if flag == "*":
+            pushed.append(tag)
+        elif flag == "+":
+            replaced.append(tag)
+        else:
+            rejected.append((tag, lease, summary))
+
+    adopted: list[str] = []
+    refused: list[tuple[str, str]] = []
+    if rejected:
+        fetched = subprocess.run(["git", *FETCH_TAGS], cwd=repo_root, capture_output=True, text=True)
+        now = origin_tags(repo_root)
+        held = _held_tags(repo_root)
+        for tag, lease, why in rejected:
+            there = None if now is None else now.get(tag)
+            changed = now is not None and (there.object if there is not None else "") != lease
+            if not changed:
+                refused.append((tag, why))
+                continue
+            baseline = tags[tag]
+            here = held.get(tag)
+            if (
+                fetched.returncode == 0
+                and here == there
+                and not _faults(repo_root, tag, here, baseline.commit, tag_message(baseline.commitTimestamp))
+            ):
+                adopted.append(tag)
+                continue
+            refused.append(
+                (
+                    tag,
+                    "origin's copy changed while this run pushed it, and is not what the record derives. "
+                    "Run verify-audit --write again",
+                )
+            )
+    return Pushed(pushed, replaced, adopted, waiting, refused)
 
 
 def commit_reach(repo_root: Path, commit: str) -> str:
@@ -327,7 +552,11 @@ def read_baselines(repo_root: Path) -> dict[str, Baseline]:
     path = repo_root / RECORD
     if not path.is_file():
         return {}
-    document = json.loads(path.read_text())
+    text = path.read_text()
+    try:
+        document = json.loads(text)
+    except json.JSONDecodeError as broken:
+        raise UnreadableRecord(broken, text) from broken
     version = document.get("schemaVersion")
     if version != SCHEMA_VERSION:
         raise UnknownSchema(f"{RECORD} declares schemaVersion {version!r}; this reads {SCHEMA_VERSION}")

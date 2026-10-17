@@ -1427,11 +1427,48 @@ def test_the_recovery_is_imported_not_spawned(fix):
     assert "nothing to recover" in output, "a fixture describing no deployment has nothing to record"
 
 
-def _recorded(fix, contract="Foo"):
-    """A repository holding one deployed contract and a baseline for it, with nothing else wrong.
+ADDRESS_AA, ADDRESS_BB = "0x" + "aa" * 20, "0x" + "bb" * 20
+
+
+def _record_of(head, addresses, contract="Foo"):
+    """A record holding a baseline at `head` for each address, as `deployed.json`'s text."""
+    import json
+
+    return json.dumps(
+        {
+            "schemaVersion": 1,
+            "baselines": {
+                f"1/{address}": {
+                    "chainId": 1,
+                    "chain": "mainnet",
+                    "address": address,
+                    "contractType": contract,
+                    "source": "src/Foo.sol",
+                    "stateFiles": ["deployments/mainnet/state.json"],
+                    "commit": head,
+                    "commitTimestamp": "2026-01-01T00:00:00Z",
+                    "deployBlock": 1,
+                    "deployTimestamp": "2026-01-01T00:00:00Z",
+                    "creationBytecodeKeccak256": "a" * 64,
+                    "compiler": "0.8.20+commit.a1b79de6",
+                    "settings": {},
+                    "sources": {},
+                    "submodules": {},
+                    "libraries": {},
+                    "constructorArguments": "",
+                }
+                for address in addresses
+            },
+        }
+    )
+
+
+def _recorded(fix, contract="Foo", addresses=(ADDRESS_AA,)):
+    """A repository holding deployed contracts and a baseline for each, at one commit, with nothing else
+    wrong.
 
     Written out rather than taken from a helper because every OTHER check has to stay quiet for a test
-    about one of them: the address is claimed by a manifest (so not orphaned), the source at that commit
+    about one of them: each address is claimed by a manifest (so not orphaned), the source at that commit
     declares the contract (so not misnamed), and it records no source blobs (so none can be missing)."""
     import json
 
@@ -1442,7 +1479,6 @@ def _recorded(fix, contract="Foo"):
     fix.write("foundry.toml", FOUNDRY_TOML.rstrip("\n") + '\nremappings = ["@fixture/=src/"]\n')
     fix.write("src/Foo.sol", FOO)
     head = fix.commit("the source")
-    address = "0x" + "aa" * 20
     fix.write(
         "deployments/mainnet/state.json",
         json.dumps(
@@ -1455,39 +1491,12 @@ def _recorded(fix, contract="Foo"):
                         "contractType": contract,
                         "deploymentTime": "2026-01-01T00:00:00Z",
                     }
+                    for address in addresses
                 },
             }
         ),
     )
-    fix.write(
-        "deployed.json",
-        json.dumps(
-            {
-                "schemaVersion": 1,
-                "baselines": {
-                    f"1/{address}": {
-                        "chainId": 1,
-                        "chain": "mainnet",
-                        "address": address,
-                        "contractType": contract,
-                        "source": "src/Foo.sol",
-                        "stateFiles": ["deployments/mainnet/state.json"],
-                        "commit": head,
-                        "commitTimestamp": "2026-01-01T00:00:00Z",
-                        "deployBlock": 1,
-                        "deployTimestamp": "2026-01-01T00:00:00Z",
-                        "creationBytecodeKeccak256": "a" * 64,
-                        "compiler": "0.8.20+commit.a1b79de6",
-                        "settings": {},
-                        "sources": {},
-                        "submodules": {},
-                        "libraries": {},
-                        "constructorArguments": "",
-                    }
-                },
-            }
-        ),
-    )
+    fix.write("deployed.json", _record_of(head, addresses, contract))
     return head
 
 
@@ -1514,6 +1523,27 @@ def test_a_recorded_commit_that_no_tag_names_fails_and_names_its_repair(fix):
     assert status == 0, output
     assert "covers every deployed contract" in output
 
+    # And from where CI stands: a fresh clone of origin holds only what was pushed. The clone that made
+    # the tags passes whether or not they were pushed; a fresh clone passes only if they were.
+    fix.commit("the record")
+    fresh = fix.root / "fresh"
+    fix.git("clone", "-q", str(fix.bare), str(fresh))
+    status, output = fix.verify_audit(cwd=fresh)
+    assert status == 0, output
+
+
+def test_the_untagged_error_counts_commits_and_the_contracts_built_from_them(fix):
+    # Each commit is one tag to make, so the error counts commits and lists each once, with the contracts
+    # built from it under it.
+    head = _recorded(fix, addresses=(ADDRESS_AA, ADDRESS_BB))
+
+    status, output = fix.verify_audit()
+
+    assert status == 1, output
+    assert "1 recorded commit(s)" in output and "2 deployed contract(s)" in output, output
+    assert output.count(head[:10]) == 1, "the commit is listed once, with its contracts under it"
+    assert ADDRESS_AA in output.lower() and ADDRESS_BB in output.lower()
+
 
 def test_write_refuses_on_a_detached_head(fix):
     # The tags would land correctly - they go on the commits the record names, not on HEAD - but the
@@ -1527,22 +1557,60 @@ def test_write_refuses_on_a_detached_head(fix):
     assert status == 1, output
     assert "detached" in output.lower(), "it says what is wrong"
     assert fix.git("tag", "--points-at", head) == "", "and wrote nothing while refusing"
+    assert fix.git("ls-remote", "--tags", "origin") == "", "and pushed nothing"
 
 
-def test_a_tag_that_cannot_be_created_is_reported_and_fails(fix):
-    # Creating fewer tags than the record needs and exiting 0 would leave the check red with nothing
-    # anywhere saying why - and the next thing done is pushing a record whose commits are unpreserved.
-    # Here the derived name is already taken by a different commit, which is what `git tag` refuses.
-    head = _recorded(fix)
-    taken = f"deploy/mainnet/state@{head[:10]}"
-    fix.git("commit", "--allow-empty", "-qm", "a later commit")
-    fix.git("tag", taken)
+def test_write_refuses_an_argument_it_does_not_take(fix):
+    # `--write` takes no other argument. One it ignored would read as obeyed, so it is refused by name.
+    _recorded(fix)
 
-    status, output = fix.verify_audit("--write")
+    status, output = fix.verify_audit("--write", "--retag")
 
     assert status == 1, output
-    assert "could not be created" in output, "it says the repair did not complete"
-    assert taken in output, "and which tag it was"
+    assert "--retag" in output, "it names what it will not take"
+    assert fix.git("tag", "-l") == "", "and does nothing while refusing"
+
+
+def test_a_conflicted_record_is_reported_with_its_repair(fix):
+    # Two clones recorded different contracts, and merging their records conflicts. The record is
+    # generated, so the repair is never an edit: keep one side whole, then let `--write` record what
+    # that side lacks. The check says so, rather than stopping on a Python traceback.
+    head = _recorded(fix, addresses=(ADDRESS_AA, ADDRESS_BB))
+    fix.git("add", "deployments")
+    fix.git("commit", "-qm", "the deployments")
+    fix.git("push", "-q", "origin", "HEAD")
+    other = fix.root / "other"
+    fix.git("clone", "-q", str(fix.bare), str(other))
+    for setting, value in (("user.email", "other@t"), ("user.name", "other")):
+        fix.git("config", setting, value, cwd=other)
+    (other / "deployed.json").write_text(_record_of(head, (ADDRESS_AA, ADDRESS_BB)))
+    fix.git("add", "deployed.json", cwd=other)
+    fix.git("commit", "-qm", "both recorded", cwd=other)
+    fix.write("deployed.json", _record_of(head, (ADDRESS_AA,)))
+    fix.commit("one recorded")
+    pulled = subprocess.run(["git", "pull", "--no-rebase", "-q", "origin", "HEAD"], cwd=other, capture_output=True)
+    assert pulled.returncode != 0, "the two records conflict"
+
+    status, output = fix.verify_audit(cwd=other)
+
+    assert status == 1, output
+    assert "deployed.json" in output and "conflict" in output, output
+    assert "git checkout --ours deployed.json" in output and "verify-audit --write" in output, output
+    assert "Traceback" not in output
+    status, output = fix.verify_audit("--write", cwd=other)
+    assert status == 1 and "conflict" in output, "--write reads the record first, and stops the same way"
+
+    # The repair, as the message gives it. This side holds both contracts, so `--write` has none to recover.
+    fix.git("checkout", "--ours", "deployed.json", cwd=other)
+    repaired, repairing = fix.verify_audit("--write", cwd=other)
+    assert repaired == 0, repairing
+    fix.git("add", "deployed.json", cwd=other)
+    fix.git("commit", "-qm", "the records merged", cwd=other)
+    fix.git("push", "-q", "origin", "HEAD", cwd=other)
+    fresh = fix.root / "fresh"
+    fix.git("clone", "-q", str(fix.bare), str(fresh))
+    status, output = fix.verify_audit(cwd=fresh)
+    assert status == 0, output
 
 
 def test_the_record_switches_off_the_tag_comparison(fix):
