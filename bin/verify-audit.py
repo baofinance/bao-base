@@ -68,7 +68,16 @@ import sys
 import tempfile
 from pathlib import Path
 
-from deployment_baselines import RECORD, Baseline, Review, UnreadableRecord, origin_tags, review
+from deployment_baselines import (
+    LABELS,
+    RECORD,
+    Baseline,
+    Review,
+    UnreadableLabels,
+    UnreadableRecord,
+    origin_tags,
+    review,
+)
 from deployment_recovery import export_commit, install_toolchain
 from recover_baselines import Printer, publish, run
 
@@ -890,9 +899,9 @@ def _summarise_baselines(found: Review) -> None:
         _log(f"all {len(found.recorded)} deployed contracts have a recorded source commit")
 
 
-def _unreadable_record(unreadable: UnreadableRecord) -> int:
-    """Say that the record cannot be read, and what to do: the check and `--write` both read it first,
-    and stop on it the same way."""
+def _unreadable(unreadable: UnreadableRecord | UnreadableLabels) -> int:
+    """Say that the record or the labels file cannot be read, and what to do: the check, `--write` and
+    `--push` all read both first, and stop on either the same way."""
     first, *rest = str(unreadable).splitlines()
     _err(f"\033[31mERROR: {first}\033[0m\n")
     for line in rest:
@@ -990,14 +999,14 @@ def _run(args: list[str]) -> int:
                 status = run(Path.cwd(), say=say, write=True)
             if "--push" in flags:
                 status = max(status, publish(Path.cwd(), say=say))
-        except UnreadableRecord as unreadable:
-            return _unreadable_record(unreadable)
+        except (UnreadableRecord, UnreadableLabels) as unreadable:
+            return _unreadable(unreadable)
         return status
 
     try:
         found = review(Path.cwd())
-    except UnreadableRecord as unreadable:
-        return _unreadable_record(unreadable)
+    except (UnreadableRecord, UnreadableLabels) as unreadable:
+        return _unreadable(unreadable)
     if _check_baselines(found) != 0:
         return 1
 
@@ -1054,6 +1063,30 @@ def _run(args: list[str]) -> int:
                 "       run `verify-audit --write`, check and commit deployed.json, then `verify-audit --push`"
                 " before `git push`\n"
             )
+
+        if found.label_errors:
+            gaps = 1
+            # A tag the record wants has no usable label, so `--write` cannot make it, or an entry labels
+            # a tag the record does not derive, so its words go nowhere.
+            _err(f"\033[31mERROR: {len(found.label_errors)} problem(s) with {LABELS}:\033[0m\n")
+            for tag, problem in found.label_errors:
+                _err(f"\033[31m  {tag}: {problem}\033[0m\n")
+            _err(
+                f"       run `verify-audit --write`, which adds an empty entry to {LABELS} for each tag with"
+                " none; write one line in each, then run it again\n"
+            )
+
+        if found.wrong_tags:
+            gaps = 1
+            # A tag on each recorded commit is not enough: one that differs from what the record derives
+            # lists out of order on GitHub, or says the wrong thing. In CI these are GitHub's tags.
+            _err(
+                f"\033[31mERROR: {len(found.wrong_tags)} deployment tag(s) differ from what the record"
+                " derives:\033[0m\n"
+            )
+            for tag, faults in found.wrong_tags:
+                _err(f"\033[31m  {tag}: {faults}\033[0m\n")
+            _err("       run `verify-audit --write`, check and commit, then `verify-audit --push` before `git push`\n")
 
         if found.conflicts:
             gaps = 1

@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import tomllib
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, fields, replace
 from datetime import datetime
@@ -38,6 +39,18 @@ from deployment_records import Entry, Problem, normalise, read_records
 
 SCHEMA_VERSION = 1
 RECORD = "deployed.json"
+# The person's words for each deployment tag, beside the record they describe: one line per tag, saying
+# what was deployed. Written by hand, never generated - `--write` only appends an empty entry to fill in.
+LABELS = "deployed-labels.toml"
+_LABELS_HEADER = (
+    "# One line per deployment tag, saying what was deployed. verify-audit --write puts each line at the\n"
+    "# head of its tag's message, and adds an empty entry for a tag that has none. Write the labels here,\n"
+    "# never on the tag.\n"
+)
+
+
+class UnreadableLabels(Exception):
+    """The labels file is not valid TOML. Its message is what was found."""
 
 
 class UnknownSchema(Exception):
@@ -208,8 +221,7 @@ def tag_names(state_files: Iterable[str], commit: str) -> list[str]:
     directory of that name, so `deploy/mainnet/v4-oracles/abc123` cannot be created beside it. `@`
     keeps the relation inside the last segment, where it can."""
     return sorted(
-        f"{DEPLOY_TAGS}{path.removeprefix('deployments/').removesuffix('.json')}@{commit[:10]}"
-        for path in state_files
+        f"{DEPLOY_TAGS}{path.removeprefix('deployments/').removesuffix('.json')}@{commit[:10]}" for path in state_files
     )
 
 
@@ -228,14 +240,16 @@ def reached_by(repo_root: Path, commit: str) -> list[str]:
     return _contains(repo_root, "branch", commit) + _contains(repo_root, "tag", commit)
 
 
-def tag_message(commit_timestamp: str) -> str:
-    """What a deployment tag says.
+def tag_message(commit_timestamp: str, label: str) -> str:
+    """What a deployment tag says: its label - the person's line on what was deployed, which is what `git
+    tag -n` and GitHub's tag list show - then the tool's lines.
 
-    It names the COMMIT, not the contracts: many contracts share one - twenty-two of harbor's - and
-    deployed.json is where which-contracts is answered. Every baseline at a commit carries that commit's
-    timestamp, so every one derives the same message. The timestamp is in full ISO 8601 because a message
-    may hold the colons a ref name cannot, so it matches `commitTimestamp` exactly."""
+    The tool's lines name the COMMIT, not the contracts: many contracts share one - twenty-two of
+    harbor's - and deployed.json is where which-contracts is answered. Every baseline at a commit carries
+    that commit's timestamp, so every one derives the same message. The timestamp is in full ISO 8601
+    because a message may hold the colons a ref name cannot, so it matches `commitTimestamp` exactly."""
     return (
+        f"{label}\n\n"
         f"source of deployed code, committed {commit_timestamp}\n"
         "recorded in deployed.json; this tag is what keeps the commit reachable"
     )
@@ -249,6 +263,59 @@ def derived_tags(baselines: Iterable[Baseline]) -> dict[str, Baseline]:
         for tag in deploy_tags(baseline):
             tags.setdefault(tag, baseline)
     return dict(sorted(tags.items()))
+
+
+def read_labels(repo_root: Path) -> dict[str, object]:
+    """Each entry the labels file holds, by tag name, as written. No file holds none."""
+    path = repo_root / LABELS
+    if not path.is_file():
+        return {}
+    try:
+        return tomllib.loads(path.read_text())
+    except tomllib.TOMLDecodeError as broken:
+        raise UnreadableLabels(f"{LABELS} is not valid TOML: {broken}") from broken
+
+
+def wanted_tags(repo_root: Path, baselines: Iterable[Baseline], preserved: set[str]) -> dict[str, Baseline]:
+    """The deployment tags the tool wants, each needing a label: every one held here, and every one for a
+    commit no other tag preserves. `preserved` is the commits another tag names - as origin holds them,
+    for `--write` and `--push`, and as this clone holds them, for the check, which is local."""
+    held = _held_tags(repo_root)
+    return {
+        tag: baseline
+        for tag, baseline in derived_tags(baselines).items()
+        if tag in held or baseline.commit not in preserved
+    }
+
+
+def label_errors(labels: dict[str, object], wanted: Iterable[str], derived: Iterable[str]) -> list[tuple[str, str]]:
+    """(tag or entry, what is wrong) for each label a wanted tag lacks or that cannot serve as one, and for
+    each entry naming no tag the record derives - a misspelt or stale entry, whose text would otherwise go
+    nowhere. A label is one line of words, since the first line is all `git tag -n` and GitHub show."""
+    errors: list[tuple[str, str]] = []
+    for tag in wanted:
+        label = labels.get(tag)
+        if tag not in labels:
+            errors.append((tag, f"no label in {LABELS}"))
+        elif not isinstance(label, str):
+            errors.append((tag, "its label is not text"))
+        elif not label.strip():
+            errors.append((tag, "its label is empty"))
+        elif "\n" in label or "\r" in label:
+            errors.append((tag, "its label holds a line break, and a label is one line"))
+    known = set(derived)
+    errors += [(entry, "names no tag the record derives") for entry in labels if entry not in known]
+    return errors
+
+
+def append_empty_labels(repo_root: Path, tags: Iterable[str]) -> None:
+    """Add `"<tag>" = ""` to the labels file for each of `tags`, creating it with a header when absent, for
+    the person to fill in. Only ever appends: what they wrote, comments and layout included, stays."""
+    path = repo_root / LABELS
+    existing = path.read_text() if path.is_file() else ""
+    lead = _LABELS_HEADER if not path.is_file() else ("" if existing.endswith("\n") or not existing else "\n")
+    with path.open("a") as labels:
+        labels.write(lead + "".join(f'"{tag}" = ""\n' for tag in tags))
 
 
 @dataclass(frozen=True)
@@ -301,9 +368,9 @@ def _held_tags(repo_root: Path) -> dict[str, Tag]:
     return held
 
 
-def _faults(repo_root: Path, tag: str, held: Tag, baseline: Baseline) -> list[str]:
-    """How the tag held here differs from what the record derives for it from `baseline`: empty when it
-    does not.
+def _faults(repo_root: Path, tag: str, held: Tag, baseline: Baseline, label: str) -> list[str]:
+    """How the tag held here differs from what the record derives for it from `baseline` and its `label`:
+    empty when it does not.
 
     The date is compared, because GitHub lists tags by it: dated as its commit, a deployment tag lists in
     commit order. The tagger is not, so one another clone made is as good as one made here."""
@@ -319,7 +386,7 @@ def _faults(repo_root: Path, tag: str, held: Tag, baseline: Baseline) -> list[st
         capture_output=True,
         text=True,
     ).stdout.partition("\0")
-    if said.strip() != tag_message(baseline.commitTimestamp):
+    if said.strip() != tag_message(baseline.commitTimestamp, label):
         faults.append("its message was not the derived one")
     if dated != str(int(datetime.fromisoformat(baseline.commitTimestamp).timestamp())):
         faults.append(f"its date was not its commit's, {baseline.commitTimestamp}")
@@ -335,31 +402,28 @@ class Made:
     unmade: list[tuple[str, str]]  # (tag, git's words)
 
 
-def make_tags(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, Tag]) -> Made:
-    """Make, here, each tag the record derives and this clone lacks, and correct each one it holds that
-    is not what the record derives. `push_tags` sends them; this touches nothing outside the clone.
+def make_tags(repo_root: Path, baselines: Iterable[Baseline], labels: dict[str, str]) -> Made:
+    """Make, here, each tag in `labels` that this clone lacks, and correct each one it holds that is not
+    what the record derives. `push_tags` sends them; this touches nothing outside the clone.
+
+    `labels` holds the wanted tags (`wanted_tags`) whose labels are sound, so a tag the record does not
+    want, or whose label is in error, is left as it is: made, it would only be wrong.
 
     A tag is correct when it is annotated, on the recorded commit, carries `tag_message`, and is dated as
     its commit.
-
-    A commit is skipped when a tag ORIGIN has names it: that preserves the commit for everyone, and a
-    second name on it would be a naming policy nobody asked for. A tag only this clone holds does not
-    count, because it preserves the commit here and nowhere else. A deployment tag that exists is still
-    made correct either way.
 
     Returns what it could not make as well, because `git tag` fails for reasons that matter: the commit
     absent from a shallow checkout, refs that are read-only. Swallowing those would leave the check red
     with nothing saying why."""
     held = _held_tags(repo_root)
-    published = {tag.commit for tag in origin.values()}
     created: list[str] = []
     corrected: list[tuple[str, str]] = []
     unmade: list[tuple[str, str]] = []
     for tag, baseline in derived_tags(baselines).items():
-        here = held.get(tag)
-        if here is None and baseline.commit in published:
+        if tag not in labels:
             continue
-        faults = [] if here is None else _faults(repo_root, tag, here, baseline)
+        here = held.get(tag)
+        faults = [] if here is None else _faults(repo_root, tag, here, baseline, labels[tag])
         if here is not None and not faults:
             continue
         # ANNOTATED. A lightweight tag has no message, and `git tag -n` then prints the COMMIT's subject
@@ -368,7 +432,7 @@ def make_tags(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, 
         # the committer date git gives a tag: GitHub lists tags by their date, so deployment tags list in
         # commit order. `-f` writes over a tag that is not correct, and creating one needs no other path.
         done = subprocess.run(
-            ["git", "tag", "-a", "-f", tag, "-m", tag_message(baseline.commitTimestamp), baseline.commit],
+            ["git", "tag", "-a", "-f", tag, "-m", tag_message(baseline.commitTimestamp, labels[tag]), baseline.commit],
             cwd=repo_root,
             capture_output=True,
             text=True,
@@ -419,9 +483,10 @@ class Pushed:
     refused: list[tuple[str, str]]  # (tag, why)
 
 
-def push_tags(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, Tag]) -> Pushed:
-    """Push each tag the record derives that origin lacks or holds differently. Only these tags are named,
-    so a tag that has nothing to do with deployments never leaves this clone with them.
+def push_tags(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, Tag], labels: dict[str, str]) -> Pushed:
+    """Push each tag in `labels` that origin lacks or holds differently. Only these tags are named, so a
+    tag that has nothing to do with deployments never leaves this clone with them, and neither does one
+    whose label is in error, which `make_tags` left uncorrected.
 
     A tag is pushed only when origin already holds its commit, on a branch or under a tag origin has.
     Pushing a tag carries its commit along, so otherwise this would publish work nobody pushed.
@@ -438,6 +503,8 @@ def push_tags(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, 
     sending: list[tuple[str, str]] = []  # (tag, the lease: what origin held)
     waiting: list[tuple[str, str, list[str]]] = []
     for tag in unpublished_tags(repo_root, tags.values(), origin):
+        if tag not in labels:
+            continue
         here, there = held[tag], origin.get(tag)
         if not _origin_holds(repo_root, here.commit, origin):
             waiting.append((tag, here.commit, _contains(repo_root, "branch", here.commit)))
@@ -494,11 +561,7 @@ def push_tags(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, 
                 continue
             baseline = tags[tag]
             here = held.get(tag)
-            if (
-                fetched.returncode == 0
-                and here == there
-                and not _faults(repo_root, tag, here, baseline)
-            ):
+            if fetched.returncode == 0 and here == there and not _faults(repo_root, tag, here, baseline, labels[tag]):
                 adopted.append(tag)
                 continue
             refused.append(
@@ -659,6 +722,14 @@ class Review:
     # name is the name at deploy time and the source at that commit declares exactly that. Twelve of
     # the aggregators' eighty-three disagree, every one a rewrite after a rename.
     misnamed: list[tuple[Baseline, str | None]]
+    # (tag, how it differs) for each deployment tag held here that is not what the record derives - see
+    # `make_tags` for what correct means. A tag on each recorded commit is not enough: a wrong one lists
+    # out of order on GitHub, or says the wrong thing. Only tags whose labels are sound; one in error is
+    # reported once, in `label_errors`.
+    wrong_tags: list[tuple[str, str]]
+    # (tag or entry, what is wrong) - see `label_errors`. Which tags are wanted is judged from this
+    # clone's tags, since the check is local.
+    label_errors: list[tuple[str, str]]
 
 
 def drop(pending: dict[str, object], account: list[Problem], entry_key: str, entry: Entry, reason: str) -> None:
@@ -851,7 +922,22 @@ def review(repo_root: Path, *, ignoring_the_record: bool = False) -> Review:
     inputs_reported: dict[str, set[str]] = {}
     for baseline, paths in (*inputs_missing, *inputs_unchecked):
         inputs_reported.setdefault(key(baseline.chainId, baseline.address), set()).update(paths)
+    # The tags compared with what the record derives, and the labels they need, all from this clone.
+    record = list(baselines.values())
+    derived = derived_tags(record)
+    labels = read_labels(repo_root)
+    wanted = wanted_tags(repo_root, record, {commit for commit, tagged in named.items() if tagged})
+    errors = label_errors(labels, wanted, derived)
+    in_error = {tag for tag, _ in errors}
+    held = _held_tags(repo_root)
+    wrong: list[tuple[str, str]] = []
+    for tag, baseline in derived.items():
+        if tag in held and tag in wanted and tag not in in_error:
+            if faults := _faults(repo_root, tag, held[tag], baseline, str(labels[tag])):
+                wrong.append((tag, ", ".join(faults)))
     return Review(
+        wrong_tags=wrong,
+        label_errors=errors,
         recorded=[baselines[k] for k in sorted(baselines) if k in claimed],
         unrecovered=unrecovered,
         unreadable=unreadable,

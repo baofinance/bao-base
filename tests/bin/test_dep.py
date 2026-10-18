@@ -76,8 +76,7 @@ def foundry_toml(remappings: list[str], libs: tuple[str, ...] = ("lib",)) -> str
     listed = ", ".join(f'"{remapping}"' for remapping in remappings)
     folders = ", ".join(f'"{folder}"' for folder in libs)
     return (
-        f'[profile.default]\nsrc = "src"\nlibs = [{folders}]\nauto_detect_remappings = false\n'
-        f"remappings = [{listed}]\n"
+        f'[profile.default]\nsrc = "src"\nlibs = [{folders}]\nauto_detect_remappings = false\nremappings = [{listed}]\n'
     )
 
 
@@ -154,7 +153,10 @@ def steps(output: str) -> list[str]:
     [
         (["dep/=lib/dep/src/", "local/=src/"], set()),
         (["dep/=lib/dep/src/", "inner/=lib/dep/lib/inner/src/"], {"lib/dep/lib/inner"}),
-        (["inner/=lib/dep/lib/inner/src/", "helper/=lib/tool/lib/helper/src/"], {"lib/dep/lib/inner", "lib/tool/lib/helper"}),
+        (
+            ["inner/=lib/dep/lib/inner/src/", "helper/=lib/tool/lib/helper/src/"],
+            {"lib/dep/lib/inner", "lib/tool/lib/helper"},
+        ),
     ],
     ids=["none", "one", "two"],
 )
@@ -220,7 +222,9 @@ def test_sync_rewrites_a_drifted_url(tmp_path):
     result = sync(here)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert git(here, "config", "submodule.lib/dep.url") == git(here, "config", "-f", ".gitmodules", "submodule.lib/dep.url")
+    assert git(here, "config", "submodule.lib/dep.url") == git(
+        here, "config", "-f", ".gitmodules", "submodule.lib/dep.url"
+    )
 
 
 def followed_and_synced(tmp_path: Path) -> tuple[Path, Path]:
@@ -717,7 +721,10 @@ def test_update_to_a_tag_or_commit_drops_the_branch_line_and_pins_it(tmp_path, v
 
     assert moved.returncode == 0, moved.stdout + moved.stderr
     recorded_branch = subprocess.run(
-        ["git", "config", "-f", ".gitmodules", "--get", "submodule.lib/dep.branch"], cwd=here, capture_output=True, text=True
+        ["git", "config", "-f", ".gitmodules", "--get", "submodule.lib/dep.branch"],
+        cwd=here,
+        capture_output=True,
+        text=True,
     )
     assert recorded_branch.returncode == 1 and recorded_branch.stdout == "", recorded_branch.stdout
     assert bare.returncode != 0 and "is pinned" in bare.stdout, bare.stdout
@@ -732,7 +739,10 @@ def test_update_to_a_tag_or_commit_drops_the_branch_line_and_pins_it(tmp_path, v
     [
         ([], set()),
         (["inner/=lib/dep/lib/inner/src/"], {"lib/dep/lib/inner"}),
-        (["inner/=lib/dep/lib/inner/src/", "spare/=lib/dep/lib/spare/src/"], {"lib/dep/lib/inner", "lib/dep/lib/spare"}),
+        (
+            ["inner/=lib/dep/lib/inner/src/", "spare/=lib/dep/lib/spare/src/"],
+            {"lib/dep/lib/inner", "lib/dep/lib/spare"},
+        ),
     ],
     ids=["none", "one", "two"],
 )
@@ -1508,9 +1518,14 @@ def test_status_changes_no_checkout_and_no_index(tmp_path):
     result = status(here)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert ({path: checked_out(here / path) for path in checked_out_paths(here)}, git(here, "ls-files", "--stage")) == before
+    assert (
+        {path: checked_out(here / path) for path in checked_out_paths(here)},
+        git(here, "ls-files", "--stage"),
+    ) == before
     ran = steps(result.stdout)
-    assert ran and all(re.fullmatch(r"ran: git -C \S+ fetch --tags --quiet --no-recurse-submodules origin", step) for step in ran), ran
+    assert ran and all(
+        re.fullmatch(r"ran: git -C \S+ fetch --tags --quiet --no-recurse-submodules origin", step) for step in ran
+    ), ran
 
 
 def test_status_without_fetch_reads_what_the_last_fetch_left(tmp_path):
@@ -1544,7 +1559,10 @@ def test_doctor_reports_each_pointed_commit_no_remote_holds(tmp_path):
     # remapping uses, judged against the repository that points to it.
     remappings = ["inner/=lib/dep/lib/inner/src/"]
     here = synced(make_world(tmp_path, remappings))
-    for checkout, parent, path in ((here / "lib" / "dep" / "lib" / "inner", here / "lib" / "dep", "lib/inner"), (here / "lib" / "dep", here, "lib/dep")):
+    for checkout, parent, path in (
+        (here / "lib" / "dep" / "lib" / "inner", here / "lib" / "dep", "lib/inner"),
+        (here / "lib" / "dep", here, "lib/dep"),
+    ):
         (checkout / "src" / "Mine.sol").write_text("// mine\n")
         git(checkout, "add", "-A")
         git(checkout, "commit", "-qm", "mine")
@@ -1569,7 +1587,14 @@ def test_doctor_reports_each_pointed_commit_no_remote_holds(tmp_path):
 def test_sync_repairs_a_folder_git_cannot_read(tmp_path):
     # Doctor names `yarn dep sync` for a folder git cannot read, so sync must mend it.
     here = synced(make_world(tmp_path, ["dep/=lib/dep/src/"]))
-    git(here, "config", "-f", str(here / ".git" / "modules" / "lib" / "dep" / "config"), "core.worktree", "../../../../nowhere/lib/dep")
+    git(
+        here,
+        "config",
+        "-f",
+        str(here / ".git" / "modules" / "lib" / "dep" / "config"),
+        "core.worktree",
+        "../../../../nowhere/lib/dep",
+    )
     unreadable = subprocess.run(["git", "rev-parse", "HEAD"], cwd=here / "lib" / "dep", capture_output=True, text=True)
     assert unreadable.returncode != 0, "the folder must start unreadable"
 
@@ -1957,7 +1982,9 @@ def test_sync_skip_message_names_both_choices(tmp_path):
 
     result = sync(here)
 
-    assert "To keep the folder's version: commit and push that work, then git add lib/dep." in result.stdout, result.stdout
+    assert "To keep the folder's version: commit and push that work, then git add lib/dep." in result.stdout, (
+        result.stdout
+    )
     assert f"To go back to the version {here.name} points to: remove that work, then yarn dep sync lib/dep." in (
         result.stdout
     )
@@ -2109,7 +2136,8 @@ def test_sync_inside_leaves_a_branch_behind_the_remote_tip_where_its_changes_are
     assert checked_out(dependency) == at
     assert f"lib/dep stays at {at[:10]}, behind origin/main, because it holds work." in result.stdout, result.stdout
     assert "lib/dep/src/dep.sol: changed and not committed" in result.stdout, result.stdout
-    assert "To move it forward: commit that work and run git pull in lib/dep, or remove that work and run this again." in (
-        result.stdout
+    assert (
+        "To move it forward: commit that work and run git pull in lib/dep, or remove that work and run this again."
+        in (result.stdout)
     ), result.stdout
     assert "Putting it on" not in result.stdout, result.stdout

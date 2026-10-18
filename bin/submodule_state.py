@@ -427,7 +427,9 @@ def checked_out(checkout: Path) -> str | None:
     return head.stdout.strip() if head.returncode == 0 else None
 
 
-def unused_checkouts(repo_root: Path, directory: Path, level: Declared, remappings: list[str]) -> list[tuple[Path, Declared]]:
+def unused_checkouts(
+    repo_root: Path, directory: Path, level: Declared, remappings: list[str]
+) -> list[tuple[Path, Declared]]:
     """The submodules checked out beneath the one `directory` lists as `level` that no remapping of
     `repo_root` uses, each with the folder whose .gitmodules lists it, outermost first. The walk goes down
     through the ones a remapping uses, and not into an unused one, since removing it removes what it holds."""

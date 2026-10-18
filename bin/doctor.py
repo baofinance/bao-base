@@ -216,7 +216,9 @@ def submodule_problems(repo_root: Path, remappings: list[str]) -> tuple[list[str
         weigh = []
         if facts.unpushed:
             count = len(facts.unpushed)
-            weigh.append(f"{count} commit{'s' if count > 1 else ''} in the folder {'are' if count > 1 else 'is'} not pushed.")
+            weigh.append(
+                f"{count} commit{'s' if count > 1 else ''} in the folder {'are' if count > 1 else 'is'} not pushed."
+            )
         versions.append(_finding(facts, found, repository, weigh, keep_command(repo_root, dependency.path)))
     return versions, leftovers
 
@@ -247,7 +249,11 @@ def unpublished_commit_problems(repo_root: Path, remappings: list[str]) -> list[
             if not commit or remote_holds(directory / level.path, commit) is not False:
                 continue
             # A nested path's commit is its dependency's to choose, so only pushing it is offered there.
-            moving = f", or move to a version a remote holds: yarn dep update {path}@<version>" if directory == repo_root else ""
+            moving = (
+                f", or move to a version a remote holds: yarn dep update {path}@<version>"
+                if directory == repo_root
+                else ""
+            )
             problems.append(
                 f"{path}: no remote holds {commit[:10]}, {side}\n"
                 f"  Only this computer has it, so any other clone fails to check {path} out.\n"
@@ -270,9 +276,7 @@ def unused_checkout_problems(repo_root: Path, remappings: list[str]) -> list[str
         return []
     lines = ["These submodules are checked out inside a dependency, and no remapping uses them:"]
     lines.extend(f"  {path}" for path in found)
-    lines.append(
-        "  Repair: yarn dep sync. It keeps any that holds work only on this computer, and names that work."
-    )
+    lines.append("  Repair: yarn dep sync. It keeps any that holds work only on this computer, and names that work.")
     return ["\n".join(lines)]
 
 
@@ -286,13 +290,17 @@ def remapping_target_problems(repo_root: Path, remappings: list[str]) -> list[st
         remapping
         for remapping in remappings
         if not (repo_root / remapping_target(remapping)).exists()
-        and all(at_record(directory, level) for directory, level in submodule_levels(repo_root, remapping_target(remapping)))
+        and all(
+            at_record(directory, level) for directory, level in submodule_levels(repo_root, remapping_target(remapping))
+        )
     ]
     if not dead:
         return []
     lines = ["These remappings point to folders that do not exist, and no submodule provides them:"]
     lines.extend(f"  {remapping}" for remapping in dead)
-    lines.append("  Repair: remove each one from foundry.toml and from wake.toml (the two files list the same remappings)")
+    lines.append(
+        "  Repair: remove each one from foundry.toml and from wake.toml (the two files list the same remappings)"
+    )
     return ["\n".join(lines)]
 
 
@@ -494,7 +502,9 @@ def tracked_but_ignored_problems(repo_root: Path) -> list[str]:
     for path in paths:
         by_rule.setdefault(rule_for.get(path, "(no rule reported by git check-ignore)"), []).append(path)
 
-    lines = ["git tracks these files, but an ignore rule matches them. The rule does nothing while git tracks the file:"]
+    lines = [
+        "git tracks these files, but an ignore rule matches them. The rule does nothing while git tracks the file:"
+    ]
     for rule, matched in by_rule.items():
         lines.append(f"  {rule}")
         for path in matched:
@@ -546,7 +556,9 @@ def unused_file_problems(repo_root: Path) -> list[str]:
         parsed = _TREE_LINE.match(line)
         depth = 0 if parsed is None or parsed["branch"] is None else len(parsed["indent"]) // 4 + 1
         if parsed is None or (parsed["branch"] is None and parsed["indent"]) or depth > len(ancestors):
-            return [f"forge tree printed a line doctor does not understand, so doctor cannot tell which files are unused:\n  {line}"]
+            return [
+                f"forge tree printed a line doctor does not understand, so doctor cannot tell which files are unused:\n  {line}"
+            ]
         if depth == 0:
             listed.add(parsed["path"])
         else:
@@ -631,9 +643,7 @@ def vscode_ruff_settings_problems(repo_root: Path) -> list[str]:
 
     problems: list[str] = []
     if repo.get("[python]") != canonical.get("[python]"):
-        problems.append(
-            f'"[python]" is {repo.get("[python]")!r}, but bao-base has {canonical.get("[python]")!r}'
-        )
+        problems.append(f'"[python]" is {repo.get("[python]")!r}, but bao-base has {canonical.get("[python]")!r}')
 
     # ruff.path is a per-workspace path to the shared ruff, so compare it RESOLVED to an absolute path
     # (a consumer reaches it via lib/bao-base/); the other checked ruff.* keys are shared literals,
@@ -868,8 +878,7 @@ def claude_permission_scope_problems(repo_root: Path) -> list[str]:
         if found:
             problems.append(
                 f".claude/{name}: {len(found)} of the {len(allow)} rules in permissions.allow give more access "
-                f"than work in this repository needs:\n  "
-                + "\n  ".join(found)
+                f"than work in this repository needs:\n  " + "\n  ".join(found)
             )
     return problems
 

@@ -1497,6 +1497,8 @@ def _recorded(fix, contract="Foo", addresses=(ADDRESS_AA,)):
         ),
     )
     fix.write("deployed.json", _record_of(head, addresses, contract))
+    # The label for the one tag the record derives: a tag is never made without one.
+    fix.write("deployed-labels.toml", f'"deploy/mainnet/state@{head[:10]}" = "{contract}, as deployed"\n')
     return head
 
 
@@ -1550,6 +1552,66 @@ def test_the_untagged_error_counts_commits_and_the_contracts_built_from_them(fix
     assert "1 recorded commit(s)" in output and "2 deployed contract(s)" in output, output
     assert output.count(head[:10]) == 1, "the commit is listed once, with its contracts under it"
     assert ADDRESS_AA in output.lower() and ADDRESS_BB in output.lower()
+
+
+# ── the check compares the tags with what the record derives ────────────────────────────────────────
+#
+# A tag on each recorded commit is not enough: a deployment tag that differs from what the record derives
+# lists out of order on GitHub, or says the wrong thing. The comparison needs nothing but the clone, so in
+# CI it reads the tags GitHub holds.
+
+
+def test_the_check_fails_on_a_lightweight_deployment_tag(fix):
+    # The commit is preserved, but the tag carries no message: `git tag -n` shows the commit's subject.
+    head = _recorded(fix)
+    tag = f"deploy/mainnet/state@{head[:10]}"
+    fix.git("tag", tag, head)
+
+    status, output = fix.verify_audit()
+
+    assert status == 1, output
+    assert tag in output and "lightweight" in output, output
+    assert "verify-audit --write" in output, "with the repair"
+
+
+def test_the_check_fails_on_a_tag_dated_otherwise(fix):
+    # The right commit and message, dated the day it was made: GitHub would list it out of order.
+    head = _recorded(fix)
+    tag = f"deploy/mainnet/state@{head[:10]}"
+    made, making = fix.verify_audit("--write")
+    assert made == 0, making
+    message = fix.git("for-each-ref", "--format=%(contents)", f"refs/tags/{tag}")
+    fix.git("tag", "-a", "-f", tag, "-m", message, head)
+
+    status, output = fix.verify_audit()
+
+    assert status == 1, output
+    assert tag in output and "date" in output, output
+
+
+def test_the_check_fails_on_a_missing_label(fix):
+    # A tag the record wants has no line in deployed-labels.toml, so `--write` could not make it.
+    head = _recorded(fix)
+    (fix.work / "deployed-labels.toml").unlink()
+
+    status, output = fix.verify_audit()
+
+    assert status == 1, output
+    assert f"deploy/mainnet/state@{head[:10]}" in output and "no label" in output, output
+    assert "deployed-labels.toml" in output, "and says where the label goes"
+
+
+def test_the_check_takes_another_tag_as_standing_in(fix):
+    # A recorded commit already named by another tag is preserved, so no deployment tag and no label is
+    # wanted for it.
+    head = _recorded(fix)
+    (fix.work / "deployed-labels.toml").unlink()
+    fix.git("tag", "-a", "v1.0.0", "-m", "a release", head)
+
+    status, output = fix.verify_audit()
+
+    assert status == 0, output
+    assert "covers every deployed contract" in output
 
 
 def test_write_refuses_on_a_detached_head(fix):

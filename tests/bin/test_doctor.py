@@ -647,7 +647,9 @@ def test_a_dependency_at_the_wrong_version_with_leftovers_is_in_both_lists(tmp_p
     assert any(p.startswith("lib/dep: the folder has a newer commit than the one host points to") for p in versions), (
         versions
     )
-    assert any(p.startswith("lib/dep: contains old git repositories") and "lib/orphan" in p for p in leftovers), leftovers
+    assert any(p.startswith("lib/dep: contains old git repositories") and "lib/orphan" in p for p in leftovers), (
+        leftovers
+    )
     # Each carries its own fault: the version finding does not name the old repositories, and the leftover
     # finding's repair is sync, which removes them.
     version_finding = next(p for p in versions if p.startswith("lib/dep:"))

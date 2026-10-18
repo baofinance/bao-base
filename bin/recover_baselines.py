@@ -26,6 +26,7 @@ from tabulate import tabulate
 
 from deployment_baselines import (
     FETCH_TAGS,
+    LABELS,
     RECORD,
     Baseline,
     Pushed,
@@ -33,15 +34,20 @@ from deployment_baselines import (
     UnknownSchema,
     UnreadableRecord,
     add,
+    append_empty_labels,
     commit_reach,
+    derived_tags,
     drop,
     key,
+    label_errors,
     make_tags,
     origin_tags,
     push_tags,
     read_baselines,
+    read_labels,
     review,
     unpublished_tags,
+    wanted_tags,
     write_baselines,
 )
 from deployment_records import Entry, Problem
@@ -1084,10 +1090,13 @@ _TAGS_UNMADE = "not every tag the record derives was made, so this run fails"
 _TAGS_UNPUBLISHED = "not every tag the record derives is on origin, so this run fails"
 
 
-def _record_changed(root: Path) -> bool:
-    """Whether the record has changes that are not committed, an untracked file included."""
-    status = subprocess.run(["git", "status", "--porcelain", "--", RECORD], cwd=root, capture_output=True, text=True)
-    return bool(status.stdout.strip())
+def _uncommitted(root: Path) -> list[str]:
+    """The record and the labels file, each one that has changes not committed, an untracked file
+    included: the tags are derived from both."""
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--", RECORD, LABELS], cwd=root, capture_output=True, text=True
+    )
+    return sorted({line[3:] for line in status.stdout.splitlines() if line.strip()})
 
 
 def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer, *, push: bool) -> list[str]:
@@ -1104,6 +1113,10 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer, *, push: 
     object of the same name, and what origin holds decides what is pushed. If origin cannot be fetched,
     no tag is made: the record is written regardless, so the chain work is kept, and the next run has
     only the tags left to do.
+
+    Then the labels. A tag the record wants with no entry in the labels file gets an empty one, from
+    `--write` only - `--push` adding one would leave the file with changes not committed, which is what it
+    refuses. A tag whose label is in error is neither made nor corrected, since it would only be wrong.
 
     Returns what is left undone, one entry each, which the caller turns into a failing exit status: a
     repair that half worked and said it was fine is worse than one that refused, because the next thing
@@ -1122,10 +1135,29 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer, *, push: 
         if origin is None:
             say(0, "\ncould not list origin's tags, so no tag was made or pushed")
             return ["the listing of origin's tags"]
-        made = make_tags(root, recorded, origin)
-        sent = push_tags(root, recorded, origin) if push else Pushed([], [], [], [], [])
+        labels = read_labels(root)
+        wanted = wanted_tags(root, recorded, {tag.commit for tag in origin.values()})
+        errors = label_errors(labels, wanted, derived_tags(recorded))
+        missing = [tag for tag in wanted if tag not in labels]
+        if missing and not push:
+            append_empty_labels(root, missing)
+        in_error = {tag for tag, _ in errors}
+        sound = {tag: str(labels[tag]) for tag in wanted if tag not in in_error}
+        made = make_tags(root, recorded, sound)
+        sent = push_tags(root, recorded, origin, sound) if push else Pushed([], [], [], [], [])
         unpublished = [] if push else unpublished_tags(root, recorded, origin)
 
+    if errors:
+        say(0, f"\n{len(errors)} problem(s) with {LABELS}; a tag whose label is in error is not made:")
+        for tag, problem in errors:
+            say(0, f"  {tag}: {problem}")
+        if push:
+            say(0, f"  Correct them in {LABELS}, run verify-audit --write, commit, then verify-audit --push again")
+        elif missing:
+            say(0, "  Each tag with no label now has an empty entry: write one line for each, then run")
+            say(0, "  verify-audit --write again")
+        else:
+            say(0, f"  Correct them in {LABELS}, then run verify-audit --write again")
     if made.created:
         say(0, f"\ncreated {len(made.created)} tag(s):")
         for tag in made.created:
@@ -1157,25 +1189,32 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer, *, push: 
             say(0, f"  {tag}: {why}")
     # What is left is the developer's, in this order: the tags go before the branch, so the branch
     # reaches a CI that already holds them.
-    if not push and _record_changed(root):
-        say(0, f"\nnext: check the tags and {RECORD}, commit {RECORD}, run verify-audit --push, then git push")
-    elif unpublished:
+    changed = [] if push or errors else _uncommitted(root)
+    if changed:
+        files = " and ".join(changed)
+        say(0, f"\nnext: check the tags and {files}, commit {files}, run verify-audit --push, then git push")
+    elif unpublished and not errors:
         say(0, "\nnext: check the tags, then run verify-audit --push")
-    return [tag for tag, _ in made.unmade] + [tag for tag, _, _ in sent.waiting] + [tag for tag, _ in sent.refused]
+    return (
+        [tag for tag, _ in errors]
+        + [tag for tag, _ in made.unmade]
+        + [tag for tag, _, _ in sent.waiting]
+        + [tag for tag, _ in sent.refused]
+    )
 
 
 def publish(root: Path, *, say: Printer) -> int:
     """`--push`: make and correct the tags the record derives, then publish them to origin. The record is
     read as it stands, and no contract is searched for: that is `--write`'s.
 
-    Only from a committed record. The tags derive from it, so publishing them from changes nobody has
-    committed would publish what nobody has checked. The exit status is the answer: 1 when the record
-    has changes, or a tag is left off origin."""
+    Only from a committed record and labels file. The tags derive from both, so publishing them from
+    changes nobody has committed would publish what nobody has checked. The exit status is the answer: 1
+    when either has changes, or a tag is left off origin."""
     # The timers are kept per process, so a run before this one must not report its stages here.
     Timer.timers.clear()
-    if _record_changed(root):
-        say(0, f"{RECORD} has changes that are not committed, so no tag was pushed.")
-        say(0, f"Check them, commit {RECORD}, then run verify-audit --push again.")
+    if changed := _uncommitted(root):
+        say(0, f"{' and '.join(changed)}: changes that are not committed, so no tag was pushed.")
+        say(0, "Check them, commit them, then run verify-audit --push again.")
         return 1
     if _tag_step(root, read_baselines(root).values(), say, push=True):
         say(0, f"\n{_TAGS_UNPUBLISHED}")

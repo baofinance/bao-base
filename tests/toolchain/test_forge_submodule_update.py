@@ -636,11 +636,15 @@ def test_build_locked_refuses_a_lock_that_disagrees_with_the_checkout(project, r
     locked = install_pinned(project, remotes, pin)
     agreeing = forge(project, "build", "--locked")
     # Unless it passes while they agree, the refusal below could have some other cause.
-    assert agreeing.returncode == 0, f"forge build --locked fails with the lock and checkout agreeing.\n{agreeing.stderr}"
+    assert agreeing.returncode == 0, (
+        f"forge build --locked fails with the lock and checkout agreeing.\n{agreeing.stderr}"
+    )
     moved = move_checkout_past_the_lock(project, remotes)
     assert index_gitlink(project, "dep") == locked, "the gitlink must still name the locked commit"
 
     result = forge(project, "build", "--locked")
 
-    assert result.returncode != 0, f"forge build --locked now accepts a lock the checkout disagrees with.\n{result.stdout}"
+    assert result.returncode != 0, (
+        f"forge build --locked now accepts a lock the checkout disagrees with.\n{result.stdout}"
+    )
     assert f"lib/dep: expected {locked}, found {moved}" in result.stderr, result.stderr
