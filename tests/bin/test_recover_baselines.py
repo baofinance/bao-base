@@ -3299,6 +3299,112 @@ def test_a_rename_whose_earlier_entries_differ_gets_an_empty_label(tmp_path, mon
     assert deployment_tag(earlier) not in tags_in(repo)
 
 
+def test_a_stale_tag_origin_holds_is_deleted_there_first(tmp_path, monkeypatch):
+    # While origin holds a tag, the next fetch brings it back, so a deletion here alone does not last. The
+    # repair gives origin's deletion first, and says why.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+    assert recover.publish(repo, say=recover.Printer(0)) == 0
+    an_earlier_contract_recorded(repo, head)
+
+    printed: list[str] = []
+    assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 1
+
+    there = [i for i, line in enumerate(printed) if f"git push origin --delete refs/tags/{deployment_tag()}" in line]
+    here = [i for i, line in enumerate(printed) if f"git tag -d {deployment_tag()}" in line]
+    assert there and here and there[0] < here[0], printed
+    assert any("the next fetch brings it back" in line for line in printed), printed
+
+
+def test_a_stale_tag_origin_lacks_is_deleted_only_here(tmp_path, monkeypatch):
+    # A tag of the earlier naming made only here: deleting it here is the whole repair.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
+    stale = f"deploy/mainnet/state@{head[:10]}"
+    subprocess.run(["git", "tag", stale, head], cwd=repo, check=True, capture_output=True)
+
+    printed: list[str] = []
+    assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 1
+
+    assert any(f"git tag -d {stale}" in line for line in printed), printed
+    assert not any("git push origin --delete" in line for line in printed), printed
+
+
+# ── the closing line: what is left, as facts ────────────────────────────────────────────────────────
+#
+# A run that fails on its tags ends by saying what is left, one fact per kind: a derived tag with no usable
+# label, a label naming no tag, a tag git could not make, a stale tag held here, a tag not pushed. Each is
+# what the run found, so a run that made every tag the record derives never says it did not.
+
+
+def test_a_write_left_only_with_a_stale_tag_ends_by_saying_so(tmp_path, monkeypatch):
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
+    subprocess.run(["git", "tag", f"deploy/mainnet/state@{head[:10]}", head], cwd=repo, check=True, capture_output=True)
+
+    printed: list[str] = []
+    assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 1
+
+    assert deployment_tag() in tags_in(repo), "the one tag the record derives is made"
+    closing = printed[-1].strip()
+    assert closing == "1 deployment tag(s) the record no longer derives are held here, so this run fails", closing
+
+
+def test_a_write_left_only_with_a_label_naming_no_tag_ends_by_saying_so(tmp_path, monkeypatch):
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
+    with (repo / "deployed-labels.toml").open("a") as labels:
+        labels.write('"deploy/mainnet/state@1999-01-01T00-00-00Z" = "words for no deploy"\n')
+
+    printed: list[str] = []
+    assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 1
+
+    assert deployment_tag() in tags_in(repo), "the one tag the record derives is made"
+    closing = printed[-1].strip()
+    assert closing == "1 label(s) in deployed-labels.toml name no tag the record derives, so this run fails", closing
+
+
+def test_a_write_whose_tag_has_no_usable_label_ends_by_saying_so(tmp_path, monkeypatch):
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    labelled(repo, text="")
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+
+    printed: list[str] = []
+    assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 1
+
+    assert deployment_tag() not in tags_in(repo)
+    closing = printed[-1].strip()
+    assert closing == "1 tag(s) the record derives have no usable label, so this run fails", closing
+
+
+def test_push_refused_for_a_stale_tag_ends_by_saying_so(tmp_path, monkeypatch):
+    # The tag the record derives is already on origin, so a closing line saying a tag is missing there
+    # would be false. The refusal is for the stale tag, and the closing line says that.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+    assert recover.publish(repo, say=recover.Printer(0)) == 0
+    subprocess.run(["git", "tag", f"deploy/mainnet/state@{head[:10]}", head], cwd=repo, check=True, capture_output=True)
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
+
+    assert deployment_tag() in tags_in(origin)
+    closing = printed[-1].strip()
+    assert closing == "1 deployment tag(s) the record no longer derives are held here, so this run fails", closing
+
+
 def test_writing_again_does_not_pile_up_tags(tmp_path, monkeypatch):
     # Run twice on an unchanged tree and the second run has nothing to create: each deployment tag the
     # record derives is already held, which is the same question `Review.missing_tags` asks.

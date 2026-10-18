@@ -1086,9 +1086,10 @@ def regeneration_changes(root: Path, baselines: dict[str, Baseline]) -> Regenera
     )
 
 
-# The closing line of a run whose only failure is its tags: `--write` makes them, `--push` publishes them.
-_TAGS_UNMADE = "not every tag the record derives was made, so this run fails"
-_TAGS_UNPUBLISHED = "not every tag the record derives is on origin, so this run fails"
+def _failing(left: list[str]) -> str:
+    """The closing line of a run whose tag step leaves `left`, one fact per kind of thing left: empty when
+    nothing is. Each fact is what the run found, so a run that made every tag never says it did not."""
+    return f"{'; '.join(left)}, so this run fails" if left else ""
 
 
 def _uncommitted(root: Path) -> list[str]:
@@ -1100,7 +1101,7 @@ def _uncommitted(root: Path) -> list[str]:
     return sorted({line[3:] for line in status.stdout.splitlines() if line.strip()})
 
 
-def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer, *, push: bool) -> list[str]:
+def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer, *, push: bool) -> str:
     """Make and correct the tags the whole record derives, publish them when `push` says to, and say what
     was done.
 
@@ -1123,11 +1124,12 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer, *, push: 
 
     A deployment tag the record no longer derives (`stale_tags`) is reported and left: deleting it is the
     person's. `--write` fails while one is held, and `--push` pushes nothing, so GitHub never holds a
-    deploy under two names.
+    deploy under two names. Origin's deletion is given first: while origin holds a tag, the next fetch
+    brings it back, so a deletion here alone does not last.
 
-    Returns what is left undone, one entry each, which the caller turns into a failing exit status: a
-    repair that half worked and said it was fine is worse than one that refused, because the next thing
-    the user does is push a record whose commits nothing preserves."""
+    Returns the closing line (`_failing`), empty when nothing is left, which the caller says last and
+    turns into a failing exit status: a repair that half worked and said it was fine is worse than one
+    that refused, because the next thing the user does is push a record whose commits nothing preserves."""
     recorded = list(baselines)
     with _stage("tags", "fetch, make and push the tags" if push else "fetch and make the tags", say):
         # The branches as well as the tags: whether origin holds a tag's commit is read from them.
@@ -1137,25 +1139,32 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer, *, push: 
                 say(0, "\ncould not fetch from origin, so no tag was made or pushed:")
                 for line in (fetched.stderr or fetched.stdout).strip().splitlines():
                     say(0, f"  {line}")
-                return ["the fetch from origin"]
+                return _failing(["origin could not be fetched"])
         origin = origin_tags(root)
         if origin is None:
             say(0, "\ncould not list origin's tags, so no tag was made or pushed")
-            return ["the listing of origin's tags"]
+            return _failing(["origin's tags could not be listed"])
         # After the fetch, so a stale tag origin holds is held here too.
         stale = stale_tags(root, recorded)
+        left = [f"{len(stale)} deployment tag(s) the record no longer derives are held here"] if stale else []
         if stale:
             say(0, f"\n{len(stale)} deployment tag(s) held here that the record no longer derives:")
             for tag in stale:
                 say(0, f"  {tag}: the record no longer derives it" + (", and origin holds it" if tag in origin else ""))
-            say(0, "  Deleting them is yours. To delete them here:")
-            say(0, f"    git tag -d {' '.join(stale)}")
             if on_origin := [tag for tag in stale if tag in origin]:
-                say(0, "  To delete them on origin:")
+                say(
+                    0,
+                    "  Deleting them is yours. First on origin: while origin holds a tag, the next fetch brings it"
+                    " back here.",
+                )
                 say(0, f"    git push origin --delete {' '.join(f'refs/tags/{tag}' for tag in on_origin)}")
+                say(0, "  Then here:")
+            else:
+                say(0, "  Deleting them is yours. To delete them here:")
+            say(0, f"    git tag -d {' '.join(stale)}")
             if push:
                 say(0, "  No tag was pushed. Delete them, then run verify-audit --push again")
-                return stale
+                return _failing(left)
             say(0, "  Then run verify-audit --write again")
         labels = read_labels(root)
         derived = derived_tags(recorded)
@@ -1223,13 +1232,18 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer, *, push: 
         say(0, f"\nnext: check the tags and {files}, commit {files}, run verify-audit --push, then git push")
     elif unpublished and not errors and not stale:
         say(0, "\nnext: check the tags, then run verify-audit --push")
-    return (
-        stale
-        + [tag for tag, _ in errors]
-        + [tag for tag, _ in made.unmade]
-        + [tag for tag, _, _ in sent.waiting]
-        + [tag for tag, _ in sent.refused]
-    )
+    # A label error names either a tag the record derives, which is then not made, or an entry naming no tag.
+    left += [
+        f"{count} {what}"
+        for count, what in (
+            (sum(tag in derived for tag, _ in errors), "tag(s) the record derives have no usable label"),
+            (sum(tag not in derived for tag, _ in errors), f"label(s) in {LABELS} name no tag the record derives"),
+            (len(made.unmade), "tag(s) the record derives could not be made"),
+            (len(sent.waiting) + len(sent.refused), "tag(s) the record derives were not pushed to origin"),
+        )
+        if count
+    ]
+    return _failing(left)
 
 
 def publish(root: Path, *, say: Printer) -> int:
@@ -1254,8 +1268,8 @@ def publish(root: Path, *, say: Printer) -> int:
             say(0, f"  {key(entry.chain_id, entry.address)}  {entry.name}")
         say(0, "Run verify-audit --write to record them, commit, then run verify-audit --push again.")
         return 1
-    if _tag_step(root, [*found.recorded, *found.orphaned], say, push=True):
-        say(0, f"\n{_TAGS_UNPUBLISHED}")
+    if closing := _tag_step(root, [*found.recorded, *found.orphaned], say, push=True):
+        say(0, f"\n{closing}")
         return 1
     return 0
 
@@ -1351,13 +1365,13 @@ def run(
             # Nothing to RECORD is not nothing to do: the tags are the other half of the repair, and this
             # is the ending a converted repository reaches every time. Over the whole record, orphans too:
             # an orphan's contract is still on chain, and a tag that is not correct is corrected.
-            unmade = _tag_step(root, [*found.recorded, *found.orphaned], say, push=False) if write else []
+            tags_left = _tag_step(root, [*found.recorded, *found.orphaned], say, push=False) if write else ""
             _listings(say, list(found.unreadable), found)
             if found.unreadable:
                 verdict = f"{len(found.unreadable)} deployed contract(s) have no baseline, so this run fails"
-            elif unmade:
-                verdict = _TAGS_UNMADE
-            return 1 if found.unreadable or unmade else 0
+            elif tags_left:
+                verdict = tags_left
+            return 1 if found.unreadable or tags_left else 0
 
         done = recover(
             root,
@@ -1439,7 +1453,7 @@ def run(
 
         # Over the WHOLE record, not just what this run proved: a repository converting to the record
         # arrives with every one of its commits untagged, and none of those is something this run recovered.
-        unmade = _tag_step(root, baselines.values(), say, push=False) if write else []
+        tags_left = _tag_step(root, baselines.values(), say, push=False) if write else ""
 
         if recovered and write:
             say(0, f"deployed.json holds {len(baselines)} baseline(s)")
@@ -1451,9 +1465,9 @@ def run(
         # not add up is a contract that left without a row at all, and fails the run the same way.
         if account:
             verdict = f"{len(account)} deployed contract(s) have no baseline, so this run fails"
-        elif unmade:
-            verdict = _TAGS_UNMADE
-        return 1 if account or settled != described or unmade else 0
+        elif tags_left:
+            verdict = tags_left
+        return 1 if account or settled != described or tags_left else 0
     finally:
         # Read from the timers, never from the transcript. The chain calls are a group of their own because
         # each is inside a chain stage above them - adding the groups together would count that time twice -

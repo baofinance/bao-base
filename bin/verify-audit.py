@@ -1096,9 +1096,15 @@ def _run(args: list[str]) -> int:
             )
             for tag in found.stale_tags:
                 _err(f"\033[31m  {tag}: the record no longer derives it\033[0m\n")
+            # Origin's deletion first. The check reads only this clone, so it cannot say whether origin holds
+            # them; where it does, a deletion here alone comes back with the next fetch.
             _err(
-                f"       delete them here with `git tag -d {' '.join(found.stale_tags)}`, and on origin if it holds them\n"
+                "       deleting them is yours. First on origin, where it holds them: while origin holds a tag,"
+                " the next fetch brings it back here\n"
             )
+            _err(f"         git push origin --delete {' '.join(f'refs/tags/{tag}' for tag in found.stale_tags)}\n")
+            _err("       then here:\n")
+            _err(f"         git tag -d {' '.join(found.stale_tags)}\n")
 
         if found.conflicts:
             gaps = 1

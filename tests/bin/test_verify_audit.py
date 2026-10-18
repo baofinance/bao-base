@@ -1637,6 +1637,25 @@ def test_the_check_reports_a_stale_deployment_tag(fix):
     assert stale in output and "no longer derives" in output, output
 
 
+def test_the_check_says_to_delete_a_stale_tag_on_origin_first(fix):
+    # The check reads only this clone, so it cannot know whether origin holds the tag. Where origin does,
+    # the next fetch brings it back, so the repair gives origin's deletion first, and says why.
+    head = _recorded(fix)
+    made, making = fix.verify_audit("--write")
+    assert made == 0, making
+    stale = f"deploy/mainnet/state@{head[:10]}"
+    fix.git("tag", stale, head)
+
+    status, output = fix.verify_audit()
+
+    assert status == 1, output
+    lines = output.splitlines()
+    there = [i for i, line in enumerate(lines) if f"git push origin --delete refs/tags/{stale}" in line]
+    here = [i for i, line in enumerate(lines) if f"git tag -d {stale}" in line]
+    assert there and here and there[0] < here[0], output
+    assert "the next fetch brings it back" in output, output
+
+
 def test_write_refuses_on_a_detached_head(fix):
     # The tags would land correctly - they go on the commits the record names, not on HEAD - but the
     # record could not be committed, so the repair would only ever be half done. A detached HEAD is
