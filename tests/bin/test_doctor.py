@@ -1138,3 +1138,113 @@ def test_a_push_refspec_naming_tags_is_a_finding(tmp_path, isolated, refspec):
         ["git", "-C", str(host), "config", "--get-all", "remote.origin.push"], capture_output=True, text=True
     )
     assert pushed.stdout.split() == ["refs/heads/main"]
+
+
+# ── deployment_tag_problems: origin holds each deployment tag the record derives, as it is here ──
+#
+# verify-audit and `--write` read only this clone, and CI reads only what was pushed, so a deployment tag
+# made here and never pushed passes every local check. git keeps no copy of origin's tags, so this asks
+# origin, once, and only in a repository with a deployed.json. A check that could not ask fails.
+
+
+def _deploying_repo(tmp_path: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, str, list[str]]:
+    """A repository whose one commit origin holds, and a record of two deploys from it into two state files,
+    each with its deployment tag made here. Returns the repository, origin, the commit, and the two tags."""
+    from dataclasses import replace
+
+    from deployment_baselines import add, derived_tags, make_tags, write_baselines
+    from test_deployment_baselines import PAUSER
+
+    origin = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True, capture_output=True)
+    repo = _init_repo(tmp_path / "host")
+    for arguments in (
+        ("config", "user.email", "t@t"),
+        ("config", "user.name", "test"),
+        ("remote", "add", "origin", str(origin)),
+        ("commit", "-q", "--allow-empty", "-m", "the deployed source"),
+        ("push", "-q", "origin", "HEAD:refs/heads/main"),
+    ):
+        _git(repo, *arguments)
+    head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    built = [
+        replace(PAUSER, address=f"0x{digit * 40}", commit=head, stateFiles=[f"deployments/mainnet/{name}.json"])
+        for digit, name in (("1", "one"), ("2", "two"))
+    ]
+    write_baselines(repo, add(add({}, built[0]), built[1]))
+    tags = list(derived_tags(built))
+    made = make_tags(repo, built, {tag: "a deploy" for tag in tags})
+    assert made.created == tags, made
+    return repo, origin, head, tags
+
+
+def test_deployment_tags_none_without_a_record(tmp_path):
+    # No record, no deployment tags to check: origin is not asked, so an origin out of reach is no finding.
+    repo = _init_repo(tmp_path / "host")
+    _git(repo, "remote", "add", "origin", str(tmp_path / "nowhere.git"))
+
+    assert doctor.deployment_tag_problems(repo) == []
+
+
+def test_deployment_tags_none_when_origin_holds_each_as_here(tmp_path):
+    repo, origin, head, tags = _deploying_repo(tmp_path)
+    _git(repo, "push", "-q", "origin", *(f"refs/tags/{tag}" for tag in tags))
+
+    assert doctor.deployment_tag_problems(repo) == []
+
+
+def test_deployment_tags_lists_each_one_origin_lacks(tmp_path):
+    # One of the two pushed: exactly the other is listed, with the push that publishes it.
+    repo, origin, head, tags = _deploying_repo(tmp_path)
+    _git(repo, "push", "-q", "origin", f"refs/tags/{tags[0]}")
+
+    problems = doctor.deployment_tag_problems(repo)
+
+    assert len(problems) == 1, problems
+    assert tags[1] in problems[0] and "verify-audit --push" in problems[0], problems
+    assert tags[0] not in problems[0], problems
+
+
+def test_deployment_tags_lists_one_origin_holds_differently(tmp_path):
+    # Origin's copy is another object - here a lightweight tag of the same name - so CI reads a tag this
+    # clone does not hold.
+    repo, origin, head, tags = _deploying_repo(tmp_path)
+    _git(repo, "push", "-q", "origin", *(f"refs/tags/{tag}" for tag in tags))
+    _git(repo, "push", "-q", "-f", "origin", f"{head}:refs/tags/{tags[0]}")
+
+    problems = doctor.deployment_tag_problems(repo)
+
+    assert len(problems) == 1, problems
+    assert tags[0] in problems[0] and "verify-audit --push" in problems[0], problems
+
+
+def test_deployment_tags_lists_a_stale_tag_origin_holds(tmp_path):
+    # Two names the record no longer derives: one the tool replaces - lightweight, on its replacement's
+    # commit - which `--push` deletes; and one on another commit, whose deletion is the person's.
+    repo, origin, head, tags = _deploying_repo(tmp_path)
+    _git(repo, "push", "-q", "origin", *(f"refs/tags/{tag}" for tag in tags))
+    replaced = f"deploy/mainnet/one@{head[:10]}"
+    _git(repo, "push", "-q", "origin", f"{head}:refs/tags/{replaced}")
+    _git(repo, "commit", "-q", "--allow-empty", "-m", "another commit")
+    other = "deploy/mainnet/one@1999-01-01T00-00-00Z"
+    _git(repo, "push", "-q", "origin", f"HEAD:refs/tags/{other}")
+
+    problems = doctor.deployment_tag_problems(repo)
+
+    assert len(problems) == 2, problems
+    about_replaced = next(problem for problem in problems if replaced in problem)
+    about_other = next(problem for problem in problems if other in problem)
+    assert "verify-audit --push" in about_replaced and tags[0] in about_replaced, about_replaced
+    assert f"git push origin --delete refs/tags/{other}" in about_other, about_other
+
+
+def test_deployment_tags_fails_when_origin_cannot_be_asked(tmp_path):
+    # A check that could not look must not pass: one finding, in git's words, which say where it looked.
+    repo, origin, head, tags = _deploying_repo(tmp_path)
+    nowhere = tmp_path / "nowhere.git"
+    _git(repo, "remote", "set-url", "origin", str(nowhere))
+
+    problems = doctor.deployment_tag_problems(repo)
+
+    assert len(problems) == 1, problems
+    assert "could not be asked" in problems[0] and str(nowhere) in problems[0], problems

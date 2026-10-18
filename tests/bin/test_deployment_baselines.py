@@ -390,7 +390,7 @@ def test_a_baseline_two_state_files_claim_is_in_a_tag_for_each():
 
 # ── fetching tags: origin's deployment tags replace a clone's own ───────────────────────────────────
 #
-# One fetch serves `verify-audit --write` and `yarn dep`. A deployment tag corrected in one clone has to
+# One fetch serves `verify-audit --push` and `yarn dep`. A deployment tag corrected in one clone has to
 # reach every other, and a plain `git fetch --tags` refuses to replace a tag a clone already holds - it
 # exits 1 with "would clobber existing tag". Origin's version wins only for the deployment tags, whose
 # names the record derives. Any other tag a clone holds is its owner's, so a clash there is still refused.

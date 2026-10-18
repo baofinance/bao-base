@@ -190,7 +190,7 @@ def key(chain_id: int, address: str) -> str:
 # exactly these tags and of no other.
 DEPLOY_TAGS = "deploy/"
 
-# The one tag fetch, used by `verify-audit --write` and by `yarn dep`: every tag origin has, with origin's
+# The one tag fetch, used by `verify-audit --push` and by `yarn dep`: every tag origin has, with origin's
 # version of a deployment tag replacing the one held here. A plain `--tags` fetch refuses to replace a tag
 # a clone already holds ("would clobber existing tag"), so a tag corrected in one clone would stop every
 # other clone's fetch instead of reaching it. Only the deployment tags are forced: the record derives their
@@ -233,6 +233,11 @@ def reached_by(repo_root: Path, commit: str) -> list[str]:
     return _contains(repo_root, "branch", commit) + _contains(repo_root, "tag", commit)
 
 
+# The last line of every annotated tag the tool makes, as it has been since it first annotated them. A
+# stale tag ending with it is the tool's own, so it holds nothing the record cannot make again.
+_TOOL_LINE = "recorded in deployed.json; this tag is what keeps the commit reachable"
+
+
 def _seconds(timestamp: str) -> int:
     """An ISO 8601 timestamp from the record, as Unix seconds."""
     return int(datetime.fromisoformat(timestamp).timestamp())
@@ -269,12 +274,7 @@ def tag_message(built: list[Baseline], label: str) -> str:
         side = "after the deploy, which ran from changes not yet committed"
     else:
         side = "during the deploy"
-    return (
-        f"{label}\n\n"
-        f"{deployed}\n"
-        f"source of deployed code, committed {committed}, {side}\n"
-        "recorded in deployed.json; this tag is what keeps the commit reachable"
-    )
+    return f"{label}\n\n{deployed}\nsource of deployed code, committed {committed}, {side}\n{_TOOL_LINE}"
 
 
 def tag_date(built: list[Baseline]) -> str:
@@ -317,21 +317,74 @@ def derived_tags(baselines: Iterable[Baseline]) -> dict[str, list[Baseline]]:
     return dict(sorted(tags.items()))
 
 
+def _prefix_of(name: str, prefixes: Iterable[str]) -> str | None:
+    """The state file prefix `name` is a tag under, `<prefix>@…`, or None."""
+    return next((prefix for prefix in prefixes if name.startswith(f"{prefix}@")), None)
+
+
+def _stale_names(names: Iterable[str], record: list[Baseline]) -> list[str]:
+    """Those of `names` the record no longer derives: under the prefix of a state file the record holds
+    contracts for, but not a name it derives."""
+    prefixes = {_tag_prefix(state_file) for baseline in record for state_file in baseline.stateFiles}
+    derived = derived_tags(record)
+    return sorted(name for name in names if name not in derived and _prefix_of(name, prefixes) is not None)
+
+
 def stale_tags(repo_root: Path, baselines: Iterable[Baseline]) -> list[str]:
     """The deployment tags held here that the record no longer derives: named under a state file the
     record holds contracts for, but not a name it derives. A tag's name moves when the record gains an
     earlier contract under it, and every tag named by the commit alone, as they once were, no longer
-    matches. They are reported, never deleted: deleting a tag is the person's.
+    matches. Those the tool replaces (`replaced_tags`) it deletes; any other is the person's to delete.
 
     A tag under no such state file is left alone, so a hand-made `deploy/harbor-1.0.1` is not one."""
+    return _stale_names(_held_tags(repo_root), list(baselines))
+
+
+def replaced_tags(repo_root: Path, baselines: Iterable[Baseline], tags: dict[str, Tag] | None = None) -> dict[str, str]:
+    """Each stale tag of `tags` - this clone's when not given - that the tool may delete, to the tag the
+    record derives in its place.
+
+    A REPLACED tag is on the same commit as the tag the record derives under its state file's prefix, and
+    holds nothing the record cannot make again: it is lightweight, or annotated with the tool's last line.
+    The commit keeps its tag through the replacement, so deleting it loses nothing. An annotated tag whose
+    object is not here cannot be read, so it is not counted; nor is any other stale tag, which is the
+    person's."""
     record = list(baselines)
+    tags = _held_tags(repo_root) if tags is None else tags
     prefixes = {_tag_prefix(state_file) for baseline in record for state_file in baseline.stateFiles}
-    derived = derived_tags(record)
-    return sorted(
-        tag
-        for tag in _held_tags(repo_root)
-        if tag not in derived and any(tag.startswith(f"{prefix}@") for prefix in prefixes)
-    )
+    replacing = {(_prefix_of(tag, prefixes), built[0].commit): tag for tag, built in derived_tags(record).items()}
+    replaced: dict[str, str] = {}
+    for name in _stale_names(tags, record):
+        found = tags[name]
+        replacement = replacing.get((_prefix_of(name, prefixes), found.commit))
+        if replacement is None:
+            continue
+        if found.object != found.commit:
+            shown = subprocess.run(
+                ["git", "cat-file", "tag", found.object], cwd=repo_root, capture_output=True, text=True
+            )
+            if shown.returncode != 0 or shown.stdout.rstrip().splitlines()[-1:] != [_TOOL_LINE]:
+                continue
+        replaced[name] = replacement
+    return replaced
+
+
+def stale_repair(tags: list[str], on_origin: list[str] | None) -> list[str]:
+    """The person's deletion of `tags`, stale tags the tool does not replace, as lines to print. Origin's
+    deletion comes first: while origin holds a tag, the next fetch brings it back. `on_origin` names those
+    origin holds; None when this run did not ask, and then origin's deletion is given for all, where it
+    holds them."""
+    there = tags if on_origin is None else on_origin
+    if not there:
+        return ["Deleting them is yours. To delete them here:", f"  git tag -d {' '.join(tags)}"]
+    where = ", where it holds them" if on_origin is None else ""
+    return [
+        f"Deleting them is yours. First on origin{where}: while origin holds a tag, the next fetch brings it back"
+        " here.",
+        f"  git push origin --delete {' '.join(f'refs/tags/{tag}' for tag in there)}",
+        "Then here:",
+        f"  git tag -d {' '.join(tags)}",
+    ]
 
 
 def read_labels(repo_root: Path) -> dict[str, object]:
@@ -377,24 +430,16 @@ def append_labels(
     stays.
 
     An entry carries the words `labels` holds for the same deploy under a name the record no longer
-    derives, so a renamed tag keeps its label: its name by commit alone, `<prefix>@<the commit's first 10
-    characters>`, or a tag held here on that commit. The earlier entry stays, and is reported as naming no
-    tag, for the person to delete. With no such words, or with several that differ, the entry is empty, for
+    derives (`_earlier_entries`), so a renamed tag keeps its label. The earlier entry stays until `--write`
+    removes it (`replaced_labels`). With no such words, or with several that differ, the entry is empty, for
     the person to fill in."""
     held = _held_tags(repo_root)
     added: dict[str, str] = {}
     for tag in tags:
-        built = derived[tag]
-        commit = built[0].commit
-        prefix = next(prefix for prefix in map(_tag_prefix, built[0].stateFiles) if tag.startswith(f"{prefix}@"))
         earlier = {
             text
-            for entry, text in labels.items()
-            if entry not in derived
-            and isinstance(text, str)
-            and text.strip()
-            and entry.startswith(f"{prefix}@")
-            and (entry == f"{prefix}@{commit[:10]}" or (entry in held and held[entry].commit == commit))
+            for entry, text in _earlier_entries(tag, derived, labels, held).items()
+            if isinstance(text, str) and text.strip()
         }
         added[tag] = earlier.pop() if len(earlier) == 1 else ""
     path = repo_root / LABELS
@@ -411,6 +456,61 @@ def append_labels(
     return added
 
 
+def _earlier_entries(
+    tag: str, derived: dict[str, list[Baseline]], labels: dict[str, object], held: dict[str, Tag]
+) -> dict[str, object]:
+    """The entries of `labels` for `tag`'s deploy under a name the record no longer derives: same state
+    file, and either its name by commit alone, `<prefix>@<the commit's first 10 characters>`, or a tag held
+    here on that commit."""
+    built = derived[tag]
+    commit = built[0].commit
+    prefix = _prefix_of(tag, map(_tag_prefix, built[0].stateFiles))
+    return {
+        entry: text
+        for entry, text in labels.items()
+        if entry not in derived
+        and entry.startswith(f"{prefix}@")
+        and (entry == f"{prefix}@{commit[:10]}" or (entry in held and held[entry].commit == commit))
+    }
+
+
+def replaced_labels(repo_root: Path, labels: dict[str, object], derived: dict[str, list[Baseline]]) -> dict[str, str]:
+    """The entries `--write` removes: each earlier entry of a deploy (`_earlier_entries`) whose words are
+    exactly those of the deploy's own entry. They were carried to the new name, so nothing is lost."""
+    held = _held_tags(repo_root)
+    return {
+        entry: text
+        for tag in derived
+        if isinstance(labels.get(tag), str)
+        for entry, text in _earlier_entries(tag, derived, labels, held).items()
+        if text == labels[tag]
+    }
+
+
+def remove_labels(repo_root: Path, entries: dict[str, str]) -> list[str]:
+    """Remove from the labels file each line holding exactly one of `entries`, name and words both, and
+    return their names. Each line is read on its own, so every other line stays byte for byte: comments,
+    layout and the person's other entries."""
+    path = repo_root / LABELS
+    if not entries or not path.is_file():
+        return []
+    kept: list[str] = []
+    removed: list[str] = []
+    for line in path.read_text().splitlines(keepends=True):
+        try:
+            parsed = tomllib.loads(line)
+        except tomllib.TOMLDecodeError:
+            # Part of a value written across lines, which is no single entry to remove.
+            parsed = {}
+        if len(parsed) == 1 and next(iter(parsed.items())) in entries.items():
+            removed.append(next(iter(parsed)))
+        else:
+            kept.append(line)
+    if removed:
+        path.write_text("".join(kept))
+    return removed
+
+
 @dataclass(frozen=True)
 class Tag:
     """A tag as one repository holds it."""
@@ -419,8 +519,12 @@ class Tag:
     commit: str  # the commit it resolves to
 
 
-def origin_tags(repo_root: Path) -> dict[str, Tag] | None:
-    """Every tag origin has, by name. None when origin cannot be asked.
+class OriginUnanswered(Exception):
+    """Origin could not be asked for its tags. Its message is git's words, which say where it looked."""
+
+
+def origin_tags(repo_root: Path) -> dict[str, Tag]:
+    """Every tag origin has, by name. Raises `OriginUnanswered` when origin cannot be asked.
 
     Git keeps a copy of each remote BRANCH (`refs/remotes/origin/…`) but none of the remote's tags: a
     fetched tag and one made here are the same thing in `refs/tags/`. So what origin holds can only be
@@ -428,7 +532,8 @@ def origin_tags(repo_root: Path) -> dict[str, Tag] | None:
     commit it resolves to."""
     listed = subprocess.run(["git", "ls-remote", "--tags", "origin"], cwd=repo_root, capture_output=True, text=True)
     if listed.returncode != 0:
-        return None
+        said = (listed.stderr or listed.stdout).strip()
+        raise OriginUnanswered(said or f"git ls-remote exited {listed.returncode}")
     objects: dict[str, str] = {}
     commits: dict[str, str] = {}
     for line in listed.stdout.splitlines():
@@ -566,6 +671,39 @@ def _origin_holds(repo_root: Path, commit: str, origin: dict[str, Tag]) -> bool:
     return False
 
 
+def _leased_push(repo_root: Path, leases: dict[str, str], refspecs: list[str]) -> dict[str, tuple[str, str]]:
+    """Push `refspecs` to origin, each tag leased on the object origin held when it was looked at - empty
+    when it held none - and return each leased tag's (flag, summary) as git's porcelain gives them: `*` new,
+    `+` forced, `-` deleted, anything else refused. So a push changes only the copy looked at, never one
+    another clone put there since.
+
+    One line per ref: `<flag>\\t<source>:<destination>\\t<summary>`, read by destination, which a deletion
+    has alone. A push that failed before reaching any ref prints none, and then git's last line of complaint
+    is the reason for every tag."""
+    done = subprocess.run(
+        [
+            "git",
+            "push",
+            "--porcelain",
+            "origin",
+            *(f"--force-with-lease=refs/tags/{tag}:{lease}" for tag, lease in leases.items()),
+            *refspecs,
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    reported: dict[str, tuple[str, str]] = {}
+    for line in done.stdout.splitlines():
+        flag, _, rest = line.partition("\t")
+        refs, _, summary = rest.partition("\t")
+        destination = refs.partition(":")[2]
+        if destination.startswith("refs/tags/"):
+            reported[destination.removeprefix("refs/tags/")] = (flag, summary)
+    complaint = (done.stderr.strip().splitlines() or [f"git push exited {done.returncode}"])[-1]
+    return {tag: reported.get(tag, ("!", complaint)) for tag in leases}
+
+
 @dataclass(frozen=True)
 class Pushed:
     """What `push_tags` did on origin."""
@@ -607,33 +745,12 @@ def push_tags(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, 
     if not sending:
         return Pushed([], [], [], waiting, [])
 
-    done = subprocess.run(
-        [
-            "git",
-            "push",
-            "--porcelain",
-            "origin",
-            *(f"--force-with-lease=refs/tags/{tag}:{lease}" for tag, lease in sending),
-            *(f"refs/tags/{tag}" for tag, _ in sending),
-        ],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-    )
-    # One line per ref: `<flag>\t<source>:<destination>\t<summary>`. A push that failed before reaching
-    # any ref prints none, and then git's last line of complaint is the reason for every tag.
-    reported: dict[str, tuple[str, str]] = {}
-    for line in done.stdout.splitlines():
-        flag, _, rest = line.partition("\t")
-        refs, _, summary = rest.partition("\t")
-        if refs.startswith("refs/tags/"):
-            reported[refs.partition(":")[0].removeprefix("refs/tags/")] = (flag, summary)
-    complaint = (done.stderr.strip().splitlines() or [f"git push exited {done.returncode}"])[-1]
+    reported = _leased_push(repo_root, dict(sending), [f"refs/tags/{tag}" for tag, _ in sending])
     pushed: list[str] = []
     replaced: list[str] = []
     rejected: list[tuple[str, str, str]] = []  # (tag, lease, why)
     for tag, lease in sending:
-        flag, summary = reported.get(tag, ("!", complaint))
+        flag, summary = reported[tag]
         if flag == "*":
             pushed.append(tag)
         elif flag == "+":
@@ -645,7 +762,11 @@ def push_tags(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, 
     refused: list[tuple[str, str]] = []
     if rejected:
         fetched = subprocess.run(["git", *FETCH_TAGS], cwd=repo_root, capture_output=True, text=True)
-        now = origin_tags(repo_root)
+        try:
+            now: dict[str, Tag] | None = origin_tags(repo_root)
+        except OriginUnanswered:
+            # Asked again only to explain a rejection: unanswered, every rejected tag is reported as refused.
+            now = None
         held = _held_tags(repo_root)
         for tag, lease, why in rejected:
             there = None if now is None else now.get(tag)
@@ -676,6 +797,80 @@ def unpublished_tags(repo_root: Path, baselines: Iterable[Baseline], origin: dic
         for tag in derived_tags(baselines)
         if tag in held and (tag not in origin or origin[tag].object != held[tag].object)
     ]
+
+
+@dataclass(frozen=True)
+class Deleted:
+    """What `delete_replaced_tags` did."""
+
+    here: list[tuple[str, str]]  # (replaced tag, its replacement), deleted here
+    on_origin: list[str]  # of those, the ones deleted on origin first
+    refused: list[tuple[str, str]]  # (replaced tag, origin's reason): kept, here and there
+    kept: list[str]  # replaced tags kept, as their replacement is not in place - here, or on origin
+
+
+def delete_replaced_tags(
+    repo_root: Path,
+    baselines: Iterable[Baseline],
+    in_place: set[str],
+    origin: dict[str, Tag] | None = None,
+    sent: Pushed | None = None,
+) -> Deleted:
+    """Delete each replaced tag held here (`replaced_tags`) once its replacement is in place. `in_place` is
+    the tags the record derives that are correct here once `make_tags` has run.
+
+    `--write` gives no `origin`: it reads only this clone, so it deletes a replaced tag here once its
+    replacement is made, and `--push` deletes it on origin. `--push` gives origin as listed before it
+    pushed, and what `push_tags` did. A replaced tag origin holds is deleted there only once origin holds
+    the replacement as this clone does - pushed now, or there already - leased on the copy listed, and then
+    here. One origin refuses to delete stays here as well, since the next fetch would bring it back."""
+    replaced = replaced_tags(repo_root, baselines)
+    held = _held_tags(repo_root)
+    published = set() if sent is None else {*sent.pushed, *sent.replaced, *sent.adopted}
+    ready: dict[str, str] = {}
+    leases: dict[str, str] = {}
+    kept: list[str] = []
+    for tag, replacement in replaced.items():
+        if replacement not in in_place:
+            kept.append(tag)
+            continue
+        if origin is not None and tag in origin:
+            if replacement not in published and (
+                replacement not in origin or origin[replacement].object != held[replacement].object
+            ):
+                kept.append(tag)
+                continue
+            leases[tag] = origin[tag].object
+        ready[tag] = replacement
+    reported = _leased_push(repo_root, leases, [f":refs/tags/{tag}" for tag in leases]) if leases else {}
+    refused = [(tag, summary) for tag, (flag, summary) in reported.items() if flag != "-"]
+    for tag, _ in refused:
+        del ready[tag]
+    for tag in ready:
+        subprocess.run(["git", "tag", "-d", tag], cwd=repo_root, capture_output=True, text=True, check=True)
+    return Deleted(sorted(ready.items()), sorted(tag for tag in leases if tag in ready), refused, kept)
+
+
+@dataclass(frozen=True)
+class OriginComparison:
+    """How origin's deployment tags stand against the record and this clone."""
+
+    lacking: list[str]  # tags the record derives that origin does not hold
+    differing: list[str]  # tags the record derives that origin holds as another object than this clone's
+    stale: dict[str, str | None]  # names origin holds that the record no longer derives, to the replacement
+
+
+def compare_with_origin(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, Tag]) -> OriginComparison:
+    """Origin's deployment tags, as `origin_tags` listed them, against the record and this clone. A stale
+    name maps to the tag replacing it when the tool may delete it (`replaced_tags`), and to None when
+    deleting it is the person's."""
+    record = list(baselines)
+    replaced = replaced_tags(repo_root, record, origin)
+    return OriginComparison(
+        lacking=[tag for tag in derived_tags(record) if tag not in origin],
+        differing=[tag for tag in unpublished_tags(repo_root, record, origin) if tag in origin],
+        stale={name: replaced.get(name) for name in _stale_names(origin, record)},
+    )
 
 
 def commit_reach(repo_root: Path, commit: str) -> str:
@@ -822,6 +1017,8 @@ class Review:
     label_errors: list[tuple[str, str]]
     # The deployment tags held here that the record no longer derives - see `stale_tags`.
     stale_tags: list[str]
+    # Of those, each the tool deletes, to the tag replacing it - see `replaced_tags`.
+    replaced_tags: dict[str, str]
 
 
 def drop(pending: dict[str, object], account: list[Problem], entry_key: str, entry: Entry, reason: str) -> None:
@@ -1020,6 +1217,7 @@ def review(repo_root: Path, *, ignoring_the_record: bool = False) -> Review:
         wrong_tags=wrong,
         label_errors=errors,
         stale_tags=stale_tags(repo_root, record),
+        replaced_tags=replaced_tags(repo_root, record),
         missing_tags={tag: built for tag, built in derived.items() if tag not in held},
         recorded=[baselines[k] for k in sorted(baselines) if k in claimed],
         unrecovered=unrecovered,

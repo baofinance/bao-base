@@ -2570,12 +2570,13 @@ def recorded_and_committed(recover, repo: Path) -> int:
     return status
 
 
-def refusing_tags(origin: Path) -> Path:
-    """A pre-receive hook in `origin` that refuses every tag, as a tag protection rule would."""
+def refusing_tags(origin: Path, refs: str = "refs/tags/*") -> Path:
+    """A pre-receive hook in `origin` that refuses a push carrying any ref `refs` matches - every tag unless
+    told otherwise - as a tag protection rule would."""
     hook = origin / "hooks" / "pre-receive"
     hook.write_text(
         "#!/bin/sh\nwhile read old new ref; do\n"
-        '  case "$ref" in refs/tags/*) echo "tags are protected" >&2; exit 1;; esac\n'
+        f'  case "$ref" in {refs}) echo "tags are protected" >&2; exit 1;; esac\n'
         "done\n"
     )
     hook.chmod(0o755)
@@ -2743,9 +2744,10 @@ def test_write_moves_a_derived_tag_on_the_wrong_commit(tmp_path, monkeypatch):
     assert git_out(origin, "rev-parse", f"{tag}^{{commit}}") == head
 
 
-def test_write_takes_origins_corrected_tag_rather_than_replacing_it(tmp_path, monkeypatch):
-    # Another clone corrected it already, and this one still holds the old lightweight tag. Origin's is
-    # right, so it is taken as it is: replacing it would be a forced push for nothing.
+def test_push_takes_origins_corrected_tag_rather_than_replacing_it(tmp_path, monkeypatch):
+    # Another clone corrected it already, and this one still holds the old lightweight tag. `--write`
+    # corrects it here without looking at origin. Origin's is right too, so `--push` takes it as it is:
+    # replacing it would be a forced push for nothing.
     first, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     origin, tag = first.parent / "origin.git", deployment_tag()
     recover = load_recover_baselines()
@@ -2756,9 +2758,15 @@ def test_write_takes_origins_corrected_tag_rather_than_replacing_it(tmp_path, mo
     labelled(second)
     subprocess.run(["git", "tag", "-f", tag, head], cwd=second, check=True, capture_output=True)
     driven(recover, monkeypatch, second, deployed_a)
+    # The second clone's own identity, so the tag it makes is another object: the suite names one identity
+    # for every repository, and two clones would otherwise make the very same tag.
+    with monkeypatch.context() as other:
+        other.setenv("GIT_COMMITTER_NAME", "a second clone")
+        assert recorded_and_committed(recover, second) == 0
+    assert tags_in(second)[tag] != tags_in(origin)[tag], "`--write` made its own correction here"
 
     printed: list[str] = []
-    assert recover.run(second, say=recover.Printer(0, printed.append), write=True) == 0
+    assert recover.publish(second, say=recover.Printer(0, printed.append)) == 0
 
     assert tags_in(second)[tag] == tags_in(origin)[tag] == tags_in(first)[tag]
     assert not any("replaced" in line for line in printed), printed
@@ -2858,27 +2866,39 @@ def test_push_fails_for_a_commit_origin_does_not_hold(tmp_path, monkeypatch):
     assert unpushed[:10] in said and "side" in said, said
 
 
-def test_a_write_that_cannot_reach_origin_makes_no_tag_and_says_why(tmp_path, monkeypatch):
-    # The chain work is kept: the record is written, and only the tags wait for the next `--write`. None
-    # is made blind, because origin's copy decides whether one is needed and what it must replace.
+def test_write_works_with_no_origin(tmp_path, monkeypatch):
+    # `--write` reads only this clone: the record, the labels and the tags here. So it records and tags
+    # with origin out of reach, and only `--push` needs it.
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     origin = repo.parent / "origin.git"
-    away = origin.rename(origin.with_name("away.git"))
+    origin.rename(origin.with_name("away.git"))
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
 
-    printed: list[str] = []
-    assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 1
+    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
 
-    assert key(1, ADDRESS_A) in read_baselines(repo), "the record is written"
-    assert tags_in(repo) == {}, "and no tag is made"
+    assert key(1, ADDRESS_A) in read_baselines(repo)
+    assert deployment_tag() in tags_in(repo)
+
+
+def test_a_push_that_cannot_reach_origin_pushes_nothing_and_says_why(tmp_path, monkeypatch):
+    # Origin's copy decides whether a tag needs sending and what it replaces, so nothing is pushed blind.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+    away = origin.rename(origin.with_name("away.git"))
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
+
     said = "\n".join(printed)
     assert "could not fetch from origin" in said, said
     assert str(origin) in said, "with git's own words, which say where it looked"
-
+    assert printed[-1].strip() == "origin could not be fetched, so this run fails", printed[-1]
     away.rename(origin)
-    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
-    assert deployment_tag() in tags_in(repo), "and the next run makes it"
+    assert tags_in(origin) == {}
 
 
 def test_a_tag_origin_refuses_is_named_and_the_push_fails(tmp_path, monkeypatch):
@@ -3150,13 +3170,18 @@ def test_push_reports_a_missing_label_and_appends_nothing(tmp_path, monkeypatch)
     assert any(deployment_tag() in line and "no label" in line for line in printed), printed
 
 
-# ── renamed and stale deployment tags ───────────────────────────────────────────────────────────────
+# ── renamed, replaced and stale deployment tags ─────────────────────────────────────────────────────
 #
 # A tag is named by its deploy's first block, so its name moves if the record later gains an earlier
 # contract under it, and every tag of the earlier naming, by commit, no longer matches. A deployment tag the
-# record no longer derives is reported, and only reported: deleting it is the person's. `--push` refuses
-# while one is held here, and while a deployed contract has no baseline, since that deploy's record may be
-# incomplete. A label follows its tag to the new name, so the person's words are not lost.
+# record no longer derives is stale. The tool deletes a stale tag only when it is REPLACED: on the commit of
+# the tag the record now derives under the same state file, and holding nothing the record cannot make
+# again - lightweight, or annotated with the tool's last line. `--write` deletes it here once its
+# replacement is made; `--push` deletes it on origin once origin holds the replacement, on a lease of the
+# copy it looked at, then here. Any other stale tag is the person's to delete, and `--push` refuses while one
+# is held here, as it does while a deployed contract has no baseline, since that deploy's record may be
+# incomplete. A label follows its tag to the new name, and the old entry goes when its words are the new
+# one's.
 
 
 def an_earlier_contract_recorded(repo: Path, head: str) -> str:
@@ -3170,6 +3195,15 @@ def an_earlier_contract_recorded(repo: Path, head: str) -> str:
     sibling = replace(orphan_baseline(ADDRESS_B, "A"), commit=head, deployBlock=50, deployTimestamp=earlier)
     write_baselines(repo, add(read_baselines(repo), sibling))
     return earlier
+
+
+def a_stale_tag_on_another_commit(repo: Path) -> str:
+    """A tag named under the fixtures' state file, on a commit no tag the record derives is on: stale, and not
+    replaced, so deleting it stays the person's. Returns its name."""
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "another commit"], cwd=repo, check=True)
+    stale = "deploy/mainnet/state@1999-01-01T00-00-00Z"
+    subprocess.run(["git", "tag", stale, git_out(repo, "rev-parse", "HEAD")], cwd=repo, check=True, capture_output=True)
+    return stale
 
 
 def test_push_refuses_while_a_deployed_contract_has_no_baseline(tmp_path, monkeypatch):
@@ -3190,8 +3224,10 @@ def test_push_refuses_while_a_deployed_contract_has_no_baseline(tmp_path, monkey
     assert "have no baseline" in said and ADDRESS_A in said.lower(), said
 
 
-def test_a_renamed_tag_leaves_the_old_one_stale_and_reported(tmp_path, monkeypatch):
-    # The new name is made; the old tag is left for the person to delete, and the run fails until they do.
+def test_write_deletes_a_replaced_tag_the_tool_made(tmp_path, monkeypatch):
+    # A rename: the record gains an earlier contract under the tag, so its name moves. The old tag is the
+    # tool's own - annotated, ending with the tool's line - on the new one's commit, so `--write` deletes it
+    # here once the new one is made.
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
@@ -3199,49 +3235,199 @@ def test_a_renamed_tag_leaves_the_old_one_stale_and_reported(tmp_path, monkeypat
     earlier = an_earlier_contract_recorded(repo, head)
 
     printed: list[str] = []
-    assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 1
+    assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 0
 
     assert deployment_tag(earlier) in tags_in(repo), "the new name is made"
-    assert deployment_tag() in tags_in(repo), "the old one is left - deleting it is the person's"
-    assert any(deployment_tag() in line and "no longer derives" in line for line in printed), printed
+    assert deployment_tag() not in tags_in(repo), "and the old one deleted"
+    assert any(deployment_tag() in line and deployment_tag(earlier) in line for line in printed), printed
 
 
-def test_push_refuses_while_a_stale_tag_is_held(tmp_path, monkeypatch):
-    # Publishing beside a tag the record no longer derives would leave GitHub with both.
+def test_write_deletes_a_replaced_lightweight_tag_here(tmp_path, monkeypatch):
+    # The earlier naming, by commit, as the first deployment tags were made by hand: lightweight, so it holds
+    # nothing but its name and commit, and the tag the record derives keeps that commit.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    stale = f"deploy/mainnet/state@{head[:10]}"
+    subprocess.run(["git", "tag", stale, head], cwd=repo, check=True, capture_output=True)
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+
+    printed: list[str] = []
+    assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 0
+
+    assert stale not in tags_in(repo)
+    assert deployment_tag() in tags_in(repo)
+    assert any(stale in line and deployment_tag() in line for line in printed), printed
+
+
+def test_write_keeps_a_stale_tag_on_another_commit(tmp_path, monkeypatch):
+    # No tag the record derives is on its commit, so deleting it could lose that commit: it is reported for
+    # the person. `--write` cannot know whether origin holds it, so origin's deletion is given first.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
+    stale = a_stale_tag_on_another_commit(repo)
+
+    printed: list[str] = []
+    assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 1
+
+    assert stale in tags_in(repo)
+    there = [i for i, line in enumerate(printed) if f"git push origin --delete refs/tags/{stale}" in line]
+    here = [i for i, line in enumerate(printed) if f"git tag -d {stale}" in line]
+    assert there and here and there[0] < here[0], printed
+
+
+def test_write_keeps_a_stale_annotated_tag_with_other_words(tmp_path, monkeypatch):
+    # Someone's own words on a tag of the tool's naming: deleting it would lose them, so it stays.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    stale = f"deploy/mainnet/state@{head[:10]}"
+    subprocess.run(["git", "tag", "-a", stale, "-m", "my own notes", head], cwd=repo, check=True, capture_output=True)
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+
+    printed: list[str] = []
+    assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 1
+
+    assert stale in tags_in(repo)
+    assert any(stale in line and "no longer derives" in line for line in printed), printed
+
+
+def test_write_does_not_bring_back_a_tag_deleted_here(tmp_path, monkeypatch):
+    # Origin holds a stale tag; deleted here, it stays deleted, since `--write` fetches nothing.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    stale = a_stale_tag_on_another_commit(repo)
+    for arguments in (["push", "-q", "origin", f"refs/tags/{stale}"], ["tag", "-d", stale]):
+        subprocess.run(["git", *arguments], cwd=repo, check=True, capture_output=True)
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+
+    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
+
+    assert stale not in tags_in(repo)
+    assert stale in tags_in(origin)
+
+
+def test_push_deletes_a_replaced_tag_on_origin_after_its_replacement(tmp_path, monkeypatch):
+    # bao-base's case: origin holds the tag under the naming by commit. `--write` deletes it here. `--push`
+    # fetches it back, pushes the replacement, then deletes the old one on origin and here.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    stale = f"deploy/mainnet/state@{head[:10]}"
+    for arguments in (["tag", stale, head], ["push", "-q", "origin", f"refs/tags/{stale}"]):
+        subprocess.run(["git", *arguments], cwd=repo, check=True, capture_output=True)
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 0
+
+    assert deployment_tag() in tags_in(origin) and stale not in tags_in(origin)
+    assert stale not in tags_in(repo)
+    assert any(stale in line and "deleted on origin" in line for line in printed), printed
+
+
+def test_push_deletes_a_renamed_tag_on_origin(tmp_path, monkeypatch):
+    # The tool's own tag, published, then renamed by an earlier contract: `--write` deletes it here, and
+    # `--push` deletes it on origin once the new name is there.
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     origin = repo.parent / "origin.git"
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
-    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
+    assert recorded_and_committed(recover, repo) == 0
+    assert recover.publish(repo, say=recover.Printer(0)) == 0
     earlier = an_earlier_contract_recorded(repo, head)
-    labelled(repo, when=earlier)
+    assert recorded_and_committed(recover, repo) == 0
+
+    assert recover.publish(repo, say=recover.Printer(0)) == 0
+
+    assert deployment_tag(earlier) in tags_in(origin) and deployment_tag() not in tags_in(origin)
+    assert deployment_tag() not in tags_in(repo)
+
+
+def test_push_deletes_on_origin_only_the_copy_it_looked_at(tmp_path, monkeypatch):
+    # Between this push's look at origin and its deletion, another clone put a copy of its own under the old
+    # name there. The deletion is leased on the copy looked at, so the other copy stays, named, and the run
+    # fails.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    stale = f"deploy/mainnet/state@{head[:10]}"
+    for arguments in (["tag", stale, head], ["push", "-q", "origin", f"refs/tags/{stale}"]):
+        subprocess.run(["git", *arguments], cwd=repo, check=True, capture_output=True)
+    other = clone_of(origin, tmp_path / "other")
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+
+    def another_copy_is_pushed():
+        for arguments in (
+            ["tag", "-f", "-a", stale, "-m", "another copy", head],
+            ["push", "-q", "-f", "origin", f"refs/tags/{stale}"],
+        ):
+            subprocess.run(["git", *arguments], cwd=other, check=True, capture_output=True)
+
+    racing(recover, monkeypatch, another_copy_is_pushed)
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
+
+    assert tags_in(origin)[stale][1] == "tag", "the other clone's copy stays"
+    assert deployment_tag() in tags_in(origin), "and the replacement is pushed"
+    assert any(stale in line and "not deleted on origin" in line for line in printed), printed
+
+
+def test_push_keeps_a_replaced_tag_whose_replacement_origin_refused(tmp_path, monkeypatch):
+    # Origin refuses the replacement, so the old tag is what keeps the commit there: it stays.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    stale = f"deploy/mainnet/state@{head[:10]}"
+    for arguments in (["tag", stale, head], ["push", "-q", "origin", f"refs/tags/{stale}"]):
+        subprocess.run(["git", *arguments], cwd=repo, check=True, capture_output=True)
+    refusing_tags(origin, f"refs/tags/{deployment_tag()}")
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
+
+    assert stale in tags_in(origin), "the old tag stays on origin"
+    assert deployment_tag() not in tags_in(origin)
+    assert any(deployment_tag() in line and "declined" in line for line in printed), printed
+
+
+def test_push_still_refuses_for_a_stale_tag_it_does_not_replace(tmp_path, monkeypatch):
+    # Publishing beside a stale tag the tool does not replace would leave GitHub with both, and deleting
+    # that one is the person's.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    stale = a_stale_tag_on_another_commit(repo)
     assert recorded_and_committed(recover, repo) == 1, "the stale tag fails the write as well"
 
     printed: list[str] = []
     assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
 
     assert tags_in(origin) == {}
-    assert any(deployment_tag() in line and "no longer derives" in line for line in printed), printed
+    assert any(stale in line and "no longer derives" in line for line in printed), printed
 
 
 def test_a_rename_carries_the_label_to_the_new_name(tmp_path, monkeypatch):
-    # The new name gets the old entry's words, and the old entry is reported for the person to delete:
-    # the file is only ever appended to.
+    # The new name gets the old entry's words, so the person's words follow the deploy.
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
     assert recover.run(repo, say=recover.Printer(0), write=True) == 0
     earlier = an_earlier_contract_recorded(repo, head)
 
-    printed: list[str] = []
-    assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 1
+    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
 
     written = (repo / "deployed-labels.toml").read_text()
     assert f'"{deployment_tag(earlier)}" = "the fixture\'s deploy"' in written, written
-    assert f'"{deployment_tag()}" = ' in written, "the old entry is kept"
     tag = deployment_tag(earlier)
     assert git_out(repo, "for-each-ref", "--format=%(contents:subject)", f"refs/tags/{tag}") == "the fixture's deploy"
-    assert any(deployment_tag() in line and "names no tag" in line for line in printed), printed
 
 
 def test_a_label_under_the_old_commit_name_is_carried_over(tmp_path, monkeypatch):
@@ -3252,33 +3438,30 @@ def test_a_label_under_the_old_commit_name_is_carried_over(tmp_path, monkeypatch
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
 
-    printed: list[str] = []
-    assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 1, "the old entry names no tag"
+    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
 
     tag = deployment_tag()
     assert git_out(repo, "for-each-ref", "--format=%(contents:subject)", f"refs/tags/{tag}") == (
         "harbor-1.0.1 the words written for it"
     )
-    assert any(old in line and "names no tag" in line for line in printed), printed
 
 
-def test_a_renamed_tag_is_made_while_origin_still_holds_the_old_one(tmp_path, monkeypatch):
-    # The old tag is there to be deleted, so it does not count as keeping the commit: the new one is made in
-    # the same run, with the old one's label, and the commit keeps a tag once the old one is deleted.
+def test_write_removes_the_label_of_a_tag_it_replaced(tmp_path, monkeypatch):
+    # The old entry's words are the new entry's, so removing it loses nothing. Every other line of the file
+    # stays as the person wrote it.
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
-    assert recorded_and_committed(recover, repo) == 0
-    assert recover.publish(repo, say=recover.Printer(0)) == 0
+    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
+    labels = repo / "deployed-labels.toml"
+    labels.write_text(f'# my notes\n"{deployment_tag()}" = "the fixture\'s deploy"\n\n# kept as written\n')
     earlier = an_earlier_contract_recorded(repo, head)
 
-    printed: list[str] = []
-    assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 1
+    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
 
-    tag = deployment_tag(earlier)
-    assert git_out(repo, "for-each-ref", "--format=%(contents:subject)", f"refs/tags/{tag}") == "the fixture's deploy"
-    assert any(deployment_tag() in line and "origin holds it" in line for line in printed), printed
-    assert any(f"git push origin --delete refs/tags/{deployment_tag()}" in line for line in printed), printed
+    assert labels.read_text() == (
+        f'# my notes\n\n# kept as written\n"{deployment_tag(earlier)}" = "the fixture\'s deploy"\n'
+    ), labels.read_text()
 
 
 def test_a_rename_whose_earlier_entries_differ_gets_an_empty_label(tmp_path, monkeypatch):
@@ -3297,38 +3480,38 @@ def test_a_rename_whose_earlier_entries_differ_gets_an_empty_label(tmp_path, mon
     written = (repo / "deployed-labels.toml").read_text()
     assert f'"{deployment_tag(earlier)}" = ""\n' in written, written
     assert deployment_tag(earlier) not in tags_in(repo)
+    assert deployment_tag() in tags_in(repo), "the old tag stays until its replacement is made"
 
 
 def test_a_stale_tag_origin_holds_is_deleted_there_first(tmp_path, monkeypatch):
-    # While origin holds a tag, the next fetch brings it back, so a deletion here alone does not last. The
-    # repair gives origin's deletion first, and says why.
+    # `--push` reads origin. While origin holds a tag, the next fetch brings it back, so a deletion here
+    # alone does not last: the repair gives origin's deletion first, and says why.
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
-    assert recorded_and_committed(recover, repo) == 0
-    assert recover.publish(repo, say=recover.Printer(0)) == 0
-    an_earlier_contract_recorded(repo, head)
+    stale = a_stale_tag_on_another_commit(repo)
+    subprocess.run(["git", "push", "-q", "origin", f"refs/tags/{stale}"], cwd=repo, check=True, capture_output=True)
+    assert recorded_and_committed(recover, repo) == 1
 
     printed: list[str] = []
-    assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 1
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
 
-    there = [i for i, line in enumerate(printed) if f"git push origin --delete refs/tags/{deployment_tag()}" in line]
-    here = [i for i, line in enumerate(printed) if f"git tag -d {deployment_tag()}" in line]
+    there = [i for i, line in enumerate(printed) if f"git push origin --delete refs/tags/{stale}" in line]
+    here = [i for i, line in enumerate(printed) if f"git tag -d {stale}" in line]
     assert there and here and there[0] < here[0], printed
     assert any("the next fetch brings it back" in line for line in printed), printed
 
 
 def test_a_stale_tag_origin_lacks_is_deleted_only_here(tmp_path, monkeypatch):
-    # A tag of the earlier naming made only here: deleting it here is the whole repair.
+    # `--push` reads origin, so for a stale tag only this clone holds, deleting it here is the whole repair.
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
-    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
-    stale = f"deploy/mainnet/state@{head[:10]}"
-    subprocess.run(["git", "tag", stale, head], cwd=repo, check=True, capture_output=True)
+    stale = a_stale_tag_on_another_commit(repo)
+    assert recorded_and_committed(recover, repo) == 1
 
     printed: list[str] = []
-    assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 1
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
 
     assert any(f"git tag -d {stale}" in line for line in printed), printed
     assert not any("git push origin --delete" in line for line in printed), printed
@@ -3346,7 +3529,7 @@ def test_a_write_left_only_with_a_stale_tag_ends_by_saying_so(tmp_path, monkeypa
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
     assert recover.run(repo, say=recover.Printer(0), write=True) == 0
-    subprocess.run(["git", "tag", f"deploy/mainnet/state@{head[:10]}", head], cwd=repo, check=True, capture_output=True)
+    a_stale_tag_on_another_commit(repo)
 
     printed: list[str] = []
     assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 1
@@ -3395,7 +3578,7 @@ def test_push_refused_for_a_stale_tag_ends_by_saying_so(tmp_path, monkeypatch):
     driven(recover, monkeypatch, repo, deployed_a)
     assert recorded_and_committed(recover, repo) == 0
     assert recover.publish(repo, say=recover.Printer(0)) == 0
-    subprocess.run(["git", "tag", f"deploy/mainnet/state@{head[:10]}", head], cwd=repo, check=True, capture_output=True)
+    a_stale_tag_on_another_commit(repo)
 
     printed: list[str] = []
     assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
@@ -3479,8 +3662,12 @@ def test_a_clone_that_loses_the_race_takes_the_winners_tag(tmp_path, monkeypatch
     assert recorded_and_committed(recover, loser) == 0
 
     def the_winner_writes_and_pushes():
-        assert recorded_and_committed(recover, winner) == 0
-        assert recover.publish(winner, say=recover.Printer(0)) == 0
+        # The winner's own identity, so its tag is another object than the loser's.
+        with monkeypatch.context() as other:
+            other.setenv("GIT_COMMITTER_NAME", "the winner")
+            assert recorded_and_committed(recover, winner) == 0
+            assert recover.publish(winner, say=recover.Printer(0)) == 0
+        assert tags_in(winner)[tag] != tags_in(loser)[tag]
 
     racing(recover, monkeypatch, the_winner_writes_and_pushes)
 
@@ -3506,8 +3693,12 @@ def test_two_clones_correcting_the_same_tag_leave_one_correct_tag(tmp_path, monk
     assert recorded_and_committed(recover, second) == 0
 
     def the_first_corrects_it():
-        assert recorded_and_committed(recover, first) == 0
-        assert recover.publish(first, say=recover.Printer(0)) == 0
+        # The first's own identity, so its correction is another object than the second's.
+        with monkeypatch.context() as other:
+            other.setenv("GIT_COMMITTER_NAME", "the first")
+            assert recorded_and_committed(recover, first) == 0
+            assert recover.publish(first, say=recover.Printer(0)) == 0
+        assert tags_in(first)[tag] != tags_in(second)[tag]
 
     racing(recover, monkeypatch, the_first_corrects_it)
 

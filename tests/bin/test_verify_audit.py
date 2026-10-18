@@ -1638,13 +1638,15 @@ def test_the_check_reports_a_stale_deployment_tag(fix):
 
 
 def test_the_check_says_to_delete_a_stale_tag_on_origin_first(fix):
-    # The check reads only this clone, so it cannot know whether origin holds the tag. Where origin does,
-    # the next fetch brings it back, so the repair gives origin's deletion first, and says why.
-    head = _recorded(fix)
+    # A stale tag on a commit no derived tag is on, so not one the tool replaces. The check reads only this
+    # clone, so it cannot know whether origin holds it. Where origin does, the next fetch brings it back, so
+    # the repair gives origin's deletion first, and says why.
+    _recorded(fix)
     made, making = fix.verify_audit("--write")
     assert made == 0, making
-    stale = f"deploy/mainnet/state@{head[:10]}"
-    fix.git("tag", stale, head)
+    fix.git("commit", "-q", "--allow-empty", "-m", "another commit")
+    stale = "deploy/mainnet/state@1999-01-01T00-00-00Z"
+    fix.git("tag", stale, "HEAD")
 
     status, output = fix.verify_audit()
 
@@ -1654,6 +1656,22 @@ def test_the_check_says_to_delete_a_stale_tag_on_origin_first(fix):
     here = [i for i, line in enumerate(lines) if f"git tag -d {stale}" in line]
     assert there and here and there[0] < here[0], output
     assert "the next fetch brings it back" in output, output
+
+
+def test_the_check_says_write_deletes_the_tags_it_replaces(fix):
+    # A lightweight tag of the earlier naming, on the derived tag's commit: one the tool replaces, so the
+    # repair is the tool's, not a deletion by hand.
+    head = _recorded(fix)
+    made, making = fix.verify_audit("--write")
+    assert made == 0, making
+    stale = f"deploy/mainnet/state@{head[:10]}"
+    fix.git("tag", stale, head)
+
+    status, output = fix.verify_audit()
+
+    assert status == 1, output
+    assert stale in output and "verify-audit --write" in output and "verify-audit --push" in output, output
+    assert f"git tag -d {stale}" not in output, "not a deletion by hand"
 
 
 def test_write_refuses_on_a_detached_head(fix):

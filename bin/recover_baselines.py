@@ -30,13 +30,16 @@ from deployment_baselines import (
     LABELS,
     RECORD,
     Baseline,
+    OriginUnanswered,
     Pushed,
     Review,
+    Tag,
     UnknownSchema,
     UnreadableRecord,
     add,
     append_labels,
     commit_reach,
+    delete_replaced_tags,
     derived_tags,
     drop,
     key,
@@ -46,9 +49,12 @@ from deployment_baselines import (
     push_tags,
     read_baselines,
     read_labels,
+    remove_labels,
+    replaced_labels,
+    replaced_tags,
     review,
+    stale_repair,
     stale_tags,
-    unpublished_tags,
     write_baselines,
 )
 from deployment_records import Entry, Problem
@@ -1111,79 +1117,91 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer, *, push: 
     `--write` that returned before reaching here left standing the exact failure it had just been told
     to repair. `--push` does the same, then publishes.
 
-    Origin first. A tag another clone already pushed is then taken rather than made again as a different
-    object of the same name, and what origin holds decides what is pushed. If origin cannot be fetched,
-    no tag is made: the record is written regardless, so the chain work is kept, and the next run has
-    only the tags left to do.
+    `--write` reads only this clone: the record, the labels and the tags here. `--push` asks origin first.
+    A tag another clone already pushed is then taken rather than made again as a different object of the
+    same name, and what origin holds decides what is pushed. If origin cannot be fetched, nothing is made
+    or pushed.
 
     Then the labels. A tag the record wants with no entry in the labels file gets one, from `--write`
     only - `--push` adding one would leave the file with changes not committed, which is what it refuses.
     The entry carries the words of the same deploy's entry under an earlier name, when there is one, and
-    is empty otherwise. A tag whose label is in error is neither made nor corrected, since it would only
+    is empty otherwise; `--write` then removes that earlier entry, whose words are now the new one's
+    (`replaced_labels`). A tag whose label is in error is neither made nor corrected, since it would only
     be wrong.
 
-    A deployment tag the record no longer derives (`stale_tags`) is reported and left: deleting it is the
-    person's. `--write` fails while one is held, and `--push` pushes nothing, so GitHub never holds a
-    deploy under two names. Origin's deletion is given first: while origin holds a tag, the next fetch
-    brings it back, so a deletion here alone does not last.
+    A deployment tag the record no longer derives (`stale_tags`) is deleted when the tool replaces it
+    (`delete_replaced_tags`): by `--write` here, by `--push` on origin and here. Any other is reported and
+    left, since deleting it is the person's, origin first (`stale_repair`). `--write` fails while one is
+    held, and `--push` pushes nothing, so GitHub never holds a deploy under two names.
 
     Returns the closing line (`_failing`), empty when nothing is left, which the caller says last and
     turns into a failing exit status: a repair that half worked and said it was fine is worse than one
     that refused, because the next thing the user does is push a record whose commits nothing preserves."""
     recorded = list(baselines)
-    with _stage("tags", "fetch, make and push the tags" if push else "fetch and make the tags", say):
-        # The branches as well as the tags: whether origin holds a tag's commit is read from them.
-        for fetch in (FETCH_BRANCHES, FETCH_TAGS):
-            fetched = subprocess.run(["git", *fetch], cwd=root, capture_output=True, text=True)
-            if fetched.returncode != 0:
-                say(0, "\ncould not fetch from origin, so no tag was made or pushed:")
-                for line in (fetched.stderr or fetched.stdout).strip().splitlines():
-                    say(0, f"  {line}")
-                return _failing(["origin could not be fetched"])
-        origin = origin_tags(root)
-        if origin is None:
-            say(0, "\ncould not list origin's tags, so no tag was made or pushed")
-            return _failing(["origin's tags could not be listed"])
-        # After the fetch, so a stale tag origin holds is held here too.
-        stale = stale_tags(root, recorded)
-        left = [f"{len(stale)} deployment tag(s) the record no longer derives are held here"] if stale else []
-        if stale:
-            say(0, f"\n{len(stale)} deployment tag(s) held here that the record no longer derives:")
-            for tag in stale:
+    held_stale = "deployment tag(s) the record no longer derives are held here"
+    origin: dict[str, Tag] = {}
+    with _stage("tags", "fetch, make and push the tags" if push else "make the tags", say):
+        if push:
+            # The branches as well as the tags: whether origin holds a tag's commit is read from them.
+            for fetch in (FETCH_BRANCHES, FETCH_TAGS):
+                fetched = subprocess.run(["git", *fetch], cwd=root, capture_output=True, text=True)
+                if fetched.returncode != 0:
+                    say(0, "\ncould not fetch from origin, so no tag was made or pushed:")
+                    for line in (fetched.stderr or fetched.stdout).strip().splitlines():
+                        say(0, f"  {line}")
+                    return _failing(["origin could not be fetched"])
+            try:
+                origin = origin_tags(root)
+            except OriginUnanswered as unanswered:
+                say(0, "\ncould not list origin's tags, so no tag was made or pushed:")
+                say(0, f"  {unanswered}")
+                return _failing(["origin's tags could not be listed"])
+        # After `--push`'s fetch, so a stale tag origin holds is held here too.
+        replaced = replaced_tags(root, recorded)
+        others = [tag for tag in stale_tags(root, recorded) if tag not in replaced]
+        if others:
+            say(0, f"\n{len(others)} deployment tag(s) held here that the record no longer derives or replaces:")
+            for tag in others:
                 say(0, f"  {tag}: the record no longer derives it" + (", and origin holds it" if tag in origin else ""))
-            if on_origin := [tag for tag in stale if tag in origin]:
-                say(
-                    0,
-                    "  Deleting them is yours. First on origin: while origin holds a tag, the next fetch brings it"
-                    " back here.",
-                )
-                say(0, f"    git push origin --delete {' '.join(f'refs/tags/{tag}' for tag in on_origin)}")
-                say(0, "  Then here:")
-            else:
-                say(0, "  Deleting them is yours. To delete them here:")
-            say(0, f"    git tag -d {' '.join(stale)}")
+            for line in stale_repair(others, [tag for tag in others if tag in origin] if push else None):
+                say(0, f"  {line}")
             if push:
                 say(0, "  No tag was pushed. Delete them, then run verify-audit --push again")
-                return _failing(left)
+                return _failing([f"{len(others)} {held_stale}"])
             say(0, "  Then run verify-audit --write again")
         labels = read_labels(root)
         derived = derived_tags(recorded)
         missing = [tag for tag in derived if tag not in labels]
         carried: dict[str, str] = {}
-        if missing and not push:
-            carried = {tag: text for tag, text in append_labels(root, missing, labels, derived).items() if text}
-            labels = {**labels, **carried}
+        dropped: list[str] = []
+        if not push:
+            if missing:
+                carried = {tag: text for tag, text in append_labels(root, missing, labels, derived).items() if text}
+                labels = {**labels, **carried}
+            dropped = remove_labels(root, replaced_labels(root, labels, derived))
+            labels = {entry: text for entry, text in labels.items() if entry not in dropped}
         errors = label_errors(labels, derived)
         in_error = {tag for tag, _ in errors}
         sound = {tag: str(labels[tag]) for tag in derived if tag not in in_error}
         made = make_tags(root, recorded, sound)
         sent = push_tags(root, recorded, origin, sound) if push else Pushed([], [], [], [], [])
-        unpublished = [] if push else unpublished_tags(root, recorded, origin)
+        unmade = {tag for tag, _ in made.unmade}
+        deleted = delete_replaced_tags(
+            root,
+            recorded,
+            {tag for tag in sound if tag not in unmade},
+            origin if push else None,
+            sent if push else None,
+        )
 
     if carried:
         say(0, f"\n{len(carried)} renamed tag(s) labelled with the words of their entry under an earlier name:")
         for tag, text in carried.items():
             say(0, f"  {tag}: {text}")
+    if dropped:
+        say(0, f"\nremoved {len(dropped)} earlier entry(s) from {LABELS}, their words now under the new name:")
+        for entry in dropped:
+            say(0, f"  {entry}")
     if errors:
         say(0, f"\n{len(errors)} problem(s) with {LABELS}; a tag whose label is in error is not made:")
         for tag, problem in errors:
@@ -1224,14 +1242,33 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer, *, push: 
         say(0, f"\n{len(made.unmade)} tag(s) could not be made:")
         for tag, why in made.unmade:
             say(0, f"  {tag}: {why}")
+    if deleted.here:
+        say(0, f"\ndeleted {len(deleted.here)} replaced tag(s):")
+        for tag, replacement in deleted.here:
+            where = "on origin and here" if tag in deleted.on_origin else "here"
+            say(0, f"  {tag}: replaced by {replacement}, deleted {where}")
+        if not push:
+            say(0, "  verify-audit --push deletes them on origin, where it holds them")
+    if deleted.refused:
+        say(0, f"\n{len(deleted.refused)} replaced tag(s) kept here, as origin refused to delete them:")
+        for tag, why in deleted.refused:
+            say(0, f"  {tag}: not deleted on origin, {why}")
+    if deleted.kept:
+        where = " on origin" if push else ""
+        say(0, f"\n{len(deleted.kept)} replaced tag(s) kept until the tag replacing each is in place{where}:")
+        for tag in deleted.kept:
+            say(0, f"  {tag}")
+    still_held = others + deleted.kept + [tag for tag, _ in deleted.refused]
     # What is left is the developer's, in this order: the tags go before the branch, so the branch
-    # reaches a CI that already holds them.
-    changed = [] if push or errors or stale else _uncommitted(root)
+    # reaches a CI that already holds them. `--write` cannot know what origin holds, so it names `--push`
+    # whenever it changed a file or a tag.
+    changed = [] if push or errors or still_held else _uncommitted(root)
     if changed:
         files = " and ".join(changed)
         say(0, f"\nnext: check the tags and {files}, commit {files}, run verify-audit --push, then git push")
-    elif unpublished and not errors and not stale:
+    elif not push and not errors and not still_held and (made.created or made.corrected or deleted.here):
         say(0, "\nnext: check the tags, then run verify-audit --push")
+    left = [f"{len(still_held)} {held_stale}"] if still_held else []
     # A label error names either a tag the record derives, which is then not made, or an entry naming no tag.
     left += [
         f"{count} {what}"

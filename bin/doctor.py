@@ -18,6 +18,7 @@ import json5
 import columns
 import workflow_copy
 from checks import Check, report
+from deployment_baselines import RECORD, OriginUnanswered, compare_with_origin, origin_tags, read_baselines
 from forge_config import forge_config
 from submodule_state import (
     Condition,
@@ -354,6 +355,48 @@ def tag_push_setting_problems(repo_root: Path) -> list[str]:
         f"{', '.join(shown)}: {what}\n  Set in {where}\n  Repair: {repair}"
         for (what, where, repair), shown in found.items()
     ]
+
+
+def deployment_tag_problems(repo_root: Path) -> list[str]:
+    """How origin's deployment tags stand against the record and this clone, in a repository with a
+    deployed.json: each tag the record derives that origin lacks, or holds as another object than this
+    clone's, and each name origin holds that the record no longer derives. Returns one finding per tag, or
+    [].
+
+    git keeps a copy of origin's branches but none of its tags, so this asks origin, once. A check that
+    could not ask fails, in git's words: passing would say origin was looked at when it was not."""
+    if not (repo_root / RECORD).is_file():
+        return []
+    record = list(read_baselines(repo_root).values())
+    try:
+        origin = origin_tags(repo_root)
+    except OriginUnanswered as unanswered:
+        return [
+            f"origin could not be asked for its tags, so none was checked:\n  {unanswered}\n"
+            "  Repair: reach origin, then run yarn doctor again"
+        ]
+    found = compare_with_origin(repo_root, record, origin)
+    problems = [
+        f"{tag}: origin does not hold it\n"
+        "  Repair: yarn verify-audit --write if this clone lacks it too, then yarn verify-audit --push"
+        for tag in found.lacking
+    ]
+    problems += [
+        f"{tag}: origin holds another copy than this clone's\n  Repair: yarn verify-audit --push"
+        for tag in found.differing
+    ]
+    for tag, replacement in found.stale.items():
+        if replacement is not None:
+            problems.append(
+                f"{tag}: origin holds it, and the record no longer derives it. It is replaced by {replacement}\n"
+                "  Repair: yarn verify-audit --push deletes it on origin"
+            )
+        else:
+            problems.append(
+                f"{tag}: origin holds it, and the record no longer derives it\n"
+                f"  Repair: deleting it is yours: git push origin --delete refs/tags/{tag}"
+            )
+    return problems
 
 
 def unused_checkout_problems(repo_root: Path, remappings: list[str]) -> list[str]:
@@ -1064,6 +1107,15 @@ def build_checks(
             "a tag made for a moment on one computer is published to everyone, and a mirror push deletes "
             "published tags that this clone does not hold",
             tag_push_setting_problems(repo_root),
+        ),
+        Check(
+            "every deployment tag the record derives is on origin, as it is here",
+            "verify-audit and verify-audit --write read only this clone, and CI reads only what was pushed. So a "
+            "deployment tag made here and not pushed passes here and fails in CI. git keeps no copy of origin's "
+            "tags, so doctor asks origin. A tag origin holds under a name the record no longer derives comes back "
+            "with every fetch",
+            "CI fails on the next push, and every clone that fetches gets the old tag back",
+            deployment_tag_problems(repo_root),
         ),
         Check(
             "no submodule contains old git repositories",

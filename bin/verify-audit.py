@@ -71,11 +71,13 @@ from pathlib import Path
 from deployment_baselines import (
     LABELS,
     RECORD,
+    OriginUnanswered,
     Review,
     UnreadableLabels,
     UnreadableRecord,
     origin_tags,
     review,
+    stale_repair,
 )
 from deployment_recovery import export_commit, install_toolchain
 from recover_baselines import Printer, publish, run
@@ -808,7 +810,10 @@ def _check_baselines(found: Review) -> int:
         # the commit, the repair is to fetch rather than to go hunting for something believed lost.
         # A check that passes must never need the network; a check that is failing may improve its
         # advice with it, and degrades to saying less when nothing answers.
-        on_origin = origin_tags(Path.cwd()) or {}
+        try:
+            on_origin = origin_tags(Path.cwd())
+        except OriginUnanswered:
+            on_origin = {}
         for baseline, reach in found.unreachable:
             says = {
                 "none": "here, but no branch or tag reaches it — put it on one",
@@ -1089,22 +1094,25 @@ def _run(args: list[str]) -> int:
         if found.stale_tags:
             gaps = 1
             # A deployment tag under a name the record no longer derives: the tag for that deploy is now
-            # named otherwise, so GitHub would list it twice. Deleting it is the person's.
+            # named otherwise, so GitHub would list it twice. The tool deletes those it replaces; any other
+            # is the person's.
             _err(
                 f"\033[31mERROR: {len(found.stale_tags)} deployment tag(s) held here that the record no longer"
                 " derives:\033[0m\n"
             )
             for tag in found.stale_tags:
-                _err(f"\033[31m  {tag}: the record no longer derives it\033[0m\n")
-            # Origin's deletion first. The check reads only this clone, so it cannot say whether origin holds
-            # them; where it does, a deletion here alone comes back with the next fetch.
-            _err(
-                "       deleting them is yours. First on origin, where it holds them: while origin holds a tag,"
-                " the next fetch brings it back here\n"
-            )
-            _err(f"         git push origin --delete {' '.join(f'refs/tags/{tag}' for tag in found.stale_tags)}\n")
-            _err("       then here:\n")
-            _err(f"         git tag -d {' '.join(found.stale_tags)}\n")
+                replacement = found.replaced_tags.get(tag)
+                replacing = f"; it is replaced by {replacement}" if replacement else ""
+                _err(f"\033[31m  {tag}: the record no longer derives it{replacing}\033[0m\n")
+            if found.replaced_tags:
+                _err(
+                    "       run `verify-audit --write`, which deletes each replaced tag here, then `verify-audit"
+                    " --push`, which deletes it on origin\n"
+                )
+            # The check reads only this clone, so it cannot say whether origin holds the others.
+            if others := [tag for tag in found.stale_tags if tag not in found.replaced_tags]:
+                for line in stale_repair(others, None):
+                    _err(f"       {line}\n")
 
         if found.conflicts:
             gaps = 1

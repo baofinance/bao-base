@@ -19,7 +19,7 @@ it holds work only this computer has; that is kept and named. Run inside a submo
 submodule up for building in; run again in the main folder, it takes that set-up away. A clone made
 without --recurse-submodules needs nothing more than this.
 
-Every fetch of tags here is `verify-audit --write`'s (`FETCH_TAGS`): origin's version of each deployment tag
+Every fetch of tags here is `verify-audit --push`'s (`FETCH_TAGS`): origin's version of each deployment tag
 replaces the one a checkout holds, so a tag corrected in another clone arrives instead of stopping the fetch
 with "would clobber existing tag". `update` and `status` fetch the branches first (`FETCH_BRANCHES`). sync
 fetches each dependency's tags last, so one that fails stops nothing else, and the exit status says so.
