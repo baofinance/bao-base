@@ -2448,14 +2448,15 @@ def test_a_contract_two_manifests_describe_records_both_state_files(tmp_path, mo
 # can run because it cannot lose anything.
 
 
-def a_repository_recording(tmp_path, existing):
-    """A repo where A is recoverable at HEAD, with `existing` already written as its record."""
+def a_repository_recording(tmp_path, existing, committed="2026-01-01T00:00:00+00:00"):
+    """A repo where A is recoverable at HEAD, committed at `committed`, with `existing` already written as
+    its record. The fake chain deploys A at DEPLOYED, so the default commit comes before the deploy."""
     repo, scratch = repository_of_oracles(
         tmp_path, {"A_USD": {"name": "A/USD", "address": ADDRESS_A, "contractPath": "src/A.sol:A"}}
     )
     (repo / "src" / "A.sol").write_text(contract_source("A", 1))
     deployed_a = runtime(repo, "src/A.sol", "A", scratch)
-    head = commit(repo, "2026-01-01T00:00:00+00:00", "the source")
+    head = commit(repo, committed, "the source")
     with_origin(repo)
     (repo / "deployed.json").write_text(existing)
     labelled(repo, head)
@@ -2970,9 +2971,11 @@ def test_the_tag_is_annotated_with_what_it_preserves(tmp_path, monkeypatch):
     assert stamped in message, f"{stamped} not in {message}"
 
 
-def test_the_tag_takes_its_commits_date(tmp_path, monkeypatch):
-    # GitHub lists tags by the tag's own date, newest first, and shows that date. Dated as its commit, a
-    # deployment tag lists in commit order there, and with `git tag --sort=creatordate` here.
+def test_the_tag_takes_its_deploys_date(tmp_path, monkeypatch):
+    # GitHub lists tags by the tag's own date, newest first, and shows that date. Dated as its deploy's
+    # block, a deployment tag lists in deploy order there, and with `git tag --sort=creatordate` here.
+    from datetime import datetime
+
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
@@ -2980,12 +2983,14 @@ def test_the_tag_takes_its_commits_date(tmp_path, monkeypatch):
     assert recover.run(repo, say=recover.Printer(0), write=True) == 0
 
     dated = git_out(repo, "for-each-ref", "--format=%(taggerdate:iso-strict)", f"refs/tags/{deployment_tag(head)}")
-    assert dated == "2026-01-01T00:00:00+00:00", "the commit's date, which the fixture set"
+    assert datetime.fromisoformat(dated) == datetime.fromisoformat(DEPLOYED), "the block's time, the fake chain's"
 
 
-def test_write_corrects_a_tag_whose_date_is_not_its_commits(tmp_path, monkeypatch):
+def test_write_corrects_a_tag_whose_date_is_not_its_deploys(tmp_path, monkeypatch):
     # The right commit and the right message, but dated the day it was made: on GitHub it lists out of
     # order. The date alone makes it not correct.
+    from datetime import datetime
+
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     tag = deployment_tag(head)
     recover = load_recover_baselines()
@@ -2998,8 +3003,23 @@ def test_write_corrects_a_tag_whose_date_is_not_its_commits(tmp_path, monkeypatc
     assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 0
 
     dated = git_out(repo, "for-each-ref", "--format=%(taggerdate:iso-strict)", f"refs/tags/{tag}")
-    assert dated == "2026-01-01T00:00:00+00:00"
+    assert datetime.fromisoformat(dated) == datetime.fromisoformat(DEPLOYED)
     assert any(tag in line and "date" in line for line in printed), printed
+
+
+def test_a_tag_for_a_deploy_from_uncommitted_changes_says_so(tmp_path, monkeypatch):
+    # The source committed two days after the deploy: no commit before it builds what is deployed, so the
+    # search's second pass finds this one, and the tag says what that means.
+    repo, deployed_a, head = a_repository_recording(
+        tmp_path, '{"schemaVersion": 1, "baselines": {}}\n', committed="2026-01-05T00:00:00+00:00"
+    )
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+
+    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
+
+    message = git_out(repo, "for-each-ref", "--format=%(contents)", f"refs/tags/{deployment_tag(head)}")
+    assert "after the deploy, which ran from changes not yet committed" in message, message
 
 
 # ── labels: one line per tag, in deployed-labels.toml, written by a person ───────────────────────────

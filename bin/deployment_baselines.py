@@ -240,28 +240,63 @@ def reached_by(repo_root: Path, commit: str) -> list[str]:
     return _contains(repo_root, "branch", commit) + _contains(repo_root, "tag", commit)
 
 
-def tag_message(commit_timestamp: str, label: str) -> str:
-    """What a deployment tag says: its label - the person's line on what was deployed, which is what `git
-    tag -n` and GitHub's tag list show - then the tool's lines.
+def _seconds(timestamp: str) -> int:
+    """An ISO 8601 timestamp from the record, as Unix seconds."""
+    return int(datetime.fromisoformat(timestamp).timestamp())
 
-    The tool's lines name the COMMIT, not the contracts: many contracts share one - twenty-two of
-    harbor's - and deployed.json is where which-contracts is answered. Every baseline at a commit carries
-    that commit's timestamp, so every one derives the same message. The timestamp is in full ISO 8601
-    because a message may hold the colons a ref name cannot, so it matches `commitTimestamp` exactly."""
+
+def _deploy_span(built: list[Baseline]) -> tuple[Baseline, Baseline]:
+    """The first and the last contract of a tag's deploy, by block."""
+    by_block = sorted(built, key=lambda baseline: (baseline.deployBlock, baseline.deployTimestamp))
+    return by_block[0], by_block[-1]
+
+
+def tag_message(built: list[Baseline], label: str) -> str:
+    """What a deployment tag says about `built`, the contracts it covers: its label - the person's line on
+    what was deployed, which is what `git tag -n` and GitHub's tag list show - then the tool's lines.
+
+    The tool's lines say when the deploy happened - its first and last block, at the chain's own times -
+    and where the commit falls against it: at or before the first contract is the search's first pass;
+    after the last, its second, where the deploy ran from changes committed only afterwards. They name the
+    COMMIT, not the contracts: many contracts share one - twenty-two of harbor's - and deployed.json is
+    where which-contracts is answered. Timestamps are in full ISO 8601, as the record holds them, because a
+    message may hold the colons a ref name cannot."""
+    first, last = _deploy_span(built)
+    if first.deployBlock == last.deployBlock:
+        deployed = f"deployed in block {first.deployBlock} at {first.deployTimestamp}"
+    else:
+        deployed = (
+            f"deployed in blocks {first.deployBlock} to {last.deployBlock},"
+            f" {first.deployTimestamp} to {last.deployTimestamp}"
+        )
+    committed = built[0].commitTimestamp
+    if _seconds(committed) <= _seconds(first.deployTimestamp):
+        side = "before the deploy"
+    elif _seconds(committed) > _seconds(last.deployTimestamp):
+        side = "after the deploy, which ran from changes not yet committed"
+    else:
+        side = "during the deploy"
     return (
         f"{label}\n\n"
-        f"source of deployed code, committed {commit_timestamp}\n"
+        f"{deployed}\n"
+        f"source of deployed code, committed {committed}, {side}\n"
         "recorded in deployed.json; this tag is what keeps the commit reachable"
     )
 
 
-def derived_tags(baselines: Iterable[Baseline]) -> dict[str, Baseline]:
-    """Each tag the record derives, sorted by name, to a baseline it derives from. Every baseline at one
-    commit derives the same tag and message, so which of them is kept makes no difference."""
-    tags: dict[str, Baseline] = {}
+def tag_date(built: list[Baseline]) -> str:
+    """The date a deployment tag carries: its deploy's first block's time. GitHub lists tags by their date,
+    so deployment tags list there in deploy order, each showing when it was deployed."""
+    return _deploy_span(built)[0].deployTimestamp
+
+
+def derived_tags(baselines: Iterable[Baseline]) -> dict[str, list[Baseline]]:
+    """Each tag the record derives, sorted by name, to every baseline it covers. They share one commit,
+    and the deploy the tag describes spans their blocks."""
+    tags: dict[str, list[Baseline]] = {}
     for baseline in baselines:
         for tag in deploy_tags(baseline):
-            tags.setdefault(tag, baseline)
+            tags.setdefault(tag, []).append(baseline)
     return dict(sorted(tags.items()))
 
 
@@ -276,15 +311,13 @@ def read_labels(repo_root: Path) -> dict[str, object]:
         raise UnreadableLabels(f"{LABELS} is not valid TOML: {broken}") from broken
 
 
-def wanted_tags(repo_root: Path, baselines: Iterable[Baseline], preserved: set[str]) -> dict[str, Baseline]:
+def wanted_tags(repo_root: Path, baselines: Iterable[Baseline], preserved: set[str]) -> dict[str, list[Baseline]]:
     """The deployment tags the tool wants, each needing a label: every one held here, and every one for a
     commit no other tag preserves. `preserved` is the commits another tag names - as origin holds them,
     for `--write` and `--push`, and as this clone holds them, for the check, which is local."""
     held = _held_tags(repo_root)
     return {
-        tag: baseline
-        for tag, baseline in derived_tags(baselines).items()
-        if tag in held or baseline.commit not in preserved
+        tag: built for tag, built in derived_tags(baselines).items() if tag in held or built[0].commit not in preserved
     }
 
 
@@ -368,14 +401,14 @@ def _held_tags(repo_root: Path) -> dict[str, Tag]:
     return held
 
 
-def _faults(repo_root: Path, tag: str, held: Tag, baseline: Baseline, label: str) -> list[str]:
-    """How the tag held here differs from what the record derives for it from `baseline` and its `label`:
-    empty when it does not.
+def _faults(repo_root: Path, tag: str, held: Tag, built: list[Baseline], label: str) -> list[str]:
+    """How the tag held here differs from what the record derives for it from `built`, the contracts it
+    covers, and its `label`: empty when it does not.
 
-    The date is compared, because GitHub lists tags by it: dated as its commit, a deployment tag lists in
-    commit order. The tagger is not, so one another clone made is as good as one made here."""
+    The date is compared, because GitHub lists tags by it: dated as its deploy, a deployment tag lists in
+    deploy order. The tagger is not, so one another clone made is as good as one made here."""
     faults: list[str] = []
-    if held.commit != baseline.commit:
+    if held.commit != built[0].commit:
         faults.append(f"it was on {held.commit[:10]}")
     if held.object == held.commit:
         faults.append("it was lightweight")
@@ -386,10 +419,10 @@ def _faults(repo_root: Path, tag: str, held: Tag, baseline: Baseline, label: str
         capture_output=True,
         text=True,
     ).stdout.partition("\0")
-    if said.strip() != tag_message(baseline.commitTimestamp, label):
+    if said.strip() != tag_message(built, label):
         faults.append("its message was not the derived one")
-    if dated != str(int(datetime.fromisoformat(baseline.commitTimestamp).timestamp())):
-        faults.append(f"its date was not its commit's, {baseline.commitTimestamp}")
+    if dated != str(_seconds(tag_date(built))):
+        faults.append(f"its date was not its deploy's, {tag_date(built)}")
     return faults
 
 
@@ -410,7 +443,7 @@ def make_tags(repo_root: Path, baselines: Iterable[Baseline], labels: dict[str, 
     want, or whose label is in error, is left as it is: made, it would only be wrong.
 
     A tag is correct when it is annotated, on the recorded commit, carries `tag_message`, and is dated as
-    its commit.
+    its deploy (`tag_date`).
 
     Returns what it could not make as well, because `git tag` fails for reasons that matter: the commit
     absent from a shallow checkout, refs that are read-only. Swallowing those would leave the check red
@@ -419,24 +452,25 @@ def make_tags(repo_root: Path, baselines: Iterable[Baseline], labels: dict[str, 
     created: list[str] = []
     corrected: list[tuple[str, str]] = []
     unmade: list[tuple[str, str]] = []
-    for tag, baseline in derived_tags(baselines).items():
+    for tag, built in derived_tags(baselines).items():
         if tag not in labels:
             continue
         here = held.get(tag)
-        faults = [] if here is None else _faults(repo_root, tag, here, baseline, labels[tag])
+        faults = [] if here is None else _faults(repo_root, tag, here, built, labels[tag])
         if here is not None and not faults:
             continue
         # ANNOTATED. A lightweight tag has no message, and `git tag -n` then prints the COMMIT's subject
         # line instead - which describes whatever that commit was about and says nothing about why the
-        # tag exists, while looking exactly like an annotation that does. DATED as its commit, through
-        # the committer date git gives a tag: GitHub lists tags by their date, so deployment tags list in
-        # commit order. `-f` writes over a tag that is not correct, and creating one needs no other path.
+        # tag exists, while looking exactly like an annotation that does. DATED as its deploy's first
+        # block, through the committer date git gives a tag: GitHub lists tags by their date, so deployment
+        # tags list in deploy order. `-f` writes over a tag that is not correct, and creating one needs no
+        # other path.
         done = subprocess.run(
-            ["git", "tag", "-a", "-f", tag, "-m", tag_message(baseline.commitTimestamp, labels[tag]), baseline.commit],
+            ["git", "tag", "-a", "-f", tag, "-m", tag_message(built, labels[tag]), built[0].commit],
             cwd=repo_root,
             capture_output=True,
             text=True,
-            env={**os.environ, "GIT_COMMITTER_DATE": baseline.commitTimestamp},
+            env={**os.environ, "GIT_COMMITTER_DATE": tag_date(built)},
         )
         if done.returncode != 0:
             said = (done.stderr or done.stdout or "").strip()
@@ -502,7 +536,7 @@ def push_tags(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, 
     held = _held_tags(repo_root)
     sending: list[tuple[str, str]] = []  # (tag, the lease: what origin held)
     waiting: list[tuple[str, str, list[str]]] = []
-    for tag in unpublished_tags(repo_root, tags.values(), origin):
+    for tag in unpublished_tags(repo_root, [baseline for built in tags.values() for baseline in built], origin):
         if tag not in labels:
             continue
         here, there = held[tag], origin.get(tag)
@@ -559,9 +593,8 @@ def push_tags(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, 
             if not changed:
                 refused.append((tag, why))
                 continue
-            baseline = tags[tag]
             here = held.get(tag)
-            if fetched.returncode == 0 and here == there and not _faults(repo_root, tag, here, baseline, labels[tag]):
+            if fetched.returncode == 0 and here == there and not _faults(repo_root, tag, here, tags[tag], labels[tag]):
                 adopted.append(tag)
                 continue
             refused.append(
@@ -931,9 +964,9 @@ def review(repo_root: Path, *, ignoring_the_record: bool = False) -> Review:
     in_error = {tag for tag, _ in errors}
     held = _held_tags(repo_root)
     wrong: list[tuple[str, str]] = []
-    for tag, baseline in derived.items():
+    for tag, built in derived.items():
         if tag in held and tag in wanted and tag not in in_error:
-            if faults := _faults(repo_root, tag, held[tag], baseline, str(labels[tag])):
+            if faults := _faults(repo_root, tag, held[tag], built, str(labels[tag])):
                 wrong.append((tag, ", ".join(faults)))
     return Review(
         wrong_tags=wrong,

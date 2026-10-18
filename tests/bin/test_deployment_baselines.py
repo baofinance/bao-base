@@ -416,3 +416,87 @@ def test_the_tag_fetch_brings_down_a_new_tag(repo, tmp_path):
     assert fetched.returncode == 0, fetched.stderr
     assert named(repo, deployment) == named(other, deployment)
     assert named(repo, "v1.0.0") == named(other, "v1.0.0")
+
+
+# ── what a deployment tag says, and the date it carries ─────────────────────────────────────────────
+#
+# Under the person's label, the tool's lines say when the deploy happened - the blocks, at the chain's own
+# times - and where the commit falls against it, which is the very comparison the search's two passes
+# make. All of it is read from the record. The tag is dated as its deploy's first block, so GitHub, which
+# lists tags by their date, lists deployment tags in deploy order.
+
+
+def deployed_at(block: int, when: str, committed: str = PAUSER.commitTimestamp) -> Baseline:
+    """PAUSER, as if deployed in `block` at `when` from a commit made at `committed`."""
+    from dataclasses import replace
+
+    return replace(PAUSER, deployBlock=block, deployTimestamp=when, commitTimestamp=committed)
+
+
+def test_the_message_names_the_one_block_of_a_single_contract():
+    from deployment_baselines import tag_message
+
+    message = tag_message([PAUSER], "the pauser")
+
+    assert message.startswith("the pauser\n\n"), "the label leads"
+    assert f"deployed in block {PAUSER.deployBlock} at {PAUSER.deployTimestamp}" in message, message
+
+
+def test_the_message_names_the_first_and_last_block_of_several():
+    # Given out of order: the first and last are the lowest and highest block, each at its own time.
+    from deployment_baselines import tag_message
+
+    message = tag_message(
+        [
+            deployed_at(300, "2026-03-21T15:00:00Z"),
+            deployed_at(100, "2026-03-21T13:00:00Z"),
+            deployed_at(200, "2026-03-21T14:00:00Z"),
+        ],
+        "three",
+    )
+
+    assert "deployed in blocks 100 to 300, 2026-03-21T13:00:00Z to 2026-03-21T15:00:00Z" in message, message
+
+
+def test_the_message_says_the_commit_came_before_the_deploy():
+    # The ordinary case, and the search's first pass: the commit is the tree that was checked out.
+    from deployment_baselines import tag_message
+
+    message = tag_message([PAUSER], "the pauser")
+
+    assert f"source of deployed code, committed {PAUSER.commitTimestamp}, before the deploy" in message, message
+
+
+def test_the_message_says_the_commit_came_after_the_deploy():
+    # The search's second pass: the deploy ran from changes that were committed only afterwards.
+    from deployment_baselines import tag_message
+
+    message = tag_message([deployed_at(100, "2026-03-21T13:00:00Z", "2026-03-22T00:00:00Z")], "late")
+
+    assert (
+        "source of deployed code, committed 2026-03-22T00:00:00Z, after the deploy, which ran from changes not"
+        " yet committed" in message
+    ), message
+
+
+def test_the_message_says_the_commit_came_during_the_deploy():
+    # Later than the first contract and no later than the last: neither before nor after the whole deploy.
+    from deployment_baselines import tag_message
+
+    message = tag_message(
+        [
+            deployed_at(100, "2026-03-21T13:00:00Z", "2026-03-21T14:00:00Z"),
+            deployed_at(200, "2026-03-21T15:00:00Z", "2026-03-21T14:00:00Z"),
+        ],
+        "midway",
+    )
+
+    assert "source of deployed code, committed 2026-03-21T14:00:00Z, during the deploy" in message, message
+
+
+def test_the_tag_is_dated_by_its_first_contracts_block():
+    from deployment_baselines import tag_date
+
+    dated = tag_date([deployed_at(200, "2026-03-21T15:00:00Z"), deployed_at(100, "2026-03-21T13:00:00Z")])
+
+    assert dated == "2026-03-21T13:00:00Z"
