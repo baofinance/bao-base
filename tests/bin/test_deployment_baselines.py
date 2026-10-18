@@ -311,23 +311,69 @@ def _written(baseline: Baseline) -> dict:
         return next(iter(json.loads((Path(directory) / RECORD).read_text())["baselines"].values()))
 
 
-# ── the tag a baseline wants, derived rather than agreed ───────────────────────────────────────────
+# ── the tags a record derives, named by their deploys ───────────────────────────────────────────────
 #
-# A state file lives at `deployments/<chain>/<file>.json`, so the tag IS that path with the directory
-# and the suffix removed. Derivation rather than convention: "does this tag match the record" becomes
-# string equality, not a naming agreement someone has to keep.
+# One tag per state file and commit. A state file lives at `deployments/<chain>/<file>.json`, so the name
+# starts with that path, directory and suffix removed, and ends with the deploy's first block time, its
+# colons - which git forbids in a ref name - as hyphens. Derivation rather than convention: "does this tag
+# match the record" is string equality, and plain `git tag -l` lists a state file's deploys in time order.
 
 
-def test_the_tag_a_baseline_wants_is_named_for_its_state_file():
-    from deployment_baselines import deploy_tags
+def test_a_tag_is_named_by_its_deploys_first_block_time():
+    # Two contracts from one commit into one state file are one tag, named by the earlier block.
+    from dataclasses import replace
 
-    assert deploy_tags(PAUSER) == [f"deploy/mainnet/state@{PAUSER.commit[:10]}"]
+    from deployment_baselines import derived_tags
+
+    later = replace(PAUSER, address="0x" + "cc" * 20, deployBlock=PAUSER.deployBlock + 5, deployTimestamp="2026-03-21T13:42:00Z")
+
+    assert list(derived_tags([later, PAUSER])) == [f"deploy/mainnet/state@{PAUSER.deployTimestamp.replace(':', '-')}"]
 
 
-def test_a_baseline_two_state_files_claim_wants_a_tag_for_each():
-    # 44 of the aggregators' addresses are in two manifests, and one commit serves several files - so
-    # the pair, not the commit alone, is what a preservation tag names.
-    from deployment_baselines import deploy_tags
+def test_tag_names_sort_in_deploy_order():
+    # Three deploys into one state file, from three commits: listed by name, they come in deploy order.
+    from dataclasses import replace
+
+    from deployment_baselines import derived_tags, tag_date
+
+    deploys = [
+        replace(deployed_at(block, when), commit=letter * 40)
+        for block, when, letter in (
+            (300, "2026-03-23T09:00:00Z", "c"),
+            (100, "2026-01-04T10:51:23Z", "a"),
+            (200, "2026-02-11T17:11:59Z", "b"),
+        )
+    ]
+
+    by_name = sorted(derived_tags(deploys).items())
+
+    assert [tag_date(built) for _, built in by_name] == [
+        "2026-01-04T10:51:23Z",
+        "2026-02-11T17:11:59Z",
+        "2026-03-23T09:00:00Z",
+    ]
+
+
+def test_two_commits_deployed_in_one_second_into_one_state_file_are_told_apart():
+    # Their deploys would name one tag; each name gains its commit's 10 characters instead.
+    from dataclasses import replace
+
+    from deployment_baselines import derived_tags
+
+    one = replace(PAUSER, commit="a" * 40)
+    other = replace(PAUSER, address="0x" + "cc" * 20, commit="b" * 40)
+
+    when = PAUSER.deployTimestamp.replace(":", "-")
+    assert list(derived_tags([one, other])) == [
+        f"deploy/mainnet/state@{when}@{'a' * 10}",
+        f"deploy/mainnet/state@{when}@{'b' * 10}",
+    ]
+
+
+def test_a_baseline_two_state_files_claim_is_in_a_tag_for_each():
+    # 44 of the aggregators' addresses are in two manifests, and one commit serves several files - so the
+    # state file, not the commit alone, is what a tag is for.
+    from deployment_baselines import derived_tags
 
     both = Baseline(
         **{
@@ -336,10 +382,8 @@ def test_a_baseline_two_state_files_claim_wants_a_tag_for_each():
         }
     )
 
-    assert deploy_tags(both) == [
-        f"deploy/mainnet/v3-aggregators@{PAUSER.commit[:10]}",
-        f"deploy/mainnet/v3-oracles@{PAUSER.commit[:10]}",
-    ]
+    when = PAUSER.deployTimestamp.replace(":", "-")
+    assert list(derived_tags([both])) == [f"deploy/mainnet/v3-aggregators@{when}", f"deploy/mainnet/v3-oracles@{when}"]
 
 
 # ── fetching tags: origin's deployment tags replace a clone's own ───────────────────────────────────
@@ -377,7 +421,7 @@ def named(where: Path, tag: str) -> tuple[str, str]:
 def test_the_tag_fetch_takes_origins_version_of_a_deployment_tag(repo, tmp_path):
     # This clone holds the lightweight tag an older tool made; another clone corrected it on origin.
     other = clone_of(tmp_path / "remote.git", tmp_path / "other")
-    tag = f"deploy/mainnet/state@{head(repo)[:10]}"
+    tag = "deploy/mainnet/state@2026-01-03T00-00-00Z"
     git(repo, "tag", tag)
     git(other, "tag", "-a", tag, "-m", "corrected", head(repo))
     git(other, "push", "-q", "origin", f"refs/tags/{tag}")
@@ -406,7 +450,7 @@ def test_the_tag_fetch_still_refuses_a_clash_outside_deployment_tags(repo, tmp_p
 def test_the_tag_fetch_brings_down_a_new_tag(repo, tmp_path):
     # Both kinds arrive: a deployment tag, and any other tag origin has.
     other = clone_of(tmp_path / "remote.git", tmp_path / "other")
-    deployment = f"deploy/mainnet/state@{head(repo)[:10]}"
+    deployment = "deploy/mainnet/state@2026-01-03T00-00-00Z"
     git(other, "tag", "-a", deployment, "-m", "made elsewhere", head(repo))
     git(other, "tag", "-a", "v1.0.0", "-m", "a release", head(repo))
     git(other, "push", "-q", "origin", f"refs/tags/{deployment}", "refs/tags/v1.0.0")

@@ -1072,8 +1072,9 @@ def _run(args: list[str]) -> int:
             for tag, problem in found.label_errors:
                 _err(f"\033[31m  {tag}: {problem}\033[0m\n")
             _err(
-                f"       run `verify-audit --write`, which adds an empty entry to {LABELS} for each tag with"
-                " none; write one line in each, then run it again\n"
+                f"       run `verify-audit --write`, which adds an entry to {LABELS} for each tag with none:"
+                " the words of the same deploy's entry under an earlier name, or empty. Write one line in each"
+                " empty entry, then run it again\n"
             )
 
         if found.wrong_tags:
@@ -1087,6 +1088,18 @@ def _run(args: list[str]) -> int:
             for tag, faults in found.wrong_tags:
                 _err(f"\033[31m  {tag}: {faults}\033[0m\n")
             _err("       run `verify-audit --write`, check and commit, then `verify-audit --push` before `git push`\n")
+
+        if found.stale_tags:
+            gaps = 1
+            # A deployment tag under a name the record no longer derives: the tag for that deploy is now
+            # named otherwise, so GitHub would list it twice. Deleting it is the person's.
+            _err(
+                f"\033[31mERROR: {len(found.stale_tags)} deployment tag(s) held here that the record no longer"
+                " derives:\033[0m\n"
+            )
+            for tag in found.stale_tags:
+                _err(f"\033[31m  {tag}: the record no longer derives it\033[0m\n")
+            _err(f"       delete them here with `git tag -d {' '.join(found.stale_tags)}`, and on origin if it holds them\n")
 
         if found.conflicts:
             gaps = 1

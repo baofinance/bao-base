@@ -924,11 +924,11 @@ def test_a_recorded_commit_no_tag_names_is_listed(repo, tmp_path):
 def test_a_recorded_commit_a_tag_names_is_not_listed(repo, tmp_path):
     # `--points-at`, not `--contains`: a commit some later tag happens to contain is safe from
     # collection but is not NAMED, and naming a state file's capture is the tag's second job.
-    from deployment_baselines import deploy_tags
+    from deployment_baselines import derived_tags
 
     push_to_a_new_remote(repo, tmp_path)
     baseline = baseline_for(commit=head_of(repo))
     write_baselines(repo, add({}, baseline))
-    git(repo, "tag", deploy_tags(baseline)[0], baseline.commit)
+    git(repo, "tag", next(iter(derived_tags([baseline]))), baseline.commit)
 
     assert review(repo).untagged == []

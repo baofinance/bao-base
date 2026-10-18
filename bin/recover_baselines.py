@@ -34,7 +34,7 @@ from deployment_baselines import (
     UnknownSchema,
     UnreadableRecord,
     add,
-    append_empty_labels,
+    append_labels,
     commit_reach,
     derived_tags,
     drop,
@@ -46,6 +46,7 @@ from deployment_baselines import (
     read_baselines,
     read_labels,
     review,
+    stale_tags,
     unpublished_tags,
     wanted_tags,
     write_baselines,
@@ -1114,9 +1115,15 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer, *, push: 
     no tag is made: the record is written regardless, so the chain work is kept, and the next run has
     only the tags left to do.
 
-    Then the labels. A tag the record wants with no entry in the labels file gets an empty one, from
-    `--write` only - `--push` adding one would leave the file with changes not committed, which is what it
-    refuses. A tag whose label is in error is neither made nor corrected, since it would only be wrong.
+    Then the labels. A tag the record wants with no entry in the labels file gets one, from `--write`
+    only - `--push` adding one would leave the file with changes not committed, which is what it refuses.
+    The entry carries the words of the same deploy's entry under an earlier name, when there is one, and
+    is empty otherwise. A tag whose label is in error is neither made nor corrected, since it would only
+    be wrong.
+
+    A deployment tag the record no longer derives (`stale_tags`) is reported and left: deleting it is the
+    person's. `--write` fails while one is held, and `--push` pushes nothing, so GitHub never holds a
+    deploy under two names.
 
     Returns what is left undone, one entry each, which the caller turns into a failing exit status: a
     repair that half worked and said it was fine is worse than one that refused, because the next thing
@@ -1135,25 +1142,47 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer, *, push: 
         if origin is None:
             say(0, "\ncould not list origin's tags, so no tag was made or pushed")
             return ["the listing of origin's tags"]
+        # After the fetch, so a stale tag origin holds is held here too.
+        stale = stale_tags(root, recorded)
+        if stale:
+            say(0, f"\n{len(stale)} deployment tag(s) held here that the record no longer derives:")
+            for tag in stale:
+                say(0, f"  {tag}: the record no longer derives it" + (", and origin holds it" if tag in origin else ""))
+            say(0, "  Deleting them is yours. To delete them here:")
+            say(0, f"    git tag -d {' '.join(stale)}")
+            if on_origin := [tag for tag in stale if tag in origin]:
+                say(0, "  To delete them on origin:")
+                say(0, f"    git push origin --delete {' '.join(f'refs/tags/{tag}' for tag in on_origin)}")
+            if push:
+                say(0, "  No tag was pushed. Delete them, then run verify-audit --push again")
+                return stale
+            say(0, "  Then run verify-audit --write again")
         labels = read_labels(root)
-        wanted = wanted_tags(root, recorded, {tag.commit for tag in origin.values()})
-        errors = label_errors(labels, wanted, derived_tags(recorded))
+        derived = derived_tags(recorded)
+        wanted = wanted_tags(root, recorded, {tag.commit for name, tag in origin.items() if name not in stale})
         missing = [tag for tag in wanted if tag not in labels]
+        carried: dict[str, str] = {}
         if missing and not push:
-            append_empty_labels(root, missing)
+            carried = {tag: text for tag, text in append_labels(root, missing, labels, derived).items() if text}
+            labels = {**labels, **carried}
+        errors = label_errors(labels, wanted, derived)
         in_error = {tag for tag, _ in errors}
         sound = {tag: str(labels[tag]) for tag in wanted if tag not in in_error}
         made = make_tags(root, recorded, sound)
         sent = push_tags(root, recorded, origin, sound) if push else Pushed([], [], [], [], [])
         unpublished = [] if push else unpublished_tags(root, recorded, origin)
 
+    if carried:
+        say(0, f"\n{len(carried)} renamed tag(s) labelled with the words of their entry under an earlier name:")
+        for tag, text in carried.items():
+            say(0, f"  {tag}: {text}")
     if errors:
         say(0, f"\n{len(errors)} problem(s) with {LABELS}; a tag whose label is in error is not made:")
         for tag, problem in errors:
             say(0, f"  {tag}: {problem}")
         if push:
             say(0, f"  Correct them in {LABELS}, run verify-audit --write, commit, then verify-audit --push again")
-        elif missing:
+        elif any(tag not in carried for tag in missing):
             say(0, "  Each tag with no label now has an empty entry: write one line for each, then run")
             say(0, "  verify-audit --write again")
         else:
@@ -1189,14 +1218,15 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer, *, push: 
             say(0, f"  {tag}: {why}")
     # What is left is the developer's, in this order: the tags go before the branch, so the branch
     # reaches a CI that already holds them.
-    changed = [] if push or errors else _uncommitted(root)
+    changed = [] if push or errors or stale else _uncommitted(root)
     if changed:
         files = " and ".join(changed)
         say(0, f"\nnext: check the tags and {files}, commit {files}, run verify-audit --push, then git push")
-    elif unpublished and not errors:
+    elif unpublished and not errors and not stale:
         say(0, "\nnext: check the tags, then run verify-audit --push")
     return (
-        [tag for tag, _ in errors]
+        stale
+        + [tag for tag, _ in errors]
         + [tag for tag, _ in made.unmade]
         + [tag for tag, _, _ in sent.waiting]
         + [tag for tag, _ in sent.refused]
@@ -1208,15 +1238,24 @@ def publish(root: Path, *, say: Printer) -> int:
     read as it stands, and no contract is searched for: that is `--write`'s.
 
     Only from a committed record and labels file. The tags derive from both, so publishing them from
-    changes nobody has committed would publish what nobody has checked. The exit status is the answer: 1
-    when either has changes, or a tag is left off origin."""
+    changes nobody has committed would publish what nobody has checked. And only once every deployed
+    contract has a baseline: a tag is named by its deploy's first block, so recording a contract can move
+    the name of a tag already published. The exit status is the answer: 1 when either file has changes, a
+    contract has no baseline, or a tag is left off origin."""
     # The timers are kept per process, so a run before this one must not report its stages here.
     Timer.timers.clear()
     if changed := _uncommitted(root):
         say(0, f"{' and '.join(changed)}: changes that are not committed, so no tag was pushed.")
         say(0, "Check them, commit them, then run verify-audit --push again.")
         return 1
-    if _tag_step(root, read_baselines(root).values(), say, push=True):
+    found = review(root)
+    if found.unrecovered:
+        say(0, f"{len(found.unrecovered)} deployed contract(s) have no baseline, so no tag was pushed:")
+        for entry in found.unrecovered:
+            say(0, f"  {key(entry.chain_id, entry.address)}  {entry.name}")
+        say(0, "Run verify-audit --write to record them, commit, then run verify-audit --push again.")
+        return 1
+    if _tag_step(root, [*found.recorded, *found.orphaned], say, push=True):
         say(0, f"\n{_TAGS_UNPUBLISHED}")
         return 1
     return 0

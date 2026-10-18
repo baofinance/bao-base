@@ -1428,6 +1428,9 @@ def test_the_recovery_is_imported_not_spawned(fix):
 
 
 ADDRESS_AA, ADDRESS_BB = "0x" + "aa" * 20, "0x" + "bb" * 20
+# When the fixture's record says its contracts were deployed, and so the name of the one tag it derives.
+_DEPLOYED = "2026-01-01T00:00:00Z"
+_DEPLOYMENT_TAG = f"deploy/mainnet/state@{_DEPLOYED.replace(':', '-')}"
 
 
 def _record_of(head, addresses, contract="Foo"):
@@ -1448,7 +1451,7 @@ def _record_of(head, addresses, contract="Foo"):
                     "commit": head,
                     "commitTimestamp": "2026-01-01T00:00:00Z",
                     "deployBlock": 1,
-                    "deployTimestamp": "2026-01-01T00:00:00Z",
+                    "deployTimestamp": _DEPLOYED,
                     "creationBytecodeKeccak256": "a" * 64,
                     "compiler": "0.8.20+commit.a1b79de6",
                     "settings": {},
@@ -1498,7 +1501,7 @@ def _recorded(fix, contract="Foo", addresses=(ADDRESS_AA,)):
     )
     fix.write("deployed.json", _record_of(head, addresses, contract))
     # The label for the one tag the record derives: a tag is never made without one.
-    fix.write("deployed-labels.toml", f'"deploy/mainnet/state@{head[:10]}" = "{contract}, as deployed"\n')
+    fix.write("deployed-labels.toml", f'"{_DEPLOYMENT_TAG}" = "{contract}, as deployed"\n')
     return head
 
 
@@ -1564,7 +1567,7 @@ def test_the_untagged_error_counts_commits_and_the_contracts_built_from_them(fix
 def test_the_check_fails_on_a_lightweight_deployment_tag(fix):
     # The commit is preserved, but the tag carries no message: `git tag -n` shows the commit's subject.
     head = _recorded(fix)
-    tag = f"deploy/mainnet/state@{head[:10]}"
+    tag = _DEPLOYMENT_TAG
     fix.git("tag", tag, head)
 
     status, output = fix.verify_audit()
@@ -1577,7 +1580,7 @@ def test_the_check_fails_on_a_lightweight_deployment_tag(fix):
 def test_the_check_fails_on_a_tag_dated_otherwise(fix):
     # The right commit and message, dated the day it was made: GitHub would list it out of order.
     head = _recorded(fix)
-    tag = f"deploy/mainnet/state@{head[:10]}"
+    tag = _DEPLOYMENT_TAG
     made, making = fix.verify_audit("--write")
     assert made == 0, making
     message = fix.git("for-each-ref", "--format=%(contents)", f"refs/tags/{tag}")
@@ -1591,13 +1594,13 @@ def test_the_check_fails_on_a_tag_dated_otherwise(fix):
 
 def test_the_check_fails_on_a_missing_label(fix):
     # A tag the record wants has no line in deployed-labels.toml, so `--write` could not make it.
-    head = _recorded(fix)
+    _recorded(fix)
     (fix.work / "deployed-labels.toml").unlink()
 
     status, output = fix.verify_audit()
 
     assert status == 1, output
-    assert f"deploy/mainnet/state@{head[:10]}" in output and "no label" in output, output
+    assert _DEPLOYMENT_TAG in output and "no label" in output, output
     assert "deployed-labels.toml" in output, "and says where the label goes"
 
 
@@ -1612,6 +1615,21 @@ def test_the_check_takes_another_tag_as_standing_in(fix):
 
     assert status == 0, output
     assert "covers every deployed contract" in output
+
+
+def test_the_check_reports_a_stale_deployment_tag(fix):
+    # A tag of the earlier naming, by commit, on a recorded commit: the record no longer derives it, so it
+    # is reported for the person to delete.
+    head = _recorded(fix)
+    made, making = fix.verify_audit("--write")
+    assert made == 0, making
+    stale = f"deploy/mainnet/state@{head[:10]}"
+    fix.git("tag", stale, head)
+
+    status, output = fix.verify_audit()
+
+    assert status == 1, output
+    assert stale in output and "no longer derives" in output, output
 
 
 def test_write_refuses_on_a_detached_head(fix):
@@ -1671,14 +1689,14 @@ def test_write_and_push_together_refuse_the_push_when_the_record_changed(fix):
 
 def test_write_and_push_together_push_when_the_record_is_committed(fix):
     # Nothing to recover and the record committed: one run makes, corrects and publishes the tags.
-    head = _recorded(fix)
+    _recorded(fix)
     fix.git("add", "-A")
     fix.git("commit", "-qm", "the record")
 
     status, output = fix.verify_audit("--write", "--push")
 
     assert status == 0, output
-    assert f"deploy/mainnet/state@{head[:10]}" in fix.git("ls-remote", "--tags", "origin")
+    assert _DEPLOYMENT_TAG in fix.git("ls-remote", "--tags", "origin")
 
 
 def test_write_and_push_together_push_even_when_the_write_fails(fix):
@@ -1687,7 +1705,7 @@ def test_write_and_push_together_push_even_when_the_write_fails(fix):
     # committed record's tags still go.
     import json
 
-    head = _recorded(fix)
+    _recorded(fix)
     state = json.loads((fix.work / "deployments/mainnet/state.json").read_text())
     state["implementations"]["0x" + "cc" * 20] = {
         "contractSource": "elsewhere/Bar.sol",
@@ -1702,7 +1720,7 @@ def test_write_and_push_together_push_even_when_the_write_fails(fix):
 
     assert status == 1, output
     assert "have no baseline" in output, "the write failed"
-    assert f"deploy/mainnet/state@{head[:10]}" in fix.git("ls-remote", "--tags", "origin"), "and the push still ran"
+    assert _DEPLOYMENT_TAG in fix.git("ls-remote", "--tags", "origin"), "and the push still ran"
 
 
 def test_a_conflicted_record_is_reported_with_its_repair(fix):

@@ -205,29 +205,14 @@ FETCH_TAGS = (
 )
 
 
-def tag_names(state_files: Iterable[str], commit: str) -> list[str]:
-    """The tag each state file wants for this commit: `deploy/<chain>/<file>@<commit>`.
+def _tag_prefix(state_file: str) -> str:
+    """What every tag a state file derives starts with: `deploy/<chain>/<file>`.
 
-    DERIVED, not agreed. A state file lives at `deployments/<chain>/<file>.json`, so the tag is that
+    DERIVED, not agreed. A state file lives at `deployments/<chain>/<file>.json`, so the prefix is that
     path with the directory and the suffix removed - which makes "does this tag match the record"
     string equality rather than a naming convention someone has to keep, and puts the chain in the name
-    for free.
-
-    One per state file, because a commit serves several: 25 such pairs across the aggregators' twelve
-    recorded commits, since 44 of their addresses are described by two manifests. Naming the commit
-    alone would need something to CHOOSE which file names it.
-
-    `<commit>` cannot be a path segment - `refs/tags/deploy/mainnet/v4-oracles` as a file blocks any
-    directory of that name, so `deploy/mainnet/v4-oracles/abc123` cannot be created beside it. `@`
-    keeps the relation inside the last segment, where it can."""
-    return sorted(
-        f"{DEPLOY_TAGS}{path.removeprefix('deployments/').removesuffix('.json')}@{commit[:10]}" for path in state_files
-    )
-
-
-def deploy_tags(baseline: Baseline) -> list[str]:
-    """The tags this baseline's commit wants, one per state file that claimed the deployment."""
-    return tag_names(baseline.stateFiles, baseline.commit)
+    for free."""
+    return f"{DEPLOY_TAGS}{state_file.removeprefix('deployments/').removesuffix('.json')}"
 
 
 def reached_by(repo_root: Path, commit: str) -> list[str]:
@@ -292,12 +277,53 @@ def tag_date(built: list[Baseline]) -> str:
 
 def derived_tags(baselines: Iterable[Baseline]) -> dict[str, list[Baseline]]:
     """Each tag the record derives, sorted by name, to every baseline it covers. They share one commit,
-    and the deploy the tag describes spans their blocks."""
-    tags: dict[str, list[Baseline]] = {}
+    and the deploy the tag describes spans their blocks.
+
+    A tag is one state file's contracts from one commit, named `<prefix>@<time>`: the state file's
+    `_tag_prefix`, and its deploy's first block time (`tag_date`) with each `:` as `-`, since a ref name
+    cannot hold a colon. So the names sort in deploy order, and a reader sees when each deploy ran.
+
+    One per state file, because a commit serves several: 25 such pairs across the aggregators' twelve
+    recorded commits, since 44 of their addresses are described by two manifests.
+
+    When two commits' deploys into one state file begin in the same second, each name gains `@` and its
+    commit's first 10 characters, so neither is chosen over the other.
+
+    `@` rather than `/`: `refs/tags/deploy/mainnet/v4-oracles` as a file blocks any directory of that
+    name, so a further path segment cannot be created beside it. `@` keeps the time inside the last
+    segment, where it can."""
+    groups: dict[tuple[str, str], list[Baseline]] = {}
     for baseline in baselines:
-        for tag in deploy_tags(baseline):
-            tags.setdefault(tag, []).append(baseline)
+        for state_file in baseline.stateFiles:
+            groups.setdefault((_tag_prefix(state_file), baseline.commit), []).append(baseline)
+    named: dict[str, list[tuple[str, list[Baseline]]]] = {}
+    for (prefix, commit), built in groups.items():
+        named.setdefault(f"{prefix}@{tag_date(built).replace(':', '-')}", []).append((commit, built))
+    tags: dict[str, list[Baseline]] = {}
+    for name, claims in named.items():
+        if len(claims) == 1:
+            tags[name] = claims[0][1]
+        else:
+            for commit, built in claims:
+                tags[f"{name}@{commit[:10]}"] = built
     return dict(sorted(tags.items()))
+
+
+def stale_tags(repo_root: Path, baselines: Iterable[Baseline]) -> list[str]:
+    """The deployment tags held here that the record no longer derives: named under a state file the
+    record holds contracts for, but not a name it derives. A tag's name moves when the record gains an
+    earlier contract under it, and every tag named by the commit alone, as they once were, no longer
+    matches. They are reported, never deleted: deleting a tag is the person's.
+
+    A tag under no such state file is left alone, so a hand-made `deploy/harbor-1.0.1` is not one."""
+    record = list(baselines)
+    prefixes = {_tag_prefix(state_file) for baseline in record for state_file in baseline.stateFiles}
+    derived = derived_tags(record)
+    return sorted(
+        tag
+        for tag in _held_tags(repo_root)
+        if tag not in derived and any(tag.startswith(f"{prefix}@") for prefix in prefixes)
+    )
 
 
 def read_labels(repo_root: Path) -> dict[str, object]:
@@ -314,7 +340,9 @@ def read_labels(repo_root: Path) -> dict[str, object]:
 def wanted_tags(repo_root: Path, baselines: Iterable[Baseline], preserved: set[str]) -> dict[str, list[Baseline]]:
     """The deployment tags the tool wants, each needing a label: every one held here, and every one for a
     commit no other tag preserves. `preserved` is the commits another tag names - as origin holds them,
-    for `--write` and `--push`, and as this clone holds them, for the check, which is local."""
+    for `--write` and `--push`, and as this clone holds them, for the check, which is local. A stale tag
+    (`stale_tags`) preserves nothing, since it is there to be deleted: the tag that replaces it is wanted
+    while it is still held, so its label can be carried over."""
     held = _held_tags(repo_root)
     return {
         tag: built for tag, built in derived_tags(baselines).items() if tag in held or built[0].commit not in preserved
@@ -341,14 +369,46 @@ def label_errors(labels: dict[str, object], wanted: Iterable[str], derived: Iter
     return errors
 
 
-def append_empty_labels(repo_root: Path, tags: Iterable[str]) -> None:
-    """Add `"<tag>" = ""` to the labels file for each of `tags`, creating it with a header when absent, for
-    the person to fill in. Only ever appends: what they wrote, comments and layout included, stays."""
+def append_labels(
+    repo_root: Path, tags: Iterable[str], labels: dict[str, object], derived: dict[str, list[Baseline]]
+) -> dict[str, str]:
+    """Add an entry to the labels file for each of `tags`, creating the file with a header when absent, and
+    return what each entry says. Only ever appends: what the person wrote, comments and layout included,
+    stays.
+
+    An entry carries the words `labels` holds for the same deploy under a name the record no longer
+    derives, so a renamed tag keeps its label: its name by commit alone, `<prefix>@<the commit's first 10
+    characters>`, or a tag held here on that commit. The earlier entry stays, and is reported as naming no
+    tag, for the person to delete. With no such words, or with several that differ, the entry is empty, for
+    the person to fill in."""
+    held = _held_tags(repo_root)
+    added: dict[str, str] = {}
+    for tag in tags:
+        built = derived[tag]
+        commit = built[0].commit
+        prefix = next(prefix for prefix in map(_tag_prefix, built[0].stateFiles) if tag.startswith(f"{prefix}@"))
+        earlier = {
+            text
+            for entry, text in labels.items()
+            if entry not in derived
+            and isinstance(text, str)
+            and text.strip()
+            and entry.startswith(f"{prefix}@")
+            and (entry == f"{prefix}@{commit[:10]}" or (entry in held and held[entry].commit == commit))
+        }
+        added[tag] = earlier.pop() if len(earlier) == 1 else ""
     path = repo_root / LABELS
     existing = path.read_text() if path.is_file() else ""
     lead = _LABELS_HEADER if not path.is_file() else ("" if existing.endswith("\n") or not existing else "\n")
-    with path.open("a") as labels:
-        labels.write(lead + "".join(f'"{tag}" = ""\n' for tag in tags))
+    # Each key and value as a TOML basic string. TOML's escapes include all of JSON's, and of the characters
+    # TOML requires escaped, JSON leaves only DEL as it is.
+    written = "".join(
+        json.dumps(tag) + " = " + json.dumps(text, ensure_ascii=False).replace("\x7f", "\\u007f") + "\n"
+        for tag, text in added.items()
+    )
+    with path.open("a") as file:
+        file.write(lead + written)
+    return added
 
 
 @dataclass(frozen=True)
@@ -745,7 +805,7 @@ class Review:
     inputs_unchecked: list[tuple[Baseline, list[str]]]
     # Baselines whose commit NO TAG points at. A branch holding it is not preservation: branches move,
     # are force-pushed and are deleted when work merges, where a tag does none of those. Any tag counts,
-    # not only the `deploy/…` name `deploy_tags` would generate - preservation is the job here, and
+    # not only the `deploy/…` name `derived_tags` would generate - preservation is the job here, and
     # failing a repository that tags by another convention would impose a naming policy nobody asked
     # for. The NAME matters for the other job, naming a state file's capture, which is what the
     # suggested tag is for.
@@ -763,6 +823,8 @@ class Review:
     # (tag or entry, what is wrong) - see `label_errors`. Which tags are wanted is judged from this
     # clone's tags, since the check is local.
     label_errors: list[tuple[str, str]]
+    # The deployment tags held here that the record no longer derives - see `stale_tags`.
+    stale_tags: list[str]
 
 
 def drop(pending: dict[str, object], account: list[Problem], entry_key: str, entry: Entry, reason: str) -> None:
@@ -888,11 +950,9 @@ def review(repo_root: Path, *, ignoring_the_record: bool = False) -> Review:
     # `--points-at`, not `--contains`: a commit some later tag happens to contain is safe from
     # collection but is not NAMED by it, and asked once per distinct commit rather than per baseline.
     named = {
-        commit: bool(
-            subprocess.run(
-                ["git", "tag", "--points-at", commit], cwd=repo_root, capture_output=True, text=True
-            ).stdout.strip()
-        )
+        commit: subprocess.run(
+            ["git", "tag", "--points-at", commit], cwd=repo_root, capture_output=True, text=True
+        ).stdout.split()
         for commit in {b.commit for b in baselines.values()}
     }
     # Only where the commit is present, for the reason `misnamed` gives below: a baseline whose commit
@@ -959,7 +1019,8 @@ def review(repo_root: Path, *, ignoring_the_record: bool = False) -> Review:
     record = list(baselines.values())
     derived = derived_tags(record)
     labels = read_labels(repo_root)
-    wanted = wanted_tags(repo_root, record, {commit for commit, tagged in named.items() if tagged})
+    stale = stale_tags(repo_root, record)
+    wanted = wanted_tags(repo_root, record, {commit for commit, tags in named.items() if set(tags) - set(stale)})
     errors = label_errors(labels, wanted, derived)
     in_error = {tag for tag, _ in errors}
     held = _held_tags(repo_root)
@@ -971,6 +1032,7 @@ def review(repo_root: Path, *, ignoring_the_record: bool = False) -> Review:
     return Review(
         wrong_tags=wrong,
         label_errors=errors,
+        stale_tags=stale,
         recorded=[baselines[k] for k in sorted(baselines) if k in claimed],
         unrecovered=unrecovered,
         unreadable=unreadable,
