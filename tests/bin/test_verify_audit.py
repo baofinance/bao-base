@@ -1505,7 +1505,7 @@ def _recorded(fix, contract="Foo", addresses=(ADDRESS_AA,)):
     return head
 
 
-def test_a_recorded_commit_that_no_tag_names_fails_and_names_its_repair(fix):
+def test_a_missing_deployment_tag_fails_and_names_its_repair(fix):
     # The complaint that started this: it printed the finding and exited 0. A tag is what keeps a
     # recorded commit reachable once the branch holding it moves, and `--write` creates them - so it is
     # an error now, because an error is a finding with a repair.
@@ -1514,7 +1514,9 @@ def test_a_recorded_commit_that_no_tag_names_fails_and_names_its_repair(fix):
     status, output = fix.verify_audit()
 
     assert status == 1, output
-    assert "no tag names" in output, "it says what is wrong"
+    assert any(_DEPLOYMENT_TAG in line and "not here" in line for line in output.splitlines()), (
+        "it names the tag, and says what is wrong"
+    )
     assert "verify-audit --write" in output and "verify-audit --push" in output, (
         "and how to repair it, which is never a git tag by hand"
     )
@@ -1544,16 +1546,17 @@ def test_a_recorded_commit_that_no_tag_names_fails_and_names_its_repair(fix):
     assert status == 0, output
 
 
-def test_the_untagged_error_counts_commits_and_the_contracts_built_from_them(fix):
-    # Each commit is one tag to make, so the error counts commits and lists each once, with the contracts
-    # built from it under it.
-    head = _recorded(fix, addresses=(ADDRESS_AA, ADDRESS_BB))
+def test_the_missing_tag_error_lists_each_tag_with_the_contracts_it_covers(fix):
+    # Each missing tag is one to make, so the error counts tags and lists each once, with the contracts it
+    # covers under it.
+    _recorded(fix, addresses=(ADDRESS_AA, ADDRESS_BB))
 
     status, output = fix.verify_audit()
 
     assert status == 1, output
-    assert "1 recorded commit(s)" in output and "2 deployed contract(s)" in output, output
-    assert output.count(head[:10]) == 1, "the commit is listed once, with its contracts under it"
+    assert "1 deployment tag(s)" in output and "2 deployed contract(s)" in output, output
+    missing = [line for line in output.splitlines() if _DEPLOYMENT_TAG in line and "not here" in line]
+    assert len(missing) == 1, "the tag is listed once, with its contracts under it"
     assert ADDRESS_AA in output.lower() and ADDRESS_BB in output.lower()
 
 
@@ -1604,17 +1607,19 @@ def test_the_check_fails_on_a_missing_label(fix):
     assert "deployed-labels.toml" in output, "and says where the label goes"
 
 
-def test_the_check_takes_another_tag_as_standing_in(fix):
-    # A recorded commit already named by another tag is preserved, so no deployment tag and no label is
-    # wanted for it.
+def test_the_check_wants_a_deployment_tag_beside_another_tag(fix):
+    # A release tag keeps the commit reachable, but it is not the deploy's tag: it is not dated as the
+    # deploy and does not say what was deployed. So the deployment tag, and its label, are still wanted.
     head = _recorded(fix)
     (fix.work / "deployed-labels.toml").unlink()
     fix.git("tag", "-a", "v1.0.0", "-m", "a release", head)
 
     status, output = fix.verify_audit()
 
-    assert status == 0, output
-    assert "covers every deployed contract" in output
+    assert status == 1, output
+    lines = output.splitlines()
+    assert any(_DEPLOYMENT_TAG in line and "not here" in line for line in lines), output
+    assert any(_DEPLOYMENT_TAG in line and "no label" in line for line in lines), output
 
 
 def test_the_check_reports_a_stale_deployment_tag(fix):

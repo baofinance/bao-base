@@ -48,7 +48,6 @@ from deployment_baselines import (
     review,
     stale_tags,
     unpublished_tags,
-    wanted_tags,
     write_baselines,
 )
 from deployment_records import Entry, Problem
@@ -1106,7 +1105,7 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer, *, push: 
 
     `--write` makes them on this computer only, where they can be checked before anything is published,
     and calls this from BOTH of its endings. A repository whose contracts are ALL recorded already has
-    nothing to recover and every reason to need this - the check fails on an untagged commit, so a
+    nothing to recover and every reason to need this - the check fails on a missing deployment tag, so a
     `--write` that returned before reaching here left standing the exact failure it had just been told
     to repair. `--push` does the same, then publishes.
 
@@ -1159,15 +1158,14 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer, *, push: 
             say(0, "  Then run verify-audit --write again")
         labels = read_labels(root)
         derived = derived_tags(recorded)
-        wanted = wanted_tags(root, recorded, {tag.commit for name, tag in origin.items() if name not in stale})
-        missing = [tag for tag in wanted if tag not in labels]
+        missing = [tag for tag in derived if tag not in labels]
         carried: dict[str, str] = {}
         if missing and not push:
             carried = {tag: text for tag, text in append_labels(root, missing, labels, derived).items() if text}
             labels = {**labels, **carried}
-        errors = label_errors(labels, wanted, derived)
+        errors = label_errors(labels, derived)
         in_error = {tag for tag, _ in errors}
-        sound = {tag: str(labels[tag]) for tag in wanted if tag not in in_error}
+        sound = {tag: str(labels[tag]) for tag in derived if tag not in in_error}
         made = make_tags(root, recorded, sound)
         sent = push_tags(root, recorded, origin, sound) if push else Pushed([], [], [], [], [])
         unpublished = [] if push else unpublished_tags(root, recorded, origin)

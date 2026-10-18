@@ -2764,37 +2764,22 @@ def test_write_takes_origins_corrected_tag_rather_than_replacing_it(tmp_path, mo
     assert not any("replaced" in line for line in printed), printed
 
 
-def test_a_published_tag_stands_in_for_a_deployment_tag(tmp_path, monkeypatch):
-    # A commit another convention already names on origin is preserved for everyone, and a second name on
-    # it would be a naming policy nobody asked for.
+def test_a_published_tag_does_not_stand_in_for_a_deployment_tag(tmp_path, monkeypatch):
+    # Every deploy gets its deployment tag, so the deployment tags list in deploy order, each dated as its
+    # deploy. A release tag on the same commit is someone's own, and is left as it is.
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     origin = repo.parent / "origin.git"
     for arguments in (["tag", "-a", "v1.2.3", "-m", "a release", head], ["push", "-q", "origin", "refs/tags/v1.2.3"]):
         subprocess.run(["git", *arguments], cwd=repo, check=True, capture_output=True)
+    release = tags_in(origin)["v1.2.3"]
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
     assert recorded_and_committed(recover, repo) == 0
 
     assert recover.publish(repo, say=recover.Printer(0)) == 0
 
-    assert deployment_tag() not in tags_in(repo), "no second name is made"
-    assert set(tags_in(origin)) == {"v1.2.3"}
-
-
-def test_a_tag_only_this_clone_holds_does_not_stand_in(tmp_path, monkeypatch):
-    # It preserves the commit on this computer and nowhere else, so it is no substitute for the
-    # deployment tag - and it stays here.
-    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
-    origin = repo.parent / "origin.git"
-    subprocess.run(["git", "tag", "last-good", head], cwd=repo, check=True, capture_output=True)
-    recover = load_recover_baselines()
-    driven(recover, monkeypatch, repo, deployed_a)
-    assert recorded_and_committed(recover, repo) == 0
-
-    assert recover.publish(repo, say=recover.Printer(0)) == 0
-
-    assert deployment_tag() in tags_in(origin)
-    assert "last-good" not in tags_in(origin)
+    assert tags_in(origin)[deployment_tag()][1] == "tag", "the deployment tag is made and pushed"
+    assert tags_in(origin)["v1.2.3"] == release, "and the release tag is unchanged"
 
 
 def test_write_corrects_a_lightweight_tag_on_a_commit_a_published_tag_also_names(tmp_path, monkeypatch):
@@ -3315,8 +3300,8 @@ def test_a_rename_whose_earlier_entries_differ_gets_an_empty_label(tmp_path, mon
 
 
 def test_writing_again_does_not_pile_up_tags(tmp_path, monkeypatch):
-    # Run twice on an unchanged tree and the second run has nothing to create: a commit any tag already
-    # names is preserved, which is the same question `Review.untagged` asks.
+    # Run twice on an unchanged tree and the second run has nothing to create: each deployment tag the
+    # record derives is already held, which is the same question `Review.missing_tags` asks.
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
@@ -3483,9 +3468,9 @@ def test_two_clones_recording_the_same_contracts_merge_cleanly_and_pass(tmp_path
     subprocess.run(["git", "push", "-q", "origin", "main"], cwd=second, check=True, capture_output=True)
 
     found = review(clone_of(origin, tmp_path / "fresh"))
-    assert (found.unrecovered, found.untagged, found.unreachable, found.wrong_tags, found.label_errors) == (
+    assert (found.unrecovered, found.missing_tags, found.unreachable, found.wrong_tags, found.label_errors) == (
         [],
-        [],
+        {},
         [],
         [],
         [],

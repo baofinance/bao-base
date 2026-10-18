@@ -913,17 +913,19 @@ def test_a_commit_on_several_branches_names_them_all(repo, tmp_path):
     assert reached_by(repo, head_of(repo)) == ["also-here", "main"]
 
 
-def test_a_recorded_commit_no_tag_names_is_listed(repo, tmp_path):
-    # Preservation is the tag's first job. A branch holding it is not enough: branches move.
+def test_a_deployment_tag_not_held_is_listed(repo, tmp_path):
+    # Preservation is the tag's first job. A branch holding the commit is not enough: branches move.
+    from deployment_baselines import derived_tags
+
     push_to_a_new_remote(repo, tmp_path)
-    write_baselines(repo, add({}, baseline_for(commit=head_of(repo))))
+    baseline = baseline_for(commit=head_of(repo))
+    write_baselines(repo, add({}, baseline))
 
-    assert [b.contractType for b in review(repo).untagged] == ["Foo"]
+    assert review(repo).missing_tags == derived_tags([baseline])
 
 
-def test_a_recorded_commit_a_tag_names_is_not_listed(repo, tmp_path):
-    # `--points-at`, not `--contains`: a commit some later tag happens to contain is safe from
-    # collection but is not NAMED, and naming a state file's capture is the tag's second job.
+def test_a_deployment_tag_held_is_not_listed(repo, tmp_path):
+    # Held under the name the record derives, so the commit is kept and the deploy is named.
     from deployment_baselines import derived_tags
 
     push_to_a_new_remote(repo, tmp_path)
@@ -931,4 +933,17 @@ def test_a_recorded_commit_a_tag_names_is_not_listed(repo, tmp_path):
     write_baselines(repo, add({}, baseline))
     git(repo, "tag", next(iter(derived_tags([baseline]))), baseline.commit)
 
-    assert review(repo).untagged == []
+    assert review(repo).missing_tags == {}
+
+
+def test_another_tag_on_the_commit_does_not_stand_in(repo, tmp_path):
+    # A release tag keeps the commit, but it does not name the deploy, so the deployment tag is still
+    # wanted.
+    from deployment_baselines import derived_tags
+
+    push_to_a_new_remote(repo, tmp_path)
+    baseline = baseline_for(commit=head_of(repo))
+    write_baselines(repo, add({}, baseline))
+    git(repo, "tag", "v1.0.0", baseline.commit)
+
+    assert list(review(repo).missing_tags) == list(derived_tags([baseline]))

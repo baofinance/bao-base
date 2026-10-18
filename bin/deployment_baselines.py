@@ -337,24 +337,17 @@ def read_labels(repo_root: Path) -> dict[str, object]:
         raise UnreadableLabels(f"{LABELS} is not valid TOML: {broken}") from broken
 
 
-def wanted_tags(repo_root: Path, baselines: Iterable[Baseline], preserved: set[str]) -> dict[str, list[Baseline]]:
-    """The deployment tags the tool wants, each needing a label: every one held here, and every one for a
-    commit no other tag preserves. `preserved` is the commits another tag names - as origin holds them,
-    for `--write` and `--push`, and as this clone holds them, for the check, which is local. A stale tag
-    (`stale_tags`) preserves nothing, since it is there to be deleted: the tag that replaces it is wanted
-    while it is still held, so its label can be carried over."""
-    held = _held_tags(repo_root)
-    return {
-        tag: built for tag, built in derived_tags(baselines).items() if tag in held or built[0].commit not in preserved
-    }
+def label_errors(labels: dict[str, object], derived: Iterable[str]) -> list[tuple[str, str]]:
+    """(tag or entry, what is wrong) for each tag the record derives whose label is missing or cannot serve
+    as one, and for each entry naming no tag the record derives - a misspelt or stale entry, whose text
+    would otherwise go nowhere. A label is one line of words, since the first line is all `git tag -n` and
+    GitHub show.
 
-
-def label_errors(labels: dict[str, object], wanted: Iterable[str], derived: Iterable[str]) -> list[tuple[str, str]]:
-    """(tag or entry, what is wrong) for each label a wanted tag lacks or that cannot serve as one, and for
-    each entry naming no tag the record derives - a misspelt or stale entry, whose text would otherwise go
-    nowhere. A label is one line of words, since the first line is all `git tag -n` and GitHub show."""
+    Every derived tag needs one, whatever other tags its commit has: a release tag keeps the commit, but
+    is not dated as the deploy and does not say what was deployed."""
     errors: list[tuple[str, str]] = []
-    for tag in wanted:
+    known = list(derived)
+    for tag in known:
         label = labels.get(tag)
         if tag not in labels:
             errors.append((tag, f"no label in {LABELS}"))
@@ -364,7 +357,6 @@ def label_errors(labels: dict[str, object], wanted: Iterable[str], derived: Iter
             errors.append((tag, "its label is empty"))
         elif "\n" in label or "\r" in label:
             errors.append((tag, "its label holds a line break, and a label is one line"))
-    known = set(derived)
     errors += [(entry, "names no tag the record derives") for entry in labels if entry not in known]
     return errors
 
@@ -499,8 +491,8 @@ def make_tags(repo_root: Path, baselines: Iterable[Baseline], labels: dict[str, 
     """Make, here, each tag in `labels` that this clone lacks, and correct each one it holds that is not
     what the record derives. `push_tags` sends them; this touches nothing outside the clone.
 
-    `labels` holds the wanted tags (`wanted_tags`) whose labels are sound, so a tag the record does not
-    want, or whose label is in error, is left as it is: made, it would only be wrong.
+    `labels` holds the derived tags whose labels are sound (`label_errors`), so a tag whose label is in
+    error is left as it is: made, it would only be wrong.
 
     A tag is correct when it is annotated, on the recorded commit, carries `tag_message`, and is dated as
     its deploy (`tag_date`).
@@ -803,13 +795,11 @@ class Review:
     # checkout anywhere in the tree. Separate from missing because a partial checkout is not a defect,
     # and failing on it would fail every developer's build for a clone only CI makes.
     inputs_unchecked: list[tuple[Baseline, list[str]]]
-    # Baselines whose commit NO TAG points at. A branch holding it is not preservation: branches move,
-    # are force-pushed and are deleted when work merges, where a tag does none of those. Any tag counts,
-    # not only the `deploy/…` name `derived_tags` would generate - preservation is the job here, and
-    # failing a repository that tags by another convention would impose a naming policy nobody asked
-    # for. The NAME matters for the other job, naming a state file's capture, which is what the
-    # suggested tag is for.
-    untagged: list[Baseline]
+    # Each tag the record derives that is not held here, to the baselines it covers. The tag keeps its
+    # commit: a branch holding it is not preservation, since branches move, are force-pushed and are
+    # deleted when work merges, where a tag does none of those. It also names the deploy - dated as it, and
+    # saying what was deployed - so another tag on the same commit, such as a release, does not stand in.
+    missing_tags: dict[str, list[Baseline]]
     # (baseline, what its source actually declares) where the two disagree, `None` when the source
     # declares no single contract. A deployment record is a record of a DEPLOYMENT, so its contract
     # name is the name at deploy time and the source at that commit declares exactly that. Twelve of
@@ -820,8 +810,7 @@ class Review:
     # out of order on GitHub, or says the wrong thing. Only tags whose labels are sound; one in error is
     # reported once, in `label_errors`.
     wrong_tags: list[tuple[str, str]]
-    # (tag or entry, what is wrong) - see `label_errors`. Which tags are wanted is judged from this
-    # clone's tags, since the check is local.
+    # (tag or entry, what is wrong) - see `label_errors`.
     label_errors: list[tuple[str, str]]
     # The deployment tags held here that the record no longer derives - see `stale_tags`.
     stale_tags: list[str]
@@ -947,14 +936,6 @@ def review(repo_root: Path, *, ignoring_the_record: bool = False) -> Review:
     # eighty-three records, so this is twelve `--contains` calls rather than eighty-three. Every one of
     # them local - a review touches no remote at all.
     reaches = {commit: commit_reach(repo_root, commit) for commit in {b.commit for b in baselines.values()}}
-    # `--points-at`, not `--contains`: a commit some later tag happens to contain is safe from
-    # collection but is not NAMED by it, and asked once per distinct commit rather than per baseline.
-    named = {
-        commit: subprocess.run(
-            ["git", "tag", "--points-at", commit], cwd=repo_root, capture_output=True, text=True
-        ).stdout.split()
-        for commit in {b.commit for b in baselines.values()}
-    }
     # Only where the commit is present, for the reason `misnamed` gives below: a baseline whose commit
     # this repository has lost would report every one of its sources as missing too, sending the reader
     # after thirty-two files when the finding is one lost commit.
@@ -1019,20 +1000,19 @@ def review(repo_root: Path, *, ignoring_the_record: bool = False) -> Review:
     record = list(baselines.values())
     derived = derived_tags(record)
     labels = read_labels(repo_root)
-    stale = stale_tags(repo_root, record)
-    wanted = wanted_tags(repo_root, record, {commit for commit, tags in named.items() if set(tags) - set(stale)})
-    errors = label_errors(labels, wanted, derived)
+    errors = label_errors(labels, derived)
     in_error = {tag for tag, _ in errors}
     held = _held_tags(repo_root)
     wrong: list[tuple[str, str]] = []
     for tag, built in derived.items():
-        if tag in held and tag in wanted and tag not in in_error:
+        if tag in held and tag not in in_error:
             if faults := _faults(repo_root, tag, held[tag], built, str(labels[tag])):
                 wrong.append((tag, ", ".join(faults)))
     return Review(
         wrong_tags=wrong,
         label_errors=errors,
-        stale_tags=stale,
+        stale_tags=stale_tags(repo_root, record),
+        missing_tags={tag: built for tag, built in derived.items() if tag not in held},
         recorded=[baselines[k] for k in sorted(baselines) if k in claimed],
         unrecovered=unrecovered,
         unreadable=unreadable,
@@ -1040,7 +1020,6 @@ def review(repo_root: Path, *, ignoring_the_record: bool = False) -> Review:
         conflicts=conflicts,
         inputs_missing=inputs_missing,
         inputs_unchecked=inputs_unchecked,
-        untagged=[baselines[k] for k in sorted(baselines) if not named[baselines[k].commit]],
         unreachable=[
             (baselines[k], reaches[baselines[k].commit])
             for k in sorted(baselines)

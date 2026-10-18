@@ -71,7 +71,6 @@ from pathlib import Path
 from deployment_baselines import (
     LABELS,
     RECORD,
-    Baseline,
     Review,
     UnreadableLabels,
     UnreadableRecord,
@@ -1039,29 +1038,27 @@ def _run(args: list[str]) -> int:
             for problem in found.unreadable:
                 _err(f"\033[31m  {problem.entry.manifest}: {problem.entry.recorded_path} — {problem.reason}\033[0m\n")
 
-        if found.untagged:
+        if found.missing_tags:
             gaps = 1
             # An ERROR because `--write` repairs it, which is what separates this from advice. A branch
             # holding a recorded commit is not preservation - branches move, are force-pushed, and are
-            # deleted when work merges - and the check reads the CHECKOUT, so a commit nothing names
-            # here is one a fresh clone may not be able to resolve at all.
+            # deleted when work merges - and the check reads the CHECKOUT, so a deployment tag not here is
+            # one a fresh clone may not have either.
             #
-            # Counted and listed by COMMIT, because each one is one tag to make. The contracts built from
-            # a commit are listed under it, so the count of commits and the count of contracts both show.
-            built_from: dict[str, list[Baseline]] = {}
-            for baseline in found.untagged:
-                built_from.setdefault(baseline.commit, []).append(baseline)
+            # Listed by TAG, because each one is one tag to make. The contracts a tag covers are listed
+            # under it, so the count of tags and the count of contracts both show.
+            covered = {baseline.address for built in found.missing_tags.values() for baseline in built}
             _err(
-                f"\033[31mERROR: {len(built_from)} recorded commit(s) that no tag names, so nothing keeps them"
-                f" reachable. They are the source of {len(found.untagged)} deployed contract(s):\033[0m\n"
+                f"\033[31mERROR: {len(found.missing_tags)} deployment tag(s) the record derives are not here."
+                f" They cover {len(covered)} deployed contract(s):\033[0m\n"
             )
-            for commit, built in built_from.items():
-                _err(f"\033[31m  {commit[:10]}, the source of {len(built)}:\033[0m\n")
+            for tag, built in found.missing_tags.items():
+                _err(f"\033[31m  {tag}: not here; on {built[0].commit[:10]}, covering {len(built)}:\033[0m\n")
                 for baseline in built:
                     _err(f"\033[31m    {baseline.chain} {baseline.address} {baseline.contractType}\033[0m\n")
             _err(
-                "       run `verify-audit --write`, check and commit deployed.json, then `verify-audit --push`"
-                " before `git push`\n"
+                f"       run `verify-audit --write`, check the tags, commit {RECORD} and {LABELS}, then"
+                " `verify-audit --push` before `git push`\n"
             )
 
         if found.label_errors:
