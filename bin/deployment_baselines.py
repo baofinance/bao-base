@@ -431,10 +431,8 @@ def push_tags(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, 
     held = _held_tags(repo_root)
     sending: list[tuple[str, str]] = []  # (tag, the lease: what origin held)
     waiting: list[tuple[str, str, list[str]]] = []
-    for tag in tags:
-        here, there = held.get(tag), origin.get(tag)
-        if here is None or (there is not None and there.object == here.object):
-            continue
+    for tag in unpublished_tags(repo_root, tags.values(), origin):
+        here, there = held[tag], origin.get(tag)
         if not _origin_holds(repo_root, here.commit, origin):
             waiting.append((tag, here.commit, _contains(repo_root, "branch", here.commit)))
             continue
@@ -501,10 +499,21 @@ def push_tags(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, 
                 (
                     tag,
                     "origin's copy changed while this run pushed it, and is not what the record derives. "
-                    "Run verify-audit --write again",
+                    "Run verify-audit --push again",
                 )
             )
     return Pushed(pushed, replaced, adopted, waiting, refused)
+
+
+def unpublished_tags(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, Tag]) -> list[str]:
+    """The deployment tags this clone holds that origin lacks or holds differently: what a push would
+    send, or hold back for a commit origin lacks."""
+    held = _held_tags(repo_root)
+    return [
+        tag
+        for tag in derived_tags(baselines)
+        if tag in held and (tag not in origin or origin[tag].object != held[tag].object)
+    ]
 
 
 def commit_reach(repo_root: Path, commit: str) -> str:

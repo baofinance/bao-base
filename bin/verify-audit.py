@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Usage: verify-audit [revision-or-pattern ...] | verify-audit --write
+"""Usage: verify-audit [revision-or-pattern ...] | verify-audit [--write] [--push]
 
 Fails if a deployed contract's source is not accounted for. HOW it checks depends on whether the
 repository holds a `deployed.json`: with one, every deployed contract must have a baseline naming the
@@ -12,8 +12,12 @@ and none is left unchecked in between.
 baseline for every deployed contract that has none, proving each against the chain. That is minutes and
 needs an RPC, which is why it is a switch and not part of every run. It is ADDITIVE and never replaces
 an entry: delete `deployed.json` to rebuild the record from nothing, or delete one entry to correct it.
-Then it makes, corrects and pushes to origin the tag each recorded commit derives - those names only, and
-only for a commit origin already holds - and leaves `deployed.json` for the developer to commit and push.
+Then it makes, and corrects where they differ from what the record derives, the tag each recorded commit
+derives - on this computer only, where they and the record can be checked before anything is published.
+
+`--push` publishes those tags: only from a committed `deployed.json`, only the names the record derives,
+and only for a commit origin already holds. Run it before `git push`, so the branch reaches a CI that
+already holds its tags. `--write --push` is the two run one after the other.
 
 An argument holding a glob metacharacter is a PATTERN, expanded via `git tag -l` (so `deploy-*`
 works - quote it to avoid shell globbing); matching no tags is information, not a failure. Any other
@@ -66,7 +70,7 @@ from pathlib import Path
 
 from deployment_baselines import RECORD, Baseline, Review, UnreadableRecord, origin_tags, review
 from deployment_recovery import export_commit, install_toolchain
-from recover_baselines import Printer, run
+from recover_baselines import Printer, publish, run
 
 # Where audited source may live. Rename detection pairs only among the paths that survive the
 # pathspec, so any location a source file can legitimately move TO must be listed here: otherwise
@@ -938,9 +942,9 @@ def _run(args: list[str]) -> int:
         return conflicts
     _log("every dependency shared with a repository this one depends on is staged at the same commit")
 
-    if "--write" in args:
-        # The FIX, and the only thing in the system that writes the record - what a developer runs when
-        # the check below fails, the way `fmt` answers `fmt --check`.
+    if flags := [flag for flag in ("--write", "--push") if flag in args]:
+        # `--write` is the FIX, and the only thing in the system that writes the record - what a developer
+        # runs when the check below fails, the way `fmt` answers `fmt --check`.
         #
         # ADDITIVE: it records a baseline for every deployed contract that has none, and never replaces
         # one already there. So rebuilding a record from nothing is not a mode of its own - delete
@@ -948,9 +952,13 @@ def _run(args: list[str]) -> int:
         # A single WRONG entry is corrected the same way, by deleting that entry first, because an
         # overwrite is the one edit a record of what is already deployed should never make silently.
         #
-        # Then the TAGS, over the whole record: each one the record derives is made, corrected when it is
-        # not what the record derives, and pushed to origin - only those names, and only for a commit
-        # origin already holds. `deployed.json` is left for the developer to commit and push.
+        # Then the TAGS, over the whole record: each one the record derives is made, or corrected when it
+        # is not what the record derives - on this computer only, where they can be checked.
+        #
+        # `--push` publishes them: only from a committed record, only those names, and only for a commit
+        # origin already holds. It goes before `git push`, so the branch reaches a CI that already holds
+        # the tags. Both in one run are the two run one after the other, the push attempted whatever the
+        # write's outcome, exactly as `--write; --push` would be.
         #
         # Placed AFTER the two guards above so it inherits them: this compiles, so a FOUNDRY_PROFILE
         # would decide its settings too, and a record built under mismatched dependency versions is a
@@ -959,24 +967,32 @@ def _run(args: list[str]) -> int:
         # The recovery narrates wherever this command reports, which is one stream - so its verdict
         # cannot arrive above the work that produced it, and nothing has to be flushed to prevent it.
         #
-        # It takes no other argument, and refuses one by name: an argument it ignored would read as obeyed.
-        if others := [argument for argument in args if argument != "--write"]:
-            _err(f"\033[31mERROR: --write takes no other argument, and was given {' '.join(others)}\033[0m\n")
+        # No other argument, refused by name: an argument it ignored would read as obeyed.
+        if others := [argument for argument in args if argument not in flags]:
+            _err(
+                f"\033[31mERROR: verify-audit {' '.join(flags)} takes no other argument, and was given"
+                f" {' '.join(others)}\033[0m\n"
+            )
             return 1
         # A detached HEAD is refused rather than written to. The TAGS would be placed correctly - they
-        # go on the commits the record names, never on HEAD - but the other half of the repair cannot
-        # be finished here: `deployed.json` has to be committed, and there is no branch to commit it
-        # onto. A detached HEAD is also nearly always a throwaway checkout - a CI job, a bisect, a
-        # worktree - where leaving persistent refs behind is a surprise rather than a repair.
+        # go on the commits the record names, never on HEAD - but `deployed.json` has to be committed,
+        # and there is no branch to commit it onto. A detached HEAD is also nearly always a throwaway
+        # checkout - a CI job, a bisect, a worktree - where leaving or publishing refs is a surprise
+        # rather than a repair.
         if _git("symbolic-ref", "--quiet", "HEAD").returncode != 0:
-            _err("\033[31mERROR: HEAD is detached, so the record this writes could not be committed\033[0m\n")
-            _err("       check out the branch it belongs on and run this again\n")
+            _err(f"\033[31mERROR: HEAD is detached, and verify-audit {' '.join(flags)} runs only on a branch\033[0m\n")
+            _err("       check out the branch the record belongs on and run this again\n")
             return 1
         say = Printer(int(os.environ.get("BAO_BASE_VERBOSITY") or "0"), write=lambda line: _err(f"{line}\n"))
+        status = 0
         try:
-            return run(Path.cwd(), say=say, write=True)
+            if "--write" in flags:
+                status = run(Path.cwd(), say=say, write=True)
+            if "--push" in flags:
+                status = max(status, publish(Path.cwd(), say=say))
         except UnreadableRecord as unreadable:
             return _unreadable_record(unreadable)
+        return status
 
     try:
         found = review(Path.cwd())
@@ -1034,7 +1050,10 @@ def _run(args: list[str]) -> int:
                 _err(f"\033[31m  {commit[:10]}, the source of {len(built)}:\033[0m\n")
                 for baseline in built:
                     _err(f"\033[31m    {baseline.chain} {baseline.address} {baseline.contractType}\033[0m\n")
-            _err("       run `verify-audit --write` to create and push them\n")
+            _err(
+                "       run `verify-audit --write`, check and commit deployed.json, then `verify-audit --push`"
+                " before `git push`\n"
+            )
 
         if found.conflicts:
             gaps = 1

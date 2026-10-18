@@ -1510,7 +1510,9 @@ def test_a_recorded_commit_that_no_tag_names_fails_and_names_its_repair(fix):
 
     assert status == 1, output
     assert "no tag names" in output, "it says what is wrong"
-    assert "verify-audit --write" in output, "and how to repair it, which is never a git tag by hand"
+    assert "verify-audit --write" in output and "verify-audit --push" in output, (
+        "and how to repair it, which is never a git tag by hand"
+    )
 
     # THE REPAIR ITSELF, rather than a tag made by hand here. Making one proves only that the check CAN
     # be satisfied; running what the message tells you to run proves that it satisfies it. The first
@@ -1524,8 +1526,13 @@ def test_a_recorded_commit_that_no_tag_names_fails_and_names_its_repair(fix):
     assert "covers every deployed contract" in output
 
     # And from where CI stands: a fresh clone of origin holds only what was pushed. The clone that made
-    # the tags passes whether or not they were pushed; a fresh clone passes only if they were.
-    fix.commit("the record")
+    # the tags passes whether or not they were pushed; a fresh clone passes only if they were. The tags
+    # go before the branch, so the branch reaches a CI that already holds them.
+    fix.git("add", "-A")
+    fix.git("commit", "-qm", "the record")
+    pushed, pushing = fix.verify_audit("--push")
+    assert pushed == 0, pushing
+    fix.git("push", "-q", "origin", "HEAD")
     fresh = fix.root / "fresh"
     fix.git("clone", "-q", str(fix.bare), str(fresh))
     status, output = fix.verify_audit(cwd=fresh)
@@ -1557,18 +1564,83 @@ def test_write_refuses_on_a_detached_head(fix):
     assert status == 1, output
     assert "detached" in output.lower(), "it says what is wrong"
     assert fix.git("tag", "--points-at", head) == "", "and wrote nothing while refusing"
+
+
+def test_push_refuses_on_a_detached_head(fix):
+    # One rule for both commands that write tags: they run on a branch, and a detached HEAD is nearly
+    # always a throwaway checkout, where publishing refs is a surprise.
+    _recorded(fix)
+    fix.git("add", "-A")
+    fix.git("commit", "-qm", "the record")
+    fix.git("checkout", "--detach", "--quiet")
+
+    status, output = fix.verify_audit("--push")
+
+    assert status == 1, output
+    assert "detached" in output.lower(), "it says what is wrong"
     assert fix.git("ls-remote", "--tags", "origin") == "", "and pushed nothing"
 
 
 def test_write_refuses_an_argument_it_does_not_take(fix):
-    # `--write` takes no other argument. One it ignored would read as obeyed, so it is refused by name.
+    # `--write` and `--push` take no other argument. One they ignored would read as obeyed, so it is
+    # refused by name.
     _recorded(fix)
 
-    status, output = fix.verify_audit("--write", "--retag")
+    for flag in ("--write", "--push"):
+        status, output = fix.verify_audit(flag, "--retag")
+
+        assert status == 1, output
+        assert "takes no other argument" in output and "--retag" in output, "it names what it will not take"
+        assert fix.git("tag", "-l") == "", "and does nothing while refusing"
+
+
+def test_write_and_push_together_refuse_the_push_when_the_record_changed(fix):
+    # One run can do both, but the tags are published only from a record that is committed - the one
+    # that was checked. Here the record is not committed, so the tags stay on this computer.
+    head = _recorded(fix)
+
+    status, output = fix.verify_audit("--write", "--push")
 
     assert status == 1, output
-    assert "--retag" in output, "it names what it will not take"
-    assert fix.git("tag", "-l") == "", "and does nothing while refusing"
+    assert "not committed" in output and "verify-audit --push" in output, output
+    assert fix.git("tag", "--points-at", head) != "", "the tag is made here"
+    assert fix.git("ls-remote", "--tags", "origin") == "", "and not pushed"
+
+
+def test_write_and_push_together_push_when_the_record_is_committed(fix):
+    # Nothing to recover and the record committed: one run makes, corrects and publishes the tags.
+    head = _recorded(fix)
+    fix.git("add", "-A")
+    fix.git("commit", "-qm", "the record")
+
+    status, output = fix.verify_audit("--write", "--push")
+
+    assert status == 0, output
+    assert f"deploy/mainnet/state@{head[:10]}" in fix.git("ls-remote", "--tags", "origin")
+
+
+def test_write_and_push_together_push_even_when_the_write_fails(fix):
+    # Both in one run are `--write; --push`: the push is attempted whatever the write's outcome, and
+    # either one failing fails the run. Here the write fails on a deployment it cannot identify, and the
+    # committed record's tags still go.
+    import json
+
+    head = _recorded(fix)
+    state = json.loads((fix.work / "deployments/mainnet/state.json").read_text())
+    state["implementations"]["0x" + "cc" * 20] = {
+        "contractSource": "elsewhere/Bar.sol",
+        "contractType": "Bar",
+        "deploymentTime": "2026-01-01T00:00:00Z",
+    }
+    fix.write("deployments/mainnet/state.json", json.dumps(state))
+    fix.git("add", "-A")
+    fix.git("commit", "-qm", "the record, and a deployment nothing can identify")
+
+    status, output = fix.verify_audit("--write", "--push")
+
+    assert status == 1, output
+    assert "have no baseline" in output, "the write failed"
+    assert f"deploy/mainnet/state@{head[:10]}" in fix.git("ls-remote", "--tags", "origin"), "and the push still ran"
 
 
 def test_a_conflicted_record_is_reported_with_its_repair(fix):
@@ -1606,6 +1678,8 @@ def test_a_conflicted_record_is_reported_with_its_repair(fix):
     assert repaired == 0, repairing
     fix.git("add", "deployed.json", cwd=other)
     fix.git("commit", "-qm", "the records merged", cwd=other)
+    pushed, pushing = fix.verify_audit("--push", cwd=other)
+    assert pushed == 0, pushing
     fix.git("push", "-q", "origin", "HEAD", cwd=other)
     fresh = fix.root / "fresh"
     fix.git("clone", "-q", str(fix.bare), str(fresh))
