@@ -26,9 +26,11 @@ transactions. A baseline carries facts about an artefact and no judgements about
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, fields, replace
+from datetime import datetime
 from pathlib import Path
 
 from deployment_recovery import checkouts_by_repository, checkouts_of, declared_in, holds, placement
@@ -299,25 +301,28 @@ def _held_tags(repo_root: Path) -> dict[str, Tag]:
     return held
 
 
-def _faults(repo_root: Path, tag: str, held: Tag, commit: str, message: str) -> list[str]:
-    """How the tag held here differs from what the record derives for it: empty when it does not.
+def _faults(repo_root: Path, tag: str, held: Tag, baseline: Baseline) -> list[str]:
+    """How the tag held here differs from what the record derives for it from `baseline`: empty when it
+    does not.
 
-    The tagger and the date are not compared, so a correct tag is never written again, and one another
-    clone made is as good as one made here."""
+    The date is compared, because GitHub lists tags by it: dated as its commit, a deployment tag lists in
+    commit order. The tagger is not, so one another clone made is as good as one made here."""
     faults: list[str] = []
-    if held.commit != commit:
+    if held.commit != baseline.commit:
         faults.append(f"it was on {held.commit[:10]}")
     if held.object == held.commit:
         faults.append("it was lightweight")
-    else:
-        said = subprocess.run(
-            ["git", "for-each-ref", "--format=%(contents)", f"refs/tags/{tag}"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        if said != message:
-            faults.append("its message was not the derived one")
+        return faults
+    dated, _, said = subprocess.run(
+        ["git", "for-each-ref", "--format=%(taggerdate:unix)%00%(contents)", f"refs/tags/{tag}"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    ).stdout.partition("\0")
+    if said.strip() != tag_message(baseline.commitTimestamp):
+        faults.append("its message was not the derived one")
+    if dated != str(int(datetime.fromisoformat(baseline.commitTimestamp).timestamp())):
+        faults.append(f"its date was not its commit's, {baseline.commitTimestamp}")
     return faults
 
 
@@ -334,7 +339,8 @@ def make_tags(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, 
     """Make, here, each tag the record derives and this clone lacks, and correct each one it holds that
     is not what the record derives. `push_tags` sends them; this touches nothing outside the clone.
 
-    A tag is correct when it is annotated, on the recorded commit, and carries `tag_message`.
+    A tag is correct when it is annotated, on the recorded commit, carries `tag_message`, and is dated as
+    its commit.
 
     A commit is skipped when a tag ORIGIN has names it: that preserves the commit for everyone, and a
     second name on it would be a naming policy nobody asked for. A tag only this clone holds does not
@@ -350,23 +356,23 @@ def make_tags(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, 
     corrected: list[tuple[str, str]] = []
     unmade: list[tuple[str, str]] = []
     for tag, baseline in derived_tags(baselines).items():
-        message = tag_message(baseline.commitTimestamp)
         here = held.get(tag)
         if here is None and baseline.commit in published:
             continue
-        faults = [] if here is None else _faults(repo_root, tag, here, baseline.commit, message)
+        faults = [] if here is None else _faults(repo_root, tag, here, baseline)
         if here is not None and not faults:
             continue
         # ANNOTATED. A lightweight tag has no message, and `git tag -n` then prints the COMMIT's subject
         # line instead - which describes whatever that commit was about and says nothing about why the
-        # tag exists, while looking exactly like an annotation that does. It also records when the tag
-        # was made, which is a fact nothing else here keeps: a baseline recorded today from a commit of
-        # eight months ago. `-f` writes over a tag that is not correct, and creating one needs no other path.
+        # tag exists, while looking exactly like an annotation that does. DATED as its commit, through
+        # the committer date git gives a tag: GitHub lists tags by their date, so deployment tags list in
+        # commit order. `-f` writes over a tag that is not correct, and creating one needs no other path.
         done = subprocess.run(
-            ["git", "tag", "-a", "-f", tag, "-m", message, baseline.commit],
+            ["git", "tag", "-a", "-f", tag, "-m", tag_message(baseline.commitTimestamp), baseline.commit],
             cwd=repo_root,
             capture_output=True,
             text=True,
+            env={**os.environ, "GIT_COMMITTER_DATE": baseline.commitTimestamp},
         )
         if done.returncode != 0:
             said = (done.stderr or done.stdout or "").strip()
@@ -491,7 +497,7 @@ def push_tags(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, 
             if (
                 fetched.returncode == 0
                 and here == there
-                and not _faults(repo_root, tag, here, baseline.commit, tag_message(baseline.commitTimestamp))
+                and not _faults(repo_root, tag, here, baseline)
             ):
                 adopted.append(tag)
                 continue

@@ -2959,6 +2959,38 @@ def test_the_tag_is_annotated_with_what_it_preserves(tmp_path, monkeypatch):
     assert stamped in message, f"{stamped} not in {message}"
 
 
+def test_the_tag_takes_its_commits_date(tmp_path, monkeypatch):
+    # GitHub lists tags by the tag's own date, newest first, and shows that date. Dated as its commit, a
+    # deployment tag lists in commit order there, and with `git tag --sort=creatordate` here.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+
+    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
+
+    dated = git_out(repo, "for-each-ref", "--format=%(taggerdate:iso-strict)", f"refs/tags/{deployment_tag(head)}")
+    assert dated == "2026-01-01T00:00:00+00:00", "the commit's date, which the fixture set"
+
+
+def test_write_corrects_a_tag_whose_date_is_not_its_commits(tmp_path, monkeypatch):
+    # The right commit and the right message, but dated the day it was made: on GitHub it lists out of
+    # order. The date alone makes it not correct.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    tag = deployment_tag(head)
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
+    message = git_out(repo, "for-each-ref", "--format=%(contents)", f"refs/tags/{tag}")
+    subprocess.run(["git", "tag", "-a", "-f", tag, "-m", message, head], cwd=repo, check=True, capture_output=True)
+
+    printed: list[str] = []
+    assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 0
+
+    dated = git_out(repo, "for-each-ref", "--format=%(taggerdate:iso-strict)", f"refs/tags/{tag}")
+    assert dated == "2026-01-01T00:00:00+00:00"
+    assert any(tag in line and "date" in line for line in printed), printed
+
+
 def test_writing_again_does_not_pile_up_tags(tmp_path, monkeypatch):
     # Run twice on an unchanged tree and the second run has nothing to create: a commit any tag already
     # names is preserved, which is the same question `Review.untagged` asks.
