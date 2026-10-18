@@ -25,6 +25,7 @@ from Crypto.Hash import keccak
 from tabulate import tabulate
 
 from deployment_baselines import (
+    FETCH_BRANCHES,
     FETCH_TAGS,
     LABELS,
     RECORD,
@@ -1130,7 +1131,7 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer, *, push: 
     recorded = list(baselines)
     with _stage("tags", "fetch, make and push the tags" if push else "fetch and make the tags", say):
         # The branches as well as the tags: whether origin holds a tag's commit is read from them.
-        for fetch in (("fetch", "--quiet", "--no-recurse-submodules", "origin"), FETCH_TAGS):
+        for fetch in (FETCH_BRANCHES, FETCH_TAGS):
             fetched = subprocess.run(["git", *fetch], cwd=root, capture_output=True, text=True)
             if fetched.returncode != 0:
                 say(0, "\ncould not fetch from origin, so no tag was made or pushed:")

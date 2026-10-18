@@ -25,10 +25,13 @@ Everything here is READ-ONLY. Nothing in this module writes to a repository.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
+
+from deployment_baselines import FETCH_BRANCHES, FETCH_TAGS
 
 # The pin kinds foundry.lock records, and what each means for a bare `yarn update <dep>`.
 # A branch is the only one that can move on its own, so it is the only one that resolves without
@@ -891,7 +894,9 @@ def checklist(facts: Facts, target_ref: str | None, target_rev: str | None) -> l
             "working tree at that ref",
             bool(target_rev) and facts.worktree == target_rev,
             f"working tree {(facts.worktree or 'absent')[:10]}, wanted {(target_rev or '?')[:10]}",
-            f"git -C {facts.path} fetch --tags origin && git -C {facts.path} checkout {target_ref or '<ref>'}",
+            # The fetches `yarn dep` makes, so a deployment tag corrected on origin does not stop them.
+            " && ".join(shlex.join(["git", "-C", facts.path, *fetching]) for fetching in (FETCH_BRANCHES, FETCH_TAGS))
+            + f" && git -C {facts.path} checkout {target_ref or '<ref>'}",
         ),
         Stage(
             3,

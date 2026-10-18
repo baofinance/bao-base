@@ -3021,7 +3021,7 @@ def test_write_adds_an_empty_label_for_each_tag_and_fails(tmp_path, monkeypatch)
 def test_write_with_the_labels_written_makes_the_tags(tmp_path, monkeypatch):
     # The label leads the tag's message, so it is what `git tag -n` and GitHub's tag list show.
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
-    labelled(repo,"A, as the oracle for A/USD")
+    labelled(repo, "A, as the oracle for A/USD")
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
 
@@ -3054,7 +3054,7 @@ def test_write_only_appends_to_the_labels_file(tmp_path, monkeypatch):
 def test_an_empty_label_is_an_error(tmp_path, monkeypatch, label):
     # An entry with no words in it labels nothing, and would put a blank line at the head of the tag.
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
-    labelled(repo,label)
+    labelled(repo, label)
     before = (repo / "deployed-labels.toml").read_text()
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
@@ -3105,7 +3105,7 @@ def test_a_changed_label_corrects_the_tag(tmp_path, monkeypatch):
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
     assert recover.run(repo, say=recover.Printer(0), write=True) == 0
-    labelled(repo,"A, relabelled")
+    labelled(repo, "A, relabelled")
 
     printed: list[str] = []
     assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 0
@@ -3121,7 +3121,7 @@ def test_push_refuses_while_the_labels_have_changes(tmp_path, monkeypatch):
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
     assert recorded_and_committed(recover, repo) == 0
-    labelled(repo,"A, relabelled and not committed")
+    labelled(repo, "A, relabelled and not committed")
 
     printed: list[str] = []
     assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1

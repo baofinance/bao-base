@@ -19,6 +19,11 @@ it holds work only this computer has; that is kept and named. Run inside a submo
 submodule up for building in; run again in the main folder, it takes that set-up away. A clone made
 without --recurse-submodules needs nothing more than this.
 
+Every fetch of tags here is `verify-audit --write`'s (`FETCH_TAGS`): origin's version of each deployment tag
+replaces the one a checkout holds, so a tag corrected in another clone arrives instead of stopping the fetch
+with "would clobber existing tag". `update` and `status` fetch the branches first (`FETCH_BRANCHES`). sync
+fetches each dependency's tags last, so one that fails stops nothing else, and the exit status says so.
+
 `add` clones a new dependency into the first of forge's libs folders, under the name its url ends in, as
 `forge install` places one, and writes what `git submodule add` writes - except to the index. `-b` and
 `--branch` pass through to `git clone --branch`: a branch or tag, which git asks the remote for before it
@@ -62,6 +67,7 @@ from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from deployment_baselines import FETCH_BRANCHES, FETCH_TAGS
 from forge_config import forge_config
 from submodule_state import (
     MOVING,
@@ -96,11 +102,11 @@ dep remove [--force] <dependency> ...
 
   sync          Make this folder ready to build, and nothing more: each submodule at the commit this
                 repository points to, on the branch it follows, inside it only the submodules a
-                remapping uses, and no leftover repositories. A submodule whose folder is ahead of that
-                commit is left as it is, until named: sync <dependency> brings it back. Anything holding
-                work only this computer has is kept and named. Use it after cloning or a pull. Run
-                inside a submodule to set it up to work in, on its branch; run again in the main folder
-                to take that set-up away.
+                remapping uses, and no leftover repositories, with each submodule's tags fetched. A
+                submodule whose folder is ahead of that commit is left as it is, until named: sync
+                <dependency> brings it back. Anything holding work only this computer has is kept and
+                named. Use it after cloning or a pull. Run inside a submodule to set it up to work in,
+                on its branch; run again in the main folder to take that set-up away.
   status        For each submodule, and each submodule inside one that a remapping uses: the branch it
                 follows, what the commit this repository points to is (a tag, the tip of the branch, or
                 a commit), what is newer upstream, whether a remote holds that commit, and what the
@@ -256,7 +262,8 @@ def sync(repo_root: Path, remappings: list[str], named: list[str]) -> int:
     its recorded commit is moved forward; one ahead of it, or on another commit, is a move not yet recorded,
     and is left as it is unless `named` asks for it. Run inside a submodule, that submodule is set up to work
     in, on its branch; run again in the main directory, that set-up goes. Anything holding work only this
-    computer has is skipped, says so, and is not a failure. Returns 1 only when a step failed."""
+    computer has is skipped, says so, and is not a failure. Each dependency it brought to its record has its
+    tags fetched, last. Returns 1 only when a step failed, a tag fetch included."""
     print("sync:")
     try:
         # Run inside a submodule: set it up to work in, on the branch the repository containing it says it
@@ -271,7 +278,7 @@ def sync(repo_root: Path, remappings: list[str], named: list[str]) -> int:
         elif containing is not None and listed is not None and listed.branch is not None:
             branch = listed.branch
             started = checked_out(repo_root)
-            run(repo_root, repo_root, "fetch", "--quiet", "--no-recurse-submodules", "origin")
+            run(repo_root, repo_root, *FETCH_BRANCHES)
             on_branch = git(repo_root, "symbolic-ref", "--quiet", "HEAD").stdout.strip() == f"refs/heads/{branch}"
             changed = git(repo_root, "status", "--porcelain", "--ignore-submodules=all", "--untracked-files=no")
             held = [f"{here}/{line[3:]}: changed and not committed" for line in changed.stdout.splitlines() if line]
@@ -399,13 +406,24 @@ def sync(repo_root: Path, remappings: list[str], named: list[str]) -> int:
                 if not at_record(directory, level):
                     run(repo_root, directory, "submodule", "update", "--init", "--", level.path)
                 stand_on_branch(repo_root, directory, level)
+        unfetched: list[str] = []
         for entry in in_scope:
             if entry.path in moving and (repo_root / entry.path / ".git").exists():
                 clean(repo_root, entry, remappings)
+                # Then its tags. A deployment tag made or corrected in another clone reaches this one only
+                # through a fetch, and a folder already at its record has made none. Last, so a fetch that
+                # fails stops nothing else.
+                try:
+                    run(repo_root, repo_root / entry.path, *FETCH_TAGS)
+                except StepFailed:
+                    unfetched.append(entry.path)
     except StepFailed:
         report(repo_root, in_scope, remappings)
         return 1
     report(repo_root, in_scope, remappings)
+    if unfetched:
+        print(f"  The tags of {', '.join(unfetched)} were not fetched. Every other step is done.")
+        return 1
     return 0
 
 
@@ -431,7 +449,8 @@ def status(repo_root: Path, remappings: list[str], fetch: bool) -> int:
             continue
         if fetch:
             try:
-                run(repo_root, checkout, "fetch", "--tags", "--quiet", "--no-recurse-submodules", "origin")
+                for fetching in (FETCH_BRANCHES, FETCH_TAGS):
+                    run(repo_root, checkout, *fetching)
             except StepFailed:
                 fetch_failed = True
 
@@ -625,7 +644,8 @@ def update(repo_root: Path, dependency: str, force: bool, libs: str, remappings:
         # The dependency alone. git's fetch otherwise follows any nested submodule that happens to be checked
         # out (fetch.recurseSubmodules defaults to on-demand) and fails on a nested pin no remote holds, for a
         # submodule nothing here may build from. The nested paths the build reads are fetched below, by name.
-        run(repo_root, submodule, "fetch", "--tags", "--quiet", "--no-recurse-submodules", "origin")
+        for fetching in (FETCH_BRANCHES, FETCH_TAGS):
+            run(repo_root, submodule, *fetching)
         target = classify(submodule, ref)
         if target.rev is None:
             print(f"  Stopped: '{ref}' is not a tag, branch or commit in {path}.")

@@ -26,6 +26,7 @@ DEP = BAO_BASE / "bin" / "dep"
 
 sys.path.insert(0, str(BAO_BASE / "bin"))
 import doctor  # noqa: E402 - importable only once bin is on the path
+from deployment_baselines import FETCH_BRANCHES, FETCH_TAGS  # noqa: E402 - importable only once bin is on the path
 
 # Cloning a submodule from a path on disk is refused by default (CVE-2022-39253). Allowing it through the
 # environment reaches every git call - the fixture's and the ones bin/dep makes - without touching a config.
@@ -407,6 +408,83 @@ def test_a_sync_failure_reports_gits_error_the_steps_run_and_where_things_stand(
     assert "which does not exist" not in result.stdout, result.stdout
 
 
+# ── the tags: sync brings them down, and no fetch is stopped by a corrected deployment tag ───────────
+#
+# A deployment tag made or corrected in another clone reaches this one only through a fetch, and sync is
+# what a developer runs after a pull. A plain `git fetch --tags` refuses to replace a tag a clone already
+# holds, so every fetch here takes origin's version of a deployment tag, as `verify-audit --write` does.
+
+DEPLOYMENT_TAG = "deploy/mainnet/state@2026-01-03T00-00-00Z"
+
+
+def tag_object(where: Path, tag: str) -> str:
+    """The object `tag` names in `where`, or "" when it holds no such tag."""
+    listed = subprocess.run(
+        ["git", "for-each-ref", "--format=%(objectname)", f"refs/tags/{tag}"], cwd=where, capture_output=True, text=True
+    )
+    return listed.stdout.strip()
+
+
+def publish_deployment_tag(world: World, commit: str) -> str:
+    """DEPLOYMENT_TAG, annotated, on `commit` of dep, published to dep's origin. Returns the tag object."""
+    work = world.remotes / "dep"
+    git(work, "tag", "-a", "-f", DEPLOYMENT_TAG, "-m", "made in another clone", commit)
+    git(work, "push", "-q", "-f", str(world.remotes / "dep.git"), f"refs/tags/{DEPLOYMENT_TAG}")
+    return tag_object(world.remotes / "dep.git", DEPLOYMENT_TAG)
+
+
+def replace_a_deployment_tag(world: World, here: Path) -> str:
+    """lib/dep holds DEPLOYMENT_TAG lightweight, as an older tool made it, and dep's origin holds it
+    annotated, as another clone corrected it. Returns origin's tag object."""
+    dependency = here / "lib" / "dep"
+    git(dependency, "tag", DEPLOYMENT_TAG)
+    return publish_deployment_tag(world, git(dependency, "rev-parse", "HEAD"))
+
+
+def test_sync_brings_down_a_new_deployment_tag(tmp_path):
+    # The checkout is already at its record, so nothing else would fetch from its origin.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    published = publish_deployment_tag(world, git(here / "lib" / "dep", "rev-parse", "HEAD"))
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert tag_object(here / "lib" / "dep", DEPLOYMENT_TAG) == published
+
+
+def test_sync_takes_origins_version_of_a_replaced_deployment_tag(tmp_path):
+    # Origin's copy is the shared one: the record derives a deployment tag's name.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    corrected = replace_a_deployment_tag(world, here)
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert tag_object(here / "lib" / "dep", DEPLOYMENT_TAG) == corrected
+
+
+def test_a_sync_whose_tag_fetch_fails_finishes_the_rest_and_fails(tmp_path):
+    # dep's origin is gone, but both checkouts already hold the commits recorded for them: each is put back
+    # at its record, tool's tags are fetched, dep's fetch is shown failing, and the exit status says so.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    for name in ("dep", "tool"):
+        git(here / "lib" / name, "checkout", "-q", "HEAD~1")
+    (world.remotes / "dep.git").rename(world.remotes / "dep.git.gone")
+
+    result = sync(here)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    for name in ("dep", "tool"):
+        assert checked_out(here / "lib" / name) == recorded(here, f"lib/{name}"), name
+    fetch = " ".join(FETCH_TAGS)
+    ran = steps(result.stdout)
+    assert f"ran: git -C lib/tool {fetch}" in ran, ran
+    assert any(re.fullmatch(rf"failed \(exit \d+\): git -C lib/dep {re.escape(fetch)}", step) for step in ran), ran
+
+
 # ── update: moving one dependency to a named version ──────────────────────────────────────────────
 #
 # `update` moves a dependency the way update-submodule does, without foundry.lock: the branch it follows
@@ -609,6 +687,21 @@ def test_update_a_branch_lands_on_it_at_the_remote_tip(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert branch_of(here / "lib" / "dep") == "main"
     assert checked_out(here / "lib" / "dep") == tip
+
+
+def test_update_takes_origins_version_of_a_replaced_deployment_tag(tmp_path):
+    # A plain tag fetch refuses to replace a tag the clone holds ("would clobber existing tag"), which stopped
+    # the update before it moved anything.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    corrected = replace_a_deployment_tag(world, here)
+    tip = advance(world, "dep")
+
+    result = update(here, "dep@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert checked_out(here / "lib" / "dep") == tip
+    assert tag_object(here / "lib" / "dep", DEPLOYMENT_TAG) == corrected
 
 
 def test_update_a_detached_branch_dependency_at_its_commit_is_put_on_its_branch(tmp_path):
@@ -816,7 +909,8 @@ def test_an_update_failure_reports_gits_error_the_steps_run_and_where_things_sta
     assert result.returncode != 0
     ran = steps(result.stdout)
     assert ran[:-1] == [
-        "ran: git -C lib/dep fetch --tags --quiet --no-recurse-submodules origin",
+        f"ran: git -C lib/dep {' '.join(FETCH_BRANCHES)}",
+        f"ran: git -C lib/dep {' '.join(FETCH_TAGS)}",
         "ran: git -C lib/dep checkout --quiet --track -B main origin/main",
         "ran: git config -f .gitmodules submodule.lib/dep.branch main",
     ], ran
@@ -1522,10 +1616,22 @@ def test_status_changes_no_checkout_and_no_index(tmp_path):
         {path: checked_out(here / path) for path in checked_out_paths(here)},
         git(here, "ls-files", "--stage"),
     ) == before
+    fetches = "|".join(re.escape(" ".join(fetching)) for fetching in (FETCH_BRANCHES, FETCH_TAGS))
     ran = steps(result.stdout)
-    assert ran and all(
-        re.fullmatch(r"ran: git -C \S+ fetch --tags --quiet --no-recurse-submodules origin", step) for step in ran
-    ), ran
+    assert ran and all(re.fullmatch(rf"ran: git -C \S+ ({fetches})", step) for step in ran), ran
+
+
+def test_status_fetch_takes_origins_version_of_a_replaced_deployment_tag(tmp_path):
+    # A plain tag fetch refuses to replace a tag the clone holds ("would clobber existing tag"), so status
+    # reported a failed fetch for every clone holding a deployment tag another clone had corrected.
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    corrected = replace_a_deployment_tag(world, here)
+
+    result = status(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert tag_object(here / "lib" / "dep", DEPLOYMENT_TAG) == corrected
 
 
 def test_status_without_fetch_reads_what_the_last_fetch_left(tmp_path):

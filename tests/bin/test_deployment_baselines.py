@@ -325,7 +325,9 @@ def test_a_tag_is_named_by_its_deploys_first_block_time():
 
     from deployment_baselines import derived_tags
 
-    later = replace(PAUSER, address="0x" + "cc" * 20, deployBlock=PAUSER.deployBlock + 5, deployTimestamp="2026-03-21T13:42:00Z")
+    later = replace(
+        PAUSER, address="0x" + "cc" * 20, deployBlock=PAUSER.deployBlock + 5, deployTimestamp="2026-03-21T13:42:00Z"
+    )
 
     assert list(derived_tags([later, PAUSER])) == [f"deploy/mainnet/state@{PAUSER.deployTimestamp.replace(':', '-')}"]
 

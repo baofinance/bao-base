@@ -195,6 +195,10 @@ DEPLOY_TAGS = "deploy/"
 # a clone already holds ("would clobber existing tag"), so a tag corrected in one clone would stop every
 # other clone's fetch instead of reaching it. Only the deployment tags are forced: the record derives their
 # names, so origin's copy is the shared one. Any other tag is its owner's, and a clash there is refused.
+#
+# TAGS ONLY. A refspec given on the command line replaces the remote's configured ones, so this leaves every
+# `refs/remotes/origin/…` branch where it was. Where the branches are wanted too, `FETCH_BRANCHES` runs
+# first: the two together fetch what a plain `git fetch --tags` did.
 FETCH_TAGS = (
     "fetch",
     "--quiet",
@@ -203,6 +207,10 @@ FETCH_TAGS = (
     "origin",
     f"+refs/tags/{DEPLOY_TAGS}*:refs/tags/{DEPLOY_TAGS}*",
 )
+
+# Origin's branches, by the remote's configured refspecs. The dependency alone: git's fetch otherwise follows
+# any nested submodule that happens to be checked out and fails on a nested pin no remote holds.
+FETCH_BRANCHES = ("fetch", "--quiet", "--no-recurse-submodules", "origin")
 
 
 def _tag_prefix(state_file: str) -> str:

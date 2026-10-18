@@ -378,6 +378,30 @@ def test_the_checklist_leaves_only_what_is_undone(world):
     assert stages[6].action == "git add lib/dep"
 
 
+@pytest.mark.parametrize("by_tag", [True, False], ids=["tag", "commit"])
+def test_the_printed_fetch_repair_succeeds_over_a_replaced_deployment_tag(world, by_tag):
+    # The folder holds the lightweight deployment tag an older tool made; its remote holds the corrected,
+    # annotated one. A plain `git fetch --tags` refuses to replace it, so the repair takes origin's version.
+    # The version moved to is a tag, or a commit only a branch reaches, which the repair fetches as well.
+    tag = "deploy/mainnet/state@2026-01-03T00-00-00Z"
+    dep = world.project / "lib" / "dep"
+    git(dep, "tag", tag)
+    git(world.dep_source, "tag", "-a", tag, "-m", "corrected", "v1")
+    target = add_commit(world.dep_source, "v2")
+    if by_tag:
+        git(world.dep_source, "tag", "v2")
+    stage = {stage.number: stage for stage in checklist(facts_for(world.project), "v2" if by_tag else target, target)}[
+        2
+    ]
+    assert not stage.done, "the folder is not at v2 yet"
+
+    repaired = subprocess.run(stage.action, shell=True, cwd=world.project, capture_output=True, text=True)
+
+    assert repaired.returncode == 0, f"{stage.action}\n{repaired.stdout}{repaired.stderr}"
+    assert git(dep, "rev-parse", "HEAD").stdout.strip() == target
+    assert git(dep, "rev-parse", tag).stdout.strip() == git(world.dep_source, "rev-parse", tag).stdout.strip()
+
+
 def move_to_v2_and_lock_it(world: World) -> str:
     """Move the dependency to a new tag v2 and write foundry.lock to record it, staging nothing."""
     dep = world.project / "lib" / "dep"

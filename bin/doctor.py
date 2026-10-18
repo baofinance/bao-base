@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import subprocess
 import tomllib
 from collections import Counter
@@ -260,6 +261,99 @@ def unpublished_commit_problems(repo_root: Path, remappings: list[str]) -> list[
                 f"  Repair: push it (git -C {path} push){moving}"
             )
     return problems
+
+
+def _config_entries(checkout: Path, pattern: str, *options: str) -> list[tuple[str, str, str, str]]:
+    """Each setting git reads in `checkout` whose key matches `pattern`, in the order git reads them, as
+    (scope, origin, key, value). `--show-origin` gives the origin as `file:<path>`, or `command line:` for
+    one set by the environment. None set is an empty list, which git reports as exit 1."""
+    listed = subprocess.run(
+        ["git", "config", "-z", "--show-scope", "--show-origin", *options, "--get-regexp", pattern],
+        cwd=checkout,
+        capture_output=True,
+        text=True,
+    )
+    # Each entry is `scope\0origin\0key\nvalue\0`.
+    fields = listed.stdout.split("\0")[:-1]
+    entries: list[tuple[str, str, str, str]] = []
+    for scope, origin, setting in zip(fields[0::3], fields[1::3], fields[2::3], strict=True):
+        key, _, value = setting.partition("\n")
+        entries.append((scope, origin, key, value))
+    return entries
+
+
+def tag_push_setting_problems(repo_root: Path) -> list[str]:
+    """Settings that make `git push` send tags nobody named, in this repository and in each dependency
+    checkout: each is a clone with its own config, and a push can be made from any of them.
+    `verify-audit --push` sends each deployment tag by name; these send other tags with it:
+
+    - `push.followTags`: every annotated tag on the commits pushed, deployment tag or not.
+    - `remote.<name>.mirror`: every ref, and each tag there that this clone lacks is deleted.
+    - a `remote.<name>.push` refspec whose source covers `refs/tags/`.
+
+    A true-or-false setting counts as git reads it: the last value wins, so one turned off later is no
+    finding, and when it is on, every place setting it on is named, since each must go. One setting that
+    several checkouts read, a global one, is one finding naming them all. Each repair names the file git
+    reports, relative to the repository root when it is inside it."""
+    checkouts = [(repo_root.name, repo_root)] + [
+        (dependency.path, repo_root / dependency.path)
+        for dependency in declared_submodules(repo_root)
+        if (repo_root / dependency.path / ".git").exists()
+    ]
+    scopes = {
+        "local": "the clone's own config",
+        "worktree": "the worktree's config",
+        "global": "your global config",
+        "system": "the system config",
+    }
+    # (what is wrong, where it is set, the repair) to the checkouts it reaches, in the order met.
+    found: dict[tuple[str, str, str], list[str]] = {}
+    for shown, checkout in checkouts:
+        switches = _config_entries(checkout, r"^(push\.followtags|remote\..*\.mirror)$", "--type=bool")
+        last = {key: value for _, _, key, value in switches}
+        refspecs = _config_entries(checkout, r"^remote\..*\.push$")
+        for scope, origin, key, value in [*switches, *refspecs]:
+            # A refspec's source side is what it pushes: a tag name, or a glob whose fixed part a tag's name
+            # starts with. A negative refspec (`^…`) and `:`, which pushes matching branches, cover no tag.
+            source = value.removeprefix("+").partition(":")[0]
+            covers_tags = source.startswith("refs/tags/") or (
+                "*" in source and "refs/tags/".startswith(source.partition("*")[0])
+            )
+            if key == "push.followtags" and value == "true" and last[key] == "true":
+                what = (
+                    "push.followTags is true, so git push also sends every annotated tag on the commits it pushes, "
+                    "deployment tag or not"
+                )
+                unset = ["--unset", "push.followTags"]
+            elif key.endswith(".mirror") and value == "true" and last[key] == "true":
+                remote = key.removeprefix("remote.").removesuffix(".mirror")
+                what = (
+                    f"remote {remote} mirrors, so git push {remote} sends every ref, tags included, and deletes "
+                    "each tag there that this clone lacks"
+                )
+                unset = ["--unset", key]
+            elif key.endswith(".push") and covers_tags:
+                remote = key.removeprefix("remote.").removesuffix(".push")
+                what = f"remote {remote} pushes {value}, so git push {remote} sends every tag that refspec covers"
+                unset = ["--fixed-value", "--unset", key, value]
+            else:
+                continue
+            if not origin.startswith("file:"):
+                where = "the environment, by GIT_CONFIG_COUNT or GIT_CONFIG_PARAMETERS, not a file"
+                repair = "remove it from the environment git runs in"
+            else:
+                held = Path(origin.removeprefix("file:"))
+                held = (held if held.is_absolute() else checkout / held).resolve()
+                named = held.relative_to(repo_root.resolve()) if held.is_relative_to(repo_root.resolve()) else held
+                where = f"{named.as_posix()}, {scopes.get(scope, f'the {scope} config')}"
+                repair = shlex.join(["git", "config", "--file", named.as_posix(), *unset])
+            reached = found.setdefault((what, where, repair), [])
+            if shown not in reached:
+                reached.append(shown)
+    return [
+        f"{', '.join(shown)}: {what}\n  Set in {where}\n  Repair: {repair}"
+        for (what, where, repair), shown in found.items()
+    ]
 
 
 def unused_checkout_problems(repo_root: Path, remappings: list[str]) -> list[str]:
@@ -960,6 +1054,16 @@ def build_checks(
             "once this repository is pushed, CI and every other clone fail to check the submodule out, and only "
             "this computer can repair it",
             unpublished_commit_problems(repo_root, remappings),
+        ),
+        Check(
+            "no git setting makes a push send tags that were not named",
+            "verify-audit --push sends only the deployment tags the record derives, each by name. push.followTags "
+            "makes git push also send every annotated tag on the commits it pushes. A remote set to mirror is sent "
+            "every tag, and loses each tag this clone lacks. A push refspec that covers refs/tags sends every tag it "
+            "covers. Each dependency checkout has its own config, so each is read too",
+            "a tag made for a moment on one computer is published to everyone, and a mirror push deletes "
+            "published tags that this clone does not hold",
+            tag_push_setting_problems(repo_root),
         ),
         Check(
             "no submodule contains old git repositories",

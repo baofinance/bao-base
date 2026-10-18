@@ -1,0 +1,4 @@
+# One line per deployment tag, saying what was deployed. verify-audit --write puts each line at the
+# head of its tag's message, and adds an empty entry for a tag that has none. Write the labels here,
+# never on the tag.
+"deploy/mainnet/state@2026-03-21T13-41-23Z" = "BaoPauser deploy"

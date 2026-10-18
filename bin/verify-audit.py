@@ -1096,7 +1096,9 @@ def _run(args: list[str]) -> int:
             )
             for tag in found.stale_tags:
                 _err(f"\033[31m  {tag}: the record no longer derives it\033[0m\n")
-            _err(f"       delete them here with `git tag -d {' '.join(found.stale_tags)}`, and on origin if it holds them\n")
+            _err(
+                f"       delete them here with `git tag -d {' '.join(found.stale_tags)}`, and on origin if it holds them\n"
+            )
 
         if found.conflicts:
             gaps = 1

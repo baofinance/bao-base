@@ -996,3 +996,145 @@ def test_ruff_reads_ruff_toml_before_pyproject_toml(tmp_path):
 
 def test_bao_base_itself_has_nothing_to_extend(tmp_path):
     assert doctor.ruff_settings_problems(_BAO_BASE) == []
+
+
+# ── settings that make git push send tags nobody named ──
+#
+# `verify-audit --push` sends only the deployment tags the record derives. push.followTags, a mirroring remote,
+# or a push refspec naming tags make a plain `git push` send other tags too, from this repository or from a
+# dependency checkout, each a clone with its own config. Each test runs with an empty global config, so the
+# settings of whoever runs it cannot reach it.
+
+
+@pytest.fixture
+def isolated(tmp_path, monkeypatch) -> pathlib.Path:
+    """A global git config holding only an identity, in place of the user's. Returns its path."""
+    global_config = tmp_path / "global.gitconfig"
+    global_config.write_text("[user]\n\tname = test\n\temail = test@example.com\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(global_config))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    return global_config
+
+
+def _host_with_a_dependency(tmp_path: pathlib.Path) -> pathlib.Path:
+    """A repository with one dependency checked out at lib/sub."""
+    sub = _init_repo(tmp_path / "sub")
+    (sub / "a.txt").write_text("a")
+    _git(sub, "add", ".")
+    _git(sub, "commit", "-qm", "content")
+    host = _init_repo(tmp_path / "host")
+    _submodule_at(host, sub)
+    return host
+
+
+def _repaired(host: pathlib.Path, problem: str) -> None:
+    """Run the finding's repair, as printed, from the repository root."""
+    repair = next(line for line in problem.splitlines() if line.startswith("  Repair: ")).removeprefix("  Repair: ")
+    subprocess.run(repair, shell=True, cwd=host, check=True, capture_output=True, text=True)
+
+
+def test_push_follow_tags_is_a_finding_naming_where_it_is_set(tmp_path, isolated):
+    # Set in the repository's own config: the repair unsets it there, and then nothing is found.
+    host = _host_with_a_dependency(tmp_path)
+    _git(host, "config", "push.followTags", "true")
+
+    problems = doctor.tag_push_setting_problems(host)
+
+    assert len(problems) == 1, problems
+    assert problems[0].startswith(f"{host.name}: push.followTags is true"), problems[0]
+    assert "  Repair: git config --file .git/config --unset push.followTags" in problems[0], problems[0]
+    _repaired(host, problems[0])
+    assert doctor.tag_push_setting_problems(host) == []
+
+
+def test_push_follow_tags_set_globally_names_the_global_file(tmp_path, isolated):
+    # One setting, read by every checkout: one finding, naming each checkout it reaches.
+    host = _host_with_a_dependency(tmp_path)
+    _git(host, "config", "--global", "push.followTags", "true")
+
+    problems = doctor.tag_push_setting_problems(host)
+
+    assert len(problems) == 1, problems
+    assert problems[0].startswith(f"{host.name}, lib/sub: push.followTags is true"), problems[0]
+    assert f"  Repair: git config --file {isolated} --unset push.followTags" in problems[0], problems[0]
+    _repaired(host, problems[0])
+    assert doctor.tag_push_setting_problems(host) == []
+
+
+def test_push_follow_tags_in_a_dependency_checkout_is_a_finding(tmp_path, isolated):
+    # A dependency checkout pushes on its own, from its own config under the repository's .git/modules.
+    host = _host_with_a_dependency(tmp_path)
+    _git(host / "lib" / "sub", "config", "push.followTags", "true")
+
+    problems = doctor.tag_push_setting_problems(host)
+
+    assert len(problems) == 1, problems
+    assert problems[0].startswith("lib/sub: push.followTags is true"), problems[0]
+    assert "  Repair: git config --file .git/modules/lib/sub/config --unset push.followTags" in problems[0]
+    _repaired(host, problems[0])
+    assert doctor.tag_push_setting_problems(host) == []
+
+
+def test_no_setting_that_pushes_tags_passes(tmp_path, isolated):
+    assert doctor.tag_push_setting_problems(_host_with_a_dependency(tmp_path)) == []
+
+
+def test_a_setting_turned_off_later_is_not_a_finding(tmp_path, isolated):
+    # git uses the last value it reads, so each clone's own false overrides the global true.
+    host = _host_with_a_dependency(tmp_path)
+    _git(host, "config", "--global", "push.followTags", "true")
+    _git(host, "config", "push.followTags", "false")
+    _git(host / "lib" / "sub", "config", "push.followTags", "false")
+
+    assert doctor.tag_push_setting_problems(host) == []
+
+
+def test_a_setting_from_the_environment_says_it_has_no_file(tmp_path, isolated, monkeypatch):
+    # GIT_CONFIG_COUNT sets it for every git command run in that environment, and no file holds it.
+    host = _host_with_a_dependency(tmp_path)
+    for name, value in (
+        ("GIT_CONFIG_COUNT", "1"),
+        ("GIT_CONFIG_KEY_0", "push.followTags"),
+        ("GIT_CONFIG_VALUE_0", "true"),
+    ):
+        monkeypatch.setenv(name, value)
+
+    problems = doctor.tag_push_setting_problems(host)
+
+    assert len(problems) == 1, problems
+    assert "environment" in problems[0], problems[0]
+    assert "--file" not in problems[0], problems[0]
+
+
+def test_a_mirroring_remote_is_a_finding(tmp_path, isolated):
+    # A mirror push sends every ref, and deletes each one there that this clone lacks, tags included.
+    host = _host_with_a_dependency(tmp_path)
+    _git(host, "remote", "add", "--mirror=push", "backup", str(tmp_path / "backup.git"))
+
+    problems = doctor.tag_push_setting_problems(host)
+
+    assert len(problems) == 1, problems
+    assert problems[0].startswith(f"{host.name}: remote backup mirrors"), problems[0]
+    assert "  Repair: git config --file .git/config --unset remote.backup.mirror" in problems[0], problems[0]
+    _repaired(host, problems[0])
+    assert doctor.tag_push_setting_problems(host) == []
+
+
+@pytest.mark.parametrize("refspec", ["refs/tags/*:refs/tags/*", "+refs/*:refs/*"])
+def test_a_push_refspec_naming_tags_is_a_finding(tmp_path, isolated, refspec):
+    # Only the refspec that sends tags is named; the branch refspec beside it stays.
+    host = _host_with_a_dependency(tmp_path)
+    _git(host, "remote", "add", "origin", str(tmp_path / "origin.git"))
+    _git(host, "config", "--add", "remote.origin.push", "refs/heads/main")
+    _git(host, "config", "--add", "remote.origin.push", refspec)
+
+    problems = doctor.tag_push_setting_problems(host)
+
+    assert len(problems) == 1, problems
+    assert problems[0].startswith(f"{host.name}: remote origin pushes {refspec}"), problems[0]
+    _repaired(host, problems[0])
+    assert doctor.tag_push_setting_problems(host) == []
+    pushed = subprocess.run(
+        ["git", "-C", str(host), "config", "--get-all", "remote.origin.push"], capture_output=True, text=True
+    )
+    assert pushed.stdout.split() == ["refs/heads/main"]
