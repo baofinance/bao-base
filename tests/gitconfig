@@ -1,0 +1,7 @@
+# The git configuration every test runs with, in place of the machine's own global configuration:
+# tests/conftest.py points GIT_CONFIG_GLOBAL here, and turns the system configuration off.
+[init]
+	# A bare origin is made with `git init --bare`, and the fixtures push `main` to it. Without this, a
+	# machine with no setting of its own names the origin's branch `master`, and a clone of it checks out
+	# nothing.
+	defaultBranch = main
