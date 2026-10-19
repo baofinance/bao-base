@@ -40,12 +40,14 @@ from deployment_records import Entry, Problem, normalise, read_records
 SCHEMA_VERSION = 1
 RECORD = "deployed.json"
 # The person's words for each deployment tag, beside the record they describe: one line per tag, saying
-# what was deployed. Written by hand, never generated - `--write` only appends an empty entry to fill in.
+# what was deployed. Written by hand, never generated: `--write` appends an entry for a tag that has none,
+# and removes an earlier entry only once its words are carried to the new name (`replaced_labels`).
 LABELS = "deployed-labels.toml"
 _LABELS_HEADER = (
-    "# One line per deployment tag, saying what was deployed. verify-audit --write puts each line at the\n"
-    "# head of its tag's message, and adds an empty entry for a tag that has none. Write the labels here,\n"
-    "# never on the tag.\n"
+    "# One line per deployment tag, saying what was deployed. Write the labels here, never on the tag:\n"
+    "# verify-audit --write puts each one at the head of its tag's message. For a tag with no line, it adds\n"
+    "# one with the words of the same deploy's line under an earlier name, and removes that earlier line.\n"
+    "# With no such line, or several that differ, the new one is empty, for you to fill in.\n"
 )
 
 
@@ -251,7 +253,7 @@ def _deploy_span(built: list[Baseline]) -> tuple[Baseline, Baseline]:
 
 def tag_message(built: list[Baseline], label: str) -> str:
     """What a deployment tag says about `built`, the contracts it covers: its label - the person's line on
-    what was deployed, which is what `git tag -n` and GitHub's tag list show - then the tool's lines.
+    what was deployed, which is what `git tag -n` shows - then the tool's lines.
 
     The tool's lines say when the deploy happened - its first and last block, at the chain's own times -
     and where the commit falls against it: at or before the first contract is the search's first pass;
@@ -278,8 +280,8 @@ def tag_message(built: list[Baseline], label: str) -> str:
 
 
 def tag_date(built: list[Baseline]) -> str:
-    """The date a deployment tag carries: its deploy's first block's time. GitHub lists tags by their date,
-    so deployment tags list there in deploy order, each showing when it was deployed."""
+    """The date a deployment tag carries: its deploy's first block's time. So the tag says when the deploy
+    ran, and `git tag --sort=creatordate` lists deployment tags in deploy order, as their names sort."""
     return _deploy_span(built)[0].deployTimestamp
 
 
@@ -401,8 +403,8 @@ def read_labels(repo_root: Path) -> dict[str, object]:
 def label_errors(labels: dict[str, object], derived: Iterable[str]) -> list[tuple[str, str]]:
     """(tag or entry, what is wrong) for each tag the record derives whose label is missing or cannot serve
     as one, and for each entry naming no tag the record derives - a misspelt or stale entry, whose text
-    would otherwise go nowhere. A label is one line of words, since the first line is all `git tag -n` and
-    GitHub show.
+    would otherwise go nowhere. A label is one line of words, since the first line is all `git tag -n`
+    shows.
 
     Every derived tag needs one, whatever other tags its commit has: a release tag keeps the commit, but
     is not dated as the deploy and does not say what was deployed."""
@@ -570,8 +572,8 @@ def _faults(repo_root: Path, tag: str, held: Tag, built: list[Baseline], label: 
     """How the tag held here differs from what the record derives for it from `built`, the contracts it
     covers, and its `label`: empty when it does not.
 
-    The date is compared, because GitHub lists tags by it: dated as its deploy, a deployment tag lists in
-    deploy order. The tagger is not, so one another clone made is as good as one made here."""
+    The date is compared, because it says when the deploy ran (`tag_date`). The tagger is not, so one
+    another clone made is as good as one made here."""
     faults: list[str] = []
     if held.commit != built[0].commit:
         faults.append(f"it was on {held.commit[:10]}")
@@ -627,9 +629,8 @@ def make_tags(repo_root: Path, baselines: Iterable[Baseline], labels: dict[str, 
         # ANNOTATED. A lightweight tag has no message, and `git tag -n` then prints the COMMIT's subject
         # line instead - which describes whatever that commit was about and says nothing about why the
         # tag exists, while looking exactly like an annotation that does. DATED as its deploy's first
-        # block, through the committer date git gives a tag: GitHub lists tags by their date, so deployment
-        # tags list in deploy order. `-f` writes over a tag that is not correct, and creating one needs no
-        # other path.
+        # block (`tag_date`), through the committer date git gives a tag. `-f` writes over a tag that is
+        # not correct, and creating one needs no other path.
         done = subprocess.run(
             ["git", "tag", "-a", "-f", tag, "-m", tag_message(built, labels[tag]), built[0].commit],
             cwd=repo_root,
@@ -1009,8 +1010,8 @@ class Review:
     # the aggregators' eighty-three disagree, every one a rewrite after a rename.
     misnamed: list[tuple[Baseline, str | None]]
     # (tag, how it differs) for each deployment tag held here that is not what the record derives - see
-    # `make_tags` for what correct means. A tag on each recorded commit is not enough: a wrong one lists
-    # out of order on GitHub, or says the wrong thing. Only tags whose labels are sound; one in error is
+    # `make_tags` for what correct means. A tag on each recorded commit is not enough: a wrong one is dated
+    # otherwise than its deploy, or says the wrong thing. Only tags whose labels are sound; one in error is
     # reported once, in `label_errors`.
     wrong_tags: list[tuple[str, str]]
     # (tag or entry, what is wrong) - see `label_errors`.

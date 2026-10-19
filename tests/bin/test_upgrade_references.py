@@ -13,6 +13,7 @@ Skipped if forge is unavailable.
 """
 
 import importlib.util
+import os
 import pathlib
 import shutil
 import subprocess
@@ -22,7 +23,11 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]  # bao-base root
 FIXTURES = "test/fixtures/upgrade-references"
-OUT = ROOT / "out" / "_upgrade_references"
+# Each pytest-xdist worker runs the module fixture below, so each builds into a folder and cache of its own,
+# named by the worker. Shared, one worker's forced build cleared the folder another was reading, and its
+# report overwrote the one another was reading. `main` is the one process of a run without workers.
+WORKER = os.environ.get("PYTEST_XDIST_WORKER", "main")
+OUT = ROOT / "out" / "_upgrade_references" / WORKER
 
 
 def load_module():
@@ -51,7 +56,7 @@ def inputs():
             "--out",
             str(OUT),
             "--cache-path",
-            str(ROOT / "cache" / "_upgrade_references"),
+            str(ROOT / "cache" / "_upgrade_references" / WORKER),
             "--build-info",
             "--build-info-path",
             str(build_info),

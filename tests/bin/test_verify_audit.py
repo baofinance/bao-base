@@ -1563,8 +1563,8 @@ def test_the_missing_tag_error_lists_each_tag_with_the_contracts_it_covers(fix):
 # ── the check compares the tags with what the record derives ────────────────────────────────────────
 #
 # A tag on each recorded commit is not enough: a deployment tag that differs from what the record derives
-# lists out of order on GitHub, or says the wrong thing. The comparison needs nothing but the clone, so in
-# CI it reads the tags GitHub holds.
+# is dated otherwise than its deploy, or says the wrong thing. The comparison needs nothing but the clone,
+# so in CI it reads the tags GitHub holds.
 
 
 def test_the_check_fails_on_a_lightweight_deployment_tag(fix):
@@ -1581,7 +1581,7 @@ def test_the_check_fails_on_a_lightweight_deployment_tag(fix):
 
 
 def test_the_check_fails_on_a_tag_dated_otherwise(fix):
-    # The right commit and message, dated the day it was made: GitHub would list it out of order.
+    # The right commit and message, dated the day it was made: it no longer says when the deploy ran.
     head = _recorded(fix)
     tag = _DEPLOYMENT_TAG
     made, making = fix.verify_audit("--write")

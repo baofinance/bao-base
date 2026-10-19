@@ -468,8 +468,8 @@ def test_the_tag_fetch_brings_down_a_new_tag(repo, tmp_path):
 #
 # Under the person's label, the tool's lines say when the deploy happened - the blocks, at the chain's own
 # times - and where the commit falls against it, which is the very comparison the search's two passes
-# make. All of it is read from the record. The tag is dated as its deploy's first block, so GitHub, which
-# lists tags by their date, lists deployment tags in deploy order.
+# make. All of it is read from the record. The tag is dated as its deploy's first block, so it says when the
+# deploy ran.
 
 
 def deployed_at(block: int, when: str, committed: str = PAUSER.commitTimestamp) -> Baseline:

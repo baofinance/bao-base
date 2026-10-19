@@ -1081,8 +1081,8 @@ def _run(args: list[str]) -> int:
 
         if found.wrong_tags:
             gaps = 1
-            # A tag on each recorded commit is not enough: one that differs from what the record derives
-            # lists out of order on GitHub, or says the wrong thing. In CI these are GitHub's tags.
+            # A tag on each recorded commit is not enough: one that differs from what the record derives is
+            # dated otherwise than its deploy, or says the wrong thing. In CI these are GitHub's tags.
             _err(
                 f"\033[31mERROR: {len(found.wrong_tags)} deployment tag(s) differ from what the record"
                 " derives:\033[0m\n"

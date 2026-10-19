@@ -2963,8 +2963,8 @@ def test_the_tag_is_annotated_with_what_it_preserves(tmp_path, monkeypatch):
 
 
 def test_the_tag_takes_its_deploys_date(tmp_path, monkeypatch):
-    # GitHub lists tags by the tag's own date, newest first, and shows that date. Dated as its deploy's
-    # block, a deployment tag lists in deploy order there, and with `git tag --sort=creatordate` here.
+    # Dated as its deploy's first block, a deployment tag says when the deploy ran, and lists in deploy
+    # order with `git tag --sort=creatordate`.
     from datetime import datetime
 
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
@@ -2978,8 +2978,8 @@ def test_the_tag_takes_its_deploys_date(tmp_path, monkeypatch):
 
 
 def test_write_corrects_a_tag_whose_date_is_not_its_deploys(tmp_path, monkeypatch):
-    # The right commit and the right message, but dated the day it was made: on GitHub it lists out of
-    # order. The date alone makes it not correct.
+    # The right commit and the right message, but dated the day it was made, so it no longer says when the
+    # deploy ran. The date alone makes it not correct.
     from datetime import datetime
 
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
@@ -3039,7 +3039,7 @@ def test_write_adds_an_empty_label_for_each_tag_and_fails(tmp_path, monkeypatch)
 
 
 def test_write_with_the_labels_written_makes_the_tags(tmp_path, monkeypatch):
-    # The label leads the tag's message, so it is what `git tag -n` and GitHub's tag list show.
+    # The label leads the tag's message, so it is what `git tag -n` shows.
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     labelled(repo, "A, as the oracle for A/USD")
     recover = load_recover_baselines()
@@ -3088,7 +3088,7 @@ def test_an_empty_label_is_an_error(tmp_path, monkeypatch, label):
 
 
 def test_a_label_with_a_line_break_is_an_error(tmp_path, monkeypatch):
-    # A label is one line: `git tag -n` and GitHub's tag list show the first line and nothing else.
+    # A label is one line: `git tag -n` shows the first line and nothing else.
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     (repo / "deployed-labels.toml").write_text(f'"{deployment_tag()}" = """first line\nsecond line"""\n')
     recover = load_recover_baselines()
