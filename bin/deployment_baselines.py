@@ -39,16 +39,22 @@ from deployment_records import Entry, Problem, normalise, read_records
 
 SCHEMA_VERSION = 1
 RECORD = "deployed.json"
-# The person's words for each deployment tag, beside the record they describe: one line per tag, saying
-# what was deployed. Written by hand, never generated: `--write` appends an entry for a tag that has none,
-# and removes an earlier entry only once its words are carried to the new name (`replaced_labels`).
+# The person's words for each deployment tag, beside the record they describe: a title saying what was
+# deployed, and any further lines below it. Written by hand, never generated: `--write` appends an entry for
+# a tag that has none, and removes an earlier entry only once its words are carried to the new name
+# (`replaced_labels`).
 LABELS = "deployed-labels.toml"
 _LABELS_HEADER = (
-    "# One line per deployment tag, saying what was deployed. Write the labels here, never on the tag:\n"
-    "# verify-audit --write puts each one at the head of its tag's message. For a tag with no line, it adds\n"
-    "# one with the words of the same deploy's line under an earlier name, and removes that earlier line.\n"
-    "# With no such line, or several that differ, the new one is empty, for you to fill in.\n"
+    "# What each deployment tag says about its deploy. Write it here, never on the tag: verify-audit --write\n"
+    "# puts it at the head of the tag's message. The first line is the title that GitHub and git tag -n\n"
+    '# show. Any further lines follow a blank one, in a """ string. No line is longer than 72 characters.\n'
+    "# For a tag with no entry, --write adds one with the words of the same deploy's entry under an earlier\n"
+    "# name, and removes that earlier entry. With no such entry, or several that differ, the new one is\n"
+    "# empty, for you to fill in.\n"
 )
+# The longest line a label may hold. GitHub cuts a longer first line with "…" and carries the rest into the
+# body, and git's convention wraps every line of a message at this width.
+_LINE_LIMIT = 72
 
 
 class UnreadableLabels(Exception):
@@ -235,9 +241,9 @@ def reached_by(repo_root: Path, commit: str) -> list[str]:
     return _contains(repo_root, "branch", commit) + _contains(repo_root, "tag", commit)
 
 
-# The last line of every annotated tag the tool makes, as it has been since it first annotated them. A
-# stale tag ending with it is the tool's own, so it holds nothing the record cannot make again.
-_TOOL_LINE = "recorded in deployed.json; this tag is what keeps the commit reachable"
+# The last line of every annotated tag the tool makes. A stale tag ending with it is the tool's own, so it
+# holds nothing the record cannot make again.
+_TOOL_LINE = f"Recorded-in: {RECORD}"
 
 
 def _seconds(timestamp: str) -> int:
@@ -252,31 +258,29 @@ def _deploy_span(built: list[Baseline]) -> tuple[Baseline, Baseline]:
 
 
 def tag_message(built: list[Baseline], label: str) -> str:
-    """What a deployment tag says about `built`, the contracts it covers: its label - the person's line on
-    what was deployed, which is what `git tag -n` shows - then the tool's lines.
+    """What a deployment tag says about `built`, the contracts it covers: its label - the person's words on
+    what was deployed, whose first line is what `git tag -n` and GitHub show - then the tool's lines. Blank
+    lines around the label are not part of its words, as `label_errors` reads them.
 
-    The tool's lines say when the deploy happened - its first and last block, at the chain's own times -
-    and where the commit falls against it: at or before the first contract is the search's first pass;
-    after the last, its second, where the deploy ran from changes committed only afterwards. They name the
-    COMMIT, not the contracts: many contracts share one - twenty-two of harbor's - and deployed.json is
-    where which-contracts is answered. Timestamps are in full ISO 8601, as the record holds them, because a
-    message may hold the colons a ref name cannot."""
+    The tool's lines are git trailers, which `git for-each-ref --format=%(trailers)` reads. They say which
+    blocks the deploy spans, and where the commit falls against it: at or before the first contract is the
+    search's first pass; after the last, its second, where the deploy ran from changes committed only
+    afterwards. They name the COMMIT, not the contracts: many contracts share one - twenty-two of harbor's -
+    and deployed.json is where which-contracts is answered. No time is given: the first block's is the tag's
+    date and is in its name, the last block's is the chain's, and the commit's is the commit's own."""
     first, last = _deploy_span(built)
     if first.deployBlock == last.deployBlock:
-        deployed = f"deployed in block {first.deployBlock} at {first.deployTimestamp}"
+        blocks = f"block {first.deployBlock}"
     else:
-        deployed = (
-            f"deployed in blocks {first.deployBlock} to {last.deployBlock},"
-            f" {first.deployTimestamp} to {last.deployTimestamp}"
-        )
-    committed = built[0].commitTimestamp
-    if _seconds(committed) <= _seconds(first.deployTimestamp):
+        blocks = f"blocks {first.deployBlock} to {last.deployBlock}"
+    committed = _seconds(built[0].commitTimestamp)
+    if committed <= _seconds(first.deployTimestamp):
         side = "before the deploy"
-    elif _seconds(committed) > _seconds(last.deployTimestamp):
+    elif committed > _seconds(last.deployTimestamp):
         side = "after the deploy, which ran from changes not yet committed"
     else:
         side = "during the deploy"
-    return f"{label}\n\n{deployed}\nsource of deployed code, committed {committed}, {side}\n{_TOOL_LINE}"
+    return f"{label.strip()}\n\nDeployed-in: {blocks}\nCommitted: {side}\n{_TOOL_LINE}"
 
 
 def tag_date(built: list[Baseline]) -> str:
@@ -403,8 +407,13 @@ def read_labels(repo_root: Path) -> dict[str, object]:
 def label_errors(labels: dict[str, object], derived: Iterable[str]) -> list[tuple[str, str]]:
     """(tag or entry, what is wrong) for each tag the record derives whose label is missing or cannot serve
     as one, and for each entry naming no tag the record derives - a misspelt or stale entry, whose text
-    would otherwise go nowhere. A label is one line of words, since the first line is all `git tag -n`
-    shows.
+    would otherwise go nowhere.
+
+    A label is written as a git message is, without the blank lines around it, which `tag_message` leaves
+    out too. Its first line is the title `git tag -n` and GitHub show. A blank line follows it, since git
+    takes every line before the first blank one as the title, while `git tag -n` shows only the first. No
+    line is longer than `_LINE_LIMIT`, so GitHub shows each one whole. A carriage return is refused: TOML
+    turns line endings into line feeds, so one is an escape someone wrote, and a terminal prints over it.
 
     Every derived tag needs one, whatever other tags its commit has: a release tag keeps the commit, but
     is not dated as the deploy and does not say what was deployed."""
@@ -418,8 +427,17 @@ def label_errors(labels: dict[str, object], derived: Iterable[str]) -> list[tupl
             errors.append((tag, "its label is not text"))
         elif not label.strip():
             errors.append((tag, "its label is empty"))
-        elif "\n" in label or "\r" in label:
-            errors.append((tag, "its label holds a line break, and a label is one line"))
+        elif "\r" in label:
+            errors.append((tag, "its label holds a carriage return"))
+        else:
+            lines = label.strip().split("\n")
+            if len(lines) > 1 and lines[1].strip():
+                errors.append((tag, "its second line is not blank: a blank line separates the title from the rest"))
+            errors += [
+                (tag, f"its line {number} is {len(line)} characters, over {_LINE_LIMIT}")
+                for number, line in enumerate(lines, start=1)
+                if len(line) > _LINE_LIMIT
+            ]
     errors += [(entry, "names no tag the record derives") for entry in labels if entry not in known]
     return errors
 
@@ -448,11 +466,14 @@ def append_labels(
     existing = path.read_text() if path.is_file() else ""
     lead = _LABELS_HEADER if not path.is_file() else ("" if existing.endswith("\n") or not existing else "\n")
     # Each key and value as a TOML basic string. TOML's escapes include all of JSON's, and of the characters
-    # TOML requires escaped, JSON leaves only DEL as it is.
-    written = "".join(
-        json.dumps(tag) + " = " + json.dumps(text, ensure_ascii=False).replace("\x7f", "\\u007f") + "\n"
-        for tag, text in added.items()
-    )
+    # TOML requires escaped, JSON leaves only DEL as it is. A value of several lines is a multi-line basic
+    # string, each line escaped the same way, so it reads as the person wrote it: TOML drops the line break
+    # just after the opening quotes, so the value reads back the same.
+    written = ""
+    for tag, text in added.items():
+        lines = [json.dumps(line, ensure_ascii=False)[1:-1].replace("\x7f", "\\u007f") for line in text.split("\n")]
+        value = f'"{lines[0]}"' if len(lines) == 1 else '"""\n' + "\n".join(lines) + '"""'
+        written += f"{json.dumps(tag)} = {value}\n"
     with path.open("a") as file:
         file.write(lead + written)
     return added
@@ -490,24 +511,28 @@ def replaced_labels(repo_root: Path, labels: dict[str, object], derived: dict[st
 
 
 def remove_labels(repo_root: Path, entries: dict[str, str]) -> list[str]:
-    """Remove from the labels file each line holding exactly one of `entries`, name and words both, and
-    return their names. Each line is read on its own, so every other line stays byte for byte: comments,
-    layout and the person's other entries."""
+    """Remove from the labels file each entry that is exactly one of `entries`, name and words both, and
+    return their names. Each entry is read whole, on as many lines as its value takes, so every other line
+    stays byte for byte: comments, layout and the person's other entries."""
     path = repo_root / LABELS
     if not entries or not path.is_file():
         return []
     kept: list[str] = []
     removed: list[str] = []
+    reading: list[str] = []
     for line in path.read_text().splitlines(keepends=True):
+        reading.append(line)
         try:
-            parsed = tomllib.loads(line)
+            parsed = tomllib.loads("".join(reading))
         except tomllib.TOMLDecodeError:
-            # Part of a value written across lines, which is no single entry to remove.
-            parsed = {}
+            # Part of a value written across lines: read on until the entry is whole.
+            continue
         if len(parsed) == 1 and next(iter(parsed.items())) in entries.items():
             removed.append(next(iter(parsed)))
         else:
-            kept.append(line)
+            kept += reading
+        reading = []
+    kept += reading
     if removed:
         path.write_text("".join(kept))
     return removed
@@ -630,9 +655,10 @@ def make_tags(repo_root: Path, baselines: Iterable[Baseline], labels: dict[str, 
         # line instead - which describes whatever that commit was about and says nothing about why the
         # tag exists, while looking exactly like an annotation that does. DATED as its deploy's first
         # block (`tag_date`), through the committer date git gives a tag. `-f` writes over a tag that is
-        # not correct, and creating one needs no other path.
+        # not correct, and creating one needs no other path. VERBATIM: git's default clean-up drops a line
+        # starting with `#` as a comment, and the tag would then never be the one the record derives.
         done = subprocess.run(
-            ["git", "tag", "-a", "-f", tag, "-m", tag_message(built, labels[tag]), built[0].commit],
+            ["git", "tag", "-a", "-f", "--cleanup=verbatim", tag, "-m", tag_message(built, labels[tag]), built[0].commit],
             cwd=repo_root,
             capture_output=True,
             text=True,

@@ -2720,7 +2720,7 @@ def test_write_corrects_a_tag_whose_message_is_not_the_derived_one(tmp_path, mon
     assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 0
 
     message = git_out(repo, "tag", "-n99", "-l", tag)
-    assert "source of deployed code" in message and "something else" not in message, message
+    assert "Recorded-in: deployed.json" in message and "something else" not in message, message
     assert any(tag in line and "message" in line for line in printed), printed
 
 
@@ -2939,7 +2939,7 @@ def test_push_pushes_a_tag_it_finds_unpushed(tmp_path, monkeypatch):
 def test_the_tag_is_annotated_with_what_it_preserves(tmp_path, monkeypatch):
     # A lightweight tag has no message, and `git tag -n` then prints the COMMIT's subject instead -
     # which says nothing about why the tag exists while looking exactly like an annotation that does.
-    # The timestamp is here in full ISO 8601 because a message may hold the colons a ref name cannot.
+    # The tool's lines are git trailers, so git itself reads each one back by its key.
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
@@ -2951,15 +2951,13 @@ def test_the_tag_is_annotated_with_what_it_preserves(tmp_path, monkeypatch):
     ).stdout.strip()
     assert kind == "tag", "an annotated tag is an object; a lightweight one is only a ref"
 
-    message = subprocess.run(
-        ["git", "tag", "-n99", "-l", deployment_tag()], cwd=repo, capture_output=True, text=True
-    ).stdout
-    assert "source of deployed code" in message, message
-    assert "recorded in deployed.json" in message, message
-    # The same spelling the record uses, so a reader can compare the two by eye.
-    recorded = json.loads((repo / "deployed.json").read_text())["baselines"]
-    stamped = next(iter(recorded.values()))["commitTimestamp"]
-    assert stamped in message, f"{stamped} not in {message}"
+    def trailer(name: str) -> str:
+        return git_out(repo, "for-each-ref", f"--format=%(trailers:key={name},valueonly)", f"refs/tags/{deployment_tag()}")
+
+    block = next(iter(json.loads((repo / "deployed.json").read_text())["baselines"].values()))["deployBlock"]
+    assert trailer("Deployed-in") == f"block {block}"
+    assert trailer("Committed") == "before the deploy"
+    assert trailer("Recorded-in") == "deployed.json"
 
 
 def test_the_tag_takes_its_deploys_date(tmp_path, monkeypatch):
@@ -3010,13 +3008,15 @@ def test_a_tag_for_a_deploy_from_uncommitted_changes_says_so(tmp_path, monkeypat
     assert recover.run(repo, say=recover.Printer(0), write=True) == 0
 
     message = git_out(repo, "for-each-ref", "--format=%(contents)", f"refs/tags/{deployment_tag()}")
-    assert "after the deploy, which ran from changes not yet committed" in message, message
+    assert "Committed: after the deploy, which ran from changes not yet committed" in message, message
 
 
-# ── labels: one line per tag, in deployed-labels.toml, written by a person ───────────────────────────
+# ── labels: a title and any further lines per tag, in deployed-labels.toml, written by a person ──────
 #
 # A tag's label says what was deployed, and only a person knows that. `--write` adds an empty entry for each
 # tag that has none and fails, so the person writes the labels; the next `--write` makes the tags with them.
+# A label is written as a git message is: a first line that `git tag -n` and GitHub show as the title, then
+# a blank line and the body. No line is longer than 72 characters, so GitHub shows each one whole.
 
 
 def test_write_adds_an_empty_label_for_each_tag_and_fails(tmp_path, monkeypatch):
@@ -3052,7 +3052,59 @@ def test_write_with_the_labels_written_makes_the_tags(tmp_path, monkeypatch):
         git_out(repo, "for-each-ref", "--format=%(contents:subject)", f"refs/tags/{tag}")
         == "A, as the oracle for A/USD"
     )
-    assert "source of deployed code" in git_out(repo, "for-each-ref", "--format=%(contents:body)", f"refs/tags/{tag}")
+    assert "Recorded-in: deployed.json" in git_out(
+        repo, "for-each-ref", "--format=%(contents:body)", f"refs/tags/{tag}"
+    )
+
+
+def test_a_label_of_several_lines_makes_the_tag(tmp_path, monkeypatch):
+    # The first line is the title `git tag -n` shows; the lines after the blank one are the tag's body, above
+    # the tool's trailers.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    (repo / "deployed-labels.toml").write_text(
+        f'"{deployment_tag()}" = """\nA, as the oracle for A/USD\n\nfirst line of the body\nsecond line of the body\n"""\n'
+    )
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+
+    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
+
+    tag = deployment_tag()
+    assert git_out(repo, "tag", "-n1", "-l", tag).split(None, 1)[1] == "A, as the oracle for A/USD"
+    body = git_out(repo, "for-each-ref", "--format=%(contents:body)", f"refs/tags/{tag}")
+    assert body.startswith("first line of the body\nsecond line of the body\n\nDeployed-in: "), body
+
+
+def test_lines_of_72_characters_make_the_tag(tmp_path, monkeypatch):
+    # 72 characters is the longest line GitHub shows whole, in the title and in the body alike.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    title, body = "t" * 72, "b" * 72
+    (repo / "deployed-labels.toml").write_text(f'"{deployment_tag()}" = """\n{title}\n\n{body}"""\n')
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+
+    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
+
+    assert git_out(repo, "for-each-ref", "--format=%(contents:subject)", f"refs/tags/{deployment_tag()}") == title
+
+
+@pytest.mark.parametrize(
+    ("label", "number"), [("t" * 73 + "\n\nbody", 1), ("title\n\nbody\n" + "b" * 73, 4)], ids=["title", "body"]
+)
+def test_a_line_longer_than_72_characters_is_an_error(tmp_path, monkeypatch, label, number):
+    # GitHub cuts a longer title with "…" and carries the rest into the body, which is what made the first
+    # labels hard to read; a body line is held to the same width.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    (repo / "deployed-labels.toml").write_text(f'"{deployment_tag()}" = """\n{label}"""\n')
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+
+    printed: list[str] = []
+    assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 1
+
+    said = [line for line in printed if deployment_tag() in line]
+    assert any(f"line {number} is 73 characters, over 72" in line for line in said), printed
+    assert tags_in(repo) == {}
 
 
 def test_write_only_appends_to_the_labels_file(tmp_path, monkeypatch):
@@ -3087,8 +3139,9 @@ def test_an_empty_label_is_an_error(tmp_path, monkeypatch, label):
     assert (repo / "deployed-labels.toml").read_text() == before, "an entry that exists is not added again"
 
 
-def test_a_label_with_a_line_break_is_an_error(tmp_path, monkeypatch):
-    # A label is one line: `git tag -n` shows the first line and nothing else.
+def test_a_second_line_that_is_not_blank_is_an_error(tmp_path, monkeypatch):
+    # Git takes every line before the first blank one as the title, while `git tag -n` shows only the first,
+    # so the two would disagree.
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     (repo / "deployed-labels.toml").write_text(f'"{deployment_tag()}" = """first line\nsecond line"""\n')
     recover = load_recover_baselines()
@@ -3097,8 +3150,40 @@ def test_a_label_with_a_line_break_is_an_error(tmp_path, monkeypatch):
     printed: list[str] = []
     assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 1
 
-    assert any(deployment_tag() in line and "line break" in line for line in printed), printed
+    assert any(deployment_tag() in line and "second line is not blank" in line for line in printed), printed
     assert tags_in(repo) == {}
+
+
+def test_a_carriage_return_in_a_label_is_an_error(tmp_path, monkeypatch):
+    # TOML turns the line endings inside a multi-line string into line feeds, so a carriage return is an
+    # escape someone wrote, and a terminal showing `git tag -n` would print over the line with it.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    labelled(repo, "first\\rsecond")
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+
+    printed: list[str] = []
+    assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 1
+
+    assert any(deployment_tag() in line and "carriage return" in line for line in printed), printed
+    assert tags_in(repo) == {}
+
+
+def test_a_body_line_starting_with_a_hash_is_kept(tmp_path, monkeypatch):
+    # Git's default clean-up drops a line starting with `#` as a comment. The tag would then never be the one
+    # the record derives, and every `--write` would rewrite it.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    (repo / "deployed-labels.toml").write_text(f'"{deployment_tag()}" = """\nthe deploy\n\n#12 fixed by it"""\n')
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
+
+    printed: list[str] = []
+    assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 0
+
+    body = git_out(repo, "for-each-ref", "--format=%(contents:body)", f"refs/tags/{deployment_tag()}")
+    assert body.startswith("#12 fixed by it\n"), body
+    assert not any("corrected" in line for line in printed), printed
 
 
 def test_a_label_naming_no_derived_tag_is_an_error_and_is_kept(tmp_path, monkeypatch):
@@ -3462,6 +3547,45 @@ def test_write_removes_the_label_of_a_tag_it_replaced(tmp_path, monkeypatch):
     assert labels.read_text() == (
         f'# my notes\n\n# kept as written\n"{deployment_tag(earlier)}" = "the fixture\'s deploy"\n'
     ), labels.read_text()
+
+
+def test_a_rename_carries_a_label_of_several_lines(tmp_path, monkeypatch):
+    # The words follow the deploy whatever their length: the new entry reads as the earlier one did, the
+    # earlier entry goes whole, and every other line of the file stays as the person wrote it.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
+    labels = repo / "deployed-labels.toml"
+    labels.write_text(
+        "# my notes\n"
+        f'"{deployment_tag()}" = """\n'
+        "the fixture's deploy\n"
+        "\n"
+        'its body, with "quotes" and a \\\\ backslash\n'
+        '"""\n'
+        "\n"
+        "# kept as written\n"
+    )
+    earlier = an_earlier_contract_recorded(repo, head)
+
+    assert recover.run(repo, say=recover.Printer(0), write=True) == 0
+
+    # The same words, with each quote escaped as the tool escapes every value.
+    assert labels.read_text() == (
+        "# my notes\n"
+        "\n"
+        "# kept as written\n"
+        f'"{deployment_tag(earlier)}" = """\n'
+        "the fixture's deploy\n"
+        "\n"
+        'its body, with \\"quotes\\" and a \\\\ backslash\n'
+        '"""\n'
+    ), labels.read_text()
+    tag = deployment_tag(earlier)
+    assert git_out(repo, "for-each-ref", "--format=%(contents:subject)", f"refs/tags/{tag}") == "the fixture's deploy"
+    body = git_out(repo, "for-each-ref", "--format=%(contents:body)", f"refs/tags/{tag}")
+    assert body.startswith('its body, with "quotes" and a \\ backslash\n'), body
 
 
 def test_a_rename_whose_earlier_entries_differ_gets_an_empty_label(tmp_path, monkeypatch):

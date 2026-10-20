@@ -1074,9 +1074,9 @@ def _run(args: list[str]) -> int:
             for tag, problem in found.label_errors:
                 _err(f"\033[31m  {tag}: {problem}\033[0m\n")
             _err(
-                f"       run `verify-audit --write`, which adds an entry to {LABELS} for each tag with none:"
-                " the words of the same deploy's entry under an earlier name, or empty. Write one line in each"
-                " empty entry, then run it again\n"
+                f"       correct each entry named above in {LABELS}. For a tag with none, run `verify-audit"
+                " --write`: it adds one with the words of the same deploy's entry under an earlier name, or"
+                " empty. Fill in each empty entry, then run it again\n"
             )
 
         if found.wrong_tags:

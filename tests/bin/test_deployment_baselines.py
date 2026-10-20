@@ -466,10 +466,9 @@ def test_the_tag_fetch_brings_down_a_new_tag(repo, tmp_path):
 
 # ── what a deployment tag says, and the date it carries ─────────────────────────────────────────────
 #
-# Under the person's label, the tool's lines say when the deploy happened - the blocks, at the chain's own
-# times - and where the commit falls against it, which is the very comparison the search's two passes
-# make. All of it is read from the record. The tag is dated as its deploy's first block, so it says when the
-# deploy ran.
+# Under the person's label, the tool's lines - git trailers - say which blocks the deploy spans and where
+# the commit falls against it, which is the very comparison the search's two passes make. All of it is read
+# from the record. The tag is dated as its deploy's first block, so it says when the deploy ran.
 
 
 def deployed_at(block: int, when: str, committed: str = PAUSER.commitTimestamp) -> Baseline:
@@ -479,17 +478,50 @@ def deployed_at(block: int, when: str, committed: str = PAUSER.commitTimestamp) 
     return replace(PAUSER, deployBlock=block, deployTimestamp=when, commitTimestamp=committed)
 
 
-def test_the_message_names_the_one_block_of_a_single_contract():
+def test_the_message_is_the_label_then_the_tools_trailers():
+    # The label leads, so it is what `git tag -n` and GitHub show; the tool's three trailers end the message.
     from deployment_baselines import tag_message
 
     message = tag_message([PAUSER], "the pauser")
 
-    assert message.startswith("the pauser\n\n"), "the label leads"
-    assert f"deployed in block {PAUSER.deployBlock} at {PAUSER.deployTimestamp}" in message, message
+    assert message == (
+        "the pauser\n"
+        "\n"
+        f"Deployed-in: block {PAUSER.deployBlock}\n"
+        "Committed: before the deploy\n"
+        "Recorded-in: deployed.json"
+    ), message
+
+
+def test_a_label_of_several_lines_leads_the_message_whole():
+    # The title, the blank line and the body are the person's, as written; the trailers follow a blank line.
+    from deployment_baselines import tag_message
+
+    message = tag_message([PAUSER], "the pauser\n\nfirst line of the body\nsecond line of the body")
+
+    assert message == (
+        "the pauser\n"
+        "\n"
+        "first line of the body\n"
+        "second line of the body\n"
+        "\n"
+        f"Deployed-in: block {PAUSER.deployBlock}\n"
+        "Committed: before the deploy\n"
+        "Recorded-in: deployed.json"
+    ), message
+
+
+def test_blank_lines_around_a_label_are_not_in_the_message():
+    # A TOML multi-line string closed on its own line ends with a line break, which is no part of the words.
+    from deployment_baselines import tag_message
+
+    message = tag_message([PAUSER], "\nthe pauser\n\nits body\n")
+
+    assert message.startswith("the pauser\n\nits body\n\nDeployed-in: "), message
 
 
 def test_the_message_names_the_first_and_last_block_of_several():
-    # Given out of order: the first and last are the lowest and highest block, each at its own time.
+    # Given out of order: the first and last are the lowest and highest block.
     from deployment_baselines import tag_message
 
     message = tag_message(
@@ -501,7 +533,7 @@ def test_the_message_names_the_first_and_last_block_of_several():
         "three",
     )
 
-    assert "deployed in blocks 100 to 300, 2026-03-21T13:00:00Z to 2026-03-21T15:00:00Z" in message, message
+    assert "\nDeployed-in: blocks 100 to 300\n" in message, message
 
 
 def test_the_message_says_the_commit_came_before_the_deploy():
@@ -510,7 +542,7 @@ def test_the_message_says_the_commit_came_before_the_deploy():
 
     message = tag_message([PAUSER], "the pauser")
 
-    assert f"source of deployed code, committed {PAUSER.commitTimestamp}, before the deploy" in message, message
+    assert "\nCommitted: before the deploy\n" in message, message
 
 
 def test_the_message_says_the_commit_came_after_the_deploy():
@@ -519,10 +551,7 @@ def test_the_message_says_the_commit_came_after_the_deploy():
 
     message = tag_message([deployed_at(100, "2026-03-21T13:00:00Z", "2026-03-22T00:00:00Z")], "late")
 
-    assert (
-        "source of deployed code, committed 2026-03-22T00:00:00Z, after the deploy, which ran from changes not"
-        " yet committed" in message
-    ), message
+    assert "\nCommitted: after the deploy, which ran from changes not yet committed\n" in message, message
 
 
 def test_the_message_says_the_commit_came_during_the_deploy():
@@ -537,7 +566,24 @@ def test_the_message_says_the_commit_came_during_the_deploy():
         "midway",
     )
 
-    assert "source of deployed code, committed 2026-03-21T14:00:00Z, during the deploy" in message, message
+    assert "\nCommitted: during the deploy\n" in message, message
+
+
+def test_every_line_the_tool_adds_fits_72_characters():
+    # The limit the person's lines are held to holds for the tool's own, at their longest: nine-digit blocks,
+    # and a commit made after the deploy.
+    from deployment_baselines import tag_message
+
+    message = tag_message(
+        [
+            deployed_at(100_000_000, "2026-03-21T13:00:00Z", "2026-03-22T00:00:00Z"),
+            deployed_at(999_999_999, "2026-03-21T15:00:00Z", "2026-03-22T00:00:00Z"),
+        ],
+        "late",
+    )
+
+    added = message.split("\n")[2:]
+    assert len(added) == 3 and all(len(line) <= 72 for line in added), added
 
 
 def test_the_tag_is_dated_by_its_first_contracts_block():

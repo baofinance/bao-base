@@ -1,4 +1,7 @@
-# One line per deployment tag, saying what was deployed. verify-audit --write puts each line at the
-# head of its tag's message, and adds an empty entry for a tag that has none. Write the labels here,
-# never on the tag.
+# What each deployment tag says about its deploy. Write it here, never on the tag: verify-audit --write
+# puts it at the head of the tag's message. The first line is the title that GitHub and git tag -n
+# show. Any further lines follow a blank one, in a """ string. No line is longer than 72 characters.
+# For a tag with no entry, --write adds one with the words of the same deploy's entry under an earlier
+# name, and removes that earlier entry. With no such entry, or several that differ, the new one is
+# empty, for you to fill in.
 "deploy/mainnet/state@2026-03-21T13-41-23Z" = "BaoPauser deploy"

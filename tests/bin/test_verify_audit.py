@@ -1607,6 +1607,19 @@ def test_the_check_fails_on_a_missing_label(fix):
     assert "deployed-labels.toml" in output, "and says where the label goes"
 
 
+def test_the_check_says_to_correct_a_label_in_error(fix):
+    # A label too wide for GitHub to show whole is the person's to rewrite: `--write` adding entries does
+    # nothing for it, so the repair says to correct the entry.
+    _recorded(fix)
+    (fix.work / "deployed-labels.toml").write_text(f'"{_DEPLOYMENT_TAG}" = "{"t" * 73}"\n')
+
+    status, output = fix.verify_audit()
+
+    assert status == 1, output
+    assert any(_DEPLOYMENT_TAG in line and "line 1 is 73 characters, over 72" in line for line in output.splitlines())
+    assert "correct each entry named above in deployed-labels.toml" in output, output
+
+
 def test_the_check_wants_a_deployment_tag_beside_another_tag(fix):
     # A release tag keeps the commit reachable, but it is not the deploy's tag: it is not dated as the
     # deploy and does not say what was deployed. So the deployment tag, and its label, are still wanted.

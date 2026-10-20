@@ -1197,7 +1197,9 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer, *, push: 
     if carried:
         say(0, f"\n{len(carried)} renamed tag(s) labelled with the words of their entry under an earlier name:")
         for tag, text in carried.items():
-            say(0, f"  {tag}: {text}")
+            # The title alone: it names the words, and a body would print unindented under the list.
+            title = text.strip().split("\n")[0]
+            say(0, f"  {tag}: {title}")
     if dropped:
         say(0, f"\nremoved {len(dropped)} earlier entry(s) from {LABELS}, their words now under the new name:")
         for entry in dropped:
@@ -1209,8 +1211,8 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer, *, push: 
         if push:
             say(0, f"  Correct them in {LABELS}, run verify-audit --write, commit, then verify-audit --push again")
         elif any(tag not in carried for tag in missing):
-            say(0, "  Each tag with no label now has an empty entry: write one line for each, then run")
-            say(0, "  verify-audit --write again")
+            say(0, "  Each tag with no label now has an empty entry: fill each one in, then run verify-audit")
+            say(0, "  --write again")
         else:
             say(0, f"  Correct them in {LABELS}, then run verify-audit --write again")
     if made.created:
