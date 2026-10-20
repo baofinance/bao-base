@@ -271,14 +271,19 @@ def _state(base_dir):
 def _stub_yarn_that_blocks_on(directory, blocking_argument):
     """A `yarn` on PATH that hangs when given `blocking_argument`, so a test can interrupt bin/CI
     while a step is genuinely mid-flight. It announces the start through a file rather than stdout
-    because the test has to wait for that moment, and bin/CI's own pipes are read only on exit."""
+    because the test has to wait for that moment, and bin/CI's own pipes are read only on exit.
+
+    No child process runs between the file appearing and the hang. A bash script waiting for a child
+    when Ctrl-C arrives carries on if that child then exits normally, so a `touch` finishing as the
+    signal landed left the stub asleep for the full minute. The file is made by bash itself, and `exec`
+    replaces the script with `sleep`, so Ctrl-C ends whichever of the two is running."""
     directory.mkdir(exist_ok=True)
     stub = directory / "yarn"
     stub.write_text(
         "#!/usr/bin/env bash\n"
         f'if [[ "$1" == "{blocking_argument}" ]]; then\n'
-        "  touch step-running\n"
-        "  sleep 60\n"
+        "  : >step-running\n"
+        "  exec sleep 60\n"
         "fi\n"
         'echo "STUB-YARN-RAN $1"\n'
     )

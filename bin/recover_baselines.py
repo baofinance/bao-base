@@ -1280,7 +1280,9 @@ def publish(root: Path, *, say: Printer) -> int:
             for tag in unheld:
                 say(0, f"  {tag}: origin's copy is an object this clone has never held")
             say(0, "  Run verify-audit --pull, then verify-audit --push again")
-            say(0, f"\n{_failing([f'{len(unheld)} deployment tag(s) on origin are objects this clone has never held'])}")
+            say(
+                0, f"\n{_failing([f'{len(unheld)} deployment tag(s) on origin are objects this clone has never held'])}"
+            )
             return 1
         # A stale tag the tool does not replace is the person's to delete, here or on origin. Publishing beside
         # it would leave GitHub, or the next fetch, with the deploy under two names.
@@ -1296,9 +1298,13 @@ def publish(root: Path, *, say: Printer) -> int:
         if others:
             say(0, f"\n{len(others)} deployment tag(s) the record no longer derives or replaces, so no tag was pushed:")
             for tag in others:
-                where = " and ".join(side for side, holds in (("here", tag in held_here), ("on origin", tag in origin)) if holds)
+                where = " and ".join(
+                    side for side, holds in (("here", tag in held_here), ("on origin", tag in origin)) if holds
+                )
                 say(0, f"  {tag}: the record no longer derives it, and it is held {where}")
-            for line in stale_repair([tag for tag in others if tag in held_here], [tag for tag in others if tag in origin]):
+            for line in stale_repair(
+                [tag for tag in others if tag in held_here], [tag for tag in others if tag in origin]
+            ):
                 say(0, f"  {line}")
             say(0, "  Then run verify-audit --push again")
             here = sum(tag in held_here for tag in others)

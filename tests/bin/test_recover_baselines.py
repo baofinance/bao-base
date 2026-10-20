@@ -2778,7 +2778,10 @@ def test_push_changes_no_ref_here(tmp_path, monkeypatch):
     ):
         subprocess.run(["git", *arguments], cwd=repo, check=True, capture_output=True)
     other = clone_of(origin, tmp_path / "other")
-    for arguments in (["commit", "-q", "--allow-empty", "-m", "another clone's work"], ["push", "-q", "origin", "HEAD"]):
+    for arguments in (
+        ["commit", "-q", "--allow-empty", "-m", "another clone's work"],
+        ["push", "-q", "origin", "HEAD"],
+    ):
         subprocess.run(["git", *arguments], cwd=other, check=True, capture_output=True)
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
@@ -3043,7 +3046,11 @@ def test_push_fails_for_a_commit_on_an_origin_branch_not_held_here(tmp_path, mon
     origin = repo.parent / "origin.git"
     subprocess.run(["git", "checkout", "-q", "-b", "side"], cwd=repo, check=True, capture_output=True)
     (repo / "src" / "B.sol").write_text(contract_source("B", 2))
-    for arguments in (["add", "src/B.sol"], ["commit", "-q", "-m", "B, on a side branch"], ["push", "-q", "origin", "side"]):
+    for arguments in (
+        ["add", "src/B.sol"],
+        ["commit", "-q", "-m", "B, on a side branch"],
+        ["push", "-q", "origin", "side"],
+    ):
         subprocess.run(["git", *arguments], cwd=repo, check=True, capture_output=True)
     on_side = git_out(repo, "rev-parse", "HEAD")
     subprocess.run(["git", "checkout", "-q", "main"], cwd=repo, check=True, capture_output=True)
@@ -3160,7 +3167,9 @@ def test_the_tag_is_annotated_with_what_it_preserves(tmp_path, monkeypatch):
     assert kind == "tag", "an annotated tag is an object; a lightweight one is only a ref"
 
     def trailer(name: str) -> str:
-        return git_out(repo, "for-each-ref", f"--format=%(trailers:key={name},valueonly)", f"refs/tags/{deployment_tag()}")
+        return git_out(
+            repo, "for-each-ref", f"--format=%(trailers:key={name},valueonly)", f"refs/tags/{deployment_tag()}"
+        )
 
     block = next(iter(json.loads((repo / "deployed.json").read_text())["baselines"].values()))["deployBlock"]
     assert trailer("Deployed-in") == f"block {block}"
