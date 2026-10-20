@@ -690,7 +690,17 @@ def make_tags(repo_root: Path, baselines: Iterable[Baseline], labels: dict[str, 
         # not correct, and creating one needs no other path. VERBATIM: git's default clean-up drops a line
         # starting with `#` as a comment, and the tag would then never be the one the record derives.
         done = subprocess.run(
-            ["git", "tag", "-a", "-f", "--cleanup=verbatim", tag, "-m", tag_message(built, labels[tag]), built[0].commit],
+            [
+                "git",
+                "tag",
+                "-a",
+                "-f",
+                "--cleanup=verbatim",
+                tag,
+                "-m",
+                tag_message(built, labels[tag]),
+                built[0].commit,
+            ],
             cwd=repo_root,
             capture_output=True,
             text=True,
@@ -866,7 +876,9 @@ def push_tags(
             if now is not None and ("" if there is None else there.object) != lease:
                 why = "origin's copy changed while this run pushed it. Run verify-audit --pull, then --push again"
             refused.append((tag, why))
-    return Pushed(pushed, replaced, [*in_place, *pushed, *(tag for tag, _ in replaced)], to_pull, to_write, waiting, refused)
+    return Pushed(
+        pushed, replaced, [*in_place, *pushed, *(tag for tag, _ in replaced)], to_pull, to_write, waiting, refused
+    )
 
 
 def unpublished_tags(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, Tag]) -> list[str]:

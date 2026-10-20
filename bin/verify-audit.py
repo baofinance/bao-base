@@ -1186,7 +1186,9 @@ def _run(args: list[str]) -> int:
                 _err(f"\033[31m  {tag}: {'not here' if absent else 'here as another object'}\033[0m\n")
             _err("       run `verify-audit --pull`, then run this again\n")
             if clashing := [tag for tag, absent in behind if not absent and not tag.startswith(DEPLOY_TAGS)]:
-                _err("       --pull takes origin's copy of a deployment tag only. To take origin's copy of the others:\n")
+                _err(
+                    "       --pull takes origin's copy of a deployment tag only. To take origin's copy of the others:\n"
+                )
                 _err(f"         git fetch origin {' '.join(f'+refs/tags/{tag}:refs/tags/{tag}' for tag in clashing)}\n")
             return 1
 
