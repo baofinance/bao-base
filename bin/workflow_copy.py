@@ -99,6 +99,11 @@ def problems(repo_root: Path, bao_base_root: Path) -> list[str]:
     bao-base's workflows is a deliberate act, so a consumer carrying one of three is not told it is
     missing two; keeping an adopted one current is not optional, which is what this checks.
 
+    A workflow that uses bao-base's actions is a copy, whatever its name. One whose name bao-base
+    does not hold is reported: it is compared with nothing, so passing would say it had been. That is
+    what a copy becomes when bao-base renames its original. A workflow that does not use bao-base's
+    actions is the repo's own, and is not compared.
+
     Run inside bao-base there is nothing to compare, since it holds the originals. `bao_base_root` is
     a parameter rather than `BAO_BASE_ROOT` read directly so a test can point both roots at fixtures.
     Returns one entry per drifted workflow, or [] when every copy matches."""
@@ -123,6 +128,13 @@ def problems(repo_root: Path, bao_base_root: Path) -> list[str]:
     for repo_file in sorted(repo_dir.glob("*.yml")):
         canonical_file = canonical_dir / repo_file.name
         if not canonical_file.is_file():
+            if consumer_prefix in repo_file.read_text():
+                originals = ", ".join(path.name for path in sorted(canonical_dir.glob("*.yml")))
+                drifted.append(
+                    f"{repo_file.relative_to(repo_root)} uses bao-base's actions, and bao-base holds no workflow"
+                    " of that name to compare it with. "
+                    + (f"bao-base's workflows: {originals}" if originals else "bao-base holds no workflows")
+                )
             continue
         canonical_lines = normalised_lines(canonical_file, CANONICAL_ACTION_PREFIX)
         repo_lines = normalised_lines(repo_file, consumer_prefix)
@@ -167,8 +179,9 @@ def check(repo_root: Path) -> Check:
     `doctor` and a direct run cannot describe the same check differently."""
     return Check(
         "workflows copied from bao-base match their originals",
-        "each workflow here is a copy of one in bao-base. It may differ only in where its action lives and "
-        "in what its own env: block adds. Any other difference means the copy no longer follows the original",
+        "each workflow here that uses bao-base's actions is a copy of the one of the same name in bao-base. It "
+        "may differ only in where its action lives and in what its own env: block adds. Any other difference "
+        "means the copy no longer follows the original",
         "a fix in bao-base does not reach this repository, and nothing says so. The copy keeps passing CI "
         "while it runs the version with the bug",
         problems(repo_root, BAO_BASE_ROOT),

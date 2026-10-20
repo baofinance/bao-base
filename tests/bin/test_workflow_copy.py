@@ -175,9 +175,39 @@ def test_leading_comment_block_is_not_drift(tmp_path):
 
 
 def test_workflow_only_this_repo_has_is_not_compared(tmp_path):
-    # A repo's own workflow is its own business — there is no original to have drifted from.
+    # A workflow that does not use bao-base's actions is the repo's own business — there is no
+    # original to have drifted from.
     repo, bao_base = _workflow_pair(tmp_path, None, "name: mine\njobs: {}\n")
     assert workflow_copy.problems(repo, bao_base) == []
+
+
+def test_a_copy_whose_original_is_gone_is_reported(tmp_path):
+    # A workflow that uses bao-base's actions is a copy. When bao-base holds no workflow of its name,
+    # as after bao-base renames its original, nothing is compared, and passing would say the copy was.
+    # The report names bao-base's workflows, so the reader can find the one it follows.
+    repo, bao_base = _workflow_pair(
+        tmp_path, None, f"name: test\njobs:\n  build:\n    steps:\n{_CONSUMER_ACTION}\n", name="CI-test.yml"
+    )
+    workflows = bao_base / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "test.yml").write_text(f"name: test\njobs:\n  build:\n    steps:\n{_CANONICAL_ACTION}\n")
+    (workflows / "lint.yml").write_text("name: lint\njobs: {}\n")
+    problems = workflow_copy.problems(repo, bao_base)
+    assert problems == [
+        ".github/workflows/CI-test.yml uses bao-base's actions, and bao-base holds no workflow of that name"
+        " to compare it with. bao-base's workflows: lint.yml, test.yml"
+    ]
+
+
+def test_a_copy_is_reported_when_bao_base_holds_no_workflows(tmp_path):
+    # The same finding with nothing to list: the report says so rather than ending on an empty list.
+    repo, bao_base = _workflow_pair(
+        tmp_path, None, f"name: test\njobs:\n  build:\n    steps:\n{_CONSUMER_ACTION}\n", name="CI-test.yml"
+    )
+    assert workflow_copy.problems(repo, bao_base) == [
+        ".github/workflows/CI-test.yml uses bao-base's actions, and bao-base holds no workflow of that name"
+        " to compare it with. bao-base holds no workflows"
+    ]
 
 
 def test_workflow_only_bao_base_has_is_not_demanded(tmp_path):
