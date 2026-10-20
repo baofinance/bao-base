@@ -1207,7 +1207,8 @@ def test_deployment_tags_lists_each_one_origin_lacks(tmp_path):
 
 def test_deployment_tags_lists_one_origin_holds_differently(tmp_path):
     # Origin's copy is another object - here a lightweight tag of the same name - so CI reads a tag this
-    # clone does not hold.
+    # clone does not hold. Which copy is right is not doctor's to judge: the repair takes origin's, corrects
+    # what the record does not derive, and publishes the result.
     repo, origin, head, tags = _deploying_repo(tmp_path)
     _git(repo, "push", "-q", "origin", *(f"refs/tags/{tag}" for tag in tags))
     _git(repo, "push", "-q", "-f", "origin", f"{head}:refs/tags/{tags[0]}")
@@ -1215,7 +1216,7 @@ def test_deployment_tags_lists_one_origin_holds_differently(tmp_path):
     problems = doctor.deployment_tag_problems(repo)
 
     assert len(problems) == 1, problems
-    assert tags[0] in problems[0] and "verify-audit --push" in problems[0], problems
+    assert tags[0] in problems[0] and "yarn verify-audit --pull --write --push" in problems[0], problems
 
 
 def test_deployment_tags_lists_a_stale_tag_origin_holds(tmp_path):

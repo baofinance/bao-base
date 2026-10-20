@@ -167,24 +167,31 @@ back, and going back needs each recorded baseline's gitlink closure to still res
 
 ## Using it
 
-There is one command, with one switch:
+There is one command, with three switches. Each switch changes one side, as git's fetch, commit and push
+do, and given together they run in this order:
 
 - `lib/bao-base/run verify-audit` — **the check**, and what CI runs. It fails if a deployed contract has
   no baseline, if a baseline's recorded source no longer resolves, or if a baseline names a commit no
-  remote holds.
+  remote holds. It changes nothing.
+- `lib/bao-base/run verify-audit --pull` — origin to this clone: origin's copy of each deployment tag
+  replaces the one held here, and origin's branches are fetched.
 - `lib/bao-base/run verify-audit --write` — **the fix**, run when the check fails, the way `fmt` answers
-  `fmt --check`.
+  `fmt --check`. The record to this clone: it records and tags locally, and never pushes.
+- `lib/bao-base/run verify-audit --push` — this clone to origin: it publishes the tags the record derives,
+  from a committed record, and changes nothing here. When origin holds a tag this clone should take
+  first, it pushes nothing and says to run `--pull`, as git's push says to fetch first.
 
 ### After a deploy
 
 1. Deploy as usual. The manifest is written by the deploy script.
 2. Commit the source and the manifest.
-3. `lib/bao-base/run verify-audit --write` — finds every deployed contract without a baseline, proves
-   each against the chain, records what it proved, and creates the tags that name those commits. All
-   of it locally: it never pushes.
-4. **Push the tags as well as the files** — `git push --tags` alongside the commit that carries
-   `deployed.json`. The record and the refs that keep its commits reachable have to arrive together, or
-   a fresh checkout resolves neither.
+3. `lib/bao-base/run verify-audit --pull --write` — takes the tags another clone already published, then
+   finds every deployed contract without a baseline, proves each against the chain, records what it
+   proved, and makes the tags that name those commits.
+4. Check the tags, and commit `deployed.json` and `deployed-labels.toml`.
+5. `lib/bao-base/run verify-audit --push`, then `git push`. The tags go first, so the branch reaches a CI
+   that already holds them: the record and the refs that keep its commits reachable have to arrive
+   together, or a fresh checkout resolves neither.
 
 ### It only ever looks at this checkout
 

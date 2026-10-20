@@ -382,7 +382,7 @@ def deployment_tag_problems(repo_root: Path) -> list[str]:
         for tag in found.lacking
     ]
     problems += [
-        f"{tag}: origin holds another copy than this clone's\n  Repair: yarn verify-audit --push"
+        f"{tag}: origin holds another copy than this clone's\n  Repair: yarn verify-audit --pull --write --push"
         for tag in found.differing
     ]
     for tag, replacement in found.stale.items():

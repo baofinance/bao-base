@@ -95,7 +95,7 @@ class FoundryFixture:
         return self.git("rev-parse", "HEAD")
 
     def tag(self, name):
-        """Commit the current state, tag it, and push so the script's `git fetch --tags` sees it."""
+        """Commit the current state, tag it, and push, so origin holds the tag as this clone does."""
         self.git("add", "-A")
         self.git("commit", "-qm", "snapshot")
         self.git("tag", name)
@@ -1049,11 +1049,12 @@ def test_a_snapshot_that_cannot_be_taken_is_a_loud_error(tmp_path):
 # ── what the run reads, and what it leaves to its caller ───────────────────────────────────────────
 
 
-def test_a_tag_this_clone_has_not_seen_is_still_audited(fix):
-    """A tag cut since the last fetch is audited, which is the whole reason the run refreshes them.
+def test_a_tag_only_origin_holds_fails_the_audit_until_pulled(fix):
+    """A tag cut since the last pull fails the audit, which names it and the pull that takes it.
 
-    A stale tag list cannot be detected locally - a tag never seen leaves no trace - so a run that
-    skipped this would audit fewer revisions than exist and report that nothing was wrong.
+    A stale tag list cannot be detected locally - a tag never seen leaves no trace - so origin is asked.
+    A run that passed would audit fewer revisions than exist and report that nothing was wrong. Pulled,
+    the audit covers it.
     """
     fix.write("src/Foo.sol", FOO)
     fix.tag("deploy/local")
@@ -1061,35 +1062,85 @@ def test_a_tag_this_clone_has_not_seen_is_still_audited(fix):
     fix.git("tag", "deploy/cut-elsewhere", cwd=fix.bare)
 
     status, output = fix.verify_audit("deploy/*")
+    assert status == 1, output
+    assert "deploy/cut-elsewhere: not here" in output
+    assert "verify-audit --pull" in output
+
+    status, output = fix.verify_audit("--pull")
+    assert status == 0, output
+    status, output = fix.verify_audit("deploy/*")
     assert status == 0, output
     assert "deploy/local" in output
     assert "deploy/cut-elsewhere" in output
 
 
-def test_a_fetch_that_fails_warns_and_audits_the_local_tags(fix):
-    """No reachable remote is not a reason to refuse: the local tags are still worth auditing.
+def test_the_older_audit_fails_for_a_tag_origin_holds_as_another_object(fix):
+    """Origin's copy of a tag the patterns match is another object than this clone's, so the two audit
+    different things. The run names it and the pull that takes origin's copy."""
+    fix.write("src/Foo.sol", FOO)
+    fix.tag("deploy/test")
+    fix.git("tag", "-f", "-a", "deploy/test", "-m", "another copy", fix.git("rev-parse", "HEAD"), cwd=fix.bare)
 
-    It has to say so, though - a silently skipped refresh is indistinguishable from a complete run.
-    """
+    status, output = fix.verify_audit("deploy/*")
+    assert status == 1, output
+    assert "deploy/test: here as another object" in output
+    assert "verify-audit --pull" in output
+
+    status, output = fix.verify_audit("--pull")
+    assert status == 0, output
+    status, output = fix.verify_audit("deploy/*")
+    assert status == 0, output
+
+
+def test_the_older_audit_names_the_fetch_for_a_tag_pull_does_not_take(fix):
+    """`--pull` takes origin's copy of a deployment tag only. For any other tag held as another object,
+    replacing this clone's copy is the person's, so the run names the git command that does it."""
+    fix.write("src/Foo.sol", FOO)
+    fix.tag("audit-1")
+    fix.git("tag", "-f", "-a", "audit-1", "-m", "another copy", fix.git("rev-parse", "HEAD"), cwd=fix.bare)
+
+    status, output = fix.verify_audit("audit*")
+    assert status == 1, output
+    assert "audit-1: here as another object" in output
+    assert "git fetch origin +refs/tags/audit-1:refs/tags/audit-1" in output
+
+
+def test_the_older_audit_changes_no_ref_here(fix):
+    """The audit reads origin's tags and fetches nothing: every ref here, and the FETCH_HEAD a fetch
+    writes, is as it was."""
+    fix.write("src/Foo.sol", FOO)
+    fix.tag("deploy/test")
+    refs = fix.git("for-each-ref", "--format=%(refname) %(objectname)")
+    fetch_head = fix.work / ".git" / "FETCH_HEAD"
+
+    status, output = fix.verify_audit("deploy/*")
+    assert status == 0, output
+    assert fix.git("for-each-ref", "--format=%(refname) %(objectname)") == refs
+    assert not fetch_head.exists(), "nothing was fetched"
+
+
+def test_the_older_audit_fails_when_origin_cannot_be_asked(fix):
+    """Whether this clone holds every tag the patterns match cannot be answered without origin, so a run
+    that could not ask fails, in git's words: passing would say origin was looked at."""
     fix.write("src/Foo.sol", FOO)
     fix.tag("deploy/test")
     fix.git("remote", "set-url", "origin", str(fix.root / "not-a-repository"))
 
     status, output = fix.verify_audit("deploy/*")
-    assert status == 0, output
-    assert "could not refresh the tags" in output
-    assert "deploy/test" in output
+    assert status == 1, output
+    assert "could not ask origin for its tags" in output
+    assert "not-a-repository" in output
 
 
-def test_a_revision_missing_locally_names_the_fetch_to_run(fix):
-    """Since the tool no longer fetches, a name it cannot resolve has to say how to go and get it."""
+def test_a_revision_missing_locally_names_the_pull_to_run(fix):
+    """The audit fetches nothing, so a name it cannot resolve has to say how to go and get it."""
     fix.write("src/Foo.sol", FOO)
     fix.tag("deploy/test")
 
     status, output = fix.verify_audit("deploy/not-here-yet")
     assert status != 0, output
     assert "deploy/not-here-yet" in output
-    assert "git fetch --tags" in output
+    assert "verify-audit --pull" in output
 
 
 def test_a_patterns_match_count_is_reported(fix):
@@ -1517,7 +1568,7 @@ def test_a_missing_deployment_tag_fails_and_names_its_repair(fix):
     assert any(_DEPLOYMENT_TAG in line and "not here" in line for line in output.splitlines()), (
         "it names the tag, and says what is wrong"
     )
-    assert "verify-audit --write" in output and "verify-audit --push" in output, (
+    assert "verify-audit --pull --write" in output and "verify-audit --push" in output, (
         "and how to repair it, which is never a git tag by hand"
     )
 
@@ -1577,7 +1628,7 @@ def test_the_check_fails_on_a_lightweight_deployment_tag(fix):
 
     assert status == 1, output
     assert tag in output and "lightweight" in output, output
-    assert "verify-audit --write" in output, "with the repair"
+    assert "verify-audit --pull --write" in output, "with the repair"
 
 
 def test_the_check_fails_on_a_tag_dated_otherwise(fix):
@@ -1716,12 +1767,47 @@ def test_push_refuses_on_a_detached_head(fix):
     assert fix.git("ls-remote", "--tags", "origin") == "", "and pushed nothing"
 
 
+def test_pull_refuses_on_a_detached_head(fix):
+    # One rule for every switch that changes refs: they run on a branch, and a detached HEAD is nearly
+    # always a throwaway checkout, where replacing tags is a surprise.
+    fix.write("src/Foo.sol", FOO)
+    fix.tag("deploy/test")
+    fix.git("tag", "-f", "-a", "deploy/test", "-m", "another copy", fix.git("rev-parse", "HEAD"), cwd=fix.bare)
+    here = fix.git("rev-parse", "refs/tags/deploy/test")
+    fix.git("checkout", "--detach", "--quiet")
+
+    status, output = fix.verify_audit("--pull")
+
+    assert status == 1, output
+    assert "detached" in output.lower(), "it says what is wrong"
+    assert fix.git("rev-parse", "refs/tags/deploy/test") == here, "and took nothing while refusing"
+
+
+def test_pull_write_and_push_together_run_in_that_order(fix):
+    # One run can do all three, in the order the work flows: origin's tags here, the record's tags here,
+    # then here to origin. Origin holds the tag another clone made, which is what the record derives.
+    # Pulled first, it is the tag here and the push has nothing to send. Written first, this clone would
+    # make its own, and the push would fail on origin's.
+    _recorded(fix)
+    fix.commit("the record")
+    other = fix.root / "other"
+    fix.git("clone", "-q", str(fix.bare), str(other))
+    status, output = run_verify_audit(other, "--write", "--push", env={"GIT_COMMITTER_NAME": "another clone"})
+    assert status == 0, output
+    published = fix.git("ls-remote", "origin", f"refs/tags/{_DEPLOYMENT_TAG}").split()[0]
+
+    status, output = fix.verify_audit("--pull", "--write", "--push")
+
+    assert status == 0, output
+    assert fix.git("rev-parse", f"refs/tags/{_DEPLOYMENT_TAG}") == published
+
+
 def test_write_refuses_an_argument_it_does_not_take(fix):
-    # `--write` and `--push` take no other argument. One they ignored would read as obeyed, so it is
-    # refused by name.
+    # `--pull`, `--write` and `--push` take no other argument. One they ignored would read as obeyed, so it
+    # is refused by name.
     _recorded(fix)
 
-    for flag in ("--write", "--push"):
+    for flag in ("--pull", "--write", "--push"):
         status, output = fix.verify_audit(flag, "--retag")
 
         assert status == 1, output

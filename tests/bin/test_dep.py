@@ -412,7 +412,7 @@ def test_a_sync_failure_reports_gits_error_the_steps_run_and_where_things_stand(
 #
 # A deployment tag made or corrected in another clone reaches this one only through a fetch, and sync is
 # what a developer runs after a pull. A plain `git fetch --tags` refuses to replace a tag a clone already
-# holds, so every fetch here takes origin's version of a deployment tag, as `verify-audit --write` does.
+# holds, so every fetch here takes origin's version of a deployment tag, as `verify-audit --pull` does.
 
 DEPLOYMENT_TAG = "deploy/mainnet/state@2026-01-03T00-00-00Z"
 

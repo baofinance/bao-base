@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Usage: verify-audit [revision-or-pattern ...] | verify-audit [--write] [--push]
+"""Usage: verify-audit [revision-or-pattern ...] | verify-audit [--pull] [--write] [--push]
 
 Fails if a deployed contract's source is not accounted for. HOW it checks depends on whether the
 repository holds a `deployed.json`: with one, every deployed contract must have a baseline naming the
@@ -17,7 +17,14 @@ derives - on this computer only, where they and the record can be checked before
 
 `--push` publishes those tags: only from a committed `deployed.json`, only the names the record derives,
 and only for a commit origin already holds. Run it before `git push`, so the branch reaches a CI that
-already holds its tags. `--write --push` is the two run one after the other.
+already holds its tags. It changes only origin. When origin holds a tag this clone should take first, it
+pushes nothing and says so, as git's push does.
+
+`--pull` takes origin's copy of each deployment tag, and origin's branches: the other way, as git's fetch.
+Each switch changes one side - `--pull` this clone from origin, `--write` this clone from the record,
+`--push` origin from this clone - and given together they run in that order.
+
+The check itself fetches nothing and changes nothing.
 
 An argument holding a glob metacharacter is a PATTERN, expanded via `git tag -l` (so `deploy-*`
 works - quote it to avoid shell globbing); matching no tags is information, not a failure. Any other
@@ -69,6 +76,7 @@ import tempfile
 from pathlib import Path
 
 from deployment_baselines import (
+    DEPLOY_TAGS,
     LABELS,
     RECORD,
     OriginUnanswered,
@@ -80,7 +88,7 @@ from deployment_baselines import (
     stale_repair,
 )
 from deployment_recovery import export_commit, install_toolchain
-from recover_baselines import Printer, publish, run
+from recover_baselines import Printer, publish, pull, run
 
 # Where audited source may live. Rename detection pairs only among the paths that survive the
 # pathspec, so any location a source file can legitimately move TO must be listed here: otherwise
@@ -644,7 +652,7 @@ def _resolve_revisions(args: list[str]) -> tuple[list[str], dict[str, str], bool
         if any(metacharacter in arg for metacharacter in "*?["):
             matches = _git_lines("tag", "-l", arg)
             if not matches:
-                _out(f"INFO: No tags match '{arg}' (fetch first if one was cut recently: git fetch --tags)\n")
+                _out(f"INFO: No tags match '{arg}', here or on origin\n")
                 continue
             _out(f"INFO: pattern '{arg}' matched {len(matches)} tag{'' if len(matches) == 1 else 's'}\n")
             for tag in matches:
@@ -659,7 +667,7 @@ def _resolve_revisions(args: list[str]) -> tuple[list[str], dict[str, str], bool
             sha = _git_value("rev-parse", "--verify", "--quiet", f"{arg}^{{commit}}")
             if not sha:
                 _err(f'\033[31mERROR: "{arg}" is not a tag, branch or commit in this repository\033[0m\n')
-                _err("       if it is a tag this clone has not seen, run `git fetch --tags` and try again\n")
+                _err("       if it is a tag this clone has not seen, run `verify-audit --pull` and try again\n")
                 failed = True
                 continue
         revisions.append(arg)
@@ -824,7 +832,7 @@ def _check_baselines(found: Review) -> int:
             if held := [tag for tag, at in on_origin.items() if at.commit == baseline.commit]:
                 _err(
                     f"\033[31m      origin has {', '.join(sorted(held))} naming it —"
-                    " `git fetch --tags` and run again\033[0m\n"
+                    " `verify-audit --pull` and run again\033[0m\n"
                 )
 
     if found.inputs_missing:
@@ -955,7 +963,12 @@ def _run(args: list[str]) -> int:
         return conflicts
     _log("every dependency shared with a repository this one depends on is staged at the same commit")
 
-    if flags := [flag for flag in ("--write", "--push") if flag in args]:
+    if flags := [flag for flag in ("--pull", "--write", "--push") if flag in args]:
+        # Each switch changes one side, as git's fetch, commit and push do.
+        #
+        # `--pull` takes origin's copy of each deployment tag, and origin's branches. It judges nothing:
+        # `--write` corrects what it brought that the record does not derive.
+        #
         # `--write` is the FIX, and the only thing in the system that writes the record - what a developer
         # runs when the check below fails, the way `fmt` answers `fmt --check`.
         #
@@ -969,9 +982,11 @@ def _run(args: list[str]) -> int:
         # is not what the record derives - on this computer only, where they can be checked.
         #
         # `--push` publishes them: only from a committed record, only those names, and only for a commit
-        # origin already holds. It goes before `git push`, so the branch reaches a CI that already holds
-        # the tags. Both in one run are the two run one after the other, the push attempted whatever the
-        # write's outcome, exactly as `--write; --push` would be.
+        # origin already holds. It changes only origin. It goes before `git push`, so the branch reaches a
+        # CI that already holds the tags.
+        #
+        # Given together they run in that order, each attempted whatever the one before did, exactly as
+        # `--pull; --write; --push` would be.
         #
         # Placed AFTER the two guards above so it inherits them: this compiles, so a FOUNDRY_PROFILE
         # would decide its settings too, and a record built under mismatched dependency versions is a
@@ -990,8 +1005,8 @@ def _run(args: list[str]) -> int:
         # A detached HEAD is refused rather than written to. The TAGS would be placed correctly - they
         # go on the commits the record names, never on HEAD - but `deployed.json` has to be committed,
         # and there is no branch to commit it onto. A detached HEAD is also nearly always a throwaway
-        # checkout - a CI job, a bisect, a worktree - where leaving or publishing refs is a surprise
-        # rather than a repair.
+        # checkout - a CI job, a bisect, a worktree - where taking, leaving or publishing refs is a
+        # surprise rather than a repair.
         if _git("symbolic-ref", "--quiet", "HEAD").returncode != 0:
             _err(f"\033[31mERROR: HEAD is detached, and verify-audit {' '.join(flags)} runs only on a branch\033[0m\n")
             _err("       check out the branch the record belongs on and run this again\n")
@@ -999,8 +1014,10 @@ def _run(args: list[str]) -> int:
         say = Printer(int(os.environ.get("BAO_BASE_VERBOSITY") or "0"), write=lambda line: _err(f"{line}\n"))
         status = 0
         try:
+            if "--pull" in flags:
+                status = pull(Path.cwd(), say=say)
             if "--write" in flags:
-                status = run(Path.cwd(), say=say, write=True)
+                status = max(status, run(Path.cwd(), say=say, write=True))
             if "--push" in flags:
                 status = max(status, publish(Path.cwd(), say=say))
         except (UnreadableRecord, UnreadableLabels) as unreadable:
@@ -1062,7 +1079,7 @@ def _run(args: list[str]) -> int:
                 for baseline in built:
                     _err(f"\033[31m    {baseline.chain} {baseline.address} {baseline.contractType}\033[0m\n")
             _err(
-                f"       run `verify-audit --write`, check the tags, commit {RECORD} and {LABELS}, then"
+                f"       run `verify-audit --pull --write`, check the tags, commit {RECORD} and {LABELS}, then"
                 " `verify-audit --push` before `git push`\n"
             )
 
@@ -1089,7 +1106,10 @@ def _run(args: list[str]) -> int:
             )
             for tag, faults in found.wrong_tags:
                 _err(f"\033[31m  {tag}: {faults}\033[0m\n")
-            _err("       run `verify-audit --write`, check and commit, then `verify-audit --push` before `git push`\n")
+            _err(
+                "       run `verify-audit --pull --write`, check and commit, then `verify-audit --push` before"
+                " `git push`\n"
+            )
 
         if found.stale_tags:
             gaps = 1
@@ -1134,16 +1154,41 @@ def _run(args: list[str]) -> int:
 
     ignores, scopes = _parse_ignore_file()
 
-    # Refresh the tags. Whether the local tag list is stale cannot be answered locally - a tag you
-    # have never seen leaves no trace - so the only way to audit against the tags that actually
-    # exist is to ask the remote. It lives HERE rather than in each caller's yarn script because
-    # every repo that consumes bao-base would otherwise need the same line, and they would drift;
-    # here there is one definition, and a developer and CI reach it through the same command.
-    #
-    # Its failure is not fatal, and says so: a clone with no reachable remote can still audit the
-    # tags it holds, and the per-pattern match counts below are what make a short list visible.
-    if _git("fetch", "--tags", "--no-recurse-submodules").returncode != 0:
-        _log("could not refresh the tags; auditing the tag list this clone holds")
+    # Origin's tags, read and never fetched: the audit changes nothing here. Whether the local tag list is
+    # stale cannot be answered locally - a tag you have never seen leaves no trace - so origin is asked,
+    # and each tag the patterns match that origin holds and this clone does not hold as origin does fails
+    # the run, with the command that takes it. One that cannot ask fails too: passing would say origin
+    # was looked at. It lives HERE rather than in each caller's yarn script because every repo that
+    # consumes bao-base would otherwise need the same line, and they would drift.
+    if patterns := [arg for arg in args if any(metacharacter in arg for metacharacter in "*?[")]:
+        try:
+            on_origin = origin_tags(Path.cwd())
+        except OriginUnanswered as unanswered:
+            _err(
+                "\033[31mERROR: could not ask origin for its tags, so the audit cannot say this clone holds every"
+                " tag the patterns match\033[0m\n"
+            )
+            _err(f"       {unanswered}\n")
+            return 1
+        listed = _git_lines("for-each-ref", "--format=%(refname:strip=2) %(objectname)", "refs/tags")
+        held = dict(line.split(" ") for line in listed)
+        behind = [
+            (tag, tag not in held)
+            for tag, there in sorted(on_origin.items())
+            if any(fnmatch.fnmatchcase(tag, pattern) for pattern in patterns) and held.get(tag) != there.object
+        ]
+        if behind:
+            _err(
+                f"\033[31mERROR: origin holds {len(behind)} tag(s) the patterns match that this clone does not"
+                " hold as origin does:\033[0m\n"
+            )
+            for tag, absent in behind:
+                _err(f"\033[31m  {tag}: {'not here' if absent else 'here as another object'}\033[0m\n")
+            _err("       run `verify-audit --pull`, then run this again\n")
+            if clashing := [tag for tag, absent in behind if not absent and not tag.startswith(DEPLOY_TAGS)]:
+                _err("       --pull takes origin's copy of a deployment tag only. To take origin's copy of the others:\n")
+                _err(f"         git fetch origin {' '.join(f'+refs/tags/{tag}:refs/tags/{tag}' for tag in clashing)}\n")
+            return 1
 
     # A shallow repository is refused rather than audited. It holds an unknown subset of the tagged
     # commits - the tag at the cloned tip is there, older ones are not - so the patterns below would
