@@ -20,7 +20,7 @@ interface IHarborOwnable is IERC5313 {
     /// @dev Cannot double-initialize.
     error AlreadyInitialized();
 
-    /// @dev Can only carry out actions within a window of time and if the new ower has validated.
+    /// @dev Nothing is pending, or `confirmOwner` is not the pending owner announced at initialisation.
     error CannotCompleteTransfer();
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -37,10 +37,10 @@ interface IHarborOwnable is IERC5313 {
                              PROTECTED UPDATE FUNCTIONS
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @notice Set the address of the new owner of the contract
-    /// This is the final step in the 3-step-with-timeouts transfer approach
-    /// @dev Set confirmOwner to the zero address to renounce any ownership.
-    /// @param confirmOwner The address of the new owner of the contract.
+    /// @notice Bring the hand-over to the pending owner announced at initialisation forward to now, as the owner.
+    /// @dev After the hand-over's time it has taken effect already and nothing changes. Ownership hands over by
+    /// itself an hour after initialisation whether or not this is called.
+    /// @param confirmOwner The pending owner.
     function transferOwnership(address confirmOwner) external;
 
     /*//////////////////////////////////////////////////////////////////////////

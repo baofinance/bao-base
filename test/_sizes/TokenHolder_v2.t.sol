@@ -2,19 +2,18 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {BaoOwnable} from "@bao/BaoOwnable.sol";
+import {HarborOwnable} from "@bao/HarborOwnable.sol";
 import {TokenHolder_v2} from "@bao/TokenHolder_v2.sol";
 import {MockERC20} from "@bao-test/mocks/MockERC20.sol";
 
 import {TokenHolderTestBase} from "@bao-test/TokenHolderTestBase.t.sol";
 
-/// @notice v2 counterpart to DerivedTokenHolder. v2's non-upgradeable ReentrancyGuardTransient needs no initializer,
-///         so - in deliberate contrast to the v1 canary - `initialize` does owner-setup only, with no
-///         __ReentrancyGuardTransient_init call.
-contract DerivedTokenHolder_v2 is Initializable, TokenHolder_v2, BaoOwnable {
+/// @notice v2 counterpart to DerivedTokenHolder, on the Harbor generation's ownable, as every TokenHolder_v2 user is.
+///         v2's non-upgradeable ReentrancyGuardTransient needs no initializer, so - in deliberate contrast to the v1
+///         canary - `initialize` does owner-setup only, with no __ReentrancyGuardTransient_init call.
+contract DerivedTokenHolder_v2 is Initializable, TokenHolder_v2, HarborOwnable {
     function initialize(address owner) public initializer {
-        _initializeOwner(owner);
-        transferOwnership(owner);
+        _initializeOwner(owner, owner);
     }
 }
 

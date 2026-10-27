@@ -4,7 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {BaoCheckOwner} from "@bao/internal/BaoCheckOwner.sol";
+import {HarborCheckOwner} from "@bao/internal/HarborCheckOwner.sol";
 import {Token} from "@bao/Token.sol";
 import {ITokenHolder} from "@bao/interfaces/ITokenHolder.sol";
 
@@ -16,7 +16,7 @@ import {ITokenHolder} from "@bao/interfaces/ITokenHolder.sol";
 ///         kept byte-unchanged for already-deployed contracts; this is its replacement for new code. `sweep` is
 ///         `virtual` so a derived contract can wrap it (e.g. cap the outflow or change the access check).
 // solhint-disable-next-line contract-name-capwords
-abstract contract TokenHolder_v2 is ReentrancyGuardTransient, BaoCheckOwner, ITokenHolder {
+abstract contract TokenHolder_v2 is ReentrancyGuardTransient, HarborCheckOwner, ITokenHolder {
     using SafeERC20 for IERC20;
 
     /// @notice function to transfer owned owned balance of a token

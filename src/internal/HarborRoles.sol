@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {BaoCheckOwner} from "@bao/internal/BaoCheckOwner.sol";
+import {HarborCheckOwner} from "@bao/internal/HarborCheckOwner.sol";
 import {HarborRolesCore} from "@bao/internal/HarborRolesCore.sol";
 
 /// @title Bao Ownable
@@ -14,12 +14,11 @@ import {HarborRolesCore} from "@bao/internal/HarborRolesCore.sol";
 /// This change allows it to be mixed in with the 'BaoOwnable' or 'BaoOwnableTransferrable'
 /// contracts to create Roles enabled versions of those contracts
 /// it also adds IRC165 interface query support
-abstract contract HarborRoles is BaoCheckOwner, HarborRolesCore {
-    function _isOwner(address user) internal view virtual override returns (bool isOwner) {
-        // solhint-disable-next-line no-inline-assembly
-        assembly ("memory-safe") {
-            isOwner := eq(user, sload(_INITIALIZED_SLOT))
-        }
+abstract contract HarborRoles is HarborCheckOwner, HarborRolesCore {
+    /// @dev The owner the roles checks see is the one every owner check sees, so a pending owner whose time has come
+    /// passes `onlyOwnerOrRoles` and `onlyRolesOrOwner`, and the deployer no longer does.
+    function _isOwner(address user) internal view virtual override returns (bool) {
+        return user == _owner();
     }
 
     /*//////////////////////////////////////////////////////////////////////////

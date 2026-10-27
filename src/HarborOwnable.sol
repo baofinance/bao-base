@@ -3,7 +3,7 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
-import {BaoCheckOwner} from "@bao/internal/BaoCheckOwner.sol";
+import {HarborCheckOwner} from "@bao/internal/HarborCheckOwner.sol";
 import {ERC165} from "@bao/ERC165.sol";
 import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 
@@ -11,15 +11,17 @@ import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 /// @dev Note:
 /// You MUST call `_initializeOwner(...)` in the constructor / initializer of the deriving contract.
 ///
-/// Legacy initialization (`_initializeOwner(address finalOwner)`) sets the initial owner to
-/// `msg.sender` and sets the pending owner to `finalOwner`.
+/// The initialization (`_initializeOwner(address deployerOwner, address pendingOwner)`) names the deployer owner rather
+/// than reading `msg.sender`, so it works when the initializer runs inside a factory's deploy.
 ///
-/// Prefer the explicit initialization (`_initializeOwner(address deployerOwner, address pendingOwner)`) when
-/// the deployer should not be treated as `msg.sender` from the implementation's point of view.
+/// Ownership hands over by itself, as in HarborFixedOwnable, which keeps the same two owners in immutables: the
+/// deployer owner owns the contract for one hour from initialization, to configure it, and from then on the pending
+/// owner owns it, with no call needed. The deployer may hand over earlier with `transferOwnership(pendingOwner)`. No
+/// other ownership transfer is supported. Every owner check - `onlyOwner`, and the owner-or-roles checks of the roles
+/// variant - sees the owner that `owner()` reports.
 ///
-/// This contract follows [EIP-173](https://eips.ethereum.org/EIPS/eip-173) for compatibility,
-/// however the transferOwnership function can only be called once and then, only by the caller that calls
-/// initializeOwner, and then only within 1 hour
+/// This contract follows [EIP-173](https://eips.ethereum.org/EIPS/eip-173) for compatibility: both transitions are
+/// announced at initialization, as HarborFixedOwnable announces them at construction.
 ///
 /// Multiple initialisations are not allowed, to ensure this we make a separate check for a previously set owner including
 /// including to address(0). This ensure that the initializeOwner, an otherwise unprotected function, cannot be called twice.
@@ -28,26 +30,30 @@ import {IHarborOwnable} from "@bao/interfaces/IHarborOwnable.sol";
 /// @author rootminus0x1
 /// @dev Uses erc7201 storage
 
-abstract contract HarborOwnable is IHarborOwnable, BaoCheckOwner, ERC165 {
+abstract contract HarborOwnable is IHarborOwnable, HarborCheckOwner, ERC165 {
     /*//////////////////////////////////////////////////////////////////////////
                                CONSTRUCTOR/INITIALIZER
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @notice Initialises the ownership (explicit)
-    /// @dev This initializer does not use `msg.sender`.
-    /// The owner is set to `deployerOwner`, and the pending owner is set to `pendingOwner`.
-    /// `transferOwnership(pendingOwner)` must still be completed within an hour.
-    /// @param deployerOwner The initial owner used for setup.
-    /// @param pendingOwner_ The address eligible to complete ownership transfer.
+    /// @notice Initialises the ownership: `deployerOwner` owns the contract for `_HAND_OVER_DELAY`, then
+    /// `pendingOwner_` does.
+    /// @dev Reads no `msg.sender`. Both transitions are announced now.
+    /// @param deployerOwner The owner for the first hour, to configure the contract.
+    /// @param pendingOwner_ The owner from an hour on, or from earlier if `deployerOwner` hands over.
     // slither-disable-next-line dead-code
     function _initializeOwner(address deployerOwner, address pendingOwner_) internal virtual {
-        unchecked {
-            _checkNotInitialized();
-            // solhint-disable-next-line no-inline-assembly
-            assembly ("memory-safe") {
-                sstore(_PENDING_SLOT, or(pendingOwner_, shl(192, add(timestamp(), 3600))))
+        // solhint-disable-next-line no-inline-assembly
+        assembly ("memory-safe") {
+            // once only: the owner slot is non-zero after any initialisation, the initialised bit covering a zero owner
+            if sload(_INITIALIZED_SLOT) {
+                mstore(0x00, 0x0dc149f0) // `AlreadyInitialized()`.
+                revert(0x1c, 0x04)
             }
-            _setOwner(address(0), deployerOwner);
+            sstore(_PENDING_SLOT, or(pendingOwner_, shl(192, add(timestamp(), _HAND_OVER_DELAY))))
+            sstore(_INITIALIZED_SLOT, or(deployerOwner, shl(_BIT_INITIALIZED, iszero(deployerOwner))))
+            // both transitions announced now, as HarborFixedOwnable announces them at construction
+            log3(0, 0, _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE, 0, deployerOwner)
+            log3(0, 0, _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE, deployerOwner, pendingOwner_)
         }
     }
 
@@ -61,11 +67,9 @@ abstract contract HarborOwnable is IHarborOwnable, BaoCheckOwner, ERC165 {
     }
 
     /// @inheritdoc IHarborOwnable
+    /// @dev The owner every owner check sees: the pending owner once its time has come, otherwise the stored owner.
     function owner() public view virtual returns (address owner_) {
-        // solhint-disable-next-line no-inline-assembly
-        assembly ("memory-safe") {
-            owner_ := sload(_INITIALIZED_SLOT)
-        }
+        owner_ = _owner();
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -73,31 +77,24 @@ abstract contract HarborOwnable is IHarborOwnable, BaoCheckOwner, ERC165 {
     //////////////////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IHarborOwnable
-    /// @dev Allows the owner to complete the ownership transfer to `pendingOwner`.
-    /// Reverts if there is no existing ownership transfer requested by `pendingOwner`.
+    /// @dev Brings the hand-over announced at initialisation forward to now, by the owner: the entry's time becomes
+    /// the block's, so the pending owner owns the contract from here. After its time it is in effect already and this
+    /// changes nothing. Reverts `CannotCompleteTransfer` when there is no entry or `confirmOwner` is not its owner.
     function transferOwnership(address confirmOwner) public virtual {
-        unchecked {
-            address oldOwner;
-            // solhint-disable-next-line no-inline-assembly
-            assembly ("memory-safe") {
-                oldOwner := sload(_INITIALIZED_SLOT)
-                if iszero(eq(caller(), oldOwner)) {
-                    mstore(0x00, 0x82b42900) // `Unauthorized()`.
-                    revert(0x1c, 0x04)
-                }
-                let pending_ := sload(_PENDING_SLOT)
-                if or(
-                    // confirm == pending
-                    iszero(eq(confirmOwner, shr(95, shl(95, pending_)))),
-                    // within the timescale allowed
-                    gt(timestamp(), shr(192, pending_))
-                ) {
-                    mstore(0x00, 0x8cd65fff) // `CannotCompleteTransfer()`.
-                    revert(0x1c, 0x04)
-                }
-                sstore(_PENDING_SLOT, 0)
+        _checkOwner();
+        // solhint-disable-next-line no-inline-assembly
+        assembly ("memory-safe") {
+            let pending_ := sload(_PENDING_SLOT)
+            if or(
+                // an entry must exist: an empty slot would otherwise match a zero confirmOwner
+                iszero(pending_),
+                // confirm == pending
+                iszero(eq(confirmOwner, shr(96, shl(96, pending_))))
+            ) {
+                mstore(0x00, 0x8cd65fff) // `CannotCompleteTransfer()`.
+                revert(0x1c, 0x04)
             }
-            _setOwner(oldOwner, confirmOwner);
+            sstore(_PENDING_SLOT, or(confirmOwner, shl(192, timestamp())))
         }
     }
 
@@ -105,54 +102,14 @@ abstract contract HarborOwnable is IHarborOwnable, BaoCheckOwner, ERC165 {
                                   PRIVATE DATA
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @dev The owner address storage slot is defined in BaoCheckOwner
-    /// We utilise an extra bit in that slot, to prevent re-initialisations (only needed for address(0))
+    /// @dev The owner slot is defined in BaoCheckOwner and the pending owner slot in HarborCheckOwner.
+    /// We utilise an extra bit in the owner slot, to prevent re-initialisations (only needed for address(0))
     uint8 internal constant _BIT_INITIALIZED = 255;
 
-    /// @dev The pending owner slot is given by:
-    /// `keccak256(abi.encode(uint256(keccak256("bao.storage.BaoOwnable.pending")) - 1)) & ~bytes32(uint256(0xff))`.
-    bytes32 internal constant _PENDING_SLOT = 0x9839bd1b7d13bef2e7a66ce106fd5e418f9f8fee5da4e55d26c2c33ef0bf4800;
-    // | 255, 64 bits - expiry | 191, 32 bits - spare | 159, 160 bits - pending owner address |
-
-    /// `keccak256(abi.encode(uint256(keccak256("bao.storage.BaoOwnable.isInitialized")) - 1)) & ~bytes32(uint256(0xff))`.
-    //bytes32 private constant _IS_INITIALIZED_SLOT = 0xf62b6656174671598fb5a8f20c699816e60e61b09b105786e842a4b16193e900;
-    /// @dev OR an address to get the address stored in owner, if they were also the deployer
+    /// @dev How long the deployer owner owns the contract from initialisation, before the pending owner does.
+    uint256 internal constant _HAND_OVER_DELAY = 1 hours;
 
     /// @dev `keccak256(bytes("OwnershipTransferred(address,address)"))`.
     uint256 internal constant _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE =
         0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0;
-
-    /*//////////////////////////////////////////////////////////////////////////
-                                  INTERNAL FUNCTIONS
-    //////////////////////////////////////////////////////////////////////////*/
-
-    /// @dev Sets the owner directly
-    /// @param oldOwner, The old owner about to be replaced. This is a clean address (i.e. top bits are zero)
-    /// @param newOwner, The new owner about to replace `oldOwner`. This is not a clean address (i.e. top bits may not be zero)
-    function _setOwner(address oldOwner, address newOwner) internal {
-        // solhint-disable-next-line no-inline-assembly
-        assembly ("memory-safe") {
-            // Emit the {OwnershipTransferred} event with cleaned addresses
-            log3(0, 0, _OWNERSHIP_TRANSFERRED_EVENT_SIGNATURE, oldOwner, newOwner)
-            // Store the new value. with initialised bit set, to prevent multiple initialisations
-            // i.e. an initialisation after a ownership transfer
-            sstore(_INITIALIZED_SLOT, or(newOwner, shl(_BIT_INITIALIZED, iszero(newOwner))))
-        }
-    }
-
-    // @dev performs a check to determine if the contract has been initialised (via '_initializeOwnership)
-    // Reverts if it has been initialised.
-    // slither-disable-next-line dead-code
-    function _checkNotInitialized() internal view {
-        // solhint-disable-next-line no-inline-assembly
-        assembly ("memory-safe") {
-            // throw if we are already initialized
-            // this works even if it's initialised to zero because
-            // _setOwner sets the _BITINITIALIZED bit if the address is 0
-            if sload(_INITIALIZED_SLOT) {
-                mstore(0x00, 0x0dc149f0) // `AlreadyInitialized()`.
-                revert(0x1c, 0x04)
-            }
-        }
-    }
 }
