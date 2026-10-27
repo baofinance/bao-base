@@ -322,12 +322,119 @@ contract FactoryDeployerTest is BaoTest {
     // ========== Helper to set up factory with deployer as operator ==========
 
     function _setupFactoryWithDeployerAsOperator() internal returns (address factory) {
+        return _setupFactoryWithDeployerAsOperatorFor(365 days);
+    }
+
+    /// @dev The deployer contract sends the factory's deploy calls itself, so it is the deployer owner; the factory's
+    ///      owner grants it an operator allowance of `window`.
+    function _setupFactoryWithDeployerAsOperatorFor(uint256 window) internal returns (address factory) {
         factory = _ensureBaoFactory();
-        // The deployer contract needs to be an operator to call BaoFactory.deploy()
-        if (!IBaoFactory(factory).isCurrentOperator(address(deployer))) {
-            vm.prank(IBaoFactory(factory).owner());
-            IBaoFactory(factory).setOperator(address(deployer), 365 days);
-        }
+        deployer.setDeployerOwner(address(deployer));
+        vm.startPrank(IBaoFactory(factory).owner());
+        IBaoFactory(factory).setOperator(address(deployer), window);
+        vm.stopPrank();
+    }
+
+    /// @dev A state and a HarborOwnable implementation for one proxy, "minter", under `prefix`, with the init data
+    ///      that makes `firstOwner` its owner until the hand-over and `testOwner` its pending owner.
+    function _oneProxyToDeploy(
+        string memory prefix,
+        address firstOwner
+    ) private returns (DeploymentTypes.State memory state, address impl, bytes memory initData) {
+        deployer.setSaltPrefix(prefix);
+        impl = address(new MockHarborOwnable());
+        state.network = "test";
+        state.saltPrefix = prefix;
+        state.baoFactory = deployer.baoFactory();
+        deployer.recordImplementation(state, "minter", "@test/MockHarborOwnable.sol", "MockHarborOwnable", impl);
+        initData = abi.encodeCall(MockHarborOwnable.initialize, (firstOwner, testOwner, 123));
+    }
+
+    // ========== The factory must accept the deployer owner, checked before anything is deployed ==========
+
+    /// @dev A deployer owner the factory lists no allowance for is refused by name before the first proxy, in place of
+    ///      the factory's bare `Unauthorized()` at it.
+    function test_deployProxy_refusesADeployerOwnerWithNoAllowance() public {
+        address factory = _ensureBaoFactory();
+        deployer.setDeployerOwner(address(deployer));
+        (DeploymentTypes.State memory state, address impl, bytes memory initData) = _oneProxyToDeploy(
+            "no_allowance",
+            address(deployer)
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(FactoryDeployer.DeployerOwnerIsNotAnOperator.selector, address(deployer), factory)
+        );
+        deployer.deployProxyAndRecord(state, "minter", impl, initData);
+    }
+
+    /// @dev An allowance that ends within the margin is refused, naming when it ends and the margin.
+    function test_deployProxy_refusesAnAllowanceEndingWithinTheMargin() public {
+        uint256 margin = deployer.OPERATOR_ALLOWANCE_MARGIN();
+        address factory = _setupFactoryWithDeployerAsOperatorFor(margin / 2);
+        (DeploymentTypes.State memory state, address impl, bytes memory initData) = _oneProxyToDeploy(
+            "short_allowance",
+            address(deployer)
+        );
+        uint256 expiry = block.timestamp + margin / 2;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FactoryDeployer.DeployerOwnerAllowanceTooShort.selector,
+                address(deployer),
+                factory,
+                expiry,
+                margin
+            )
+        );
+        deployer.deployProxyAndRecord(state, "minter", impl, initData);
+    }
+
+    /// @dev The margin is what must be LEFT: an allowance ending exactly a margin away is refused, one second longer
+    ///      is accepted and the proxy is the deployer's until the hand-over.
+    function test_deployProxy_allowanceMustOutlastTheMargin() public {
+        uint256 margin = deployer.OPERATOR_ALLOWANCE_MARGIN();
+        address factory = _setupFactoryWithDeployerAsOperatorFor(margin);
+        (DeploymentTypes.State memory state, address impl, bytes memory initData) = _oneProxyToDeploy(
+            "at_the_margin",
+            address(deployer)
+        );
+        uint256 expiry = block.timestamp + margin;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FactoryDeployer.DeployerOwnerAllowanceTooShort.selector,
+                address(deployer),
+                factory,
+                expiry,
+                margin
+            )
+        );
+        deployer.deployProxyAndRecord(state, "minter", impl, initData);
+
+        vm.startPrank(IBaoFactory(factory).owner());
+        IBaoFactory(factory).setOperator(address(deployer), margin + 1);
+        vm.stopPrank();
+        address proxy = deployer.deployProxyAndRecord(state, "minter", impl, initData);
+        assertEq(MockHarborOwnable(proxy).owner(), address(deployer), "deployed, the deployer's until the hand-over");
+    }
+
+    /// @dev The factory's owner needs no allowance: a run whose deployer owner is the owner is not refused.
+    function test_deployProxy_acceptsTheFactoryOwnerWithoutAnAllowance() public {
+        address factory = _ensureBaoFactory();
+        address factoryOwner = IBaoFactory(factory).owner();
+        deployer.setDeployerOwner(factoryOwner);
+        // The deployer contract still sends the call, so the factory itself must accept it as an operator.
+        vm.startPrank(factoryOwner);
+        IBaoFactory(factory).setOperator(address(deployer), 365 days);
+        vm.stopPrank();
+        (DeploymentTypes.State memory state, address impl, bytes memory initData) = _oneProxyToDeploy(
+            "owner_deploys",
+            factoryOwner
+        );
+
+        address proxy = deployer.deployProxyAndRecord(state, "minter", impl, initData);
+        assertEq(MockHarborOwnable(proxy).owner(), factoryOwner, "deployed, the factory owner's from the start");
     }
 
     // ========== Ownership Transfer Tests ==========

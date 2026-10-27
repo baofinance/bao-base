@@ -4,6 +4,7 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Vm, VmSafe} from "forge-std/Vm.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {EnumerableSetLib} from "@solady/utils/EnumerableSetLib.sol";
 import {IBaoFactory} from "@bao-factory/IBaoFactory.sol";
 import {BaoERC1967Proxy} from "@bao/BaoERC1967Proxy.sol";
 import {UUPSProxyDeployStub} from "@bao-script/deployment/UUPSProxyDeployStub.sol";
@@ -42,6 +43,10 @@ abstract contract FactoryDeployer is DeployReporting {
     ///      constant in `DeployReporting` for why every contract in this chain keeps its own `private` one.
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
+    /// @notice How much of the deployer owner's operator allowance on the factory a run must have left when it
+    ///         deploys a proxy: enough to finish inside the allowance.
+    uint256 public constant OPERATOR_ALLOWANCE_MARGIN = 1 days;
+
     // ========== ERRORS ==========
 
     /// @notice Predicting an address or deploying before the salt prefix (the CREATE3 namespace) has been set.
@@ -56,6 +61,12 @@ abstract contract FactoryDeployer is DeployReporting {
     error ZeroDeployerOwner();
     /// @notice The deployer owner is write-once; it was already `current` when a set to `attempted` was tried.
     error DeployerOwnerAlreadySet(address current, address attempted);
+    /// @notice `factory` lists no operator allowance for `deployerOwner`, and accepts a deploy only from its owner or
+    ///         a current operator.
+    error DeployerOwnerIsNotAnOperator(address deployerOwner, address factory);
+    /// @notice `deployerOwner`'s operator allowance on `factory` ends at `expiry`, not `margin` seconds past the
+    ///         block's time, so the run could outlive it.
+    error DeployerOwnerAllowanceTooShort(address deployerOwner, address factory, uint256 expiry, uint256 margin);
 
     // ========== CONFIGURATION STATE ==========
 
@@ -115,7 +126,9 @@ abstract contract FactoryDeployer is DeployReporting {
     /// be the account those calls come from. A held test run sends them itself and overrides this to `address(this)`.
     /// A forge script does not: its calls are broadcast from the sender, so it sets `run()`'s `msg.sender` through
     /// `_setDeployerOwner`. Reverts until set: a wrong first owner leaves every contract the run deploys owned by an
-    /// account that never sends, so there is no default.
+    /// account that never sends, so there is no default. It is also the account the factory must accept: before each
+    /// proxy is deployed, it must be the factory's owner or an operator with `OPERATOR_ALLOWANCE_MARGIN` of its
+    /// allowance left.
     function deployerOwner() public view virtual returns (address) {
         if (_deployerOwnerValue == address(0)) {
             revert DeployerOwnerNotSet();
@@ -133,6 +146,44 @@ abstract contract FactoryDeployer is DeployReporting {
             revert DeployerOwnerAlreadySet(_deployerOwnerValue, deployerOwner_);
         }
         _deployerOwnerValue = deployerOwner_;
+    }
+
+    /// @notice Stops a run the factory would refuse, before it deploys anything: the factory accepts a deploy only
+    ///         from its owner or from an operator its owner has set for a window, and the run needs
+    ///         `OPERATOR_ALLOWANCE_MARGIN` of that window left to finish inside it.
+    function _requireDeployerOwnerMayDeploy(IBaoFactory factory) private view {
+        address deployer = deployerOwner();
+        if (deployer == factory.owner()) {
+            return;
+        }
+        uint256 expiry = _operatorExpiry(factory, deployer);
+        if (expiry == 0) {
+            revert DeployerOwnerIsNotAnOperator(deployer, address(factory));
+        }
+        if (expiry <= block.timestamp + OPERATOR_ALLOWANCE_MARGIN) {
+            revert DeployerOwnerAllowanceTooShort(deployer, address(factory), expiry, OPERATOR_ALLOWANCE_MARGIN);
+        }
+    }
+
+    /// @notice When `operator`'s allowance on `factory` ends; zero for an account the factory lists none for.
+    /// @dev The factory lists its operators by index only, and past the last one `operatorAt` reverts with its set's
+    ///      `IndexOutOfBounds`, which is the list's end here. Any other revert is raised again unchanged.
+    function _operatorExpiry(IBaoFactory factory, address operator) private view returns (uint256 expiry) {
+        for (uint256 i = 0; ; ++i) {
+            try factory.operatorAt(i) returns (address listed, uint256 listedExpiry) {
+                if (listed == operator) {
+                    return listedExpiry;
+                }
+            } catch (bytes memory reason) {
+                if (reason.length == 4 && bytes4(reason) == EnumerableSetLib.IndexOutOfBounds.selector) {
+                    return 0;
+                }
+                // solhint-disable-next-line no-inline-assembly
+                assembly ("memory-safe") {
+                    revert(add(reason, 32), mload(reason))
+                }
+            }
+        }
     }
 
     /// @notice Get the BaoFactory address for CREATE3 deployments.
@@ -387,6 +438,7 @@ abstract contract FactoryDeployer is DeployReporting {
     ) private returns (address proxy) {
         IBaoFactory baoFactoryContract = IBaoFactory(factory);
         address predictedProxy = baoFactoryContract.predictAddress(salt);
+        _requireDeployerOwnerMayDeploy(baoFactoryContract);
 
         proxy = baoFactoryContract.deploy(
             abi.encodePacked(type(BaoERC1967Proxy).creationCode, abi.encode(implementation, initData)),
@@ -406,6 +458,7 @@ abstract contract FactoryDeployer is DeployReporting {
     ) private returns (address proxy) {
         IBaoFactory baoFactoryContract = IBaoFactory(factory);
         address predictedProxy = baoFactoryContract.predictAddress(salt);
+        _requireDeployerOwnerMayDeploy(baoFactoryContract);
 
         // Step 1: deploy proxy pointing at stub
         UUPSProxyDeployStub stub = _getOrDeployStub();
