@@ -68,6 +68,10 @@ contract TestableFactoryDeployer is FactoryDeployer {
         _ownerAddr = owner_;
     }
 
+    function setDeployerOwner(address deployerOwner_) external {
+        _setDeployerOwner(deployerOwner_);
+    }
+
     // ========== Expose internal functions for testing ==========
 
     function shouldPersistState() external view returns (bool) {
@@ -198,6 +202,33 @@ contract FactoryDeployerTest is BaoTest {
         // Salting/predicting before the namespace is established fails loudly, not with a wrong-namespace address.
         vm.expectRevert(FactoryDeployer.SaltPrefixNotSet.selector);
         deployer.saltString1("minter");
+    }
+
+    function test_deployerOwner_revertsWhenUnset() public {
+        // A run with no deployer owner cannot deploy: nothing defaults to an account that may never send.
+        vm.expectRevert(FactoryDeployer.DeployerOwnerNotSet.selector);
+        deployer.deployerOwner();
+    }
+
+    function test_setDeployerOwner() public {
+        address sender = makeAddr("sender");
+        deployer.setDeployerOwner(sender);
+        assertEq(deployer.deployerOwner(), sender, "deployerOwner returns the account set");
+    }
+
+    function test_setDeployerOwner_revertsOnSecondSet() public {
+        // Write-once: the account holding the run's contracts cannot change part-way through a run.
+        address first = makeAddr("first");
+        address second = makeAddr("second");
+        deployer.setDeployerOwner(first);
+        vm.expectRevert(abi.encodeWithSelector(FactoryDeployer.DeployerOwnerAlreadySet.selector, first, second));
+        deployer.setDeployerOwner(second);
+    }
+
+    function test_setDeployerOwner_revertsOnZero() public {
+        // The zero address is the "unset" marker, so it cannot be set.
+        vm.expectRevert(FactoryDeployer.ZeroDeployerOwner.selector);
+        deployer.setDeployerOwner(address(0));
     }
 
     function test_treasury() public view {

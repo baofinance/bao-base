@@ -50,18 +50,28 @@ abstract contract FactoryDeployer is DeployReporting {
     error EmptySaltPrefix();
     /// @notice The salt prefix is write-once; it was already `current` when a set to `attempted` was tried.
     error SaltPrefixAlreadySet(string current, string attempted);
+    /// @notice Reading the deployer owner before it has been set.
+    error DeployerOwnerNotSet();
+    /// @notice `_setDeployerOwner` was given the zero address, which is reserved as the "unset" marker.
+    error ZeroDeployerOwner();
+    /// @notice The deployer owner is write-once; it was already `current` when a set to `attempted` was tried.
+    error DeployerOwnerAlreadySet(address current, address attempted);
 
     // ========== CONFIGURATION STATE ==========
 
     /// @dev Salt prefix for deployment namespacing.
     string private _saltPrefixValue;
 
+    /// @dev The account that owns each contract this run deploys until the hand-over to `owner()` - see
+    ///      `deployerOwner()`.
+    address private _deployerOwnerValue;
+
     /// @dev Lazily deployed stub - must be deployed within broadcast context so msg.sender is correct.
     UUPSProxyDeployStub private _proxyDeployStub;
 
     // ========== DEPLOYMENT OWNERSHIP PATTERN ==========
-    // Contracts are deployed with deployer as owner, then transferred at end.
-    // initialize(owner()) sets pending owner; transferOwnership(owner()) confirms it.
+    // Contracts are deployed with deployerOwner() as owner, then transferred at end.
+    // initialize(deployerOwner(), owner()) sets pending owner; transferOwnership(owner()) confirms it.
 
     /// @dev Set of deployed contract addresses needing ownership transfer.
     EnumerableSet.AddressSet private _pendingOwnershipTransfers;
@@ -98,6 +108,31 @@ abstract contract FactoryDeployer is DeployReporting {
     /// @notice Get the current salt prefix for deployment namespacing.
     function saltPrefix() public view virtual returns (string memory) {
         return _saltPrefixValue;
+    }
+
+    /// @notice The account that owns each contract this run deploys until `_transferAllOwnerships` hands it to
+    /// `owner()`. The run's direct configuring calls - role grants, the hand-over itself - need that owner, so it must
+    /// be the account those calls come from. A held test run sends them itself and overrides this to `address(this)`.
+    /// A forge script does not: its calls are broadcast from the sender, so it sets `run()`'s `msg.sender` through
+    /// `_setDeployerOwner`. Reverts until set: a wrong first owner leaves every contract the run deploys owned by an
+    /// account that never sends, so there is no default.
+    function deployerOwner() public view virtual returns (address) {
+        if (_deployerOwnerValue == address(0)) {
+            revert DeployerOwnerNotSet();
+        }
+        return _deployerOwnerValue;
+    }
+
+    /// @notice Set the deployer owner - once, before any deployment. Write-once: the zero address is the "unset"
+    /// marker (so it cannot be set), and a second set is rejected.
+    function _setDeployerOwner(address deployerOwner_) internal {
+        if (deployerOwner_ == address(0)) {
+            revert ZeroDeployerOwner();
+        }
+        if (_deployerOwnerValue != address(0)) {
+            revert DeployerOwnerAlreadySet(_deployerOwnerValue, deployerOwner_);
+        }
+        _deployerOwnerValue = deployerOwner_;
     }
 
     /// @notice Get the BaoFactory address for CREATE3 deployments.

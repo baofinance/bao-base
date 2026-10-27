@@ -23,6 +23,14 @@ library DeploymentState {
     error ImplementationAddressRequired();
     error ProxyKeyRequired();
     error ProxyAddressRequired();
+    /// @notice The state file at `path` records another run's salt prefix or network.
+    error StateFileIsAnotherRuns(
+        string path,
+        string fileSaltPrefix,
+        string fileNetwork,
+        string runSaltPrefix,
+        string runNetwork
+    );
 
     /// @notice Resolve the deployment state directory.
     /// @dev Reads DEPLOY_STATE_DIR env var. Used by SafeBatch for the batch subdirectory.
@@ -47,6 +55,24 @@ library DeploymentState {
     ) internal pure returns (DeploymentTypes.State memory state) {
         state.network = network;
         state.saltPrefix = saltPrefix;
+    }
+
+    /// @notice The state a persisting deploy run starts from: the file at `path` where there is one, otherwise a
+    ///         fresh state for the run - a first deploy under its salt prefix, which the file it then saves must
+    ///         record. A file is read only if it records this run's salt prefix and network: one recording
+    ///         another run's would have this run's contracts written under the wrong namespace.
+    function loadOrFresh(
+        string memory path,
+        string memory saltPrefix,
+        string memory network
+    ) internal view returns (DeploymentTypes.State memory state) {
+        if (!vm.exists(path)) {
+            return fresh(saltPrefix, network);
+        }
+        state = JsonParser.parseStateJson(vm.readFile(path));
+        if (!state.saltPrefix.eq(saltPrefix) || !state.network.eq(network)) {
+            revert StateFileIsAnotherRuns(path, state.saltPrefix, state.network, saltPrefix, network);
+        }
     }
 
     /// @notice Save state to disk atomically (write to temp file, then rename).
