@@ -33,7 +33,7 @@ library JsonSerializer {
                 ',"baoFactory":',
                 _quote(LibString.toHexStringChecksummed(state.baoFactory)),
                 ',"lastUpdated":',
-                _quote(_formatTimestamp(block.timestamp)),
+                _quote(formatTimestamp(block.timestamp)),
                 ',"implementations":{',
                 implementationsJson,
                 '},"proxies":{',
@@ -61,7 +61,7 @@ library JsonSerializer {
                 ',"contractType":',
                 _quote(rec.contractType),
                 ',"deploymentTime":',
-                _quote(_formatTimestamp(uint256(rec.deploymentTime))),
+                _quote(formatTimestamp(uint256(rec.deploymentTime))),
                 "}"
             );
             body = bytes(body).length == 0 ? entry : string.concat(body, ",", entry);
@@ -89,7 +89,7 @@ library JsonSerializer {
                 ',"salt":',
                 _quote(combinedSalt),
                 ',"deploymentTime":',
-                _quote(_formatTimestamp(uint256(rec.deploymentTime))),
+                _quote(formatTimestamp(uint256(rec.deploymentTime))),
                 "}"
             );
             body = bytes(body).length == 0 ? entry : string.concat(body, ",", entry);
@@ -253,7 +253,8 @@ library JsonSerializer {
         return string(buffer);
     }
 
-    function _formatTimestamp(uint256 timestamp) private pure returns (string memory) {
+    /// @notice A unix timestamp as ISO 8601 in UTC, `YYYY-MM-DDTHH:MM:SSZ`: the form the state file's times take.
+    function formatTimestamp(uint256 timestamp) internal pure returns (string memory) {
         (uint256 year, uint256 month, uint256 day, uint256 hour, uint256 minute, uint256 second) = DateTimeLib
             .timestampToDateTime(timestamp);
         return
