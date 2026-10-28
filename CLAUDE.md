@@ -339,11 +339,23 @@ Revert it immediately afterwards and confirm `grep -rn "TEST MODIFICATION"` find
 nothing before reporting the work. Never leave a deliberate break in place across
 a checkpoint, and never use an unfenced one.
 
-### `test/` is reproducible; `script/verify/` is where it need not be
-Everything under `test/` must be deterministic and repeatable — the same inputs
-give the same result on any machine, any day. A fork PINNED to a block is
-reproducible and belongs there; anything tracking chain HEAD, live prices, or
-current balances is not, and belongs under `script/verify/`.
+### `test/` is permanent; `script/verify/` is temporary
+Where a test lives is decided by how long it lives, not by what it reads.
+- **`test/` holds the tests that stay.** `yarn test` and CI run every one, so
+  each must be deterministic and repeatable — the same inputs give the same
+  result on any machine, any day. A fork PINNED to a block is reproducible and
+  belongs there; anything tracking chain HEAD, live prices, or current balances
+  is not.
+- **`script/verify/` holds the campaigns:** the tests of a deployment, upgrade or
+  remediation about to be performed, run by hand before it and retired to
+  `deprecated/script/verify/` once it has been. forge runs tests only from its
+  test directory, so a plain `forge test --match-path` on a campaign runs nothing
+  and exits 0; run a campaign through `script/verify/run-campaign-test`, which
+  points forge at it and fails unless a test ran. A campaign's runner runs every
+  test of the campaign, its unit tests first: a test nothing runs is dead.
+- **A test that imports campaign code lives with the campaign,** however
+  reproducible it is. A permanent test must not depend on temporary code, and the
+  campaign's tests retire with it.
 
 This splits upgrade testing in two, and each half is weaker if it tries to be the
 other:
