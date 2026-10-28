@@ -24,7 +24,9 @@ import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 ///      the saved batches in order; tests execute inline at the same point.
 ///   4. Batch construction may read only state that exists at script-run time — never the effects of a
 ///      batch that has not executed.
-///   5. Each flush() boundary defines one Safe batch JSON for the multisig to sign.
+///   5. Each flush() boundary defines one Safe batch JSON for the multisig to sign. Its meta name is the
+///      salt prefix the batch was built under, which names the state file recording what the batch
+///      names, so a batch can be read against the deployments it was built against.
 ///
 /// Environment variables (set by script/run-script):
 ///   SAFE_BATCH_NAME          Filename prefix for the batch JSON
@@ -221,7 +223,9 @@ abstract contract Deployer is FactoryDeployer {
                 block.chainid.toString(),
                 '","createdAt":',
                 (block.timestamp * 1000).toString(),
-                ',"meta":{"description":"',
+                ',"meta":{"name":"',
+                saltPrefix(),
+                '","description":"',
                 description,
                 '"},"transactions":',
                 txArray,

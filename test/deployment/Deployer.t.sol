@@ -213,14 +213,17 @@ contract DeployerTest is BaoTest {
     // ── Safe batch JSON ─────────────────────────────────────────────────────────
 
     function test_buildSafeJson_encodesQueuedTransactions() public {
-        // The Safe batch JSON carries the chainId, the meta description, and each queued tx's to/value/data
-        // — the exact shape the Safe Transaction Builder imports.
+        // The Safe batch JSON carries the chainId, the meta name - the salt prefix the batch was built under, which
+        // names the state file recording what the batch names - the meta description, and each queued tx's
+        // to/value/data — the exact shape the Safe Transaction Builder imports.
+        deployer.setSaltPrefix("test_v1");
         bytes memory data = abi.encodeCall(MockCallTarget.record, ());
         deployer.doQueue(address(mock), data, "record call");
 
         string memory json = deployer.doBuildSafeJson("grant roles");
 
         assertTrue(LibString.contains(json, '"chainId":"'), "includes chainId");
+        assertTrue(LibString.contains(json, '"name":"test_v1"'), "names the salt prefix the batch was built under");
         assertTrue(LibString.contains(json, '"description":"grant roles"'), "includes the meta description");
         assertTrue(LibString.contains(json, '"value":"0"'), "tx value is 0");
         assertTrue(

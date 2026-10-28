@@ -3,6 +3,7 @@
   "chainId": "31337",
   "createdAt": 1000,
   "meta": {
+    "name": "",
     "description": "batch file test"
   },
   "transactions": [
