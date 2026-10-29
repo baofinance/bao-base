@@ -8,6 +8,10 @@ import {JsonParser} from "@bao-script/deployment/JsonParser.sol";
 
 /// @notice Wrapper contract to make library calls external for expectRevert testing.
 contract DeploymentStateWrapper {
+    function resolveDirectory() external view returns (string memory) {
+        return DeploymentState.resolveDirectory();
+    }
+
     function recordImplementation(
         DeploymentTypes.State memory state,
         DeploymentTypes.ImplementationRecord memory rec
@@ -54,7 +58,6 @@ contract DeploymentStateTest is Test {
 
     function setUp() public {
         wrapper = new DeploymentStateWrapper();
-        vm.setEnv("DEPLOY_STATE_DIR", string.concat(vm.projectRoot(), "/deployments/test"));
     }
 
     function _newState() internal pure returns (DeploymentTypes.State memory state) {
@@ -370,15 +373,22 @@ contract DeploymentStateTest is Test {
 
     // ========== PATH RESOLUTION TESTS ==========
 
-    function test_resolveDirectory_readsEnvVar() public view {
-        string memory dir = DeploymentState.resolveDirectory();
-        assertTrue(bytes(dir).length > 0, "dir not empty");
+    /// @dev The state folder is the one DEPLOY_STATE_DIR names. No test sets the variable, so reading it fails, naming
+    ///      the variable read.
+    function test_resolveDirectory_readsEnvVar() public {
+        vm.expectRevert(bytes('vm.envString: environment variable "DEPLOY_STATE_DIR" not found'));
+        wrapper.resolveDirectory();
     }
 
     // ========== LOAD / SAVE ROUND TRIP TESTS ==========
 
+    /// @dev A saved state loads back with every field it was saved with. The file is a regression file, kept: time and
+    ///      chain are pinned so it is stable.
     function test_loadSave_roundTrip() public {
-        string memory path = string.concat(DeploymentState.resolveDirectory(), "/roundtrip_test.state.json");
+        string memory path = string.concat(
+            vm.projectRoot(),
+            "/results/deployments/DeploymentStateTest::loadSave_roundTrip.state.json"
+        );
 
         // Set up test state
         DeploymentTypes.State memory state;
@@ -405,6 +415,8 @@ contract DeploymentStateTest is Test {
         DeploymentState.recordProxy(state, proxyRec);
 
         // Save
+        vm.warp(1);
+        vm.chainId(31337);
         DeploymentState.save(state, path);
 
         // Load
@@ -421,13 +433,13 @@ contract DeploymentStateTest is Test {
         assertEq(loaded.proxies[0].id, "ETH::minter", "proxy id preserved");
         assertEq(loaded.proxies[0].proxy, proxyRec.proxy, "proxy address preserved");
         assertEq(loaded.proxies[0].implementation, proxyRec.implementation, "proxy impl preserved");
-
-        // Cleanup
-        vm.removeFile(path);
     }
 
     function test_load_returnsEmptyStateForMissingFile() public view {
-        string memory path = string.concat(DeploymentState.resolveDirectory(), "/missing.state.json");
+        string memory path = string.concat(
+            vm.projectRoot(),
+            "/results/deployments/DeploymentStateTest::missing.state.json"
+        );
         DeploymentTypes.State memory loaded = DeploymentState.load(path);
 
         assertEq(loaded.implementations.length, 0, "no implementations");
@@ -439,7 +451,10 @@ contract DeploymentStateTest is Test {
     /// @dev A first deploy under a salt prefix has no state file: the run starts from a fresh state that records its
     ///      salt prefix and network, so the file it saves is readable by the next run.
     function test_loadOrFresh_missingFile_isFreshForTheRun() public view {
-        string memory path = string.concat(DeploymentState.resolveDirectory(), "/missing.state.json");
+        string memory path = string.concat(
+            vm.projectRoot(),
+            "/results/deployments/DeploymentStateTest::missing.state.json"
+        );
         DeploymentTypes.State memory state = DeploymentState.loadOrFresh(path, "first_v1", "test");
 
         assertEq(state.saltPrefix, "first_v1", "the run's salt prefix");

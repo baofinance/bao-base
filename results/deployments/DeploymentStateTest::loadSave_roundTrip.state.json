@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "version": "v1",
+  "saltPrefix": "roundtrip_test",
+  "network": "test",
+  "chainId": 31337,
+  "baoFactory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458",
+  "lastUpdated": "1970-01-01T00:00:01Z",
+  "implementations": {
+    "0xBc1Ff96db5a62121222DCBef8c5D31a512B5d050": {
+      "proxy": "ETH::minter",
+      "contractSource": "@project/Minter.sol",
+      "contractType": "Minter_v1",
+      "deploymentTime": "2024-01-01T00:00:00Z"
+    }
+  },
+  "proxies": {
+    "ETH::minter": {
+      "address": "0x26292A39eAe9Bee9C7792176B40B3DB18602e389",
+      "implementation": "0xBc1Ff96db5a62121222DCBef8c5D31a512B5d050",
+      "salt": "roundtrip_test::ETH::minter",
+      "deploymentTime": "2024-01-01T00:00:00Z"
+    }
+  }
+}

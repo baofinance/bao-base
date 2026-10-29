@@ -54,8 +54,9 @@ them — even while still codeless — exactly as it references its own not-yet-
 - **`Deployer`** (extends FactoryDeployer) — Safe batch queuing (`queue`/`flush`), local execution of the
   queued transactions (`_executeQueued`), and the `build()`/`run()` template for single-batch scripts.
 - **`DeploymentState`** (library) — JSON state files: `load` an existing run's state, `fresh` for a run
-  starting from nothing, `save` (atomic write). Paths come from `DEPLOY_STATE_DIR` /
-  `DEPLOY_STATE_FILE_READ` / `DEPLOY_STATE_FILE_WRITE`.
+  starting from nothing, `save` (atomic write, creating the file's folder). The state file paths come from
+  `DEPLOY_STATE_FILE_READ` / `DEPLOY_STATE_FILE_WRITE`, and the batch folder from `DEPLOY_STATE_DIR`, each read
+  through a `virtual` function that a test overrides instead of setting the variable.
 
 ## Deploy-Run Lifecycle
 
@@ -89,8 +90,9 @@ The same code runs in both contexts; three gated points differ:
 | `_executeQueued()`         | executes only when `EXECUTE_LOCAL=true` (anvil) | always executes, pranked as owner() |
 
 The first two gates are virtual functions defaulting on the forge execution context, so a test exercising
-the persistence or batch-file path itself can force them on (writing under `results/`, where git catches
-regressions).
+the persistence or batch-file path itself can force them on. It writes under `results/`, where git shows any
+change in what is written. Git cannot show a write that did not happen, so the test also checks that its own
+run wrote the file.
 
 `_executeQueued()` drains what it executes — each queued transaction executes exactly once no matter how
 many synchronization points a run has, mirroring the multisig executing each saved batch once. A queued

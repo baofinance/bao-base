@@ -33,7 +33,7 @@ library DeploymentState {
     );
 
     /// @notice Resolve the deployment state directory.
-    /// @dev Reads DEPLOY_STATE_DIR env var. Used by SafeBatch for the batch subdirectory.
+    /// @dev Reads DEPLOY_STATE_DIR env var. Used by `Deployer._batchDirectory` for the batch subdirectory.
     function resolveDirectory() internal view returns (string memory) {
         return vm.envString("DEPLOY_STATE_DIR");
     }
@@ -75,10 +75,14 @@ library DeploymentState {
         }
     }
 
-    /// @notice Save state to disk atomically (write to temp file, then rename).
+    /// @notice Save state to disk atomically (write to temp file, then rename), creating the folder `path` names.
     /// @dev Uses ffi to call `mv` for atomic rename since Foundry lacks a rename cheatcode.
     function save(DeploymentTypes.State memory state, string memory path) internal {
-        _ensureDirectory();
+        // a path naming no folder is a file in the working folder, which exists
+        uint256 folderEnd = path.lastIndexOf("/");
+        if (folderEnd != LibString.NOT_FOUND) {
+            vm.createDir(path.slice(0, folderEnd), true);
+        }
 
         string memory json = JsonSerializer.renderState(state);
         string memory tempPath = string.concat(path, ".tmp");
@@ -155,9 +159,5 @@ library DeploymentState {
             if (LibString.eq(state.implementations[i].proxy, proxyKey)) return true;
         }
         return false;
-    }
-
-    function _ensureDirectory() private {
-        vm.createDir(resolveDirectory(), true);
     }
 }

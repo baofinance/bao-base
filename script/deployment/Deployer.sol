@@ -29,6 +29,7 @@ import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 ///      names, so a batch can be read against the deployments it was built against.
 ///
 /// Environment variables (set by script/run-script):
+///   DEPLOY_STATE_DIR         The state folder; batch JSONs go in its batch/ folder
 ///   SAFE_BATCH_NAME          Filename prefix for the batch JSON
 ///   SAFE_BATCH_DESCRIPTION   Description field in the batch JSON
 ///   SAFE_BATCH_TIMESTAMP     ISO 8601 timestamp for filename
@@ -128,6 +129,24 @@ abstract contract Deployer is FactoryDeployer {
         return !_vm.isContext(VmSafe.ForgeContext.TestGroup);
     }
 
+    /// @notice The folder Safe batch files are written to: `<DEPLOY_STATE_DIR>/batch`, as run-script sets it.
+    ///         Override in tests to return a test-specific folder: vm.setEnv would change it for every test running.
+    function _batchDirectory() internal view virtual returns (string memory) {
+        return string.concat(DeploymentState.resolveDirectory(), "/batch");
+    }
+
+    /// @notice The start of a batch file's name: SAFE_BATCH_NAME, which run-script sets to the script's name, else
+    ///         "batch". Override in tests to return a fixed name.
+    function _batchName() internal view virtual returns (string memory) {
+        return _vm.envOr("SAFE_BATCH_NAME", string("batch"));
+    }
+
+    /// @notice The timestamp in a batch file's name: SAFE_BATCH_TIMESTAMP, which run-script sets to the run's start,
+    ///         else the block timestamp. Override in tests to return a fixed timestamp.
+    function _batchTimestamp() internal view virtual returns (string memory) {
+        return _vm.envOr("SAFE_BATCH_TIMESTAMP", block.timestamp.toString());
+    }
+
     // The `_reportNoTransactions` / `_reportBatchSaved` / `_reportExecuting` messages used below are
     // declared on `DeployReporting`, at the base of the chain, alongside the rest of the deploy's
     // running commentary — see the note there on why the transaction vocabulary is declared a layer
@@ -142,9 +161,9 @@ abstract contract Deployer is FactoryDeployer {
 
         if (_shouldWriteBatchFiles()) {
             address batchSigner = _signer != address(0) ? _signer : owner();
-            string memory name = _vm.envOr("SAFE_BATCH_NAME", string("batch"));
-            string memory timestamp = _vm.envOr("SAFE_BATCH_TIMESTAMP", block.timestamp.toString());
-            string memory batchDir = string.concat(DeploymentState.resolveDirectory(), "/batch");
+            string memory name = _batchName();
+            string memory timestamp = _batchTimestamp();
+            string memory batchDir = _batchDirectory();
             _vm.createDir(batchDir, true);
             string memory signerLabel = _addressLabel(batchSigner);
             string memory fileSuffix = bytes(suffix).length > 0 ? string.concat(suffix, "@", signerLabel) : signerLabel;

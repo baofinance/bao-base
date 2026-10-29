@@ -117,6 +117,18 @@ contract TestableDeployer is Deployer {
         return _buildSafeJson(description);
     }
 
+    function batchDirectory() external view returns (string memory) {
+        return _batchDirectory();
+    }
+
+    function batchName() external view returns (string memory) {
+        return _batchName();
+    }
+
+    function batchTimestamp() external view returns (string memory) {
+        return _batchTimestamp();
+    }
+
     // ── Configurable build() for run() tests ──────────────────────────────────
 
     function setBuildTarget(address target, bytes calldata data) external {
@@ -135,10 +147,26 @@ contract TestableDeployer is Deployer {
 /// @notice Deployer that forces batch-file writing on — exercises the Safe batch JSON file path
 ///         (written under ./results per the test-output convention, git-checked for regressions).
 contract BatchWritingDeployer is TestableDeployer {
-    constructor(address owner_) TestableDeployer(owner_) {}
+    string private _folder;
+
+    constructor(address owner_, string memory folder_) TestableDeployer(owner_) {
+        _folder = folder_;
+    }
 
     function _shouldWriteBatchFiles() internal pure override returns (bool) {
         return true;
+    }
+
+    function _batchDirectory() internal view override returns (string memory) {
+        return _folder;
+    }
+
+    function _batchName() internal pure override returns (string memory) {
+        return "deployer";
+    }
+
+    function _batchTimestamp() internal pure override returns (string memory) {
+        return "fixed";
     }
 }
 
@@ -152,16 +180,15 @@ contract DeployerTest is BaoTest {
     MockCallTarget internal mock;
     address internal testOwner;
 
+    /// @dev Written at a batch file's path before the flush that should replace it. The tracked copy from an earlier
+    ///      run is always there, so only a replaced marker shows that this run wrote the file.
+    string internal constant NOT_WRITTEN_BY_THIS_RUN =
+        "the test wrote this before the flush; the flush did not replace it";
+
     function setUp() public {
         testOwner = makeAddr("owner");
         deployer = new TestableDeployer(testOwner);
         mock = new MockCallTarget();
-        // Batch-file env: identical values in every test's setUp — test functions run in parallel and
-        // vm.setEnv is process-global, so per-test values would race. Filenames are made unique per test
-        // via the flush suffix instead.
-        vm.setEnv("DEPLOY_STATE_DIR", string.concat(vm.projectRoot(), "/results"));
-        vm.setEnv("SAFE_BATCH_NAME", "deployer");
-        vm.setEnv("SAFE_BATCH_TIMESTAMP", "fixed");
     }
 
     // ── queue ─────────────────────────────────────────────────────────────────
@@ -269,21 +296,24 @@ contract DeployerTest is BaoTest {
 
     function test_flush_writesBatchFile_whenBatchFilesEnabled() public {
         // with batch files enabled, flush writes the Safe batch JSON to
-        // <DEPLOY_STATE_DIR>/batch/<name>_<timestamp>_<suffix>@<signer>.json with the queued payload
-        BatchWritingDeployer writer = new BatchWritingDeployer(testOwner);
+        // <batch folder>/<name>_<timestamp>_<suffix>@<signer>.json with the queued payload
+        string memory folder = string.concat(vm.projectRoot(), "/results/batch");
+        BatchWritingDeployer writer = new BatchWritingDeployer(testOwner, folder);
         bytes memory data = abi.encodeCall(MockCallTarget.record, ());
-        writer.doQueue(address(mock), data, "record call");
-        writer.doFlush("01_roles", "batch file test");
-
         string memory path = string.concat(
-            vm.projectRoot(),
-            "/results/batch/deployer_fixed_01_roles@",
+            folder,
+            "/deployer_fixed_01_roles@",
             LibString.toHexString(testOwner),
             ".json"
         );
-        assertTrue(vm.exists(path), "batch file written at the derived path");
-        // vm.writeJson re-formats, so assert the parsed values, not raw substrings
+        vm.writeFile(path, NOT_WRITTEN_BY_THIS_RUN);
+
+        writer.doQueue(address(mock), data, "record call");
+        writer.doFlush("01_roles", "batch file test");
+
         string memory json = vm.readFile(path);
+        assertNotEq(json, NOT_WRITTEN_BY_THIS_RUN, "this run wrote the batch file at the derived path");
+        // vm.writeJson re-formats, so assert the parsed values, not raw substrings
         assertEq(json.readString(".meta.description"), "batch file test", "file carries the description");
         assertEq(json.readAddress(".transactions[0].to"), address(mock), "file carries the tx target");
         assertEq(json.readBytes(".transactions[0].data"), data, "file carries the tx calldata");
@@ -291,38 +321,56 @@ contract DeployerTest is BaoTest {
 
     function test_flush_batchFilename_usesSignerOverride() public {
         // startSigner routes the batch file to the signer's label; stopSigner restores owner()
-        BatchWritingDeployer writer = new BatchWritingDeployer(testOwner);
+        string memory folder = string.concat(vm.projectRoot(), "/results/batch");
+        BatchWritingDeployer writer = new BatchWritingDeployer(testOwner, folder);
         address signer = makeAddr("signer");
+        string memory signerPath = string.concat(
+            folder,
+            "/deployer_fixed_02_signer@",
+            LibString.toHexString(signer),
+            ".json"
+        );
+        string memory ownerPath = string.concat(
+            folder,
+            "/deployer_fixed_03_owner@",
+            LibString.toHexString(testOwner),
+            ".json"
+        );
+        vm.writeFile(signerPath, NOT_WRITTEN_BY_THIS_RUN);
+        vm.writeFile(ownerPath, NOT_WRITTEN_BY_THIS_RUN);
 
         writer.doStartSigner(signer);
         writer.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "as signer");
         writer.doFlush("02_signer", "signer batch");
-        assertTrue(
-            vm.exists(
-                string.concat(
-                    vm.projectRoot(),
-                    "/results/batch/deployer_fixed_02_signer@",
-                    LibString.toHexString(signer),
-                    ".json"
-                )
-            ),
-            "batch file named for the signer override"
-        );
+        assertNotEq(vm.readFile(signerPath), NOT_WRITTEN_BY_THIS_RUN, "batch file named for the signer override");
 
         writer.doStopSigner();
         writer.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "as owner");
         writer.doFlush("03_owner", "owner batch");
-        assertTrue(
-            vm.exists(
-                string.concat(
-                    vm.projectRoot(),
-                    "/results/batch/deployer_fixed_03_owner@",
-                    LibString.toHexString(testOwner),
-                    ".json"
-                )
-            ),
+        assertNotEq(
+            vm.readFile(ownerPath),
+            NOT_WRITTEN_BY_THIS_RUN,
             "after stopSigner the batch file is named for owner()"
         );
+    }
+
+    function test_batchDirectory_readsEnvVar() public {
+        // by default the batch folder is in the state folder DEPLOY_STATE_DIR names, which run-script sets. No test
+        // sets the variable, so reading it fails, naming the variable read
+        vm.expectRevert(bytes('vm.envString: environment variable "DEPLOY_STATE_DIR" not found'));
+        deployer.batchDirectory();
+    }
+
+    function test_batchName_fallsBackToBatch() public view {
+        // a batch file's name starts with SAFE_BATCH_NAME, which run-script sets to the script's name; a run without
+        // it, as here where no test sets it, names its batch files "batch"
+        assertEq(deployer.batchName(), "batch");
+    }
+
+    function test_batchTimestamp_fallsBackToTheBlockTimestamp() public view {
+        // a batch file's name carries SAFE_BATCH_TIMESTAMP, which run-script sets to the run's start; a run without
+        // it, as here where no test sets it, uses the block timestamp
+        assertEq(deployer.batchTimestamp(), vm.toString(block.timestamp));
     }
 
     // ── flush ─────────────────────────────────────────────────────────────────

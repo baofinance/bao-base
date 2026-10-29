@@ -8,8 +8,8 @@ SCRIPT_ARGS=("$@")
 : "${BAO_BASE_BIN_DIR:?must be set by the bao-base run script}"
 
 # Parse .validate-ignore: each non-comment non-blank line is "check file".
-# Supported checks: naming, pragma, storage, upgrades, bare-imports, relative-imports, broadcast-scope.
-VALID_CHECKS=(naming pragma storage upgrades bare-imports relative-imports broadcast-scope)
+# Supported checks: naming, pragma, storage, upgrades, bare-imports, relative-imports, test-setenv, broadcast-scope.
+VALID_CHECKS=(naming pragma storage upgrades bare-imports relative-imports test-setenv broadcast-scope)
 declare -A validate_ignores=()
 _ignore_parse_failed=0
 if [[ -f .validate-ignore ]]; then
@@ -515,6 +515,40 @@ if [[ $relative_failed -ne 0 ]]; then
   return 1
 fi
 echo "SUCCESS: (no relative imports)"
+
+# ================================================================
+# Environment variables in tests — vm.setEnv changes them for every test running
+# ================================================================
+echo
+echo "checking for vm.setEnv in tests..."
+echo "----------------------------------"
+echo
+
+setenv_failed=0
+while IFS= read -r -d '' file; do
+  if is_ignored "test-setenv" "$file"; then
+    printf '\033[2m ⚠  %s: test-setenv check ignored via .validate-ignore\033[0m\n' "$file"
+    continue
+  fi
+  bad_lines=$(grep -nE 'vm\.setEnv[[:space:]]*\(' "$file" || true)
+  if [[ -n "$bad_lines" ]]; then
+    while IFS= read -r bad; do
+      echo " ✘  $file: vm.setEnv: $bad"
+    done <<<"$bad_lines"
+    setenv_failed=1
+  fi
+done < <(
+  find test -name '*.sol' -print0 2>/dev/null
+  find script -name '*.t.sol' -print0 2>/dev/null
+)
+
+if [[ $setenv_failed -ne 0 ]]; then
+  echo
+  echo "ERROR: vm.setEnv found in tests. It changes the variable for every test running at the time." \
+    "Override the function that reads the variable instead."
+  return 1
+fi
+echo "SUCCESS: (no vm.setEnv in tests)"
 
 # ================================================================
 # Broadcast scope — config objects created inside a broadcast

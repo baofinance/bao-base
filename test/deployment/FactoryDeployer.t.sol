@@ -764,21 +764,30 @@ contract DefaultPersistenceDeployer is FactoryDeployer {
     }
 }
 
+/// @notice A DefaultPersistenceDeployer that writes its state to the path it is given, so a test can save without
+///         setting DEPLOY_STATE_FILE_WRITE.
+contract StateFileDeployer is DefaultPersistenceDeployer {
+    string private _writePath;
+
+    constructor(string memory writePath_) {
+        _writePath = writePath_;
+    }
+
+    function _stateFileWrite() internal view override returns (string memory) {
+        return _writePath;
+    }
+}
+
 contract FactoryDeployerPersistenceTest is BaoTest {
     DefaultPersistenceDeployer internal deployer;
-    string internal readPath;
-    string internal writePath;
+
+    /// @dev Written at the state file's path before saveState should replace it. The tracked copy from an earlier run
+    ///      is always there, so only a replaced marker shows that this run wrote the file.
+    string internal constant NOT_WRITTEN_BY_THIS_RUN =
+        "the test wrote this before saveState; saveState did not replace it";
 
     function setUp() public {
         deployer = new DefaultPersistenceDeployer();
-
-        string memory stateDir = string.concat(vm.projectRoot(), "/results");
-        readPath = string.concat(stateDir, "/test_state_read.json");
-        writePath = string.concat(stateDir, "/test_state_write.json");
-
-        vm.setEnv("DEPLOY_STATE_DIR", stateDir);
-        vm.setEnv("DEPLOY_STATE_FILE_READ", readPath);
-        vm.setEnv("DEPLOY_STATE_FILE_WRITE", writePath);
     }
 
     function test_shouldPersistState_overrideForcesPersistence() public view {
@@ -790,15 +799,24 @@ contract FactoryDeployerPersistenceTest is BaoTest {
         assertTrue(deployer.shouldReport());
     }
 
-    function test_stateFileRead_readsEnvVar() public view {
-        assertEq(deployer.stateFileRead(), readPath);
+    function test_stateFileRead_readsEnvVar() public {
+        // by default the state file read is the one DEPLOY_STATE_FILE_READ names, which run-script sets. No test sets
+        // the variable, so reading it fails, naming the variable read
+        vm.expectRevert(bytes('vm.envString: environment variable "DEPLOY_STATE_FILE_READ" not found'));
+        deployer.stateFileRead();
     }
 
-    function test_stateFileWrite_readsEnvVar() public view {
-        assertEq(deployer.stateFileWrite(), writePath);
+    function test_stateFileWrite_readsEnvVar() public {
+        // by default the state file written is the one DEPLOY_STATE_FILE_WRITE names, which run-script sets. No test
+        // sets the variable, so reading it fails, naming the variable read
+        vm.expectRevert(bytes('vm.envString: environment variable "DEPLOY_STATE_FILE_WRITE" not found'));
+        deployer.stateFileWrite();
     }
 
     function test_saveState_writesToFile() public {
+        // saveState writes the state to the file _stateFileWrite names
+        string memory writePath = string.concat(vm.projectRoot(), "/results/test_state_write.json");
+        DefaultPersistenceDeployer writer = new StateFileDeployer(writePath);
         DeploymentTypes.State memory state;
         state.network = "test";
         state.saltPrefix = "persist_test";
@@ -807,9 +825,9 @@ contract FactoryDeployerPersistenceTest is BaoTest {
         // Pin timestamp and chainId so the output is stable for regression comparison.
         vm.warp(1);
         vm.chainId(31337);
-        deployer.saveState(state);
+        vm.writeFile(writePath, NOT_WRITTEN_BY_THIS_RUN);
+        writer.saveState(state);
 
-        // Verify file was written
-        assertTrue(vm.exists(writePath), "state file created");
+        assertNotEq(vm.readFile(writePath), NOT_WRITTEN_BY_THIS_RUN, "this run wrote the state file");
     }
 }
