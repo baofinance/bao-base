@@ -496,7 +496,7 @@ def test_what_a_source_declares_cannot_be_read_from_a_path_its_commit_does_not_h
     # contract" - reported a question never asked as an answer; the path and commit are the facts.
     from deployment_recovery import declared_in
 
-    with pytest.raises(FileNotFoundError, match=r"src/Absent\.sol is not in the tree at [0-9a-f]{10}"):
+    with pytest.raises(FileNotFoundError, match=r"src/Absent\.sol could not be read at [0-9a-f]{10}: fatal: "):
         declared_in(repo, head_of(repo), "src/Absent.sol", {})
 
 

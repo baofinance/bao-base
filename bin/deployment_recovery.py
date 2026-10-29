@@ -25,12 +25,36 @@ from __future__ import annotations
 import io
 import json
 import re
+import shlex
 import subprocess
 import tarfile
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+
+
+class GitFailed(RuntimeError):
+    """A git command exited with an error where its answer was needed. The message is what git said."""
+
+
+def _git(where: Path, *arguments: str, none_found: int = 0) -> str:
+    """What `git <arguments>` printed, run in `where`. Raises `GitFailed` on any exit status but 0 and
+    `none_found`.
+
+    Every answer here is read from what git prints, and a git that fails prints nothing - which reads as
+    "declared nowhere", "no history" or "no submodules", each a real answer somewhere. On git 2.56.0 the
+    source search failed with exit 128 on every tree holding a submodule, and every contract was reported
+    as "no candidate built what is deployed": a search that never ran, reported as one that found nothing.
+
+    `none_found` is the one other status that is an answer: `git grep` exits 1 when nothing matches. Every
+    other command used here says "nothing there" with exit 0 and no output - measured for an empty
+    history, an absent path, a diff with no renames and a tree with no submodules."""
+    done = subprocess.run(["git", *arguments], cwd=where, capture_output=True, text=True)
+    if done.returncode not in (0, none_found):
+        said = done.stderr.strip() or "nothing on stderr"
+        raise GitFailed(f"{shlex.join(['git', *arguments])} exited {done.returncode} in {where}: {said}")
+    return done.stdout
 
 
 def strip_metadata(code: bytes) -> bytes:
@@ -184,10 +208,7 @@ def build_id(repo_root: Path, commit: str) -> str:
     which is where the saving is, without any candidate being dropped. It is derived, not assigned:
     the tree object ids of the build's inputs, so git does the hashing and an unchanged directory costs
     nothing to compare."""
-    done = subprocess.run(
-        ["git", "ls-tree", commit, "--", *_BUILD_INPUTS], cwd=repo_root, capture_output=True, text=True
-    )
-    return done.stdout
+    return _git(repo_root, "ls-tree", commit, "--", *_BUILD_INPUTS)
 
 
 def still_to_try(tried: dict[str, set[str]], build: str, keys: Iterable[str]) -> list[str]:
@@ -252,9 +273,8 @@ def all_commits(repo_root: Path) -> list[tuple[str, str]]:
     from one whose only change was `bin/coverage`, and excluding it recorded a two-month-older commit
     that compiled identically - right bytecode, wrong provenance. `build_id` deduplicates the WORK
     instead, which saves the same builds and drops no candidate."""
-    done = subprocess.run(["git", "log", "--all", "--format=%H %ct"], cwd=repo_root, capture_output=True, text=True)
     dated = []
-    for line in done.stdout.splitlines():
+    for line in _git(repo_root, "log", "--all", "--format=%H %ct").splitlines():
         commit, _, seconds = line.partition(" ")
         if commit and seconds.isdigit():
             dated.append((commit, datetime.fromtimestamp(int(seconds), tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")))
@@ -331,16 +351,13 @@ def creation_block(has_code: Callable[[int], bool], *, near: int, ceiling: int, 
     return high
 
 
-def commit_timestamp(repo_root: Path, commit: str) -> str | None:
+def commit_timestamp(repo_root: Path, commit: str) -> str:
     """When `commit` was made, in UTC.
 
     From Unix seconds rather than `%cI`, which carries the committer's local offset - two identical
     commits made in different zones would otherwise record differently, and a record of facts should
     not depend on where someone was sitting."""
-    done = subprocess.run(["git", "log", "-1", "--format=%ct", commit], cwd=repo_root, capture_output=True, text=True)
-    seconds = done.stdout.strip()
-    if not seconds.isdigit():
-        return None
+    seconds = _git(repo_root, "log", "-1", "--format=%ct", commit).strip()
     return datetime.fromtimestamp(int(seconds), tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -363,14 +380,15 @@ def source_text(repo_root: Path, commit: str, path: str, placed: dict[str, tuple
     """What `path` holds at `commit`, read through `placement` - so a file inside a submodule is read
     where it exists, exactly as one in this repository's own tree is. `placed` is as `placement` takes it.
 
-    Raises when the file cannot be read, with the facts: which path, and whether no checkout holds its
-    submodule or the tree at that commit has no such file."""
+    Raises when the file cannot be read, with the facts: which path, and either that no checkout holds its
+    submodule or what git said. git's words, because it exits 128 both for a path the tree lacks and for a
+    commit the store lacks."""
     prefix, holder, holder_commit, inside = placement(repo_root, commit, path, placed)
     if holder is None:
         raise FileNotFoundError(f"{path} is in {prefix}, which no checkout in this tree holds")
     done = subprocess.run(["git", "show", f"{holder_commit}:{inside}"], cwd=holder, capture_output=True, text=True)
     if done.returncode != 0:
-        raise FileNotFoundError(f"{path} is not in the tree at {commit[:10]}")
+        raise FileNotFoundError(f"{path} could not be read at {commit[:10]}: {done.stderr.strip()}")
     return done.stdout
 
 
@@ -380,10 +398,7 @@ def _path_at(repo_root: Path, commit: str, recorded_path: str) -> str | None:
     Git already computes this, and computes it from CONTENT similarity rather than from names - which
     is the only thing that can follow a file whose name is the very thing that changed. The megaeth
     rename comes back as `R075 …Aggregator_USDMY_ETH_megaeth.sol → …Aggregator_USDM_ETH_megaeth.sol`."""
-    done = subprocess.run(
-        ["git", "diff", "-M", "--name-status", commit, "HEAD"], cwd=repo_root, capture_output=True, text=True
-    )
-    for line in done.stdout.splitlines():
+    for line in _git(repo_root, "diff", "-M", "--name-status", commit, "HEAD").splitlines():
         fields = line.split("\t")
         if len(fields) == 3 and fields[0].startswith("R") and fields[2] == recorded_path:
             return fields[1]
@@ -414,16 +429,17 @@ def declaration_of(*contract_types: str) -> str:
 
 
 def sources_at(
-    repo_root: Path, commit: str, questions: Iterable[tuple[str, str | None]]
+    repo_root: Path, commit: str, questions: Iterable[tuple[str, str | None]], checkouts: dict[str, list[Path]]
 ) -> dict[tuple[str, str | None], tuple[str, str] | None]:
     """For each (contract name, recorded path) question: the file defining that contract at `commit` and
     the name it goes by THERE, or None.
 
-    ONE search for every question. The search walks the whole commit, submodules included, and that walk
-    is the cost: 0.36s a name on the aggregators, thirteen names waiting at a commit, 578s of one run.
-    Asked for all 142 of its names at once it measured twice one name's cost. Each match prints the line
-    it matched, and the name that line declares is what says which question it answers - so a name is
-    never credited with a line declaring another that merely begins the same way.
+    Every question shares one search of each repository in the tree: this one at `commit`, and each
+    submodule at the commit this tree records for it. The search walks the files, and that walk is the
+    cost: 0.36s a name on the aggregators, thirteen names waiting at a commit, 578s of one run. Asked for
+    all 142 of its names at once it measured twice one name's cost. Each match prints the line it
+    matched, and the name that line declares is what says which question it answers - so a name is never
+    credited with a line declaring another that merely begins the same way.
 
     Two identities, because neither survives everything on its own:
 
@@ -442,15 +458,22 @@ def sources_at(
     Returning the name AS DECLARED THERE is what makes the rename usable: the artefact must then be
     located by the name the build actually produced, not the one the manifest remembers.
 
-    NOT the recorded path: that is the path at DEPLOY time, and a candidate commit may predate a move.
-    `v3-oracles.json` records `src/Aggregator_…` where the tree later held `src/mainnet/Aggregator_…`,
-    and building the recorded path against an older commit produced "No source files found" forty
-    times. The contract NAME is what survives a move, so the file is located in that commit's own tree.
-
     `lib/` is searched like anywhere else: a contract defined in a dependency is defined there, and
-    nothing about the directory makes it a different kind of source. That is also why this greps the
-    commit in ONE call rather than reading files - the closure includes every submodule, and a `git
-    show` per file would be thousands of processes.
+    nothing about the directory makes it a different kind of source. Skipping the submodules made harbor's
+    `MintableBurnableERC20_v1` - which lives in bao-base and is deployed from harbor, the constructor being
+    what makes each deployment differ - "no candidate built what is deployed" about a source never looked
+    at. It is searched with `git grep`, one process per repository, rather than by reading files: the
+    closure includes every submodule, and a `git show` per file would be thousands of processes.
+
+    Each submodule is searched in the checkout `submodules_at` places it in - the one `export_tree`
+    exports it from - and not by `git grep --recurse-submodules`, for two measured reasons. git 2.56.0
+    cannot read a tree inside a submodule at a commit (`fatal: unable to read tree`, exit 128), so that
+    search failed on every tree holding one. And it reads a submodule from whatever git data
+    `.git/modules` happens to hold: on harbor it read `erc4626-tests` and `halmos-cheatcodes`, which no
+    checkout holds, and skipped a `forge-std` that another checkout does hold - finding sources the build
+    cannot export, and missing one it can. A submodule no checkout holds is not searched, for the same
+    reason: nothing declared inside it can be built. The cost is the walk plus a process per repository:
+    0.54s a commit on harbor's 22 repositories, against 0.27s for the one recursive search.
 
     The DECLARATION decides, never the filename: a `Foo.sol` holding `contract Bar` must not answer
     for `Foo`. A basename match only breaks a tie between two files that both declare it, and if that
@@ -460,36 +483,37 @@ def sources_at(
     questions = list(questions)
     declaring: dict[str, list[str]] = {name: [] for name, _ in questions}
     if declaring:
-        found = subprocess.run(
-            [
-                "git",
+        pattern = declaration_of(*declaring)
+
+        def search(where: Path, at: str, prefix: str) -> None:
+            # `git grep` stops at a gitlink, so this reads `where`'s own files and none of its submodules'.
+            found = _git(
+                where,
                 "grep",
                 # A NUL after `commit:path` rather than a colon, so a path is never split at a colon of its own.
                 "-z",
-                # Without this a contract DEFINED in a dependency is invisible: `git grep` stops at a
-                # gitlink, so harbor's `MintableBurnableERC20_v1` - which lives in bao-base and is
-                # deployed from harbor, the constructor being what makes each deployment differ - was
-                # reported as "no candidate built what is deployed" about a source never looked at.
-                "--recurse-submodules",
                 "--extended-regexp",
-                declaration_of(*declaring),
-                commit,
+                pattern,
+                at,
                 "--",
                 "*.sol",
-            ],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-        )
-        for line in found.stdout.split("\n"):
-            located, separator, text = line.partition("\0")
-            # The same declaration the search matched, read back to say which name this line declares.
-            declared = re.match(r"\s*(?:abstract\s+)?contract\s+(\w+)", text)
-            if not separator or declared is None or declared.group(1) not in declaring:
-                continue
-            path = located.split(":", 1)[1]
-            if path not in declaring[declared.group(1)]:
-                declaring[declared.group(1)].append(path)
+                none_found=1,
+            )
+            for line in found.split("\n"):
+                located, separator, text = line.partition("\0")
+                # The same declaration the search matched, read back to say which name this line declares.
+                declared = re.match(r"\s*(?:abstract\s+)?contract\s+(\w+)", text)
+                if not separator or declared is None or declared.group(1) not in declaring:
+                    continue
+                path = prefix + located.split(":", 1)[1]
+                if path not in declaring[declared.group(1)]:
+                    declaring[declared.group(1)].append(path)
+
+        # This repository's own tree first, so a commit git cannot read fails the search itself.
+        search(repo_root, commit, "")
+        for mount, (gitlink, holder) in submodules_at(repo_root, commit, checkouts).items():
+            if holder is not None:
+                search(holder, gitlink, f"{mount}/")
 
     answers: dict[tuple[str, str | None], tuple[str, str] | None] = {}
     for name, recorded_path in questions:
@@ -573,8 +597,7 @@ def submodules_at(repo_root: Path, commit: str, checkouts: dict) -> dict[str, tu
     found: dict[str, tuple[str, Path | None]] = {}
 
     def walk(parent: Path, parent_commit: str, prefix: str) -> None:
-        listing = subprocess.run(["git", "ls-tree", "-r", parent_commit], cwd=parent, capture_output=True, text=True)
-        for line in listing.stdout.splitlines():
+        for line in _git(parent, "ls-tree", "-r", parent_commit).splitlines():
             fields = line.split(maxsplit=3)
             if len(fields) < 4 or fields[1] != "commit":
                 continue
@@ -632,12 +655,11 @@ def submodules_along(
         if holder is None or not directories:
             return found
         route = ["/".join(directories[: depth + 1]) for depth in range(len(directories))]
-        listing = subprocess.run(["git", "ls-tree", at, "--", *route], cwd=holder, capture_output=True, text=True)
         # Only an entry that IS a directory on the route. Naming `lib` to reach `lib/bao-base` lists
         # everything in `lib` - harbor's `lib/solady` among it - and at most one directory on the route
         # is a gitlink at this level, because everything below it is inside it.
         submodule = None
-        for line in listing.stdout.splitlines():
+        for line in _git(holder, "ls-tree", at, "--", *route).splitlines():
             fields, _, entry = line.partition("\t")
             mode_type_object = fields.split()
             if len(mode_type_object) == 3 and mode_type_object[1] == "commit" and entry in route:
@@ -675,7 +697,7 @@ def source_blobs(
             ["git", "rev-parse", f"{holder_commit}:{inside}"], cwd=holder, capture_output=True, text=True
         )
         if shown.returncode != 0:
-            raise FileNotFoundError(f"{path} is not in the tree at {commit[:10]}")
+            raise FileNotFoundError(f"{path} could not be read at {commit[:10]}: {shown.stderr.strip()}")
         found[path] = shown.stdout.strip()
     return found
 
@@ -844,10 +866,7 @@ def export_tree(repo_root: Path, commit: str, at: Path, checkouts: dict[str, lis
     failures: list[str] = []
 
     def export(parent_repo: Path, parent_commit: str, parent_at: Path, prefix: str) -> None:
-        listing = subprocess.run(
-            ["git", "ls-tree", parent_commit, "lib/"], cwd=parent_repo, capture_output=True, text=True
-        )
-        for line in listing.stdout.splitlines():
+        for line in _git(parent_repo, "ls-tree", parent_commit, "lib/").splitlines():
             fields = line.split()
             if len(fields) < 4 or fields[1] != "commit":
                 continue

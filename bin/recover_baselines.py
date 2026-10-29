@@ -440,10 +440,10 @@ def _try_commit(
     # ONE resolution per question, not per contract. Locating a source greps the whole commit, and the
     # question it answers is (name, recorded path) - so twenty-three deployments of one contract type
     # ask it twenty-three times and get the same answer. Measured on harbor: 26ms a time, 1204 commits
-    # by 23 contracts, twelve minutes of a thirty-three minute run. And every question goes to one search.
+    # by 23 contracts, twelve minutes of a thirty-three minute run. And every question shares each search.
     questions = {(w.entry.name, w.entry.recorded_path or "") for w in pending.values() if w.entry.name}
     with _stage("locate source", f"locate {len(questions)} source(s) at {commit[:10]}", say):
-        resolved = sources_at(root, commit, questions)
+        resolved = sources_at(root, commit, questions, checkouts)
     located = {
         k: found
         for k, w in pending.items()
@@ -889,7 +889,7 @@ def recover(
                 creation = without_link_addresses(artefact["bytecode"])
                 made = commit_timestamp(root, built_at)
                 say(0, f"    MATCHES {entry.chain}/{entry.address}  {entry.name}")
-                say(0, f"      built from {source} at {built_at[:10]}, committed {made or 'unknown'}")
+                say(0, f"      built from {source} at {built_at[:10]}, committed {made}")
                 if declared != entry.name:
                     # Said out loud because it changes what the baseline means: the manifest's name is
                     # today's, and this is what the contract was called when it was deployed.

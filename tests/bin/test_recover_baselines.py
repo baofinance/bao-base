@@ -1074,7 +1074,7 @@ def test_one_contract_type_is_located_once_however_many_are_deployed(tmp_path, m
     # Locating a source greps the whole commit, and the question it answers is (name, recorded path).
     # harbor deploys twenty-three of one type, which asked it twenty-three times per commit for the
     # same answer - twelve minutes of a thirty-three minute run. And every question waiting at a commit
-    # goes to ONE search: the aggregators' thirteen names a commit were 578s of a run.
+    # goes to ONE `sources_at` call: the aggregators' thirteen names a commit were 578s of a run.
     recover = load_recover_baselines()
 
     class Entry:
@@ -1084,7 +1084,7 @@ def test_one_contract_type_is_located_once_however_many_are_deployed(tmp_path, m
 
     asked = []
 
-    def counting(root, commit, questions):
+    def counting(root, commit, questions, checkouts):
         questions = list(questions)
         asked.append(sorted(questions))
         return {question: None for question in questions}
@@ -1096,7 +1096,7 @@ def test_one_contract_type_is_located_once_however_many_are_deployed(tmp_path, m
 
     recover._try_commit(tmp_path, "c0ffee", pending, recover.Printer(0), {})
 
-    assert asked == [[("Other", "src/Token.sol"), ("Token", "src/Token.sol")]], "one search, each question once"
+    assert asked == [[("Other", "src/Token.sol"), ("Token", "src/Token.sol")]], "one call, each question once"
 
 
 class Located:
@@ -1202,7 +1202,9 @@ def test_one_source_is_read_once_for_its_pin_however_many_contracts_it_built(tmp
     # contract type share one file - so the file is read once for all of them, not once each.
     recover = load_recover_baselines()
     monkeypatch.setattr(
-        recover, "sources_at", lambda root, commit, questions: {(name, path): (path, name) for name, path in questions}
+        recover,
+        "sources_at",
+        lambda root, commit, questions, checkouts: {(name, path): (path, name) for name, path in questions},
     )
     read: list[str] = []
 

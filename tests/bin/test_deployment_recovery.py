@@ -22,6 +22,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bin"))
 
 from deployment_recovery import (  # noqa: E402
+    GitFailed,
     artefact_for,
     all_commits,
     build_id,
@@ -43,6 +44,7 @@ from deployment_recovery import (  # noqa: E402
     sources_at,
     still_to_try,
     strip_metadata,
+    submodules_along,
     submodules_at,
 )
 
@@ -133,7 +135,11 @@ def repository_with_submodule(tmp_path: Path) -> tuple[Path, str, str, str]:
 
 def located(repo: Path, commit: str, name: str, recorded_path: str | None = None) -> tuple[str, str] | None:
     """The answer for one contract, asked on its own."""
-    return sources_at(repo, commit, [(name, recorded_path)])[(name, recorded_path)]
+    return sources_at(repo, commit, [(name, recorded_path)], checkouts_by_repository(repo))[(name, recorded_path)]
+
+
+# A commit no store in any fixture holds.
+NOT_HELD = "0123456789abcdef0123456789abcdef01234567"
 
 
 def git_searches(monkeypatch) -> list[list[str]]:
@@ -183,6 +189,116 @@ def test_a_contract_declared_inside_a_submodule_is_found(tmp_path):
     superproject, commit = superproject_with_a_dependency(tmp_path)
 
     assert located(superproject, commit, "Token") == ("lib/dep/src/Token.sol", "Token")
+
+
+def test_a_contract_in_a_dependency_is_read_at_the_commit_the_superproject_records(tmp_path):
+    # The checkout is wherever someone last left it; what a build of this commit reads is the commit the
+    # superproject records. Reading the checkout's tip would find a contract the build never sees.
+    superproject, commit = superproject_with_a_dependency(tmp_path)
+    checkout = superproject / "lib" / "dep"
+    git(checkout, "config", "user.email", "t@t")
+    git(checkout, "config", "user.name", "test")
+    (checkout / "src" / "Token.sol").unlink()
+    (checkout / "src" / "Later.sol").write_text("pragma solidity 0.8.30;\ncontract Later {}\n")
+    git(checkout, "add", "-A")
+    git(checkout, "commit", "-qm", "the checkout moves on")
+
+    answers = sources_at(
+        superproject, commit, [("Token", None), ("Later", None)], checkouts_by_repository(superproject)
+    )
+
+    assert answers == {("Token", None): ("lib/dep/src/Token.sol", "Token"), ("Later", None): None}
+
+
+def test_a_dependency_held_only_by_another_checkout_is_searched_there(tmp_path):
+    # harbor records `lib/bao-base/lib/bao-factory/lib/forge-std` and never checks it out, and another
+    # forge-std checkout in the tree holds that commit. The build exports it from there, so the search reads
+    # it from there: a contract the build can compile is a contract the search can find.
+    dependency = tmp_path / "dependency"
+    (dependency / "src").mkdir(parents=True)
+    git(dependency, "init", "-q", "-b", "main")
+    git(dependency, "config", "user.email", "t@t")
+    git(dependency, "config", "user.name", "test")
+    (dependency / "src" / "Early.sol").write_text("contract Early {}\n")
+    git(dependency, "add", "-A")
+    git(dependency, "commit", "-qm", "early")
+    early = git_output(dependency, "rev-parse", "HEAD")
+    (dependency / "src" / "Early.sol").unlink()
+    (dependency / "src" / "Token.sol").write_text("contract Token {}\n")
+    git(dependency, "add", "-A")
+    git(dependency, "commit", "-qm", "later")
+
+    superproject = tmp_path / "superproject"
+    superproject.mkdir()
+    git(superproject, "init", "-q", "-b", "main")
+    git(superproject, "config", "user.email", "t@t")
+    git(superproject, "config", "user.name", "test")
+    git(superproject, "-c", "protocol.file.allow=always", "submodule", "--quiet", "add", str(dependency), "lib/dep")
+    # A second mount of the same repository at its earlier commit, recorded and never cloned.
+    git(superproject, "config", "-f", ".gitmodules", "submodule.lib/old.path", "lib/old")
+    git(superproject, "config", "-f", ".gitmodules", "submodule.lib/old.url", str(dependency))
+    git(superproject, "update-index", "--add", "--cacheinfo", f"160000,{early},lib/old")
+    git(superproject, "add", ".gitmodules")
+    git(superproject, "commit", "-qm", "two mounts of one dependency")
+    commit = git_output(superproject, "rev-parse", "HEAD")
+
+    answers = sources_at(
+        superproject, commit, [("Early", None), ("Token", None)], checkouts_by_repository(superproject)
+    )
+
+    assert answers == {
+        ("Early", None): ("lib/old/src/Early.sol", "Early"),
+        ("Token", None): ("lib/dep/src/Token.sol", "Token"),
+    }
+
+
+def test_a_contract_in_a_nested_dependency_is_found_by_its_full_path(tmp_path):
+    # OpenZeppelin's contracts sit inside contracts-upgradeable, inside bao-base: a submodule of a
+    # submodule, searched in its own checkout and named by its whole path from the superproject.
+    inner, middle, superproject = tmp_path / "inner", tmp_path / "middle", tmp_path / "superproject"
+    for made in (inner, middle, superproject):
+        (made / "src").mkdir(parents=True)
+        git(made, "init", "-q", "-b", "main")
+        git(made, "config", "user.email", "t@t")
+        git(made, "config", "user.name", "test")
+    (inner / "src" / "Inner.sol").write_text("contract Inner {}\n")
+    git(inner, "add", "-A")
+    git(inner, "commit", "-qm", "inner")
+    (middle / "src" / "Middle.sol").write_text("contract Middle {}\n")
+    git(middle, "-c", "protocol.file.allow=always", "submodule", "--quiet", "add", str(inner), "lib/inner")
+    git(middle, "add", "-A")
+    git(middle, "commit", "-qm", "middle, with inner inside")
+    (superproject / "src" / "Own.sol").write_text("contract Own {}\n")
+    git(superproject, "-c", "protocol.file.allow=always", "submodule", "--quiet", "add", str(middle), "lib/middle")
+    git(superproject, "-c", "protocol.file.allow=always", "submodule", "--quiet", "update", "--init", "--recursive")
+    git(superproject, "add", "-A")
+    git(superproject, "commit", "-qm", "with middle")
+    commit = git_output(superproject, "rev-parse", "HEAD")
+
+    answers = sources_at(
+        superproject, commit, [("Inner", None), ("Middle", None)], checkouts_by_repository(superproject)
+    )
+
+    assert answers == {
+        ("Inner", None): ("lib/middle/lib/inner/src/Inner.sol", "Inner"),
+        ("Middle", None): ("lib/middle/src/Middle.sol", "Middle"),
+    }
+
+
+def test_a_dependency_no_checkout_holds_is_not_searched(tmp_path):
+    # The build cannot export a submodule nothing holds, so nothing declared inside it could be built. It is
+    # left out of the search rather than failing it: the rest of the tree still answers.
+    superproject, _ = superproject_with_a_dependency(tmp_path)
+    git(superproject, "config", "-f", ".gitmodules", "submodule.lib/gone.path", "lib/gone")
+    git(superproject, "config", "-f", ".gitmodules", "submodule.lib/gone.url", str(tmp_path / "gone"))
+    git(superproject, "update-index", "--add", "--cacheinfo", f"160000,{NOT_HELD},lib/gone")
+    git(superproject, "add", ".gitmodules")
+    git(superproject, "commit", "-qm", "a dependency nothing holds")
+    commit = git_output(superproject, "rev-parse", "HEAD")
+
+    answers = sources_at(superproject, commit, [("Own", None), ("Token", None)], checkouts_by_repository(superproject))
+
+    assert answers == {("Own", None): ("src/Own.sol", "Own"), ("Token", None): ("lib/dep/src/Token.sol", "Token")}
 
 
 def test_a_source_of_the_superproject_is_named_by_its_blob_id(tmp_path):
@@ -258,7 +374,8 @@ def test_a_source_the_commit_does_not_have_is_reported(tmp_path):
     with pytest.raises(FileNotFoundError) as missing:
         source_blobs(superproject, commit, ["src/Own.sol", "src/NeverExisted.sol"], placed_in(superproject, commit))
 
-    assert "src/NeverExisted.sol" in str(missing.value)
+    # What git said, because the same exit status means a missing path and a commit the store lacks.
+    assert re.search(r"src/NeverExisted\.sol could not be read at [0-9a-f]{10}: fatal: ", str(missing.value))
 
 
 # ── the comparison arithmetic ─────────────────────────────────────────────────────────────────────
@@ -1010,32 +1127,34 @@ def test_the_name_ends_where_an_identifier_ends_and_nowhere_else(repo):
     assert located(repo, "HEAD", "Split") == ("src/Split.sol", "Split")
 
 
-# ── every name at a commit, in one search ──────────────────────────────────────────────────────────
+# ── every name at a commit, in one search of each repository ──────────────────────────────────────
 #
-# The search walks the whole commit, submodules included, and the walk is the cost: 0.36s a name on the
-# aggregators, thirteen names waiting at a commit, 578s of one run. Asked for all 142 of its names at once
-# it measured twice one name's cost, so every question at a commit shares one search, and the line each
-# match prints says which name it declares.
+# The search walks the whole commit, and the walk is the cost: 0.36s a name on the aggregators, thirteen
+# names waiting at a commit, 578s of one run. Asked for all 142 of its names at once it measured twice one
+# name's cost, so every question at a commit shares one search of each repository in the tree, and the line
+# each match prints says which name it declares.
 
 
-def test_every_name_at_a_commit_is_located_by_one_search(tmp_path, monkeypatch):
+def test_every_name_at_a_commit_is_located_by_one_search_per_repository(tmp_path, monkeypatch):
     superproject, commit = superproject_with_a_dependency(tmp_path)
+    checkouts = checkouts_by_repository(superproject)
     searches = git_searches(monkeypatch)
 
-    answers = sources_at(superproject, commit, [("Own", None), ("Token", None), ("NeverExisted", None)])
+    answers = sources_at(superproject, commit, [("Own", None), ("Token", None), ("NeverExisted", None)], checkouts)
 
     assert answers == {
         ("Own", None): ("src/Own.sol", "Own"),
         ("Token", None): ("lib/dep/src/Token.sol", "Token"),
         ("NeverExisted", None): None,
     }
-    assert len(searches) == 1, searches
+    assert len(searches) == 2, "the superproject and its one submodule"
 
 
 def test_asking_about_no_names_searches_nothing(repo, monkeypatch):
+    checkouts = checkouts_by_repository(repo)
     searches = git_searches(monkeypatch)
 
-    assert sources_at(repo, "HEAD", []) == {}
+    assert sources_at(repo, "HEAD", [], checkouts) == {}
     assert searches == []
 
 
@@ -1049,7 +1168,7 @@ def test_names_sharing_a_prefix_in_one_search_each_find_their_own_file(repo):
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "names that share a prefix, in files named for none of them")
 
-    assert sources_at(repo, "HEAD", [("Foo", None), ("Foob", None), ("Split", None)]) == {
+    assert sources_at(repo, "HEAD", [("Foo", None), ("Foob", None), ("Split", None)], {}) == {
         ("Foo", None): ("src/A.sol", "Foo"),
         ("Foob", None): ("src/B.sol", "Foob"),
         ("Split", None): ("src/D.sol", "Split"),
@@ -1075,7 +1194,7 @@ def test_one_search_answers_a_found_a_missing_an_ambiguous_and_a_renamed_contrac
     searches = git_searches(monkeypatch)
 
     answers = sources_at(
-        repo, early, [("Foo", None), ("NeverExisted", None), ("Aggregator", None), ("New", "src/New.sol")]
+        repo, early, [("Foo", None), ("NeverExisted", None), ("Aggregator", None), ("New", "src/New.sol")], {}
     )
 
     assert answers == {
@@ -1085,6 +1204,63 @@ def test_one_search_answers_a_found_a_missing_an_ambiguous_and_a_renamed_contrac
         ("New", "src/New.sol"): ("src/Old.sol", "Old"),
     }
     assert len(searches) == 1, searches
+
+
+# ── a git failure is an error, never an empty answer ──────────────────────────────────────────────
+#
+# Every question here is answered from what git prints, and a git that fails prints nothing. Read as an
+# answer, nothing says "declared nowhere", "no history" or "no submodules": on git 2.56.0 the source search
+# failed on every tree holding a submodule, and each contract read as "no candidate built what is deployed".
+
+
+def test_a_search_git_cannot_run_raises_rather_than_finding_nothing(repo):
+    # This repository's own tree is searched first, so an unknown commit fails the search itself.
+    with pytest.raises(GitFailed, match=rf"^git grep .*{NOT_HELD}.* exited 128 in .*: fatal: "):
+        sources_at(repo, NOT_HELD, [("F0", None)], {})
+
+
+def test_a_rename_git_cannot_follow_raises_rather_than_reporting_none(repo):
+    # The name is declared nowhere, so the recorded path is followed through git's rename detection - and
+    # that comparison is with HEAD, which names no commit yet on a branch never committed to.
+    commit = git_output(repo, "rev-parse", "HEAD")
+    git(repo, "symbolic-ref", "HEAD", "refs/heads/never-committed")
+
+    with pytest.raises(GitFailed, match=r"^git diff .* exited 128 in .*: fatal: "):
+        located(repo, commit, "NeverExisted", recorded_path="src/NeverExisted.sol")
+
+
+def test_a_build_id_git_cannot_read_raises(repo):
+    # Read as an answer, every commit git cannot read would share one build id, and building one of them
+    # would count as building them all.
+    with pytest.raises(GitFailed, match=rf"^git ls-tree {NOT_HELD} .* exited 128 in .*: fatal: "):
+        build_id(repo, NOT_HELD)
+
+
+def test_a_history_git_cannot_list_raises(repo):
+    # A branch naming an object the store does not hold makes `git log --all` fail outright. Read as an
+    # answer, the repository has no commits, so no contract has a candidate.
+    (repo / ".git" / "refs" / "heads" / "broken").write_text(NOT_HELD + "\n")
+
+    with pytest.raises(GitFailed, match=r"^git log --all .* exited 128 in .*: fatal: "):
+        all_commits(repo)
+
+
+def test_a_commit_timestamp_git_cannot_read_raises(repo):
+    with pytest.raises(GitFailed, match=rf"^git log -1 .*{NOT_HELD} exited 128 in .*: fatal: "):
+        commit_timestamp(repo, NOT_HELD)
+
+
+def test_the_submodules_of_a_commit_git_cannot_read_raise(repo):
+    # Read as an answer, the commit records no submodules, and a record of what was built names none.
+    with pytest.raises(GitFailed, match=rf"^git ls-tree -r {NOT_HELD} exited 128 in .*: fatal: "):
+        submodules_at(repo, NOT_HELD, checkouts_by_repository(repo))
+
+
+def test_the_submodules_on_a_route_git_cannot_read_raise(repo):
+    # Read as an answer, the route crosses no submodule, and the file is read from this repository's own
+    # tree, where it is not.
+    with pytest.raises(GitFailed, match=rf"^git ls-tree {NOT_HELD} -- .* exited 128 in .*: fatal: "):
+        submodules_along(repo, NOT_HELD, "lib/dep/src/Token.sol", {})
 
 
 # ── when it was deployed, and when the commit was made ────────────────────────────────────────────
