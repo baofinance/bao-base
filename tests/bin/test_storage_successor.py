@@ -12,7 +12,10 @@ through a mapping, a dynamic array, a static array, and a mapping-of-mappings.
 """
 
 import importlib.util
+import json
 import pathlib
+
+import pytest
 
 
 def load_module():
@@ -696,3 +699,96 @@ def test_another_namespace_does_not_count_as_initializable():
     # a contract with namespaced storage of its own must not be mistaken for an initializable one.
     minter = _contract(70, "Minter", [], [("MinterStorage", "@custom:storage-location erc7201:bao.storage.Minter")])
     assert mod.initializable_contracts(_tree(minter)) == []
+
+
+# ── which contracts have root variables: the state variables solc places in sequential slots. bin/validate fails a
+#    production implementation that has any. solc's storage layout lists them and never lists an ERC-7201 namespaced
+#    field. forge leaves the layout out of the build-info when it would be empty, so a contract with no root variables
+#    has no layout at all, which is why a build that never asked for layouts has to be an error. What the real forge
+#    writes is covered by test_root_storage_with_forge.py. ──
+
+
+def _compiled(layouts, requested=("abi", "storageLayout")):
+    """A build-info in the shape forge writes: `layouts` maps '<source>:<Name>' to that contract's storage entries."""
+    contracts = {}
+    for contract, storage in layouts.items():
+        source, name = contract.split(":")
+        entry = {"abi": []}
+        if storage:
+            entry["storageLayout"] = {"storage": storage, "types": {}}
+        contracts.setdefault(source, {})[name] = entry
+    return {
+        "input": {"settings": {"outputSelection": {"*": {"*": list(requested)}}}},
+        "output": {"contracts": contracts},
+    }
+
+
+def _variable(label, slot, offset=0):
+    return {"label": label, "slot": slot, "offset": offset, "type": "t_uint256", "contract": "X"}
+
+
+# forge writes one of these for a later `forge inspect`, beside the build-info holding the compiled output
+_NO_COMPILED_OUTPUT = {"id": "dd58ffd9af95c782", "language": "Solidity", "source_id_to_path": {}}
+
+
+def test_contract_with_no_root_variables_is_not_listed():
+    assert mod.root_storage([_compiled({"src/A.sol:A": []})]) == []
+
+
+def test_contract_with_a_root_variable_is_listed():
+    assert mod.root_storage([_compiled({"src/A.sol:A": [_variable("first", "0")]})]) == [
+        "src/A.sol:A first slot 0 offset 0"
+    ]
+
+
+def test_every_root_variable_of_every_contract_is_listed():
+    # a contract with none between two with several: each line belongs to its own contract, in slot order
+    build_info = _compiled(
+        {
+            "src/A.sol:A": [_variable("first", "0"), _variable("second", "0", 20)],
+            "src/A.sol:Empty": [],
+            "src/B.sol:B": [_variable("third", "0"), _variable("fourth", "1")],
+        }
+    )
+    assert mod.root_storage([build_info]) == [
+        "src/A.sol:A first slot 0 offset 0",
+        "src/A.sol:A second slot 0 offset 20",
+        "src/B.sol:B third slot 0 offset 0",
+        "src/B.sol:B fourth slot 1 offset 0",
+    ]
+
+
+def test_root_variables_are_listed_from_every_build_info():
+    # a repository using two solc versions has contracts in separate files, and one left unread would look clean
+    assert mod.root_storage(
+        [_compiled({"src/A.sol:A": [_variable("first", "0")]}), _compiled({"src/B.sol:B": [_variable("second", "0")]})]
+    ) == ["src/A.sol:A first slot 0 offset 0", "src/B.sol:B second slot 0 offset 0"]
+
+
+def test_build_info_without_compiled_output_is_passed_over():
+    assert mod.root_storage([_NO_COMPILED_OUTPUT, _compiled({"src/A.sol:A": [_variable("first", "0")]})]) == [
+        "src/A.sol:A first slot 0 offset 0"
+    ]
+
+
+@pytest.mark.parametrize("build_infos", [[], [_NO_COMPILED_OUTPUT]])
+def test_no_compiled_output_anywhere_is_an_error(build_infos):
+    # nothing was read, which must not look like a build with no root variables
+    with pytest.raises(SystemExit) as refused:
+        mod.root_storage(build_infos)
+    assert refused.value.code == "storage-successor: no build-info holds compiled output"
+
+
+def test_build_that_did_not_ask_for_storage_layouts_is_an_error():
+    # every contract would have no layout, which must not look like a build with no root variables
+    with pytest.raises(SystemExit) as refused:
+        mod.root_storage([_compiled({"src/A.sol:A": []}, requested=("abi",))])
+    assert refused.value.code == "storage-successor: a build-info did not ask solc for storageLayout"
+
+
+def test_list_root_storage_reads_every_build_info_in_the_folder(tmp_path, capsys):
+    (tmp_path / "a.json").write_text(json.dumps(_compiled({"src/A.sol:A": [_variable("first", "0")]})))
+    (tmp_path / "b.json").write_text(json.dumps(_NO_COMPILED_OUTPUT))
+    (tmp_path / "c.json").write_text(json.dumps(_compiled({"src/C.sol:C": [_variable("second", "1")]})))
+    assert mod.main([str(tmp_path), "--list-root-storage"]) == 0
+    assert capsys.readouterr().out == "src/A.sol:A first slot 0 offset 0\nsrc/C.sol:C second slot 1 offset 0\n"

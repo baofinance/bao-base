@@ -361,6 +361,28 @@ def initializable_contracts(build_info):
     ]
 
 
+def root_storage(build_infos):
+    """'<source>:<Name> <variable> slot <slot> offset <offset>' for every root variable: a state variable solc
+    places in sequential slots.
+
+    bin/validate asks this to enforce namespace-only storage. It reads solc's own storage layout, which never lists
+    an ERC-7201 namespaced field, rather than `forge inspect`, whose report can list them in the same array. forge
+    leaves the layout out when it would be empty, so a contract with no root variables has none at all. That makes
+    a build that read nothing, or never asked for layouts, look clean, so both are refused."""
+    compiled = [build_info for build_info in build_infos if "output" in build_info]
+    if not compiled:
+        sys.exit("storage-successor: no build-info holds compiled output")
+    lines = []
+    for build_info in compiled:
+        if "storageLayout" not in build_info["input"]["settings"]["outputSelection"]["*"]["*"]:
+            sys.exit("storage-successor: a build-info did not ask solc for storageLayout")
+        for source, contracts in build_info["output"]["contracts"].items():
+            for name, contract in contracts.items():
+                for entry in contract.get("storageLayout", {}).get("storage", []):
+                    lines.append(f"{source}:{name} {entry['label']} slot {entry['slot']} offset {entry['offset']}")
+    return lines
+
+
 def _retyped(build_info, contract_node):
     """structName -> {field: oldTypeLabel} from `@custom:bao-retyped-from` across the contract and its bases."""
     out = {}
@@ -747,7 +769,22 @@ def main(argv=None):
         action="store_true",
         help="print '<source>:<Name>' for each contract inheriting OpenZeppelin's Initializable (no probe build) and exit — for validate's constructor check",
     )
+    parser.add_argument(
+        "--list-root-storage",
+        action="store_true",
+        help="print '<source>:<Name> <variable> slot <slot> offset <offset>' for each root variable (no probe build) and exit — for validate's namespace-only storage check",
+    )
     args = parser.parse_args(argv)
+
+    if args.list_root_storage:
+        # every build-info, not the latest: a repository using two solc versions has contracts in separate files
+        build_infos = []
+        for path in sorted(glob.glob(os.path.join(args.build_info_dir, "*.json"))):
+            with open(path) as f:
+                build_infos.append(json.load(f))
+        for line in root_storage(build_infos):
+            print(line)
+        return 0
 
     build_info = _latest_build_info(args.build_info_dir)
     if args.list:

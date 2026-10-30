@@ -273,6 +273,23 @@ while read -r _icontract; do
   fi
 done <<<"$initializable_contracts"
 
+# The list of root variables below comes from solc's storage layout in the build-info, where a contract with no root
+# variables has no layout at all. A forge that stopped recording layouts would make every contract look clean, so
+# first prove, with the forge this run uses, that a contract with known root variables is listed.
+"$BAO_BASE_BIN_DIR"/run-python pytest tests/bin/test_root_storage_with_forge.py ||
+  error "root variables of a test contract were not listed as expected, so the list cannot be trusted for this forge"
+
+# Each contract's root variables, one indented line each.
+# (assigned before the loop, not read through a process substitution, so a failure of the query is seen)
+root_variables=$("$BAO_BASE_BIN_DIR"/run-python storage-successor "${BUILD_INFO_DIR}" --list-root-storage) ||
+  error "could not list the root variables"
+declare -A root_storage=()
+while read -r _rcontract _rvariable; do
+  if [[ -n "$_rcontract" ]]; then
+    root_storage["$_rcontract"]+="  ${_rvariable}"$'\n'
+  fi
+done <<<"$root_variables"
+
 failed=0
 for contract in ${contracts}; do
   this_failed=0
@@ -290,18 +307,17 @@ for contract in ${contracts}; do
   ################################################################
   # check for storage slots not in a namespace (i.e. root slots)
   ################################################################
-  root_slots=$(forge inspect --out ${FOUNDRY_OUT} --json $contract storage-layout | jq '.storage | length')
   if is_ignored "storage" "${contract%%:*}"; then
-    if [[ "${root_slots}" != "" && "${root_slots}" -eq 0 ]]; then
+    if [[ -z "${root_storage[$contract]:-}" ]]; then
       printf '\033[31m ✘  stale .validate-ignore entry: storage "%s" — check passes, remove from .validate-ignore\033[0m\n' "${contract%%:*}"
       this_failed=1
     else
       printf '\033[2m ⚠  %s: storage check ignored via .validate-ignore\033[0m\n' "${contract}"
     fi
   else
-    if [[ "${root_slots}" != "" && "${root_slots}" -gt 0 ]]; then
-      # already on the failure path: a forge inspect that also fails just leaves the detail empty
-      echo "ERROR: Root slots for ${contract}: ${root_slots}\n$(forge inspect "$contract" storage-layout)" # lint-bash disable=command-substitution
+    if [[ -n "${root_storage[$contract]:-}" ]]; then
+      echo "ERROR: Root storage in ${contract}:"
+      printf '%s' "${root_storage[$contract]}"
       this_failed=1
     fi
   fi
