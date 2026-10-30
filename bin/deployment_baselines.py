@@ -232,12 +232,11 @@ def _tag_prefix(state_file: str) -> str:
 
 
 def reached_by(repo_root: Path, commit: str) -> list[str]:
-    """Every ref that reaches `commit` - branches first, then tags.
+    """Every local branch and tag that reaches `commit` - branches first, then tags.
 
-    "Push that branch" without saying WHICH is a remedy the reader has to go and derive, and the answer
-    was already in hand: `commit_reach` runs these very queries and keeps only whether the output was
-    empty. Every one is named rather than the first, because naming one of several would send someone
-    to push a branch they did not mean."""
+    "Push that branch" without saying WHICH is a remedy the reader has to go and derive. A remote branch
+    is left out because it is not one to push. Every one is named rather than the first, because naming
+    one of several would send someone to push a branch they did not mean."""
     return _contains(repo_root, "branch", commit) + _contains(repo_root, "tag", commit)
 
 
@@ -967,7 +966,8 @@ def commit_reach(repo_root: Path, commit: str) -> str:
 
     Three answers:
 
-    - `"reachable"` - a branch or a tag here contains it, so this checkout can resolve it.
+    - `"reachable"` - a local branch, a remote branch or a tag here contains it, so this checkout can
+      resolve it.
     - `"none"` - the object is here, but no ref reaches it: a stash entry, or a dangling commit. NEVER
       recordable. `git push` pushes refs, so nothing will ever carry it anywhere, and `git stash drop`
       destroys it - a downstream check is no safety net when the object can be gone before it runs.
@@ -981,7 +981,9 @@ def commit_reach(repo_root: Path, commit: str) -> str:
         return "absent"
     # A tag counts as well as a branch. It is the better ref for the job - it does not move and is not
     # deleted in the ordinary course of work - but either means this checkout can resolve the commit.
-    if _contains(repo_root, "branch", commit) or _contains(repo_root, "tag", commit):
+    # A remote branch counts as well as a local one: a clone has a local branch only for what it checked
+    # out, and CI's checkout holds every other pushed branch as a remote branch.
+    if _contains(repo_root, "branch", commit, "--all") or _contains(repo_root, "tag", commit):
         return "reachable"
     return "none"
 

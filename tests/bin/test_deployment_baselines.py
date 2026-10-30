@@ -110,6 +110,19 @@ def test_a_commit_on_a_local_branch_only_is_the_ordinary_state_of_work(repo):
     assert commit_reach(repo, head(repo)) == "reachable"
 
 
+def test_a_commit_only_a_remote_branch_reaches_may_be_recorded(repo, tmp_path):
+    # A clone holds a local branch only for what it checked out, and every other pushed branch as a
+    # remote branch. The remote has the commit, so this is not the dangling commit "none" means.
+    git(repo, "switch", "-qc", "theirs")
+    git(repo, "commit", "-q", "--allow-empty", "-m", "on a branch someone else pushed")
+    git(repo, "push", "-q", "origin", "theirs")
+    pushed = head(repo)
+    clone = tmp_path / "clone"
+    git(tmp_path, "clone", "-q", "-b", "main", str(tmp_path / "remote.git"), str(clone))
+
+    assert commit_reach(clone, pushed) == "reachable"
+
+
 def test_a_commit_on_no_branch_may_never_be_recorded(repo):
     # A stash. `git push` pushes branches, so nothing will ever carry this to a remote, and
     # `git stash drop` destroys it - which is why "CI will catch it" is not a safety net: the object
