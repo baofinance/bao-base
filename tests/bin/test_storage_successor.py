@@ -433,6 +433,76 @@ def test_rename_reusing_a_freed_name_for_an_added_field_is_a_successor():
     assert errors(pred, succ, added={"S": {"foo"}}, renamed={"S": {"fooOld": "foo"}}) == []
 
 
+# ── a struct renamed in the successor: the tags are collected from the successor's structs, so a struct's
+#    tags are the ones written on it under its successor name. A successor may split one struct into two, as
+#    StabilityPool_v3 does with TokenBalance: each position then takes the tags of the struct it holds now. ──
+
+
+def _timestamped_balance(amount="t_uint128"):
+    """TokenBalance's layout under the successor name TimestampedBalance."""
+    tb = token_balance(amount)
+    tb["label"] = "struct TimestampedBalance"
+    return tb
+
+
+def _two_mappings(history_tb):
+    """A root struct holding a mapping of TokenBalance and a mapping whose value is `history_tb`."""
+    types = dict(BASE_TYPES)
+    types["t_tb"] = token_balance()
+    types["t_history"] = history_tb
+    types["t_map"] = {
+        "encoding": "mapping",
+        "label": "mapping(address => TokenBalance)",
+        "numberOfBytes": "32",
+        "key": "t_address",
+        "value": "t_tb",
+    }
+    types["t_history_map"] = {
+        "encoding": "mapping",
+        "label": "mapping(uint256 => " + history_tb["label"][len("struct ") :] + ")",
+        "numberOfBytes": "32",
+        "key": "t_uint256",
+        "value": "t_history",
+    }
+    types["t_root"] = {
+        "encoding": "inplace",
+        "label": "struct Root",
+        "numberOfBytes": "64",
+        "members": [
+            {"label": "balances", "slot": "0", "offset": 0, "type": "t_map"},
+            {"label": "history", "slot": "1", "offset": 0, "type": "t_history_map"},
+        ],
+    }
+    return {"storage": [{"label": "root", "slot": "0", "offset": 0, "type": "t_root"}], "types": types}
+
+
+def test_struct_renamed_in_the_successor_takes_its_own_tags():
+    a = contained("mapping")
+    b = contained("mapping")
+    b["types"]["t_tb"] = _timestamped_balance()
+    assert errors(a, b, {"TimestampedBalance": {"amount": "uint104"}}) == []
+
+
+def test_struct_renamed_in_the_successor_ignores_the_tags_of_its_old_name():
+    a = contained("mapping")
+    b = contained("mapping")
+    b["types"]["t_tb"] = _timestamped_balance()
+    assert has(errors(a, b, DOC), "amount", "undocumented widen")
+
+
+def test_struct_split_in_two_takes_each_structs_tags():
+    # TokenBalance keeps its name, widens and retires updatedAt; the history's copy becomes TimestampedBalance
+    # and widens. Each struct carries its own tags.
+    retired = token_balance("t_uint128")
+    retired["members"][2]["label"] = "unusedInV3"
+    a = _two_mappings(token_balance())
+    b = _two_mappings(_timestamped_balance())
+    b["types"]["t_tb"] = retired
+    retyped = {"TokenBalance": {"amount": "uint104"}, "TimestampedBalance": {"amount": "uint104"}}
+    renamed = {"TokenBalance": {"unusedInV3": "updatedAt"}}
+    assert errors(a, b, retyped, None, renamed) == []
+
+
 # ── rejected: a bad change buried deep inside a container (rejection must propagate) ────────────────────────
 
 

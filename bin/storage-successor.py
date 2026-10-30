@@ -98,7 +98,8 @@ def _compare_type(
     a_id, a_types, b_id, b_types, path, errors, retyped, used, declared_old, added=None, renamed=None, is_root=False
 ):
     """Recurse a matched type position. `retyped` = {structName: {field: oldTypeLabel}}; `added` =
-    {structName: {field}}; `renamed` = {structName: {newField: oldField}}; `used` accumulates the
+    {structName: {field}}; `renamed` = {structName: {newField: oldField}}; each keyed by the successor's struct
+    name, since the declarations are written on the successor's structs. `used` accumulates the
     (structName, field) declarations actually reached; `declared_old` is the declaration for THIS position
     (only meaningful on an integer leaf), or None; `is_root` marks the top-level namespace struct (which may
     grow, since nothing follows it)."""
@@ -113,7 +114,7 @@ def _compare_type(
         errors.append(f"{path}: @custom:bao-retyped-from declared on a non-integer field ({a['label']})")
 
     if ak == "struct":
-        struct_name = _struct_name(a["label"])
+        struct_name = _struct_name(b["label"])
         declarations = retyped.get(struct_name, {})
         added_here = added.get(struct_name, set())
         renames = renamed.get(struct_name, {})  # {newLabel: oldLabel} — a documented member rename
