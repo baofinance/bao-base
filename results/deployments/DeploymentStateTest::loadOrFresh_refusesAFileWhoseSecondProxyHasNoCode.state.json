@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "version": "v1",
+  "saltPrefix": "loadorfresh_v1",
+  "network": "test",
+  "chainId": 31337,
+  "baoFactory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458",
+  "lastUpdated": "1970-01-01T00:00:01Z",
+  "implementations": {
+    "0xBc1Ff96db5a62121222DCBef8c5D31a512B5d050": {
+      "proxy": "ETH::minter",
+      "contractSource": "@project/Minter.sol",
+      "contractType": "Minter_v1",
+      "deploymentTime": "1970-01-01T00:00:01Z"
+    },
+    "0x180Ceb86d77cdf66C8EE23f7A1019EEa2D173cFD": {
+      "proxy": "ETH::reservePool",
+      "contractSource": "@project/ReservePool.sol",
+      "contractType": "ReservePool_v1",
+      "deploymentTime": "1970-01-01T00:00:01Z"
+    }
+  },
+  "proxies": {
+    "ETH::minter": {
+      "address": "0x26292A39eAe9Bee9C7792176B40B3DB18602e389",
+      "implementation": "0xBc1Ff96db5a62121222DCBef8c5D31a512B5d050",
+      "salt": "loadorfresh_v1::ETH::minter",
+      "deploymentTime": "1970-01-01T00:00:01Z"
+    },
+    "ETH::reservePool": {
+      "address": "0xA11f62F3a72073fB58dFBc50A933B0472D2c8e23",
+      "implementation": "0x180Ceb86d77cdf66C8EE23f7A1019EEa2D173cFD",
+      "salt": "loadorfresh_v1::ETH::reservePool",
+      "deploymentTime": "1970-01-01T00:00:01Z"
+    }
+  }
+}

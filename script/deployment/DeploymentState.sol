@@ -31,6 +31,8 @@ library DeploymentState {
         string runSaltPrefix,
         string runNetwork
     );
+    /// @notice The state file at `path` records proxy `id` at `proxy`, an address with no code on this chain.
+    error StateFileProxyHasNoCode(string path, string id, address proxy);
 
     /// @notice Resolve the deployment state directory.
     /// @dev Reads DEPLOY_STATE_DIR env var. Used by `Deployer._batchDirectory` for the batch subdirectory.
@@ -59,8 +61,11 @@ library DeploymentState {
 
     /// @notice The state a persisting deploy run starts from: the file at `path` where there is one, otherwise a
     ///         fresh state for the run - a first deploy under its salt prefix, which the file it then saves must
-    ///         record. A file is read only if it records this run's salt prefix and network: one recording
-    ///         another run's would have this run's contracts written under the wrong namespace.
+    ///         record. A file is read only if it records this run's salt prefix and network, and only if every proxy
+    ///         it records has code on this chain. One recording another run's would have this run's contracts written
+    ///         under the wrong namespace. One recording a proxy the chain does not hold is another chain's - a local
+    ///         node's file, read on a node started afresh - and would have this run deploy to the addresses it records
+    ///         and be refused as a duplicate of itself.
     function loadOrFresh(
         string memory path,
         string memory saltPrefix,
@@ -72,6 +77,11 @@ library DeploymentState {
         state = JsonParser.parseStateJson(vm.readFile(path));
         if (!state.saltPrefix.eq(saltPrefix) || !state.network.eq(network)) {
             revert StateFileIsAnotherRuns(path, state.saltPrefix, state.network, saltPrefix, network);
+        }
+        for (uint256 i = 0; i < state.proxies.length; ++i) {
+            if (state.proxies[i].proxy.code.length == 0) {
+                revert StateFileProxyHasNoCode(path, state.proxies[i].id, state.proxies[i].proxy);
+            }
         }
     }
 
