@@ -886,31 +886,10 @@ def test_a_clone_with_no_reachable_remote_is_still_answered(tmp_path):
         origin_tags(tmp_path)
 
 
-# ── naming the refs, and the tags that are missing ─────────────────────────────────────────────────
+# ── the tags that are missing ──────────────────────────────────────────────────────────────────────
 #
-# "push that branch" without saying WHICH is a remedy the reader has to derive, and `commit_reach`
-# already has the names in hand and throws them away. And a recorded commit no tag NAMES is one whose
-# preservation rests on a branch, which moves and is deleted in the ordinary course of work.
-
-
-def test_a_local_commit_is_reported_with_the_branch_holding_it(repo, tmp_path):
-    from deployment_baselines import reached_by
-
-    push_to_a_new_remote(repo, tmp_path)
-    git(repo, "commit", "-q", "--allow-empty", "-m", "not pushed")
-
-    assert reached_by(repo, head_of(repo)) == ["main"]
-
-
-def test_a_commit_on_several_branches_names_them_all(repo, tmp_path):
-    # Naming one of them would send the reader to push a branch that may not be the one they meant.
-    from deployment_baselines import reached_by
-
-    push_to_a_new_remote(repo, tmp_path)
-    git(repo, "commit", "-q", "--allow-empty", "-m", "not pushed")
-    git(repo, "branch", "also-here")
-
-    assert reached_by(repo, head_of(repo)) == ["also-here", "main"]
+# A recorded commit no tag NAMES is one whose preservation rests on a branch, which moves and is deleted
+# in the ordinary course of work.
 
 
 def test_a_deployment_tag_not_held_is_listed(repo, tmp_path):

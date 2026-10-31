@@ -962,9 +962,6 @@ def recover(
                 reach = commit_reach(root, built_at)
                 if reach == "none":
                     say(0, f"      REFUSED: {built_at[:10]} is on no branch or tag, so nothing preserves it.")
-                    say(0, "      It is the only source for this deployment — put it on a branch and push it:")
-                    say(0, f"        git branch deployed/{entry.name} {built_at}")
-                    say(0, f"        git push origin deployed/{entry.name}")
                     refused.append((entry_key, entry, built_at))
                     continue
                 # What the commit alone does not settle, taken from the build that just proved it.
@@ -1021,8 +1018,8 @@ def recover(
         (entry_key, wants.entry, screened[entry_key]) for entry_key, wants in pending.items() if entry_key in screened
     ]
     # Everything that was NOT recorded, gathered by the same call that takes it out of the run, so a
-    # contract cannot leave without a row. The blocks above carry the remedies - push the branch, look
-    # at the immutable - and this carries the completeness.
+    # contract cannot leave without a row. The remedies are elsewhere - the immutable to look at above, the
+    # commit to keep in the closing report - and this carries the completeness.
     for entry_key, entry, proved_at in refused:
         drop(pending, account, entry_key, entry, f"proved at {proved_at[:10]}, but that commit is on no branch")
     for entry_key, entry, commits in unproven:
@@ -1154,8 +1151,9 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer) -> str:
         missing = [tag for tag in derived if tag not in labels]
         carried: dict[str, str] = {}
         if missing:
-            carried = {tag: text for tag, text in append_labels(root, missing, labels, derived).items() if text}
-            labels = {**labels, **carried}
+            added = append_labels(root, missing, labels, derived)
+            carried = {tag: text for tag, text in added.items() if text}
+            labels = {**labels, **added}
         dropped = remove_labels(root, replaced_labels(root, labels, derived))
         labels = {entry: text for entry, text in labels.items() if entry not in dropped}
         errors = label_errors(labels, derived)
@@ -1180,8 +1178,8 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer) -> str:
         for tag, problem in errors:
             say(0, f"  {tag}: {problem}")
         if any(tag not in carried for tag in missing):
-            say(0, "  Each tag with no label now has an empty entry: fill each one in, then run verify-audit")
-            say(0, "  --write again")
+            say(0, "  This run added an empty entry for each tag that had none.")
+            say(0, "  Write each label there, then run verify-audit --write again")
         else:
             say(0, f"  Correct them in {LABELS}, then run verify-audit --write again")
     if made.created:
@@ -1531,8 +1529,13 @@ def run(
             say(0, f"\n{len(refused)} proved but NOT recorded — the commit is on no branch, so no remote can have it:")
             for entry_key, entry, proved_at in refused:
                 say(0, f"  {entry_key}  {entry.name}  at {proved_at[:10]}")
-            say(0, "  Put each on a branch and push it, then run again. Until then these are unrecoverable:")
-            say(0, "  a stash entry is destroyed by `git stash drop`, and nothing else built this bytecode.")
+            # Once per commit: it is the commit that needs keeping, and contracts share commits and names.
+            say(0, "  Put each commit on a branch and push it, then run again:")
+            for commit in dict.fromkeys(proved_at for _, _, proved_at in refused):
+                say(0, f"    git branch deployed/{commit[:10]} {commit}")
+                say(0, f"    git push origin deployed/{commit[:10]}")
+            say(0, "  Until then nothing preserves these commits: `git stash drop` destroys a stash entry,")
+            say(0, "  and `git gc` can remove a dangling commit.")
 
         if unproven:
             say(0, f"\n{len(unproven)} screened but NOT recorded:")

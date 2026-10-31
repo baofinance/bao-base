@@ -34,7 +34,7 @@ from dataclasses import asdict, dataclass, fields, replace
 from datetime import datetime
 from pathlib import Path
 
-from deployment_recovery import checkouts_by_repository, checkouts_of, declared_in, holds, placement
+from deployment_recovery import checkouts_by_repository, checkouts_of, declared_in, holds, placement, run_git
 from deployment_records import Entry, Problem, normalise, read_records
 
 SCHEMA_VERSION = 1
@@ -229,15 +229,6 @@ def _tag_prefix(state_file: str) -> str:
     string equality rather than a naming convention someone has to keep, and puts the chain in the name
     for free."""
     return f"{DEPLOY_TAGS}{state_file.removeprefix('deployments/').removesuffix('.json')}"
-
-
-def reached_by(repo_root: Path, commit: str) -> list[str]:
-    """Every local branch and tag that reaches `commit` - branches first, then tags.
-
-    "Push that branch" without saying WHICH is a remedy the reader has to go and derive. A remote branch
-    is left out because it is not one to push. Every one is named rather than the first, because naming
-    one of several would send someone to push a branch they did not mean."""
-    return _contains(repo_root, "branch", commit) + _contains(repo_root, "tag", commit)
 
 
 # The last line of every annotated tag the tool makes. A stale tag ending with it is the tool's own, so it
@@ -989,11 +980,10 @@ def commit_reach(repo_root: Path, commit: str) -> str:
 
 
 def _contains(repo_root: Path, kind: str, commit: str, *scope: str) -> list[str]:
-    """The branches or tags reaching `commit`, by name. Empty when none do, or the question failed."""
-    listed = subprocess.run(["git", kind, *scope, "--contains", commit], cwd=repo_root, capture_output=True, text=True)
-    if listed.returncode != 0:
-        return []
-    return [line.lstrip("* ").strip() for line in listed.stdout.splitlines() if line.strip()]
+    """The branches or tags reaching `commit`, by name. Empty when none do. A git that cannot answer raises
+    `GitFailed`, because an empty answer would report the commit as on no branch."""
+    listed = run_git(repo_root, kind, *scope, "--contains", commit)
+    return [line.lstrip("* ").strip() for line in listed.splitlines() if line.strip()]
 
 
 def read_baselines(repo_root: Path) -> dict[str, Baseline]:

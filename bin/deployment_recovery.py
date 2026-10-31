@@ -38,7 +38,7 @@ class GitFailed(RuntimeError):
     """A git command exited with an error where its answer was needed. The message is what git said."""
 
 
-def _git(where: Path, *arguments: str, none_found: int = 0) -> str:
+def run_git(where: Path, *arguments: str, none_found: int = 0) -> str:
     """What `git <arguments>` printed, run in `where`. Raises `GitFailed` on any exit status but 0 and
     `none_found`.
 
@@ -208,7 +208,7 @@ def build_id(repo_root: Path, commit: str) -> str:
     which is where the saving is, without any candidate being dropped. It is derived, not assigned:
     the tree object ids of the build's inputs, so git does the hashing and an unchanged directory costs
     nothing to compare."""
-    return _git(repo_root, "ls-tree", commit, "--", *_BUILD_INPUTS)
+    return run_git(repo_root, "ls-tree", commit, "--", *_BUILD_INPUTS)
 
 
 def still_to_try(tried: dict[str, set[str]], build: str, keys: Iterable[str]) -> list[str]:
@@ -274,7 +274,7 @@ def all_commits(repo_root: Path) -> list[tuple[str, str]]:
     that compiled identically - right bytecode, wrong provenance. `build_id` deduplicates the WORK
     instead, which saves the same builds and drops no candidate."""
     dated = []
-    for line in _git(repo_root, "log", "--all", "--format=%H %ct").splitlines():
+    for line in run_git(repo_root, "log", "--all", "--format=%H %ct").splitlines():
         commit, _, seconds = line.partition(" ")
         if commit and seconds.isdigit():
             dated.append((commit, datetime.fromtimestamp(int(seconds), tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")))
@@ -357,7 +357,7 @@ def commit_timestamp(repo_root: Path, commit: str) -> str:
     From Unix seconds rather than `%cI`, which carries the committer's local offset - two identical
     commits made in different zones would otherwise record differently, and a record of facts should
     not depend on where someone was sitting."""
-    seconds = _git(repo_root, "log", "-1", "--format=%ct", commit).strip()
+    seconds = run_git(repo_root, "log", "-1", "--format=%ct", commit).strip()
     return datetime.fromtimestamp(int(seconds), tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -398,7 +398,7 @@ def _path_at(repo_root: Path, commit: str, recorded_path: str) -> str | None:
     Git already computes this, and computes it from CONTENT similarity rather than from names - which
     is the only thing that can follow a file whose name is the very thing that changed. The megaeth
     rename comes back as `R075 …Aggregator_USDMY_ETH_megaeth.sol → …Aggregator_USDM_ETH_megaeth.sol`."""
-    for line in _git(repo_root, "diff", "-M", "--name-status", commit, "HEAD").splitlines():
+    for line in run_git(repo_root, "diff", "-M", "--name-status", commit, "HEAD").splitlines():
         fields = line.split("\t")
         if len(fields) == 3 and fields[0].startswith("R") and fields[2] == recorded_path:
             return fields[1]
@@ -487,7 +487,7 @@ def sources_at(
 
         def search(where: Path, at: str, prefix: str) -> None:
             # `git grep` stops at a gitlink, so this reads `where`'s own files and none of its submodules'.
-            found = _git(
+            found = run_git(
                 where,
                 "grep",
                 # A NUL after `commit:path` rather than a colon, so a path is never split at a colon of its own.
@@ -597,7 +597,7 @@ def submodules_at(repo_root: Path, commit: str, checkouts: dict) -> dict[str, tu
     found: dict[str, tuple[str, Path | None]] = {}
 
     def walk(parent: Path, parent_commit: str, prefix: str) -> None:
-        for line in _git(parent, "ls-tree", "-r", parent_commit).splitlines():
+        for line in run_git(parent, "ls-tree", "-r", parent_commit).splitlines():
             fields = line.split(maxsplit=3)
             if len(fields) < 4 or fields[1] != "commit":
                 continue
@@ -659,7 +659,7 @@ def submodules_along(
         # everything in `lib` - harbor's `lib/solady` among it - and at most one directory on the route
         # is a gitlink at this level, because everything below it is inside it.
         submodule = None
-        for line in _git(holder, "ls-tree", at, "--", *route).splitlines():
+        for line in run_git(holder, "ls-tree", at, "--", *route).splitlines():
             fields, _, entry = line.partition("\t")
             mode_type_object = fields.split()
             if len(mode_type_object) == 3 and mode_type_object[1] == "commit" and entry in route:
@@ -866,7 +866,7 @@ def export_tree(repo_root: Path, commit: str, at: Path, checkouts: dict[str, lis
     failures: list[str] = []
 
     def export(parent_repo: Path, parent_commit: str, parent_at: Path, prefix: str) -> None:
-        for line in _git(parent_repo, "ls-tree", parent_commit, "lib/").splitlines():
+        for line in run_git(parent_repo, "ls-tree", parent_commit, "lib/").splitlines():
             fields = line.split()
             if len(fields) < 4 or fields[1] != "commit":
                 continue

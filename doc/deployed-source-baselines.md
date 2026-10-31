@@ -188,8 +188,12 @@ do, and given together they run in this order:
 3. `lib/bao-base/run verify-audit --pull --write` — takes the tags another clone already published, then
    finds every deployed contract without a baseline, proves each against the chain, records what it
    proved, and makes the tags that name those commits.
-4. Check the tags, and commit `deployed.json` and `deployed-labels.toml`.
-5. `lib/bao-base/run verify-audit --push`, then `git push`. The tags go first, so the branch reaches a CI
+4. A new tag needs a label, which only a person can write. The run adds an empty entry for it to
+   `deployed-labels.toml`, makes no tag for it, and fails. Write the label there, then run
+   `lib/bao-base/run verify-audit --write` again. The record is already written, so nothing is searched
+   for again.
+5. Check the tags, and commit `deployed.json` and `deployed-labels.toml`.
+6. `lib/bao-base/run verify-audit --push`, then `git push`. The tags go first, so the branch reaches a CI
    that already holds them: the record and the refs that keep its commits reachable have to arrive
    together, or a fresh checkout resolves neither.
 
@@ -220,14 +224,14 @@ gaining the file, so this rolls out one repository at a time and none is left un
 
 ### When it refuses
 
-- **"on no branch, so nothing will ever push it"** — the match is real but the commit is a stash entry
-  or dangling. It is often the *only* source for that deployment. Put it on a branch and push it:
+- **"on no branch or tag, so nothing preserves it"** — the match is real but the commit is a stash entry
+  or dangling: no local branch, remote branch or tag holds it. It is often the *only* source for that
+  deployment. The end of the run prints these commands, once for each commit:
   ```
-  git branch deployed/<name> <commit>
-  git push origin deployed/<name>
+  git branch deployed/<first ten characters of the commit> <commit>
+  git push origin deployed/<first ten characters of the commit>
   ```
   Then run again. Do this before anything runs `git stash drop`.
-- **"only a local branch has it"** — recorded, but push that branch before pushing the record.
 - **"this repository does not have this commit at all"** — a recorded baseline has lost its commit.
   Fetch it from wherever it still exists; if nowhere, that baseline is dead and the deployment has no
   provenance again.

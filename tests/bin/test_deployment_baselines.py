@@ -28,6 +28,7 @@ from deployment_baselines import (  # noqa: E402
     read_baselines,
     write_baselines,
 )
+from deployment_recovery import GitFailed  # noqa: E402
 
 SETTINGS = {
     "evmVersion": "cancun",
@@ -140,6 +141,15 @@ def test_a_commit_this_repository_no_longer_holds_is_reported_as_absent(repo):
     # collection, and a recorded baseline points at nothing. It is a different answer from "on no
     # branch" because the remedy differs - fetch it, or the baseline is dead.
     assert commit_reach(repo, "0" * 40) == "absent"
+
+
+def test_a_question_git_cannot_answer_raises_rather_than_reading_as_on_no_branch(repo):
+    # A sort order git does not know makes `git branch` fail while the commit stays readable. Read as an
+    # answer, a commit on a branch is reported as on none, and a proved deployment is refused for it.
+    git(repo, "config", "branch.sort", "nonsense")
+
+    with pytest.raises(GitFailed, match=r"^git branch --all --contains .* exited 128 in .*: fatal: "):
+        commit_reach(repo, head(repo))
 
 
 def test_a_repository_that_has_not_started_records_nothing(tmp_path):

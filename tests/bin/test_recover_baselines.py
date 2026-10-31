@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -620,6 +621,76 @@ def test_a_commit_predating_the_source_is_not_counted_as_a_comparison(tmp_path, 
     printed = capsys.readouterr().out
     row = next(line for line in printed.splitlines() if ADDRESS_B in line and "no candidate" in line)
     assert "compared against 1 of 2 distinct build(s)" in row, "one commit declares B; the other was never built"
+
+
+# ── a commit nothing holds is refused, and the report says how to keep it ──────────────────────────
+#
+# A contract proved at a commit no branch or tag holds is not recorded, because the commit can be lost.
+# The closing report prints the git commands that keep it. These tests run them as printed: one branch
+# is enough for a commit, and contracts share both commits and names.
+
+
+def committed_where_nothing_holds_it(repo: Path, scratch: Path, name: str, value: int, when: str) -> tuple[bytes, str]:
+    """The code `src/<name>.sol` builds with `value`, and the commit holding that source, which `main` then
+    moves back past. Only a ref that is neither a branch nor a tag reaches it, so `git log --all` still finds
+    it, as it finds a stash entry."""
+    (repo / "src" / f"{name}.sol").write_text(contract_source(name, value))
+    deployed = runtime(repo, f"src/{name}.sol", name, scratch)
+    made = commit(repo, when, f"{name} as deployed")
+    for arguments in (["update-ref", f"refs/kept/{made}", made], ["reset", "-q", "--hard", "HEAD~1"]):
+        subprocess.run(["git", *arguments], cwd=repo, check=True, capture_output=True)
+    return deployed, made
+
+
+def run_the_commands_printed(repo: Path, printed: str) -> None:
+    """Every git command in `printed`, run in order as a person pasting them would. One that fails raises."""
+    for line in printed.splitlines():
+        if line.strip().startswith("git "):
+            subprocess.run(shlex.split(line), cwd=repo, check=True, capture_output=True)
+
+
+def test_a_refused_commit_with_two_contracts_of_one_name_is_kept_by_the_commands_printed(tmp_path, monkeypatch, capsys):
+    # One commit built both contracts, so one branch keeps it. Run as printed, the commands work, and a
+    # second run records both contracts with nothing left to keep.
+    repo, scratch = repository_deploying(tmp_path, {ADDRESS_A: "A", ADDRESS_B: "A"})
+    commit(repo, "2026-01-01T00:00:00+00:00", "not what was deployed")
+    deployed, kept = committed_where_nothing_holds_it(repo, scratch, "A", 11, "2026-01-02T00:00:00+00:00")
+    labelled(repo)
+    origin = with_origin(repo)
+    recover = load_recover_baselines()
+    answered_by(recover, monkeypatch, repo, Chain({ADDRESS_A: deployed, ADDRESS_B: deployed}))
+
+    status = recover.run(repo, say=recover.Printer(0), write=True)
+
+    assert status == 1, "both contracts are still not recorded"
+    assert read_baselines(repo) == {}
+    run_the_commands_printed(repo, capsys.readouterr().out)
+    assert git_out(origin, "for-each-ref", "--format=%(objectname)", "refs/heads/deployed") == kept, "one branch"
+
+    recover.run(repo, say=recover.Printer(0), write=True)
+
+    recorded = read_baselines(repo)
+    assert set(recorded) == {key(1, ADDRESS_A), key(1, ADDRESS_B)}
+    assert {baseline.commit for baseline in recorded.values()} == {kept}
+    assert "git branch" not in capsys.readouterr().out, "nothing is left to keep"
+
+
+def test_each_refused_commit_is_kept_by_a_branch_of_its_own(tmp_path, monkeypatch, capsys):
+    # Two commits nothing holds, each the source of one contract. One branch would leave the other to be lost.
+    repo, scratch = repository_deploying(tmp_path, {ADDRESS_A: "A", ADDRESS_B: "B"})
+    commit(repo, "2026-01-01T00:00:00+00:00", "neither is what was deployed")
+    deployed_a, kept_a = committed_where_nothing_holds_it(repo, scratch, "A", 11, "2026-01-02T00:00:00+00:00")
+    deployed_b, kept_b = committed_where_nothing_holds_it(repo, scratch, "B", 22, "2026-01-02T12:00:00+00:00")
+    labelled(repo)
+    origin = with_origin(repo)
+    recover = load_recover_baselines()
+    answered_by(recover, monkeypatch, repo, Chain({ADDRESS_A: deployed_a, ADDRESS_B: deployed_b}))
+
+    recover.run(repo, say=recover.Printer(0), write=True)
+
+    run_the_commands_printed(repo, capsys.readouterr().out)
+    branches = git_out(origin, "for-each-ref", "--format=%(objectname)", "refs/heads/deployed")
+    assert set(branches.splitlines()) == {kept_a, kept_b}
 
 
 # ── built by the compiler the deployed code names ──────────────────────────────────────────────────
@@ -3240,7 +3311,8 @@ def test_a_tag_for_a_deploy_from_uncommitted_changes_says_so(tmp_path, monkeypat
 
 def test_write_adds_an_empty_label_for_each_tag_and_fails(tmp_path, monkeypatch):
     # The first run of a recovery: the tag's name is only known now, so its entry is added for the person
-    # to fill in. The chain work is kept; the tag waits for its label.
+    # to fill in. The chain work is kept; the tag waits for its label. The report describes the file as the
+    # run leaves it, so it does not say an entry is absent that the person then finds there.
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     (repo / "deployed-labels.toml").unlink()
     recover = load_recover_baselines()
@@ -3254,7 +3326,8 @@ def test_write_adds_an_empty_label_for_each_tag_and_fails(tmp_path, monkeypatch)
     assert f'"{deployment_tag()}" = ""\n' in written
     assert key(1, ADDRESS_A) in read_baselines(repo), "the record is written"
     assert tags_in(repo) == {}, "and no tag is made without its label"
-    assert any(deployment_tag() in line and "no label" in line for line in printed), printed
+    assert any(deployment_tag() in line and "its label is empty" in line for line in printed), printed
+    assert any("added an empty entry" in line for line in printed), printed
 
 
 def test_write_with_the_labels_written_makes_the_tags(tmp_path, monkeypatch):
