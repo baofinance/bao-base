@@ -581,6 +581,34 @@ def foundry_lock_problems(repo_root: Path) -> list[str]:
     return []
 
 
+# a forge-config comment, `// forge-config: <profile>.<key> = <value>`, in either comment form
+_INLINE_CONFIG = re.compile(r"^\s*//+\s*forge-config:\s*(?P<setting>[\w-]+\.(?P<key>[\w.-]+?)\s*=\s*.*?)\s*$")
+# the settings a test may set for itself: a property of the test, not the runs' to choose
+_TEST_OWN_SETTINGS = ("allow_internal_expect_revert",)
+
+
+def inline_config_problems(repo_root: Path) -> list[str]:
+    """`forge-config:` comments in the source, test and script directories that set a fuzz or invariant
+    parameter for one test. Such a line is applied last, for that test alone, over foundry.toml, the
+    environment and the command line - verified on forge 1.8.7 for the environment and for a command-line
+    flag - so it replaces what yarn test, gas and coverage chose: the fuzz seed and runs, and the invariant
+    settings (bin/forge_test_runs.py). A setting that is the test's own, allow_internal_expect_revert, is
+    left alone. Returns one block listing each line, or [] when no test sets a run's parameter."""
+    found: list[str] = []
+    for directory in forge_source_directories(repo_root):
+        for path in sorted((repo_root / directory).rglob("*.sol")):
+            for number, line in enumerate(path.read_text().splitlines(), 1):
+                matched = _INLINE_CONFIG.match(line)
+                if matched and matched["key"] not in _TEST_OWN_SETTINGS:
+                    found.append(f"{path.relative_to(repo_root).as_posix()}:{number}  {matched['setting']}")
+    if not found:
+        return []
+    lines = ["These tests set a fuzz or invariant parameter for themselves, replacing what the run chose:"]
+    lines.extend(f"  {entry}" for entry in found)
+    lines.append("  Repair: delete each line. yarn test, gas and coverage set these for every test.")
+    return ["\n".join(lines)]
+
+
 def wake_scope_problems(repo_root: Path) -> list[str]:
     """Solidity files wake compiles that forge does not build. Wake compiles every `*.sol` in the project
     that `compiler.solc.exclude_paths` does not cover, found by a recursive glob: directories and files
@@ -1211,6 +1239,16 @@ def build_checks(
             "the lock names versions the dependencies left long ago, and forge --locked, or anyone who reads it, "
             "takes them for the current ones",
             foundry_lock_problems(repo_root),
+        ),
+        Check(
+            "no test sets its own fuzz or invariant parameters",
+            "yarn test, gas and coverage each choose the fuzz seed and runs and the invariant settings: gas "
+            "measures the same calls each time, coverage compares its baseline exactly, and every run fails on a "
+            "handler call that reverts. A forge-config comment in a test is applied last and replaces the run's "
+            "choice for that test alone, whatever the run passed",
+            "a baseline moves with no change to the code, one test's long run slows every run, and a handler "
+            "whose calls revert can be made to pass",
+            inline_config_problems(repo_root),
         ),
         workflow_copy.check(repo_root),
         Check(

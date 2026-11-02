@@ -1011,6 +1011,69 @@ def test_an_untracked_lock_is_deleted(tmp_path):
     assert "Repair: rm foundry.lock" in problems[0], problems[0]
 
 
+# ── inline_config_problems: no test sets its own fuzz or invariant parameters ──
+#
+# A `forge-config:` comment is applied last, for that test alone, over foundry.toml, the environment and the
+# command line - so it replaces what yarn test, gas and coverage chose: the fuzz seed and runs, and the
+# invariant settings. A setting that is the test's own, allow_internal_expect_revert, is not the runs' to
+# choose and is left alone.
+def test_inline_config_clean_without_forge_config_lines(tmp_path):
+    repo = _forge_project(tmp_path / "host", _used_by_a_test_and_a_script())
+    assert doctor.inline_config_problems(repo) == []
+
+
+def test_inline_config_leaves_a_tests_own_setting_alone(tmp_path):
+    repo = _forge_project(
+        tmp_path / "host",
+        _used_by_a_test_and_a_script()
+        | {"test/B.t.sol": "/// forge-config: default.allow_internal_expect_revert = true\ncontract BTest {}\n"},
+    )
+    assert doctor.inline_config_problems(repo) == []
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "/// forge-config: default.invariant.fail-on-revert = true",
+        "/// forge-config: default.invariant.fail-on-revert = false",
+        "// forge-config: default.fuzz.runs = 10000",
+        "/// forge-config: ci.fuzz.seed = 42",
+        "/// forge-config: default.invariant.depth = 32",
+    ],
+)
+def test_inline_config_reports_a_run_parameter_set_in_a_test(tmp_path, line):
+    # any value is a finding: the run chose, and the line replaces its choice for this test
+    repo = _forge_project(
+        tmp_path / "host", _used_by_a_test_and_a_script() | {"test/B.t.sol": f"{line}\ncontract BTest {{}}\n"}
+    )
+    problems = doctor.inline_config_problems(repo)
+    assert len(problems) == 1
+    assert f"test/B.t.sol:3  {line.split(': ', 1)[1]}" in problems[0], problems[0]
+    assert "Repair: delete each line" in problems[0], problems[0]
+
+
+def test_inline_config_lists_every_line_in_test_and_script_sources(tmp_path):
+    repo = _forge_project(
+        tmp_path / "host",
+        _used_by_a_test_and_a_script()
+        | {
+            "test/B.t.sol": (
+                "/// forge-config: default.fuzz.runs = 10000\n"
+                "contract BTest {\n"
+                "    /// forge-config: default.fuzz.seed = 1\n"
+                "    function testFuzz(uint256) public {}\n"
+                "}\n"
+            ),
+            "script/C.t.sol": "/// forge-config: default.invariant.runs = 5\ncontract CTest {}\n",
+        },
+    )
+    problems = doctor.inline_config_problems(repo)
+    assert len(problems) == 1
+    assert "script/C.t.sol:3  default.invariant.runs = 5" in problems[0], problems[0]
+    assert "test/B.t.sol:3  default.fuzz.runs = 10000" in problems[0], problems[0]
+    assert "test/B.t.sol:5  default.fuzz.seed = 1" in problems[0], problems[0]
+
+
 # ── ruff's settings extend bao-base's ──────────────────────────────────────────────────────────────────
 
 _BAO_BASE = _module_path.parents[1]
