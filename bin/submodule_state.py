@@ -133,7 +133,6 @@ class Facts:
     worktree: str | None
     origin_url: str | None
     gitmodules_url: str | None
-    worktree_ref: str | None = None
     # Git's refusal, when the checkout is present but cannot be read. None whenever git answered -
     # including for a checkout that is genuinely absent, which is a different fault with a different
     # repair.
@@ -561,12 +560,6 @@ def read_facts(repo_root: Path, path: str, display: str | None = None) -> Facts:
     origin = git(submodule, "remote", "get-url", "origin") if readable else None
     declared = git(repo_root, "config", "-f", ".gitmodules", "--get", f"submodule.{path}.url")
 
-    # The tag the checked-out commit IS, when it is one. This is what makes a disagreement
-    # answerable: the GUI checks a tag out by name, so its bump leaves the intended version readable
-    # here. forge checks out a branch, whose tip need not be tagged, so after a forge run this is
-    # often None and the user has to say what they meant.
-    named = git(submodule, "describe", "--tags", "--exact-match", "HEAD") if readable else None
-
     return Facts(
         path=display or path,
         directory=submodule,
@@ -575,7 +568,6 @@ def read_facts(repo_root: Path, path: str, display: str | None = None) -> Facts:
         worktree=checked_out.stdout.strip() if readable else None,
         origin_url=origin.stdout.strip() if origin and origin.returncode == 0 else None,
         gitmodules_url=declared.stdout.strip() if declared.returncode == 0 else None,
-        worktree_ref=named.stdout.strip() if named and named.returncode == 0 else None,
         # The first line only: git puts what it could not do there, and repeats itself afterwards
         # about which command it gave up on, which the reader already knows.
         unreadable=refusal[0] if refusal else None,

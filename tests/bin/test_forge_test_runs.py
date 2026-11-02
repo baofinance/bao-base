@@ -20,7 +20,7 @@ import forge_test_runs
 _BIN = pathlib.Path(__file__).resolve().parents[2] / "bin"
 _RUNS = ["test", "gas", "coverage"]
 _INVARIANT_SETTINGS = ("FOUNDRY_INVARIANT_FAIL_ON_REVERT", "FOUNDRY_INVARIANT_RUNS", "FOUNDRY_INVARIANT_DEPTH")
-_EVERY_RUN = ["--no-dynamic-test-linking", "--nmp", "script/**/*.t.sol"]
+_EVERY_RUN = ["--gas-limit", "18446744073709551615", "--no-dynamic-test-linking", "--nmp", "script/**/*.t.sol"]
 
 # records how forge was called - its environment and its arguments, and what the run had made for it - as
 # JSON, runs nothing, and exits with the status STUB_FORGE_STATUS names

@@ -965,6 +965,35 @@ def test_block_gas_limit_reported_when_forge_does_not_report_it(tmp_path, monkey
     assert "forge config does not give disable_block_gas_limit" in problems[0], problems[0]
 
 
+# ── deny_warnings_problems: a build fails on a compiler warning ──
+#
+# The test runs pass their own --deny, so foundry.toml's `deny` reaches only a build made by hand and a
+# script's build - where a warning would otherwise pass unseen. Read as the other settings are: from what
+# `forge config` resolves, with the environment variable that overrides the file set or removed explicitly.
+def test_deny_warnings_clean_when_forge_denies_them(tmp_path, monkeypatch):
+    monkeypatch.delenv("FOUNDRY_DENY", raising=False)
+    repo = _with_foundry_toml(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), 'deny = "warnings"\n')
+    assert doctor.deny_warnings_problems(repo) == []
+
+
+def test_deny_warnings_reported_at_forges_default(tmp_path, monkeypatch):
+    # forge lets a warning pass unless told otherwise, so a foundry.toml that says nothing is a finding
+    monkeypatch.delenv("FOUNDRY_DENY", raising=False)
+    repo = _with_foundry_toml(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), "")
+    problems = doctor.deny_warnings_problems(repo)
+    assert len(problems) == 1
+    assert 'forge config gives deny = "never"' in problems[0], problems[0]
+    assert 'Repair: set deny = "warnings" in [profile.default] in foundry.toml' in problems[0], problems[0]
+
+
+def test_deny_warnings_reads_what_forge_resolves_not_the_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("FOUNDRY_DENY", "never")
+    repo = _with_foundry_toml(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), 'deny = "warnings"\n')
+    problems = doctor.deny_warnings_problems(repo)
+    assert len(problems) == 1
+    assert 'forge config gives deny = "never"' in problems[0], problems[0]
+
+
 # ── foundry_lock_problems: no foundry.lock, in the index or on disk ──
 #
 # forge writes the lock on `forge install` and `forge update`, which yarn dep replaces, and yarn dep leaves it

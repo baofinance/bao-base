@@ -555,6 +555,21 @@ def block_gas_limit_problems(repo_root: Path) -> list[str]:
     )
 
 
+def deny_warnings_problems(repo_root: Path) -> list[str]:
+    """Whether a build fails on a compiler warning. The test runs pass their own `--deny`
+    (bin/forge_test_runs.py), so foundry.toml's `deny` reaches only the builds they do not make: one made by
+    hand, and the one a script makes before it runs, where a warning would otherwise pass unseen. Returns one
+    finding, or [] when forge resolves it to "warnings"."""
+    return forge_setting_findings(
+        repo_root,
+        None,
+        "deny",
+        "warnings",
+        "a build made by hand, or for a script, passes with compiler warnings",
+        'set deny = "warnings" in [profile.default] in foundry.toml',
+    )
+
+
 def foundry_lock_problems(repo_root: Path) -> list[str]:
     """A foundry.lock in the index or the working tree. forge writes one on `forge install` and `forge update`,
     recording which branch or tag each dependency came from. `yarn dep`, which replaces them, records that in
@@ -1148,6 +1163,14 @@ def build_checks(
             "in one call, and yarn coverage asks for it on the command line",
             "a transaction too large for a block passes simulation and fails when it is sent",
             block_gas_limit_problems(repo_root),
+        ),
+        Check(
+            "a build fails on a compiler warning",
+            "yarn test passes --deny never to keep its build cache, and yarn gas passes --deny warnings and is the "
+            "run that fails on one. foundry.toml's deny reaches the builds those runs do not make: forge build by "
+            "hand, and the build a script makes before it runs",
+            "a warning the gas run would fail on passes unseen in a build by hand or in a deploy",
+            deny_warnings_problems(repo_root),
         ),
         Check(
             "wake.toml has the same remappings as foundry.toml",

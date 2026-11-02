@@ -29,6 +29,11 @@ Every run gets:
 - --nmp "script/**/*.t.sol": the tests under script/ are verification campaigns, run by hand through their
   own runner before a deployment, and not the project's test suite.
 
+- --gas-limit 18446744073709551615: the block gas limit of a test's own chain, lifted to the maximum so
+  that a setUp deploying a whole stack is not capped at forge's default of 2^30. A forked test takes the
+  forked block's limit instead, whatever this says. A run setting, so it lives here rather than in a
+  project's foundry.toml, where it would reach forge script as well.
+
 - The invariant settings, as environment variables, so that no project's foundry.toml has to carry them:
   a handler call that reverts fails the run - forge discards such a call unless told otherwise, and the run
   then passes however many revert, so a handler whose every call reverts proves nothing; and the shared
@@ -85,7 +90,7 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-_EVERY_RUN = ["--no-dynamic-test-linking", "--nmp", "script/**/*.t.sol"]
+_EVERY_RUN = ["--gas-limit", "18446744073709551615", "--no-dynamic-test-linking", "--nmp", "script/**/*.t.sol"]
 
 
 def _verbosity(environ: Mapping[str, str], quiet: str) -> str:
