@@ -1,49 +1,9 @@
-#!/usr/bin/env bash
-set -e
-set -o pipefail
+#!/usr/bin/env python3
+"""`yarn gas`: the gas report, and the run that fails on a compiler warning. The command is forge_test_runs',
+which says what it is for."""
 
-[[ "${BAO_BASE_VERBOSITY:-0}" -gt 0 ]] && set -x
-# temp deployment scripts dir
-mkdir -p tmp
-# split: `export X=$(cmd)` returns export's status, hiding a failing mktemp
-BAO_DEPLOYMENT_LOGS_ROOT=$(mktemp -d -p tmp)
-export BAO_DEPLOYMENT_LOGS_ROOT
-trap 'rm -rf "${BAO_DEPLOYMENT_LOGS_ROOT}"' EXIT
+import sys
 
-mkdir -p results
-status=0
-# `--no-match-test _notInGasReport` opts a test OUT of the gas pass by name, the only selector forge
-# offers. Under --isolate every top-level call becomes its own transaction, so a many-iteration
-# stress test can cost hundreds of times its neighbours while adding nothing the shorter tests do not
-# already measure for the same functions. Such a test keeps that suffix; it still runs under `test`
-# and `coverage`, where the iterations earn their keep. Kept before "$@" so a caller can still add
-# their own filters, but note forge takes only the LAST --no-match-test, so an explicit one there
-# replaces this rather than combining.
-# The verbosity flag is optional: -v/-vv/-vvv... when BAO_BASE_VERBOSITY>0, and entirely absent
-# otherwise. It must be absent, not empty - forge rejects an empty "" positional argument - so the
-# command is collected in an array where that element is added only when it exists.
-cmd=(forge test)
-if [[ "${BAO_BASE_VERBOSITY:-0}" -gt 0 ]]; then
-  cmd+=("-$(printf "%${BAO_BASE_VERBOSITY}s" "" | tr ' ' 'v')")
-else
-  cmd+=(-s)
-fi
-# --no-dynamic-test-linking for the reason bin/test documents at length
-# (https://github.com/foundry-rs/foundry/issues/16901). This pass has its own cache
-# (--cache-path cache/_gas), so it goes stale independently of the test pass: verified on forge 1.8.1,
-# an edited contract reported the SAME gas to the digit, which is the one number this pass exists to
-# measure and the one a regression baseline would then freeze. Still needed on forge 1.8.3 for a
-# contract outside src, however it is imported.
-# tests/toolchain/test_forge_dynamic_test_linking.py fails if this flag is removed while the defect stands.
-# --deny warnings makes this the run that fails on a compiler warning, since bin/test passes --deny never to
-# keep its build cache. Coverage cannot be the gate: it compiles with the optimizer off, and solc then warns
-# that the larger contracts exceed the code size limit. Under denied warnings forge 1.8.4 keeps no cache
-# (https://github.com/foundry-rs/foundry/pull/17202), so this pass always compiles in full and cache/_gas
-# stays empty until forge caches again. tests/toolchain/test_forge_deny_warnings_cache.py pins both halves.
-cmd+=(--out out/_gas --cache-path cache/_gas --no-dynamic-test-linking --nmp 'script/**/*.t.sol' --no-match-test '_notInGasReport' --isolate --gas-report --fuzz-seed 1 --fuzz-runs 64 --deny warnings)
-set -x
-"${cmd[@]}" "$@" || status=$?
-{ set +x; } 2>/dev/null
-# make forge's exit status the script's return value: the set +x above would otherwise mask it,
-# and run sources this script under `|| exit_code=$?` which suppresses set -e
-(exit "$status")
+from forge_test_runs import main
+
+sys.exit(main("gas", sys.argv[1:]))

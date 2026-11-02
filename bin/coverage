@@ -1,35 +1,8 @@
-#!/usr/bin/env bash
-set -e
-set -o pipefail
+#!/usr/bin/env python3
+"""`yarn coverage`: the coverage report. The command is forge_test_runs', which says what it is for."""
 
-[[ "${BAO_BASE_VERBOSITY:-0}" -gt 0 ]] && set -x
-VERBOSITY="-v"
-if [[ "${BAO_BASE_VERBOSITY:-0}" -gt 0 ]]; then VERBOSITY="-$(printf "%${BAO_BASE_VERBOSITY}s" "" | tr ' ' 'v')"; fi
-# signal to Solidity code that we're in coverage mode
-export BAO_COVERAGE_RUN=true
+import sys
 
-# temp deployment scripts dir
-mkdir -p tmp
-# split: `export X=$(cmd)` returns export's status, hiding a failing mktemp
-BAO_DEPLOYMENT_LOGS_ROOT=$(mktemp -d -p tmp)
-export BAO_DEPLOYMENT_LOGS_ROOT
-trap 'rm -rf "${BAO_DEPLOYMENT_LOGS_ROOT}"' EXIT
+from forge_test_runs import main
 
-mkdir -p results
-# run the coverage
-# --disable-block-gas-limit: coverage is the one run that compiles with the optimizer off (forge does
-# that so line data maps back to source), which inflates every contract's deployed code and with it the
-# 200 gas per byte charged to deposit that code - a 40KB contract costs over 8M gas to deploy. A test
-# that forks adopts the forked block's gas limit (60M on mainnet) in place of foundry.toml's, and a
-# setUp deploying a stack of such contracts exceeds it; the create halts out of gas and setUp reverts
-# with no indication of why. Lifting that ceiling keeps the run on foundry's own configured gas limit.
-# --fuzz-seed 1: the baseline this run feeds (regression/coverage.txt) is compared exactly, so two runs of the
-# same code must fuzz with the same inputs - an unpinned seed lets a branch that only some inputs reach come and
-# go, and report a change that is not one. The seed bin/gas pins, for the same reason.
-status=0
-set -x
-forge coverage "${VERBOSITY}" --nmp 'script/**/*.t.sol' --fuzz-seed 1 --report summary --report lcov --deny never --disable-block-gas-limit "$@" --no-dynamic-test-linking || status=$?
-{ set +x; } 2>/dev/null
-# make forge's exit status the script's return value: the set +x above would otherwise mask it,
-# and run sources this script under `|| exit_code=$?` which suppresses set -e
-(exit "$status")
+sys.exit(main("coverage", sys.argv[1:]))

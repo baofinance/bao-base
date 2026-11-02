@@ -498,26 +498,87 @@ def forge_source_directories(repo_root: Path) -> tuple[str, ...]:
     return tuple(config[key] for key in ("src", "test", "script"))
 
 
+def forge_setting_findings(
+    repo_root: Path, section: str | None, key: str, wanted: Any, consequence: str, repair: str
+) -> list[str]:
+    """One finding when forge does not resolve the setting `key` to `wanted` - in the table `section` of
+    foundry.toml, or in the profile when `section` is None. Read from `forge config` rather than foundry.toml,
+    because an environment variable or the active profile overrides the file, and forge builds and tests with
+    what it resolves. A key forge does not report is a finding too: the question is then unanswered, and a
+    pass would say it was looked at. `consequence` is what the setting's other value does, as the finding
+    states it; `repair` is the change to foundry.toml. Returns [] when forge resolves the setting to
+    `wanted`."""
+    resolved = forge_config(repo_root)
+    settings: dict[str, Any] = resolved if section is None else resolved.get(section, {})
+    name = key if section is None else f"{section}.{key}"
+    if key in settings and settings[key] == wanted:
+        return []
+    found = (
+        f"forge config gives {name} = {json.dumps(settings[key])}, so {consequence}"
+        if key in settings
+        else f"forge config does not give {name}, so doctor cannot tell whether {consequence}"
+    )
+    return [
+        f"{found}\n  Repair: {repair}. If foundry.toml already says so, an environment variable changes it:"
+        " FOUNDRY_PROFILE, or another FOUNDRY_* variable."
+    ]
+
+
 def remapping_detection_problems(repo_root: Path) -> list[str]:
     """Whether forge adds remappings of its own. Unless `auto_detect_remappings` is false, forge derives
     remappings from the library directories it finds - nested ones inside dependencies included - and uses
-    them beside the ones foundry.toml writes. Read from `forge config` rather than foundry.toml, because an
-    environment variable or the active profile overrides the file and forge builds with what it resolves.
-    Returns one finding, or [] when forge resolves it to false."""
-    resolved = forge_config(repo_root)
-    if resolved.get("auto_detect_remappings") is False:
-        return []
-    found = (
-        f"forge config gives auto_detect_remappings = {json.dumps(resolved['auto_detect_remappings'])},"
-        " so forge adds remappings of its own"
-        if "auto_detect_remappings" in resolved
-        else "forge config does not give auto_detect_remappings, so doctor cannot tell whether forge adds"
-        " remappings of its own"
+    them beside the ones foundry.toml writes. Returns one finding, or [] when forge resolves it to false."""
+    return forge_setting_findings(
+        repo_root,
+        None,
+        "auto_detect_remappings",
+        False,
+        "forge adds remappings of its own",
+        "set auto_detect_remappings = false in [profile.default] in foundry.toml",
     )
-    return [
-        f"{found}\n  Repair: set auto_detect_remappings = false in [profile.default] in foundry.toml. If it is"
-        " already set there, an environment variable changes it: FOUNDRY_PROFILE, or another FOUNDRY_* variable."
-    ]
+
+
+def block_gas_limit_problems(repo_root: Path) -> list[str]:
+    """Whether a script's simulation keeps the block gas limit check. `disable_block_gas_limit` in
+    foundry.toml reaches every forge run, `forge script` included, whose simulation then no longer checks
+    that each transaction fits a block before it is sent. The one run that needs the lift - coverage, whose
+    unoptimised build deploys more code than a forked block's gas limit allows in one call - asks for it on
+    its command line, and no other run gets it. Returns one finding, or [] when forge resolves it to
+    false."""
+    return forge_setting_findings(
+        repo_root,
+        None,
+        "disable_block_gas_limit",
+        False,
+        "a script's simulation does not check that each transaction fits a block",
+        "remove disable_block_gas_limit from foundry.toml",
+    )
+
+
+def foundry_lock_problems(repo_root: Path) -> list[str]:
+    """A foundry.lock in the index or the working tree. forge writes one on `forge install` and `forge update`,
+    recording which branch or tag each dependency came from. `yarn dep`, which replaces them, records that in
+    .gitmodules and in the commit this repository points to, and leaves the lock as it was - so a lock names
+    versions the dependencies left, and forge reads it as current when told to (`--locked`). Presence is the
+    finding, whatever the lock says; the repair depends on what git knows of it. Returns [] when there is
+    none."""
+    tracked = (
+        subprocess.run(
+            ["git", "ls-files", "--error-unmatch", "foundry.lock"], cwd=repo_root, capture_output=True, text=True
+        ).returncode
+        == 0
+    )
+    present = (repo_root / "foundry.lock").is_file()
+    if tracked and present:
+        return ["git tracks foundry.lock\n  Repair: git rm foundry.lock"]
+    if tracked:
+        return [
+            "git tracks foundry.lock, and the working tree does not have it, so the next checkout brings it back\n"
+            "  Repair: git rm foundry.lock (this records the deletion)"
+        ]
+    if present:
+        return ["foundry.lock is in the working tree, and git does not track it\n  Repair: rm foundry.lock"]
+    return []
 
 
 def wake_scope_problems(repo_root: Path) -> list[str]:
@@ -1052,6 +1113,15 @@ def build_checks(
             remapping_detection_problems(repo_root),
         ),
         Check(
+            "a script's simulation keeps the block gas limit check",
+            "disable_block_gas_limit in foundry.toml reaches every forge run, forge script included. A script's "
+            "simulation then no longer checks that each transaction fits a block. The one run that needs the "
+            "lift is coverage, whose unoptimised build deploys more code than a forked block's gas limit allows "
+            "in one call, and yarn coverage asks for it on the command line",
+            "a transaction too large for a block passes simulation and fails when it is sent",
+            block_gas_limit_problems(repo_root),
+        ),
+        Check(
             "wake.toml has the same remappings as foundry.toml",
             "wake must find each import in the same file as forge. Otherwise wake checks a different program "
             "from the one forge builds",
@@ -1131,6 +1201,16 @@ def build_checks(
             "there is left from an older recursive checkout, at whatever commit it had then",
             "it can be taken for code the build uses, and every tool that walks the submodules reads it",
             unused_checkout_problems(repo_root, remappings),
+        ),
+        Check(
+            "no foundry.lock",
+            "forge writes foundry.lock on forge install and forge update, to record which branch or tag each "
+            "dependency came from. Dependencies here are moved with yarn dep, which records that in .gitmodules "
+            "and in the commit this repository points to, and leaves the lock as it was. forge reads the lock "
+            "only when told to, with --locked",
+            "the lock names versions the dependencies left long ago, and forge --locked, or anyone who reads it, "
+            "takes them for the current ones",
+            foundry_lock_problems(repo_root),
         ),
         workflow_copy.check(repo_root),
         Check(

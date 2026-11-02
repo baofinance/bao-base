@@ -929,6 +929,88 @@ def test_remapping_detection_reported_when_forge_does_not_report_it(tmp_path, mo
     assert "forge config does not give auto_detect_remappings" in problems[0], problems[0]
 
 
+# ── block_gas_limit_problems: a script's simulation keeps the block gas limit check ──
+#
+# disable_block_gas_limit in foundry.toml reaches every forge run, forge script included, whose simulation
+# then no longer checks that each transaction fits a block. The one run that needs the lift, coverage, asks
+# for it on its command line. Read as remapping detection is: each test builds a project in tmp_path, so the
+# value is the one `forge config` resolves, with the environment variable that overrides the file set or
+# removed explicitly.
+def test_block_gas_limit_clean_when_forge_keeps_the_check(tmp_path, monkeypatch):
+    monkeypatch.delenv("FOUNDRY_DISABLE_BLOCK_GAS_LIMIT", raising=False)
+    repo = _with_foundry_toml(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), "")
+    assert doctor.block_gas_limit_problems(repo) == []
+
+
+def test_block_gas_limit_reported_when_the_file_lifts_it(tmp_path, monkeypatch):
+    monkeypatch.delenv("FOUNDRY_DISABLE_BLOCK_GAS_LIMIT", raising=False)
+    repo = _with_foundry_toml(
+        _forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), "disable_block_gas_limit = true\n"
+    )
+    problems = doctor.block_gas_limit_problems(repo)
+    assert len(problems) == 1
+    assert "forge config gives disable_block_gas_limit = true" in problems[0], problems[0]
+    assert "Repair: remove disable_block_gas_limit from foundry.toml" in problems[0], problems[0]
+
+
+def test_block_gas_limit_reads_what_forge_resolves_not_the_file(tmp_path, monkeypatch):
+    # an environment variable lifts it for every forge run in that shell, forge script included
+    monkeypatch.setenv("FOUNDRY_DISABLE_BLOCK_GAS_LIMIT", "true")
+    repo = _with_foundry_toml(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), "")
+    problems = doctor.block_gas_limit_problems(repo)
+    assert len(problems) == 1
+    assert "forge config gives disable_block_gas_limit = true" in problems[0], problems[0]
+
+
+def test_block_gas_limit_reported_when_forge_does_not_report_it(tmp_path, monkeypatch):
+    # a forge whose config does not carry the key leaves the question unanswered, which is a finding, not a pass
+    monkeypatch.setattr(doctor, "forge_config", lambda repo_root: {})
+    problems = doctor.block_gas_limit_problems(tmp_path)
+    assert len(problems) == 1
+    assert "forge config does not give disable_block_gas_limit" in problems[0], problems[0]
+
+
+# ── foundry_lock_problems: no foundry.lock, in the index or on disk ──
+#
+# forge writes the lock on `forge install` and `forge update`, which yarn dep replaces, and yarn dep leaves it
+# as it was. Presence is the finding, whatever the lock says, and the repair depends on what git knows of it.
+def _with_tracked_lock(repo: pathlib.Path) -> pathlib.Path:
+    (repo / "foundry.lock").write_text("{}")
+    _git(repo, "add", "foundry.lock")
+    _git(repo, "commit", "-qm", "lock")
+    return repo
+
+
+def test_lock_none_when_absent(tmp_path):
+    assert doctor.foundry_lock_problems(_init_repo(tmp_path / "host")) == []
+
+
+def test_a_tracked_lock_is_removed_with_git_rm(tmp_path):
+    problems = doctor.foundry_lock_problems(_with_tracked_lock(_init_repo(tmp_path / "host")))
+    assert len(problems) == 1
+    assert problems[0].startswith("git tracks foundry.lock"), problems[0]
+    assert "Repair: git rm foundry.lock" in problems[0], problems[0]
+
+
+def test_a_tracked_lock_deleted_from_the_working_tree_is_still_a_finding(tmp_path):
+    # the index still holds it, so the next checkout brings it back; git rm records the deletion
+    repo = _with_tracked_lock(_init_repo(tmp_path / "host"))
+    (repo / "foundry.lock").unlink()
+    problems = doctor.foundry_lock_problems(repo)
+    assert len(problems) == 1
+    assert problems[0].startswith("git tracks foundry.lock, and the working tree does not have it"), problems[0]
+    assert "Repair: git rm foundry.lock" in problems[0], problems[0]
+
+
+def test_an_untracked_lock_is_deleted(tmp_path):
+    repo = _init_repo(tmp_path / "host")
+    (repo / "foundry.lock").write_text("{}")
+    problems = doctor.foundry_lock_problems(repo)
+    assert len(problems) == 1
+    assert problems[0].startswith("foundry.lock is in the working tree, and git does not track it"), problems[0]
+    assert "Repair: rm foundry.lock" in problems[0], problems[0]
+
+
 # ── ruff's settings extend bao-base's ──────────────────────────────────────────────────────────────────
 
 _BAO_BASE = _module_path.parents[1]
