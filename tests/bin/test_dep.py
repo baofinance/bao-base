@@ -487,7 +487,7 @@ def test_a_sync_whose_tag_fetch_fails_finishes_the_rest_and_fails(tmp_path):
 
 # ── update: moving one dependency to a named version ──────────────────────────────────────────────
 #
-# `update` moves a dependency the way update-submodule does, without foundry.lock: the branch it follows
+# `update` moves a dependency with git alone: the branch it follows
 # is recorded in .gitmodules, and only the nested paths a remapping names are checked out beneath it.
 
 

@@ -472,8 +472,8 @@ def test_permission_scope_flags_the_same_file_once_it_is_tracked(tmp_path):
 
 # ── submodule_problems: one finding per submodule, and silence about states that are normal ──
 #
-# It returns (versions, leftovers), split by what the reader must DO - a version is moved, staged or
-# locked, and a leftover is deleted - because that is what each check's title has to be true of. Which
+# It returns (versions, leftovers), split by what the reader must DO - a version is moved or staged, and
+# a leftover is deleted - because that is what each check's title has to be true of. Which
 # list a finding lands in is asserted here rather than taken on trust, so a finding cannot migrate to
 # a check whose title does not describe it.
 def _submodule_at(host: pathlib.Path, sub: pathlib.Path, path: str = "lib/sub") -> str:
@@ -490,8 +490,7 @@ def test_submodule_problems_says_nothing_when_every_claim_agrees(tmp_path):
     _git(sub, "add", ".")
     _git(sub, "commit", "-qm", "content")
     host = _init_repo(tmp_path / "host")
-    sha = _submodule_at(host, sub)
-    (host / "foundry.lock").write_text(json.dumps({"lib/sub": {"tag": {"name": "v1", "rev": sha}}}))
+    _submodule_at(host, sub)
 
     assert doctor.submodule_problems(host, []) == ([], [])
 
@@ -547,9 +546,9 @@ def test_submodule_problems_reports_one_finding_carrying_its_own_repair(tmp_path
     ) in problems[0], problems[0]
 
 
-# ── the coverage the four superseded checks had, which iterating foundry.lock alone did not ──
+# ── a nested tree: a dependency with a submodule of its own, and a second dependency beside it ──
 def _nest(tmp_path: pathlib.Path) -> pathlib.Path:
-    """A host with lib/dep -> lib/child, and lib/unlocked which foundry.lock never mentions."""
+    """A host with lib/dep -> lib/child, and lib/unlocked beside it."""
     for name in ("child", "dep", "unlocked"):
         repo = _init_repo(tmp_path / "remotes" / name)
         (repo / "a.txt").write_text("a")
@@ -578,16 +577,12 @@ def _nest(tmp_path: pathlib.Path) -> pathlib.Path:
         )
     _git(host, "-c", "protocol.file.allow=always", "submodule", "update", "--init", "--recursive")
     _git(host, "commit", "-qm", "add deps")
-    sha = subprocess.run(
-        ["git", "-C", str(host / "lib" / "dep"), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
-    ).stdout.strip()
-    (host / "foundry.lock").write_text(json.dumps({"lib/dep": {"tag": {"name": "v1", "rev": sha}}}))
     return host
 
 
 def test_a_stray_clone_in_our_own_tree_is_reported(tmp_path):
-    # Ours to delete, and invisible to everyone else. It is in no .gitmodules and no foundry.lock, so
-    # nothing that iterates either would ever look at it.
+    # Ours to delete, and invisible to everyone else. It is in no .gitmodules, so nothing that iterates
+    # that would ever look at it.
     host = _nest(tmp_path)
     _init_repo(host / "lib" / "strayclone")
 

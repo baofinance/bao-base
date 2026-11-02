@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Recover the source commit of every deployed contract that has no baseline, and prove it on chain.
 
-Reports by default and writes only when told to, like `yarn update --check`: a baseline is believed by
-everything downstream, so writing one is a deliberate act.
+Reports by default and writes only when told to: a baseline is believed by everything downstream, so
+writing one is a deliberate act.
 
 A contract is recorded ONLY when the commit's build matches the deployed code. A candidate that does
 not match is reported and skipped - an unrecovered baseline is a known gap, and a wrong one is a lie.

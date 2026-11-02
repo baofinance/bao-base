@@ -12,7 +12,6 @@ that transport are refused by default. `forge` is not involved - this module nev
 
 from __future__ import annotations
 
-import json
 import subprocess
 import sys
 from pathlib import Path
@@ -24,14 +23,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bin"))
 
 from submodule_state import (  # noqa: E402
     UnreadableGitmodules,
-    UnreadableLock,
-    checklist,
     condition,
     conflicting_dependencies,
     declared_submodules,
     keep_command,
     read_facts,
-    read_lock,
     repair,
 )
 
@@ -62,11 +58,6 @@ def add_commit(source: Path, message: str) -> str:
     return git(source, "rev-parse", "HEAD").stdout.strip()
 
 
-def write_lock(project: Path, path: str, kind: str, name: str | None, rev: str) -> None:
-    entry = {"rev": rev} if kind == "rev" else {kind: {"name": name, "rev": rev}}
-    (project / "foundry.lock").write_text(json.dumps({path: entry}, indent=2))
-
-
 class World(NamedTuple):
     """The project under test, plus the remote its dependency was cloned from so a test can advance
     it, and the directory to put further remotes in."""
@@ -78,8 +69,8 @@ class World(NamedTuple):
 
 @pytest.fixture
 def world(tmp_path):
-    """A project with `lib/dep` checked out at v1, and foundry.lock agreeing - the consistent state
-    every other test perturbs. `world.dep_source` is the remote, so tests can advance it."""
+    """A project with `lib/dep` checked out at v1 - the consistent state every other test perturbs.
+    `world.dep_source` is the remote, so tests can advance it."""
     remote = make_repo(tmp_path / "remotes", "dep")
     project = tmp_path / "project"
     (project / "src").mkdir(parents=True)
@@ -89,7 +80,6 @@ def world(tmp_path):
     git(project, "commit", "-qm", "init")
     git(project, "submodule", "add", "-q", str(remote), "lib/dep")
     git(project / "lib" / "dep", "checkout", "-q", "v1")
-    write_lock(project, "lib/dep", "tag", "v1", git(remote, "rev-parse", "v1").stdout.strip())
     git(project, "add", "-A")
     git(project, "commit", "-qm", "add dep")
     return World(project, remote, tmp_path / "remotes")
@@ -100,26 +90,19 @@ def facts_for(project: Path):
 
 
 def test_a_tree_that_agrees_is_consistent(world):
-    # All four claims name the same commit, so there is nothing to report and nothing to do.
+    # All three claims name the same commit, so there is nothing to report and nothing to do.
     assert condition(facts_for(world.project)).name == "consistent"
     assert not condition(facts_for(world.project)).is_fault
 
 
 def test_working_in_a_dependency_still_blocks_a_delete_but_is_not_a_finding(world):
     # Two different questions that used to share one answer. Whether something would be DESTROYED is
-    # what guards `yarn update`, and must stay as wide as it is. Whether something is WRONG is what
+    # what guards `yarn dep update`, and must stay as wide as it is. Whether something is WRONG is what
     # doctor reports - and having work in progress in a dependency is not wrong, it is what working in
     # one looks like. Reporting it every run says nothing except that you have not finished yet.
     add_commit(world.project / "lib" / "dep", "local work")
     git(world.project, "add", "-A")
     git(world.project, "commit", "-qm", "record local work")
-    write_lock(
-        world.project,
-        "lib/dep",
-        "branch",
-        "main",
-        git(world.project / "lib" / "dep", "rev-parse", "HEAD").stdout.strip(),
-    )
 
     facts = facts_for(world.project)
 
@@ -312,35 +295,6 @@ def test_an_untracked_repository_inside_a_dependency_is_litter(world):
     assert condition(facts).name == "litter-present"
 
 
-def test_the_lock_records_which_kind_of_pin_it_is(world):
-    # Only a branch can resolve itself, which is what decides whether a bare `yarn update <dep>` has a
-    # ref to move to or must ask for one.
-    write_lock(world.project, "lib/dep", "branch", "main", "abc")
-    assert read_lock(world.project)["lib/dep"].moving is True
-    write_lock(world.project, "lib/dep", "tag", "v1", "abc")
-    assert read_lock(world.project)["lib/dep"].moving is False
-    write_lock(world.project, "lib/dep", "rev", None, "abc")
-    assert read_lock(world.project)["lib/dep"].moving is False
-
-
-def test_a_missing_lock_leaves_every_dependency_unpinned(tmp_path):
-    # An answer, not a failure: a project with no lock pins nothing, which is exactly true of a
-    # repository that never used forge.
-    assert read_lock(tmp_path) == {}
-
-
-def test_a_lock_that_cannot_be_READ_is_refused_rather_than_read_as_empty(tmp_path):
-    # Opposite meanings from the same value. A lock somebody wrote and that will not parse is a
-    # defect in the file; answering {} says the project deliberately pins nothing, and every check
-    # downstream then agrees that a tree with no pins is in order.
-    (tmp_path / "foundry.lock").write_text("{ not json")
-
-    with pytest.raises(UnreadableLock) as refused:
-        read_lock(tmp_path)
-
-    assert "foundry.lock" in str(refused.value)
-
-
 def test_a_gitmodules_git_cannot_read_is_reported(tmp_path):
     # Read as empty, a broken .gitmodules would make every dependency vanish and every check over them pass,
     # so git's own refusal is what the caller gets instead.
@@ -351,126 +305,6 @@ def test_a_gitmodules_git_cannot_read_is_reported(tmp_path):
         declared_submodules(tmp_path)
 
     assert ".gitmodules" in str(refused.value), refused.value
-
-
-def test_a_consistent_tree_has_nothing_left_on_the_checklist(world):
-    facts = facts_for(world.project)
-    stages = checklist(facts, "v1", facts.worktree)
-    assert all(stage.done for stage in stages), [s for s in stages if not s.done]
-
-
-def test_the_checklist_leaves_only_what_is_undone(world):
-    # The property that lets `yarn update` continue someone else's half-finished job: a bump that has
-    # reached the working tree needs the lock, the staging and the commit - and nothing else. In
-    # particular stage 2 is already done, so nothing is deleted or re-cloned.
-    add_commit(world.dep_source, "v2")
-    git(world.dep_source, "tag", "v2")
-    git(world.project / "lib" / "dep", "fetch", "-q", "origin", "--tags")
-    git(world.project / "lib" / "dep", "checkout", "-q", "v2")
-    target = git(world.project / "lib" / "dep", "rev-parse", "HEAD").stdout.strip()
-
-    stages = {stage.number: stage for stage in checklist(facts_for(world.project), "v2", target)}
-
-    assert stages[2].done, "the working tree is already there - nothing may be deleted"
-    assert stages[0].done and stages[1].done
-    assert not stages[5].done, "the lock still names the old version"
-    assert not stages[6].done and not stages[7].done
-    assert stages[6].action == "git add lib/dep"
-
-
-@pytest.mark.parametrize("by_tag", [True, False], ids=["tag", "commit"])
-def test_the_printed_fetch_repair_succeeds_over_a_replaced_deployment_tag(world, by_tag):
-    # The folder holds the lightweight deployment tag an older tool made; its remote holds the corrected,
-    # annotated one. A plain `git fetch --tags` refuses to replace it, so the repair takes origin's version.
-    # The version moved to is a tag, or a commit only a branch reaches, which the repair fetches as well.
-    tag = "deploy/mainnet/state@2026-01-03T00-00-00Z"
-    dep = world.project / "lib" / "dep"
-    git(dep, "tag", tag)
-    git(world.dep_source, "tag", "-a", tag, "-m", "corrected", "v1")
-    target = add_commit(world.dep_source, "v2")
-    if by_tag:
-        git(world.dep_source, "tag", "v2")
-    stage = {stage.number: stage for stage in checklist(facts_for(world.project), "v2" if by_tag else target, target)}[
-        2
-    ]
-    assert not stage.done, "the folder is not at v2 yet"
-
-    repaired = subprocess.run(stage.action, shell=True, cwd=world.project, capture_output=True, text=True)
-
-    assert repaired.returncode == 0, f"{stage.action}\n{repaired.stdout}{repaired.stderr}"
-    assert git(dep, "rev-parse", "HEAD").stdout.strip() == target
-    assert git(dep, "rev-parse", tag).stdout.strip() == git(world.dep_source, "rev-parse", tag).stdout.strip()
-
-
-def move_to_v2_and_lock_it(world: World) -> str:
-    """Move the dependency to a new tag v2 and write foundry.lock to record it, staging nothing."""
-    dep = world.project / "lib" / "dep"
-    add_commit(world.dep_source, "v2")
-    git(world.dep_source, "tag", "v2")
-    git(dep, "fetch", "-q", "origin", "--tags")
-    git(dep, "checkout", "-q", "v2")
-    moved = git(dep, "rev-parse", "HEAD").stdout.strip()
-    write_lock(world.project, "lib/dep", "tag", "v2", moved)
-    return moved
-
-
-def test_a_lock_entry_left_unstaged_leaves_the_move_unstaged(world):
-    # The lock entry is half of the move: committing the gitlink without it records a pin and a lock
-    # that disagree. So staging is done only when both are staged, and the action names what is not.
-    moved = move_to_v2_and_lock_it(world)
-    git(world.project, "add", "lib/dep")
-
-    stages = {stage.number: stage for stage in checklist(facts_for(world.project), "v2", moved)}
-
-    assert stages[5].done, "the lock itself is right"
-    assert not stages[6].done, stages[6]
-    assert stages[6].action == "git add foundry.lock"
-    assert not stages[7].done, stages[7]
-
-
-def test_a_lock_entry_left_uncommitted_leaves_the_move_uncommitted(world):
-    # Committing only the gitlink leaves the lock entry staged and nowhere in HEAD.
-    moved = move_to_v2_and_lock_it(world)
-    git(world.project, "add", "lib/dep", "foundry.lock")
-    git(world.project, "commit", "-qm", "the gitlink alone", "--", "lib/dep")
-
-    stages = {stage.number: stage for stage in checklist(facts_for(world.project), "v2", moved)}
-
-    assert stages[6].done, stages[6]
-    assert not stages[7].done, stages[7]
-    assert stages[7].action == "git commit"
-
-
-def test_another_dependencys_lock_entry_does_not_hold_this_one_back(world):
-    # Staged and committed are asked of THIS dependency's entry, not of the whole file: a lock that is
-    # also part-way through other dependencies' updates must not leave this one forever unfinished.
-    lock = world.project / "foundry.lock"
-    entries = json.loads(lock.read_text())
-    entries["lib/elsewhere"] = {"tag": {"name": "v9", "rev": "9" * 40}}
-    lock.write_text(json.dumps(entries, indent=2))
-
-    facts = facts_for(world.project)
-    stages = checklist(facts, "v1", facts.worktree)
-
-    assert all(stage.done for stage in stages), [s for s in stages if not s.done]
-
-
-def test_a_stationary_pin_with_no_ref_fails_the_checklist_rather_than_guessing(world):
-    # Two pins disagree and the tool cannot know which was intended, so it must ask. The stage carries
-    # the command that answers it rather than only refusing.
-    stages = {stage.number: stage for stage in checklist(facts_for(world.project), None, None)}
-
-    assert not stages[1].done
-    assert "yarn update lib/dep@<ref>" in stages[1].action
-
-
-def test_work_that_a_delete_would_destroy_stops_the_checklist_at_stage_zero(world):
-    add_commit(world.project / "lib" / "dep", "local work")
-
-    stages = {stage.number: stage for stage in checklist(facts_for(world.project), "v1", "whatever")}
-
-    assert not stages[0].done
-    assert "--force" in stages[0].action and "commit and push" in stages[0].action
 
 
 def test_litter_is_found_inside_an_entirely_untracked_parent(world):
@@ -548,7 +382,6 @@ def test_a_nested_submodules_own_commits_block_a_delete(world):
     assert facts.unpushed == [], "it is not a commit at this level either"
     assert facts.has_own_work, "but it would still be destroyed by a delete"
     assert any(item.path.startswith("lib/inner") and item.kind == "unpushed" for item in facts.at_risk)
-    assert not checklist(facts, "v1", facts.worktree)[0].done
 
 
 def test_an_untracked_repositorys_own_commits_block_a_delete(world):
@@ -578,7 +411,6 @@ def test_a_pristine_stranded_checkout_does_not_block_a_delete(world):
 
     assert facts.litter == ["stranded"], facts.litter
     assert not facts.has_own_work, "a clean clone of a reachable remote is replaceable"
-    assert checklist(facts, "v1", facts.worktree)[0].done
 
 
 def test_an_untracked_file_blocks_a_delete(world):
@@ -643,20 +475,17 @@ def test_every_kind_of_uncommitted_change_blocks_a_delete(world, state):
 
     assert facts.at_risk, f"{state} was not seen at all"
     assert facts.has_own_work
-    stage_zero = checklist(facts, "v1", facts.worktree)[0]
-    assert not stage_zero.done, f"{state} did not stop the checklist"
-    assert "--force" in stage_zero.action
 
 
 @pytest.mark.parametrize("state", ["modified", "renamed", "staged deletion", "untracked file"])
 def test_what_is_at_risk_is_named_by_path_not_merely_counted(world, state):
-    # Only the user can tell a day's work from a stray file, and they cannot judge a number - so the
-    # refusal has to say which file, for every shape of change.
+    # Only the user can tell a day's work from a stray file, and they cannot judge a number - so each
+    # item at risk carries its path, for every shape of change, and the refusal names it.
     _arrange(world.project / "lib" / "dep", state)
 
-    detail = checklist(facts_for(world.project), "v1", facts_for(world.project).worktree)[0].detail
+    named = [item.path for item in facts_for(world.project).at_risk]
 
-    assert "A.sol" in detail or "new.txt" in detail, detail
+    assert any("A.sol" in path or "new.txt" in path for path in named), named
 
 
 def test_a_gitignored_file_is_not_treated_as_at_risk(world):

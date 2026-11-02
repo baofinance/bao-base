@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
 """Everything that claims to say which commit a submodule is, read once and answered from.
 
-Four independent things make that claim, and any of them can disagree with the others:
+Three independent things make that claim, and any of them can disagree with the others:
 
   HEAD gitlink    the commit the parent's last commit records  - what CI builds, so the truth
   index gitlink   the commit the parent has staged
   working tree    the commit the submodule is actually on      - what YOU build
-  foundry.lock    forge's record of which REF that commit came from
 
-git can write the first three and never the fourth; forge writes the fourth and the third and never
-the first two. Neither tool does the whole row, and that gap is where every broken state comes from.
+A different git command writes each one - commit, add, checkout - and a move that stops between them
+is where every broken state comes from.
 
 Two consumers read these facts and must never contradict each other:
 
   `condition()` names what is wrong, for bin/doctor.py to report
-  `checklist()` lists what is left to do, for bin/update-submodule to converge
+  `move_checklist()` lists what is left to do, for bin/dep to converge
 
 They are the same question asked at two moments - before touching anything, and after - so diagnosing
 and verifying are one implementation rather than two that drift.
@@ -24,20 +23,14 @@ Everything here is READ-ONLY. Nothing in this module writes to a repository.
 
 from __future__ import annotations
 
-import json
-import shlex
 import subprocess
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
-from deployment_baselines import FETCH_BRANCHES, FETCH_TAGS
-
-# The pin kinds foundry.lock records, and what each means for a bare `yarn update <dep>`.
-# A branch is the only one that can move on its own, so it is the only one that resolves without
-# the user naming a ref.
+# The kind of version that can move on its own: a branch. A tag or a commit resolves nothing by
+# itself, so a bare `yarn dep update <dep>` on one must be told a ref.
 MOVING = "branch"
-STATIONARY = ("tag", "rev")
 
 
 def git(where: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -48,23 +41,13 @@ def git(where: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
 
 @dataclass(frozen=True)
 class Pin:
-    """What foundry.lock records for one dependency.
-
-    `kind` is 'tag', 'branch' or 'rev' when the lock names it, 'unpinned' when the parent keeps a
-    foundry.lock that does not mention it, and 'unmanaged' when the parent keeps no lock at all. The
-    last two look identical in the data and mean opposite things: a foundry project that forgot to
-    pin a dependency has a real gap, while a third-party repository that never used forge has none.
-    """
+    """The version a dependency is asked to move to, as bin/dep resolves the ref it was given: `kind`
+    is 'tag', 'branch' or 'rev', with the ref's `name` and the commit `rev` it names, or 'absent' when
+    the ref resolves to nothing."""
 
     kind: str
     name: str | None
     rev: str | None
-
-    @property
-    def moving(self) -> bool:
-        """A branch pin follows its remote; a tag or commit does not. This is what decides whether a
-        bare `yarn update <dep>` has a ref to resolve or must ask for one."""
-        return self.kind == MOVING
 
 
 @dataclass(frozen=True)
@@ -145,17 +128,11 @@ class Facts:
 
     path: str
     directory: Path
-    lock: Pin
-    # This dependency's foundry.lock entry as the index and HEAD record it - None where they record
-    # none - read beside the gitlinks they record, because writing the entry is part of every move.
-    index_lock: Pin | None
-    head_lock: Pin | None
     head_gitlink: str | None
     index_gitlink: str | None
     worktree: str | None
     origin_url: str | None
     gitmodules_url: str | None
-    remote_tip: str | None
     worktree_ref: str | None = None
     # Git's refusal, when the checkout is present but cannot be read. None whenever git answered -
     # including for a checkout that is genuinely absent, which is a different fault with a different
@@ -179,56 +156,12 @@ class Facts:
         return bool(self.at_risk)
 
 
-class UnreadableLock(Exception):
-    """foundry.lock exists and will not parse. Raised rather than read as an absence, because the two
-    mean opposite things: a project with NO lock pins nothing, which is exactly true of a repository
-    that never used forge, while a lock somebody wrote and that cannot be read is a defect in the
-    file - and answering {} for it makes every check downstream agree the tree is in order."""
-
-
-def read_lock(repo_root: Path) -> dict[str, Pin]:
-    """foundry.lock as {path: Pin}. An ABSENT lock yields {} - nothing is pinned, which is an answer.
-    One that exists and will not parse raises `UnreadableLock` for the caller to report."""
-    lock_file = repo_root / "foundry.lock"
-    if not lock_file.is_file():
-        return {}
-    return _parse_lock(lock_file.read_text(), str(lock_file))
-
-
-def _recorded_lock(repo_root: Path, revision: str) -> dict[str, Pin]:
-    """foundry.lock as `revision` records it - "HEAD", or "" for the index - read as `read_lock` reads
-    the working tree's. A failed read is an absence, as it is for `head_gitlink`: no foundry.lock
-    recorded there, or no HEAD yet."""
-    shown = git(repo_root, "show", f"{revision}:foundry.lock")
-    if shown.returncode != 0:
-        return {}
-    return _parse_lock(shown.stdout, f"foundry.lock in {revision or 'the index'}")
-
-
-def _parse_lock(text: str, source: str) -> dict[str, Pin]:
-    try:
-        raw = json.loads(text)
-    except json.JSONDecodeError as broken:
-        raise UnreadableLock(f"{source} does not parse: {broken}") from broken
-    pins: dict[str, Pin] = {}
-    for path, entry in raw.items():
-        for kind in ("tag", "branch"):
-            if kind in entry:
-                pins[path] = Pin(kind, entry[kind].get("name"), entry[kind].get("rev"))
-                break
-        else:
-            pins[path] = Pin("rev", None, entry.get("rev"))
-    return pins
-
-
 def submodules(repo_dir: Path, prefix: str = "") -> list[tuple[Path, str, str]]:
     """Every submodule in the tree, at any depth, as (its parent repository, its path within that
     parent, its path from the top).
 
-    Read from .gitmodules rather than foundry.lock: the lock is forge's record and need not mention
-    every submodule, and a submodule missing from it is exactly the kind that goes unnoticed.
-    .gitmodules also still lists one that is not checked out, which `git submodule status` reports
-    but a filesystem walk would miss entirely.
+    Read from .gitmodules, which still lists a submodule that is not checked out: `git submodule
+    status` reports one, and a filesystem walk would miss it entirely.
 
     Recursion is what makes depth work everywhere else: each nested submodule is read in its own
     right, against its own parent, so litter and uninitialised checkouts are found at any level
@@ -310,9 +243,10 @@ def _declared(repo_dir: Path) -> list[tuple[str, str]]:
 
 
 class UnreadableGitmodules(Exception):
-    """A `.gitmodules` exists and git will not read it. Raised rather than read as declaring nothing, for
-    the reason `UnreadableLock` gives: the two mean opposite things, and reading the defect as the absence
-    makes every check over the dependencies agree that there is nothing wrong."""
+    """A `.gitmodules` exists and git will not read it. Raised rather than read as declaring nothing,
+    because the two mean opposite things: a repository with no `.gitmodules` declares nothing, while one
+    somebody wrote and that git cannot read is a defect in the file - and reading the defect as the
+    absence makes every check over the dependencies agree that there is nothing wrong."""
 
 
 @dataclass(frozen=True)
@@ -540,7 +474,7 @@ def conflicting_dependencies(repo_root: Path, owner: str | None = None, toolchai
     """Dependencies this repository and a dependency of OURS each stage at a different commit.
 
     Only DIRECT against DIRECT, and only against submodules we own. That is what makes every finding
-    the same thing as its repair: a mismatch here is one `yarn update` away, in this repository, by
+    the same thing as its repair: a mismatch here is one `yarn dep update` away, in this repository, by
     whoever is reading. A disagreement further down - bao-factory's forge-std beneath bao-base - is
     real but is not ours to settle, and bao-base's own run reports it where it can be fixed. The check
     decomposes across repositories rather than one run policing a whole tree, and nothing is lost.
@@ -606,15 +540,10 @@ def stray_clones(repo_root: Path) -> list[str]:
     return found
 
 
-def read_facts(repo_root: Path, path: str, pin: Pin | None = None, display: str | None = None) -> Facts:
+def read_facts(repo_root: Path, path: str, display: str | None = None) -> Facts:
     """Gather every claim about the submodule at `path`, which is relative to `repo_root` - its
-    IMMEDIATE parent, so a nested submodule is read against the repository that records its gitlink
-    and pins it. `display` is how to name it from the top of the tree.
-
-    `pin` saves re-reading foundry.lock when the caller already has it."""
-    if pin is None:
-        managed = (repo_root / "foundry.lock").is_file()
-        pin = read_lock(repo_root).get(path, Pin("unpinned" if managed else "unmanaged", None, None))
+    IMMEDIATE parent, so a nested submodule is read against the repository that records its gitlink.
+    `display` is how to name it from the top of the tree."""
     submodule = repo_root / path
 
     head = git(repo_root, "rev-parse", f"HEAD:{path}")
@@ -632,10 +561,6 @@ def read_facts(repo_root: Path, path: str, pin: Pin | None = None, display: str 
     origin = git(submodule, "remote", "get-url", "origin") if readable else None
     declared = git(repo_root, "config", "-f", ".gitmodules", "--get", f"submodule.{path}.url")
 
-    # The branch tip as of the last fetch. Read from the remote-tracking ref rather than the network:
-    # doctor must not reach out, and "behind as of your last fetch" is the honest claim either way.
-    tip = git(submodule, "rev-parse", f"origin/{pin.name}") if readable and pin.moving else None
-
     # The tag the checked-out commit IS, when it is one. This is what makes a disagreement
     # answerable: the GUI checks a tag out by name, so its bump leaves the intended version readable
     # here. forge checks out a branch, whose tip need not be tagged, so after a forge run this is
@@ -645,15 +570,11 @@ def read_facts(repo_root: Path, path: str, pin: Pin | None = None, display: str 
     return Facts(
         path=display or path,
         directory=submodule,
-        lock=pin,
-        index_lock=_recorded_lock(repo_root, "").get(path),
-        head_lock=_recorded_lock(repo_root, "HEAD").get(path),
         head_gitlink=head.stdout.strip() if head.returncode == 0 else None,
         index_gitlink=staged[1] if len(staged) > 1 else None,
         worktree=checked_out.stdout.strip() if readable else None,
         origin_url=origin.stdout.strip() if origin and origin.returncode == 0 else None,
         gitmodules_url=declared.stdout.strip() if declared.returncode == 0 else None,
-        remote_tip=tip.stdout.strip() if tip and tip.returncode == 0 else None,
         worktree_ref=named.stdout.strip() if named and named.returncode == 0 else None,
         # The first line only: git puts what it could not do there, and repeats itself afterwards
         # about which command it gave up on, which the reader already knows.
@@ -786,7 +707,7 @@ def condition(facts: Facts, nested_off: Sequence[str] = ()) -> Condition:
         return Condition("uninitialised", "the folder is empty")
 
     # `at_risk` is deliberately NOT a condition. It answers "would this be destroyed", which is what
-    # guards `yarn update`'s deleting steps and must stay as wide as it is - `has_own_work` still
+    # guards `yarn dep update`'s deleting steps and must stay as wide as it is - `has_own_work` still
     # carries it, unchanged. It does not answer "is this wrong", which is what doctor reports, and
     # having work in progress inside a dependency is not wrong: it is what working in one looks like,
     # and saying so every run says only that you have not finished yet.
@@ -804,7 +725,7 @@ def condition(facts: Facts, nested_off: Sequence[str] = ()) -> Condition:
     # a pass until you commit demands the very thing it exists to prepare you for - and HEAD lagging is
     # only "not committed yet", which is what all work in progress looks like. What it judges is the
     # checkout against what you have STAGED: the same index-is-the-baseline rule as `ratchet.resolve`
-    # and the dependency-version check. foundry.lock is not read at all.
+    # and the dependency-version check.
     if facts.worktree != facts.index_gitlink:
         # The two commits side by side, the commit first because its width is fixed.
         rows = (((facts.worktree or "")[:10], "working tree"), ((facts.index_gitlink or "absent")[:10], "index"))
@@ -837,7 +758,7 @@ def condition(facts: Facts, nested_off: Sequence[str] = ()) -> Condition:
 
 @dataclass(frozen=True)
 class Stage:
-    """One item of the checklist `yarn update` converges: whether it is already done, and the action
+    """One item of the checklist `yarn dep update` converges: whether it is already done, and the action
     that would complete it. An action is a command to run or an instruction to give - stages the user
     must perform themselves (staging, committing) complete by being printed."""
 
@@ -846,99 +767,6 @@ class Stage:
     done: bool
     detail: str
     action: str
-
-
-def checklist(facts: Facts, target_ref: str | None, target_rev: str | None) -> list[Stage]:
-    """What is left to do to bring `facts` to `target_ref` (whose commit is `target_rev`).
-
-    The caller resolves the ref, because resolving may need a fetch and this module never reaches the
-    network. `target_ref` of None means the caller could not resolve one, which is itself a stage-1
-    failure rather than an error here.
-    """
-    safe = not facts.has_own_work
-    # Named individually rather than counted: the point of stopping is that only the user can say
-    # whether a given thing is a day's work or a stray file, and they cannot judge a number.
-    listed = "; ".join(f"{item.path} ({item.kind}: {item.detail})" for item in facts.at_risk[:8])
-    if len(facts.at_risk) > 8:
-        listed += f"; and {len(facts.at_risk) - 8} more"
-    # The move is the gitlink AND this dependency's lock entry, which stage 5 writes: staging or
-    # committing the gitlink alone records a pin and a lock that disagree. The working tree's entry is
-    # put in the terms the index's and HEAD's are read in - None where there is none, for either of
-    # the two reasons `Pin` keeps apart - and only this entry is compared, never the whole file, whose
-    # other entries belong to other dependencies' moves.
-    entry = facts.lock if facts.lock.kind not in ("unpinned", "unmanaged") else None
-    lock_staged = facts.index_lock == entry
-    lock_committed = facts.head_lock == entry
-    unstaged = [facts.path] if facts.index_gitlink != facts.worktree else []
-    if not lock_staged:
-        unstaged.append("foundry.lock")
-    return [
-        Stage(
-            0,
-            "nothing here exists only here",
-            safe,
-            "no remote is missing anything under this dependency" if safe else f"exists only here: {listed}",
-            ""
-            if safe
-            else "commit and push what matters, then run this again - or repeat it with --force to move anyway",
-        ),
-        Stage(
-            1,
-            "a ref to move to",
-            target_ref is not None,
-            f"{target_ref}" if target_ref else f"{facts.lock.kind} pin cannot resolve itself",
-            "" if target_ref else f"name one: `yarn update {facts.path}@<ref>`",
-        ),
-        Stage(
-            2,
-            "working tree at that ref",
-            bool(target_rev) and facts.worktree == target_rev,
-            f"working tree {(facts.worktree or 'absent')[:10]}, wanted {(target_rev or '?')[:10]}",
-            # The fetches `yarn dep` makes, so a deployment tag corrected on origin does not stop them.
-            " && ".join(shlex.join(["git", "-C", facts.path, *fetching]) for fetching in (FETCH_BRANCHES, FETCH_TAGS))
-            + f" && git -C {facts.path} checkout {target_ref or '<ref>'}",
-        ),
-        Stage(
-            3,
-            "nested submodules at their recorded commits",
-            not facts.nested_drift,
-            f"{len(facts.nested_drift)} off their pins" if facts.nested_drift else "all at their pins",
-            f"git -C {facts.path} submodule update --init --recursive",
-        ),
-        Stage(
-            4,
-            "no orphaned directories",
-            not facts.litter,
-            ", ".join(facts.litter) if facts.litter else "none",
-            "remove each directory and its gitdir - recursing is what strands them",
-        ),
-        Stage(
-            5,
-            "foundry.lock names that ref",
-            facts.lock.name == target_ref and facts.lock.rev == target_rev,
-            f"lock says {facts.lock.kind} {facts.lock.name} {(facts.lock.rev or '')[:10]}",
-            "rewritten in forge's own format, then verified by re-reading it",
-        ),
-        Stage(
-            6,
-            "the move is staged",
-            not unstaged,
-            f"index {(facts.index_gitlink or 'absent')[:10]}, working tree {(facts.worktree or 'absent')[:10]};"
-            f" foundry.lock entry {'staged' if lock_staged else 'not staged'}",
-            f"git add {' '.join(unstaged)}",
-        ),
-        Stage(
-            7,
-            "the move is committed",
-            # Against the WORKING TREE, not the index - the gitlink and the lock entry alike: while
-            # neither has moved they agree with each other, and comparing them would report the stage
-            # done when nothing had happened.
-            facts.head_gitlink == facts.worktree and lock_committed,
-            f"HEAD {(facts.head_gitlink or 'absent')[:10]}, working tree {(facts.worktree or 'absent')[:10]};"
-            f" foundry.lock entry {'committed' if lock_committed else 'not committed'}",
-            "git commit",
-        ),
-    ]
 
 
 def describe_at_risk(item: AtRisk, under: str) -> str:
@@ -960,8 +788,8 @@ def move_checklist(
     entry: Recorded,
     nested_off: list[tuple[str, str]],
 ) -> list[Stage]:
-    """What is left to do to move a dependency to `target_ref` (whose commit is `target_rev`) for bin/dep:
-    `checklist` without foundry.lock, in plain words.
+    """What is left to do to move a dependency to `target_ref` (whose commit is `target_rev`) for bin/dep,
+    in plain words.
 
     What the dependency follows - `follows`, a branch, or None at a tag or commit - is recorded in
     `.gitmodules`, so adding and committing the move cover this dependency's entry there beside its

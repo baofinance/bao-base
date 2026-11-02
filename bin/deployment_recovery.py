@@ -198,7 +198,7 @@ def mask_regions(code: bytes, references: dict) -> bytes:
 # excluding it loses the true answer to save a build. `BaoPauser_v1` was deployed from a commit whose
 # only change was to `bin/coverage`, and filtering it out recorded a two-month-older commit that
 # happened to compile identically - equivalent bytecode, wrong provenance.
-_BUILD_INPUTS = ["src", "lib", "foundry.toml", "remappings.txt", ".gitmodules", "foundry.lock"]
+_BUILD_INPUTS = ["src", "lib", "foundry.toml", "remappings.txt", ".gitmodules"]
 
 
 def build_id(repo_root: Path, commit: str) -> str:
