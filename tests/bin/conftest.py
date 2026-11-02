@@ -3,6 +3,7 @@ stand-in `run` the long-run scripts are driven through."""
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -176,3 +177,24 @@ class FakeBaoBase:
 @pytest.fixture
 def bao_base(tmp_path):
     return FakeBaoBase(tmp_path)
+
+
+_BAO_BASE_ROOT = _BIN_DIR.parent
+
+
+@pytest.fixture(scope="session")
+def forge_project(tmp_path_factory):
+    """A project to build bao-base's sources in that is not the repository itself, so that a test's build leaves
+    the checkout as it found it. forge, run in the repository root, installs every submodule whose folder is empty
+    and writes foundry.lock as it does so - in a nested checkout, where only the submodules a remapping uses are
+    checked out, that reinstalls the rest - and leaves its artefacts under out/. A project that is no git
+    repository can do neither. It holds a copy of foundry.toml and symlinks to src, test, script and lib, through
+    which forge reads sources; its out/ and cache/ are its own. Skipped where bao-base's own dependencies are not
+    checked out, as in a nested checkout, since a build there cannot resolve their imports."""
+    if not (_BAO_BASE_ROOT / "lib" / "forge-std" / "src").is_dir():
+        pytest.skip("bao-base's own dependencies are not checked out, as in a nested checkout")
+    project = tmp_path_factory.mktemp("bao-base-project")
+    shutil.copy(_BAO_BASE_ROOT / "foundry.toml", project / "foundry.toml")
+    for name in ("src", "test", "script", "lib"):
+        (project / name).symlink_to(_BAO_BASE_ROOT / name, target_is_directory=True)
+    return project

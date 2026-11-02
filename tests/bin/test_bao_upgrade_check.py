@@ -6,7 +6,8 @@ ships is the code under test. The documented widens (flat and nested-through-con
 other pair must be rejected with the right reason. This also anchors the synthetic-input rule tests in
 test_storage_successor.py: if their layout shape ever diverged from solc's, the verdicts here would break.
 
-Skipped if forge is unavailable (the only integration tests in bin/ that need a build).
+The fixtures are built in a project of the run's own (conftest's `forge_project`), never in the repository.
+Skipped if forge is unavailable, or bao-base's own dependencies are not checked out.
 """
 
 import importlib.util
@@ -29,9 +30,10 @@ def load_module():
     return module
 
 
-def build_info_dir(fixture, subdir):
-    """Build one fixture file with a fresh build-info (as validate builds src); return the build-info dir."""
-    out_dir = ROOT / "out" / subdir / "build-info"
+def build_info_dir(project, fixture, subdir):
+    """Build one fixture file in `project` with a fresh build-info (as validate builds src); return the build-info
+    dir."""
+    out_dir = project / "out" / subdir / "build-info"
     subprocess.run(
         [
             "forge",
@@ -43,7 +45,7 @@ def build_info_dir(fixture, subdir):
             "--extra-output",
             "storageLayout",
         ],
-        cwd=ROOT,
+        cwd=project,
         check=True,
         capture_output=True,
         text=True,
@@ -52,22 +54,22 @@ def build_info_dir(fixture, subdir):
 
 
 @pytest.fixture(scope="module")
-def mixed():
+def mixed(forge_project):
     if shutil.which("forge") is None:
         pytest.skip("forge not available")
     mod = load_module()
-    build_info = mod._latest_build_info(str(build_info_dir(FIXTURES, "_bao_test_mixed")))
-    checked, failures = mod.check_build(build_info, str(ROOT))
+    build_info = mod._latest_build_info(str(build_info_dir(forge_project, FIXTURES, "_bao_test_mixed")))
+    checked, failures = mod.check_build(build_info, str(forge_project))
     return checked, {succ: errs for succ, pred, ns, errs in failures}
 
 
 @pytest.fixture(scope="module")
-def mixed_build():
+def mixed_build(forge_project):
     """The raw (module, build_info) for the mixed fixtures — for unit-testing the AST-analysis internals directly."""
     if shutil.which("forge") is None:
         pytest.skip("forge not available")
     mod = load_module()
-    return mod, mod._latest_build_info(str(build_info_dir(FIXTURES, "_bao_test_mixed")))
+    return mod, mod._latest_build_info(str(build_info_dir(forge_project, FIXTURES, "_bao_test_mixed")))
 
 
 def _contract_id(mod, build_info, name):
@@ -173,12 +175,12 @@ def test_partial_migrator_compatible_namespace_passes(mixed):
     assert "PartialMigrator" not in failures, failures.get("PartialMigrator")
 
 
-def test_list_mode_prints_each_link_and_exits_0(capsys):
+def test_list_mode_prints_each_link_and_exits_0(capsys, forge_project):
     # --list (used by validate's version-reference audit) prints '<successor> <predecessor>' per link, no build
     if shutil.which("forge") is None:
         pytest.skip("forge not available")
     mod = load_module()
-    d = build_info_dir(GOOD, "_bao_test_good")
+    d = build_info_dir(forge_project, GOOD, "_bao_test_good")
     assert mod.main([str(d), "--list"]) == 0
     assert capsys.readouterr().out == "GoodSucc GoodPred\n"
 
@@ -191,12 +193,12 @@ def test_build_with_no_bao_upgrade_links_is_clean():
 
 
 @pytest.fixture(scope="module")
-def slot_errors():
+def slot_errors(forge_project):
     """slot_getter_errors over the mixed fixture build, keyed by the getter's `Contract.function` (shells to `cast`)."""
     if shutil.which("forge") is None:
         pytest.skip("forge not available")
     mod = load_module()
-    build_info = mod._latest_build_info(str(build_info_dir(FIXTURES, "_bao_test_mixed")))
+    build_info = mod._latest_build_info(str(build_info_dir(forge_project, FIXTURES, "_bao_test_mixed")))
     return {where: msg for where, msg in mod.slot_getter_errors(build_info)}
 
 
@@ -212,13 +214,13 @@ def test_wrong_slot_getter_is_rejected(slot_errors):
     assert any("!=" in m for m in bad), bad
 
 
-def test_misspelled_bao_tag_is_rejected():
+def test_misspelled_bao_tag_is_rejected(forge_project):
     # a typo'd @custom:bao-* tag compiles but matches no regex — it must be flagged, not silently ignored,
     # and the many legitimate bao tags across the fixtures must NOT be false-flagged alongside it
     if shutil.which("forge") is None:
         pytest.skip("forge not available")
     mod = load_module()
-    build_info = mod._latest_build_info(str(build_info_dir(FIXTURES, "_bao_test_mixed")))
+    build_info = mod._latest_build_info(str(build_info_dir(forge_project, FIXTURES, "_bao_test_mixed")))
     tags = {tag for _where, tag in mod.unrecognized_bao_tags(build_info)}
     assert "bao-renamd-from" in tags, "a misspelled @custom:bao-* tag was not caught"
     assert not (
@@ -226,17 +228,17 @@ def test_misspelled_bao_tag_is_rejected():
     ), tags
 
 
-def test_main_exits_1_when_any_link_is_incompatible():
+def test_main_exits_1_when_any_link_is_incompatible(forge_project):
     if shutil.which("forge") is None:
         pytest.skip("forge not available")
     mod = load_module()
-    d = build_info_dir(FIXTURES, "_bao_test_mixed")
-    assert mod.main([str(d), "--root", str(ROOT)]) == 1
+    d = build_info_dir(forge_project, FIXTURES, "_bao_test_mixed")
+    assert mod.main([str(d), "--root", str(forge_project)]) == 1
 
 
-def test_main_exits_0_when_all_links_are_documented_successors():
+def test_main_exits_0_when_all_links_are_documented_successors(forge_project):
     if shutil.which("forge") is None:
         pytest.skip("forge not available")
     mod = load_module()
-    d = build_info_dir(GOOD, "_bao_test_good")
-    assert mod.main([str(d), "--root", str(ROOT)]) == 0
+    d = build_info_dir(forge_project, GOOD, "_bao_test_good")
+    assert mod.main([str(d), "--root", str(forge_project)]) == 0

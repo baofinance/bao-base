@@ -40,13 +40,6 @@ library DeploymentState {
         return vm.envString("DEPLOY_STATE_DIR");
     }
 
-    /// @notice Load deployment state from an explicit file path.
-    /// @dev Returns empty state if the file does not exist.
-    function load(string memory path) internal view returns (DeploymentTypes.State memory state) {
-        string memory json = vm.exists(path) ? vm.readFile(path) : "";
-        return JsonParser.parseStateJson(json);
-    }
-
     /// @notice A fresh in-memory deployment state (no records, no directory prefix) for a deploy run that
     ///         starts from nothing — a non-persisting test run, or a first deploy on a clean network.
     ///         The caller stamps `state.baoFactory` (typically `baoFactory()`) after construction — the same
@@ -66,7 +59,7 @@ library DeploymentState {
     ///         under the wrong namespace. One recording a proxy the chain does not hold is another chain's - a local
     ///         node's file, read on a node started afresh - and would have this run deploy to the addresses it records
     ///         and be refused as a duplicate of itself.
-    function loadOrFresh(
+    function load(
         string memory path,
         string memory saltPrefix,
         string memory network

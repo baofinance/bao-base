@@ -23,12 +23,12 @@ contract DeploymentStateWrapper {
         DeploymentState.recordProxy(state, rec);
     }
 
-    function loadOrFresh(
+    function load(
         string memory path,
         string memory saltPrefix,
         string memory network
     ) external view returns (DeploymentTypes.State memory) {
-        return DeploymentState.loadOrFresh(path, saltPrefix, network);
+        return DeploymentState.load(path, saltPrefix, network);
     }
 
     /// @notice Records first then attempts second - for duplicate testing. Returns modified state.
@@ -419,8 +419,9 @@ contract DeploymentStateTest is Test {
         vm.chainId(31337);
         DeploymentState.save(state, path);
 
-        // Load
-        DeploymentTypes.State memory loaded = DeploymentState.load(path);
+        // Load, as a persisting run does: the recorded proxy has code, as a proxy the chain holds has
+        vm.etch(proxyRec.proxy, hex"00");
+        DeploymentTypes.State memory loaded = DeploymentState.load(path, "roundtrip_test", "test");
 
         // Verify all fields preserved
         assertEq(loaded.network, "test", "network preserved");
@@ -435,27 +436,16 @@ contract DeploymentStateTest is Test {
         assertEq(loaded.proxies[0].implementation, proxyRec.implementation, "proxy impl preserved");
     }
 
-    function test_load_returnsEmptyStateForMissingFile() public view {
-        string memory path = string.concat(
-            vm.projectRoot(),
-            "/results/deployments/DeploymentStateTest::missing.state.json"
-        );
-        DeploymentTypes.State memory loaded = DeploymentState.load(path);
-
-        assertEq(loaded.implementations.length, 0, "no implementations");
-        assertEq(loaded.proxies.length, 0, "no proxies");
-    }
-
-    // ========== LOAD OR FRESH: THE STATE A PERSISTING RUN STARTS FROM ==========
+    // ========== LOAD: THE STATE A PERSISTING RUN STARTS FROM ==========
 
     /// @dev A first deploy under a salt prefix has no state file: the run starts from a fresh state that records its
     ///      salt prefix and network, so the file it saves is readable by the next run.
-    function test_loadOrFresh_missingFile_isFreshForTheRun() public view {
+    function test_load_missingFile_isFreshForTheRun() public view {
         string memory path = string.concat(
             vm.projectRoot(),
             "/results/deployments/DeploymentStateTest::missing.state.json"
         );
-        DeploymentTypes.State memory state = DeploymentState.loadOrFresh(path, "first_v1", "test");
+        DeploymentTypes.State memory state = DeploymentState.load(path, "first_v1", "test");
 
         assertEq(state.saltPrefix, "first_v1", "the run's salt prefix");
         assertEq(state.network, "test", "the run's network");
@@ -464,12 +454,12 @@ contract DeploymentStateTest is Test {
     }
 
     /// @dev The file this run saved earlier is read, records and all. Its proxy has code, as a proxy the chain holds has.
-    function test_loadOrFresh_readsTheRunsFile() public {
-        string memory path = _loadOrFreshFile("readsTheRunsFile", 1);
+    function test_load_readsTheRunsFile() public {
+        string memory path = _stateFile("readsTheRunsFile", 1);
         vm.etch(makeAddr("proxy1"), hex"00");
-        DeploymentTypes.State memory state = DeploymentState.loadOrFresh(path, "loadorfresh_v1", "test");
+        DeploymentTypes.State memory state = DeploymentState.load(path, "load_v1", "test");
 
-        assertEq(state.saltPrefix, "loadorfresh_v1", "salt prefix read");
+        assertEq(state.saltPrefix, "load_v1", "salt prefix read");
         assertEq(state.network, "test", "network read");
         assertEq(state.proxies.length, 1, "the proxy recorded");
         assertEq(state.proxies[0].id, "ETH::minter", "its id");
@@ -479,27 +469,27 @@ contract DeploymentStateTest is Test {
     /// @dev A file recording another run's salt prefix or network is refused, naming both: read, it would have this
     ///      run's contracts written under the wrong namespace. It is refused before its proxies are looked for: the
     ///      proxy here has no code.
-    function test_loadOrFresh_refusesAnotherRunsFile() public {
-        string memory path = _loadOrFreshFile("refusesAnotherRunsFile", 1);
+    function test_load_refusesAnotherRunsFile() public {
+        string memory path = _stateFile("refusesAnotherRunsFile", 1);
 
         vm.expectRevert(
             abi.encodeWithSelector(
                 DeploymentState.StateFileIsAnotherRuns.selector,
                 path,
-                "loadorfresh_v1",
+                "load_v1",
                 "test",
                 "other_v1",
                 "test"
             )
         );
-        wrapper.loadOrFresh(path, "other_v1", "test");
+        wrapper.load(path, "other_v1", "test");
     }
 
     /// @dev A file recording a proxy at an address with no code on this chain is refused, naming the file, the proxy
     ///      and the address. The file is another chain's - a local node's, read on a node started afresh. Read, this
     ///      run would deploy to the addresses it records and be refused as a duplicate of itself.
-    function test_loadOrFresh_refusesAFileRecordingAProxyWithNoCode() public {
-        string memory path = _loadOrFreshFile("refusesAFileRecordingAProxyWithNoCode", 1);
+    function test_load_refusesAFileRecordingAProxyWithNoCode() public {
+        string memory path = _stateFile("refusesAFileRecordingAProxyWithNoCode", 1);
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -509,13 +499,13 @@ contract DeploymentStateTest is Test {
                 makeAddr("proxy1")
             )
         );
-        wrapper.loadOrFresh(path, "loadorfresh_v1", "test");
+        wrapper.load(path, "load_v1", "test");
     }
 
     /// @dev Every recorded proxy is looked for, not only the first: a file whose first proxy has code and whose second
     ///      has none is refused naming the second.
-    function test_loadOrFresh_refusesAFileWhoseSecondProxyHasNoCode() public {
-        string memory path = _loadOrFreshFile("refusesAFileWhoseSecondProxyHasNoCode", 2);
+    function test_load_refusesAFileWhoseSecondProxyHasNoCode() public {
+        string memory path = _stateFile("refusesAFileWhoseSecondProxyHasNoCode", 2);
         vm.etch(makeAddr("proxy1"), hex"00");
 
         vm.expectRevert(
@@ -526,15 +516,15 @@ contract DeploymentStateTest is Test {
                 makeAddr("proxy2")
             )
         );
-        wrapper.loadOrFresh(path, "loadorfresh_v1", "test");
+        wrapper.load(path, "load_v1", "test");
     }
 
     /// @dev A file whose every proxy has code is read, however many it records.
-    function test_loadOrFresh_readsAFileWhoseProxiesAllHaveCode() public {
-        string memory path = _loadOrFreshFile("readsAFileWhoseProxiesAllHaveCode", 2);
+    function test_load_readsAFileWhoseProxiesAllHaveCode() public {
+        string memory path = _stateFile("readsAFileWhoseProxiesAllHaveCode", 2);
         vm.etch(makeAddr("proxy1"), hex"00");
         vm.etch(makeAddr("proxy2"), hex"00");
-        DeploymentTypes.State memory state = DeploymentState.loadOrFresh(path, "loadorfresh_v1", "test");
+        DeploymentTypes.State memory state = DeploymentState.load(path, "load_v1", "test");
 
         assertEq(state.proxies.length, 2, "both proxies recorded");
         assertEq(state.proxies[0].id, "ETH::minter", "the first's id");
@@ -542,25 +532,20 @@ contract DeploymentStateTest is Test {
     }
 
     /// @dev A file recording no proxies has none to look for, and is read.
-    function test_loadOrFresh_readsAFileRecordingNoProxies() public {
-        string memory path = _loadOrFreshFile("readsAFileRecordingNoProxies", 0);
-        DeploymentTypes.State memory state = DeploymentState.loadOrFresh(path, "loadorfresh_v1", "test");
+    function test_load_readsAFileRecordingNoProxies() public {
+        string memory path = _stateFile("readsAFileRecordingNoProxies", 0);
+        DeploymentTypes.State memory state = DeploymentState.load(path, "load_v1", "test");
 
-        assertEq(state.saltPrefix, "loadorfresh_v1", "salt prefix read");
+        assertEq(state.saltPrefix, "load_v1", "salt prefix read");
         assertEq(state.proxies.length, 0, "no proxies");
     }
 
     /// @dev Saves `proxies` recorded proxies - none, one or two - each with its implementation, under salt prefix
-    ///      `loadorfresh_v1`, network `test`, to the regression file named for the calling test - its own, as the tests
+    ///      `load_v1`, network `test`, to the regression file named for the calling test - its own, as the tests
     ///      run in parallel - and returns its path. Time and chain are pinned so the file is stable.
-    function _loadOrFreshFile(string memory test, uint256 proxies) private returns (string memory path) {
-        path = string.concat(
-            vm.projectRoot(),
-            "/results/deployments/DeploymentStateTest::loadOrFresh_",
-            test,
-            ".state.json"
-        );
-        DeploymentTypes.State memory state = DeploymentState.fresh("loadorfresh_v1", "test");
+    function _stateFile(string memory test, uint256 proxies) private returns (string memory path) {
+        path = string.concat(vm.projectRoot(), "/results/deployments/DeploymentStateTest::load_", test, ".state.json");
+        DeploymentTypes.State memory state = DeploymentState.fresh("load_v1", "test");
         state.baoFactory = address(0xD696E56b3A054734d4C6DCBD32E11a278b0EC458);
         string[2] memory ids = ["ETH::minter", "ETH::reservePool"];
         string[2] memory contractSources = ["@project/Minter.sol", "@project/ReservePool.sol"];
@@ -583,7 +568,7 @@ contract DeploymentStateTest is Test {
                     id: ids[i],
                     proxy: makeAddr(string.concat("proxy", vm.toString(i + 1))),
                     implementation: implementation,
-                    salt: "loadorfresh_v1",
+                    salt: "load_v1",
                     deploymentTime: uint64(1)
                 })
             );

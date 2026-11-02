@@ -27,7 +27,6 @@ FIXTURES = "test/fixtures/upgrade-references"
 # named by the worker. Shared, one worker's forced build cleared the folder another was reading, and its
 # report overwrote the one another was reading. `main` is the one process of a run without workers.
 WORKER = os.environ.get("PYTEST_XDIST_WORKER", "main")
-OUT = ROOT / "out" / "_upgrade_references" / WORKER
 
 
 def load_module():
@@ -42,11 +41,13 @@ mod = load_module()
 
 
 @pytest.fixture(scope="module")
-def inputs():
-    """The OpenZeppelin report and bao-link list for a fresh build of every fixture family."""
+def inputs(forge_project):
+    """The OpenZeppelin report and bao-link list for a fresh build of every fixture family, built in a project
+    of the run's own (conftest's `forge_project`), never in the repository."""
     if shutil.which("forge") is None:
         pytest.skip("forge not available")
-    build_info = OUT / "build-info"
+    out = forge_project / "out" / "_upgrade_references" / WORKER
+    build_info = out / "build-info"
     subprocess.run(
         [
             "forge",
@@ -54,16 +55,16 @@ def inputs():
             FIXTURES,
             "--force",
             "--out",
-            str(OUT),
+            str(out),
             "--cache-path",
-            str(ROOT / "cache" / "_upgrade_references" / WORKER),
+            str(forge_project / "cache" / "_upgrade_references" / WORKER),
             "--build-info",
             "--build-info-path",
             str(build_info),
             "--extra-output",
             "storageLayout",
         ],
-        cwd=ROOT,
+        cwd=forge_project,
         check=True,
         capture_output=True,
         text=True,
@@ -83,9 +84,9 @@ def inputs():
         capture_output=True,
         text=True,
     ).stdout
-    (OUT / "oz-validate.txt").write_text(report)
-    (OUT / "bao-upgrade-links.txt").write_text(bao_links)
-    return OUT / "oz-validate.txt", OUT / "bao-upgrade-links.txt"
+    (out / "oz-validate.txt").write_text(report)
+    (out / "bao-upgrade-links.txt").write_text(bao_links)
+    return out / "oz-validate.txt", out / "bao-upgrade-links.txt"
 
 
 def audit(inputs, scope):

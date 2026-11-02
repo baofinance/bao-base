@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "v1",
-  "saltPrefix": "loadorfresh_v1",
+  "saltPrefix": "load_v1",
   "network": "test",
   "chainId": 31337,
   "baoFactory": "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458",
