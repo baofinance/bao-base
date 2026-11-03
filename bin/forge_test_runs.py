@@ -34,6 +34,15 @@ Every run gets:
   forked block's limit instead, whatever this says. A run setting, so it lives here rather than in a
   project's foundry.toml, where it would reach forge script as well.
 
+- --disable-block-gas-limit: a forked test takes the forked block's gas limit (60M on mainnet) in place of
+  the one above, and one call running a whole deploy or upgrade - what a script sends as many transactions
+  - exceeds it. So does a setUp deploying a stack of contracts under coverage, the one run that compiles
+  with the optimizer off (forge does that so line data maps back to source), which inflates every
+  contract's deployed code and with it the 200 gas per byte charged to deposit that code - a 40KB contract
+  costs over 8M gas to deploy. Either way the create halts out of gas and setUp reverts with no indication
+  of why. Lifted by the runs alone: in foundry.toml it would reach a script's simulation too, where the
+  check is what catches a transaction no block can hold; doctor refuses it there.
+
 - The invariant settings, as environment variables, so that no project's foundry.toml has to carry them:
   a handler call that reverts fails the run - forge discards such a call unless told otherwise, and the run
   then passes however many revert, so a handler whose every call reverts proves nothing; and the shared
@@ -63,17 +72,10 @@ What each run is for:
   that the larger contracts exceed the code size limit. Under denied warnings forge 1.8.4 keeps no cache,
   so this run always compiles in full and cache/_gas stays empty until forge caches again.
 
-- coverage: --disable-block-gas-limit, because coverage is the one run that compiles with the optimizer off
-  (forge does that so line data maps back to source), which inflates every contract's deployed code and
-  with it the 200 gas per byte charged to deposit that code - a 40KB contract costs over 8M gas to deploy.
-  A test that forks adopts the forked block's gas limit (60M on mainnet) in place of foundry.toml's, and a
-  setUp deploying a stack of such contracts exceeds it; the create halts out of gas and setUp reverts with
-  no indication of why. Lifting that ceiling keeps the run on foundry's own configured gas limit. It is
-  lifted for this run alone, since in foundry.toml it would reach a script's simulation too, where the
-  check is what catches a transaction no block can hold; doctor refuses it there. --fuzz-seed 1: the
-  baseline this run feeds (regression/coverage.txt) is compared exactly, so two runs of the same code must
-  fuzz with the same inputs - an unpinned seed lets a branch that only some inputs reach come and go, and
-  report a change that is not one. BAO_COVERAGE_RUN tells the Solidity code it is under coverage.
+- coverage: --fuzz-seed 1: the baseline this run feeds (regression/coverage.txt) is compared exactly, so two
+  runs of the same code must fuzz with the same inputs - an unpinned seed lets a branch that only some
+  inputs reach come and go, and report a change that is not one. BAO_COVERAGE_RUN tells the Solidity code
+  it is under coverage.
 
 gas and coverage run deploy scripts whose logs go under BAO_DEPLOYMENT_LOGS_ROOT, a folder under tmp/ that
 the run makes and removes.
@@ -90,7 +92,14 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-_EVERY_RUN = ["--gas-limit", "18446744073709551615", "--no-dynamic-test-linking", "--nmp", "script/**/*.t.sol"]
+_EVERY_RUN = [
+    "--gas-limit",
+    "18446744073709551615",
+    "--disable-block-gas-limit",
+    "--no-dynamic-test-linking",
+    "--nmp",
+    "script/**/*.t.sol",
+]
 
 
 def _verbosity(environ: Mapping[str, str], quiet: str) -> str:
@@ -138,7 +147,6 @@ def command(run: str, environ: Mapping[str, str], arguments: Sequence[str]) -> l
             "lcov",
             "--deny",
             "never",
-            "--disable-block-gas-limit",
         ]
     else:
         raise ValueError(f"no such run: {run}")

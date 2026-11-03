@@ -927,8 +927,8 @@ def test_remapping_detection_reported_when_forge_does_not_report_it(tmp_path, mo
 # ── block_gas_limit_problems: a script's simulation keeps the block gas limit check ──
 #
 # disable_block_gas_limit in foundry.toml reaches every forge run, forge script included, whose simulation
-# then no longer checks that each transaction fits a block. The one run that needs the lift, coverage, asks
-# for it on its command line. Read as remapping detection is: each test builds a project in tmp_path, so the
+# then no longer checks that each transaction fits a block. The test runs, which need the lift, ask for it on
+# their command line. Read as remapping detection is: each test builds a project in tmp_path, so the
 # value is the one `forge config` resolves, with the environment variable that overrides the file set or
 # removed explicitly.
 def test_block_gas_limit_clean_when_forge_keeps_the_check(tmp_path, monkeypatch):

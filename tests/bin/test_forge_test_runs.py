@@ -20,7 +20,14 @@ import forge_test_runs
 _BIN = pathlib.Path(__file__).resolve().parents[2] / "bin"
 _RUNS = ["test", "gas", "coverage"]
 _INVARIANT_SETTINGS = ("FOUNDRY_INVARIANT_FAIL_ON_REVERT", "FOUNDRY_INVARIANT_RUNS", "FOUNDRY_INVARIANT_DEPTH")
-_EVERY_RUN = ["--gas-limit", "18446744073709551615", "--no-dynamic-test-linking", "--nmp", "script/**/*.t.sol"]
+_EVERY_RUN = [
+    "--gas-limit",
+    "18446744073709551615",
+    "--disable-block-gas-limit",
+    "--no-dynamic-test-linking",
+    "--nmp",
+    "script/**/*.t.sol",
+]
 
 # records how forge was called - its environment and its arguments, and what the run had made for it - as
 # JSON, runs nothing, and exits with the status STUB_FORGE_STATUS names
@@ -107,7 +114,7 @@ def test_the_gas_run_measures_in_isolation_on_its_own_cache_and_fails_on_a_warni
     ]
 
 
-def test_the_coverage_run_lifts_the_block_gas_limit_and_pins_its_seed():
+def test_the_coverage_run_pins_its_seed_and_reports_both_ways():
     assert forge_test_runs.command("coverage", {}, []) == [
         "forge",
         "coverage",
@@ -121,8 +128,14 @@ def test_the_coverage_run_lifts_the_block_gas_limit_and_pins_its_seed():
         "lcov",
         "--deny",
         "never",
-        "--disable-block-gas-limit",
     ]
+
+
+@pytest.mark.parametrize("run", _RUNS)
+def test_every_run_lifts_the_block_gas_limit(run):
+    # a forked test takes the forked block's gas limit, which one call running a whole deploy or upgrade
+    # exceeds; lifted by the run and never in foundry.toml, where it would reach a script's simulation
+    assert "--disable-block-gas-limit" in forge_test_runs.command(run, {}, [])
 
 
 @pytest.mark.parametrize("run", _RUNS)

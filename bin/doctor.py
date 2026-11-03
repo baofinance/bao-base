@@ -541,9 +541,9 @@ def remapping_detection_problems(repo_root: Path) -> list[str]:
 def block_gas_limit_problems(repo_root: Path) -> list[str]:
     """Whether a script's simulation keeps the block gas limit check. `disable_block_gas_limit` in
     foundry.toml reaches every forge run, `forge script` included, whose simulation then no longer checks
-    that each transaction fits a block before it is sent. The one run that needs the lift - coverage, whose
-    unoptimised build deploys more code than a forked block's gas limit allows in one call - asks for it on
-    its command line, and no other run gets it. Returns one finding, or [] when forge resolves it to
+    that each transaction fits a block before it is sent. The test runs, which need the lift - one call
+    running a whole deploy or upgrade exceeds a forked block's gas limit - ask for it on their command line
+    (bin/forge_test_runs.py), where no script sees it. Returns one finding, or [] when forge resolves it to
     false."""
     return forge_setting_findings(
         repo_root,
@@ -1158,9 +1158,9 @@ def build_checks(
         Check(
             "a script's simulation keeps the block gas limit check",
             "disable_block_gas_limit in foundry.toml reaches every forge run, forge script included. A script's "
-            "simulation then no longer checks that each transaction fits a block. The one run that needs the "
-            "lift is coverage, whose unoptimised build deploys more code than a forked block's gas limit allows "
-            "in one call, and yarn coverage asks for it on the command line",
+            "simulation then no longer checks that each transaction fits a block. The test runs need the lift, "
+            "one call running a whole deploy or upgrade exceeding a forked block's gas limit, and ask for it on "
+            "their command line, where no script sees it",
             "a transaction too large for a block passes simulation and fails when it is sent",
             block_gas_limit_problems(repo_root),
         ),
