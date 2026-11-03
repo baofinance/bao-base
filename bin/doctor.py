@@ -1438,9 +1438,9 @@ def build_checks(
             "a fork in test code goes through BaoTest, which takes it only at a block or transaction "
             "test/fork-blocks.toml lists. A cheatcode fork is taken at any block, and the list does not see it: "
             "each block is a cache of its own, fetched from the provider on every machine's first run and a burst "
-            "of requests from every suite forking at it, and CI keys its cache by the list",
-            "the fork's block is fetched from the provider on every run, on every machine, and CI's cache never "
-            "holds it",
+            "of requests from every suite forking at it",
+            "the fork's block is not counted by the list, and at the chain's head is fetched from the provider on "
+            "every run, on every machine",
             fork_cheatcode_problems(repo_root),
         ),
         Check(

@@ -83,12 +83,13 @@ runs:
       uses: foundry-rs/foundry-toolchain@v1
       with:
         version: ${{ steps.nightly.outputs.tag || inputs.foundry }}
-        # The RPC cache, keyed by the file listing every block the tests fork at. foundry-toolchain saves the
-        # cache only when this key misses, so a key that never changes is saved once and never again, and a
-        # block listed after that save is fetched from the provider on every run. A changed list restores the
-        # last cache through the restore key and saves a new one holding the new block's data.
-        cache-key: fork-${{ hashFiles(format('{0}/test/fork-blocks.toml', inputs.cwd)) }}
-        cache-restore-keys: fork-
+        # The RPC cache: what forge read at each block the tests fork at. GitHub never rewrites a saved
+        # cache, so the key names the commit, and the restore key finds the newest cache of this foundry
+        # version: each run restores that, adds what it fetched, and saves under its own commit. The
+        # version is in the key so a cache is read by the foundry version that wrote it; the platform is
+        # in every key, foundry-toolchain's prefix. A re-run hits its own key and saves nothing.
+        cache-key: fork-${{ inputs.foundry }}-${{ github.sha }}
+        cache-restore-keys: fork-${{ inputs.foundry }}-
       id: foundry-install
 
     - shell: bash
