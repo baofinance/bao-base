@@ -1,4 +1,7 @@
-> **Status.** Filed as https://github.com/foundry-rs/foundry/issues/18071 on 2026-11-03. Found on forge
+> **Status.** Filed as https://github.com/foundry-rs/foundry/issues/18071 on 2026-11-03, and closed as completed
+> the same day by https://github.com/foundry-rs/foundry/pull/18074: the entry's retries override the command
+> line's only where the entry sets them, a fork given an entry's URL keeps the entry's settings, and the entry's
+> compute units reach the fork. In no release yet (stable 1.9.0 predates it). Found on forge
 > 1.8.7 on 2026-11-02 and unchanged on 1.9.0 on 2026-11-03: the same attempts per run, and the same lookup
 > and overwrite in the source at that tag. Until forge changes, every fork a test creates in bao-base and
 > harbor names its endpoint by alias - `vm.createSelectFork("mainnet", block)`, never the URL `vm.rpcUrl`
