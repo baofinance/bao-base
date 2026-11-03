@@ -996,8 +996,10 @@ def test_deny_warnings_reads_what_forge_resolves_not_the_file(tmp_path, monkeypa
 
 # ── foundry_lock_problems: no foundry.lock, in the index or on disk ──
 #
-# forge writes the lock on `forge install` and `forge update`, which yarn dep replaces, and yarn dep leaves it
-# as it was. Presence is the finding, whatever the lock says, and the repair depends on what git knows of it.
+# forge writes the lock when it installs: on `forge install` and `forge update`, which yarn dep replaces, and
+# when build, test, coverage or script finds a dependency not checked out and installs it with every nested
+# submodule. yarn dep leaves the lock as it was. Presence is the finding, whatever the lock says; the removal
+# depends on what git knows of it, and `yarn dep sync` follows, to leave only the checkouts the build reads.
 def _with_tracked_lock(repo: pathlib.Path) -> pathlib.Path:
     (repo / "foundry.lock").write_text("{}")
     _git(repo, "add", "foundry.lock")
@@ -1013,7 +1015,7 @@ def test_a_tracked_lock_is_removed_with_git_rm(tmp_path):
     problems = doctor.foundry_lock_problems(_with_tracked_lock(_init_repo(tmp_path / "host")))
     assert len(problems) == 1
     assert problems[0].startswith("git tracks foundry.lock"), problems[0]
-    assert "Repair: git rm foundry.lock" in problems[0], problems[0]
+    assert "Repair: git rm foundry.lock, then yarn dep sync" in problems[0], problems[0]
 
 
 def test_a_tracked_lock_deleted_from_the_working_tree_is_still_a_finding(tmp_path):
@@ -1023,7 +1025,7 @@ def test_a_tracked_lock_deleted_from_the_working_tree_is_still_a_finding(tmp_pat
     problems = doctor.foundry_lock_problems(repo)
     assert len(problems) == 1
     assert problems[0].startswith("git tracks foundry.lock, and the working tree does not have it"), problems[0]
-    assert "Repair: git rm foundry.lock" in problems[0], problems[0]
+    assert "Repair: git rm foundry.lock (this records the deletion), then yarn dep sync" in problems[0], problems[0]
 
 
 def test_an_untracked_lock_is_deleted(tmp_path):
@@ -1032,7 +1034,7 @@ def test_an_untracked_lock_is_deleted(tmp_path):
     problems = doctor.foundry_lock_problems(repo)
     assert len(problems) == 1
     assert problems[0].startswith("foundry.lock is in the working tree, and git does not track it"), problems[0]
-    assert "Repair: rm foundry.lock" in problems[0], problems[0]
+    assert "Repair: rm foundry.lock, then yarn dep sync" in problems[0], problems[0]
 
 
 # ── inline_config_problems: no test sets its own fuzz or invariant parameters ──

@@ -571,12 +571,14 @@ def deny_warnings_problems(repo_root: Path) -> list[str]:
 
 
 def foundry_lock_problems(repo_root: Path) -> list[str]:
-    """A foundry.lock in the index or the working tree. forge writes one on `forge install` and `forge update`,
-    recording which branch or tag each dependency came from. `yarn dep`, which replaces them, records that in
+    """A foundry.lock in the index or the working tree. forge writes one whenever it installs: on `forge
+    install` and `forge update`, recording which branch or tag each dependency came from, and when build, test,
+    coverage or script finds a dependency with nothing checked out in its folder, which it then installs with
+    every nested submodule, unbidden. `yarn dep`, which replaces the install commands, records versions in
     .gitmodules and in the commit this repository points to, and leaves the lock as it was - so a lock names
     versions the dependencies left, and forge reads it as current when told to (`--locked`). Presence is the
-    finding, whatever the lock says; the repair depends on what git knows of it. Returns [] when there is
-    none."""
+    finding, whatever the lock says; the removal depends on what git knows of it, and `yarn dep sync` follows,
+    to leave only the checkouts the build reads. Returns [] when there is none."""
     tracked = (
         subprocess.run(
             ["git", "ls-files", "--error-unmatch", "foundry.lock"], cwd=repo_root, capture_output=True, text=True
@@ -585,14 +587,16 @@ def foundry_lock_problems(repo_root: Path) -> list[str]:
     )
     present = (repo_root / "foundry.lock").is_file()
     if tracked and present:
-        return ["git tracks foundry.lock\n  Repair: git rm foundry.lock"]
+        return ["git tracks foundry.lock\n  Repair: git rm foundry.lock, then yarn dep sync"]
     if tracked:
         return [
             "git tracks foundry.lock, and the working tree does not have it, so the next checkout brings it back\n"
-            "  Repair: git rm foundry.lock (this records the deletion)"
+            "  Repair: git rm foundry.lock (this records the deletion), then yarn dep sync"
         ]
     if present:
-        return ["foundry.lock is in the working tree, and git does not track it\n  Repair: rm foundry.lock"]
+        return [
+            "foundry.lock is in the working tree, and git does not track it\n  Repair: rm foundry.lock, then yarn dep sync"
+        ]
     return []
 
 
@@ -1407,10 +1411,12 @@ def build_checks(
         ),
         Check(
             "no foundry.lock",
-            "forge writes foundry.lock on forge install and forge update, to record which branch or tag each "
-            "dependency came from. Dependencies here are moved with yarn dep, which records that in .gitmodules "
-            "and in the commit this repository points to, and leaves the lock as it was. forge reads the lock "
-            "only when told to, with --locked",
+            "forge writes foundry.lock whenever it installs: on forge install and forge update, to record which "
+            "branch or tag each dependency came from, and when build, test, coverage or script finds a dependency "
+            "with nothing checked out in its folder, which it then installs with every nested submodule. "
+            "Dependencies here are moved with yarn dep, which records that in .gitmodules and in the commit this "
+            "repository points to, and leaves the lock as it was. forge reads the lock only when told to, with "
+            "--locked. yarn dep sync leaves only the checkouts the build reads",
             "the lock names versions the dependencies left long ago, and forge --locked, or anyone who reads it, "
             "takes them for the current ones",
             foundry_lock_problems(repo_root),
