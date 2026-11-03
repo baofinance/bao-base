@@ -173,7 +173,9 @@ def test_forge_build_writes_foundry_lock_when_it_installs_a_dependency(tmp_path)
 
     assert "Missing dependencies found" in output, output
     assert (project / "foundry.lock").is_file()
-    assert git(project, "status", "--short", "foundry.lock").stdout.startswith("??"), "untracked, as the doctor finds it"
+    assert git(project, "status", "--short", "foundry.lock").stdout.startswith("??"), (
+        "untracked, as the doctor finds it"
+    )
 
 
 def test_the_install_repoints_a_shared_gitdir_when_the_build_runs_in_a_linked_worktree(tmp_path):
