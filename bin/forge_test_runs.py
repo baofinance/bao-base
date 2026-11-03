@@ -60,6 +60,18 @@ What each run is for:
   (https://github.com/foundry-rs/foundry/pull/17202), so every run would recompile the whole project.
   Warnings are still printed; gas is the run that fails on them.
   tests/toolchain/test_forge_deny_warnings_cache.py fails if either half of that changes.
+  A failure the provider caused is re-run once. forge writes each test's result to tmp/forge-test-results.json
+  (--json-file), and when every failure in the run reads as the provider's - its JSON-RPC error ("server
+  returned an error response"), forge's retries on its refusals exhausted ("Max retries exceeded"), or the
+  fork backend's read failing ("Failed to send/recv") - the run names each failure and runs forge again
+  with the same arguments and `--match-contract` naming the failed suites, whole: a suite whose setUp failed
+  has every test to run again. (forge's own `--rerun` records a test's failure but not a setUp's, and with
+  nothing recorded runs everything.) The re-run's status is the run's. A failure that is not the provider's
+  fails the run at once and re-runs nothing: a re-run would only delay a real failure, and would hide a test
+  that fails on its own. The run ends by saying what it did: the provider's failures with each reason and
+  whether the re-run passed or what still failed, or the failures it did not re-run, the provider's beside
+  them, or that forge left no results file. A results file left by an earlier run is removed before forge
+  runs, so one that is missing afterwards means forge wrote none.
 
 - gas: the gas report, measured under --isolate, where every top-level call becomes its own transaction,
   with the fuzz seed pinned so two runs of the same code measure the same calls. `--no-match-test
@@ -78,12 +90,15 @@ What each run is for:
   it is under coverage.
 
 gas and coverage run deploy scripts whose logs go under BAO_DEPLOYMENT_LOGS_ROOT, a folder under tmp/ that
-the run makes and removes.
+the run makes and removes. Neither is re-run on a provider failure: each reports one run, and a re-run's
+report would be partial.
 """
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -91,6 +106,12 @@ import sys
 import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+
+# where the test run has forge write each test's result, and the words in a failure's reason that make it the
+# provider's: forge 1.9.0's, for its JSON-RPC error, the retries on its refusals exhausted, and the fork
+# backend's read failing
+_TEST_RESULTS = "tmp/forge-test-results.json"
+_PROVIDER_FAILURE = ("server returned an error response", "Max retries exceeded", "Failed to send/recv")
 
 _EVERY_RUN = [
     "--gas-limit",
@@ -111,7 +132,17 @@ def _verbosity(environ: Mapping[str, str], quiet: str) -> str:
 def command(run: str, environ: Mapping[str, str], arguments: Sequence[str]) -> list[str]:
     """The forge command the run `run` makes, with the caller's `arguments` after the run's own."""
     if run == "test":
-        own = ["forge", "test", _verbosity(environ, "-v"), *_EVERY_RUN, "--deny", "never", "--summary"]
+        own = [
+            "forge",
+            "test",
+            _verbosity(environ, "-v"),
+            *_EVERY_RUN,
+            "--deny",
+            "never",
+            "--summary",
+            "--json-file",
+            _TEST_RESULTS,
+        ]
     elif run == "gas":
         own = [
             "forge",
@@ -163,13 +194,47 @@ def invariant_settings(environ: Mapping[str, str]) -> dict[str, str]:
     }
 
 
+def _failures(results: Path) -> dict[str, dict[str, str]]:
+    """The failed tests in forge's results file `results`, by suite, each with its reason."""
+    failures: dict[str, dict[str, str]] = {}
+    for suite, body in json.loads(results.read_text()).items():
+        for test, outcome in body["test_results"].items():
+            if outcome["status"] == "Failure":
+                failures.setdefault(suite, {})[test] = outcome.get("reason") or ""
+    return failures
+
+
+def _the_providers(reason: str) -> bool:
+    """Whether a failure's `reason` reads as the provider's."""
+    return any(words in reason for words in _PROVIDER_FAILURE)
+
+
+def _count(failures: Mapping[str, Mapping[str, str]]) -> int:
+    """The number of failed tests in `failures`."""
+    return sum(len(tests) for tests in failures.values())
+
+
+def _some(count: int, noun: str) -> str:
+    """`count` of `noun`, in the plural when there is not exactly one: "1 test", "2 suites"."""
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+def _say(heading: str, failures: Mapping[str, Mapping[str, str]]) -> None:
+    """Print `heading` and a line per failed test in `failures`: its suite, its name and its reason's first line."""
+    print(heading, file=sys.stderr)
+    for suite, tests in failures.items():
+        for test, reason in tests.items():
+            print(f"  {suite} {test}: {reason.splitlines()[0] if reason else ''}", file=sys.stderr)
+    sys.stderr.flush()
+
+
 def main(run: str, arguments: Sequence[str]) -> int:
     """Make the run `run` with the caller's `arguments`; forge's exit status."""
     environ = {**os.environ, **invariant_settings(os.environ)}
     Path("results").mkdir(exist_ok=True)
     logs_root: str | None = None
+    Path("tmp").mkdir(exist_ok=True)
     if run in ("gas", "coverage"):
-        Path("tmp").mkdir(exist_ok=True)
         # named from the working directory, as the tests' file permissions are
         logs_root = os.path.relpath(tempfile.mkdtemp(dir="tmp"))
         environ["BAO_DEPLOYMENT_LOGS_ROOT"] = logs_root
@@ -178,7 +243,47 @@ def main(run: str, arguments: Sequence[str]) -> int:
     forge = command(run, environ, arguments)
     print("+ " + shlex.join(forge), file=sys.stderr, flush=True)
     try:
-        return subprocess.run(forge, env=environ, check=False).returncode
+        results = Path(_TEST_RESULTS)
+        if run == "test":
+            results.unlink(missing_ok=True)
+        status = subprocess.run(forge, env=environ, check=False).returncode
+        if run == "test" and status != 0:
+            if not results.is_file():
+                print("no results file; nothing re-run", file=sys.stderr, flush=True)
+                return status
+            failures = _failures(results)
+            providers = {
+                suite: {test: reason for test, reason in tests.items() if _the_providers(reason)}
+                for suite, tests in failures.items()
+            }
+            providers = {suite: tests for suite, tests in providers.items() if tests}
+            others = {
+                suite: {test: reason for test, reason in tests.items() if not _the_providers(reason)}
+                for suite, tests in failures.items()
+            }
+            others = {suite: tests for suite, tests in others.items() if tests}
+            if others:
+                _say(f"not re-run: {_count(others)} failed for reasons not the provider's:", others)
+                if providers:
+                    _say(f"beside {_count(providers)} the provider failed:", providers)
+                return status
+            if providers:
+                summary = f"the provider failed {_some(_count(providers), 'test')} in {_some(len(providers), 'suite')}"
+                print(f"{summary}; re-running them once", file=sys.stderr, flush=True)
+                # the suites by their contract names, which is what --match-contract matches
+                names = "|".join(re.escape(suite.rsplit(":", 1)[-1]) for suite in providers)
+                rerun = [*forge, "--match-contract", f"^({names})$"]
+                print("+ " + shlex.join(rerun), file=sys.stderr, flush=True)
+                results.unlink(missing_ok=True)
+                status = subprocess.run(rerun, env=environ, check=False).returncode
+                _say(f"{summary}; re-run once:", providers)
+                if not results.is_file():
+                    print("re-run: no results file", file=sys.stderr, flush=True)
+                elif still := _failures(results):
+                    _say(f"re-run: {_count(still)} still failed:", still)
+                else:
+                    print("re-run: all passed", file=sys.stderr, flush=True)
+        return status
     finally:
         if logs_root is not None:
             shutil.rmtree(logs_root, ignore_errors=True)
