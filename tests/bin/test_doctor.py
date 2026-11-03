@@ -1098,6 +1098,113 @@ def test_inline_config_lists_every_line_in_test_and_script_sources(tmp_path):
     assert "test/B.t.sol:5  default.fuzz.seed = 1" in problems[0], problems[0]
 
 
+# ── fork_endpoint_problems: every endpoint a fork names is in foundry.toml ──
+#
+# A test or script names the endpoint of a fork it creates by the alias of an entry in [rpc_endpoints]: the form
+# that gives the fork the entry's retries (bug-reports/foundry-1-9-0-cheatcode-fork-retry-settings.md), and one
+# forge fails the test at the fork's creation when no entry has the alias. The aliases are read where they are
+# named: the source, test and script directories, and the bao-base test helpers a project's tests inherit. Each
+# test builds a project in tmp_path, so the entries are the ones `forge config` resolves; the helpers are left
+# out unless a test is about them, so the project's own naming is what is judged.
+def _with_rpc_endpoints(repo: pathlib.Path, entries: str) -> pathlib.Path:
+    (repo / "foundry.toml").write_text(f"[profile.default]\n\n[rpc_endpoints]\n{entries}")
+    return repo
+
+
+@pytest.fixture
+def _without_inherited_helpers(monkeypatch):
+    monkeypatch.setattr(doctor, "_INHERITED_FORK_HELPERS", ())
+
+
+def test_fork_endpoints_clean_when_nothing_forks(tmp_path, _without_inherited_helpers):
+    repo = _with_rpc_endpoints(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), "")
+    assert doctor.fork_endpoint_problems(repo) == []
+
+
+def test_fork_endpoints_clean_when_every_alias_named_has_an_entry(tmp_path, _without_inherited_helpers):
+    repo = _with_rpc_endpoints(
+        _forge_project(
+            tmp_path / "host",
+            _used_by_a_test_and_a_script()
+            | {
+                "test/B.t.sol": 'contract BTest { function setUp() public { vm.createSelectFork("mainnet", 1); } }\n',
+                "script/C.s.sol": 'contract C { function run() public { vm.createFork("local"); } }\n',
+            },
+        ),
+        'mainnet = "http://127.0.0.1:1"\nlocal = "http://127.0.0.1:2"\n',
+    )
+    assert doctor.fork_endpoint_problems(repo) == []
+
+
+def test_fork_endpoints_report_each_line_naming_an_alias_without_an_entry(tmp_path, _without_inherited_helpers):
+    repo = _with_rpc_endpoints(
+        _forge_project(
+            tmp_path / "host",
+            _used_by_a_test_and_a_script()
+            | {
+                "test/B.t.sol": (
+                    "contract BTest {\n"
+                    '    function setUp() public { vm.createSelectFork("mainnet", 1); }\n'
+                    '    function test() public { vm.createFork("arbitrum"); forkAt("mainnet"); }\n'
+                    "}\n"
+                ),
+                "script/C.s.sol": 'contract C { function run() public { vm.rpcUrl("local"); } }\n',
+            },
+        ),
+        'local = "http://127.0.0.1:2"\n',
+    )
+    problems = doctor.fork_endpoint_problems(repo)
+    assert len(problems) == 1
+    assert 'test/B.t.sol:4  "mainnet"' in problems[0], problems[0]
+    assert 'test/B.t.sol:5  "arbitrum"' in problems[0], problems[0]
+    assert 'test/B.t.sol:5  "mainnet"' in problems[0], problems[0]
+    assert "script/C.s.sol" not in problems[0], problems[0]
+    assert "Repair: add an entry for each alias to [rpc_endpoints] in foundry.toml" in problems[0], problems[0]
+
+
+def test_fork_endpoints_leave_a_literal_url_alone(tmp_path, _without_inherited_helpers):
+    # a URL names no entry: the fork gets forge's defaults, which is its author's choice, not a missing entry
+    repo = _with_rpc_endpoints(
+        _forge_project(
+            tmp_path / "host",
+            _used_by_a_test_and_a_script()
+            | {
+                "test/B.t.sol": 'contract BTest { function setUp() public { vm.createSelectFork("http://127.0.0.1:1"); } }\n'
+            },
+        ),
+        "",
+    )
+    assert doctor.fork_endpoint_problems(repo) == []
+
+
+def test_fork_endpoints_count_an_entry_in_table_form_whose_url_is_an_unset_variable(
+    tmp_path, monkeypatch, _without_inherited_helpers
+):
+    # an entry carrying retries is a table, and its URL is read from the environment at the fork's creation: the
+    # alias is there for forge whether or not the variable is set, as a project's are without its .env
+    monkeypatch.delenv("DOCTOR_TEST_UNSET_RPC_URL", raising=False)
+    repo = _with_rpc_endpoints(
+        _forge_project(
+            tmp_path / "host",
+            _used_by_a_test_and_a_script()
+            | {"test/B.t.sol": 'contract BTest { function setUp() public { vm.createSelectFork("mainnet", 1); } }\n'},
+        ),
+        'mainnet = { endpoint = "${DOCTOR_TEST_UNSET_RPC_URL}", retries = 2, retry_backoff = 100 }\n',
+    )
+    assert doctor.fork_endpoint_problems(repo) == []
+
+
+def test_fork_endpoints_include_the_helpers_a_projects_tests_inherit(tmp_path):
+    # BaoTest.forkMainnet names its endpoint in bao-base's test helpers, which every project's tests compile, so
+    # a project forking nowhere in its own sources still needs that entry
+    repo = _with_rpc_endpoints(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), "")
+    problems = doctor.fork_endpoint_problems(repo)
+    assert len(problems) == 1
+    assert "BaoTest.sol:" in problems[0], problems[0]
+    assert '"mainnet"' in problems[0], problems[0]
+    assert doctor.fork_endpoint_problems(_with_rpc_endpoints(repo, 'mainnet = "http://127.0.0.1:1"\n')) == []
+
+
 # ── ruff's settings extend bao-base's ──────────────────────────────────────────────────────────────────
 
 _BAO_BASE = _module_path.parents[1]

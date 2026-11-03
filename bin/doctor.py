@@ -624,6 +624,43 @@ def inline_config_problems(repo_root: Path) -> list[str]:
     return ["\n".join(lines)]
 
 
+# a fork cheatcode, or the BaoTest helper, given the endpoint's name as a literal
+_FORK_ENDPOINT = re.compile(r'\b(?:createSelectFork|createFork|forkAt|rpcUrl)\(\s*"(?P<name>[^"]*)"')
+# bao-base's test helpers, compiled into every project's tests: BaoTest.forkMainnet names its endpoint here
+_INHERITED_FORK_HELPERS = (Path(__file__).resolve().parents[1] / "test" / "BaoTest.sol",)
+
+
+def fork_endpoint_problems(repo_root: Path) -> list[str]:
+    """Forks naming an endpoint that `forge config`'s [rpc_endpoints] does not have. A test or script names the
+    endpoint of a fork it creates by an entry's alias - the form that gives the fork the entry's retries, where
+    the URL `vm.rpcUrl` returns loses them (bug-reports/foundry-1-9-0-cheatcode-fork-retry-settings.md) - and
+    forge fails the test at the fork's creation when no entry has the alias. The aliases are read where they
+    are named: the source, test and script directories, and the bao-base test helpers a project's tests
+    inherit. A literal URL names no entry and is left alone. Returns one block listing each line, or [] when
+    every alias named has an entry."""
+    entries = forge_config(repo_root).get("rpc_endpoints", {})
+    root = repo_root.resolve()
+    files: dict[Path, None] = {}
+    for directory in forge_source_directories(repo_root):
+        for path in sorted((repo_root / directory).rglob("*.sol")):
+            files.setdefault(path.resolve())
+    for helper in _INHERITED_FORK_HELPERS:
+        files.setdefault(helper.resolve())
+    found: list[str] = []
+    for path in files:
+        shown = path.relative_to(root).as_posix() if path.is_relative_to(root) else path.as_posix()
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            for matched in _FORK_ENDPOINT.finditer(line):
+                if "://" not in matched["name"] and matched["name"] not in entries:
+                    found.append(f'{shown}:{number}  "{matched["name"]}"')
+    if not found:
+        return []
+    lines = ["These forks name an endpoint that foundry.toml's [rpc_endpoints] does not have:"]
+    lines.extend(f"  {entry}" for entry in found)
+    lines.append("  Repair: add an entry for each alias to [rpc_endpoints] in foundry.toml, or name one that is there.")
+    return ["\n".join(lines)]
+
+
 def wake_scope_problems(repo_root: Path) -> list[str]:
     """Solidity files wake compiles that forge does not build. Wake compiles every `*.sol` in the project
     that `compiler.solc.exclude_paths` does not cover, found by a recursive glob: directories and files
@@ -1272,6 +1309,14 @@ def build_checks(
             "a baseline moves with no change to the code, one test's long run slows every run, and a handler "
             "whose calls revert can be made to pass",
             inline_config_problems(repo_root),
+        ),
+        Check(
+            "every endpoint a fork names is in foundry.toml",
+            "a test or script names the endpoint of a fork it creates by an alias in [rpc_endpoints], the form that "
+            "gives the fork the entry's retries; forge resolves the alias when the fork is created, and fails the "
+            "test when no entry has it",
+            "every test creating that fork fails at its creation, on every machine without the entry",
+            fork_endpoint_problems(repo_root),
         ),
         workflow_copy.check(repo_root),
         Check(

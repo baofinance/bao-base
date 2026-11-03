@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 
 contract TestFork is Test {
     function testMainnet() public {
-        vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
+        // named by alias, so the fork takes the retries foundry.toml's entry carries
+        vm.createSelectFork("mainnet", 19210000);
     }
 }

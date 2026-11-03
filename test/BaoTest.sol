@@ -51,19 +51,21 @@ abstract contract BaoTest is Test {
         vm.label(HARBOR_MULTISIG, "HarborMultisig");
     }
 
-    /// @notice Select a fork of `url` at whatever block `forkBlock` names.
+    /// @notice Select a fork of the endpoint `urlOrAlias` names at whatever block `forkBlock` names.
     /// @dev The one place that reads `forkBlock`, so deciding the block and applying it cannot drift
-    ///      apart, and a suite overriding `forkBlock` is honoured however the fork is reached.
-    function forkAt(string memory url) internal returns (uint256 forkId) {
+    ///      apart, and a suite overriding `forkBlock` is honoured however the fork is reached. Name the
+    ///      endpoint by its foundry.toml alias: the fork then takes the entry's retries, where one given
+    ///      the URL `vm.rpcUrl` returns gets forge's defaults (foundry issue 18071).
+    function forkAt(string memory urlOrAlias) internal returns (uint256 forkId) {
         uint256 pinned = forkBlock();
-        return pinned == LATEST_BLOCK ? vm.createSelectFork(url) : vm.createSelectFork(url, pinned);
+        return pinned == LATEST_BLOCK ? vm.createSelectFork(urlOrAlias) : vm.createSelectFork(urlOrAlias, pinned);
     }
 
     /// @notice Select a mainnet fork at the shared pinned block.
     /// @dev A helper rather than a bare constant so no repo repeats the incantation either, and so the
     ///      choice of RPC alias stays in one place.
     function forkMainnet() internal returns (uint256 forkId) {
-        return forkAt(vm.rpcUrl("mainnet"));
+        return forkAt("mainnet");
     }
 
     // Matches forge's assertApproxEqRel scaling: 1e18 == 100% relative tolerance.
