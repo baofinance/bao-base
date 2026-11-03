@@ -1145,7 +1145,7 @@ def test_fork_endpoints_report_each_line_naming_an_alias_without_an_entry(tmp_pa
                 "test/B.t.sol": (
                     "contract BTest {\n"
                     '    function setUp() public { vm.createSelectFork("mainnet", 1); }\n'
-                    '    function test() public { vm.createFork("arbitrum"); forkAt("mainnet"); }\n'
+                    '    function test() public { vm.createFork("arbitrum"); createSelectForkAtTransaction("mainnet", h); }\n'
                     "}\n"
                 ),
                 "script/C.s.sol": 'contract C { function run() public { vm.rpcUrl("local"); } }\n',
@@ -1195,7 +1195,7 @@ def test_fork_endpoints_count_an_entry_in_table_form_whose_url_is_an_unset_varia
 
 
 def test_fork_endpoints_include_the_helpers_a_projects_tests_inherit(tmp_path):
-    # BaoTest.forkMainnet names its endpoint in bao-base's test helpers, which every project's tests compile, so
+    # BaoTest.forkMainnetWithBaoFactory names its endpoint in bao-base's test helpers, which every project's tests compile, so
     # a project forking nowhere in its own sources still needs that entry
     repo = _with_rpc_endpoints(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), "")
     problems = doctor.fork_endpoint_problems(repo)
@@ -1203,6 +1203,176 @@ def test_fork_endpoints_include_the_helpers_a_projects_tests_inherit(tmp_path):
     assert "BaoTest.sol:" in problems[0], problems[0]
     assert '"mainnet"' in problems[0], problems[0]
     assert doctor.fork_endpoint_problems(_with_rpc_endpoints(repo, 'mainnet = "http://127.0.0.1:1"\n')) == []
+
+
+# ── every fork in test code is at a listed block ───────────────────────────────────────────────────────
+# BaoTest takes a fork only at a block or transaction test/fork-blocks.toml lists, reading the file under forge's
+# fs_permissions, and a cheatcode fork in the test directory bypasses the list. Each test builds a project in
+# tmp_path; the helpers bao-base's tests inherit are left out unless a test is about them.
+def _with_fs_permissions(repo: pathlib.Path, entries: str) -> pathlib.Path:
+    (repo / "foundry.toml").write_text(f"[profile.default]\nfs_permissions = [{entries}]\n")
+    return repo
+
+
+def _with_fork_blocks(repo: pathlib.Path, body: str) -> pathlib.Path:
+    (repo / "test").mkdir(exist_ok=True)
+    (repo / "test" / "fork-blocks.toml").write_text(body)
+    return repo
+
+
+_A_DEFAULT_LISTED = "[blocks]\ndefault = 1\n"
+_A_TEST_FORKING_THROUGH_BAOTEST = {
+    "test/B.t.sol": 'contract BTest { function setUp() public { createSelectForkAtTransaction("mainnet", h); } }\n'
+}
+
+
+def test_fork_blocks_permission_clean_without_the_file(tmp_path):
+    repo = _with_fs_permissions(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), "")
+    assert doctor.fork_blocks_permission_problems(repo) == []
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        '{ access = "read", path = "./" }',
+        '{ access = "read", path = "./test" }',
+        '{ access = "read", path = "./test/fork-blocks.toml" }',
+        '{ access = "read-write", path = "./" }',
+    ],
+)
+def test_fork_blocks_permission_clean_when_an_entry_grants_read_over_the_file(tmp_path, entry):
+    repo = _with_fork_blocks(
+        _with_fs_permissions(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), entry),
+        _A_DEFAULT_LISTED,
+    )
+    assert doctor.fork_blocks_permission_problems(repo) == []
+
+
+def test_fork_blocks_permission_report_no_entry_granting_read_over_the_file(tmp_path):
+    # write access to the root, and read access beside the file, grant no read of it
+    repo = _with_fork_blocks(
+        _with_fs_permissions(
+            _forge_project(tmp_path / "host", _used_by_a_test_and_a_script()),
+            '{ access = "write", path = "./" }, { access = "read", path = "./script" }',
+        ),
+        _A_DEFAULT_LISTED,
+    )
+    problems = doctor.fork_blocks_permission_problems(repo)
+    assert len(problems) == 1
+    assert "test/fork-blocks.toml" in problems[0], problems[0]
+    assert 'Repair: add { access = "read", path = "./test/fork-blocks.toml" } to fs_permissions' in problems[0], (
+        problems[0]
+    )
+
+
+def test_fork_blocks_list_clean_without_the_file_when_nothing_forks(tmp_path, _without_inherited_helpers):
+    repo = _with_fs_permissions(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), "")
+    assert doctor.fork_blocks_list_problems(repo) == []
+
+
+def test_fork_blocks_list_report_a_missing_file_when_a_test_forks(tmp_path, _without_inherited_helpers):
+    repo = _with_fs_permissions(
+        _forge_project(tmp_path / "host", _used_by_a_test_and_a_script() | _A_TEST_FORKING_THROUGH_BAOTEST), ""
+    )
+    problems = doctor.fork_blocks_list_problems(repo)
+    assert len(problems) == 1
+    assert "test/B.t.sol" in problems[0], problems[0]
+    assert "test/fork-blocks.toml is not there" in problems[0], problems[0]
+
+
+def test_fork_blocks_list_clean_with_a_default_and_eight_positions(tmp_path, _without_inherited_helpers):
+    blocks = "".join(f"b{i} = {i + 2}\n" for i in range(6))
+    repo = _with_fork_blocks(
+        _with_fs_permissions(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), ""),
+        f'[blocks]\ndefault = 1\n{blocks}\n[transactions]\nt = "0x{"ab" * 32}"\n',
+    )
+    assert doctor.fork_blocks_list_problems(repo) == []
+
+
+def test_fork_blocks_list_report_nine_positions_a_transaction_counting_as_one(tmp_path, _without_inherited_helpers):
+    blocks = "".join(f"b{i} = {i + 2}\n" for i in range(7))
+    repo = _with_fork_blocks(
+        _with_fs_permissions(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), ""),
+        f'[blocks]\ndefault = 1\n{blocks}\n[transactions]\nt = "0x{"ab" * 32}"\n',
+    )
+    problems = doctor.fork_blocks_list_problems(repo)
+    assert len(problems) == 1
+    assert "test/fork-blocks.toml lists 9 blocks and transactions" in problems[0], problems[0]
+    assert "doctor's limit is 8" in problems[0], problems[0]
+
+
+def test_fork_blocks_list_report_a_missing_default(tmp_path, _without_inherited_helpers):
+    repo = _with_fork_blocks(
+        _with_fs_permissions(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), ""),
+        "[blocks]\nnewer = 5\n",
+    )
+    problems = doctor.fork_blocks_list_problems(repo)
+    assert len(problems) == 1
+    assert 'test/fork-blocks.toml has no block named "default"' in problems[0], problems[0]
+
+
+def test_fork_blocks_list_report_a_block_named_latest(tmp_path, _without_inherited_helpers):
+    repo = _with_fork_blocks(
+        _with_fs_permissions(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), ""),
+        "[blocks]\ndefault = 1\nlatest = 5\n",
+    )
+    problems = doctor.fork_blocks_list_problems(repo)
+    assert len(problems) == 1
+    assert 'test/fork-blocks.toml names a block "latest"' in problems[0], problems[0]
+
+
+def test_fork_blocks_list_report_a_block_that_is_no_number_and_a_transaction_that_is_no_hash(
+    tmp_path, _without_inherited_helpers
+):
+    repo = _with_fork_blocks(
+        _with_fs_permissions(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), ""),
+        '[blocks]\ndefault = 1\nnewer = "soon"\n\n[transactions]\nt = "0x12"\n',
+    )
+    problems = doctor.fork_blocks_list_problems(repo)
+    assert len(problems) == 2, problems
+    assert "block \"newer\" is 'soon', not a block number" in problems[0], problems[0]
+    assert "transaction \"t\" is '0x12', not a 32-byte hash" in problems[1], problems[1]
+
+
+def test_fork_cheatcodes_clean_when_every_fork_goes_through_baotest(tmp_path, _without_inherited_helpers):
+    repo = _forge_project(tmp_path / "host", _used_by_a_test_and_a_script() | _A_TEST_FORKING_THROUGH_BAOTEST)
+    assert doctor.fork_cheatcode_problems(repo) == []
+
+
+def test_fork_cheatcodes_report_each_cheatcode_fork_in_the_test_directory(tmp_path, _without_inherited_helpers):
+    # the test directory only: a campaign under script/ forks the chain's head, or a capture's block, by the cheatcode
+    repo = _forge_project(
+        tmp_path / "host",
+        _used_by_a_test_and_a_script()
+        | {
+            "test/B.t.sol": (
+                "contract BTest {\n"
+                '    function setUp() public { vm.createSelectFork("mainnet", 1); }\n'
+                '    function test() public { _vm.createFork("mainnet"); createSelectFork("mainnet"); }\n'
+                "    function testRoll() public { vm.rollFork(2); }\n"
+                "}\n"
+            ),
+            "script/verify/C.t.sol": 'contract C { function setUp() public { vm.createSelectFork("mainnet"); } }\n',
+        },
+    )
+    problems = doctor.fork_cheatcode_problems(repo)
+    assert len(problems) == 1
+    assert "test/B.t.sol:4  vm.createSelectFork" in problems[0], problems[0]
+    assert "test/B.t.sol:5  _vm.createFork" in problems[0], problems[0]
+    assert "test/B.t.sol:6  vm.rollFork" in problems[0], problems[0]
+    assert "script/" not in problems[0], problems[0]
+    assert "Repair: take the fork through BaoTest's createFork or createSelectFork" in problems[0], problems[0]
+
+
+def test_fork_cheatcodes_except_the_helpers_a_projects_tests_inherit(tmp_path, monkeypatch):
+    # BaoTest's wrappers end in the cheatcode, and sit in the test directory when bao-base is the project
+    repo = _forge_project(
+        tmp_path / "host",
+        _used_by_a_test_and_a_script()
+        | {"test/BaoTest.sol": 'contract BaoTest { function f() internal { vm.createFork("mainnet"); } }\n'},
+    )
+    monkeypatch.setattr(doctor, "_INHERITED_FORK_HELPERS", (repo / "test" / "BaoTest.sol",))
+    assert doctor.fork_cheatcode_problems(repo) == []
 
 
 # ── ruff's settings extend bao-base's ──────────────────────────────────────────────────────────────────

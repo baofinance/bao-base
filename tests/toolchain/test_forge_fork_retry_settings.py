@@ -1,9 +1,9 @@
 """forge gives a fork a test creates the retries of the endpoint entry the fork names by its alias, and nothing
 else: not the command line's --fork-retries and --fork-retry-backoff, and not the entry's when the fork is given
 the entry's URL - what `vm.rpcUrl(alias)` returns - in place of the alias (foundry issue 18071, its body in
-bug-reports/foundry-1-9-0-cheatcode-fork-retry-settings.md). So `BaoTest.forkAt` takes an alias, `forkMainnet`
-names "mainnet", a project's mainnet entry carries the retries, and a runner's flags protect only the fork the
-command line creates.
+bug-reports/foundry-1-9-0-cheatcode-fork-retry-settings.md). So BaoTest's `createSelectFork` passes the alias
+it is given to the cheatcode, a project's mainnet entry carries the retries, and a runner's flags protect only
+the fork the command line creates.
 
 Each test counts the attempts one fork's creation makes against an endpoint that refuses every request with
 HTTP 429: one `eth_chainId` per attempt, so the count is the retries plus one. The first pins what the alias form
@@ -141,11 +141,11 @@ def test_a_fork_named_by_alias_takes_the_entrys_retries(tmp_path):
 
 
 def test_a_fork_named_by_the_entrys_url_gets_forges_defaults(tmp_path):
-    # why forkAt takes an alias: vm.rpcUrl(alias) returns the URL, and a fork given a URL takes nothing from the entry
+    # why a fork names its alias: vm.rpcUrl(alias) returns the URL, and a fork given a URL takes nothing from the entry
     with refusing_endpoint() as stub:
         forge_test(project(tmp_path, stub.port), "ByUrl")
         assert stub.chain_id_requests == FORGES_DEFAULT_ATTEMPTS, (
-            "forge now gives a fork named by the entry's URL the entry's retries: BaoTest.forkAt may take either"
+            "forge now gives a fork named by the entry's URL the entry's retries: a fork may name either"
         )
 
 

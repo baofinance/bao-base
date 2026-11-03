@@ -1,0 +1,3 @@
+# A list for BaoTestForks.t.sol: a transaction and no [blocks] table.
+[transactions]
+exploit = "0xb8701591c0fa3ee44a9f42379d167261f70e0532f7c0cea6fcda26ef999df3db"

@@ -17,55 +17,144 @@ abstract contract BaoTest is Test {
     /// @notice Harbor multisig address - hardcoded for deterministic deployment
     address internal constant HARBOR_MULTISIG = 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2;
 
-    /// @notice The mainnet block every repo's `test/` suite forks at.
-    /// @dev Pinned, because a `test/` fork must be reproducible — the same inputs on any machine, any day.
-    ///      SHARED across repos deliberately: CI caches fork data per block, so one block means one cached
-    ///      dataset instead of one per repo, and a cold run fetches it once rather than several times. That
-    ///      is why this lives here rather than in each repo.
-    ///
-    ///      Changing it is a CROSS-REPO event: every consumer re-runs against different chain state, and
-    ///      anything asserting a fact about the chain at a block can move with it — an address with no code
-    ///      may acquire some, EIP-7702 delegations appear on EOAs, rates drift. Expect to re-verify, not
-    ///      merely re-run. The CI cache key in `.github/actions/test-foundry` names this same number and
-    ///      must be changed with it.
-    ///
-    ///      `script/verify/` deliberately does NOT use this: its blocks are chosen per upgrade, and its
-    ///      whole point is meeting real state rather than a reproducible one.
-    ///
-    ///      A function rather than a constant so one suite can pin a different block — holding a
-    ///      failure still at the block that produced it, say — without moving the shared default and
-    ///      re-running every other repo against different chain state. `LATEST_BLOCK` opts a suite out
-    ///      of pinning altogether, for the suites whose whole purpose is meeting the chain as it
-    ///      stands; that choice is the suite's, and is whole-suite either way.
-    function forkBlock() internal pure virtual returns (uint256) {
-        return 24699497;
-    }
-
-    /// @notice The value `forkBlock` returns to mean "whatever the endpoint is serving now".
-    /// @dev Zero rather than a flag: no fork is ever usefully taken at the genesis block, so the
-    ///      sentinel cannot collide with a block anyone wants.
-    uint256 internal constant LATEST_BLOCK = 0;
+    /// @notice The name of the block every test the block does not matter to forks at.
+    string internal constant FORK_DEFAULT = "default";
+    /// @notice The name of the highest block listed. Not an entry: a test needing recent state names it and
+    ///         moves forward when a newer block is listed.
+    string internal constant FORK_LATEST = "latest";
 
     constructor() {
         vm.label(NICKS_FACTORY, "NicksFactory");
         vm.label(HARBOR_MULTISIG, "HarborMultisig");
     }
 
-    /// @notice Select a fork of the endpoint `urlOrAlias` names at whatever block `forkBlock` names.
-    /// @dev The one place that reads `forkBlock`, so deciding the block and applying it cannot drift
-    ///      apart, and a suite overriding `forkBlock` is honoured however the fork is reached. Name the
-    ///      endpoint by its foundry.toml alias: the fork then takes the entry's retries, where one given
-    ///      the URL `vm.rpcUrl` returns gets forge's defaults (foundry issue 18071).
-    function forkAt(string memory urlOrAlias) internal returns (uint256 forkId) {
-        uint256 pinned = forkBlock();
-        return pinned == LATEST_BLOCK ? vm.createSelectFork(urlOrAlias) : vm.createSelectFork(urlOrAlias, pinned);
+    // ─────────────────────────────────────────────────────────────────────────
+    // Forks: forge's createFork and createSelectFork, constrained. A fork in test
+    // code is taken at a block or transaction `forkBlocksFile` lists, named, or
+    // given as a number the test derives, and is refused at any other. A pinned
+    // block is what makes a test reproducible, and what forge caches: each block
+    // is a cache of its own, fetched from the provider on every machine's first
+    // run, and a burst of requests from every suite that forks at it. The list
+    // keeps the blocks few and deliberate, and CI keys its cache by the file.
+    // The endpoint is named by its foundry.toml alias: the fork then takes the
+    // entry's retries, where one given the URL `vm.rpcUrl` returns gets forge's
+    // defaults (foundry issue 18071). `script/verify/` does not use these: a
+    // campaign meets the chain's head, or a capture's block, by the cheatcode.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @notice The file listing every block a test may fork at: `[blocks]` name = number, with `default` the
+    ///         block for every test the block does not matter to, and `[transactions]` name = hash.
+    /// @dev Read relative to the project root, under forge's fs_permissions, so each repo lists its own. A
+    ///      function so a test of the lookup can point it at a fixture.
+    function forkBlocksFile() internal pure virtual returns (string memory) {
+        return "test/fork-blocks.toml";
     }
 
-    /// @notice Select a mainnet fork at the shared pinned block.
-    /// @dev A helper rather than a bare constant so no repo repeats the incantation either, and so the
-    ///      choice of RPC alias stays in one place.
-    function forkMainnet() internal returns (uint256 forkId) {
-        return forkAt("mainnet");
+    /// @notice Create a fork of `endpoint` at the default block, without selecting it.
+    function createFork(string memory endpoint) internal returns (uint256 forkId) {
+        return createFork(endpoint, FORK_DEFAULT);
+    }
+
+    /// @notice Create a fork of `endpoint` at the block listed under `name`, or the highest listed for `latest`.
+    function createFork(string memory endpoint, string memory name) internal returns (uint256 forkId) {
+        return vm.createFork(endpoint, listedBlock(name));
+    }
+
+    /// @notice Create a fork of `endpoint` at `blockNumber`, a number the test derives - from a capture's
+    ///         manifest, say - which must be listed.
+    function createFork(string memory endpoint, uint256 blockNumber) internal returns (uint256 forkId) {
+        return vm.createFork(endpoint, listedBlock(blockNumber));
+    }
+
+    /// @notice Create a fork of `endpoint` holding the state before `transaction` ran, which must be listed.
+    /// @dev Its own name, not an overload: a name's literal converts to bytes32 too, and would be ambiguous.
+    function createForkAtTransaction(string memory endpoint, bytes32 transaction) internal returns (uint256 forkId) {
+        return vm.createFork(endpoint, listedTransaction(transaction));
+    }
+
+    /// @notice Create and select a fork of `endpoint` at the default block.
+    function createSelectFork(string memory endpoint) internal returns (uint256 forkId) {
+        return createSelectFork(endpoint, FORK_DEFAULT);
+    }
+
+    /// @notice Create and select a fork of `endpoint` at the block listed under `name`, or the highest listed
+    ///         for `latest`.
+    function createSelectFork(string memory endpoint, string memory name) internal returns (uint256 forkId) {
+        return vm.createSelectFork(endpoint, listedBlock(name));
+    }
+
+    /// @notice Create and select a fork of `endpoint` at `blockNumber`, a number the test derives - from a
+    ///         capture's manifest, say - which must be listed.
+    function createSelectFork(string memory endpoint, uint256 blockNumber) internal returns (uint256 forkId) {
+        return vm.createSelectFork(endpoint, listedBlock(blockNumber));
+    }
+
+    /// @notice Create and select a fork of `endpoint` holding the state before `transaction` ran, which must be
+    ///         listed.
+    /// @dev Its own name, not an overload: a name's literal converts to bytes32 too, and would be ambiguous.
+    function createSelectForkAtTransaction(
+        string memory endpoint,
+        bytes32 transaction
+    ) internal returns (uint256 forkId) {
+        return vm.createSelectFork(endpoint, listedTransaction(transaction));
+    }
+
+    /// @notice The block listed under `name`, or the highest listed for `latest`; a refusal names the file.
+    function listedBlock(string memory name) internal view returns (uint256) {
+        string memory list = vm.readFile(forkBlocksFile());
+        if (LibString.eq(name, FORK_LATEST)) {
+            uint256[] memory blocks = _listedBlocks(list);
+            if (blocks.length == 0) {
+                revert(string.concat(forkBlocksFile(), " lists no blocks"));
+            }
+            uint256 highest = blocks[0];
+            for (uint256 i = 1; i < blocks.length; i++) {
+                highest = Math.max(highest, blocks[i]);
+            }
+            return highest;
+        }
+        string memory key = string.concat("$.blocks.", name);
+        if (!vm.keyExistsToml(list, key)) {
+            revert(string.concat(forkBlocksFile(), ' lists no block named "', name, '"'));
+        }
+        return vm.parseTomlUint(list, key);
+    }
+
+    /// @notice `blockNumber`, which some name must list; a refusal names the file.
+    function listedBlock(uint256 blockNumber) internal view returns (uint256) {
+        uint256[] memory blocks = _listedBlocks(vm.readFile(forkBlocksFile()));
+        for (uint256 i = 0; i < blocks.length; i++) {
+            if (blocks[i] == blockNumber) {
+                return blockNumber;
+            }
+        }
+        revert(string.concat(forkBlocksFile(), " does not list block ", vm.toString(blockNumber)));
+    }
+
+    /// @notice `transaction`, which some name must list; a refusal names the file.
+    function listedTransaction(bytes32 transaction) internal view returns (bytes32) {
+        string memory list = vm.readFile(forkBlocksFile());
+        if (vm.keyExistsToml(list, "$.transactions")) {
+            string[] memory names = vm.parseTomlKeys(list, "$.transactions");
+            for (uint256 i = 0; i < names.length; i++) {
+                if (vm.parseTomlBytes32(list, string.concat("$.transactions.", names[i])) == transaction) {
+                    return transaction;
+                }
+            }
+        }
+        revert(string.concat(forkBlocksFile(), " does not list transaction ", vm.toString(transaction)));
+    }
+
+    /// @dev Every block listed, in the file's order; none when the list has no [blocks] table.
+    function _listedBlocks(string memory list) private view returns (uint256[] memory blocks) {
+        if (!vm.keyExistsToml(list, "$.blocks")) {
+            return blocks;
+        }
+        string[] memory names = vm.parseTomlKeys(list, "$.blocks");
+        blocks = new uint256[](names.length);
+        for (uint256 i = 0; i < names.length; i++) {
+            blocks[i] = vm.parseTomlUint(list, string.concat("$.blocks.", names[i]));
+        }
     }
 
     // Matches forge's assertApproxEqRel scaling: 1e18 == 100% relative tolerance.
@@ -272,11 +361,11 @@ abstract contract BaoTest is Test {
     ///      Ensuring afterwards also meets the factory already deployed on mainnet rather than a local
     ///      rebuild of it, which is the one these tests exist to deploy through.
     ///
-    ///      `forkMainnet` is deliberately left as it is: suites that fork only for real token contracts
+    ///      `createSelectFork` is deliberately left as it is: suites that fork only for real token contracts
     ///      should not be made to stand up a factory they never call.
     /// @return factory The functional BaoFactory instance, with the caller registered as an operator
     function forkMainnetWithBaoFactory() internal returns (address factory) {
-        forkMainnet();
+        createSelectFork("mainnet");
         return _ensureBaoFactory();
     }
 }

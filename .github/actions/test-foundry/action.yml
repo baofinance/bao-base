@@ -83,7 +83,12 @@ runs:
       uses: foundry-rs/foundry-toolchain@v1
       with:
         version: ${{ steps.nightly.outputs.tag || inputs.foundry }}
-        cache-key: fork-24699497 # change this number and update the bao-base BaoTest's forkMainnet() function
+        # The RPC cache, keyed by the file listing every block the tests fork at. foundry-toolchain saves the
+        # cache only when this key misses, so a key that never changes is saved once and never again, and a
+        # block listed after that save is fetched from the provider on every run. A changed list restores the
+        # last cache through the restore key and saves a new one holding the new block's data.
+        cache-key: fork-${{ hashFiles(format('{0}/test/fork-blocks.toml', inputs.cwd)) }}
+        cache-restore-keys: fork-
       id: foundry-install
 
     - shell: bash

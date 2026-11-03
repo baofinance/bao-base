@@ -624,10 +624,20 @@ def inline_config_problems(repo_root: Path) -> list[str]:
     return ["\n".join(lines)]
 
 
-# a fork cheatcode, or the BaoTest helper, given the endpoint's name as a literal
-_FORK_ENDPOINT = re.compile(r'\b(?:createSelectFork|createFork|forkAt|rpcUrl)\(\s*"(?P<name>[^"]*)"')
-# bao-base's test helpers, compiled into every project's tests: BaoTest.forkMainnet names its endpoint here
+# a fork cheatcode, or BaoTest's wrapper over it, given the endpoint's name as a literal
+_FORK_ENDPOINT = re.compile(r'\b(?:(?:createSelectFork|createFork)(?:AtTransaction)?|rpcUrl)\(\s*"(?P<name>[^"]*)"')
+# bao-base's test helpers, compiled into every project's tests: BaoTest.forkMainnetWithBaoFactory names its endpoint
+# here, and BaoTest's fork wrappers end in the cheatcode here
 _INHERITED_FORK_HELPERS = (Path(__file__).resolve().parents[1] / "test" / "BaoTest.sol",)
+# the list BaoTest takes every fork from, at the path BaoTest.forkBlocksFile names, relative to the project root
+_FORK_BLOCKS = PurePath("test/fork-blocks.toml")
+# the most blocks and transactions a list holds before doctor complains: each is a cache of its own, fetched from
+# the provider on every machine's first run, and a burst of requests from every suite forking at it
+_FORK_POSITIONS_LIMIT = 8
+# a fork taken by the cheatcode, at a block the list need not hold
+_FORK_CHEATCODE = re.compile(r"\b(?P<call>_?vm\.(?:createSelectFork|createFork|rollFork))\s*\(")
+# a fork taken either way
+_FORK_CALL = re.compile(r"\b(?:_?vm\.)?(?:createSelectFork|createFork)(?:AtTransaction)?\s*\(")
 
 
 def fork_endpoint_problems(repo_root: Path) -> list[str]:
@@ -659,6 +669,111 @@ def fork_endpoint_problems(repo_root: Path) -> list[str]:
     lines.extend(f"  {entry}" for entry in found)
     lines.append("  Repair: add an entry for each alias to [rpc_endpoints] in foundry.toml, or name one that is there.")
     return ["\n".join(lines)]
+
+
+def _test_files(repo_root: Path) -> list[Path]:
+    """Every Solidity file in the test directory forge resolves, bao-base's test helpers left out."""
+    helpers = {helper.resolve() for helper in _INHERITED_FORK_HELPERS}
+    directory = repo_root / forge_config(repo_root)["test"]
+    return [path for path in sorted(directory.rglob("*.sol")) if path.resolve() not in helpers]
+
+
+def fork_cheatcode_problems(repo_root: Path) -> list[str]:
+    """Forks taken by a cheatcode in the test directory: `vm.createSelectFork`, `vm.createFork` and `vm.rollFork`,
+    `_vm.` included. A fork in test code goes through BaoTest's createFork or createSelectFork, which take it at
+    a block or transaction test/fork-blocks.toml lists and refuse any other; the cheatcode takes it at any block,
+    listed or not. BaoTest's own wrappers, which end in the cheatcode, are left out, and so is script/: a
+    campaign meets the chain's head, or a capture's block, by the cheatcode. Returns one block listing each
+    line, or [] when every fork in the test directory goes through BaoTest."""
+    found: list[str] = []
+    for path in _test_files(repo_root):
+        shown = path.relative_to(repo_root).as_posix()
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            for matched in _FORK_CHEATCODE.finditer(line):
+                found.append(f"{shown}:{number}  {matched['call']}")
+    if not found:
+        return []
+    lines = [f"These tests fork by a cheatcode, at a block {_FORK_BLOCKS.as_posix()} need not hold:"]
+    lines.extend(f"  {entry}" for entry in found)
+    lines.append(
+        "  Repair: take the fork through BaoTest's createFork or createSelectFork, at a listed block, name or "
+        "transaction; in place of rollFork, a second fork at a listed block."
+    )
+    return ["\n".join(lines)]
+
+
+def fork_blocks_list_problems(repo_root: Path) -> list[str]:
+    """test/fork-blocks.toml, the blocks and transactions BaoTest takes a fork at: it holds a block named
+    `default`, names none `latest` - the name of the highest block listed - and holds at most 8 blocks and
+    transactions together, each being a cache of its own, fetched from the provider on every machine's first
+    run, and a burst of requests from every suite forking at it. Each block is a number and each transaction a
+    32-byte hash, as BaoTest parses them. A test directory that forks with no list is reported too. Returns
+    one problem a line, or [] when the list is as described, or absent where nothing forks."""
+    file = repo_root / _FORK_BLOCKS
+    shown = _FORK_BLOCKS.as_posix()
+    if not file.is_file():
+        forking = [
+            path.relative_to(repo_root).as_posix()
+            for path in _test_files(repo_root)
+            if _FORK_CALL.search(path.read_text())
+        ]
+        if not forking:
+            return []
+        return [
+            f"{shown} is not there, and these tests fork: {', '.join(forking)}.\n"
+            f"  Repair: write {shown} with [blocks] and a block named default, any block after the last deployment "
+            f"the tests read."
+        ]
+    listed = load_toml(file)
+    problems: list[str] = []
+    tables: dict[str, dict[str, Any]] = {}
+    for table in ("blocks", "transactions"):
+        value = listed.get(table, {})
+        if isinstance(value, dict):
+            tables[table] = cast(dict[str, Any], value)
+        else:
+            problems.append(f"{shown}: [{table}] is {value!r}, not a table of name = value entries.")
+            tables[table] = {}
+    blocks, transactions = tables["blocks"], tables["transactions"]
+    if "default" not in blocks:
+        problems.append(f'{shown} has no block named "default", the block for every test the block does not matter to.')
+    if "latest" in blocks:
+        problems.append(f'{shown} names a block "latest", the name of the highest block listed.')
+    for name, value in blocks.items():
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            problems.append(f'{shown}: block "{name}" is {value!r}, not a block number.')
+    for name, value in transactions.items():
+        if not isinstance(value, str) or not re.fullmatch(r"0x[0-9a-fA-F]{64}", value):
+            problems.append(f'{shown}: transaction "{name}" is {value!r}, not a 32-byte hash.')
+    count = len(blocks) + len(transactions)
+    if count > _FORK_POSITIONS_LIMIT:
+        problems.append(
+            f"{shown} lists {count} blocks and transactions; doctor's limit is {_FORK_POSITIONS_LIMIT}. Each is a "
+            f"cache of its own and a burst of requests from every suite forking at it.\n"
+            f"  Repair: fork at a block already listed where the block does not matter, and drop the entries no test "
+            f"names."
+        )
+    return problems
+
+
+def fork_blocks_permission_problems(repo_root: Path) -> list[str]:
+    """test/fork-blocks.toml, which BaoTest reads at every fork a test takes, is under a path an fs_permissions
+    entry in foundry.toml grants read access to: forge refuses a read elsewhere. The entries are read as
+    `forge config` reports them, an access of "read" or "read-write", the latter printed as true. Returns one
+    problem naming the file, or [] when an entry covers it or the file is not there."""
+    file = repo_root / _FORK_BLOCKS
+    if not file.is_file():
+        return []
+    for entry in forge_config(repo_root).get("fs_permissions", []):
+        grants_read = entry.get("access") in ("read", "read-write", True)
+        if grants_read and file.resolve().is_relative_to((repo_root / entry["path"]).resolve()):
+            return []
+    shown = _FORK_BLOCKS.as_posix()
+    return [
+        f"{shown} is read by every fork a test takes, and no fs_permissions entry in foundry.toml grants read "
+        f"access to a path holding it.\n"
+        f'  Repair: add {{ access = "read", path = "./{shown}" }} to fs_permissions in foundry.toml.'
+    ]
 
 
 def wake_scope_problems(repo_root: Path) -> list[str]:
@@ -1317,6 +1432,32 @@ def build_checks(
             "test when no entry has it",
             "every test creating that fork fails at its creation, on every machine without the entry",
             fork_endpoint_problems(repo_root),
+        ),
+        Check(
+            "every fork in test code is at a block the list holds",
+            "a fork in test code goes through BaoTest, which takes it only at a block or transaction "
+            "test/fork-blocks.toml lists. A cheatcode fork is taken at any block, and the list does not see it: "
+            "each block is a cache of its own, fetched from the provider on every machine's first run and a burst "
+            "of requests from every suite forking at it, and CI keys its cache by the list",
+            "the fork's block is fetched from the provider on every run, on every machine, and CI's cache never "
+            "holds it",
+            fork_cheatcode_problems(repo_root),
+        ),
+        Check(
+            "test/fork-blocks.toml lists a default block and few others",
+            "BaoTest forks at the block listed under default when a test does not care which, at the highest "
+            "listed for latest, and at any other block or transaction only when listed; a block is a number and a "
+            "transaction a hash, as BaoTest parses them. Few, because each is a cache and a burst of requests of "
+            "its own",
+            "a fork fails at its creation, or the provider's quota goes on blocks that could have been one",
+            fork_blocks_list_problems(repo_root),
+        ),
+        Check(
+            "forge lets the tests read test/fork-blocks.toml",
+            "BaoTest reads the list at every fork a test takes, and forge allows a read only under a path an "
+            "fs_permissions entry in foundry.toml grants",
+            "every fork in every test fails at its creation",
+            fork_blocks_permission_problems(repo_root),
         ),
         workflow_copy.check(repo_root),
         Check(
