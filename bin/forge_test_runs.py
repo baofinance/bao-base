@@ -92,6 +92,11 @@ What each run is for:
   untouched function was called (1047 times before, then 1056, 1051 and 1054) and moved its maximum by up
   to 41k gas; with them out, the library before and after a change of behaviour gave the same maxima. The
   test and coverage runs keep forge's default, as the constants help the fuzzer find a bug.
+  This removes the largest cause, not every one. With the constants out, an edit to the library still
+  changed the invariant campaign by a call (1052 calls against 1053, and 1059 against 1060), and between two
+  runs one maximum moved by 34k gas for a reason not found. A maximum that only a fuzz or invariant test
+  reaches is less stable than one a deterministic test reaches, whose gas moved by 12 at most across a
+  comment-only edit.
 
 - coverage: --fuzz-seed 1: the baseline this run feeds (regression/coverage.txt) is compared exactly, so two
   runs of the same code must fuzz with the same inputs - an unpinned seed lets a branch that only some
