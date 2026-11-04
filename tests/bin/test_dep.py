@@ -2332,6 +2332,136 @@ def test_root_scopes_update_and_status_to_that_project(tmp_path):
     assert "lib/tool" not in shown.stdout, shown.stdout
 
 
+# ── sync stops on a submodule pointed back to an older commit than the last commit ─────────────────────────
+#
+# `git add` on a folder behind the last commit - the editor's Stage after a pull that moved the commit and not the
+# folder - points the repository backwards. No dep command does it, and syncing to it builds the older version, so
+# sync stops before its first step and prints the two ways out: undo the add, or commit it.
+
+_STOP = "  Stopped before changing anything: a submodule is pointed back to an older commit than the last commit points to.\n"
+
+
+def point_back(world: World, repository: Path, path: str) -> tuple[str, str]:
+    """`path` in `repository` as the editor left lib/harbor's lib/bao-base: the last commit points it to a newer
+    commit, published on its main, and the folder and what is added to the one before, detached, with the local main
+    on the newer. Returns (older, newer)."""
+    folder = repository / path
+    older = git(folder, "rev-parse", "HEAD")
+    newer = advance(world, Path(path).name)
+    git(folder, "fetch", "-q", "origin")
+    git(folder, "checkout", "-q", "-B", "main", newer)
+    # Only this path, so a path pointed back before keeps what was added for it.
+    git(repository, "commit", "-qm", f"{path} moved on", "--", path)
+    git(folder, "checkout", "-q", "--detach", older)
+    git(repository, "add", path)
+    return older, newer
+
+
+def pointed_back_finding(path: str, repository: str, older: str, newer: str, run_in: str = "") -> str:
+    """The finding sync prints for `path`, pointed back in `repository`; `run_in` is that repository's folder when it
+    is a dependency, where its commands run."""
+    git_in = f"git -C {run_in} " if run_in else "git "
+    sync_in = f"yarn dep -C {run_in} sync" if run_in else "yarn dep sync"
+    leaf = path.removeprefix(f"{run_in}/") if run_in else path
+    return (
+        f"    {path}: {repository} points it to {older[:10]}, older than {newer[:10]}, which {repository}'s last commit "
+        "points to.\n"
+        f"      To go back to the last commit's version: {git_in}restore --staged {leaf}, then {sync_in}\n"
+        f"      If the older version is meant: {git_in}commit\n"
+    )
+
+
+def test_sync_stops_before_changing_anything_when_a_dependency_is_pointed_back(tmp_path):
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    older, newer = point_back(world, here, "lib/dep")
+
+    result = sync(here)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert result.stdout == "sync:\n" + _STOP + pointed_back_finding("lib/dep", "clone", older, newer)
+    assert checked_out(here / "lib" / "dep") == older
+    assert branch_of(here / "lib" / "dep") is None
+    assert recorded(here, "lib/dep") == older, "what is added is the developer's"
+
+
+def test_sync_named_stops_when_the_dependency_is_pointed_back(tmp_path):
+    # Naming it does not get past the stop. Naming another dependency does: sync then touches nothing pointed back.
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    older, _ = point_back(world, here, "lib/dep")
+
+    named = sync(here, "dep")
+    other = sync(here, "tool")
+
+    assert named.returncode == 1, named.stdout + named.stderr
+    assert steps(named.stdout) == []
+    assert other.returncode == 0, other.stdout + other.stderr
+    assert checked_out(here / "lib" / "dep") == older
+
+
+def test_sync_names_every_dependency_pointed_back(tmp_path):
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    dep_older, dep_newer = point_back(world, here, "lib/dep")
+    tool_older, tool_newer = point_back(world, here, "lib/tool")
+
+    result = sync(here)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert result.stdout == (
+        "sync:\n"
+        + _STOP
+        + pointed_back_finding("lib/dep", "clone", dep_older, dep_newer)
+        + pointed_back_finding("lib/tool", "clone", tool_older, tool_newer)
+    )
+
+
+def test_sync_stops_for_a_remapped_nested_path_pointed_back(tmp_path):
+    # lib/dep points its lib/inner back, and a remapping makes the build read it: the commands run in lib/dep.
+    world = following_main(tmp_path, ["inner/=lib/dep/lib/inner/src/"])
+    here = synced(world)
+    older, newer = point_back(world, here / "lib" / "dep", "lib/inner")
+
+    result = sync(here)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert result.stdout == "sync:\n" + _STOP + pointed_back_finding(
+        "lib/dep/lib/inner", "lib/dep", older, newer, run_in="lib/dep"
+    )
+    assert checked_out(here / "lib" / "dep" / "lib" / "inner") == older
+
+
+def test_sync_with_the_main_folder_flag_stops_for_a_dependency_pointed_back_inside_the_project(tmp_path):
+    # lib/dep, synced as a project of its own, points its lib/spare back; sync -C dep stops in lib/dep's frame.
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    dep(here, "-C", "dep", "sync")
+    older, newer = point_back(world, here / "lib" / "dep", "lib/spare")
+
+    result = dep(here, "-C", "dep", "sync")
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert result.stdout == "in lib/dep:\nsync:\n" + _STOP + pointed_back_finding("lib/spare", "dep", older, newer)
+    assert checked_out(here / "lib" / "dep" / "lib" / "spare") == older
+
+
+def test_the_way_back_sync_names_for_a_pointed_back_dependency_returns_it_to_the_last_commit(tmp_path):
+    # Undoing the add, as printed, leaves the folder behind what the repository points to, which sync moves forward;
+    # the local main is at that commit, so the folder stands on it.
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    _, newer = point_back(world, here, "lib/dep")
+
+    git(here, "restore", "--staged", "lib/dep")
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert checked_out(here / "lib" / "dep") == newer
+    assert branch_of(here / "lib" / "dep") == "main"
+    assert recorded(here, "lib/dep") == newer
+
+
 # ── a bare update moves every dependency that follows a branch ───────────────────────────────────────────
 
 

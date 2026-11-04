@@ -28,6 +28,7 @@ from submodule_state import (  # noqa: E402
     declared_submodules,
     keep_command,
     own_bao_base,
+    pointed_back_problems,
     read_facts,
     repair,
     root_project,
@@ -122,6 +123,59 @@ def move_dep_to_v2(world: World) -> Path:
     git(dep, "fetch", "-q", "origin", "--tags")
     git(dep, "checkout", "-q", "v2")
     return dep
+
+
+# ── a submodule pointed back to an older commit than the last commit points to ─────────────────────────
+#
+# `git add` on a submodule folder that is behind the last commit - as after a pull that moved the commit and not the
+# folder - points the repository backwards. No yarn dep command adds an older commit, and the folder then has the
+# commit the repository points to, so nothing comparing the two sees it. Doctor reports it and sync stops on it, from
+# this one reading.
+
+
+def committed_at_v2(world: World) -> Path:
+    """lib/dep moved to v2 and committed there, its folder on v2. Returns the checkout."""
+    dep = move_dep_to_v2(world)
+    git(world.project, "add", "lib/dep")
+    git(world.project, "commit", "-qm", "dep at v2")
+    return dep
+
+
+def test_an_older_commit_added_over_the_last_commit_is_pointed_back(world):
+    # The last commit points lib/dep to v2; the folder is back on v1, and v1 is added.
+    dep = committed_at_v2(world)
+    v1 = git(dep, "rev-parse", "v1").stdout.strip()
+    v2 = git(dep, "rev-parse", "v2").stdout.strip()
+    git(dep, "checkout", "-q", "v1")
+    git(world.project, "add", "lib/dep")
+
+    assert pointed_back_problems(world.project, declared_submodules(world.project), []) == [
+        f"lib/dep: project points it to {v1[:10]}, older than {v2[:10]}, which project's last commit points to.\n"
+        "  To go back to the last commit's version: git restore --staged lib/dep, then yarn dep sync\n"
+        "  If the older version is meant: git commit"
+    ]
+
+
+def test_a_newer_commit_added_is_not_pointed_back(world):
+    # A bump on its way to a commit.
+    move_dep_to_v2(world)
+    git(world.project, "add", "lib/dep")
+
+    assert pointed_back_problems(world.project, declared_submodules(world.project), []) == []
+
+
+def test_the_last_commits_own_commit_is_not_pointed_back(world):
+    assert pointed_back_problems(world.project, declared_submodules(world.project), []) == []
+
+
+def test_a_commit_from_another_line_of_history_is_not_pointed_back(world):
+    # Neither commit is older than the other, as when a dependency is switched to another branch.
+    dep = committed_at_v2(world)
+    git(dep, "checkout", "-q", "-b", "side", "v1")
+    add_commit(dep, "side")
+    git(world.project, "add", "lib/dep")
+
+    assert pointed_back_problems(world.project, declared_submodules(world.project), []) == []
 
 
 def test_work_in_progress_does_not_hide_a_real_disagreement(world):

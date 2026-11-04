@@ -22,7 +22,6 @@ from deployment_baselines import RECORD, OriginUnanswered, compare_with_origin, 
 from forge_config import forge_config
 from submodule_state import (
     Condition,
-    Declared,
     Facts,
     at_record,
     condition,
@@ -32,6 +31,7 @@ from submodule_state import (
     litter_condition,
     nested_levels,
     own_bao_base,
+    pointed_back_problems,
     read_facts,
     remapping_target,
     remote_holds,
@@ -40,6 +40,7 @@ from submodule_state import (
     staged_gitlink,
     stray_clones,
     submodule_levels,
+    submodules_the_build_reads,
     typed_in,
     unused_checkouts,
 )
@@ -236,13 +237,10 @@ def unpublished_commit_problems(repo_root: Path, remappings: list[str]) -> list[
     judged: HEAD's is what a clone gets now, the index's what it gets after the next commit. Returns one
     finding per such commit, or []."""
     repository = repo_root.name
-    levels: dict[str, tuple[Path, Declared]] = {}
-    for dependency in declared_submodules(repo_root):
-        levels[dependency.path] = (repo_root, dependency)
-        for directory, level in nested_levels(repo_root, dependency.path, remappings):
-            levels.setdefault((directory / level.path).relative_to(repo_root).as_posix(), (directory, level))
     problems: list[str] = []
-    for path, (directory, level) in levels.items():
+    for path, (directory, level) in submodules_the_build_reads(
+        repo_root, declared_submodules(repo_root), remappings
+    ).items():
         parent = repository if directory == repo_root else directory.relative_to(repo_root).as_posix()
         committed = git(directory, "rev-parse", "--verify", "--quiet", f"HEAD:{level.path}").stdout.strip()
         # Keyed by commit, so one pointed to by both is judged once, named as the index names it.
@@ -1392,6 +1390,15 @@ def build_checks(
             "if they are different, you build one version but save another, and everyone who clones the "
             "repository gets the saved one",
             version_problems,
+        ),
+        Check(
+            "no submodule is pointed back to an older commit than the last commit points to",
+            "git add records the commit a submodule folder has as the one this repository points to. Added while the "
+            "folder is behind the last commit, as after a pull that moved the commit and not the folder, it points "
+            "the repository backwards. No yarn dep command adds an older commit. The check above passes, since the "
+            "folder has the commit this repository points to",
+            "the build uses the older version, and the next commit takes everyone who pulls back to it",
+            pointed_back_problems(repo_root, declared_submodules(repo_root), remappings),
         ),
         Check(
             "every commit this repository points to is on a remote",

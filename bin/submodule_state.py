@@ -333,6 +333,22 @@ def nested_levels(repo_root: Path, path: str, remappings: list[str]) -> Iterator
             yield from levels
 
 
+def submodules_the_build_reads(
+    repo_root: Path, dependencies: Sequence[Declared], remappings: list[str]
+) -> dict[str, tuple[Path, Declared]]:
+    """Each of `dependencies`, and each nested path a remapping uses beneath one, by its path from `repo_root`, with
+    the repository that points to it: the submodules the build reads, each to be judged where it is recorded. Beneath
+    a dependency git cannot read, nothing can be, until a checkout mends it, so nothing beneath one is listed."""
+    levels: dict[str, tuple[Path, Declared]] = {}
+    for dependency in dependencies:
+        levels[dependency.path] = (repo_root, dependency)
+        if checked_out(repo_root / dependency.path) is None:
+            continue
+        for directory, level in nested_levels(repo_root, dependency.path, remappings):
+            levels.setdefault((directory / level.path).relative_to(repo_root).as_posix(), (directory, level))
+    return levels
+
+
 def named_path(dependency: str, libs: str) -> str:
     """The path of a dependency, or of a submodule inside one, named by its path in the first libs folder,
     where `add` places every dependency. A leading libs folder is accepted too: `dep` and `lib/dep` agree."""
@@ -1077,3 +1093,37 @@ def keep_or_go_back(path: str, repository: str, keep: str, unpushed: int) -> str
         f"To keep the folder's version: {keep} ({repository} then points to it). "
         f"To go back to the version {repository} points to: {go_back}."
     )
+
+
+def pointed_back_problems(repo_root: Path, dependencies: Sequence[Declared], remappings: list[str]) -> list[str]:
+    """Each submodule the build reads - `dependencies`, and the nested paths a remapping uses beneath them - that its
+    repository points to an older commit than that repository's last commit does, judged where it is recorded.
+
+    `git add` on a folder behind the last commit makes this: after a pull that moved the commit and not the folder,
+    the editor's Stage on the submodule is one. No yarn dep command adds an older commit. The folder then has the
+    commit the repository points to, so the folder check passes, while the build uses the older version and the next
+    commit moves everyone who pulls back to it. A newer commit added - a bump not yet committed - is not one, and
+    neither is a commit from another line of history, or one the folder cannot compare with the last commit's.
+
+    Returns one finding each, with the two ways out, in the words doctor and `yarn dep sync` both print."""
+    problems: list[str] = []
+    for path, (directory, level) in submodules_the_build_reads(repo_root, dependencies, remappings).items():
+        added = staged_gitlink(directory, level.path)
+        committed = git(directory, "rev-parse", "--verify", "--quiet", f"HEAD:{level.path}").stdout.strip()
+        if not added or not committed or added == committed:
+            continue
+        if _relation(added, committed, [directory / level.path]) != "theirs is later":
+            continue
+        # A nested path is recorded by its dependency, so its commands run there.
+        if directory == repo_root:
+            repository, git_in, sync_in = repo_root.name, "git ", "yarn dep sync"
+        else:
+            repository = directory.relative_to(repo_root).as_posix()
+            git_in, sync_in = f"git -C {repository} ", f"yarn dep -C {repository} sync"
+        problems.append(
+            f"{path}: {repository} points it to {added[:10]}, older than {committed[:10]}, which {repository}'s last "
+            "commit points to.\n"
+            f"  To go back to the last commit's version: {git_in}restore --staged {level.path}, then {sync_in}\n"
+            f"  If the older version is meant: {git_in}commit"
+        )
+    return problems

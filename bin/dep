@@ -113,6 +113,7 @@ from submodule_state import (
     move_checklist,
     named_path,
     nested_levels,
+    pointed_back_problems,
     read_facts,
     recorded_entry,
     remapping_target,
@@ -309,10 +310,27 @@ def sync(repo_root: Path, remappings: list[str], named: list[str]) -> int:
     and is left as it is unless `named` asks for it. Run inside a submodule, that submodule is put on its
     branch at the commit the containing repository points to; run again in the main directory, that set-up
     goes. Everything the run would move or remove is read first: one holding work only this computer has
-    stops the run before its first step, with nothing changed. Each dependency brought to its record has its
-    tags fetched, last. Returns 1 when the run stopped or a step failed, a tag fetch included."""
+    stops the run before its first step, with nothing changed, and so does a submodule it would act on that is
+    pointed back to an older commit than the last commit points to. Each dependency brought to its record has
+    its tags fetched, last. Returns 1 when the run stopped or a step failed, a tag fetch included."""
     print("sync:")
     repository = repo_root.name
+    # Syncing to an older commit added over the last commit's would build the older version, and no command here
+    # adds one, so it is undone or committed by hand first. What is added is the developer's: the ways out are named,
+    # not taken.
+    pointed_back = pointed_back_problems(
+        repo_root,
+        [entry for entry in declared_submodules(repo_root) if not named or entry.path in named],
+        remappings,
+    )
+    if pointed_back:
+        print(
+            "  Stopped before changing anything: a submodule is pointed back to an older commit than the last commit "
+            "points to."
+        )
+        for line in "\n".join(pointed_back).splitlines():
+            print(f"    {line}")
+        return 1
     try:
         # Run inside a submodule: on the branch the containing repository names for it, at the commit that
         # repository points to. A folder elsewhere stays where it is, and what the containing repository would

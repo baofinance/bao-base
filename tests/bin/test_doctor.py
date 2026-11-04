@@ -653,6 +653,92 @@ def test_a_dependency_at_the_wrong_version_with_leftovers_is_in_both_lists(tmp_p
     assert "Repair: yarn dep sync" in next(p for p in leftovers if p.startswith("lib/dep:"))
 
 
+# ── no submodule is pointed back to an older commit than the last commit points to ─────────────────────
+#
+# `git add` on a submodule folder behind the last commit points the repository backwards: the editor's Stage on a
+# submodule after a pull does it. The folder then has the commit the repository points to, so the folder check
+# passes while the build uses the older version. Each test builds the state with git, as the editor would.
+
+_POINTED_BACK = "no submodule is pointed back to an older commit than the last commit points to"
+_FOLDER_CHECK = "each submodule folder has the commit this repository points to"
+
+
+def _head(checkout: pathlib.Path) -> str:
+    return subprocess.run(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def _point_back(repository: pathlib.Path, path: str) -> tuple[str, str]:
+    """`path` in `repository` as the editor left lib/harbor's lib/bao-base: the last commit points it to a newer
+    commit, and the folder and what is added to the one before, detached, with its branch on the newer. Returns
+    (older, newer)."""
+    folder = repository / path
+    older = _head(folder)
+    commit_in(folder, "newer")
+    newer = _head(folder)
+    # Only this path, so a path pointed back before keeps what was added for it.
+    _git(repository, "commit", "-qm", f"{path} moved on", "--", path)
+    _git(folder, "checkout", "-q", "--detach", older)
+    _git(repository, "add", path)
+    return older, newer
+
+
+def _found(repo: pathlib.Path) -> dict[str, list[str]]:
+    return {check.name: check.problems for check in doctor.build_checks(repo, [], [], unused_files=False)}
+
+
+def test_no_submodule_pointed_back_passes(tmp_path):
+    assert _found(_host_with_a_dependency(tmp_path))[_POINTED_BACK] == []
+
+
+def test_a_dependency_pointed_back_fails_doctor_naming_both_ways_out(tmp_path):
+    # The folder check passes - the folder has the commit host points to - so this check is what sees it.
+    host = _host_with_a_dependency(tmp_path)
+    older, newer = _point_back(host, "lib/sub")
+
+    found = _found(host)
+
+    assert found[_POINTED_BACK] == [
+        f"lib/sub: host points it to {older[:10]}, older than {newer[:10]}, which host's last commit points to.\n"
+        "  To go back to the last commit's version: git restore --staged lib/sub, then yarn dep sync\n"
+        "  If the older version is meant: git commit"
+    ]
+    assert found[_FOLDER_CHECK] == []
+
+
+def test_two_dependencies_pointed_back_are_each_reported(tmp_path):
+    host = _host_with_a_dependency(tmp_path)
+    other = _init_repo(tmp_path / "other")
+    (other / "a.txt").write_text("a")
+    _git(other, "add", ".")
+    _git(other, "commit", "-qm", "content")
+    _submodule_at(host, other, "lib/other")
+    _point_back(host, "lib/sub")
+    _point_back(host, "lib/other")
+
+    found = _found(host)[_POINTED_BACK]
+
+    assert [problem.partition(":")[0] for problem in found] == ["lib/sub", "lib/other"], found
+
+
+def test_a_remapped_nested_path_pointed_back_is_judged_in_the_dependency_that_points_to_it(tmp_path):
+    # lib/dep points its lib/child back. A remapping into it makes it read by the build, so it is reported, with
+    # the commands run in lib/dep; without one it is lib/dep's own business.
+    host = _nest(tmp_path)
+    older, newer = _point_back(host / "lib" / "dep", "lib/child")
+    dependencies = doctor.declared_submodules(host)
+
+    assert doctor.pointed_back_problems(host, dependencies, ["child/=lib/dep/lib/child/"]) == [
+        f"lib/dep/lib/child: lib/dep points it to {older[:10]}, older than {newer[:10]}, which lib/dep's last "
+        "commit points to.\n"
+        "  To go back to the last commit's version: git -C lib/dep restore --staged lib/child, then yarn dep -C "
+        "lib/dep sync\n"
+        "  If the older version is meant: git -C lib/dep commit"
+    ]
+    assert doctor.pointed_back_problems(host, dependencies, []) == []
+
+
 def test_an_uninitialised_dependency_is_reported(tmp_path):
     # Enumerated from .gitmodules, so a dependency nothing has checked out is looked at all the same, and
     # checking it out at its record is sync's job.
