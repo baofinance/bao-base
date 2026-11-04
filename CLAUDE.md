@@ -414,7 +414,9 @@ not instructions" above and the design-discussion rule under "Other rules".)
   `update` or `remove`.** `yarn dep add [-b <branch or tag>] <url>` adds one. `yarn dep update
   <name>@<version>` moves one to a branch, tag or commit. `yarn dep remove <name>` removes one. `yarn dep
   sync` checks out the commits this repository points to, after a clone or a pull. Inside a dependency,
-  only the submodules a remapping uses are checked out. A dependency follows the branch `.gitmodules`
+  only the submodules a remapping uses are checked out; sync leaves each other one empty with git's `update =
+  none`, so a forge command run inside the dependency does not check it out and write foundry.lock. A
+  dependency follows the branch `.gitmodules`
   names; with none it is pinned. `yarn dep update <name>` moves one to the tip of the branch it follows,
   and a bare `yarn dep update` moves every one that follows a branch, leaving a pinned one where it is.
   To work inside a dependency, `yarn dep -C <name> sync` (`--root`, as git spells `-C`) from the main

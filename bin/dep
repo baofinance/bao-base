@@ -14,7 +14,10 @@ remote's default branch is at the time.
 at its gitlink, plus exactly the nested submodules forge's remappings point into. The build reads nothing
 else. A dependency's other nested submodules are its own lockfile, wanted only by someone working inside
 it, so they are never fetched - and one of them pinned to a commit no remote holds cannot stop this
-checkout. One already checked out, and any repository a version change left behind, is taken away. Run
+checkout. One already checked out, and any repository a version change left behind, is taken away. Each of
+them is left with `update = none` in the git config of the repository that lists it, which every `git
+submodule update` skips: forge, run inside the dependency, installs any submodule it finds not checked out,
+and writes foundry.lock, unless git skips it. Every checkout dep makes removes the setting first. Run
 inside a submodule, sync sets that submodule up for building in: on the branch the containing repository
 names for it, at the commit that repository points to, with the submodule's own dependencies beneath it;
 run again in the main folder, it takes that set-up away. Moving a dependency to its branch's tip is
@@ -65,7 +68,8 @@ and a local branch it would stand on may hold no commit the target lacks.
 `remove` runs `git submodule deinit`, for a dependency or for a submodule inside one. For a dependency it
 then deletes the repository git keeps for it, as gitsubmodules(7) says to, and hands over the `git rm`
 that takes out the folder and the `.gitmodules` entry. A submodule inside a dependency is the
-dependency's to list and record, so for one of those the checkout is all that goes.
+dependency's to list and record, so for one of those the checkout is all that goes, and the folder is left
+with `update = none`, as sync leaves one.
 
 Every command that changes something is printed as it finishes, in order. A failure prints the tool's
 own error beneath the command that failed, then where each checkout now stands, and undoes nothing:
@@ -114,6 +118,7 @@ from submodule_state import (
     git,
     RootProject,
     keep_command,
+    kept_empty,
     keep_or_go_back,
     locate,
     move_checklist,
@@ -130,6 +135,7 @@ from submodule_state import (
     sync_adds,
     typed_in,
     unused_checkouts,
+    unused_submodules,
 )
 
 USAGE = """\
@@ -151,7 +157,9 @@ dep remove [--force] <dependency> ...
                 yarn dep was typed.
   sync          Make this folder ready to build, and nothing more: each submodule at the commit this
                 repository points to, on the branch it follows, inside it only the submodules a
-                remapping uses, and no leftover repositories, with each submodule's tags fetched. A
+                remapping uses, and no leftover repositories, with each submodule's tags fetched. The
+                other submodules inside it are left empty with git's update = none, so a forge command
+                run inside it does not check them out. A
                 submodule whose folder is ahead of that commit is left as it is, until named: sync
                 <dependency> brings it back. Use it after cloning or a pull. Run inside a submodule to
                 set it up to work in, on its branch at the commit its repository points to; run again
@@ -173,7 +181,8 @@ dep remove [--force] <dependency> ...
                 that follows a branch.
   remove        Take a submodule's checkout away (git submodule deinit). For a submodule of this
                 repository, also delete the repository git keeps for it, then hand over the git rm that
-                removes it. A submodule inside another one stays listed by the one that contains it.
+                removes it. A submodule inside another one stays listed by the one that contains it,
+                and is left empty with update = none, as sync leaves one.
   <dependency>  its path in the first libs folder, with or without that folder: dep, lib/dep, dep/lib/x
   --force       update: move it even when it holds work that exists only on this computer, or when its
                 local branch has commits that the version does not. HEAD is then detached, and the
@@ -204,11 +213,34 @@ def run(repo_root: Path, where: Path, *arguments: str) -> None:
     raise StepFailed(command)
 
 
+def leave_empty(repo_root: Path, directory: Path, level: Declared) -> None:
+    """Leave the submodule `directory` lists as `level` with nothing checked out, and git told to keep it so:
+    `update = none` in `directory`'s git config, which every `git submodule update` skips. forge, run inside the
+    dependency, installs any submodule it finds not checked out, and writes foundry.lock; git skipping the
+    submodule is what stops it. Deinitialising deletes the setting with the rest of the submodule's section, so
+    it comes first."""
+    if (directory / level.path / ".git").exists():
+        run(repo_root, directory, "submodule", "deinit", "--force", "--quiet", "--", level.path)
+    if not kept_empty(directory, level):
+        run(repo_root, directory, "config", f"submodule.{level.name}.update", "none")
+
+
+def check_out(repo_root: Path, directory: Path, level: Declared) -> None:
+    """Check out the submodule `directory` lists as `level` at the commit `directory` records, when it is not there
+    already. The `update = none` that `leave_empty` sets goes first: git skips a submodule that has it, and a
+    checked-out folder that kept it would be skipped by every later `git submodule update`, left at an old commit."""
+    if kept_empty(directory, level):
+        run(repo_root, directory, "config", "--unset", f"submodule.{level.name}.update")
+    if not at_record(directory, level):
+        run(repo_root, directory, "submodule", "update", "--init", "--", level.path)
+
+
 def clean(repo_root: Path, entry: Declared, remappings: list[str]) -> None:
-    """Take away, beneath the dependency `entry`, what the build does not read: each nested checkout no
-    remapping uses, as `yarn dep remove` takes one away, and each leftover repository a version change left
-    behind. One holding work only this computer has is skipped, and says so; that is not a failure. A
-    remapping added later is checked out again by the next sync, from the repository git keeps for it."""
+    """Take away, beneath the dependency `entry`, what the build does not read: each nested submodule no
+    remapping uses is left empty, as `yarn dep remove` leaves one, whether or not it was checked out, and each
+    leftover repository a version change left behind is deleted. One holding work only this computer has is
+    skipped, and says so; that is not a failure. A remapping added later is checked out again by the next sync,
+    from the repository git keeps for it."""
 
     def holds_work(folder: Path) -> bool:
         path = folder.relative_to(repo_root).as_posix()
@@ -217,9 +249,10 @@ def clean(repo_root: Path, entry: Declared, remappings: list[str]) -> None:
             stop_for_work(f"Skipping {path}, because it holds work.", held, "It is left as it is.", None)
         return bool(held)
 
-    for parent, nested in unused_checkouts(repo_root, repo_root, entry, remappings):
-        if not holds_work(parent / nested.path):
-            run(repo_root, parent, "submodule", "deinit", "--force", "--quiet", "--", nested.path)
+    for parent, nested in unused_submodules(repo_root, repo_root, entry, remappings):
+        if (parent / nested.path / ".git").exists() and holds_work(parent / nested.path):
+            continue
+        leave_empty(repo_root, parent, nested)
     for leftover in read_facts(repo_root, entry.path).litter:
         if not holds_work(repo_root / entry.path / leftover):
             delete(repo_root, repo_root / entry.path / leftover)
@@ -514,8 +547,7 @@ def sync(repo_root: Path, remappings: list[str], named: list[str], force: bool, 
         for entry in in_scope:
             if entry.path in left:
                 continue
-            if not at_record(repo_root, entry):
-                run(repo_root, repo_root, "submodule", "update", "--init", "--", entry.path)
+            check_out(repo_root, repo_root, entry)
             stand_on_branch(repo_root, repo_root, entry, force, here)
         moving = {entry.path for entry in in_scope} - left
         for remapping in remappings:
@@ -527,8 +559,7 @@ def sync(repo_root: Path, remappings: list[str], named: list[str], force: bool, 
             if first is None or first[1].path not in moving:
                 continue
             for directory, level in levels:
-                if not at_record(directory, level):
-                    run(repo_root, directory, "submodule", "update", "--init", "--", level.path)
+                check_out(repo_root, directory, level)
                 stand_on_branch(repo_root, directory, level, force, here)
         unfetched: list[str] = []
         for entry in in_scope:
@@ -881,8 +912,7 @@ def make_move(repo_root: Path, move: Move, remappings: list[str], here: Here) ->
 
         # Lazy, so each level is checked out before the walk reads the next level's .gitmodules from it.
         for directory, level in nested_levels(repo_root, path, remappings):
-            if not at_record(directory, level):
-                run(repo_root, directory, "submodule", "update", "--init", "--", level.path)
+            check_out(repo_root, directory, level)
 
         # The dependency left as sync leaves it: nothing beneath it that the build does not read.
         clean(repo_root, entry, remappings)
@@ -998,8 +1028,7 @@ def add(repo_root: Path, url: str, ref: str | None, libs: str, remappings: list[
 
         # Lazy, so each level is checked out before the walk reads the next level's .gitmodules from it.
         for directory, level in nested_levels(repo_root, path, remappings):
-            if not at_record(directory, level):
-                run(repo_root, directory, "submodule", "update", "--init", "--", level.path)
+            check_out(repo_root, directory, level)
     except StepFailed:
         return 1
     in_project = here.git(repo_root)
@@ -1057,12 +1086,13 @@ def remove(repo_root: Path, dependencies: list[str], force: bool, libs: str, her
     for path, directory, entry in checked:
         print(f"{path}:")
         try:
-            run(repo_root, directory, "submodule", "deinit", "--force", "--quiet", "--", entry.path)
             if directory != repo_root:
                 # The dependency lists this submodule and records its commit, so only the checkout goes.
+                leave_empty(repo_root, directory, entry)
                 parent = directory.relative_to(repo_root).as_posix()
                 print(f"  {parent} still lists {entry.path} in its .gitmodules, so there is nothing to add or commit.")
                 continue
+            run(repo_root, directory, "submodule", "deinit", "--force", "--quiet", "--", entry.path)
             # This repository stops depending on it. git keeps a removed submodule's repository, and
             # gitsubmodules(7) says to delete it by hand to remove the submodule completely.
             gitdir = Path(
@@ -1091,7 +1121,7 @@ def dependency_root(repo_root: Path, found: RootProject, checking_out: bool, for
     directory, entry = found.declared
     print(f"{found.shown} is not checked out, so first:")
     try:
-        run(repo_root, directory, "submodule", "update", "--init", "--", entry.path)
+        check_out(repo_root, directory, entry)
         stand_on_branch(repo_root, directory, entry, force, here)
     except StepFailed:
         return None

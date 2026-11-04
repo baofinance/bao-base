@@ -27,6 +27,13 @@ DEP = BAO_BASE / "bin" / "dep"
 sys.path.insert(0, str(BAO_BASE / "bin"))
 import doctor  # noqa: E402 - importable only once bin is on the path
 from deployment_baselines import FETCH_BRANCHES, FETCH_TAGS  # noqa: E402 - importable only once bin is on the path
+from submodule_state import (  # noqa: E402 - importable only once bin is on the path
+    Declared,
+    declared_submodules,
+    kept_empty,
+    unused_checkouts,
+    unused_submodules,
+)
 
 # Cloning a submodule from a path on disk is refused by default (CVE-2022-39253). Allowing it through the
 # environment reaches every git call - the fixture's and the ones bin/dep makes - without touching a config.
@@ -175,6 +182,17 @@ def recorded(here: Path, path: str) -> str:
 
 def steps(output: str) -> list[str]:
     return [line.strip() for line in output.splitlines() if line.strip().startswith(("ran:", "failed"))]
+
+
+def update_setting(here: Path, path: str) -> str | None:
+    """The `update` setting of the submodule at `path`, in the git config of the repository that lists it -
+    lib/dep for lib/dep/lib/spare - or None when it is not set. Each submodule here is named by its path."""
+    parent, nested, child = path.rpartition("/lib/")
+    name = f"lib/{child}" if nested else path
+    reading = subprocess.run(
+        ["git", "config", "--get", f"submodule.{name}.update"], cwd=here / parent, capture_output=True, text=True
+    )
+    return reading.stdout.strip() if reading.returncode == 0 else None
 
 
 # ── what sync checks out ──────────────────────────────────────────────────────────────────────────
@@ -934,7 +952,8 @@ def test_update_to_a_tag_or_commit_drops_the_branch_line_and_pins_it(tmp_path, v
     ids=["none", "one", "two"],
 )
 def test_update_checks_out_only_remapped_nested_paths(tmp_path, remappings, nested):
-    # Beneath the dependency it moves, update checks out what a remapping names, and nothing else.
+    # Beneath the dependency it moves, update checks out what a remapping names, and nothing else. The sync before
+    # left each nested path empty with update = none; one checked out loses the setting, and the others keep it.
     world = make_world(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world)
     (here / "foundry.toml").write_text(foundry_toml(["dep/=lib/dep/src/", *remappings]))
@@ -944,6 +963,10 @@ def test_update_checks_out_only_remapped_nested_paths(tmp_path, remappings, nest
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert checked_out_paths(here) - TOP_LEVEL == nested
+    beneath = ("lib/dep/lib/inner", "lib/dep/lib/spare")
+    assert {path: update_setting(here, path) for path in beneath} == {
+        path: None if path in nested else "none" for path in beneath
+    }, result.stdout
 
 
 def test_update_succeeds_when_an_unremapped_nested_pin_is_on_no_remote(tmp_path):
@@ -967,7 +990,7 @@ def test_update_does_not_fetch_into_a_checked_out_nested_submodule_no_remapping_
     # on a nested pin no remote holds - for a submodule nothing here builds from.
     world = make_world(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world)
-    git(here / "lib" / "dep", "submodule", "update", "--init", "--", "lib/spare")
+    git(here / "lib" / "dep", "submodule", "update", "--init", "--checkout", "--", "lib/spare")
     record_an_unpushed_nested_commit(world, "spare")
 
     result = update(here, "dep@main")
@@ -1070,8 +1093,8 @@ def test_update_removes_nested_checkouts_no_remapping_uses_beneath_the_dependenc
     # away. Another dependency is not what it was asked about, so its checkouts stay.
     world = make_world(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world)
-    git(here / "lib" / "dep", "submodule", "update", "--init", "--", "lib/spare")
-    git(here / "lib" / "tool", "submodule", "update", "--init", "--", "lib/helper")
+    git(here / "lib" / "dep", "submodule", "update", "--init", "--checkout", "--", "lib/spare")
+    git(here / "lib" / "tool", "submodule", "update", "--init", "--checkout", "--", "lib/helper")
     advance(world, "dep")
 
     result = update(here, "dep@main")
@@ -1411,7 +1434,7 @@ def test_a_nested_submodule_is_named_by_its_path_in_the_libs_folder(tmp_path):
     # A bare name is a dependency, so a dependency's own submodule is named by its path from the libs folder.
     world = make_world(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world)
-    git(here / "lib" / "dep", "submodule", "update", "--init", "--", "lib/spare")
+    git(here / "lib" / "dep", "submodule", "update", "--init", "--checkout", "--", "lib/spare")
 
     by_name = remove(here, "spare")
     by_path = remove(here, "dep/lib/spare")
@@ -1515,15 +1538,19 @@ def test_remove_of_a_nested_path_only_deinitialises_it(tmp_path):
     world = make_world(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world)
     dependency = here / "lib" / "dep"
-    git(dependency, "submodule", "update", "--init", "--", "lib/spare")
+    git(dependency, "submodule", "update", "--init", "--checkout", "--", "lib/spare")
     gitmodules = (dependency / ".gitmodules").read_text()
     gitlink = git(dependency, "ls-files", "-s", "lib/spare")
 
     result = remove(here, "lib/dep/lib/spare")
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert steps(result.stdout) == ["ran: git -C lib/dep submodule deinit --force --quiet -- lib/spare"], result.stdout
+    assert steps(result.stdout) == [
+        "ran: git -C lib/dep submodule deinit --force --quiet -- lib/spare",
+        "ran: git -C lib/dep config submodule.lib/spare.update none",
+    ], result.stdout
     assert not (dependency / "lib" / "spare" / ".git").exists()
+    assert update_setting(here, "lib/dep/lib/spare") == "none", "so forge, run inside lib/dep, leaves it empty"
     assert (dependency / ".gitmodules").read_text() == gitmodules
     assert git(dependency, "ls-files", "-s", "lib/spare") == gitlink
     assert git(here, "status", "--porcelain") == ""
@@ -1835,13 +1862,66 @@ INNER_REMAPPED = ["inner/=lib/dep/lib/inner/src/"]
 
 
 def check_out_unused(here: Path) -> None:
-    """Check out three nested submodules no remapping in INNER_REMAPPED uses, at two depths."""
-    git(here / "lib" / "dep", "submodule", "update", "--init", "--", "lib/spare")
-    git(here / "lib" / "dep" / "lib" / "inner", "submodule", "update", "--init", "--", "lib/deepest")
-    git(here / "lib" / "tool", "submodule", "update", "--init", "--", "lib/helper")
+    """Check out three nested submodules no remapping in INNER_REMAPPED uses, at two depths, as a checkout made
+    by hand does: `--checkout` overrides the `update = none` sync leaves on each."""
+    git(here / "lib" / "dep", "submodule", "update", "--init", "--checkout", "--", "lib/spare")
+    git(here / "lib" / "dep" / "lib" / "inner", "submodule", "update", "--init", "--checkout", "--", "lib/deepest")
+    git(here / "lib" / "tool", "submodule", "update", "--init", "--checkout", "--", "lib/helper")
 
 
 UNUSED = ["lib/dep/lib/inner/lib/deepest", "lib/dep/lib/spare", "lib/tool/lib/helper"]
+
+
+def unused_paths(here: Path, found: list[tuple[Path, Declared]]) -> list[str]:
+    return [(parent / nested.path).relative_to(here).as_posix() for parent, nested in found]
+
+
+def test_unused_submodules_lists_nested_submodules_no_remapping_uses_checked_out_or_not(tmp_path):
+    # Every nested submodule the build does not read, whether or not its folder holds a checkout: after a clone none
+    # is checked out, and each is still one to leave empty. Once checked out, the same ones are the unused checkouts.
+    here = synced(make_world(tmp_path, INNER_REMAPPED))
+    dep, tool = declared_submodules(here)
+    every_one_remapped = [
+        *INNER_REMAPPED,
+        "spare/=lib/dep/lib/spare/src/",
+        "deepest/=lib/dep/lib/inner/lib/deepest/src/",
+        "helper/=lib/tool/lib/helper/src/",
+    ]
+
+    beneath_dep = unused_submodules(here, here, dep, INNER_REMAPPED)
+    beneath_tool = unused_submodules(here, here, tool, INNER_REMAPPED)
+
+    assert set(unused_paths(here, beneath_dep)) == {"lib/dep/lib/spare", "lib/dep/lib/inner/lib/deepest"}
+    assert unused_paths(here, beneath_tool) == ["lib/tool/lib/helper"]
+    assert unused_submodules(here, here, dep, every_one_remapped) == []
+    assert unused_submodules(here, here, tool, every_one_remapped) == []
+    assert unused_checkouts(here, here, dep, INNER_REMAPPED) == [], "none is checked out yet"
+    check_out_unused(here)
+    assert unused_checkouts(here, here, dep, INNER_REMAPPED) == beneath_dep
+    assert unused_checkouts(here, here, tool, INNER_REMAPPED) == beneath_tool
+
+
+def test_kept_empty_reads_update_none_by_the_submodules_name(tmp_path):
+    # git skips a submodule whose update setting is none, and keys the setting by the submodule's name, which need
+    # not be its path. A config git cannot read is an error, not an answer.
+    world = make_world(tmp_path, INNER_REMAPPED)
+    dep = world.project / "lib" / "dep"
+    spare = next(entry for entry in declared_submodules(dep) if entry.path == "lib/spare")
+    renamed = Declared("other", "lib/spare", None, None)
+
+    unset = kept_empty(dep, spare)
+    git(dep, "config", "submodule.lib/spare.update", "checkout")
+    checkout = kept_empty(dep, spare)
+    git(dep, "config", "submodule.lib/spare.update", "none")
+
+    assert (unset, checkout, kept_empty(dep, spare)) == (False, False, True)
+    assert not kept_empty(dep, renamed), "read by its name, other, not by its path"
+    git(dep, "config", "submodule.other.update", "none")
+    assert kept_empty(dep, renamed)
+    with Path(git(dep, "rev-parse", "--path-format=absolute", "--git-path", "config")).open("a") as config:
+        config.write("[unterminated\n")
+    with pytest.raises(subprocess.CalledProcessError):
+        kept_empty(dep, spare)
 
 
 def test_status_lists_nested_checkouts_no_remapping_uses(tmp_path):
@@ -1859,8 +1939,8 @@ def test_status_lists_nested_checkouts_no_remapping_uses(tmp_path):
 
 
 def test_sync_removes_nested_checkouts_no_remapping_uses(tmp_path):
-    # Each one's checkout is taken away, as `yarn dep remove` does for a nested path; the one a remapping uses
-    # stays.
+    # Each one's checkout is taken away, as `yarn dep remove` does for a nested path, and git is then told to leave
+    # its folder empty: deinitialising deletes that setting with the rest. The one a remapping uses stays.
     here = synced(make_world(tmp_path, INNER_REMAPPED))
     check_out_unused(here)
 
@@ -1869,8 +1949,53 @@ def test_sync_removes_nested_checkouts_no_remapping_uses(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert not any((here / path / ".git").exists() for path in UNUSED), result.stdout
     assert (here / "lib" / "dep" / "lib" / "inner" / ".git").exists(), "the remapped one stays"
-    assert "ran: git -C lib/dep submodule deinit --force --quiet -- lib/spare" in steps(result.stdout), result.stdout
+    ran = steps(result.stdout)
+    deinit = ran.index("ran: git -C lib/dep submodule deinit --force --quiet -- lib/spare")
+    assert ran.index("ran: git -C lib/dep config submodule.lib/spare.update none") > deinit, result.stdout
+    assert [update_setting(here, path) for path in UNUSED] == ["none"] * len(UNUSED), result.stdout
     assert "no remapping uses it" not in result.stdout, result.stdout
+
+
+def test_sync_leaves_each_nested_submodule_no_remapping_uses_empty_with_update_none(tmp_path):
+    # After a clone none of them is checked out, and forge, run inside the dependency, would find each missing,
+    # check it out and write foundry.lock. update = none, in the git config of the repository that lists it, makes
+    # git skip it. The one a remapping uses carries no setting, nor does a dependency of the project itself, and a
+    # second sync has nothing to do.
+    here = synced(make_world(tmp_path, INNER_REMAPPED))
+
+    again = sync(here)
+
+    assert [update_setting(here, path) for path in UNUSED] == ["none"] * len(UNUSED)
+    assert update_setting(here, "lib/dep/lib/inner") is None, "the remapped one"
+    assert update_setting(here, "lib/dep") is None, "a dependency of the project itself"
+    assert checked_out_paths(here) == TOP_LEVEL | {"lib/dep/lib/inner"}
+    assert again.returncode == 0, again.stdout + again.stderr
+    assert not [step for step in steps(again.stdout) if " config " in step or " deinit " in step], again.stdout
+
+
+def test_sync_keeps_update_none_after_a_recursive_git_update_skips_the_folder(tmp_path):
+    # forge installs a dependency it finds missing with git submodule update --init --recursive. git skips a
+    # submodule whose update is none, at every depth, though it registers it as initialised. sync still reads the
+    # folder as empty, and has nothing to do.
+    here = synced(make_world(tmp_path, INNER_REMAPPED))
+    dependency = here / "lib" / "dep"
+
+    skipped = subprocess.run(
+        ["git", "submodule", "update", "--init", "--recursive"],
+        cwd=dependency,
+        capture_output=True,
+        text=True,
+        env=GIT_ENV,
+    )
+    result = sync(here)
+
+    assert skipped.returncode == 0, skipped.stdout + skipped.stderr
+    assert "Skipping submodule 'lib/spare'" in skipped.stdout + skipped.stderr, skipped.stdout + skipped.stderr
+    assert checked_out_paths(here) == TOP_LEVEL | {"lib/dep/lib/inner"}
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not [step for step in steps(result.stdout) if " config " in step or " deinit " in step], result.stdout
+    assert update_setting(here, "lib/dep/lib/spare") == "none"
+    assert update_setting(here, "lib/dep/lib/inner/lib/deepest") == "none"
 
 
 def test_sync_stops_when_a_nested_checkout_it_would_remove_holds_work_only_this_computer_has(tmp_path):
@@ -1938,17 +2063,21 @@ def test_sync_inside_a_submodule_sets_it_up_for_building_in(tmp_path):
     # the main directory.
     here = synced(make_world(tmp_path, ["dep/=lib/dep/src/"]))
     config = git(here, "config", "--local", "--list")
+    assert update_setting(here, "lib/dep/lib/spare") == "none", "the main directory's sync left it empty"
 
     result = sync_inside(here / "lib" / "dep")
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert (here / "lib" / "dep" / "lib" / "inner" / ".git").exists(), "its own dependencies are checked out"
     assert (here / "lib" / "dep" / "lib" / "spare" / ".git").exists(), "its own dependencies are checked out"
+    assert update_setting(here, "lib/dep/lib/inner") is None, "a checked-out folder carries no update = none"
+    assert update_setting(here, "lib/dep/lib/spare") is None, "a checked-out folder carries no update = none"
     assert git(here, "config", "--local", "--list") == config, "the main directory's .git/config is unchanged"
 
 
 def test_sync_in_the_main_directory_takes_away_what_a_sync_inside_set_up(tmp_path):
-    # Stopping work in a submodule: sync in the main directory leaves it pristine again.
+    # Stopping work in a submodule: sync in the main directory leaves it pristine again, with each of its own
+    # dependencies empty and git told to keep it so.
     here = synced(make_world(tmp_path, ["dep/=lib/dep/src/"]))
     sync_inside(here / "lib" / "dep")
     assert (here / "lib" / "dep" / "lib" / "spare" / ".git").exists(), "the submodule must start set up"
@@ -1958,6 +2087,25 @@ def test_sync_in_the_main_directory_takes_away_what_a_sync_inside_set_up(tmp_pat
     assert result.returncode == 0, result.stdout + result.stderr
     assert not (here / "lib" / "dep" / "lib" / "inner" / ".git").exists()
     assert not (here / "lib" / "dep" / "lib" / "spare" / ".git").exists()
+    assert update_setting(here, "lib/dep/lib/inner") == "none"
+    assert update_setting(here, "lib/dep/lib/spare") == "none"
+
+
+def test_sync_checks_out_a_nested_submodule_a_new_remapping_uses_though_left_empty(tmp_path):
+    # A remapping added after a sync makes a nested submodule one the build reads. sync removes the update = none it
+    # left there before checking it out, since git would skip it otherwise. Another still unused keeps the setting.
+    here = synced(make_world(tmp_path, INNER_REMAPPED))
+    (here / "foundry.toml").write_text(foundry_toml([*INNER_REMAPPED, "spare/=lib/dep/lib/spare/src/"]))
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    ran = steps(result.stdout)
+    unset = ran.index("ran: git -C lib/dep config --unset submodule.lib/spare.update")
+    assert ran.index("ran: git -C lib/dep submodule update --init -- lib/spare") > unset, result.stdout
+    assert checked_out(here / "lib" / "dep" / "lib" / "spare") == recorded(here, "lib/dep/lib/spare")
+    assert update_setting(here, "lib/dep/lib/spare") is None
+    assert update_setting(here, "lib/dep/lib/inner/lib/deepest") == "none", "still unused"
 
 
 def test_doctor_reports_nested_checkouts_no_remapping_uses(tmp_path):
@@ -2336,6 +2484,22 @@ def test_root_names_the_project_sync_acts_on(tmp_path):
     assert (here / "lib" / "dep" / "lib" / "spare" / ".git").exists(), "its own dependencies are checked out"
     assert branch_of(here / "lib" / "dep") == "main"
     assert git(here, "config", "--local", "--list") == config, "the main folder's .git/config is unchanged"
+
+
+def test_root_with_c_checks_out_a_nested_dependency_left_empty(tmp_path):
+    # The main directory's sync left lib/dep's lib/spare empty with update = none. -C dep/spare checks it out at the
+    # commit lib/dep points to, removing the setting first, since git would skip it otherwise.
+    here = synced(make_world(tmp_path, ["dep/=lib/dep/src/"]))
+    assert update_setting(here, "lib/dep/lib/spare") == "none", "the main directory's sync left it empty"
+
+    result = dep(here, "-C", "dep/spare", "sync")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    ran = steps(result.stdout)
+    unset = ran.index("ran: git -C lib/dep config --unset submodule.lib/spare.update")
+    assert ran.index("ran: git -C lib/dep submodule update --init -- lib/spare") > unset, result.stdout
+    assert checked_out(here / "lib" / "dep" / "lib" / "spare") == recorded(here, "lib/dep/lib/spare")
+    assert update_setting(here, "lib/dep/lib/spare") is None
 
 
 def test_root_with_c_on_an_empty_dependency_checks_it_out_first(tmp_path):

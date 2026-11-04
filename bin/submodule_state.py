@@ -587,24 +587,46 @@ def checked_out(checkout: Path) -> str | None:
     return head.stdout.strip() if head.returncode == 0 else None
 
 
-def unused_checkouts(
+def unused_submodules(
     repo_root: Path, directory: Path, level: Declared, remappings: list[str]
 ) -> list[tuple[Path, Declared]]:
-    """The submodules checked out beneath the one `directory` lists as `level` that no remapping of
-    `repo_root` uses, each with the folder whose .gitmodules lists it, outermost first. The walk goes down
-    through the ones a remapping uses, and not into an unused one, since removing it removes what it holds."""
+    """The submodules beneath the one `directory` lists as `level` that no remapping of `repo_root` uses,
+    checked out or not, each with the folder whose .gitmodules lists it, outermost first. The walk goes down
+    through the ones a remapping uses, whose .gitmodules is read from their checkout, and not into an unused
+    one, since leaving it empty leaves empty what it holds."""
     here = directory / level.path
     targets = [PurePosixPath(remapping_target(remapping)) for remapping in remappings]
     found: list[tuple[Path, Declared]] = []
     for nested in declared_submodules(here):
-        if not (here / nested.path / ".git").exists():
-            continue
         path = (here / nested.path).relative_to(repo_root).as_posix()
         if any(target.is_relative_to(path) for target in targets):
-            found.extend(unused_checkouts(repo_root, here, nested, remappings))
+            found.extend(unused_submodules(repo_root, here, nested, remappings))
         else:
             found.append((here, nested))
     return found
+
+
+def unused_checkouts(
+    repo_root: Path, directory: Path, level: Declared, remappings: list[str]
+) -> list[tuple[Path, Declared]]:
+    """The checked-out ones among `unused_submodules`."""
+    return [
+        (parent, nested)
+        for parent, nested in unused_submodules(repo_root, directory, level, remappings)
+        if (parent / nested.path / ".git").exists()
+    ]
+
+
+def kept_empty(directory: Path, level: Declared) -> bool:
+    """Whether git is told to leave the submodule `directory` lists as `level` empty: its `update` setting in
+    `directory`'s git config is `none`, which every `git submodule update` skips - forge's install of a
+    dependency it finds missing included. git keys the setting by the submodule's name. git's answer for "no
+    such setting" is exit 1 with nothing said; any other failure raises, with what git said."""
+    reading = git(directory, "config", "--get", f"submodule.{level.name}.update")
+    if reading.returncode == 1 and not reading.stderr.strip():
+        return False
+    reading.check_returncode()
+    return reading.stdout.strip() == "none"
 
 
 def remote_holds(checkout: Path, commit: str) -> bool | None:
