@@ -245,6 +245,25 @@ def test_only_coverage_tells_the_contracts_it_is_coverage(tmp_path, run):
     assert "BAO_COVERAGE_RUN" not in _forge_saw(tmp_path, run)["env"]
 
 
+# ── the gas run's fuzz inputs follow its seed alone, not the bytecode under test ──
+_BYTECODE_CONSTANTS = ("FOUNDRY_FUZZ_INCLUDE_PUSH_BYTES", "FOUNDRY_INVARIANT_INCLUDE_PUSH_BYTES")
+
+
+def test_the_gas_runs_fuzz_inputs_leave_out_the_bytecodes_constants(tmp_path):
+    # forge adds the constants in the deployed bytecode to its fuzz inputs by default, so any edit to a
+    # contract changes which calls the gas report measures; the run's numbers are a baseline, so a caller's
+    # own setting is replaced
+    seen = _forge_saw(tmp_path, "gas", env=dict.fromkeys(_BYTECODE_CONSTANTS, "true"))["env"]
+    assert [seen[name] for name in _BYTECODE_CONSTANTS] == ["false", "false"]
+
+
+@pytest.mark.parametrize("run", ["test", "coverage"])
+def test_only_the_gas_run_leaves_the_bytecodes_constants_out(tmp_path, run):
+    # the constants help the fuzzer find a bug, so the other runs hand forge whatever the caller set
+    seen = _forge_saw(tmp_path, run, env=dict.fromkeys(_BYTECODE_CONSTANTS, "true"))["env"]
+    assert [seen[name] for name in _BYTECODE_CONSTANTS] == ["true", "true"]
+
+
 # ── the invariant settings every run gets, from the wrapper rather than from a project's foundry.toml ──
 @pytest.mark.parametrize("run", _RUNS)
 def test_a_handler_call_that_reverts_fails_the_run(tmp_path, run):
