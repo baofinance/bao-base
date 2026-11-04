@@ -128,6 +128,11 @@ def sync(where: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run([str(DEP), "sync", *arguments], cwd=where, capture_output=True, text=True, env=GIT_ENV)
 
 
+def dep(where: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    """dep with its arguments as given, for the options that sit before the command."""
+    return subprocess.run([str(DEP), *arguments], cwd=where, capture_output=True, text=True, env=GIT_ENV)
+
+
 def checked_out(checkout: Path) -> str | None:
     return git(checkout, "rev-parse", "HEAD") if (checkout / ".git").exists() else None
 
@@ -317,28 +322,30 @@ def unused_checkout_line(path: str) -> str:
     return f"! {path} is checked out, and no remapping uses it. yarn dep sync removes it."
 
 
-def test_sync_skips_a_dependency_holding_work_and_syncs_the_rest(tmp_path):
-    # Moving a folder is what would put a developer's work at risk. So a dependency holding work that only
-    # this computer has stays as it is, and says why; the other dependencies are synced all the same. Holding
-    # work is a reason to skip, not a failure, so sync succeeds.
+def test_sync_stops_before_changing_anything_when_a_folder_it_would_move_holds_work(tmp_path):
+    # Moving a folder is what would put a developer's work at risk. So when a dependency sync would move holds
+    # work only this computer has, sync stops before running anything and fails, naming the folder, what it
+    # would do to it, the work, and the way out. The other dependency is not synced either.
     here = clone(make_world(tmp_path, ["dep/=lib/dep/src/"]))
     sync(here)
     dependency, tool = here / "lib" / "dep", here / "lib" / "tool"
     git(dependency, "checkout", "-q", "HEAD~1")
     (dependency / "notes.txt").write_text("mine\n")
     git(tool, "checkout", "-q", "HEAD~1")
-    held = checked_out(dependency)
+    held, tool_held = checked_out(dependency), checked_out(tool)
 
     result = sync(here)
 
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "Skipping lib/dep, because it holds work." in result.stdout, result.stdout
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert steps(result.stdout) == [], "nothing may run"
+    assert "Stopped before changing anything" in result.stdout, result.stdout
+    assert (
+        f"lib/dep: sync would move it to {recorded(here, 'lib/dep')[:10]}, the commit {here.name} points to. It holds:"
+    ) in result.stdout, result.stdout
     assert "lib/dep/notes.txt: not tracked by git" in result.stdout, result.stdout
+    assert "Push what you want to keep, or remove what you do not, then run this again." in result.stdout, result.stdout
     assert checked_out(dependency) == held, "the folder holding work must not move"
-    assert checked_out(tool) == recorded(here, "lib/tool"), "the rest is synced"
-    ran = steps(result.stdout)
-    assert "ran: git submodule update --init -- lib/tool" in ran, ran
-    assert "ran: git submodule update --init -- lib/dep" not in ran, ran
+    assert checked_out(tool) == tool_held, "nothing else moves either"
 
 
 def test_sync_leaves_the_index_unchanged(tmp_path):
@@ -1727,8 +1734,8 @@ def test_update_checklist_names_yarn_dep_for_the_move(tmp_path):
 #
 # `sync` leaves the directory it is run in ready to build and holding nothing else: inside each dependency,
 # only what a remapping uses is checked out, and no leftover repository remains. Anything holding work only
-# this computer has is kept and named. Run inside a submodule, sync sets that submodule up for building in;
-# run again in the main directory, it takes that set-up away.
+# this computer has stops it before anything changes. Run inside a submodule, sync sets that submodule up for
+# building in; run again in the main directory, it takes that set-up away.
 
 INNER_REMAPPED = ["inner/=lib/dep/lib/inner/src/"]
 
@@ -1772,20 +1779,23 @@ def test_sync_removes_nested_checkouts_no_remapping_uses(tmp_path):
     assert "no remapping uses it" not in result.stdout, result.stdout
 
 
-def test_sync_keeps_and_names_a_nested_checkout_holding_work_only_this_computer_has(tmp_path):
-    # Removing a checkout deletes its folder, so one holding work only this computer has is named and kept,
-    # and the others are still removed.
+def test_sync_stops_when_a_nested_checkout_it_would_remove_holds_work_only_this_computer_has(tmp_path):
+    # Removing a checkout deletes its folder, so one holding work only this computer has stops sync before
+    # anything changes: the others are not removed either.
     here = synced(make_world(tmp_path, INNER_REMAPPED))
     check_out_unused(here)
     (here / "lib" / "dep" / "lib" / "spare" / "notes.txt").write_text("mine\n")
 
     result = sync(here)
 
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "Skipping lib/dep/lib/spare, because it holds work." in result.stdout, result.stdout
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert steps(result.stdout) == [], "nothing may run"
+    assert "lib/dep/lib/spare: sync would remove it, since no remapping uses it. It holds:" in result.stdout, (
+        result.stdout
+    )
     assert "lib/dep/lib/spare/notes.txt: not tracked by git" in result.stdout, result.stdout
     assert (here / "lib" / "dep" / "lib" / "spare" / "notes.txt").is_file()
-    assert not (here / "lib" / "tool" / "lib" / "helper" / ".git").exists(), "the others are removed"
+    assert all((here / path / ".git").exists() for path in UNUSED), "nothing is removed"
 
 
 def leave_a_repository_behind(world: World, here: Path) -> Path:
@@ -1808,7 +1818,7 @@ def test_sync_removes_a_leftover_repository_inside_a_dependency(tmp_path):
     assert "ran: rm -rf lib/dep/stranded" in steps(result.stdout), result.stdout
 
 
-def test_sync_keeps_and_names_a_leftover_repository_holding_work(tmp_path):
+def test_sync_stops_when_a_leftover_repository_it_would_remove_holds_work(tmp_path):
     world = make_world(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world)
     stranded = leave_a_repository_behind(world, here)
@@ -1818,10 +1828,11 @@ def test_sync_keeps_and_names_a_leftover_repository_holding_work(tmp_path):
 
     result = sync(here)
 
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "Skipping lib/dep/stranded, because it holds work." in result.stdout, result.stdout
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert steps(result.stdout) == [], "nothing may run"
+    assert "lib/dep/stranded: sync would remove it, since nothing lists it. It holds:" in result.stdout, result.stdout
+    assert "lib/dep/stranded: commit" in result.stdout and "is not pushed" in result.stdout, result.stdout
     assert (stranded / "src" / "Mine.sol").is_file()
-    assert "lib/dep/stranded" in result.stdout and "is not pushed" in result.stdout, result.stdout
 
 
 def sync_inside(checkout: Path) -> subprocess.CompletedProcess[str]:
@@ -2067,33 +2078,23 @@ def test_sync_named_brings_a_folder_ahead_back(tmp_path):
     assert checked_out(here / "lib" / "tool") == tool_tip, "a dependency not named is untouched"
 
 
-def test_sync_named_skips_a_folder_holding_work(tmp_path):
+def test_sync_named_stops_when_the_folder_it_would_bring_back_holds_work(tmp_path):
+    # Bringing the folder back is a move, so work only this computer has stops it before anything changes.
     world = make_world(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world)
+    pointed = recorded(here, "lib/dep")
     tip = move_ahead(world, here, "dep")
     (here / "lib" / "dep" / "notes.txt").write_text("mine\n")
 
     result = sync(here, "dep")
 
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert steps(result.stdout) == [], "nothing may run"
     assert checked_out(here / "lib" / "dep") == tip
-    assert "Skipping lib/dep, because it holds work." in result.stdout, result.stdout
-
-
-def test_sync_skip_message_names_both_choices(tmp_path):
-    here = clone(make_world(tmp_path, ["dep/=lib/dep/src/"]))
-    sync(here)
-    git(here / "lib" / "dep", "checkout", "-q", "HEAD~1")
-    (here / "lib" / "dep" / "notes.txt").write_text("mine\n")
-
-    result = sync(here)
-
-    assert "To keep the folder's version: commit and push that work, then git add lib/dep." in result.stdout, (
+    assert f"lib/dep: sync would move it to {pointed[:10]}, the commit {here.name} points to. It holds:" in (
         result.stdout
-    )
-    assert f"To go back to the version {here.name} points to: remove that work, then yarn dep sync lib/dep." in (
-        result.stdout
-    )
+    ), result.stdout
+    assert "lib/dep/notes.txt: not tracked by git" in result.stdout, result.stdout
 
 
 def test_doctor_go_back_repair_names_yarn_dep_sync_with_the_path(tmp_path):
@@ -2118,25 +2119,28 @@ def test_doctor_keep_repair_names_yarn_dep_sync_where_sync_adds_the_commit(tmp_p
     assert f"To keep the folder's version: yarn dep sync ({here.name} then points to it)." in found[0], found[0]
 
 
-# ── sync inside a submodule sets it up to work in: on its branch, not detached ─────────────────────────
+# ── sync inside a submodule sets it up to work in: on its branch at the recorded commit, not detached ──────
 
 
-def test_sync_inside_a_submodule_stands_it_on_its_branch_at_the_remote_tip(tmp_path):
-    # Working in a dependency means committing on the branch the main repository says it follows, from its
-    # newest commit. What the main repository then needs to record is named, not done: dep never stages.
+def test_sync_inside_a_submodule_stands_it_on_its_branch_at_the_recorded_commit(tmp_path):
+    # Working in a dependency means committing on the branch the main repository says it follows. sync puts the
+    # folder on that branch at the commit the main repository points to, never at the remote's tip: moving to
+    # the tip is update's job, run in the main repository.
     world = following_main(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world)
     pointed = recorded(here, "lib/dep")
+    git(here / "lib" / "dep", "checkout", "-q", "--detach")
     tip = advance(world, "dep")
 
     result = sync_inside(here / "lib" / "dep")
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert branch_of(here / "lib" / "dep") == "main"
+    assert checked_out(here / "lib" / "dep") == pointed
+    assert f"{here.name} points to" not in result.stdout, result.stdout
+    moved = update(here, "dep")
+    assert moved.returncode == 0, moved.stdout + moved.stderr
     assert checked_out(here / "lib" / "dep") == tip
-    assert f"{here.name} points to {pointed[:10]}; to record {tip[:10]} there: git add lib/dep (in {here.name})" in (
-        result.stdout
-    ), result.stdout
 
 
 def test_sync_inside_a_detached_submodule_puts_it_on_its_branch(tmp_path):
@@ -2162,10 +2166,13 @@ def test_sync_inside_a_pinned_submodule_leaves_it_and_says_so(tmp_path):
     assert "lib/dep is pinned" in result.stdout, result.stdout
 
 
-def test_sync_inside_keeps_detached_work_only_this_computer_has(tmp_path):
-    # A commit made on a detached HEAD is on no branch and no remote: switching away would lose sight of it.
+def test_sync_inside_leaves_a_commit_ahead_of_the_record_where_it_is_and_names_git_add(tmp_path):
+    # A commit made on a detached HEAD is on no branch, and the folder is no longer at the commit the main
+    # repository points to. sync moves nothing, and names what the main repository would record: dep never
+    # stages.
     world = following_main(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world)
+    pointed = recorded(here, "lib/dep")
     dependency = here / "lib" / "dep"
     git(dependency, "checkout", "-q", "--detach")
     (dependency / "src" / "Mine.sol").write_text("// mine\n")
@@ -2178,11 +2185,13 @@ def test_sync_inside_keeps_detached_work_only_this_computer_has(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert checked_out(dependency) == mine
     assert branch_of(dependency) is None
-    assert "mine" in result.stdout and "stays where it is" in result.stdout, result.stdout
+    assert f"{here.name} points to {pointed[:10]}; to record {mine[:10]} there: git add lib/dep (in {here.name})" in (
+        result.stdout
+    ), result.stdout
 
 
 def test_sync_inside_a_submodule_on_its_branch_leaves_changes_being_made_without_comment(tmp_path):
-    # The everyday case of working in a dependency: on its branch, at the remote's tip, files being changed.
+    # The everyday case of working in a dependency: on its branch, at the recorded commit, files being changed.
     # Nothing needs to move, so the changes are not in the way and sync says nothing about them.
     world = following_main(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world)
@@ -2200,50 +2209,194 @@ def test_sync_inside_a_submodule_on_its_branch_leaves_changes_being_made_without
     assert "holds work" not in result.stdout, result.stdout
 
 
-def test_sync_inside_says_when_the_branch_and_the_remote_have_each_moved_on(tmp_path):
-    # A commit here and another on the remote: neither contains the other, so there is no fast-forward. sync
-    # moves nothing, and says why and how to combine them.
+# ── --root names the project a command acts on ───────────────────────────────────────────────────────────
+#
+# The tool lives in a submodule of the project it serves, so inside a dependency not yet set up there is no
+# `yarn dep` to run. `--root <dependency>`, or `-C` as git spells it, runs the containing project's copy on that
+# dependency: `yarn dep --root dep sync` is `cd lib/dep && yarn dep sync`. The dependency is named as every
+# other argument names one, with or without the libs folder.
+
+
+def test_root_names_the_project_sync_acts_on(tmp_path):
+    # From the main folder, sync acts on lib/dep: its own dependencies are checked out, it stands on its branch,
+    # and the main folder is untouched. The output says where it acted.
     world = following_main(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world)
-    dependency = here / "lib" / "dep"
-    sync_inside(dependency)
-    (dependency / "notes.md").write_text("mine\n")
-    git(dependency, "add", "notes.md")
-    git(dependency, "commit", "-qm", "mine")
-    mine = checked_out(dependency)
-    advance(world, "dep")
+    config = git(here, "config", "--local", "--list")
 
-    result = sync_inside(dependency)
+    result = dep(here, "--root", "lib/dep", "sync")
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert branch_of(dependency) == "main"
-    assert checked_out(dependency) == mine
-    assert (
-        f"lib/dep stays at {mine[:10]}: main and origin/main each have commits the other does not. "
-        "To combine them: git pull in lib/dep."
-    ) in result.stdout, result.stdout
+    assert result.stdout.startswith("in lib/dep:\n"), result.stdout
+    assert (here / "lib" / "dep" / "lib" / "inner" / ".git").exists(), "its own dependencies are checked out"
+    assert (here / "lib" / "dep" / "lib" / "spare" / ".git").exists(), "its own dependencies are checked out"
+    assert branch_of(here / "lib" / "dep") == "main"
+    assert git(here, "config", "--local", "--list") == config, "the main folder's .git/config is unchanged"
 
 
-def test_sync_inside_leaves_a_branch_behind_the_remote_tip_where_its_changes_are(tmp_path):
-    # Moving forward would change files under work not committed, so the branch stays, and sync says why and
-    # how to move it.
+def test_root_with_c_on_an_empty_dependency_checks_it_out_first(tmp_path):
+    # A clone has lib/dep declared and empty, the state a clone starts from. sync checks lib/dep out at the
+    # commit the main repository points to, then sets it up. -C is --root, as git spells it, and `dep` names
+    # lib/dep as it does everywhere else.
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    here = clone(world)
+
+    result = dep(here, "-C", "dep", "sync")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "ran: git submodule update --init -- lib/dep" in steps(result.stdout), result.stdout
+    assert "in lib/dep:" in result.stdout, result.stdout
+    assert checked_out(here / "lib" / "dep") == recorded(here, "lib/dep")
+    assert branch_of(here / "lib" / "dep") == "main"
+    assert (here / "lib" / "dep" / "lib" / "inner" / ".git").exists()
+    assert (here / "lib" / "dep" / "lib" / "spare" / ".git").exists()
+    assert not (here / "lib" / "tool" / ".git").exists(), "the main folder's other dependencies are not touched"
+
+
+def test_root_names_a_dependency_with_or_without_the_libs_folder(tmp_path):
+    here = synced(following_main(tmp_path, ["dep/=lib/dep/src/"]))
+
+    by_name = dep(here, "--root", "dep", "status", "--no-fetch")
+    with_folder = dep(here, "--root", "lib/dep", "status", "--no-fetch")
+
+    assert by_name.returncode == 0, by_name.stdout + by_name.stderr
+    assert by_name.stdout == with_folder.stdout, by_name.stdout + with_folder.stdout
+    assert by_name.stdout.startswith("in lib/dep:\n"), by_name.stdout
+
+
+def test_root_is_refused_where_there_is_no_dependency_to_act_on(tmp_path):
+    # A name no .gitmodules lists a submodule at; and a dependency not checked out, for a command that checks
+    # nothing out.
+    here = clone(make_world(tmp_path, ["dep/=lib/dep/src/"]))
+
+    no_dependency = dep(here, "--root", "src", "status", "--no-fetch")
+    not_checked_out = dep(here, "--root", "dep", "status", "--no-fetch")
+
+    assert no_dependency.returncode == 1
+    assert "Stopped: no .gitmodules file lists a submodule at lib/src." in no_dependency.stdout, no_dependency.stdout
+    assert not_checked_out.returncode == 1
+    assert "Stopped: lib/dep is not checked out. To check it out: yarn dep -C lib/dep sync" in not_checked_out.stdout, (
+        not_checked_out.stdout
+    )
+    assert not (here / "lib" / "dep" / ".git").exists()
+
+
+def test_root_scopes_update_and_status_to_that_project(tmp_path):
+    # update and status act on lib/dep's own dependencies, named as lib/dep names them.
     world = following_main(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world)
-    dependency = here / "lib" / "dep"
-    sync_inside(dependency)
-    at = checked_out(dependency)
-    advance(world, "dep")
-    (dependency / "src" / "dep.sol").write_text("// dep, being changed\n")
+    dep(here, "--root", "lib/dep", "sync")
+    tip = advance(world, "spare")
 
-    result = sync_inside(dependency)
+    moved = dep(here, "--root", "lib/dep", "update", "spare@main")
+    shown = dep(here, "--root", "lib/dep", "status", "--no-fetch")
+
+    assert moved.returncode == 0, moved.stdout + moved.stderr
+    assert checked_out(here / "lib" / "dep" / "lib" / "spare") == tip
+    assert shown.returncode == 0, shown.stdout + shown.stderr
+    assert "  lib/spare\n" in shown.stdout and "  lib/inner\n" in shown.stdout, shown.stdout
+    assert "lib/tool" not in shown.stdout, shown.stdout
+
+
+# ── a bare update moves every dependency that follows a branch ───────────────────────────────────────────
+
+
+def test_a_bare_update_follows_every_branch_and_leaves_a_pinned_dependency_where_it_is(tmp_path):
+    # As forge's update with no argument: each dependency .gitmodules says follows a branch moves to that
+    # branch's tip; one that follows none is pinned, and is named and left.
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    dep_tip = advance(world, "dep")
+    advance(world, "tool")
+    tool_pointed = recorded(here, "lib/tool")
+
+    result = update(here)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert branch_of(dependency) == "main"
-    assert checked_out(dependency) == at
-    assert f"lib/dep stays at {at[:10]}, behind origin/main, because it holds work." in result.stdout, result.stdout
-    assert "lib/dep/src/dep.sol: changed and not committed" in result.stdout, result.stdout
-    assert (
-        "To move it forward: commit that work and run git pull in lib/dep, or remove that work and run this again."
-        in (result.stdout)
-    ), result.stdout
-    assert "Putting it on" not in result.stdout, result.stdout
+    assert checked_out(here / "lib" / "dep") == dep_tip
+    assert branch_of(here / "lib" / "dep") == "main"
+    assert checked_out(here / "lib" / "tool") == tool_pointed
+    assert "lib/tool is pinned: .gitmodules names no branch for it, so it stays where it is." in result.stdout, (
+        result.stdout
+    )
+
+
+def test_a_bare_update_moves_each_dependency_that_follows_a_branch(tmp_path):
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    git(world.project, "config", "-f", ".gitmodules", "submodule.lib/tool.branch", "main")
+    git(world.project, "commit", "-qam", "tool follows main")
+    here = synced(world)
+    dep_tip, tool_tip = advance(world, "dep"), advance(world, "tool")
+
+    result = update(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert checked_out(here / "lib" / "dep") == dep_tip
+    assert checked_out(here / "lib" / "tool") == tool_tip
+
+
+def test_a_bare_update_with_no_submodule_following_a_branch_moves_nothing_and_says_so(tmp_path):
+    here = empty_world(tmp_path, []).project
+
+    result = update(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert steps(result.stdout) == []
+    assert "No submodule follows a branch, so nothing moves." in result.stdout, result.stdout
+
+
+# ── every command checks all it was asked before changing anything ───────────────────────────────────────
+
+
+def test_an_update_of_several_dependencies_moves_none_when_one_holds_work(tmp_path):
+    # Every dependency is checked before any is moved: a refusal for one leaves the others where they are, and
+    # nothing has run, not even a fetch.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    advance(world, "dep")
+    advance(world, "tool")
+    (here / "lib" / "tool" / "notes.txt").write_text("mine\n")
+    dep_before = checked_out(here / "lib" / "dep")
+
+    result = update(here, "dep@main", "tool@main")
+
+    assert result.returncode == 1
+    assert steps(result.stdout) == [], "nothing may run"
+    assert "lib/tool/notes.txt: not tracked by git" in result.stdout, result.stdout
+    assert "To continue anyway: yarn dep update --force dep@main tool@main" in result.stdout, result.stdout
+    assert checked_out(here / "lib" / "dep") == dep_before, "a dependency with nothing in the way is not moved either"
+
+
+def test_a_remove_of_several_dependencies_removes_none_when_one_holds_work(tmp_path):
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    (here / "lib" / "tool" / "notes.txt").write_text("mine\n")
+
+    result = remove(here, "dep", "tool")
+
+    assert result.returncode == 1
+    assert steps(result.stdout) == [], "nothing may run"
+    assert "lib/tool/notes.txt: not tracked by git" in result.stdout, result.stdout
+    assert "To continue anyway: yarn dep remove --force dep tool" in result.stdout, result.stdout
+    assert (here / "lib" / "dep" / ".git").exists(), "a dependency with nothing in the way is not removed either"
+
+
+def test_update_force_moves_the_folder_but_still_keeps_a_leftover_repository_holding_work(tmp_path):
+    # --force overrides the refusal to move. It does not make the clean-up delete a folder holding work only
+    # this computer has: that one is kept and named, and the move is reported as not finished.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    stranded = here / "lib" / "dep" / "stranded"
+    git(tmp_path, "clone", "-q", str(world.remotes / "helper.git"), str(stranded))
+    (stranded / "src" / "Mine.sol").write_text("// a day of work\n")
+    git(stranded, "add", "-A")
+    git(stranded, "commit", "-qm", "unpushed")
+    tip = advance(world, "dep")
+
+    result = update(here, "--force", "dep@main")
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert checked_out(here / "lib" / "dep") == tip
+    assert (stranded / "src" / "Mine.sol").is_file()
+    assert "Skipping lib/dep/stranded, because it holds work." in result.stdout, result.stdout
+    assert "Not finished" in result.stdout, result.stdout

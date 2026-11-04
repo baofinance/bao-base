@@ -413,7 +413,9 @@ def unused_checkout_problems(repo_root: Path, remappings: list[str]) -> list[str
         return []
     lines = ["These submodules are checked out inside a dependency, and no remapping uses them:"]
     lines.extend(f"  {path}" for path in found)
-    lines.append("  Repair: yarn dep sync. It keeps any that holds work only on this computer, and names that work.")
+    lines.append(
+        "  Repair: yarn dep sync. One that holds work only on this computer stops it, and is named with that work."
+    )
     return ["\n".join(lines)]
 
 
