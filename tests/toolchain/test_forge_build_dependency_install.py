@@ -150,6 +150,34 @@ def test_forge_build_installs_a_dependency_it_finds_missing(tmp_path):
     assert "Missing dependencies found" in output, output
 
 
+def test_forge_build_writes_no_foundry_lock_when_every_dependency_is_checked_out(tmp_path):
+    # The lock is the install's record, so a build that installs nothing leaves none. This is what gives
+    # the test below its meaning: the lock there comes from the install, not from every build.
+    project = project_with(tmp_path, ["present"])
+
+    output = forge_build(project)
+
+    assert "Compiling" in output, output
+    assert "Missing dependencies found" not in output, output
+    assert not (project / "foundry.lock").exists()
+
+
+def test_forge_build_writes_foundry_lock_when_it_installs_a_dependency(tmp_path):
+    # The install writes foundry.lock into the project, untracked, as `forge install` would. This is why
+    # the doctor's "no foundry.lock" finding sends the reader to `yarn dep sync` as well as to the removal.
+    project = project_with(tmp_path, ["present", "absent"])
+    shutil.rmtree(project / "lib" / "absent")
+    (project / "lib" / "absent").mkdir()
+
+    output = forge_build(project)
+
+    assert "Missing dependencies found" in output, output
+    assert (project / "foundry.lock").is_file()
+    assert git(project, "status", "--short", "foundry.lock").stdout.startswith("??"), (
+        "untracked, as the doctor finds it"
+    )
+
+
 def test_the_install_repoints_a_shared_gitdir_when_the_build_runs_in_a_linked_worktree(tmp_path):
     # Why the export cannot be a worktree. A linked worktree's submodules share the REAL repository's
     # .git/modules, so forge settling a dependency inside the worktree rewrites where the real

@@ -36,7 +36,7 @@ contract BaoFactoryAcrossForksTest is BaoTest {
         address factory = _ensureBaoFactory();
         assertTrue(IBaoFactory(factory).isCurrentOperator(address(this)), "operator registered before the fork");
 
-        forkMainnet();
+        createSelectFork("mainnet");
 
         assertFalse(
             IBaoFactory(factory).isCurrentOperator(address(this)),

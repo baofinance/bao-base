@@ -1,0 +1,15 @@
+# Every block a test forks at, by name. BaoTest takes a fork only at a block or transaction listed here.
+#
+# The fewer the better: each block is a cache of its own, fetched from the provider on every machine's first
+# run, and a burst of requests from every suite that forks at it. doctor complains above 8. Name a block for
+# what it is, and say why it is needed. `latest` is not written here: it names the highest block listed, so a
+# test needing recent state moves forward when a newer block is listed, and a block listed only for being
+# recent goes when a newer one arrives. `cast find-block <unix time>` finds the block for a time.
+
+[blocks]
+# any block after the last deployment the suites read; which block does not matter
+default = 24699497
+
+# a fork at a transaction holds the state before it ran, the block's earlier transactions replayed on every
+# run: name = "0x<32 bytes>"
+[transactions]

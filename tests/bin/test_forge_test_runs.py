@@ -20,32 +20,57 @@ import forge_test_runs
 _BIN = pathlib.Path(__file__).resolve().parents[2] / "bin"
 _RUNS = ["test", "gas", "coverage"]
 _INVARIANT_SETTINGS = ("FOUNDRY_INVARIANT_FAIL_ON_REVERT", "FOUNDRY_INVARIANT_RUNS", "FOUNDRY_INVARIANT_DEPTH")
-_EVERY_RUN = ["--gas-limit", "18446744073709551615", "--no-dynamic-test-linking", "--nmp", "script/**/*.t.sol"]
+_EVERY_RUN = [
+    "--gas-limit",
+    "18446744073709551615",
+    "--disable-block-gas-limit",
+    "--no-dynamic-test-linking",
+    "--nmp",
+    "script/**/*.t.sol",
+]
 
-# records how forge was called - its environment and its arguments, and what the run had made for it - as
-# JSON, runs nothing, and exits with the status STUB_FORGE_STATUS names
+# records each call forge gets - its environment and its arguments, and what the run had made for it - as a
+# line of JSON, writes the results STUB_FORGE_RESULTS holds where --json-file says (STUB_FORGE_RERUN_RESULTS
+# from its second call on, when set), runs nothing, and exits with the status STUB_FORGE_STATUS names, or
+# STUB_FORGE_RERUN_STATUS from its second call on
 _STUB_FORGE = """#!/usr/bin/env bash
 python3 - "$@" <<'EOF'
-import json, os, sys
-with open(os.environ["STUB_FORGE_RECORD"], "w") as record:
-    json.dump({
+import json, os, shutil, sys
+argv = sys.argv[1:]
+with open(os.environ["STUB_FORGE_RECORD"], "a") as record:
+    record.write(json.dumps({
         "env": dict(os.environ),
-        "argv": sys.argv[1:],
+        "argv": argv,
         "results_exists": os.path.isdir("results"),
         "logs_root_exists": os.path.isdir(os.environ.get("BAO_DEPLOYMENT_LOGS_ROOT", "")),
-    }, record)
+    }) + "\\n")
+calls = sum(1 for _ in open(os.environ["STUB_FORGE_RECORD"]))
+results = os.environ.get("STUB_FORGE_RESULTS")
+if calls > 1 and os.environ.get("STUB_FORGE_RERUN_RESULTS"):
+    results = os.environ["STUB_FORGE_RERUN_RESULTS"]
+if "--json-file" in argv and results:
+    shutil.copy(results, argv[argv.index("--json-file") + 1])
 EOF
+if [[ $(wc -l <"$STUB_FORGE_RECORD") -gt 1 ]]; then exit "${STUB_FORGE_RERUN_STATUS:-0}"; fi
 exit "${STUB_FORGE_STATUS:-0}"
 """
 
 
 def _forge_saw(
-    tmp_path: pathlib.Path, run: str, arguments: list[str] = [], env: dict[str, str] | None = None, status: int = 0
+    tmp_path: pathlib.Path,
+    run: str,
+    arguments: list[str] = [],
+    env: dict[str, str] | None = None,
+    status: int = 0,
+    results: dict | None = None,
+    rerun_status: int = 0,
+    rerun_results: dict | None = None,
 ) -> dict:
     """Run bin/<run> with `arguments`, `env` set in its environment and a stub forge on PATH that exits with
-    `status`; what forge was called with, and the run's own exit status as "status". The invariant settings
-    are absent from the environment unless `env` sets them, so the test's shell does not leak into the
-    result."""
+    `status` (`rerun_status` from its second call on) and writes `results` (`rerun_results` from its second
+    call on, when given), the JSON forge's --json-file writes, where the run asks; what forge's first call was called with, every call as "calls", the run's
+    own exit status as "status" and what it printed as "stderr". The invariant settings are absent from the
+    environment unless `env` sets them, so the test's shell does not leak into the result."""
     stub_dir = tmp_path / "stub"
     stub_dir.mkdir(exist_ok=True)
     stub = stub_dir / "forge"
@@ -59,6 +84,15 @@ def _forge_saw(
     process_env["PATH"] = f"{stub_dir}{os.pathsep}{os.environ['PATH']}"
     process_env["STUB_FORGE_RECORD"] = str(record)
     process_env["STUB_FORGE_STATUS"] = str(status)
+    process_env["STUB_FORGE_RERUN_STATUS"] = str(rerun_status)
+    if results is not None:
+        results_file = tmp_path / "results.json"
+        results_file.write_text(json.dumps(results))
+        process_env["STUB_FORGE_RESULTS"] = str(results_file)
+    if rerun_results is not None:
+        rerun_results_file = tmp_path / "rerun-results.json"
+        rerun_results_file.write_text(json.dumps(rerun_results))
+        process_env["STUB_FORGE_RERUN_RESULTS"] = str(rerun_results_file)
     result = subprocess.run(
         [sys.executable, str(_BIN / run), *arguments],
         cwd=work,
@@ -67,8 +101,35 @@ def _forge_saw(
         text=True,
         check=False,
     )
-    assert result.returncode == status, result.stdout + result.stderr
-    return json.loads(record.read_text()) | {"status": result.returncode}
+    assert record.exists(), result.stdout + result.stderr
+    calls = [json.loads(line) for line in record.read_text().splitlines()]
+    return calls[0] | {"status": result.returncode, "calls": calls, "stderr": result.stderr}
+
+
+def _results(**suites: dict[str, str | None]) -> dict:
+    """forge's results file for `suites`, each a suite's name to its tests' failure reasons, None for a pass."""
+    return {
+        suite: {
+            "duration": {"secs": 0, "nanos": 0},
+            "test_results": {
+                test: {"status": "Failure" if reason else "Success", "reason": reason} for test, reason in tests.items()
+            },
+            "warnings": [],
+        }
+        for suite, tests in suites.items()
+    }
+
+
+# three ways a provider failure reads, in forge 1.9.0's words: its JSON-RPC error, forge's retries exhausted on
+# its refusals, and the fork backend's read failing
+_A_PROVIDERS_ERROR = (
+    "vm.createSelectFork: could not instantiate forked environment with provider mainnet.infura.io; server "
+    "returned an error response: error code -32603: precondition failure"
+)
+_RETRIES_EXHAUSTED = 'Max retries exceeded HTTP error 429 with body: {"code":-32005,"message":"Too Many Requests"}'
+_A_READ_FAILED = "sharedbackend: Failed to send/recv `basic`"
+_AN_ASSERTION = "assertion failed: 1 != 2"
+_A_REVERT = "revert: boom"
 
 
 # ── command: what each run is for, as the arguments it hands forge ──
@@ -81,6 +142,8 @@ def test_the_test_run_keeps_its_build_cache_and_summarises():
         "--deny",
         "never",
         "--summary",
+        "--json-file",
+        "tmp/forge-test-results.json",
     ]
 
 
@@ -107,7 +170,7 @@ def test_the_gas_run_measures_in_isolation_on_its_own_cache_and_fails_on_a_warni
     ]
 
 
-def test_the_coverage_run_lifts_the_block_gas_limit_and_pins_its_seed():
+def test_the_coverage_run_pins_its_seed_and_reports_both_ways():
     assert forge_test_runs.command("coverage", {}, []) == [
         "forge",
         "coverage",
@@ -121,8 +184,14 @@ def test_the_coverage_run_lifts_the_block_gas_limit_and_pins_its_seed():
         "lcov",
         "--deny",
         "never",
-        "--disable-block-gas-limit",
     ]
+
+
+@pytest.mark.parametrize("run", _RUNS)
+def test_every_run_lifts_the_block_gas_limit(run):
+    # a forked test takes the forked block's gas limit, which one call running a whole deploy or upgrade
+    # exceeds; lifted by the run and never in foundry.toml, where it would reach a script's simulation
+    assert "--disable-block-gas-limit" in forge_test_runs.command(run, {}, [])
 
 
 @pytest.mark.parametrize("run", _RUNS)
@@ -202,3 +271,136 @@ def test_a_caller_can_ask_for_a_longer_invariant_run(tmp_path, run):
     # the tuning is a default: a caller's own value reaches forge unchanged
     seen = _forge_saw(tmp_path, run, env={"FOUNDRY_INVARIANT_RUNS": "5000", "FOUNDRY_INVARIANT_DEPTH": "1000"})
     assert (seen["env"]["FOUNDRY_INVARIANT_RUNS"], seen["env"]["FOUNDRY_INVARIANT_DEPTH"]) == ("5000", "1000")
+
+
+# ── the test run re-runs the suites a provider error failed, once, and says so ──
+def test_the_test_run_writes_forges_results_under_tmp(tmp_path):
+    seen = _forge_saw(tmp_path, "test")
+    argv = seen["argv"]
+    assert argv[argv.index("--json-file") + 1].startswith("tmp/")
+    assert (tmp_path / "work" / "tmp").is_dir()
+
+
+def test_a_test_run_without_a_failure_calls_forge_once(tmp_path):
+    seen = _forge_saw(tmp_path, "test", results=_results(**{"test/A.t.sol:A": {"test_a()": None}}))
+    assert len(seen["calls"]) == 1
+    assert seen["status"] == 0
+
+
+@pytest.mark.parametrize("reason", [_A_PROVIDERS_ERROR, _RETRIES_EXHAUSTED, _A_READ_FAILED])
+def test_failures_a_provider_error_caused_are_rerun_once_and_named(tmp_path, reason):
+    # the failed suites are re-run whole, by name: a suite whose setUp failed has every test to run again, and
+    # forge's own --rerun records a test's failure but not a setUp's
+    results = _results(
+        **{"test/A.t.sol:A": {"test_a()": reason, "test_b()": None}, "test/B.t.sol:B": {"setUp()": reason}}
+    )
+    seen = _forge_saw(tmp_path, "test", ["--match-path", "test/*"], status=1, results=results)
+    first, second = seen["calls"]
+    assert second["argv"] == [*first["argv"], "--match-contract", "^(A|B)$"]
+    assert seen["status"] == 0
+    assert "test/A.t.sol:A" in seen["stderr"] and "test/B.t.sol:B" in seen["stderr"], seen["stderr"]
+    assert reason[:40] in seen["stderr"], seen["stderr"]
+
+
+def test_a_rerun_that_fails_fails_the_run(tmp_path):
+    results = _results(**{"test/A.t.sol:A": {"setUp()": _A_PROVIDERS_ERROR}})
+    seen = _forge_saw(tmp_path, "test", status=1, results=results, rerun_status=2)
+    assert len(seen["calls"]) == 2
+    assert seen["status"] == 2
+
+
+@pytest.mark.parametrize("reason", [_AN_ASSERTION, _A_REVERT])
+def test_a_failure_that_is_not_a_provider_error_is_not_rerun(tmp_path, reason):
+    results = _results(**{"test/A.t.sol:A": {"test_a()": reason, "test_b()": None}})
+    seen = _forge_saw(tmp_path, "test", status=1, results=results)
+    assert len(seen["calls"]) == 1
+    assert seen["status"] == 1
+    assert "re-running" not in seen["stderr"]
+
+
+def test_a_provider_error_beside_another_failure_is_not_rerun(tmp_path):
+    # the other failure is real, and a re-run would only delay it
+    results = _results(
+        **{"test/A.t.sol:A": {"test_a()": _A_PROVIDERS_ERROR}, "test/B.t.sol:B": {"test_b()": _AN_ASSERTION}}
+    )
+    seen = _forge_saw(tmp_path, "test", status=1, results=results)
+    assert len(seen["calls"]) == 1
+    assert seen["status"] == 1
+
+
+def test_a_failed_run_that_left_no_results_is_not_rerun(tmp_path):
+    # forge failed before it wrote any: a build error, say
+    seen = _forge_saw(tmp_path, "test", status=1)
+    assert len(seen["calls"]) == 1
+    assert seen["status"] == 1
+
+
+@pytest.mark.parametrize("run", ["gas", "coverage"])
+def test_gas_and_coverage_never_rerun(tmp_path, run):
+    # their report is of one run, and a re-run's would be partial
+    results = _results(**{"test/A.t.sol:A": {"setUp()": _A_PROVIDERS_ERROR}})
+    seen = _forge_saw(tmp_path, run, status=1, results=results)
+    assert len(seen["calls"]) == 1
+    assert seen["status"] == 1
+    assert "--json-file" not in seen["argv"]
+
+
+# ── the run ends by saying what it re-ran and what it did not ──
+def test_a_rerun_that_passed_is_reported_at_the_end(tmp_path):
+    results = _results(
+        **{"test/A.t.sol:A": {"setUp()": _A_PROVIDERS_ERROR}, "test/B.t.sol:B": {"test_b()": _A_READ_FAILED}}
+    )
+    passed = _results(**{"test/A.t.sol:A": {"test_a()": None}, "test/B.t.sol:B": {"test_b()": None}})
+    seen = _forge_saw(tmp_path, "test", status=1, results=results, rerun_results=passed)
+    lines = seen["stderr"].splitlines()
+    summary = lines.index("the provider failed 2 tests in 2 suites; re-run once:")
+    assert lines[summary + 1 :] == [
+        f"  test/A.t.sol:A setUp(): {_A_PROVIDERS_ERROR}",
+        f"  test/B.t.sol:B test_b(): {_A_READ_FAILED}",
+        "re-run: all passed",
+    ], seen["stderr"]
+
+
+def test_a_rerun_that_failed_names_what_still_fails(tmp_path):
+    results = _results(**{"test/B.t.sol:B": {"test_b()": _A_READ_FAILED}})
+    still = _results(**{"test/B.t.sol:B": {"test_b()": _A_PROVIDERS_ERROR}})
+    seen = _forge_saw(tmp_path, "test", status=1, results=results, rerun_status=1, rerun_results=still)
+    assert seen["status"] == 1
+    assert seen["stderr"].splitlines()[-4:] == [
+        "the provider failed 1 test in 1 suite; re-run once:",
+        f"  test/B.t.sol:B test_b(): {_A_READ_FAILED}",
+        "re-run: 1 still failed:",
+        f"  test/B.t.sol:B test_b(): {_A_PROVIDERS_ERROR}",
+    ], seen["stderr"]
+
+
+def test_failures_not_rerun_are_named_with_the_providers_beside_them(tmp_path):
+    results = _results(
+        **{
+            "test/A.t.sol:A": {"test_a()": _A_PROVIDERS_ERROR},
+            "test/C.t.sol:C": {"test_c()": _AN_ASSERTION, "test_d()": _A_REVERT},
+        }
+    )
+    seen = _forge_saw(tmp_path, "test", status=1, results=results)
+    assert seen["stderr"].splitlines()[-5:] == [
+        "not re-run: 2 failed for reasons not the provider's:",
+        f"  test/C.t.sol:C test_c(): {_AN_ASSERTION}",
+        f"  test/C.t.sol:C test_d(): {_A_REVERT}",
+        "beside 1 the provider failed:",
+        f"  test/A.t.sol:A test_a(): {_A_PROVIDERS_ERROR}",
+    ], seen["stderr"]
+
+
+def test_a_failed_run_that_left_no_results_says_so(tmp_path):
+    # a results file left by an earlier run is not read: forge wrote none this run, as after a build error
+    stale = tmp_path / "work" / "tmp" / "forge-test-results.json"
+    stale.parent.mkdir(parents=True)
+    stale.write_text(json.dumps(_results(**{"test/A.t.sol:A": {"setUp()": _A_PROVIDERS_ERROR}})))
+    seen = _forge_saw(tmp_path, "test", status=1)
+    assert len(seen["calls"]) == 1
+    assert seen["stderr"].splitlines()[-1] == "no results file; nothing re-run", seen["stderr"]
+
+
+def test_a_clean_run_prints_no_summary(tmp_path):
+    seen = _forge_saw(tmp_path, "test", results=_results(**{"test/A.t.sol:A": {"test_a()": None}}))
+    assert "re-run" not in seen["stderr"] and "provider" not in seen["stderr"], seen["stderr"]

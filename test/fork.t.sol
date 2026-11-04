@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
-import {Test} from "forge-std/Test.sol";
+import {BaoTest} from "@bao-test/BaoTest.sol";
 
-contract TestFork is Test {
+/// @notice A fork of mainnet is taken through BaoTest at the default block the list names.
+contract TestFork is BaoTest {
     function testMainnet() public {
-        vm.createSelectFork(vm.rpcUrl("mainnet"), 19210000);
+        createSelectFork("mainnet");
+        assertEq(block.number, listedBlock(FORK_DEFAULT));
     }
 }

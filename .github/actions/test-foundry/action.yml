@@ -83,7 +83,13 @@ runs:
       uses: foundry-rs/foundry-toolchain@v1
       with:
         version: ${{ steps.nightly.outputs.tag || inputs.foundry }}
-        cache-key: fork-24699497 # change this number and update the bao-base BaoTest's forkMainnet() function
+        # The RPC cache: what forge read at each block the tests fork at. GitHub never rewrites a saved
+        # cache, so the key names the commit, and the restore key finds the newest cache of this foundry
+        # version: each run restores that, adds what it fetched, and saves under its own commit. The
+        # version is in the key so a cache is read by the foundry version that wrote it; the platform is
+        # in every key, foundry-toolchain's prefix. A re-run hits its own key and saves nothing.
+        cache-key: ${{ inputs.foundry }}-${{ github.sha }}
+        cache-restore-keys: ${{ inputs.foundry }}-
       id: foundry-install
 
     - shell: bash
