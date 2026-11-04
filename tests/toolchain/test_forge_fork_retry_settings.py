@@ -7,8 +7,9 @@ the fork the command line creates.
 
 Each test counts the attempts one fork's creation makes against an endpoint that refuses every request with
 HTTP 429: one `eth_chainId` per attempt, so the count is the retries plus one. The first pins what the alias form
-relies on. The other two pin the defect: when one fails, forge has changed, and the alias form or a runner's flags
-can be reconsidered. forge's default of 8 retries at 800 ms makes each of those two take about 13 seconds.
+relies on. The other two pin the defect, which foundry fixed on main in PR 18074 (2026-11-03) for a release after
+1.9.0: when one fails, the forge in use carries the fix, and its message names that forge and what to do. forge's
+default of 8 retries at 800 ms makes each of those two take about 13 seconds.
 """
 
 import contextlib
@@ -125,6 +126,19 @@ def project(root: Path, port: int) -> Path:
     return root
 
 
+def forge_version() -> str:
+    """The first line forge --version prints: its version and commit."""
+    return subprocess.run(["forge", "--version"], capture_output=True, text=True, check=True).stdout.splitlines()[0]
+
+
+# what to do when a pin on the defect fails: the forge in use carries the fix
+_CARRIES_THE_FIX = (
+    "carries foundry PR 18074. Retarget this pin to the entry's attempts and pin that the entry's retries win over the "
+    "command line's; then reword what cites issue 18071 - harbor's foundry.toml at its mainnet entry, BaoTest's fork "
+    "comment, doctor's alias check - and the status line of bug-reports/foundry-1-9-0-cheatcode-fork-retry-settings.md."
+)
+
+
 def forge_test(root: Path, contract: str, *arguments: str) -> str:
     """forge's output running `contract`, which must have failed at its fork's creation for want of retries."""
     run = subprocess.run(
@@ -145,7 +159,7 @@ def test_a_fork_named_by_the_entrys_url_gets_forges_defaults(tmp_path):
     with refusing_endpoint() as stub:
         forge_test(project(tmp_path, stub.port), "ByUrl")
         assert stub.chain_id_requests == FORGES_DEFAULT_ATTEMPTS, (
-            "forge now gives a fork named by the entry's URL the entry's retries: a fork may name either"
+            f"a fork named by the entry's URL took the entry's retries: {forge_version()} {_CARRIES_THE_FIX}"
         )
 
 
@@ -165,6 +179,5 @@ def test_the_command_lines_retries_do_not_reach_a_fork_a_test_creates(tmp_path):
             "--no-storage-caching",
         )
         assert stub.chain_id_requests == FORGES_DEFAULT_ATTEMPTS, (
-            "forge now passes the command line's retries to a fork a test creates: a runner's flags reach the tests' "
-            "forks, and the entry need not carry them"
+            f"the command line's retries reached a fork a test creates: {forge_version()} {_CARRIES_THE_FIX}"
         )
