@@ -55,12 +55,6 @@ abstract contract FactoryDeployer is DeployReporting {
     error EmptySaltPrefix();
     /// @notice The salt prefix is write-once; it was already `current` when a set to `attempted` was tried.
     error SaltPrefixAlreadySet(string current, string attempted);
-    /// @notice Reading the deployer owner before it has been set.
-    error DeployerOwnerNotSet();
-    /// @notice `_setDeployerOwner` was given the zero address, which is reserved as the "unset" marker.
-    error ZeroDeployerOwner();
-    /// @notice The deployer owner is write-once; it was already `current` when a set to `attempted` was tried.
-    error DeployerOwnerAlreadySet(address current, address attempted);
     /// @notice `factory` lists no operator allowance for `deployerOwner`, and accepts a deploy only from its owner or
     ///         a current operator.
     error DeployerOwnerIsNotAnOperator(address deployerOwner, address factory);
@@ -72,10 +66,6 @@ abstract contract FactoryDeployer is DeployReporting {
 
     /// @dev Salt prefix for deployment namespacing.
     string private _saltPrefixValue;
-
-    /// @dev The account that owns each contract this run deploys until the hand-over to `owner()` - see
-    ///      `deployerOwner()`.
-    address private _deployerOwnerValue;
 
     /// @dev Lazily deployed stub - must be deployed within broadcast context so msg.sender is correct.
     UUPSProxyDeployStub private _proxyDeployStub;
@@ -122,30 +112,17 @@ abstract contract FactoryDeployer is DeployReporting {
     }
 
     /// @notice The account that owns each contract this run deploys until `_transferAllOwnerships` hands it to
-    /// `owner()`. The run's direct configuring calls - role grants, the hand-over itself - need that owner, so it must
-    /// be the account those calls come from. A held test run sends them itself and overrides this to `address(this)`.
-    /// A forge script does not: its calls are broadcast from the sender, so it sets `run()`'s `msg.sender` through
-    /// `_setDeployerOwner`. Reverts until set: a wrong first owner leaves every contract the run deploys owned by an
-    /// account that never sends, so there is no default. It is also the account the factory must accept: before each
-    /// proxy is deployed, it must be the factory's owner or an operator with `OPERATOR_ALLOWANCE_MARGIN` of its
-    /// allowance left.
-    function deployerOwner() public view virtual returns (address) {
-        if (_deployerOwnerValue == address(0)) {
-            revert DeployerOwnerNotSet();
-        }
-        return _deployerOwnerValue;
-    }
-
-    /// @notice Set the deployer owner - once, before any deployment. Write-once: the zero address is the "unset"
-    /// marker (so it cannot be set), and a second set is rejected.
-    function _setDeployerOwner(address deployerOwner_) internal {
-        if (deployerOwner_ == address(0)) {
-            revert ZeroDeployerOwner();
-        }
-        if (_deployerOwnerValue != address(0)) {
-            revert DeployerOwnerAlreadySet(_deployerOwnerValue, deployerOwner_);
-        }
-        _deployerOwnerValue = deployerOwner_;
+    /// `owner()`. The run's direct configuring calls - role grants, the hand-over itself - need that owner, so it is
+    /// the account those calls come from, which the context decides, as it decides whether `Deployer._executeQueued`
+    /// pranks or broadcasts: in a forge test the run contract itself, which the test holds and sends them from; in a
+    /// forge script its sender, from which they are broadcast - `vm.startBroadcast()` with no account - and which is
+    /// `msg.sender` throughout the script's own frame, before and under the broadcast. A broadcast from another
+    /// account would part the calls from that ownership, and forge refuses it: a use of `msg.sender` under
+    /// `vm.startBroadcast(account)` stops the run, naming both accounts. It is also the account the factory must
+    /// accept: before each proxy is deployed, it must be the factory's owner or an operator with
+    /// `OPERATOR_ALLOWANCE_MARGIN` of its allowance left.
+    function deployerOwner() public view returns (address) {
+        return vm.isContext(VmSafe.ForgeContext.TestGroup) ? address(this) : msg.sender;
     }
 
     /// @notice Stops a run the factory would refuse, before it deploys anything: the factory accepts a deploy only

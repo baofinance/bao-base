@@ -27,11 +27,6 @@ contract TestableFixedOwnableDeployer is FactoryDeployer {
         return 0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2;
     }
 
-    /// @dev This deployer sends the factory's deploy calls itself.
-    function deployerOwner() public view override returns (address) {
-        return address(this);
-    }
-
     function setSaltPrefix(string memory prefix) external {
         _setSaltPrefix(prefix);
     }

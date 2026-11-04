@@ -68,10 +68,6 @@ contract TestableFactoryDeployer is FactoryDeployer {
         _ownerAddr = owner_;
     }
 
-    function setDeployerOwner(address deployerOwner_) external {
-        _setDeployerOwner(deployerOwner_);
-    }
-
     // ========== Expose internal functions for testing ==========
 
     function shouldPersistState() external view returns (bool) {
@@ -204,33 +200,6 @@ contract FactoryDeployerTest is BaoTest {
         deployer.saltString1("minter");
     }
 
-    function test_deployerOwner_revertsWhenUnset() public {
-        // A run with no deployer owner cannot deploy: nothing defaults to an account that may never send.
-        vm.expectRevert(FactoryDeployer.DeployerOwnerNotSet.selector);
-        deployer.deployerOwner();
-    }
-
-    function test_setDeployerOwner() public {
-        address sender = makeAddr("sender");
-        deployer.setDeployerOwner(sender);
-        assertEq(deployer.deployerOwner(), sender, "deployerOwner returns the account set");
-    }
-
-    function test_setDeployerOwner_revertsOnSecondSet() public {
-        // Write-once: the account holding the run's contracts cannot change part-way through a run.
-        address first = makeAddr("first");
-        address second = makeAddr("second");
-        deployer.setDeployerOwner(first);
-        vm.expectRevert(abi.encodeWithSelector(FactoryDeployer.DeployerOwnerAlreadySet.selector, first, second));
-        deployer.setDeployerOwner(second);
-    }
-
-    function test_setDeployerOwner_revertsOnZero() public {
-        // The zero address is the "unset" marker, so it cannot be set.
-        vm.expectRevert(FactoryDeployer.ZeroDeployerOwner.selector);
-        deployer.setDeployerOwner(address(0));
-    }
-
     function test_treasury() public view {
         assertEq(deployer.treasury(), testTreasury, "treasury returns configured address");
     }
@@ -329,7 +298,6 @@ contract FactoryDeployerTest is BaoTest {
     ///      owner grants it an operator allowance of `window`.
     function _setupFactoryWithDeployerAsOperatorFor(uint256 window) internal returns (address factory) {
         factory = _ensureBaoFactory();
-        deployer.setDeployerOwner(address(deployer));
         vm.startPrank(IBaoFactory(factory).owner());
         IBaoFactory(factory).setOperator(address(deployer), window);
         vm.stopPrank();
@@ -356,7 +324,6 @@ contract FactoryDeployerTest is BaoTest {
     ///      the factory's bare `Unauthorized()` at it.
     function test_deployProxy_refusesADeployerOwnerWithNoAllowance() public {
         address factory = _ensureBaoFactory();
-        deployer.setDeployerOwner(address(deployer));
         (DeploymentTypes.State memory state, address impl, bytes memory initData) = _oneProxyToDeploy(
             "no_allowance",
             address(deployer)
@@ -419,22 +386,20 @@ contract FactoryDeployerTest is BaoTest {
         assertEq(MockHarborOwnable(proxy).owner(), address(deployer), "deployed, the deployer's until the hand-over");
     }
 
-    /// @dev The factory's owner needs no allowance: a run whose deployer owner is the owner is not refused.
+    /// @dev The factory's owner needs no allowance: a run whose deployer owner is the owner is not refused, however
+    ///      short an allowance it holds. The factory's owner is a constant no test contract can be, so for this test
+    ///      the factory names the deployer as its owner; the deployer's allowance is one the margin refuses, so only
+    ///      the owner's exemption lets the deploy through.
     function test_deployProxy_acceptsTheFactoryOwnerWithoutAnAllowance() public {
-        address factory = _ensureBaoFactory();
-        address factoryOwner = IBaoFactory(factory).owner();
-        deployer.setDeployerOwner(factoryOwner);
-        // The deployer contract still sends the call, so the factory itself must accept it as an operator.
-        vm.startPrank(factoryOwner);
-        IBaoFactory(factory).setOperator(address(deployer), 365 days);
-        vm.stopPrank();
+        address factory = _setupFactoryWithDeployerAsOperatorFor(1 hours);
+        vm.mockCall(factory, abi.encodeCall(IBaoFactory.owner, ()), abi.encode(address(deployer)));
         (DeploymentTypes.State memory state, address impl, bytes memory initData) = _oneProxyToDeploy(
             "owner_deploys",
-            factoryOwner
+            address(deployer)
         );
 
         address proxy = deployer.deployProxyAndRecord(state, "minter", impl, initData);
-        assertEq(MockHarborOwnable(proxy).owner(), factoryOwner, "deployed, the factory owner's from the start");
+        assertEq(MockHarborOwnable(proxy).owner(), address(deployer), "deployed, the deployer's until the hand-over");
     }
 
     // ========== Ownership Transfer Tests ==========
