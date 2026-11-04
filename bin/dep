@@ -21,15 +21,19 @@ run again in the main folder, it takes that set-up away. Moving a dependency to 
 `update`'s job, run in the repository that records it. A clone made without --recurse-submodules needs
 nothing more than this.
 
-`--root <dependency>`, or `-C` as git spells it, names a dependency of this repository as the project a
-command acts on, in place of this repository. The dependency is named as every other argument names one,
-with or without the libs folder, and may sit inside another: `harbor`, `lib/harbor`, `harbor/lib/bao-base`.
-This tool lives in a submodule of the project it serves, so inside a dependency not yet set up there is no
-`yarn dep` to run: `yarn dep -C harbor sync`, run in the containing project, is `cd lib/harbor && yarn dep
-sync`, and sync first checks an empty `lib/harbor` out at the commit the containing project points to.
-Every path a command then prints is as that project names it, under a first line saying where it acts.
-forge's `--root` takes any path; this one takes a dependency, since that is the only project this tool
-can reach that has no copy of its own to run.
+`--root <dependency>`, or `-C` as git spells it, names the project a command acts on, in place of this
+repository, in one of two forms told apart by the libs folder. A module path leaves the libs folders out:
+each name is a dependency of the module before it, starting at the repository the command is typed in, and
+`..` is the module holding it - `harbor`, `harbor/bao-base`, and from inside lib/harbor `../bao-base` for
+its neighbour. A path naming the libs folder is a folder path, read from the folder the command is typed in,
+as git's `-C` reads one: `lib/harbor`, and from inside lib/harbor `../../lib/harbor/lib/bao-base`, the same
+project as `../harbor/bao-base`. This tool lives in a submodule of the project it serves, so inside a
+dependency not yet set up there is no `yarn dep` to run: `yarn dep -C harbor sync`, run in the containing
+project, is `cd lib/harbor && yarn dep sync`, and sync first checks an empty `lib/harbor` out at the commit
+the containing project points to. Every path a command then prints is as that project names it, under a
+first line saying where it acts. forge's `--root` takes any path; this one takes a module of the tree of
+repositories it is typed in - the outermost repository or a submodule a .gitmodules there lists - so no
+argument reaches a clone that merely lies nearby.
 
 No command loses work, and each finds out before its first step. Everything it would move or remove is
 read first; a folder among them holding work only this computer has - a change not committed, a commit
@@ -102,17 +106,22 @@ from submodule_state import (
     declared_submodules,
     describe_at_risk,
     git,
+    RootProject,
     keep_command,
     keep_or_go_back,
+    locate,
     move_checklist,
+    named_path,
     nested_levels,
     read_facts,
     recorded_entry,
     remapping_target,
     remote_holds,
+    root_project,
     staged_gitlink,
     submodule_levels,
     sync_adds,
+    typed_in,
     unused_checkouts,
 )
 
@@ -125,10 +134,13 @@ dep add [(-b | --branch) <branch or tag>] <url>
 dep update [--force] [<dependency>[@<version>] ...]
 dep remove [--force] <dependency> ...
 
-  --root, -C    Act on <dependency> as a project of its own, in place of this repository. Inside a
-                dependency not yet set up there is no yarn dep to run, so from the main folder, yarn dep
-                -C <dependency> sync sets it up to work in: sync first checks out an empty folder at the
-                commit this repository points to. Paths are then printed as that project names them.
+  --root, -C    Act on <dependency> as a project of its own, in place of this repository. A module path
+                leaves the libs folders out, with .. the module holding this one: harbor/bao-base,
+                ../bao-base. A path naming the libs folder is read from where it is typed: lib/harbor,
+                ../../lib/harbor/lib/bao-base. Inside a dependency not yet set up there is no yarn dep
+                to run, so from the main folder, yarn dep -C <dependency> sync sets it up to work in:
+                sync first checks out an empty folder at the commit this repository points to. Paths
+                are then printed as that project names them.
   sync          Make this folder ready to build, and nothing more: each submodule at the commit this
                 repository points to, on the branch it follows, inside it only the submodules a
                 remapping uses, and no leftover repositories, with each submodule's tags fetched. A
@@ -545,25 +557,6 @@ def status(repo_root: Path, remappings: list[str], fetch: bool) -> int:
                 path = (parent / nested.path).relative_to(repo_root).as_posix()
                 print(f"  ! {path} is checked out, and no remapping uses it. yarn dep sync removes it.")
     return 1 if fetch_failed else 0
-
-
-def named_path(dependency: str, libs: str) -> str:
-    """The path of a dependency, or of a submodule inside one, named by its path in the first libs folder,
-    where `add` places every dependency. A leading libs folder is accepted too: `dep` and `lib/dep` agree."""
-    return f"{libs}/{dependency.strip('/').removeprefix(f'{libs}/')}"
-
-
-def locate(repo_root: Path, path: str) -> tuple[Path, Declared] | None:
-    """The submodule at `path`, with the folder whose .gitmodules lists it: this repository for a dependency,
-    a dependency for one of its own submodules. None when no .gitmodules that is checked out lists one there."""
-    return next(
-        (
-            (directory, level)
-            for directory, level in submodule_levels(repo_root, path)
-            if directory / level.path == repo_root / path
-        ),
-        None,
-    )
 
 
 def classify(submodule: Path, ref: str) -> Pin:
@@ -987,29 +980,23 @@ def remove(repo_root: Path, dependencies: list[str], force: bool, libs: str) -> 
     return status
 
 
-def dependency_root(repo_root: Path, path: str, checking_out: bool) -> Path | None:
-    """The folder of the dependency at `path` - a submodule of this repository, or one inside a dependency - to
-    act on as a project of its own: checked out, or, when `checking_out`, declared and not checked out, which is
-    checked out first at the commit its parent points to. Nothing is in an empty folder, so that loses nothing.
-    None, with why printed, when there is none."""
-    folder = repo_root / path
-    if (folder / ".git").exists():
-        return folder
-    located = locate(repo_root, path)
-    if located is None:
-        print(f"Stopped: no .gitmodules file lists a submodule at {path}.")
+def dependency_root(repo_root: Path, found: RootProject, checking_out: bool) -> Path | None:
+    """The folder of the project `-C` names, to act on as a project of its own: checked out, or, when `checking_out`,
+    checked out first at the commit the repository listing it points to. Nothing is in an empty folder, so that loses
+    nothing. None, with why printed, when it is not checked out and is not to be."""
+    if found.not_checked_out is None:
+        return found.folder
+    if not checking_out or found.declared is None:
+        print(f"Stopped: {found.not_checked_out}")
         return None
-    directory, entry = located
-    if not checking_out:
-        print(f"Stopped: {path} is not checked out. To check it out: yarn dep -C {path} sync")
-        return None
-    print(f"{path} is not checked out, so first:")
+    directory, entry = found.declared
+    print(f"{found.shown} is not checked out, so first:")
     try:
         run(repo_root, directory, "submodule", "update", "--init", "--", entry.path)
         stand_on_branch(repo_root, directory, entry)
     except StepFailed:
         return None
-    return folder
+    return found.folder
 
 
 def main() -> int:
@@ -1040,13 +1027,16 @@ def main() -> int:
     if config is None:
         return 1
     if arguments.root is not None:
-        # The dependency named is this repository's, in its libs folder; the project acted on is that folder,
+        # The project named from the folder the command was typed in - a module path or a folder path - and acted on
         # with its own forge config.
-        path = named_path(arguments.root, PurePosixPath(config["libs"][0]).as_posix())
-        acted_on = dependency_root(repo_root, path, arguments.subcommand == "sync")
+        found = root_project(arguments.root, typed_in(Path.cwd(), os.environ))
+        if isinstance(found, str):
+            print(f"Stopped: {found}")
+            return 1
+        acted_on = dependency_root(repo_root, found, arguments.subcommand == "sync")
         if acted_on is None:
             return 1
-        print(f"in {path}:")
+        print(f"in {found.shown}:")
         repo_root = acted_on
         config = read_forge_config(repo_root)
         if config is None:

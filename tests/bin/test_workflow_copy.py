@@ -242,6 +242,6 @@ def test_the_check_carries_the_problems_it_found(tmp_path):
     # `check` is what both entrypoints report, so it must actually run `problems` rather than
     # describe it — a Check with the right name and an empty problems list would read as passing.
     repo, _ = _workflow_pair(tmp_path, None, "name: mine\njobs: {}\n")
-    check = workflow_copy.check(repo)
+    check = workflow_copy.check(repo, workflow_copy.BAO_BASE_ROOT)
     assert "workflows copied from bao-base" in check.name
     assert check.problems == workflow_copy.problems(repo, workflow_copy.BAO_BASE_ROOT)

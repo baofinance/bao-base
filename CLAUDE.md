@@ -419,13 +419,17 @@ not instructions" above and the design-discussion rule under "Other rules".)
   and a bare `yarn dep update` moves every one that follows a branch, leaving a pinned one where it is.
   To work inside a dependency, `yarn dep -C <name> sync` (`--root`, as git spells `-C`) from the main
   folder sets it up: on its branch at the commit this repository points to, with its own dependencies
-  checked out; a plain `yarn dep sync` in the main folder takes that set-up away. No `yarn
+  checked out; a plain `yarn dep sync` in the main folder takes that set-up away. `-C` takes a module path,
+  where the libs folders are left out and `..` is the module holding this one (`harbor/bao-base`, or
+  `../bao-base` from inside lib/harbor), or a folder path naming `lib/`, read from where it is typed; neither
+  leaves the tree of repositories it is typed in. No `yarn
   dep` command loses work: each reads everything it would move or remove before its first step, and a
   folder holding work only this computer has stops it with nothing changed. `yarn dep sync` runs
   `git add` for a dependency whose folder has newer commits, all pushed, that this repository has never
   pointed to, and says so. Otherwise `yarn dep` never stages: it ends by naming the git commands that
   stage and commit the change. Nothing in `yarn dep` commits. `yarn doctor` reports a submodule folder that differs
-  from what this repository points to. Why each step is done as it is: `bin/dep`'s docstring.
+  from what this repository points to. `yarn doctor -C <name>` checks a dependency with this repository's copy of
+  doctor, comparing it with its own bao-base. Why each step is done as it is: `bin/dep`'s docstring.
 - Never use bare `"src/..."`, `"script/..."`, or `"test/..."` import paths in any Solidity file — not in contracts, scripts, or tests. Always use the remapped prefix for the repo the file lives in (e.g. `"@harbor/..."`, `"@harbor-script/..."`, `"@harbor-test/..."` for harbor files; `"@bao/..."`, `"@bao-script/..."`, `"@bao-test/..."` for bao-base files). Bare paths create duplicate type identities when files are consumed as a library by another repo, breaking compilation.
 - In tests and scripts, use interface types (e.g. `IStabilityPool_v3(address)`) not concrete contract types (e.g. `StabilityPool_v3(address)`) when calling functions. This verifies the interface matches the implementation. Concrete types are only for initialisation (constructor, deploy).
   - **Declarations:** use `address`, not typed contract variables. E.g. `address rewardToken = address(new MockERC20(...))`, not `MockERC20 rewardToken = new MockERC20(...)`.

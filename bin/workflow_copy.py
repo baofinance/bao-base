@@ -83,7 +83,7 @@ def split_env_block(lines: list[str]) -> tuple[list[str], list[str]]:
     return inside, outside
 
 
-def problems(repo_root: Path, bao_base_root: Path) -> list[str]:
+def problems(repo_root: Path, bao_base_root: Path | None) -> list[str]:
     """Every workflow in `repo_root` that has drifted from its original in `bao_base_root`.
 
     A copy is entitled to two differences. Where the action lives, which is normalised away. And the
@@ -105,20 +105,28 @@ def problems(repo_root: Path, bao_base_root: Path) -> list[str]:
     actions is the repo's own, and is not compared.
 
     Run inside bao-base there is nothing to compare, since it holds the originals. `bao_base_root` is
-    a parameter rather than `BAO_BASE_ROOT` read directly so a test can point both roots at fixtures.
-    Returns one entry per drifted workflow, or [] when every copy matches."""
+    the bao-base `repo_root` has, which doctor reads from the project: a copy of doctor checking another
+    project compares it with that project's bao-base, not its own. None is a project with no bao-base,
+    whose workflows have nothing to be copies of. Returns one entry per drifted workflow, or [] when
+    every copy matches."""
     if bao_base_root == repo_root:
         return []
-    if not bao_base_root.is_relative_to(repo_root):
+    if bao_base_root is not None and not bao_base_root.is_relative_to(repo_root):
         return [
             f"bao-base is at {bao_base_root}, which is outside the repository at {repo_root}. So doctor "
             f"cannot tell which path to bao-base's actions a copied workflow should use."
         ]
 
-    canonical_dir = bao_base_root / ".github" / "workflows"
     repo_dir = repo_root / ".github" / "workflows"
     if not repo_dir.is_dir():
         return []
+    if bao_base_root is None:
+        return [
+            "This repository is not bao-base and has no bao-base submodule, so there are no bao-base workflows to "
+            "compare its workflows with."
+        ]
+
+    canonical_dir = bao_base_root / ".github" / "workflows"
 
     # Derived, not spelled `lib/bao-base`: a repo that vendors bao-base at another path normalises
     # against ITS path, so the check does not quietly stop applying when the layout changes.
@@ -174,9 +182,11 @@ def problems(repo_root: Path, bao_base_root: Path) -> list[str]:
     return drifted
 
 
-def check(repo_root: Path) -> Check:
+def check(repo_root: Path, bao_base_root: Path | None) -> Check:
     """The check as both entrypoints report it — one definition of the name and the reasons, so
-    `doctor` and a direct run cannot describe the same check differently."""
+    `doctor` and a direct run cannot describe the same check differently. Each passes the bao-base to
+    compare with: doctor the one the project has, a direct run this copy, which in the action is the
+    project's own."""
     return Check(
         "workflows copied from bao-base match their originals",
         "each workflow here that uses bao-base's actions is a copy of the one of the same name in bao-base. It "
@@ -184,7 +194,7 @@ def check(repo_root: Path) -> Check:
         "means the copy no longer follows the original",
         "a fix in bao-base does not reach this repository, and nothing says so. The copy keeps passing CI "
         "while it runs the version with the bug",
-        problems(repo_root, BAO_BASE_ROOT),
+        problems(repo_root, bao_base_root),
     )
 
 
@@ -194,7 +204,7 @@ def main() -> None:
             ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True
         ).stdout.strip()
     )
-    report([check(repo_root)])
+    report([check(repo_root, BAO_BASE_ROOT)])
 
 
 if __name__ == "__main__":

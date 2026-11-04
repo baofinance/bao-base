@@ -10,6 +10,7 @@ import importlib.util
 import json
 import pathlib
 import subprocess
+import sys
 import typing
 
 import pytest
@@ -1106,24 +1107,19 @@ def test_inline_config_lists_every_line_in_test_and_script_sources(tmp_path):
 # that gives the fork the entry's retries (bug-reports/foundry-1-9-0-cheatcode-fork-retry-settings.md), and one
 # forge fails the test at the fork's creation when no entry has the alias. The aliases are read where they are
 # named: the source, test and script directories, and the bao-base test helpers a project's tests inherit. Each
-# test builds a project in tmp_path, so the entries are the ones `forge config` resolves; the helpers are left
-# out unless a test is about them, so the project's own naming is what is judged.
+# test builds a project in tmp_path, so the entries are the ones `forge config` resolves; a test gives the project
+# no bao-base, and so no inherited helpers, unless it is about them, so the project's own naming is what is judged.
 def _with_rpc_endpoints(repo: pathlib.Path, entries: str) -> pathlib.Path:
     (repo / "foundry.toml").write_text(f"[profile.default]\n\n[rpc_endpoints]\n{entries}")
     return repo
 
 
-@pytest.fixture
-def _without_inherited_helpers(monkeypatch):
-    monkeypatch.setattr(doctor, "_INHERITED_FORK_HELPERS", ())
-
-
-def test_fork_endpoints_clean_when_nothing_forks(tmp_path, _without_inherited_helpers):
+def test_fork_endpoints_clean_when_nothing_forks(tmp_path):
     repo = _with_rpc_endpoints(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), "")
-    assert doctor.fork_endpoint_problems(repo) == []
+    assert doctor.fork_endpoint_problems(repo, None) == []
 
 
-def test_fork_endpoints_clean_when_every_alias_named_has_an_entry(tmp_path, _without_inherited_helpers):
+def test_fork_endpoints_clean_when_every_alias_named_has_an_entry(tmp_path):
     repo = _with_rpc_endpoints(
         _forge_project(
             tmp_path / "host",
@@ -1135,10 +1131,10 @@ def test_fork_endpoints_clean_when_every_alias_named_has_an_entry(tmp_path, _wit
         ),
         'mainnet = "http://127.0.0.1:1"\nlocal = "http://127.0.0.1:2"\n',
     )
-    assert doctor.fork_endpoint_problems(repo) == []
+    assert doctor.fork_endpoint_problems(repo, None) == []
 
 
-def test_fork_endpoints_report_each_line_naming_an_alias_without_an_entry(tmp_path, _without_inherited_helpers):
+def test_fork_endpoints_report_each_line_naming_an_alias_without_an_entry(tmp_path):
     repo = _with_rpc_endpoints(
         _forge_project(
             tmp_path / "host",
@@ -1155,7 +1151,7 @@ def test_fork_endpoints_report_each_line_naming_an_alias_without_an_entry(tmp_pa
         ),
         'local = "http://127.0.0.1:2"\n',
     )
-    problems = doctor.fork_endpoint_problems(repo)
+    problems = doctor.fork_endpoint_problems(repo, None)
     assert len(problems) == 1
     assert 'test/B.t.sol:4  "mainnet"' in problems[0], problems[0]
     assert 'test/B.t.sol:5  "arbitrum"' in problems[0], problems[0]
@@ -1164,7 +1160,7 @@ def test_fork_endpoints_report_each_line_naming_an_alias_without_an_entry(tmp_pa
     assert "Repair: add an entry for each alias to [rpc_endpoints] in foundry.toml" in problems[0], problems[0]
 
 
-def test_fork_endpoints_leave_a_literal_url_alone(tmp_path, _without_inherited_helpers):
+def test_fork_endpoints_leave_a_literal_url_alone(tmp_path):
     # a URL names no entry: the fork gets forge's defaults, which is its author's choice, not a missing entry
     repo = _with_rpc_endpoints(
         _forge_project(
@@ -1176,12 +1172,10 @@ def test_fork_endpoints_leave_a_literal_url_alone(tmp_path, _without_inherited_h
         ),
         "",
     )
-    assert doctor.fork_endpoint_problems(repo) == []
+    assert doctor.fork_endpoint_problems(repo, None) == []
 
 
-def test_fork_endpoints_count_an_entry_in_table_form_whose_url_is_an_unset_variable(
-    tmp_path, monkeypatch, _without_inherited_helpers
-):
+def test_fork_endpoints_count_an_entry_in_table_form_whose_url_is_an_unset_variable(tmp_path, monkeypatch):
     # an entry carrying retries is a table, and its URL is read from the environment at the fork's creation: the
     # alias is there for forge whether or not the variable is set, as a project's are without its .env
     monkeypatch.delenv("DOCTOR_TEST_UNSET_RPC_URL", raising=False)
@@ -1193,24 +1187,24 @@ def test_fork_endpoints_count_an_entry_in_table_form_whose_url_is_an_unset_varia
         ),
         'mainnet = { endpoint = "${DOCTOR_TEST_UNSET_RPC_URL}", retries = 2, retry_backoff = 100 }\n',
     )
-    assert doctor.fork_endpoint_problems(repo) == []
+    assert doctor.fork_endpoint_problems(repo, None) == []
 
 
 def test_fork_endpoints_include_the_helpers_a_projects_tests_inherit(tmp_path):
     # BaoTest.forkMainnetWithBaoFactory names its endpoint in bao-base's test helpers, which every project's tests compile, so
     # a project forking nowhere in its own sources still needs that entry
     repo = _with_rpc_endpoints(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), "")
-    problems = doctor.fork_endpoint_problems(repo)
+    problems = doctor.fork_endpoint_problems(repo, _BAO_BASE)
     assert len(problems) == 1
     assert "BaoTest.sol:" in problems[0], problems[0]
     assert '"mainnet"' in problems[0], problems[0]
-    assert doctor.fork_endpoint_problems(_with_rpc_endpoints(repo, 'mainnet = "http://127.0.0.1:1"\n')) == []
+    assert doctor.fork_endpoint_problems(_with_rpc_endpoints(repo, 'mainnet = "http://127.0.0.1:1"\n'), _BAO_BASE) == []
 
 
 # ── every fork in test code is at a listed block ───────────────────────────────────────────────────────
 # BaoTest takes a fork only at a block or transaction test/fork-blocks.toml lists, reading the file under forge's
 # fs_permissions, and a cheatcode fork in the test directory bypasses the list. Each test builds a project in
-# tmp_path; the helpers bao-base's tests inherit are left out unless a test is about them.
+# tmp_path and is given no bao-base, and so no inherited helpers, unless it is about them.
 def _with_fs_permissions(repo: pathlib.Path, entries: str) -> pathlib.Path:
     (repo / "foundry.toml").write_text(f"[profile.default]\nfs_permissions = [{entries}]\n")
     return repo
@@ -1267,81 +1261,79 @@ def test_fork_blocks_permission_report_no_entry_granting_read_over_the_file(tmp_
     )
 
 
-def test_fork_blocks_list_clean_without_the_file_when_nothing_forks(tmp_path, _without_inherited_helpers):
+def test_fork_blocks_list_clean_without_the_file_when_nothing_forks(tmp_path):
     repo = _with_fs_permissions(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), "")
-    assert doctor.fork_blocks_list_problems(repo) == []
+    assert doctor.fork_blocks_list_problems(repo, None) == []
 
 
-def test_fork_blocks_list_report_a_missing_file_when_a_test_forks(tmp_path, _without_inherited_helpers):
+def test_fork_blocks_list_report_a_missing_file_when_a_test_forks(tmp_path):
     repo = _with_fs_permissions(
         _forge_project(tmp_path / "host", _used_by_a_test_and_a_script() | _A_TEST_FORKING_THROUGH_BAOTEST), ""
     )
-    problems = doctor.fork_blocks_list_problems(repo)
+    problems = doctor.fork_blocks_list_problems(repo, None)
     assert len(problems) == 1
     assert "test/B.t.sol" in problems[0], problems[0]
     assert "test/fork-blocks.toml is not there" in problems[0], problems[0]
 
 
-def test_fork_blocks_list_clean_with_a_default_and_eight_positions(tmp_path, _without_inherited_helpers):
+def test_fork_blocks_list_clean_with_a_default_and_eight_positions(tmp_path):
     blocks = "".join(f"b{i} = {i + 2}\n" for i in range(6))
     repo = _with_fork_blocks(
         _with_fs_permissions(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), ""),
         f'[blocks]\ndefault = 1\n{blocks}\n[transactions]\nt = "0x{"ab" * 32}"\n',
     )
-    assert doctor.fork_blocks_list_problems(repo) == []
+    assert doctor.fork_blocks_list_problems(repo, None) == []
 
 
-def test_fork_blocks_list_report_nine_positions_a_transaction_counting_as_one(tmp_path, _without_inherited_helpers):
+def test_fork_blocks_list_report_nine_positions_a_transaction_counting_as_one(tmp_path):
     blocks = "".join(f"b{i} = {i + 2}\n" for i in range(7))
     repo = _with_fork_blocks(
         _with_fs_permissions(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), ""),
         f'[blocks]\ndefault = 1\n{blocks}\n[transactions]\nt = "0x{"ab" * 32}"\n',
     )
-    problems = doctor.fork_blocks_list_problems(repo)
+    problems = doctor.fork_blocks_list_problems(repo, None)
     assert len(problems) == 1
     assert "test/fork-blocks.toml lists 9 blocks and transactions" in problems[0], problems[0]
     assert "doctor's limit is 8" in problems[0], problems[0]
 
 
-def test_fork_blocks_list_report_a_missing_default(tmp_path, _without_inherited_helpers):
+def test_fork_blocks_list_report_a_missing_default(tmp_path):
     repo = _with_fork_blocks(
         _with_fs_permissions(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), ""),
         "[blocks]\nnewer = 5\n",
     )
-    problems = doctor.fork_blocks_list_problems(repo)
+    problems = doctor.fork_blocks_list_problems(repo, None)
     assert len(problems) == 1
     assert 'test/fork-blocks.toml has no block named "default"' in problems[0], problems[0]
 
 
-def test_fork_blocks_list_report_a_block_named_latest(tmp_path, _without_inherited_helpers):
+def test_fork_blocks_list_report_a_block_named_latest(tmp_path):
     repo = _with_fork_blocks(
         _with_fs_permissions(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), ""),
         "[blocks]\ndefault = 1\nlatest = 5\n",
     )
-    problems = doctor.fork_blocks_list_problems(repo)
+    problems = doctor.fork_blocks_list_problems(repo, None)
     assert len(problems) == 1
     assert 'test/fork-blocks.toml names a block "latest"' in problems[0], problems[0]
 
 
-def test_fork_blocks_list_report_a_block_that_is_no_number_and_a_transaction_that_is_no_hash(
-    tmp_path, _without_inherited_helpers
-):
+def test_fork_blocks_list_report_a_block_that_is_no_number_and_a_transaction_that_is_no_hash(tmp_path):
     repo = _with_fork_blocks(
         _with_fs_permissions(_forge_project(tmp_path / "host", _used_by_a_test_and_a_script()), ""),
         '[blocks]\ndefault = 1\nnewer = "soon"\n\n[transactions]\nt = "0x12"\n',
     )
-    problems = doctor.fork_blocks_list_problems(repo)
+    problems = doctor.fork_blocks_list_problems(repo, None)
     assert len(problems) == 2, problems
     assert "block \"newer\" is 'soon', not a block number" in problems[0], problems[0]
     assert "transaction \"t\" is '0x12', not a 32-byte hash" in problems[1], problems[1]
 
 
-def test_fork_cheatcodes_clean_when_every_fork_goes_through_baotest(tmp_path, _without_inherited_helpers):
+def test_fork_cheatcodes_clean_when_every_fork_goes_through_baotest(tmp_path):
     repo = _forge_project(tmp_path / "host", _used_by_a_test_and_a_script() | _A_TEST_FORKING_THROUGH_BAOTEST)
-    assert doctor.fork_cheatcode_problems(repo) == []
+    assert doctor.fork_cheatcode_problems(repo, None) == []
 
 
-def test_fork_cheatcodes_report_each_cheatcode_fork_in_the_test_directory(tmp_path, _without_inherited_helpers):
+def test_fork_cheatcodes_report_each_cheatcode_fork_in_the_test_directory(tmp_path):
     # the test directory only: a campaign under script/ forks the chain's head, or a capture's block, by the cheatcode
     repo = _forge_project(
         tmp_path / "host",
@@ -1357,7 +1349,7 @@ def test_fork_cheatcodes_report_each_cheatcode_fork_in_the_test_directory(tmp_pa
             "script/verify/C.t.sol": 'contract C { function setUp() public { vm.createSelectFork("mainnet"); } }\n',
         },
     )
-    problems = doctor.fork_cheatcode_problems(repo)
+    problems = doctor.fork_cheatcode_problems(repo, None)
     assert len(problems) == 1
     assert "test/B.t.sol:4  vm.createSelectFork" in problems[0], problems[0]
     assert "test/B.t.sol:5  _vm.createFork" in problems[0], problems[0]
@@ -1366,15 +1358,14 @@ def test_fork_cheatcodes_report_each_cheatcode_fork_in_the_test_directory(tmp_pa
     assert "Repair: take the fork through BaoTest's createFork or createSelectFork" in problems[0], problems[0]
 
 
-def test_fork_cheatcodes_except_the_helpers_a_projects_tests_inherit(tmp_path, monkeypatch):
+def test_fork_cheatcodes_except_the_helpers_a_projects_tests_inherit(tmp_path):
     # BaoTest's wrappers end in the cheatcode, and sit in the test directory when bao-base is the project
     repo = _forge_project(
         tmp_path / "host",
         _used_by_a_test_and_a_script()
         | {"test/BaoTest.sol": 'contract BaoTest { function f() internal { vm.createFork("mainnet"); } }\n'},
     )
-    monkeypatch.setattr(doctor, "_INHERITED_FORK_HELPERS", (repo / "test" / "BaoTest.sol",))
-    assert doctor.fork_cheatcode_problems(repo) == []
+    assert doctor.fork_cheatcode_problems(repo, repo) == []
 
 
 # ── ruff's settings extend bao-base's ──────────────────────────────────────────────────────────────────
@@ -1398,14 +1389,14 @@ def _consumer(tmp_path: pathlib.Path, pyproject: str | None) -> pathlib.Path:
 def test_ruff_settings_that_extend_bao_bases_pass(tmp_path):
     repo = _consumer(tmp_path, '[project]\nname = "consumer"\n\n[tool.ruff]\nextend = "lib/bao-base/pyproject.toml"\n')
 
-    assert doctor.ruff_settings_problems(repo) == []
+    assert doctor.ruff_settings_problems(repo, repo / "lib" / "bao-base") == []
 
 
 def test_no_ruff_settings_name_the_lines_to_add(tmp_path):
     # A pyproject.toml without [tool.ruff] is not ruff's: ruff passes over it, so there are no settings to extend.
     repo = _consumer(tmp_path, '[project]\nname = "consumer"\n')
 
-    assert doctor.ruff_settings_problems(repo) == [
+    assert doctor.ruff_settings_problems(repo, repo / "lib" / "bao-base") == [
         "This repository has no ruff settings: no .ruff.toml, no ruff.toml and no [tool.ruff] in pyproject.toml.\n"
         '  Repair: add [tool.ruff] to pyproject.toml, with extend = "lib/bao-base/pyproject.toml"'
     ]
@@ -1414,7 +1405,7 @@ def test_no_ruff_settings_name_the_lines_to_add(tmp_path):
 def test_ruff_settings_that_extend_nothing_name_the_line_to_add(tmp_path):
     repo = _consumer(tmp_path, '[project]\nname = "consumer"\n\n[tool.ruff]\nline-length = 100\n')
 
-    assert doctor.ruff_settings_problems(repo) == [
+    assert doctor.ruff_settings_problems(repo, repo / "lib" / "bao-base") == [
         "[tool.ruff] in pyproject.toml does not extend bao-base's ruff settings.\n"
         '  Repair: add extend = "lib/bao-base/pyproject.toml" to [tool.ruff] in pyproject.toml'
     ]
@@ -1423,7 +1414,7 @@ def test_ruff_settings_that_extend_nothing_name_the_line_to_add(tmp_path):
 def test_ruff_settings_that_extend_another_file_say_where_it_leads(tmp_path):
     repo = _consumer(tmp_path, '[tool.ruff]\nextend = "shared/ruff.toml"\n')
 
-    assert doctor.ruff_settings_problems(repo) == [
+    assert doctor.ruff_settings_problems(repo, repo / "lib" / "bao-base") == [
         f'[tool.ruff] in pyproject.toml extends "shared/ruff.toml", which leads to {repo.resolve()}/shared/ruff.toml, '
         f"not to bao-base's {_BAO_BASE / 'pyproject.toml'}.\n"
         '  Repair: set extend = "lib/bao-base/pyproject.toml" in [tool.ruff] in pyproject.toml'
@@ -1436,14 +1427,227 @@ def test_ruff_reads_ruff_toml_before_pyproject_toml(tmp_path):
     repo = _consumer(tmp_path, '[tool.ruff]\nextend = "lib/bao-base/pyproject.toml"\n')
     (repo / "ruff.toml").write_text("line-length = 100\n")
 
-    assert doctor.ruff_settings_problems(repo) == [
+    assert doctor.ruff_settings_problems(repo, repo / "lib" / "bao-base") == [
         "ruff.toml does not extend bao-base's ruff settings.\n"
         '  Repair: add extend = "lib/bao-base/pyproject.toml" to ruff.toml'
     ]
 
 
 def test_bao_base_itself_has_nothing_to_extend(tmp_path):
-    assert doctor.ruff_settings_problems(_BAO_BASE) == []
+    assert doctor.ruff_settings_problems(_BAO_BASE, _BAO_BASE) == []
+
+
+# ── a project is compared with its own bao-base ────────────────────────────────────────────────────────
+#
+# Five checks compare a project with bao-base's files: its copied workflows, its editor and ruff settings, and the
+# two fork checks, through the test helpers its tests inherit. Checked with -C the project is another copy's -
+# harbor-yield's doctor checking lib/harbor - so each check reads the bao-base the project declares, not the copy
+# doctor runs from. Each test builds its project in tmp_path, so the copy running is never the project's.
+
+_NO_BAO_BASE = "This repository is not bao-base and has no bao-base submodule"
+
+
+def _write_files(root: pathlib.Path, files: dict[str, str]) -> None:
+    for path, body in files.items():
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_text(body)
+
+
+def test_doctor_compares_a_project_with_its_own_bao_base(tmp_path):
+    bao_base = _init_repo(tmp_path / "bao-base")
+    _write_files(
+        bao_base,
+        {
+            ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - uses: ./.github/actions/test\n",
+            ".vscode/settings.json": json.dumps(
+                {"[python]": {"editor.defaultFormatter": "charliermarsh.ruff"}, "ruff.path": ["bin/ruff"]}
+            ),
+            "pyproject.toml": "[tool.ruff]\nline-length = 120\n",
+            "test/BaoTest.sol": 'contract BaoTest { function f() internal { vm.createSelectFork("fixture-endpoint"); } }\n',
+        },
+    )
+    _git(bao_base, "add", "-A")
+    _git(bao_base, "commit", "-qm", "bao-base")
+    project = _init_repo(tmp_path / "project")
+    _submodule_at(project, bao_base, "lib/bao-base")
+    _write_files(
+        project,
+        {
+            ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - uses: ./lib/bao-base/.github/actions/test\n",
+            ".vscode/settings.json": json.dumps(
+                {"[python]": {"editor.defaultFormatter": "charliermarsh.ruff"}, "ruff.path": ["lib/bao-base/bin/ruff"]}
+            ),
+            "pyproject.toml": '[tool.ruff]\nextend = "lib/bao-base/pyproject.toml"\n',
+        },
+    )
+
+    found = {check.name: check.problems for check in doctor.build_checks(project, [], [], unused_files=False)}
+
+    assert found["workflows copied from bao-base match their originals"] == []
+    assert found[".vscode/settings.json uses bao-base's ruff"] == []
+    assert found["ruff's settings extend bao-base's"] == []
+    endpoints = "\n".join(found["every endpoint a fork names is in foundry.toml"])
+    assert 'lib/bao-base/test/BaoTest.sol:1  "fixture-endpoint"' in endpoints, endpoints
+    assert '"mainnet"' not in endpoints, "the running copy's BaoTest is not the project's"
+
+
+def test_a_project_declaring_no_bao_base_is_told_so_by_each_check_that_compares_with_it(tmp_path):
+    # doctor -C on a dependency that does not use bao-base: there is nothing to compare its workflows and settings
+    # with, which each of those checks says, and its tests inherit no helpers to read forks from.
+    project = _init_repo(tmp_path / "project")
+    _write_files(
+        project,
+        {".github/workflows/ci.yml": "jobs: {}\n", ".vscode/settings.json": "{}\n", "pyproject.toml": "[tool.ruff]\n"},
+    )
+
+    found = {check.name: check.problems for check in doctor.build_checks(project, [], [], unused_files=False)}
+
+    for name in (
+        "workflows copied from bao-base match their originals",
+        ".vscode/settings.json uses bao-base's ruff",
+        "ruff's settings extend bao-base's",
+    ):
+        assert len(found[name]) == 1 and found[name][0].startswith(_NO_BAO_BASE), (name, found[name])
+    assert found["every endpoint a fork names is in foundry.toml"] == []
+
+
+# ── -C/--root: doctor checks a dependency as a project of its own ──────────────────────────────────────
+#
+# From the main folder, `yarn doctor -C <dependency>` checks that dependency with the main folder's copy of doctor,
+# as `yarn dep -C` acts on it: harbor-yield's doctor checking lib/harbor. The flag is dep's, `--root` with `-C` as
+# its alias, and the dependency is named as dep names it, with or without the libs folder. build_checks is replaced
+# by a recorder, so what is asserted is which project doctor checks and which remappings it reads there.
+
+
+def _configured(repo: pathlib.Path, remapping: str) -> pathlib.Path:
+    """`repo` given the foundry.toml and wake.toml doctor reads, each listing `remapping`, and committed."""
+    (repo / "foundry.toml").write_text(f'[profile.default]\nlibs = ["lib"]\nremappings = ["{remapping}"]\n')
+    (repo / "wake.toml").write_text(f'[compiler.solc]\nremappings = ["{remapping}"]\n')
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "configured")
+    return repo
+
+
+def _main_folder_with_a_dependency(tmp_path: pathlib.Path) -> pathlib.Path:
+    """A project with its dependency checked out at lib/dep, each listing a remapping of its own."""
+    dependency = _configured(_init_repo(tmp_path / "dep"), "dep-only/=src/")
+    host = _configured(_init_repo(tmp_path / "host"), "host-only/=src/")
+    _submodule_at(host, dependency, "lib/dep")
+    return host.resolve()
+
+
+def _recording_checks(monkeypatch) -> list[tuple[pathlib.Path, list[str], list[str]]]:
+    """build_checks replaced by one finding nothing, recording each (project, foundry, wake remappings) it is given."""
+    checked: list[tuple[pathlib.Path, list[str], list[str]]] = []
+
+    def record(repo_root, foundry_remappings, wake_remappings, unused_files):
+        checked.append((repo_root, foundry_remappings, wake_remappings))
+        return []
+
+    monkeypatch.setattr(doctor, "build_checks", record)
+    return checked
+
+
+def _run_doctor(monkeypatch, where: pathlib.Path, *arguments: str) -> None:
+    """doctor's command line, typed in `where` with `arguments`, as it is run when yarn does not run it."""
+    monkeypatch.chdir(where)
+    monkeypatch.delenv("INIT_CWD", raising=False)
+    monkeypatch.setattr(sys, "argv", ["doctor", *arguments])
+    doctor.main()
+
+
+def test_doctor_root_checks_the_named_dependency(tmp_path, monkeypatch):
+    # The project checked and the remappings read are lib/dep's; without the flag they are the main folder's.
+    host = _main_folder_with_a_dependency(tmp_path)
+    checked = _recording_checks(monkeypatch)
+
+    _run_doctor(monkeypatch, host, "--root", "lib/dep")
+    _run_doctor(monkeypatch, host)
+
+    assert checked == [
+        (host / "lib" / "dep", ["dep-only/=src/"], ["dep-only/=src/"]),
+        (host, ["host-only/=src/"], ["host-only/=src/"]),
+    ]
+
+
+def test_doctor_root_and_its_alias_c_check_the_same_project(tmp_path, monkeypatch, capsys):
+    host = _main_folder_with_a_dependency(tmp_path)
+    checked = _recording_checks(monkeypatch)
+
+    _run_doctor(monkeypatch, host, "--root", "dep")
+    by_root = capsys.readouterr().out
+    _run_doctor(monkeypatch, host, "-C", "dep")
+    by_alias = capsys.readouterr().out
+
+    assert checked[0] == checked[1] and checked[0][0] == host / "lib" / "dep", checked
+    assert by_alias == by_root
+
+
+def test_doctor_root_takes_the_name_with_or_without_the_libs_folder(tmp_path, monkeypatch):
+    host = _main_folder_with_a_dependency(tmp_path)
+    checked = _recording_checks(monkeypatch)
+
+    _run_doctor(monkeypatch, host, "-C", "dep")
+    _run_doctor(monkeypatch, host, "-C", "lib/dep")
+
+    assert [project for project, _, _ in checked] == [host / "lib" / "dep", host / "lib" / "dep"]
+
+
+def test_doctor_root_prints_the_project_it_checks_first(tmp_path, monkeypatch, capsys):
+    # The report that follows names paths as lib/dep names them, so the first line says which project that is.
+    host = _main_folder_with_a_dependency(tmp_path)
+    _recording_checks(monkeypatch)
+
+    _run_doctor(monkeypatch, host, "-C", "dep")
+
+    assert capsys.readouterr().out.startswith("in lib/dep:\n")
+
+
+def test_doctor_root_stops_for_a_dependency_not_checked_out(tmp_path, monkeypatch, capsys):
+    # A clone has lib/dep declared and its folder empty. doctor checks nothing out: it names the command that does.
+    host = _main_folder_with_a_dependency(tmp_path)
+    clone = tmp_path / "clone"
+    _git(tmp_path, "clone", "-q", str(host), str(clone))
+    checked = _recording_checks(monkeypatch)
+
+    with pytest.raises(SystemExit) as stopped:
+        _run_doctor(monkeypatch, clone, "-C", "dep")
+
+    assert stopped.value.code == 1
+    assert capsys.readouterr().out == "Stopped: lib/dep is not checked out. To check it out: yarn dep -C dep sync\n"
+    assert checked == []
+    assert not (clone / "lib" / "dep" / ".git").exists()
+
+
+def test_doctor_root_stops_for_a_name_no_gitmodules_lists(tmp_path, monkeypatch, capsys):
+    host = _main_folder_with_a_dependency(tmp_path)
+    checked = _recording_checks(monkeypatch)
+
+    with pytest.raises(SystemExit) as stopped:
+        _run_doctor(monkeypatch, host, "-C", "src")
+
+    assert stopped.value.code == 1
+    assert capsys.readouterr().out == "Stopped: no .gitmodules file lists a submodule at lib/src.\n"
+    assert checked == []
+
+
+def test_doctor_root_takes_a_module_path_or_a_folder_path_from_inside_a_dependency(tmp_path, monkeypatch, capsys):
+    # Typed in lib/dep: .. is the main folder; ../dep climbs to it and names lib/dep again, as the folder path
+    # ../../lib/dep does by folders.
+    host = _main_folder_with_a_dependency(tmp_path)
+    inside = host / "lib" / "dep"
+    checked = _recording_checks(monkeypatch)
+
+    _run_doctor(monkeypatch, inside, "-C", "..")
+    up = capsys.readouterr().out
+    _run_doctor(monkeypatch, inside, "-C", "../dep")
+    by_module = capsys.readouterr().out
+    _run_doctor(monkeypatch, inside, "-C", "../../lib/dep")
+    by_folder = capsys.readouterr().out
+
+    assert [project for project, _, _ in checked] == [host, inside, inside]
+    assert up == "in ../..:\n"
+    assert by_module == by_folder == "in .:\n"
 
 
 # ── settings that make git push send tags nobody named ──

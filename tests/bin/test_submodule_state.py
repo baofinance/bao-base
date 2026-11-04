@@ -27,8 +27,11 @@ from submodule_state import (  # noqa: E402
     conflicting_dependencies,
     declared_submodules,
     keep_command,
+    own_bao_base,
     read_facts,
     repair,
+    root_project,
+    typed_in,
 )
 
 FOUNDRY_TOML = '[profile.default]\nsrc = "src"\nlibs = ["lib"]\n'
@@ -753,3 +756,192 @@ def test_dependencies_are_grouped_by_url_not_by_directory_name(tmp_path):
     # Two dependencies, two paths, two commits - and no disagreement, because they are not the same
     # dependency. Keyed by directory name, "one" and "two" would look like one dependency in conflict.
     assert conflicts(project) == []
+
+
+# ── the bao-base a project has, read from the project ─────────────────────────────────────────────────
+#
+# doctor compares a project's workflows, editor and ruff settings, and the test helpers its tests inherit, with
+# bao-base's files. The bao-base is the project's own, found from the project, so a copy of doctor checking another
+# project - harbor-yield's checking lib/harbor - compares it with the bao-base that project depends on.
+
+
+def test_a_projects_own_bao_base_is_the_submodule_it_declares_from_bao_bases_repository(tmp_path):
+    # Found by its URL, at whatever path the project keeps it, among the project's other submodules.
+    bao_base = make_repo(tmp_path, "bao-base")
+    project = make_repo(tmp_path, "project")
+    git(project, "submodule", "add", "-q", str(make_repo(tmp_path, "solady")), "lib/solady")
+    git(project, "submodule", "add", "-q", str(bao_base), "vendor/tools")
+
+    assert own_bao_base(project) == project / "vendor" / "tools"
+
+
+def test_bao_base_is_its_own_bao_base(tmp_path):
+    # bao-base does not depend on itself: the repository its origin names is what makes it bao-base.
+    checkout = make_repo(tmp_path, "checkout")
+    git(checkout, "remote", "add", "origin", "https://github.com/baofinance/bao-base.git")
+
+    assert own_bao_base(checkout) == checkout
+
+
+def test_a_project_declaring_no_bao_base_has_none(tmp_path):
+    # Not the copy the reading code runs from: a project that does not use bao-base has none to compare with.
+    project = make_repo(tmp_path, "project")
+    git(project, "submodule", "add", "-q", str(make_repo(tmp_path, "solady")), "lib/solady")
+
+    assert own_bao_base(project) is None
+
+
+# ── the project -C/--root names ───────────────────────────────────────────────────────────────────────
+#
+# `yarn dep -C` and `yarn doctor -C` act on a project other than the one they run in. The argument takes two forms,
+# told apart by the libs folder. One naming it is a folder path, read from the folder it was typed in, as git's -C
+# reads one. Any other is a module path: each name is a dependency of the module before it, and .. is the module
+# holding it, so the libs folders between are left out. Either must lead to a module of the tree of repositories the
+# folder lies in - the outermost repository, or a submodule some .gitmodules in it lists - and to nothing outside.
+
+
+def with_foundry_toml(repo: Path) -> Path:
+    (repo / "foundry.toml").write_text(FOUNDRY_TOML)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "foundry.toml")
+    return repo
+
+
+def module_tree(tmp_path: Path) -> Path:
+    """A project holding lib/harbor, which holds lib/bao-base, and lib/bao-base beside it: harbor-yield's shape.
+    Every level is checked out and names lib as its libs folder."""
+    remotes = tmp_path / "remotes"
+    bao_base = with_foundry_toml(make_repo(remotes, "bao-base"))
+    harbor = with_foundry_toml(make_repo(remotes, "harbor"))
+    git(harbor, "submodule", "add", "-q", str(bao_base), "lib/bao-base")
+    git(harbor, "commit", "-qm", "bao-base")
+    project = with_foundry_toml(make_repo(tmp_path, "project"))
+    git(project, "submodule", "add", "-q", str(harbor), "lib/harbor")
+    git(project, "submodule", "add", "-q", str(bao_base), "lib/bao-base")
+    git(project, "commit", "-qm", "dependencies")
+    git(project, "submodule", "update", "-q", "--init", "--recursive")
+    return project.resolve()
+
+
+def test_a_module_path_leaves_the_libs_folders_out(tmp_path):
+    # Each name is a dependency of the module before it, looked up in that module's libs folder.
+    project = module_tree(tmp_path)
+
+    harbor = root_project("harbor", project)
+    nested = root_project("harbor/bao-base", project)
+
+    assert harbor.folder == project / "lib" / "harbor" and harbor.shown == "lib/harbor"
+    assert nested.folder == project / "lib" / "harbor" / "lib" / "bao-base"
+    assert nested.not_checked_out is None
+
+
+def test_dot_dot_in_a_module_path_is_the_module_holding_the_one_before(tmp_path):
+    # From inside lib/harbor, .. is the project: ../bao-base is the project's bao-base, beside harbor, and
+    # ../harbor/bao-base comes back down to harbor's own.
+    project = module_tree(tmp_path)
+    harbor = project / "lib" / "harbor"
+
+    assert root_project("..", harbor).folder == project
+    assert root_project("../bao-base", harbor).folder == project / "lib" / "bao-base"
+    assert root_project("../harbor/bao-base", harbor).folder == harbor / "lib" / "bao-base"
+
+
+def test_a_path_naming_the_libs_folder_is_read_from_the_folder_it_was_typed_in(tmp_path):
+    project = module_tree(tmp_path)
+    harbor = project / "lib" / "harbor"
+    (project / "notes").mkdir()
+
+    assert root_project("lib/harbor", project).folder == harbor
+    assert root_project("../lib/harbor", project / "notes").folder == harbor
+    assert root_project("../../lib/harbor/lib/bao-base", project / "lib" / "bao-base").folder == (
+        harbor / "lib" / "bao-base"
+    )
+
+
+def test_the_two_forms_typed_inside_lib_harbor_name_one_module_alike(tmp_path):
+    # ../harbor/bao-base climbs one module and names two; ../../lib/harbor/lib/bao-base climbs two folders and names
+    # four. Both are harbor's own bao-base.
+    project = module_tree(tmp_path)
+    harbor = project / "lib" / "harbor"
+
+    by_module = root_project("../harbor/bao-base", harbor)
+    by_folder = root_project("../../lib/harbor/lib/bao-base", harbor)
+
+    assert (by_module.folder, by_module.shown, by_module.declared) == (
+        by_folder.folder,
+        by_folder.shown,
+        by_folder.declared,
+    )
+    assert by_module.shown == "lib/bao-base"
+
+
+def test_a_module_path_stops_at_the_outermost_repository(tmp_path):
+    # .. from a repository that is no submodule leads nowhere, so a clone lying beside the project is never reached.
+    project = module_tree(tmp_path)
+    make_repo(tmp_path, "elsewhere")
+
+    assert root_project("../elsewhere", project) == (
+        "project is not a submodule of another repository, so ../elsewhere cannot go above it."
+    )
+    assert root_project("../../../elsewhere", project / "lib" / "harbor") == (
+        "project is not a submodule of another repository, so ../../../elsewhere cannot go above it."
+    )
+
+
+def test_a_folder_path_leading_outside_the_outermost_repository_is_refused(tmp_path):
+    project = module_tree(tmp_path)
+    outside = make_repo(tmp_path, "elsewhere").resolve() / "lib"
+    outside.mkdir()
+
+    assert root_project("../elsewhere/lib", project) == f"../elsewhere/lib leads to {outside}, outside {project}."
+
+
+def test_a_folder_path_to_a_folder_no_gitmodules_lists_is_refused(tmp_path):
+    project = module_tree(tmp_path)
+
+    assert root_project("lib/harbor/lib", project) == "no .gitmodules file lists a submodule at lib/harbor/lib."
+
+
+def test_a_module_path_naming_no_dependency_is_refused(tmp_path):
+    # The path named is the folder the dependency would have, as seen from where the command was typed.
+    project = module_tree(tmp_path)
+
+    assert root_project("solady", project) == "no .gitmodules file lists a submodule at lib/solady."
+    assert root_project("../solady", project / "lib" / "harbor") == (
+        "no .gitmodules file lists a submodule at ../solady."
+    )
+
+
+def test_a_module_not_checked_out_is_found_and_named_with_the_command_that_checks_it_out(tmp_path):
+    # sync checks out an empty folder it is pointed at, so the module is found; a command that checks nothing out is
+    # told how, in the words that were typed.
+    project = module_tree(tmp_path)
+    git(project, "submodule", "deinit", "-q", "--", "lib/bao-base")
+
+    found = root_project("bao-base", project)
+
+    assert found.folder == project / "lib" / "bao-base"
+    assert found.declared is not None and found.declared[0] == project
+    assert found.not_checked_out == "lib/bao-base is not checked out. To check it out: yarn dep -C bao-base sync"
+
+
+def test_a_module_path_through_a_module_not_checked_out_is_refused(tmp_path):
+    # The modules inside one are listed by its own .gitmodules, which an empty folder does not have.
+    project = module_tree(tmp_path)
+    git(project, "submodule", "deinit", "-q", "--force", "--", "lib/harbor")
+
+    assert root_project("harbor/bao-base", project) == (
+        "lib/harbor is not checked out, so harbor/bao-base cannot go through it. To check it out: yarn dep -C harbor sync"
+    )
+
+
+def test_the_folder_typed_in_is_yarns_init_cwd_when_the_command_runs_above_it(tmp_path):
+    # yarn runs a script from the folder of the package.json it finds upward from where it was typed, and passes that
+    # folder as INIT_CWD. One the command does not run above is another yarn run's, inherited.
+    run_in = tmp_path / "project"
+    typed = run_in / "notes"
+    typed.mkdir(parents=True)
+
+    assert typed_in(run_in, {"INIT_CWD": str(typed)}) == typed.resolve()
+    assert typed_in(run_in, {}) == run_in.resolve()
+    assert typed_in(run_in, {"INIT_CWD": str(tmp_path / "elsewhere")}) == run_in.resolve()

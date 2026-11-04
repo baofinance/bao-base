@@ -23,14 +23,21 @@ Everything here is READ-ONLY. Nothing in this module writes to a repository.
 
 from __future__ import annotations
 
+import os
 import subprocess
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
+
+from forge_config import forge_config
 
 # The kind of version that can move on its own: a branch. A tag or a commit resolves nothing by
 # itself, so a bare `yarn dep update <dep>` on one must be told a ref.
 MOVING = "branch"
+
+# The repository that is bao-base, by the last segment of its URL: what a project depends on to share our
+# toolchain, and what a copy of it is wherever it is checked out.
+TOOLCHAIN = "bao-base"
 
 
 def git(where: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -326,6 +333,112 @@ def nested_levels(repo_root: Path, path: str, remappings: list[str]) -> Iterator
             yield from levels
 
 
+def named_path(dependency: str, libs: str) -> str:
+    """The path of a dependency, or of a submodule inside one, named by its path in the first libs folder,
+    where `add` places every dependency. A leading libs folder is accepted too: `dep` and `lib/dep` agree."""
+    return f"{libs}/{dependency.strip('/').removeprefix(f'{libs}/')}"
+
+
+def locate(repo_root: Path, path: str) -> tuple[Path, Declared] | None:
+    """The submodule at `path`, with the folder whose .gitmodules lists it: this repository for a dependency,
+    a dependency for one of its own submodules. None when no .gitmodules that is checked out lists one there."""
+    return next(
+        (
+            (directory, level)
+            for directory, level in submodule_levels(repo_root, path)
+            if directory / level.path == repo_root / path
+        ),
+        None,
+    )
+
+
+def typed_in(run_in: Path, environment: Mapping[str, str]) -> Path:
+    """The folder a command was typed in. yarn runs a script from the folder of the package.json it finds upward from
+    where it was typed, and passes that folder as INIT_CWD, so INIT_CWD is it when the command runs in or above it.
+    Otherwise - unset, or inherited from another yarn run - it is the folder the command runs in."""
+    run_in = run_in.resolve()
+    typed = environment.get("INIT_CWD")
+    if typed and Path(typed).resolve().is_relative_to(run_in):
+        return Path(typed).resolve()
+    return run_in
+
+
+def _superproject(repository: Path) -> Path | None:
+    """The repository `repository` is a submodule of, or None when it is no submodule."""
+    above = git(repository, "rev-parse", "--show-superproject-working-tree").stdout.strip()
+    return Path(above) if above else None
+
+
+@dataclass(frozen=True)
+class RootProject:
+    """The project `-C <argument>` names: its folder, that folder as seen from the folder the command was typed in,
+    and the repository listing it with its entry there - None for the outermost repository, which nothing lists."""
+
+    argument: str
+    folder: Path
+    shown: str
+    declared: tuple[Path, Declared] | None
+
+    @property
+    def not_checked_out(self) -> str | None:
+        """Why the project cannot be read, in the words `yarn dep -C` and `doctor -C` print after "Stopped: ", or None
+        when it can. Checking out an empty folder is `yarn dep -C <argument> sync`'s job, so that is the command
+        named, with the argument as it was typed, which names the same project from the same folder."""
+        if (self.folder / ".git").exists():
+            return None
+        return f"{self.shown} is not checked out. To check it out: yarn dep -C {self.argument} sync"
+
+
+def root_project(argument: str, typed: Path) -> RootProject | str:
+    """The project `-C <argument>`, typed in the folder `typed`, names - or why there is none, in the words `yarn dep -C`
+    and `doctor -C` print after "Stopped: ".
+
+    Two forms, told apart by the libs folder. An argument naming it, or absolute, is a folder path, read from `typed`
+    as git's -C reads one: ../../lib/harbor/lib/bao-base. Any other is a module path, starting at the repository
+    `typed` lies in: each name is a dependency of the module before it, found in that module's libs folder, and .. is
+    the module holding it, so the libs folders between are left out. Typed in lib/harbor, ../harbor/bao-base is
+    lib/harbor/lib/bao-base, as the folder path is.
+
+    Either must lead to a module of the tree of repositories `typed` lies in: the outermost one, or a submodule some
+    .gitmodules in the tree lists. A module path's .. stops at the outermost repository, and a folder path may not
+    lead outside it, so no argument reaches a clone that merely lies nearby."""
+    here = Path(git(typed, "rev-parse", "--show-toplevel").stdout.strip())
+    top = here
+    while (above := _superproject(top)) is not None:
+        top = above
+    parts = PurePosixPath(argument).parts
+    if PurePosixPath(argument).is_absolute() or PurePosixPath(forge_config(here)["libs"][0]).as_posix() in parts:
+        folder = Path(os.path.normpath(typed / argument))
+        if not folder.is_relative_to(top):
+            return f"{argument} leads to {folder}, outside {top}."
+    else:
+        folder = here
+        for index, part in enumerate(parts):
+            if part == ".":
+                continue
+            # Each step reads the module it stands on - its superproject, or its libs folder and .gitmodules - which an
+            # empty folder does not have.
+            if not (folder / ".git").exists():
+                return (
+                    f"{os.path.relpath(folder, typed)} is not checked out, so {argument} cannot go through it. "
+                    f"To check it out: yarn dep -C {PurePosixPath(*parts[:index])} sync"
+                )
+            if part == "..":
+                holding = _superproject(folder)
+                if holding is None:
+                    return f"{folder.name} is not a submodule of another repository, so {argument} cannot go above it."
+                folder = holding
+            else:
+                folder = folder / PurePosixPath(forge_config(folder)["libs"][0]) / part
+    shown = os.path.relpath(folder, typed)
+    if folder == top:
+        return RootProject(argument, folder, shown, None)
+    declared = locate(top, folder.relative_to(top).as_posix())
+    if declared is None:
+        return f"no .gitmodules file lists a submodule at {shown}."
+    return RootProject(argument, folder, shown, declared)
+
+
 @dataclass(frozen=True)
 class Recorded:
     """One dependency's `.gitmodules` entry as the working tree, the index and HEAD hold it - None where that
@@ -464,12 +577,32 @@ def _shares_our_toolchain(repo_dir: Path, path: str, url: str, toolchain: str) -
     A repository standing alone is deliberately out: bao-factory pins its own solady and forge-std, is
     consumed without inheriting ours, and has no reason to move when we do. Requiring it to agree would
     report a disagreement neither side is wrong about."""
-    if _identity(url).rsplit("/", 1)[-1] == toolchain:
+    if _repository_name(url) == toolchain:
         return True
-    return any(_identity(u).rsplit("/", 1)[-1] == toolchain for _, u in _declared(repo_dir / path))
+    return any(_repository_name(u) == toolchain for _, u in _declared(repo_dir / path))
 
 
-def conflicting_dependencies(repo_root: Path, owner: str | None = None, toolchain: str = "bao-base") -> list[Mismatch]:
+def _repository_name(url: str) -> str:
+    """The repository a URL names, without its owner: `bao-base` for any spelling of bao-base's URL, a fork's
+    and a path on disk included."""
+    return _identity(url).rsplit("/", 1)[-1]
+
+
+def own_bao_base(repo_dir: Path) -> Path | None:
+    """The bao-base the project at `repo_dir` has: the project itself when it is bao-base, otherwise the submodule
+    it declares from bao-base's repository, otherwise None.
+
+    Read from the project, never from where the reading code runs. A copy of bao-base checking another project -
+    harbor-yield's doctor run with `-C harbor` - compares it with the bao-base that project depends on, which can
+    be another version at another path. Both are identified by URL: bao-base does not depend on itself, so its
+    origin is what says it is bao-base."""
+    origin = git(repo_dir, "config", "--get", "remote.origin.url").stdout.strip()
+    if origin and _repository_name(origin) == TOOLCHAIN:
+        return repo_dir
+    return next((repo_dir / path for path, url in _declared(repo_dir) if _repository_name(url) == TOOLCHAIN), None)
+
+
+def conflicting_dependencies(repo_root: Path, owner: str | None = None, toolchain: str = TOOLCHAIN) -> list[Mismatch]:
     """Dependencies this repository and a dependency of OURS each stage at a different commit.
 
     Only DIRECT against DIRECT, and only against submodules we own. That is what makes every finding

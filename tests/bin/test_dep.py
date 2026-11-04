@@ -2275,10 +2275,44 @@ def test_root_is_refused_where_there_is_no_dependency_to_act_on(tmp_path):
     assert no_dependency.returncode == 1
     assert "Stopped: no .gitmodules file lists a submodule at lib/src." in no_dependency.stdout, no_dependency.stdout
     assert not_checked_out.returncode == 1
-    assert "Stopped: lib/dep is not checked out. To check it out: yarn dep -C lib/dep sync" in not_checked_out.stdout, (
+    assert "Stopped: lib/dep is not checked out. To check it out: yarn dep -C dep sync" in not_checked_out.stdout, (
         not_checked_out.stdout
     )
     assert not (here / "lib" / "dep" / ".git").exists()
+
+
+def test_root_never_leaves_the_repositories_the_command_runs_in(tmp_path):
+    # A module path's .. stops at the outermost repository, and a folder path may not lead outside it, so a clone
+    # lying beside the project is not acted on, however it is named.
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world).resolve()
+
+    by_module = dep(here, "--root", "../../remotes/dep", "status", "--no-fetch")
+    by_folder = dep(here, "--root", "../remotes/dep/lib/inner", "status", "--no-fetch")
+
+    assert by_module.returncode == 1
+    assert by_module.stdout == (
+        "Stopped: clone is not a submodule of another repository, so ../../remotes/dep cannot go above it.\n"
+    )
+    assert by_folder.returncode == 1
+    assert by_folder.stdout == (
+        f"Stopped: ../remotes/dep/lib/inner leads to {world.remotes.resolve() / 'dep' / 'lib' / 'inner'}, "
+        f"outside {here}.\n"
+    )
+
+
+def test_root_takes_a_module_path_or_a_folder_path_from_inside_a_dependency(tmp_path):
+    # From lib/dep, .. is the main folder, so the module path ../tool is the dependency beside it. The folder path
+    # ../../lib/tool climbs out of lib/dep and its libs folder to the same place.
+    here = synced(following_main(tmp_path, ["dep/=lib/dep/src/"]))
+    inside = here / "lib" / "dep"
+
+    by_module = dep(inside, "--root", "../tool", "status", "--no-fetch")
+    by_folder = dep(inside, "--root", "../../lib/tool", "status", "--no-fetch")
+
+    assert by_module.returncode == 0, by_module.stdout + by_module.stderr
+    assert by_module.stdout.startswith("in ../tool:\n"), by_module.stdout
+    assert by_folder.stdout == by_module.stdout
 
 
 def test_root_scopes_update_and_status_to_that_project(tmp_path):

@@ -31,13 +31,16 @@ from submodule_state import (
     keep_command,
     litter_condition,
     nested_levels,
+    own_bao_base,
     read_facts,
     remapping_target,
     remote_holds,
     repair,
+    root_project,
     staged_gitlink,
     stray_clones,
     submodule_levels,
+    typed_in,
     unused_checkouts,
 )
 
@@ -632,9 +635,9 @@ def inline_config_problems(repo_root: Path) -> list[str]:
 
 # a fork cheatcode, or BaoTest's wrapper over it, given the endpoint's name as a literal
 _FORK_ENDPOINT = re.compile(r'\b(?:(?:createSelectFork|createFork)(?:AtTransaction)?|rpcUrl)\(\s*"(?P<name>[^"]*)"')
-# bao-base's test helpers, compiled into every project's tests: BaoTest.forkMainnetWithBaoFactory names its endpoint
-# here, and BaoTest's fork wrappers end in the cheatcode here
-_INHERITED_FORK_HELPERS = (Path(__file__).resolve().parents[1] / "test" / "BaoTest.sol",)
+# bao-base's test helpers, compiled into every project's tests, by their paths inside bao-base:
+# BaoTest.forkMainnetWithBaoFactory names its endpoint here, and BaoTest's fork wrappers end in the cheatcode here
+_INHERITED_FORK_HELPERS = (PurePath("test/BaoTest.sol"),)
 # the list BaoTest takes every fork from, at the path BaoTest.forkBlocksFile names, relative to the project root
 _FORK_BLOCKS = PurePath("test/fork-blocks.toml")
 # the most blocks and transactions a list holds before doctor complains: each is a cache of its own, fetched from
@@ -646,21 +649,29 @@ _FORK_CHEATCODE = re.compile(r"\b(?P<call>_?vm\.(?:createSelectFork|createFork|r
 _FORK_CALL = re.compile(r"\b(?:_?vm\.)?(?:createSelectFork|createFork)(?:AtTransaction)?\s*\(")
 
 
-def fork_endpoint_problems(repo_root: Path) -> list[str]:
+def _inherited_fork_helpers(bao_base_root: Path | None) -> list[Path]:
+    """bao-base's test helpers in the bao-base the project has. None from a project with no bao-base, and none from
+    a bao-base folder that does not hold them: one not checked out, which the submodule check reports."""
+    if bao_base_root is None:
+        return []
+    return [bao_base_root / helper for helper in _INHERITED_FORK_HELPERS if (bao_base_root / helper).is_file()]
+
+
+def fork_endpoint_problems(repo_root: Path, bao_base_root: Path | None) -> list[str]:
     """Forks naming an endpoint that `forge config`'s [rpc_endpoints] does not have. A test or script names the
     endpoint of a fork it creates by an entry's alias - the form that gives the fork the entry's retries, where
     the URL `vm.rpcUrl` returns loses them (bug-reports/foundry-1-9-0-cheatcode-fork-retry-settings.md) - and
     forge fails the test at the fork's creation when no entry has the alias. The aliases are read where they
-    are named: the source, test and script directories, and the bao-base test helpers a project's tests
-    inherit. A literal URL names no entry and is left alone. Returns one block listing each line, or [] when
-    every alias named has an entry."""
+    are named: the source, test and script directories, and the test helpers a project's tests inherit from
+    `bao_base_root`, the bao-base it has. A literal URL names no entry and is left alone. Returns one block
+    listing each line, or [] when every alias named has an entry."""
     entries = forge_config(repo_root).get("rpc_endpoints", {})
     root = repo_root.resolve()
     files: dict[Path, None] = {}
     for directory in forge_source_directories(repo_root):
         for path in sorted((repo_root / directory).rglob("*.sol")):
             files.setdefault(path.resolve())
-    for helper in _INHERITED_FORK_HELPERS:
+    for helper in _inherited_fork_helpers(bao_base_root):
         files.setdefault(helper.resolve())
     found: list[str] = []
     for path in files:
@@ -677,14 +688,15 @@ def fork_endpoint_problems(repo_root: Path) -> list[str]:
     return ["\n".join(lines)]
 
 
-def _test_files(repo_root: Path) -> list[Path]:
-    """Every Solidity file in the test directory forge resolves, bao-base's test helpers left out."""
-    helpers = {helper.resolve() for helper in _INHERITED_FORK_HELPERS}
+def _test_files(repo_root: Path, bao_base_root: Path | None) -> list[Path]:
+    """Every Solidity file in the test directory forge resolves, the test helpers of `bao_base_root`, the bao-base
+    the project has, left out: in bao-base itself they sit in that directory."""
+    helpers = {helper.resolve() for helper in _inherited_fork_helpers(bao_base_root)}
     directory = repo_root / forge_config(repo_root)["test"]
     return [path for path in sorted(directory.rglob("*.sol")) if path.resolve() not in helpers]
 
 
-def fork_cheatcode_problems(repo_root: Path) -> list[str]:
+def fork_cheatcode_problems(repo_root: Path, bao_base_root: Path | None) -> list[str]:
     """Forks taken by a cheatcode in the test directory: `vm.createSelectFork`, `vm.createFork` and `vm.rollFork`,
     `_vm.` included. A fork in test code goes through BaoTest's createFork or createSelectFork, which take it at
     a block or transaction test/fork-blocks.toml lists and refuse any other; the cheatcode takes it at any block,
@@ -692,7 +704,7 @@ def fork_cheatcode_problems(repo_root: Path) -> list[str]:
     campaign meets the chain's head, or a capture's block, by the cheatcode. Returns one block listing each
     line, or [] when every fork in the test directory goes through BaoTest."""
     found: list[str] = []
-    for path in _test_files(repo_root):
+    for path in _test_files(repo_root, bao_base_root):
         shown = path.relative_to(repo_root).as_posix()
         for number, line in enumerate(path.read_text().splitlines(), 1):
             for matched in _FORK_CHEATCODE.finditer(line):
@@ -708,7 +720,7 @@ def fork_cheatcode_problems(repo_root: Path) -> list[str]:
     return ["\n".join(lines)]
 
 
-def fork_blocks_list_problems(repo_root: Path) -> list[str]:
+def fork_blocks_list_problems(repo_root: Path, bao_base_root: Path | None) -> list[str]:
     """test/fork-blocks.toml, the blocks and transactions BaoTest takes a fork at: it holds a block named
     `default`, names none `latest` - the name of the highest block listed - and holds at most 8 blocks and
     transactions together, each being a cache of its own, fetched from the provider on every machine's first
@@ -720,7 +732,7 @@ def fork_blocks_list_problems(repo_root: Path) -> list[str]:
     if not file.is_file():
         forking = [
             path.relative_to(repo_root).as_posix()
-            for path in _test_files(repo_root)
+            for path in _test_files(repo_root, bao_base_root)
             if _FORK_CALL.search(path.read_text())
         ]
         if not forking:
@@ -1009,15 +1021,19 @@ def unused_file_problems(repo_root: Path) -> list[str]:
     return ["\n".join(lines)]
 
 
-def vscode_ruff_settings_problems(repo_root: Path) -> list[str]:
+def vscode_ruff_settings_problems(repo_root: Path, bao_base_root: Path | None) -> list[str]:
     """Check .vscode/settings.json wires the editor to bao-base's shared ruff, matching bao-base's own
     canonical settings. ruff.path is a per-workspace path (a consumer's under `lib/bao-base/` vs
     bao-base's own) that must RESOLVE to the same file; the [python] block and the other checked ruff.*
-    settings (e.g. ruff.configuration) are shared literals matched verbatim. bao-base's own
-    .vscode/settings.json is the source of truth: run inside bao-base the two are one file, so it
-    compares against itself and passes. Returns the mismatches, or [] when the settings are present and
-    agree."""
-    bao_base_root = Path(__file__).resolve().parent.parent
+    settings (e.g. ruff.configuration) are shared literals matched verbatim. The .vscode/settings.json of
+    `bao_base_root`, the bao-base the project has, is the source of truth: run inside bao-base the two are
+    one file, so it compares against itself and passes. Returns the mismatches, or [] when the settings are
+    present and agree."""
+    if bao_base_root is None:
+        return [
+            "This repository is not bao-base and has no bao-base submodule, so there are no bao-base editor "
+            "settings to compare its settings with."
+        ]
     canonical_file = bao_base_root / ".vscode" / "settings.json"
     repo_file = repo_root / ".vscode" / "settings.json"
 
@@ -1065,22 +1081,27 @@ def vscode_ruff_settings_problems(repo_root: Path) -> list[str]:
     return problems
 
 
-def ruff_settings_problems(repo_root: Path) -> list[str]:
-    """Check this repository's ruff settings extend bao-base's, so ruff - in the editor and on the command line -
-    checks and formats by bao-base's rules and stays out of lib. ruff reads the first of .ruff.toml, ruff.toml and
-    a pyproject.toml holding [tool.ruff] in a folder, so that is the one checked. `extend` is compared RESOLVED,
-    as `ruff.path` is: a consumer reaches bao-base through lib/bao-base/. Inside bao-base the shared settings are
-    the repository's own, so there is nothing to extend. Returns the problem, or [] when the settings extend
-    bao-base's."""
-    bao_base_root = Path(__file__).resolve().parent.parent
-    shared = bao_base_root / "pyproject.toml"
+def ruff_settings_problems(repo_root: Path, bao_base_root: Path | None) -> list[str]:
+    """Check this repository's ruff settings extend those of `bao_base_root`, the bao-base it has, so ruff - in the
+    editor and on the command line - checks and formats by bao-base's rules and stays out of lib. ruff reads the
+    first of .ruff.toml, ruff.toml and a pyproject.toml holding [tool.ruff] in a folder, so that is the one
+    checked. `extend` is compared RESOLVED, as `ruff.path` is: a consumer reaches bao-base through lib/bao-base/.
+    Inside bao-base the shared settings are the repository's own, so there is nothing to extend. Returns the
+    problem, or [] when the settings extend bao-base's."""
+    if bao_base_root is None:
+        return [
+            "This repository is not bao-base and has no bao-base submodule, so there are no bao-base ruff settings "
+            "for its settings to extend."
+        ]
+    bao_base = bao_base_root.resolve()
+    shared = bao_base / "pyproject.toml"
     root = repo_root.resolve()
-    if root == bao_base_root:
+    if root == bao_base:
         return []
     # bao-base by the folder this repository declares for it, so the repair is the line to write.
     reached = next(
-        (entry.path for entry in declared_submodules(root) if (root / entry.path).resolve() == bao_base_root),
-        os.path.relpath(bao_base_root, root),
+        (entry.path for entry in declared_submodules(root) if (root / entry.path).resolve() == bao_base),
+        os.path.relpath(bao_base, root),
     )
     wanted = f'extend = "{reached}/pyproject.toml"'
 
@@ -1302,6 +1323,9 @@ def build_checks(
     # What forge resolves, as `yarn dep` reads it, so the two judge the same nested paths.
     remappings: list[str] = forge_config(repo_root)["remappings"]
     version_problems, leftover_problems = submodule_problems(repo_root, remappings)
+    # The bao-base this project has, for every check that compares the project with bao-base's files: with -C, the
+    # project is another copy's, and its own bao-base can be another version at another path.
+    bao_base_root = own_bao_base(repo_root)
     checks = [
         Check(
             "forge uses only the remappings in foundry.toml",
@@ -1439,7 +1463,7 @@ def build_checks(
             "gives the fork the entry's retries; forge resolves the alias when the fork is created, and fails the "
             "test when no entry has it",
             "every test creating that fork fails at its creation, on every machine without the entry",
-            fork_endpoint_problems(repo_root),
+            fork_endpoint_problems(repo_root, bao_base_root),
         ),
         Check(
             "every fork in test code is at a block the list holds",
@@ -1449,7 +1473,7 @@ def build_checks(
             "of requests from every suite forking at it",
             "the fork's block is not counted by the list, and at the chain's head is fetched from the provider on "
             "every run, on every machine",
-            fork_cheatcode_problems(repo_root),
+            fork_cheatcode_problems(repo_root, bao_base_root),
         ),
         Check(
             "test/fork-blocks.toml lists a default block and few others",
@@ -1458,7 +1482,7 @@ def build_checks(
             "transaction a hash, as BaoTest parses them. Few, because each is a cache and a burst of requests of "
             "its own",
             "a fork fails at its creation, or the provider's quota goes on blocks that could have been one",
-            fork_blocks_list_problems(repo_root),
+            fork_blocks_list_problems(repo_root, bao_base_root),
         ),
         Check(
             "forge lets the tests read test/fork-blocks.toml",
@@ -1467,13 +1491,13 @@ def build_checks(
             "every fork in every test fails at its creation",
             fork_blocks_permission_problems(repo_root),
         ),
-        workflow_copy.check(repo_root),
+        workflow_copy.check(repo_root, bao_base_root),
         Check(
             ".vscode/settings.json uses bao-base's ruff",
             "with a different ruff, or none, the editor formats and checks Python by different rules from CI. "
             "Then the editor says a file is clean and CI says it is not",
             "CI fails on formatting in files the editor said were clean, and you find each one only after a push",
-            vscode_ruff_settings_problems(repo_root),
+            vscode_ruff_settings_problems(repo_root, bao_base_root),
         ),
         Check(
             "ruff's settings extend bao-base's",
@@ -1482,7 +1506,7 @@ def build_checks(
             "own settings can extend a file that yarn dep does not check out",
             "the editor checks Python by rules other than bao-base's, and logs an error for each dependency whose "
             "settings it cannot load",
-            ruff_settings_problems(repo_root),
+            ruff_settings_problems(repo_root, bao_base_root),
         ),
         Check(
             "git does not track .claude/settings.local.json, and an ignore rule matches it",
@@ -1545,12 +1569,32 @@ def main() -> None:
         help="also list Solidity files that nothing in this repository uses; doctor does not see uses from other "
         "repositories or from Python",
     )
+    parser.add_argument(
+        "-C",
+        "--root",
+        dest="root",
+        metavar="<dependency>",
+        help="check <dependency> as a project of its own, with this repository's copy of doctor; named as yarn dep "
+        "-C names it: a module path, harbor/bao-base or ../bao-base, or a folder path naming the libs folder",
+    )
     arguments = parser.parse_args()
     repo_root = Path(
         subprocess.run(
             ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True
         ).stdout.strip()
     )
+    if arguments.root is not None:
+        # The project named as `yarn dep -C` names it, from the folder the command was typed in. The report that
+        # follows names paths as that project names them, so its first line says which project it is.
+        found = root_project(arguments.root, typed_in(Path.cwd(), os.environ))
+        if isinstance(found, str):
+            print(f"Stopped: {found}")
+            raise SystemExit(1)
+        if found.not_checked_out is not None:
+            print(f"Stopped: {found.not_checked_out}")
+            raise SystemExit(1)
+        print(f"in {found.shown}:")
+        repo_root = found.folder
     foundry_remappings, wake_remappings = load_remappings(repo_root)
     report(
         build_checks(repo_root, foundry_remappings, wake_remappings, arguments.unused_files),
