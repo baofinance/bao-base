@@ -12,6 +12,7 @@ that transport are refused by default. `forge` is not involved - this module nev
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -22,9 +23,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bin"))
 
 from submodule_state import (  # noqa: E402
+    Here,
     UnreadableGitmodules,
     condition,
     conflicting_dependencies,
+    dated,
+    dated_log,
     declared_submodules,
     keep_command,
     own_bao_base,
@@ -60,6 +64,61 @@ def add_commit(source: Path, message: str) -> str:
     git(source, "add", "-A")
     git(source, "commit", "-qm", message)
     return git(source, "rev-parse", "HEAD").stdout.strip()
+
+
+def committed_at(checkout: Path, commit: str) -> str:
+    """The time `commit` was committed, in UTC, as git formats it."""
+    when = subprocess.run(
+        ["git", "show", "-s", "--format=%cd", "--date=format-local:%Y-%m-%d %H:%M", commit, "--"],
+        cwd=checkout,
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "TZ": "UTC"},
+    ).stdout.strip()
+    return f"{when} UTC"
+
+
+def shown(checkout: Path, commit: str) -> str:
+    """`commit` as messages show it: short, with the time it was committed."""
+    return f"{commit[:10]} ({committed_at(checkout, commit)})"
+
+
+# ── a commit as messages show it ───────────────────────────────────────────────────────────────────────
+#
+# A hash alone does not say which of two commits is older, so every commit dep and doctor name carries the time it
+# was committed, in UTC, read in the checkout that holds it.
+
+
+def test_a_commit_is_shown_with_the_time_it_was_committed_in_utc(tmp_path):
+    # Committed at 04:25 an hour east of UTC, it is 03:25 UTC.
+    source = make_repo(tmp_path, "dep")
+    (source / "A.sol").write_text("// timed\n")
+    git(source, "add", "-A")
+    subprocess.run(
+        ["git", "commit", "-qm", "timed"],
+        cwd=source,
+        check=True,
+        capture_output=True,
+        env={**os.environ, "GIT_COMMITTER_DATE": "2026-11-03T04:25:00+01:00"},
+    )
+    commit = git(source, "rev-parse", "HEAD").stdout.strip()
+
+    assert dated(commit, source) == f"{commit[:10]} (2026-11-03 03:25 UTC)"
+
+
+def test_a_commit_the_checkout_does_not_hold_is_shown_without_a_time(tmp_path):
+    source = make_repo(tmp_path, "dep")
+
+    assert dated("0123456789" * 4, source) == "0123456789 (not in the dep folder)"
+
+
+def test_a_listed_commit_shows_its_short_hash_time_and_subject(tmp_path):
+    source = make_repo(tmp_path, "dep")
+    commit = add_commit(source, "second")
+    short = git(source, "rev-parse", "--short", commit).stdout.strip()
+
+    assert dated_log(source, "HEAD~1..HEAD") == [f"{short} {committed_at(source, commit)} second"]
 
 
 class World(NamedTuple):
@@ -150,9 +209,10 @@ def test_an_older_commit_added_over_the_last_commit_is_pointed_back(world):
     git(world.project, "add", "lib/dep")
 
     assert pointed_back_problems(world.project, declared_submodules(world.project), []) == [
-        f"lib/dep: project points it to {v1[:10]}, older than {v2[:10]}, which project's last commit points to.\n"
-        "  To go back to the last commit's version: git restore --staged lib/dep, then yarn dep sync\n"
-        "  If the older version is meant: git commit"
+        f"lib/dep: project points it to {shown(dep, v1)}, older than {shown(dep, v2)}, which project's last commit "
+        "points to.\n"
+        "  Repair: To go back to the last commit's version: git restore --staged lib/dep, then yarn dep sync. "
+        "If the older version is meant: git commit."
     ]
 
 
@@ -987,6 +1047,59 @@ def test_a_module_path_through_a_module_not_checked_out_is_refused(tmp_path):
     assert root_project("harbor/bao-base", project) == (
         "lib/harbor is not checked out, so harbor/bao-base cannot go through it. To check it out: yarn dep -C harbor sync"
     )
+
+
+# ── commands as they are typed ────────────────────────────────────────────────────────────────────────
+#
+# Every command dep and doctor print runs, as printed, from the folder the command was typed in. Typed in the project
+# itself they name only the folders inside it, as before; under -C they carry the way from where they were typed to
+# the project, and `yarn dep` names its project as -C would.
+
+
+def test_commands_typed_in_the_project_name_only_the_folders_inside_it(tmp_path):
+    project = module_tree(tmp_path)
+    here = Here(project, project)
+
+    assert here.git(project) == "git"
+    assert here.git(project / "lib" / "harbor") == "git -C lib/harbor"
+    assert here.dep(project) == "yarn dep"
+    assert here.dep(project / "lib" / "harbor") == "yarn dep -C lib/harbor"
+
+
+def test_commands_for_a_project_named_with_c_carry_the_way_from_where_they_are_typed(tmp_path):
+    # Typed in the main folder about lib/harbor: git goes there by folder, and dep names lib/harbor as it was named.
+    project = module_tree(tmp_path)
+    harbor = project / "lib" / "harbor"
+    here = Here(project, harbor, "harbor")
+
+    assert here.git(harbor) == "git -C lib/harbor"
+    assert here.git(harbor / "lib" / "bao-base") == "git -C lib/harbor/lib/bao-base"
+    assert here.dep(harbor) == "yarn dep -C harbor"
+    assert here.dep(harbor / "lib" / "bao-base") == "yarn dep -C lib/harbor/lib/bao-base"
+
+
+def test_commands_for_the_repository_holding_the_one_typed_in_climb_by_module(tmp_path):
+    # Typed inside lib/harbor about the project that holds it: git climbs the folders, dep the modules.
+    project = module_tree(tmp_path)
+    harbor = project / "lib" / "harbor"
+    here = Here(harbor, harbor)
+
+    assert here.git(project) == "git -C ../.."
+    assert here.dep(project) == "yarn dep -C .."
+
+
+def test_commands_for_a_neighbour_name_it_by_module_from_the_repository_typed_in(tmp_path):
+    # Typed anywhere in lib/bao-base about lib/harbor beside it: the folder path ../harbor does not name the libs
+    # folder, so dep would read it as a module path - from the repository typed in, not the folder. So it is one:
+    # up one module, then harbor. git takes the folders as they are.
+    project = module_tree(tmp_path)
+    neighbour = project / "lib" / "harbor"
+    deeper = project / "lib" / "bao-base" / "notes"
+    deeper.mkdir()
+
+    assert Here(project / "lib" / "bao-base", neighbour).dep(neighbour) == "yarn dep -C ../harbor"
+    assert Here(deeper, neighbour).dep(neighbour) == "yarn dep -C ../harbor"
+    assert Here(deeper, neighbour).git(neighbour) == "git -C ../../harbor"
 
 
 def test_the_folder_typed_in_is_yarns_init_cwd_when_the_command_runs_above_it(tmp_path):

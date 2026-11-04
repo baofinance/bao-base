@@ -8,6 +8,7 @@ behaviour it verifies.
 
 import importlib.util
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -32,6 +33,33 @@ def _init_repo(path: pathlib.Path) -> pathlib.Path:
     path.mkdir(parents=True, exist_ok=True)
     _git(path, "init", "-q")
     return path
+
+
+# The commit times doctor shows, as git formats them in UTC: a second route to the same text.
+_IN_UTC = {**os.environ, "TZ": "UTC"}
+
+
+def _shown(checkout: pathlib.Path, commit: str) -> str:
+    """`commit` as doctor shows it: short, with the time it was committed, in UTC."""
+    when = subprocess.run(
+        ["git", "-C", str(checkout), "show", "-s", "--format=%cd", "--date=format-local:%Y-%m-%d %H:%M", commit, "--"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=_IN_UTC,
+    ).stdout.strip()
+    return f"{commit[:10]} ({when} UTC)"
+
+
+def _shown_log(checkout: pathlib.Path, *selection: str) -> list[str]:
+    """The commits `git log <selection>` lists, a line each as doctor shows them."""
+    return subprocess.run(
+        ["git", "-C", str(checkout), "log", "--format=%h %cd %s", "--date=format-local:%Y-%m-%d %H:%M UTC", *selection],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=_IN_UTC,
+    ).stdout.splitlines()
 
 
 # ── strip_context_prefix: foundry's `context:prefix=target` reduces to the bare `prefix=target` ──
@@ -538,9 +566,9 @@ def test_submodule_problems_reports_one_finding_carrying_its_own_repair(tmp_path
 
     assert len(problems) == 1 and leftovers == [], (problems, leftovers)
     assert problems[0].startswith("lib/sub: the folder has a newer commit than the one host points to"), problems[0]
-    # The two commits arrive as aligned rows, the commit first, then where it is.
-    assert f"{moved[:10]}  in the lib/sub folder" in problems[0], problems[0]
-    assert f"{recorded[:10]}  host points to" in problems[0], problems[0]
+    # The two commits arrive as aligned rows, the commit and its time first, then where it is.
+    assert f"{_shown(host / 'lib' / 'sub', moved)}  in the lib/sub folder" in problems[0], problems[0]
+    assert f"{_shown(host / 'lib' / 'sub', recorded)}  host points to" in problems[0], problems[0]
     assert (
         "Repair: To keep the folder's version: yarn dep sync (host then points to it). "
         "To go back to the version host points to: yarn dep sync lib/sub."
@@ -699,12 +727,15 @@ def test_a_dependency_pointed_back_fails_doctor_naming_both_ways_out(tmp_path):
 
     found = _found(host)
 
+    sub = host / "lib" / "sub"
     assert found[_POINTED_BACK] == [
-        f"lib/sub: host points it to {older[:10]}, older than {newer[:10]}, which host's last commit points to.\n"
-        "  To go back to the last commit's version: git restore --staged lib/sub, then yarn dep sync\n"
-        "  If the older version is meant: git commit"
+        f"lib/sub: host points it to {_shown(sub, older)}, older than {_shown(sub, newer)}, which host's last commit "
+        "points to.\n"
+        "  Repair: To go back to the last commit's version: git restore --staged lib/sub, then yarn dep sync. "
+        "If the older version is meant: git commit."
     ]
     assert found[_FOLDER_CHECK] == []
+    assert found[_DETACHED] == [], "one fault, one finding: the detached folder follows from what is added"
 
 
 def test_two_dependencies_pointed_back_are_each_reported(tmp_path):
@@ -729,14 +760,261 @@ def test_a_remapped_nested_path_pointed_back_is_judged_in_the_dependency_that_po
     older, newer = _point_back(host / "lib" / "dep", "lib/child")
     dependencies = doctor.declared_submodules(host)
 
+    child = host / "lib" / "dep" / "lib" / "child"
     assert doctor.pointed_back_problems(host, dependencies, ["child/=lib/dep/lib/child/"]) == [
-        f"lib/dep/lib/child: lib/dep points it to {older[:10]}, older than {newer[:10]}, which lib/dep's last "
-        "commit points to.\n"
-        "  To go back to the last commit's version: git -C lib/dep restore --staged lib/child, then yarn dep -C "
-        "lib/dep sync\n"
-        "  If the older version is meant: git -C lib/dep commit"
+        f"lib/dep/lib/child: lib/dep points it to {_shown(child, older)}, older than {_shown(child, newer)}, which "
+        "lib/dep's last commit points to.\n"
+        "  Repair: To go back to the last commit's version: git -C lib/dep restore --staged lib/child, then yarn dep "
+        "-C lib/dep sync. If the older version is meant: git -C lib/dep commit."
     ]
     assert doctor.pointed_back_problems(host, dependencies, []) == []
+
+
+# ── no submodule that follows a branch is detached behind it ──────────────────────────────────────────────
+#
+# yarn dep sync stands a submodule that follows a branch on that branch. One detached at a commit its branch has
+# passed was moved by git directly - the editor's Discard runs git submodule update, which detaches - and a git add
+# there records the older commit. sync stops on this state; doctor reports it from the same reading.
+
+_DETACHED = "no submodule that follows a branch is detached behind it"
+
+
+def _follows_its_branch(repository: pathlib.Path, path: str) -> str:
+    """`.gitmodules` in `repository` says `path` follows the branch its folder is on, which it returns."""
+    branch = subprocess.run(
+        ["git", "-C", str(repository / path), "branch", "--show-current"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    _git(repository, "config", "-f", ".gitmodules", f"submodule.{path}.branch", branch)
+    return branch
+
+
+def _detached_behind(folder: pathlib.Path) -> str:
+    """`folder`'s branch moved one commit on, on this computer only, and the folder detached where it was, as the
+    editor's Discard leaves it. Returns that commit."""
+    at = _head(folder)
+    commit_in(folder, "ahead")
+    _git(folder, "checkout", "-q", "--detach", at)
+    return at
+
+
+def _detached_finding(path: str, branch: str, at: str, folder: pathlib.Path, add: str, git_in: str = "") -> str:
+    """The finding for `path` detached at `at` while its branch holds one commit more, on this computer only; `git_in`
+    is how its own git commands reach it, when not by `path`."""
+    (lacking,) = _shown_log(folder, f"refs/heads/{branch}", "--not", at)
+    git_in = git_in or f"git -C {path}"
+    return (
+        f"{path}: is detached at {_shown(folder, at)}, and its branch {branch} has 1 commit that {at[:10]} lacks:\n"
+        f"    {lacking}\n"
+        f"  Repair: To use the branch's version: {git_in} switch {branch}, then {add}. To take the branch back to "
+        f"{at[:10]}: push its commits first ({git_in} push origin {branch}), then {git_in} switch -C {branch} "
+        f"{at[:10]}."
+    )
+
+
+def test_no_submodule_detached_behind_its_branch_passes(tmp_path):
+    host = _host_with_a_dependency(tmp_path)
+    _follows_its_branch(host, "lib/sub")
+
+    assert _found(host)[_DETACHED] == []
+
+
+def test_a_dependency_detached_behind_its_branch_fails_doctor_naming_both_ways_out(tmp_path):
+    # The folder check passes - the folder has the commit host points to - so this check is what sees it. The
+    # branch's commit is on no remote, so taking the branch back pushes it first.
+    host = _host_with_a_dependency(tmp_path)
+    branch = _follows_its_branch(host, "lib/sub")
+    at = _detached_behind(host / "lib" / "sub")
+
+    found = _found(host)
+
+    assert found[_DETACHED] == [_detached_finding("lib/sub", branch, at, host / "lib" / "sub", "git add lib/sub")]
+    assert found[_FOLDER_CHECK] == []
+
+
+def test_a_folder_detached_where_its_branch_takes_nothing_off_is_not_reported(tmp_path):
+    # Detached at its branch's own commit: sync stands it on the branch and nothing comes off.
+    host = _host_with_a_dependency(tmp_path)
+    _follows_its_branch(host, "lib/sub")
+    _git(host / "lib" / "sub", "checkout", "-q", "--detach")
+
+    assert _found(host)[_DETACHED] == []
+
+
+def test_a_pinned_folder_or_one_on_another_branch_is_not_reported(tmp_path):
+    # A dependency .gitmodules names no branch for is pinned, and detached by nature; one on a branch of its own is
+    # not detached, whatever the branch it follows holds.
+    host = _host_with_a_dependency(tmp_path)
+    folder = host / "lib" / "sub"
+    branch = subprocess.run(
+        ["git", "-C", str(folder), "branch", "--show-current"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    at = _detached_behind(folder)
+
+    pinned = _found(host)[_DETACHED]
+    _git(host, "config", "-f", ".gitmodules", "submodule.lib/sub.branch", branch)
+    _git(folder, "checkout", "-q", "-b", "feature", at)
+    elsewhere = _found(host)[_DETACHED]
+
+    assert pinned == []
+    assert elsewhere == []
+
+
+def test_two_dependencies_detached_behind_their_branches_are_each_reported(tmp_path):
+    host = _host_with_a_dependency(tmp_path)
+    other = _init_repo(tmp_path / "other")
+    (other / "a.txt").write_text("a")
+    _git(other, "add", ".")
+    _git(other, "commit", "-qm", "content")
+    _submodule_at(host, other, "lib/other")
+    for path in ("lib/sub", "lib/other"):
+        _follows_its_branch(host, path)
+        _detached_behind(host / path)
+
+    found = _found(host)[_DETACHED]
+
+    assert [problem.partition(":")[0] for problem in found] == ["lib/sub", "lib/other"], found
+
+
+def test_a_remapped_nested_path_detached_behind_its_branch_is_added_in_its_dependency(tmp_path):
+    # lib/dep says lib/child follows main, and a remapping makes the build read it: the way to use the branch's
+    # version adds it in lib/dep. Without the remapping it is lib/dep's own business.
+    host = _nest(tmp_path)
+    child = host / "lib" / "dep" / "lib" / "child"
+    _git(child, "checkout", "-q", "-B", "main")
+    _follows_its_branch(host / "lib" / "dep", "lib/child")
+    at = _detached_behind(child)
+    dependencies = doctor.declared_submodules(host)
+
+    assert doctor.detached_behind_branch_problems(host, dependencies, ["child/=lib/dep/lib/child/"]) == [
+        _detached_finding("lib/dep/lib/child", "main", at, child, "git -C lib/dep add lib/child")
+    ]
+    assert doctor.detached_behind_branch_problems(host, dependencies, []) == []
+
+
+def test_a_folder_off_the_commit_its_repository_points_to_is_not_also_reported_detached(tmp_path):
+    # Behind its record, the folder check reports it and sync moves it on; whether its branch takes anything off is
+    # judged at the commit sync puts it at, not at the one it has.
+    host = _host_with_a_dependency(tmp_path)
+    folder = host / "lib" / "sub"
+    _follows_its_branch(host, "lib/sub")
+    older = _head(folder)
+    commit_in(folder, "newer")
+    _git(host, "commit", "-qam", "sub moved on")
+    _git(folder, "checkout", "-q", "--detach", older)
+
+    found = _found(host)
+
+    assert found[_FOLDER_CHECK] != []
+    assert found[_DETACHED] == []
+
+
+def test_the_way_to_the_branchs_version_first_keeps_a_commit_only_the_detached_head_holds(tmp_path):
+    # Switching to the branch would leave the detached HEAD's own commit reachable from nothing but git's reflog, so
+    # the repair puts it on a branch first. Taking the branch back to it keeps it there anyway.
+    host = _host_with_a_dependency(tmp_path)
+    folder = host / "lib" / "sub"
+    branch = _follows_its_branch(host, "lib/sub")
+    _git(folder, "checkout", "-q", "--detach")
+    commit_in(folder, "only on the detached HEAD")
+    at = _head(folder)
+    _git(host, "commit", "-qam", "sub at its detached commit")
+    _git(folder, "checkout", "-q", branch)
+    commit_in(folder, "on the branch")
+    _git(folder, "checkout", "-q", "--detach", at)
+
+    (finding,) = _found(host)[_DETACHED]
+
+    assert (
+        "  Repair: To use the branch's version: first put the 1 commit only this folder's HEAD holds on a branch of "
+        f"its own (git -C lib/sub branch <name>), then git -C lib/sub switch {branch}, then git add lib/sub."
+    ) in finding, finding
+
+
+# ── commands run from where doctor was typed ─────────────────────────────────────────────────────────────
+#
+# Typed in the main folder with -C, the repairs doctor prints carry the way there: git -C to the folder, and yarn dep
+# -C naming the project as it was named. A file a repair names stays named as the project names it, under the
+# `in <path>:` line.
+
+
+def test_doctor_root_prints_repairs_to_run_from_where_it_was_typed(tmp_path):
+    host = _nest(tmp_path)
+    dep = host / "lib" / "dep"
+    _with_tracked_lock(dep)
+    _point_back(dep, "lib/child")
+    here = doctor.Here(host, dep, "dep")
+
+    pointed = doctor.pointed_back_problems(dep, doctor.declared_submodules(dep), [], here)
+    lock = doctor.foundry_lock_problems(dep, here)
+
+    assert pointed[0].splitlines()[1] == (
+        "  Repair: To go back to the last commit's version: git -C lib/dep restore --staged lib/child, then yarn dep "
+        "-C dep sync. If the older version is meant: git -C lib/dep commit."
+    )
+    assert lock == ["git tracks foundry.lock\n  Repair: git -C lib/dep rm foundry.lock, then yarn dep -C dep sync"]
+
+
+# ── the project itself, against the repository that lists it ──────────────────────────────────────────────
+#
+# A project checked with -C, or doctor run inside a submodule, is itself a submodule: the repository that lists it
+# can point it back, and it can sit detached behind the branch that repository says it follows. Both are reported
+# for it, as "this project", with repairs from where doctor was typed.
+
+
+def test_doctor_reports_the_project_itself_detached_behind_the_branch_it_follows(tmp_path):
+    host = _main_folder_with_a_dependency(tmp_path)
+    dep = host / "lib" / "dep"
+    branch = _follows_its_branch(host, "lib/dep")
+    _git(host, "commit", "-qam", "dep follows its branch")
+    at = _detached_behind(dep)
+
+    found = {
+        check.name: check.problems
+        for check in doctor.build_checks(dep, [], [], unused_files=False, here=doctor.Here(host, dep, "dep"))
+    }
+
+    assert found[_DETACHED] == [
+        _detached_finding("lib/dep", branch, at, dep, "git add lib/dep").replace(
+            "lib/dep: is detached", "this project: is detached", 1
+        )
+    ]
+
+
+def test_doctor_reports_the_project_itself_pointed_back_in_the_repository_listing_it(tmp_path):
+    host = _main_folder_with_a_dependency(tmp_path)
+    dep = host / "lib" / "dep"
+    older, newer = _point_back(host, "lib/dep")
+
+    found = {
+        check.name: check.problems
+        for check in doctor.build_checks(dep, [], [], unused_files=False, here=doctor.Here(host, dep, "dep"))
+    }
+
+    assert found[_POINTED_BACK] == [
+        f"this project: host points it to {_shown(dep, older)}, older than {_shown(dep, newer)}, which host's last "
+        "commit points to.\n"
+        "  Repair: To go back to the last commit's version: git restore --staged lib/dep, then yarn dep sync. "
+        "If the older version is meant: git commit."
+    ]
+    assert found[_DETACHED] == []
+
+
+def test_a_plain_run_inside_a_submodule_checks_it_against_the_repository_listing_it(tmp_path):
+    # Typed in lib/dep, the repository listing it is the one above: git climbs the folders to it, dep the modules.
+    host = _main_folder_with_a_dependency(tmp_path)
+    dep = host / "lib" / "dep"
+    _point_back(host, "lib/dep")
+
+    found = {
+        check.name: check.problems
+        for check in doctor.build_checks(dep, [], [], unused_files=False, here=doctor.Here(dep, dep))
+    }
+
+    (finding,) = found[_POINTED_BACK]
+    assert finding.splitlines()[1] == (
+        "  Repair: To go back to the last commit's version: git -C ../.. restore --staged lib/dep, then yarn dep -C .. "
+        "sync. If the older version is meant: git -C ../.. commit."
+    )
 
 
 def test_an_uninitialised_dependency_is_reported(tmp_path):
@@ -1606,9 +1884,11 @@ def test_a_project_declaring_no_bao_base_is_told_so_by_each_check_that_compares_
 
 
 def _configured(repo: pathlib.Path, remapping: str) -> pathlib.Path:
-    """`repo` given the foundry.toml and wake.toml doctor reads, each listing `remapping`, and committed."""
+    """`repo` given the foundry.toml and wake.toml doctor reads, each listing `remapping`, and a file `commit_in`
+    changes, all committed."""
     (repo / "foundry.toml").write_text(f'[profile.default]\nlibs = ["lib"]\nremappings = ["{remapping}"]\n')
     (repo / "wake.toml").write_text(f'[compiler.solc]\nremappings = ["{remapping}"]\n')
+    (repo / "a.txt").write_text("a\n")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-qm", "configured")
     return repo
@@ -1622,12 +1902,15 @@ def _main_folder_with_a_dependency(tmp_path: pathlib.Path) -> pathlib.Path:
     return host.resolve()
 
 
-def _recording_checks(monkeypatch) -> list[tuple[pathlib.Path, list[str], list[str]]]:
-    """build_checks replaced by one finding nothing, recording each (project, foundry, wake remappings) it is given."""
+def _recording_checks(monkeypatch, heres: list | None = None) -> list[tuple[pathlib.Path, list[str], list[str]]]:
+    """build_checks replaced by one finding nothing, recording each (project, foundry, wake remappings) it is given,
+    and into `heres`, when given, where its commands are typed."""
     checked: list[tuple[pathlib.Path, list[str], list[str]]] = []
 
-    def record(repo_root, foundry_remappings, wake_remappings, unused_files):
+    def record(repo_root, foundry_remappings, wake_remappings, unused_files, here):
         checked.append((repo_root, foundry_remappings, wake_remappings))
+        if heres is not None:
+            heres.append(here)
         return []
 
     monkeypatch.setattr(doctor, "build_checks", record)
@@ -1643,9 +1926,11 @@ def _run_doctor(monkeypatch, where: pathlib.Path, *arguments: str) -> None:
 
 
 def test_doctor_root_checks_the_named_dependency(tmp_path, monkeypatch):
-    # The project checked and the remappings read are lib/dep's; without the flag they are the main folder's.
+    # The project checked and the remappings read are lib/dep's; without the flag they are the main folder's. Either
+    # way the commands doctor prints are typed in the main folder, so they carry the way from there.
     host = _main_folder_with_a_dependency(tmp_path)
-    checked = _recording_checks(monkeypatch)
+    heres: list = []
+    checked = _recording_checks(monkeypatch, heres)
 
     _run_doctor(monkeypatch, host, "--root", "lib/dep")
     _run_doctor(monkeypatch, host)
@@ -1654,6 +1939,7 @@ def test_doctor_root_checks_the_named_dependency(tmp_path, monkeypatch):
         (host / "lib" / "dep", ["dep-only/=src/"], ["dep-only/=src/"]),
         (host, ["host-only/=src/"], ["host-only/=src/"]),
     ]
+    assert heres == [doctor.Here(host, host / "lib" / "dep", "lib/dep"), doctor.Here(host, host)]
 
 
 def test_doctor_root_and_its_alias_c_check_the_same_project(tmp_path, monkeypatch, capsys):

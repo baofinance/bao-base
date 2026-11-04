@@ -23,9 +23,12 @@ from forge_config import forge_config
 from submodule_state import (
     Condition,
     Facts,
+    Here,
     at_record,
     condition,
+    dated,
     declared_submodules,
+    detached_behind_branch_problems,
     git,
     keep_command,
     litter_condition,
@@ -152,7 +155,14 @@ def submodule_url_drift(repo_dir: Path) -> list[tuple[str, str, str]]:
     return drift
 
 
-def _finding(facts: Facts, found: Condition, repository: str, weigh: Sequence[str] = (), keep: str = "") -> str:
+def _finding(
+    facts: Facts,
+    found: Condition,
+    repository: str,
+    weigh: Sequence[str] = (),
+    keep: str = "",
+    here: Here | None = None,
+) -> str:
     """One finding as doctor prints it: what is wrong, the facts behind it, anything a reader must
     weigh before acting, and the one command that fixes it - in plain words, naming the repository.
 
@@ -169,12 +179,12 @@ def _finding(facts: Facts, found: Condition, repository: str, weigh: Sequence[st
     if found.relation:
         lines.append(f"  {Condition.RELATIONS.get(found.relation, found.relation)}")
     lines.extend(f"  {item}" for item in weigh)
-    if fix := repair(facts, found, keep, repository):
+    if fix := repair(facts, found, keep, repository, here):
         lines.append(f"  Repair: {fix}")
     return "\n".join(lines)
 
 
-def submodule_problems(repo_root: Path, remappings: list[str]) -> tuple[list[str], list[str]]:
+def submodule_problems(repo_root: Path, remappings: list[str], here: Here | None = None) -> tuple[list[str], list[str]]:
     """One finding per dependency of this repository, from bin/submodule_state.py, split into
     (versions, leftovers).
 
@@ -214,7 +224,7 @@ def submodule_problems(repo_root: Path, remappings: list[str]) -> tuple[list[str
         # leftovers" that could only see them when nothing outranked them would report all-clear
         # beside a version finding that named one.
         if stranded := litter_condition(facts):
-            leftovers.append(_finding(facts, stranded, repository))
+            leftovers.append(_finding(facts, stranded, repository, here=here))
         if not found.is_fault or found.name == "litter-present":
             continue
         # Facts a reader must weigh before acting, which `condition` did not name because something
@@ -225,17 +235,18 @@ def submodule_problems(repo_root: Path, remappings: list[str]) -> tuple[list[str
             weigh.append(
                 f"{count} commit{'s' if count > 1 else ''} in the folder {'are' if count > 1 else 'is'} not pushed."
             )
-        versions.append(_finding(facts, found, repository, weigh, keep_command(repo_root, dependency.path)))
+        versions.append(_finding(facts, found, repository, weigh, keep_command(repo_root, dependency.path, here), here))
     return versions, leftovers
 
 
-def unpublished_commit_problems(repo_root: Path, remappings: list[str]) -> list[str]:
+def unpublished_commit_problems(repo_root: Path, remappings: list[str], here: Here | None = None) -> list[str]:
     """Commits this repository points to that no remote holds, as each clone knew its remote at its last
     fetch: for each dependency, and each nested path a remapping uses, judged in the repository that points
     to it. The version check passes when the folder has the commit pointed to, even when only this computer
     has that commit, and every other clone then fails to fetch it. Both the index's commit and HEAD's are
     judged: HEAD's is what a clone gets now, the index's what it gets after the next commit. Returns one
-    finding per such commit, or []."""
+    finding per such commit, or []. Its commands are typed where `here` says, in the project when it says nothing."""
+    here = here or Here(repo_root, repo_root)
     repository = repo_root.name
     problems: list[str] = []
     for path, (directory, level) in submodules_the_build_reads(
@@ -253,14 +264,14 @@ def unpublished_commit_problems(repo_root: Path, remappings: list[str]) -> list[
                 continue
             # A nested path's commit is its dependency's to choose, so only pushing it is offered there.
             moving = (
-                f", or move to a version a remote holds: yarn dep update {path}@<version>"
+                f", or move to a version a remote holds: {here.dep(repo_root)} update {path}@<version>"
                 if directory == repo_root
                 else ""
             )
             problems.append(
-                f"{path}: no remote holds {commit[:10]}, {side}\n"
+                f"{path}: no remote holds {dated(commit, directory / level.path)}, {side}\n"
                 f"  Only this computer has it, so any other clone fails to check {path} out.\n"
-                f"  Repair: push it (git -C {path} push){moving}"
+                f"  Repair: push it ({here.git(directory / level.path)} push){moving}"
             )
     return problems
 
@@ -284,7 +295,7 @@ def _config_entries(checkout: Path, pattern: str, *options: str) -> list[tuple[s
     return entries
 
 
-def tag_push_setting_problems(repo_root: Path) -> list[str]:
+def tag_push_setting_problems(repo_root: Path, here: Here | None = None) -> list[str]:
     """Settings that make `git push` send tags nobody named, in this repository and in each dependency
     checkout: each is a clone with its own config, and a push can be made from any of them.
     `verify-audit --push` sends each deployment tag by name; these send other tags with it:
@@ -302,6 +313,8 @@ def tag_push_setting_problems(repo_root: Path) -> list[str]:
         for dependency in declared_submodules(repo_root)
         if (repo_root / dependency.path / ".git").exists()
     ]
+    # Each repair edits a file named from this repository, so it runs here, reached from where doctor was typed.
+    in_project = (here or Here(repo_root, repo_root)).git(repo_root)
     scopes = {
         "local": "the clone's own config",
         "worktree": "the worktree's config",
@@ -348,7 +361,7 @@ def tag_push_setting_problems(repo_root: Path) -> list[str]:
                 held = (held if held.is_absolute() else checkout / held).resolve()
                 named = held.relative_to(repo_root.resolve()) if held.is_relative_to(repo_root.resolve()) else held
                 where = f"{named.as_posix()}, {scopes.get(scope, f'the {scope} config')}"
-                repair = shlex.join(["git", "config", "--file", named.as_posix(), *unset])
+                repair = f"{in_project} {shlex.join(['config', '--file', named.as_posix(), *unset])}"
             reached = found.setdefault((what, where, repair), [])
             if shown not in reached:
                 reached.append(shown)
@@ -358,7 +371,7 @@ def tag_push_setting_problems(repo_root: Path) -> list[str]:
     ]
 
 
-def deployment_tag_problems(repo_root: Path) -> list[str]:
+def deployment_tag_problems(repo_root: Path, here: Here | None = None) -> list[str]:
     """How origin's deployment tags stand against the record and this clone, in a repository with a
     deployed.json: each tag the record derives that origin lacks, or holds as another object than this
     clone's, and each name origin holds that the record no longer derives. Returns one finding per tag, or
@@ -368,18 +381,20 @@ def deployment_tag_problems(repo_root: Path) -> list[str]:
     could not ask fails, in git's words: passing would say origin was looked at when it was not."""
     if not (repo_root / RECORD).is_file():
         return []
+    here = here or Here(repo_root, repo_root)
     record = list(read_baselines(repo_root).values())
     try:
         origin = origin_tags(repo_root)
     except OriginUnanswered as unanswered:
         return [
             f"origin could not be asked for its tags, so none was checked:\n  {unanswered}\n"
-            "  Repair: reach origin, then run yarn doctor again"
+            f"  Repair: reach origin, then run {here.doctor()} again"
         ]
     found = compare_with_origin(repo_root, record, origin)
     problems = [
         f"{tag}: origin does not hold it\n"
-        "  Repair: yarn verify-audit --write if this clone lacks it too, then yarn verify-audit --push"
+        f"  Repair: {here.script('yarn verify-audit --write')} if this clone lacks it too, then "
+        f"{here.script('yarn verify-audit --push')}"
         for tag in found.lacking
     ]
     problems += [
@@ -390,17 +405,17 @@ def deployment_tag_problems(repo_root: Path) -> list[str]:
         if replacement is not None:
             problems.append(
                 f"{tag}: origin holds it, and the record no longer derives it. It is replaced by {replacement}\n"
-                "  Repair: yarn verify-audit --push deletes it on origin"
+                f"  Repair: {here.script('yarn verify-audit --push')} deletes it on origin"
             )
         else:
             problems.append(
                 f"{tag}: origin holds it, and the record no longer derives it\n"
-                f"  Repair: deleting it is yours: git push origin --delete refs/tags/{tag}"
+                f"  Repair: deleting it is yours: {here.git(repo_root)} push origin --delete refs/tags/{tag}"
             )
     return problems
 
 
-def unused_checkout_problems(repo_root: Path, remappings: list[str]) -> list[str]:
+def unused_checkout_problems(repo_root: Path, remappings: list[str], here: Here | None = None) -> list[str]:
     """Submodules checked out inside this repository's dependencies that no remapping uses. The build does not
     read them: they are left from an older recursive checkout, or from a sync run inside a dependency to work
     on it. Returns one block listing each, or []."""
@@ -415,7 +430,8 @@ def unused_checkout_problems(repo_root: Path, remappings: list[str]) -> list[str
     lines = ["These submodules are checked out inside a dependency, and no remapping uses them:"]
     lines.extend(f"  {path}" for path in found)
     lines.append(
-        "  Repair: yarn dep sync. One that holds work only on this computer stops it, and is named with that work."
+        f"  Repair: {(here or Here(repo_root, repo_root)).dep(repo_root)} sync. One that holds work only on this "
+        "computer stops it, and is named with that work."
     )
     return ["\n".join(lines)]
 
@@ -573,7 +589,7 @@ def deny_warnings_problems(repo_root: Path) -> list[str]:
     )
 
 
-def foundry_lock_problems(repo_root: Path) -> list[str]:
+def foundry_lock_problems(repo_root: Path, here: Here | None = None) -> list[str]:
     """A foundry.lock in the index or the working tree. forge writes one whenever it installs: on `forge
     install` and `forge update`, recording which branch or tag each dependency came from, and when build, test,
     coverage or script finds a dependency with nothing checked out in its folder, which it then installs with
@@ -589,16 +605,19 @@ def foundry_lock_problems(repo_root: Path) -> list[str]:
         == 0
     )
     present = (repo_root / "foundry.lock").is_file()
+    here = here or Here(repo_root, repo_root)
+    sync = f"{here.dep(repo_root)} sync"
     if tracked and present:
-        return ["git tracks foundry.lock\n  Repair: git rm foundry.lock, then yarn dep sync"]
+        return [f"git tracks foundry.lock\n  Repair: {here.git(repo_root)} rm foundry.lock, then {sync}"]
     if tracked:
         return [
             "git tracks foundry.lock, and the working tree does not have it, so the next checkout brings it back\n"
-            "  Repair: git rm foundry.lock (this records the deletion), then yarn dep sync"
+            f"  Repair: {here.git(repo_root)} rm foundry.lock (this records the deletion), then {sync}"
         ]
     if present:
         return [
-            "foundry.lock is in the working tree, and git does not track it\n  Repair: rm foundry.lock, then yarn dep sync"
+            "foundry.lock is in the working tree, and git does not track it\n"
+            f"  Repair: rm {here.file('foundry.lock')}, then {sync}"
         ]
     return []
 
@@ -857,7 +876,7 @@ def wake_scope_problems(repo_root: Path) -> list[str]:
     return ["\n".join(lines)]
 
 
-def submodule_url_drift_problems(repo_root: Path) -> list[str]:
+def submodule_url_drift_problems(repo_root: Path, here: Here | None = None) -> list[str]:
     """`submodule_url_drift` formatted as a problem block. Returns [] when URLs agree."""
     drift = submodule_url_drift(repo_root)
     if not drift:
@@ -867,11 +886,12 @@ def submodule_url_drift_problems(repo_root: Path) -> list[str]:
         lines.append(f"  {display}")
         lines.append(f"    .git/config: {gitconfig_url}")
         lines.append(f"    .gitmodules: {gitmodules_url}")
-    lines.append("Repair: yarn dep sync (this copies the URLs from .gitmodules to .git/config)")
+    sync = f"{(here or Here(repo_root, repo_root)).dep(repo_root)} sync"
+    lines.append(f"Repair: {sync} (this copies the URLs from .gitmodules to .git/config)")
     return ["\n".join(lines)]
 
 
-def tracked_but_ignored_problems(repo_root: Path) -> list[str]:
+def tracked_but_ignored_problems(repo_root: Path, here: Here | None = None) -> list[str]:
     """Files the exclude rules match that git nonetheless tracks. Ignore rules apply only to untracked
     paths, so once a file is in the index the rule does nothing: edits keep appearing in `git status`
     and keep being committed, while the rule reads as a protection it is not providing. This is the
@@ -919,9 +939,11 @@ def tracked_but_ignored_problems(repo_root: Path) -> list[str]:
         for path in matched:
             lines.append(f"    {path}")
     # Which side is wrong — the tracking or the rule — is intent the doctor cannot know, so offer both.
+    in_project = (here or Here(repo_root, repo_root)).git(repo_root)
     lines.append(
         "  Repair: to stop git tracking them, run "
-        "`git ls-files -i -c --exclude-standard -z | xargs -0 git rm --cached`, then commit. Your copies stay "
+        f"`{in_project} ls-files -i -c --exclude-standard -z | xargs -0 {in_project} rm --cached`, then commit. "
+        "Your copies stay "
         "on this computer. Other clones DELETE their copies when they pull that commit: the ignore rule does "
         "not keep them. To keep the files in the repository instead, change the ignore rule so it no longer "
         "matches them."
@@ -1144,7 +1166,7 @@ _CLAUDE_PERMITTED_OUTSIDE_PATHS = (Path.home() / ".claude" / "plans",)
 _STATE_CHANGING_COMMANDS = ("chmod", "chown", "rm", "mv", "dd", "curl", "wget", "sudo", "git push")
 
 
-def claude_local_settings_problems(repo_root: Path) -> list[str]:
+def claude_local_settings_problems(repo_root: Path, here: Here | None = None) -> list[str]:
     """`.claude/settings.local.json` is a per-machine override, so it must be untracked AND ignored.
     Committing it publishes one developer's permission grants to everyone and turns them into source
     that outlives the session that needed them. Both halves are checked because each alone is
@@ -1167,7 +1189,8 @@ def claude_local_settings_problems(repo_root: Path) -> list[str]:
         problems.append(
             f"git tracks {_CLAUDE_LOCAL_SETTINGS}. It holds this computer's own settings, so it should not "
             f"be in the repository.\n"
-            f"  Repair: git rm --cached {_CLAUDE_LOCAL_SETTINGS}  (this removes the file from the repository "
+            f"  Repair: {(here or Here(repo_root, repo_root)).git(repo_root)} rm --cached {_CLAUDE_LOCAL_SETTINGS}  "
+            "(this removes the file from the repository "
             f"and keeps your copy)"
         )
 
@@ -1302,7 +1325,11 @@ def claude_permission_scope_problems(repo_root: Path) -> list[str]:
 
 
 def build_checks(
-    repo_root: Path, foundry_remappings: list[str], wake_remappings: list[str], unused_files: bool
+    repo_root: Path,
+    foundry_remappings: list[str],
+    wake_remappings: list[str],
+    unused_files: bool,
+    here: Here | None = None,
 ) -> list[Check]:
     """Every check doctor runs, in report order. Separate from `main` so the list is a value that can
     be asserted on: a check function that is written but never added here silently never runs, and
@@ -1320,7 +1347,9 @@ def build_checks(
     and runs git in each; calling it per check would double that to say the same things."""
     # What forge resolves, as `yarn dep` reads it, so the two judge the same nested paths.
     remappings: list[str] = forge_config(repo_root)["remappings"]
-    version_problems, leftover_problems = submodule_problems(repo_root, remappings)
+    # Where the commands the findings print are typed: in the project, unless `-C` named it from elsewhere.
+    here = here or Here(repo_root, repo_root)
+    version_problems, leftover_problems = submodule_problems(repo_root, remappings, here)
     # The bao-base this project has, for every check that compares the project with bao-base's files: with -C, the
     # project is another copy's, and its own bao-base can be another version at another path.
     bao_base_root = own_bao_base(repo_root)
@@ -1380,7 +1409,7 @@ def build_checks(
             "git fetches a submodule from the URL in .git/config, not from the URL in .gitmodules. If they are "
             "different, your copy comes from a place that other people do not use",
             "your builds work and other people's fail, although the code looks the same",
-            submodule_url_drift_problems(repo_root),
+            submodule_url_drift_problems(repo_root, here),
         ),
         Check(
             "each submodule folder has the commit this repository points to",
@@ -1398,7 +1427,16 @@ def build_checks(
             "the repository backwards. No yarn dep command adds an older commit. The check above passes, since the "
             "folder has the commit this repository points to",
             "the build uses the older version, and the next commit takes everyone who pulls back to it",
-            pointed_back_problems(repo_root, declared_submodules(repo_root), remappings),
+            pointed_back_problems(repo_root, declared_submodules(repo_root), remappings, here, itself=True),
+        ),
+        Check(
+            "no submodule that follows a branch is detached behind it",
+            "yarn dep sync stands a submodule that follows a branch on that branch, and stops rather than leave it "
+            "detached behind it. git leaves it so: git submodule update, which the editor's Discard on a submodule "
+            "runs, checks out the commit this repository points to and detaches",
+            "the build uses one version while the branch holds another, and a git add on that folder records the "
+            "older one",
+            detached_behind_branch_problems(repo_root, declared_submodules(repo_root), remappings, here, itself=True),
         ),
         Check(
             "every commit this repository points to is on a remote",
@@ -1406,7 +1444,7 @@ def build_checks(
             "the folder has the commit this repository points to, even when no remote holds that commit",
             "once this repository is pushed, CI and every other clone fail to check the submodule out, and only "
             "this computer can repair it",
-            unpublished_commit_problems(repo_root, remappings),
+            unpublished_commit_problems(repo_root, remappings, here),
         ),
         Check(
             "no git setting makes a push send tags that were not named",
@@ -1416,7 +1454,7 @@ def build_checks(
             "covers. Each dependency checkout has its own config, so each is read too",
             "a tag made for a moment on one computer is published to everyone, and a mirror push deletes "
             "published tags that this clone does not hold",
-            tag_push_setting_problems(repo_root),
+            tag_push_setting_problems(repo_root, here),
         ),
         Check(
             "every deployment tag the record derives is on origin, as it is here",
@@ -1425,7 +1463,7 @@ def build_checks(
             "tags, so doctor asks origin. A tag origin holds under a name the record no longer derives comes back "
             "with every fetch",
             "CI fails on the next push, and every clone that fetches gets the old tag back",
-            deployment_tag_problems(repo_root),
+            deployment_tag_problems(repo_root, here),
         ),
         Check(
             "no submodule contains old git repositories",
@@ -1440,7 +1478,7 @@ def build_checks(
             "The build reads a submodule inside a dependency only through a remapping. Any other one checked out "
             "there is left from an older recursive checkout, at whatever commit it had then",
             "it can be taken for code the build uses, and every tool that walks the submodules reads it",
-            unused_checkout_problems(repo_root, remappings),
+            unused_checkout_problems(repo_root, remappings, here),
         ),
         Check(
             "no foundry.lock",
@@ -1452,7 +1490,7 @@ def build_checks(
             "--locked. yarn dep sync leaves only the checkouts the build reads",
             "the lock names versions the dependencies left long ago, and forge --locked, or anyone who reads it, "
             "takes them for the current ones",
-            foundry_lock_problems(repo_root),
+            foundry_lock_problems(repo_root, here),
         ),
         Check(
             "no test sets its own fuzz or invariant parameters",
@@ -1522,7 +1560,7 @@ def build_checks(
             "needed them is finished",
             "every clone gets one developer's permissions, and reviewers read them as code instead of asking "
             "whether each one is still needed",
-            claude_local_settings_problems(repo_root),
+            claude_local_settings_problems(repo_root, here),
         ),
         Check(
             "committed .claude allow rules give no more access than this repository needs",
@@ -1542,7 +1580,7 @@ def build_checks(
             "if it keeps the file out of the repository",
             "someone wrote the rule to keep the file out of the repository, and it is still committed. Either "
             "the rule or the tracking is wrong, and the file is committed against someone's intention",
-            tracked_but_ignored_problems(repo_root),
+            tracked_but_ignored_problems(repo_root, here),
         ),
     ]
     if unused_files:
@@ -1590,10 +1628,12 @@ def main() -> None:
             ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True
         ).stdout.strip()
     )
+    typed = typed_in(Path.cwd(), os.environ)
     if arguments.root is not None:
         # The project named as `yarn dep -C` names it, from the folder the command was typed in. The report that
-        # follows names paths as that project names them, so its first line says which project it is.
-        found = root_project(arguments.root, typed_in(Path.cwd(), os.environ))
+        # follows names files as that project names them, so its first line says which project it is; its commands
+        # run from where doctor was typed.
+        found = root_project(arguments.root, typed)
         if isinstance(found, str):
             print(f"Stopped: {found}")
             raise SystemExit(1)
@@ -1604,7 +1644,13 @@ def main() -> None:
         repo_root = found.folder
     foundry_remappings, wake_remappings = load_remappings(repo_root)
     report(
-        build_checks(repo_root, foundry_remappings, wake_remappings, arguments.unused_files),
+        build_checks(
+            repo_root,
+            foundry_remappings,
+            wake_remappings,
+            arguments.unused_files,
+            Here(typed, repo_root, arguments.root),
+        ),
         verbose=arguments.verbose,
     )
 
