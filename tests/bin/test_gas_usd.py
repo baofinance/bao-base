@@ -1,8 +1,10 @@
-"""Tests for bin/gas-usd, built by bin/gas_usd.py: regression/gas.txt in US dollars, at mainnet's prices.
+"""Tests for bin/gas-usd, built by bin/gas_usd.py: what each function in regression/gas.txt that changes state
+costs in US dollars, at mainnet's prices.
 
-Each test runs the entry point from a throwaway working directory holding a regression/gas.txt, with a stub
-`cast` first on PATH. The stub records every call and answers it from a chain the test describes, in the
-words cast 1.9.0 uses, so nothing reaches a network. Each test names the single behaviour it verifies.
+Each test runs the entry point from a throwaway working directory holding a regression/gas.txt and, under
+out/_gas, the build files a gas run leaves: each contract's ABI and the source it was compiled from. A stub
+`cast` first on PATH records every call and answers it from a chain the test describes, in the words cast
+1.9.0 uses, so nothing reaches a network. Each test names the single behaviour it verifies.
 """
 
 import json
@@ -22,6 +24,7 @@ _BLOCK = 20_000_000
 # 1,800 blocks at a base fee of 1.2 and a tip of 0.6, the 5,400 before them at 0.15 and 0.05, so
 # (1,800 x 1.8 + 5,400 x 0.2) / 7,200. The base fee of the block after the last is 1,000 gwei, which would
 # move the mean to 0.7392 if it were counted with the other next-block base fees the responses carry.
+# So a unit of gas costs $0.000008 now and $0.0000012 at the day average.
 _CHAIN = {
     "block": _BLOCK,
     "timestamp": 1_800_000_000,
@@ -34,27 +37,42 @@ _CHAIN = {
     "next_base_fee": 1_000 * _GWEI,
 }
 
-_HEADER = "# regression: better=lower abs=500 rel=0.001 display={:.3e} ratchet=on\n"
-_CONTRACT_A = """
-src/A.sol:A
-| function name   |    max |   display |
-|-----------------|--------|-----------|
-| deposit         | 250000 | 2.500e+05 |
-| owner           |    612 | 6.120e+02 |
-"""
-_CONTRACT_B = """
-src/B.sol:B
-| function name          |     max |   display |
-|------------------------|---------|-----------|
-| claim()                | 1000000 | 1.000e+06 |
-| claim(address,uint256) |   50000 | 5.000e+04 |
-"""
-_GAS_TXT = _HEADER + _CONTRACT_A + _CONTRACT_B
+_UINT256 = {"name": "amount", "type": "uint256", "internalType": "uint256"}
+_ADDRESS = {"name": "to", "type": "address", "internalType": "address"}
+_ORDERS = {
+    "name": "orders",
+    "type": "tuple[]",
+    "internalType": "struct C.Order[]",
+    "components": [_UINT256, _ADDRESS],
+}
+# entries an ABI holds beside its functions, which carry no name or no state mutability
+_CONSTRUCTOR = {"type": "constructor", "inputs": [], "stateMutability": "nonpayable"}
+_EVENT = {"type": "event", "name": "Deposit", "inputs": [_UINT256], "anonymous": False}
 
-# each function's gas at 4 gwei and at 0.6 gwei, with ETH at $2,000: deposit 250,000 x 4e-9 x 2,000 = $2, and
-# at the day average $0.30
-_ROWS_A = [["deposit", "250000", "2.000", "0.3000"], ["owner", "612", "0.004896", "0.0007344"]]
-_ROWS_B = [["claim()", "1000000", "8.000", "1.200"], ["claim(address,uint256)", "50000", "0.4000", "0.06000"]]
+
+def _function(name: str, mutability: str, *inputs: dict) -> dict:
+    """An ABI entry for the function `name` taking `inputs`, marked `mutability`."""
+    return {"type": "function", "name": name, "inputs": list(inputs), "outputs": [], "stateMutability": mutability}
+
+
+_GAS = {
+    "src/A.sol:A": {"deposit": 250_000, "owner": 612, "withdraw": 125_000},
+    "src/B.sol:B": {"claim()": 1_000_000, "claim(address,uint256)": 50_000},
+}
+_ABIS = {
+    "src/A.sol:A": [
+        _CONSTRUCTOR,
+        _function("deposit", "nonpayable", _UINT256),
+        _function("owner", "view"),
+        _function("withdraw", "nonpayable", _UINT256),
+        _EVENT,
+    ],
+    "src/B.sol:B": [_function("claim", "nonpayable"), _function("claim", "payable", _ADDRESS, _UINT256)],
+}
+# each function that changes state, its gas at $0.000008 and at $0.0000012: deposit is 250,000 x 0.000008 = $2
+# and 250,000 x 0.0000012 = $0.30; owner is a view
+_ROWS_A = [["deposit", "250000", "$2.00", "$0.30"], ["withdraw", "125000", "$1.00", "$0.15"]]
+_ROWS_B = [["claim()", "1000000", "$8.00", "$1.20"], ["claim(address,uint256)", "50000", "$0.40", "$0.06"]]
 
 # cast 1.9.0's words for the provider's JSON-RPC error, and for a failure that is not the provider's
 _PROVIDERS_ERROR = "Error: server returned an error response: error code -32603: Internal error"
@@ -125,12 +143,34 @@ else:
 """
 
 
+def _gas_txt(contracts: dict[str, dict[str, int]]) -> str:
+    """A regression/gas.txt holding `contracts`, each a `file:Contract` to its functions' gas."""
+    parts = ["# regression: better=lower abs=500 rel=0.001 display={:.3e} ratchet=on\n"]
+    for contract, functions in contracts.items():
+        parts.append(f"\n{contract}\n| function name | max | display |\n|---------------|-----|---------|\n")
+        parts.extend(f"| {function} | {gas} | {gas:.3e} |\n" for function, gas in functions.items())
+    return "".join(parts)
+
+
+def _builds(abis: dict[str, list[dict]]) -> dict[str, tuple[str, list[dict]]]:
+    """The build files a gas run leaves for `abis`, each a `file:Contract` to its ABI: by where forge writes
+    each under out/_gas, `<File>.sol/<Contract>.json`, to the contract and its ABI."""
+    built = {}
+    for contract, abi in abis.items():
+        path, name = contract.split(":")
+        built[f"{pathlib.Path(path).name}/{name}.json"] = (contract, abi)
+    return built
+
+
 def _run(
-    folder: pathlib.Path, chain: dict | None = None, gas_txt: str | None = _GAS_TXT
+    folder: pathlib.Path,
+    chain: dict | None = None,
+    gas: dict[str, dict[str, int]] | None = _GAS,
+    builds: dict[str, tuple[str, list[dict]]] | None = None,
 ) -> tuple[subprocess.CompletedProcess, list[list[str]]]:
-    """Run bin/gas-usd in `folder`/work, holding `gas_txt` as regression/gas.txt (none when None), with a stub
-    cast answering from `_CHAIN` updated by `chain`; the finished process, and the arguments of every call cast
-    got."""
+    """Run bin/gas-usd in `folder`/work, holding `gas` as regression/gas.txt (none when None) and `builds` under
+    out/_gas (`_ABIS`' when None), with a stub cast answering from `_CHAIN` updated by `chain`; the finished
+    process, and the arguments of every call cast got."""
     stub_dir = folder / "stub"
     stub_dir.mkdir(parents=True)
     stub = stub_dir / "cast"
@@ -138,8 +178,13 @@ def _run(
     stub.chmod(0o755)
     work = folder / "work"
     (work / "regression").mkdir(parents=True)
-    if gas_txt is not None:
-        (work / "regression" / "gas.txt").write_text(gas_txt)
+    if gas is not None:
+        (work / "regression" / "gas.txt").write_text(_gas_txt(gas))
+    for relative, (contract, abi) in (_builds(_ABIS) if builds is None else builds).items():
+        path, name = contract.split(":")
+        build = work / "out" / "_gas" / relative
+        build.parent.mkdir(parents=True, exist_ok=True)
+        build.write_text(json.dumps({"abi": abi, "metadata": {"settings": {"compilationTarget": {path: name}}}}))
     described = folder / "chain.json"
     described.write_text(json.dumps(_CHAIN | (chain or {})))
     record = folder / "cast.jsonl"
@@ -174,6 +219,11 @@ def _line(output: str, label: str) -> str:
     return line
 
 
+def _closing(output: str) -> list[str]:
+    """The lines `output` ends with, after its last blank line."""
+    return output.rstrip("\n").split("\n\n")[-1].splitlines()
+
+
 def _fee_requests(calls: list[list[str]]) -> list[list[str]]:
     """The eth_feeHistory calls among `calls`."""
     return [call for call in calls if call[:2] == ["rpc", "eth_feeHistory"]]
@@ -181,25 +231,36 @@ def _fee_requests(calls: list[list[str]]) -> list[list[str]]:
 
 # ── the figures ──
 def test_each_row_is_its_gas_priced_at_the_gas_price_now_and_the_day_average(tmp_path):
-    ran, _ = _run(tmp_path, gas_txt=_HEADER + _CONTRACT_A)
+    ran, _ = _run(tmp_path, gas={"src/A.sol:A": {"deposit": 250_000}})
     assert ran.returncode == 0, ran.stderr
-    assert _tables(ran.stdout)[0][1][0] == ["deposit", "250000", "2.000", "0.3000"]
+    assert _tables(ran.stdout) == [("src/A.sol:A", [["deposit", "250000", "$2.00", "$0.30"]])]
 
 
 @pytest.mark.parametrize(
-    ("gas_txt", "expected"),
+    ("gas", "expected"),
     [
-        (_HEADER, []),
-        (_HEADER + _CONTRACT_A, [("src/A.sol:A", _ROWS_A)]),
-        (_GAS_TXT, [("src/A.sol:A", _ROWS_A), ("src/B.sol:B", _ROWS_B)]),
+        ({}, []),
+        ({"src/A.sol:A": _GAS["src/A.sol:A"]}, [("src/A.sol:A", _ROWS_A)]),
+        (_GAS, [("src/A.sol:A", _ROWS_A), ("src/B.sol:B", _ROWS_B)]),
     ],
     ids=["no contracts", "one contract", "two contracts"],
 )
-def test_every_contract_and_function_is_priced_in_gas_txt_order(tmp_path, gas_txt, expected):
-    ran, _ = _run(tmp_path, gas_txt=gas_txt)
+def test_every_contract_and_function_is_priced_in_gas_txt_order(tmp_path, gas, expected):
+    ran, _ = _run(tmp_path, gas=gas)
     assert ran.returncode == 0, ran.stderr
     assert _tables(ran.stdout) == expected
     assert _line(ran.stdout, "ETH/USD")
+
+
+def test_dollars_are_shown_to_the_cent(tmp_path):
+    # 154,320,975 x 0.000008 = $1,234.5678 and x 0.0000012 = $185.18517; 51,250 x 0.000008 = $0.41 and
+    # x 0.0000012 = $0.0615
+    gas = {"src/C.sol:C": {"big": 154_320_975, "small": 51_250}}
+    abis = {"src/C.sol:C": [_function("big", "nonpayable"), _function("small", "nonpayable")]}
+    ran, _ = _run(tmp_path, gas=gas, builds=_builds(abis))
+    assert _tables(ran.stdout) == [
+        ("src/C.sol:C", [["big", "154320975", "$1,234.57", "$185.19"], ["small", "51250", "$0.41", "$0.06"]])
+    ]
 
 
 def test_the_header_states_the_block_the_prices_and_the_fixed_transaction_cost(tmp_path):
@@ -211,7 +272,123 @@ def test_the_header_states_the_block_the_prices_and_the_fixed_transaction_cost(t
     assert "4.000 gwei" in _line(ran.stdout, "gas price now")
     assert "0.6000 gwei" in _line(ran.stdout, "gas price, day average")
     fixed = _line(ran.stdout, "fixed transaction cost")
-    assert "21000 gas" in fixed and "$0.1680 now" in fixed and "$0.02520 at the day average" in fixed, fixed
+    assert "21000 gas" in fixed and "$0.17 now" in fixed and "$0.03 at the day average" in fixed, fixed
+
+
+# ── which rows are shown ──
+def test_only_functions_that_change_state_are_shown(tmp_path):
+    gas = {"src/C.sol:C": {"burn": 250_000, "pay": 250_000, "peek": 250_000, "price": 250_000}}
+    abis = {
+        "src/C.sol:C": [
+            _function("burn", "nonpayable"),
+            _function("pay", "payable"),
+            _function("peek", "view"),
+            _function("price", "pure"),
+        ]
+    }
+    ran, _ = _run(tmp_path, gas=gas, builds=_builds(abis))
+    assert [row[0] for row in _tables(ran.stdout)[0][1]] == ["burn", "pay"]
+
+
+def test_an_overloaded_function_is_matched_by_its_signature(tmp_path):
+    # forge names an overloaded function by its signature, a tuple by its members' types
+    gas = {
+        "src/C.sol:C": {
+            "claim()": 250_000,
+            "claim(address,uint256)": 250_000,
+            "settle((uint256,address)[])": 250_000,
+            "settle(uint256)": 250_000,
+        }
+    }
+    abis = {
+        "src/C.sol:C": [
+            _function("claim", "nonpayable"),
+            _function("claim", "view", _ADDRESS, _UINT256),
+            _function("settle", "nonpayable", _ORDERS),
+            _function("settle", "view", _UINT256),
+        ]
+    }
+    ran, _ = _run(tmp_path, gas=gas, builds=_builds(abis))
+    assert [row[0] for row in _tables(ran.stdout)[0][1]] == ["claim()", "settle((uint256,address)[])"]
+
+
+def test_a_row_whose_function_the_contract_lacks_is_left_out_and_named(tmp_path):
+    # forge records a call to a selector the contract does not have - a probe for an optional function - under
+    # the name another contract gives that selector
+    gas = {"src/C.sol:C": {"ASSET_TOKEN": 2_000, "burn": 250_000}}
+    ran, _ = _run(tmp_path, gas=gas, builds=_builds({"src/C.sol:C": [_function("burn", "nonpayable")]}))
+    assert [row[0] for row in _tables(ran.stdout)[0][1]] == ["burn"]
+    assert _closing(ran.stdout)[-1] == "left out - not a function of its contract: src/C.sol:C ASSET_TOKEN"
+
+
+def test_a_row_below_a_cent_at_both_prices_is_left_out(tmp_path):
+    # 625 x 0.000008 is $0.005, which rounds up to a cent; 624 is $0.004992 now and $0.0007488 at the day
+    # average, both below half a cent
+    gas = {"src/C.sol:C": {"edge": 625, "under": 624}}
+    abis = {"src/C.sol:C": [_function("edge", "nonpayable"), _function("under", "nonpayable")]}
+    ran, _ = _run(tmp_path, gas=gas, builds=_builds(abis))
+    assert _tables(ran.stdout) == [("src/C.sol:C", [["edge", "625", "$0.01", "$0.00"]])]
+
+
+def test_a_row_reaching_a_cent_at_one_price_only_is_shown(tmp_path):
+    # with gas quoted at 0.1 gwei, 10,000 gas is $0.002 now and $0.012 at the day average
+    gas = {"src/C.sol:C": {"probe": 10_000}}
+    builds = _builds({"src/C.sol:C": [_function("probe", "nonpayable")]})
+    ran, _ = _run(tmp_path, chain={"gas_price": _GWEI // 10}, gas=gas, builds=builds)
+    assert _tables(ran.stdout) == [("src/C.sol:C", [["probe", "10000", "$0.00", "$0.01"]])]
+
+
+@pytest.mark.parametrize(("left", "functions"), [(0, ["peek"]), (1, ["burn", "peek"]), (2, ["burn", "mint", "peek"])])
+def test_a_contract_with_no_row_left_is_not_shown(tmp_path, left, functions):
+    gas = {"src/C.sol:C": dict.fromkeys(functions, 250_000)}
+    abis = {
+        "src/C.sol:C": [_function("burn", "nonpayable"), _function("mint", "nonpayable"), _function("peek", "view")]
+    }
+    ran, _ = _run(tmp_path, gas=gas, builds=_builds(abis))
+    shown = [["burn", "250000", "$2.00", "$0.30"], ["mint", "250000", "$2.00", "$0.30"]][:left]
+    assert _tables(ran.stdout) == ([("src/C.sol:C", shown)] if left else [])
+
+
+def test_contracts_under_test_are_left_out(tmp_path):
+    # a test's contracts are never deployed; none has a build file here, so none is looked for
+    gas = {"src/A.sol:A": _GAS["src/A.sol:A"], "test/mocks/M.sol:M": {"deposit": 250_000}}
+    ran, _ = _run(tmp_path, gas=gas, builds=_builds({"src/A.sol:A": _ABIS["src/A.sol:A"]}))
+    assert ran.returncode == 0, ran.stderr
+    assert [contract for contract, _ in _tables(ran.stdout)] == ["src/A.sol:A"]
+    assert _closing(ran.stdout) == [
+        "left out - view or pure: 1, below a cent at both prices: 0, contracts under test/: 1"
+    ]
+
+
+def test_the_closing_lines_count_what_was_left_out(tmp_path):
+    gas = {
+        "src/C.sol:C": {"ASSET_TOKEN": 2_000, "VERSION": 300, "burn": 250_000, "peek": 250_000, "tiny": 100},
+        "test/mocks/M.sol:M": {"deposit": 250_000},
+        "test/mocks/N.sol:N": {"deposit": 250_000},
+    }
+    abis = {"src/C.sol:C": [_function("burn", "nonpayable"), _function("peek", "view"), _function("tiny", "payable")]}
+    ran, _ = _run(tmp_path, gas=gas, builds=_builds(abis))
+    assert _closing(ran.stdout) == [
+        "left out - view or pure: 1, below a cent at both prices: 1, contracts under test/: 2",
+        "left out - not a function of its contract: src/C.sol:C ASSET_TOKEN, src/C.sol:C VERSION",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("builds", "found"),
+    [
+        # a contract of the same name compiled from another source is not its build
+        ({"A.sol/A.json": ("src/other/A.sol:A", _ABIS["src/A.sol:A"])}, 0),
+        (_builds(_ABIS) | {"nested/A.sol/A.json": ("src/A.sol:A", _ABIS["src/A.sol:A"])}, 2),
+    ],
+    ids=["none", "two"],
+)
+def test_a_contract_without_one_build_file_stops_the_run(tmp_path, builds, found):
+    ran, calls = _run(tmp_path, gas={"src/A.sol:A": _GAS["src/A.sol:A"]}, builds=builds)
+    assert ran.returncode == 1
+    assert f"src/A.sol:A: {found} build files" in ran.stderr, ran.stderr
+    assert ran.stdout == ""
+    assert calls == []
 
 
 # ── the day average ──
@@ -245,7 +422,7 @@ def test_a_provider_that_returns_fewer_blocks_than_asked_stops_the_run(tmp_path)
 def test_the_eth_price_is_scaled_by_the_feeds_own_decimals(tmp_path, decimals):
     ran, _ = _run(tmp_path, chain={"decimals": decimals, "answer": 2_000 * 10**decimals})
     assert "$2,000.00" in _line(ran.stdout, "ETH/USD")
-    assert _tables(ran.stdout)[0][1][0] == ["deposit", "250000", "2.000", "0.3000"]
+    assert _tables(ran.stdout)[0][1][0] == ["deposit", "250000", "$2.00", "$0.30"]
 
 
 def test_the_price_feed_and_the_block_time_are_read_at_the_block_read(tmp_path):
@@ -294,7 +471,7 @@ def test_any_other_cast_failure_stops_the_run_without_a_retry(tmp_path):
 
 
 def test_a_missing_gas_txt_stops_the_run_naming_the_path(tmp_path):
-    ran, calls = _run(tmp_path, gas_txt=None)
+    ran, calls = _run(tmp_path, gas=None)
     assert ran.returncode == 1
     assert "regression/gas.txt" in ran.stderr, ran.stderr
     assert calls == []

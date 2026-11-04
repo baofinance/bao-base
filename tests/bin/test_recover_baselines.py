@@ -1130,11 +1130,11 @@ def test_recovery_never_asks_a_block_explorer(tmp_path, monkeypatch):
     assert not [asked for asked in node.asked if asked[0] == "creation-code"], node.asked
 
 
-def test_the_factory_address_is_the_one_bao_factory_declares():
+def test_the_factory_address_is_the_one_bao_factory_declares(bao_base_dependencies):
     # The tool holds a copy of BaoFactory's address, because Python cannot import the Solidity constant that
     # declares it. The copy must be that constant, or the factory's events would be read from the wrong place.
     recover = load_recover_baselines()
-    declaration = (BIN.parent / "lib" / "bao-factory" / "src" / "BaoFactoryBytecode.sol").read_text()
+    declaration = (bao_base_dependencies / "bao-factory" / "src" / "BaoFactoryBytecode.sol").read_text()
     declared = re.search(r"address internal constant PREDICTED_PROXY = (0x[0-9a-fA-F]{40});", declaration)
     assert declared, "BaoFactoryBytecode.sol declares PREDICTED_PROXY"
 

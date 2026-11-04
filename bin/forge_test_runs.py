@@ -83,6 +83,15 @@ What each run is for:
   compiler warning. Coverage cannot be the gate: it compiles with the optimizer off, and solc then warns
   that the larger contracts exceed the code size limit. Under denied warnings forge 1.8.4 keeps no cache,
   so this run always compiles in full and cache/_gas stays empty until forge caches again.
+  The pinned seed alone does not fix the calls: forge also draws fuzz and invariant inputs from the
+  constants in the deployed bytecode, so an edit to any contract changes them, and with them a function's
+  measured maximum. A comment is enough, through the metadata hash solc appends to the bytecode. So this run
+  sets FOUNDRY_FUZZ_INCLUDE_PUSH_BYTES and FOUNDRY_INVARIANT_INCLUDE_PUSH_BYTES to false, replacing a
+  caller's own value: forge 1.9.0 has no flag for either. Measured in harbor-yield on forge 1.9.0: with the
+  constants in, three edits to one library, the last to a comment alone, each changed how often an
+  untouched function was called (1047 times before, then 1056, 1051 and 1054) and moved its maximum by up
+  to 41k gas; with them out, the library before and after a change of behaviour gave the same maxima. The
+  test and coverage runs keep forge's default, as the constants help the fuzzer find a bug.
 
 - coverage: --fuzz-seed 1: the baseline this run feeds (regression/coverage.txt) is compared exactly, so two
   runs of the same code must fuzz with the same inputs - an unpinned seed lets a branch that only some
@@ -109,8 +118,10 @@ from pathlib import Path
 
 from provider_failures import reads_as_the_providers
 
-# where the test run has forge write each test's result
+# where the test run has forge write each test's result, and where the gas run builds, which bin/gas_usd.py
+# reads each contract's ABI from
 _TEST_RESULTS = "tmp/forge-test-results.json"
+GAS_BUILD = "out/_gas"
 
 _EVERY_RUN = [
     "--gas-limit",
@@ -148,7 +159,7 @@ def command(run: str, environ: Mapping[str, str], arguments: Sequence[str]) -> l
             "test",
             _verbosity(environ, "-s"),
             "--out",
-            "out/_gas",
+            GAS_BUILD,
             "--cache-path",
             "cache/_gas",
             *_EVERY_RUN,
@@ -232,6 +243,9 @@ def main(run: str, arguments: Sequence[str]) -> int:
         # named from the working directory, as the tests' file permissions are
         logs_root = os.path.relpath(tempfile.mkdtemp(dir="tmp"))
         environ["BAO_DEPLOYMENT_LOGS_ROOT"] = logs_root
+    if run == "gas":
+        environ["FOUNDRY_FUZZ_INCLUDE_PUSH_BYTES"] = "false"
+        environ["FOUNDRY_INVARIANT_INCLUDE_PUSH_BYTES"] = "false"
     if run == "coverage":
         environ["BAO_COVERAGE_RUN"] = "true"
     forge = command(run, environ, arguments)

@@ -183,16 +183,33 @@ _BAO_BASE_ROOT = _BIN_DIR.parent
 
 
 @pytest.fixture(scope="session")
-def forge_project(tmp_path_factory):
+def bao_base_dependencies() -> Path:
+    """bao-base's lib folder, holding its own dependencies: every submodule its .gitmodules lists. Skips the test
+    where one of them is not checked out, as in a nested checkout, where only the submodules a remapping uses
+    are."""
+    listed = subprocess.run(
+        ["git", "config", "--file", ".gitmodules", "--get-regexp", r"^submodule\..*\.path$"],
+        cwd=_BAO_BASE_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    for line in listed:
+        folder = _BAO_BASE_ROOT / line.split(" ", 1)[1]
+        if not folder.is_dir() or not any(folder.iterdir()):
+            pytest.skip("bao-base's own dependencies are not checked out, as in a nested checkout")
+    return _BAO_BASE_ROOT / "lib"
+
+
+@pytest.fixture(scope="session")
+def forge_project(tmp_path_factory, bao_base_dependencies):
     """A project to build bao-base's sources in that is not the repository itself, so that a test's build leaves
     the checkout as it found it. forge, run in the repository root, installs every submodule whose folder is empty
     and writes foundry.lock as it does so - in a nested checkout, where only the submodules a remapping uses are
     checked out, that reinstalls the rest - and leaves its artefacts under out/. A project that is no git
     repository can do neither. It holds a copy of foundry.toml and symlinks to src, test, script and lib, through
     which forge reads sources; its out/ and cache/ are its own. Skipped where bao-base's own dependencies are not
-    checked out, as in a nested checkout, since a build there cannot resolve their imports."""
-    if not (_BAO_BASE_ROOT / "lib" / "forge-std" / "src").is_dir():
-        pytest.skip("bao-base's own dependencies are not checked out, as in a nested checkout")
+    checked out, since a build there cannot resolve their imports."""
     project = tmp_path_factory.mktemp("bao-base-project")
     shutil.copy(_BAO_BASE_ROOT / "foundry.toml", project / "foundry.toml")
     for name in ("src", "test", "script", "lib"):
