@@ -929,7 +929,9 @@ def report_move(repo_root: Path, path: str, ref: str, target: Pin | None, remapp
     for directory, level in nested_levels(repo_root, path, remappings):
         if not at_record(directory, level):
             display = (directory / level.path).relative_to(repo_root).as_posix()
-            nested_off[display] = f"{here.git(directory)} submodule update --init -- {level.path}"
+            # What `check_out` runs: git skips a submodule whose update is none, so the setting goes first.
+            unset = f"{here.git(directory)} config --unset submodule.{level.name}.update && " if kept_empty(directory, level) else ""
+            nested_off[display] = f"{unset}{here.git(directory)} submodule update --init -- {level.path}"
     rev = target.rev if target is not None else None
     follows = target.name if target is not None and target.kind == MOVING else None
     stages = move_checklist(

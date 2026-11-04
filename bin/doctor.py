@@ -45,7 +45,9 @@ from submodule_state import (
     submodule_levels,
     submodules_the_build_reads,
     typed_in,
+    kept_empty,
     unused_checkouts,
+    unused_submodules,
 )
 
 
@@ -433,6 +435,26 @@ def unused_checkout_problems(repo_root: Path, remappings: list[str], here: Here 
         f"  Repair: {(here or Here(repo_root, repo_root)).dep(repo_root)} sync. One that holds work only on this "
         "computer stops it, and is named with that work."
     )
+    return ["\n".join(lines)]
+
+
+def empty_without_update_none_problems(repo_root: Path, remappings: list[str], here: Here | None = None) -> list[str]:
+    """Submodules inside this repository's dependencies that no remapping uses, with nothing checked out, and
+    without `update = none` in the git config of the repository that lists them. forge, run inside the dependency,
+    checks out each one it finds not checked out and writes foundry.lock, unless git skips it; `yarn dep sync` sets
+    the setting. A checked-out one is `unused_checkout_problems`' finding. Returns one block listing each, or []."""
+    found = [
+        (parent / nested.path).relative_to(repo_root).as_posix()
+        for dependency in declared_submodules(repo_root)
+        if (repo_root / dependency.path / ".git").exists()
+        for parent, nested in unused_submodules(repo_root, repo_root, dependency, remappings)
+        if not (parent / nested.path / ".git").exists() and not kept_empty(parent, nested)
+    ]
+    if not found:
+        return []
+    lines = ["These submodules inside a dependency are empty, and git is not told to keep them so:"]
+    lines.extend(f"  {path}" for path in found)
+    lines.append(f"  Repair: {(here or Here(repo_root, repo_root)).dep(repo_root)} sync")
     return ["\n".join(lines)]
 
 
@@ -1479,6 +1501,15 @@ def build_checks(
             "there is left from an older recursive checkout, at whatever commit it had then",
             "it can be taken for code the build uses, and every tool that walks the submodules reads it",
             unused_checkout_problems(repo_root, remappings, here),
+        ),
+        Check(
+            "inside each dependency, git keeps empty the submodules the build does not read",
+            "forge, run inside a dependency, checks out each of the dependency's submodules it finds empty, and "
+            "writes foundry.lock. git's update = none, which yarn dep sync sets in the dependency's git config, "
+            "makes git, and forge through it, skip the folder",
+            "a forge command typed inside the dependency fills every such folder, at every depth, and writes "
+            "foundry.lock there",
+            empty_without_update_none_problems(repo_root, remappings, here),
         ),
         Check(
             "no foundry.lock",

@@ -178,6 +178,22 @@ def test_forge_build_writes_foundry_lock_when_it_installs_a_dependency(tmp_path)
     )
 
 
+def test_forge_build_leaves_a_dependency_with_update_none_empty_and_writes_no_lock(tmp_path):
+    # What `yarn dep sync` relies on to keep a dependency's unused submodules empty. forge still finds the folder
+    # missing, but its install is `git submodule update`, which skips a submodule whose update is none: nothing is
+    # checked out and no foundry.lock is written. The test above has the same gap without the setting.
+    project = project_with(tmp_path, ["present", "absent"])
+    git(project, "submodule", "deinit", "--force", "--quiet", "--", "lib/absent")
+    git(project, "config", "submodule.lib/absent.update", "none")
+
+    output = forge_build(project)
+
+    assert "Missing dependencies found" in output, output
+    assert "Skipping submodule 'lib/absent'" in output, output
+    assert not any((project / "lib" / "absent").iterdir()), "nothing is checked out"
+    assert not (project / "foundry.lock").exists()
+
+
 def test_the_install_repoints_a_shared_gitdir_when_the_build_runs_in_a_linked_worktree(tmp_path):
     # Why the export cannot be a worktree. A linked worktree's submodules share the REAL repository's
     # .git/modules, so forge settling a dependency inside the worktree rewrites where the real

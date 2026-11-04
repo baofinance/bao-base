@@ -1036,6 +1036,28 @@ def test_an_update_failure_reports_gits_error_the_steps_run_and_where_things_sta
     assert "[x] 2." in result.stdout and "[ ] 3." in result.stdout, result.stdout
 
 
+def test_an_update_failure_names_the_unset_for_a_remapped_nested_path_left_empty(tmp_path):
+    # Remappings added since the last sync name lib/inner and lib/spare, which that sync left empty with update =
+    # none. The update stops at lib/inner, before reaching lib/spare, which keeps the setting: the repair it prints
+    # for lib/spare removes the setting first, since git skips the checkout otherwise, and running it checks
+    # lib/spare out.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    (here / "foundry.toml").write_text(
+        foundry_toml(["dep/=lib/dep/src/", "inner/=lib/dep/lib/inner/src/", "spare/=lib/dep/lib/spare/src/"])
+    )
+    record_an_unpushed_nested_commit(world, "inner")
+    spare_repair = "git -C lib/dep config --unset submodule.lib/spare.update && git -C lib/dep submodule update --init -- lib/spare"
+
+    result = update(here, "dep@main")
+    repaired = subprocess.run(spare_repair, shell=True, cwd=here, capture_output=True, text=True, env=GIT_ENV)
+
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert f"git -C lib/dep submodule update --init -- lib/inner && {spare_repair}" in result.stdout, result.stdout
+    assert repaired.returncode == 0, repaired.stdout + repaired.stderr
+    assert checked_out(here / "lib" / "dep" / "lib" / "spare") == recorded(here, "lib/dep/lib/spare")
+
+
 # ── update: leftovers ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -2121,6 +2143,28 @@ def test_doctor_reports_nested_checkouts_no_remapping_uses(tmp_path):
     assert [line.strip() for line in found[0].splitlines()[1:4]] == UNUSED, found[0]
     assert "Repair: yarn dep sync" in found[0], found[0]
     assert "--prune" not in found[0], found[0]
+
+
+def test_doctor_reports_nested_submodules_left_empty_without_update_none(tmp_path):
+    # forge, run inside a dependency, checks out each submodule it finds not checked out unless git is told to leave
+    # it empty. Doctor names each empty one that is not, with the command that tells git; a checked-out one is the
+    # unused-checkout check's.
+    here = synced(make_world(tmp_path, INNER_REMAPPED))
+    heading = "These submodules inside a dependency are empty, and git is not told to keep them so:"
+    repair = "  Repair: yarn dep sync"
+
+    none = doctor.empty_without_update_none_problems(here, INNER_REMAPPED)
+    git(here / "lib" / "dep", "config", "--unset", "submodule.lib/spare.update")
+    one = doctor.empty_without_update_none_problems(here, INNER_REMAPPED)
+    git(here / "lib" / "tool", "config", "--unset", "submodule.lib/helper.update")
+    several = doctor.empty_without_update_none_problems(here, INNER_REMAPPED)
+    git(here / "lib" / "dep", "submodule", "update", "--init", "--", "lib/spare")
+    one_checked_out = doctor.empty_without_update_none_problems(here, INNER_REMAPPED)
+
+    assert none == []
+    assert one == [f"{heading}\n  lib/dep/lib/spare\n{repair}"]
+    assert several == [f"{heading}\n  lib/dep/lib/spare\n  lib/tool/lib/helper\n{repair}"]
+    assert one_checked_out == [f"{heading}\n  lib/tool/lib/helper\n{repair}"]
 
 
 def test_doctor_names_yarn_dep_sync_for_a_leftover_repository(tmp_path):
