@@ -33,7 +33,9 @@ test = "test"
 
 [rpc_endpoints]
 stub = { endpoint = "http://127.0.0.1:%d", retries = 2, retry_backoff = 100 }
-plain = "http://127.0.0.1:%d"
+# its own path on the stub, which ignores paths: a forge with the fix gives a URL an entry's settings only when every
+# entry resolving to that URL agrees, so `plain` at the stub's URL would cancel `stub` and the URL form's pin never fire
+plain = "http://127.0.0.1:%d/plain"
 """
 
 # the cheatcodes at their address, so the project needs no forge-std
