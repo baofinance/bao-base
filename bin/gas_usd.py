@@ -3,9 +3,11 @@
 `yarn gas:usd` prints.
 
 Run from the project's folder after `yarn gas`: it reads gas.txt and the build that gas run left, and runs
-neither again. Each function a transaction pays for is shown with its gas, and that gas in dollars to the cent
+neither again. Each function a transaction pays for is shown with its gas, and what that gas costs to the cent
 at two gas prices: the gas price now, and the day average. gas.txt's figure is the most gas any test call to the
-function used, so each dollar figure is the cost of that call.
+function used, so each cost is the cost of that call. A cost below a dollar is shown in cents, 41¢, and one from
+a dollar in dollars, $1.00. In a column a cost in dollars is followed by a space, where a cost in cents has its ¢,
+so the last digits line up.
 
 Which rows are shown:
 
@@ -16,7 +18,7 @@ Which rows are shown:
   chain read.
 - A row whose function is not in its contract's ABI is left out and named. forge records a call to a selector
   the contract lacks - a probe for an optional function - under the name another contract gives that selector.
-- A row whose figures both round to $0.00, below half a cent, is left out. Cents round half up.
+- A row whose costs both round to 0¢, below half a cent, is left out. Cents round half up.
 - Contracts under test/ are left out: they are never deployed.
 - A contract with no row left is not shown.
 
@@ -60,7 +62,7 @@ from decimal import Context, Decimal
 from fractions import Fraction
 from pathlib import Path
 
-from tabulate import tabulate
+import tabulate
 
 import columns
 import compare
@@ -118,9 +120,12 @@ def _cents(gas: int, wei_per_gas: Fraction, eth_usd: Fraction) -> int:
     return math.floor(gas * wei_per_gas * eth_usd * 100 / _WEI_PER_ETH + Fraction(1, 2))
 
 
-def _dollars(cents: int) -> str:
-    """`cents` in dollars: $0.41, $1,234.57."""
-    return f"${cents // 100:,}.{cents % 100:02d}"
+def _cost(cents: int, after_dollars: str = "") -> str:
+    """`cents` as a cost: in cents below a dollar, 41¢, and in dollars from a dollar, $1.00 or $1,234.57, followed
+    by `after_dollars`. A column passes a space, which sits where a cost in cents has its ¢."""
+    if cents < 100:
+        return f"{cents}¢"
+    return f"${cents // 100:,}.{cents % 100:02d}{after_dollars}"
 
 
 def _time(timestamp: int) -> str:
@@ -210,7 +215,9 @@ def main(arguments: Sequence[str]) -> int:
         for function, gas in functions.items():
             cents_now, cents_day = _cents(gas, now, eth_usd), _cents(gas, day, eth_usd)
             if cents_now or cents_day:
-                rows.append([function, str(gas), _dollars(cents_now), _dollars(cents_day)])
+                rows.append(
+                    [function, str(gas), _cost(cents_now, after_dollars=" "), _cost(cents_day, after_dollars=" ")]
+                )
             else:
                 cheap += 1
         if rows:
@@ -229,17 +236,19 @@ def main(arguments: Sequence[str]) -> int:
         [
             "fixed transaction cost",
             f"{_TRANSACTION_GAS} gas",
-            f"{_dollars(_cents(_TRANSACTION_GAS, now, eth_usd))} now, "
-            f"{_dollars(_cents(_TRANSACTION_GAS, day, eth_usd))} at the day average; not in the rows below",
+            f"{_cost(_cents(_TRANSACTION_GAS, now, eth_usd))} now, "
+            f"{_cost(_cents(_TRANSACTION_GAS, day, eth_usd))} at the day average; not in the rows below",
         ],
     ]
     for line in columns.rows(header):
         print(line)
+    # tabulate's documented switch to keep the space after a cost in dollars, which it strips by default
+    tabulate.PRESERVE_WHITESPACE = True
     for contract, rows in tables:
         print()
         print(contract)
         print(
-            tabulate(
+            tabulate.tabulate(
                 rows,
                 headers=["function name", "gas", "now", "day average"],
                 tablefmt="github",

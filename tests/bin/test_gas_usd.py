@@ -70,9 +70,9 @@ _ABIS = {
     "src/B.sol:B": [_function("claim", "nonpayable"), _function("claim", "payable", _ADDRESS, _UINT256)],
 }
 # each function that changes state, its gas at $0.000008 and at $0.0000012: deposit is 250,000 x 0.000008 = $2
-# and 250,000 x 0.0000012 = $0.30; owner is a view
-_ROWS_A = [["deposit", "250000", "$2.00", "$0.30"], ["withdraw", "125000", "$1.00", "$0.15"]]
-_ROWS_B = [["claim()", "1000000", "$8.00", "$1.20"], ["claim(address,uint256)", "50000", "$0.40", "$0.06"]]
+# and 250,000 x 0.0000012 = 30 cents; owner is a view
+_ROWS_A = [["deposit", "250000", "$2.00", "30¢"], ["withdraw", "125000", "$1.00", "15¢"]]
+_ROWS_B = [["claim()", "1000000", "$8.00", "$1.20"], ["claim(address,uint256)", "50000", "40¢", "6¢"]]
 
 # cast 1.9.0's words for the provider's JSON-RPC error, and for a failure that is not the provider's
 _PROVIDERS_ERROR = "Error: server returned an error response: error code -32603: Internal error"
@@ -233,7 +233,7 @@ def _fee_requests(calls: list[list[str]]) -> list[list[str]]:
 def test_each_row_is_its_gas_priced_at_the_gas_price_now_and_the_day_average(tmp_path):
     ran, _ = _run(tmp_path, gas={"src/A.sol:A": {"deposit": 250_000}})
     assert ran.returncode == 0, ran.stderr
-    assert _tables(ran.stdout) == [("src/A.sol:A", [["deposit", "250000", "$2.00", "$0.30"]])]
+    assert _tables(ran.stdout) == [("src/A.sol:A", [["deposit", "250000", "$2.00", "30¢"]])]
 
 
 @pytest.mark.parametrize(
@@ -252,15 +252,38 @@ def test_every_contract_and_function_is_priced_in_gas_txt_order(tmp_path, gas, e
     assert _line(ran.stdout, "ETH/USD")
 
 
-def test_dollars_are_shown_to_the_cent(tmp_path):
+def test_a_cost_from_a_dollar_is_in_dollars_to_the_cent_and_one_below_a_dollar_in_cents(tmp_path):
     # 154,320,975 x 0.000008 = $1,234.5678 and x 0.0000012 = $185.18517; 51,250 x 0.000008 = $0.41 and
     # x 0.0000012 = $0.0615
     gas = {"src/C.sol:C": {"big": 154_320_975, "small": 51_250}}
     abis = {"src/C.sol:C": [_function("big", "nonpayable"), _function("small", "nonpayable")]}
     ran, _ = _run(tmp_path, gas=gas, builds=_builds(abis))
     assert _tables(ran.stdout) == [
-        ("src/C.sol:C", [["big", "154320975", "$1,234.57", "$185.19"], ["small", "51250", "$0.41", "$0.06"]])
+        ("src/C.sol:C", [["big", "154320975", "$1,234.57", "$185.19"], ["small", "51250", "41¢", "6¢"]])
     ]
+
+
+def test_a_cost_that_rounds_to_a_dollar_is_in_dollars(tmp_path):
+    # 124,375 x 0.000008 = $0.995, which rounds up to a dollar, and 124,374 x 0.000008 = $0.994992 to 99 cents;
+    # at the day average they are $0.14925 and $0.1492488, both 15 cents
+    gas = {"src/C.sol:C": {"dollar": 124_375, "under": 124_374}}
+    abis = {"src/C.sol:C": [_function("dollar", "nonpayable"), _function("under", "nonpayable")]}
+    ran, _ = _run(tmp_path, gas=gas, builds=_builds(abis))
+    assert _tables(ran.stdout) == [
+        ("src/C.sol:C", [["dollar", "124375", "$1.00", "15¢"], ["under", "124374", "99¢", "15¢"]])
+    ]
+
+
+def test_the_last_digit_of_a_cost_in_cents_is_under_that_of_a_cost_in_dollars(tmp_path):
+    # a cost in dollars is followed by a space, where a cost in cents has its ¢
+    ran, _ = _run(tmp_path, gas={"src/B.sol:B": _GAS["src/B.sol:B"]})
+    dollars = _line(ran.stdout, "| claim() ")
+    cents = _line(ran.stdout, "| claim(address,uint256) ")
+    for in_dollars, in_cents in (("$8.00", "40¢"), ("$1.20", "6¢")):
+        # the column after each figure's last digit
+        assert dollars.index(in_dollars) + len(in_dollars) == cents.index(in_cents) + len(in_cents) - len("¢"), (
+            f"{dollars}\n{cents}"
+        )
 
 
 def test_the_header_states_the_block_the_prices_and_the_fixed_transaction_cost(tmp_path):
@@ -272,7 +295,14 @@ def test_the_header_states_the_block_the_prices_and_the_fixed_transaction_cost(t
     assert "4.000 gwei" in _line(ran.stdout, "gas price now")
     assert "0.6000 gwei" in _line(ran.stdout, "gas price, day average")
     fixed = _line(ran.stdout, "fixed transaction cost")
-    assert "21000 gas" in fixed and "$0.17 now" in fixed and "$0.03 at the day average" in fixed, fixed
+    assert "21000 gas" in fixed and "17¢ now, 3¢ at the day average" in fixed, fixed
+
+
+def test_a_fixed_transaction_cost_in_dollars_is_followed_by_its_words_alone(tmp_path):
+    # 21,000 gas at 40 gwei with ETH at $2,000 is $1.68
+    ran, _ = _run(tmp_path, chain={"gas_price": 40 * _GWEI})
+    fixed = _line(ran.stdout, "fixed transaction cost")
+    assert "$1.68 now, 3¢ at the day average" in fixed, fixed
 
 
 # ── which rows are shown ──
@@ -327,7 +357,7 @@ def test_a_row_below_a_cent_at_both_prices_is_left_out(tmp_path):
     gas = {"src/C.sol:C": {"edge": 625, "under": 624}}
     abis = {"src/C.sol:C": [_function("edge", "nonpayable"), _function("under", "nonpayable")]}
     ran, _ = _run(tmp_path, gas=gas, builds=_builds(abis))
-    assert _tables(ran.stdout) == [("src/C.sol:C", [["edge", "625", "$0.01", "$0.00"]])]
+    assert _tables(ran.stdout) == [("src/C.sol:C", [["edge", "625", "1¢", "0¢"]])]
 
 
 def test_a_row_reaching_a_cent_at_one_price_only_is_shown(tmp_path):
@@ -335,7 +365,7 @@ def test_a_row_reaching_a_cent_at_one_price_only_is_shown(tmp_path):
     gas = {"src/C.sol:C": {"probe": 10_000}}
     builds = _builds({"src/C.sol:C": [_function("probe", "nonpayable")]})
     ran, _ = _run(tmp_path, chain={"gas_price": _GWEI // 10}, gas=gas, builds=builds)
-    assert _tables(ran.stdout) == [("src/C.sol:C", [["probe", "10000", "$0.00", "$0.01"]])]
+    assert _tables(ran.stdout) == [("src/C.sol:C", [["probe", "10000", "0¢", "1¢"]])]
 
 
 @pytest.mark.parametrize(("left", "functions"), [(0, ["peek"]), (1, ["burn", "peek"]), (2, ["burn", "mint", "peek"])])
@@ -345,7 +375,7 @@ def test_a_contract_with_no_row_left_is_not_shown(tmp_path, left, functions):
         "src/C.sol:C": [_function("burn", "nonpayable"), _function("mint", "nonpayable"), _function("peek", "view")]
     }
     ran, _ = _run(tmp_path, gas=gas, builds=_builds(abis))
-    shown = [["burn", "250000", "$2.00", "$0.30"], ["mint", "250000", "$2.00", "$0.30"]][:left]
+    shown = [["burn", "250000", "$2.00", "30¢"], ["mint", "250000", "$2.00", "30¢"]][:left]
     assert _tables(ran.stdout) == ([("src/C.sol:C", shown)] if left else [])
 
 
@@ -422,7 +452,7 @@ def test_a_provider_that_returns_fewer_blocks_than_asked_stops_the_run(tmp_path)
 def test_the_eth_price_is_scaled_by_the_feeds_own_decimals(tmp_path, decimals):
     ran, _ = _run(tmp_path, chain={"decimals": decimals, "answer": 2_000 * 10**decimals})
     assert "$2,000.00" in _line(ran.stdout, "ETH/USD")
-    assert _tables(ran.stdout)[0][1][0] == ["deposit", "250000", "$2.00", "$0.30"]
+    assert _tables(ran.stdout)[0][1][0] == ["deposit", "250000", "$2.00", "30¢"]
 
 
 def test_the_price_feed_and_the_block_time_are_read_at_the_block_read(tmp_path):
