@@ -107,11 +107,10 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-# where the test run has forge write each test's result, and the words in a failure's reason that make it the
-# provider's: forge 1.9.0's, for its JSON-RPC error, the retries on its refusals exhausted, and the fork
-# backend's read failing
+from provider_failures import reads_as_the_providers
+
+# where the test run has forge write each test's result
 _TEST_RESULTS = "tmp/forge-test-results.json"
-_PROVIDER_FAILURE = ("server returned an error response", "Max retries exceeded", "Failed to send/recv")
 
 _EVERY_RUN = [
     "--gas-limit",
@@ -204,11 +203,6 @@ def _failures(results: Path) -> dict[str, dict[str, str]]:
     return failures
 
 
-def _the_providers(reason: str) -> bool:
-    """Whether a failure's `reason` reads as the provider's."""
-    return any(words in reason for words in _PROVIDER_FAILURE)
-
-
 def _count(failures: Mapping[str, Mapping[str, str]]) -> int:
     """The number of failed tests in `failures`."""
     return sum(len(tests) for tests in failures.values())
@@ -253,12 +247,12 @@ def main(run: str, arguments: Sequence[str]) -> int:
                 return status
             failures = _failures(results)
             providers = {
-                suite: {test: reason for test, reason in tests.items() if _the_providers(reason)}
+                suite: {test: reason for test, reason in tests.items() if reads_as_the_providers(reason)}
                 for suite, tests in failures.items()
             }
             providers = {suite: tests for suite, tests in providers.items() if tests}
             others = {
-                suite: {test: reason for test, reason in tests.items() if not _the_providers(reason)}
+                suite: {test: reason for test, reason in tests.items() if not reads_as_the_providers(reason)}
                 for suite, tests in failures.items()
             }
             others = {suite: tests for suite, tests in others.items() if tests}

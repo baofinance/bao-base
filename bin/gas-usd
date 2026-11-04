@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""`yarn gas:usd`: regression/gas.txt in US dollars. The work is gas_usd's, which says what it shows."""
+
+import sys
+
+from gas_usd import main
+
+sys.exit(main(sys.argv[1:]))

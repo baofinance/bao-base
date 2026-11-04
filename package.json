@@ -9,6 +9,7 @@
     "doctor": "./run doctor",
     "clean": "./run clean",
     "gas": "./run duration-of regression-of gas",
+    "gas:usd": "./run gas-usd",
     "sizes": "./run regression-of sizes",
     "fmt": "./run fmt-sol --write",
     "fmt:check": "./run fmt-sol --check",
