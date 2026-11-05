@@ -211,6 +211,13 @@ The architectural fix is worth far more than the convenience of deferring it:
 (Complements "Do it right from the start": that rule is about *where* code lives;
 this is about the *order* — foundation before dependents.)
 
+### Contract size never shapes a fix
+Design every fix and feature for correctness and clarity alone. A contract's size is never a reason to
+choose a fix's form, to place its code somewhere else, to leave part of it out, or to defer it. Size is
+a separate problem with its own remedy (the rule below), solved as its own step. When a correct change
+takes a contract over the limit, say so in the report and propose the size step separately. Do not
+offer the size as an argument for doing the change differently.
+
 ### External libraries reduce contract size; internal libraries share code
 Two distinct jobs, two distinct tools. Choosing by habit rather than by job is how a contract runs out
 of its 24 KB while its "libraries" deploy at 85 bytes each.
