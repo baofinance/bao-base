@@ -2,70 +2,91 @@
 
 ## Working mode
 
-Work in batches with a checkpoint between each. After completing a batch, stop
-and report — do not continue to the next batch without the user confirming. Use
-the plan file in `~/.claude/plans/` to track multi-session work; update it after
-each completed step and commit the change.
+Work in batches. After each batch, stop and report. Start the next batch only on
+the user's explicit "go": the user may need to ask questions before deciding.
 
-A plan file opens with a running status: brief, so what is done and what remains
-can be seen at a glance, and kept current with every step.
+Track multi-session work in a plan file in `~/.claude/plans/`. A plan file opens
+with a running status: brief, so what is done and what remains can be seen at a
+glance, and kept current with every step. Update the plan after each completed
+step and commit it (see Git).
 
 ### Size a batch by the decisions it needs, not by the work in it
 The checkpoint exists for the user's decisions. Combine steps into one batch —
-two or three where they fit — when together they need few decisions; split where
+two or three where they fit — when together they need few decisions. Split where
 a batch would carry several decisions, or one weighty enough to deserve its own
 checkpoint. A bigger batch has a longer commit message, which is fine: each line
 of it is crisp.
 
-### Report in six parts, in this order
-1. **Decisions needed to continue** — each with a recommendation, the reason for
+### Report in five parts, in this order
+1. **What changed** — a bullet per change: a bold headline, then the detail.
+2. **Decisions taken that need validating** — each call made on the user's
+   behalf, and why. When there are none, say "None".
+3. **The commit message** (see Git).
+4. **A link to the plan file(s)**, so the user can see the context of the batch.
+5. **Decisions needed to continue** — each with a recommendation, the reason for
    it, and the viable options where there are any. Approving the next step is one
    of them: say what saying yes starts.
-2. **Decisions taken that need validating** — each call made on the user's
-   behalf, and why. When there are none, say "None": it is read first, and
-   nothing to check is the answer the user wants.
-3. **What changed** — a bullet per change: a bold headline, then the detail.
-4. **The commit message** (see Git).
-5. **Progress** — date and time at the top (Ddd dd-Mmm-yyy HH:MM) and every step in the plan, one line each, marked ✅ done, → next
-   or ⬜ to do. The whole list, not only the next step: what is finished and what
-   remains must be visible without opening the plan.
-6. **Summary of the decisions needed** — the first part again, a line each.
 
-A planning report uses the same parts, opened by the plan's running status; with
-no repository change, it has no commit message.
+### Give each design decision its full picture
+When discussing design decisions, do not present disconnected multiple-choice
+questions. Write out the full picture first — user flows, accounting,
+consequences — so the context of the decision is clear. Then give a
+recommendation with its reasoning, not a menu of options without enough
+background. Detailed analysis goes in the plan file or the design documents, not
+in the question dialog.
 
-Never end a planning pass with "is the plan good to go?" and then immediately
-execute on confirmation. Planning and execution are separate sessions. After
-presenting or updating a plan, stop. The user will explicitly say when to start
-executing a batch.
+## Working with the user
+
+### Questions are not instructions
+A message that ends with "?" is a question. Answer it in the reply, before doing
+anything else. Do not treat it as a directive to change code or behavior.
+
+### Challenge the user's suggestions — don't just comply
+Treat a proposal as an instruction to be *questioned*, not an order to execute: a
+suggestion for *how* to do something is an invitation to find the best way, which
+may not be the suggested one. Before implementing it, weigh it against these
+tests. If it trips one, say so and put the alternative on the table *before*
+writing any code — even when the suggestion arrived as a direct instruction.
+- **Reinventing a wheel.** Does it fail to use a tool that already solves this —
+  in-house or off-the-shelf, even one not yet installed? Could an existing tool be
+  extended instead of a new one created? Prefer reusing another tool's output over
+  re-deriving what it already computes.
+- **Harder to test.** Would a different shape be easier to test — steps kept
+  separate instead of fused, or a design that needs no elaborate fixtures?
+- **Off-standard.** Does it depart from an established industry standard, protocol
+  annotation, or idiom for this class of problem? An industry standard carries
+  more weight than a house rule.
+
+Ready agreement yields a worse design, and wasted round-trips when the flaw is
+found later. A reasoned objection with a concrete alternative is worth far more
+than fast compliance. Where a claim about an existing tool's behavior decides the design,
+verify it with data (see "Diagnose from evidence").
+
+### A reported problem gets fixed, not judged
+When the user reports a problem, fix it. Do not decide on your own that it is out
+of scope, pre-existing, already resolved by another fix, or someone else's
+concern. If you believe one of these, say so, give your reasoning, and ask whether
+the user still wants it addressed. Never declare a judgment such as "this is
+pre-existing" or "the root cause is X" and then act on it without confirmation.
 
 ## Communication
 
-### Plain language first; slang only after it is defined
-Do not use jargon or programmer slang as the primary carrier of meaning in
-explanations, reports, or comments. State the point in plain, precise terms first;
-after that you may introduce the slang term in brackets — e.g. "an API whose
-documented behaviour invites accidental misuse (a 'footgun')" — and reuse the term
-freely afterwards, since it is now defined. A reader must never need prior
-knowledge of the slang to understand the point. (This is the prose counterpart of
-the "no unexplained abbreviations in code" rule below.)
+These rules govern all prose: replies to the user, reports, plans, code comments,
+commit messages, and every message a tool prints (titles, explanations, findings,
+refusals, repair lines).
 
 ### International English
-Write all prose — reports, plans, code comments, commit messages — in plain
-international English: US spelling, software's common default ("behavior",
-"initialize"), but nothing US-centric in vocabulary, idiom or convention — no
-regional or sporting metaphors, dates as ISO 8601 (2026-10-07) — so it reads
-naturally to a reader anywhere. The rule governs what is newly written: existing
-text is not rewritten for spelling alone, and an identifier keeps the spelling it
-already has.
+Use US spelling, software's common default ("behavior", "initialize"), but nothing
+US-centric in vocabulary, idiom or convention: no regional or sporting metaphors,
+and dates as ISO 8601 (2026-10-07). It then reads naturally to a reader anywhere.
+The rule governs what is newly written: existing text is not rewritten for
+spelling alone, and an identifier keeps the spelling it already has.
 
 ### Clear and crisp
-Write international English that is understood on the first reading. This applies
-to all prose, including replies to the user, and to every message a tool prints:
-check titles, explanations, findings, refusals, repair lines.
-
-- **One fact per sentence.** Short sentences. No nested clauses, no long dash asides.
-- **The concrete thing.** "Not pushed", "only on this computer" - not an
+Write so the text is understood on the first reading.
+- **One fact per sentence.** Short sentences. No nested clauses, no long dash
+  asides.
+- **The concrete thing.** "Not pushed", "only on this computer" — not an
   abstraction such as "exists nowhere else". No noun stacks such as "each nested
   path a remapping reads from it".
 - **No invented terms.** Do not coin shorthand for a concept ("record" as a noun,
@@ -73,57 +94,59 @@ check titles, explanations, findings, refusals, repair lines.
 - **No tool-internal terms the reader must decode.** Say what happens, not the
   tool's model: "the commit harbor points to", not "the staged commit" or "the
   pinned commit". `git add` changes where it points; `git commit` saves it.
+- **No jargon or slang as the carrier of meaning.** State the point in plain,
+  precise terms. Where a slang term helps, add it in brackets after the plain
+  statement: "an API whose documented behavior invites accidental misuse (slang:
+  a 'footgun')". Use the slang term on its own only when the user has used it or
+  has explicitly allowed its use.
 - **Each choice with its effect.** "To keep the folder's version: ... To go back:
   ...".
 - **No word without meaning.** If a sentence needs a second reading, rewrite it.
 
 ## Git
 
-Two repos, opposite rules:
+Two kinds of repository, opposite rules.
 
 **Project repositories (the code repos) — the user owns all git.** Do not run git
 commands that change repository state: no `add`/staging, `commit`, `rm`, `mv`,
 `restore`, `checkout`, `reset`, `stash`, `revert`, `branch`, `merge`, `rebase`,
-`cherry-pick`, `push`, or `tag`. When a git action is needed (including cleaning up
-a file you created by mistake), propose the exact command(s) and let the user run
-them. Read-only inspection (`git status`, `git log`, `git diff`, `git show`) is fine.
+`cherry-pick`, `push`, or `tag`. When a git action is needed (including cleaning
+up a file you created by mistake), propose the exact command(s) and let the user
+run them. Read-only inspection (`git status`, `git log`, `git diff`, `git show`)
+is fine.
 
-**Plan repo `~/.claude/plans/` — you own its git, and committing there is required.**
-After updating a plan, commit the change yourself (as in Working mode). Do this
-without being asked; it is an obligation, not a tolerated exception.
+**Plan repo `~/.claude/plans/` — you own its git, and committing there is
+required.** After every change to a plan file, commit it yourself, without being
+asked, with a short message saying what changed:
+`git -C ~/.claude/plans commit -am "added D.1 versioned directories"`. The history
+lets a mistake be reverted. This is an obligation, not a tolerated exception.
 
 ### Every batch ends with a commit message: a crisp memory-jogger
-
 The user runs every commit in the project repos, so a batch report without a
 ready-to-paste message is not actionable. Supply one at the end of each batch, in
 a fenced block, without being asked.
 
 The detail is in the code; the message jogs the memory. A reader scanning the log
 should see what changed and, from the same words, why:
-
 - **What and why are one.** Name the change so its reason is evident from the
-  naming. "Tightened the stability pool's test tolerances" needs no reason - too
-  loose is the obvious one; "the tolerances were too loose, so they were
-  tightened" says it twice. Where the reason is not evident, choose words that
+  naming. "Tightened the stability pool's test tolerances" needs no reason: too
+  loose is the obvious one. Where the reason is not evident, choose words that
   make it so rather than appending a clause.
-- **Crisp, not complete.** Leave out the detail - which functions, which values,
-  how. A line per change worth recognizing: one change is a single line with no
-  bullet, and bullets only when there is more than one. Test and doc changes made
-  to support a source change get no line; a commit that changes only tests or docs
-  says what they now check or describe.
+- **Crisp, not complete.** Leave out the detail — which functions, which values,
+  how. Each change worth recognizing gets named. Write the whole message on one
+  line when it fits, even for several changes. Only when it does not fit, write a
+  short summary line, a blank line, then a bullet per change: git takes
+  everything before the first blank line as the subject.
+- **Source changes first.** Test and doc changes made to support a source change
+  need no line. A commit that changes only tests or docs says, in a few words,
+  what they now check or describe.
 - **No rationale.** No "because" or "so that" clauses, no alternatives weighed, no
   evidence that it works ("all tests pass"), no restating the report the message
   sits under.
 - **No plan references.** Never name the plan file, its labels, or test names: the
   repos have separate lifecycles.
-- **No attribution.** No `Co-Authored-By:` trailer and no "Generated with" line, in
-  commit messages or PR descriptions.
-
-For a tests-only commit:
-- ✗ `assert the stability pool's deposit events in order, its ceiling on a
-  non-empty pool, the sender's request cancelled at the window's end and zeroed,
-  and previewDeposit's zero and its freedom from the floor and ceiling`
-- ✓ `covered the stability pool's untested deposit edge cases`
+- **No attribution.** No `Co-Authored-By:` trailer and no "Generated with" line,
+  in commit messages or PR descriptions.
 
 The reasoning, the options and the evidence go in the plan file, the PR
 description, and the batch report — all read at decision time, with room to
@@ -132,208 +155,363 @@ argue.
 ## Design principles
 
 ### Fix, park, or remove files that cause errors or warnings
-Any file — including legacy config, stale declarations, or superseded build
-setup — that causes a compiler error or warning must be dealt with, even if it is
+Any file that causes a compiler error or warning must be dealt with — legacy
+config, stale declarations and superseded build setup included — even if it is
 "not the file we're working on". The codebase should be clean on every build.
 Three outcomes, in order of preference:
-
-1. **Fix it.** The default. If it needs updating, update it.
-2. **Park it**, when the file still has value that has not been captured yet —
-   its replacement is not written, or it holds intent that would be lost. Move
-   it so the toolchain no longer sees it: into `deprecated/` at the repo root,
-   under its original path, e.g. `src/minter/Minter_v1.sol` →
-   `deprecated/src/minter/Minter_v1.sol`. forge compiles only `src`, `test` and
+1. **Fix it.** The default.
+2. **Park it**, when the file still has value that has not been captured yet: its
+   replacement is not written, or it holds intent that would be lost. Move it to
+   `deprecated/` at the repo root, under its full original path
+   (`deprecated/src/minter/Minter_v1.sol`). forge compiles only `src`, `test` and
    `script` and what they import, so nothing there is built, and the kept path
-   says where it came from. Do not comment the contents out and do not leave it
+   says where it came from. Do not comment the contents out, and do not leave it
    where it still compiles.
-3. **Delete it.** When nothing is left to recover, because version control
-   already holds the content.
+3. **Delete it**, when nothing is left to recover because version control already
+   holds the content.
 
-Parking is a deferral, not a resting place, so it carries obligations: say in
-the plan (or an issue) what superseded the file, what would bring it back, and
-who decides. A parked file cannot be compiled or tested, so it drifts further
-out of date with every refactor around it — the longer it sits, the less likely
-it is ever to return. Prefer capturing the intent in its replacement and
-deleting; park only when that capture has not happened yet.
-
-**Whether to park or delete is the USER'S call, never a unilateral one** — the
-judgement is about whether the value is already captured, which is theirs to
-make. Propose, do not act.
+**Whether to park or delete is the user's call, never a unilateral one**: the
+judgment is whether the value is already captured, which is theirs to make.
+Propose, do not act.
 
 ### Generated files are changed only by their generator
-A file a tool produces — `deployed.json`, a generated interface — is changed
-only by running that tool: never by hand, never by an ad-hoc script, including
-to work around something the tool cannot do. If the generator cannot produce
-what is needed, that is a defect in the generator or its inputs: stop, report
-it, and fix the generator or ask. A hand-edited generated file is one the tool
-can no longer vouch for, even when the result is byte-identical to what the
-tool would write.
 
 ### Do it right from the start
 Implement code in its intended final location — the right package, file, and
-abstraction level — even if it takes longer. Do not put code in a temporary
-place intending to move it later: "do it later" defers integration problems
-rather than preventing them, and accrues structural debt faster than it is paid
-down. If the correct final home isn't clear, stop and resolve that before writing
-code.
+abstraction level — even if it takes longer. Do not put code in a temporary place
+intending to move it later: "do it later" defers integration problems rather than
+preventing them, and builds structural debt faster than it is paid down. If the
+correct final home isn't clear, stop and resolve that before writing code.
 
 ### Build shared foundations before the code that depends on them
-When a body of work converges many call sites onto a shared abstraction (a common
-primitive, library, base, or API), build that abstraction FIRST, then update the
-call sites to use it — do not fix the call sites first and retrofit the abstraction
-later. Doing the dependents first forces each one through an interim form that was
-never the target, then demands a second pass to migrate them onto the abstraction:
-double the edits, double the review, and a window where the codebase sits in a shape
-no one intended. Building the foundation first also pins down the target API, so each
-dependent change is written once, in final form. So when a refactor reveals a missing
-shared piece, do not defer it as "architecture for later" and start editing call
-sites — stop, build the shared piece, then do the call sites against it.
+When work converges many call sites onto a shared abstraction (a common
+primitive, library, base, or API), build the abstraction FIRST, then convert the
+call sites to it. Doing the call sites first forces each one through an interim
+form that was never the target, then demands a second pass: double the edits,
+double the review, and a window where the codebase has a shape no one intended.
+Building first also pins down the target API, so each call site is written once,
+in final form. When a refactor reveals a missing shared piece, do not defer it as
+"architecture for later": stop, build it, then do the call sites against it.
 
 The architectural fix is worth far more than the convenience of deferring it:
-- **Eradicate, don't contain.** The trigger for the change is an observed bad
-  practice; the abstraction exists to make the correct thing the path of least
-  resistance. Fix the core *and* convert every existing instance to it, and you
-  near-eliminate the chance of the bad practice recurring spontaneously elsewhere.
-  Paper over the instances and the rotten core remains — it will leak out again.
-- **It's now or never.** Deferring the foundational fix dissipates the very
-  motivation that surfaced it; "architecture for later" reliably becomes "never",
-  leaving you to firefight its absence indefinitely. The moment you notice the
-  missing abstraction is the moment to build it.
-- **Re-weight the human bias against wide refactors.** Human teams avoid large,
-  high-blast-radius changes because manually editing every call site is slow and
-  risky — that caution is an artifact of human *speed*, not a law of good
-  engineering. You operate orders of magnitude faster and can sweep the entire
-  blast radius reliably in a single pass, so the cost calculus that made "patch
-  locally" rational for humans does not apply to you. Relearn and rebalance:
-  default toward fixing the core and propagating it everywhere, not layering a fix
-  on top of a core you know is wrong.
 
-(Complements "Do it right from the start": that rule is about *where* code lives;
-this is about the *order* — foundation before dependents.)
-
-### Contract size never shapes a fix
-Design every fix and feature for correctness and clarity alone. A contract's size is never a reason to
-choose a fix's form, to place its code somewhere else, to leave part of it out, or to defer it. Size is
-a separate problem with its own remedy (the rule below), solved as its own step. When a correct change
-takes a contract over the limit, say so in the report and propose the size step separately. Do not
-offer the size as an argument for doing the change differently.
-
-### External libraries reduce contract size; internal libraries share code
-Two distinct jobs, two distinct tools. Choosing by habit rather than by job is how a contract runs out
-of its 24 KB while its "libraries" deploy at 85 bytes each.
-
-1. **Extract to an EXTERNAL library to reduce contract size.** An external library (any `external` or
-   `public` function) deploys separately and is reached by `DELEGATECALL`, so its code leaves the
-   calling contract's bytecode. This is the only mechanism that reduces a contract's size.
-   **Do NOT extract when the extraction would result in more than one external call in a single
-   transaction** — code invoked per item in a loop, or from several places in one flow, multiplies the
-   call overhead and trades a size problem for a gas one. Everything else extracts: a keeper trigger, a
-   governance action, or a user entrypoint pays one extra call, which is noise beside the token
-   transfers and oracle reads already in it.
-2. **Use an INTERNAL library ONLY to share code between external libraries and contracts.** `internal`
-   functions are inlined into every consumer, so an internal library reduces nothing — its code IS the
-   consumer's bytecode. Its purpose is CONSISTENCY where inheritance cannot reach: one definition
-   compiled into the contract and into each external library that needs it. An internal library with a
-   single consumer has no reason to exist — fold it into that consumer, or make it external under (1).
-
-Consequences worth designing for rather than discovering:
-- A shared internal library is duplicated into each consumer's bytecode. That is expected and correct —
-  each consumer has its own size budget — but it means (2) buys consistency, never size. Do not later
-  "optimise" a shared internal library into an external one; that breaks the reason it exists.
-- **An external library cannot read the calling contract's immutables.** It shares the contract's
-  STORAGE under `DELEGATECALL`, but immutables live in the caller's code, which the library cannot see.
-  Any immutable the extracted code needs must become a parameter — decide this when designing the
-  extraction, not when the compiler refuses it.
-- Errors and events stay declared on the interface (see the rule below), so the contract and its
-  external libraries revert and emit the same ones.
-
-### Version what is deployed; do not version what is inlined
-The name says which of the two jobs above a library does, and a reader must be able to tell without
-opening it.
-- **An EXTERNAL library is a deployed artefact**: it has an address, it is linked into each consumer's
-  bytecode, and swapping it is a deployment event. Version it exactly like a contract — `VaultManager_v1`,
-  `CompoundManager_v1`. The suffix tracks the deployed thing, which is precisely what needs tracking.
-- **An INTERNAL library is inlined and has no deployed identity**: it is source that becomes part of
-  every consumer. Name it `SomethingLib` with NO version — `MinterValuationLib`, `TokenStackLib`. A
-  version suffix there implies an artefact that can be swapped independently, and none exists; it also
-  invites the "which version is deployed?" question that has no answer.
-- **Make the name unambiguous across every repo that compiles it, not just its own.** Solidity imports
-  are path-qualified, but the artefact namespace and every tool keyed on the bare contract name
-  (`out/<file>.sol/<Contract>.json`, `--match-contract`, size/gas/coverage tables, slither) are flat.
-  Two repos in one build tree cannot both hold a `ValuationLib`. Prefix by domain so the name stands
-  alone: `MinterValuationLib` for the minter's collateral arithmetic, `VaultValuationLib` for the
-  ERC-4626 vault valuation that consumes it downstream.
-
-So `*Manager_v1` / `*_v1` for external, `*Lib` for internal — and if a library's visibility changes, its
-name changes with it, because the name is the claim about what it is.
-
-### An ERC-7201 namespace names the STRUCT, so it carries no version
-The namespace string derives the storage slot, so it is the only thing making existing data reachable.
-Version it and the first upgrade that "updates the name to match the contract" silently orphans every
-holder's balance in slots nothing reads. Use `<project>.storage.<Struct>` — `bao.storage.Minter` is read
-by `Minter_v3` and always will be.
-- A struct whose layout must change gains fields at the END, under the same name. Appending is the whole
-  point of namespaced storage.
-- Storage that genuinely cannot be appended takes a NEW namespace under its own name, leaving the old
-  one intact and still readable by whatever still owns it. That is a second namespace, never a second
-  version of the first.
-- **Put `@custom:storage-location erc7201:<ns>` on the STRUCT**, not on the slot constant. On the
-  constant it attaches to nothing and the validator silently ignores it.
-- **Verify with `yarn validate`, not by hand.** It re-derives every hardcoded slot constant from its
-  annotation and compares ("✓ hardcoded namespace slots verify against their ERC-7201 hashes"), covering
-  every contract at once. Hand-deriving with `cast keccak` checks one value and proves nothing about the
-  annotation agreeing with it.
-- If the struct must be shared with libraries it cannot live inside the contract, and the annotation
-  cannot go on it. Wrap it in an annotated single-member struct declared INSIDE the contract: a wrapper
-  whose only member is the struct has that struct's exact layout, so validation is restored with no
-  duplicated field and no drift.
+- **Eradicate, don't contain.** The abstraction exists to make the correct thing
+  the path of least resistance. Fix the core *and* convert every existing instance
+  to it, and the bad practice that triggered the change almost never recurs. Patch
+  the instances and the rotten core remains — it will leak out again.
+- **It's now or never.** Deferring the fix dissipates the motivation that surfaced
+  it, so "architecture for later" reliably becomes "never". The moment you notice
+  the missing abstraction is the moment to build it.
+- **Re-weight the human bias against wide refactors.** Human teams avoid wide
+  changes because editing every call site by hand is slow and risky. That caution
+  comes from human speed, not from good engineering. You can sweep every call
+  site reliably in one pass, so default to fixing the core and propagating it
+  everywhere, not to layering a fix on a core you know is wrong.
 
 ### One code path for default and non-default cases
-Do not write one piece of code to establish a default value and a separate piece
-to handle switching to a non-default one. Both should flow through the same path
-— a single handler/initialiser that runs for all values including the initial
-one. Relatedly, a default value should appear literally once (in the composing
-expression), never restated at each early-return branch — duplicated defaults
-drift apart silently.
+Do not write one piece of code to set a default value and another to switch to a
+non-default one. Every value, the initial one included, flows through one handler
+or initializer. A default value appears literally once, in the expression that
+composes it — never restated at each early return, where the copies drift apart
+silently.
 
-### Catch only the specific error you expect
-Only catch the specific, documented condition you expect, and only when there is
-a clear reason it is not a defect (e.g. an optional resource that legitimately
-may not exist — catch only its "absent" signal). Every other error must propagate
-unchanged. Never use a broad catch that swallows unexpected failures; a silent
-fallback makes a broken system look like a working one. (Extends the
-error-handling rule under "Other rules".)
+### Never copy values — reference the source
+When a value originates elsewhere (a config function, a protocol constant, an
+existing variable), call or read that source wherever the value is needed. Do not
+read it once and redeclare it as a new constant, hardcode the literal, or create a
+duplicate variable under a different name. Copies diverge silently when the
+original changes, and they hide the dependency.
+
+### Contract-level state: identity is fine, transient is banned
+Holding state on the contract is the basis of object-oriented design, so the rule
+is not "no fields": it is about *which* state.
+- **Identity state** is what the object *is*: set at construction and constant
+  across calls (an owner, a treasury, a salt prefix, a target network). It is
+  legitimate and preferred: it states the object's nature once, in its
+  constructor, instead of in every signature.
+- **Transient state** is what the object is *currently doing*: written by one call
+  so a later call can read it. Never do this. Nothing in the signatures tells a
+  reader, or the compiler, that call B needs call A to have run first; call them
+  in the wrong order and the behavior silently changes. If a function needs
+  context, pass it as a parameter or split it into dedicated variants.
+
+The line is whether a field **switches behavior** based on an earlier call. A flag
+one function sets to steer another is the banned form, and a boolean is its most
+common shape. An append-only ledger that only accumulates a record, and is never
+consulted to decide what to do, is not transient state in this sense, but prefer
+threading it explicitly while that stays cheap.
+
+When a design seems to force transient state, treat that as evidence the
+abstraction is in the wrong place — most often a base class too generic to name
+its subclass's argument types. Move the code to where the types can be named and
+the arguments thread through normally.
+
+### Do not create a function that has only one use
+Inline a function whose only use is its one call site. Being called is one use.
+Being tested on its own, being an override seam, and moving code into an external
+library to reduce contract size are others.
+
+### Unimplemented functions revert
+A function that is not implemented yet must `revert`, not return a plausible stub
+value. One that silently returns 0, false, or an empty array looks implemented and
+lets tests pass vacuously. Use a descriptive custom error (`error
+NotImplemented()`) or `revert("name: not implemented")`.
+
+### Each branch path on its own line
+Put each path of a branch on its own line, so coverage tools can tell them apart.
+Use curly brackets on every `if`, `for` and `while` (no single-line bodies).
+Ternary expressions are fine: formatters already split their branches across
+lines.
+
+## Errors and diagnosis
+
+### Never hide a failure; catch only the error you expect
+A failure must be visible, and the process must fail clearly. Do not silently
+skip or suppress an error. Do not work around an error by hiding it unless the
+user explicitly asks for that. Catch only a specific, documented condition, and only when there is a clear reason
+it is not a defect: for an optional resource that may legitimately not exist,
+catch only its "absent" signal. Every other error propagates unchanged. Never use
+a broad catch: a silent fallback makes a broken system look like a working one.
 
 ### Error messages report facts, not assumptions
-An error message must state what was observed, not what the writer guesses caused
-it. A check knows that a specific thing failed; it does not know whether the cause
-is stale state, a hand-edit, a partial write, corruption, or something unforeseen.
-Speculating bakes today's best guess into a string that outlives it. Report the
-facts (which item, which field, which value) and let cause analysis happen at read
-time. (Complements the diagnosis rule under "Other rules": no "likely"/"probably"
-without evidence.)
+An error message states what was observed, not what the writer guesses caused it.
+A check knows that a specific thing failed; it does not know whether the cause is
+stale state, a hand-edit, a partial write, corruption, or something unforeseen. A
+guess baked into the string outlives the situation it was made for. Report the
+facts (which item, which field, which value) and leave the cause analysis to
+whoever reads it.
 
-### Stabilise the error path before fixing the cause
-When broken code is discovered, fix the error handling first, then the root cause
-— as two separate steps. (1) Stabilise: make the failure visible and contained —
-surface it, stop retry loops, ensure one failure doesn't cascade. Confirm the
-error path works before continuing. (2) Fix the root cause. A system that fails
-loudly once is far easier to debug and verify than one that fails silently or
-repeatedly.
+### Diagnose from evidence
+Do not use words like "likely", "probably" or "may" to describe a root cause.
+Either verify the hypothesis with data (a dry run, a log, a trace) or state
+explicitly that it is unverified. Never proceed with a fix based on an unverified
+hypothesis.
+
+### Stabilize the error path before fixing the cause
+When broken code is discovered, fix it in two separate steps. (1) Stabilize: make
+the failure visible and contained — surface it, stop retry loops, ensure one
+failure does not cascade — and confirm the error path works before continuing.
+(2) Fix the root cause. A system that fails loudly once is far easier to debug and
+verify than one that fails silently or repeatedly.
+
+## Naming and comments
+
+### No unexplained abbreviations
+Do not use an abbreviation in an identifier or a comment unless it is widely
+understood (`ERC20`, `URL`, `id`, `tx`) or defined once at its first use. Do not
+coin local shorthand: write `rewardPerShare`, not `RPS`. If a long name genuinely
+repeats too often to spell out, define the abbreviation in a comment at its first
+occurrence and use it consistently after that.
+
+The short forms of domain nouns used in conversation are never widely understood:
+a reader six months later has no glossary. They never appear in code — contract,
+library, function and variable names, docstrings and inline comments. Write the
+full noun:
+- `HY` → `HarborYield`
+- `AC` → `AutoCompounder`
+- `EQ` → `equivalent`
+- `SP` → `StabilityPool`
+- `SPM` → `StabilityPoolManager`
+- `lev` → `leveraged`
+- `col` → `collateral`
+- `wcol` / `wcoll` / `wCol` / `wColl` → `wrappedCollateral`
+
+`ERC4626`, `ERC20`, `CR` for collateral ratio where already established, and other
+genuinely standard terms remain fine.
+
+### Comments state what stays true
+Do not write comments that reference ephemeral or planning artifacts: plan-section
+identifiers (`§N`), red/green test-phase labels ("Red:", "Green:"), implementation
+states ("buggy:", "TODO after X is merged"), or anything else that becomes stale
+once the work is complete. A comment describes intended behavior that is always
+true; the rest belongs in the PR or the commit message.
+
+## Solidity contracts
+
+- **Import through the remapped prefix, never a bare path.** Never use
+  `"src/..."`, `"script/..."` or `"test/..."` in any Solidity file — contract,
+  script or test. Use the prefix of the repo the file lives in: `@harbor/`,
+  `@harbor-script/`, `@harbor-test/` for harbor files; `@bao/`, `@bao-script/`,
+  `@bao-test/` for bao-base files. Bare paths create duplicate type identities
+  when another repo consumes the files as a library, which breaks compilation.
+- **Declare errors and events on the interface, not in the contract.** They are
+  part of the contract's ABI, so the interface is their one home, shared by the
+  implementation, by any delegatecall or helper library that reverts with or emits
+  them, and by tests. The contract `is` the interface, so it uses them unqualified;
+  a library that imports only the interface writes `IFoo.X` (Solidity ≥0.8.21
+  allows emitting an event by its qualified name). A test assertion written as
+  `Contract.Error.selector` still compiles.
+- **Avoid diamond inheritance when adding functions to interfaces.** A function
+  declared on both an interface and a concrete base forces the derived contract to
+  override it to resolve the ambiguity. Put the function on one path only: a new
+  versioned interface (`IMultipleRewardDistributor_v3`) or the implementation
+  itself. Prefer eliminating the diamond over resolving it with overrides.
+
+### UUPS contracts and ownership
+- Each UUPS contract composes `Initializable`, `UUPSUpgradeable` and an ownership
+  mixin directly. Do not create "Upgradeable" base contracts that bundle them:
+  each contract has different initialization needs (roles, reentrancy, custom
+  state), and OpenZeppelin's "Upgradeable" suffix already means something else
+  (the storage-safe proxy variant).
+- Use `HarborOwnable`/`HarborOwnableRoles`, never `BaoOwnable`/`BaoOwnableRoles`.
+  They are near drop-in replacements that take an explicit `(deployerOwner,
+  pendingOwner)` instead of relying on `msg.sender`. They don't need the
+  `UUPSProxyDeployStub`: deploy with `_deployProxyAndRecord`, not
+  `_deployProxyViaStubAndRecord`. When a contract on `BaoOwnable` gets a new
+  version, it switches to `HarborOwnable`. The two patterns:
+  - **HarborOwnable**: `_initializeOwner(deployerOwner, pendingOwner)`.
+  - **HarborFixedOwnable**: the owner (the Harbor multisig) is an immutable
+    constructor argument, and `_deployProxyAndRecord` gets empty `initData`. For a
+    contract whose owner is fixed and which should stay light, such as
+    `HarborPauser_v1`.
+
+### Wire related contracts by predicted address
+For a related contract deployed at a predictable proxy address, prefer an
+immutable constructor argument, its predicted CREATE3 address, over configurable
+storage. Do not connect contracts through a setter that can leave the system
+half-configured (`minter.updatePriceOracle`): it is a second source of truth that
+can drift out of sync. The related
+contract can still be upgraded through its own proxy, and the immutable saves
+bytecode (no setter, no zero-address check) and gas (no storage read). Use storage
+only for an address that genuinely must change independently of upgrades.
+
+**Exception — beacon proxies.** Immutables live in the *implementation's*
+bytecode, so every proxy behind one beacon shares them. A per-proxy value (the
+`vault` of each `HarborYieldEntry_v1`) lives in per-proxy storage, an ERC-7201
+slot or plain storage. Use immutables only for values that are the same for every
+proxy, such as the beacon address baked into the factory.
+
+### Contract size never shapes a fix
+Design every fix and feature for correctness and clarity alone. A contract's size
+is never a reason to choose a fix's form, to place its code somewhere else, to
+leave part of it out, or to defer it. Size is a separate problem with its own
+remedy (below), solved as its own step. When a correct change takes a contract
+over the 24 KB limit, say so in the report and propose the size step separately.
+Do not offer the size as an argument for doing the change differently.
+
+### External libraries reduce contract size; internal libraries share code
+Two distinct jobs, two distinct tools.
+1. **Extract to an EXTERNAL library to reduce contract size.** An external library
+   (any `external` or `public` function) deploys separately and is reached by
+   `DELEGATECALL`, so its code leaves the calling contract's bytecode. This is the
+   only mechanism that reduces a contract's size. **Do NOT extract when the
+   extraction would result in more than one external call in a single
+   transaction** — code invoked per item in a loop, or from several places in one
+   flow, multiplies the call overhead and trades a size problem for a gas one.
+   Everything else extracts: a keeper trigger, a governance action or a user
+   entrypoint pays one extra call, which is noise beside the token transfers and
+   oracle reads already in it.
+2. **Use an INTERNAL library ONLY to share code between external libraries and
+   contracts.** `internal` functions are inlined into every consumer, so an
+   internal library reduces nothing. Its purpose is consistency where inheritance
+   cannot reach: one definition compiled into the contract and into each external
+   library that needs it. An internal library with a single consumer has no reason
+   to exist — fold it into that consumer, or make it external under (1).
+
+Design for these consequences rather than discovering them:
+- A shared internal library is duplicated into each consumer's bytecode. That is
+  correct — each consumer has its own size budget — but it buys consistency, never
+  size. Do not later turn it into an external library: that breaks the reason it
+  exists.
+- **An external library cannot read the calling contract's immutables.** It shares
+  the caller's storage under `DELEGATECALL`, but immutables live in the caller's
+  code. Any immutable the extracted code needs must become a parameter — decide
+  this when designing the extraction, not when the compiler refuses it.
+
+### Version what is deployed; do not version what is inlined
+A library's name says which of the two jobs it does, so a reader can tell without
+opening it.
+- **An external library is a deployed artifact**: it has an address, it is linked
+  into each consumer's bytecode, and swapping it is a deployment event. Version it
+  exactly like a contract: `*Manager_v1`, `*_v1`.
+- **An internal library is inlined and has no deployed identity.** Name it `*Lib`,
+  with no version. A version suffix implies an artifact that can be swapped
+  independently, and none exists. It also invites a "which version is deployed?" question that has no
+  answer.
+- **If a library's visibility changes, its name changes with it**: the name is the
+  claim about what it is.
+- **Make the name unambiguous across every repo that compiles it.** Solidity
+  imports are path-qualified, but the artifact namespace and every tool keyed on
+  the bare contract name (`out/<file>.sol/<Contract>.json`, `--match-contract`,
+  size, gas and coverage tables, slither) are flat: two repos in one build tree
+  cannot both hold a `ValuationLib`. Prefix by domain: `MinterValuationLib`,
+  `VaultValuationLib`.
+
+### An ERC-7201 namespace names the STRUCT, so it carries no version
+The namespace string derives the storage slot, so it is the only thing that makes
+existing data reachable. Version it, and the first upgrade that "updates the name
+to match the contract" silently orphans every holder's balance in slots nothing
+reads. Use `<project>.storage.<Struct>`: `bao.storage.Minter` is read by
+`Minter_v3`, and always will be.
+- A struct whose layout must change gains fields at the END, under the same name.
+  Appending is the whole point of namespaced storage.
+- Storage that genuinely cannot be appended takes a NEW namespace under its own
+  name, leaving the old one intact and readable by whatever still owns it. That is
+  a second namespace, never a second version of the first.
+- **Put `@custom:storage-location erc7201:<ns>` on the STRUCT**, not on the slot
+  constant. On the constant it attaches to nothing, and the validator silently
+  ignores it.
+- **Verify with `yarn validate`, not by hand.** It re-derives every hardcoded slot
+  constant from its annotation and compares the two, across every contract at
+once. Hand-deriving one
+  value with `cast keccak` proves nothing about the annotation agreeing with it.
+- If the struct must be shared with libraries, it cannot live inside the contract,
+  and the annotation cannot go on it. Wrap it in an annotated single-member struct
+  declared INSIDE the contract: a wrapper whose only member is the struct has that
+  struct's exact layout, so validation is restored with no duplicated field and no
+  drift.
+
+## Deploy scripts
+
+### Three layers per contract
+1. `deployABC(state, key, ...config...)` — the **orchestrator**: predicts every
+   address from salt keys with `_predictAddress`, calls `deployABCImplementation`
+   with the resolved addresses, then calls `_deployProxyAndRecord`. Never
+   `virtual`; tests call it directly.
+2. `deployABCImplementation(state, key, ...resolved-addresses...)` —
+   **`virtual`**: receives only fully resolved addresses (never salt keys or config
+   objects) and deploys `new ABC(...)`. Tests override it to inject a mock
+   implementation without touching the address prediction.
+3. `deployABCEntryImplementation()` — **`virtual`**: deploys a sub-contract
+   implementation, such as the entry implementation behind a beacon. Tests
+   override it to inject a mock sub-contract implementation.
+
+When a contract must bake another contract's address in as an immutable at
+construction, split out a `deployABCEntry(state, key)` that deploys the dependency
+at a predictable CREATE3 address first. `deployABC` then predicts that address
+with `_predictAddress(_key(key, "entrySubkey"))`, with no coupling to deployment
+order.
+
+Build salt strings only with FactoryDeployer's `_saltString()`,
+`_predictAddress()` and `_key()`, never by hand with `string.concat`. BaoFactory's
+CREATE3 gives deterministic addresses from salts, so contracts can reference each
+other before they are deployed.
+
+### Deployment config mixins
+Each deployment config dimension is a standalone mixin contract whose `virtual`
+functions provide useful defaults (`ConfigPriceVolatility_130_stable`,
+`ConfigStabilityPool`, `ConfigCollateral_fxUSD_mainnet`). A market's top-level
+config (`ConfigMarket_ETH_fxUSD_mainnet`) inherits every relevant mixin and
+overrides only what differs. A config value belongs in the mixin that owns its
+domain: fee ratios in the volatility config, beside `minterConfig()`; oracle
+addresses in the collateral config, beside `wrappedCollateralToken()`. Do not
+create a separate mixin for a value that belongs to an existing one: that
+fragments the config and forces an override in every market.
+
+## Testing
 
 ### Red-green: confirm the test fails before you make it pass
-Before implementing any change in behaviour — a bugfix, a new feature, or an
-algorithm change — write a test that asserts the intended behaviour and run it
-to confirm it *fails* for the right reason first. Then implement the change and
-run the test again to confirm it passes. Confirming red first proves the test
-actually exercises the change; a test that was green before you touched anything
-proves nothing. (The bugfix-specific form of this is under "Other rules".)
+Before any change in behavior — a bugfix, a new feature, or an algorithm change,
+in Solidity or in scripts and tooling — write a test that asserts the intended
+behavior and run it to confirm it *fails* for the right reason. Then make the
+change and run the test again to confirm it passes. Confirming red first proves
+the test exercises the change; a test that was green before you touched anything
+proves nothing.
 
-When the test can only be written AFTER the code (a new capability has nothing to
+When the test can only be written after the code (a new capability has nothing to
 assert against until it compiles), get the same proof by breaking the code on
-purpose and confirming the test goes red for the right reason. **Any such
-deliberate break must be fenced with markers**, so it is greppable and cannot be
-left behind:
+purpose and confirming the test goes red for the right reason. **Fence any such
+deliberate break with markers**, so grep finds it and it cannot be left behind:
 
 ```
 // TEST MODIFICATION BEGIN - MUST BE REVERTED
@@ -348,188 +526,342 @@ a checkpoint, and never use an unfenced one.
 
 ### `test/` is permanent; `script/verify/` is temporary
 Where a test lives is decided by how long it lives, not by what it reads.
-- **`test/` holds the tests that stay.** `yarn test` and CI run every one, so
-  each must be deterministic and repeatable — the same inputs give the same
-  result on any machine, any day. A fork PINNED to a block is reproducible and
-  belongs there; anything tracking chain HEAD, live prices, or current balances
-  is not.
+- **`test/` holds the tests that stay.** `yarn test` and CI run every one, so each
+  must be deterministic and repeatable: the same inputs give the same result on
+  any machine, any day. A fork PINNED to a block is reproducible and belongs
+  there; anything tracking chain HEAD, live prices or current balances is not.
 - **`script/verify/` holds the campaigns:** the tests of a deployment, upgrade or
   remediation about to be performed, run by hand before it and retired to
   `deprecated/script/verify/` once it has been. forge runs tests only from its
   test directory, so a plain `forge test --match-path` on a campaign runs nothing
-  and exits 0; run a campaign through `script/verify/run-campaign-test`, which
+  and exits 0. Run a campaign through `script/verify/run-campaign-test`, which
   points forge at it and fails unless a test ran. A campaign's runner runs every
   test of the campaign, its unit tests first: a test nothing runs is dead.
-- **A test that imports campaign code lives with the campaign,** however
+- **A test that imports campaign code lives with the campaign**, however
   reproducible it is. A permanent test must not depend on temporary code, and the
   campaign's tests retire with it.
 
 This splits upgrade testing in two, and each half is weaker if it tries to be the
 other:
 - **`test/` proves the upgrade MECHANICS** — that an upgrade can be performed at
-  all: the proxy accepts the new implementation, ownership survives, the thing is
-  still callable. Hand-built fixtures on the previous implementation are the right
-  input here, precisely because they are reproducible. It does not need real data.
+  all: the proxy accepts the new implementation, ownership survives, the contract
+  is still callable. A hand-built fixture on the previous implementation is the
+  right input here, precisely because it is reproducible; it needs no real data.
+  So a synthetic previous-version contract is the correct choice, not a weakness.
+  Do not move such a fixture onto real forked state to make it "more faithful":
+  that moves it to the other half of the split and loses the reproducibility that
+  justified its location.
 - **`script/verify/` exercises the actual upgrade SCRIPTS** against real state —
   data migration, functional compatibility, whatever only live data can show.
-  Non-reproducibility is the point, not a defect.
+  Non-reproducibility is the point there, not a defect.
 
-So "the test builds a synthetic previous-version contract" is not a weakness in a
-`test/` upgrade test; it is the correct choice. Do not migrate such a fixture onto
-real forked state to make it "more faithful" — that moves it to the other half of
-the split and loses the reproducibility that justified its location.
-
-**`test/` exists to test PENDING deploys — the upgrade about to be performed, not
-one already made.** So there is exactly one upgrade worth testing per contract at
-any time: from the version DEPLOYED (check `deployments/*.state.json`) to the
+**`test/` exists to test PENDING deploys** — the upgrade about to be performed,
+not one already made. So there is exactly one upgrade worth testing per contract
+at any time: from the version DEPLOYED (check `deployments/*.state.json`) to the
 version in SOURCE. If mainnet runs `Foo_v2` and the repo holds `Foo_v3`, the test
-is v2→v3; a v1→v2 test re-confirms something that already succeeded and earns
-nothing, so delete it rather than carry it. When an upgrade ships, retarget the
-test to the next step rather than adding another.
+is v2→v3. A v1→v2 test re-confirms something that already succeeded and earns
+nothing: delete it rather than carry it. When an upgrade ships, retarget the test
+to the next step rather than adding another.
 
-### Questions are not instructions
-When a message ends with "?", it is a question to answer in the reply — not an
-instruction to act on. Answer it before doing anything else, and do not treat it
-as a directive to change code or behaviour.
+### Plan the tests first
+Before implementing a new contract or significant feature, add a **test plan** to
+the plan file. List each test by function name, state the single behavior it
+verifies, and say whether it is a unit test (mock-based, fast) or a fork test
+(real mainnet state). The section is complete only when every test in its plan is
+written and `yarn test --match-path test/TheContract.t.sol` shows they all pass.
 
-### Challenge the user's suggestions — don't just comply
-Treat the user's proposals as instructions to be *questioned*, not orders to
-execute. A suggestion for *how* to do something is an invitation to find the best
-way, which may not be the suggested one. Before implementing a proposed approach,
-weigh it against the three tests below; if it trips one, say so and put the
-alternative on the table *before* writing any code:
-- **Reinventing a wheel.** Does it fail to use a tool that already solves this —
-  in-house, or an external / off-the-shelf one (even one not yet installed)? Could
-  an *existing* tool be extended to cover it rather than a new one created? Prefer
-  reusing another tool's *output* over re-deriving what it already computes.
-- **Harder to test.** Does it make the result harder to test than a different
-  shape would — e.g. fusing steps that could be separated, or forcing elaborate
-  fixtures a cleaner design would avoid?
-- **Off-standard.** Does it depart from an established industry standard, protocol
-  annotation, or idiom for this class of problem when a standard one exists?
+### Tests verify intended behavior; coverage is a check, never the input
+A test verifies what the code is *supposed* to do, not merely that lines run. When
+asked to improve testing, ask "what is the intended behavior?", then build
+scenarios that show the code fulfils that intent. If unsure what a function is
+supposed to do, ask: the specification is not in the code. Avoid tests that only
+exercise code paths to raise coverage: they reinforce any misunderstanding in the
+implementation and give false confidence. Open each test with a short comment
+saying what behavior it tests.
 
-Ready agreement is not helpful here: it yields a worse design *and* the wasted
-round-trips of discovering that later. A reasoned objection with a concrete
-alternative is worth far more than fast compliance — raise it every time one of
-the tests fires, even when the suggestion arrived as a direct instruction. Where a
-claim about an existing tool's behaviour decides the design, verify it with data
-rather than assuming (per the no-"likely" rule below). (Complements "Questions are
-not instructions" above and the design-discussion rule under "Other rules".)
+When improving a file's tests, do not read the coverage report or the
+uncovered-lines list to decide what to write. Work from the source and the
+existing tests, list the code's intended behaviors, and write the tests that are
+missing. Only then consult coverage, as an independent check that nothing was
+overlooked. Tests written off the uncovered-lines list make line X execute instead
+of verifying behavior Y: coverage rises, behavior stays unverified, and the report
+loses its only value as an ungamed signal of test completeness. Review test
+quality by behavior and intent, never by a coverage percentage: high line
+coverage routinely hides untested behavior, such as a loop run with one element,
+or a revert reached for the wrong reason.
 
-## Other rules
-- **Dependencies are git submodules in `lib/`, managed with `yarn dep` and never with forge's `install`,
-  `update` or `remove`.** `yarn dep add [-b <branch or tag>] <url>` adds one. `yarn dep update
-  <name>@<version>` moves one to a branch, tag or commit. `yarn dep remove <name>` removes one. `yarn dep
-  sync` checks out the commits this repository points to, after a clone or a pull. Inside a dependency,
-  only the submodules a remapping uses are checked out; sync leaves each other one empty with git's `update =
-  none`, so a forge command run inside the dependency does not check it out and write foundry.lock. A
-  dependency follows the branch `.gitmodules`
-  names; with none it is pinned. `yarn dep update <name>` moves one to the tip of the branch it follows,
-  and a bare `yarn dep update` moves every one that follows a branch, leaving a pinned one where it is.
-  To work inside a dependency, `yarn dep -C <name> sync` (`--root`, as git spells `-C`) from the main
-  folder sets it up: on its branch at the commit this repository points to, with its own dependencies
-  checked out; a plain `yarn dep sync` in the main folder takes that set-up away. `-C` takes a module path,
-  where the libs folders are left out and `..` is the module holding this one (`harbor/bao-base`, or
-  `../bao-base` from inside lib/harbor), or a folder path naming `lib/`, read from where it is typed; neither
-  leaves the tree of repositories it is typed in. No `yarn
-  dep` command loses work: each reads everything it would move or remove before its first step, and a
-  folder holding work only this computer has stops it with nothing changed. `yarn dep sync` also stops
-  on a submodule pointed back to an older commit than the last commit records, and where it would leave a
-  folder detached behind the branch it follows (`--force` goes on, detached); doctor reports both. `yarn dep sync` runs
-  `git add` for a dependency whose folder has newer commits, all pushed, that this repository has never
-  pointed to, and says so. Otherwise `yarn dep` never stages: it ends by naming the git commands that
-  stage and commit the change. Nothing in `yarn dep` commits. `yarn doctor` reports a submodule folder that differs
-  from what this repository points to. `yarn doctor -C <name>` checks a dependency with this repository's copy of
-  doctor, comparing it with its own bao-base, and checks that dependency against the repository listing it. Every
-  command dep and doctor print runs as printed from the folder they were typed in. Why each step is done as it is:
-  `bin/dep`'s docstring.
-- Never use bare `"src/..."`, `"script/..."`, or `"test/..."` import paths in any Solidity file — not in contracts, scripts, or tests. Always use the remapped prefix for the repo the file lives in (e.g. `"@harbor/..."`, `"@harbor-script/..."`, `"@harbor-test/..."` for harbor files; `"@bao/..."`, `"@bao-script/..."`, `"@bao-test/..."` for bao-base files). Bare paths create duplicate type identities when files are consumed as a library by another repo, breaking compilation.
-- In tests and scripts, use interface types (e.g. `IStabilityPool_v3(address)`) not concrete contract types (e.g. `StabilityPool_v3(address)`) when calling functions. This verifies the interface matches the implementation. Concrete types are only for initialisation (constructor, deploy).
-  - **Declarations:** use `address`, not typed contract variables. E.g. `address rewardToken = address(new MockERC20(...))`, not `MockERC20 rewardToken = new MockERC20(...)`.
-  - **Calls:** cast to the interface at the call site. E.g. `IERC20(rewardToken).balanceOf(user)`.
-  - **Setup/mock operations:** casting to concrete types is acceptable for mock-specific functions like `MockERC20(token).mint()`.
-- Every branch must have each path on a separate line so coverage tools can distinguish them. Use curly brackets on all if/for/while statements (no single-line bodies). Ternary expressions are fine — formatters already split the branches across lines.
-- **Deploy script pattern — three layers per contract:**
-  1. `deployABC(state, key, ...config...)` — the **orchestrator**: predicts all addresses from salt keys using `_predictAddress`, calls `deployABCImplementation` with resolved addresses, calls `_deployProxyAndRecord`. Never `virtual`; tests call this directly.
-  2. `deployABCImplementation(state, key, ...resolved-addresses...)` — **`virtual`**: receives only fully-resolved addresses (never salt keys or config objects), deploys `new ABC(...)`. Tests override this to inject a mock implementation without touching address-prediction logic.
-  3. `deployABCEntryImplementation()` — **`virtual`**: deploys a sub-contract implementation (e.g. an entry impl for a beacon). Tests override this to inject a mock sub-contract implementation.
-  - When a contract must bake another contract's address in as an immutable at construction time, split the deploy into a separate `deployABCEntry(state, key)` that deploys the dependency at a predictable CREATE3 address first. The main `deployABC` then predicts that address with `_predictAddress(_key(key, "entrySubkey"))` — no coupling to deployment order.
-  - Always build salt strings with `_saltString()` / `_predictAddress()` / `_key()` from FactoryDeployer — never manually concat with `string.concat`. BaoFactory CREATE3 gives deterministic addresses from salts, so contracts can reference each other before deployment.
-- **Test interaction with deploy scripts:** unit tests **use** the deploy script abstract contracts (e.g. `HarborYield`, `Swapper`) — by composing them (holding a deploy harness instance) or inheriting them. Throughout this section "inherit" means *use the deploy code*, not specifically Solidity `is`-a. In `setUp()`:
-  1. Call `_ensureBaoFactory()` and set the test contract as operator.
-  2. Call the deploy script functions in order (e.g. `deployHarborYieldEntry`, then `deployHarborYield`). This exercises the full CREATE3 path.
-  3. Override `deploy*Implementation` virtual functions to inject mocks for the contracts THIS chain deploys (e.g. override `deployAutoCompounderImplementation` to return a `MockAutoCompounder_v1`). Dependencies the chain only *references* by predicted address (the shared Swapper, the price oracles) are NOT injected this way — `vm.etch` a mock at their getter address instead (see the mock-mechanism rule below).
-  - Tests must **not** manually call `_deployProxyAndRecord`, construct beacons inline with `new`, or reproduce any logic that is already in a `deployABC` function — call the deploy function instead. Direct `new Contract(...)` is only allowed for lightweight test fixtures that never need a predictable address (token mocks, oracle mocks, etc.).
-- **A test deploy setup contains only three kinds of code — audit every line against them.** (1) *derive*: **use** the real deploy-script chain (including the upstream repo's — e.g. harbor-yield setups use harbor's `Deploy_*_Minter`, so the Minter/SP/SPM come from `deployForPeg`, not re-implemented). "Use" means compose OR inherit, not Solidity `is`-a specifically: **compose** (hold a deploy harness per stack) when you need independent deploy instances — separate `FactoryDeployer` state per run, e.g. two minter markets on one peg, or keeping harbor and harbor-yield as the separate deploy runs they are in production; **inherit** when one fused instance suffices. Either way the deploy code is reused, never re-implemented. (2) *install mocks at the deploy's own seams*: override `deploy*Implementation` for contracts THIS repo's chain deploys; inline `vm.etch` a mock at the **consumer's getter address** (`_swapperAddress()`, `_wrappedPriceOracleAddress(...)`, `_equivalentOracleAddress(...)`, `_ethPriceOracleAddress(...)`) for a separately-deployed / predicted-address dependency. (3) *call the real deploy functions* (`deployForPeg`, `deployHarborYieldForPeg`, …) + minimal **test-actor glue** (fund the test/owner, grant the test contract roles, `_predictAddress` handles). Anything else is reproduced deploy plumbing and is a defect. **Anti-pattern to catch on sight:** hand-building a `DeploymentTypes.State{…}` and calling `deployX(state)` to place a predicted-address dependency (e.g. the Swapper) — that re-does orchestration the deploy script owns; `vm.etch` the mock at its predicted getter instead (✓ `vm.etch(_swapperAddress(), address(new MockSwapper()).code)` inline in `setUp` vs ✗ `deploySwapper(swapperState)`). When you **write or review** any `*SetUp`/`Deploy*Test` class, read each line that is not a deploy-function call or an override, and confirm it is derive / mock-install / test-actor glue — never a re-implementation of deploy logic.
-- **Keep test-composition primitives drivable from an external layer.** So that a higher-level layer (e.g. Python within the wake environment) can compose the same scenarios, the scenario harnesses / `installContractAt` / compose-blocks should expose clear, minimal *public* entrypoints and not rely on Solidity-inheritance-only assembly. Let this inform micro-choices (prefer public over internal where a primitive is a composition seam).
-- Each UUPS contract composes Initializable + UUPSUpgradeable + ownership mixin directly — don't create "Upgradeable" base contracts that bundle these, as each contract has different init needs (roles, reentrancy, custom state). The "Upgradeable" suffix means something different in OZ (storage-safe proxy variant) and combining meanings causes confusion.
-- When adding functions to interfaces in an inheritance hierarchy, avoid creating diamond inheritance. If a function is defined on both an interface and a concrete base, the derived contract must override to resolve the ambiguity. Instead, put the function on only one path — either a new versioned interface (e.g. `IMultipleRewardDistributor_v3`) or directly on the implementation. Prefer eliminating the diamond over resolving it with overrides.
-- **Declare errors and events on the interface, not in the contract.** They are part of the contract's ABI surface, so the interface is their single definitional home — shared by the implementation, by any delegatecall/helper libraries that revert or emit them, and by tests. The contract `is` the interface, so it reverts/emits them unqualified (inherited); a library that only imports the interface references them as `IFoo.X` (Solidity ≥0.8.21 allows emitting an event by its qualified `IFoo.Event` name). Referencing an inherited error as `Contract.Error.selector` still resolves, so test assertions keyed on the implementation keep compiling. Don't scatter error/event declarations across the contract and the interface — pick the interface.
-- **Forge runs the tests in parallel, in one process, so a test must not change what another test reads.**
-  - Never create and then remove a file or directory in a test.
-  - Never call `vm.setEnv` in a test. It changes the variable for every test running at the time, in every test file, and nothing can guarantee two tests set the same value. Code reads an environment variable through a `virtual` function, and a test that needs a value overrides the function (as `Deployer.t.sol`'s `BatchWritingDeployer` overrides `_batchDirectory`). To test the function itself, leave the variable unset: a `vm.envString` read reverts naming the variable (`vm.expectRevert(bytes('vm.envString: environment variable "X" not found'))`), and a `vm.envOr` read returns its fallback. `yarn validate` fails on a `vm.setEnv` call in a test.
-  - `./results` holds tracked regression output only: files each run rewrites with the same content, so git shows when the content changes. Write such output there and leave it. Run logs and other temporary files go to `./tmp`.
-  - A test that reads back its own output proves that this run wrote it. The tracked copy from an earlier run is always there, so `vm.exists` and a read-back prove nothing on their own. Before the code runs, write a marker at the path; afterwards, assert the marker was replaced.
-- Tests verify *what code is supposed to do*, not merely that lines execute. When asked to improve testing, think: "what is the intended behaviour?" — then construct scenarios that demonstrate the code fulfils that intent. If unsure what a function is supposed to do, ask — the specification is not in the code. Avoid writing tests that only exercise code paths to increase coverage metrics; such tests reinforce any misunderstanding in the implementation and give false confidence. Always add a comment at the top of a test to say what functionality it is testing: keep it concise. Review test quality by behaviour and intent, not by a coverage percentage — high line coverage routinely hides untested behaviour (a loop run with one element, a revert reached for the wrong reason).
-- **Coverage data is a check, never the input — do not game it.** When improving a file's tests, do not read the coverage report (or uncovered-lines list) to decide what to write: work from the source and the existing tests, enumerate the code's intended behaviours, and write the tests that are semantically missing. Only after that may coverage be consulted, as an independent check that nothing was overlooked. Writing tests off the uncovered-lines list produces "make line X execute" tests instead of "verify behaviour Y" tests — coverage rises while behaviour stays unverified, which destroys the report's only value: being an ungamed signal of test completeness.
-- **Every `expectRevert` asserts a *specific* error, with as many of its parameters as possible.** Never use a bare `vm.expectRevert()` — it matches *any* revert, so the test passes even when the revert comes from an unrelated cause (a setup typo, a different guard). Assert the exact custom error or revert string, and pin the argument values with `abi.encodeWithSelector(Err.selector, expectedArgs…)` whenever they are known and stable. Fall back to selector-only (`vm.expectRevert(Err.selector)`) **only** for the individual arguments that are genuinely runtime-derived and not predictable — assert every argument you can compute or read.
-- **Work out the expected error from the code, never from a trace.** Read the function under test, its modifiers, and the libraries/base contracts it inherits to determine which revert it is *written* to throw (e.g. an `onlyOwner`/`onlyRoles` from a Solady-based ownership mixin reverts `Unauthorized()`; Solady ERC20 `_spendAllowance` reverts `InsufficientAllowance()`; an OZ `SafeERC20` call bubbles the inner token revert unchanged), and assert that. Reading the error off a `-vvvv` trace and copying it just enshrines current behaviour — a buggy, wrapped, or coincidental revert would pass by construction. Traces are for debugging, not for choosing the assertion.
-- **Exercise every loop at 0, 1, and N (≥ 2) iterations.** A loop tested only against a single-element collection hides both the empty-collection path and multi-element bugs (off-by-one, accumulation/ordering, swap-and-pop, residual carried across iterations). This applies to every iteration over a dynamic collection — arrays, index-mapped registries, reward-token sets, vault lists. One element is not coverage of the loop; build fixtures with 0 and ≥ 2 elements explicitly. If a dependency behaviour is needed to drive a second iteration (e.g. it partially fills so a follow-up pass runs), add that mode to the mock rather than skipping the N case.
-- **A mock must match the real dependency's observable behaviour in BOTH directions — never stricter, never more permissive.** Do not add input validation, zero-address / zero-amount guards, allowance checks, or other error-checking to a mock unless the real dependency genuinely has it. Extra strictness in a mock masks a missing check in the code under test: the call reverts *inside the mock*, the test goes green, and the real gap ships. Match the dependency's permissiveness too — e.g. model a Solady-style token's silent transfer-to-zero rather than OpenZeppelin's revert. **The mirror direction is just as dangerous: a mock must not implement functions, selectors, or behaviour the real dependency lacks, and must reproduce the dependency's response to calls it does NOT handle** (a contract with a permissive fallback returns success for unknown selectors; one without reverts). A mock written from the calling code's *assumption* about the dependency's ABI can only ever confirm that assumption — build it from the dependency's *real* ABI, verified against the deployed contract. (Case in point: a Curve crypto pool takes `exchange(uint256,…)` and its Vyper `__default__` silently swallows the `int128` form; a mock that implemented the `int128` form hid a fund-losing mis-encoding that a faithful mock — uint256-only plus a permissive fallback — pins forever.) Do model the real behaviour *modes* the code exercises — a Minter that partially fills up to a fee cap, a vault that accrues yield — so branches and loops stay reachable. The rule is faithful *behaviour*, minimal *validation*, exact *ABI surface*.
-- Do not write comments that reference ephemeral or planning artifacts: plan-section identifiers (e.g. `§N`), red/green test-phase labels ("Red:", "Green:"), implementation states ("buggy:", "TODO after X is merged"), or other conditions that become stale once the work is complete. The test comment describes intended behaviour that is always true; anything else belongs in the PR or commit message.
-- Before implementing any new contract or significant feature, add a **test plan** to the plan file. List each test by function name, state the single behaviour it verifies, and say whether it is a unit test (mock-based, fast) or a fork test (real mainnet state). The section is not complete until all tests in its plan are written and `forge test --match-path test/TheContract.t.sol` confirms they all pass.
-- In tests, prefer `console2.log` over `emit` for debug logging — it shows in `forge test -vvv` output without cluttering the event log. Use the `Fmt` library with `string.concat` for readable formatted messages.
-- **One-shot cheatcodes (`vm.prank`, `vm.expectRevert`, `vm.expectEmit`, `vm.expectCall`, `vm.mockCall`-per-call…) bind to the NEXT external call — which is whichever EVM call fires first, not the statement you are looking at.** Argument sub-expressions count: `vm.expectRevert(...); swap(..., _expectedOut(x) + 1)` binds the expectation to the external call *inside `_expectedOut`*, not to `swap`. Helper functions count too: a test helper that performs setup calls (configure a route, set a coin) before the call under test steals the binding. Defend structurally, in this order:
-  - **Hoist** every expression that makes an external call into a local *before* the cheatcode, so the guarded statement contains exactly one external call.
-  - **Split helpers** into a setup function (called before the cheatcode) and a pure single-call function (the guarded one), and document the single-call contract on the helper.
-  - For pranks specifically: never use `vm.prank` — always `vm.startPrank(addr)` / `vm.stopPrank()` pairs, which persist across the whole block so argument evaluation can't steal the prank. Always pair them; never leave a `startPrank` unclosed.
+### Assertions
+- **Every `expectRevert` asserts a *specific* error, with as many of its arguments
+  as possible.** Never use a bare `vm.expectRevert()`: it matches any revert, so
+  the test passes even when the revert has an unrelated cause (a setup typo, a
+  different guard). Assert the exact custom error or revert string, and pin the
+  arguments with `abi.encodeWithSelector(Err.selector, expectedArgs…)` whenever
+  they are known and stable. Fall back to the selector alone
+  (`vm.expectRevert(Err.selector)`) only for the arguments that are genuinely
+  runtime-derived and unpredictable — assert every argument you can compute or
+  read.
+- **Work out the expected error from the code, never from a trace.** Read the
+  function under test, its modifiers, and the libraries and base contracts it
+  inherits to find which revert it is *written* to throw — a Solady-based
+  `onlyOwner`/`onlyRoles` reverts `Unauthorized()`; an OZ `SafeERC20` call bubbles
+  the inner token's revert unchanged — and assert that. Copying the error off a
+  `-vvvv` trace enshrines current behavior: a buggy, wrapped or coincidental revert
+  passes by construction. Traces are for debugging, not for choosing the
+  assertion.
+- **Exercise every loop at 0, 1 and N (≥ 2) iterations** — every iteration over a
+  dynamic collection: arrays, index-mapped registries, reward-token sets, vault
+  lists. A single element hides both the empty path and multi-element bugs
+  (off-by-one, accumulation or ordering, swap-and-pop, a residual carried across
+  iterations). If a dependency behavior is needed to drive a second iteration (it
+  partially fills, so a follow-up pass runs), add that mode to the mock rather than
+  skip the N case.
+- **Prefer exact assertions (`assertEq`).** When the exact value can be computed
+  or read back from the contract, use it — never an approximation. When
+  approximation is genuinely required (rounding from integer division in an
+  external formula), derive the tolerance from first principles — the maximum
+  possible error — and use `assertApproxEqAbs` with that bound and a comment
+  giving the derivation. Use `BaoTest.assertApprox(actual, expected, absTolerance,
+  relTolerance)` (passes within either bound, as pytest's does) when an absolute
+  floor and a relative component are both meaningful, such as when the expected
+  value can be zero but a small rounding constant is also possible. Never use a
+  percentage tolerance such as `0.01e18` as a blanket fallback.
+- **Pin a derived tolerance with `assertDiscriminates` when a concrete adjacent
+  wrong value exists.** A tolerance assertion shows `actual` is close to
+  `expected`, but not that the bound is tight enough to catch a bug: a later edit
+  can widen it past the deviation it was sized to exclude, and nothing fails. When
+  the derivation excludes a specific value a plausible bug would produce — the
+  ceiling where the code floors (`expected + 1`), a value just past a conservation
+  dust cliff, an off-by-one-scaled error — use `BaoTest.assertDiscriminates(actual,
+  expected, tolerance, wrongValue, memo)`. It asserts that the band admits `actual`
+  and rejects `wrongValue`, turning a one-off "flip the code, watch it go red"
+  check into a guard on every run. **Precondition:** it is only satisfiable, and
+  only meaningful, when `|wrongValue − expected| > tolerance ≥ |actual −
+  expected|` — when the tolerance is the real line between correct and that
+  specific wrong value. Do not force it when the legitimate tolerance dwarfs any
+  adjacent bug (a large dead-share-dilution bound swamping a sub-wei rounding
+  flip). Get the discrimination from a one-sided invariant instead: a conservation
+  check (`assertLe(Σparts, whole)`, `assertConserved`) rejects any overshoot,
+  whatever the dust bound.
 
-  The failure mode is nasty because it is silent: the stolen binding usually attaches to a view call that succeeds, so an `expectRevert` test fails with a confusing "call did not revert" (or worse, a prank lands on `balanceOf` and the real call runs as the test contract). Three ways this bites: via `vm.prank`, via a setup-making helper under `expectRevert`, and via an argument sub-expression under `expectRevert`.
-- Unimplemented functions must `revert`, not return a plausible stub value. A function that silently returns 0, false, or an empty array masquerades as implemented and lets tests pass vacuously. Use a descriptive custom error (e.g. `error NotImplemented()`) or a plain `revert("name: not implemented")` so the unimplemented state is immediately visible.
-- In tests, prefer exact assertions (`assertEq`) over approximate ones. When the exact value can be computed or read from storage (e.g. a snapshot value read back from the contract), use it directly — never substitute an approximation when the exact value is available. When approximation is genuinely required (e.g. rounding from integer division in an external formula), derive the tolerance analytically — identify the maximum possible error from first principles and use `assertApproxEqAbs` with that specific bound, accompanied by a comment explaining the derivation. Use `BaoTest.assertApprox(actual, expected, absTolerance, relTolerance)` (pytest-style: passes when within either bound) when both an absolute floor and a relative component are independently meaningful — e.g. when the expected value can be zero but a small rounding constant is also possible. Never use a percentage-based tolerance like `0.01e18` as a blanket fallback.
-- **Pin a derived tolerance with `assertDiscriminates` when a concrete adjacent wrong value exists.** A tolerance assertion (`assertApprox`/`assertApproxEqAbs`) shows `actual` is close to `expected` but proves nothing about whether the bound is *tight enough to catch a bug* — a later edit can widen it past the very deviation it was sized to exclude and nothing fails. When the tolerance's derivation excludes a specific value a plausible bug would produce — the ceil where the code floors (`expected + 1`), a value just past a conservation dust cliff, an off-by-one-scaled error — lock it in with `BaoTest.assertDiscriminates(actual, expected, tolerance, wrongValue, memo)`: it asserts the band both ADMITS `actual` and REJECTS `wrongValue`, turning a one-off "flip the code, watch it go red" mutation-check into a permanent every-run guard that the bound can't be silently loosened past the bug. **Precondition:** it is only satisfiable — and only meaningful — when the bug's deviation exceeds the legitimate tolerance (`|wrongValue − expected| > tolerance ≥ |actual − expected|`), i.e. the tolerance is the real cliff between correct and that specific wrong. Do NOT force it when the legitimate tolerance dwarfs any adjacent bug (e.g. a large dead-share-dilution bound swamping a sub-wei rounding flip): no single tolerance can both admit the real spread and reject the closer wrong value — get the discrimination from a one-sided invariant instead (a conservation `assertLe(Σparts ≤ whole)` / `assertConserved`, which rejects any over-shoot regardless of the dust bound).
-- Prefer immutable constructor arguments over configurable storage for addresses of related contracts deployed at predictable proxy addresses. The related contract can be upgraded via its own proxy without the consuming contract needing a setter. This saves bytecode (no setter function, no zero-address checks, no storage reads) and gas. Only use storage for addresses that genuinely need to change independently of contract upgrades.
-  - **Exception — beacon proxies:** immutables are stored in the *implementation* bytecode and are therefore shared across all proxies that point to the same beacon. Per-proxy state (e.g. the `vault` address that differs for each `HarborYieldEntry_v1` instance) must live in per-proxy storage (ERC-7201 slot or plain storage). Use immutables only for values that are genuinely the same for every proxy instance (e.g. the beacon address itself, baked into the factory).
-- Never read files that are likely to contain secrets — `.env`, `.env.*`, `*.pem`, `*.key`, `credentials*`, `*.secret`, `id_rsa*`, etc. — unless the user explicitly asks for it. This applies even when investigating something unrelated (e.g. resolving a symlink, looking for shell hooks): skip the file. Once a secret is read by a tool call, the contents are in the conversation transcript and must be treated as compromised. If you need information *about* such a file (existence, size, ownership), use `ls -la`, not `cat`. Match the scope of investigation to the actual question being asked.
-- When discussing design decisions, do not present disconnected multiple-choice questions. Instead, write out the full picture first — user flows, accounting, consequences — so the decision context is clear. Present a recommendation with reasoning, not a menu of options without enough background. Use the plan document or design docs for detailed analysis, not the question dialog.
-- Do not create functions that are only called once. Inline the logic instead.
-- When diagnosing an issue, do not use words like "likely", "probably", or "may" to describe a root cause. Either verify the hypothesis with data (dry run, log, trace) or state explicitly that it is unverified. Never proceed with a fix based on an unverified hypothesis.
-- When the user reports a problem, fix it — do not unilaterally decide the problem is out of scope, pre-existing, already resolved by another fix, or someone else's concern. If you believe any of those things, say so and ask whether the user still wants it addressed. Never declare a judgement like "this is pre-existing" or "the root cause is X" and then act on it without confirmation. Present your reasoning, then ask.
-- When fixing bugs, follow this process: (1) write a test that fails because of the bug, (2) write the fix, (3) run the test again to confirm it passes. This applies to both Solidity and script/tooling bugs.
-- Plan files are under git at `~/.claude/plans/`. After modifying a plan file, commit it with a short message describing the change (e.g. `git -C ~/.claude/plans commit -am "added D.1 versioned directories"`). This allows reverting mistakes.
-- When fixing error handling, do not silently skip or suppress errors. If something fails, the failure should be visible and the process should fail clearly. Do not work around errors by hiding them unless explicitly asked to.
-- In bash, `set -e` does NOT catch failures in `[[ ]]` conditionals, variable assignments (e.g. `x=$(failing_cmd)`), commands in pipelines (use `set -o pipefail` AND check `${PIPESTATUS[@]}`), or sourced scripts. Always check exit status explicitly with `${PIPESTATUS[0]}` or `$?` after critical commands rather than relying on `set -e` alone.
-- Two ownership patterns for UUPS contracts:
-  - **HarborOwnable**: `_initializeOwner(deployerOwner, pendingOwner)` takes explicit deployer. Deploy via `_deployProxyAndRecord`.
-  - **HarborFixedOwnable** (hardcoded): Owner is immutable constructor param (Harbor multisig). Deploy via `_deployProxyAndRecord` with empty initData. Used by contracts whose owner if fixed and lightness of contratc is preferred, for example, HarborPauser_v1.
-- Always use HarborOwnable/HarborOwnableRoles over BaoOwnable/BaoOwnableRoles. They are near-drop-in replacements that take explicit `(deployerOwner, pendingOwner)` instead of relying on `msg.sender`. They don't need the UUPSProxyDeployStub — deploy via `_deployProxyAndRecord` (direct), not `_deployProxyViaStubAndRecord`. When upgrading a contract from BaoOwnable to a new version, switch to HarborOwnable.
-- **Contract-level state: identity is fine, transient is banned.** Holding state on the contract is the basis of object-oriented design, so the rule is not "no fields" — it is about *which* state.
-  - **Identity state** — what the object *is*: set at construction and constant across calls (an owner, a treasury, a salt prefix, a target network). This is legitimate and preferred: it says the object's nature once, in its constructor, instead of repeating it in every signature.
-  - **Transient state** — what the object is *currently doing*: written by one call so a later call can read it. Never do this. It is invisible in the signatures, so nothing tells a reader (or the compiler) that call B requires call A to have run first; call them in the wrong order and the behaviour silently changes. If a function needs context, pass it as a parameter or split it into dedicated variants.
+### Mocks
+- **A mock matches the real dependency's observable behavior in BOTH directions —
+  never stricter, never more permissive.** Add no input validation, zero-address
+  or zero-amount guard, allowance check or other error-checking that the real
+  dependency lacks: the call would revert *inside the mock*, the test would go
+  green, and the real gap would ship. Match the dependency's permissiveness too —
+  a Solady-style token's silent transfer to zero, not OpenZeppelin's revert. In
+  the other direction, a mock must not implement functions, selectors or behavior
+  the real dependency lacks, and must answer calls it does NOT handle as the
+  dependency does (success from a permissive fallback; a revert without one).
+  Build the mock from the dependency's *real* ABI, verified against the deployed
+  contract: a mock built from the calling code's assumption about the ABI can only
+  confirm that assumption. (A Curve crypto pool takes `exchange(uint256,…)`, and
+  its Vyper `__default__` silently swallows the `int128` form; a mock with the
+  `int128` form hid a fund-losing mis-encoding that a faithful mock — uint256-only
+  plus a permissive fallback — catches.) Do model the real behavior *modes* the
+  code exercises — a Minter that partially fills up to a fee cap, a vault that
+  accrues yield — so branches and loops stay reachable. Faithful *behavior*,
+  minimal *validation*, exact *ABI surface*.
+- **A mock of a UUPS contract is deployable as a proxy implementation.** Give it
+  `Initializable`, call `_disableInitializers()` in its constructor, and set its
+  state in an `initialize(...)` with the **same signature as the production
+  contract's**, not through constructor arguments. The same
+  `abi.encodeCall(ProductionContract.initialize, ...)` the deploy script uses then
+  works unchanged, and the deploy script places the mock at its predicted address
+  with `_deployProxyAndRecord`: the test needs no `ERC1967Proxy`.
 
-  The line is whether the field **switches behaviour** based on an earlier call. A field written once at construction does not; a flag one function sets to steer another does — that is the banned form, and a boolean is its most common shape. An append-only ledger that only ever *accumulates* a record (never consulted to decide what to do) is not transient state in this sense, but prefer threading it explicitly while that stays cheap.
+### Tests build their setup with the deploy scripts
+Tests **use** the deploy scripts' abstract contracts (`HarborYield`, `Swapper`),
+and the upstream repo's chain too: harbor-yield's setups take the Minter,
+StabilityPool and StabilityPoolManager from harbor's `Deploy_*_Minter`
+`deployForPeg`, not a re-implementation. "Use" means compose or inherit, not
+specifically Solidity `is`: **compose** (hold one deploy harness per stack) when
+independent deploy instances are needed — a separate `FactoryDeployer` state per
+run, as for two minter markets on one peg, or to keep harbor and harbor-yield the
+separate deploy runs they are in production; **inherit** when one fused instance
+is enough.
 
-  When a shape seems to force transient state, treat that as evidence the abstraction is in the wrong place — most often a base class too generic to name its subclass's argument types. Move the code to where the types are nameable and the arguments thread through normally.
-- **Deployment config mixins**: each deployment config dimension is a standalone mixin contract with `virtual` functions providing useful defaults (e.g. `ConfigPriceVolatility_130_stable`, `ConfigStabilityPool`, `ConfigCollateral_fxUSD_mainnet`). The top-level market config (e.g. `ConfigMarket_ETH_fxUSD_mainnet`) inherits from all relevant mixins and overrides only what differs. Config values belong in the mixin that owns their domain: fee ratios go in the volatility config (same contract as `minterConfig()`), oracle addresses go in the collateral config (same contract as `wrappedCollateralToken()`). Do not create a separate mixin for a config value that naturally belongs to an existing one — that fragments the config and requires unnecessary overrides in every market.
-- **Test deploy overrides for fork-test setup classes**: deployment test setup classes (e.g. `DeployEURSetUp`) inherit the real deploy script chain (`Deploy_EUR_Minter → DeployMintersShared → AutoCompounder`). When a deploy function needs a contract address that doesn't exist yet in production (e.g. an oracle not yet deployed), override the relevant `deploy*Implementation` virtual function in the test setup class to substitute a mock. The override calls `super` so the rest of the deploy logic is unchanged. Never add test-only fallback logic to production deploy scripts.
-- **Mock contracts must be UUPS proxy-compatible**: mock contracts that stand in for production UUPS-upgradeable contracts must be deployable as proxy implementations. Add `Initializable`, call `_disableInitializers()` in the `constructor()`, and expose an `initialize(...)` function with the **same signature as the production contract's `initialize`** instead of using constructor arguments for state. When tests need the mock at a specific address (e.g. a CREATE3-predicted address), the deploy script will call `_deployProxyAndRecord` with the mock as implementation — no `ERC1967Proxy` is needed in the test itself. The matching signature means the same `abi.encodeCall(ProductionContract.initialize, ...)` used in the deploy script works unchanged with the mock.
-- **Choose the mock mechanism by how the contract is reached — override for repo-deployed, `vm.etch` for predicted-address.**
-  - **Deployed by this repo's deploy chain** (part of the system under test: the vault, its entries, AutoCompounders, an ERC-4626 adapter): mock via the `deploy*Implementation` virtual override (above). The deploy script installs the mock at the predicted address as part of the normal flow — tests do not place it themselves.
-  - **A separate deployment the system only references by predicted CREATE3 address** (e.g. price oracles from harbor-price-aggregators, the shared Swapper): mock with **`vm.etch`**, never with the deploy script and never with `vm.mockCall` keyed on a recomputed address. The address getter (`_ethPriceOracleAddress`, `_equivalentOracleAddress`, `_swapperAddress`, `_wrappedPriceOracleAddress`, …) is a **non-overridable pure predicted-address resolver** — used by the `.s.sol` deploy to wire the dep AND by the test to know where to mock, so the two can never desync. In `setUp`, **`vm.etch` the mock inline at that resolved address *after* the deploy chain has run — never before it.** The deploy must reference the dependency by its predicted address while that address is still *codeless* (granting it roles, baking it in as an immutable) — exactly as production does when the dependency is deployed separately — so etching code there before the deploy would mask that path and stop the deploy code from being exercised against a codeless reference. The mock only needs code before the first *call* into it (a mint/read in a test body), which is after the deploy. After etching, set its state with the mock's setters (`etch` copies code, not storage — the mock's constructor / field initializers do NOT apply; for a UUPS mock call its `initialize` afterward). Inline the `vm.etch`+config directly in `setUp` — do **not** wrap it in a **single-use per-setUp** `_installMock*At()` helper (a helper called once per setup reads worse than the visible `vm.etch`, and a `virtual` install hook invites dead overrides). A **genuinely shared** install primitive reused across many setups (e.g. `installContractAt(targetAddress, implementationAddress)`) IS fine — the ban is only on the once-per-setup wrapper; a shared primitive is a foundation, like a shared mock contract. Getting the address from the getter (not a separately-derived key) is what keeps it robust: a key change moves the getter and the install together (a `vm.mockCall` on a separately-derived address silently misses when the key changes, then reverts "call to non-contract"). `vm.etch` also overwrites whatever is present, so it works even if the real contract is already deployed at that address (a deploy-script CREATE3 install would revert on the collision).
-  - `vm.mockCall`/`vm.mockCallRevert` remain correct **only** for *behavioural* injection in a single test (force a specific method's return or revert where there is no deployment seam) — never for resolving a dependency's address.
-- **Wire dependencies by predicted address, not by a mutable update call.** Don't connect related contracts through a setter that can leave the system half-configured (e.g. `minter.updatePriceOracle`); bake the dependency in as its predicted CREATE3 address (immutable / construction arg) so there is no second source of truth that can drift out of sync.
-- **Never copy values — always reference the source.** When a value originates elsewhere (a config function, a protocol constant, an existing variable), call or read that source directly wherever the value is needed. Do not read it once and redeclare it as a new constant, hardcode the literal, or create a duplicate variable of a different name. Copies diverge silently when the original changes and hide the dependency. For example: use `peg.minDeposit()` directly rather than extracting it to a local `uint256 MIN_DEPOSIT = 1e18`.
-- **Run project scripts with `yarn`, not the underlying tool directly.** Developers drive this repo through the `yarn` scripts — check `package.json` `scripts` for what's available (e.g. `yarn slither`, `yarn test`, `yarn CI`, `yarn prettier`). These wrappers apply the correct config file, `--filter-paths`, environment, and flags; invoking `forge`/`slither`/etc. directly will miss that setup and can give misleading results. When verifying work or reproducing CI, use the same `yarn` script CI uses.
-- **No unexplained abbreviations in code.** Don't use abbreviations in identifiers or comments unless they are widely understood (e.g. `ERC20`, `URL`, `id`, `tx`) or defined once at the point of first use. Do not coin local shorthand. For example, `RPS` in `AutoCompounder_v1.sol` (for reward-per-share) is opaque — and the comments use the same unexplained abbreviation, so there is nothing to decode it against. Prefer the full name (`rewardPerShare`); if a long name genuinely repeats too often to spell out, introduce the abbreviation explicitly in a comment at its first occurrence and use it consistently thereafter.
-- **Spell out domain nouns in full — everywhere: contract/library names, function names, variables, and comments.** The short forms we use when *talking* (HY, AC, EQ, SP, SPM, lev, col, wcol/wcoll/wCol) must never appear in code or comments; write the full noun. This is the specific, always-applies case of the abbreviation rule above — these are not "widely understood" outside a live conversation, and a reader six months later has no glossary. The required expansions:
-  - `HY` → `HarborYield`
-  - `AC` → `AutoCompounder`
-  - `EQ` → `equiv`
-  - `SP` → `StabilityPool`
-  - `SPM` → `StabilityPoolManager`
-  - `lev` → `leveraged`
-  - `col` → `collateral`
-  - `wcol` / `wcoll` / `wCol` / `wColl` → `wrappedCollateral`
+A `setUp` contains only three kinds of code:
+1. **Calls to the real deploy functions, in order** (`deployHarborYieldEntry`,
+   then `deployHarborYield`; `deployForPeg`), after `_ensureBaoFactory()` and
+   setting the test contract as operator. This exercises the full CREATE3 path.
+2. **Mocks installed at the deploy's own seams.**
+   - A contract this repo's chain deploys (part of the system under test: the
+     vault, its entries, AutoCompounders, an ERC-4626 adapter): override its
+     `deploy*Implementation` to return the mock. The deploy script installs it at
+     the predicted address in the normal flow; the test does not place it.
+   - A separate deployment the system only references by predicted CREATE3
+     address (price oracles from harbor-price-aggregators, the shared Swapper):
+     `vm.etch` the mock at the address its getter returns (`_swapperAddress()`,
+     `_wrappedPriceOracleAddress(...)`, `_equivalentOracleAddress(...)`,
+     `_ethPriceOracleAddress(...)`). The getter is a non-overridable pure resolver,
+     used by the `.s.sol` deploy to wire the dependency and by the test to know
+     where to mock, so the two cannot drift apart: a key change moves both. Etch
+     inline in `setUp`, **after** the deploy chain has run, never before: the
+     deploy must reference the dependency while its address is still codeless
+     (granting it roles, baking it in as an immutable), as production does, and
+     the mock needs code only before the first call into it, in the test body.
+     `vm.etch` copies code, not storage, so the mock's constructor and field
+     initializers do not apply: set its state with its setters, or call
+     `initialize` on a UUPS mock. `vm.etch` overwrites whatever is there, so it
+     works even where the real contract is already deployed (a CREATE3 install
+     would revert on the collision).
+3. **Minimal test-actor glue:** fund the test or the owner, grant the test
+   contract roles, hold `_predictAddress` handles.
 
-  So `acToEquiv`/`_backHarborYieldWithAC`/`wColAmount`/`// unwind the SP position` become `autoCompounderToEquivalent`/`_backHarborYieldWithAutoCompounder`/`wrappedCollateralAmount`/`// unwind the StabilityPool position`. This includes docstrings and inline comments, not just identifiers. (`ERC4626`, `ERC20`, `CR` for collateral ratio where already established, and other genuinely-standard tokens remain fine under the rule above.)
-- **Import dependencies normally — don't load them dynamically to work around an environment problem; discuss first.** Import packages at module top with a plain `import`, relying on the controlled, pinned environment (the bin uv env / `bin/.python-version`'s Python 3.13) to provide them. Do not defer an import into a function body, add a `try/except ImportError` fallback, or otherwise load a dependency conditionally so a module can import where the dependency is absent. That masks the real defect — a module running in the wrong / under-provisioned environment — and the correct fix is almost always the *environment* (run the tests in the same bin env they test; pin the interpreter), not the code. For example, `doctor.py` should simply `import tomllib` at the top (the pinned 3.13 has it in the stdlib); a deferred `try tomllib / except toml` fallback only hid that the test runner was using the system Python 3.10 instead of the pinned 3.13. If a lazy or conditional import genuinely seems warranted, stop and discuss it before writing it.
+Anything else is reproduced deploy plumbing, and a defect. When you write or
+review any `*SetUp` or `Deploy*Test` class, check every line that is not a
+deploy-function call or an override against the three kinds. In particular:
+- Do not call `_deployProxyAndRecord` by hand, construct a beacon with `new`, or
+  repeat logic a `deployABC` function already holds — call the deploy function.
+  `new Contract(...)` is only for lightweight fixtures that never need a
+  predictable address (token mocks, oracle mocks).
+- Do not hand-build a `DeploymentTypes.State{…}` and call `deployX(state)` to place
+  a predicted-address dependency: `vm.etch(_swapperAddress(), address(new
+  MockSwapper()).code)`, not `deploySwapper(swapperState)`.
+- Keep each `vm.etch` and its configuration inline in `setUp`. Do not wrap it in a
+  single-use, per-setup `_installMock*At()` helper: it reads worse than the
+  visible `vm.etch`, and a `virtual` install hook invites dead overrides. The ban
+  is only on the once-per-setup wrapper: a shared install primitive reused across
+  many setups (`installContractAt(targetAddress, implementationAddress)`) is fine.
+- Never resolve a dependency's address with `vm.mockCall` on a separately derived
+  address: when the key changes it silently misses, then reverts "call to
+  non-contract". `vm.mockCall`/`vm.mockCallRevert` are only for behavioral
+  injection in a single test — forcing one method's return or revert where there
+  is no deployment seam.
+- Never add test-only fallback logic to a production deploy script.
+
+Keep test-composition primitives — scenario harnesses, `installContractAt`, the
+compose blocks — drivable from an external layer, so that a higher-level layer
+(such as Python in the wake environment) can compose the same scenarios. Give
+them clear, minimal *public* entrypoints, and do not rely on assembly by Solidity
+inheritance only. Let this inform small choices: prefer public over internal
+where a primitive is a composition seam.
+
+### Tests run in parallel
+Forge runs the tests in parallel, in one process, so a test must not change what
+another test reads.
+- Never create and then remove a file or directory in a test.
+- Never call `vm.setEnv` in a test. It changes the variable for every test running
+  at the time, in every test file, and nothing can guarantee two tests set the
+  same value. Code reads an environment variable through a `virtual` function, and
+  a test that needs a value overrides the function (as `Deployer.t.sol`'s
+  `BatchWritingDeployer` overrides `_batchDirectory`). To test the function
+  itself, leave the variable unset: a `vm.envString` read reverts naming the
+  variable (`vm.expectRevert(bytes('vm.envString: environment variable "X" not
+  found'))`), and a `vm.envOr` read returns its fallback. `yarn validate` fails on
+  a `vm.setEnv` call in a test.
+- `./results` holds tracked regression output only: files each run rewrites with
+  the same content, so git shows when the content changes. Write such output there
+  and leave it. Run logs and other temporary files go to `./tmp`.
+- A test that reads back its own output must prove that this run wrote it. The
+  tracked copy from an earlier run is always there, so `vm.exists` and a read-back
+  prove nothing on their own. Write a marker at the path before the code runs;
+  afterwards, assert the marker was replaced.
+
+### `vm.prank` and `vm.expectRevert` bind to the next external call
+They bind to whichever EVM call fires first, not to the statement you are looking
+at. Argument sub-expressions count: in `vm.expectRevert(...); swap(...,
+_expectedOut(x) + 1)` the expectation binds to the external call *inside
+`_expectedOut`*, not to `swap`. A test helper that makes setup calls (configure a
+route, set a coin) before the call under test steals the binding too.
+(`vm.expectEmit`, `vm.expectCall` and `vm.mockCall` do not bind this way: an
+intervening call leaves them in place.) Defend structurally, in this order:
+- **Hoist** every expression that makes an external call into a local *before* the
+  cheatcode, so the guarded statement contains exactly one external call.
+- **Split helpers** into a setup function, called before the cheatcode, and a
+  single-call function that is the guarded one; document the single-call contract
+  on the helper.
+- **Never use `vm.prank`.** Always use a `vm.startPrank(addr)` / `vm.stopPrank()`
+  pair, which persists across the block so argument evaluation cannot steal the
+  prank. Never leave a `startPrank` unclosed.
+
+The failure is silent: the stolen binding usually lands on a view call that
+succeeds, so an `expectRevert` test fails with a confusing "next call did not
+revert as expected" — or a prank lands on `balanceOf`, and the real call runs as
+the test contract.
+
+### Test and script code
+- **Call through interface types.** In tests and scripts, call a contract through
+  its interface (`IStabilityPool_v3(pool)`), not its concrete type
+  (`StabilityPool_v3`), so every call checks that the interface matches the
+  implementation. Concrete types are only for construction and deployment.
+  - **Declarations:** hold a contract as an `address`, not a typed variable, so
+    every call must cast it to the interface it goes through:
+    `address rewardToken = address(new MockERC20(...))`.
+  - **Calls:** cast to the interface at the call site:
+    `IERC20(rewardToken).balanceOf(user)`.
+  - **Mock setup:** casting to a concrete type is acceptable for a mock-specific
+    function, such as `MockERC20(token).mint()`.
+- **In tests, prefer `console.log` over `emit` for debug logging.** It shows in
+  `forge test -vvv` output without cluttering the event log (forge-std's
+  `console2` is now an alias of `console`). Build readable messages with the `Fmt`
+  library and `string.concat`.
+
+## Tools and environment
+
+### Run project scripts with `yarn`
+Developers drive the repo through the `yarn` scripts in `package.json` (`yarn
+test`, `yarn slither`, `yarn fmt`, `yarn CI`, …). They apply the right config
+file, `--filter-paths`, environment and flags; running `forge`, `slither` or
+another tool directly misses that setup and can give misleading results. To
+verify work or reproduce CI, use the `yarn` script CI uses.
+
+### Dependencies are git submodules managed with `yarn dep`
+Dependencies are git submodules in `lib/`, managed with `yarn dep` and never with
+forge's `install`, `update` or `remove`.
+- `yarn dep add [-b <branch or tag>] <url>` adds one. `yarn dep update
+  <name>@<version>` moves one to a branch, tag or commit; with no version, to the
+  tip of the branch it follows. `yarn dep remove <name>` removes one.
+- `yarn dep sync` checks out the commits this repository points to, after a clone
+  or a pull.
+- To work inside a dependency, run `yarn dep -C <name> sync` from the main folder.
+  A plain `yarn dep sync` in the main folder takes that set-up away.
+- No `yarn dep` command loses work: a folder holding work only this computer has
+  stops it with nothing changed.
+- Nothing in `yarn dep` commits, and it stages in one case only: `yarn dep sync`
+  runs `git add` for a dependency whose folder has newer commits, all pushed, that
+  this repository has never pointed to, and says so. Otherwise it ends by naming
+  the git commands that stage and commit the change.
+- `yarn doctor` reports a submodule folder that differs from what this repository
+  points to.
+
+`yarn dep --help` and `yarn doctor --help` give each command's full behavior.
+`bin/dep`'s docstring says why each step is done as it is.
+
+### Bash: know what `set -e` misses
+Use `set -o pipefail` with `set -e`: without it, a failing pipeline stage other
+than the last is ignored. Even with both, bash does not stop when the failing
+command is:
+- tested — in an `if` or `while` condition, before `&&` or `||`, or after `!` —
+  and this includes every command inside a function called that way;
+- a command substitution in `local`, `export`, `declare` or `readonly`:
+  `local x=$(cmd)` takes the status of `local`;
+- inside `$( )` but not its last command, or in a `$( )` used as an argument:
+  `echo "$(cmd)"`.
+
+After a critical command, check its exit status explicitly (`$?`, or
+`${PIPESTATUS[@]}` for each pipeline stage) rather than relying on `set -e`
+alone — always in the cases above. `yarn lint:bash` runs ShellCheck, which reports
+some of these (SC2155 for `local x=$(cmd)`).
+
+### Python: import at the top; fix the environment, not the import
+Import packages at module top with a plain `import`, relying on the controlled,
+pinned environment (the bin uv environment and the Python 3.13 that
+`bin/.python-version` pins) to provide them. Do not defer an import into a
+function body, add a `try/except ImportError` fallback, or otherwise load a
+dependency conditionally so a module can import where the dependency is absent.
+That masks the real defect — a module running in the wrong or under-provisioned
+environment — and the correct fix is almost always the environment: run the tests
+in the same bin environment they test, and pin the interpreter. If a lazy or
+conditional import genuinely seems warranted, stop and discuss it before writing
+it.
+
+### Never read files likely to hold secrets
+Do not read `.env`, `.env.*`, `*.pem`, `*.key`, `credentials*`, `*.secret`,
+`id_rsa*` or similar unless the user explicitly asks — not even while
+investigating something unrelated, such as resolving a symlink or looking for
+shell hooks. Once a tool call reads a secret, it is in the conversation transcript
+and must be treated as compromised. For facts *about* such a file (existence,
+size, ownership), use `ls -la`, not `cat`. Match the scope of an investigation to
+the question asked.

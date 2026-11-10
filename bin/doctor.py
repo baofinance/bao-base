@@ -1650,8 +1650,9 @@ def main() -> None:
         "--root",
         dest="root",
         metavar="<dependency>",
-        help="check <dependency> as a project of its own, with this repository's copy of doctor; named as yarn dep "
-        "-C names it: a module path, harbor/bao-base or ../bao-base, or a folder path naming the libs folder",
+        help="check <dependency> as a project of its own, with this repository's copy of doctor, comparing it with "
+        "its own bao-base and checking it against the repository that lists it; named as yarn dep -C names it: a "
+        "module path, harbor/bao-base or ../bao-base, or a folder path naming the libs folder",
     )
     arguments = parser.parse_args()
     repo_root = Path(

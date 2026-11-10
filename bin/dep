@@ -44,7 +44,7 @@ read first; a folder among them holding work only this computer has - a change n
 not pushed, a file nothing tracks, at any depth - stops the run with nothing changed, named with what the
 command would have done to it, and the exit status says so. `update` and `remove` take `--force` to go on
 regardless, and even then the clean-up beneath a moved dependency keeps and names a leftover that holds
-work. `sync` has no `--force`: the way out is to push, record or remove the work.
+work. `sync`'s `--force` never goes past such work: the way out is to push, record or remove it.
 
 Every fetch of tags here is `verify-audit --pull`'s (`FETCH_TAGS`): origin's version of each deployment tag
 replaces the one a checkout holds, so a tag corrected in another clone arrives instead of stopping the fetch
@@ -165,7 +165,9 @@ dep remove [--force] <dependency> ...
                 set it up to work in, on its branch at the commit its repository points to; run again
                 in the main folder to take that set-up away. It stops, with nothing changed, where it
                 would leave a folder detached behind the branch it follows; --force goes on, leaving
-                the folder detached there and its branch keeping its commits.
+                the folder detached there and its branch keeping its commits. It also stops, with
+                nothing changed, on a submodule pointed back to an older commit than the last commit
+                points to.
   status        For each submodule, and each submodule inside one that a remapping uses: the branch it
                 follows, what the commit this repository points to is (a tag, the tip of the branch, or
                 a commit), what is newer upstream, whether a remote holds that commit, and what the
