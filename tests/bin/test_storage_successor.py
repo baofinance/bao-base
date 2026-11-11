@@ -15,8 +15,10 @@ through a mapping, a dynamic array, a static array, and a mapping-of-mappings. F
 is a pool's reward integrals: the inner key of `mapping(address => mapping(uint8 => uint256))`, uint8 -> uint256.
 """
 
+import copy
 import importlib.util
 import json
+import os
 import pathlib
 
 import pytest
@@ -49,6 +51,7 @@ BASE_TYPES = {
     "t_uint8": _int(8),
     "t_int256": _int(256, signed=True),
     "t_int128": _int(128, signed=True),
+    "t_int104": _int(104, signed=True),
     "t_address": {"encoding": "inplace", "label": "address", "numberOfBytes": "20"},
     "t_bytes32": {"encoding": "inplace", "label": "bytes32", "numberOfBytes": "32"},
 }
@@ -144,7 +147,28 @@ def contained(kind, amount="t_uint104"):
 V2 = flat("t_uint104")  # deployed: uint104 amount
 
 
+def _own_declarations(layout):
+    """The layout with every struct given a type id of its own. solc gives each struct declaration its own type id,
+    and one type id in both layouts means one declaration on both sides, which the rule does not compare. A
+    successor declares its own structs, so its made-up layout must not share a struct's id with the predecessor's."""
+    own = {type_id: f"{type_id}_successor" for type_id, type_def in layout["types"].items() if "members" in type_def}
+    types = {}
+    for type_id, type_def in layout["types"].items():
+        type_def = copy.deepcopy(type_def)
+        for member in type_def.get("members", []):
+            member["type"] = own.get(member["type"], member["type"])
+        for holds in ("value", "base"):
+            if holds in type_def:
+                type_def[holds] = own.get(type_def[holds], type_def[holds])
+        types[own.get(type_id, type_id)] = type_def
+    storage = [{**entry, "type": own.get(entry["type"], entry["type"])} for entry in layout["storage"]]
+    return {"storage": storage, "types": types}
+
+
 def errors(a, b, retyped=None, added=None, renamed=None, rekeyed=None):
+    """What stops `b` being a successor of `a`, where `b` declares its own structs: the usual case. A test of one
+    declaration on both sides calls `mod.successor_errors` itself, with the struct's type id in both layouts."""
+    b = _own_declarations(b)
     if rekeyed is not None:
         return mod.successor_errors(a, b, retyped, added, renamed, rekeyed)
     if renamed is None:
@@ -343,7 +367,18 @@ def test_stale_declaration_is_rejected():
 
 
 def test_declaration_naming_unknown_field_is_rejected():
-    assert has(errors(V2, flat("t_uint128"), {"TokenBalance": {"typo": "uint104"}}), "typo", "not found")
+    assert has(errors(V2, flat("t_uint128"), {"TokenBalance": {"typo": "uint104"}}), "typo", "was not compared")
+
+
+def test_retyped_declaration_names_the_field_as_the_successor_does():
+    # renamed and widened in one step: the declaration sits on the successor's struct and uses its name
+    widened = token_balance("t_uint128")
+    widened["members"][1]["label"] = "balance"
+    renamed = {"TokenBalance": {"balance": "amount"}}
+    assert errors(V2, flat(tb=widened), {"TokenBalance": {"balance": "uint104"}}, None, renamed) == []
+    errs = errors(V2, flat(tb=widened), DOC, None, renamed)
+    assert has(errs, "undocumented widen"), errs
+    assert has(errs, "TokenBalance.amount", "was not compared"), errs
 
 
 def test_wrong_declared_old_type_is_rejected():
@@ -367,11 +402,20 @@ def test_overflow_widen_that_relocates_is_rejected_even_when_documented():
     # and because the field exists (it just moved), the declaration must NOT be misreported as "not found".
     errs = errors(V2, flat("t_uint192", moved=True), DOC)
     assert has(errs, "amount", "moved")
-    assert not has(errs, "not found"), errs
+    assert not has(errs, "was not compared"), errs
 
 
 def test_narrowed_amount_is_rejected():
     assert has(errors(V2, flat("t_uint64")), "amount", "narrowed")
+
+
+def test_signed_widen_is_rejected_even_when_documented():
+    # a stored -1 fills the old width with ones, and the bytes the wider type adds are zero in storage: read at
+    # the wider type it is 2**104 - 1
+    for retyped in (None, {"TokenBalance": {"amount": "int104"}}):
+        errs = errors(flat("t_int104"), flat("t_int128"), retyped)
+        assert has(errs, "amount", "signed integer widened", "int104 -> int128"), errs
+        assert len(errs) == 1, errs
 
 
 def test_signedness_change_is_rejected_even_when_documented():
@@ -426,6 +470,22 @@ def test_inserted_member_is_rejected():
     assert has(errors(nested(0), nested(0, tb=tb), None, ADDED), "extra", "overlapping")
 
 
+def test_each_tag_marks_its_own_use():
+    # a field's `bao-added` does not stand for a `bao-retyped-from` of the same field, which documents nothing
+    a, b = nested(0), nested(0, tb=_tb_padding_append())
+    errs = errors(a, b, {"TokenBalance": {"extra": "uint8"}}, ADDED)
+    assert has(errs, "TokenBalance.extra", "bao-retyped-from", "not compared"), errs
+    assert len(errs) == 1, errs
+    # nor a field's `bao-renamed-from` for a `bao-added` of the same field: it was renamed, not added
+    errs = errors(V2, flat(tb=_tb_renamed()), None, {"TokenBalance": {"amountRenamed"}}, RENAMED)
+    assert has(errs, "TokenBalance.amountRenamed", "bao-added", "not added"), errs
+    assert len(errs) == 1, errs
+    # nor a field's `bao-retyped-from` for a `bao-renamed-from` of the same field: it kept its name
+    errs = errors(V2, flat("t_uint128"), DOC, None, {"TokenBalance": {"amount": "balance"}})
+    assert has(errs, "TokenBalance.amount", "bao-renamed-from", "not renamed"), errs
+    assert len(errs) == 1, errs
+
+
 def test_stale_added_declaration_is_rejected():
     # names a field that is not actually a new member
     assert has(errors(nested(0), nested(0), None, {"TokenBalance": {"ghost"}}), "ghost", "not added")
@@ -450,6 +510,280 @@ def test_mapping_key_change_is_rejected():
     b = contained("mapping", "t_uint128")
     b["types"]["t_map"]["key"] = "t_bytes32"  # address -> bytes32 key
     assert has(errors(a, b, DOC), "mapping key changed")
+
+
+# ── what solc's type id tells where the label does not: whether a type is a built-in integer, and whether a
+#    user-defined value type or an enum is one declaration on both sides. A user-defined value type's label is only
+#    its name: it can read as an integer, and two declarations of one name can stand over different types. ──────
+
+
+def _struct_of(member_type_id, extra_types=None):
+    """A top-level struct `S` of one member `f` of this type."""
+    types = dict(BASE_TYPES)
+    types.update(extra_types or {})
+    types["t_s"] = {
+        "encoding": "inplace",
+        "label": "struct S",
+        "numberOfBytes": "32",
+        "members": [{"label": "f", "slot": "0", "offset": 0, "type": member_type_id}],
+    }
+    return {"storage": [{"label": "s", "slot": "0", "offset": 0, "type": "t_s"}], "types": types}
+
+
+def test_field_of_a_user_defined_type_named_like_an_integer_is_not_an_integer():
+    # `type uint9 is int8;` compiles. Widened to uint16 as if it were an unsigned integer, a stored -1 would read 255.
+    fake_id, fake = _user_defined("uint9", "1", 5)
+    errs = errors(_struct_of(fake_id, {fake_id: fake}), _struct_of("t_uint16"), {"S": {"f": "uint9"}})
+    assert has(errs, "f", "kind changed"), errs
+
+
+def test_field_of_a_user_defined_type_of_another_declaration_is_rejected():
+    # `type Id is bytes4;` in one file and `type Id is uint32;` in another: one label, four bytes each, other bytes
+    a_id, a_type = _user_defined("Id", "4", 3)
+    b_id, b_type = _user_defined("Id", "4", 9)
+    errs = errors(_struct_of(a_id, {a_id: a_type}), _struct_of(b_id, {b_id: b_type}))
+    assert has(errs, "f", "Id", "not the same declaration"), errs
+
+
+def test_key_of_a_user_defined_type_of_another_declaration_is_rejected():
+    a_id, a_type = _user_defined("Id", "4", 3)
+    b_id, b_type = _user_defined("Id", "4", 9)
+    a, b = keyed("direct"), keyed("direct")
+    a["types"][a_id], b["types"][b_id] = a_type, b_type
+    a["types"]["t_keyed"]["key"], b["types"]["t_keyed"]["key"] = a_id, b_id
+    errs = errors(a, b)
+    assert has(errs, "field", "Id", "not the same declaration"), errs
+    assert len(errs) == 1, errs
+    # a key declaration does not make it one, and is not also reported as documenting nothing
+    errs = errors(a, b, rekeyed={"Root": {"field": "uint8"}})
+    assert has(errs, "field", "Id", "not the same declaration"), errs
+    assert len(errs) == 1, errs
+
+
+def test_user_defined_type_of_the_same_declaration_is_a_successor():
+    type_id, type_def = _user_defined("Id", "4", 3)
+    assert errors(_struct_of(type_id, {type_id: type_def}), _struct_of(type_id, {type_id: type_def})) == []
+    a, b = keyed("direct"), keyed("direct")
+    for layout in (a, b):
+        layout["types"][type_id] = type_def
+        layout["types"]["t_keyed"]["key"] = type_id
+    assert errors(a, b) == []
+
+
+def _named(kind, label, nbytes, ast_id):
+    """What solc lays out for a contract type or an enum: a type id that carries the id of its declaration."""
+    return f"t_{kind}({label.split()[-1]}){ast_id}", {"encoding": "inplace", "label": label, "numberOfBytes": nbytes}
+
+
+def test_contract_type_is_compared_by_label():
+    # a contract is stored as an address whatever it declares
+    a_id, a_type = _named("contract", "contract IThing", "20", 11)
+    b_id, b_type = _named("contract", "contract IThing", "20", 22)
+    assert errors(_struct_of(a_id, {a_id: a_type}), _struct_of(b_id, {b_id: b_type})) == []
+
+
+def test_enum_of_another_declaration_is_rejected():
+    # `enum Mode {Idle, Active, Closed}` in one file and `enum Mode {Closed, Idle}` in another: one label, one byte
+    # each, and a stored Idle would read Closed
+    a_id, a_type = _named("enum", "enum Types.Mode", "1", 11)
+    b_id, b_type = _named("enum", "enum Types.Mode", "1", 22)
+    errs = errors(_struct_of(a_id, {a_id: a_type}), _struct_of(b_id, {b_id: b_type}))
+    assert has(errs, "f", "enum Types.Mode", "not the same declaration"), errs
+    assert len(errs) == 1, errs
+    # as a mapping key too
+    a, b = keyed("direct"), keyed("direct")
+    a["types"][a_id], b["types"][b_id] = a_type, b_type
+    a["types"]["t_keyed"]["key"], b["types"]["t_keyed"]["key"] = a_id, b_id
+    errs = errors(a, b)
+    assert has(errs, "field", "enum Types.Mode", "not the same declaration"), errs
+    assert len(errs) == 1, errs
+
+
+def test_enum_of_the_same_declaration_is_a_successor():
+    type_id, type_def = _named("enum", "enum Types.Mode", "1", 11)
+    assert errors(_struct_of(type_id, {type_id: type_def}), _struct_of(type_id, {type_id: type_def})) == []
+
+
+# ── a struct that holds itself, through a mapping or an array: legal, and the walk must end ─────────────────
+
+
+def _self_holding(through, value="t_uint104"):
+    """A top-level struct `Node` holding itself beside a `value`: as `mapping(uint256 => Node) children`, or as
+    `Node[] children`."""
+    types = dict(BASE_TYPES)
+    if through == "mapping":
+        types["t_children"] = {
+            "encoding": "mapping",
+            "label": "mapping(uint256 => struct Node)",
+            "numberOfBytes": "32",
+            "key": "t_uint256",
+            "value": "t_node",
+        }
+    else:
+        types["t_children"] = {
+            "encoding": "dynamic_array",
+            "label": "struct Node[]",
+            "numberOfBytes": "32",
+            "base": "t_node",
+        }
+    types["t_node"] = {
+        "encoding": "inplace",
+        "label": "struct Node",
+        "numberOfBytes": "64",
+        "members": [
+            {"label": "children", "slot": "0", "offset": 0, "type": "t_children"},
+            {"label": "value", "slot": "1", "offset": 0, "type": value},
+        ],
+    }
+    return {"storage": [{"label": "root", "slot": "0", "offset": 0, "type": "t_node"}], "types": types}
+
+
+@pytest.mark.parametrize("through", ["mapping", "dynarray"])
+def test_struct_that_holds_itself_ends_the_walk(through):
+    a, b = _self_holding(through), _self_holding(through, "t_uint128")
+    assert errors(a, a) == []
+    assert errors(a, b, {"Node": {"value": "uint104"}}) == []
+    # the top-level struct is compared once at the top level and once where it is nested: the two positions differ
+    # in what they allow, and a change inside is a change at each
+    errs = errors(a, b)
+    assert has(errs, "root.value", "undocumented widen"), errs
+    assert has(errs, "root.children", "].value", "undocumented widen"), errs
+    assert len(errs) == 2, errs
+
+
+def _grown(layout, struct_id):
+    """The layout with a member `extra` appended to this struct in a slot of its own, so the struct takes one more."""
+    struct = layout["types"][struct_id]
+    slots = int(struct["numberOfBytes"]) // 32
+    struct["members"].append({"label": "extra", "slot": str(slots), "offset": 0, "type": "t_uint256"})
+    struct["numberOfBytes"] = str(32 * (slots + 1))
+    return layout
+
+
+@pytest.mark.parametrize("through", ["mapping", "dynarray"])
+def test_namespace_struct_that_holds_itself_may_not_grow(through):
+    # at the top level the new member takes fresh storage. Nested in itself the struct takes a slot more, as any
+    # nested struct that grows: in an array every element after the first moves
+    errs = errors(_self_holding(through), _grown(_self_holding(through), "t_node"), None, {"Node": {"extra"}})
+    assert has(errs, "root.children", "].extra", "grows a nested struct"), errs
+    assert len(errs) == 1, errs
+
+
+def _holding_each_other():
+    """A top-level struct `S` holding `mapping(uint256 => T) ts` beside a `value`, where `T` holds `S[] parents`."""
+    types = dict(BASE_TYPES)
+    types["t_ts"] = {
+        "encoding": "mapping",
+        "label": "mapping(uint256 => struct T)",
+        "numberOfBytes": "32",
+        "key": "t_uint256",
+        "value": "t_t",
+    }
+    types["t_parents"] = {"encoding": "dynamic_array", "label": "struct S[]", "numberOfBytes": "32", "base": "t_s"}
+    types["t_t"] = {
+        "encoding": "inplace",
+        "label": "struct T",
+        "numberOfBytes": "32",
+        "members": [{"label": "parents", "slot": "0", "offset": 0, "type": "t_parents"}],
+    }
+    types["t_s"] = {
+        "encoding": "inplace",
+        "label": "struct S",
+        "numberOfBytes": "64",
+        "members": [
+            {"label": "ts", "slot": "0", "offset": 0, "type": "t_ts"},
+            {"label": "value", "slot": "1", "offset": 0, "type": "t_uint256"},
+        ],
+    }
+    return {"storage": [{"label": "root", "slot": "0", "offset": 0, "type": "t_s"}], "types": types}
+
+
+def test_structs_that_hold_each_other_may_not_grow():
+    assert errors(_holding_each_other(), _holding_each_other()) == []
+    errs = errors(_holding_each_other(), _grown(_holding_each_other(), "t_s"), None, {"S": {"extra"}})
+    assert has(errs, "root.ts[k].parents[i].extra", "grows a nested struct"), errs
+    assert len(errs) == 1, errs
+
+
+def test_struct_under_two_members_of_one_struct_is_reported_at_each():
+    # a struct is passed over only inside its own comparison: the first member's is over when the second is met
+    def two(amount):
+        types = dict(BASE_TYPES)
+        types["t_tb"] = token_balance(amount)
+        types["t_root"] = {
+            "encoding": "inplace",
+            "label": "struct Root",
+            "numberOfBytes": "128",
+            "members": [
+                {"label": "first", "slot": "0", "offset": 0, "type": "t_tb"},
+                {"label": "second", "slot": "2", "offset": 0, "type": "t_tb"},
+            ],
+        }
+        return {"storage": [{"label": "root", "slot": "0", "offset": 0, "type": "t_root"}], "types": types}
+
+    errs = errors(two("t_uint104"), two("t_uint128"))
+    assert has(errs, "root.first.amount", "undocumented widen"), errs
+    assert has(errs, "root.second.amount", "undocumented widen"), errs
+
+
+# ── one declaration on both sides: a struct with one type id in both layouts. It cannot differ, so it is not
+#    compared, and what it declares is of an earlier step, so it is not judged here. ─────────────────────────────
+
+
+def test_one_declaration_on_both_sides_is_not_compared_and_its_tags_are_not_judged():
+    # a version that inherits an unchanged base holds the base's struct on both sides, tags and all
+    layout = flat(tb=_tb_padding_append())
+    assert mod.successor_errors(layout, layout, DOC) == []
+    assert mod.successor_errors(layout, layout, None, ADDED) == []
+    assert mod.successor_errors(layout, layout, None, None, {"TokenBalance": {"amount": "balance"}}) == []
+    both = keyed("direct", "t_uint256")
+    assert mod.successor_errors(both, both, None, None, None, REKEYED) == []
+    # the same tags on a successor's own struct that changed nothing are reported, each one
+    assert has(errors(layout, layout, DOC), "amount", "stale")
+    assert has(errors(layout, layout, None, ADDED), "extra", "not added")
+
+
+def test_tags_of_one_declaration_are_used_where_it_replaces_another():
+    # `second` holds TokenBalance on both sides. `first` held another struct, which TokenBalance replaces with its
+    # amount widened: its tag documents that, and is not judged where the struct stands on both sides
+    def layout(first):
+        types = dict(BASE_TYPES)
+        types["t_old"] = {**token_balance("t_uint104"), "label": "struct OldBalance"}
+        types["t_tb"] = token_balance("t_uint128")
+        types["t_root"] = {
+            "encoding": "inplace",
+            "label": "struct Root",
+            "numberOfBytes": "128",
+            "members": [
+                {"label": "first", "slot": "0", "offset": 0, "type": first},
+                {"label": "second", "slot": "2", "offset": 0, "type": "t_tb"},
+            ],
+        }
+        return {"storage": [{"label": "root", "slot": "0", "offset": 0, "type": "t_root"}], "types": types}
+
+    a, b = layout("t_old"), layout("t_tb")
+    b["types"]["t_root_successor"] = b["types"].pop("t_root")  # the successor's own Root, holding the shared struct
+    b["storage"][0]["type"] = "t_root_successor"
+    assert mod.successor_errors(a, b, DOC) == []
+    errs = mod.successor_errors(a, b)
+    assert has(errs, "root.first.amount", "undocumented widen"), errs
+    assert len(errs) == 1, errs
+    # compared with another declaration at `first`, the struct is judged: a tag of its that documents nothing there
+    # is reported
+    errs = mod.successor_errors(a, b, DOC, {"TokenBalance": {"ghost"}})
+    assert has(errs, "TokenBalance.ghost", "not added"), errs
+    assert len(errs) == 1, errs
+
+
+def test_declarations_of_a_struct_only_the_predecessor_has_are_ignored():
+    # a version keeps the tags of what it changed from the version before it. They are not its successor's
+    a = flat("t_uint104")
+    a["types"]["t_tb"]["label"] = "struct OldBalance"
+    old = "OldBalance"
+    assert errors(a, flat("t_uint104"), {old: {"amount": "uint96"}}) == []
+    assert errors(a, flat("t_uint104"), None, {old: {"extra"}}) == []
+    assert errors(a, flat("t_uint104"), None, None, {old: {"unusedInV3": "updatedAt"}}) == []
+    assert errors(a, flat("t_uint104"), None, None, None, {old: {"integrals": "uint8"}}) == []
 
 
 # ── a mapping key: a built-in unsigned integer key widened in place AND documented is accepted; every other key
@@ -798,6 +1132,17 @@ def test_struct_split_in_two_takes_each_structs_tags():
     assert errors(a, b, retyped, None, renamed) == []
 
 
+def test_declarations_are_looked_up_by_the_structs_canonical_name():
+    # solc labels a struct by where it is declared: `struct Lib.TokenBalance`. Its declarations are its own: a
+    # struct of the same bare name declared elsewhere does not lend it its tags.
+    a = contained("mapping")
+    b = contained("mapping", "t_uint128")
+    b["types"]["t_tb"]["label"] = "struct Lib.TokenBalance"
+    assert errors(a, b, {"Lib.TokenBalance": {"amount": "uint104"}}) == []
+    assert has(errors(a, b, DOC), "amount", "undocumented widen")
+    assert has(errors(a, b, {"Other.TokenBalance": {"amount": "uint104"}}), "amount", "undocumented widen")
+
+
 # ── rejected: a bad change buried deep inside a container (rejection must propagate) ────────────────────────
 
 
@@ -847,11 +1192,10 @@ def test_top_level_slot_added_is_rejected():
     assert has(errors(_top(_ONE_SLOT), _top(_TWO_SLOTS)), "extra", "top-level slot added")
 
 
-# ── a declaration naming a struct absent from the compared layout is ignored. A contract with several
-#    namespaced structs (the reward distributor: its storage struct plus RewardData) collects retyped / added /
-#    renamed declarations across its whole inheritance chain; when ONE namespace's layout is compared, a
-#    declaration naming a struct not present here must be skipped, or a sibling struct's valid declaration
-#    false-fires "not found". Without that skip, the OtherStruct declarations below would each report unfound. ──
+# ── a declaration naming a struct absent from the compared layout is ignored. The declarations of every struct in
+#    the build are passed to each comparison; when ONE namespace's layout is compared, a declaration naming a
+#    struct not present here must be skipped, or another struct's valid declaration would be reported as naming
+#    a field that was not compared. Without that skip, the OtherStruct declarations below would each be reported. ──
 
 
 def test_declaration_for_a_struct_absent_from_this_layout_is_ignored():
@@ -906,6 +1250,33 @@ def test_namespace_by_struct_id_maps_only_storage_location_structs():
     assert mod._namespace_by_struct_id(build_info) == {1: "my.ns"}
 
 
+def _struct_node(node_id, name, canonical_name, text, holds=()):
+    """A struct as the syntax tree gives it, with one member for each type in `holds`."""
+    members = [{"nodeType": "VariableDeclaration", "name": f"m{at}", "typeName": held} for at, held in enumerate(holds)]
+    return {
+        "nodeType": "StructDefinition",
+        "id": node_id,
+        "name": name,
+        "canonicalName": canonical_name,
+        "documentation": {"text": text},
+        "members": members,
+    }
+
+
+def _the_struct(struct_id):
+    """A member's type that names a struct, an enum or any other declaration by its id."""
+    return {"nodeType": "UserDefinedTypeName", "referencedDeclaration": struct_id}
+
+
+def _mapping_to(value):
+    key = {"nodeType": "ElementaryTypeName", "name": "address"}
+    return {"nodeType": "Mapping", "keyType": key, "valueType": value}
+
+
+def _array_of(base):
+    return {"nodeType": "ArrayTypeName", "baseType": base}
+
+
 def _build_info_with_struct_doc(text):
     """A build-info of one contract `C` holding a struct `S` with this NatSpec, and a struct with no tag."""
     contract = {
@@ -913,19 +1284,144 @@ def _build_info_with_struct_doc(text):
         "id": 7,
         "name": "C",
         "linearizedBaseContracts": [7],
-        "nodes": [
-            {"nodeType": "StructDefinition", "id": 1, "name": "S", "documentation": {"text": text}},
-            {"nodeType": "StructDefinition", "id": 2, "name": "Plain", "documentation": {"text": "an ordinary struct"}},
-        ],
+        "nodes": [_struct_node(1, "S", "C.S", text), _struct_node(2, "Plain", "C.Plain", "an ordinary struct")],
     }
     return {"output": {"sources": {"X.sol": {"ast": {"nodes": [contract]}}}}}, contract
 
 
+def _link_declarations(build_info, struct_id=1):
+    """What a link is checked with, where its successor's namespace struct is this one: the four maps of
+    declarations, and the link's errors."""
+    return mod._link_declarations(struct_id, mod._structs_by_id(build_info))
+
+
 def test_rekeyed_declarations_are_read_from_the_struct():
-    build_info, contract = _build_info_with_struct_doc(
+    build_info, _contract = _build_info_with_struct_doc(
         "@custom:storage-location erc7201:my.ns\n@custom:bao-rekeyed-from integrals uint8"
     )
-    assert mod._rekeyed(build_info, contract) == {"S": {"integrals": "uint8"}}
+    assert _link_declarations(build_info) == (({}, {}, {}, {"C.S": {"integrals": "uint8"}}), [])
+
+
+def _build_with_structs_everywhere():
+    """A namespace struct `C.S` (id 1) that reaches a library's struct directly, a file-level struct through a
+    mapping of mappings, and `C.Node` through an array. `C.Node` holds an array of itself and an enum. `C.Other` and
+    `Lib.Unused` are reached by nothing."""
+    plain = {"nodeType": "ElementaryTypeName", "name": "uint256"}
+    file_level = _struct_node(2, "FileLevel", "FileLevel", "@custom:bao-retyped-from amount uint104", [plain])
+    library = {
+        "nodeType": "ContractDefinition",
+        "id": 10,
+        "name": "Lib",
+        "contractKind": "library",
+        "nodes": [
+            _struct_node(
+                11, "Inner", "Lib.Inner", "@custom:bao-added extra\n @custom:bao-renamed-from newName oldName"
+            ),
+            _struct_node(12, "Unused", "Lib.Unused", "@custom:bao-added never"),
+            {"nodeType": "EnumDefinition", "id": 40, "name": "Mode", "canonicalName": "Lib.Mode"},
+        ],
+    }
+    contract = {
+        "nodeType": "ContractDefinition",
+        "id": 20,
+        "name": "C",
+        "nodes": [
+            _struct_node(
+                1,
+                "S",
+                "C.S",
+                "@custom:storage-location erc7201:my.ns\n @custom:bao-rekeyed-from integrals uint8",
+                [_the_struct(11), _mapping_to(_mapping_to(_the_struct(2))), _array_of(_the_struct(3)), plain],
+            ),
+            _struct_node(3, "Node", "C.Node", "holds itself", [_array_of(_the_struct(3)), _the_struct(40)]),
+            _struct_node(4, "Other", "C.Other", "@custom:bao-retyped-from amount uint96"),
+        ],
+    }
+    return {
+        "output": {
+            "sources": {"A.sol": {"ast": {"nodes": [file_level, library]}}, "B.sol": {"ast": {"nodes": [contract]}}}
+        }
+    }
+
+
+def test_structs_reached_from_a_struct():
+    # through a member, a mapping's value and an array's element, wherever each struct is declared; a struct that
+    # holds itself ends the walk; an enum is not a struct; what nothing reaches is left out
+    structs = mod._structs_by_id(_build_with_structs_everywhere())
+    assert set(structs) == {1, 2, 3, 4, 11, 12}
+    reached = mod._reached_structs(1, structs)
+    assert {node["canonicalName"]: path for path, node in reached.values()} == {
+        "C.S": "B.sol",
+        "Lib.Inner": "A.sol",
+        "FileLevel": "A.sol",
+        "C.Node": "B.sol",
+    }
+    assert set(mod._reached_structs(3, structs)) == {3}
+
+
+def test_link_declarations_are_those_of_the_structs_the_successor_reaches():
+    # each under its canonical name, which is how solc labels the struct in a layout. `C.Other` and `Lib.Unused`
+    # are not reached, so their tags are not this link's
+    build_info = _build_with_structs_everywhere()
+    assert _link_declarations(build_info) == (
+        (
+            {"FileLevel": {"amount": "uint104"}},
+            {"Lib.Inner": {"extra"}},
+            {"Lib.Inner": {"newName": "oldName"}},
+            {"C.S": {"integrals": "uint8"}},
+        ),
+        [],
+    )
+    assert _link_declarations(build_info, 4) == (({"C.Other": {"amount": "uint96"}}, {}, {}, {}), [])
+
+
+def _two_structs_named_c_s(first_text, second_text):
+    """A build with a contract `C` holding a struct `S` (ids 2 and 6) in each of two files, and a struct `P.Root`
+    (id 9) that holds both."""
+
+    def source(node_id, text):
+        contract = {"nodeType": "ContractDefinition", "id": node_id, "name": "C"}
+        contract["nodes"] = [_struct_node(node_id + 1, "S", "C.S", text)]
+        return {"ast": {"nodes": [contract]}}
+
+    holder = {"nodeType": "ContractDefinition", "id": 8, "name": "P"}
+    holder["nodes"] = [_struct_node(9, "Root", "P.Root", "holds both", [_the_struct(2), _mapping_to(_the_struct(6))])]
+    sources = {
+        "One.sol": source(1, first_text),
+        "Two.sol": source(5, second_text),
+        "P.sol": {"ast": {"nodes": [holder]}},
+    }
+    return {"output": {"sources": sources}}
+
+
+def test_struct_of_the_same_canonical_name_elsewhere_in_the_build_does_not_matter():
+    # a contract `C` with a struct `S` in each of two files: a link's own is the one its successor reaches
+    build_info = _two_structs_named_c_s(
+        "@custom:bao-retyped-from amount uint104", "@custom:bao-retyped-from amount uint96"
+    )
+    assert _link_declarations(build_info, 2) == (({"C.S": {"amount": "uint104"}}, {}, {}, {}), [])
+    assert _link_declarations(build_info, 6) == (({"C.S": {"amount": "uint96"}}, {}, {}, {}), [])
+
+
+def test_two_reached_structs_of_one_canonical_name_with_different_tags_fail_the_link():
+    # the comparison looks a struct's declarations up by its canonical name, so one successor cannot hold two
+    # structs of one name that declare different changes: one tagged and the other not, or tagged differently
+    for first, second in (
+        ("@custom:bao-retyped-from amount uint104", "an ordinary struct"),
+        ("@custom:bao-retyped-from amount uint104", "@custom:bao-retyped-from amount uint96"),
+    ):
+        _maps, errs = _link_declarations(_two_structs_named_c_s(first, second), 9)
+        assert len(errs) == 1, errs
+        assert "C.S" in errs[0] and "One.sol" in errs[0] and "Two.sol" in errs[0], errs
+
+
+def test_two_reached_structs_of_one_canonical_name_with_the_same_tags_are_read_once():
+    text = "@custom:bao-retyped-from amount uint104"
+    assert _link_declarations(_two_structs_named_c_s(text, text), 9) == (
+        ({"C.S": {"amount": "uint104"}}, {}, {}, {}),
+        [],
+    )
+    assert _link_declarations(_two_structs_named_c_s("an ordinary struct", "another"), 9) == (({}, {}, {}, {}), [])
 
 
 def test_rekeyed_tag_is_recognized():
@@ -933,9 +1429,20 @@ def test_rekeyed_tag_is_recognized():
     assert mod.unrecognized_bao_tags(build_info) == []
 
 
-# uses of the tag that are not a declaration: no old type, a signed one, no width, text run on after the type,
-# two types, punctuation after the field, a path for the field
-_NOT_A_KEY_DECLARATION = (
+# Uses of a tag that are not a whole declaration, which is the tag and its arguments alone to the end of their line.
+# Here: an argument missing, one too many, text run on after the last, another separator, another kind of type.
+_NOT_A_WHOLE_DECLARATION = (
+    "@custom:bao-retyped-from amount",
+    "@custom:bao-retyped-from amount uint104x",
+    "@custom:bao-retyped-from amount uint104 (was narrower)",
+    "@custom:bao-retyped-from amount bytes4",
+    "@custom:bao-retyped-from amount: uint104",
+    "@custom:bao-added",
+    "@custom:bao-added extra other",
+    "@custom:bao-added extra, other",
+    "@custom:bao-renamed-from newName",
+    "@custom:bao-renamed-from newName oldName was",
+    "@custom:bao-renamed-from newName <- oldName",
     "@custom:bao-rekeyed-from integrals",
     "@custom:bao-rekeyed-from integrals int8",
     "@custom:bao-rekeyed-from integrals uint",
@@ -949,36 +1456,310 @@ _NOT_A_KEY_DECLARATION = (
 )
 
 
-@pytest.mark.parametrize("text", _NOT_A_KEY_DECLARATION)
+@pytest.mark.parametrize("text", _NOT_A_WHOLE_DECLARATION)
 def test_tag_that_is_not_a_whole_declaration_is_not_read_as_one(text):
-    build_info, contract = _build_info_with_struct_doc(text)
-    assert mod._rekeyed(build_info, contract) == {}
+    build_info, _contract = _build_info_with_struct_doc(text)
+    assert _link_declarations(build_info) == (({}, {}, {}, {}), [])
 
 
-@pytest.mark.parametrize("text", _NOT_A_KEY_DECLARATION)
+@pytest.mark.parametrize("text", _NOT_A_WHOLE_DECLARATION)
 def test_tag_that_is_not_a_whole_declaration_is_reported(text):
-    # read as nothing, it would leave a widened key "undocumented" with the line in plain sight, or pass unseen
-    # where the key did not change
+    # read as nothing, it would leave the change "undocumented" with the line in plain sight, or pass unseen
+    # where nothing changed
     build_info, _contract = _build_info_with_struct_doc("@custom:storage-location erc7201:my.ns\n" + text)
-    assert [where for where, _message in mod.malformed_rekeyed_tags(build_info)] == ["C.S"]
+    assert [where for where, _message in mod.malformed_bao_tags(build_info)] == ["C.S"]
 
 
-def test_field_given_two_key_declarations_is_reported():
-    build_info, _contract = _build_info_with_struct_doc(
-        "@custom:bao-rekeyed-from integrals uint16\n@custom:bao-rekeyed-from integrals uint8"
+def _build_info_with_contract_doc(text):
+    """A build-info of one contract `C` with this NatSpec."""
+    contract = {"nodeType": "ContractDefinition", "id": 7, "name": "C", "nodes": [], "documentation": {"text": text}}
+    return {"output": {"sources": {"X.sol": {"ast": {"nodes": [contract]}}}}}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "@custom:bao-upgrades-from src/Pool_v2.sol Pool_v2",  # no colon: read as no link, the contract unchecked
+        "@custom:bao-upgrades-from Pool_v2",
+        "@custom:bao-upgrades-from src/Pool_v2.sol:Pool_v2 (the deployed one)",
+        "@custom:bao-upgrades-from",
+    ],
+)
+def test_upgrade_reference_that_is_not_whole_is_reported_and_is_no_link(text):
+    build_info = _build_info_with_contract_doc(text)
+    assert mod._pairs(build_info) == []
+    assert [where for where, _message in mod.malformed_bao_tags(build_info)] == ["C"]
+
+
+def test_two_upgrade_references_on_one_contract_are_reported():
+    # only the first would be a link
+    build_info = _build_info_with_contract_doc(
+        "@custom:bao-upgrades-from src/A.sol:A\n @custom:bao-upgrades-from src/B.sol:B"
     )
-    reports = mod.malformed_rekeyed_tags(build_info)
+    reports = mod.malformed_bao_tags(build_info)
+    assert len(reports) == 1 and reports[0][0] == "C" and "more than once" in reports[0][1], reports
+
+
+@pytest.mark.parametrize(
+    "text,field",
+    [
+        ("@custom:bao-retyped-from amount uint96\n@custom:bao-retyped-from amount uint104", "amount"),
+        ("@custom:bao-added extra\n@custom:bao-added extra", "extra"),
+        ("@custom:bao-renamed-from newName oldName\n@custom:bao-renamed-from newName otherName", "newName"),
+        ("@custom:bao-rekeyed-from integrals uint16\n@custom:bao-rekeyed-from integrals uint8", "integrals"),
+    ],
+)
+def test_tag_used_twice_for_one_field_is_reported(text, field):
+    # of two for one field only the last would count
+    build_info, _contract = _build_info_with_struct_doc(text)
+    reports = mod.malformed_bao_tags(build_info)
     assert len(reports) == 1, reports
-    assert reports[0][0] == "C.S" and "integrals" in reports[0][1] and "more than once" in reports[0][1], reports
+    assert reports[0][0] == "C.S" and field in reports[0][1] and "more than once" in reports[0][1], reports
 
 
-def test_whole_key_declarations_are_not_reported():
-    # one per field, each alone to the end of its line, as solc gives a struct's NatSpec: the lines after the first
-    # start with a space, and trailing spaces are allowed
-    text = "@custom:storage-location erc7201:my.ns\n @custom:bao-rekeyed-from integrals uint8\n @custom:bao-rekeyed-from other uint16  "
-    build_info, contract = _build_info_with_struct_doc(text)
-    assert mod.malformed_rekeyed_tags(build_info) == []
-    assert mod._rekeyed(build_info, contract) == {"S": {"integrals": "uint8", "other": "uint16"}}
+def test_whole_declarations_are_not_reported():
+    # every tag in its whole form, as solc gives NatSpec: the lines after the first start with a space, and
+    # trailing spaces are allowed. One per field. Each is read.
+    struct_text = (
+        "@custom:storage-location erc7201:my.ns\n @custom:bao-retyped-from amount uint104\n"
+        " @custom:bao-added extra\n @custom:bao-added more  \n @custom:bao-renamed-from newName oldName\n"
+        " @custom:bao-rekeyed-from integrals uint8\n @custom:bao-rekeyed-from other uint16  "
+    )
+    build_info, contract = _build_info_with_struct_doc(struct_text)
+    contract["documentation"] = {"text": "The pool.\n @custom:bao-upgrades-from src/Pool_v2.sol:Pool_v2"}
+    assert mod.malformed_bao_tags(build_info) == []
+    assert _link_declarations(build_info) == (
+        (
+            {"C.S": {"amount": "uint104"}},
+            {"C.S": {"extra", "more"}},
+            {"C.S": {"newName": "oldName"}},
+            {"C.S": {"integrals": "uint8", "other": "uint16"}},
+        ),
+        [],
+    )
+    assert mod._pairs(build_info) == [("X.sol", "C", "src/Pool_v2.sol", "Pool_v2")]
+
+
+_STRUCT_TAGS = (
+    "@custom:bao-retyped-from amount uint104",
+    "@custom:bao-added extra",
+    "@custom:bao-renamed-from newName oldName",
+    "@custom:bao-rekeyed-from integrals uint8",
+)
+
+
+@pytest.mark.parametrize("tag_line", _STRUCT_TAGS)
+def test_struct_tag_on_a_node_that_is_not_a_struct_is_reported(tag_line):
+    # written on the contract, an event, a function or a constant, it is whole and documents nothing: the change it
+    # was meant for is reported as undocumented with the line in plain sight, or nothing is said where nothing
+    # changed
+    documentation = {"text": "Something.\n " + tag_line}
+    contract = {
+        "nodeType": "ContractDefinition",
+        "id": 7,
+        "name": "C",
+        "documentation": documentation,
+        "nodes": [
+            {"nodeType": "EventDefinition", "name": "Happened", "documentation": documentation},
+            {"nodeType": "FunctionDefinition", "name": "run", "documentation": documentation},
+            {"nodeType": "VariableDeclaration", "name": "SLOT", "documentation": documentation},
+            _struct_node(1, "S", "C.S", tag_line),
+        ],
+    }
+    file_level_function = {"nodeType": "FunctionDefinition", "name": "free", "documentation": documentation}
+    build_info = {"output": {"sources": {"X.sol": {"ast": {"nodes": [contract, file_level_function]}}}}}
+    reports = mod.malformed_bao_tags(build_info)
+    assert [where for where, _message in reports] == ["C", "C.Happened", "C.run", "C.SLOT", "free"], reports
+    tag = tag_line.split()[0][1:]
+    assert all(tag in message and "only on a struct" in message for _where, message in reports), reports
+    assert "ContractDefinition" in reports[0][1] and "EventDefinition" in reports[1][1], reports
+
+
+def test_upgrade_reference_on_a_node_that_is_not_a_contract_is_reported_and_is_no_link():
+    # written with the struct's other tags, it is whole and makes no link: the contract would go unchecked
+    build_info, _contract = _build_info_with_struct_doc(
+        "@custom:storage-location erc7201:my.ns\n @custom:bao-upgrades-from src/Pool_v2.sol:Pool_v2"
+    )
+    assert mod._pairs(build_info) == []
+    reports = mod.malformed_bao_tags(build_info)
+    assert len(reports) == 1, reports
+    assert reports[0][0] == "C.S" and "bao-upgrades-from" in reports[0][1] and "only on a contract" in reports[0][1]
+    assert "StructDefinition" in reports[0][1], reports
+
+
+def _written(tmp_path, build_info, name="build.json"):
+    """The folder, with this build-info written in it as forge writes one."""
+    (tmp_path / name).write_text(json.dumps(build_info))
+    return str(tmp_path)
+
+
+def test_main_passes_a_build_whose_tags_are_whole_and_known(tmp_path):
+    build_info, _contract = _build_info_with_struct_doc("@custom:bao-added extra")
+    assert mod.main([_written(tmp_path, build_info)]) == 0
+
+
+def test_main_fails_on_a_malformed_tag(tmp_path):
+    build_info, _contract = _build_info_with_struct_doc("@custom:bao-added")
+    assert mod.main([_written(tmp_path, build_info)]) == 1
+
+
+def test_main_fails_on_an_unrecognized_tag(tmp_path):
+    build_info, _contract = _build_info_with_struct_doc("@custom:bao-renamd-from x y")
+    assert mod.main([_written(tmp_path, build_info)]) == 1
+
+
+# ── every compiled build-info in the folder is read. forge writes one for each compiler version a build uses, and
+#    one with no compiled output for each later `forge inspect`. A link in a compiled file left unread would not be
+#    checked, and nothing would say so. ──────────────────────────────────────────────────────────────────────────
+
+
+def _linked(node_id, name, predecessor=None, namespace=None):
+    """A contract as the syntax tree gives it: with `@custom:bao-upgrades-from <predecessor>` when one is given,
+    and a struct `S` of this namespace when one is given."""
+    structs = [("S", f"@custom:storage-location erc7201:{namespace}")] if namespace else []
+    contract = _contract(node_id, name, [], structs)
+    if predecessor:
+        contract["documentation"] = {"text": f"@custom:bao-upgrades-from {predecessor}"}
+    return contract
+
+
+def _sources(by_path):
+    """A compiled build-info of these sources: {path: [top-level nodes]}, in that order."""
+    return {"output": {"sources": {path: {"ast": {"nodes": nodes}} for path, nodes in by_path.items()}}}
+
+
+def _folder(tmp_path, *build_infos):
+    """The folder holding these build-infos as forge writes them, the last one written the newest."""
+    for at, build_info in enumerate(build_infos):
+        path = tmp_path / f"{at}.json"
+        path.write_text(json.dumps(build_info))
+        os.utime(path, (at + 1, at + 1))
+    return str(tmp_path)
+
+
+@pytest.fixture
+def laid_out(monkeypatch):
+    """The probe that lays the structs out, replaced by one that records what it was asked to lay out and lays
+    every struct out empty, so that a link is judged here by the contracts and namespaces it was given."""
+    asked = []
+
+    def lay_out(jobs, root):
+        asked.extend(jobs)
+        return {index: {"storage": [], "types": {}} for index, *_job in jobs}
+
+    monkeypatch.setattr(mod, "_inject_layouts", lay_out)
+    return asked
+
+
+def _main(capsys, *argv):
+    """main's exit code, and what it printed as one line of single spaces."""
+    code = mod.main(list(argv))
+    return code, " ".join(capsys.readouterr().out.split())
+
+
+def test_links_are_read_from_every_compiled_build_info(tmp_path, capsys):
+    # one compiled build-info for each compiler version: a link in the older one is checked as well
+    older = _sources({"src/A_v2.sol": [_linked(1, "A_v2", "src/A_v1.sol:A_v1")]})
+    newer = _sources({"src/B_v2.sol": [_linked(1, "B_v2", "src/B_v1.sol:B_v1")]})
+    code, out = _main(capsys, _folder(tmp_path, older, newer))
+    assert code == 1
+    assert "A_v2 <- A_v1" in out and "predecessor A_v1 (src/A_v1.sol) not in build" in out, out
+    assert "B_v2 <- B_v1" in out and "predecessor B_v1 (src/B_v1.sol) not in build" in out, out
+
+
+def test_a_contract_in_two_build_infos_is_checked_once(tmp_path, capsys):
+    # a file with a pragma range, compiled in both compilations
+    both = _sources({"src/A_v2.sol": [_linked(1, "A_v2", "src/A_v1.sol:A_v1")]})
+    code, out = _main(capsys, _folder(tmp_path, both, both))
+    assert code == 1
+    assert out.count("A_v2 <- A_v1") == 1, out
+
+
+def test_the_successor_is_the_contract_that_carries_the_reference(tmp_path, capsys, laid_out):
+    # another contract of the successor's name comes first in the build and declares the predecessor's namespace
+    build_info = _sources(
+        {
+            "src/other/Pool_v3.sol": [_linked(1, "Pool_v3", None, "fx.a")],
+            "src/Pool_v2.sol": [_linked(2, "Pool_v2", None, "fx.a")],
+            "src/Pool_v3.sol": [_linked(3, "Pool_v3", "src/Pool_v2.sol:Pool_v2")],
+        }
+    )
+    code, out = _main(capsys, _folder(tmp_path, build_info))
+    assert code == 1
+    assert "namespace fx.a gone" in out, out
+    assert laid_out == [], laid_out
+
+
+def test_the_predecessor_is_the_contract_at_the_referenced_path(tmp_path, capsys, laid_out):
+    # two contracts of the predecessor's name: the reference names the second by its path
+    build_info = _sources(
+        {
+            "src/old/Pool_v2.sol": [_linked(1, "Pool_v2", None, "fx.b")],
+            "src/Pool_v2.sol": [_linked(2, "Pool_v2", None, "fx.a")],
+            "src/Pool_v3.sol": [_linked(3, "Pool_v3", "src/Pool_v2.sol:Pool_v2")],
+        }
+    )
+    code, out = _main(capsys, _folder(tmp_path, build_info))
+    assert code == 1
+    assert "namespace fx.a gone" in out and "fx.b" not in out, out
+
+
+def test_a_predecessor_in_another_build_info_is_found(tmp_path, capsys, laid_out):
+    # a successor moved to another compiler version than its predecessor's
+    older = _sources({"src/Pool_v2.sol": [_linked(1, "Pool_v2", None, "fx.a")]})
+    newer = _sources({"src/Pool_v3.sol": [_linked(1, "Pool_v3", "src/Pool_v2.sol:Pool_v2")]})
+    code, out = _main(capsys, _folder(tmp_path, older, newer))
+    assert code == 1
+    assert "namespace fx.a gone" in out and "not in build" not in out, out
+
+
+def test_each_side_is_laid_out_from_its_own_build_info(tmp_path, capsys, laid_out):
+    # syntax-tree ids are numbered for each compilation: the two sides' structs are found each in its own build-info
+    older = _sources({"src/Pool_v2.sol": [_linked(1, "Pool_v2", None, "fx.a")]})
+    newer = _sources(
+        {
+            "src/Lib.sol": [_linked(1, "Lib", None, "fx.unrelated")],
+            "src/Pool_v3.sol": [_linked(2, "Pool_v3", "src/Pool_v2.sol:Pool_v2", "fx.a")],
+        }
+    )
+    code, _out = _main(capsys, _folder(tmp_path, older, newer))
+    assert code == 0
+    assert [job[1:] for job in laid_out] == [("src/Pool_v2.sol", "Pool_v2", "S"), ("src/Pool_v3.sol", "Pool_v3", "S")]
+
+
+def test_build_infos_without_compiled_output_are_passed_over(tmp_path, capsys):
+    # forge writes one with no compiled output after `forge inspect`, after the compiled one
+    compiled, _contract = _build_info_with_struct_doc("@custom:bao-added")
+    code, out = _main(capsys, _folder(tmp_path, compiled, _NO_COMPILED_OUTPUT))
+    assert code == 1
+    assert "bao-added not of the form" in out, out
+
+
+def test_no_compiled_build_info_stops_the_run(tmp_path):
+    # nothing was read, which must not look like a build with nothing to check
+    folder = _folder(tmp_path, _NO_COMPILED_OUTPUT, _NO_COMPILED_OUTPUT)
+    for argv in ([folder], [folder, "--list"], [folder, "--list-initializable"]):
+        with pytest.raises(SystemExit) as stop:
+            mod.main(argv)
+        assert stop.value.code == f"storage-successor: no build-info in {folder} holds compiled output", argv
+
+
+def test_lists_and_reports_read_every_compiled_build_info(tmp_path, capsys):
+    # the links, the contracts that inherit Initializable, and a malformed tag, each in the older of two files
+    older = _sources(
+        {
+            "src/A_v2.sol": [_linked(1, "A_v2", "src/A_v1.sol:A_v1")],
+            "src/Init.sol": [_OZ_INITIALIZABLE],
+            "src/Bad.sol": [_struct_node(5, "Bad", "Bad", "@custom:bao-added")],
+        }
+    )
+    newer = _sources({"src/B_v2.sol": [_linked(1, "B_v2", "src/B_v1.sol:B_v1")], "src/Init.sol": [_OZ_INITIALIZABLE]})
+    folder = _folder(tmp_path, older, newer)
+    assert _main(capsys, folder, "--list") == (0, "A_v2 A_v1 B_v2 B_v1")
+    assert _main(capsys, folder, "--list-initializable") == (0, "src/Init.sol:Initializable")
+    code, out = _main(capsys, folder)
+    assert code == 1
+    assert "Bad — 1 use(s) of @custom:bao-added" in out, out
 
 
 def test_unrecognized_bao_tag_is_flagged_recognized_ones_ignored():
@@ -1025,7 +1806,14 @@ def _contract(node_id, name, bases, structs=()):
         "name": name,
         "linearizedBaseContracts": [node_id] + list(bases),
         "nodes": [
-            {"nodeType": "StructDefinition", "id": node_id * 100 + i, "name": n, "documentation": {"text": d}}
+            {
+                "nodeType": "StructDefinition",
+                "id": node_id * 100 + i,
+                "name": n,
+                "canonicalName": f"{name}.{n}",
+                "documentation": {"text": d},
+                "members": [],
+            }
             for i, (n, d) in enumerate(structs)
         ],
     }

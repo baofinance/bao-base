@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.28 <0.9.0;
 
+// brings the successors that declare a name again into this build: they live in a file of their own so that each
+// can declare another type, enum or contract of a name this file declares
+// solhint-disable-next-line no-unused-import
+import {RedefinedKeySucc} from "@bao-test/fixtures/BaoUpgradeFixturesRedefined.sol";
+
 // Fixtures for test/bin/test_bao_upgrade_check.py — one predecessor/successor pair per storage change, each in
 // its own erc7201 namespace so they coexist in one build. The integration test builds this file and runs the
 // real storage-successor.py over it: the DOCUMENTED widens (flat and nested) must pass; every other pair must
@@ -460,6 +465,192 @@ contract KeyNamedLikeAnIntegerSucc {
     }
 }
 
+// ── REJECTED: a FIELD of a user-defined value type named like an integer. `type uint9 is int8;` is a signed byte:
+//    widened to uint16 as if it were an unsigned integer, a stored -1 would read 255. Its type id says what it is. ──
+type uint9 is int8;
+
+contract FieldNamedLikeAnIntegerPred {
+    /// @custom:storage-location erc7201:test.fieldnamedlikeaninteger
+    struct S {
+        uint9 value;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:FieldNamedLikeAnIntegerPred
+contract FieldNamedLikeAnIntegerSucc {
+    /// @custom:storage-location erc7201:test.fieldnamedlikeaninteger
+    /// @custom:bao-retyped-from value uint9
+    struct S {
+        uint16 value;
+    }
+}
+
+// ── REJECTED: a mapping key of a user-defined value type that is ANOTHER DECLARATION of the same name. Here `Id` is
+//    four bytes of bytes; the successor's file declares `Id` over a uint32, which is padded on the other side when
+//    a key is hashed. The two have one label. The successor is in BaoUpgradeFixturesRedefined.sol. ──
+type Id is bytes4;
+
+contract RedefinedKeyPred {
+    /// @custom:storage-location erc7201:test.redefinedkey
+    struct S {
+        mapping(Id => uint256) byId;
+    }
+}
+
+// ── ACCEPTED: a struct that holds itself through a mapping, with a documented widen inside it. The walk meets the
+//    struct again inside its own comparison and must end. ──
+contract RecursivePred {
+    struct Node {
+        mapping(uint256 => Node) children;
+        uint104 amount;
+    }
+
+    /// @custom:storage-location erc7201:test.recursive
+    struct S {
+        Node root;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:RecursivePred
+contract RecursiveSucc {
+    /// @custom:bao-retyped-from amount uint104
+    struct Node {
+        mapping(uint256 => Node) children;
+        uint128 amount;
+    }
+
+    /// @custom:storage-location erc7201:test.recursive
+    struct S {
+        Node root;
+    }
+}
+
+// ── ACCEPTED: the changed struct is declared in a LIBRARY, and carries its own declaration there ──
+library LibraryStructLibPred {
+    struct Inner {
+        uint104 amount;
+    }
+}
+
+library LibraryStructLibSucc {
+    /// @custom:bao-retyped-from amount uint104
+    struct Inner {
+        uint128 amount;
+    }
+}
+
+contract LibraryStructPred {
+    /// @custom:storage-location erc7201:test.librarystruct
+    struct S {
+        LibraryStructLibPred.Inner inner;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:LibraryStructPred
+contract LibraryStructSucc {
+    /// @custom:storage-location erc7201:test.librarystruct
+    struct S {
+        LibraryStructLibSucc.Inner inner;
+    }
+}
+
+// ── ACCEPTED: the changed struct is declared at FILE LEVEL, and carries its own declaration there ──
+struct FileStructInnerPred {
+    uint104 amount;
+}
+
+/// @custom:bao-retyped-from amount uint104
+struct FileStructInnerSucc {
+    uint128 amount;
+}
+
+contract FileStructPred {
+    /// @custom:storage-location erc7201:test.filestruct
+    struct S {
+        FileStructInnerPred inner;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:FileStructPred
+contract FileStructSucc {
+    /// @custom:storage-location erc7201:test.filestruct
+    struct S {
+        FileStructInnerSucc inner;
+    }
+}
+
+// ── REJECTED: a declaration on ANOTHER struct of the same bare name. The successor declares its own `Inner` and
+//    documents a widen on it, but the struct in its storage is a library's `Inner`, widened with no declaration.
+//    A struct takes its own declarations, looked up by where it is declared. ──
+library BorrowedTagLibPred {
+    struct Inner {
+        uint104 amount;
+    }
+}
+
+library BorrowedTagLibSucc {
+    struct Inner {
+        uint128 amount;
+    }
+}
+
+contract BorrowedTagPred {
+    /// @custom:storage-location erc7201:test.borrowedtag
+    struct S {
+        BorrowedTagLibPred.Inner inner;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:BorrowedTagPred
+contract BorrowedTagSucc {
+    /// @custom:bao-retyped-from amount uint104
+    struct Inner {
+        uint128 amount;
+    }
+
+    /// @custom:storage-location erc7201:test.borrowedtag
+    struct S {
+        BorrowedTagLibSucc.Inner inner;
+    }
+}
+
+// ── ACCEPTED: a field renamed AND widened in one step. Its @custom:bao-retyped-from names it as the successor does. ──
+contract RenameRetypePred {
+    /// @custom:storage-location erc7201:test.renameretype
+    struct S {
+        uint128 product;
+        uint104 amount;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:RenameRetypePred
+contract RenameRetypeSucc {
+    /// @custom:storage-location erc7201:test.renameretype
+    /// @custom:bao-renamed-from balance amount
+    /// @custom:bao-retyped-from balance uint104
+    struct S {
+        uint128 product;
+        uint128 balance;
+    }
+}
+
+// ── REJECTED: a @custom:bao-upgrades-from that is not a whole declaration (a space where the colon belongs). Read
+//    as no link, the contract would not be checked at all; the malformed-tag check reports it. ──
+contract MalformedUpgradeReferencePred {
+    /// @custom:storage-location erc7201:test.malformedupgradereference
+    struct S {
+        uint104 amount;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol MalformedUpgradeReferencePred
+contract MalformedUpgradeReference {
+    /// @custom:storage-location erc7201:test.malformedupgradereference
+    struct S {
+        uint128 amount;
+    }
+}
+
 // ── ACCEPTED via INHERITANCE: the documented key widen in a namespace declared in an INHERITED base, beside the
 //    struct's other declarations ──
 abstract contract InheritKeyWidenBasePred {
@@ -529,5 +720,248 @@ contract PartialKeyMigrator {
         assembly {
             $.slot := _SLOT_K
         }
+    }
+}
+
+// ── REJECTED: the NAMESPACE struct holds itself through an array and gains a member. At the top level the member
+//    takes fresh storage. Inside `children` an element grows from two slots to three, so every element after the
+//    first moves. ──
+contract SelfRootPred {
+    /// @custom:storage-location erc7201:test.selfroot
+    struct Node {
+        Node[] children;
+        uint256 value;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:SelfRootPred
+contract SelfRootSucc {
+    /// @custom:storage-location erc7201:test.selfroot
+    /// @custom:bao-added extra
+    struct Node {
+        Node[] children;
+        uint256 value;
+        uint256 extra;
+    }
+}
+
+// ── REJECTED: the same through a second struct. The namespace struct holds T, T holds an array of the namespace
+//    struct, and the namespace struct gains a member. ──
+contract MutualPred {
+    struct T {
+        S[] parents;
+    }
+
+    /// @custom:storage-location erc7201:test.mutual
+    struct S {
+        mapping(uint256 => T) ts;
+        uint256 value;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:MutualPred
+contract MutualSucc {
+    struct T {
+        S[] parents;
+    }
+
+    /// @custom:storage-location erc7201:test.mutual
+    /// @custom:bao-added extra
+    struct S {
+        mapping(uint256 => T) ts;
+        uint256 value;
+        uint256 extra;
+    }
+}
+
+// ── REJECTED: a SIGNED integer widened in place, documented. The bytes the wider type adds are zero in storage, so
+//    a stored -1 would read 2**104 - 1. ──
+contract SignedWidenPred {
+    /// @custom:storage-location erc7201:test.signedwiden
+    struct S {
+        uint128 product;
+        int104 amount;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:SignedWidenPred
+contract SignedWidenSucc {
+    /// @custom:storage-location erc7201:test.signedwiden
+    /// @custom:bao-retyped-from amount int104
+    struct S {
+        uint128 product;
+        int128 amount;
+    }
+}
+
+// ── REJECTED: an enum that is ANOTHER DECLARATION of the same name. Here a stored 0 is Idle; the successor's file
+//    declares `RedefinedMode {Closed, Idle}`, where it is Closed. The two have one label. The successor is in
+//    BaoUpgradeFixturesRedefined.sol. ──
+enum RedefinedMode {
+    Idle,
+    Active,
+    Closed
+}
+
+contract EnumRedefinedPred {
+    /// @custom:storage-location erc7201:test.enumredefined
+    struct S {
+        RedefinedMode mode;
+    }
+}
+
+// ── ACCEPTED: three versions in a chain. The middle one keeps the declaration of what it changed from the first,
+//    which is not its successor's to answer for. ──
+contract ChainV1 {
+    /// @custom:storage-location erc7201:test.chain
+    struct S {
+        uint128 product;
+        uint96 amount;
+        mapping(uint8 => uint256) integrals;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:ChainV1
+contract ChainV2 {
+    /// @custom:storage-location erc7201:test.chain
+    /// @custom:bao-retyped-from amount uint96
+    /// @custom:bao-renamed-from rewardIntegrals integrals
+    /// @custom:bao-rekeyed-from rewardIntegrals uint8
+    /// @custom:bao-added extra
+    struct S {
+        uint128 product;
+        uint104 amount;
+        mapping(uint256 => uint256) rewardIntegrals;
+        uint256 extra;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:ChainV2
+contract ChainV3 {
+    /// @custom:storage-location erc7201:test.chain
+    /// @custom:bao-retyped-from amount uint104
+    struct S {
+        uint128 product;
+        uint128 amount;
+        mapping(uint256 => uint256) rewardIntegrals;
+        uint256 extra;
+    }
+}
+
+// ── ACCEPTED twice: a library's struct documents the change one family's upgrade makes, and another family holds
+//    that struct before and after an upgrade of its own. In the second link the struct is one declaration on both
+//    sides: it is not compared, and its declaration is not judged. ──
+library SharedStructLibPred {
+    struct Reward {
+        uint128 rate;
+        uint104 amount;
+    }
+}
+
+library SharedStructLibSucc {
+    /// @custom:bao-retyped-from amount uint104
+    struct Reward {
+        uint128 rate;
+        uint128 amount;
+    }
+}
+
+contract SharedStructPoolPred {
+    /// @custom:storage-location erc7201:test.sharedstruct.pool
+    struct S {
+        mapping(address => SharedStructLibPred.Reward) rewards;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:SharedStructPoolPred
+contract SharedStructPoolSucc {
+    /// @custom:storage-location erc7201:test.sharedstruct.pool
+    struct S {
+        mapping(address => SharedStructLibSucc.Reward) rewards;
+    }
+}
+
+contract SharedStructVaultPred {
+    /// @custom:storage-location erc7201:test.sharedstruct.vault
+    struct S {
+        mapping(address => SharedStructLibSucc.Reward) rewards;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:SharedStructVaultPred
+contract SharedStructVaultSucc {
+    /// @custom:storage-location erc7201:test.sharedstruct.vault
+    /// @custom:bao-added total
+    struct S {
+        mapping(address => SharedStructLibSucc.Reward) rewards;
+        uint256 total;
+    }
+}
+
+// ── ACCEPTED: a user-defined value type of ONE declaration on both sides, as a field and as a mapping key, beside
+//    a documented widen ──
+contract SameUserDefinedTypePred {
+    /// @custom:storage-location erc7201:test.sameuserdefinedtype
+    struct S {
+        Id id;
+        uint104 amount;
+        mapping(Id => uint256) byId;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:SameUserDefinedTypePred
+contract SameUserDefinedTypeSucc {
+    /// @custom:storage-location erc7201:test.sameuserdefinedtype
+    /// @custom:bao-retyped-from amount uint104
+    struct S {
+        Id id;
+        uint128 amount;
+        mapping(Id => uint256) byId;
+    }
+}
+
+// ── ACCEPTED: two contracts of ONE NAME in two files, each with the namespace struct, so the two structs have one
+//    canonical name. The link's own declarations are those of the struct its successor holds. The successor and its
+//    base are in BaoUpgradeFixturesRedefined.sol. ──
+abstract contract SameNameBase {
+    /// @custom:storage-location erc7201:test.samename
+    struct S {
+        uint128 product;
+        uint104 amount;
+    }
+}
+
+contract SameNamePred is SameNameBase {}
+
+// ── REJECTED: a whole @custom:bao-upgrades-from written on the STRUCT, with its other tags. It is read only on a
+//    contract, so it makes no link and the narrowing below would not be checked; the tag check reports it. ──
+contract UpgradeReferenceOnItsStructPred {
+    /// @custom:storage-location erc7201:test.upgradereferenceonitsstruct
+    struct S {
+        uint128 product;
+        uint104 amount;
+    }
+}
+
+contract UpgradeReferenceOnItsStruct {
+    /// @custom:storage-location erc7201:test.upgradereferenceonitsstruct
+    /// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:UpgradeReferenceOnItsStructPred
+    struct S {
+        uint128 product;
+        uint64 amount;
+    }
+}
+
+// ── REJECTED: a struct's tags, each whole, written where they are not read: on the contract, on an event and on a
+//    function. They document nothing; the tag check reports each. ──
+/// @custom:bao-retyped-from amount uint96
+/// @custom:bao-rekeyed-from integrals uint8
+contract StructTagsOnOtherNodes {
+    /// @custom:bao-added extra
+    event Happened(uint256 value);
+
+    /// @custom:bao-renamed-from newName oldName
+    function run() external pure returns (uint256) {
+        return 1;
     }
 }

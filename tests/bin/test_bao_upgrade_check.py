@@ -1,7 +1,7 @@
 """End-to-end test for bin/storage-successor.py over REAL solc output.
 
 The harness builds the .sol fixtures exactly as validate builds src (a fresh build-info), then runs the
-production check_build / main on them — no re-implementation of extract/inject/build, so the very code that
+production check_builds / main on them — no re-implementation of extract/inject/build, so the very code that
 ships is the code under test. The documented widens (flat and nested-through-containers) must pass; every
 other pair must be rejected with the right reason. This also anchors the synthetic-input rule tests in
 test_storage_successor.py: if their layout shape ever diverged from solc's, the verdicts here would break.
@@ -20,6 +20,9 @@ import pytest
 ROOT = pathlib.Path(__file__).resolve().parents[2]  # bao-base root
 FIXTURES = "test/fixtures/BaoUpgradeFixtures.sol"
 GOOD = "test/fixtures/BaoUpgradeGood.sol"
+SOLC_0828 = "test/fixtures/BaoUpgradeFixturesSolc0828.sol"
+SOLC_0830 = "test/fixtures/BaoUpgradeFixturesSolc0830.sol"
+ACROSS_COMPILERS = "test/fixtures/BaoUpgradeFixturesAcrossCompilers.sol"
 
 
 def load_module():
@@ -30,15 +33,15 @@ def load_module():
     return module
 
 
-def build_info_dir(project, fixture, subdir):
-    """Build one fixture file in `project` with a fresh build-info (as validate builds src); return the build-info
+def build_info_dir(project, subdir, *fixtures):
+    """Build these fixture files in `project` with a fresh build-info (as validate builds src); return the build-info
     dir."""
     out_dir = project / "out" / subdir / "build-info"
     subprocess.run(
         [
             "forge",
             "build",
-            fixture,
+            *fixtures,
             "--build-info",
             "--build-info-path",
             str(out_dir),
@@ -58,8 +61,8 @@ def mixed(forge_project):
     if shutil.which("forge") is None:
         pytest.skip("forge not available")
     mod = load_module()
-    build_info = mod._latest_build_info(str(build_info_dir(forge_project, FIXTURES, "_bao_test_mixed")))
-    checked, failures = mod.check_build(build_info, str(forge_project))
+    build_infos = mod._compiled_build_infos(str(build_info_dir(forge_project, "_bao_test_mixed", FIXTURES)))
+    checked, failures = mod.check_builds(build_infos, str(forge_project))
     return checked, {succ: errs for succ, pred, ns, errs in failures}
 
 
@@ -69,7 +72,8 @@ def mixed_build(forge_project):
     if shutil.which("forge") is None:
         pytest.skip("forge not available")
     mod = load_module()
-    return mod, mod._latest_build_info(str(build_info_dir(forge_project, FIXTURES, "_bao_test_mixed")))
+    [build_info] = mod._compiled_build_infos(str(build_info_dir(forge_project, "_bao_test_mixed", FIXTURES)))
+    return mod, build_info
 
 
 def _contract_id(mod, build_info, name):
@@ -108,13 +112,31 @@ def test_contract_declaring_its_own_namespace_is_absent_from_accessed_map(mixed_
 
 def test_all_pairs_were_checked(mixed):
     checked, _ = mixed
-    assert len(checked) == 21, checked
+    assert len(checked) == 38, checked
 
 
-@pytest.mark.parametrize("succ", ["WidenSucc", "NestGoodSucc", "KeyWidenSucc", "InheritKeyWidenSucc"])
+@pytest.mark.parametrize(
+    "succ",
+    [
+        "WidenSucc",
+        "NestGoodSucc",
+        "KeyWidenSucc",
+        "InheritKeyWidenSucc",
+        "RecursiveSucc",
+        "LibraryStructSucc",
+        "FileStructSucc",
+        "RenameRetypeSucc",
+        "ChainV2",
+        "ChainV3",
+        "SharedStructPoolSucc",
+        "SharedStructVaultSucc",
+        "SameUserDefinedTypeSucc",
+        "SameNameSucc",
+    ],
+)
 def test_documented_widen_pairs_pass(mixed, succ):
     checked, failures = mixed
-    assert any(succ in c for c in checked), f"{succ} was not even checked"
+    assert any(c.startswith(f"{succ} <- ") for c in checked), f"{succ} was not even checked"
     assert succ not in failures, failures.get(succ)
 
 
@@ -131,6 +153,13 @@ def test_documented_widen_pairs_pass(mixed, succ):
         ("KeySucc", "mapping key"),
         ("KeyWidenUndocSucc", "undocumented key widen"),
         ("KeyNamedLikeAnIntegerSucc", "mapping key changed"),
+        ("FieldNamedLikeAnIntegerSucc", "kind changed"),
+        ("RedefinedKeySucc", "not the same declaration"),
+        ("BorrowedTagSucc", "undocumented widen"),
+        ("SelfRootSucc", "grows a nested struct"),
+        ("MutualSucc", "grows a nested struct"),
+        ("SignedWidenSucc", "signed integer widened"),
+        ("EnumRedefinedSucc", "not the same declaration"),
         ("NestBadSucc", "undocumented widen"),
     ],
 )
@@ -190,16 +219,16 @@ def test_list_mode_prints_each_link_and_exits_0(capsys, forge_project):
     if shutil.which("forge") is None:
         pytest.skip("forge not available")
     mod = load_module()
-    d = build_info_dir(forge_project, GOOD, "_bao_test_good")
+    d = build_info_dir(forge_project, "_bao_test_good", GOOD)
     assert mod.main([str(d), "--list"]) == 0
     assert capsys.readouterr().out == "GoodSucc GoodPred\n"
 
 
 def test_build_with_no_bao_upgrade_links_is_clean():
-    # the zero-pair case (most builds have none): check_build lays nothing out and returns no failures, so main
+    # the zero-pair case (most builds have none): check_builds lays nothing out and returns no failures, so main
     # exits 0. Synthetic build-info (no solc needed) — a build whose sources declare no @custom:bao-upgrades-from.
     mod = load_module()
-    assert mod.check_build({"output": {"sources": {}}}, ".") == ([], [])
+    assert mod.check_builds([{"output": {"sources": {}}}], ".") == ([], [])
 
 
 @pytest.fixture(scope="module")
@@ -208,7 +237,7 @@ def slot_errors(forge_project):
     if shutil.which("forge") is None:
         pytest.skip("forge not available")
     mod = load_module()
-    build_info = mod._latest_build_info(str(build_info_dir(forge_project, FIXTURES, "_bao_test_mixed")))
+    [build_info] = mod._compiled_build_infos(str(build_info_dir(forge_project, "_bao_test_mixed", FIXTURES)))
     return {where: msg for where, msg in mod.slot_getter_errors(build_info)}
 
 
@@ -235,7 +264,7 @@ def test_misspelled_bao_tag_is_rejected(forge_project):
     if shutil.which("forge") is None:
         pytest.skip("forge not available")
     mod = load_module()
-    build_info = mod._latest_build_info(str(build_info_dir(forge_project, FIXTURES, "_bao_test_mixed")))
+    [build_info] = mod._compiled_build_infos(str(build_info_dir(forge_project, "_bao_test_mixed", FIXTURES)))
     tags = {tag for _where, tag in mod.unrecognized_bao_tags(build_info)}
     assert "bao-renamd-from" in tags, "a misspelled @custom:bao-* tag was not caught"
     assert not (
@@ -251,21 +280,71 @@ def test_misspelled_bao_tag_is_rejected(forge_project):
     ), tags
 
 
-def test_rekeyed_tag_that_is_not_a_whole_declaration_is_rejected(forge_project):
-    # on the NatSpec as solc gives it: the tag with no old key type is reported, and the whole declarations
-    # across the fixtures are not
+def test_tags_that_are_not_read_as_they_stand_are_rejected(forge_project):
+    # on the NatSpec as solc gives it: the key tag with no old type, the upgrade reference with no colon, the upgrade
+    # reference on a struct and the struct tags on a contract, an event and a function are reported, and the whole
+    # declarations on the nodes that read them, across the fixtures, are not
     if shutil.which("forge") is None:
         pytest.skip("forge not available")
     mod = load_module()
-    build_info = mod._latest_build_info(str(build_info_dir(forge_project, FIXTURES, "_bao_test_mixed")))
-    assert [where for where, _message in mod.malformed_rekeyed_tags(build_info)] == ["MalformedRekeyedTag.S"]
+    [build_info] = mod._compiled_build_infos(str(build_info_dir(forge_project, "_bao_test_mixed", FIXTURES)))
+    reported = sorted(where for where, _message in mod.malformed_bao_tags(build_info))
+    assert reported == [
+        "MalformedRekeyedTag.S",
+        "MalformedUpgradeReference",
+        "StructTagsOnOtherNodes",
+        "StructTagsOnOtherNodes",
+        "StructTagsOnOtherNodes.Happened",
+        "StructTagsOnOtherNodes.run",
+        "UpgradeReferenceOnItsStruct.S",
+    ]
+
+
+def test_contract_whose_upgrade_reference_is_not_read_is_no_link(mixed):
+    # so the report above is all that stops it passing unchecked: the reference with no colon, and the one on a struct
+    checked, _ = mixed
+    assert not any("MalformedUpgradeReference" in c or "UpgradeReferenceOnItsStruct" in c for c in checked), checked
+
+
+def test_links_compiled_by_two_compiler_versions_are_each_checked(forge_project):
+    # forge writes one compiled build-info for each compiler version a build uses: the link in each is checked
+    if shutil.which("forge") is None:
+        pytest.skip("forge not available")
+    mod = load_module()
+    build_infos = mod._compiled_build_infos(
+        str(build_info_dir(forge_project, "_bao_test_two_compilers", SOLC_0828, SOLC_0830))
+    )
+    assert sorted(build_info["solcVersion"] for build_info in build_infos) == ["0.8.28", "0.8.30"]
+    checked, failures = mod.check_builds(build_infos, str(forge_project))
+    assert sorted(checked) == [
+        "NewerCompilerSucc <- NewerCompilerPred [test.newercompiler]",
+        "OlderCompilerSucc <- OlderCompilerPred [test.oldercompiler]",
+    ]
+    assert [(succ, errs) for succ, _pred, _ns, errs in failures] == [
+        ("OlderCompilerSucc", ["s.amount: integer narrowed (uint104 -> uint64)"])
+    ]
+
+
+def test_a_link_across_two_compiler_versions_stops_the_run_naming_it(forge_project):
+    # its predecessor is found in the other build-info, and the two cannot be laid out in one compilation
+    if shutil.which("forge") is None:
+        pytest.skip("forge not available")
+    mod = load_module()
+    build_infos = mod._compiled_build_infos(
+        str(build_info_dir(forge_project, "_bao_test_across_compilers", SOLC_0828, ACROSS_COMPILERS))
+    )
+    with pytest.raises(SystemExit) as stop:
+        mod.check_builds(build_infos, str(forge_project))
+    message = str(stop.value)
+    assert "the probe laying out" in message and "did not build" in message, message
+    assert f"{SOLC_0828}:OlderCompilerPred.S" in message and f"{ACROSS_COMPILERS}:AcrossCompilersSucc.S" in message
 
 
 def test_main_exits_1_when_any_link_is_incompatible(forge_project):
     if shutil.which("forge") is None:
         pytest.skip("forge not available")
     mod = load_module()
-    d = build_info_dir(forge_project, FIXTURES, "_bao_test_mixed")
+    d = build_info_dir(forge_project, "_bao_test_mixed", FIXTURES)
     assert mod.main([str(d), "--root", str(forge_project)]) == 1
 
 
@@ -273,5 +352,5 @@ def test_main_exits_0_when_all_links_are_documented_successors(forge_project):
     if shutil.which("forge") is None:
         pytest.skip("forge not available")
     mod = load_module()
-    d = build_info_dir(forge_project, GOOD, "_bao_test_good")
+    d = build_info_dir(forge_project, "_bao_test_good", GOOD)
     assert mod.main([str(d), "--root", str(forge_project)]) == 0
