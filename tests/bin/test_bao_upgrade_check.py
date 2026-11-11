@@ -108,10 +108,10 @@ def test_contract_declaring_its_own_namespace_is_absent_from_accessed_map(mixed_
 
 def test_all_pairs_were_checked(mixed):
     checked, _ = mixed
-    assert len(checked) == 16, checked
+    assert len(checked) == 21, checked
 
 
-@pytest.mark.parametrize("succ", ["WidenSucc", "NestGoodSucc"])
+@pytest.mark.parametrize("succ", ["WidenSucc", "NestGoodSucc", "KeyWidenSucc", "InheritKeyWidenSucc"])
 def test_documented_widen_pairs_pass(mixed, succ):
     checked, failures = mixed
     assert any(succ in c for c in checked), f"{succ} was not even checked"
@@ -129,6 +129,8 @@ def test_documented_widen_pairs_pass(mixed, succ):
         ("RemoveSucc", "removed"),
         ("AddSucc", "added"),
         ("KeySucc", "mapping key"),
+        ("KeyWidenUndocSucc", "undocumented key widen"),
+        ("KeyNamedLikeAnIntegerSucc", "mapping key changed"),
         ("NestBadSucc", "undocumented widen"),
     ],
 )
@@ -175,6 +177,14 @@ def test_partial_migrator_compatible_namespace_passes(mixed):
     assert "PartialMigrator" not in failures, failures.get("PartialMigrator")
 
 
+def test_partial_migrator_over_a_documented_key_widen_passes(mixed):
+    # the migrator reaches a struct whose mapping key is widened; the widen is documented where the struct is
+    # declared, on its owner, and the migrator's link must be checked with that owner's declaration
+    checked, failures = mixed
+    assert any("PartialKeyMigrator" in c for c in checked), "the partial migrator's link was not even checked"
+    assert "PartialKeyMigrator" not in failures, failures.get("PartialKeyMigrator")
+
+
 def test_list_mode_prints_each_link_and_exits_0(capsys, forge_project):
     # --list (used by validate's version-reference audit) prints '<successor> <predecessor>' per link, no build
     if shutil.which("forge") is None:
@@ -202,6 +212,11 @@ def slot_errors(forge_project):
     return {where: msg for where, msg in mod.slot_getter_errors(build_info)}
 
 
+def test_partial_migrators_hardcode_the_slots_of_the_namespaces_they_reach(slot_errors):
+    # the partial fixtures stand on these constants: a wrong one would have the migrator reach other storage
+    assert not any(w.startswith(("PartialMigrator.", "PartialKeyMigrator.")) for w in slot_errors), slot_errors
+
+
 def test_correct_slot_getter_passes(slot_errors):
     # a getter whose hardcoded slot equals its namespace's ERC-7201 hash is auto-detected and NOT flagged
     assert not any(w.startswith("SlotGetterGood.") for w in slot_errors), slot_errors
@@ -224,8 +239,26 @@ def test_misspelled_bao_tag_is_rejected(forge_project):
     tags = {tag for _where, tag in mod.unrecognized_bao_tags(build_info)}
     assert "bao-renamd-from" in tags, "a misspelled @custom:bao-* tag was not caught"
     assert not (
-        tags & {"bao-upgrades-from", "bao-retyped-from", "bao-added", "bao-renamed-from", "bao-storage-slot"}
+        tags
+        & {
+            "bao-upgrades-from",
+            "bao-retyped-from",
+            "bao-added",
+            "bao-renamed-from",
+            "bao-rekeyed-from",
+            "bao-storage-slot",
+        }
     ), tags
+
+
+def test_rekeyed_tag_that_is_not_a_whole_declaration_is_rejected(forge_project):
+    # on the NatSpec as solc gives it: the tag with no old key type is reported, and the whole declarations
+    # across the fixtures are not
+    if shutil.which("forge") is None:
+        pytest.skip("forge not available")
+    mod = load_module()
+    build_info = mod._latest_build_info(str(build_info_dir(forge_project, FIXTURES, "_bao_test_mixed")))
+    assert [where for where, _message in mod.malformed_rekeyed_tags(build_info)] == ["MalformedRekeyedTag.S"]
 
 
 def test_main_exits_1_when_any_link_is_incompatible(forge_project):

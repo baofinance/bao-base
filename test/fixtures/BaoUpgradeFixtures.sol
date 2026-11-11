@@ -170,6 +170,40 @@ contract KeySucc {
     }
 }
 
+// ── ACCEPTED: an unsigned mapping key widened in place AND documented on its owning struct — here the inner key of
+//    a mapping of mappings ──
+contract KeyWidenPred {
+    /// @custom:storage-location erc7201:test.keywiden
+    struct S {
+        mapping(address => mapping(uint8 => uint256)) integrals;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:KeyWidenPred
+contract KeyWidenSucc {
+    /// @custom:storage-location erc7201:test.keywiden
+    /// @custom:bao-rekeyed-from integrals uint8
+    struct S {
+        mapping(address => mapping(uint256 => uint256)) integrals;
+    }
+}
+
+// ── REJECTED: the same key widen, with no @custom:bao-rekeyed-from ──
+contract KeyWidenUndocPred {
+    /// @custom:storage-location erc7201:test.keywidenundoc
+    struct S {
+        mapping(address => mapping(uint8 => uint256)) integrals;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:KeyWidenUndocPred
+contract KeyWidenUndocSucc {
+    /// @custom:storage-location erc7201:test.keywidenundoc
+    struct S {
+        mapping(address => mapping(uint256 => uint256)) integrals;
+    }
+}
+
 // ── ACCEPTED: a documented widen reached through a direct field, a mapping, and a dynamic array ──
 contract NestGoodPred {
     struct Inner {
@@ -401,6 +435,99 @@ contract PartialMigrator {
         // solhint-disable-next-line no-inline-assembly
         assembly {
             $.slot := _SLOT_A
+        }
+    }
+}
+
+// ── REJECTED: a key of a user-defined value type NAMED like an integer. `uint7` is not a Solidity type, so the
+//    name is free: this one is a bytes1, which is padded on the other side when a key is hashed, so its entries
+//    are not where a uint256 key of the same number looks. Its label reads `uint7`; its type id says what it is. ──
+type uint7 is bytes1;
+
+contract KeyNamedLikeAnIntegerPred {
+    /// @custom:storage-location erc7201:test.keynamedlikeaninteger
+    struct S {
+        mapping(uint7 => uint256) byKey;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:KeyNamedLikeAnIntegerPred
+contract KeyNamedLikeAnIntegerSucc {
+    /// @custom:storage-location erc7201:test.keynamedlikeaninteger
+    /// @custom:bao-rekeyed-from byKey uint7
+    struct S {
+        mapping(uint256 => uint256) byKey;
+    }
+}
+
+// ── ACCEPTED via INHERITANCE: the documented key widen in a namespace declared in an INHERITED base, beside the
+//    struct's other declarations ──
+abstract contract InheritKeyWidenBasePred {
+    /// @custom:storage-location erc7201:test.inherit.keywiden
+    struct S {
+        mapping(address => address) receiver;
+        mapping(address => mapping(uint8 => uint256)) integrals;
+    }
+}
+
+contract InheritKeyWidenPred is InheritKeyWidenBasePred {}
+
+abstract contract InheritKeyWidenBaseSucc {
+    /// @custom:storage-location erc7201:test.inherit.keywiden
+    /// @custom:bao-renamed-from receiverNotUsed receiver
+    /// @custom:bao-rekeyed-from integrals uint8
+    /// @custom:bao-added snapshots
+    struct S {
+        mapping(address => address) receiverNotUsed;
+        mapping(address => mapping(uint256 => uint256)) integrals;
+        mapping(address => uint256) snapshots;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:InheritKeyWidenPred
+contract InheritKeyWidenSucc is InheritKeyWidenBaseSucc {}
+
+// ── REJECTED: a @custom:bao-rekeyed-from that is not a whole declaration (it gives no old key type). Read as
+//    nothing it would pass unseen here, where the key did not change; the malformed-tag check reports it. ──
+contract MalformedRekeyedTag {
+    /// @custom:storage-location erc7201:test.malformedrekeyed
+    /// @custom:bao-rekeyed-from byKey
+    struct S {
+        mapping(uint8 => uint256) byKey;
+    }
+}
+
+// ── PARTIAL MIGRATOR over a widened key: the struct it reaches documents its key widen with
+//    @custom:bao-rekeyed-from, on the real successor that owns the struct. The migrator's link is checked with that
+//    owner's declaration, so it passes. ──
+contract PartialKeyPred {
+    /// @custom:storage-location erc7201:test.partialkey
+    struct K {
+        mapping(address => mapping(uint8 => uint256)) integrals;
+    }
+}
+
+// the real successor whose struct the migrator reaches: the inner key widened, and documented on the struct.
+contract PartialKeySucc {
+    /// @custom:storage-location erc7201:test.partialkey
+    /// @custom:bao-rekeyed-from integrals uint8
+    struct K {
+        mapping(address => mapping(uint256 => uint256)) integrals;
+    }
+}
+
+/// @custom:bao-upgrades-from test/fixtures/BaoUpgradeFixtures.sol:PartialKeyPred
+contract PartialKeyMigrator {
+    bytes32 private constant _SLOT_K = 0x84c67d0f28d6faf8940c78a1e111fb7b1edee96b2615771074b55e7e2d9fc200;
+
+    function value(address token, uint256 exponent) external view returns (uint256) {
+        return _k().integrals[token][exponent];
+    }
+
+    function _k() private pure returns (PartialKeySucc.K storage $) {
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            $.slot := _SLOT_K
         }
     }
 }

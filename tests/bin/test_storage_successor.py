@@ -1,14 +1,18 @@
 """Unit tests for the successor RULE in bin/storage-successor.py (successor_errors).
 
 These pin the rule's branches with synthetic storageLayout dicts — the cheap, exhaustive way to cover every
-kind of change and every container nesting. The rule: the ONLY accepted change is an integer field widened in
-place AND documented with `@custom:bao-retyped-from <field> <oldType>` on its owning struct (oldType matching
-the predecessor); everything else is rejected. The end-to-end pipeline (extract -> inject -> build -> this rule
-on REAL solc output) is covered separately by the .sol-fixture integration test, which also keeps these
-synthetic layouts honest — if their shape ever diverged from solc's, that test's verdict would break.
+kind of change and every container nesting. The rule accepts a change only where it leaves every byte the
+predecessor wrote where it was AND its owning struct documents it: an integer field widened in place
+(`@custom:bao-retyped-from <field> <oldType>`, oldType matching the predecessor), a field added in unused bytes
+(`@custom:bao-added`), a field renamed (`@custom:bao-renamed-from`) and an unsigned mapping key widened
+(`@custom:bao-rekeyed-from <field> <oldKeyType>`); everything else is rejected. The end-to-end pipeline (extract
+-> inject -> build -> this rule on REAL solc output) is covered separately by the .sol-fixture integration test,
+which also keeps these synthetic layouts honest — if their shape ever diverged from solc's, that test's verdict
+would break.
 
 The golden case is the StabilityPool widening: TokenBalance.amount uint104 -> uint128, exercised directly and
-through a mapping, a dynamic array, a static array, and a mapping-of-mappings.
+through a mapping, a dynamic array, a static array, and a mapping-of-mappings. For a widened key the golden case
+is a pool's reward integrals: the inner key of `mapping(address => mapping(uint8 => uint256))`, uint8 -> uint256.
 """
 
 import importlib.util
@@ -41,12 +45,21 @@ BASE_TYPES = {
     "t_uint104": _int(104),
     "t_uint64": _int(64),
     "t_uint40": _int(40),
+    "t_uint16": _int(16),
+    "t_uint8": _int(8),
+    "t_int256": _int(256, signed=True),
     "t_int128": _int(128, signed=True),
     "t_address": {"encoding": "inplace", "label": "address", "numberOfBytes": "20"},
     "t_bytes32": {"encoding": "inplace", "label": "bytes32", "numberOfBytes": "32"},
 }
 
 DOC = {"TokenBalance": {"amount": "uint104"}}  # documents the amount widen on its owning struct
+
+
+def _user_defined(name, nbytes, ast_id):
+    """What solc lays out for a user-defined value type: its own kind of type id, and the type's name as the label.
+    The name is free, so it can read as an integer type that Solidity does not have, such as `uint7`."""
+    return f"t_userDefinedValueType({name}){ast_id}", {"encoding": "inplace", "label": name, "numberOfBytes": nbytes}
 
 
 def token_balance(amount="t_uint104", moved=False):
@@ -131,10 +144,113 @@ def contained(kind, amount="t_uint104"):
 V2 = flat("t_uint104")  # deployed: uint104 amount
 
 
-def errors(a, b, retyped=None, added=None, renamed=None):
+def errors(a, b, retyped=None, added=None, renamed=None, rekeyed=None):
+    if rekeyed is not None:
+        return mod.successor_errors(a, b, retyped, added, renamed, rekeyed)
     if renamed is None:
         return mod.successor_errors(a, b, retyped, added)
     return mod.successor_errors(a, b, retyped, added, renamed)
+
+
+REKEYED = {"Root": {"field": "uint8"}}  # documents the key widen on its owning struct
+
+
+def root_of(members):
+    """A root struct of mappings to uint256, one slot each: `members` lists (label, keyTypeId), or with a third
+    item the key type of a mapping the first one holds - (label, outerKeyTypeId, innerKeyTypeId)."""
+    types = dict(BASE_TYPES)
+    struct_members = []
+    for slot, (label, key, *inner) in enumerate(members):
+        value = "t_uint256"
+        if inner:
+            value = f"t_inner_{label}"
+            types[value] = {
+                "encoding": "mapping",
+                "label": f"mapping({types[inner[0]]['label']} => uint256)",
+                "numberOfBytes": "32",
+                "key": inner[0],
+                "value": "t_uint256",
+            }
+        type_id = f"t_map_{label}"
+        types[type_id] = {
+            "encoding": "mapping",
+            "label": f"mapping({types[key]['label']} => ...)",
+            "numberOfBytes": "32",
+            "key": key,
+            "value": value,
+        }
+        struct_members.append({"label": label, "slot": str(slot), "offset": 0, "type": type_id})
+    types["t_root"] = {
+        "encoding": "inplace",
+        "label": "struct Root",
+        "numberOfBytes": str(32 * len(members)),
+        "members": struct_members,
+    }
+    return {"storage": [{"label": "root", "slot": "0", "offset": 0, "type": "t_root"}], "types": types}
+
+
+def keyed(kind, key="t_uint8", amount=None):
+    """A root struct whose single member `field` holds a mapping keyed by `key`: 'direct' (the mapping itself),
+    'mapmap' (under an address-keyed mapping, the shape of reward integrals kept by token and by exponent),
+    'staticarray' (three of them) or 'instruct' (as member `byKey` of a struct that an address-keyed mapping
+    holds). The mapping's value is a uint256, or with `amount` a TokenBalance whose amount has that type."""
+    types = dict(BASE_TYPES)
+    value = "t_uint256"
+    if amount is not None:
+        types["t_tb"] = token_balance(amount)
+        value = "t_tb"
+    key_label = types[key]["label"]
+    value_label = "TokenBalance" if amount is not None else "uint256"
+    types["t_keyed"] = {
+        "encoding": "mapping",
+        "label": f"mapping({key_label} => {value_label})",
+        "numberOfBytes": "32",
+        "key": key,
+        "value": value,
+    }
+    nbytes = "32"
+    if kind == "direct":
+        member = "t_keyed"
+    elif kind == "mapmap":
+        types["t_outer"] = {
+            "encoding": "mapping",
+            "label": f"mapping(address => mapping({key_label} => {value_label}))",
+            "numberOfBytes": "32",
+            "key": "t_address",
+            "value": "t_keyed",
+        }
+        member = "t_outer"
+    elif kind == "staticarray":
+        types["t_sarr"] = {
+            "encoding": "inplace",
+            "label": f"mapping({key_label} => {value_label})[3]",
+            "numberOfBytes": "96",
+            "base": "t_keyed",
+        }
+        member = "t_sarr"
+        nbytes = "96"
+    elif kind == "instruct":
+        types["t_inner"] = {
+            "encoding": "inplace",
+            "label": "struct Inner",
+            "numberOfBytes": "32",
+            "members": [{"label": "byKey", "slot": "0", "offset": 0, "type": "t_keyed"}],
+        }
+        types["t_outer"] = {
+            "encoding": "mapping",
+            "label": "mapping(address => Inner)",
+            "numberOfBytes": "32",
+            "key": "t_address",
+            "value": "t_inner",
+        }
+        member = "t_outer"
+    types["t_root"] = {
+        "encoding": "inplace",
+        "label": "struct Root",
+        "numberOfBytes": nbytes,
+        "members": [{"label": "field", "slot": "0", "offset": 0, "type": member}],
+    }
+    return {"storage": [{"label": "root", "slot": "0", "offset": 0, "type": "t_root"}], "types": types}
 
 
 def nested(depth, tb=None):
@@ -334,6 +450,182 @@ def test_mapping_key_change_is_rejected():
     b = contained("mapping", "t_uint128")
     b["types"]["t_map"]["key"] = "t_bytes32"  # address -> bytes32 key
     assert has(errors(a, b, DOC), "mapping key changed")
+
+
+# ── a mapping key: a built-in unsigned integer key widened in place AND documented is accepted; every other key
+#    change, documented or not, is rejected. An entry's slot is the hash of its key followed by the mapping's own
+#    slot, and the key goes in as 32 bytes, left-padded for an unsigned integer: the same number is the same 32
+#    bytes under a wider unsigned type. ────────────────────────────────────────────────────────────────────────
+
+
+def test_documented_key_widen_is_a_successor():
+    assert errors(keyed("direct"), keyed("direct", "t_uint256"), rekeyed=REKEYED) == []
+
+
+def test_documented_key_widen_through_mapping_of_mappings():
+    # the inner key, under an address-keyed mapping: the declaration on the field reaches it
+    assert errors(keyed("mapmap"), keyed("mapmap", "t_uint256"), rekeyed=REKEYED) == []
+
+
+def test_documented_key_widen_through_a_static_array():
+    assert errors(keyed("staticarray"), keyed("staticarray", "t_uint256"), rekeyed=REKEYED) == []
+
+
+def test_undocumented_key_widen_is_rejected():
+    assert has(errors(keyed("direct"), keyed("direct", "t_uint256")), "field", "undocumented key widen")
+    assert has(errors(keyed("mapmap"), keyed("mapmap", "t_uint256"), rekeyed={}), "field", "undocumented key widen")
+
+
+def test_wrong_declared_old_key_type_is_rejected():
+    # declared uint64 but the predecessor's key is really uint8, and the contradiction is reported once
+    errs = errors(keyed("direct"), keyed("direct", "t_uint256"), rekeyed={"Root": {"field": "uint64"}})
+    assert has(errs, "field", "predecessor's key is uint8")
+    assert len(errs) == 1, errs
+
+
+def test_key_declaration_with_no_key_changed_is_rejected():
+    assert has(errors(keyed("mapmap"), keyed("mapmap"), rekeyed=REKEYED), "field", "none of its mapping keys changed")
+
+
+def test_key_declaration_naming_unknown_field_is_rejected():
+    errs = errors(keyed("direct"), keyed("direct", "t_uint256"), rekeyed={"Root": {"typo": "uint8"}})
+    assert has(errs, "typo", "was not compared")
+
+
+def test_key_declaration_on_a_field_with_no_mapping_is_rejected():
+    # TokenBalance.amount is an integer: it has no key to widen
+    errs = errors(V2, V2, rekeyed={"TokenBalance": {"amount": "uint8"}})
+    assert has(errs, "amount", "none of its mapping keys changed")
+
+
+def test_narrowed_key_is_rejected_even_when_documented():
+    errs = errors(keyed("direct", "t_uint256"), keyed("direct"), rekeyed={"Root": {"field": "uint256"}})
+    assert has(errs, "field", "mapping key changed")
+    assert len(errs) == 1, errs  # the refused change is reported once, not also as a declaration that met no change
+
+
+def test_signed_key_widen_is_rejected_even_when_documented():
+    errs = errors(keyed("direct", "t_int128"), keyed("direct", "t_int256"), rekeyed={"Root": {"field": "int128"}})
+    assert has(errs, "field", "mapping key changed")
+    assert len(errs) == 1, errs
+
+
+def test_key_changed_to_another_kind_is_rejected_even_when_documented():
+    errs = errors(keyed("direct"), keyed("direct", "t_bytes32"), rekeyed=REKEYED)
+    assert has(errs, "field", "mapping key changed")
+    assert len(errs) == 1, errs
+
+
+def test_key_of_a_user_defined_type_named_like_an_integer_is_rejected_even_when_documented():
+    # `type uint7 is bytes1;` compiles, and its label reads `uint7`. A bytes1 is padded on the other side when
+    # hashed, so its entries are not where a uint256 key of the same number looks. Told apart by the type id.
+    fake_id, fake = _user_defined("uint7", "1", 5)
+    a = keyed("direct")
+    a["types"][fake_id] = fake
+    a["types"]["t_keyed"]["key"] = fake_id
+    errs = errors(a, keyed("direct", "t_uint256"), rekeyed={"Root": {"field": "uint7"}})
+    assert has(errs, "field", "mapping key changed"), errs
+
+    # and as the type widened to: `type uint512 is bytes1;`
+    wide_id, wide = _user_defined("uint512", "1", 7)
+    b = keyed("direct")
+    b["types"][wide_id] = wide
+    b["types"]["t_keyed"]["key"] = wide_id
+    errs = errors(keyed("direct"), b, rekeyed=REKEYED)
+    assert has(errs, "field", "mapping key changed"), errs
+
+
+def test_key_changing_sign_is_rejected_even_when_documented():
+    errs = errors(keyed("direct"), keyed("direct", "t_int256"), rekeyed=REKEYED)
+    assert has(errs, "field", "mapping key changed"), errs
+    errs = errors(keyed("direct", "t_int128"), keyed("direct", "t_uint256"), rekeyed={"Root": {"field": "int128"}})
+    assert has(errs, "field", "mapping key changed"), errs
+
+
+def test_key_declaration_names_the_field_as_the_successor_does():
+    # the field is renamed in the same step: the declaration sits on the successor's struct and uses its name
+    a, b = root_of([("field", "t_uint8")]), root_of([("newField", "t_uint256")])
+    renamed = {"Root": {"newField": "field"}}
+    assert errors(a, b, renamed=renamed, rekeyed={"Root": {"newField": "uint8"}}) == []
+    errs = errors(a, b, renamed=renamed, rekeyed={"Root": {"field": "uint8"}})
+    assert has(errs, "undocumented key widen"), errs
+    assert has(errs, "Root.field", "was not compared"), errs
+
+
+def test_key_declaration_on_a_freed_name_is_the_successors_field_of_that_name():
+    # `foo` becomes `fooOld` with its key widened, and `bar` takes the name `foo` with its key as it was: a
+    # declaration for `foo` is for the field the successor calls `foo`, whose key did not change
+    a = root_of([("foo", "t_uint8"), ("bar", "t_uint16")])
+    b = root_of([("fooOld", "t_uint256"), ("foo", "t_uint16")])
+    renamed = {"Root": {"fooOld": "foo", "foo": "bar"}}
+    assert errors(a, b, renamed=renamed, rekeyed={"Root": {"fooOld": "uint8"}}) == []
+    errs = errors(a, b, renamed=renamed, rekeyed={"Root": {"foo": "uint8"}})
+    assert has(errs, "undocumented key widen"), errs
+    assert has(errs, "foo", "none of its mapping keys changed"), errs
+
+
+def test_key_declaration_on_an_added_field_is_rejected():
+    # the field is new in the successor, so it has no key that was widened - and the documented add does not
+    # stand in for the key declaration having been compared
+    a, b = root_of([("field", "t_uint8")]), root_of([("field", "t_uint8"), ("extra", "t_uint256")])
+    errs = errors(a, b, added={"Root": {"extra"}}, rekeyed={"Root": {"extra": "uint8"}})
+    assert has(errs, "Root.extra", "was not compared"), errs
+    assert errors(a, b, added={"Root": {"extra"}}) == []
+
+
+def test_each_field_takes_its_own_key_declaration():
+    a = root_of([("one", "t_uint8"), ("two", "t_uint16"), ("three", "t_uint8")])
+    b = root_of([("one", "t_uint256"), ("two", "t_uint64"), ("three", "t_uint8")])
+    assert errors(a, b, rekeyed={"Root": {"one": "uint8", "two": "uint16"}}) == []
+    # one field's declaration does not document another's
+    errs = errors(a, b, rekeyed={"Root": {"one": "uint8"}})
+    assert has(errs, "two", "undocumented key widen"), errs
+    assert len(errs) == 1, errs
+
+
+def test_one_declaration_covers_two_keys_widened_from_the_same_type():
+    a, b = root_of([("field", "t_uint8", "t_uint8")]), root_of([("field", "t_uint256", "t_uint64")])
+    assert errors(a, b, rekeyed=REKEYED) == []
+
+
+def test_two_keys_widened_from_different_types_are_rejected():
+    # a field takes one declaration, so one old type: the key widened from the other type is refused
+    a, b = root_of([("field", "t_uint8", "t_uint16")]), root_of([("field", "t_uint256", "t_uint256")])
+    errs = errors(a, b, rekeyed=REKEYED)
+    assert has(errs, "field", "predecessor's key is uint16"), errs
+    assert len(errs) == 1, errs
+
+
+def test_documented_key_widen_through_a_dynamic_array():
+    def in_dynamic_array(key):
+        layout = keyed("direct", key)
+        layout["types"]["t_arr"] = {
+            "encoding": "dynamic_array",
+            "label": "mapping(...)[]",
+            "numberOfBytes": "32",
+            "base": "t_keyed",
+        }
+        layout["types"]["t_root"]["members"][0]["type"] = "t_arr"
+        return layout
+
+    assert errors(in_dynamic_array("t_uint8"), in_dynamic_array("t_uint256"), rekeyed=REKEYED) == []
+    assert has(errors(in_dynamic_array("t_uint8"), in_dynamic_array("t_uint256")), "field", "undocumented key widen")
+
+
+def test_documented_key_widen_does_not_document_the_value():
+    # the value's amount is widened in the same step: each change needs its own declaration
+    a, b = keyed("direct", amount="t_uint104"), keyed("direct", "t_uint256", amount="t_uint128")
+    assert has(errors(a, b, rekeyed=REKEYED), "amount", "undocumented widen")
+    assert errors(a, b, retyped=DOC, rekeyed=REKEYED) == []
+
+
+def test_key_declaration_does_not_reach_into_a_struct():
+    # the widened key is a member of Inner, which the field's mapping holds: Inner carries its own declaration
+    a, b = keyed("instruct"), keyed("instruct", "t_uint256")
+    errs = errors(a, b, rekeyed=REKEYED)
+    assert has(errs, "byKey", "undocumented key widen")
+    assert has(errs, "field", "none of its mapping keys changed")
+    assert errors(a, b, rekeyed={"Inner": {"byKey": "uint8"}}) == []
 
 
 def test_static_array_resized_is_rejected():
@@ -612,6 +904,81 @@ def test_namespace_by_struct_id_maps_only_storage_location_structs():
         }
     }
     assert mod._namespace_by_struct_id(build_info) == {1: "my.ns"}
+
+
+def _build_info_with_struct_doc(text):
+    """A build-info of one contract `C` holding a struct `S` with this NatSpec, and a struct with no tag."""
+    contract = {
+        "nodeType": "ContractDefinition",
+        "id": 7,
+        "name": "C",
+        "linearizedBaseContracts": [7],
+        "nodes": [
+            {"nodeType": "StructDefinition", "id": 1, "name": "S", "documentation": {"text": text}},
+            {"nodeType": "StructDefinition", "id": 2, "name": "Plain", "documentation": {"text": "an ordinary struct"}},
+        ],
+    }
+    return {"output": {"sources": {"X.sol": {"ast": {"nodes": [contract]}}}}}, contract
+
+
+def test_rekeyed_declarations_are_read_from_the_struct():
+    build_info, contract = _build_info_with_struct_doc(
+        "@custom:storage-location erc7201:my.ns\n@custom:bao-rekeyed-from integrals uint8"
+    )
+    assert mod._rekeyed(build_info, contract) == {"S": {"integrals": "uint8"}}
+
+
+def test_rekeyed_tag_is_recognized():
+    build_info, _contract = _build_info_with_struct_doc("@custom:bao-rekeyed-from integrals uint8")
+    assert mod.unrecognized_bao_tags(build_info) == []
+
+
+# uses of the tag that are not a declaration: no old type, a signed one, no width, text run on after the type,
+# two types, punctuation after the field, a path for the field
+_NOT_A_KEY_DECLARATION = (
+    "@custom:bao-rekeyed-from integrals",
+    "@custom:bao-rekeyed-from integrals int8",
+    "@custom:bao-rekeyed-from integrals uint",
+    "@custom:bao-rekeyed-from integrals uint8_was_the_exponent",
+    "@custom:bao-rekeyed-from integrals uint8x",
+    "@custom:bao-rekeyed-from integrals uint8[]",
+    "@custom:bao-rekeyed-from integrals uint8, uint16",
+    "@custom:bao-rekeyed-from integrals uint8 (the exponent)",
+    "@custom:bao-rekeyed-from integrals: uint8",
+    "@custom:bao-rekeyed-from s.integrals uint8",
+)
+
+
+@pytest.mark.parametrize("text", _NOT_A_KEY_DECLARATION)
+def test_tag_that_is_not_a_whole_declaration_is_not_read_as_one(text):
+    build_info, contract = _build_info_with_struct_doc(text)
+    assert mod._rekeyed(build_info, contract) == {}
+
+
+@pytest.mark.parametrize("text", _NOT_A_KEY_DECLARATION)
+def test_tag_that_is_not_a_whole_declaration_is_reported(text):
+    # read as nothing, it would leave a widened key "undocumented" with the line in plain sight, or pass unseen
+    # where the key did not change
+    build_info, _contract = _build_info_with_struct_doc("@custom:storage-location erc7201:my.ns\n" + text)
+    assert [where for where, _message in mod.malformed_rekeyed_tags(build_info)] == ["C.S"]
+
+
+def test_field_given_two_key_declarations_is_reported():
+    build_info, _contract = _build_info_with_struct_doc(
+        "@custom:bao-rekeyed-from integrals uint16\n@custom:bao-rekeyed-from integrals uint8"
+    )
+    reports = mod.malformed_rekeyed_tags(build_info)
+    assert len(reports) == 1, reports
+    assert reports[0][0] == "C.S" and "integrals" in reports[0][1] and "more than once" in reports[0][1], reports
+
+
+def test_whole_key_declarations_are_not_reported():
+    # one per field, each alone to the end of its line, as solc gives a struct's NatSpec: the lines after the first
+    # start with a space, and trailing spaces are allowed
+    text = "@custom:storage-location erc7201:my.ns\n @custom:bao-rekeyed-from integrals uint8\n @custom:bao-rekeyed-from other uint16  "
+    build_info, contract = _build_info_with_struct_doc(text)
+    assert mod.malformed_rekeyed_tags(build_info) == []
+    assert mod._rekeyed(build_info, contract) == {"S": {"integrals": "uint8", "other": "uint16"}}
 
 
 def test_unrecognized_bao_tag_is_flagged_recognized_ones_ignored():

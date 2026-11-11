@@ -12,16 +12,31 @@ in bin/validate's version-reference step.
 Given a build env (the fresh build-info directory validate produced, plus the project root), it:
   1. SEARCHES the build-info for every contract with `@custom:bao-upgrades-from <path>:<name>` — the pairs;
   2. for each, reads BY NAME the successor's and the named predecessor's `@custom:storage-location
-     erc7201:<ns>` struct(s), and the successor's `@custom:bao-retyped-from <field> <oldType>` declarations
-     (both live in *struct-level* NatSpec, the only NatSpec solc preserves);
+     erc7201:<ns>` struct(s), and the successor's declarations of what it changed (`@custom:bao-retyped-from`,
+     `@custom:bao-added`, `@custom:bao-renamed-from`, `@custom:bao-rekeyed-from`; all live in *struct-level*
+     NatSpec, the only NatSpec solc preserves);
   3. INJECTS each namespaced struct as a plain state variable in a probe contract and builds it, so solc lays
      it out (a namespaced struct reached by assembly has no storageLayout otherwise);
-  4. COMPARES the two layouts. The ONLY accepted change is an integer field widened in place — uintN->uintM /
-     intN->intM, same sign, M > N, nothing relocated — AND documented with `@custom:bao-retyped-from <field>
-     <oldType>` on the owning struct, whose <oldType> must equal the predecessor's type. Every other change is
-     rejected: narrow, an UNDOCUMENTED widen, move, reorder, remove, add, kind-change, mapping-key-change,
-     array-resize, and a stale or contradicted annotation. The walk recurses through structs, mappings, arrays
-     (static and dynamic), and their arbitrary nestings, so a change buried inside `mapping(k => S[])` is found.
+  4. COMPARES the two layouts. A change is accepted only where it leaves every byte the predecessor wrote where
+     it was AND the owning struct documents it. There are four such changes.
+       - An integer field widened in place: uintN->uintM or intN->intM, same sign, M > N, nothing relocated.
+         Documented with `@custom:bao-retyped-from <field> <oldType>`, where <oldType> is the predecessor's type.
+       - A field added in bytes the predecessor never wrote: inside the struct without growing it, or at the end
+         of the top-level namespace struct. Documented with `@custom:bao-added <field>`.
+       - A field renamed where it stands. Documented with `@custom:bao-renamed-from <newField> <oldField>`.
+       - A mapping key widened from one built-in unsigned integer to a wider one: uintN->uintM, M > N. Documented
+         with `@custom:bao-rekeyed-from <field> <oldKeyType>`, where <field> is the member's name in the
+         successor and <oldKeyType> is the predecessor's key type. An entry's slot is the hash of its key
+         followed by the mapping's own slot, and the key goes in as 32 bytes, left-padded for an unsigned
+         integer. The same number is the same 32 bytes under the wider type, so every entry stays where it is.
+         The declaration covers the keys reached from <field> through mappings and arrays. A key inside a struct
+         the field holds is declared on that struct. A field takes one declaration, so one old key type.
+     Every other change is rejected: narrow, an UNDOCUMENTED change of those four kinds, move, reorder, remove,
+     insert, kind-change, any other mapping-key change, array-resize, and a declaration that documents no change
+     or contradicts the predecessor. The walk recurses through structs, mappings, arrays (static and dynamic),
+     and their arbitrary nestings, so a change buried inside `mapping(k => S[])` is found. The declarations are
+     read from the structs declared in the contract and its bases: one on a struct declared at file level or in
+     a library is not read, and the change it documents is reported as undocumented.
 
 The comparison functions take plain storageLayout dicts + a declarations map, so the rule is unit-testable
 with synthetic inputs; `main` is exercised end-to-end by building `.sol` fixtures and running this script.
@@ -44,12 +59,19 @@ _BAO_REF = re.compile(r"custom:bao-upgrades-from\s+(\S+):([A-Za-z_]\w*)")
 _BAO_RETYPED = re.compile(r"custom:bao-retyped-from\s+(\w+)\s+(u?int\d+)")
 _BAO_ADDED = re.compile(r"custom:bao-added\s+(\w+)")
 _BAO_RENAMED = re.compile(r"custom:bao-renamed-from\s+(\w+)\s+(\w+)")
+# A key declaration is the tag, the field and the old key type, alone to the end of their line. `_BAO_REKEYED_TAG`
+# finds every use of the tag, so that a use which is not such a declaration is reported (`malformed_rekeyed_tags`)
+# and not passed over.
+_BAO_REKEYED = re.compile(r"custom:bao-rekeyed-from[ \t]+(\w+)[ \t]+(uint\d+)[ \t]*$", re.MULTILINE)
+_BAO_REKEYED_TAG = re.compile(r"custom:bao-rekeyed-from\b")
 # every `@custom:bao-*` tag this tool acts on — one per bao regex above. A `@custom:bao-*` tag NOT in this set
 # is a typo or an unimplemented tag: solc accepts it (it is a valid custom tag) but the tool silently ignores it,
 # so the intended check never runs and the change ships unverified. `unrecognized_bao_tags` catches that. When
 # you add a new bao tag + its regex, add it here too.
 _BAO_TAG = re.compile(r"custom:(bao-[a-z-]+)")
-_RECOGNIZED_BAO_TAGS = frozenset({"bao-upgrades-from", "bao-retyped-from", "bao-added", "bao-renamed-from"})
+_RECOGNIZED_BAO_TAGS = frozenset(
+    {"bao-upgrades-from", "bao-retyped-from", "bao-added", "bao-renamed-from", "bao-rekeyed-from"}
+)
 # the namespace OpenZeppelin's Initializable declares on its storage struct. Identifying Initializable by its
 # namespace rather than by the contract name ties this to the same string bin/validate hashes into the slot it
 # looks for in the creation bytecode, so the two cannot drift; it also means a home-grown contract that happens
@@ -94,17 +116,47 @@ def _occupied_ranges(entries, types):
     return ranges
 
 
+# marks a `@custom:bao-rekeyed-from` declaration in `used`, apart from the (structName, field) entries of the
+# other declarations, so that another declaration naming the same field does not count as this one being reached
+_REKEYED = "rekeyed"
+
+
+def _is_unsigned_widen(a_type_id, b_type_id):
+    """Whether solc's type id `b_type_id` is a built-in unsigned integer wider than the built-in unsigned integer
+    `a_type_id`. Judged on the id, `t_uint<bits>`, and not on the label: a user-defined value type may be named
+    `uint7`, and its label then reads as an integer, while its id says `t_userDefinedValueType`."""
+    a, b = re.fullmatch(r"t_uint(\d+)", a_type_id), re.fullmatch(r"t_uint(\d+)", b_type_id)
+    return bool(a and b) and int(b.group(1)) > int(a.group(1))
+
+
 def _compare_type(
-    a_id, a_types, b_id, b_types, path, errors, retyped, used, declared_old, added=None, renamed=None, is_root=False
+    a_id,
+    a_types,
+    b_id,
+    b_types,
+    path,
+    errors,
+    retyped,
+    used,
+    declared_old,
+    added=None,
+    renamed=None,
+    is_root=False,
+    rekeyed=None,
+    key_declaration=None,
 ):
     """Recurse a matched type position. `retyped` = {structName: {field: oldTypeLabel}}; `added` =
-    {structName: {field}}; `renamed` = {structName: {newField: oldField}}; each keyed by the successor's struct
-    name, since the declarations are written on the successor's structs. `used` accumulates the
-    (structName, field) declarations actually reached; `declared_old` is the declaration for THIS position
-    (only meaningful on an integer leaf), or None; `is_root` marks the top-level namespace struct (which may
-    grow, since nothing follows it)."""
+    {structName: {field}}; `renamed` = {structName: {newField: oldField}}; `rekeyed` = {structName: {field:
+    oldKeyTypeLabel}}; each keyed by the successor's struct name, since the declarations are written on the
+    successor's structs. `used` accumulates the (structName, field) declarations actually reached, a key
+    declaration as (_REKEYED, structName, field); `declared_old` is the declaration for THIS position
+    (only meaningful on an integer leaf), or None; `key_declaration` is the key declaration of the struct member
+    this position was reached from through mappings and arrays, as {"old": oldKeyTypeLabel, "consumed": whether
+    a changed key has met it}, or None; `is_root` marks the top-level namespace struct (which may grow, since
+    nothing follows it)."""
     added = added or {}
     renamed = renamed or {}
+    rekeyed = rekeyed or {}
     a, b = a_types[a_id], b_types[b_id]
     ak, bk = _kind(a), _kind(b)
     if ak != bk:
@@ -118,6 +170,7 @@ def _compare_type(
         declarations = retyped.get(struct_name, {})
         added_here = added.get(struct_name, set())
         renames = renamed.get(struct_name, {})  # {newLabel: oldLabel} — a documented member rename
+        rekeys = rekeyed.get(struct_name, {})  # {successor's label: oldKeyTypeLabel} — a documented key widen
         old_to_new = {old: new for new, old in renames.items()}
         a_members = {m["label"]: m for m in a["members"]}
         b_members = {m["label"]: m for m in b["members"]}
@@ -142,6 +195,12 @@ def _compare_type(
                 errors.append(f"{path}.{label}: member removed")
                 continue
             matched_b.add(mb["label"])
+            # A key declaration names the member as the successor does: it is written on the successor's struct,
+            # and where a name is freed and reused, the name is the successor's field of that name.
+            member_key = None
+            if mb["label"] in rekeys:
+                used.add((_REKEYED, struct_name, mb["label"]))  # matched to a predecessor's member
+                member_key = {"old": rekeys[mb["label"]], "consumed": False}
             if str(ma["slot"]) != str(mb["slot"]) or ma["offset"] != mb["offset"]:
                 errors.append(
                     f"{path}.{label}: member moved (slot {ma['slot']}:{ma['offset']} -> {mb['slot']}:{mb['offset']})"
@@ -159,7 +218,14 @@ def _compare_type(
                 member_declared,
                 added,
                 renamed,
+                rekeyed=rekeyed,
+                key_declaration=member_key,
             )
+            if member_key is not None and not member_key["consumed"]:
+                errors.append(
+                    f"{path}.{mb['label']}: `@custom:bao-rekeyed-from` is declared for this field and none of its "
+                    f"mapping keys changed (a key inside a struct the field holds is declared on that struct)"
+                )
         # A new member is a byte-compatible APPEND when its bytes overlap no existing member (it takes storage the
         # predecessor never wrote) AND it relocates nothing: either the struct's size is unchanged (it packs into
         # the struct's own trailing padding — safe in any container, since the field after a struct starts a new
@@ -187,10 +253,41 @@ def _compare_type(
                 used.add((struct_name, label))  # documented, byte-compatible append
 
     elif ak == "mapping":
-        if a_types[a["key"]]["label"] != b_types[b["key"]]["label"]:
-            errors.append(f"{path}: mapping key changed ({a_types[a['key']]['label']} -> {b_types[b['key']]['label']})")
+        a_key, b_key = a_types[a["key"]]["label"], b_types[b["key"]]["label"]
+        if a_key != b_key:
+            # A built-in unsigned integer key WIDENED in place leaves every entry where it is. An entry's slot is
+            # the hash of its key followed by the mapping's own slot, and the key goes in as 32 bytes, left-padded
+            # for an unsigned integer: the same number is the same 32 bytes under either type. It is accepted on
+            # a widened field's terms: documented on the owning struct, the declared old type being the
+            # predecessor's. Any other change of a key is refused, documented or not.
+            if key_declaration is not None:
+                key_declaration["consumed"] = True  # a changed key met the declaration: reported here, not as stale
+            if not _is_unsigned_widen(a["key"], b["key"]):
+                errors.append(f"{path}: mapping key changed ({a_key} -> {b_key})")
+            elif key_declaration is None:
+                errors.append(
+                    f"{path}: undocumented key widen ({a_key} -> {b_key}): no `@custom:bao-rekeyed-from <field> "
+                    f"{a_key}` was read for it from the owning struct"
+                )
+            elif key_declaration["old"] != a_key:
+                errors.append(
+                    f"{path}: `@custom:bao-rekeyed-from` declares the old key type {key_declaration['old']} and "
+                    f"the predecessor's key is {a_key}"
+                )
         _compare_type(
-            a["value"], a_types, b["value"], b_types, f"{path}[k]", errors, retyped, used, None, added, renamed
+            a["value"],
+            a_types,
+            b["value"],
+            b_types,
+            f"{path}[k]",
+            errors,
+            retyped,
+            used,
+            None,
+            added,
+            renamed,
+            rekeyed=rekeyed,
+            key_declaration=key_declaration,
         )
 
     elif ak == "array":
@@ -198,7 +295,21 @@ def _compare_type(
             errors.append(
                 f"{path}: array resized ({a['label']} {a['numberOfBytes']}B -> {b['label']} {b['numberOfBytes']}B)"
             )
-        _compare_type(a["base"], a_types, b["base"], b_types, f"{path}[i]", errors, retyped, used, None, added, renamed)
+        _compare_type(
+            a["base"],
+            a_types,
+            b["base"],
+            b_types,
+            f"{path}[i]",
+            errors,
+            retyped,
+            used,
+            None,
+            added,
+            renamed,
+            rekeyed=rekeyed,
+            key_declaration=key_declaration,
+        )
 
     elif ak == "integer":
         a_signed, b_signed = not a["label"].startswith("u"), not b["label"].startswith("u")
@@ -229,14 +340,16 @@ def _compare_type(
             errors.append(f"{path}: type changed ({a['label']} -> {b['label']})")
 
 
-def successor_errors(a_layout, b_layout, retyped=None, added=None, renamed=None):
+def successor_errors(a_layout, b_layout, retyped=None, added=None, renamed=None, rekeyed=None):
     """a_layout/b_layout: solc storageLayout dicts ({"storage", "types"}). retyped: {structName: {field:
     oldTypeLabel}} from `@custom:bao-retyped-from`; added: {structName: {field}} from `@custom:bao-added`;
-    renamed: {structName: {newField: oldField}} from `@custom:bao-renamed-from`. Return the list of changes
-    that stop B being a documented byte-compatible successor of A (empty == compatible)."""
+    renamed: {structName: {newField: oldField}} from `@custom:bao-renamed-from`; rekeyed: {structName: {field:
+    oldKeyTypeLabel}} from `@custom:bao-rekeyed-from`. Return the list of changes that stop B being a
+    documented byte-compatible successor of A (empty == compatible)."""
     retyped = retyped or {}
     added = added or {}
     renamed = renamed or {}
+    rekeyed = rekeyed or {}
     errors = []
     used = set()
     a_by_label = {s["label"]: s for s in a_layout["storage"]}
@@ -264,6 +377,7 @@ def successor_errors(a_layout, b_layout, retyped=None, added=None, renamed=None)
             added,
             renamed,
             is_root=True,
+            rekeyed=rekeyed,
         )
     for label in b_by_label:
         if label not in a_by_label:
@@ -292,6 +406,15 @@ def successor_errors(a_layout, b_layout, retyped=None, added=None, renamed=None)
             if (struct_name, new_field) not in used:
                 errors.append(
                     f"{struct_name}.{new_field}: `@custom:bao-renamed-from` names a field that was not renamed"
+                )
+    for struct_name, fields in rekeyed.items():
+        if struct_name not in present:
+            continue
+        for field in fields:
+            if (_REKEYED, struct_name, field) not in used:
+                errors.append(
+                    f"{struct_name}.{field}: `@custom:bao-rekeyed-from` names a field that was not compared with "
+                    f"a field of the predecessor"
                 )
     return errors
 
@@ -410,6 +533,16 @@ def _renamed(build_info, contract_node):
         renames = {new: old for new, old in _BAO_RENAMED.findall(_doc(member))}
         if renames:
             out.setdefault(member.get("name"), renames)
+    return out
+
+
+def _rekeyed(build_info, contract_node):
+    """structName -> {field: oldKeyTypeLabel} from `@custom:bao-rekeyed-from` across the contract and its bases."""
+    out = {}
+    for member in _inherited_structs(build_info, contract_node):
+        declarations = {field: old for field, old in _BAO_REKEYED.findall(_doc(member))}
+        if declarations:
+            out.setdefault(member.get("name"), declarations)
     return out
 
 
@@ -625,6 +758,30 @@ def unrecognized_bao_tags(build_info):
     return out
 
 
+def malformed_rekeyed_tags(build_info):
+    """Every documented declaration with a `@custom:bao-rekeyed-from` that is not read as it stands: a use of the
+    tag that is not `<field> <uintN>` alone to the end of its line, or a field given the tag more than once. Read
+    as nothing, the first would leave a widened key reported as undocumented with the line in plain sight, and
+    would pass unseen where the key did not change; of two for one field only the last would count. Return list
+    of (where, message)."""
+    out = []
+    for where, text in _documented_nodes(build_info):
+        declarations = _BAO_REKEYED.findall(text)
+        unread = len(_BAO_REKEYED_TAG.findall(text)) - len(declarations)
+        if unread:
+            out.append(
+                (
+                    where,
+                    f"{unread} use(s) of @custom:bao-rekeyed-from not of the form `<field> <uintN>` alone to the "
+                    f"end of the line",
+                )
+            )
+        fields = [field for field, _old in declarations]
+        for field in sorted({field for field in fields if fields.count(field) > 1}):
+            out.append((where, f"@custom:bao-rekeyed-from declares {field} more than once"))
+    return out
+
+
 # ── injection: lay out each struct via a probe so solc emits its storageLayout ──────────────────────────────
 
 
@@ -683,6 +840,7 @@ def check_build(build_info, root):
                     None,
                     None,
                     None,
+                    None,
                 )
             )
             continue
@@ -690,6 +848,7 @@ def check_build(build_info, root):
         succ_retyped = _retyped(build_info, succ_node)
         succ_added = _added(build_info, succ_node)
         succ_renamed = _renamed(build_info, succ_node)
+        succ_rekeyed = _rekeyed(build_info, succ_node)
         # A migrator that REACHES a predecessor namespace through a foreign struct (rather than declaring it) is a
         # PARTIAL successor: it touches only those namespaces, so the "gone" flag is suppressed for the ones it never
         # touches. A full successor (which declares its namespaces) has no accessed namespaces and behaves as before.
@@ -704,7 +863,9 @@ def check_build(build_info, root):
             idx += 2
             jobs.append((pi, pred_path, pred_contract, pred_ns[ns]))
             jobs.append((si, succ_path, succ_contract, struct))
-            plan.append((succ_contract, pred_contract, ns, (pi, si), succ_retyped, succ_added, succ_renamed))
+            plan.append(
+                (succ_contract, pred_contract, ns, (pi, si), succ_retyped, succ_added, succ_renamed, succ_rekeyed)
+            )
         # accessed namespaces (partial migrator): compare the reached foreign struct against the predecessor's,
         # using the OWNER contract's change annotations (the reached struct is the real successor's, e.g. SP_v3's)
         for ns, struct_id in accessed.items():
@@ -725,18 +886,19 @@ def check_build(build_info, root):
                     _retyped(build_info, owner_node),
                     _added(build_info, owner_node),
                     _renamed(build_info, owner_node),
+                    _rekeyed(build_info, owner_node),
                 )
             )
         for pre_err in errs:
-            plan.append((succ_contract, pred_contract, None, [pre_err], None, None, None))
+            plan.append((succ_contract, pred_contract, None, [pre_err], None, None, None, None))
 
     layouts = _inject_layouts(jobs, root) if jobs else {}
 
     checked, failures = [], []
-    for succ_contract, pred_contract, ns, data, succ_retyped, succ_added, succ_renamed in plan:
+    for succ_contract, pred_contract, ns, data, succ_retyped, succ_added, succ_renamed, succ_rekeyed in plan:
         if isinstance(data, tuple):
             pi, si = data
-            errs = successor_errors(layouts[pi], layouts[si], succ_retyped, succ_added, succ_renamed)
+            errs = successor_errors(layouts[pi], layouts[si], succ_retyped, succ_added, succ_renamed, succ_rekeyed)
         else:
             errs = data
         checked.append(f"{succ_contract} <- {pred_contract} [{ns or '-'}]")
@@ -828,7 +990,12 @@ def main(argv=None):
             markup=False,
         )
 
-    return 1 if (failures or slot_errors or bad_tags) else 0
+    # every use of @custom:bao-rekeyed-from must be read as the declaration it is meant to be
+    malformed = malformed_rekeyed_tags(build_info)
+    for where, message in malformed:
+        console.print(f"✗ {where} — {message}", style="bold red", markup=False)
+
+    return 1 if (failures or slot_errors or bad_tags or malformed) else 0
 
 
 if __name__ == "__main__":
