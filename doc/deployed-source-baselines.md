@@ -178,11 +178,13 @@ do, and given together they run in this order:
 - `lib/bao-base/run verify-audit --write` — **the fix**, run when the check fails, the way `fmt` answers
   `fmt --check`. The record to this clone: it records and tags locally, and never pushes.
 - `lib/bao-base/run verify-audit --push` — this clone to origin: it publishes the current branch and the
-  tags the record derives, from a committed record, in one atomic push. Origin takes all of it or none, so
-  the branch never reaches a CI that lacks its tags. Anything that stops one of them stops all of them, and
-  is named. It changes nothing here but the `origin/<branch>` the push moves. When origin holds a tag this
-  clone should take first, it pushes nothing and says to run `--pull`, as git's push says to fetch first.
-  When origin's branch holds commits this clone lacks, it pushes nothing and says to run `git pull`.
+  tags the record derives, only from a clean checkout (`git status` lists nothing), in one atomic push.
+  Origin takes all of it or none, so the branch never reaches a CI that lacks its tags. Anything that
+  stops one of them stops all of them, and is named. It changes nothing here but the `origin/<branch>`
+  the push moves. When origin holds a tag this clone should take first, it pushes nothing and says to run
+  `--pull`, as git's push says to fetch first. When origin's branch holds commits this clone lacks, it
+  pushes nothing and says to run `git pull`. When a commit points a submodule at a commit no remote of the
+  submodule holds, git stops the push, and the run gives git's words.
 
 ### After a deploy
 

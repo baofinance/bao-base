@@ -2687,6 +2687,24 @@ def logging_pushes(origin: Path) -> Path:
     return log
 
 
+def with_submodule(repo: Path) -> Path:
+    """`repo` given a submodule at `lib/dep`, added and not committed, cloned from a bare origin of its own,
+    `dep.git` beside `repo`, which holds its one commit. Returns the submodule's folder."""
+    dep_origin, seed = repo.parent / "dep.git", repo.parent / "dep-seed"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(dep_origin)], check=True, capture_output=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(seed)], check=True, capture_output=True)
+    (seed / "README.md").write_text("a dependency\n")
+    for arguments in (["add", "-A"], ["commit", "-qm", "the dependency"], ["push", "-q", str(dep_origin), "main"]):
+        subprocess.run(["git", *arguments], cwd=seed, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(dep_origin), "lib/dep"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    return repo / "lib" / "dep"
+
+
 def deployed_from_here(repo: Path, name: str, address: str, value: int, deployed: str) -> str:
     """A deploy of `name` at `address` beginning at `deployed`, built from a commit made here on the current
     branch, recorded and labelled. Returns that commit: origin does not hold it until the branch is pushed."""
@@ -2770,6 +2788,146 @@ def test_push_refuses_while_the_record_has_changes(tmp_path, monkeypatch):
     assert tags_in(origin) == {}
     said = "\n".join(printed)
     assert "not committed" in said and "verify-audit --push" in said, said
+
+
+def test_push_refuses_while_a_change_is_staged(tmp_path, monkeypatch):
+    # The push sends commits, so a change staged and not committed would be left behind without a word. So
+    # nothing goes, and the run names the path.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+    with (repo / "src" / "A.sol").open("a") as source:
+        source.write("// staged, not committed\n")
+    subprocess.run(["git", "add", "src/A.sol"], cwd=repo, check=True, capture_output=True)
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
+
+    assert tags_in(origin) == {} and git_out(origin, "rev-parse", "refs/heads/main") == head, "nothing goes"
+    assert any(line.strip() == "src/A.sol" for line in printed), printed
+    assert any("not committed" in line and "nothing was pushed" in line for line in printed), printed
+
+
+def test_push_refuses_while_a_file_has_changes_not_staged(tmp_path, monkeypatch):
+    # A change not staged is left behind by the push just the same: `git add` is the only difference.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+    with (repo / "src" / "A.sol").open("a") as source:
+        source.write("// changed, not staged\n")
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
+
+    assert tags_in(origin) == {} and git_out(origin, "rev-parse", "refs/heads/main") == head, "nothing goes"
+    assert any(line.strip() == "src/A.sol" for line in printed), printed
+
+
+def test_push_refuses_while_a_new_file_is_not_tracked(tmp_path, monkeypatch):
+    # A new file not added is a commit's worth of work the push leaves behind, and CI fails on its absence.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+    (repo / "src" / "B.sol").write_text(contract_source("B", 2))
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
+
+    assert tags_in(origin) == {} and git_out(origin, "rev-parse", "refs/heads/main") == head, "nothing goes"
+    assert any(line.strip() == "src/B.sol" for line in printed), printed
+
+
+def test_push_ignores_a_file_git_ignores(tmp_path, monkeypatch):
+    # The rule is what `git status` shows, so a file under an ignored folder, such as a run's log, stops nothing.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    (repo / ".gitignore").write_text("tmp/\n")
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+    (repo / "tmp").mkdir()
+    (repo / "tmp" / "run.log").write_text("a log\n")
+
+    assert recover.publish(repo, say=recover.Printer(0)) == 0
+
+    assert deployment_tag() in tags_in(origin)
+    assert git_out(origin, "rev-parse", "refs/heads/main") == git_out(repo, "rev-parse", "main")
+
+
+def test_push_refuses_while_a_submodule_moved_without_a_commit(tmp_path, monkeypatch):
+    # The case that found this: a dependency's new commit, pushed to its own origin, staged here and not
+    # committed. The push would leave the pointer behind, so nothing goes, and the run names the submodule.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    dependency = with_submodule(repo)
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+    for arguments in (
+        ["commit", "-q", "--allow-empty", "-m", "the dependency moves"],
+        ["push", "-q", "origin", "HEAD:main"],
+    ):
+        subprocess.run(["git", *arguments], cwd=dependency, check=True, capture_output=True)
+    subprocess.run(["git", "add", "lib/dep"], cwd=repo, check=True, capture_output=True)
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
+
+    assert tags_in(origin) == {} and git_out(origin, "rev-parse", "refs/heads/main") == head, "nothing goes"
+    assert any(line.strip() == "lib/dep" for line in printed), printed
+
+
+def test_push_refuses_while_a_submodule_holds_changes_not_committed(tmp_path, monkeypatch):
+    # A file changed inside a submodule: `--push` would run, and the push would publish, a dependency's code
+    # that no commit holds. `git status` reports it, so nothing goes.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    dependency = with_submodule(repo)
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+    (dependency / "README.md").write_text("changed in the dependency, not committed there\n")
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
+
+    assert tags_in(origin) == {} and git_out(origin, "rev-parse", "refs/heads/main") == head, "nothing goes"
+    assert any(line.strip() == "lib/dep" for line in printed), printed
+
+
+def test_push_refuses_a_submodule_commit_its_origin_lacks(tmp_path, monkeypatch):
+    # A commit points the submodule at a commit only this computer holds, so CI could not fetch it. git's own
+    # check stops the push before it reaches origin, and the run gives git's words, which name the submodule.
+    # With that commit pushed to the submodule's origin, the push goes.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    dependency = with_submodule(repo)
+    subprocess.run(
+        ["git", "commit", "-q", "--allow-empty", "-m", "only on this computer"],
+        cwd=dependency,
+        check=True,
+        capture_output=True,
+    )
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
+
+    assert tags_in(origin) == {} and git_out(origin, "rev-parse", "refs/heads/main") == head, "nothing goes"
+    assert any("git stopped the push" in line for line in printed), printed
+    assert any(line.strip() == "lib/dep" for line in printed), printed
+
+    subprocess.run(["git", "push", "-q", "origin", "HEAD:main"], cwd=dependency, check=True, capture_output=True)
+    assert recover.publish(repo, say=recover.Printer(0)) == 0
+    assert deployment_tag() in tags_in(origin)
 
 
 def test_a_correct_tag_is_neither_rewritten_nor_pushed_again(tmp_path, monkeypatch):

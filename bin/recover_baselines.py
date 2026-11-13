@@ -32,6 +32,7 @@ from deployment_baselines import (
     RECORD,
     Baseline,
     OriginUnanswered,
+    PushStopped,
     Review,
     UnknownSchema,
     UnreadableRecord,
@@ -1232,10 +1233,12 @@ def publish(root: Path, *, say: Printer) -> int:
     those. The one ref it changes here is `origin/<branch>`, which git's push moves to where origin's branch
     now is. The record is read as it stands, and no contract is searched for.
 
-    Only from a committed record and labels file. The tags derive from both, so publishing them from
-    changes nobody has committed would publish what nobody has checked. And only once every deployed
-    contract has a baseline: a tag is named by its deploy's first block, so recording a contract can move
-    the name of a tag already published.
+    Only from a clean checkout: `git status` lists nothing. The push sends commits, so a change no commit
+    holds - staged, not staged, a new file, a submodule moved or changed inside - would be left behind
+    without a word. The record and the labels are two such files: the tags derive from both, so publishing
+    them from changes nobody has committed would publish what nobody has checked. And only once every
+    deployed contract has a baseline: a tag is named by its deploy's first block, so recording a contract
+    can move the name of a tag already published.
 
     Origin is asked for its tags and branches. Nothing is pushed while origin holds a deployment tag as an
     object this clone has never held, a stale tag the tool does not replace is held here or there, or a
@@ -1244,13 +1247,19 @@ def publish(root: Path, *, say: Printer) -> int:
     deletion of every replaced tag, so CI never checks out the branch without its tags. Anything that stops
     one of them stops all of them, and is named.
 
-    The exit status is the answer: 1 when nothing could be pushed, or origin refused the push. A run that
-    finds origin holding all of it says so, and passes."""
+    git stops the push when a commit in it points a submodule at a commit no remote of the submodule
+    holds (`_leased_push`), and the run gives git's words.
+
+    The exit status is the answer: 1 when nothing could be pushed, or origin or git refused the push. A run
+    that finds origin holding all of it says so, and passes."""
     # The timers are kept per process, so a run before this one must not report its stages here.
     Timer.timers.clear()
-    if changed := _uncommitted(root):
-        say(0, f"{' and '.join(changed)}: changes that are not committed, so no tag was pushed.")
-        say(0, "Check them, commit them, then run verify-audit --push again.")
+    # Ignored files are not listed, and a submodule's `ignore` setting in `.gitmodules` is git's to apply.
+    if changed := run_git(root, "status", "--porcelain").splitlines():
+        say(0, f"{len(changed)} path(s) have changes not committed, so nothing was pushed:")
+        for line in changed:
+            say(0, f"  {line[3:]}")
+        say(0, "`git status` shows each change. Commit or stash them, then run verify-audit --push again.")
         return 1
     found = review(root)
     if found.unrecovered:
@@ -1334,7 +1343,15 @@ def publish(root: Path, *, say: Printer) -> int:
             return 1
         # `verify-audit` refuses a detached HEAD before it gets here, so git names a branch.
         branch = run_git(root, "symbolic-ref", "--short", "HEAD").strip()
-        sent = push_to_origin(root, recorded, origin, heads, {tag: str(labels[tag]) for tag in derived}, branch)
+        try:
+            sent = push_to_origin(root, recorded, origin, heads, {tag: str(labels[tag]) for tag in derived}, branch)
+        except PushStopped as stopped:
+            say(0, "\ngit stopped the push before it reached origin, so nothing changed there:")
+            for line in str(stopped).splitlines():
+                # git's blank lines stay blank, rather than carrying the indent alone.
+                say(0, f"  {line}".rstrip())
+            say(0, f"\n{_failing(['git stopped the push'])}")
+            return 1
 
     if sent.to_pull:
         say(0, f"\norigin holds what this clone has not taken, for {len(sent.to_pull)} tag(s), so nothing was pushed:")

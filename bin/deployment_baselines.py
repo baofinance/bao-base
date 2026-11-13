@@ -541,6 +541,11 @@ class OriginUnanswered(Exception):
     """Origin could not be asked for its tags. Its message is git's words, which say where it looked."""
 
 
+class PushStopped(Exception):
+    """git stopped a push before it reached any ref, so nothing changed on origin. Its message is git's
+    words, whole: what stopped it, such as a submodule commit no remote holds, is in them."""
+
+
 def origin_tags(repo_root: Path) -> dict[str, Tag]:
     """Every tag origin has, by name. Raises `OriginUnanswered` when origin cannot be asked.
 
@@ -734,19 +739,23 @@ def _leased_push(repo_root: Path, leases: dict[str, str], refspecs: list[str]) -
     """Push `refspecs` to origin in one atomic push: origin takes every ref or none. Each tag in `leases` is
     leased on the object origin held when it was looked at - empty when it held none - so the push changes
     only the copy looked at, never one another clone put there since. A ref without a lease is pushed as git
-    pushes it: a branch only moves forward.
+    pushes it: a branch only moves forward. And git checks each submodule commit the pushed commits point
+    to (`--recurse-submodules=check`): one that the submodule's remote-tracking refs do not reach stops the
+    push, since CI could not fetch it. That check asks no remote and pushes no submodule.
 
     Returns each refspec's destination ref's (flag, summary) as git's porcelain gives them: `*` new, `+`
     forced, `-` deleted, a space for a branch moved forward, `=` already there, anything else refused. One
     line per ref: `<flag>\\t<source>:<destination>\\t<summary>`, read by destination, which a deletion has
-    alone. A push that failed before reaching any ref prints none, and then git's last line of complaint is
-    the reason for every ref."""
+    alone. A push git stopped before it reached any ref prints no such line: it raises `PushStopped`, with
+    git's whole complaint, since its last line alone ("the remote end hung up unexpectedly") says nothing of
+    why."""
     done = subprocess.run(
         [
             "git",
             "push",
             "--porcelain",
             "--atomic",
+            "--recurse-submodules=check",
             "origin",
             *(f"--force-with-lease=refs/tags/{tag}:{lease}" for tag, lease in leases.items()),
             *refspecs,
@@ -760,6 +769,8 @@ def _leased_push(repo_root: Path, leases: dict[str, str], refspecs: list[str]) -
         flag, _, rest = line.partition("\t")
         refs, _, summary = rest.partition("\t")
         reported[refs.partition(":")[2]] = (flag, summary)
+    if done.returncode != 0 and not reported:
+        raise PushStopped(done.stderr.strip() or f"git push exited {done.returncode}, and said nothing")
     complaint = (done.stderr.strip().splitlines() or [f"git push exited {done.returncode}"])[-1]
     # A refspec's destination follows its last colon; a refspec with none names its destination itself.
     return {ref: reported.get(ref, ("!", complaint)) for ref in (spec.rpartition(":")[2] for spec in refspecs)}
