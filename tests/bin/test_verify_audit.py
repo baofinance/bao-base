@@ -1571,6 +1571,7 @@ def test_a_missing_deployment_tag_fails_and_names_its_repair(fix):
     assert "verify-audit --pull --write" in output and "verify-audit --push" in output, (
         "and how to repair it, which is never a git tag by hand"
     )
+    assert "git push" not in output, "`--push` sends the branch with the tags"
 
     # THE REPAIR ITSELF, rather than a tag made by hand here. Making one proves only that the check CAN
     # be satisfied; running what the message tells you to run proves that it satisfies it. The first
@@ -1584,13 +1585,12 @@ def test_a_missing_deployment_tag_fails_and_names_its_repair(fix):
     assert "covers every deployed contract" in output
 
     # And from where CI stands: a fresh clone of origin holds only what was pushed. The clone that made
-    # the tags passes whether or not they were pushed; a fresh clone passes only if they were. The tags
-    # go before the branch, so the branch reaches a CI that already holds them.
+    # the tags passes whether or not they were pushed; a fresh clone passes only if they were. `--push`
+    # sends the branch with them, so the branch reaches a CI that holds them.
     fix.git("add", "-A")
     fix.git("commit", "-qm", "the record")
     pushed, pushing = fix.verify_audit("--push")
     assert pushed == 0, pushing
-    fix.git("push", "-q", "origin", "HEAD")
     fresh = fix.root / "fresh"
     fix.git("clone", "-q", str(fix.bare), str(fresh))
     status, output = fix.verify_audit(cwd=fresh)
@@ -1901,7 +1901,6 @@ def test_a_conflicted_record_is_reported_with_its_repair(fix):
     fix.git("commit", "-qm", "the records merged", cwd=other)
     pushed, pushing = fix.verify_audit("--push", cwd=other)
     assert pushed == 0, pushing
-    fix.git("push", "-q", "origin", "HEAD", cwd=other)
     fresh = fix.root / "fresh"
     fix.git("clone", "-q", str(fix.bare), str(fresh))
     status, output = fix.verify_audit(cwd=fresh)

@@ -177,9 +177,12 @@ do, and given together they run in this order:
   replaces the one held here, and origin's branches are fetched.
 - `lib/bao-base/run verify-audit --write` — **the fix**, run when the check fails, the way `fmt` answers
   `fmt --check`. The record to this clone: it records and tags locally, and never pushes.
-- `lib/bao-base/run verify-audit --push` — this clone to origin: it publishes the tags the record derives,
-  from a committed record, and changes nothing here. When origin holds a tag this clone should take
-  first, it pushes nothing and says to run `--pull`, as git's push says to fetch first.
+- `lib/bao-base/run verify-audit --push` — this clone to origin: it publishes the current branch and the
+  tags the record derives, from a committed record, in one atomic push. Origin takes all of it or none, so
+  the branch never reaches a CI that lacks its tags. Anything that stops one of them stops all of them, and
+  is named. It changes nothing here but the `origin/<branch>` the push moves. When origin holds a tag this
+  clone should take first, it pushes nothing and says to run `--pull`, as git's push says to fetch first.
+  When origin's branch holds commits this clone lacks, it pushes nothing and says to run `git pull`.
 
 ### After a deploy
 
@@ -193,9 +196,9 @@ do, and given together they run in this order:
    `lib/bao-base/run verify-audit --write` again. The record is already written, so nothing is searched
    for again.
 5. Check the tags, and commit `deployed.json` and `deployed-labels.toml`.
-6. `lib/bao-base/run verify-audit --push`, then `git push`. The tags go first, so the branch reaches a CI
-   that already holds them: the record and the refs that keep its commits reachable have to arrive
-   together, or a fresh checkout resolves neither.
+6. `lib/bao-base/run verify-audit --push`, the last step. The record and the refs that keep its commits
+   reachable have to arrive together, or a fresh checkout resolves neither. So the branch and its tags go in
+   one atomic push.
 
 ### It only ever looks at this checkout
 

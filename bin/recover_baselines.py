@@ -31,7 +31,6 @@ from deployment_baselines import (
     LABELS,
     RECORD,
     Baseline,
-    Deleted,
     OriginUnanswered,
     Review,
     UnknownSchema,
@@ -40,7 +39,6 @@ from deployment_baselines import (
     append_labels,
     commit_reach,
     compare_with_origin,
-    delete_replaced_on_origin,
     delete_replaced_tags,
     derived_tags,
     drop,
@@ -51,7 +49,7 @@ from deployment_baselines import (
     make_tags,
     origin_heads,
     origin_tags,
-    push_tags,
+    push_to_origin,
     read_baselines,
     read_labels,
     remove_labels,
@@ -80,6 +78,7 @@ from deployment_recovery import (
     install_toolchain,
     link_libraries,
     pins_other_than,
+    run_git,
     search_passes,
     source_blobs,
     sources_at,
@@ -1204,13 +1203,13 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer) -> str:
         for tag in deleted.kept:
             say(0, f"  {tag}")
     still_held = others + deleted.kept
-    # What is left is the developer's, in this order: the tags go before the branch, so the branch
-    # reaches a CI that already holds them. `--write` cannot know what origin holds, so it names `--push`
-    # whenever it changed a file or a tag.
+    # What is left is the developer's: check, commit, publish. `--write` cannot know what origin holds, so
+    # it names `--push` whenever it changed a file or a tag, and leaves the branch to it: `--push` sends the
+    # branch with its tags, in one push.
     changed = [] if errors or still_held else _uncommitted(root)
     if changed:
         files = " and ".join(changed)
-        say(0, f"\nnext: check the tags and {files}, commit {files}, run verify-audit --push, then git push")
+        say(0, f"\nnext: check the tags and {files}, commit {files}, then run verify-audit --push")
     elif not errors and not still_held and (made.created or made.corrected or deleted.deleted):
         say(0, "\nnext: check the tags, then run verify-audit --push")
     left = [f"{len(still_held)} {held_stale}"] if still_held else []
@@ -1228,9 +1227,10 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer) -> str:
 
 
 def publish(root: Path, *, say: Printer) -> int:
-    """`--push`: this clone's deployment tags to origin. It changes only origin: it fetches nothing, and
-    makes, corrects and deletes no tag here - `--pull` and `--write` do those. The record is read as it
-    stands, and no contract is searched for.
+    """`--push`: this clone's current branch and its deployment tags to origin, in one atomic push, or
+    nothing. It fetches nothing, and makes, corrects and deletes no tag here - `--pull` and `--write` do
+    those. The one ref it changes here is `origin/<branch>`, which git's push moves to where origin's branch
+    now is. The record is read as it stands, and no contract is searched for.
 
     Only from a committed record and labels file. The tags derive from both, so publishing them from
     changes nobody has committed would publish what nobody has checked. And only once every deployed
@@ -1238,13 +1238,14 @@ def publish(root: Path, *, say: Printer) -> int:
     the name of a tag already published.
 
     Origin is asked for its tags and branches. Nothing is pushed while origin holds a deployment tag as an
-    object this clone has never held, or a stale tag the tool does not replace, here or there. Then each
-    tag the record derives is judged on both sides and pushed where origin's copy is missing or wrong
-    (`push_tags`), and each replaced tag origin holds is deleted there once its replacement is in place
-    (`delete_replaced_on_origin`).
+    object this clone has never held, a stale tag the tool does not replace is held here or there, or a
+    label is in error. Then the branch, each tag the record derives and each replaced tag origin holds are
+    judged (`push_to_origin`). One push sends the branch, every tag origin lacks or holds wrong, and the
+    deletion of every replaced tag, so CI never checks out the branch without its tags. Anything that stops
+    one of them stops all of them, and is named.
 
-    The exit status is the answer: 1 when either file has changes, a contract has no baseline, or a tag is
-    left off origin or not as the record derives it there."""
+    The exit status is the answer: 1 when nothing could be pushed, or origin refused the push. A run that
+    finds origin holding all of it says so, and passes."""
     # The timers are kept per process, so a run before this one must not report its stages here.
     Timer.timers.clear()
     if changed := _uncommitted(root):
@@ -1313,31 +1314,52 @@ def publish(root: Path, *, say: Printer) -> int:
             return 1
         labels = read_labels(root)
         derived = derived_tags(recorded)
-        errors = label_errors(labels, derived)
-        in_error = {tag for tag, _ in errors}
-        sound = {tag: str(labels[tag]) for tag in derived if tag not in in_error}
-        sent = push_tags(root, recorded, origin, heads, sound)
-        # Nothing changes on origin while this clone has not taken what origin holds.
-        if sent.to_pull:
-            deleted = Deleted([], [], [])
-        else:
-            deleted = delete_replaced_on_origin(root, recorded, origin, set(sent.in_place))
+        if errors := label_errors(labels, derived):
+            say(0, f"\n{len(errors)} problem(s) with {LABELS}, so nothing was pushed:")
+            for tag, problem in errors:
+                say(0, f"  {tag}: {problem}")
+            say(0, f"  Correct them in {LABELS}, run verify-audit --write, commit, then verify-audit --push again")
+            left = [
+                f"{count} {what}"
+                for count, what in (
+                    (sum(tag in derived for tag, _ in errors), "tag(s) the record derives have no usable label"),
+                    (
+                        sum(tag not in derived for tag, _ in errors),
+                        f"label(s) in {LABELS} name no tag the record derives",
+                    ),
+                )
+                if count
+            ]
+            say(0, f"\n{_failing(left)}")
+            return 1
+        # `verify-audit` refuses a detached HEAD before it gets here, so git names a branch.
+        branch = run_git(root, "symbolic-ref", "--short", "HEAD").strip()
+        sent = push_to_origin(root, recorded, origin, heads, {tag: str(labels[tag]) for tag in derived}, branch)
 
-    if errors:
-        say(0, f"\n{len(errors)} problem(s) with {LABELS}; a tag whose label is in error is not pushed:")
-        for tag, problem in errors:
-            say(0, f"  {tag}: {problem}")
-        say(0, f"  Correct them in {LABELS}, run verify-audit --write, commit, then verify-audit --push again")
     if sent.to_pull:
-        say(0, f"\norigin holds what this clone has not taken, for {len(sent.to_pull)} tag(s), so no tag was pushed:")
+        say(0, f"\norigin holds what this clone has not taken, for {len(sent.to_pull)} tag(s), so nothing was pushed:")
         for tag, why in sent.to_pull:
             say(0, f"  {tag}: {why}")
         say(0, "  Run verify-audit --pull, then verify-audit --push again")
     if sent.to_write:
-        say(0, f"\n{len(sent.to_write)} tag(s) here are not what the record derives, so they were not pushed:")
+        say(0, f"\n{len(sent.to_write)} tag(s) here are not what the record derives, so nothing was pushed:")
         for tag, faults in sent.to_write:
             say(0, f"  {tag}: {faults}")
         say(0, "  Run verify-audit --write, then verify-audit --push again")
+    if sent.waiting:
+        say(0, f"\n{len(sent.waiting)} tag(s) name a commit neither origin nor {branch} holds, so nothing was pushed:")
+        for tag, commit, branches in sent.waiting:
+            where = f"on {', '.join(branches)}" if branches else "on no branch"
+            say(0, f"  {tag}: {commit[:10]} is {where}. Push it, then run verify-audit --push again")
+    if sent.behind:
+        say(0, f"\norigin's {branch} is at {sent.behind[:10]}, which this clone's {branch} does not contain,")
+        say(0, "so nothing was pushed. Run git pull, then verify-audit --push again")
+    if sent.refused:
+        say(0, "\norigin refused the push, so nothing changed there:")
+        for name, why in sent.refused:
+            say(0, f"  {name}: {why}")
+    if sent.branch_moved:
+        say(0, f"\npushed {branch} to origin")
     if sent.pushed:
         say(0, f"\npushed {len(sent.pushed)} tag(s) to origin:")
         for tag in sent.pushed:
@@ -1346,45 +1368,26 @@ def publish(root: Path, *, say: Printer) -> int:
         say(0, f"\nreplaced {len(sent.replaced)} tag(s) on origin, each not what the record derives:")
         for tag, faults in sent.replaced:
             say(0, f"  {tag}: {faults}")
-    if sent.waiting:
-        say(0, f"\n{len(sent.waiting)} tag(s) not pushed, because origin does not hold the commit:")
-        for tag, commit, branches in sent.waiting:
-            where = f"on {', '.join(branches)}" if branches else "on no branch"
-            say(0, f"  {tag}: {commit[:10]} is {where}. Push it, then run verify-audit --push again")
-    if sent.refused:
-        say(0, f"\n{len(sent.refused)} tag(s) not pushed:")
-        for tag, why in sent.refused:
-            say(0, f"  {tag}: {why}")
-    if deleted.deleted:
-        say(0, f"\ndeleted {len(deleted.deleted)} replaced tag(s) on origin:")
-        for tag, replacement in deleted.deleted:
+    if sent.deleted:
+        say(0, f"\ndeleted {len(sent.deleted)} replaced tag(s) on origin:")
+        for tag, replacement in sent.deleted:
             say(0, f"  {tag}: replaced by {replacement}, deleted on origin")
-    if deleted.refused:
-        say(0, f"\n{len(deleted.refused)} replaced tag(s) kept on origin, which refused to delete them:")
-        for tag, why in deleted.refused:
-            say(0, f"  {tag}: not deleted on origin, {why}")
-    if deleted.kept:
-        say(0, f"\n{len(deleted.kept)} replaced tag(s) kept on origin until the tag replacing each is in place there:")
-        for tag in deleted.kept:
-            say(0, f"  {tag}")
     left = ["origin holds what this clone has not taken"] if sent.to_pull else []
     left += [
         f"{count} {what}"
         for count, what in (
-            (sum(tag in derived for tag, _ in errors), "tag(s) the record derives have no usable label"),
-            (sum(tag not in derived for tag, _ in errors), f"label(s) in {LABELS} name no tag the record derives"),
             (len(sent.to_write), "tag(s) here are not what the record derives"),
-            (len(sent.waiting) + len(sent.refused), "tag(s) the record derives were not pushed to origin"),
-            (
-                len(deleted.kept) + len(deleted.refused),
-                "deployment tag(s) the record no longer derives are held on origin",
-            ),
+            (len(sent.waiting), f"tag(s) name a commit neither origin nor {branch} holds"),
         )
         if count
     ]
+    left += [f"this clone's {branch} does not contain origin's"] if sent.behind else []
+    left += ["origin refused the push"] if sent.refused else []
     if left:
         say(0, f"\n{_failing(left)}")
         return 1
+    if not (sent.branch_moved or sent.pushed or sent.replaced or sent.deleted):
+        say(0, f"\nnothing to push: origin holds {branch} and every tag the record derives, as this clone does")
     return 0
 
 

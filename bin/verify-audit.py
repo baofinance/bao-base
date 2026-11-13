@@ -15,10 +15,13 @@ an entry: delete `deployed.json` to rebuild the record from nothing, or delete o
 Then it makes, and corrects where they differ from what the record derives, the tag each recorded commit
 derives - on this computer only, where they and the record can be checked before anything is published.
 
-`--push` publishes those tags: only from a committed `deployed.json`, only the names the record derives,
-and only for a commit origin already holds. Run it before `git push`, so the branch reaches a CI that
-already holds its tags. It changes only origin. When origin holds a tag this clone should take first, it
-pushes nothing and says so, as git's push does.
+`--push` publishes the current branch and those tags: only from a committed `deployed.json`, and only
+the names the record derives. One atomic push carries the branch, every tag origin lacks or holds wrong,
+and the deletion of every tag a new name replaces, so the branch never reaches a CI that lacks its tags.
+Origin takes all of it or none. Anything that stops one of them stops all of them, and is named: a tag
+wrong here, a tag whose commit neither origin nor the branch holds, a label in error, origin's branch
+holding commits this clone lacks. When origin holds a tag this clone should take first, it pushes nothing
+and says so, as git's push does. It changes only origin, and the `origin/<branch>` the push moves.
 
 `--pull` takes origin's copy of each deployment tag, and origin's branches: the other way, as git's fetch.
 Each switch changes one side - `--pull` this clone from origin, `--write` this clone from the record,
@@ -981,9 +984,9 @@ def _run(args: list[str]) -> int:
         # Then the TAGS, over the whole record: each one the record derives is made, or corrected when it
         # is not what the record derives - on this computer only, where they can be checked.
         #
-        # `--push` publishes them: only from a committed record, only those names, and only for a commit
-        # origin already holds. It changes only origin. It goes before `git push`, so the branch reaches a
-        # CI that already holds the tags.
+        # `--push` publishes them with the current branch: only from a committed record, and only those
+        # names. One atomic push carries the branch and the tags, so the branch never reaches a CI that
+        # lacks its tags. It changes only origin, and the `origin/<branch>` that moves.
         #
         # Given together they run in that order, each attempted whatever the one before did, exactly as
         # `--pull; --write; --push` would be.
@@ -1080,7 +1083,7 @@ def _run(args: list[str]) -> int:
                     _err(f"\033[31m    {baseline.chain} {baseline.address} {baseline.contractType}\033[0m\n")
             _err(
                 f"       run `verify-audit --pull --write`, check the tags, commit {RECORD} and {LABELS}, then"
-                " `verify-audit --push` before `git push`\n"
+                " `verify-audit --push`\n"
             )
 
         if found.label_errors:
@@ -1106,10 +1109,7 @@ def _run(args: list[str]) -> int:
             )
             for tag, faults in found.wrong_tags:
                 _err(f"\033[31m  {tag}: {faults}\033[0m\n")
-            _err(
-                "       run `verify-audit --pull --write`, check and commit, then `verify-audit --push` before"
-                " `git push`\n"
-            )
+            _err("       run `verify-audit --pull --write`, check and commit, then `verify-audit --push`\n")
 
         if found.stale_tags:
             gaps = 1

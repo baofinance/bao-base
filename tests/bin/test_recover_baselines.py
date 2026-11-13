@@ -37,6 +37,7 @@ from deployment_recovery import (  # noqa: E402
 
 ADDRESS_A = "0x" + "aa" * 20
 ADDRESS_B = "0x" + "bb" * 20
+ADDRESS_C = "0x" + "cc" * 20
 DEPLOYED = "2026-01-03T00:00:00Z"
 
 
@@ -2667,6 +2668,44 @@ def refusing_tags(origin: Path, refs: str = "refs/tags/*") -> Path:
     return hook
 
 
+def refusing_branches(origin: Path) -> Path:
+    """An update hook in `origin` that refuses every branch and nothing else, as a branch protection rule does.
+    It runs once per ref, so a push that is not atomic still lands the tags beside a refused branch."""
+    hook = origin / "hooks" / "update"
+    hook.write_text('#!/bin/sh\ncase "$1" in refs/heads/*) echo "branches are protected" >&2; exit 1;; esac\n')
+    hook.chmod(0o755)
+    return hook
+
+
+def logging_pushes(origin: Path) -> Path:
+    """A post-receive hook in `origin` that logs each push it takes: a line `push`, then one line per ref the push
+    changed, `<old> <new> <ref>`. Returns the log's path."""
+    log = origin / "pushes.log"
+    hook = origin / "hooks" / "post-receive"
+    hook.write_text(f'#!/bin/sh\necho push >> "{log}"\ncat >> "{log}"\n')
+    hook.chmod(0o755)
+    return log
+
+
+def deployed_from_here(repo: Path, name: str, address: str, value: int, deployed: str) -> str:
+    """A deploy of `name` at `address` beginning at `deployed`, built from a commit made here on the current
+    branch, recorded and labelled. Returns that commit: origin does not hold it until the branch is pushed."""
+    from dataclasses import replace
+
+    from deployment_baselines import add, write_baselines
+
+    # The source the baseline names, so the review reads it at that commit as it would any other.
+    (repo / "src" / f"{name}.sol").write_text(contract_source(name, value))
+    for arguments in (["add", f"src/{name}.sol"], ["commit", "-q", "-m", f"{name}, only on this computer"]):
+        subprocess.run(["git", *arguments], cwd=repo, check=True, capture_output=True)
+    made = git_out(repo, "rev-parse", "HEAD")
+    built = replace(orphan_baseline(address, name), commit=made, deployTimestamp=deployed)
+    write_baselines(repo, add(read_baselines(repo), built))
+    with (repo / "deployed-labels.toml").open("a") as labels:
+        labels.write(f'"{deployment_tag(deployed)}" = "{name}, deployed from this computer"\n')
+    return made
+
+
 def test_write_makes_the_tags_and_pushes_none(tmp_path, monkeypatch):
     # The repair CREATES them, rather than printing a checklist of `git tag` lines for a reader to
     # retype - the names are derived from the record, so nothing about them needed a human. On this
@@ -2687,8 +2726,9 @@ def test_write_makes_the_tags_and_pushes_none(tmp_path, monkeypatch):
 
 
 def test_write_names_the_next_steps(tmp_path, monkeypatch):
-    # What is left is the developer's: check, commit the record, publish the tags, push the branch - in
-    # that order, so the branch reaches a CI that already holds its tags.
+    # What is left is the developer's: check, commit the record, then publish. `--write` cannot know what
+    # origin holds, so it leaves the branch to `--push`, which asks origin: it takes the branch with a tag
+    # only the branch holds, and says when `git push` is still to do.
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
@@ -2697,8 +2737,8 @@ def test_write_names_the_next_steps(tmp_path, monkeypatch):
     assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 0
 
     said = "\n".join(printed)
-    assert "commit" in said and "verify-audit --push" in said and "git push" in said, said
-    assert said.index("verify-audit --push") < said.index("git push"), "the tags before the branch"
+    assert "commit" in said and "verify-audit --push" in said, said
+    assert "git push" not in said, said
 
 
 def test_push_pushes_the_tags_write_made(tmp_path, monkeypatch):
@@ -2837,10 +2877,10 @@ def test_push_fails_for_a_tag_wrong_here(tmp_path, monkeypatch):
     assert any("verify-audit --write" in line for line in printed), printed
 
 
-def test_push_changes_no_ref_here(tmp_path, monkeypatch):
-    # `--push` changes only origin. Here it replaces origin's lightweight copy of the tag, deletes a replaced
-    # tag on origin, and origin's branch has moved on since this clone last fetched. Every ref here, and the
-    # FETCH_HEAD a fetch writes, is as it was.
+def test_push_moves_only_origins_branch_here(tmp_path, monkeypatch):
+    # `--push` changes origin. Here it replaces origin's lightweight copy of the tag, deletes a replaced tag on
+    # origin, and pushes the branch. The one ref it changes here is `origin/main`, which git's push moves to
+    # where origin's branch now is. Every other ref here, and the FETCH_HEAD a fetch writes, is as it was.
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     origin, tag = repo.parent / "origin.git", deployment_tag()
     stale = f"deploy/mainnet/state@{head[:10]}"
@@ -2850,20 +2890,17 @@ def test_push_changes_no_ref_here(tmp_path, monkeypatch):
         ["push", "-q", "origin", f"refs/tags/{tag}", f"refs/tags/{stale}"],
     ):
         subprocess.run(["git", *arguments], cwd=repo, check=True, capture_output=True)
-    other = clone_of(origin, tmp_path / "other")
-    for arguments in (
-        ["commit", "-q", "--allow-empty", "-m", "another clone's work"],
-        ["push", "-q", "origin", "HEAD"],
-    ):
-        subprocess.run(["git", *arguments], cwd=other, check=True, capture_output=True)
     recover = load_recover_baselines()
     driven(recover, monkeypatch, repo, deployed_a)
     assert recorded_and_committed(recover, repo) == 0
-    before = refs_in(repo)
+    refs, fetch_head = refs_in(repo)
+    tip = git_out(repo, "rev-parse", "main")
+    moved = refs.replace(f"refs/remotes/origin/main {head}", f"refs/remotes/origin/main {tip}")
+    assert moved != refs, "origin/main is at the commit origin held before the push"
 
     assert recover.publish(repo, say=recover.Printer(0)) == 0
 
-    assert refs_in(repo) == before
+    assert refs_in(repo) == (moved, fetch_head)
     assert tags_in(origin)[tag] == tags_in(repo)[tag] and stale not in tags_in(origin)
 
 
@@ -2914,15 +2951,15 @@ def test_push_fails_for_a_correct_copy_origin_holds_as_another_object(tmp_path, 
     driven(recover, monkeypatch, first, deployed_a)
     assert recorded_and_committed(recover, first) == 0
     assert recover.publish(first, say=recover.Printer(0)) == 0
+    # Cloned after the first's push, which carried the record and the labels: `--write` here changes no file.
     second = clone_of(origin, tmp_path / "second")
-    labelled(second)
     subprocess.run(["git", "tag", "-f", tag, head], cwd=second, check=True, capture_output=True)
     driven(recover, monkeypatch, second, deployed_a)
     # The second clone's own identity, so the tag it makes is another object: the suite names one identity
     # for every repository, and two clones would otherwise make the very same tag.
     with monkeypatch.context() as other:
         other.setenv("GIT_COMMITTER_NAME", "a second clone")
-        assert recorded_and_committed(recover, second) == 0
+        assert recover.run(second, say=recover.Printer(0), write=True) == 0
     own = tags_in(second)[tag]
     assert own != tags_in(origin)[tag], "`--write` made its own correction here"
 
@@ -3070,8 +3107,9 @@ def test_push_never_pushes_a_tag_it_does_not_derive(tmp_path, monkeypatch):
 
 
 def test_push_fails_for_a_commit_origin_does_not_hold(tmp_path, monkeypatch):
-    # Pushing a tag carries its commit to origin, which would publish work nobody pushed. So that tag
-    # waits, the run names the branch to push, and fails. The other tags still go.
+    # Pushing a tag carries its commit to origin, which would publish work nobody pushed. B's commit is on a
+    # branch origin does not hold, and not the current one, so nothing goes: not A's tag, whose commit origin
+    # holds, nor the branch. The run names the branch to push, and fails.
     from dataclasses import replace
 
     from deployment_baselines import add, write_baselines
@@ -3099,8 +3137,8 @@ def test_push_fails_for_a_commit_origin_does_not_hold(tmp_path, monkeypatch):
     printed: list[str] = []
     assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
 
-    assert deployment_tag() in tags_in(origin), "the tag whose commit origin holds is pushed"
-    assert deployment_tag(deployed_b) not in tags_in(origin)
+    assert tags_in(origin) == {}, "not even the tag whose commit origin holds"
+    assert git_out(origin, "rev-parse", "refs/heads/main") == head, "nor the branch"
     held = subprocess.run(["git", "cat-file", "-e", f"{unpushed}^{{commit}}"], cwd=origin, capture_output=True)
     assert held.returncode != 0, "and the commit stayed on this computer"
     said = "\n".join(printed)
@@ -3154,6 +3192,215 @@ def test_push_fails_for_a_commit_on_an_origin_branch_not_held_here(tmp_path, mon
     assert deployment_tag(deployed_b) in tags_in(origin)
 
 
+def test_push_takes_the_branch_with_tags_only_it_holds(tmp_path, monkeypatch):
+    # A deploy made before its branch is pushed: the tags' commits are only on this branch. A tag alone would
+    # publish its commit, and the branch alone would reach a CI that lacks the tags its record derives. So
+    # `--push` sends them together, in one push, as `git push` would send the branch.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    subprocess.run(["git", "checkout", "-q", "-b", "release"], cwd=repo, check=True, capture_output=True)
+    deployed_from_here(repo, "B", ADDRESS_B, 2, "2026-01-02T00:00:00Z")
+    deployed_from_here(repo, "C", ADDRESS_C, 3, "2026-01-02T12:00:00Z")
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+    tip = git_out(repo, "rev-parse", "release")
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 0
+
+    assert len(tags_in(repo)) == 3 and tags_in(origin) == tags_in(repo), "every tag, the very objects made here"
+    assert git_out(origin, "rev-parse", "refs/heads/release") == tip, "and the branch, at this clone's tip"
+    assert git_out(repo, "rev-parse", "refs/remotes/origin/release") == tip, (
+        "which moves origin/release, as git push does"
+    )
+    said = "\n".join(printed)
+    assert any("release" in line and "pushed" in line for line in printed), said
+    assert "git push" not in said, "nothing is left to push"
+
+
+def test_a_refused_branch_takes_no_tag_with_it(tmp_path, monkeypatch):
+    # The branch and its tags land together or not at all. Origin refuses the branch alone, as a protection
+    # rule does, so not even the tag whose commit origin already held is pushed: CI would check out a branch
+    # whose tags were half there. The run names the branch with git's reason.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    refusing_branches(origin)
+    subprocess.run(["git", "checkout", "-q", "-b", "release"], cwd=repo, check=True, capture_output=True)
+    deployed_from_here(repo, "B", ADDRESS_B, 2, "2026-01-02T00:00:00Z")
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
+
+    assert tags_in(origin) == {}, "no tag, not even the one whose commit origin held"
+    assert git_out(origin, "branch", "--list", "release") == ""
+    assert any("release" in line and "hook declined" in line for line in printed), printed
+
+
+def test_push_pushes_the_branch_with_the_tags(tmp_path, monkeypatch):
+    # The tag's commit is on origin, and the record's commit is not. `--push` sends the branch with the tag,
+    # so the deploy's steps end with it: no `git push` is left to do.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+    tip = git_out(repo, "rev-parse", "main")
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 0
+
+    assert deployment_tag() in tags_in(origin) and tags_in(origin) == tags_in(repo)
+    assert git_out(origin, "rev-parse", "refs/heads/main") == tip, "and the branch, at this clone's tip"
+    said = "\n".join(printed)
+    assert "git push" not in said, said
+
+
+def test_push_sends_the_branch_tags_and_deletions_in_one_push(tmp_path, monkeypatch):
+    # Origin holds the tag under the naming by commit, which the tag the record now derives replaces. One push
+    # creates the new tag, deletes the old one and moves the branch: origin never holds the deploy under two
+    # names, nor the branch without its tag.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    stale = f"deploy/mainnet/state@{head[:10]}"
+    for arguments in (["tag", stale, head], ["push", "-q", "origin", f"refs/tags/{stale}"]):
+        subprocess.run(["git", *arguments], cwd=repo, check=True, capture_output=True)
+    log = logging_pushes(origin)
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+
+    assert recover.publish(repo, say=recover.Printer(0)) == 0
+
+    pushes = log.read_text().split("push\n")[1:]
+    assert len(pushes) == 1, pushes
+    changed = sorted(line.split(" ")[2] for line in pushes[0].splitlines())
+    assert changed == sorted(["refs/heads/main", f"refs/tags/{deployment_tag()}", f"refs/tags/{stale}"]), changed
+
+
+def test_nothing_to_push_says_so(tmp_path, monkeypatch):
+    # Origin holds the branch at this clone's tip, and every tag as this clone does: a second `--push` sends
+    # nothing, says so, and passes.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+    assert recover.publish(repo, say=recover.Printer(0)) == 0
+    there = git_out(origin, "for-each-ref", "--format=%(refname) %(objectname)")
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 0
+
+    assert git_out(origin, "for-each-ref", "--format=%(refname) %(objectname)") == there
+    closing = printed[-1].strip()
+    assert closing == "nothing to push: origin holds main and every tag the record derives, as this clone does", closing
+
+
+def test_nothing_goes_while_a_tag_is_not_what_the_record_derives(tmp_path, monkeypatch):
+    # B's commit is on origin, so B's tag could go alone. A's tag is not here, and making it is `--write`'s.
+    # So nothing goes, not B's tag, nor the branch, and the run says to run `--write`.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin, tag = repo.parent / "origin.git", deployment_tag()
+    deployed_from_here(repo, "B", ADDRESS_B, 2, "2026-01-02T00:00:00Z")
+    subprocess.run(["git", "push", "-q", "origin", "main"], cwd=repo, check=True, capture_output=True)
+    on_origin = git_out(repo, "rev-parse", "main")
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+    subprocess.run(["git", "tag", "-d", tag], cwd=repo, check=True, capture_output=True)
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
+
+    assert tags_in(origin) == {}, "not B's tag, whose commit origin holds"
+    assert git_out(origin, "rev-parse", "refs/heads/main") == on_origin, "nor the branch"
+    assert any(tag in line and "it is not here" in line for line in printed), printed
+    assert any("verify-audit --write" in line for line in printed), printed
+
+
+def test_nothing_goes_while_a_label_is_in_error(tmp_path, monkeypatch):
+    # A label naming no tag the record derives is an error the person corrects. A's tag and its label are
+    # sound, and still nothing goes until it is corrected.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+    stray = "deploy/mainnet/state@1999-01-01T00-00-00Z"
+    with (repo / "deployed-labels.toml").open("a") as labels:
+        labels.write(f'"{stray}" = "a deploy the record does not hold"\n')
+    commit(repo, "2026-01-05T00:00:00+00:00", "a label for no tag")
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
+
+    assert tags_in(origin) == {}, "not A's tag, whose label is sound"
+    assert git_out(origin, "rev-parse", "refs/heads/main") == head, "nor the branch"
+    assert any(stray in line for line in printed), printed
+
+
+def test_nothing_goes_while_origins_branch_has_commits_this_clone_lacks(tmp_path, monkeypatch):
+    # Another clone pushed to `main` since this one last fetched, so the record here may be behind origin's,
+    # and git would refuse the branch. Nothing goes, and the run says to pull. Pulled, it all goes.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    other = clone_of(origin, tmp_path / "other")
+    for arguments in (
+        ["commit", "-q", "--allow-empty", "-m", "another clone's work"],
+        ["push", "-q", "origin", "HEAD"],
+    ):
+        subprocess.run(["git", *arguments], cwd=other, check=True, capture_output=True)
+    theirs = git_out(other, "rev-parse", "HEAD")
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
+
+    assert tags_in(origin) == {}, "not the tag, whose commit origin holds"
+    assert git_out(origin, "rev-parse", "refs/heads/main") == theirs, "and origin's branch is the other clone's"
+    assert any("main" in line and theirs[:10] in line for line in printed), printed
+    assert any("git pull" in line for line in printed), printed
+
+    subprocess.run(["git", "pull", "-q", "--no-rebase", "--no-edit"], cwd=repo, check=True, capture_output=True)
+    assert recover.publish(repo, say=recover.Printer(0)) == 0
+    assert deployment_tag() in tags_in(origin)
+    assert git_out(origin, "rev-parse", "refs/heads/main") == git_out(repo, "rev-parse", "main")
+
+
+def test_a_branch_origin_moves_during_the_push_takes_nothing_with_it(tmp_path, monkeypatch):
+    # Another clone pushes to `main` between this run's look at origin and its push. The tag's lease still
+    # holds, and the branch is never forced: origin refuses the branch, in git's words, and the tag does not
+    # land without it.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    other = clone_of(origin, tmp_path / "other")
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+
+    def another_clone_pushes_main():
+        for arguments in (
+            ["commit", "-q", "--allow-empty", "-m", "another clone's work"],
+            ["push", "-q", "origin", "HEAD"],
+        ):
+            subprocess.run(["git", *arguments], cwd=other, check=True, capture_output=True)
+
+    racing(recover, monkeypatch, another_clone_pushes_main)
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
+
+    assert tags_in(origin) == {}, "the tag does not land without the branch"
+    assert git_out(origin, "rev-parse", "refs/heads/main") == git_out(other, "rev-parse", "HEAD")
+    assert any("main" in line and "rejected" in line for line in printed), printed
+
+
 def test_write_works_with_no_origin(tmp_path, monkeypatch):
     # `--write` reads only this clone: the record, the labels and the tags here. So it records and tags
     # with origin out of reach, and only `--push` needs it.
@@ -3203,6 +3450,7 @@ def test_a_tag_origin_refuses_is_named_and_the_push_fails(tmp_path, monkeypatch)
     assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
 
     assert deployment_tag() not in tags_in(origin)
+    assert git_out(origin, "rev-parse", "refs/heads/main") == head, "nor the branch"
     assert any(deployment_tag() in line and "declined" in line for line in printed), printed
 
 
@@ -3724,9 +3972,9 @@ def test_push_deletes_a_renamed_tag_on_origin(tmp_path, monkeypatch):
 
 
 def test_push_deletes_on_origin_only_the_copy_it_looked_at(tmp_path, monkeypatch):
-    # Between this push's look at origin and its deletion, another clone put a copy of its own under the old
-    # name there. The deletion is leased on the copy looked at, so the other copy stays, named, and the run
-    # fails.
+    # Between this push's look at origin and its push, another clone put a copy of its own under the old name
+    # there. The deletion is leased on the copy looked at, so it fails, and the whole push with it: the other
+    # copy stays, the replacement does not land, and the run names the old tag and says to pull.
     repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     origin = repo.parent / "origin.git"
     stale = f"deploy/mainnet/state@{head[:10]}"
@@ -3750,8 +3998,8 @@ def test_push_deletes_on_origin_only_the_copy_it_looked_at(tmp_path, monkeypatch
     assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
 
     assert tags_in(origin)[stale][1] == "tag", "the other clone's copy stays"
-    assert deployment_tag() in tags_in(origin), "and the replacement is pushed"
-    assert any(stale in line and "not deleted on origin" in line for line in printed), printed
+    assert deployment_tag() not in tags_in(origin), "and the replacement does not land without the deletion"
+    assert any(stale in line and "verify-audit --pull" in line for line in printed), printed
 
 
 def test_push_keeps_a_replaced_tag_whose_replacement_origin_refused(tmp_path, monkeypatch):
@@ -4094,7 +4342,7 @@ def racing(recover, monkeypatch, other_clone_acts) -> None:
     """Run `other_clone_acts()` once, at the moment the run under test is about to push its tags: as if
     another clone pushed between this run's look at origin and its push. That window is real but narrow,
     so the only way a test reaches it is to run the other clone inside it."""
-    push, acted = recover.push_tags, []
+    push, acted = recover.push_to_origin, []
 
     def push_after_the_other_clone(*arguments, **named):
         if not acted:
@@ -4102,13 +4350,14 @@ def racing(recover, monkeypatch, other_clone_acts) -> None:
             other_clone_acts()
         return push(*arguments, **named)
 
-    monkeypatch.setattr(recover, "push_tags", push_after_the_other_clone)
+    monkeypatch.setattr(recover, "push_to_origin", push_after_the_other_clone)
 
 
 def test_a_clone_that_loses_the_race_says_to_pull(tmp_path, monkeypatch):
     # Both clones derive the same tag, as different objects. The one that pushes second finds origin's copy
     # changed since it looked: it changes nothing here, says to pull, and fails. Pulled, it holds the
-    # winner's tag, which is what the record derives whoever made it, and its next push has nothing to do.
+    # winner's tag, which is what the record derives whoever made it. Its branch then merges origin's, which
+    # holds the winner's identical record, and its next push sends only the merge.
     winner, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     origin, tag = winner.parent / "origin.git", deployment_tag()
     loser = clone_of(origin, tmp_path / "loser")
@@ -4137,12 +4386,15 @@ def test_a_clone_that_loses_the_race_says_to_pull(tmp_path, monkeypatch):
 
     assert recover.pull(loser, say=recover.Printer(0)) == 0
     assert tags_in(loser)[tag] == tags_in(winner)[tag]
+    subprocess.run(["git", "merge", "-q", "--no-edit", "origin/main"], cwd=loser, check=True, capture_output=True)
     assert recover.publish(loser, say=recover.Printer(0)) == 0
+    assert tags_in(origin)[tag] == tags_in(winner)[tag]
 
 
 def test_two_clones_correcting_the_same_tag_leave_one_correct_tag(tmp_path, monkeypatch):
     # Both correct one published lightweight tag. The second's forced push is leased on the lightweight
-    # tag it saw, so it cannot overwrite the first's correction. Pulled, it holds that correction.
+    # tag it saw, so it cannot overwrite the first's correction. Pulled, it holds that correction. Its branch
+    # then merges origin's, which holds the first's identical record, and its next push sends the merge.
     first, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
     origin, tag = first.parent / "origin.git", deployment_tag()
     for arguments in (["tag", tag, head], ["push", "-q", "origin", f"refs/tags/{tag}"]):
@@ -4169,6 +4421,7 @@ def test_two_clones_correcting_the_same_tag_leave_one_correct_tag(tmp_path, monk
     assert tags_in(origin)[tag] == tags_in(first)[tag], "the first correction stands"
     assert recover.pull(second, say=recover.Printer(0)) == 0
     assert tags_in(second)[tag] == tags_in(first)[tag]
+    subprocess.run(["git", "merge", "-q", "--no-edit", "origin/main"], cwd=second, check=True, capture_output=True)
     assert recover.publish(second, say=recover.Printer(0)) == 0
 
 
