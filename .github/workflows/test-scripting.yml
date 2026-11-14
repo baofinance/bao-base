@@ -18,13 +18,13 @@ jobs:
       fail-fast: false # ensure all jobs run even if one fails
       matrix:
         include:
-          - os: ubuntu-22.04
+          - os: ubuntu-latest
             foundry: stable
 
-          - os: macos-14
+          - os: macos-latest
             foundry: stable
 
-          # - os: windows-2022
+          # - os: windows-latest
           #   foundry: stable
 
     runs-on: ${{ matrix.os }}
