@@ -5,6 +5,7 @@ import {Vm, VmSafe} from "forge-std/Vm.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 import {FactoryDeployer} from "@bao-script/deployment/FactoryDeployer.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
+import {JsonFileLib} from "@bao-script/deployment/JsonFileLib.sol";
 
 /// @notice Base for all deployment scripts and tests. Combines CREATE3 factory deployment
 ///         (FactoryDeployer) with Safe batch transaction queuing.
@@ -169,7 +170,7 @@ abstract contract Deployer is FactoryDeployer {
             string memory fileSuffix = bytes(suffix).length > 0 ? string.concat(suffix, "@", signerLabel) : signerLabel;
             string memory filename = string.concat(name, "_", timestamp, "_", fileSuffix, ".json");
             string memory path = string.concat(batchDir, "/", filename);
-            _vm.writeJson(_buildSafeJson(description), path);
+            JsonFileLib.write(_buildSafeJson(description), path);
             _reportBatchSaved(path, _transactions.length);
         }
 

@@ -2,16 +2,15 @@
 pragma solidity >=0.8.28 <0.9.0;
 
 import {Vm} from "forge-std/Vm.sol";
-import {stdJson} from "forge-std/StdJson.sol";
 import {LibString} from "@solady/utils/LibString.sol";
 import {JsonSerializer} from "@bao-script/deployment/JsonSerializer.sol";
 import {JsonParser} from "@bao-script/deployment/JsonParser.sol";
+import {JsonFileLib} from "@bao-script/deployment/JsonFileLib.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 
 /// @notice Persistent deployment state management backed by JSON files.
 /// @dev Library form to avoid on-chain deployment/broadcast in scripts.
 library DeploymentState {
-    using stdJson for string;
     using LibString for string;
 
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
@@ -90,8 +89,8 @@ library DeploymentState {
         string memory json = JsonSerializer.renderState(state);
         string memory tempPath = string.concat(path, ".tmp");
 
-        // Write to temp file (pretty-printed via stdJson)
-        json.write(tempPath);
+        // Write to temp file: pretty-printed, ending with a newline
+        JsonFileLib.write(json, tempPath);
 
         // Atomic rename: mv temp -> final
         string[] memory mvCmd = new string[](3);

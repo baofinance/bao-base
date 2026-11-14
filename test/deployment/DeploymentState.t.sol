@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {DeploymentState} from "@bao-script/deployment/DeploymentState.sol";
 import {DeploymentTypes} from "@bao-script/deployment/DeploymentTypes.sol";
 import {JsonParser} from "@bao-script/deployment/JsonParser.sol";
+import {LibString} from "@solady/utils/LibString.sol";
 
 /// @notice Wrapper contract to make library calls external for expectRevert testing.
 contract DeploymentStateWrapper {
@@ -434,6 +435,26 @@ contract DeploymentStateTest is Test {
         assertEq(loaded.proxies[0].id, "ETH::minter", "proxy id preserved");
         assertEq(loaded.proxies[0].proxy, proxyRec.proxy, "proxy address preserved");
         assertEq(loaded.proxies[0].implementation, proxyRec.implementation, "proxy impl preserved");
+    }
+
+    /// @dev A saved state file ends with one newline, as a text file does, after the closing brace that forge's JSON
+    ///      writer leaves last. Its tracked copy from an earlier run is always there, so the test writes a marker at the
+    ///      path first, and only a replaced marker shows that this save wrote the file.
+    function test_save_endsTheFileWithOneNewline() public {
+        string memory path = string.concat(
+            vm.projectRoot(),
+            "/results/deployments/DeploymentStateTest::save_endsTheFileWithOneNewline.state.json"
+        );
+        string memory marker = "the test wrote this before the save; the save did not replace it";
+        vm.writeFile(path, marker);
+        vm.warp(1);
+        vm.chainId(31337);
+
+        DeploymentState.save(DeploymentState.fresh("newline_v1", "test"), path);
+
+        string memory written = vm.readFile(path);
+        assertNotEq(written, marker, "this run saved the file");
+        assertEq(LibString.slice(written, bytes(written).length - 2), "}\n", "one newline, after the closing brace");
     }
 
     // ========== LOAD: THE STATE A PERSISTING RUN STARTS FROM ==========

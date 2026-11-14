@@ -319,6 +319,27 @@ contract DeployerTest is BaoTest {
         assertEq(json.readBytes(".transactions[0].data"), data, "file carries the tx calldata");
     }
 
+    function test_flush_endsTheBatchFileWithOneNewline() public {
+        // a Safe batch file ends with one newline, as a text file does, after the closing brace that forge's JSON
+        // writer leaves last
+        string memory folder = string.concat(vm.projectRoot(), "/results/batch");
+        BatchWritingDeployer writer = new BatchWritingDeployer(testOwner, folder);
+        string memory path = string.concat(
+            folder,
+            "/deployer_fixed_04_newline@",
+            LibString.toHexString(testOwner),
+            ".json"
+        );
+        vm.writeFile(path, NOT_WRITTEN_BY_THIS_RUN);
+
+        writer.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "record call");
+        writer.doFlush("04_newline", "batch file newline test");
+
+        string memory json = vm.readFile(path);
+        assertNotEq(json, NOT_WRITTEN_BY_THIS_RUN, "this run wrote the batch file at the derived path");
+        assertEq(LibString.slice(json, bytes(json).length - 2), "}\n", "one newline, after the closing brace");
+    }
+
     function test_flush_batchFilename_usesSignerOverride() public {
         // startSigner routes the batch file to the signer's label; stopSigner restores owner()
         string memory folder = string.concat(vm.projectRoot(), "/results/batch");
