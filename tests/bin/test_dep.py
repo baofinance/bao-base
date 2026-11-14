@@ -2,8 +2,10 @@
 
 `sync` brings a clone - fresh and non-recursive, or one a pull has moved - to what the repository
 records: every top-level submodule at its gitlink, plus exactly the nested submodules forge's
-remappings point into. A dependency's other nested submodules are its own business and are never
-fetched, so one of them pinned to a commit no remote holds cannot stop this repository's checkout.
+remappings point into. A dependency's other nested submodules are its own business, which sync never
+fetches, so one of them pinned to a commit no remote holds cannot stop this repository's checkout.
+`update` fetches the repository git keeps for one only when a branch points it to a commit the repository
+lacks, and never asks for a particular commit. `status` changes nothing: it reads origin with `git ls-remote`.
 
 Every git command that changes something is reported as it runs. A failure prints git's own error and
 leaves everything as it stands, so what happened can be read and unpicked by hand.
@@ -616,9 +618,10 @@ def synced(world: World) -> Path:
 
 
 def advance(world: World, name: str) -> str:
-    """Publish a new commit on `name`'s main. Returns it."""
+    """Publish a new commit on `name`'s main, adding a line to its source, so each call makes one. Returns it."""
     work = world.remotes / name
-    (work / "src" / f"{name}.sol").write_text(f"// {name}, moved on\n")
+    source = work / "src" / f"{name}.sol"
+    source.write_text(f"{source.read_text()}// {name}, moved on\n")
     git(work, "add", "-A")
     git(work, "commit", "-qm", f"{name}: moved on")
     git(work, "push", "-q", str(world.remotes / f"{name}.git"), "HEAD:main")
@@ -984,19 +987,22 @@ def test_update_succeeds_when_an_unremapped_nested_pin_is_on_no_remote(tmp_path)
     assert "lib/dep/lib/spare" not in checked_out_paths(here)
 
 
-def test_update_does_not_fetch_into_a_checked_out_nested_submodule_no_remapping_names(tmp_path):
+def test_update_moves_the_dependency_when_a_checked_out_nested_submodule_is_pinned_on_no_remote(tmp_path):
     # lib/harbor's real shape: earlier recursive checkouts left the dependency's nested submodules checked
     # out. git's fetch would follow them on its own (fetch.recurseSubmodules defaults to on-demand) and fail
-    # on a nested pin no remote holds - for a submodule nothing here builds from.
+    # on a nested pin no remote holds - for a submodule nothing here builds from. dep fetches only that
+    # submodule's branches, which cannot fail on the pin, then names the commit they did not bring.
     world = make_world(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world)
     git(here / "lib" / "dep", "submodule", "update", "--init", "--checkout", "--", "lib/spare")
-    record_an_unpushed_nested_commit(world, "spare")
+    unpushed = record_an_unpushed_nested_commit(world, "spare")
 
     result = update(here, "dep@main")
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert checked_out(here / "lib" / "dep") == git(world.remotes / "dep", "rev-parse", "HEAD")
+    named = [line for line in result.stdout.splitlines() if unpushed[:10] in line]
+    assert len(named) == 1 and "lib/dep/lib/spare" in named[0] and "origin/main" in named[0], result.stdout
 
 
 def test_an_update_whose_ref_never_resolves_does_not_judge_what_gitmodules_should_record(tmp_path):
@@ -1028,6 +1034,8 @@ def test_an_update_failure_reports_gits_error_the_steps_run_and_where_things_sta
     assert ran[:-1] == [
         f"ran: git -C lib/dep {' '.join(FETCH_BRANCHES)}",
         f"ran: git -C lib/dep {' '.join(FETCH_TAGS)}",
+        # inner's repository lacks the commit dep's main points it to, so its branches are fetched first.
+        f"ran: git -C .git/modules/lib/dep/modules/lib/inner {' '.join(FETCH_BRANCHES)}",
         "ran: git -C lib/dep checkout --quiet --track -B main origin/main",
         "ran: git config -f .gitmodules submodule.lib/dep.branch main",
     ], ran
@@ -1056,6 +1064,161 @@ def test_an_update_failure_names_the_unset_for_a_remapped_nested_path_left_empty
     assert f"git -C lib/dep submodule update --init -- lib/inner && {spare_repair}" in result.stdout, result.stdout
     assert repaired.returncode == 0, repaired.stdout + repaired.stderr
     assert checked_out(here / "lib" / "dep" / "lib" / "spare") == recorded(here, "lib/dep/lib/spare")
+
+
+# ── update: the repository git keeps for a nested submodule ──────────────────────────────────────
+#
+# A merge inside a dependency compares the commits each side points a nested submodule to, so the repository git
+# keeps for that submodule must hold them, even with its folder left empty. git's own fetch keeps it so. update
+# fetches a dependency without following its submodules, then fetches the branches of each nested submodule's
+# repository that lacks a commit one of origin's branches points it to. It creates no repository, and never asks
+# for a particular commit, so a nested pin no remote holds stops nothing.
+
+
+def keep_nested_repositories(here: Path, *nested: str) -> None:
+    """Check out each of dep's submodules `nested`, then sync, which leaves each empty with update = none, as dep
+    leaves a nested submodule no remapping uses. The repository git keeps for each one stays."""
+    for name in nested:
+        git(here / "lib" / "dep", "submodule", "update", "--init", "--checkout", "--", f"lib/{name}")
+    result = sync(here)
+    assert result.returncode == 0, f"setup sync failed:\n{result.stdout}{result.stderr}"
+    for name in nested:
+        assert not (here / "lib" / "dep" / "lib" / name / ".git").exists(), f"setup: lib/dep/lib/{name} is not empty"
+        assert nested_repository(here, f"lib/dep/lib/{name}").is_dir(), f"setup: no repository for lib/dep/lib/{name}"
+
+
+def nested_repository(here: Path, path: str) -> Path:
+    """The repository git keeps for the nested submodule at `path` - lib/dep/lib/spare - whether or not its folder is
+    checked out: modules/<name> in its parent's git directory, as git resolves it."""
+    parent, _, child = path.rpartition("/lib/")
+    return Path(git(here / parent, "rev-parse", "--path-format=absolute", "--git-path", f"modules/lib/{child}"))
+
+
+def holds(repository: Path, commit: str) -> bool:
+    """Whether `repository` holds `commit`."""
+    asked = subprocess.run(
+        ["git", "cat-file", "-e", f"{commit}^{{commit}}"], cwd=repository, capture_output=True, env=GIT_ENV
+    )
+    return asked.returncode == 0
+
+
+def record_nested(world: World, branch: str, nested: str, commit: str) -> None:
+    """Record `commit` of dep's submodule lib/`nested` on dep's branch `branch`, made from main when it is new, and
+    publish that branch. dep's work is left on main."""
+    dep_work = world.remotes / "dep"
+    exists = git(dep_work, "branch", "--list", branch) != ""
+    git(dep_work, "checkout", "-q", *([branch] if exists else ["-b", branch, "main"]))
+    checkout = dep_work / "lib" / nested
+    git(checkout, "fetch", "-q", "origin")
+    git(checkout, "checkout", "-q", commit)
+    git(dep_work, "add", f"lib/{nested}")
+    git(dep_work, "commit", "-qm", f"dep records {nested} on {branch}")
+    git(dep_work, "push", "-q", str(world.remotes / "dep.git"), branch)
+    git(dep_work, "checkout", "-q", "main")
+
+
+@pytest.mark.parametrize("nested", [("spare",), ("spare", "inner")], ids=["one", "two"])
+def test_update_fetches_each_nested_repository_missing_a_commit_the_dependency_points_to(tmp_path, nested):
+    # dep's main points each of `nested` to a new commit. update fetches each one's repository, and leaves its
+    # folder empty.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    keep_nested_repositories(here, *nested)
+    pointed = {name: advance(world, name) for name in nested}
+    for name, commit in pointed.items():
+        record_nested(world, "main", name, commit)
+
+    result = update(here, "dep@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    for name, commit in pointed.items():
+        assert holds(nested_repository(here, f"lib/dep/lib/{name}"), commit), f"{name}:\n{result.stdout}"
+        assert not (here / "lib" / "dep" / "lib" / name / ".git").exists(), name
+
+
+def test_update_fetches_for_a_commit_any_of_origins_branches_points_to(tmp_path):
+    # Only dep's branch feature moves spare, and update follows main: a merge of feature needs the commit as well.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    keep_nested_repositories(here, "spare")
+    commit = advance(world, "spare")
+    record_nested(world, "feature", "spare", commit)
+
+    result = update(here, "dep@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert holds(nested_repository(here, "lib/dep/lib/spare"), commit), result.stdout
+
+
+def test_a_merge_inside_the_dependency_after_update_fast_forwards_a_nested_pointer_both_branches_moved(tmp_path):
+    # The conflict this fetch prevents: dep's feature moves spare to one commit, and main moves it to a later one.
+    # With the repository holding both, git merges the pointer to the later commit by itself.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    keep_nested_repositories(here, "spare")
+    earlier = advance(world, "spare")
+    record_nested(world, "feature", "spare", earlier)
+    later = advance(world, "spare")
+    record_nested(world, "main", "spare", later)
+    moved = update(here, "dep@main")
+    assert moved.returncode == 0, f"setup update failed:\n{moved.stdout}{moved.stderr}"
+    dependency = here / "lib" / "dep"
+    git(dependency, "checkout", "-q", "-b", "feature", "origin/feature")
+
+    merged = subprocess.run(
+        ["git", "merge", "--no-edit", "origin/main"], cwd=dependency, capture_output=True, text=True, env=GIT_ENV
+    )
+
+    assert merged.returncode == 0, merged.stdout + merged.stderr
+    assert git(dependency, "ls-files", "-s", "--", "lib/spare").split()[1:3] == [later, "0"]
+
+
+def test_update_fetches_no_nested_repository_that_holds_every_commit_the_dependency_points_to(tmp_path):
+    # dep moves on without moving spare. spare's repository already holds what each branch points it to, so the only
+    # fetches are dep's own.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    keep_nested_repositories(here, "spare")
+    advance(world, "dep")
+
+    result = update(here, "dep@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    fetches = [step for step in steps(result.stdout) if " fetch " in step]
+    assert fetches == [
+        f"ran: git -C lib/dep {' '.join(FETCH_BRANCHES)}",
+        f"ran: git -C lib/dep {' '.join(FETCH_TAGS)}",
+    ], result.stdout
+
+
+def test_update_creates_no_repository_for_a_nested_submodule_never_checked_out(tmp_path):
+    # sync never checked spare out here, so git keeps no repository for it. dep's main points spare to a commit this
+    # clone has never seen: update moves dep, and creates none.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    record_nested(world, "main", "spare", advance(world, "spare"))
+
+    result = update(here, "dep@main")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert checked_out(here / "lib" / "dep") == git(world.remotes / "dep", "rev-parse", "HEAD")
+    assert not nested_repository(here, "lib/dep/lib/spare").exists(), result.stdout
+
+
+def test_an_update_whose_nested_fetch_fails_still_moves_the_dependency_and_fails(tmp_path):
+    # spare's repository can no longer reach its remote. update shows that fetch failing, moves dep regardless, and its
+    # exit status says a step failed.
+    world = make_world(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    keep_nested_repositories(here, "spare")
+    git(nested_repository(here, "lib/dep/lib/spare"), "remote", "set-url", "origin", str(tmp_path / "nowhere.git"))
+    record_nested(world, "main", "spare", advance(world, "spare"))
+
+    result = update(here, "dep@main")
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert checked_out(here / "lib" / "dep") == git(world.remotes / "dep", "rev-parse", "HEAD")
+    assert any(step.startswith("failed") and " fetch " in step for step in steps(result.stdout)), result.stdout
 
 
 # ── update: leftovers ─────────────────────────────────────────────────────────────────────────────
@@ -1595,8 +1758,9 @@ def test_remove_leaves_the_index_unchanged(tmp_path):
 # ── status: seeing the set-up ─────────────────────────────────────────────────────────────────────
 #
 # `status`, after `git submodule status`, shows for each dependency, and each nested path a remapping
-# uses, what it follows, what the commit it points to is, what is newer upstream, whether a remote holds
-# that commit, and what the folder has. It fetches first, so "newer" is current, and changes nothing else.
+# uses, what it follows, what the commit it points to is, what is newer upstream, whether a remote held
+# that commit at the last fetch, and what the folder has. It reads origin with `git ls-remote`, so "newer" is
+# current, and it changes nothing.
 
 
 def status(here: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -1642,13 +1806,15 @@ def test_status_says_a_dependency_with_no_branch_and_no_tag_is_pinned_at_a_commi
 
 
 def test_status_reports_what_is_newer_upstream(tmp_path):
-    # Newer is counted on the branch followed; a dependency pinned at a tag is shown the newest tag.
+    # Newer is counted on the branch followed, once the clone has fetched the commits. A dependency pinned at a tag
+    # is shown the newest tag origin has, fetched or not.
     world = following_main(tmp_path, ["dep/=lib/dep/src/"])
     publish_tag(world, "tool", "v1")
     here = synced(world)
     advance(world, "dep")
     advance(world, "tool")
     publish_tag(world, "tool", "v2")
+    git(here / "lib" / "dep", "fetch", "-q", "origin")
 
     result = status(here)
 
@@ -1699,7 +1865,7 @@ def test_status_says_when_the_branch_followed_does_not_contain_the_commit(tmp_pa
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert field(result.stdout, "lib/tool", "upstream") == "origin/main does not contain it", result.stdout
-    assert field(result.stdout, "lib/tool", "remote") == "a remote holds it", result.stdout
+    assert field(result.stdout, "lib/tool", "remote") == "a remote held it at the last fetch", result.stdout
 
 
 @pytest.mark.parametrize(
@@ -1744,57 +1910,101 @@ def test_status_reports_a_pointed_commit_no_remote_holds(tmp_path):
     result = status(here)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert field(result.stdout, "lib/dep", "remote") == "no remote holds it", result.stdout
-    assert field(result.stdout, "lib/tool", "remote") == "a remote holds it", result.stdout
+    assert field(result.stdout, "lib/dep", "remote") == "no remote held it at the last fetch", result.stdout
+    assert field(result.stdout, "lib/tool", "remote") == "a remote held it at the last fetch", result.stdout
 
 
-def test_status_changes_no_checkout_and_no_index(tmp_path):
-    # status fetches, which moves only what each clone knows of its remote; checkouts, branches and the
-    # index are as they were.
+def every_repository_as_it_stands(here: Path) -> dict[str, tuple[str, str | None, str]]:
+    """The refs, FETCH_HEAD and object count of every repository in `here` - its own, and the one git keeps for each
+    submodule beneath it, checked out or left empty - by its git directory."""
+    top = here / ".git"
+    found = sorted(
+        objects.parent for objects in (top / "modules").rglob("objects") if (objects.parent / "HEAD").is_file()
+    )
+    state: dict[str, tuple[str, str | None, str]] = {}
+    for repository in [top, *found]:
+        fetch_head = repository / "FETCH_HEAD"
+        state[repository.relative_to(here).as_posix()] = (
+            git(repository, "for-each-ref"),
+            fetch_head.read_text() if fetch_head.exists() else None,
+            git(repository, "count-objects", "-v"),
+        )
+    return state
+
+
+def test_status_changes_nothing_in_any_repository(tmp_path):
+    # status reports and changes nothing: no checkout and no index, and in every repository - the project's, each
+    # dependency's, each nested submodule's, checked out or left empty - no ref, no object and no FETCH_HEAD. Every
+    # remote has moved on, so a fetch would change each of them.
     world = following_main(tmp_path, ["inner/=lib/dep/lib/inner/src/"])
     here = synced(world)
-    advance(world, "dep")
-    before = ({path: checked_out(here / path) for path in checked_out_paths(here)}, git(here, "ls-files", "--stage"))
+    keep_nested_repositories(here, "spare")
+    record_nested(world, "main", "spare", advance(world, "spare"))
+    advance(world, "inner")
+    advance(world, "tool")
+    publish_tag(world, "tool", "v2")
+
+    def as_it_stands() -> tuple[dict[str, str | None], str, dict[str, tuple[str, str | None, str]]]:
+        checkouts = {path: checked_out(here / path) for path in checked_out_paths(here)}
+        return checkouts, git(here, "ls-files", "--stage"), every_repository_as_it_stands(here)
+
+    before = as_it_stands()
 
     result = status(here)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert (
-        {path: checked_out(here / path) for path in checked_out_paths(here)},
-        git(here, "ls-files", "--stage"),
-    ) == before
-    fetches = "|".join(re.escape(" ".join(fetching)) for fetching in (FETCH_BRANCHES, FETCH_TAGS))
-    ran = steps(result.stdout)
-    assert ran and all(re.fullmatch(rf"ran: git -C \S+ ({fetches})", step) for step in ran), ran
+    assert as_it_stands() == before, result.stdout
+    assert steps(result.stdout) == [], "nothing may run"
 
 
-def test_status_fetch_takes_origins_version_of_a_replaced_deployment_tag(tmp_path):
-    # A plain tag fetch refuses to replace a tag the clone holds ("would clobber existing tag"), so status
-    # reported a failed fetch for every clone holding a deployment tag another clone had corrected.
+def test_status_names_origins_tip_this_clone_has_not_fetched(tmp_path):
+    # Counting newer commits needs the commits, and only a fetch brings them: status names origin's tip instead.
     world = following_main(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world)
-    corrected = replace_a_deployment_tag(world, here)
+    tip = advance(world, "dep")
 
     result = status(here)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert tag_object(here / "lib" / "dep", DEPLOYMENT_TAG) == corrected
+    assert field(result.stdout, "lib/dep", "upstream") == (
+        f"origin/main is at {tip[:10]}, which this clone has not fetched"
+    ), result.stdout
 
 
-def test_status_without_fetch_reads_what_the_last_fetch_left(tmp_path):
-    # --no-fetch reads only what each clone already knows of its remote, so a newer commit published since
-    # the last fetch is not seen until status fetches.
+def test_status_reports_an_origin_it_cannot_read_and_fails(tmp_path):
+    # dep's origin is gone. status shows the read failing and reports dep as of the last fetch, saying so. tool is
+    # reported as usual, and the exit status says a read failed.
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    here = synced(world)
+    (world.remotes / "dep.git").rename(world.remotes / "dep.git.gone")
+
+    result = status(here)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    failed = [step for step in steps(result.stdout) if step.startswith("failed")]
+    assert len(failed) == 1 and "git -C lib/dep " in failed[0] and " ls-remote " in failed[0], result.stdout
+    assert field(result.stdout, "lib/dep", "upstream") == "nothing newer on origin/main (as of the last fetch)", (
+        result.stdout
+    )
+    assert field(result.stdout, "lib/tool", "upstream") == "no branch or tag to compare with", result.stdout
+
+
+def test_status_offline_reads_what_the_last_fetch_left_and_reaches_no_remote(tmp_path):
+    # --offline reads only what each clone already knows of its remote, and says so. It makes no network call:
+    # with every remote gone, it still reports, and succeeds.
     world = following_main(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world)
     advance(world, "dep")
+    for name in ("dep", "tool"):
+        (world.remotes / f"{name}.git").rename(world.remotes / f"{name}.git.gone")
 
-    offline = status(here, "--no-fetch")
-    fetched = status(here)
+    result = status(here, "--offline")
 
-    assert offline.returncode == 0, offline.stdout + offline.stderr
-    assert steps(offline.stdout) == [], "nothing may run"
-    assert field(offline.stdout, "lib/dep", "upstream") == "nothing newer on origin/main", offline.stdout
-    assert field(fetched.stdout, "lib/dep", "upstream") == "1 newer commit on origin/main", fetched.stdout
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert steps(result.stdout) == [], "nothing may run"
+    assert field(result.stdout, "lib/dep", "upstream") == "nothing newer on origin/main (as of the last fetch)", (
+        result.stdout
+    )
 
 
 # ── doctor: commits this repository points to that no remote holds ────────────────────────────────
@@ -1949,10 +2159,10 @@ def test_kept_empty_reads_update_none_by_the_submodules_name(tmp_path):
 def test_status_lists_nested_checkouts_no_remapping_uses(tmp_path):
     # status is where the set-up is seen, so it names them too, with the command that removes each.
     here = synced(make_world(tmp_path, INNER_REMAPPED))
-    none = status(here, "--no-fetch")
+    none = status(here, "--offline")
     check_out_unused(here)
 
-    several = status(here, "--no-fetch")
+    several = status(here, "--offline")
 
     assert none.returncode == 0 and several.returncode == 0, none.stdout + several.stdout
     assert "no remapping uses it" not in none.stdout, none.stdout
@@ -2569,8 +2779,8 @@ def test_root_names_a_dependency_with_or_without_the_libs_folder(tmp_path):
     # Both report on lib/dep alike; each command they print names lib/dep as it was named, which works where typed.
     here = synced(following_main(tmp_path, ["dep/=lib/dep/src/"]))
 
-    by_name = dep(here, "--root", "dep", "status", "--no-fetch")
-    with_folder = dep(here, "--root", "lib/dep", "status", "--no-fetch")
+    by_name = dep(here, "--root", "dep", "status", "--offline")
+    with_folder = dep(here, "--root", "lib/dep", "status", "--offline")
 
     assert by_name.returncode == 0, by_name.stdout + by_name.stderr
     assert "yarn dep -C dep sync" in by_name.stdout and "yarn dep -C lib/dep sync" in with_folder.stdout
@@ -2585,8 +2795,8 @@ def test_root_is_refused_where_there_is_no_dependency_to_act_on(tmp_path):
     # nothing out.
     here = clone(make_world(tmp_path, ["dep/=lib/dep/src/"]))
 
-    no_dependency = dep(here, "--root", "src", "status", "--no-fetch")
-    not_checked_out = dep(here, "--root", "dep", "status", "--no-fetch")
+    no_dependency = dep(here, "--root", "src", "status", "--offline")
+    not_checked_out = dep(here, "--root", "dep", "status", "--offline")
 
     assert no_dependency.returncode == 1
     assert "Stopped: no .gitmodules file lists a submodule at lib/src." in no_dependency.stdout, no_dependency.stdout
@@ -2603,8 +2813,8 @@ def test_root_never_leaves_the_repositories_the_command_runs_in(tmp_path):
     world = following_main(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world).resolve()
 
-    by_module = dep(here, "--root", "../../remotes/dep", "status", "--no-fetch")
-    by_folder = dep(here, "--root", "../remotes/dep/lib/inner", "status", "--no-fetch")
+    by_module = dep(here, "--root", "../../remotes/dep", "status", "--offline")
+    by_folder = dep(here, "--root", "../remotes/dep/lib/inner", "status", "--offline")
 
     assert by_module.returncode == 1
     assert by_module.stdout == (
@@ -2623,8 +2833,8 @@ def test_root_takes_a_module_path_or_a_folder_path_from_inside_a_dependency(tmp_
     here = synced(following_main(tmp_path, ["dep/=lib/dep/src/"]))
     inside = here / "lib" / "dep"
 
-    by_module = dep(inside, "--root", "../tool", "status", "--no-fetch")
-    by_folder = dep(inside, "--root", "../../lib/tool", "status", "--no-fetch")
+    by_module = dep(inside, "--root", "../tool", "status", "--offline")
+    by_folder = dep(inside, "--root", "../../lib/tool", "status", "--offline")
 
     assert by_module.returncode == 0, by_module.stdout + by_module.stderr
     assert by_module.stdout.startswith("in ../tool:\n"), by_module.stdout
@@ -2652,7 +2862,7 @@ def test_root_scopes_update_and_status_to_that_project(tmp_path):
     tip = advance(world, "spare")
 
     moved = dep(here, "--root", "lib/dep", "update", "spare@main")
-    shown = dep(here, "--root", "lib/dep", "status", "--no-fetch")
+    shown = dep(here, "--root", "lib/dep", "status", "--offline")
 
     assert moved.returncode == 0, moved.stdout + moved.stderr
     assert checked_out(here / "lib" / "dep" / "lib" / "spare") == tip
