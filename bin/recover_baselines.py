@@ -1230,8 +1230,9 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer) -> str:
 def publish(root: Path, *, say: Printer) -> int:
     """`--push`: this clone's current branch and its deployment tags to origin, in one atomic push, or
     nothing. It fetches nothing, and makes, corrects and deletes no tag here - `--pull` and `--write` do
-    those. The one ref it changes here is `origin/<branch>`, which git's push moves to where origin's branch
-    now is. The record is read as it stands, and no contract is searched for.
+    those. It changes here what `git push -u` changes: `origin/<branch>`, which moves to where origin's branch
+    now is, and the upstream of a branch that tracks nothing. The record is read as it stands, and no contract
+    is searched for.
 
     Only from a clean checkout: `git status` lists nothing. The push sends commits, so a change no commit
     holds - staged, not staged, a new file, a submodule moved or changed inside - would be left behind
@@ -1377,6 +1378,8 @@ def publish(root: Path, *, say: Printer) -> int:
             say(0, f"  {name}: {why}")
     if sent.branch_moved:
         say(0, f"\npushed {branch} to origin")
+    if sent.upstream_set:
+        say(0, f"\n{branch} now tracks origin/{branch}")
     if sent.pushed:
         say(0, f"\npushed {len(sent.pushed)} tag(s) to origin:")
         for tag in sent.pushed:
@@ -1403,7 +1406,7 @@ def publish(root: Path, *, say: Printer) -> int:
     if left:
         say(0, f"\n{_failing(left)}")
         return 1
-    if not (sent.branch_moved or sent.pushed or sent.replaced or sent.deleted):
+    if not (sent.branch_moved or sent.upstream_set or sent.pushed or sent.replaced or sent.deleted):
         say(0, f"\nnothing to push: origin holds {branch} and every tag the record derives, as this clone does")
     return 0
 

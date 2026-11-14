@@ -180,8 +180,9 @@ do, and given together they run in this order:
 - `lib/bao-base/run verify-audit --push` — this clone to origin: it publishes the current branch and the
   tags the record derives, only from a clean checkout (`git status` lists nothing), in one atomic push.
   Origin takes all of it or none, so the branch never reaches a CI that lacks its tags. Anything that
-  stops one of them stops all of them, and is named. It changes nothing here but the `origin/<branch>`
-  the push moves. When origin holds a tag this clone should take first, it pushes nothing and says to run
+  stops one of them stops all of them, and is named. Here it changes what `git push -u` changes: the
+  `origin/<branch>` the push moves, and the upstream of a branch that tracks nothing, so an editor no longer
+  offers to publish it. When origin holds a tag this clone should take first, it pushes nothing and says to run
   `--pull`, as git's push says to fetch first. When origin's branch holds commits this clone lacks, it
   pushes nothing and says to run `git pull`. When a commit points a submodule at a commit no remote of the
   submodule holds, git stops the push, and the run gives git's words.

@@ -3395,7 +3395,63 @@ def test_a_refused_branch_takes_no_tag_with_it(tmp_path, monkeypatch):
 
     assert tags_in(origin) == {}, "no tag, not even the one whose commit origin held"
     assert git_out(origin, "branch", "--list", "release") == ""
+    assert git_out(repo, "rev-parse", "--abbrev-ref", "release@{upstream}") == "", "and the branch tracks nothing"
     assert any("release" in line and "hook declined" in line for line in printed), printed
+
+
+def test_push_sets_a_branch_that_tracks_nothing_to_track_origins(tmp_path, monkeypatch):
+    # A branch made here tracks nothing, so an editor still offers to publish it after `--push` sent it. As
+    # `git push -u` does, and git's `push.autoSetupRemote`, the push that sends it sets it to track origin's.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    subprocess.run(["git", "checkout", "-q", "-b", "release"], cwd=repo, check=True, capture_output=True)
+    deployed_from_here(repo, "B", ADDRESS_B, 2, "2026-01-02T00:00:00Z")
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+    assert git_out(repo, "rev-parse", "--abbrev-ref", "release@{upstream}") == "", "it tracks nothing yet"
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 0
+
+    assert git_out(repo, "rev-parse", "--abbrev-ref", "release@{upstream}") == "origin/release"
+    assert any(line.strip() == "release now tracks origin/release" for line in printed), printed
+
+
+def test_push_sets_the_upstream_when_origin_holds_everything_else(tmp_path, monkeypatch):
+    # The branch and its tags are on origin, pushed without `-u`, as `--push` left them before it set upstreams.
+    # Nothing else is to send, and the push still runs, to set the upstream: the run is not "nothing to push".
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    subprocess.run(["git", "checkout", "-q", "-b", "release"], cwd=repo, check=True, capture_output=True)
+    deployed_from_here(repo, "B", ADDRESS_B, 2, "2026-01-02T00:00:00Z")
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+    tags = [f"refs/tags/{tag}" for tag in tags_in(repo)]
+    subprocess.run(["git", "push", "-q", "origin", "release", *tags], cwd=repo, check=True, capture_output=True)
+
+    printed: list[str] = []
+    assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 0
+
+    assert git_out(repo, "rev-parse", "--abbrev-ref", "release@{upstream}") == "origin/release"
+    assert printed[-1].strip() == "release now tracks origin/release", printed
+
+
+def test_push_leaves_an_upstream_it_finds(tmp_path, monkeypatch):
+    # A branch that already tracks something keeps it: that choice is the person's, and `--set-upstream` would
+    # replace it. The push still sends the branch to origin's branch of the same name.
+    repo, deployed_a, head = a_repository_recording(tmp_path, '{"schemaVersion": 1, "baselines": {}}\n')
+    origin = repo.parent / "origin.git"
+    subprocess.run(
+        ["git", "checkout", "-q", "-b", "release", "--track", "origin/main"], cwd=repo, check=True, capture_output=True
+    )
+    recover = load_recover_baselines()
+    driven(recover, monkeypatch, repo, deployed_a)
+    assert recorded_and_committed(recover, repo) == 0
+
+    assert recover.publish(repo, say=recover.Printer(0)) == 0
+
+    assert git_out(repo, "rev-parse", "--abbrev-ref", "release@{upstream}") == "origin/main", "its upstream stays"
+    assert git_out(origin, "rev-parse", "refs/heads/release") == git_out(repo, "rev-parse", "release")
 
 
 def test_push_pushes_the_branch_with_the_tags(tmp_path, monkeypatch):

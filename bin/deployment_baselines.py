@@ -735,13 +735,16 @@ def _origin_holds(repo_root: Path, commit: str, origin: dict[str, Tag], heads: d
     return None if len(held) < len(candidates) else False
 
 
-def _leased_push(repo_root: Path, leases: dict[str, str], refspecs: list[str]) -> dict[str, tuple[str, str]]:
+def _leased_push(
+    repo_root: Path, leases: dict[str, str], refspecs: list[str], *, set_upstream: bool
+) -> dict[str, tuple[str, str]]:
     """Push `refspecs` to origin in one atomic push: origin takes every ref or none. Each tag in `leases` is
     leased on the object origin held when it was looked at - empty when it held none - so the push changes
     only the copy looked at, never one another clone put there since. A ref without a lease is pushed as git
     pushes it: a branch only moves forward. And git checks each submodule commit the pushed commits point
     to (`--recurse-submodules=check`): one that the submodule's remote-tracking refs do not reach stops the
-    push, since CI could not fetch it. That check asks no remote and pushes no submodule.
+    push, since CI could not fetch it. That check asks no remote and pushes no submodule. `set_upstream`
+    sets each branch pushed to track origin's, as `git push -u` does; git sets it only when the push lands.
 
     Returns each refspec's destination ref's (flag, summary) as git's porcelain gives them: `*` new, `+`
     forced, `-` deleted, a space for a branch moved forward, `=` already there, anything else refused. One
@@ -756,6 +759,7 @@ def _leased_push(repo_root: Path, leases: dict[str, str], refspecs: list[str]) -
             "--porcelain",
             "--atomic",
             "--recurse-submodules=check",
+            *(["--set-upstream"] if set_upstream else []),
             "origin",
             *(f"--force-with-lease=refs/tags/{tag}:{lease}" for tag, lease in leases.items()),
             *refspecs,
@@ -797,6 +801,7 @@ class Pushed:
     replaced: list[tuple[str, str]]  # (tag, how origin's copy differed from what the record derives), forced
     deleted: list[tuple[str, str]]  # (replaced tag, its replacement), deleted on origin
     branch_moved: bool  # origin's branch moved to this clone's tip
+    upstream_set: bool  # the branch tracked nothing, and now tracks origin's
 
 
 def push_to_origin(
@@ -809,7 +814,7 @@ def push_to_origin(
 ) -> Pushed:
     """Make origin hold `branch`, this clone's current branch, at its tip here, every tag the record derives
     as this clone holds it, and no replaced tag: in one atomic push, or not at all. Nothing here changes but
-    what a push of `branch` changes: `origin/<branch>`.
+    what `git push -u` changes: `origin/<branch>`, and the upstream of a branch that tracks nothing.
 
     `origin` and `heads` are what origin listed (`origin_tags`, `origin_heads`), and every object `origin`
     lists for these tags is held here, so origin's copy is read and judged like this clone's (`_faults`).
@@ -828,7 +833,12 @@ def push_to_origin(
 
     `branch` goes to origin's branch of the same name, and only forward. When origin's branch is at a commit
     this clone's does not contain, it is behind: git would refuse it, and the record here may be older than
-    origin's. Like `git push`, the push moves `origin/<branch>` here. It sets no upstream.
+    origin's. Like `git push`, the push moves `origin/<branch>` here.
+
+    A branch that tracks nothing (`branch.<b>.merge` unset) is set to track origin's by the same push
+    (`--set-upstream`), as git's `push.autoSetupRemote` does, so an editor no longer offers to publish it. Such
+    a branch is never "nothing to push": the push runs, with origin's refs up to date, to set it. A branch that
+    tracks something is left alone, since `--set-upstream` would replace what it tracks.
 
     Each replaced tag origin holds (`replaced_tags`) is deleted in the same push. Its replacement is a tag
     the record derives, so origin holds it once the push lands.
@@ -840,6 +850,8 @@ def push_to_origin(
     changed, which a pull takes, or git's reason."""
     record = list(baselines)
     held = held_tags(repo_root)
+    # `git config --get` exits 1 when the key is not set.
+    tracks = run_git(repo_root, "config", "--get", f"branch.{branch}.merge", none_found=1).strip() != ""
     tip_ref = f"refs/heads/{branch}"
     tip = run_git(repo_root, "rev-parse", "--verify", tip_ref).strip()
     to_pull: list[tuple[str, str]] = []
@@ -875,9 +887,9 @@ def push_to_origin(
     behind = "" if there_tip is None or _reaches(repo_root, there_tip, tip) else there_tip
     replaced = replaced_tags(repo_root, record, origin)
     if to_pull or to_write or waiting or behind:
-        return Pushed(to_pull, to_write, waiting, behind, [], [], [], [], False)
-    if not sending and not replaced and there_tip == tip:
-        return Pushed([], [], [], "", [], [], [], [], False)
+        return Pushed(to_pull, to_write, waiting, behind, [], [], [], [], False, False)
+    if not sending and not replaced and there_tip == tip and tracks:
+        return Pushed([], [], [], "", [], [], [], [], False, False)
 
     leases = {**{tag: lease for tag, lease, _ in sending}, **{tag: origin[tag].object for tag in replaced}}
     reported = _leased_push(
@@ -888,6 +900,7 @@ def push_to_origin(
             *(f":refs/tags/{tag}" for tag in replaced),
             f"{tip_ref}:{tip_ref}",
         ],
+        set_upstream=not tracks,
     )
     failed = {ref: summary for ref, (flag, summary) in reported.items() if flag not in ("*", "+", "-", " ", "=")}
     if failed:
@@ -907,7 +920,7 @@ def push_to_origin(
             if now is not None and ("" if there is None else there.object) != leases[tag]:
                 why = "origin's copy changed after this run looked at it. Run verify-audit --pull, then --push again"
             refused.append((tag, why))
-        return Pushed([], [], [], "", refused, [], [], [], False)
+        return Pushed([], [], [], "", refused, [], [], [], False, False)
     return Pushed(
         [],
         [],
@@ -918,6 +931,7 @@ def push_to_origin(
         [(tag, ", ".join(faults)) for tag, _, faults in sending if reported[f"refs/tags/{tag}"][0] == "+"],
         sorted(replaced.items()),
         reported[tip_ref][0] in ("*", " "),
+        not tracks,
     )
 
 

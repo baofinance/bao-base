@@ -16,12 +16,14 @@ Then it makes, and corrects where they differ from what the record derives, the 
 derives - on this computer only, where they and the record can be checked before anything is published.
 
 `--push` publishes the current branch and those tags: only from a clean checkout (`git status` lists
-nothing), and only the names the record derives. One atomic push carries the branch, every tag origin lacks or holds wrong,
-and the deletion of every tag a new name replaces, so the branch never reaches a CI that lacks its tags.
-Origin takes all of it or none. Anything that stops one of them stops all of them, and is named: a tag
-wrong here, a tag whose commit neither origin nor the branch holds, a label in error, origin's branch
-holding commits this clone lacks, a submodule commit no remote of the submodule holds. When origin holds a tag this clone should take first, it pushes nothing
-and says so, as git's push does. It changes only origin, and the `origin/<branch>` the push moves.
+nothing), and only the names the record derives. One atomic push carries the branch, every tag origin
+lacks or holds wrong, and the deletion of every tag a new name replaces, so the branch never reaches a CI
+that lacks its tags. Origin takes all of it or none. Anything that stops one of them stops all of them,
+and is named: a tag wrong here, a tag whose commit neither origin nor the branch holds, a label in error,
+origin's branch holding commits this clone lacks, a submodule commit no remote of the submodule holds.
+When origin holds a tag this clone should take first, it pushes nothing and says so, as git's push does.
+Here it changes what `git push -u` changes: the `origin/<branch>` the push moves, and the upstream of a
+branch that tracks nothing.
 
 `--pull` takes origin's copy of each deployment tag, and origin's branches: the other way, as git's fetch.
 Each switch changes one side - `--pull` this clone from origin, `--write` this clone from the record,
@@ -986,7 +988,8 @@ def _run(args: list[str]) -> int:
         #
         # `--push` publishes them with the current branch: only from a clean checkout, and only those
         # names. One atomic push carries the branch and the tags, so the branch never reaches a CI that
-        # lacks its tags. It changes only origin, and the `origin/<branch>` that moves.
+        # lacks its tags. Here it changes what `git push -u` does: `origin/<branch>`, and the upstream of a
+        # branch that tracks nothing.
         #
         # Given together they run in that order, each attempted whatever the one before did, exactly as
         # `--pull; --write; --push` would be.
