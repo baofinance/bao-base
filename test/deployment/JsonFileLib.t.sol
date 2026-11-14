@@ -4,8 +4,8 @@ pragma solidity >=0.8.28 <0.9.0;
 import {Test} from "forge-std/Test.sol";
 import {JsonFileLib} from "@bao-script/deployment/JsonFileLib.sol";
 
-/// @notice `JsonFileLib` ends each file it writes with one newline. Each test writes its own file under `tmp/`, which git
-///         ignores, before the call under test, so a file an earlier run left cannot pass it.
+/// @notice `JsonFileLib` ends each file it writes with one newline. Each test writes its own file under `tmp/`, which
+///         git ignores, before the call under test, so a file an earlier run left cannot pass it.
 contract JsonFileLibTest is Test {
     /// @dev The file under `tmp/` named for the calling test: its own, as the tests run in parallel.
     function _path(string memory test) private returns (string memory) {
@@ -18,8 +18,8 @@ contract JsonFileLibTest is Test {
         string memory path = _path("write_endsTheFileWithOneNewline");
         vm.writeFile(path, "not written by this run");
 
-        // The JSON is a literal: on forge 1.9.0, a test calling `vm.serializeUint` aborts the whole run with a stack
-        // overflow whenever the build is cached.
+        // The JSON is a literal: on forge 1.9.0, a `vm.serialize*` cheatcode aborts the whole run with a stack overflow
+        // on the fixtures' structs that hold themselves (doc/forge-serialize-recursive-struct-crash.md).
         JsonFileLib.write('{"value":1}', path);
 
         assertEq(vm.readFile(path), '{\n  "value": 1\n}\n');
