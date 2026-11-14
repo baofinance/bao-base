@@ -1240,13 +1240,26 @@ def branch_lacking(checkout: Path, branch: str | None, at: str | None) -> list[s
     """The commits of the local branch `branch` in `checkout` that `at` lacks, a line each as `dated_log` shows them:
     what standing the folder on its branch at `at` would take off the branch, so the folder would stay detached. []
     when there is no branch to follow, no local branch of that name, or no such commit - and when `at` is not in the
-    checkout to compare, which a fetch brings."""
+    checkout to compare, which a fetch brings.
+
+    [] too for a branch only git clone has set, while a remote holds each of those commits. git clone makes the
+    remote's default branch at the remote's tip, so every fresh clone, a CI checkout included, has such a branch ahead
+    of an older commit its repository points to. It holds nothing of the developer's, any more than a branch that is
+    not there. The branch's reflog, git's record of each move of it, tells it apart: one entry, the clone's, at the
+    branch's commit. A move that changes the branch adds an entry. A branch with no reflog counts as the developer's."""
     if branch is None or at is None:
         return []
     local = f"refs/heads/{branch}"
     if git(checkout, "rev-parse", "--verify", "--quiet", local).returncode != 0:
         return []
-    return dated_log(checkout, local, "--not", at)
+    lacking = dated_log(checkout, local, "--not", at)
+    if not lacking:
+        return []
+    tip = git(checkout, "rev-parse", local).stdout.strip()
+    moves = git(checkout, "log", "--walk-reflogs", "--format=%H %gs", local, "--").stdout.splitlines()
+    only_cloned = len(moves) == 1 and moves[0].startswith(f"{tip} clone: ")
+    only_here = git(checkout, "log", "--oneline", local, "--not", at, "--remotes").stdout.strip()
+    return [] if only_cloned and not only_here else lacking
 
 
 def branch_passed_finding(here: Here, directory: Path, level: Declared, at: str, lacking: list[str], state: str) -> str:
@@ -1327,7 +1340,7 @@ def detached_behind_branch_problems(
     leaves it so: `git submodule update`, which the editor's Discard on a submodule runs, checks out the commit the
     repository points to and detaches. The build then uses one version while the branch holds another, and a git add
     there records the older one. A folder on a branch is not one, whichever; nor is one whose branch takes nothing
-    off, or one whose parent names no branch, being pinned. One fault is one finding: a folder off the commit its
+    off, or holds nothing but what git clone put there, or one whose parent names no branch, being pinned. One fault is one finding: a folder off the commit its
     repository points to is the folder check's, and one pointed back is that check's, whose repair also stands it on
     its branch. Returns one finding each, in the words sync prints."""
     here = here or Here(repo_root, repo_root)

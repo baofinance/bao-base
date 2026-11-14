@@ -165,7 +165,9 @@ dep remove [--force] <dependency> ...
                 set it up to work in, on its branch at the commit its repository points to; run again
                 in the main folder to take that set-up away. It stops, with nothing changed, where it
                 would leave a folder detached behind the branch it follows; --force goes on, leaving
-                the folder detached there and its branch keeping its commits. It also stops, with
+                the folder detached there and its branch keeping its commits. A branch only git clone
+                has set, as in a fresh clone, holds nothing of yours: sync takes it back to that
+                commit, unless it holds a commit no remote has. It also stops, with
                 nothing changed, on a submodule pointed back to an older commit than the last commit
                 points to.
   status        For each submodule, and each submodule inside one that a remapping uses: the branch it
@@ -309,8 +311,9 @@ def stop_for_work(heading: str, found: list[str], moving: str, force_command: st
 
 def stand_on_branch(repo_root: Path, directory: Path, level: Declared, force: bool, here: Here) -> None:
     """Put a folder that is at its recorded commit on the branch its parent's .gitmodules names, rather than
-    leave it detached. The local branch is made there when there is none, and moved up when it is behind:
-    neither loses a commit. A branch holding commits the recorded commit lacks is not moved: the run stops
+    leave it detached. The local branch is made there when there is none, moved up when it is behind, and
+    taken back when only git clone has set it: none of these loses a commit of the developer's. Any other
+    branch holding commits the recorded commit lacks is not moved: the run stops
     there, naming them and the ways out, or, with `force`, the folder stays detached and sync says why. sync
     stops before its first step for each folder whose recorded commit it can read then; this stop is for the
     rest - the project `-C` names, and a path beneath a dependency sync has just moved. A folder whose parent
@@ -323,15 +326,16 @@ def stand_on_branch(repo_root: Path, directory: Path, level: Declared, force: bo
     if git(checkout, "symbolic-ref", "--quiet", "HEAD").stdout.strip() == f"refs/heads/{branch}":
         return
     local = git(checkout, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}").stdout.strip()
+    lacking = branch_lacking(checkout, branch, want)
     if not local:
         run(repo_root, checkout, "checkout", "--quiet", "-b", branch)
         if git(checkout, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}").returncode == 0:
             run(repo_root, checkout, "branch", "--quiet", f"--set-upstream-to=origin/{branch}", branch)
-    elif git(checkout, "merge-base", "--is-ancestor", local, want).returncode == 0:
-        # The branch is at the recorded commit or behind it, so standing it there loses nothing.
+    elif not lacking:
+        # The branch is at the recorded commit or behind it, or only git clone has set it, so standing it there
+        # takes nothing of the developer's off it.
         run(repo_root, checkout, "checkout", "--quiet", "-B", branch)
     else:
-        lacking = branch_lacking(checkout, branch, want)
         if not force:
             print("  Stopped: sync would leave a folder detached behind the branch it follows.")
             for line in branch_passed_finding(here, directory, level, want, lacking, "is detached at").splitlines():

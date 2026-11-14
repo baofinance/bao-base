@@ -2949,6 +2949,92 @@ def test_sync_with_the_main_folder_flag_stops_when_the_projects_branch_has_passe
     assert git(here / "lib" / "dep", "rev-parse", "main") == tip
 
 
+def test_sync_of_a_fresh_clone_stands_a_dependency_on_its_branch_after_its_remote_moved_on(tmp_path):
+    # A plain clone, synced after dep's main moved past the commit the project points to. Checking lib/dep out
+    # clones it, and git clone makes main at the remote's tip. Nothing on that branch is the developer's, so sync
+    # stands the folder on main at the recorded commit, as it does where it makes the branch itself.
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    advance(world, "dep")
+    here = clone(world)
+    pointed = recorded(here, "lib/dep")
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert checked_out(here / "lib" / "dep") == pointed
+    assert branch_of(here / "lib" / "dep") == "main"
+    assert git(here / "lib" / "dep", "rev-parse", "main") == pointed
+
+
+def test_sync_of_a_recursive_clone_stands_each_dependency_on_its_branch_after_their_remotes_moved_on(tmp_path):
+    # The CI checkout: a clone, then git submodule update --init --force, after both dependencies' main moved on.
+    # Each folder is detached at its record, beside a main git clone made at the remote's tip. sync stands each on
+    # main at its record.
+    world = both_follow_main(tmp_path, ["dep/=lib/dep/src/"])
+    advance(world, "dep")
+    advance(world, "tool")
+    here = clone(world)
+    git(here, "submodule", "update", "--init", "--force", "--quiet")
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    for path in ("lib/dep", "lib/tool"):
+        pointed = recorded(here, path)
+        assert checked_out(here / path) == pointed, path
+        assert branch_of(here / path) == "main", path
+        assert git(here / path, "rev-parse", "main") == pointed, path
+
+
+def test_sync_of_a_fresh_clone_stands_a_remapped_nested_path_on_its_branch_after_its_remote_moved_on(tmp_path):
+    # lib/dep says lib/inner follows main, and a remapping makes the build read lib/inner. inner's main moved past
+    # lib/dep's record of it. sync clones lib/inner itself, and stands it on main at that record.
+    world = following_main(tmp_path, ["inner/=lib/dep/lib/inner/src/"])
+    upstream = world.remotes / "dep"
+    git(upstream, "config", "-f", ".gitmodules", "submodule.lib/inner.branch", "main")
+    git(upstream, "commit", "-qam", "inner follows main")
+    git(upstream, "push", "-q", str(world.remotes / "dep.git"), "HEAD:main")
+    git(world.project / "lib" / "dep", "fetch", "-q", "origin")
+    git(world.project / "lib" / "dep", "checkout", "-q", "origin/main")
+    git(world.project, "add", "lib/dep")
+    git(world.project, "commit", "-qm", "dep: inner follows main")
+    advance(world, "inner")
+    here = clone(world)
+
+    result = sync(here)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    inner = here / "lib" / "dep" / "lib" / "inner"
+    pointed = recorded(here, "lib/dep/lib/inner")
+    assert checked_out(inner) == pointed
+    assert branch_of(inner) == "main"
+    assert git(inner, "rev-parse", "main") == pointed
+
+
+def test_sync_stops_on_a_branch_git_clone_made_holding_a_commit_no_remote_has(tmp_path):
+    # git clone made main at the remote's tip, and the remote has since been forced back past it. That commit is
+    # now on this computer only, so the branch is treated as the developer's: sync stops, and taking the branch
+    # back pushes it first.
+    world = following_main(tmp_path, ["dep/=lib/dep/src/"])
+    advance(world, "dep")
+    here = clone(world)
+    git(here, "submodule", "update", "--init", "--force", "--quiet")
+    pointed = recorded(here, "lib/dep")
+    tip = git(here / "lib" / "dep", "rev-parse", "main")
+    git(world.remotes / "dep.git", "update-ref", "refs/heads/main", pointed)
+    git(here / "lib" / "dep", "fetch", "-q", "--prune", "origin")
+
+    result = sync(here)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert result.stdout == (
+        "sync:\n" + _DETACHED_STOP + detached_finding(here, "lib/dep", "would be left detached at", pointed) + _go_on()
+    )
+    assert "push its commits first" in result.stdout, result.stdout
+    assert checked_out(here / "lib" / "dep") == pointed
+    assert git(here / "lib" / "dep", "rev-parse", "main") == tip
+
+
 # ── a bare update moves every dependency that follows a branch ───────────────────────────────────────────
 
 

@@ -840,6 +840,22 @@ def test_a_folder_detached_where_its_branch_takes_nothing_off_is_not_reported(tm
     assert _found(host)[_DETACHED] == []
 
 
+def test_a_fresh_clone_detached_behind_a_branch_only_git_clone_has_set_is_not_reported(tmp_path):
+    # A recursive clone made after the dependency's remote moved on: git clone made the branch at the remote's tip,
+    # and the checkout detached at the commit host points to. Nothing on the branch is the developer's, and sync
+    # stands the folder on it at that commit without asking.
+    host = _host_with_a_dependency(tmp_path)
+    branch = _follows_its_branch(host, "lib/sub")
+    _git(host, "commit", "-qam", "lib/sub follows its branch")
+    commit_in(tmp_path / "sub", "moved on")
+    fresh = tmp_path / "fresh"
+    _git(tmp_path, "-c", "protocol.file.allow=always", "clone", "-q", "--recurse-submodules", str(host), str(fresh))
+    folder = fresh / "lib" / "sub"
+    assert len(_shown_log(folder, f"refs/heads/{branch}", "--not", "HEAD")) == 1, "the branch is one commit ahead"
+
+    assert _found(fresh)[_DETACHED] == []
+
+
 def test_a_pinned_folder_or_one_on_another_branch_is_not_reported(tmp_path):
     # A dependency .gitmodules names no branch for is pinned, and detached by nature; one on a branch of its own is
     # not detached, whatever the branch it follows holds.
