@@ -164,7 +164,7 @@ def test_forge_build_writes_no_foundry_lock_when_every_dependency_is_checked_out
 
 def test_forge_build_writes_foundry_lock_when_it_installs_a_dependency(tmp_path):
     # The install writes foundry.lock into the project, untracked, as `forge install` would. This is why
-    # the doctor's "no foundry.lock" finding sends the reader to `yarn dep sync` as well as to the removal.
+    # the doctor's "no foundry.lock" finding sends the reader to git's update as well as to the removal.
     project = project_with(tmp_path, ["present", "absent"])
     shutil.rmtree(project / "lib" / "absent")
     (project / "lib" / "absent").mkdir()
@@ -179,7 +179,7 @@ def test_forge_build_writes_foundry_lock_when_it_installs_a_dependency(tmp_path)
 
 
 def test_forge_build_leaves_a_dependency_with_update_none_empty_and_writes_no_lock(tmp_path):
-    # What `yarn dep sync` relies on to keep a dependency's unused submodules empty. forge still finds the folder
+    # An `update = none` setting keeps a submodule's folder empty, for forge too. forge still finds the folder
     # missing, but its install is `git submodule update`, which skips a submodule whose update is none: nothing is
     # checked out and no foundry.lock is written. The test above has the same gap without the setting.
     project = project_with(tmp_path, ["present", "absent"])

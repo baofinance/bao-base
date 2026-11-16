@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import columns  # noqa: E402
-from submodule_state import Mismatch, conflicting_dependencies  # noqa: E402
+from submodule_state import COOKBOOK_SHARED, Here, Mismatch, conflicting_dependencies  # noqa: E402
 
 # What ancestry established, always stated RELATIVE TO HERE and only ever on the other repository's
 # line. A group can hold three parties - forge-std has us between bao-factory and the rest - and a
@@ -74,15 +74,16 @@ def report(found: list[Mismatch]) -> str:
         if any(mismatch.relation is None for mismatch in mismatches):
             lines.append("    (no checkout holds both commits, so which is later cannot be read here)")
         lines.append("")
-    lines.append("  run `yarn dep update <dependency>@<ref>` in whichever repository is the one to move")
+    cookbook = Here(Path.cwd(), Path.cwd()).cookbook(COOKBOOK_SHARED)
+    lines.append(f"  move it in whichever repository is the one to move: {cookbook}")
     return "\n".join(lines)
 
 
 def main() -> int:
     """Non-zero when anything disagrees. A mismatch is a defect, not a note: repositories sharing
-    bao-base are meant to be on one version of each thing they share, and every finding is one
-    `yarn dep update` from gone - in whichever of the two repositories is the one to move. It is red until
-    they converge, which is the point of saying it."""
+    bao-base are meant to be on one version of each thing they share, and every finding is gone once the
+    dependency is moved in whichever of the two repositories is the one to move. It is red until they
+    converge, which is the point of saying it."""
     found = conflicting_dependencies(Path.cwd())
     if found:
         print(report(found))

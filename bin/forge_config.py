@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The configuration forge builds with, as `forge config` resolves it.
 
-Shared by doctor, which checks settings in it, and bin/dep, which reads the remappings from it. Read from
+Shared by doctor, which checks settings in it, and submodule_state, which reads the libs folder from it. Read from
 forge rather than from foundry.toml, because the active profile and `FOUNDRY_*` environment variables
 override the file, and forge builds with what it resolves.
 """

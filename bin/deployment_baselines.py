@@ -198,7 +198,7 @@ def key(chain_id: int, address: str) -> str:
 # exactly these tags and of no other.
 DEPLOY_TAGS = "deploy/"
 
-# The one tag fetch, used by `verify-audit --pull` and by `yarn dep`: every tag origin has, with origin's
+# The one tag fetch, used by `verify-audit --pull`: every tag origin has, with origin's
 # version of a deployment tag replacing the one held here. A plain `--tags` fetch refuses to replace a tag
 # a clone already holds ("would clobber existing tag"), so a tag corrected in one clone would stop every
 # other clone's fetch instead of reaching it. Only the deployment tags are forced: the record derives their

@@ -10,13 +10,8 @@ Three independent things make that claim, and any of them can disagree with the 
 A different git command writes each one - commit, add, checkout - and a move that stops between them
 is where every broken state comes from.
 
-Two consumers read these facts and must never contradict each other:
-
-  `condition()` names what is wrong, for bin/doctor.py to report
-  `move_checklist()` lists what is left to do, for bin/dep to converge
-
-They are the same question asked at two moments - before touching anything, and after - so diagnosing
-and verifying are one implementation rather than two that drift.
+`condition()` names what is wrong, for bin/doctor.py to report, and `repair()` gives the git command that
+mends it. Every check reads the facts through this module, so no two of them read one state in two ways.
 
 Everything here is READ-ONLY. Nothing in this module writes to a repository.
 """
@@ -32,13 +27,17 @@ from pathlib import Path, PurePosixPath
 
 from forge_config import forge_config
 
-# The kind of version that can move on its own: a branch. A tag or a commit resolves nothing by
-# itself, so a bare `yarn dep update <dep>` on one must be told a ref.
-MOVING = "branch"
-
 # The repository that is bao-base, by the last segment of its URL: what a project depends on to share our
 # toolchain, and what a copy of it is wherever it is checked out.
 TOOLCHAIN = "bao-base"
+
+# The cookbook of git commands for each task, in the bao-base this module is part of, and the sections of it
+# that a repair names. A repair that is one command prints the command. One that is a procedure names its
+# section.
+COOKBOOK = Path(__file__).resolve().parent.parent / "doc" / "dependencies.md"
+COOKBOOK_UPGRADE = "Upgrade a dependency"
+COOKBOOK_SHARED = "A shared dependency, in every place that has it"
+COOKBOOK_LEFT_BEHIND = "A nested folder that a new version no longer uses"
 
 
 def git(where: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -71,17 +70,6 @@ def dated_log(checkout: Path, *selection: str) -> list[str]:
         return []
     lines = (line.split("\x00", 2) for line in listed.stdout.splitlines())
     return [f"{short} {_utc(seconds)} {subject}" for short, seconds, subject in lines]
-
-
-@dataclass(frozen=True)
-class Pin:
-    """The version a dependency is asked to move to, as bin/dep resolves the ref it was given: `kind`
-    is 'tag', 'branch' or 'rev', with the ref's `name` and the commit `rev` it names, or 'absent' when
-    the ref resolves to nothing."""
-
-    kind: str
-    name: str | None
-    rev: str | None
 
 
 @dataclass(frozen=True)
@@ -187,30 +175,6 @@ class Facts:
         subtree, since a nested submodule's commits and an untracked repository's commits are just as
         irreplaceable as this one's, and look like drift and litter from up here."""
         return bool(self.at_risk)
-
-
-def submodules(repo_dir: Path, prefix: str = "") -> list[tuple[Path, str, str]]:
-    """Every submodule in the tree, at any depth, as (its parent repository, its path within that
-    parent, its path from the top).
-
-    Read from .gitmodules, which still lists a submodule that is not checked out: `git submodule
-    status` reports one, and a filesystem walk would miss it entirely.
-
-    Recursion is what makes depth work everywhere else: each nested submodule is read in its own
-    right, against its own parent, so litter and uninitialised checkouts are found at any level
-    without any function having to recurse on its own.
-    """
-    found: list[tuple[Path, str, str]] = []
-    listing = git(repo_dir, "config", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.path$")
-    for line in listing.stdout.splitlines():
-        name = line.partition(" ")[2].strip()
-        if not name:
-            continue
-        found.append((repo_dir, name, f"{prefix}{name}"))
-        nested = repo_dir / name
-        if (nested / ".git").exists():
-            found.extend(submodules(nested, prefix=f"{prefix}{name}/"))
-    return found
 
 
 @dataclass(frozen=True)
@@ -376,12 +340,6 @@ def submodules_the_build_reads(
     return levels
 
 
-def named_path(dependency: str, libs: str) -> str:
-    """The path of a dependency, or of a submodule inside one, named by its path in the first libs folder,
-    where `add` places every dependency. A leading libs folder is accepted too: `dep` and `lib/dep` agree."""
-    return f"{libs}/{dependency.strip('/').removeprefix(f'{libs}/')}"
-
-
 def locate(repo_root: Path, path: str) -> tuple[Path, Declared] | None:
     """The submodule at `path`, with the folder whose .gitmodules lists it: this repository for a dependency,
     a dependency for one of its own submodules. None when no .gitmodules that is checked out lists one there."""
@@ -428,31 +386,15 @@ class Here:
         located = PurePosixPath(os.path.relpath(folder, self.typed)).as_posix()
         return "git" if located == "." else f"git -C {located}"
 
-    def dep(self, folder: Path) -> str:
-        """`yarn dep`, acting on the project at `folder`, from the folder typed in: the `-C` argument as it was typed
-        for the project acted on; nothing for the repository the folder typed in lies in; a folder path when the way
-        there names the libs folder, which makes it one; and otherwise a module path, which counts from the repository
-        typed in, not the folder: up a `..` for each repository to the first that holds `folder`, then down by the
-        dependencies' names, the libs folders left out."""
-        if folder == self.project and self.argument is not None:
-            return f"yarn dep -C {self.argument}"
-        home = Path(git(self.typed, "rev-parse", "--show-toplevel").stdout.strip())
-        if folder == home:
-            return "yarn dep"
-        libs = PurePosixPath(forge_config(home)["libs"][0]).as_posix()
-        located = PurePosixPath(os.path.relpath(folder, self.typed))
-        if libs in located.parts:
-            return f"yarn dep -C {located.as_posix()}"
-        ups, holding = [], home
-        while not folder.is_relative_to(holding):
-            above = _superproject(holding)
-            if above is None:
-                # Outside the tree of repositories typed in, which -C does not reach: the folder, as it stands.
-                return f"yarn dep -C {located.as_posix()}"
-            ups.append("..")
-            holding = above
-        down = [part for part in folder.relative_to(holding).parts if part != libs]
-        return f"yarn dep -C {'/'.join([*ups, *down])}"
+    def update(self, repository: Path, path: str | None = None) -> str:
+        """git's update of the dependency folders of `repository`, at every depth, from the folder typed in: every
+        folder, or the one at `path` with the folders beneath it. It puts each at the commit recorded for it."""
+        command = f"{self.git(repository)} submodule update --init --recursive"
+        return command if path is None else f"{command} -- {path}"
+
+    def cookbook(self, section: str) -> str:
+        """The cookbook's `section`, with the file as the folder typed in reaches it."""
+        return f'{PurePosixPath(os.path.relpath(COOKBOOK, self.typed)).as_posix()}, "{section}"'
 
     def file(self, path: str) -> str:
         """`path`, a file of the project, as a command typed in the folder typed in reaches it."""
@@ -489,20 +431,21 @@ class RootProject:
     folder: Path
     shown: str
     declared: tuple[Path, Declared] | None
+    # git's update of the outermost repository, typed where the argument was typed: what checks the project out.
+    checks_out: str
 
     @property
     def not_checked_out(self) -> str | None:
-        """Why the project cannot be read, in the words `yarn dep -C` and `doctor -C` print after "Stopped: ", or None
-        when it can. Checking out an empty folder is `yarn dep -C <argument> sync`'s job, so that is the command
-        named, with the argument as it was typed, which names the same project from the same folder."""
+        """Why the project cannot be read, in the words `doctor -C` prints after "Stopped: ", or None when it can.
+        git's update of the outermost repository checks out every folder that is empty, this one among them."""
         if (self.folder / ".git").exists():
             return None
-        return f"{self.shown} is not checked out. To check it out: yarn dep -C {self.argument} sync"
+        return f"{self.shown} is not checked out. To check it out: {self.checks_out}"
 
 
 def root_project(argument: str, typed: Path) -> RootProject | str:
-    """The project `-C <argument>`, typed in the folder `typed`, names - or why there is none, in the words `yarn dep -C`
-    and `doctor -C` print after "Stopped: ".
+    """The project `-C <argument>`, typed in the folder `typed`, names - or why there is none, in the words
+    `doctor -C` prints after "Stopped: ".
 
     Two forms, told apart by the libs folder. An argument naming it, or absolute, is a folder path, read from `typed`
     as git's -C reads one: ../../lib/harbor/lib/bao-base. Any other is a module path, starting at the repository
@@ -517,6 +460,7 @@ def root_project(argument: str, typed: Path) -> RootProject | str:
     top = here
     while (above := _superproject(top)) is not None:
         top = above
+    checks_out = Here(typed, top).update(top)
     parts = PurePosixPath(argument).parts
     if PurePosixPath(argument).is_absolute() or PurePosixPath(forge_config(here)["libs"][0]).as_posix() in parts:
         folder = Path(os.path.normpath(typed / argument))
@@ -524,7 +468,7 @@ def root_project(argument: str, typed: Path) -> RootProject | str:
             return f"{argument} leads to {folder}, outside {top}."
     else:
         folder = here
-        for index, part in enumerate(parts):
+        for part in parts:
             if part == ".":
                 continue
             # Each step reads the module it stands on - its superproject, or its libs folder and .gitmodules - which an
@@ -532,7 +476,7 @@ def root_project(argument: str, typed: Path) -> RootProject | str:
             if not (folder / ".git").exists():
                 return (
                     f"{os.path.relpath(folder, typed)} is not checked out, so {argument} cannot go through it. "
-                    f"To check it out: yarn dep -C {PurePosixPath(*parts[:index])} sync"
+                    f"To check it out: {checks_out}"
                 )
             if part == "..":
                 holding = _superproject(folder)
@@ -543,11 +487,11 @@ def root_project(argument: str, typed: Path) -> RootProject | str:
                 folder = folder / PurePosixPath(forge_config(folder)["libs"][0]) / part
     shown = os.path.relpath(folder, typed)
     if folder == top:
-        return RootProject(argument, folder, shown, None)
+        return RootProject(argument, folder, shown, None, checks_out)
     declared = locate(top, folder.relative_to(top).as_posix())
     if declared is None:
         return f"no .gitmodules file lists a submodule at {shown}."
-    return RootProject(argument, folder, shown, declared)
+    return RootProject(argument, folder, shown, declared, checks_out)
 
 
 @dataclass(frozen=True)
@@ -585,48 +529,6 @@ def checked_out(checkout: Path) -> str | None:
         return None
     head = git(checkout, "rev-parse", "HEAD")
     return head.stdout.strip() if head.returncode == 0 else None
-
-
-def unused_submodules(
-    repo_root: Path, directory: Path, level: Declared, remappings: list[str]
-) -> list[tuple[Path, Declared]]:
-    """The submodules beneath the one `directory` lists as `level` that no remapping of `repo_root` uses,
-    checked out or not, each with the folder whose .gitmodules lists it, outermost first. The walk goes down
-    through the ones a remapping uses, whose .gitmodules is read from their checkout, and not into an unused
-    one, since leaving it empty leaves empty what it holds."""
-    here = directory / level.path
-    targets = [PurePosixPath(remapping_target(remapping)) for remapping in remappings]
-    found: list[tuple[Path, Declared]] = []
-    for nested in declared_submodules(here):
-        path = (here / nested.path).relative_to(repo_root).as_posix()
-        if any(target.is_relative_to(path) for target in targets):
-            found.extend(unused_submodules(repo_root, here, nested, remappings))
-        else:
-            found.append((here, nested))
-    return found
-
-
-def unused_checkouts(
-    repo_root: Path, directory: Path, level: Declared, remappings: list[str]
-) -> list[tuple[Path, Declared]]:
-    """The checked-out ones among `unused_submodules`."""
-    return [
-        (parent, nested)
-        for parent, nested in unused_submodules(repo_root, directory, level, remappings)
-        if (parent / nested.path / ".git").exists()
-    ]
-
-
-def kept_empty(directory: Path, level: Declared) -> bool:
-    """Whether git is told to leave the submodule `directory` lists as `level` empty: its `update` setting in
-    `directory`'s git config is `none`, which every `git submodule update` skips - forge's install of a
-    dependency it finds missing included. git keys the setting by the submodule's name. git's answer for "no
-    such setting" is exit 1 with nothing said; any other failure raises, with what git said."""
-    reading = git(directory, "config", "--get", f"submodule.{level.name}.update")
-    if reading.returncode == 1 and not reading.stderr.strip():
-        return False
-    reading.check_returncode()
-    return reading.stdout.strip() == "none"
 
 
 def remote_holds(checkout: Path, commit: str) -> bool | None:
@@ -739,7 +641,7 @@ def conflicting_dependencies(repo_root: Path, owner: str | None = None, toolchai
     """Dependencies this repository and a dependency of OURS each stage at a different commit.
 
     Only DIRECT against DIRECT, and only against submodules we own. That is what makes every finding
-    the same thing as its repair: a mismatch here is one `yarn dep update` away, in this repository, by
+    the same thing as its repair: a mismatch here is one move of a dependency away, in this repository, by
     whoever is reading. A disagreement further down - bao-factory's forge-std beneath bao-base - is
     real but is not ours to settle, and bao-base's own run reports it where it can be fixed. The check
     decomposes across repositories rather than one run policing a whole tree, and nothing is lost.
@@ -964,7 +866,7 @@ def condition(facts: Facts, nested_off: Sequence[str] = ()) -> Condition:
         return Condition("uninitialised", "the folder is empty")
 
     # `at_risk` is deliberately NOT a condition. It answers "would this be destroyed", which is what
-    # guards `yarn dep update`'s deleting steps and must stay as wide as it is - `has_own_work` still
+    # a step that deletes must ask, and it must stay as wide as it is - `has_own_work` still
     # carries it, unchanged. It does not answer "is this wrong", which is what doctor reports, and
     # having work in progress inside a dependency is not wrong: it is what working in one looks like,
     # and saying so every run says only that you have not finished yet.
@@ -1016,137 +918,6 @@ def condition(facts: Facts, nested_off: Sequence[str] = ()) -> Condition:
     return Condition("consistent", f"agrees on {dated(facts.worktree, facts.directory) if facts.worktree else ''}")
 
 
-@dataclass(frozen=True)
-class Stage:
-    """One item of the checklist `yarn dep update` converges: whether it is already done, and the action
-    that would complete it. An action is a command to run or an instruction to give - stages the user
-    must perform themselves (staging, committing) complete by being printed."""
-
-    number: int
-    name: str
-    done: bool
-    detail: str
-    action: str
-
-
-def describe_at_risk(item: AtRisk, under: str) -> str:
-    """One thing that exists only on this computer, in plain words, named by its path from the repository
-    root. `under` is the dependency the item was found in; `at_risk` names items relative to it, and the
-    dependency's own unpushed commits as `.`."""
-    where = under if item.path == "." else f"{under}/{item.path}"
-    if item.kind == "unpushed":
-        commit, _, message = item.detail.partition(" ")
-        return f'{where}: commit {commit} "{message}" is not pushed'
-    return f"{where}: {'not tracked by git' if item.kind == 'untracked' else 'changed and not committed'}"
-
-
-def move_checklist(
-    facts: Facts,
-    target_ref: str,
-    target_rev: str | None,
-    follows: str | None,
-    entry: Recorded,
-    nested_off: list[tuple[str, str]],
-    here: Here | None = None,
-) -> list[Stage]:
-    """What is left to do to move a dependency to `target_ref` (whose commit is `target_rev`) for bin/dep,
-    in plain words, with each command typed where `here` says - in the project, when it says nothing.
-
-    What the dependency follows - `follows`, a branch, or None at a tag or commit - is recorded in
-    `.gitmodules`, so adding and committing the move cover this dependency's entry there beside its
-    folder. Only this entry is compared, never the whole file, whose other entries belong to other
-    dependencies' moves. `nested_off` is each remapped nested path not at the commit its parent points to,
-    with the command that checks it out.
-    """
-    project = _project_of(facts)
-    here = here or Here(project, project)
-    git_in = here.git(project)
-    path = facts.path
-    safe = not facts.has_own_work
-    # Named individually rather than counted: only the user can say whether a given thing is a day's work
-    # or a stray file, and they cannot judge a number.
-    listed = "; ".join(describe_at_risk(item, path) for item in facts.at_risk[:8])
-    if len(facts.at_risk) > 8:
-        listed += f"; and {len(facts.at_risk) - 8} more"
-    name = entry.working.name if entry.working is not None else path
-    recorded_branch = entry.working.branch if entry.working is not None else None
-    entry_staged = entry.staged == entry.working
-    entry_committed = entry.committed == entry.working
-    unstaged = [path] if facts.index_gitlink != facts.worktree else []
-    if not entry_staged:
-        unstaged.append(".gitmodules")
-    folder = dated(facts.worktree, facts.directory) if facts.worktree else "nothing"
-    return [
-        Stage(
-            0,
-            f"nothing in {path} is only on this computer",
-            safe,
-            "nothing found" if safe else f"found: {listed}",
-            "" if safe else "push what you want to keep, or remove what you do not - or use --force",
-        ),
-        Stage(1, "a version to move to", True, target_ref, ""),
-        Stage(
-            2,
-            "the folder has that version",
-            bool(target_rev) and facts.worktree == target_rev,
-            f"the folder has {folder}, wanted {dated(target_rev, facts.directory) if target_rev else 'unknown'}",
-            f"{here.dep(project)} update {path}@{target_ref}",
-        ),
-        Stage(
-            3,
-            "submodules inside it that remappings use are at the commits it points to",
-            not nested_off,
-            ("not: " + ", ".join(nested for nested, _ in nested_off)) if nested_off else "all are",
-            " && ".join(command for _, command in nested_off),
-        ),
-        Stage(
-            4,
-            "no old git repositories are left inside it",
-            not facts.litter,
-            ", ".join(facts.litter) if facts.litter else "none",
-            "remove each folder and its git data",
-        ),
-        Stage(
-            5,
-            ".gitmodules says which branch it follows",
-            # Unjudgeable until the ref resolves: whether it is a branch decides what should be recorded.
-            target_rev is not None and recorded_branch == follows,
-            f"it says {f'branch {recorded_branch}' if recorded_branch else 'no branch'}"
-            + (
-                f", wanted {f'branch {follows}' if follows else 'no branch'}"
-                if target_rev is not None
-                else "; what it should say is unknown until the version is found"
-            ),
-            ""
-            if target_rev is None
-            else f"{git_in} config -f .gitmodules submodule.{name}.branch {follows}"
-            if follows
-            else f"{git_in} config -f .gitmodules --unset submodule.{name}.branch",
-        ),
-        Stage(
-            6,
-            "the change is added (git add)",
-            not unstaged,
-            f"this repository points to "
-            f"{dated(facts.index_gitlink, facts.directory) if facts.index_gitlink else 'nothing'}, the folder has {folder};"
-            f" the .gitmodules change is {'added' if entry_staged else 'not added'}",
-            f"{git_in} add {' '.join(unstaged)}",
-        ),
-        Stage(
-            7,
-            "the change is committed",
-            # Against the FOLDER, not what is added - the gitlink and the entry alike: while neither has moved
-            # they agree with each other, and comparing them would report the step done when nothing had
-            # happened.
-            facts.head_gitlink == facts.worktree and entry_committed,
-            f"the last commit points to "
-            f"{dated(facts.head_gitlink, facts.directory) if facts.head_gitlink else 'nothing'}, the folder has {folder};"
-            f" the .gitmodules change is {'committed' if entry_committed else 'not committed'}",
-            f"{git_in} commit",
-        ),
-    ]
-
-
 def _project_of(facts: Facts) -> Path:
     """The project `facts` were read in: the folder `facts.path` names the submodule from."""
     return facts.directory.parents[len(PurePosixPath(facts.path).parts) - 1]
@@ -1156,59 +927,36 @@ def repair(
     facts: Facts, found: Condition, keep: str = "", repository: str = "this repository", here: Here | None = None
 ) -> str:
     """The one action that reaches a consistent state, looked up rather than composed, in plain words, with its
-    commands typed where `here` says - in the project, when it says nothing.
+    commands typed where `here` says - in the project, when it says nothing. Each is a git command, or the
+    cookbook's section for a procedure.
 
-    `keep` is the command that points the repository to the folder's commit, from `keep_command`, so doctor
-    and `yarn dep sync` never name different commands for one tree."""
+    `keep` is the command that points the repository to the folder's commit, from `keep_command`."""
     project = _project_of(facts)
     here = here or Here(project, project)
-    sync = f"{here.dep(project)} sync"
+    update = here.update(project, facts.path)
     if found.name == "unreadable":
-        # sync runs git's own mend, `git submodule update --init`, which writes the gitdir's `core.worktree`
-        # afresh.
-        return f"{sync} (this repairs git's link to the folder)"
+        # git's update writes the folder's repository its `core.worktree` afresh.
+        return f"{update} (this repairs git's link to the folder)"
     if found.name in ("uninitialised", "behind-record", "nested-drift"):
-        # Each is a folder not at the commit the repository points to, and checking that out is sync's
-        # job. Never `git add` for an older commit: that points the repository backwards for everyone
-        # who pulls.
-        return f"{sync} (this checks out the commits {repository} points to)"
+        # Each is a folder not at the commit the repository points to, and the update checks that out, in
+        # the folder and beneath it. Never `git add` for an older commit: that points the repository
+        # backwards for everyone who pulls.
+        return f"{update} (this checks out the commits {repository} points to)"
     if found.name == "litter-present":
-        # Not a version change: the directory outlived the move that stranded it, and clearing it
-        # touches no gitlink. sync removes it, unless it holds work only this computer has.
-        return sync
+        # Not a version change: the directory outlived the move that stranded it, and clearing it touches
+        # no gitlink. git removes nothing here by itself, and what is left can hold work, so the cookbook's
+        # procedure looks first.
+        return f"remove them as {here.cookbook(COOKBOOK_LEFT_BEHIND)} says"
     if found.name in ("ahead-of-record", "off-record"):
         # Only the user knows whether the folder's commit was meant, so both directions are named.
         return keep_or_go_back(project, facts.path, repository, keep, len(facts.unpushed), here)
     return ""
 
 
-def sync_adds(repo_root: Path, path: str) -> bool:
-    """Whether a plain `yarn dep sync` points the repository at `repo_root` to the commit in the folder `path`,
-    once a remote holds it. That commit must be work not yet recorded: newer than the commit the repository
-    points to, and pointed to by no commit of the repository on any branch. A dependency is also newer after
-    checking out an older commit of the repository; its commit is then one a later commit points to, and is
-    left. The dependency's .gitmodules entry must be added as it stands, since sync adds commits, not edits."""
-    have, want = checked_out(repo_root / path), staged_gitlink(repo_root, path)
-    if have is None or want is None or have == want:
-        return False
-    if git(repo_root / path, "merge-base", "--is-ancestor", want, have).returncode != 0:
-        return False
-    entry = recorded_entry(repo_root, path)
-    if entry.staged != entry.working:
-        return False
-    # Each change to the folder's commit is a line ":<old mode> <new mode> <old commit> <new commit> <status>".
-    changes = git(repo_root, "log", "--all", "--format=", "--raw", "--no-abbrev", "--", path).stdout
-    return all(line.split()[3] != have for line in changes.splitlines() if line.startswith(":"))
-
-
 def keep_command(repo_root: Path, path: str, here: Here | None = None) -> str:
-    """The command that points the repository at `repo_root` to the commit in the folder `path`, once a remote
-    holds it: `yarn dep sync` where that adds it, otherwise git add, typed where `here` says. The git add names
-    .gitmodules beside the folder when the dependency's entry there is not added, exactly as `yarn dep update`
-    hands a move over."""
+    """The command that points the repository at `repo_root` to the commit in the folder `path`: git add, typed
+    where `here` says. It names .gitmodules beside the folder when the dependency's entry there is not added."""
     here = here or Here(repo_root, repo_root)
-    if sync_adds(repo_root, path):
-        return f"{here.dep(repo_root)} sync"
     entry = recorded_entry(repo_root, path)
     return " ".join([here.git(repo_root), "add", path, *([".gitmodules"] if entry.staged != entry.working else [])])
 
@@ -1217,18 +965,21 @@ def keep_or_go_back(
     project: Path, path: str, repository: str, keep: str, unpushed: int, here: Here | None = None
 ) -> str:
     """The two ways out for a folder `path` of `project` whose commit is not the one `repository` points to, in plain
-    words: record the folder's version with `keep`, or go back to the recorded one, typed where `here` says. Shared
-    by doctor and `yarn dep sync`, so the two never advise differently. Going back names the dependency, since a
-    plain sync leaves a folder ahead of its record where it is, or adds it."""
+    words: record the folder's version with `keep`, or go back to the recorded one with git's update of that
+    folder, typed where `here` says."""
     here = here or Here(project, project)
-    go_back = f"{here.dep(project)} sync {path}"
+    in_folder = here.git(project / path)
+    go_back = here.update(project, path)
+    if git(project / path, "rev-list", "-n", "1", "HEAD", "--not", "--branches", "--remotes").stdout.strip():
+        # git's update moves the folder whatever it holds. A commit that is on no branch and on no remote would
+        # then be reachable from git's reflog alone, so it is put on a branch first.
+        go_back = f"first put the folder's commit on a branch ({in_folder} switch -c <branch>), then {go_back}"
     if unpushed:
-        # Pointing the repository at a commit no remote holds breaks every other clone, and sync will not move
-        # a folder holding one - so the commits are dealt with first, either way.
-        commits = "commit" if unpushed == 1 else "commits"
+        # Pointing the repository at a commit no remote holds breaks every other clone, so keeping it means
+        # pushing it first.
         return (
-            f"To keep the folder's version: push it ({here.git(project / path)} push), then {keep}. "
-            f"To go back to the version {repository} points to: remove the unpushed {commits}, then {go_back}."
+            f"To keep the folder's version: push it ({in_folder} push), then {keep}. "
+            f"To go back to the version {repository} points to: {go_back}."
         )
     return (
         f"To keep the folder's version: {keep} ({repository} then points to it). "
@@ -1264,7 +1015,7 @@ def branch_lacking(checkout: Path, branch: str | None, at: str | None) -> list[s
 
 def branch_passed_finding(here: Here, directory: Path, level: Declared, at: str, lacking: list[str], state: str) -> str:
     """A folder detached, or to be left detached, at `at` while the branch it follows holds `lacking`: the fact, the
-    branch's commits beneath it, then the repair, as doctor and `yarn dep sync` both print them. The folder is named
+    branch's commits beneath it, then the repair, as doctor prints them. The folder is named
     as the project `here` acts on names it - "this project" when it is that project - and every command is typed
     where `here` says. `state` says which of the two it is.
 
@@ -1336,8 +1087,8 @@ def detached_behind_branch_problems(
     follows a branch and is detached, at the commit its repository points to, behind that branch; with `itself`, the
     project too, when a repository lists it. Commands are typed where `here` says, in the project when it says nothing.
 
-    `yarn dep sync` stands such a folder on its branch, and stops rather than leave it detached behind it. git
-    leaves it so: `git submodule update`, which the editor's Discard on a submodule runs, checks out the commit the
+    git leaves a folder so: `git submodule update`, which the editor's Discard on a submodule also runs, checks out
+    the commit the
     repository points to and detaches. The build then uses one version while the branch holds another, and a git add
     there records the older one. A folder on a branch is not one, whichever; nor is one whose branch takes nothing
     off, or holds nothing but what git clone put there, or one whose parent names no branch, being pinned. One fault is one finding: a folder off the commit its
@@ -1373,12 +1124,12 @@ def pointed_back_problems(
     it says nothing.
 
     `git add` on a folder behind the last commit makes this: after a pull that moved the commit and not the folder,
-    the editor's Stage on the submodule is one. No yarn dep command adds an older commit. The folder then has the
+    the editor's Stage on the submodule is one. The folder then has the
     commit the repository points to, so the folder check passes, while the build uses the older version and the next
     commit moves everyone who pulls back to it. A newer commit added - a bump not yet committed - is not one, and
     neither is a commit from another line of history, or one the folder cannot compare with the last commit's.
 
-    Returns one finding each, with the two ways out, in the words doctor and `yarn dep sync` both print."""
+    Returns one finding each, with the two ways out."""
     here = here or Here(repo_root, repo_root)
     problems: list[str] = []
     for path, (directory, level) in _with_the_project_itself(repo_root, dependencies, remappings, itself):
@@ -1398,6 +1149,6 @@ def pointed_back_problems(
             f"{path}: {repository} points it to {dated(added, folder)}, older than {dated(committed, folder)}, which "
             f"{repository}'s last commit points to.\n"
             f"  Repair: To go back to the last commit's version: {git_in} restore --staged {level.path}, then "
-            f"{here.dep(directory)} sync. If the older version is meant: {git_in} commit."
+            f"{here.update(directory, level.path)}. If the older version is meant: {git_in} commit."
         )
     return problems

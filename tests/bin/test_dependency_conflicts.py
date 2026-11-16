@@ -68,12 +68,14 @@ def test_one_repository_disagreeing_names_both_sides(tmp_path):
     assert "this repo" in found and "lib/bao-base" in found
 
 
-def test_the_repair_names_the_command_that_moves_a_dependency(tmp_path):
+def test_the_repair_names_the_cookbooks_procedure_for_a_shared_dependency(tmp_path):
+    # Moving one dependency in every place that has it is a procedure, so the repair names the cookbook's
+    # section, with the file as it is reached from where the command was typed.
     found = report([mismatch("solady", "lib/bao-base", "v0.1.26", "v0.0.287", "ours is later")])
 
-    assert found.endswith("  run `yarn dep update <dependency>@<ref>` in whichever repository is the one to move"), (
-        found
-    )
+    repair = found.splitlines()[-1]
+    assert repair.startswith("  move it in whichever repository is the one to move: "), repair
+    assert repair.endswith('doc/dependencies.md, "A shared dependency, in every place that has it"'), repair
 
 
 def test_repositories_disagreeing_about_one_dependency_share_a_single_line_for_ours(tmp_path):

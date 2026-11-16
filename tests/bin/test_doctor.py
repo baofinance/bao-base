@@ -101,7 +101,12 @@ def test_url_drift_detected_when_gitmodules_url_changes(tmp_path):
     drift = doctor.submodule_url_drift(host)
     assert any("lib/sub" in display for display, _gm, _gc in drift)
     reported = "\n".join(doctor.submodule_url_drift_problems(host))
-    assert "Repair: yarn dep sync (this copies the URLs from .gitmodules to .git/config)" in reported, reported
+    assert (
+        "Repair: git submodule sync --recursive (this copies the URLs from .gitmodules to .git/config)" in reported
+    ), reported
+    # Typed as printed, it leaves nothing to report.
+    subprocess.run("git submodule sync --recursive", shell=True, cwd=host, check=True, capture_output=True)
+    assert doctor.submodule_url_drift_problems(host) == []
 
 
 def test_url_drift_inside_a_dependency_is_not_reported(tmp_path):
@@ -524,10 +529,10 @@ def test_submodule_problems_says_nothing_when_every_claim_agrees(tmp_path):
     assert doctor.submodule_problems(host, []) == ([], [])
 
 
-def test_a_folder_holding_unpushed_commits_is_repaired_by_pushing_or_removing_them(tmp_path):
+def test_a_folder_holding_unpushed_commits_is_repaired_by_pushing_or_going_back(tmp_path):
     # Making the repository point to a commit no remote holds breaks every other clone - the fault that
-    # started this work - and `yarn dep sync` refuses to move a folder that holds one. So the repair
-    # says to push first, or to remove the commits first.
+    # started this work. So keeping the folder's version means pushing it first. Going back is git's update
+    # of the folder: the commit is on a branch, which keeps it.
     sub = _init_repo(tmp_path / "sub")
     (sub / "a.txt").write_text("a")
     _git(sub, "add", ".")
@@ -540,15 +545,32 @@ def test_a_folder_holding_unpushed_commits_is_repaired_by_pushing_or_removing_th
     problems, _ = doctor.submodule_problems(host, [])
 
     repair = next(line for line in problems[0].splitlines() if "Repair:" in line)
-    assert "git -C lib/sub push" in repair, repair
-    assert "remove the unpushed commit" in repair, repair
+    assert "To keep the folder's version: push it (git -C lib/sub push), then git add lib/sub." in repair, repair
+    going_back = "git submodule update --init --recursive -- lib/sub"
+    assert f"To go back to the version host points to: {going_back}." in repair, repair
+    # Typed as printed, going back leaves nothing to report, and the commit is still on its branch.
+    branch = subprocess.run(
+        ["git", "-C", str(host / "lib" / "sub"), "symbolic-ref", "--short", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    subprocess.run(going_back, shell=True, cwd=host, check=True, capture_output=True)
+    assert doctor.submodule_problems(host, []) == ([], [])
+    kept = subprocess.run(
+        ["git", "-C", str(host / "lib" / "sub"), "log", "-1", "--format=%s", branch],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert kept == "only here"
 
 
 def test_submodule_problems_reports_one_finding_carrying_its_own_repair(tmp_path):
     # What replaced four checks reporting the same cause four ways with two contradictory repairs. A folder
     # moved to a newer commit than the repository points to is a move not yet added, and only the user
     # knows whether it was meant: the repair names keeping it and going back, and nothing else. The newer
-    # commit is published and new to the repository, so a plain sync is what keeps it.
+    # commit is published, so `git add` is what keeps it.
     sub = _init_repo(tmp_path / "sub")
     (sub / "a.txt").write_text("a")
     _git(sub, "add", ".")
@@ -570,9 +592,12 @@ def test_submodule_problems_reports_one_finding_carrying_its_own_repair(tmp_path
     assert f"{_shown(host / 'lib' / 'sub', moved)}  in the lib/sub folder" in problems[0], problems[0]
     assert f"{_shown(host / 'lib' / 'sub', recorded)}  host points to" in problems[0], problems[0]
     assert (
-        "Repair: To keep the folder's version: yarn dep sync (host then points to it). "
-        "To go back to the version host points to: yarn dep sync lib/sub."
+        "Repair: To keep the folder's version: git add lib/sub (host then points to it). "
+        "To go back to the version host points to: git submodule update --init --recursive -- lib/sub."
     ) in problems[0], problems[0]
+    # Typed as printed, keeping it leaves nothing to report.
+    subprocess.run("git add lib/sub", shell=True, cwd=host, check=True, capture_output=True)
+    assert doctor.submodule_problems(host, []) == ([], [])
 
 
 # ── a nested tree: a dependency with a submodule of its own, and a second dependency beside it ──
@@ -655,7 +680,8 @@ def test_a_remapped_nested_path_off_its_record_is_reported(tmp_path):
 
     finding = next((p for p in problems if p.startswith("lib/dep:")), None)
     assert finding is not None, problems
-    assert "lib/dep/lib/child" in finding and "Repair: yarn dep sync (" in finding, finding
+    assert "lib/dep/lib/child" in finding, finding
+    assert "Repair: git submodule update --init --recursive -- lib/dep (" in finding, finding
 
 
 def test_a_dependency_at_the_wrong_version_with_leftovers_is_in_both_lists(tmp_path):
@@ -678,7 +704,11 @@ def test_a_dependency_at_the_wrong_version_with_leftovers_is_in_both_lists(tmp_p
     # finding's repair is sync, which removes them.
     version_finding = next(p for p in versions if p.startswith("lib/dep:"))
     assert "lib/orphan" not in version_finding, version_finding
-    assert "Repair: yarn dep sync" in next(p for p in leftovers if p.startswith("lib/dep:"))
+    # git removes nothing here by itself, and what is left can hold work: the repair names the cookbook's
+    # procedure, which looks first.
+    leftover = next(p for p in leftovers if p.startswith("lib/dep:"))
+    assert "Repair: remove them as " in leftover, leftover
+    assert 'doc/dependencies.md, "A nested folder that a new version no longer uses" says' in leftover, leftover
 
 
 # ── no submodule is pointed back to an older commit than the last commit points to ─────────────────────
@@ -729,6 +759,40 @@ def test_a_submodule_checked_out_inside_a_dependency_is_no_finding(tmp_path):
     assert naming_it == {}
 
 
+# ── every commit this repository points to is on a remote ──
+def test_each_pointed_commit_no_remote_holds_is_reported_with_its_repair(tmp_path):
+    # The folder check passes when the folder has the commit the repository points to, even when only this
+    # computer has that commit. This check is for that case: for each dependency, and each nested path a
+    # remapping uses, judged against the repository that points to it. A dependency of the repository can
+    # also be moved to a version a remote holds, by the cookbook's upgrade. A nested one's commit is its
+    # dependency's to choose, so it is offered the push only.
+    remappings = ["child/=lib/dep/lib/child/"]
+    host = _nest(tmp_path)
+    for checkout, parent, path in (
+        (host / "lib" / "dep" / "lib" / "child", host / "lib" / "dep", "lib/child"),
+        (host / "lib" / "dep", host, "lib/dep"),
+    ):
+        (checkout / "mine.txt").write_text("mine\n")
+        _git(checkout, "add", "-A")
+        _git(checkout, "commit", "-qm", "mine")
+        _git(parent, "add", path)
+
+    problems = doctor.unpublished_commit_problems(host, remappings)
+
+    assert [problem.partition(": ")[0] for problem in problems] == ["lib/dep", "lib/dep/lib/child"], problems
+    assert all("no remote holds" in problem.splitlines()[0] for problem in problems), problems
+    of_the_repository = problems[0].splitlines()[-1]
+    assert of_the_repository.startswith(
+        "  Repair: push it (git -C lib/dep push), or move to a version a remote holds: "
+    ), of_the_repository
+    assert of_the_repository.endswith('doc/dependencies.md, "Upgrade a dependency"'), of_the_repository
+    assert problems[1].splitlines()[-1] == "  Repair: push it (git -C lib/dep/lib/child push)", problems[1]
+
+
+def test_no_pointed_commit_is_reported_when_a_remote_holds_each(tmp_path):
+    assert doctor.unpublished_commit_problems(_nest(tmp_path), ["child/=lib/dep/lib/child/"]) == []
+
+
 def test_no_submodule_pointed_back_passes(tmp_path):
     assert _found(_host_with_a_dependency(tmp_path))[_POINTED_BACK] == []
 
@@ -744,8 +808,8 @@ def test_a_dependency_pointed_back_fails_doctor_naming_both_ways_out(tmp_path):
     assert found[_POINTED_BACK] == [
         f"lib/sub: host points it to {_shown(sub, older)}, older than {_shown(sub, newer)}, which host's last commit "
         "points to.\n"
-        "  Repair: To go back to the last commit's version: git restore --staged lib/sub, then yarn dep sync. "
-        "If the older version is meant: git commit."
+        "  Repair: To go back to the last commit's version: git restore --staged lib/sub, then "
+        "git submodule update --init --recursive -- lib/sub. If the older version is meant: git commit."
     ]
     assert found[_FOLDER_CHECK] == []
     assert found[_DETACHED] == [], "one fault, one finding: the detached folder follows from what is added"
@@ -777,17 +841,18 @@ def test_a_remapped_nested_path_pointed_back_is_judged_in_the_dependency_that_po
     assert doctor.pointed_back_problems(host, dependencies, ["child/=lib/dep/lib/child/"]) == [
         f"lib/dep/lib/child: lib/dep points it to {_shown(child, older)}, older than {_shown(child, newer)}, which "
         "lib/dep's last commit points to.\n"
-        "  Repair: To go back to the last commit's version: git -C lib/dep restore --staged lib/child, then yarn dep "
-        "-C lib/dep sync. If the older version is meant: git -C lib/dep commit."
+        "  Repair: To go back to the last commit's version: git -C lib/dep restore --staged lib/child, then "
+        "git -C lib/dep submodule update --init --recursive -- lib/child. "
+        "If the older version is meant: git -C lib/dep commit."
     ]
     assert doctor.pointed_back_problems(host, dependencies, []) == []
 
 
 # ── no submodule that follows a branch is detached behind it ──────────────────────────────────────────────
 #
-# yarn dep sync stands a submodule that follows a branch on that branch. One detached at a commit its branch has
-# passed was moved by git directly - the editor's Discard runs git submodule update, which detaches - and a git add
-# there records the older commit. sync stops on this state; doctor reports it from the same reading.
+# git submodule update, which the editor's Discard also runs, leaves a folder on no branch at the commit its
+# repository points to. One that follows a branch, left at a commit its branch has passed, builds the older version,
+# and a git add there records the older commit. Doctor reports it.
 
 _DETACHED = "no submodule that follows a branch is detached behind it"
 
@@ -961,9 +1026,8 @@ def test_the_way_to_the_branchs_version_first_keeps_a_commit_only_the_detached_h
 
 # ── commands run from where doctor was typed ─────────────────────────────────────────────────────────────
 #
-# Typed in the main folder with -C, the repairs doctor prints carry the way there: git -C to the folder, and yarn dep
-# -C naming the project as it was named. A file a repair names stays named as the project names it, under the
-# `in <path>:` line.
+# Typed in the main folder with -C, the repairs doctor prints carry the way there: git -C to the folder. A file a
+# repair names stays named as the project names it, under the `in <path>:` line.
 
 
 def test_doctor_root_prints_repairs_to_run_from_where_it_was_typed(tmp_path):
@@ -977,10 +1041,14 @@ def test_doctor_root_prints_repairs_to_run_from_where_it_was_typed(tmp_path):
     lock = doctor.foundry_lock_problems(dep, here)
 
     assert pointed[0].splitlines()[1] == (
-        "  Repair: To go back to the last commit's version: git -C lib/dep restore --staged lib/child, then yarn dep "
-        "-C dep sync. If the older version is meant: git -C lib/dep commit."
+        "  Repair: To go back to the last commit's version: git -C lib/dep restore --staged lib/child, then "
+        "git -C lib/dep submodule update --init --recursive -- lib/child. "
+        "If the older version is meant: git -C lib/dep commit."
     )
-    assert lock == ["git tracks foundry.lock\n  Repair: git -C lib/dep rm foundry.lock, then yarn dep -C dep sync"]
+    assert lock == [
+        "git tracks foundry.lock\n"
+        "  Repair: git -C lib/dep rm foundry.lock, then git -C lib/dep submodule update --init --recursive"
+    ]
 
 
 # ── the project itself, against the repository that lists it ──────────────────────────────────────────────
@@ -1022,8 +1090,8 @@ def test_doctor_reports_the_project_itself_pointed_back_in_the_repository_listin
     assert found[_POINTED_BACK] == [
         f"this project: host points it to {_shown(dep, older)}, older than {_shown(dep, newer)}, which host's last "
         "commit points to.\n"
-        "  Repair: To go back to the last commit's version: git restore --staged lib/dep, then yarn dep sync. "
-        "If the older version is meant: git commit."
+        "  Repair: To go back to the last commit's version: git restore --staged lib/dep, then "
+        "git submodule update --init --recursive -- lib/dep. If the older version is meant: git commit."
     ]
     assert found[_DETACHED] == []
 
@@ -1041,8 +1109,9 @@ def test_a_plain_run_inside_a_submodule_checks_it_against_the_repository_listing
 
     (finding,) = found[_POINTED_BACK]
     assert finding.splitlines()[1] == (
-        "  Repair: To go back to the last commit's version: git -C ../.. restore --staged lib/dep, then yarn dep -C .. "
-        "sync. If the older version is meant: git -C ../.. commit."
+        "  Repair: To go back to the last commit's version: git -C ../.. restore --staged lib/dep, then "
+        "git -C ../.. submodule update --init --recursive -- lib/dep. "
+        "If the older version is meant: git -C ../.. commit."
     )
 
 
@@ -1056,7 +1125,7 @@ def test_an_uninitialised_dependency_is_reported(tmp_path):
 
     finding = next((p for p in problems if p.startswith("lib/unlocked:")), "")
     assert finding.startswith("lib/unlocked: is in .gitmodules, but nothing is checked out in its folder"), problems
-    assert "Repair: yarn dep sync (" in finding, finding
+    assert "Repair: git submodule update --init --recursive -- lib/unlocked (" in finding, finding
 
 
 def test_a_hand_edited_file_in_a_dependency_is_not_a_finding(tmp_path):
@@ -1085,7 +1154,7 @@ def test_an_unreadable_dependency_is_reported_in_gits_words(tmp_path):
     assert problems, "an unreadable dependency is a finding"
     assert problems[0].startswith("lib/dep: has a folder that git cannot read"), problems[0]
     assert "fatal:" in problems[0], problems[0]
-    assert "Repair: yarn dep sync" in problems[0], problems[0]
+    assert "Repair: git submodule update --init --recursive -- lib/dep" in problems[0], problems[0]
     assert "commit than the one" not in problems[0], f"no comparison can be claimed: {problems[0]}"
 
 
@@ -1427,10 +1496,10 @@ def test_deny_warnings_reads_what_forge_resolves_not_the_file(tmp_path, monkeypa
 
 # ── foundry_lock_problems: no foundry.lock, in the index or on disk ──
 #
-# forge writes the lock when it installs: on `forge install` and `forge update`, which yarn dep replaces, and
-# when build, test, coverage or script finds a dependency not checked out and installs it with every nested
-# submodule. yarn dep leaves the lock as it was. Presence is the finding, whatever the lock says; the removal
-# depends on what git knows of it, and `yarn dep sync` follows, to leave only the checkouts the build reads.
+# forge writes the lock when it installs: on `forge install` and `forge update`, which git's own commands replace
+# here, and when build, test, coverage or script finds a dependency not checked out and installs it with every nested
+# submodule. git leaves the lock as it was. Presence is the finding, whatever the lock says; the removal
+# depends on what git knows of it, and git's update follows, to put back any folder forge moved.
 def _with_tracked_lock(repo: pathlib.Path) -> pathlib.Path:
     (repo / "foundry.lock").write_text("{}")
     _git(repo, "add", "foundry.lock")
@@ -1446,7 +1515,7 @@ def test_a_tracked_lock_is_removed_with_git_rm(tmp_path):
     problems = doctor.foundry_lock_problems(_with_tracked_lock(_init_repo(tmp_path / "host")))
     assert len(problems) == 1
     assert problems[0].startswith("git tracks foundry.lock"), problems[0]
-    assert "Repair: git rm foundry.lock, then yarn dep sync" in problems[0], problems[0]
+    assert "Repair: git rm foundry.lock, then git submodule update --init --recursive" in problems[0], problems[0]
 
 
 def test_a_tracked_lock_deleted_from_the_working_tree_is_still_a_finding(tmp_path):
@@ -1456,7 +1525,10 @@ def test_a_tracked_lock_deleted_from_the_working_tree_is_still_a_finding(tmp_pat
     problems = doctor.foundry_lock_problems(repo)
     assert len(problems) == 1
     assert problems[0].startswith("git tracks foundry.lock, and the working tree does not have it"), problems[0]
-    assert "Repair: git rm foundry.lock (this records the deletion), then yarn dep sync" in problems[0], problems[0]
+    assert (
+        "Repair: git rm foundry.lock (this records the deletion), then git submodule update --init --recursive"
+        in problems[0]
+    ), problems[0]
 
 
 def test_an_untracked_lock_is_deleted(tmp_path):
@@ -1465,7 +1537,7 @@ def test_an_untracked_lock_is_deleted(tmp_path):
     problems = doctor.foundry_lock_problems(repo)
     assert len(problems) == 1
     assert problems[0].startswith("foundry.lock is in the working tree, and git does not track it"), problems[0]
-    assert "Repair: rm foundry.lock, then yarn dep sync" in problems[0], problems[0]
+    assert "Repair: rm foundry.lock, then git submodule update --init --recursive" in problems[0], problems[0]
 
 
 # ── inline_config_problems: no test sets its own fuzz or invariant parameters ──
@@ -1944,8 +2016,8 @@ def test_a_project_declaring_no_bao_base_is_told_so_by_each_check_that_compares_
 # ── -C/--root: doctor checks a dependency as a project of its own ──────────────────────────────────────
 #
 # From the main folder, `yarn doctor -C <dependency>` checks that dependency with the main folder's copy of doctor,
-# as `yarn dep -C` acts on it: harbor-yield's doctor checking lib/harbor. The flag is dep's, `--root` with `-C` as
-# its alias, and the dependency is named as dep names it, with or without the libs folder. build_checks is replaced
+# as if it were typed there: harbor-yield's doctor checking lib/harbor. The flag is `--root`, with `-C` as
+# its alias, and the dependency is named with or without the libs folder. build_checks is replaced
 # by a recorder, so what is asserted is which project doctor checks and which remappings it reads there.
 
 
@@ -2052,7 +2124,9 @@ def test_doctor_root_stops_for_a_dependency_not_checked_out(tmp_path, monkeypatc
         _run_doctor(monkeypatch, clone, "-C", "dep")
 
     assert stopped.value.code == 1
-    assert capsys.readouterr().out == "Stopped: lib/dep is not checked out. To check it out: yarn dep -C dep sync\n"
+    assert capsys.readouterr().out == (
+        "Stopped: lib/dep is not checked out. To check it out: git submodule update --init --recursive\n"
+    )
     assert checked == []
     assert not (clone / "lib" / "dep" / ".git").exists()
 

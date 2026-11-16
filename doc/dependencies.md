@@ -182,6 +182,31 @@ git -C lib/<name> submodule update --init --recursive
 git add lib/<name>
 ```
 
+## A nested folder that a new version no longer uses
+
+When an upgrade moves `lib/<name>` to a version that no longer has one of its own dependencies, git leaves
+that folder behind. It prints `warning: unable to rmdir 'lib/<gone>': Directory not empty`, and
+`git -C lib/<name> status` then lists `lib/<gone>/` as untracked. Nothing uses the folder any more.
+
+First look for work that only this computer has in it:
+
+```
+git -C lib/<name>/lib/<gone> status --short; git -C lib/<name>/lib/<gone> log HEAD --branches --not --remotes --oneline; git -C lib/<name>/lib/<gone> stash list
+```
+
+It prints nothing when there is none. Then:
+
+```
+git -C lib/<name> clean -ffd -- lib/<gone>
+rm -rf .git/modules/lib/<name>/modules/lib/<gone>
+git -C lib/<name> config --remove-section submodule.lib/<gone>
+```
+
+- The first command deletes the folder. It needs both `f`s: with one, git leaves a folder that is a
+  repository where it is, and says nothing.
+- The second deletes the repository git keeps for it, with every branch and stash in it.
+- The third deletes the lines git leaves in the settings of `lib/<name>`.
+
 ## Work in a dependency
 
 **Start.** On a new branch, at the commit the repository records:
@@ -301,16 +326,19 @@ local deployment tag with the remote's tag of the same name, which `git fetch --
 | `git push` ends with `changes that can not be found on any remote` | The repository records a dependency commit that is not pushed | Push that dependency's branch, then push again |
 | `git pull` prints `Could not access submodule` | The pull brought in a dependency whose folder is not there yet | The update command, then the last settings command |
 | A folder is empty, and `git submodule status` shows a `-` in front of it | It is not checked out | The update command |
+| After an upgrade, git warns `unable to rmdir`, and a folder inside the dependency is listed as untracked | The new version no longer uses that folder | "A nested folder that a new version no longer uses" |
 | A merge stops with `Failed to merge submodule lib/<name> (not checked out)` | The folder is empty | The update command, then merge again |
 | A merge stops with `Failed to merge submodule lib/<name> (commits don't follow merge-base)`, although one commit follows the other | Seen once on git 2.43, where the folder's repository held commit-graph files. What sets it off is not known | `git -c core.commitGraph=false merge <branch>` merged it |
 | A branch switch discarded an edit inside `lib/` | `submodule.recurse` is set to `true` on this computer | Take the setting out. `git config --show-scope --show-origin --get-regexp '^(push\.recursesubmodules\|submodule\.recurse)$'` lists each file that sets it or the push check, in the order git reads them |
 
 ## A clone that `yarn dep` managed
 
-`yarn dep` checked out only the folders the build reads. It wrote an `update = none` setting for each of the
-others, and git skips those folders: the update command prints `Skipping submodule` and leaves them empty.
-Do not run `yarn dep` in a clone set up as this page describes: its `sync` leaves only the folders the build
-reads checked out.
+`yarn dep` is gone from bao-base. It checked out only the folders the build reads, and wrote an
+`update = none` setting for each of the others. git skips those folders: the update command prints
+`Skipping submodule` and leaves them empty.
+
+An older bao-base, such as the copy inside a dependency, still has `yarn dep`. Do not run it in a clone set
+up as this page describes: its `sync` leaves only the folders the build reads checked out.
 
 Take the settings out, once:
 

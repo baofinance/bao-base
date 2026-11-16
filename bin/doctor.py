@@ -21,6 +21,7 @@ from checks import Check, report
 from deployment_baselines import RECORD, OriginUnanswered, compare_with_origin, origin_tags, read_baselines
 from forge_config import forge_config
 from submodule_state import (
+    COOKBOOK_UPGRADE,
     Condition,
     Facts,
     Here,
@@ -197,8 +198,8 @@ def submodule_problems(repo_root: Path, remappings: list[str], here: Here | None
     dependency that holds them, because those are what the build reads. The rest are not reported in any
     state - checked out, stale or absent.
 
-    Every reading and every repair comes from the module `yarn dep` acts on, so the two tools cannot
-    disagree. States that are normal are not reported at all: a dependency carrying local commits is
+    Every reading and every repair comes from `submodule_state`, so no two checks read one state in two
+    ways. States that are normal are not reported at all: a dependency carrying local commits is
     what working in one looks like."""
     repository = repo_root.name
     versions: list[str] = []
@@ -263,7 +264,7 @@ def unpublished_commit_problems(repo_root: Path, remappings: list[str], here: He
                 continue
             # A nested path's commit is its dependency's to choose, so only pushing it is offered there.
             moving = (
-                f", or move to a version a remote holds: {here.dep(repo_root)} update {path}@<version>"
+                f", or move to a version a remote holds: {here.cookbook(COOKBOOK_UPGRADE)}"
                 if directory == repo_root
                 else ""
             )
@@ -418,7 +419,7 @@ def remapping_target_problems(repo_root: Path, remappings: list[str]) -> list[st
     """Remappings that lead to no path, though every submodule on the way is checked out at its record -
     so no submodule provides the path, rather than one not yet being checked out (which the dependency
     check reports, with its own repair). Such a remapping resolves no import, misstates what the build
-    reads, and points `yarn dep` at a nested path nothing declares. Returns one block listing each, or
+    reads, and names a nested path nothing declares. Returns one block listing each, or
     []."""
     dead = [
         remapping
@@ -594,11 +595,11 @@ def foundry_lock_problems(repo_root: Path, here: Here | None = None) -> list[str
     """A foundry.lock in the index or the working tree. forge writes one whenever it installs: on `forge
     install` and `forge update`, recording which branch or tag each dependency came from, and when build, test,
     coverage or script finds a dependency with nothing checked out in its folder, which it then installs with
-    every nested submodule, unbidden. `yarn dep`, which replaces the install commands, records versions in
+    every nested submodule, unbidden. git, which moves the dependencies here, records versions in
     .gitmodules and in the commit this repository points to, and leaves the lock as it was - so a lock names
     versions the dependencies left, and forge reads it as current when told to (`--locked`). Presence is the
-    finding, whatever the lock says; the removal depends on what git knows of it, and `yarn dep sync` follows,
-    to leave only the checkouts the build reads. Returns [] when there is none."""
+    finding, whatever the lock says; the removal depends on what git knows of it, and git's update follows,
+    to put back any folder forge moved. Returns [] when there is none."""
     tracked = (
         subprocess.run(
             ["git", "ls-files", "--error-unmatch", "foundry.lock"], cwd=repo_root, capture_output=True, text=True
@@ -607,18 +608,18 @@ def foundry_lock_problems(repo_root: Path, here: Here | None = None) -> list[str
     )
     present = (repo_root / "foundry.lock").is_file()
     here = here or Here(repo_root, repo_root)
-    sync = f"{here.dep(repo_root)} sync"
+    update = here.update(repo_root)
     if tracked and present:
-        return [f"git tracks foundry.lock\n  Repair: {here.git(repo_root)} rm foundry.lock, then {sync}"]
+        return [f"git tracks foundry.lock\n  Repair: {here.git(repo_root)} rm foundry.lock, then {update}"]
     if tracked:
         return [
             "git tracks foundry.lock, and the working tree does not have it, so the next checkout brings it back\n"
-            f"  Repair: {here.git(repo_root)} rm foundry.lock (this records the deletion), then {sync}"
+            f"  Repair: {here.git(repo_root)} rm foundry.lock (this records the deletion), then {update}"
         ]
     if present:
         return [
             "foundry.lock is in the working tree, and git does not track it\n"
-            f"  Repair: rm {here.file('foundry.lock')}, then {sync}"
+            f"  Repair: rm {here.file('foundry.lock')}, then {update}"
         ]
     return []
 
@@ -887,7 +888,7 @@ def submodule_url_drift_problems(repo_root: Path, here: Here | None = None) -> l
         lines.append(f"  {display}")
         lines.append(f"    .git/config: {gitconfig_url}")
         lines.append(f"    .gitmodules: {gitmodules_url}")
-    sync = f"{(here or Here(repo_root, repo_root)).dep(repo_root)} sync"
+    sync = f"{(here or Here(repo_root, repo_root)).git(repo_root)} submodule sync --recursive"
     lines.append(f"Repair: {sync} (this copies the URLs from .gitmodules to .git/config)")
     return ["\n".join(lines)]
 
@@ -1346,7 +1347,7 @@ def build_checks(
 
     The submodule traversal runs once and its findings are split, because it walks every submodule
     and runs git in each; calling it per check would double that to say the same things."""
-    # What forge resolves, as `yarn dep` reads it, so the two judge the same nested paths.
+    # What forge resolves, read once here, so every check judges the same nested paths.
     remappings: list[str] = forge_config(repo_root)["remappings"]
     # Where the commands the findings print are typed: in the project, unless `-C` named it from elsewhere.
     here = here or Here(repo_root, repo_root)
@@ -1400,7 +1401,7 @@ def build_checks(
         Check(
             "every remapping points to a folder that exists",
             "A remapping to a folder that no submodule provides cannot work for any import. But it looks like "
-            "something the build needs. If the folder is inside a submodule, yarn dep will never check it out",
+            "something the build needs. No update checks the folder out, because no .gitmodules lists it",
             "people and tools believe the build uses code that does not exist, and the remapping stays to "
             "confuse the next person who reads it",
             remapping_target_problems(repo_root, remappings),
@@ -1422,8 +1423,8 @@ def build_checks(
         ),
         Check(
             "each submodule folder has the commit this repository points to",
-            "Each submodule folder should have the commit that this repository points to. yarn dep update moves "
-            "a submodule; git add and git commit record where this repository points. This also applies to a submodule inside "
+            "Each submodule folder should have the commit that this repository points to. git submodule update "
+            "moves a folder to it; git add and git commit record the commit a folder has. This also applies to a submodule inside "
             "another submodule when a remapping uses it. Doctor does not need you to commit first",
             "if they are different, you build one version but save another, and everyone who clones the "
             "repository gets the saved one",
@@ -1433,16 +1434,16 @@ def build_checks(
             "no submodule is pointed back to an older commit than the last commit points to",
             "git add records the commit a submodule folder has as the one this repository points to. Added while the "
             "folder is behind the last commit, as after a pull that moved the commit and not the folder, it points "
-            "the repository backwards. No yarn dep command adds an older commit. The check above passes, since the "
+            "the repository backwards. The check above passes, since the "
             "folder has the commit this repository points to",
             "the build uses the older version, and the next commit takes everyone who pulls back to it",
             pointed_back_problems(repo_root, declared_submodules(repo_root), remappings, here, itself=True),
         ),
         Check(
             "no submodule that follows a branch is detached behind it",
-            "yarn dep sync stands a submodule that follows a branch on that branch, and stops rather than leave it "
-            "detached behind it. git leaves it so: git submodule update, which the editor's Discard on a submodule "
-            "runs, checks out the commit this repository points to and detaches",
+            "git submodule update, which the editor's Discard on a submodule also runs, checks out the commit this "
+            "repository points to and leaves the folder on no branch. A branch that holds newer commits is then "
+            "left behind it",
             "the build uses one version while the branch holds another, and a git add on that folder records the "
             "older one",
             detached_behind_branch_problems(repo_root, declared_submodules(repo_root), remappings, here, itself=True),
@@ -1487,9 +1488,9 @@ def build_checks(
             "forge writes foundry.lock whenever it installs: on forge install and forge update, to record which "
             "branch or tag each dependency came from, and when build, test, coverage or script finds a dependency "
             "with nothing checked out in its folder, which it then installs with every nested submodule. "
-            "Dependencies here are moved with yarn dep, which records that in .gitmodules and in the commit this "
+            "Dependencies here are moved with git, which records that in .gitmodules and in the commit this "
             "repository points to, and leaves the lock as it was. forge reads the lock only when told to, with "
-            "--locked. yarn dep sync leaves only the checkouts the build reads",
+            "--locked",
             "the lock names versions the dependencies left long ago, and forge --locked, or anyone who reads it, "
             "takes them for the current ones",
             foundry_lock_problems(repo_root, here),
@@ -1550,7 +1551,7 @@ def build_checks(
             "ruff's settings extend bao-base's",
             "ruff takes its settings from this repository: .ruff.toml, ruff.toml or [tool.ruff] in pyproject.toml. "
             "Extending bao-base's settings gives it bao-base's rules and keeps it out of lib, where a dependency's "
-            "own settings can extend a file that yarn dep does not check out",
+            "own settings can extend a file that is not there",
             "the editor checks Python by rules other than bao-base's, and logs an error for each dependency whose "
             "settings it cannot load",
             ruff_settings_problems(repo_root, bao_base_root),
@@ -1622,8 +1623,8 @@ def main() -> None:
         dest="root",
         metavar="<dependency>",
         help="check <dependency> as a project of its own, with this repository's copy of doctor, comparing it with "
-        "its own bao-base and checking it against the repository that lists it; named as yarn dep -C names it: a "
-        "module path, harbor/bao-base or ../bao-base, or a folder path naming the libs folder",
+        "its own bao-base and checking it against the repository that lists it; named by a module path, "
+        "harbor/bao-base or ../bao-base, or by a folder path naming the libs folder",
     )
     arguments = parser.parse_args()
     repo_root = Path(
@@ -1633,7 +1634,7 @@ def main() -> None:
     )
     typed = typed_in(Path.cwd(), os.environ)
     if arguments.root is not None:
-        # The project named as `yarn dep -C` names it, from the folder the command was typed in. The report that
+        # The project `-C` names, from the folder the command was typed in. The report that
         # follows names files as that project names them, so its first line says which project it is; its commands
         # run from where doctor was typed.
         found = root_project(arguments.root, typed)

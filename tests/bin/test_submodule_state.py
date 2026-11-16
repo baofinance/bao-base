@@ -23,6 +23,10 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bin"))
 
 from submodule_state import (  # noqa: E402
+    COOKBOOK,
+    COOKBOOK_LEFT_BEHIND,
+    COOKBOOK_SHARED,
+    COOKBOOK_UPGRADE,
     Here,
     UnreadableGitmodules,
     condition,
@@ -45,6 +49,15 @@ FILE_TRANSPORT = ("-c", "protocol.file.allow=always")
 
 def git(where: Path, *arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *FILE_TRANSPORT, *arguments], cwd=where, capture_output=True, text=True, check=check)
+
+
+def typed(where: Path, command: str) -> None:
+    """Run a command a repair prints, exactly as printed, in the folder `where`. The local repositories need the
+    file transport allowed, which the environment does without changing the command."""
+    allowing = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "protocol.file.allow", "GIT_CONFIG_VALUE_0": "always"}
+    subprocess.run(
+        command, shell=True, cwd=where, check=True, capture_output=True, text=True, env={**os.environ, **allowing}
+    )
 
 
 def make_repo(root: Path, name: str) -> Path:
@@ -160,7 +173,7 @@ def test_a_tree_that_agrees_is_consistent(world):
 
 def test_working_in_a_dependency_still_blocks_a_delete_but_is_not_a_finding(world):
     # Two different questions that used to share one answer. Whether something would be DESTROYED is
-    # what guards `yarn dep update`, and must stay as wide as it is. Whether something is WRONG is what
+    # what a step that deletes must ask, and must stay as wide as it is. Whether something is WRONG is what
     # doctor reports - and having work in progress in a dependency is not wrong, it is what working in
     # one looks like. Reporting it every run says nothing except that you have not finished yet.
     add_commit(world.project / "lib" / "dep", "local work")
@@ -187,9 +200,8 @@ def move_dep_to_v2(world: World) -> Path:
 # ── a submodule pointed back to an older commit than the last commit points to ─────────────────────────
 #
 # `git add` on a submodule folder that is behind the last commit - as after a pull that moved the commit and not the
-# folder - points the repository backwards. No yarn dep command adds an older commit, and the folder then has the
-# commit the repository points to, so nothing comparing the two sees it. Doctor reports it and sync stops on it, from
-# this one reading.
+# folder - points the repository backwards. The folder then has the commit the repository points to, so nothing
+# comparing the two sees it. Doctor reports it, from this one reading.
 
 
 def committed_at_v2(world: World) -> Path:
@@ -211,9 +223,14 @@ def test_an_older_commit_added_over_the_last_commit_is_pointed_back(world):
     assert pointed_back_problems(world.project, declared_submodules(world.project), []) == [
         f"lib/dep: project points it to {shown(dep, v1)}, older than {shown(dep, v2)}, which project's last commit "
         "points to.\n"
-        "  Repair: To go back to the last commit's version: git restore --staged lib/dep, then yarn dep sync. "
-        "If the older version is meant: git commit."
+        "  Repair: To go back to the last commit's version: git restore --staged lib/dep, then "
+        "git submodule update --init --recursive -- lib/dep. If the older version is meant: git commit."
     ]
+    # Typed as printed, the two commands put the folder at the last commit's version, and nothing is reported.
+    typed(world.project, "git restore --staged lib/dep")
+    typed(world.project, "git submodule update --init --recursive -- lib/dep")
+    assert git(dep, "rev-parse", "HEAD").stdout.strip() == v2
+    assert pointed_back_problems(world.project, declared_submodules(world.project), []) == []
 
 
 def test_a_newer_commit_added_is_not_pointed_back(world):
@@ -291,11 +308,34 @@ def test_an_unrelated_checkout_states_the_relation_and_names_both_repairs(world)
 
     assert found.name == "off-record", found
     assert found.relation == "unrelated histories", found
-    # The commit was made here and never pushed, so either way it is dealt with first.
+    # The commit was made here and never pushed, so keeping it means pushing it first. It is on a branch, which
+    # keeps it when git's update moves the folder back.
     assert repair(facts, found, keep_command(world.project, "lib/dep")) == (
         "To keep the folder's version: push it (git -C lib/dep push), then git add lib/dep. "
-        "To go back to the version this repository points to: remove the unpushed commit, then yarn dep sync lib/dep."
+        "To go back to the version this repository points to: git submodule update --init --recursive -- lib/dep."
     )
+
+
+def test_going_back_from_a_commit_on_no_branch_says_to_put_it_on_a_branch_first(world):
+    # git's update moves a folder whatever it holds. A commit that is on no branch and on no remote would then be
+    # reachable from the reflog alone, so the repair puts it on a branch first. Typed as printed, the two commands
+    # leave the commit on that branch and the folder at the commit the repository points to.
+    dep = world.project / "lib" / "dep"
+    add_commit(dep, "made on no branch")
+    made = git(dep, "rev-parse", "HEAD").stdout.strip()
+
+    facts = facts_for(world.project)
+    fix = repair(facts, condition(facts), keep_command(world.project, "lib/dep"))
+
+    assert fix == (
+        "To keep the folder's version: push it (git -C lib/dep push), then git add lib/dep. "
+        "To go back to the version this repository points to: first put the folder's commit on a branch "
+        "(git -C lib/dep switch -c <branch>), then git submodule update --init --recursive -- lib/dep."
+    )
+    typed(world.project, "git -C lib/dep switch -c kept")
+    typed(world.project, "git submodule update --init --recursive -- lib/dep")
+    assert git(dep, "rev-parse", "kept").stdout.strip() == made
+    assert condition(facts_for(world.project)).name == "consistent"
 
 
 def test_an_uninitialised_submodule_outranks_every_other_reading(world):
@@ -360,7 +400,12 @@ def test_an_unreadable_checkout_is_a_fault_with_a_repair(world):
     found = condition(facts)
 
     assert found.is_fault, found
-    assert repair(facts, found) == "yarn dep sync (this repairs git's link to the folder)"
+    fix = repair(facts, found)
+
+    assert fix == "git submodule update --init --recursive -- lib/dep (this repairs git's link to the folder)"
+    # Typed as printed, it mends the link: git reads the folder again.
+    typed(world.project, fix.partition(" (")[0])
+    assert condition(facts_for(world.project)).name == "consistent"
 
 
 def test_a_developer_edit_blocks_a_delete_and_nested_drift_does_not(world):
@@ -410,6 +455,24 @@ def test_an_untracked_repository_inside_a_dependency_is_litter(world):
     assert facts.litter == ["lib/stranded"], facts.litter
     assert facts.edits == [], "litter is not a file the developer edited"
     assert condition(facts).name == "litter-present"
+
+
+def test_the_cookbooks_command_removes_a_repository_left_behind(world):
+    # The repair for litter names the cookbook's procedure. Its command that deletes the folder needs both
+    # `f`s: with one, git leaves a folder that is a repository where it is.
+    orphan = world.project / "lib" / "dep" / "lib" / "stranded"
+    orphan.mkdir(parents=True)
+    git(orphan, "init", "-q")
+    found = condition(facts_for(world.project))
+    assert repair(facts_for(world.project), found).endswith(f'doc/dependencies.md, "{COOKBOOK_LEFT_BEHIND}" says')
+
+    typed(world.project, "git -C lib/dep clean -fd -- lib/stranded")
+    with_one_f = facts_for(world.project).litter
+    typed(world.project, "git -C lib/dep clean -ffd -- lib/stranded")
+
+    assert with_one_f == ["lib/stranded"]
+    assert facts_for(world.project).litter == []
+    assert condition(facts_for(world.project)).name == "consistent"
 
 
 def test_a_gitmodules_git_cannot_read_is_reported(tmp_path):
@@ -477,7 +540,12 @@ def test_a_stale_checkout_is_never_repaired_by_staging(world):
     facts = facts_for(world.project)
     fix = repair(facts, condition(facts))
 
-    assert fix == "yarn dep sync (this checks out the commits this repository points to)", fix
+    assert fix == (
+        "git submodule update --init --recursive -- lib/dep (this checks out the commits this repository points to)"
+    ), fix
+    # Typed as printed, it brings the folder to the commit the repository points to.
+    typed(world.project, fix.partition(" (")[0])
+    assert condition(facts_for(world.project)).name == "consistent"
 
 
 def test_a_nested_submodules_own_commits_block_a_delete(world):
@@ -627,9 +695,7 @@ def test_a_gitignored_file_is_not_treated_as_at_risk(world):
 @pytest.mark.parametrize("branch_recorded", [False, True], ids=["gitlink only", "with gitmodules"])
 def test_a_move_names_gitmodules_beside_the_gitlink_when_its_entry_is_unstaged(world, branch_recorded):
     # A move to a branch also changes what .gitmodules records, and staging the gitlink alone would record
-    # a dependency at a new commit following nothing new. The repair names exactly what is unstaged, as
-    # `yarn dep update` hands it over. With nothing unstaged in .gitmodules, the newer commit is one a plain
-    # sync adds.
+    # a dependency at a new commit following nothing new. The repair names exactly what is unstaged.
     move_dep_to_v2(world)
     if branch_recorded:
         git(world.project, "config", "-f", ".gitmodules", "submodule.lib/dep.branch", "main")
@@ -637,11 +703,14 @@ def test_a_move_names_gitmodules_beside_the_gitlink_when_its_entry_is_unstaged(w
     facts = facts_for(world.project)
     fix = repair(facts, condition(facts), keep_command(world.project, "lib/dep"))
 
-    keeping = "git add lib/dep .gitmodules" if branch_recorded else "yarn dep sync"
+    keeping = "git add lib/dep .gitmodules" if branch_recorded else "git add lib/dep"
     assert fix == (
         f"To keep the folder's version: {keeping} (this repository then points to it). "
-        "To go back to the version this repository points to: yarn dep sync lib/dep."
+        "To go back to the version this repository points to: git submodule update --init --recursive -- lib/dep."
     ), fix
+    # Typed as printed, keeping it leaves nothing to report.
+    typed(world.project, keeping)
+    assert condition(facts_for(world.project)).name == "consistent"
 
 
 # ── one version per dependency, within a tree ─────────────────────────────────────────────────────
@@ -907,7 +976,7 @@ def test_a_project_declaring_no_bao_base_has_none(tmp_path):
 
 # ── the project -C/--root names ───────────────────────────────────────────────────────────────────────
 #
-# `yarn dep -C` and `yarn doctor -C` act on a project other than the one they run in. The argument takes two forms,
+# `yarn doctor -C` acts on a project other than the one it runs in. The argument takes two forms,
 # told apart by the libs folder. One naming it is a folder path, read from the folder it was typed in, as git's -C
 # reads one. Any other is a module path: each name is a dependency of the module before it, and .. is the module
 # holding it, so the libs folders between are left out. Either must lead to a module of the tree of repositories the
@@ -1027,8 +1096,8 @@ def test_a_module_path_naming_no_dependency_is_refused(tmp_path):
 
 
 def test_a_module_not_checked_out_is_found_and_named_with_the_command_that_checks_it_out(tmp_path):
-    # sync checks out an empty folder it is pointed at, so the module is found; a command that checks nothing out is
-    # told how, in the words that were typed.
+    # An empty folder is still a module some .gitmodules lists, so it is found. The command named is git's update,
+    # typed in the outermost repository, and typed as printed it checks the module out.
     project = module_tree(tmp_path)
     git(project, "submodule", "deinit", "-q", "--", "lib/bao-base")
 
@@ -1036,7 +1105,11 @@ def test_a_module_not_checked_out_is_found_and_named_with_the_command_that_check
 
     assert found.folder == project / "lib" / "bao-base"
     assert found.declared is not None and found.declared[0] == project
-    assert found.not_checked_out == "lib/bao-base is not checked out. To check it out: yarn dep -C bao-base sync"
+    assert found.not_checked_out == (
+        "lib/bao-base is not checked out. To check it out: git submodule update --init --recursive"
+    )
+    typed(project, found.not_checked_out.partition("To check it out: ")[2])
+    assert root_project("bao-base", project).not_checked_out is None
 
 
 def test_a_module_path_through_a_module_not_checked_out_is_refused(tmp_path):
@@ -1045,15 +1118,28 @@ def test_a_module_path_through_a_module_not_checked_out_is_refused(tmp_path):
     git(project, "submodule", "deinit", "-q", "--force", "--", "lib/harbor")
 
     assert root_project("harbor/bao-base", project) == (
-        "lib/harbor is not checked out, so harbor/bao-base cannot go through it. To check it out: yarn dep -C harbor sync"
+        "lib/harbor is not checked out, so harbor/bao-base cannot go through it. "
+        "To check it out: git submodule update --init --recursive"
+    )
+
+
+def test_the_command_that_checks_a_module_out_is_typed_from_where_doctor_was_typed(tmp_path):
+    # Typed inside lib/harbor about a module that is not checked out: the update is typed in the outermost
+    # repository, so it carries the way there.
+    project = module_tree(tmp_path)
+    git(project, "submodule", "deinit", "-q", "--", "lib/bao-base")
+
+    found = root_project("../bao-base", project / "lib" / "harbor")
+
+    assert found.not_checked_out == (
+        "../bao-base is not checked out. To check it out: git -C ../.. submodule update --init --recursive"
     )
 
 
 # ── commands as they are typed ────────────────────────────────────────────────────────────────────────
 #
-# Every command dep and doctor print runs, as printed, from the folder the command was typed in. Typed in the project
-# itself they name only the folders inside it, as before; under -C they carry the way from where they were typed to
-# the project, and `yarn dep` names its project as -C would.
+# Every command doctor prints runs, as printed, from the folder the command was typed in. Typed in the project
+# itself they name only the folders inside it; under -C they carry the way from where they were typed to the project.
 
 
 def test_commands_typed_in_the_project_name_only_the_folders_inside_it(tmp_path):
@@ -1062,44 +1148,59 @@ def test_commands_typed_in_the_project_name_only_the_folders_inside_it(tmp_path)
 
     assert here.git(project) == "git"
     assert here.git(project / "lib" / "harbor") == "git -C lib/harbor"
-    assert here.dep(project) == "yarn dep"
-    assert here.dep(project / "lib" / "harbor") == "yarn dep -C lib/harbor"
+    assert here.update(project) == "git submodule update --init --recursive"
+    assert here.update(project, "lib/harbor") == "git submodule update --init --recursive -- lib/harbor"
 
 
 def test_commands_for_a_project_named_with_c_carry_the_way_from_where_they_are_typed(tmp_path):
-    # Typed in the main folder about lib/harbor: git goes there by folder, and dep names lib/harbor as it was named.
+    # Typed in the main folder about lib/harbor: git goes there by folder, and so does its update.
     project = module_tree(tmp_path)
     harbor = project / "lib" / "harbor"
     here = Here(project, harbor, "harbor")
 
     assert here.git(harbor) == "git -C lib/harbor"
     assert here.git(harbor / "lib" / "bao-base") == "git -C lib/harbor/lib/bao-base"
-    assert here.dep(harbor) == "yarn dep -C harbor"
-    assert here.dep(harbor / "lib" / "bao-base") == "yarn dep -C lib/harbor/lib/bao-base"
+    assert (
+        here.update(harbor, "lib/bao-base") == "git -C lib/harbor submodule update --init --recursive -- lib/bao-base"
+    )
 
 
-def test_commands_for_the_repository_holding_the_one_typed_in_climb_by_module(tmp_path):
-    # Typed inside lib/harbor about the project that holds it: git climbs the folders, dep the modules.
+def test_commands_for_the_repository_holding_the_one_typed_in_climb_the_folders(tmp_path):
+    # Typed inside lib/harbor about the project that holds it.
     project = module_tree(tmp_path)
     harbor = project / "lib" / "harbor"
     here = Here(harbor, harbor)
 
     assert here.git(project) == "git -C ../.."
-    assert here.dep(project) == "yarn dep -C .."
+    assert here.update(project, "lib/harbor") == "git -C ../.. submodule update --init --recursive -- lib/harbor"
 
 
-def test_commands_for_a_neighbour_name_it_by_module_from_the_repository_typed_in(tmp_path):
-    # Typed anywhere in lib/bao-base about lib/harbor beside it: the folder path ../harbor does not name the libs
-    # folder, so dep would read it as a module path - from the repository typed in, not the folder. So it is one:
-    # up one module, then harbor. git takes the folders as they are.
+def test_commands_for_a_neighbour_take_the_folders_as_they_are(tmp_path):
+    # Typed anywhere in lib/bao-base about lib/harbor beside it.
     project = module_tree(tmp_path)
     neighbour = project / "lib" / "harbor"
     deeper = project / "lib" / "bao-base" / "notes"
     deeper.mkdir()
 
-    assert Here(project / "lib" / "bao-base", neighbour).dep(neighbour) == "yarn dep -C ../harbor"
-    assert Here(deeper, neighbour).dep(neighbour) == "yarn dep -C ../harbor"
     assert Here(deeper, neighbour).git(neighbour) == "git -C ../../harbor"
+
+
+def test_a_cookbook_section_is_named_with_the_file_as_the_folder_typed_in_reaches_it(tmp_path):
+    # A repair that is a procedure names the cookbook's section, with the file as a reader opens it from where
+    # the command was typed.
+    project = module_tree(tmp_path)
+
+    named = Here(project, project).cookbook(COOKBOOK_UPGRADE)
+
+    assert named.endswith(f'doc/dependencies.md, "{COOKBOOK_UPGRADE}"'), named
+    assert (project / named.partition(",")[0]).resolve() == COOKBOOK
+
+
+def test_every_cookbook_section_a_repair_names_is_a_heading_of_the_cookbook():
+    # A heading renamed in the cookbook would leave a repair pointing at nothing.
+    headings = {line.removeprefix("## ") for line in COOKBOOK.read_text().splitlines() if line.startswith("## ")}
+
+    assert {COOKBOOK_UPGRADE, COOKBOOK_SHARED, COOKBOOK_LEFT_BEHIND} <= headings
 
 
 def test_the_folder_typed_in_is_yarns_init_cwd_when_the_command_runs_above_it(tmp_path):

@@ -824,8 +824,6 @@ commands, as the cookbook `doc/dependencies.md` gives them, and never with forge
 - `submodule.recurse` is set to no value, `false` included. With `true`, a branch
   switch discards an uncommitted edit under `lib/`. With `false`, git can stop
   making the push check.
-- `yarn dep` is being removed. Do not run it: its `sync` leaves only the folders
-  the build reads checked out.
 - `yarn doctor` reports a submodule folder that differs from what this repository
   points to.
 
