@@ -807,27 +807,30 @@ file, `--filter-paths`, environment and flags; running `forge`, `slither` or
 another tool directly misses that setup and can give misleading results. To
 verify work or reproduce CI, use the `yarn` script CI uses.
 
-### Dependencies are git submodules managed with `yarn dep`
-Dependencies are git submodules in `lib/`, managed with `yarn dep` and never with
-forge's `install`, `update` or `remove`.
-- `yarn dep add [-b <branch or tag>] <url>` adds one. `yarn dep update
-  <name>@<version>` moves one to a branch, tag or commit; with no version, to the
-  tip of the branch it follows. `yarn dep remove <name>` removes one.
-- `yarn dep sync` checks out the commits this repository points to, after a clone
-  or a pull.
-- To work inside a dependency, run `yarn dep -C <name> sync` from the main folder.
-  A plain `yarn dep sync` in the main folder takes that set-up away.
-- No `yarn dep` command loses work: a folder holding work only this computer has
-  stops it with nothing changed.
-- Nothing in `yarn dep` commits, and it stages in one case only: `yarn dep sync`
-  runs `git add` for a dependency whose folder has newer commits, all pushed, that
-  this repository has never pointed to, and says so. Otherwise it ends by naming
-  the git commands that stage and commit the change.
+### Dependencies are git submodules, managed with plain git
+Dependencies are git submodules in `lib/`. Every one is checked out, and so is
+every dependency of a dependency, at every depth. They are managed with git's own
+commands, as the cookbook `doc/dependencies.md` gives them, and never with forge's
+`install`, `update` or `remove`.
+- After a clone, a pull, a merge or a branch switch, `git submodule update --init
+  --recursive` puts every folder at the commit recorded for it. Until then the
+  build uses the old commits.
+- Work on a dependency in its folder under `lib/`, on a branch. After a clone or
+  an update a folder is on no branch, and the next update leaves behind a commit
+  made there.
+- Each clone, and each dependency folder in it, holds three git settings:
+  `push.recurseSubmodules check`, `diff.submodule log` and
+  `status.submoduleSummary true`. The cookbook gives the commands that write them.
+- `submodule.recurse` is set to no value, `false` included. With `true`, a branch
+  switch discards an uncommitted edit under `lib/`. With `false`, git can stop
+  making the push check.
+- `yarn dep` is being removed. Do not run it: its `sync` leaves only the folders
+  the build reads checked out.
 - `yarn doctor` reports a submodule folder that differs from what this repository
   points to.
 
-`yarn dep --help` and `yarn doctor --help` give each command's full behavior.
-`bin/dep`'s docstring says why each step is done as it is.
+The cookbook has the commands for each task, and what can go wrong with each.
+`yarn doctor --help` gives doctor's full behavior.
 
 ### Bash: know what `set -e` misses
 Use `set -o pipefail` with `set -e`: without it, a failing pipeline stage other

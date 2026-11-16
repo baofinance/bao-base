@@ -2340,43 +2340,6 @@ def test_sync_checks_out_a_nested_submodule_a_new_remapping_uses_though_left_emp
     assert update_setting(here, "lib/dep/lib/inner/lib/deepest") == "none", "still unused"
 
 
-def test_doctor_reports_nested_checkouts_no_remapping_uses(tmp_path):
-    # Doctor names them, with the command that removes them.
-    here = synced(make_world(tmp_path, INNER_REMAPPED))
-    clean = doctor.unused_checkout_problems(here, INNER_REMAPPED)
-    check_out_unused(here)
-
-    found = doctor.unused_checkout_problems(here, INNER_REMAPPED)
-
-    assert clean == []
-    assert len(found) == 1, found
-    assert [line.strip() for line in found[0].splitlines()[1:4]] == UNUSED, found[0]
-    assert "Repair: yarn dep sync" in found[0], found[0]
-    assert "--prune" not in found[0], found[0]
-
-
-def test_doctor_reports_nested_submodules_left_empty_without_update_none(tmp_path):
-    # forge, run inside a dependency, checks out each submodule it finds not checked out unless git is told to leave
-    # it empty. Doctor names each empty one that is not, with the command that tells git; a checked-out one is the
-    # unused-checkout check's.
-    here = synced(make_world(tmp_path, INNER_REMAPPED))
-    heading = "These submodules inside a dependency are empty, and git is not told to keep them so:"
-    repair = "  Repair: yarn dep sync"
-
-    none = doctor.empty_without_update_none_problems(here, INNER_REMAPPED)
-    git(here / "lib" / "dep", "config", "--unset", "submodule.lib/spare.update")
-    one = doctor.empty_without_update_none_problems(here, INNER_REMAPPED)
-    git(here / "lib" / "tool", "config", "--unset", "submodule.lib/helper.update")
-    several = doctor.empty_without_update_none_problems(here, INNER_REMAPPED)
-    git(here / "lib" / "dep", "submodule", "update", "--init", "--", "lib/spare")
-    one_checked_out = doctor.empty_without_update_none_problems(here, INNER_REMAPPED)
-
-    assert none == []
-    assert one == [f"{heading}\n  lib/dep/lib/spare\n{repair}"]
-    assert several == [f"{heading}\n  lib/dep/lib/spare\n  lib/tool/lib/helper\n{repair}"]
-    assert one_checked_out == [f"{heading}\n  lib/tool/lib/helper\n{repair}"]
-
-
 def test_doctor_names_yarn_dep_sync_for_a_leftover_repository(tmp_path):
     world = make_world(tmp_path, ["dep/=lib/dep/src/"])
     here = synced(world)
@@ -2465,7 +2428,6 @@ def test_finishing_work_in_a_dependency_takes_one_sync_to_a_clean_doctor(tmp_pat
     assert result.returncode == 0, result.stdout + result.stderr
     assert recorded(here, "lib/dep") == checked_out(dependency)
     assert doctor.submodule_problems(here, remappings) == ([], [])
-    assert doctor.unused_checkout_problems(here, remappings) == []
 
 
 def test_sync_leaves_newer_commits_no_remote_holds(tmp_path):

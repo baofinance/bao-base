@@ -45,9 +45,6 @@ from submodule_state import (
     submodule_levels,
     submodules_the_build_reads,
     typed_in,
-    kept_empty,
-    unused_checkouts,
-    unused_submodules,
 )
 
 
@@ -417,47 +414,6 @@ def deployment_tag_problems(repo_root: Path, here: Here | None = None) -> list[s
     return problems
 
 
-def unused_checkout_problems(repo_root: Path, remappings: list[str], here: Here | None = None) -> list[str]:
-    """Submodules checked out inside this repository's dependencies that no remapping uses. The build does not
-    read them: they are left from an older recursive checkout, or from a sync run inside a dependency to work
-    on it. Returns one block listing each, or []."""
-    found = [
-        (parent / nested.path).relative_to(repo_root).as_posix()
-        for dependency in declared_submodules(repo_root)
-        if (repo_root / dependency.path / ".git").exists()
-        for parent, nested in unused_checkouts(repo_root, repo_root, dependency, remappings)
-    ]
-    if not found:
-        return []
-    lines = ["These submodules are checked out inside a dependency, and no remapping uses them:"]
-    lines.extend(f"  {path}" for path in found)
-    lines.append(
-        f"  Repair: {(here or Here(repo_root, repo_root)).dep(repo_root)} sync. One that holds work only on this "
-        "computer stops it, and is named with that work."
-    )
-    return ["\n".join(lines)]
-
-
-def empty_without_update_none_problems(repo_root: Path, remappings: list[str], here: Here | None = None) -> list[str]:
-    """Submodules inside this repository's dependencies that no remapping uses, with nothing checked out, and
-    without `update = none` in the git config of the repository that lists them. forge, run inside the dependency,
-    checks out each one it finds not checked out and writes foundry.lock, unless git skips it; `yarn dep sync` sets
-    the setting. A checked-out one is `unused_checkout_problems`' finding. Returns one block listing each, or []."""
-    found = [
-        (parent / nested.path).relative_to(repo_root).as_posix()
-        for dependency in declared_submodules(repo_root)
-        if (repo_root / dependency.path / ".git").exists()
-        for parent, nested in unused_submodules(repo_root, repo_root, dependency, remappings)
-        if not (parent / nested.path / ".git").exists() and not kept_empty(parent, nested)
-    ]
-    if not found:
-        return []
-    lines = ["These submodules inside a dependency are empty, and git is not told to keep them so:"]
-    lines.extend(f"  {path}" for path in found)
-    lines.append(f"  Repair: {(here or Here(repo_root, repo_root)).dep(repo_root)} sync")
-    return ["\n".join(lines)]
-
-
 def remapping_target_problems(repo_root: Path, remappings: list[str]) -> list[str]:
     """Remappings that lead to no path, though every submodule on the way is checked out at its record -
     so no submodule provides the path, rather than one not yet being checked out (which the dependency
@@ -577,6 +533,29 @@ def remapping_detection_problems(repo_root: Path) -> list[str]:
         "forge adds remappings of its own",
         "set auto_detect_remappings = false in [profile.default] in foundry.toml",
     )
+
+
+def bare_remapping_problems(foundry_remappings: list[str], wake_remappings: list[str]) -> list[str]:
+    """Each remapping foundry.toml or wake.toml lists that gives a bare `src/`, `script/` or `test/` path, with a
+    context in front of it or without. A file that imports through one names a different file in each repository
+    that compiles it: its own repository's when that builds alone, the consumer's when another repository builds
+    it. Read from the files, because `forge config` leaves a bare remapping out of what it reports. Returns one
+    finding listing them, each with its file, or [] when there is none."""
+    bare = [
+        f"{file}: {remapping}"
+        for file, remappings in (("foundry.toml", foundry_remappings), ("wake.toml", wake_remappings))
+        for remapping in remappings
+        if strip_context_prefix(remapping).partition("=")[0] in ("src/", "script/", "test/")
+    ]
+    if not bare:
+        return []
+    lines = ["These remappings give a bare path:"]
+    lines.extend(f"  {remapping}" for remapping in bare)
+    lines.append(
+        "  Repair: remove each one from the file that lists it, and import through the prefix of the repository "
+        "the imported file is in"
+    )
+    return ["\n".join(lines)]
 
 
 def block_gas_limit_problems(repo_root: Path) -> list[str]:
@@ -1387,6 +1366,14 @@ def build_checks(
             remapping_detection_problems(repo_root),
         ),
         Check(
+            "no remapping gives a bare src/, script/ or test/ path",
+            "A file that imports through a bare path names a different file in each repository that compiles it. "
+            "Every import goes through a prefix that one repository owns, so it names the same file everywhere",
+            "another repository that builds these sources gets two identities for one contract, or has to carry "
+            "remappings for this repository's bare paths",
+            bare_remapping_problems(foundry_remappings, wake_remappings),
+        ),
+        Check(
             "a script's simulation keeps the block gas limit check",
             "disable_block_gas_limit in foundry.toml reaches every forge run, forge script included. A script's "
             "simulation then no longer checks that each transaction fits a block. The test runs need the lift, "
@@ -1494,22 +1481,6 @@ def build_checks(
             "forge and git use the files that are there, not the files that should be there, so an old folder "
             "can still be used by imports",
             leftover_problems,
-        ),
-        Check(
-            "inside each dependency, only the submodules the build reads are checked out",
-            "The build reads a submodule inside a dependency only through a remapping. Any other one checked out "
-            "there is left from an older recursive checkout, at whatever commit it had then",
-            "it can be taken for code the build uses, and every tool that walks the submodules reads it",
-            unused_checkout_problems(repo_root, remappings, here),
-        ),
-        Check(
-            "inside each dependency, git keeps empty the submodules the build does not read",
-            "forge, run inside a dependency, checks out each of the dependency's submodules it finds empty, and "
-            "writes foundry.lock. git's update = none, which yarn dep sync sets in the dependency's git config, "
-            "makes git, and forge through it, skip the folder",
-            "a forge command typed inside the dependency fills every such folder, at every depth, and writes "
-            "foundry.lock there",
-            empty_without_update_none_problems(repo_root, remappings, here),
         ),
         Check(
             "no foundry.lock",

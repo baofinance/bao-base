@@ -20,8 +20,6 @@ remappings = [
   "@bao-script/=script/",
   "@bao-factory/=lib/bao-factory/src/",
   "@bao-factory-test/=lib/bao-factory/test/",
-  "src/=src/",
-  "test/=test/",
 ]
 
 

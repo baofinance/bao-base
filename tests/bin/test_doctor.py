@@ -716,6 +716,19 @@ def _found(repo: pathlib.Path) -> dict[str, list[str]]:
     return {check.name: check.problems for check in doctor.build_checks(repo, [], [], unused_files=False)}
 
 
+def test_a_submodule_checked_out_inside_a_dependency_is_no_finding(tmp_path):
+    # Every submodule is checked out at every depth (doc/dependencies.md), whether or not a remapping
+    # reads it. So one inside a dependency, at the commit that dependency records, is how a clone should
+    # be, and no check names it.
+    host = _nest(tmp_path)
+
+    naming_it = {
+        name: problems for name, problems in _found(host).items() if "lib/dep/lib/child" in "\n".join(problems)
+    }
+
+    assert naming_it == {}
+
+
 def test_no_submodule_pointed_back_passes(tmp_path):
     assert _found(_host_with_a_dependency(tmp_path))[_POINTED_BACK] == []
 
@@ -1303,6 +1316,43 @@ def test_remapping_detection_reported_when_forge_does_not_report_it(tmp_path, mo
     problems = doctor.remapping_detection_problems(tmp_path)
     assert len(problems) == 1
     assert "forge config does not give auto_detect_remappings" in problems[0], problems[0]
+
+
+# ── bare_remapping_problems: no import goes through a bare src/, script/ or test/ path ──
+#
+# A bare path names a different file in each repository that compiles it, so no remapping may give one, with a
+# context in front of it or without. Read from the lists the two files write: `forge config` leaves a bare
+# remapping out of what it reports.
+@pytest.mark.parametrize(
+    ("foundry", "wake", "reported"),
+    [
+        ([], [], []),
+        (["@own/=src/", "@own-test/=test/"], ["@own/=src/"], []),
+        (["src/=src/"], [], ["foundry.toml: src/=src/"]),
+        (["lib/dep/:script/=lib/dep/script/"], [], ["foundry.toml: lib/dep/:script/=lib/dep/script/"]),
+        (
+            ["src/=src/", "@own/=src/"],
+            ["@own/=src/", "test/=lib/dep/test/", "script/=lib/dep/script/"],
+            ["foundry.toml: src/=src/", "wake.toml: test/=lib/dep/test/", "wake.toml: script/=lib/dep/script/"],
+        ),
+    ],
+    ids=["no remapping", "prefixed ones only", "a bare one", "a bare one under a context", "several, in both files"],
+)
+def test_bare_remappings_are_each_reported_with_the_file_that_lists_it(foundry, wake, reported):
+    problems = doctor.bare_remapping_problems(foundry, wake)
+
+    assert len(problems) == (1 if reported else 0), problems
+    named = [line.strip() for line in problems[0].splitlines()[1:-1]] if problems else []
+    assert named == reported, problems
+
+
+def test_a_bare_remapping_finding_says_how_to_repair_it():
+    problems = doctor.bare_remapping_problems(["src/=src/"], [])
+
+    assert len(problems) == 1, problems
+    assert problems[0].splitlines()[-1].strip().startswith("Repair: remove each one from the file that lists it"), (
+        problems[0]
+    )
 
 
 # ── block_gas_limit_problems: a script's simulation keeps the block gas limit check ──
