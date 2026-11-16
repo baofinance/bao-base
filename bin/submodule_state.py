@@ -74,108 +74,28 @@ def dated_log(checkout: Path, *selection: str) -> list[str]:
 
 
 @dataclass(frozen=True)
-class AtRisk:
-    """One thing that exists here and on no remote, so nothing could restore it.
-
-    `kind` is 'modified', 'unpushed' or 'untracked'. What it is called elsewhere - the developer's
-    work, a dependency's nested submodule, litter - is irrelevant here: those describe OWNERSHIP,
-    which says nothing about whether losing it matters. Recoverability is the only safe criterion,
-    and this is the only thing that measures it.
-
-    MOVING a dependency does not delete any of this: git preserves untracked and gitignored files
-    across a checkout and refuses outright rather than overwrite a modified one, so its refusal is a
-    backstop behind this one. The clean-up of stranded directories DOES delete, which is the step
-    this measure actually guards - a stranded checkout that is pristine is swept, and one holding a
-    commit no remote has is not.
-    """
-
-    path: str
-    kind: str
-    detail: str
-
-
-def at_risk(repo_dir: Path, display: str = "") -> list[AtRisk]:
-    """Everything under `repo_dir` that exists nowhere but here, at any depth.
-
-    Three shapes, and a tree is unsafe to delete if it holds any of them:
-      modified   a tracked file changed and not committed
-      unpushed   a commit no remote has - committing inside a submodule is not backup, only pushing is
-      untracked  a file no repository is tracking, so nothing can restore it
-
-    It descends through registered submodules AND through untracked directories that are themselves
-    repositories, because a `+` in `git submodule status` and an untracked directory holding a `.git`
-    are each produced by two situations that look identical and mean opposite things: a version bump
-    nobody recursed, or a day of your work. Only looking inside tells them apart.
-
-    `--ignore-submodules=all` keeps a child's state out of its parent's listing, so each is reported
-    once, at its own path.
-    """
-    found: list[AtRisk] = []
-
-    status = git(repo_dir, "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=all")
-    for line in status.stdout.splitlines():
-        if not line:
-            continue
-        code, entry = line[:2], line[3:].strip().strip('"')
-        if code == "??":
-            bare = entry.rstrip("/")
-            if (repo_dir / bare / ".git").exists():
-                found.extend(at_risk(repo_dir / bare, f"{display}{bare}/"))
-            else:
-                found.append(AtRisk(f"{display}{entry}", "untracked", "no repository is tracking it"))
-        else:
-            found.append(AtRisk(f"{display}{entry}", "modified", f"changed ({code.strip()}) and not committed"))
-
-    for line in dated_log(repo_dir, "HEAD", "--not", "--remotes"):
-        found.append(AtRisk(display.rstrip("/") or ".", "unpushed", line))
-
-    listing = git(repo_dir, "config", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.path$")
-    for line in listing.stdout.splitlines():
-        name = line.partition(" ")[2].strip()
-        if name and (repo_dir / name / ".git").exists():
-            found.extend(at_risk(repo_dir / name, f"{display}{name}/"))
-
-    return found
-
-
-@dataclass(frozen=True)
 class Facts:
     """Every claim about one submodule, gathered in a single read.
 
     `worktree` is None when the submodule is not checked out, and ALSO when it is checked out but git
-    will not read it - `unreadable` is what separates those two, carrying git's own refusal. `edits`
-    counts only the developer's own file changes - it is read with --ignore-submodules=all, because a
-    submodule's plain status also reports its NESTED submodules being off their pins, and conflating
-    the two is what makes a tool tell you to commit and push a repository you do not own.
+    will not read it - `unreadable` is what separates those two, carrying git's own refusal. Only this
+    submodule is read: what lies beneath it is read as a submodule of its own.
     """
 
     path: str
     directory: Path
-    head_gitlink: str | None
     index_gitlink: str | None
     worktree: str | None
-    origin_url: str | None
-    gitmodules_url: str | None
     # Git's refusal, when the checkout is present but cannot be read. None whenever git answered -
     # including for a checkout that is genuinely absent, which is a different fault with a different
     # repair.
     unreadable: str | None = None
-    edits: list[str] = field(default_factory=list)
     unpushed: list[str] = field(default_factory=list)
-    nested_drift: list[str] = field(default_factory=list)
     litter: list[str] = field(default_factory=list)
-    at_risk: list[AtRisk] = field(default_factory=list)
 
     @property
     def initialised(self) -> bool:
         return self.worktree is not None
-
-    @property
-    def has_own_work(self) -> bool:
-        """Whether anything under this submodule exists nowhere else - measured over the whole
-        subtree, since a nested submodule's commits and an untracked repository's commits are just as
-        irreplaceable as this one's, and look like drift and litter from up here."""
-        return bool(self.at_risk)
 
 
 @dataclass(frozen=True)
@@ -703,59 +623,33 @@ def read_facts(repo_root: Path, path: str, display: str | None = None) -> Facts:
     `display` is how to name it from the top of the tree."""
     submodule = repo_root / path
 
-    head = git(repo_root, "rev-parse", f"HEAD:{path}")
     staged = git(repo_root, "ls-files", "-s", path).stdout.split()
     checked_out = git(submodule, "rev-parse", "HEAD") if (submodule / ".git").exists() else None
 
     # A `.git` that is there but that git will not read is a different fault from a checkout that is
     # not there, and every reading below is gated on which. `checked_out` alone cannot carry that:
-    # a CompletedProcess is truthy whether or not the command worked, so gating on it ran a further
-    # dozen git calls that could only fail too, and a failed read then arrived indistinguishable from
-    # an absent one.
+    # a CompletedProcess is truthy whether or not the command worked, and a failed read would arrive
+    # indistinguishable from an absent one.
     readable = checked_out is not None and checked_out.returncode == 0
     refusal = checked_out.stderr.strip().splitlines() if checked_out is not None and not readable else []
-
-    origin = git(submodule, "remote", "get-url", "origin") if readable else None
-    declared = git(repo_root, "config", "-f", ".gitmodules", "--get", f"submodule.{path}.url")
 
     return Facts(
         path=display or path,
         directory=submodule,
-        head_gitlink=head.stdout.strip() if head.returncode == 0 else None,
         index_gitlink=staged[1] if len(staged) > 1 else None,
         worktree=checked_out.stdout.strip() if readable else None,
-        origin_url=origin.stdout.strip() if origin and origin.returncode == 0 else None,
-        gitmodules_url=declared.stdout.strip() if declared.returncode == 0 else None,
         # The first line only: git puts what it could not do there, and repeats itself afterwards
         # about which command it gave up on, which the reader already knows.
         unreadable=refusal[0] if refusal else None,
-        edits=_edits(submodule) if readable else [],
         unpushed=_unpushed(submodule) if readable else [],
-        nested_drift=_nested_drift(submodule) if readable else [],
         litter=_litter(submodule) if readable else [],
-        at_risk=at_risk(submodule) if readable else [],
     )
-
-
-def _edits(submodule: Path) -> list[str]:
-    """The developer's own modifications to tracked files. --ignore-submodules=all is what separates
-    these from this dependency's nested submodules being off their pins: the first cannot be
-    recovered, the second is fixed by recursing and is not the developer's work at all."""
-    status = git(submodule, "status", "--porcelain", "--ignore-submodules=all")
-    return [line for line in status.stdout.splitlines() if line and not line.startswith("??")]
 
 
 def _unpushed(submodule: Path) -> list[str]:
     """Commits no remote holds. Committing inside a submodule is not safety - only pushing is - so
     these live in one clone, and every other checkout is missing what the gitlink names."""
     return dated_log(submodule, "HEAD", "--not", "--remotes")
-
-
-def _nested_drift(submodule: Path) -> list[str]:
-    """This dependency's own submodules that are not at the commit it records for them, at any depth.
-    Not the developer's doing, and not fixed by committing anything - only by recursing."""
-    status = git(submodule, "submodule", "status", "--recursive")
-    return [line[1:].strip() for line in status.stdout.splitlines() if line[:1] in ("+", "-", "U")]
 
 
 def _litter(submodule: Path) -> list[str]:
@@ -851,15 +745,9 @@ def condition(facts: Facts) -> Condition:
     if not facts.initialised:
         return Condition("uninitialised", "the folder is empty")
 
-    # `at_risk` is deliberately NOT a condition. It answers "would this be destroyed", which is what
-    # a step that deletes must ask, and it must stay as wide as it is - `has_own_work` still
-    # carries it, unchanged. It does not answer "is this wrong", which is what doctor reports, and
-    # having work in progress inside a dependency is not wrong: it is what working in one looks like,
-    # and saying so every run says only that you have not finished yet.
-    #
-    # Removed here rather than merely excluded from `is_fault`, because it was returned AHEAD of the
-    # version comparison below - so a dependency being edited announced "holds work that exists nowhere
-    # else" and buried a real lock disagreement under it as an afterthought.
+    # Work in progress inside a dependency - an uncommitted edit, a commit no remote holds - is deliberately
+    # NOT a condition: it is what working in one looks like, and naming it every run says only that you have
+    # not finished yet. So it never hides a real disagreement about the commit.
 
     # URL drift is deliberately NOT named here. doctor owns it in its own check, which compares
     # .git/config (what `git submodule update` actually reads) rather than the submodule's `origin`.
@@ -890,10 +778,6 @@ def condition(facts: Facts) -> Condition:
             relation or "not comparable",
             rows,
         )
-
-    # No branch for unpushed commits: `at_risk` above already collects them, running the same
-    # `git log HEAD --not --remotes`, so anything this could match has returned already. One measure
-    # of what exists nowhere else, not two.
 
     if leftovers := litter_condition(facts):
         return leftovers

@@ -511,9 +511,9 @@ def commit_on_no_branch_problems(repo_root: Path, here: Here | None = None) -> l
     neither is a commit that a remote has. The reading is the cookbook's own command, run once for every
     folder."""
     here = here or Here(repo_root, repo_root)
-    at_risk = 'printf "%s\\t%s\\n" "$displaypath" "$(git rev-list -n 1 HEAD --not --branches --remotes)"'
+    commit_on_no_branch = 'printf "%s\\t%s\\n" "$displaypath" "$(git rev-list -n 1 HEAD --not --branches --remotes)"'
     problems: list[str] = []
-    for line in _in_each_dependency_folder(repo_root, at_risk):
+    for line in _in_each_dependency_folder(repo_root, commit_on_no_branch):
         path, _, commit = line.partition("\t")
         if commit:
             problems.append(

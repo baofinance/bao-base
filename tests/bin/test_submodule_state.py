@@ -22,6 +22,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bin"))
 
+import submodule_state  # noqa: E402
 from submodule_state import (  # noqa: E402
     COOKBOOK,
     COOKBOOK_LEFT_BEHIND,
@@ -173,11 +174,9 @@ def test_a_tree_that_agrees_is_consistent(world):
     assert not condition(facts_for(world.project)).is_fault
 
 
-def test_working_in_a_dependency_still_blocks_a_delete_but_is_not_a_finding(world):
-    # Two different questions that used to share one answer. Whether something would be DESTROYED is
-    # what a step that deletes must ask, and must stay as wide as it is. Whether something is WRONG is what
-    # doctor reports - and having work in progress in a dependency is not wrong, it is what working in
-    # one looks like. Reporting it every run says nothing except that you have not finished yet.
+def test_working_in_a_dependency_is_not_a_finding(world):
+    # Having work in progress in a dependency is not wrong, it is what working in one looks like. Reporting it
+    # every run says nothing except that you have not finished yet.
     add_commit(world.project / "lib" / "dep", "local work")
     git(world.project, "add", "-A")
     git(world.project, "commit", "-qm", "record local work")
@@ -185,8 +184,7 @@ def test_working_in_a_dependency_still_blocks_a_delete_but_is_not_a_finding(worl
     facts = facts_for(world.project)
 
     assert facts.unpushed, "the fixture must leave a commit no remote holds"
-    assert facts.has_own_work, "which still blocks a destructive stage"
-    assert not condition(facts).is_fault, "but doctor does not grade work in progress"
+    assert not condition(facts).is_fault, "doctor does not grade work in progress"
 
 
 def move_dep_to_v2(world: World) -> Path:
@@ -258,16 +256,13 @@ def test_a_commit_from_another_line_of_history_is_not_pointed_back(world):
 
 
 def test_work_in_progress_does_not_hide_a_real_disagreement(world):
-    # The reason it cannot merely be excluded from `is_fault`: it was returned AHEAD of the version
-    # comparison, so a dependency being edited reported "holds work that exists nowhere else" and
-    # buried the version disagreement underneath it as an afterthought.
+    # A dependency that is being edited, and is at another commit than the repository points to, is reported
+    # for the commit.
     dep = move_dep_to_v2(world)
     (dep / "B.sol").write_text("// and work is in progress here\n")
 
-    facts = facts_for(world.project)
-    found = condition(facts)
+    found = condition(facts_for(world.project))
 
-    assert facts.has_own_work, "the edit is still seen, for the delete guard"
     assert found.name == "ahead-of-record", f"the version disagreement is the finding: {found}"
 
 
@@ -410,42 +405,6 @@ def test_an_unreadable_checkout_is_a_fault_with_a_repair(world):
     assert condition(facts_for(world.project)).name == "consistent"
 
 
-def test_a_developer_edit_blocks_a_delete_and_nested_drift_does_not(world):
-    # The distinction the old tools could not make. A modified file is the developer's work and blocks
-    # a delete; a nested submodule off its pin belongs to the dependency and is fixed by recursing.
-    # Blocking the delete is all it does - doctor does not report it, because working in a dependency
-    # is not a defect.
-    (world.project / "lib" / "dep" / "A.sol").write_text("// edited by hand\n")
-
-    facts = facts_for(world.project)
-    assert facts.edits, "a hand-edited file must be seen"
-    assert facts.has_own_work
-    assert not condition(facts).is_fault
-
-
-def test_nested_drift_alone_is_not_the_developers_work(world):
-    # `git status` inside a submodule reports its nested submodules as modifications, which is what
-    # made the old wrapper tell the user to commit and push a third-party repository. Read with
-    # --ignore-submodules=all there is nothing of theirs here at all.
-    # The nested submodule is added UPSTREAM and pulled in, so `dep` carries no commit of its own -
-    # otherwise the fixture would produce unpushed work as well and prove nothing about drift alone.
-    inner = make_repo(world.remotes, "inner")
-    git(world.dep_source, "submodule", "add", "-q", str(inner), "lib/inner")
-    git(world.dep_source, "commit", "-qm", "add inner")
-    dep = world.project / "lib" / "dep"
-    git(dep, "fetch", "-q", "origin")
-    git(dep, "checkout", "-q", "origin/main")
-    git(dep, "submodule", "update", "--init", "-q")
-    add_commit(inner, "inner moved")
-    git(dep / "lib" / "inner", "fetch", "-q", "origin")
-    git(dep / "lib" / "inner", "checkout", "-q", "origin/main")
-
-    facts = facts_for(world.project)
-    assert facts.nested_drift, "the nested submodule must be off its recorded commit"
-    assert facts.edits == [], "nested drift must not be counted as the developer's edits"
-    assert not facts.has_own_work, "it must not block a delete"
-
-
 def test_an_untracked_repository_inside_a_dependency_is_litter(world):
     # What "unable to rmdir" leaves behind: a populated directory the new version no longer declares.
     # It is the dependency's, not ours, so it must never be reported as work to commit.
@@ -455,7 +414,6 @@ def test_an_untracked_repository_inside_a_dependency_is_litter(world):
 
     facts = facts_for(world.project)
     assert facts.litter == ["lib/stranded"], facts.litter
-    assert facts.edits == [], "litter is not a file the developer edited"
     assert condition(facts).name == "litter-present"
 
 
@@ -548,150 +506,6 @@ def test_a_stale_checkout_is_never_repaired_by_staging(world):
     # Typed as printed, it brings the folder to the commit the repository points to.
     typed(world.project, fix.partition(" (")[0])
     assert condition(facts_for(world.project)).name == "consistent"
-
-
-def test_a_nested_submodules_own_commits_block_a_delete(world):
-    # A `+` in `git submodule status` is produced identically by a version bump nobody recursed and
-    # by a day of work committed inside the nested submodule. The flag cannot tell them apart, so the
-    # question asked is not "whose is this" but "does any remote have it".
-    inner = make_repo(world.remotes, "inner")
-    git(world.dep_source, "submodule", "add", "-q", str(inner), "lib/inner")
-    git(world.dep_source, "commit", "-qm", "add inner")
-    dep = world.project / "lib" / "dep"
-    git(dep, "fetch", "-q", "origin")
-    git(dep, "checkout", "-q", "origin/main")
-    git(dep, "submodule", "update", "--init", "-q")
-    add_commit(dep / "lib" / "inner", "a day of work, unpushed")
-
-    facts = facts_for(world.project)
-
-    assert facts.edits == [], "it is not an edit at this level"
-    assert facts.unpushed == [], "it is not a commit at this level either"
-    assert facts.has_own_work, "but it would still be destroyed by a delete"
-    assert any(item.path.startswith("lib/inner") and item.kind == "unpushed" for item in facts.at_risk)
-
-
-def test_an_untracked_repositorys_own_commits_block_a_delete(world):
-    # The same for litter: "untracked directory containing .git" says nothing about what is inside.
-    # A stranded checkout is pristine and safe to remove; one someone worked in is not.
-    scratch = world.project / "lib" / "dep" / "scratch"
-    scratch.mkdir(parents=True)
-    git(scratch, "init", "-q")
-    (scratch / "notes.txt").write_text("precious\n")
-    git(scratch, "add", "-A")
-    git(scratch, "commit", "-qm", "unpushed, and no remote at all")
-
-    facts = facts_for(world.project)
-
-    assert facts.litter == ["scratch"], "it is still reported as litter for the reader"
-    assert facts.has_own_work, "but it must not be deleted on that basis"
-    assert any(item.path.startswith("scratch") for item in facts.at_risk)
-
-
-def test_a_pristine_stranded_checkout_does_not_block_a_delete(world):
-    # The other half: litter that holds nothing of its own is exactly what the cleanup is for, and
-    # must not be turned into a permanent refusal.
-    stranded = world.project / "lib" / "dep" / "stranded"
-    git(world.project, "clone", "-q", str(world.dep_source), str(stranded))
-
-    facts = facts_for(world.project)
-
-    assert facts.litter == ["stranded"], facts.litter
-    assert not facts.has_own_work, "a clean clone of a reachable remote is replaceable"
-
-
-def test_an_untracked_file_blocks_a_delete(world):
-    # Nothing tracks it, so nothing can restore it - the third shape, and the one both earlier
-    # classifications missed entirely.
-    (world.project / "lib" / "dep" / "scratch.txt").write_text("notes I have not committed\n")
-
-    facts = facts_for(world.project)
-
-    assert facts.edits == [], "an untracked file is not a modification"
-    assert facts.has_own_work
-    assert any(item.kind == "untracked" for item in facts.at_risk)
-
-
-def _arrange(dep: Path, state: str) -> None:
-    """Put the dependency into one named git state. Every one of these is a change someone made that
-    a delete would throw away, whatever git calls it."""
-    if state == "untracked file":
-        (dep / "new.txt").write_text("not committed anywhere\n")
-    elif state == "staged new file":
-        (dep / "new.txt").write_text("not committed anywhere\n")
-        git(dep, "add", "new.txt")
-    elif state == "modified":
-        (dep / "A.sol").write_text("// edited\n")
-    elif state == "staged modification":
-        (dep / "A.sol").write_text("// edited\n")
-        git(dep, "add", "A.sol")
-    elif state == "deleted":
-        (dep / "A.sol").unlink()
-    elif state == "staged deletion":
-        git(dep, "rm", "-q", "A.sol")
-    elif state == "renamed":
-        git(dep, "mv", "A.sol", "B.sol")
-    elif state == "unpushed commit":
-        (dep / "A.sol").write_text("// committed but never pushed\n")
-        git(dep, "add", "-A")
-        git(dep, "commit", "-qm", "local only")
-    else:
-        raise AssertionError(f"unhandled state {state!r}")
-
-
-@pytest.mark.parametrize(
-    "state",
-    [
-        "untracked file",
-        "staged new file",
-        "modified",
-        "staged modification",
-        "deleted",
-        "staged deletion",
-        "renamed",
-        "unpushed commit",
-    ],
-)
-def test_every_kind_of_uncommitted_change_blocks_a_delete(world, state):
-    # The safety question is not "which git status code is this" but "would deleting the directory
-    # lose it". Staged and unstaged, added and removed, renamed and rewritten all answer yes, so the
-    # walk must not enumerate codes it recognises and quietly pass everything else.
-    _arrange(world.project / "lib" / "dep", state)
-
-    facts = facts_for(world.project)
-
-    assert facts.at_risk, f"{state} was not seen at all"
-    assert facts.has_own_work
-
-
-@pytest.mark.parametrize("state", ["modified", "renamed", "staged deletion", "untracked file"])
-def test_what_is_at_risk_is_named_by_path_not_merely_counted(world, state):
-    # Only the user can tell a day's work from a stray file, and they cannot judge a number - so each
-    # item at risk carries its path, for every shape of change, and the refusal names it.
-    _arrange(world.project / "lib" / "dep", state)
-
-    named = [item.path for item in facts_for(world.project).at_risk]
-
-    assert any("A.sol" in path or "new.txt" in path for path in named), named
-
-
-def test_a_gitignored_file_is_not_treated_as_at_risk(world):
-    # Deliberate, and worth knowing: build output is regenerable and listing it would bury the real
-    # findings. It does mean a delete removes gitignored files that are NOT regenerable, a local .env
-    # being the obvious one.
-    dep = world.project / "lib" / "dep"
-    # Via info/exclude so the fixture leaves no commit of its own to be seen instead. A submodule's
-    # .git is a file pointing at the real gitdir, so ask git where that is rather than assuming.
-    gitdir = Path(git(dep, "rev-parse", "--absolute-git-dir").stdout.strip())
-    (gitdir / "info").mkdir(parents=True, exist_ok=True)
-    (gitdir / "info" / "exclude").write_text("out/\n")
-    (dep / "out").mkdir()
-    (dep / "out" / "artifact.json").write_text("{}\n")
-
-    facts = facts_for(world.project)
-
-    assert facts.at_risk == [], facts.at_risk
-    assert not facts.has_own_work
 
 
 @pytest.mark.parametrize("branch_recorded", [False, True], ids=["gitlink only", "with gitmodules"])
@@ -1256,6 +1070,28 @@ def test_the_walk_names_every_folder_at_every_depth_with_the_repository_that_poi
         ("lib/dep/lib/child", project / "lib" / "dep", "lib/child"),
         ("lib/dep/lib/child/lib/grandchild", project / "lib" / "dep" / "lib" / "child", "lib/grandchild"),
     ]
+
+
+def test_reading_a_folder_costs_the_same_whatever_lies_beneath_it(tmp_path, monkeypatch):
+    # doctor reads every folder at every depth. A reading that went down through the folders beneath would read
+    # the deepest folder once for each folder above it, so the cost of one reading, counted in git commands, must
+    # not depend on what lies beneath: lib/dep holds two levels, lib/grandchild none.
+    project = three_deep(tmp_path)
+    ran: list[tuple[str, ...]] = []
+    real = submodule_state.git
+
+    def counting(where: Path, *arguments: str):
+        ran.append(arguments)
+        return real(where, *arguments)
+
+    monkeypatch.setattr(submodule_state, "git", counting)
+
+    read_facts(project, "lib/dep")
+    with_two_levels_beneath = list(ran)
+    ran.clear()
+    read_facts(project / "lib" / "dep" / "lib" / "child", "lib/grandchild")
+
+    assert len(with_two_levels_beneath) == len(ran), (with_two_levels_beneath, ran)
 
 
 def test_the_walk_names_nothing_beneath_a_folder_that_is_not_checked_out(tmp_path):
