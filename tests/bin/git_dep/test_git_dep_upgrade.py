@@ -136,6 +136,30 @@ def test_upgrade_with_no_version_moves_to_the_tip_of_the_branch_it_follows(ready
     ]
 
 
+def test_upgrade_typed_inside_a_dependency_moves_the_folder_beneath_it_and_stages_it_there(ready):
+    # A dependency that this repository and one of its dependencies both have is brought to one commit in both
+    # places by typing `upgrade` inside that dependency. Typed inside lib/dep, the command acts on lib/dep: it
+    # moves lib/dep/lib/shared and stages it in lib/dep. Nothing is staged in the repository around it, and its
+    # own lib/shared is where it was.
+    project = ready.project
+    dep = project / "lib" / "dep"
+    own_shared = head(project / "lib" / "shared")
+    newer = commit(ready.seed("shared"), "shared s2")
+
+    done = typed(dep, f"git dep upgrade shared {newer}")
+
+    assert done.returncode == 0, done.stderr
+    assert head(dep / "lib" / "shared") == newer
+    assert git(dep, "status", "--porcelain") == "M  lib/shared"
+    assert printed(done)[:3] == [
+        "$ git -C lib/shared fetch --tags",
+        f"$ git -C lib/shared checkout --detach {newer}",
+        "$ git add lib/shared",
+    ]
+    assert typed(project, "git diff --cached --quiet").returncode == 0
+    assert head(project / "lib" / "shared") == own_shared
+
+
 def test_upgrade_with_no_version_refuses_a_dependency_that_follows_no_branch(ready):
     # git alone would move such a dependency to the newest commit of its remote's default branch. Nothing is
     # fetched and nothing is moved.

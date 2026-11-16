@@ -6,6 +6,10 @@ doc/dependencies.md, gives the git commands for each task. A command here makes 
 a reader to make, then runs the cookbook's git commands. It prints each command that changes something
 before it runs it, as it would be typed in the repository's top folder.
 
+Its commands are for what concerns the dependencies as such: the settings, the folders at every depth, and
+adding, upgrading and removing a dependency. Work inside a dependency (a branch, a merge, a push) is ordinary
+git typed in its folder, and has no command here.
+
 It acts on the repository it is typed in. git finds it through an alias, `alias.dep`, which `setup` writes
 into the repository's own config. Before that it is run by its path, which is what `yarn setup` does. No
 command makes a commit, and none pushes the repository it is typed in.

@@ -42,12 +42,19 @@ bao-base holds a script that runs procedures of this page, with the checks they 
 each git command that changes something before it runs it. It never commits, and it never pushes the
 repository you are in.
 
+It is for what concerns the dependencies as such: the settings, the folders at every depth, and adding,
+upgrading and removing a dependency. It has no command for work inside a dependency. That is ordinary git in
+the folder, and "Work in a dependency" says which two steps tie it back to this repository.
+
 - **The first time in a clone, type `yarn setup`.** It runs the script by its path, with `setup`:
   `lib/bao-base/bin/git-dep setup`, and in bao-base itself `bin/git-dep setup`. That run writes the settings
   below, and an alias. From then on the command is `git dep`, from any folder of the clone. `setup` moves no
   folder, so it is safe at any time.
 - `yarn setup` needs `yarn install` to have run: before it, yarn refuses every script with
   `Couldn't find the node_modules state file`. The path typed by hand needs only git and `python3`.
+- After that, `yarn setup` does one thing that is not about dependencies. Where the repository's top folder
+  has a `pyproject.toml`, it builds the repository's own Python environment from `uv.lock`, with
+  `uv sync --locked`. `bin/setup` in bao-base says more.
 - A repository that uses bao-base has the line `"setup": "./lib/bao-base/run setup"` among the scripts of its
   `package.json`. Do not name such a script `init`: `yarn init` is a command of yarn's own, which writes a
   new `package.json` over the one that is there.
@@ -304,40 +311,61 @@ git -C lib/<name> config --remove-section submodule.lib/<gone>
 
 ## Work in a dependency
 
-**Start.** On a new branch, at the commit the repository records:
+`lib/<name>` is a full repository, and work in it is ordinary git, typed in the folder: branch, commit,
+fetch, merge, push. There is no `git dep` command for it. Two steps are about the dependency and not about
+the work. Both are typed back in the repository's top folder:
+
+- **After a switch, a merge or a pull in the folder,** `git dep update` brings the folders beneath it to the
+  commits it now records. It leaves the folder itself on its branch. The plain command for it is typed in
+  the folder: `git submodule update --init --recursive`.
+- **To record the work,** `git add lib/<name>`, and commit.
+
+**Start.** Put the folder on a branch before you commit in it. A new branch, at the commit the repository
+records:
 
 ```
-git -C lib/<name> switch -c <branch>
+cd lib/<name>
+git switch -c <branch>
 ```
 
-On a branch that exists on the remote:
+A branch that exists:
 
 ```
-git -C lib/<name> fetch
-git -C lib/<name> switch <branch>
-git -C lib/<name> submodule update --init --recursive
+cd lib/<name>
+git fetch
+git switch <branch>
 ```
 
-Without the fetch, git answers `invalid reference` for a branch it has not seen. The third command brings the
-folders beneath `lib/<name>` to the commits that branch records.
+- Without the fetch, git answers `invalid reference` for a branch that only the remote has.
+- git answers `Your branch is behind 'origin/<branch>'` where the folder has the branch already and the
+  remote has moved on. A folder from a clone has such a branch: it is named as the remote's main branch is,
+  and was left at the remote's newest commit of the day of the clone. Where the branch has no commit of its
+  own, `git pull` brings it to the remote's newest commit.
+- Then, in the top folder, `git dep update`: the branch can record other commits for the folders beneath.
 
 **Build this repository against the work.** There is nothing to do. The build reads `lib/<name>` as it is.
 
-**Take newer upstream work into your branch,** for a dependency with a `branch` line in `.gitmodules`:
+**Take newer work into your branch.**
 
 ```
-git submodule update --remote --merge lib/<name>
-git -C lib/<name> submodule update --init --recursive
+cd lib/<name>
+git fetch
+git merge origin/<branch>
 ```
 
-The first merges the newest commit of the branch the dependency follows into the branch you are on. The
-folder stays on your branch. The second moves the folders beneath it to the commits the merge records.
+- `<branch>` is the branch whose work you want. For most that is `main`.
+- **Be on a branch first.** On no branch, git makes the merge commit on no branch, and does not warn. The
+  next update would leave that commit behind. `git switch -c <branch>` puts it on a branch.
+- A conflict is resolved as in any repository. `git merge --abort` goes back.
+- Then, in the top folder, `git dep update`: the merge can record other commits for the folders beneath.
 
 **Record the work in this repository.** Commit everything in the folder first: a change that is not
 committed is not recorded, although the build has been using it.
 
 ```
-git -C lib/<name> push -u origin <branch>
+cd lib/<name>
+git push -u origin <branch>
+cd ../..
 git add lib/<name>
 git commit
 git push
@@ -382,6 +410,11 @@ git push
 There are two working copies of `<shared>` in the tree: `lib/<shared>` and `lib/<name>/lib/<shared>`. Edit
 only the first. The second only follows, by the checkout above.
 
+**As a command:** typed inside `lib/<name>`, `git dep upgrade <shared> <commit>` does the first four of the
+six commands for `<name>`. It moves `lib/<name>/lib/<shared>` to the commit, brings along what is beneath it,
+and stages it in `<name>`. The commit and the push in `<name>` stay yours. Typed there, `git dep` runs the
+copy of the script that `<name>` holds, so that copy has to have `upgrade`.
+
 ## A merge where both branches moved a dependency
 
 This holds for a merge in the repository, and for a merge inside a dependency whose branches both moved a
@@ -425,6 +458,7 @@ local deployment tag with the remote's tag of the same name, which `git fetch --
 | `git submodule add -b <branch>` ends with `is not a commit and a branch '<branch>' cannot be created from it` | The remote has no such branch. git has cloned already: it leaves `lib/<name>`, holding nothing but `.git`, and `.git/modules/lib/<name>`. Typed again with the right branch, the add stages the folder as it is, with no file in it | `rm -rf lib/<name> .git/modules/lib/<name>`, then add again |
 | `git rm lib/<name>` ends with `the following file has changes staged in the index` | The dependency was added, or its new commit was staged, and that is not committed | To undo an add: `git rm -f lib/<name>`, then the other two commands of "Remove a dependency" |
 | After `git -C lib/<name> checkout main`, the folder is on a branch, at an older commit | That is the folder's own branch, left where the remote was on the day of the clone | `git -C lib/<name> checkout --detach origin/main` |
+| A merge commit in a dependency folder is on no branch | The merge was made while the folder was on no branch. git does not warn about it then | `git -C lib/<name> switch -c <branch>` puts the commit on a branch |
 | A merge stops with `Failed to merge submodule lib/<name> (not checked out)` | The folder is empty | The update command, then merge again |
 | A merge stops with `Failed to merge submodule lib/<name> (commits don't follow merge-base)`, although one commit follows the other | Seen once on git 2.43, where the folder's repository held commit-graph files. What sets it off is not known | `git -c core.commitGraph=false merge <branch>` merged it |
 | A branch switch discarded an edit inside `lib/` | `submodule.recurse` is set to `true` on this computer | Take the setting out. `git config --show-scope --show-origin --get-regexp '^(push\.recursesubmodules\|submodule\.recurse)$'` lists each file that sets it or the push check, in the order git reads them |

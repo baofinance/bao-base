@@ -1,13 +1,45 @@
 #!/usr/bin/env python3
-"""`yarn setup`: what a clone needs once, before it is worked in.
+"""`yarn setup`: what a clone needs once, before it is worked in. It is safe at any time.
 
-It runs `git dep setup` by the script's path, for the repository it is typed in. That writes the settings
-every clone holds, which the cookbook (doc/dependencies.md) gives, and the alias that lets git run `git dep`.
-It moves no folder, so it is safe at any time.
+1. `git dep setup`, run by the script's path, for the repository it is typed in. That writes the settings
+   every clone holds, which the cookbook (doc/dependencies.md) gives, and the alias that lets git run
+   `git dep`. It moves no folder.
+2. Where the repository's top folder has a `pyproject.toml`, the repository has a Python environment of its
+   own: `uv sync --locked`, run there, builds it from `uv.lock`. A lock that does not match `pyproject.toml`
+   is reported, and not written again.
+
+The second step waits for the first, so a download that fails does not keep `git dep` from a clone. The run
+ends with the status of the step that failed.
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
 
-sys.exit(subprocess.run([Path(__file__).resolve().parent / "git-dep", "setup", *sys.argv[1:]]).returncode)
+
+def main(arguments: list[str]) -> int:
+    set_up = subprocess.run([Path(__file__).resolve().parent / "git-dep", "setup", *arguments]).returncode
+    if set_up != 0:
+        return set_up
+    found = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True)
+    top = Path(found.stdout.strip())
+    if not (top / "pyproject.toml").exists():
+        return 0
+    # `run` starts this script through uv, and uv hands its own path to what it starts, in `UV`.
+    uv = os.environ.get("UV")
+    if uv is None:
+        sys.stderr.write(
+            "setup: UV is not set, so there is no uv to run `uv sync --locked` with. "
+            "`yarn setup` starts this script through `run`, which sets it.\n"
+        )
+        return 1
+    print("$ uv sync --locked", flush=True)
+    # uv also names the environment it started this script in, which is the one of bao-base's own scripts. It
+    # is taken out: uv warns about an environment that is not the project's.
+    environment = {name: value for name, value in os.environ.items() if name != "VIRTUAL_ENV"}
+    return subprocess.run([uv, "sync", "--locked"], cwd=top, env=environment).returncode
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
