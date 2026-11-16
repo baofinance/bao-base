@@ -11,6 +11,7 @@ from git_dep_world import (
     FOLDERS,
     THE_THREE,
     WRITING_THE_SETTINGS,
+    a_commit_in,
     branch,
     commit,
     git,
@@ -22,14 +23,6 @@ from git_dep_world import (
     subject,
     typed,
 )
-
-
-def a_commit_in(folder, subject_line: str) -> str:
-    """A commit made in the folder as it stands, with a file of its own. Returns the commit."""
-    (folder / f"{subject_line.replace(' ', '-')}.txt").write_text(f"{subject_line}\n")
-    git(folder, "add", "-A")
-    git(folder, "commit", "-qm", subject_line)
-    return head(folder)
 
 
 def a_teammate_moves_shared(world) -> str:

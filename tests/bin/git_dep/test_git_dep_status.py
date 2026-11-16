@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from git_dep_world import BY_PATH, commit, git, head, typed
+from git_dep_world import BY_PATH, a_commit_in, commit, git, head, typed
 
 
 def report(where: Path, command: str = "git dep status") -> list[str]:
@@ -26,21 +26,13 @@ def every_file(top: Path) -> dict[str, tuple[int, int]]:
     return found
 
 
-def a_commit_in(folder: Path, subject: str) -> str:
-    """A commit made in the folder as it stands, with a file of its own. Returns the commit."""
-    (folder / f"{subject.replace(' ', '-')}.txt").write_text(f"{subject}\n")
-    git(folder, "add", "-A")
-    git(folder, "commit", "-qm", subject)
-    return head(folder)
-
-
 def test_status_counts_the_folders_and_names_none_when_all_is_as_recorded(ready):
     # A repository with no dependency, with one, and with several at two depths: each folder at the commit
-    # recorded for it, on no branch, holding nothing of this computer's alone.
+    # recorded for it, on no branch, holding nothing of this computer's alone. tool has one dependency at v1.
     project = ready.project
     with_none, with_one = ready.root / "base-alone", ready.root / "tool-alone"
     git(ready.root, "clone", "-q", str(ready.remote("base")), str(with_none))
-    git(ready.root, "clone", "-q", "--recurse-submodules", str(ready.remote("tool")), str(with_one))
+    git(ready.root, "clone", "-q", "--recurse-submodules", "--branch", "v1", str(ready.remote("tool")), str(with_one))
 
     assert report(with_none, "bin/git-dep status") == ["no dependency folders"]
     assert report(with_one, f"{project / BY_PATH} status") == ["1 dependency folder: nothing to report"]

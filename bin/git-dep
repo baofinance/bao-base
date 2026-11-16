@@ -7,8 +7,8 @@ a reader to make, then runs the cookbook's git commands. It prints each command 
 before it runs it, as it would be typed in the repository's top folder.
 
 It acts on the repository it is typed in. git finds it through an alias, `alias.dep`, which `setup` writes
-into the repository's own config. Before that it is run by its path. No command makes a commit, and none
-pushes the repository it is typed in.
+into the repository's own config. Before that it is run by its path, which is what `yarn setup` does. No
+command makes a commit, and none pushes the repository it is typed in.
 
 It ends with status 0 when done, 1 when a check stopped it, 2 for a command or an argument it does not know,
 and with git's own status when a git command failed.
@@ -18,7 +18,9 @@ It uses the standard library only and runs on Python 3.9 and later: on the pytho
 
 from __future__ import annotations
 
+import argparse
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -51,11 +53,15 @@ class Stopped(Exception):
         super().__init__("\n".join(lines))
 
 
-class GitFailed(Exception):
-    """A git command that changes something failed. git has shown its own message; `status` is its status."""
+class Misused(Exception):
+    """What was typed after the command names nothing the command can act on. Its line says what was typed."""
+
+
+class CommandFailed(Exception):
+    """A command that was run failed. It has shown its own message; `status` is its status."""
 
     def __init__(self, status: int):
-        super().__init__(f"git ended with status {status}")
+        super().__init__(f"a command ended with status {status}")
         self.status = status
 
 
@@ -90,13 +96,23 @@ class Repository:
         """What a reading git command prints, or nothing where git has no answer."""
         return self.read(*arguments).stdout.strip()
 
-    def run(self, *arguments: str) -> None:
-        """A git command that changes something: printed as it is typed in the top folder, then run. git shows
-        its own output. A failure ends the command here, with git's status."""
-        print("$ git " + " ".join(shlex.quote(argument) for argument in arguments), flush=True)
-        status = subprocess.run(["git", *arguments], cwd=self.top, env=self.environment).returncode
+    def ask_or_stop(self, *arguments: str) -> str:
+        """What a reading git command prints. A failure ends the command here, with git's message and status:
+        for a read whose answer decides what is deleted."""
+        found = self.read(*arguments)
+        if found.returncode != 0:
+            sys.stderr.write(found.stderr)
+            raise CommandFailed(found.returncode)
+        return found.stdout.strip()
+
+    def run(self, *arguments: str, program: str = "git") -> None:
+        """A command that changes something: printed as it is typed in the top folder, then run. It shows its
+        own output. A failure ends the command here, with its status."""
+        typed = [program, *arguments]
+        print("$ " + " ".join(shlex.quote(argument) for argument in typed), flush=True)
+        status = subprocess.run(typed, cwd=self.top, env=self.environment).returncode
         if status != 0:
-            raise GitFailed(status)
+            raise CommandFailed(status)
 
     def checked_out(self, path: str) -> bool:
         return (self.top / path / ".git").exists()
@@ -113,18 +129,24 @@ class Repository:
 
     def listed(self, parent: str) -> list[Folder]:
         """The dependency folders the repository at `parent` lists in its .gitmodules, in the order of their
-        paths. A repository with no .gitmodules lists none."""
+        paths. A repository with no .gitmodules lists none.
+
+        git ignores an entry whose name is empty or has `..` in it: the repository it would keep under such a
+        name is outside the folder it keeps dependencies in. Such an entry is no dependency here either."""
         at = ["-C", parent] if parent else []
         entries = self.read(*at, "config", "--file", ".gitmodules", "--get-regexp", r"^submodule\..*\.path$")
         found = []
         for line in entries.stdout.splitlines():
             key, _, inside = line.partition(" ")
+            name = key[len("submodule.") : -len(".path")]
+            if not name or ".." in re.split(r"[/\\]", name):
+                continue
             staged = self.ask(*at, "ls-files", "--stage", "--", inside).split()
             found.append(
                 Folder(
                     path=f"{parent}/{inside}" if parent else inside,
                     parent=parent,
-                    name=key[len("submodule.") : -len(".path")],
+                    name=name,
                     inside=inside,
                     recorded=staged[1] if len(staged) > 1 else "",
                 )
@@ -147,7 +169,7 @@ def top_folder() -> Path:
     found = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
     if found.returncode != 0:
         sys.stderr.write(found.stderr)
-        raise GitFailed(found.returncode)
+        raise CommandFailed(found.returncode)
     return Path(found.stdout.strip())
 
 
@@ -283,11 +305,12 @@ def write_the_settings(repository: Repository) -> None:
     repository.run("submodule", "foreach", "--quiet", "--recursive", IN_EACH_FOLDER)
 
 
-def name_what_is_not_checked_out(repository: Repository) -> int:
-    """Name each folder that is still not checked out. git skips a folder whose update setting is none, in a
-    line that is easy to miss, so that setting is named with the command that takes it out."""
+def name_what_is_not_checked_out(repository: Repository, beneath: str = "") -> int:
+    """Name each folder beneath `beneath` that is still not checked out. git skips a folder whose update
+    setting is none, in a line that is easy to miss, so that setting is named with the command that takes it
+    out."""
     lines = []
-    for folder in repository.folders():
+    for folder in repository.folders(beneath):
         if repository.checked_out(folder.path):
             continue
         at = ["-C", folder.parent] if folder.parent else []
@@ -321,11 +344,231 @@ def update(repository: Repository) -> int:
     return name_what_is_not_checked_out(repository)
 
 
-# Each command that acts on a repository, with the one line `help` prints for it.
+def the_dependency(repository: Repository, typed_name: str) -> Folder:
+    """The dependency of this repository that a name typed after a command means. A dependency is named by its
+    folder, with or without `lib/` in front."""
+    wanted = typed_name.rstrip("/")
+    listed = repository.listed("")
+    for path in (wanted, f"lib/{wanted}"):
+        for folder in listed:
+            if folder.path == path:
+                return folder
+    named = f"They are: {', '.join(folder.path for folder in listed)}" if listed else "It has none"
+    raise Misused(f"git dep: {typed_name} is not a dependency of this repository. {named}")
+
+
+def add(repository: Repository, url: str, name: str | None, branch: str | None, tag: str | None) -> int:
+    """Add a dependency, check it out at every depth and stage it, then write the settings: the cookbook's
+    "Add a dependency". It leaves the remappings and the commit to the person."""
+    # Left out, the name is the one git gives a clone: the last part of the url, without `.git`.
+    last_of_the_url = re.split(r"[/:]", url.rstrip("/").removesuffix("/.git").removesuffix(".git"))[-1]
+    inside = (last_of_the_url if name is None else name).rstrip("/").removeprefix("lib/")
+    if not inside:
+        raise Misused(f"git dep add: {url} gives no name for the folder. Give one: git dep add <url> <name>")
+    path = f"lib/{inside}"
+    refuse_submodule_recurse(repository, repository.folders())
+    # git finds that the remote lacks a branch only after it has cloned, and it leaves the clone behind. It
+    # finds a missing tag after the dependency is staged. So the remote is asked first. git reads a url that
+    # starts with ./ or ../ from the repository's own remote, so the remote cannot be asked about that one here.
+    if not url.startswith(("./", "../")):
+        for kind, called, kept_under in (("branch", branch, "refs/heads"), ("tag", tag, "refs/tags")):
+            if called is None:
+                continue
+            at_the_remote = repository.read("ls-remote", "--exit-code", url, f"{kept_under}/{called}")
+            if at_the_remote.returncode == 2:
+                raise Stopped([f"{url} has no {kind} {called}"])
+            if at_the_remote.returncode != 0:
+                sys.stderr.write(at_the_remote.stderr)
+                raise CommandFailed(at_the_remote.returncode)
+    repository.run("submodule", "add", *(["-b", branch] if branch else []), url, path)
+    # git's add leaves the new folder on a branch. A folder from a clone is on none, and `update` leaves a
+    # folder that is on a branch where it is. So the new folder is taken off its branch: by the checkout of
+    # the tag, or at the commit it is at.
+    if tag is None:
+        repository.run("-C", path, "switch", "--detach")
+    else:
+        repository.run("-C", path, "checkout", tag)
+    move(repository, path)
+    repository.run("add", path)
+    write_the_settings(repository)
+    print(
+        f"{path} is added at {repository.ask('-C', path, 'rev-parse', 'HEAD')[:10]}, and staged. "
+        'Left to do: add its remappings, then commit. See "Add a dependency" in the cookbook: git dep cookbook',
+        flush=True,
+    )
+    return name_what_is_not_checked_out(repository, path)
+
+
+def upgrade(repository: Repository, name: str, version: str | None) -> int:
+    """Move a dependency to a version, or with no version to the newest commit of the branch it follows, bring
+    the folders beneath it along and stage it, then write the settings: the cookbook's "Upgrade a dependency",
+    with the checks that keep work. It leaves the commit to the person."""
+    folder = the_dependency(repository, name)
+    path = folder.path
+    refuse_submodule_recurse(repository, repository.folders())
+    # A git command typed for a folder that is not checked out acts on the repository around it.
+    if not repository.checked_out(path):
+        raise Stopped([f"{path}: not checked out. To check it out: git submodule update --init --recursive -- {path}"])
+    if version is None:
+        # git alone moves a dependency that follows no branch to the newest commit of its remote's default one.
+        if not repository.ask("config", "--file", ".gitmodules", "--get", f"submodule.{folder.name}.branch"):
+            raise Stopped(
+                [
+                    f"{path} follows no branch: .gitmodules has no branch line for it. "
+                    f"To move it to a version: git dep upgrade {path} <version>"
+                ]
+            )
+    else:
+        # A folder from a clone has a branch of its own, left at the remote's newest commit of that day. Its
+        # name typed as the version would move the folder there, and not to the remote's newest commit.
+        own = repository.ask("-C", path, "rev-parse", "--verify", "--quiet", f"refs/heads/{version}")
+        if own:
+            raise Stopped(
+                [
+                    f"{path} has a branch of its own named {version}, at {own[:10]}. A version is a tag or a "
+                    f"commit. For the newest commit of the remote's branch: git dep upgrade {path} origin/{version}"
+                ]
+            )
+    refuse_a_commit_that_would_be_left_behind(repository, [folder, *repository.folders(path)])
+    if version is None:
+        repository.run("submodule", "update", "--remote", path)
+    else:
+        repository.run("-C", path, "fetch", "--tags")
+        # git answers the checkout of a name it does not have with `--detach does not take a path argument`.
+        if not repository.ask("-C", path, "rev-parse", "--verify", "--quiet", f"{version}^{{commit}}"):
+            raise Stopped([f"{path} has no tag or commit named {version}, after the fetch from its remote."])
+        repository.run("-C", path, "checkout", "--detach", version)
+    move(repository, path)
+    repository.run("add", path)
+    write_the_settings(repository)
+    at = repository.ask("-C", path, "rev-parse", "HEAD")[:10]
+    if repository.read("diff", "--cached", "--quiet", "--", path).returncode == 0:
+        print(f"{path} is at {at}, the commit already recorded. Nothing is left to do.", flush=True)
+    else:
+        print(f"{path} is at {at}, and staged. Left to do: commit.", flush=True)
+    return name_what_is_not_checked_out(repository, path)
+
+
+def kept_repositories(folder: Path) -> list[Path]:
+    """Each repository git keeps at `folder` or beneath it. A dependency's name can hold a `/`, so the
+    repository git keeps for it can be several folders down. The ones git keeps for that dependency's own
+    dependencies are in its `modules` folder."""
+    if (folder / "HEAD").is_file():
+        return [folder, *kept_repositories(folder / "modules")]
+    if not folder.is_dir():
+        return []
+    return [kept for inside in sorted(folder.iterdir()) for kept in kept_repositories(inside)]
+
+
+def work_only_here(repository: Repository, shown: str, at: list[str], has_a_folder: bool) -> list[str]:
+    """What one repository holds that only this computer has, a line each with the command that lists it:
+    uncommitted changes where it has a folder, commits that no remote has, and stashes. `at` is what a git
+    command is typed with to reach it. A read that fails ends the command: no answer is not "nothing"."""
+    typed = " ".join(["git", *at])
+    lines = []
+    if has_a_folder and repository.ask_or_stop(*at, "status", "--porcelain", "--ignore-submodules=all"):
+        lines.append(f"{shown}: uncommitted changes. To list: {typed} status --short")
+    commits = int(repository.ask_or_stop(*at, "rev-list", "--count", "HEAD", "--branches", "--not", "--remotes"))
+    if commits:
+        lines.append(
+            f"{shown}: {commits} commit{'' if commits == 1 else 's'} that no remote has. "
+            f"To list: {typed} log HEAD --branches --not --remotes --oneline"
+        )
+    stashes = len(repository.ask_or_stop(*at, "stash", "list").splitlines())
+    if stashes:
+        lines.append(f"{shown}: {stashes} stash{'' if stashes == 1 else 'es'}. To list: {typed} stash list")
+    return lines
+
+
+def remove(repository: Repository, name: str) -> int:
+    """Remove a dependency: its folder and its entry in .gitmodules, the repository git keeps for it, and the
+    lines git leaves in the settings. That is the cookbook's "Remove a dependency", after its look for work
+    that only this computer has. It leaves the remappings and the commit to the person."""
+    folder = the_dependency(repository, name)
+    path = folder.path
+    refuse_submodule_recurse(repository, repository.folders())
+    kept = repository.ask_or_stop("rev-parse", "--git-path", f"modules/{folder.name}")
+    # git's own removal does not look at branches or stashes, and deleting the kept repository deletes every
+    # one of them. So each repository that goes is looked at first: the folder's and the ones beneath it, and
+    # each one git keeps for a folder that is not there.
+    found = []
+    looked_at = set()
+    beneath = repository.folders(path) if repository.checked_out(path) else []
+    for there in (path, *(nested.path for nested in beneath)):
+        if repository.checked_out(there):
+            looked_at.add(Path(repository.ask_or_stop("-C", there, "rev-parse", "--absolute-git-dir")).resolve())
+            found.extend(work_only_here(repository, there, ["-C", there], has_a_folder=True))
+    for git_keeps in kept_repositories(repository.top / kept):
+        if git_keeps.resolve() not in looked_at:
+            shown = os.path.relpath(git_keeps, repository.top)
+            # git stops at a kept repository that names a folder which is gone, unless it is given another.
+            found.extend(
+                work_only_here(repository, shown, ["--git-dir", shown, "--work-tree", "."], has_a_folder=False)
+            )
+    if found:
+        raise Stopped([*found, f"{path} is not removed: that work would be deleted with it."])
+    repository.run("rm", path)
+    if (repository.top / kept).exists():
+        repository.run("-rf", kept, program="rm")
+    settings = repository.ask_or_stop("config", "--local", "--list", "--name-only").splitlines()
+    if any(setting.startswith(f"submodule.{folder.name}.") for setting in settings):
+        repository.run("config", "--remove-section", f"submodule.{folder.name}")
+    print(
+        f"{path} is removed, and the removal is staged. Left to do: take its remappings out, then commit. "
+        'See "Remove a dependency" in the cookbook: git dep cookbook',
+        flush=True,
+    )
+    return 0
+
+
+def typed_as(form: str, does: str) -> argparse.ArgumentParser:
+    """What reads the arguments of one command. `form` is the way the command is typed after `git dep`, and
+    `does` is the line that says what it does: `help` lists both, and a misuse is answered with the form."""
+    return argparse.ArgumentParser(
+        prog=f"git dep {form.split()[0]}", usage=f"git dep {form}", description=does, allow_abbrev=False
+    )
+
+
+ADD = typed_as(
+    "add <url> [<name>] [--branch <branch> | --tag <tag>]",
+    "add a dependency, checked out at every depth, and stage it",
+)
+ADD.add_argument("url", metavar="<url>", help="the dependency's repository")
+ADD.add_argument("name", metavar="<name>", nargs="?", help="its folder in lib/: the end of the url when left out")
+ADD_AT = ADD.add_mutually_exclusive_group()
+ADD_AT.add_argument("--branch", metavar="<branch>", help="the branch it follows: for a repository of your own")
+ADD_AT.add_argument("--tag", metavar="<tag>", help="the release tag it is put at: for a library")
+
+UPGRADE = typed_as(
+    "upgrade <name> [<version>]",
+    "move a dependency to a version, or to the newest commit of the branch it follows, and stage it",
+)
+UPGRADE.add_argument("name", metavar="<name>", help="the dependency: its folder, with or without lib/ in front")
+UPGRADE.add_argument("version", metavar="<version>", nargs="?", help="a tag or a commit")
+
+REMOVE = typed_as(
+    "remove <name>",
+    "remove a dependency, after a look for work that only this computer has, and stage the removal",
+)
+REMOVE.add_argument("name", metavar="<name>", help="the dependency: its folder, with or without lib/ in front")
+
+# Each command that acts on a repository, with what reads its arguments.
 ON_A_REPOSITORY = {
-    "setup": (setup, "write the settings and the alias, in the repository and in every dependency folder"),
-    "update": (update, "put every dependency folder at the commit recorded for it, at every depth"),
-    "status": (status, "name each dependency folder that is not as recorded, or holds work only this computer has"),
+    "setup": (
+        setup,
+        typed_as("setup", "write the settings and the alias, in the repository and in every dependency folder"),
+    ),
+    "update": (
+        update,
+        typed_as("update", "put every dependency folder at the commit recorded for it, at every depth"),
+    ),
+    "status": (
+        status,
+        typed_as("status", "name each dependency folder that is not as recorded, or holds work only this computer has"),
+    ),
+    "add": (add, ADD),
+    "upgrade": (upgrade, UPGRADE),
+    "remove": (remove, REMOVE),
 }
 # The commands that need no repository.
 ELSEWHERE = {
@@ -335,10 +578,11 @@ ELSEWHERE = {
 
 
 def help_text() -> str:
-    described = {**{name: line for name, (_, line) in ON_A_REPOSITORY.items()}, **ELSEWHERE}
-    width = max(len(name) for name in described)
     lines = ["git dep <command>", ""]
-    lines.extend(f"  {name.ljust(width)}  {line}" for name, line in described.items())
+    for _, reads in ON_A_REPOSITORY.values():
+        lines.extend([f"  {reads.usage[len('git dep ') :]}", f"      {reads.description}"])
+    for name, does in ELSEWHERE.items():
+        lines.extend([f"  {name}", f"      {does}"])
     return "\n".join(lines) + "\n"
 
 
@@ -354,15 +598,18 @@ def main(arguments: list[str]) -> int:
         known = ", ".join([*ON_A_REPOSITORY, *ELSEWHERE])
         sys.stderr.write(f"git dep: {command} is not one of its commands. They are: {known}\n")
         return 2
-    if len(arguments) > 1:
-        sys.stderr.write(f"git dep {command} takes no argument: {' '.join(arguments[1:])}\n")
-        return 2
+    run, reads = ON_A_REPOSITORY[command]
+    # Arguments the command does not take end the run here, with the way it is typed and status 2.
+    asked = vars(reads.parse_intermixed_args(arguments[1:]))
     try:
-        return ON_A_REPOSITORY[command][0](Repository(top_folder()))
+        return run(Repository(top_folder()), **asked)
+    except Misused as misused:
+        sys.stderr.write(f"{misused}\n")
+        return 2
     except Stopped as stopped:
         sys.stderr.write(f"{stopped}\n")
         return 1
-    except GitFailed as failed:
+    except CommandFailed as failed:
         return failed.status
 
 

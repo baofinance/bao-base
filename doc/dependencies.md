@@ -42,9 +42,15 @@ bao-base holds a script that runs procedures of this page, with the checks they 
 each git command that changes something before it runs it. It never commits, and it never pushes the
 repository you are in.
 
-- **The first time in a clone, run it by its path:** `lib/bao-base/bin/git-dep setup`. In bao-base itself the
-  path is `bin/git-dep`. That run writes the settings below, and an alias. From then on the command is
-  `git dep`, from any folder of the clone. `setup` moves no folder, so it is safe at any time.
+- **The first time in a clone, type `yarn setup`.** It runs the script by its path, with `setup`:
+  `lib/bao-base/bin/git-dep setup`, and in bao-base itself `bin/git-dep setup`. That run writes the settings
+  below, and an alias. From then on the command is `git dep`, from any folder of the clone. `setup` moves no
+  folder, so it is safe at any time.
+- `yarn setup` needs `yarn install` to have run: before it, yarn refuses every script with
+  `Couldn't find the node_modules state file`. The path typed by hand needs only git and `python3`.
+- A repository that uses bao-base has the line `"setup": "./lib/bao-base/run setup"` among the scripts of its
+  `package.json`. Do not name such a script `init`: `yarn init` is a command of yarn's own, which writes a
+  new `package.json` over the one that is there.
 - `git dep help` lists the commands. `git dep cookbook` prints this page. `git dep --help` shows only the
   alias, because git answers that one itself.
 - Typed inside a dependency folder, `git dep` runs that dependency's own copy of the script, and acts on that
@@ -86,7 +92,8 @@ Then write the settings above. Every folder is checked out, each on no branch.
 
 For a clone made without `--recurse-submodules`, run the update command of the next section.
 
-**As a command:** `lib/bao-base/bin/git-dep setup`, typed after the clone, writes the settings.
+**As a command:** `yarn setup`, typed after the clone and `yarn install`, writes the settings. So does
+`lib/bao-base/bin/git-dep setup`, which needs no install.
 
 ## After a pull, a merge or a branch switch
 
@@ -160,6 +167,7 @@ the folders. It changes nothing and fetches nothing.
 
 ```
 git submodule add -b <branch> <url> lib/<name>
+git -C lib/<name> switch --detach
 git -C lib/<name> submodule update --init --recursive
 git add lib/<name>
 ```
@@ -168,12 +176,24 @@ Then run the last settings command. Add the dependency's remappings to `foundry.
 each under a prefix of its own, such as `@<name>/`. Commit.
 
 - `-b <branch>` is for a repository of your own, which follows a branch. It writes a `branch` line in
-  `.gitmodules`.
-- For a library at a release tag, leave `-b <branch>` out, and put the folder at the tag before the second
-  command: `git -C lib/<name> checkout <tag>`.
-- The second command is typed for the folder itself, with `-C`. After the checkout of a tag,
+  `.gitmodules`. Check the name first: for a branch the remote does not have, git stops only after it has
+  cloned. "What can go wrong" has the way out.
+- `git submodule add` leaves the new folder on a branch, where every folder from a clone is on none. The
+  second command takes it off, at the same commit.
+- For a library at a release tag, leave `-b <branch>` out, and type `git -C lib/<name> checkout <tag>` in
+  place of the second command. That also leaves the folder on no branch.
+- The third command is typed for the folder itself, with `-C`. After the checkout of a tag,
   `git submodule update` typed for the repository puts the folder back at the commit that
   `git submodule add` chose.
+
+**As a command:** `git dep add <url> [<name>] [--branch <branch> | --tag <tag>]`. It runs the commands above,
+then writes the settings. It differs from them in three ways:
+
+- Left out, `<name>` is the last part of the url, without `.git`.
+- It asks the remote for the branch or the tag before it changes anything, and stops when the remote has none
+  of that name. It does not ask about a url that starts with `./` or `../`: git reads such a url from the
+  repository's own remote.
+- Its last line says what is left to you: the remappings and the commit.
 
 ## Remove a dependency
 
@@ -196,11 +216,23 @@ Remove the dependency's remappings from `foundry.toml` and from `wake.toml`. Com
 
 - `git rm` deletes the folder and its entry in `.gitmodules`. It refuses while the folder, or a folder
   beneath it, holds an uncommitted change or is not at its recorded commit.
+- `git rm` also refuses a dependency that was added and is not committed yet, with
+  `the following file has changes staged in the index`. To undo such an add, type `git rm -f lib/<name>` in
+  place of the first command.
 - `git rm` does not look at branches or stashes. The `rm -rf` deletes the repository git keeps for the
   dependency, and theirs beneath it, with every branch and stash in them. That is why the look comes first.
-- The last command deletes the line git leaves in `.git/config`.
+- The two commands of the look reach the folders that are checked out. `.git/modules/lib/<name>` can also
+  hold the repository of a folder that is gone, such as one that an earlier version of the dependency had.
+- The last command deletes the line git leaves in `.git/config`. For a folder that is not checked out, git
+  has taken the line out already, and the command ends with `no such section`.
 - The last two commands use the dependency's name in `.gitmodules`. It differs from the folder only where
   the folder was moved with `git mv`.
+
+**As a command:** `git dep remove <name>`. It makes the look itself, and stops before it removes anything
+where it finds work that only this computer has. It names each folder that holds some, with the command that
+lists it. It also looks at each repository git keeps for a folder that is gone. Then it runs the three
+commands, and its last line says what is left to you: the remappings and the commit. It runs `git rm` as it
+is, without `-f`: where git refuses, nothing is removed.
 
 ## Upgrade a dependency
 
@@ -216,6 +248,11 @@ git add lib/<name>
 The third command brings the folders beneath `lib/<name>` to the commits the new version records, and checks
 out one that the new version adds. Run the last settings command when it added one. Commit.
 
+Give a tag or a commit where `<tag>` stands, never the name of a branch. A folder from a clone has a branch of
+its own, named as the remote's main branch is, and left at the remote's newest commit of the day of the clone.
+`git -C lib/<name> checkout main` puts the folder on that branch, at that older commit. For the remote's
+newest commit, type `git -C lib/<name> checkout --detach origin/main`.
+
 To the newest commit of the branch it follows, for a dependency with a `branch` line in `.gitmodules`:
 
 ```
@@ -223,6 +260,22 @@ git submodule update --remote lib/<name>
 git -C lib/<name> submodule update --init --recursive
 git add lib/<name>
 ```
+
+**As a command:** `git dep upgrade <name> <version>`, where `<version>` is a tag or a commit, and
+`git dep upgrade <name>` for the newest commit of the branch the dependency follows. It runs the commands
+above, then writes the settings. It differs from them in these ways:
+
+- It stops, before it fetches or moves anything, where the folder or a folder beneath it is on no branch, at
+  a commit that no branch and no remote has. It names the folder and the command that puts the commit on a
+  branch.
+- It stops where `<version>` names a branch of the folder's own, and names the command for the remote's
+  branch. It stops where the folder has no tag and no commit of that name after the fetch.
+- With no version, it stops for a dependency that has no `branch` line. git alone would move that one to the
+  newest commit of its remote's default branch.
+- It leaves the dependency's folder on no branch. It leaves a folder beneath it that is on a branch where it
+  is, and names it.
+- Its last line says whether a commit is left to you. After it, it names a folder beneath the dependency that
+  git skipped because of an `update = none` setting.
 
 ## A nested folder that a new version no longer uses
 
@@ -369,6 +422,9 @@ local deployment tag with the remote's tag of the same name, which `git fetch --
 | `git pull` prints `Could not access submodule` | The pull brought in a dependency whose folder is not there yet | The update command, then the last settings command |
 | A folder is empty, and `git submodule status` shows a `-` in front of it | It is not checked out | The update command |
 | After an upgrade, git warns `unable to rmdir`, and a folder inside the dependency is listed as untracked | The new version no longer uses that folder | "A nested folder that a new version no longer uses" |
+| `git submodule add -b <branch>` ends with `is not a commit and a branch '<branch>' cannot be created from it` | The remote has no such branch. git has cloned already: it leaves `lib/<name>`, holding nothing but `.git`, and `.git/modules/lib/<name>`. Typed again with the right branch, the add stages the folder as it is, with no file in it | `rm -rf lib/<name> .git/modules/lib/<name>`, then add again |
+| `git rm lib/<name>` ends with `the following file has changes staged in the index` | The dependency was added, or its new commit was staged, and that is not committed | To undo an add: `git rm -f lib/<name>`, then the other two commands of "Remove a dependency" |
+| After `git -C lib/<name> checkout main`, the folder is on a branch, at an older commit | That is the folder's own branch, left where the remote was on the day of the clone | `git -C lib/<name> checkout --detach origin/main` |
 | A merge stops with `Failed to merge submodule lib/<name> (not checked out)` | The folder is empty | The update command, then merge again |
 | A merge stops with `Failed to merge submodule lib/<name> (commits don't follow merge-base)`, although one commit follows the other | Seen once on git 2.43, where the folder's repository held commit-graph files. What sets it off is not known | `git -c core.commitGraph=false merge <branch>` merged it |
 | A branch switch discarded an edit inside `lib/` | `submodule.recurse` is set to `true` on this computer | Take the setting out. `git config --show-scope --show-origin --get-regexp '^(push\.recursesubmodules\|submodule\.recurse)$'` lists each file that sets it or the push check, in the order git reads them |

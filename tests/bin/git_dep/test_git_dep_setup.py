@@ -4,7 +4,10 @@ It is what lets git run `git dep`, and it moves no folder: it is safe at any tim
 
 from __future__ import annotations
 
+import json
+
 from git_dep_world import (
+    BAO_BASE,
     BY_PATH,
     FOLDERS,
     THE_THREE,
@@ -16,6 +19,39 @@ from git_dep_world import (
     subject,
     typed,
 )
+
+
+def test_the_setup_script_runs_git_dep_setup_in_the_clone_it_is_typed_in(world):
+    # `bin/setup` is what `yarn setup` runs: what a clone needs once before it is worked in. It runs
+    # `git dep setup` by the script's path, for the repository it is typed in: a repository that uses
+    # bao-base, and bao-base itself. Each gets the alias for the copy of the script it holds.
+    project = world.project
+    alone = world.root / "base-alone"
+    git(world.root, "clone", "-q", str(world.remote("base")), str(alone))
+
+    in_the_project = typed(project, str(BAO_BASE / "bin" / "setup"))
+    in_bao_base = typed(alone, str(BAO_BASE / "bin" / "setup"))
+
+    assert in_the_project.returncode == 0, in_the_project.stderr
+    assert printed(in_the_project) == WRITING_THE_SETTINGS
+    assert own_setting(project, "alias.dep") == "!lib/bao-base/bin/git-dep"
+    assert typed(project, "git dep help").returncode == 0
+    assert in_bao_base.returncode == 0, in_bao_base.stderr
+    assert own_setting(alone, "alias.dep") == "!bin/git-dep"
+
+
+def test_yarn_setup_reaches_the_setup_script_through_run(world):
+    # bao-base's package.json gives `yarn setup` the line `./run setup`: every yarn script goes through `run`.
+    # Typed in a clone, `run setup` writes the settings and the alias there.
+    project = world.project
+    scripts = json.loads((BAO_BASE / "package.json").read_text())["scripts"]
+
+    done = typed(project, f"{BAO_BASE / 'run'} setup")
+
+    assert scripts.get("setup") == "./run setup"
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert own_setting(project, "alias.dep") == "!lib/bao-base/bin/git-dep"
+    assert {key: own_setting(project, key) for key in THE_THREE} == THE_THREE
 
 
 def test_setup_moves_no_folder(world):

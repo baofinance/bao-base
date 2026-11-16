@@ -33,4 +33,5 @@ line-length = 120
 # this also covers the lib of every repository that extends these settings.
 extend-exclude = ["lib"]
 # git runs the script as `git dep`, so it has no .py ending, and ruff reads only files that have one unless told.
-extend-include = ["bin/git-dep"]
+# `bin/setup`, which `yarn setup` runs, has none either.
+extend-include = ["bin/git-dep", "bin/setup"]

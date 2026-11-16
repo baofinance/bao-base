@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+"""`yarn setup`: what a clone needs once, before it is worked in.
+
+It runs `git dep setup` by the script's path, for the repository it is typed in. That writes the settings
+every clone holds, which the cookbook (doc/dependencies.md) gives, and the alias that lets git run `git dep`.
+It moves no folder, so it is safe at any time.
+"""
+
+import subprocess
+import sys
+from pathlib import Path
+
+sys.exit(subprocess.run([Path(__file__).resolve().parent / "git-dep", "setup", *sys.argv[1:]]).returncode)

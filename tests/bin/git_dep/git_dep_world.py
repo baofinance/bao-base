@@ -5,8 +5,11 @@ Each test gets its own remotes and its own clone, built with real git and served
     shared, deep   no dependencies
     base           stands for bao-base: it holds the `bin/git-dep` under test and a `doc/dependencies.md`
     dep            has lib/shared and lib/bao-base, at an earlier commit of base whose cookbook differs
-    tool           has lib/deep, and the tags v1 and v2
+    tool           has lib/deep, and the tags v1 and v2. v2 records a newer lib/deep, and adds lib/shared
+    kit            has lib/deep and lib/bao-base, the tag v1, and a newer commit that records a newer lib/deep
     proj           has lib/bao-base, lib/dep (following main), lib/shared and lib/tool (at v1)
+
+Nothing has kit as a dependency: it is what a test adds.
 
 The remotes are bare, so a push works. A seed is a work clone of a remote that stands for a teammate: a
 change is committed there and pushed. `world.project` is the clone under test, with everything checked out.
@@ -92,6 +95,24 @@ def point(seed: Path, path: str, commit_id: str) -> None:
     git(seed / path, "checkout", "-q", commit_id)
 
 
+def a_commit_in(folder: Path, subject_line: str) -> str:
+    """A commit made in the folder as it stands, with a file of its own. Nothing is pushed. Returns the commit."""
+    (folder / f"{subject_line.replace(' ', '-')}.txt").write_text(f"{subject_line}\n")
+    git(folder, "add", "-A")
+    git(folder, "commit", "-qm", subject_line)
+    return head(folder)
+
+
+def state(project: Path) -> tuple[str, str]:
+    """Where every folder is, and what git reports as changed: enough to see that a command changed nothing."""
+    return git(project, "submodule", "status", "--recursive"), git(project, "status", "--porcelain")
+
+
+def recorded(project: Path, path: str) -> str:
+    """The commit that is staged for the folder `path`: what the project's next commit records for it."""
+    return git(project, "ls-files", "--stage", "--", path).split()[1]
+
+
 def head(folder: Path) -> str:
     """The commit a folder is at."""
     return git(folder, "rev-parse", "HEAD")
@@ -139,7 +160,7 @@ def build_world(root: Path) -> World:
     remotes, seeds = root / "remotes", root / "seeds"
     remotes.mkdir()
     seeds.mkdir()
-    for name in ("shared", "deep", "base", "dep", "tool", "proj"):
+    for name in ("shared", "deep", "base", "dep", "tool", "kit", "proj"):
         git(root, "init", "-q", "--bare", str(remotes / f"{name}.git"))
         git(root, "clone", "-q", str(remotes / f"{name}.git"), str(seeds / name))
     commit(seeds / "shared", "shared s1")
@@ -164,10 +185,21 @@ def build_world(root: Path) -> World:
     git(tool, "submodule", "--quiet", "add", str(remotes / "deep.git"), "lib/deep")
     commit(tool, "tool t1")
     git(tool, "tag", "v1")
-    point(tool, "lib/deep", commit(seeds / "deep", "deep d2"))
+    kit = seeds / "kit"
+    git(kit, "submodule", "--quiet", "add", str(remotes / "deep.git"), "lib/deep")
+    git(kit, "submodule", "--quiet", "add", str(remotes / "base.git"), "lib/bao-base")
+    commit(kit, "kit k1")
+    git(kit, "tag", "v1")
+
+    newer_deep = commit(seeds / "deep", "deep d2")
+    point(tool, "lib/deep", newer_deep)
+    git(tool, "submodule", "--quiet", "add", str(remotes / "shared.git"), "lib/shared")
     commit(tool, "tool t2")
     git(tool, "tag", "v2")
     git(tool, "push", "-q", "origin", "--tags")
+    point(kit, "lib/deep", newer_deep)
+    commit(kit, "kit k2")
+    git(kit, "push", "-q", "origin", "--tags")
 
     proj = seeds / "proj"
     git(proj, "submodule", "--quiet", "add", str(remotes / "base.git"), "lib/bao-base")
