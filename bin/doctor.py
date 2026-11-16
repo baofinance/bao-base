@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import importlib.machinery
+import importlib.util
 import json
 import os
 import re
@@ -295,6 +297,149 @@ def _config_entries(checkout: Path, pattern: str, *options: str) -> list[tuple[s
     return entries
 
 
+def _where_set(repo_root: Path, checkout: Path, scope: str, origin: str) -> tuple[str, str | None]:
+    """Where git read a setting that `_config_entries` found in `checkout`: in words, and the file that holds
+    it as a command typed in the repository names it, relative to the repository's top folder when the file is
+    inside it. A setting from the environment has no file."""
+    if not origin.startswith("file:"):
+        return "the environment, by GIT_CONFIG_COUNT or GIT_CONFIG_PARAMETERS, not a file", None
+    scopes = {
+        "local": "the clone's own config",
+        "worktree": "the worktree's config",
+        "global": "your global config",
+        "system": "the system config",
+    }
+    held = Path(origin.removeprefix("file:"))
+    held = (held if held.is_absolute() else checkout / held).resolve()
+    named = held.relative_to(repo_root.resolve()) if held.is_relative_to(repo_root.resolve()) else held
+    return f"{named.as_posix()}, {scopes.get(scope, f'the {scope} config')}", named.as_posix()
+
+
+def _config_repair(in_project: str, file: str | None, *arguments: str) -> str:
+    """The command that changes a setting in the file `_where_set` named, typed where `in_project` says. One
+    that no file holds is changed where the environment is made."""
+    if file is None:
+        return "remove it from the environment git runs in"
+    return f"{in_project} {shlex.join(['config', '--file', file, *arguments])}"
+
+
+def _in_each_dependency_folder(repo_root: Path, command: str) -> list[str]:
+    """The lines `command` prints, run by git in every dependency folder that is checked out, at every depth:
+    `git submodule foreach` enters exactly those. In `command`, `$displaypath` is the folder's path from the
+    repository's top folder. A run that fails is not read as a run that found nothing."""
+    ran = git(repo_root, "submodule", "foreach", "--quiet", "--recursive", command)
+    if ran.returncode != 0:
+        raise RuntimeError(f"git submodule foreach ended with status {ran.returncode} in {repo_root}: {ran.stderr}")
+    return ran.stdout.splitlines()
+
+
+def _dependency_folders(repo_root: Path) -> list[tuple[str, Path]]:
+    """Every dependency folder that is checked out, at every depth, as (its path from the repository's top
+    folder, the folder). Each is a repository with its own config."""
+    return [(path, repo_root / path) for path in _in_each_dependency_folder(repo_root, 'echo "$displaypath"')]
+
+
+# The settings every clone holds, in the repository and in each dependency folder. The script that writes them,
+# `git dep setup`, defines them. It has no .py ending, so it is loaded by its path.
+_GIT_DEP = importlib.machinery.SourceFileLoader("git_dep", str(Path(__file__).resolve().parent / "git-dep"))
+_git_dep = importlib.util.module_from_spec(
+    cast(importlib.machinery.ModuleSpec, importlib.util.spec_from_loader("git_dep", _GIT_DEP))
+)
+_GIT_DEP.exec_module(_git_dep)
+SUBMODULE_SETTINGS: tuple[tuple[str, str], ...] = _git_dep.SETTINGS
+
+
+def submodule_setting_problems(repo_root: Path, here: Here | None = None) -> list[str]:
+    """The three git settings for dependencies that the cookbook (doc/dependencies.md) gives, judged as the
+    value git uses, in this repository and in every dependency folder that is checked out, at every depth.
+    One set in a config that several folders read, such as the person's own, counts for each of them.
+
+    A setting git reads nowhere is a finding with the command that writes it: for the repository one command
+    a setting, and for the folders the cookbook's one command for every folder, which the folders that lack
+    the same settings share. A setting with another value than the cookbook's is a finding naming the file
+    that gives git that value, and each folder that value reaches."""
+    in_project = (here or Here(repo_root, repo_root)).git(repo_root)
+    wanted = {key.lower(): (key, value) for key, value in SUBMODULE_SETTINGS}
+    pattern = "^(" + "|".join(re.escape(key) for key in wanted) + ")$"
+    in_every_folder = "; ".join(f"git config {key} {value}" for key, value in SUBMODULE_SETTINGS)
+    problems: list[str] = []
+    # The settings that are missing to the folders missing exactly those, and (what is wrong, where it is set,
+    # the repair) to the checkouts it reaches, both in the order met.
+    lacking: dict[tuple[str, ...], list[str]] = {}
+    other_value: dict[tuple[str, str, str], list[str]] = {}
+    for shown, checkout in [(repo_root.name, repo_root), *_dependency_folders(repo_root)]:
+        # git uses the last value it reads.
+        in_force = {key: (scope, origin, value) for scope, origin, key, value in _config_entries(checkout, pattern)}
+        missing = tuple(written for key, (written, _) in wanted.items() if key not in in_force)
+        if missing and checkout == repo_root:
+            problems.extend(
+                f"{shown}: {written} is not set\n  Repair: {in_project} config {written} {wanted[written.lower()][1]}"
+                for written in missing
+            )
+        elif missing:
+            lacking.setdefault(missing, []).append(shown)
+        for key, (scope, origin, value) in in_force.items():
+            written, cookbook_value = wanted[key]
+            if value == cookbook_value:
+                continue
+            where, file = _where_set(repo_root, checkout, scope, origin)
+            what = f"{written} is {value}, where the cookbook has {cookbook_value}"
+            repair = _config_repair(in_project, file, written, cookbook_value)
+            other_value.setdefault((what, where, repair), []).append(shown)
+    for missing, folders in lacking.items():
+        named = missing[0] if len(missing) == 1 else f"{', '.join(missing[:-1])} and {missing[-1]}"
+        problems.append(
+            f"{', '.join(folders)}: {named} {'is' if len(missing) == 1 else 'are'} not set\n"
+            f"  Repair: {in_project} submodule foreach --quiet --recursive '{in_every_folder}'"
+        )
+    problems.extend(
+        f"{', '.join(shown)}: {what}\n  Set in {where}\n  Repair: {repair}"
+        for (what, where, repair), shown in other_value.items()
+    )
+    return problems
+
+
+def submodule_recurse_problems(repo_root: Path, here: Here | None = None) -> list[str]:
+    """Each place that sets `submodule.recurse`, whatever its value, in this repository and in every dependency
+    folder that is checked out, at every depth. With true, a branch switch moves the dependency folders too,
+    and discards an uncommitted edit in one. With false, git can stop making the push check. One setting that
+    several folders read, such as one in the person's own config, is one finding naming them all. Each repair
+    names the file git reports, relative to the repository's top folder when it is inside it."""
+    in_project = (here or Here(repo_root, repo_root)).git(repo_root)
+    # (what is set, where, the repair) to the checkouts it reaches, in the order met.
+    found: dict[tuple[str, str, str], list[str]] = {}
+    for shown, checkout in [(repo_root.name, repo_root), *_dependency_folders(repo_root)]:
+        for scope, origin, _, value in _config_entries(checkout, r"^submodule\.recurse$"):
+            where, file = _where_set(repo_root, checkout, scope, origin)
+            repair = _config_repair(in_project, file, "--unset", "submodule.recurse")
+            reached = found.setdefault((f"submodule.recurse is set to {value}", where, repair), [])
+            if shown not in reached:
+                reached.append(shown)
+    return [
+        f"{', '.join(shown)}: {what}\n  Set in {where}\n  Repair: {repair}"
+        for (what, where, repair), shown in found.items()
+    ]
+
+
+def commit_on_no_branch_problems(repo_root: Path, here: Here | None = None) -> list[str]:
+    """Each dependency folder, at every depth, whose commit is on no branch and on no remote. After a clone
+    or an update a folder is on no branch, and a commit made there is on none. The next update moves the folder
+    and leaves that commit behind, where only `git reflog` finds it. A folder on a branch is not a finding, and
+    neither is a commit that a remote has. The reading is the cookbook's own command, run once for every
+    folder."""
+    here = here or Here(repo_root, repo_root)
+    at_risk = 'printf "%s\\t%s\\n" "$displaypath" "$(git rev-list -n 1 HEAD --not --branches --remotes)"'
+    problems: list[str] = []
+    for line in _in_each_dependency_folder(repo_root, at_risk):
+        path, _, commit = line.partition("\t")
+        if commit:
+            problems.append(
+                f"{path}: {dated(commit, repo_root / path)} is on no branch and on no remote\n"
+                f"  Repair: {here.git(repo_root / path)} switch -c <branch>"
+            )
+    return problems
+
+
 def tag_push_setting_problems(repo_root: Path, here: Here | None = None) -> list[str]:
     """Settings that make `git push` send tags nobody named, in this repository and in each dependency
     checkout: each is a clone with its own config, and a push can be made from any of them.
@@ -315,12 +460,6 @@ def tag_push_setting_problems(repo_root: Path, here: Here | None = None) -> list
     ]
     # Each repair edits a file named from this repository, so it runs here, reached from where doctor was typed.
     in_project = (here or Here(repo_root, repo_root)).git(repo_root)
-    scopes = {
-        "local": "the clone's own config",
-        "worktree": "the worktree's config",
-        "global": "your global config",
-        "system": "the system config",
-    }
     # (what is wrong, where it is set, the repair) to the checkouts it reaches, in the order met.
     found: dict[tuple[str, str, str], list[str]] = {}
     for shown, checkout in checkouts:
@@ -353,16 +492,8 @@ def tag_push_setting_problems(repo_root: Path, here: Here | None = None) -> list
                 unset = ["--fixed-value", "--unset", key, value]
             else:
                 continue
-            if not origin.startswith("file:"):
-                where = "the environment, by GIT_CONFIG_COUNT or GIT_CONFIG_PARAMETERS, not a file"
-                repair = "remove it from the environment git runs in"
-            else:
-                held = Path(origin.removeprefix("file:"))
-                held = (held if held.is_absolute() else checkout / held).resolve()
-                named = held.relative_to(repo_root.resolve()) if held.is_relative_to(repo_root.resolve()) else held
-                where = f"{named.as_posix()}, {scopes.get(scope, f'the {scope} config')}"
-                repair = f"{in_project} {shlex.join(['config', '--file', named.as_posix(), *unset])}"
-            reached = found.setdefault((what, where, repair), [])
+            where, file = _where_set(repo_root, checkout, scope, origin)
+            reached = found.setdefault((what, where, _config_repair(in_project, file, *unset)), [])
             if shown not in reached:
                 reached.append(shown)
     return [
@@ -1455,6 +1586,36 @@ def build_checks(
             "once this repository is pushed, CI and every other clone fail to check the submodule out, and only "
             "this computer can repair it",
             unpublished_commit_problems(repo_root, remappings, here),
+        ),
+        Check(
+            "no submodule folder is at a commit that is on no branch and on no remote",
+            "After a clone or an update, a submodule folder is on no branch, and a commit made there is on none. "
+            "The next update moves the folder to the commit this repository points to and leaves that commit "
+            "behind: only git reflog finds it then. Every folder is read, at every depth",
+            "work committed in a submodule folder is gone from the folder after the next update, and git removes "
+            "it for good when it expires from the reflog",
+            commit_on_no_branch_problems(repo_root, here),
+        ),
+        Check(
+            "this repository and every submodule folder have the three git settings for submodules",
+            "push.recurseSubmodules check makes git refuse a push that records a submodule commit no remote has. "
+            "diff.submodule log and status.submoduleSummary true show a folder that is at another commit as the "
+            "commits between the two. Each submodule folder is a repository with its own config, so each needs "
+            "them, at every depth, and a folder checked out after they were written has none. doc/dependencies.md "
+            "in bao-base gives them",
+            "a push made from a folder without the check can record a commit that only this computer has, and "
+            "every other clone then fails to check that submodule out",
+            submodule_setting_problems(repo_root, here),
+        ),
+        Check(
+            "no config that git reads sets submodule.recurse",
+            "Set to true, submodule.recurse makes a branch switch move the submodule folders too, and an "
+            "uncommitted edit in one is discarded without a message. Set to false, it can switch off the push "
+            "check above: for a push, git lets the last of submodule.recurse and push.recurseSubmodules that it "
+            "reads decide. Every folder's config is read, at every depth",
+            "an edit in a submodule folder is lost at a branch switch, or a push records a commit that only this "
+            "computer has",
+            submodule_recurse_problems(repo_root, here),
         ),
         Check(
             "no git setting makes a push send tags that were not named",

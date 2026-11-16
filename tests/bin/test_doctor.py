@@ -746,11 +746,11 @@ def _found(repo: pathlib.Path) -> dict[str, list[str]]:
     return {check.name: check.problems for check in doctor.build_checks(repo, [], [], unused_files=False)}
 
 
-def test_a_submodule_checked_out_inside_a_dependency_is_no_finding(tmp_path):
+def test_a_submodule_checked_out_inside_a_dependency_is_no_finding(tmp_path, isolated):
     # Every submodule is checked out at every depth (doc/dependencies.md), whether or not a remapping
-    # reads it. So one inside a dependency, at the commit that dependency records, is how a clone should
-    # be, and no check names it.
-    host = _nest(tmp_path)
+    # reads it. So one inside a dependency, at the commit that dependency records and with the settings
+    # every folder holds, is how a clone should be, and no check names it.
+    host = _with_the_settings(_nest(tmp_path))
 
     naming_it = {
         name: problems for name, problems in _found(host).items() if "lib/dep/lib/child" in "\n".join(problems)
@@ -2413,3 +2413,169 @@ def test_deployment_tags_fails_when_origin_cannot_be_asked(tmp_path):
 
     assert len(problems) == 1, problems
     assert "could not be asked" in problems[0] and str(nowhere) in problems[0], problems
+
+
+# ── the three git settings for dependencies, submodule.recurse, and a commit an update would leave behind ──
+#
+# Each is judged in the repository and in every dependency folder that is checked out, at every depth: each folder
+# is a repository with its own config, and a push or a commit can be made in any of them. `_nest` gives lib/dep
+# with lib/child beneath it, and lib/unlocked beside it. Each test runs with an empty global config.
+
+_THE_THREE = ("push.recurseSubmodules check", "diff.submodule log", "status.submoduleSummary true")
+# The cookbook's last settings command, which writes the three into every dependency folder.
+_IN_EVERY_FOLDER = (
+    "git submodule foreach --quiet --recursive "
+    "'git config push.recurseSubmodules check; git config diff.submodule log; git config status.submoduleSummary true'"
+)
+_EVERY_CHECKOUT = "lib/dep, lib/dep/lib/child, lib/unlocked"
+
+
+def _with_the_settings(host: pathlib.Path) -> pathlib.Path:
+    """Write the three settings as the cookbook has them typed: in the repository, then in every dependency folder."""
+    for setting in _THE_THREE:
+        _git(host, "config", *setting.split())
+    subprocess.run(_IN_EVERY_FOLDER, shell=True, cwd=host, check=True, capture_output=True, text=True)
+    return host
+
+
+def test_the_three_settings_in_force_everywhere_pass(tmp_path, isolated):
+    assert doctor.submodule_setting_problems(_with_the_settings(_nest(tmp_path))) == []
+
+
+def test_a_folder_without_a_setting_is_named_with_the_command_that_sets_it(tmp_path, isolated):
+    # The repository lacks one setting. One folder lacks another. Two folders, one beneath the other, lack all
+    # three, as folders do that were checked out after the settings were written. The repository's finding has
+    # the command for the repository. The folders that lack the same settings share one finding, with the
+    # cookbook's command for every folder. Run as printed, the repairs leave nothing to find.
+    host = _with_the_settings(_nest(tmp_path))
+    _git(host, "config", "--unset", "push.recurseSubmodules")
+    _git(host / "lib" / "unlocked", "config", "--unset", "diff.submodule")
+    for folder in (host / "lib" / "dep", host / "lib" / "dep" / "lib" / "child"):
+        for setting in _THE_THREE:
+            _git(folder, "config", "--unset", setting.split()[0])
+
+    problems = doctor.submodule_setting_problems(host)
+
+    assert problems == [
+        f"{host.name}: push.recurseSubmodules is not set\n  Repair: git config push.recurseSubmodules check",
+        "lib/dep, lib/dep/lib/child: push.recurseSubmodules, diff.submodule and status.submoduleSummary are not set\n"
+        f"  Repair: {_IN_EVERY_FOLDER}",
+        f"lib/unlocked: diff.submodule is not set\n  Repair: {_IN_EVERY_FOLDER}",
+    ]
+    for problem in problems:
+        _repaired(host, problem)
+    assert doctor.submodule_setting_problems(host) == []
+
+
+def test_a_setting_from_the_persons_own_config_counts(tmp_path, isolated):
+    # What is judged is the value git uses in each folder. No folder holds the settings itself, and the person's
+    # own config has all three: git uses them in every folder.
+    host = _nest(tmp_path)
+    for setting in _THE_THREE:
+        _git(host, "config", "--global", *setting.split())
+
+    assert doctor.submodule_setting_problems(host) == []
+
+
+def test_a_wrong_value_is_named_with_the_file_that_sets_it(tmp_path, isolated):
+    # First in the person's own config, which every folder reads: one finding, naming each folder it reaches and
+    # that file. Then in one folder's own config, which wins there over the person's: a finding for that folder,
+    # naming its file. Each repair writes the cookbook's value into the file named.
+    host = _nest(tmp_path)
+    for setting in ("push.recurseSubmodules no", "diff.submodule log", "status.submoduleSummary true"):
+        _git(host, "config", "--global", *setting.split())
+
+    everywhere = doctor.submodule_setting_problems(host)
+
+    assert everywhere == [
+        f"{host.name}, {_EVERY_CHECKOUT}: push.recurseSubmodules is no, where the cookbook has check\n"
+        f"  Set in {isolated}, your global config\n"
+        f"  Repair: git config --file {isolated} push.recurseSubmodules check"
+    ]
+    _repaired(host, everywhere[0])
+    assert doctor.submodule_setting_problems(host) == []
+
+    _git(host / "lib" / "dep", "config", "diff.submodule", "short")
+    in_one_folder = doctor.submodule_setting_problems(host)
+
+    assert in_one_folder == [
+        "lib/dep: diff.submodule is short, where the cookbook has log\n"
+        "  Set in .git/modules/lib/dep/config, the clone's own config\n"
+        "  Repair: git config --file .git/modules/lib/dep/config diff.submodule log"
+    ]
+    _repaired(host, in_one_folder[0])
+    assert doctor.submodule_setting_problems(host) == []
+
+
+def test_no_submodule_recurse_setting_passes(tmp_path, isolated):
+    assert doctor.submodule_recurse_problems(_nest(tmp_path)) == []
+
+
+@pytest.mark.parametrize("value", ["true", "false"])
+@pytest.mark.parametrize("place", ["the repository", "a folder beneath a dependency", "the person's own config"])
+def test_submodule_recurse_is_a_finding_whatever_its_value(tmp_path, isolated, value, place):
+    # With true, a branch switch discards an uncommitted edit in a dependency folder. With false, git can stop
+    # making the push check. So either is a finding, wherever git reads it: in the repository's own config, in a
+    # folder's, at any depth, and in the person's own, which every folder reads. The finding names the folders
+    # it reaches and the file. Run as printed, the repair leaves nothing to find.
+    host = _nest(tmp_path)
+    if place == "the repository":
+        _git(host, "config", "submodule.recurse", value)
+        reaches, file = host.name, ".git/config"
+    elif place == "a folder beneath a dependency":
+        _git(host / "lib" / "dep" / "lib" / "child", "config", "submodule.recurse", value)
+        reaches, file = "lib/dep/lib/child", ".git/modules/lib/dep/modules/lib/child/config"
+    else:
+        _git(host, "config", "--global", "submodule.recurse", value)
+        reaches, file = f"{host.name}, {_EVERY_CHECKOUT}", str(isolated)
+
+    problems = doctor.submodule_recurse_problems(host)
+
+    assert len(problems) == 1, problems
+    assert problems[0].splitlines()[0] == f"{reaches}: submodule.recurse is set to {value}", problems[0]
+    assert problems[0].splitlines()[-1] == f"  Repair: git config --file {file} --unset submodule.recurse", problems[0]
+    _repaired(host, problems[0])
+    assert doctor.submodule_recurse_problems(host) == []
+
+
+def _a_commit_on_no_branch(folder: pathlib.Path) -> str:
+    """Take the folder off its branch and commit there. Returns the commit, which no branch and no remote has."""
+    _git(folder, "switch", "-q", "--detach")
+    (folder / "work.txt").write_text("work\n")
+    _git(folder, "add", ".")
+    _git(folder, "commit", "-qm", "made on no branch")
+    return _head(folder)
+
+
+def test_a_folder_at_a_commit_on_no_branch_that_no_remote_has_is_named(tmp_path, isolated):
+    # In a dependency's folder, and in a folder beneath a dependency. The next update moves such a folder and
+    # leaves the commit behind. Each finding has the command that puts the commit on a branch. Typed with a
+    # name for the branch, it leaves nothing to find.
+    host = _nest(tmp_path)
+    child, unlocked = host / "lib" / "dep" / "lib" / "child", host / "lib" / "unlocked"
+    in_child, in_unlocked = _a_commit_on_no_branch(child), _a_commit_on_no_branch(unlocked)
+
+    problems = doctor.commit_on_no_branch_problems(host)
+
+    assert problems == [
+        f"lib/dep/lib/child: {_shown(child, in_child)} is on no branch and on no remote\n"
+        "  Repair: git -C lib/dep/lib/child switch -c <branch>",
+        f"lib/unlocked: {_shown(unlocked, in_unlocked)} is on no branch and on no remote\n"
+        "  Repair: git -C lib/unlocked switch -c <branch>",
+    ]
+    for folder in (child, unlocked):
+        _git(folder, "switch", "-q", "-c", "kept")
+    assert doctor.commit_on_no_branch_problems(host) == []
+
+
+def test_a_commit_on_a_branch_or_on_a_remote_is_no_finding(tmp_path, isolated):
+    # A folder on no branch at a commit its remote has: how every folder stands after a clone or an update. A
+    # folder on a branch with a commit that no remote has: one that somebody works in. Neither is a finding.
+    host = _nest(tmp_path)
+    _git(host / "lib" / "unlocked", "switch", "-q", "--detach")
+    working_in = host / "lib" / "dep"
+    (working_in / "work.txt").write_text("work\n")
+    _git(working_in, "add", ".")
+    _git(working_in, "commit", "-qm", "work on a branch")
+
+    assert doctor.commit_on_no_branch_problems(host) == []

@@ -86,6 +86,10 @@ git submodule foreach --quiet --recursive 'git config push.recurseSubmodules che
 been checked out for the first time: after you add a dependency, and after an update that brought one in.
 It changes nothing in the folders that already have them.
 
+**`yarn doctor` checks this.** In the repository and in every folder that is checked out, at every depth, it
+names a folder that lacks one of the three or has another value, each place that sets `submodule.recurse`,
+and a folder whose commit is on no branch and on no remote. Each finding has the command that mends it.
+
 **As a command:** `git dep setup`. It writes the three settings, and the alias for `git dep`, in the clone
 and in every dependency folder. It moves no folder.
 
