@@ -37,14 +37,16 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Checkout repository with submodules
+      - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          # Every submodule, at every depth: what a member's clone holds (bao-base's
-          # doc/dependencies.md). The build reads some of the nested ones.
-          submodules: recursive
           # full history
           fetch-depth: 0
+
+      - name: Check out every submodule, at every depth
+        # What a member's clone holds (bao-base's doc/dependencies.md). The build reads some of the
+        # nested ones. Commits and folders only: git fetches a file's content when something reads it.
+        run: git submodule update --init --recursive --filter=blob:none --jobs 8
 
       - name: Run Bao-base CI actions
         uses: ./.github/actions/test-foundry
