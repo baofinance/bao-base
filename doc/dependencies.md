@@ -178,8 +178,10 @@ the folders. It changes nothing and fetches nothing.
 whether or not a remapping reads the folder, so the files are in place for every import, now and after a
 remapping is added.
 
-- It names the folders that are empty, with the update command. For each, it names every remapping that
-  reads it: an import through that remapping finds no file.
+- It names the folders that are empty, a line each, with one repair: the update command, then the command
+  that writes the three settings into the folders it checks out, joined by `&&`. A folder that is checked
+  out for the first time has none of them. For each empty folder, it names every remapping that reads it:
+  an import through that remapping finds no file.
 - It names a folder that is at another commit, with the repository that records it and the commands for
   both ways out.
 - It counts the `update = none` settings by config file. They make the update skip a folder. "A clone that

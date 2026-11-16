@@ -749,7 +749,9 @@ def _file_transport_allowed(monkeypatch) -> None:
 )
 def test_folders_not_checked_out_share_one_finding_and_one_repair(tmp_path, monkeypatch, emptied, counted):
     # An empty folder is a finding at every depth, with or without a remapping. One update, typed in the
-    # repository, checks every one of them out, so they share one finding and that one command.
+    # repository, checks every one of them out, and a folder checked out for the first time has none of the
+    # three git settings, so the repair is the update and the cookbook's command that writes them. The folders
+    # share one finding and that one repair.
     host = _nest(tmp_path)
     for parent, path in emptied:
         _git(host / parent, "submodule", "deinit", "-q", "-f", path)
@@ -762,14 +764,34 @@ def test_folders_not_checked_out_share_one_finding_and_one_repair(tmp_path, monk
             [
                 f"Nothing is checked out in {counted}:",
                 *(f"  {(pathlib.PurePosixPath(parent) / path).as_posix()}" for parent, path in emptied),
-                "  Repair: git submodule update --init --recursive",
+                f"  Repair: git submodule update --init --recursive && {_IN_EVERY_FOLDER}",
             ]
         )
     ]
-    # Typed as printed, the update leaves nothing to report.
+    # Typed as printed, the repair leaves nothing to report.
     _file_transport_allowed(monkeypatch)
     _repaired(host, problems[0])
     assert doctor.submodule_problems(host, []) == ([], [])
+
+
+def test_the_repair_for_empty_folders_leaves_no_finding_for_their_settings(tmp_path, monkeypatch, isolated):
+    # A clone made without --recurse-submodules has every folder empty, and the three settings in the clone
+    # only, as the cookbook's first commands leave them. The folders the update checks out are new
+    # repositories, with no settings. Typed as printed, the repair leaves nothing to report in the folder
+    # check or in the settings check: one paste, one clean run.
+    remote = _nest(tmp_path)
+    clone = tmp_path / "clone"
+    _git(tmp_path, "clone", "-q", str(remote), str(clone))
+    for setting in _THE_THREE:
+        _git(clone, "config", *setting.split())
+    (finding,), _ = doctor.submodule_problems(clone, [])
+    assert doctor.submodule_setting_problems(clone) == [], "no folder is checked out, so none lacks a setting"
+
+    _file_transport_allowed(monkeypatch)
+    _repaired(clone, finding)
+
+    assert doctor.submodule_problems(clone, []) == ([], [])
+    assert doctor.submodule_setting_problems(clone) == []
 
 
 @pytest.mark.parametrize(
@@ -2323,21 +2345,25 @@ def test_push_follow_tags_is_a_finding_naming_where_it_is_set(tmp_path, isolated
     problems = doctor.tag_push_setting_problems(host)
 
     assert len(problems) == 1, problems
-    assert problems[0].startswith(f"{host.name}: push.followTags is true"), problems[0]
+    lines = problems[0].splitlines()
+    assert lines[0].startswith("push.followTags is true") and lines[0].endswith("read in 1 repository:"), problems[0]
+    assert lines[1] == f"  {host.name}", problems[0]
     assert "  Repair: git config --file .git/config --unset push.followTags" in problems[0], problems[0]
     _repaired(host, problems[0])
     assert doctor.tag_push_setting_problems(host) == []
 
 
 def test_push_follow_tags_set_globally_names_the_global_file(tmp_path, isolated):
-    # One setting, read by every checkout: one finding, naming each checkout it reaches.
+    # One setting, read by every checkout: one finding, naming each checkout it reaches, a line each.
     host = _host_with_a_dependency(tmp_path)
     _git(host, "config", "--global", "push.followTags", "true")
 
     problems = doctor.tag_push_setting_problems(host)
 
     assert len(problems) == 1, problems
-    assert problems[0].startswith(f"{host.name}, lib/sub: push.followTags is true"), problems[0]
+    lines = problems[0].splitlines()
+    assert lines[0].startswith("push.followTags is true") and lines[0].endswith("read in 2 repositories:"), problems[0]
+    assert lines[1:3] == [f"  {host.name}", "  lib/sub"], problems[0]
     assert f"  Repair: git config --file {isolated} --unset push.followTags" in problems[0], problems[0]
     _repaired(host, problems[0])
     assert doctor.tag_push_setting_problems(host) == []
@@ -2351,7 +2377,9 @@ def test_push_follow_tags_in_a_dependency_checkout_is_a_finding(tmp_path, isolat
     problems = doctor.tag_push_setting_problems(host)
 
     assert len(problems) == 1, problems
-    assert problems[0].startswith("lib/sub: push.followTags is true"), problems[0]
+    lines = problems[0].splitlines()
+    assert lines[0].startswith("push.followTags is true") and lines[0].endswith("read in 1 repository:"), problems[0]
+    assert lines[1] == "  lib/sub", problems[0]
     assert "  Repair: git config --file .git/modules/lib/sub/config --unset push.followTags" in problems[0]
     _repaired(host, problems[0])
     assert doctor.tag_push_setting_problems(host) == []
@@ -2396,7 +2424,9 @@ def test_a_mirroring_remote_is_a_finding(tmp_path, isolated):
     problems = doctor.tag_push_setting_problems(host)
 
     assert len(problems) == 1, problems
-    assert problems[0].startswith(f"{host.name}: remote backup mirrors"), problems[0]
+    lines = problems[0].splitlines()
+    assert lines[0].startswith("remote backup mirrors") and lines[0].endswith("read in 1 repository:"), problems[0]
+    assert lines[1] == f"  {host.name}", problems[0]
     assert "  Repair: git config --file .git/config --unset remote.backup.mirror" in problems[0], problems[0]
     _repaired(host, problems[0])
     assert doctor.tag_push_setting_problems(host) == []
@@ -2413,7 +2443,11 @@ def test_a_push_refspec_naming_tags_is_a_finding(tmp_path, isolated, refspec):
     problems = doctor.tag_push_setting_problems(host)
 
     assert len(problems) == 1, problems
-    assert problems[0].startswith(f"{host.name}: remote origin pushes {refspec}"), problems[0]
+    lines = problems[0].splitlines()
+    assert lines[0].startswith(f"remote origin pushes {refspec}") and lines[0].endswith("read in 1 repository:"), (
+        problems[0]
+    )
+    assert lines[1] == f"  {host.name}", problems[0]
     _repaired(host, problems[0])
     assert doctor.tag_push_setting_problems(host) == []
     pushed = subprocess.run(
@@ -2545,7 +2579,12 @@ _IN_EVERY_FOLDER = (
     "git submodule foreach --quiet --recursive "
     "'git config push.recurseSubmodules check; git config diff.submodule log; git config status.submoduleSummary true'"
 )
-_EVERY_CHECKOUT = "lib/dep, lib/dep/lib/child, lib/unlocked"
+_EVERY_CHECKOUT = ("lib/dep", "lib/dep/lib/child", "lib/unlocked")
+
+
+def _listed(*names: str) -> str:
+    """Names as a finding lists the folders it names: a line each, indented under the first line."""
+    return "".join(f"  {name}\n" for name in names)
 
 
 def _with_the_settings(host: pathlib.Path) -> pathlib.Path:
@@ -2563,8 +2602,9 @@ def test_the_three_settings_in_force_everywhere_pass(tmp_path, isolated):
 def test_a_folder_without_a_setting_is_named_with_the_command_that_sets_it(tmp_path, isolated):
     # The repository lacks one setting. One folder lacks another. Two folders, one beneath the other, lack all
     # three, as folders do that were checked out after the settings were written. The repository's finding has
-    # the command for the repository. The folders that lack the same settings share one finding, with the
-    # cookbook's command for every folder. Run as printed, the repairs leave nothing to find.
+    # the command for the repository. The folders that lack the same settings share one finding, naming each
+    # folder on a line of its own, with the cookbook's command for every folder. Run as printed, the repairs
+    # leave nothing to find.
     host = _with_the_settings(_nest(tmp_path))
     _git(host, "config", "--unset", "push.recurseSubmodules")
     _git(host / "lib" / "unlocked", "config", "--unset", "diff.submodule")
@@ -2576,9 +2616,12 @@ def test_a_folder_without_a_setting_is_named_with_the_command_that_sets_it(tmp_p
 
     assert problems == [
         f"{host.name}: push.recurseSubmodules is not set\n  Repair: git config push.recurseSubmodules check",
-        "lib/dep, lib/dep/lib/child: push.recurseSubmodules, diff.submodule and status.submoduleSummary are not set\n"
-        f"  Repair: {_IN_EVERY_FOLDER}",
-        f"lib/unlocked: diff.submodule is not set\n  Repair: {_IN_EVERY_FOLDER}",
+        "push.recurseSubmodules, diff.submodule and status.submoduleSummary are not set in 2 submodule folders:\n"
+        + _listed("lib/dep", "lib/dep/lib/child")
+        + f"  Repair: {_IN_EVERY_FOLDER}",
+        "diff.submodule is not set in 1 submodule folder:\n"
+        + _listed("lib/unlocked")
+        + f"  Repair: {_IN_EVERY_FOLDER}",
     ]
     for problem in problems:
         _repaired(host, problem)
@@ -2596,9 +2639,9 @@ def test_a_setting_from_the_persons_own_config_counts(tmp_path, isolated):
 
 
 def test_a_wrong_value_is_named_with_the_file_that_sets_it(tmp_path, isolated):
-    # First in the person's own config, which every folder reads: one finding, naming each folder it reaches and
-    # that file. Then in one folder's own config, which wins there over the person's: a finding for that folder,
-    # naming its file. Each repair writes the cookbook's value into the file named.
+    # First in the person's own config, which every folder reads: one finding, naming each folder it reaches, a
+    # line each, and that file. Then in one folder's own config, which wins there over the person's: a finding
+    # for that folder, naming its file. Each repair writes the cookbook's value into the file named.
     host = _nest(tmp_path)
     for setting in ("push.recurseSubmodules no", "diff.submodule log", "status.submoduleSummary true"):
         _git(host, "config", "--global", *setting.split())
@@ -2606,8 +2649,9 @@ def test_a_wrong_value_is_named_with_the_file_that_sets_it(tmp_path, isolated):
     everywhere = doctor.submodule_setting_problems(host)
 
     assert everywhere == [
-        f"{host.name}, {_EVERY_CHECKOUT}: push.recurseSubmodules is no, where the cookbook has check\n"
-        f"  Set in {isolated}, your global config\n"
+        "push.recurseSubmodules is no, where the cookbook has check, read in 4 repositories:\n"
+        + _listed(host.name, *_EVERY_CHECKOUT)
+        + f"  Set in {isolated}, your global config\n"
         f"  Repair: git config --file {isolated} push.recurseSubmodules check"
     ]
     _repaired(host, everywhere[0])
@@ -2617,7 +2661,8 @@ def test_a_wrong_value_is_named_with_the_file_that_sets_it(tmp_path, isolated):
     in_one_folder = doctor.submodule_setting_problems(host)
 
     assert in_one_folder == [
-        "lib/dep: diff.submodule is short, where the cookbook has log\n"
+        "diff.submodule is short, where the cookbook has log, read in 1 repository:\n"
+        "  lib/dep\n"
         "  Set in .git/modules/lib/dep/config, the clone's own config\n"
         "  Repair: git config --file .git/modules/lib/dep/config diff.submodule log"
     ]
@@ -2635,23 +2680,26 @@ def test_submodule_recurse_is_a_finding_whatever_its_value(tmp_path, isolated, v
     # With true, a branch switch discards an uncommitted edit in a dependency folder. With false, git can stop
     # making the push check. So either is a finding, wherever git reads it: in the repository's own config, in a
     # folder's, at any depth, and in the person's own, which every folder reads. The finding names the folders
-    # it reaches and the file. Run as printed, the repair leaves nothing to find.
+    # it reaches, a line each, and the file. Run as printed, the repair leaves nothing to find.
     host = _nest(tmp_path)
     if place == "the repository":
         _git(host, "config", "submodule.recurse", value)
-        reaches, file = host.name, ".git/config"
+        reaches, file = (host.name,), ".git/config"
     elif place == "a folder beneath a dependency":
         _git(host / "lib" / "dep" / "lib" / "child", "config", "submodule.recurse", value)
-        reaches, file = "lib/dep/lib/child", ".git/modules/lib/dep/modules/lib/child/config"
+        reaches, file = ("lib/dep/lib/child",), ".git/modules/lib/dep/modules/lib/child/config"
     else:
         _git(host, "config", "--global", "submodule.recurse", value)
-        reaches, file = f"{host.name}, {_EVERY_CHECKOUT}", str(isolated)
+        reaches, file = (host.name, *_EVERY_CHECKOUT), str(isolated)
 
     problems = doctor.submodule_recurse_problems(host)
 
     assert len(problems) == 1, problems
-    assert problems[0].splitlines()[0] == f"{reaches}: submodule.recurse is set to {value}", problems[0]
-    assert problems[0].splitlines()[-1] == f"  Repair: git config --file {file} --unset submodule.recurse", problems[0]
+    lines = problems[0].splitlines()
+    count = "1 repository" if len(reaches) == 1 else f"{len(reaches)} repositories"
+    assert lines[:-2] == [f"submodule.recurse is set to {value}, read in {count}:", *(f"  {name}" for name in reaches)]
+    assert lines[-2].startswith("  Set in "), problems[0]
+    assert lines[-1] == f"  Repair: git config --file {file} --unset submodule.recurse", problems[0]
     _repaired(host, problems[0])
     assert doctor.submodule_recurse_problems(host) == []
 

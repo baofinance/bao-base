@@ -245,8 +245,9 @@ def submodule_problems(repo_root: Path, remappings: list[str], here: Here | None
             )
         versions.append(_finding(facts, found, repository, here, weigh, keep_command(directory, level.path, here)))
     if not_checked_out:
-        count = len(not_checked_out)
-        lines = [f"Nothing is checked out in {count} submodule folder{'' if count == 1 else 's'}:"]
+        lines = [
+            f"Nothing is checked out in {_counted(len(not_checked_out), 'submodule folder', 'submodule folders')}:"
+        ]
         for path in not_checked_out:
             lines.append(f"  {path}")
             lines.extend(
@@ -254,7 +255,9 @@ def submodule_problems(repo_root: Path, remappings: list[str], here: Here | None
                 for remapping in remappings
                 if PurePath(remapping_target(remapping)).is_relative_to(path)
             )
-        lines.append(f"  Repair: {here.update(repo_root)}")
+        # A folder checked out for the first time has none of the three settings, so the repair writes them too:
+        # run once, it leaves nothing to report in the settings check below.
+        lines.append(f"  Repair: {here.update(repo_root)} && {_settings_in_every_folder(repo_root, here)}")
         versions.insert(0, "\n".join(lines))
     return versions, leftovers
 
@@ -365,6 +368,32 @@ _GIT_DEP.exec_module(_git_dep)
 SUBMODULE_SETTINGS: tuple[tuple[str, str], ...] = _git_dep.SETTINGS
 
 
+def _settings_in_every_folder(repo_root: Path, here: Here) -> str:
+    """The cookbook's command that writes the three settings into every dependency folder that is checked out, at
+    every depth, typed where `here` says. A folder checked out for the first time has none of them."""
+    in_every_folder = "; ".join(f"git config {key} {value}" for key, value in SUBMODULE_SETTINGS)
+    return f"{here.git(repo_root)} submodule foreach --quiet --recursive '{in_every_folder}'"
+
+
+def _counted(count: int, singular: str, plural: str) -> str:
+    """`count` of a thing, as a person says it: "1 submodule folder", "53 submodule folders"."""
+    return f"{count} {singular if count == 1 else plural}"
+
+
+def _naming(headline: str, names: Sequence[str], *details: str) -> str:
+    """A finding that names folders: `headline`, a line for each of `names`, then `details`, each a line of its own
+    (where a setting is set, the repair). A name is a path, which the report breaks at each hyphen when its line is
+    too long, so a name is never joined with others into one line."""
+    return "\n".join([f"{headline}:", *(f"  {name}" for name in names), *details])
+
+
+def _read_in(what: str, reached: Sequence[str], where: str, repair: str) -> str:
+    """A finding about a setting that git reads in each repository of `reached`: what is wrong, those repositories
+    a line each, where the setting is set, and the repair."""
+    reading = _counted(len(reached), "repository", "repositories")
+    return _naming(f"{what}, read in {reading}", reached, f"  Set in {where}", f"  Repair: {repair}")
+
+
 def submodule_setting_problems(repo_root: Path, here: Here | None = None) -> list[str]:
     """The three git settings for dependencies that the cookbook (doc/dependencies.md) gives, judged as the
     value git uses, in this repository and in every dependency folder that is checked out, at every depth.
@@ -373,11 +402,11 @@ def submodule_setting_problems(repo_root: Path, here: Here | None = None) -> lis
     A setting git reads nowhere is a finding with the command that writes it: for the repository one command
     a setting, and for the folders the cookbook's one command for every folder, which the folders that lack
     the same settings share. A setting with another value than the cookbook's is a finding naming the file
-    that gives git that value, and each folder that value reaches."""
-    in_project = (here or Here(repo_root, repo_root)).git(repo_root)
+    that gives git that value, and each folder that value reaches. Each finding names its folders a line each."""
+    here = here or Here(repo_root, repo_root)
+    in_project = here.git(repo_root)
     wanted = {key.lower(): (key, value) for key, value in SUBMODULE_SETTINGS}
     pattern = "^(" + "|".join(re.escape(key) for key in wanted) + ")$"
-    in_every_folder = "; ".join(f"git config {key} {value}" for key, value in SUBMODULE_SETTINGS)
     problems: list[str] = []
     # The settings that are missing to the folders missing exactly those, and (what is wrong, where it is set,
     # the repair) to the checkouts it reaches, both in the order met.
@@ -404,14 +433,10 @@ def submodule_setting_problems(repo_root: Path, here: Here | None = None) -> lis
             other_value.setdefault((what, where, repair), []).append(shown)
     for missing, folders in lacking.items():
         named = missing[0] if len(missing) == 1 else f"{', '.join(missing[:-1])} and {missing[-1]}"
-        problems.append(
-            f"{', '.join(folders)}: {named} {'is' if len(missing) == 1 else 'are'} not set\n"
-            f"  Repair: {in_project} submodule foreach --quiet --recursive '{in_every_folder}'"
-        )
-    problems.extend(
-        f"{', '.join(shown)}: {what}\n  Set in {where}\n  Repair: {repair}"
-        for (what, where, repair), shown in other_value.items()
-    )
+        headline = f"{named} {'is' if len(missing) == 1 else 'are'} not set in "
+        headline += _counted(len(folders), "submodule folder", "submodule folders")
+        problems.append(_naming(headline, folders, f"  Repair: {_settings_in_every_folder(repo_root, here)}"))
+    problems.extend(_read_in(what, shown, where, repair) for (what, where, repair), shown in other_value.items())
     return problems
 
 
@@ -431,10 +456,7 @@ def submodule_recurse_problems(repo_root: Path, here: Here | None = None) -> lis
             reached = found.setdefault((f"submodule.recurse is set to {value}", where, repair), [])
             if shown not in reached:
                 reached.append(shown)
-    return [
-        f"{', '.join(shown)}: {what}\n  Set in {where}\n  Repair: {repair}"
-        for (what, where, repair), shown in found.items()
-    ]
+    return [_read_in(what, shown, where, repair) for (what, where, repair), shown in found.items()]
 
 
 def update_setting_problems(repo_root: Path, here: Here | None = None) -> list[str]:
@@ -557,10 +579,7 @@ def tag_push_setting_problems(repo_root: Path, here: Here | None = None) -> list
             reached = found.setdefault((what, where, _config_repair(in_project, file, *unset)), [])
             if shown not in reached:
                 reached.append(shown)
-    return [
-        f"{', '.join(shown)}: {what}\n  Set in {where}\n  Repair: {repair}"
-        for (what, where, repair), shown in found.items()
-    ]
+    return [_read_in(what, shown, where, repair) for (what, where, repair), shown in found.items()]
 
 
 def deployment_tag_problems(repo_root: Path, here: Here | None = None) -> list[str]:
@@ -1629,8 +1648,9 @@ def build_checks(
             "Every submodule folder is checked out, at every depth, whether or not a remapping reads it: the "
             "files are then in place for every import, now and after a remapping is added. Each folder should "
             "have the commit that the repository holding it points to. git submodule update checks a folder out "
-            "and moves it to that commit; git add and git commit record the commit a folder has. Doctor does not "
-            "need you to commit first",
+            "and moves it to that commit; git add and git commit record the commit a folder has. A folder that "
+            "is checked out for the first time has none of the three git settings for submodules, so the repair "
+            "for an empty folder writes them too. Doctor does not need you to commit first",
             "an import that a remapping sends into an empty folder finds no file. Where the commits are "
             "different, you build one version but save another, and everyone who clones the repository gets the "
             "saved one",
