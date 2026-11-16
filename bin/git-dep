@@ -1,0 +1,370 @@
+#!/usr/bin/env python3
+"""git dep: the cookbook's procedures for a repository's dependencies, with the checks the cookbook asks for.
+
+A repository's dependencies are git submodules, each checked out at every depth. The cookbook,
+doc/dependencies.md, gives the git commands for each task. A command here makes the checks the cookbook asks
+a reader to make, then runs the cookbook's git commands. It prints each command that changes something
+before it runs it, as it would be typed in the repository's top folder.
+
+It acts on the repository it is typed in. git finds it through an alias, `alias.dep`, which `setup` writes
+into the repository's own config. Before that it is run by its path. No command makes a commit, and none
+pushes the repository it is typed in.
+
+It ends with status 0 when done, 1 when a check stopped it, 2 for a command or an argument it does not know,
+and with git's own status when a git command failed.
+
+It uses the standard library only and runs on Python 3.9 and later: on the python3 of whoever types it.
+"""
+
+from __future__ import annotations
+
+import os
+import shlex
+import subprocess
+import sys
+from pathlib import Path
+from typing import NamedTuple
+
+COOKBOOK = Path(__file__).resolve().parent.parent / "doc" / "dependencies.md"
+
+# The settings every clone holds, in the repository and in each dependency folder: the cookbook's "Settings".
+SETTINGS = (("push.recurseSubmodules", "check"), ("diff.submodule", "log"), ("status.submoduleSummary", "true"))
+# Where a repository holds this script, from its top folder: bao-base itself, and a repository that uses it.
+# git runs a shell alias in the top folder of the repository it is typed in, so the alias names one of these.
+COPIES = ("bin/git-dep", "lib/bao-base/bin/git-dep")
+# What `git submodule foreach` runs in each dependency folder: the settings, and the alias where the folder
+# holds a copy of this script.
+IN_EACH_FOLDER = "; ".join(
+    [
+        *(f"git config {key} {value}" for key, value in SETTINGS),
+        f'if [ -e {COPIES[0]} ]; then git config alias.dep "!{COPIES[0]}"; '
+        f'elif [ -e {COPIES[1]} ]; then git config alias.dep "!{COPIES[1]}"; fi',
+    ]
+)
+
+
+class Stopped(Exception):
+    """A check found something that stops the command. Its lines say what was found, each with the command
+    that mends it."""
+
+    def __init__(self, lines: list[str]):
+        super().__init__("\n".join(lines))
+
+
+class GitFailed(Exception):
+    """A git command that changes something failed. git has shown its own message; `status` is its status."""
+
+    def __init__(self, status: int):
+        super().__init__(f"git ended with status {status}")
+        self.status = status
+
+
+class Folder(NamedTuple):
+    """One dependency folder, at any depth."""
+
+    path: str  # from the top folder
+    parent: str  # the folder whose repository records it, from the top folder: "" for the repository itself
+    name: str  # what the parent's .gitmodules calls it
+    inside: str  # its path from the parent
+    recorded: str  # the commit the parent records for it
+
+
+class Repository:
+    """The repository a command is typed in, and git run in its top folder.
+
+    git gives a script it starts through an alias inside a dependency folder that dependency's GIT_DIR. A git
+    command for a folder beneath would then read the dependency's repository, so every git command here runs
+    without it."""
+
+    def __init__(self, top: Path):
+        self.top = top
+        self.environment = {name: value for name, value in os.environ.items() if name != "GIT_DIR"}
+        # A command that only reads takes no optional lock, so that not even git's index is written again.
+        self.reading = {**self.environment, "GIT_OPTIONAL_LOCKS": "0"}
+
+    def read(self, *arguments: str) -> subprocess.CompletedProcess:
+        """A git command that only reads, run in the top folder. It is not printed."""
+        return subprocess.run(["git", *arguments], cwd=self.top, capture_output=True, text=True, env=self.reading)
+
+    def ask(self, *arguments: str) -> str:
+        """What a reading git command prints, or nothing where git has no answer."""
+        return self.read(*arguments).stdout.strip()
+
+    def run(self, *arguments: str) -> None:
+        """A git command that changes something: printed as it is typed in the top folder, then run. git shows
+        its own output. A failure ends the command here, with git's status."""
+        print("$ git " + " ".join(shlex.quote(argument) for argument in arguments), flush=True)
+        status = subprocess.run(["git", *arguments], cwd=self.top, env=self.environment).returncode
+        if status != 0:
+            raise GitFailed(status)
+
+    def checked_out(self, path: str) -> bool:
+        return (self.top / path / ".git").exists()
+
+    def branch(self, path: str) -> str | None:
+        """The branch the folder is on, or None when it is on none."""
+        found = self.read("-C", path, "symbolic-ref", "--quiet", "--short", "HEAD")
+        return found.stdout.strip() if found.returncode == 0 else None
+
+    def on_no_branch_or_remote(self, path: str) -> bool:
+        """Whether the folder's commit is on no branch and on no remote: an update that moves the folder leaves
+        such a commit reachable from git's reflog alone."""
+        return bool(self.ask("-C", path, "rev-list", "-n", "1", "HEAD", "--not", "--branches", "--remotes"))
+
+    def listed(self, parent: str) -> list[Folder]:
+        """The dependency folders the repository at `parent` lists in its .gitmodules, in the order of their
+        paths. A repository with no .gitmodules lists none."""
+        at = ["-C", parent] if parent else []
+        entries = self.read(*at, "config", "--file", ".gitmodules", "--get-regexp", r"^submodule\..*\.path$")
+        found = []
+        for line in entries.stdout.splitlines():
+            key, _, inside = line.partition(" ")
+            staged = self.ask(*at, "ls-files", "--stage", "--", inside).split()
+            found.append(
+                Folder(
+                    path=f"{parent}/{inside}" if parent else inside,
+                    parent=parent,
+                    name=key[len("submodule.") : -len(".path")],
+                    inside=inside,
+                    recorded=staged[1] if len(staged) > 1 else "",
+                )
+            )
+        return sorted(found, key=lambda folder: folder.path)
+
+    def folders(self, parent: str = "") -> list[Folder]:
+        """Every dependency folder at every depth, each before the folders beneath it."""
+        found = []
+        for folder in self.listed(parent):
+            found.append(folder)
+            if self.checked_out(folder.path):
+                found.extend(self.folders(folder.path))
+        return found
+
+
+def top_folder() -> Path:
+    """The top folder of the repository the command is typed in. Where there is none, git's own message is
+    shown and the command ends with git's status."""
+    found = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    if found.returncode != 0:
+        sys.stderr.write(found.stderr)
+        raise GitFailed(found.returncode)
+    return Path(found.stdout.strip())
+
+
+def status(repository: Repository) -> int:
+    """Name each dependency folder that is not as recorded, is on a branch, or holds work that only this
+    computer has, and count the folders. It reads only: nothing is changed and nothing is fetched."""
+    folders = repository.folders()
+    named = set()
+    for folder in folders:
+        found = []
+        if not repository.checked_out(folder.path):
+            found.append("not checked out")
+        else:
+            at = ("-C", folder.path)
+            branch = repository.branch(folder.path)
+            have = repository.ask(*at, "rev-parse", "HEAD")
+            only_here = int(repository.ask(*at, "rev-list", "--count", "HEAD", "--branches", "--not", "--remotes"))
+            if branch is not None:
+                found.append(f"on branch {branch}")
+            if have != folder.recorded:
+                recorder = folder.parent or "this repository"
+                found.append(f"at {have[:10]}, and {recorder} records {folder.recorded[:10]}")
+            if branch is None and repository.on_no_branch_or_remote(folder.path):
+                found.append(
+                    "its commit is on no branch and on no remote. "
+                    f"To put it on a branch: git -C {folder.path} switch -c <branch>"
+                )
+            if only_here:
+                found.append(f"{only_here} commit{'' if only_here == 1 else 's'} that no remote has")
+            if repository.ask(*at, "status", "--porcelain", "--ignore-submodules=all"):
+                found.append("uncommitted changes")
+        for line in found:
+            named.add(folder.path)
+            print(f"{folder.path}: {line}")
+    if not folders:
+        print("no dependency folders")
+    else:
+        counted = f"{len(folders)} dependency folder{'' if len(folders) == 1 else 's'}"
+        print(f"{counted}: {f'{len(named)} named above' if named else 'nothing to report'}")
+    return 0
+
+
+def refuse_submodule_recurse(repository: Repository, folders: list[Folder]) -> None:
+    """Stop where anything git reads sets `submodule.recurse`. With `true`, a branch switch discards an unstaged
+    edit beneath a dependency folder. With `false`, git can stop making the push check."""
+    lines = []
+    seen = set()
+    for path in ["", *(folder.path for folder in folders if repository.checked_out(folder.path))]:
+        at = ["-C", path] if path else []
+        entries = repository.ask(*at, "config", "--show-origin", "--get-regexp", r"^submodule\.recurse$")
+        for entry in entries.splitlines():
+            origin, _, setting = entry.partition("\t")
+            value = setting.partition(" ")[2]
+            if not origin.startswith("file:"):
+                where, mend = origin.rstrip(":"), "Take it out there"
+            else:
+                file = origin[len("file:") :]
+                # A folder's own config is named from the top folder, as its command is typed there.
+                file = file if os.path.isabs(file) or not path else f"{path}/{file}"
+                where, mend = file, f"To take it out: git config --file {file} --unset submodule.recurse"
+            if where not in seen:
+                seen.add(where)
+                lines.append(f"submodule.recurse is set to {value} in {where}. {mend}")
+    if lines:
+        raise Stopped(lines)
+
+
+def refuse_a_commit_that_would_be_left_behind(repository: Repository, folders: list[Folder]) -> None:
+    """Stop where a folder that is on no branch is at a commit that no branch and no remote has. git's update
+    moves a folder whatever it holds, and would leave that commit reachable from git's reflog alone."""
+    lines = []
+    for folder in folders:
+        path = folder.path
+        if not repository.checked_out(path) or repository.branch(path) is not None:
+            continue
+        if repository.on_no_branch_or_remote(path):
+            have = repository.ask("-C", path, "rev-parse", "HEAD")
+            lines.append(
+                f"{path}: its commit {have[:10]} is on no branch and on no remote. "
+                f"To put it on a branch: git -C {path} switch -c <branch>"
+            )
+    if lines:
+        raise Stopped(lines)
+
+
+def holds_a_branch(repository: Repository, path: str) -> bool:
+    """Whether some folder beneath `path`, at any depth, is on a branch."""
+    for folder in repository.listed(path):
+        if repository.checked_out(folder.path) and (
+            repository.branch(folder.path) is not None or holds_a_branch(repository, folder.path)
+        ):
+            return True
+    return False
+
+
+def move(repository: Repository, parent: str = "") -> None:
+    """Put every folder beneath `parent` that is on no branch at the commit its parent records, at every depth,
+    and leave a folder that is on a branch where it is, naming it.
+
+    Where no folder is on a branch, that is git's one recursive command. Where one is, git's command would put
+    it back at the recorded commit, on no branch. So the command is run for the other folders by name, and for
+    each level on the way down to the folder that is left. The folders beneath a folder that is on a branch are
+    still put at the commits that folder records."""
+    listed = repository.listed(parent)
+    if not listed:
+        return
+    at = ["-C", parent] if parent else []
+    left = [f for f in listed if repository.checked_out(f.path) and repository.branch(f.path) is not None]
+    above_one = [f for f in listed if f not in left and holds_a_branch(repository, f.path)]
+    if not left and not above_one:
+        repository.run(*at, "submodule", "update", "--init", "--recursive")
+        return
+    others = [f.inside for f in listed if f not in left and f not in above_one]
+    if others:
+        repository.run(*at, "submodule", "update", "--init", "--recursive", "--", *others)
+    for folder in above_one:
+        repository.run(*at, "submodule", "update", "--init", "--", folder.inside)
+        move(repository, folder.path)
+    for folder in left:
+        print(f"{folder.path}: left on its branch {repository.branch(folder.path)}", flush=True)
+        move(repository, folder.path)
+
+
+def write_the_settings(repository: Repository) -> None:
+    """Write the cookbook's settings and the alias, in the repository and in every dependency folder at every
+    depth. A folder that was checked out for the first time holds none of them until this runs."""
+    for key, value in SETTINGS:
+        repository.run("config", key, value)
+    for copy in COPIES:
+        if (repository.top / copy).exists():
+            repository.run("config", "alias.dep", f"!{copy}")
+            break
+    repository.run("submodule", "foreach", "--quiet", "--recursive", IN_EACH_FOLDER)
+
+
+def name_what_is_not_checked_out(repository: Repository) -> int:
+    """Name each folder that is still not checked out. git skips a folder whose update setting is none, in a
+    line that is easy to miss, so that setting is named with the command that takes it out."""
+    lines = []
+    for folder in repository.folders():
+        if repository.checked_out(folder.path):
+            continue
+        at = ["-C", folder.parent] if folder.parent else []
+        line = f"{folder.path}: not checked out."
+        if repository.ask(*at, "config", "--get", f"submodule.{folder.name}.update") == "none":
+            unset = " ".join(["git", *at, "config", "--unset", f"submodule.{folder.name}.update"])
+            line += f" git skips it, because its update setting is none. To take the setting out: {unset}"
+        lines.append(line)
+    if lines:
+        raise Stopped(lines)
+    return 0
+
+
+def setup(repository: Repository) -> int:
+    """Write the settings and the alias, in the repository and in every dependency folder. It is what lets git
+    run `git dep`. It moves no folder, so it is safe at any time."""
+    refuse_submodule_recurse(repository, repository.folders())
+    write_the_settings(repository)
+    return 0
+
+
+def update(repository: Repository) -> int:
+    """Put every dependency folder at the commit recorded for it, at every depth, then write the settings: the
+    cookbook's procedure for after a pull, a merge or a branch switch, which is git's `git submodule update`
+    with the checks that keep work. It puts back a folder that was moved on purpose and not staged."""
+    folders = repository.folders()
+    refuse_submodule_recurse(repository, folders)
+    refuse_a_commit_that_would_be_left_behind(repository, folders)
+    move(repository)
+    write_the_settings(repository)
+    return name_what_is_not_checked_out(repository)
+
+
+# Each command that acts on a repository, with the one line `help` prints for it.
+ON_A_REPOSITORY = {
+    "setup": (setup, "write the settings and the alias, in the repository and in every dependency folder"),
+    "update": (update, "put every dependency folder at the commit recorded for it, at every depth"),
+    "status": (status, "name each dependency folder that is not as recorded, or holds work only this computer has"),
+}
+# The commands that need no repository.
+ELSEWHERE = {
+    "cookbook": "print the cookbook: the git commands for each task",
+    "help": "list these commands",
+}
+
+
+def help_text() -> str:
+    described = {**{name: line for name, (_, line) in ON_A_REPOSITORY.items()}, **ELSEWHERE}
+    width = max(len(name) for name in described)
+    lines = ["git dep <command>", ""]
+    lines.extend(f"  {name.ljust(width)}  {line}" for name, line in described.items())
+    return "\n".join(lines) + "\n"
+
+
+def main(arguments: list[str]) -> int:
+    command = arguments[0] if arguments else "help"
+    if command in ("help", "-h"):
+        sys.stdout.write(help_text())
+        return 0
+    if command == "cookbook":
+        sys.stdout.write(COOKBOOK.read_text())
+        return 0
+    if command not in ON_A_REPOSITORY:
+        known = ", ".join([*ON_A_REPOSITORY, *ELSEWHERE])
+        sys.stderr.write(f"git dep: {command} is not one of its commands. They are: {known}\n")
+        return 2
+    if len(arguments) > 1:
+        sys.stderr.write(f"git dep {command} takes no argument: {' '.join(arguments[1:])}\n")
+        return 2
+    try:
+        return ON_A_REPOSITORY[command][0](Repository(top_folder()))
+    except Stopped as stopped:
+        sys.stderr.write(f"{stopped}\n")
+        return 1
+    except GitFailed as failed:
+        return failed.status
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

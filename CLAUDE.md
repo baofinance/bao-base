@@ -828,7 +828,9 @@ commands, as the cookbook `doc/dependencies.md` gives them, and never with forge
   points to.
 
 The cookbook has the commands for each task, and what can go wrong with each.
-`yarn doctor --help` gives doctor's full behavior.
+`git dep` runs procedures of the cookbook with their checks, and never commits:
+`git dep help` lists its commands. `yarn doctor --help` gives doctor's full
+behavior.
 
 ### Bash: know what `set -e` misses
 Use `set -o pipefail` with `set -e`: without it, a failing pipeline stage other

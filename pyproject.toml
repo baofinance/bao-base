@@ -28,8 +28,9 @@ addopts = "--ignore=tests/bin/test_duration_of.py"
 
 [tool.ruff]
 line-length = 120
-# Each repository's dependencies, in lib, are other repositories with their own settings. yarn dep checks out only
-# what the build reads, so a dependency's settings can extend a file that is not there. A name with no slash
-# matches a directory of that name anywhere, so this also covers the lib of every repository that extends these
-# settings.
+# Each repository's dependencies, in lib, are other repositories with their own settings, and a dependency's
+# settings can extend a file that is not there. A name with no slash matches a directory of that name anywhere, so
+# this also covers the lib of every repository that extends these settings.
 extend-exclude = ["lib"]
+# git runs the script as `git dep`, so it has no .py ending, and ruff reads only files that have one unless told.
+extend-include = ["bin/git-dep"]

@@ -36,6 +36,24 @@ Type each command in the repository's top folder. Every command on this page was
 - **Do not run `git submodule update --remote` without a folder name.** A dependency that has no `branch`
   line in `.gitmodules` then moves to the newest commit of its remote's default branch.
 
+## `git dep`: these procedures as commands
+
+bao-base holds a script that runs procedures of this page, with the checks they ask you to make. It prints
+each git command that changes something before it runs it. It never commits, and it never pushes the
+repository you are in.
+
+- **The first time in a clone, run it by its path:** `lib/bao-base/bin/git-dep setup`. In bao-base itself the
+  path is `bin/git-dep`. That run writes the settings below, and an alias. From then on the command is
+  `git dep`, from any folder of the clone. `setup` moves no folder, so it is safe at any time.
+- `git dep help` lists the commands. `git dep cookbook` prints this page. `git dep --help` shows only the
+  alias, because git answers that one itself.
+- Typed inside a dependency folder, `git dep` runs that dependency's own copy of the script, and acts on that
+  dependency.
+- When git answers `fatal: cannot exec 'lib/bao-base/bin/git-dep'`, the script is not there: `lib/bao-base`
+  is empty, or is at a commit from before the script. Use the plain commands of this page.
+
+A section below names its command where it has one.
+
 ## Settings, once in each clone
 
 ```
@@ -55,6 +73,9 @@ git submodule foreach --quiet --recursive 'git config push.recurseSubmodules che
 been checked out for the first time: after you add a dependency, and after an update that brought one in.
 It changes nothing in the folders that already have them.
 
+**As a command:** `git dep setup`. It writes the three settings, and the alias for `git dep`, in the clone
+and in every dependency folder. It moves no folder.
+
 ## A new clone
 
 ```
@@ -64,6 +85,8 @@ git clone --recurse-submodules <url>
 Then write the settings above. Every folder is checked out, each on no branch.
 
 For a clone made without `--recurse-submodules`, run the update command of the next section.
+
+**As a command:** `lib/bao-base/bin/git-dep setup`, typed after the clone, writes the settings.
 
 ## After a pull, a merge or a branch switch
 
@@ -87,6 +110,20 @@ that is new.
 - **An uncommitted edit is kept.** Where the move would overwrite it, git stops for that folder with
   `Your local changes to the following files would be overwritten by checkout`, and the edit is intact. The
   other folders are still moved, and the command ends with an error status.
+
+**As a command:** `git dep update`. It differs from the plain command in three ways:
+
+- It stops, before it moves anything, where a folder that is on no branch is at a commit that no branch and
+  no remote has. It names the folder and the command that puts the commit on a branch.
+- It leaves a folder that is on a branch where it is, and names it. The folders beneath that folder are still
+  put at the commits it records.
+- It writes the settings last, so a folder that was checked out for the first time has them.
+
+It also names a folder that git skipped because of an `update = none` setting, with the command that takes
+the setting out.
+
+Like the plain command, it puts back a folder that you moved on purpose and have not staged, such as an
+upgrade in progress. Nothing is deleted, but the folder is at the recorded commit again.
 
 ## See where things stand
 
@@ -113,6 +150,11 @@ git submodule foreach --quiet --recursive 'git diff --quiet --ignore-submodules 
 The first names each folder whose current commit is on no branch and on no remote. An update would leave
 that commit behind. Put it on a branch first: `git -C <folder> switch -c <branch>`. The second names each
 folder that holds an uncommitted change. That is work in progress, and nothing is wrong with it.
+
+**As a command:** `git dep status`. It names each folder that is not checked out, is on a branch, is not at
+the recorded commit, is at a commit that no branch and no remote has, holds commits that no remote has, or
+holds uncommitted changes. A file that git does not track counts as an uncommitted change there. It counts
+the folders. It changes nothing and fetches nothing.
 
 ## Add a dependency
 
