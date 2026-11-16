@@ -30,13 +30,13 @@ def test_remove_deletes_the_folder_its_entry_and_what_git_keeps_for_it(ready):
     assert done.returncode == 0, done.stderr
     assert not (project / "lib" / "tool").exists()
     assert typed(project, "git config --file .gitmodules --get submodule.lib/tool.path").returncode == 1
-    assert not (project / ".git" / "modules" / "lib" / "tool").exists()
+    assert not ready.kept("lib/tool").exists()
     assert sections(project) == {"lib/bao-base", "lib/dep", "lib/shared"}
     assert git(project, "status", "--porcelain").splitlines() == ["M  .gitmodules", "D  lib/tool"]
     assert head(project) == before
     assert printed(done) == [
         "$ git rm lib/tool",
-        "$ rm -rf .git/modules/lib/tool",
+        f"$ rm -rf {ready.git_folder}/modules/lib/tool",
         "$ git config --remove-section submodule.lib/tool",
     ]
 
@@ -98,7 +98,7 @@ def test_remove_stops_at_commits_no_remote_has(ready, case):
     ]
     assert printed(stopped) == []
     assert git(folder, "rev-parse", "work") != at
-    assert (project / ".git" / "modules" / "lib" / "tool").exists()
+    assert ready.kept("lib/tool").exists()
 
 
 def test_remove_stops_at_a_stash(ready):
@@ -129,7 +129,7 @@ def test_remove_works_on_a_folder_that_is_not_checked_out(ready):
     # holds stops the removal. Once a remote has the commit, the removal deletes the kept repository. git took
     # the lines out of the settings when the folder was emptied, so that command is not run.
     project = ready.project
-    tool, kept = project / "lib" / "tool", project / ".git" / "modules" / "lib" / "tool"
+    tool, kept = project / "lib" / "tool", ready.kept("lib/tool")
     git(tool, "switch", "-q", "-c", "work")
     a_commit_in(tool, "tool work")
     git(tool, "switch", "-q", "--detach", "v1")
@@ -137,20 +137,21 @@ def test_remove_works_on_a_folder_that_is_not_checked_out(ready):
 
     stopped = typed(project, "git dep remove tool")
 
-    listing = "git --git-dir .git/modules/lib/tool --work-tree . log HEAD --branches --not --remotes --oneline"
+    shown = f"{ready.git_folder}/modules/lib/tool"
+    listing = f"git --git-dir {shown} --work-tree . log HEAD --branches --not --remotes --oneline"
     assert stopped.returncode == 1
     assert stopped.stderr.splitlines() == [
-        f".git/modules/lib/tool: 1 commit that no remote has. To list: {listing}",
+        f"{shown}: 1 commit that no remote has. To list: {listing}",
         NOT_REMOVED,
     ]
     assert typed(project, listing).stdout.split(maxsplit=1)[1].strip() == "tool work"
     assert kept.exists()
 
-    git(project, "--git-dir", ".git/modules/lib/tool", "--work-tree", ".", "push", "-q", "origin", "work")
+    git(project, "--git-dir", shown, "--work-tree", ".", "push", "-q", "origin", "work")
     done = typed(project, "git dep remove tool")
 
     assert done.returncode == 0, done.stderr
-    assert printed(done) == ["$ git rm lib/tool", "$ rm -rf .git/modules/lib/tool"]
+    assert printed(done) == ["$ git rm lib/tool", f"$ rm -rf {ready.git_folder}/modules/lib/tool"]
     assert not tool.exists()
     assert not kept.exists()
 
@@ -169,7 +170,7 @@ def test_remove_stops_at_work_in_a_repository_git_keeps_for_a_folder_that_is_gon
 
     stopped = typed(project, "git dep remove tool")
 
-    kept = ".git/modules/lib/tool/modules/lib/shared"
+    kept = f"{ready.git_folder}/modules/lib/tool/modules/lib/shared"
     assert stopped.returncode == 1
     assert stopped.stderr.splitlines() == [
         f"{kept}: 1 commit that no remote has. "
@@ -192,11 +193,11 @@ def test_remove_finds_what_git_keeps_when_the_name_differs_from_the_folder(ready
     assert done.returncode == 0, done.stderr
     assert printed(done) == [
         "$ git rm lib/moved",
-        "$ rm -rf .git/modules/lib/tool",
+        f"$ rm -rf {ready.git_folder}/modules/lib/tool",
         "$ git config --remove-section submodule.lib/tool",
     ]
     assert not (project / "lib" / "moved").exists()
-    assert not (project / ".git" / "modules" / "lib" / "tool").exists()
+    assert not ready.kept("lib/tool").exists()
     assert sections(project) == {"lib/bao-base", "lib/dep", "lib/shared"}
 
 
@@ -212,5 +213,5 @@ def test_remove_deletes_nothing_when_git_refuses_the_removal(ready):
     assert "the following file has local modifications" in stopped.stderr, stopped.stderr
     assert printed(stopped) == ["$ git rm lib/tool"]
     assert (project / "lib" / "tool" / ".git").exists()
-    assert (project / ".git" / "modules" / "lib" / "tool" / "HEAD").exists()
+    assert (ready.kept("lib/tool") / "HEAD").exists()
     assert sections(project) == {"lib/bao-base", "lib/dep", "lib/shared", "lib/tool"}

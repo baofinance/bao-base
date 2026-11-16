@@ -218,21 +218,27 @@ def status(repository: Repository) -> int:
 
 def refuse_submodule_recurse(repository: Repository, folders: list[Folder]) -> None:
     """Stop where anything git reads sets `submodule.recurse`. With `true`, a branch switch discards an unstaged
-    edit beneath a dependency folder. With `false`, git can stop making the push check."""
+    edit beneath a dependency folder. With `false`, git can stop making the push check.
+
+    A config that git keeps for the clone, the repository's or a folder's, is named from the top folder, as its
+    command is typed there. git names it from the folder it reads, and in a dependency's folder by its absolute
+    path. The person's own config and the system's are named as git names them."""
     lines = []
     seen = set()
     for path in ["", *(folder.path for folder in folders if repository.checked_out(folder.path))]:
         at = ["-C", path] if path else []
-        entries = repository.ask(*at, "config", "--show-origin", "--get-regexp", r"^submodule\.recurse$")
+        entries = repository.ask(
+            *at, "config", "--show-scope", "--show-origin", "--get-regexp", r"^submodule\.recurse$"
+        )
         for entry in entries.splitlines():
-            origin, _, setting = entry.partition("\t")
+            scope, origin, setting = entry.split("\t", 2)
             value = setting.partition(" ")[2]
             if not origin.startswith("file:"):
                 where, mend = origin.rstrip(":"), "Take it out there"
             else:
                 file = origin[len("file:") :]
-                # A folder's own config is named from the top folder, as its command is typed there.
-                file = file if os.path.isabs(file) or not path else f"{path}/{file}"
+                if scope in ("local", "worktree"):
+                    file = os.path.relpath(repository.top / path / file, repository.top)
                 where, mend = file, f"To take it out: git config --file {file} --unset submodule.recurse"
             if where not in seen:
                 seen.add(where)
@@ -498,7 +504,10 @@ def remove(repository: Repository, name: str) -> int:
     folder = the_dependency(repository, name)
     path = folder.path
     refuse_submodule_recurse(repository, repository.folders())
-    kept = repository.ask_or_stop("rev-parse", "--git-path", f"modules/{folder.name}")
+    # Named from the top folder, as every command here is typed. In a dependency's folder git gives it absolute.
+    kept = os.path.relpath(
+        repository.top / repository.ask_or_stop("rev-parse", "--git-path", f"modules/{folder.name}"), repository.top
+    )
     # git's own removal does not look at branches or stashes, and deleting the kept repository deletes every
     # one of them. So each repository that goes is looked at first: the folder's and the ones beneath it, and
     # each one git keeps for a folder that is not there.
@@ -594,6 +603,15 @@ def help_text() -> str:
         lines.extend([f"  {reads.usage[len('git dep ') :]}", f"      {reads.description}"])
     for name, does in ELSEWHERE.items():
         lines.extend([f"  {name}", f"      {does}"])
+    # Under `git -C`, git starts the script in the folder named, and leaves no sign of where it was typed.
+    lines.extend(
+        [
+            "",
+            "It acts on the repository of the folder it is typed in: a clone's top folder, or a dependency's folder.",
+            "Each command it prints is for typing in that repository's top folder.",
+            "Typed as git -C <folder> dep, that is the top folder of the repository at <folder>, not where it was typed.",
+        ]
+    )
     return "\n".join(lines) + "\n"
 
 

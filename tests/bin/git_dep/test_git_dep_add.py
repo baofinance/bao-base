@@ -194,7 +194,7 @@ def test_add_stops_before_changing_anything_for_a_branch_or_a_tag_the_remote_doe
     assert printed(stopped) == []
     assert state(project) == before
     assert not (project / "lib" / "kit").exists()
-    assert not (project / ".git" / "modules" / "lib" / "kit").exists()
+    assert not ready.kept("lib/kit").exists()
 
 
 def test_add_takes_a_url_relative_to_this_repositorys_own_remote(ready):

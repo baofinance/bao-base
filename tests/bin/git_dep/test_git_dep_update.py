@@ -202,7 +202,7 @@ def test_update_names_the_cookbooks_section_once_for_the_folders_git_skipped(rea
     ]
     in_the_cookbook = typed(project, "git dep cookbook").stdout.partition(f"## {section}\n")[2].partition("\n## ")[0]
     command = in_the_cookbook.partition("```\n")[2].partition("\n```")[0]
-    assert command.startswith("find .git "), "the section's first block is the command that takes the settings out"
+    assert command.startswith("find "), "the section's first block is the command that takes the settings out"
     assert typed(project, command).returncode == 0
     assert typed(project, "git dep update").returncode == 0
     assert (project / "lib" / "shared" / ".git").exists()

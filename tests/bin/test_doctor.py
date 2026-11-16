@@ -10,6 +10,8 @@ import importlib.util
 import json
 import os
 import pathlib
+import re
+import shutil
 import subprocess
 import sys
 import typing
@@ -23,6 +25,9 @@ _spec = importlib.util.spec_from_file_location("doctor", _module_path)
 doctor = importlib.util.module_from_spec(_spec)
 assert _spec.loader is not None
 _spec.loader.exec_module(doctor)
+
+# doctor imports it, so it is found once doctor is loaded.
+from submodule_state import COOKBOOK_LEFT_BEHIND  # noqa: E402
 
 
 def _git(repo: pathlib.Path, *args: str) -> None:
@@ -102,7 +107,8 @@ def test_url_drift_detected_when_gitmodules_url_changes(tmp_path):
     assert any("lib/sub" in display for display, _gm, _gc in drift)
     reported = "\n".join(doctor.submodule_url_drift_problems(host))
     assert (
-        "Repair: git submodule sync --recursive (this copies the URLs from .gitmodules to .git/config)" in reported
+        "Repair: git submodule sync --recursive (this copies the URLs from .gitmodules to the repository's config)"
+        in reported
     ), reported
     # Typed as printed, it leaves nothing to report.
     subprocess.run("git submodule sync --recursive", shell=True, cwd=host, check=True, capture_output=True)
@@ -603,32 +609,22 @@ def test_submodule_problems_reports_one_finding_carrying_its_own_repair(tmp_path
 # ── a nested tree: a dependency with a submodule of its own, and a second dependency beside it ──
 def _nest(tmp_path: pathlib.Path) -> pathlib.Path:
     """A host with lib/dep -> lib/child, and lib/unlocked beside it."""
+    return _nested_in(_init_repo(tmp_path / "host"), tmp_path / "remotes")
+
+
+def _nested_in(host: pathlib.Path, remotes: pathlib.Path) -> pathlib.Path:
+    """`host` given lib/dep -> lib/child, and lib/unlocked beside it, committed. The three repositories they are
+    cloned from are made in `remotes`, each holding a.txt. lib/dep and lib/unlocked are on their branch, as git's
+    add leaves a folder, and lib/child is on none, as git's update leaves one. Returns `host`."""
     for name in ("child", "dep", "unlocked"):
-        repo = _init_repo(tmp_path / "remotes" / name)
+        repo = _init_repo(remotes / name)
         (repo / "a.txt").write_text("a")
         _git(repo, "add", ".")
         _git(repo, "commit", "-qm", "content")
-    _git(
-        tmp_path / "remotes" / "dep",
-        "-c",
-        "protocol.file.allow=always",
-        "submodule",
-        "add",
-        str(tmp_path / "remotes" / "child"),
-        "lib/child",
-    )
-    _git(tmp_path / "remotes" / "dep", "commit", "-qm", "add child")
-    host = _init_repo(tmp_path / "host")
+    _git(remotes / "dep", "-c", "protocol.file.allow=always", "submodule", "add", str(remotes / "child"), "lib/child")
+    _git(remotes / "dep", "commit", "-qm", "add child")
     for name in ("dep", "unlocked"):
-        _git(
-            host,
-            "-c",
-            "protocol.file.allow=always",
-            "submodule",
-            "add",
-            str(tmp_path / "remotes" / name),
-            f"lib/{name}",
-        )
+        _git(host, "-c", "protocol.file.allow=always", "submodule", "add", str(remotes / name), f"lib/{name}")
     _git(host, "-c", "protocol.file.allow=always", "submodule", "update", "--init", "--recursive")
     _git(host, "commit", "-qm", "add deps")
     return host
@@ -2466,11 +2462,6 @@ def test_a_push_refspec_naming_tags_is_a_finding(tmp_path, isolated, refspec):
 def _deploying_repo(tmp_path: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, str, list[str]]:
     """A repository whose one commit origin holds, and a record of two deploys from it into two state files,
     each with its deployment tag made here. Returns the repository, origin, the commit, and the two tags."""
-    from dataclasses import replace
-
-    from deployment_baselines import add, derived_tags, make_tags, write_baselines
-    from test_deployment_baselines import PAUSER
-
     origin = tmp_path / "origin.git"
     subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True, capture_output=True)
     repo = _init_repo(tmp_path / "host")
@@ -2482,6 +2473,18 @@ def _deploying_repo(tmp_path: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path,
         ("push", "-q", "origin", "HEAD:refs/heads/main"),
     ):
         _git(repo, *arguments)
+    head, tags = _two_deploys_recorded(repo)
+    return repo, origin, head, tags
+
+
+def _two_deploys_recorded(repo: pathlib.Path) -> tuple[str, list[str]]:
+    """A record in `repo` of two deploys from the commit it is at into two state files, each with its deployment
+    tag made here. Returns the commit and the two tags."""
+    from dataclasses import replace
+
+    from deployment_baselines import add, derived_tags, make_tags, write_baselines
+    from test_deployment_baselines import PAUSER
+
     head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     built = [
         replace(PAUSER, address=f"0x{digit * 40}", commit=head, stateFiles=[f"deployments/mainnet/{name}.json"])
@@ -2491,7 +2494,7 @@ def _deploying_repo(tmp_path: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path,
     tags = list(derived_tags(built))
     made = make_tags(repo, built, {tag: "a deploy" for tag in tags})
     assert made.created == tags, made
-    return repo, origin, head, tags
+    return head, tags
 
 
 def test_deployment_tags_none_without_a_record(tmp_path):
@@ -2756,11 +2759,10 @@ def test_a_commit_on_a_branch_or_on_a_remote_is_no_finding(tmp_path, isolated):
 # them all out.
 
 
-def _skipped_in_two_config_files(tmp_path: pathlib.Path) -> pathlib.Path:
-    """A host as the old `yarn dep` left one: lib/dep and lib/unlocked each have an update setting of none in
-    the host's config, and lib/dep's lib/child has one in lib/dep's config. lib/dep is not checked out, so
-    the last is in the config of a repository whose folder is empty."""
-    host = _nest(tmp_path)
+def _skipped_in_two_config_files(host: pathlib.Path) -> pathlib.Path:
+    """A host from `_nested_in` as the old `yarn dep` left one: lib/dep and lib/unlocked each have an update
+    setting of none in the host's config, and lib/dep's lib/child has one in lib/dep's config. lib/dep is not
+    checked out, so the last is in the config of a repository whose folder is empty. Returns `host`."""
     _git(host / "lib" / "dep", "config", "submodule.lib/child.update", "none")
     _git(host, "submodule", "deinit", "-q", "-f", "lib/dep")
     _git(host, "config", "submodule.lib/dep.update", "none")
@@ -2793,7 +2795,7 @@ def test_an_update_setting_of_none_is_named_with_its_file_and_the_cookbooks_sect
 
 def test_update_settings_of_none_are_counted_in_each_file_that_has_them(tmp_path):
     # The repository's own config, and the config of a repository whose folder is not checked out.
-    host = _skipped_in_two_config_files(tmp_path)
+    host = _skipped_in_two_config_files(_nest(tmp_path))
 
     (finding,) = doctor.update_setting_problems(host)
 
@@ -2814,21 +2816,565 @@ def test_a_config_file_git_cannot_read_stops_the_check_with_an_error(tmp_path):
         doctor.update_setting_problems(host)
 
 
-def test_after_the_cookbooks_command_the_update_checks_every_folder_out(tmp_path, monkeypatch):
-    # The repair the finding names, run to its end. The cookbook's command, typed as the cookbook has it,
-    # takes the setting out of every config file. git's update then checks every folder out, and doctor has
-    # nothing left to report.
-    host = _skipped_in_two_config_files(tmp_path)
-    cookbook = (pathlib.Path(__file__).resolve().parents[2] / "doc" / "dependencies.md").read_text()
-    section = cookbook.partition(f"## {doctor.COOKBOOK_YARN_DEP_CLONE}\n")[2].partition("\n## ")[0]
-    command = section.partition("```\n")[2].partition("\n```")[0]
-    assert command.startswith("find .git "), "the section's first block is the command that takes the settings out"
+_COOKBOOK = pathlib.Path(__file__).resolve().parents[2] / "doc" / "dependencies.md"
 
-    subprocess.run(command, shell=True, cwd=host, check=True, capture_output=True, text=True)
 
-    assert doctor.update_setting_problems(host) == []
+def _cookbook_section(title: str) -> str:
+    """The text of the cookbook's section `title`, up to the next section."""
+    return _COOKBOOK.read_text().partition(f"## {title}\n")[2].partition("\n## ")[0]
+
+
+def _cookbook_blocks(title: str) -> list[str]:
+    """The commands of the cookbook's section `title`: each block, as it is typed."""
+    return re.findall(r"```\n(.*?)\n```", _cookbook_section(title), re.DOTALL)
+
+
+# ── every repair, done where doctor was typed ──────────────────────────────────────────────────────────────
+#
+# Doctor is typed in three places: a clone's top folder; a dependency's folder, where .git is a file that names
+# the repository git keeps in the outer clone's git folder; and the outer clone's top folder, naming the
+# dependency with -C. A repair is for typing where doctor was typed. Each test below builds one finding in each
+# place, does what its repair says, there, and then finds nothing.
+#
+# The cookbook's commands are typed in the project's own folder, as it says. They are tried in the two places
+# that folder can be: a clone's top folder, and a dependency's folder.
+
+_PLACES = ("top", "in-a-dependency", "-C")
+_PROJECT_FOLDERS = ("top", "in-a-dependency")
+
+
+class _Placed(typing.NamedTuple):
+    """The project `host`, the folder doctor is typed in, what doctor composes its commands with there, and the
+    folder git keeps host's repository in."""
+
+    host: pathlib.Path
+    typed: pathlib.Path
+    here: typing.Any
+    git_folder: pathlib.Path
+
+
+def _placed_host(tmp_path: pathlib.Path, place: str) -> _Placed:
+    """A project `host` holding a.txt, on its branch at the one commit its bare origin has, in one of `_PLACES`. In a
+    dependency's folder, and under -C, it is lib/host of an outer repository, which points to that commit."""
+    tmp_path = tmp_path.resolve()
+    origin = tmp_path / "remotes" / "host.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True, capture_output=True)
+    seed = _init_repo(tmp_path / "seed")
+    (seed / "a.txt").write_text("a")
+    _git(seed, "add", ".")
+    _git(seed, "commit", "-qm", "host")
+    _git(seed, "push", "-q", str(origin), "HEAD")
+    if place == "top":
+        host = tmp_path / "host"
+        subprocess.run(["git", "clone", "-q", str(origin), str(host)], check=True, capture_output=True)
+        return _Placed(host, host, doctor.Here(host, host), host / ".git")
+    outer = _init_repo(tmp_path / "outer")
+    _git(outer, "-c", "protocol.file.allow=always", "submodule", "add", str(origin), "lib/host")
+    _git(outer, "commit", "-qm", "add host")
+    host = outer / "lib" / "host"
+    kept = outer / ".git" / "modules" / "lib" / "host"
+    # A test that finds a folder git keeps gone is only as good as the folder named, so the name is checked.
+    assert (kept / "HEAD").is_file(), f"git keeps no repository at {kept}"
+    if place == "in-a-dependency":
+        return _Placed(host, host, doctor.Here(host, host), kept)
+    return _Placed(host, outer, doctor.Here(outer, host, "lib/host"), kept)
+
+
+def _typed(where: pathlib.Path, command: str) -> str:
+    """Run `command` as a person types it, in `where`. Returns what it prints. A command that fails stops the test
+    with what it printed."""
+    ran = subprocess.run(command, shell=True, cwd=where, capture_output=True, text=True)
+    assert ran.returncode == 0, f"{command}\n{ran.stdout}{ran.stderr}"
+    return ran.stdout
+
+
+def _the_repair(finding: str) -> str:
+    """The words after `Repair: ` in a finding."""
+    (line,) = [line for line in finding.splitlines() if line.lstrip().startswith("Repair: ")]
+    return line.lstrip().removeprefix("Repair: ")
+
+
+def _steps(words: str) -> list[str]:
+    """The commands of one way out, in order, from its words, "A, then B". A step in words names its command in
+    brackets, "push it (git push)". A command can be followed by a remark in brackets, which is not typed."""
+    steps = []
+    for step in words.removesuffix(".").split(", then "):
+        named = re.fullmatch(r"[a-z' ]+ \((.+)\)", step)
+        steps.append(named.group(1) if named else step.partition(" (")[0].strip())
+    return steps
+
+
+def _way_out(repair: str, opening: str) -> list[str]:
+    """The commands of the way out that `opening` begins, in a repair that names more than one, each in a sentence
+    of its own: "To keep ...: A. To go back ...: B."."""
+    (sentence,) = [s for s in re.split(r"\. (?=[A-Z])", repair) if s.startswith(f"{opening}: ")]
+    return _steps(sentence.removeprefix(f"{opening}: "))
+
+
+def _accepting_pushes(remote: pathlib.Path) -> None:
+    """Let a push update the branch that `remote`, a repository with a working tree, has checked out."""
+    _git(remote, "config", "receive.denyCurrentBranch", "updateInstead")
+
+
+@pytest.mark.parametrize("place", _PLACES)
+def test_doctor_typed_in_each_place_composes_its_commands_for_typing_there(tmp_path, monkeypatch, capsys, place):
+    # The `here` the tests below compose each repair with is the one doctor's command line makes, typed in that
+    # place. Under -C, the first line says which project the report is about.
+    placed = _placed_host(tmp_path, place)
+    _configured(placed.host, "host-only/=src/")
+    heres: list = []
+    checked = _recording_checks(monkeypatch, heres)
+
+    _run_doctor(monkeypatch, placed.typed, *(["-C", "lib/host"] if place == "-C" else []))
+
+    assert [project for project, _, _ in checked] == [placed.host]
+    assert heres == [placed.here]
+    printed = capsys.readouterr().out.splitlines()
+    assert (printed[:1] == ["in lib/host:"]) == (place == "-C"), printed
+
+
+@pytest.mark.parametrize("place", _PLACES)
+def test_after_the_cookbooks_command_the_update_checks_every_folder_out(tmp_path, monkeypatch, place):
+    # The repair the finding names, run to its end, typed where doctor was. The cookbook's command takes the setting
+    # out of every config file it reaches, the ones doctor counted among them. Doctor's repair for the empty folder
+    # then checks it out, and nothing is left to report.
+    placed = _placed_host(tmp_path, place)
+    host = _skipped_in_two_config_files(_nested_in(placed.host, tmp_path / "remotes"))
+    assert len(doctor.update_setting_problems(host, placed.here)) == 1
+    (command,) = _cookbook_blocks(doctor.COOKBOOK_YARN_DEP_CLONE)
+
+    _typed(placed.typed, command)
+
+    assert doctor.update_setting_problems(host, placed.here) == []
     _file_transport_allowed(monkeypatch)
-    subprocess.run(
-        "git submodule update --init --recursive", shell=True, cwd=host, check=True, capture_output=True, text=True
+    (empty,), _ = doctor.submodule_problems(host, [], placed.here)
+    _typed(placed.typed, _the_repair(empty))
+    assert doctor.submodule_problems(host, [], placed.here) == ([], [])
+
+
+@pytest.mark.parametrize("place", _PLACES)
+def test_url_drift_repair_typed_where_doctor_ran_clears_it(tmp_path, place):
+    # A URL changed in .gitmodules and not copied into the repository's config, which is what git fetches from. The
+    # finding names that config in words true in every place, and its sync, typed as printed, copies the URL.
+    placed = _placed_host(tmp_path, place)
+    host = _nested_in(placed.host, tmp_path / "remotes")
+    _git(host, "config", "-f", ".gitmodules", "submodule.lib/unlocked.url", str(tmp_path / "remotes" / "moved"))
+
+    (finding,) = doctor.submodule_url_drift_problems(host, placed.here)
+
+    assert ".git/config" not in finding, finding
+    (sync,) = _steps(_the_repair(finding))
+    _typed(placed.typed, sync)
+    assert doctor.submodule_url_drift_problems(host, placed.here) == []
+
+
+@pytest.mark.parametrize("place", _PLACES)
+@pytest.mark.parametrize("way", ["To keep the folder's version", "To go back to the version host points to"])
+def test_a_folder_at_a_newer_commit_is_repaired_either_way_typed_where_doctor_ran(tmp_path, place, way):
+    # A move not added yet: keeping it adds it, and going back is git's update of the folder. The newer commit is
+    # the remote's, so nothing is lost either way.
+    placed = _placed_host(tmp_path, place)
+    host = _nested_in(placed.host, tmp_path / "remotes")
+    _moved_to_a_commit_its_remote_has(host / "lib" / "unlocked", tmp_path / "remotes" / "unlocked")
+
+    (finding,), leftovers = doctor.submodule_problems(host, [], placed.here)
+
+    assert leftovers == []
+    for step in _way_out(_the_repair(finding), way):
+        _typed(placed.typed, step)
+    assert doctor.submodule_problems(host, [], placed.here) == ([], [])
+
+
+@pytest.mark.parametrize("place", _PLACES)
+@pytest.mark.parametrize("way", ["To keep the folder's version", "To go back to the version host points to"])
+def test_a_folder_holding_a_commit_no_remote_has_is_repaired_either_way_typed_where_doctor_ran(tmp_path, place, way):
+    # Keeping the folder's commit pushes it first. Going back leaves it on the folder's branch.
+    placed = _placed_host(tmp_path, place)
+    host = _nested_in(placed.host, tmp_path / "remotes")
+    _accepting_pushes(tmp_path / "remotes" / "unlocked")
+    commit_in(host / "lib" / "unlocked", "only here")
+
+    (finding,), _ = doctor.submodule_problems(host, [], placed.here)
+
+    for step in _way_out(_the_repair(finding), way):
+        _typed(placed.typed, step)
+    assert doctor.submodule_problems(host, [], placed.here) == ([], [])
+
+
+@pytest.mark.parametrize("place", _PLACES)
+def test_a_folder_behind_the_commit_its_repository_points_to_is_updated_typed_where_doctor_ran(tmp_path, place):
+    # The repository points to a newer commit than the folder has, as after a pull. The update checks it out.
+    placed = _placed_host(tmp_path, place)
+    host = _nested_in(placed.host, tmp_path / "remotes")
+    folder = host / "lib" / "unlocked"
+    older = _head(folder)
+    _moved_to_a_commit_its_remote_has(folder, tmp_path / "remotes" / "unlocked")
+    _git(host, "add", "lib/unlocked")
+    _git(folder, "checkout", "-q", "--detach", older)
+
+    (finding,), _ = doctor.submodule_problems(host, [], placed.here)
+
+    (update,) = _steps(_the_repair(finding))
+    _typed(placed.typed, update)
+    assert doctor.submodule_problems(host, [], placed.here) == ([], [])
+
+
+@pytest.mark.parametrize("place", _PLACES)
+def test_a_folder_git_cannot_read_is_repaired_typed_where_doctor_ran(tmp_path, place):
+    # The repository git keeps for the folder names a working tree that is not there. git's update writes it afresh.
+    placed = _placed_host(tmp_path, place)
+    host = _nested_in(placed.host, tmp_path / "remotes")
+    kept_config = placed.git_folder / "modules" / "lib" / "unlocked" / "config"
+    _git(host, "config", "-f", str(kept_config), "core.worktree", "../../../../nowhere/lib/unlocked")
+
+    (finding,), _ = doctor.submodule_problems(host, [], placed.here)
+
+    (update,) = _steps(_the_repair(finding))
+    _typed(placed.typed, update)
+    assert doctor.submodule_problems(host, [], placed.here) == ([], [])
+
+
+@pytest.mark.parametrize("place", _PLACES)
+def test_a_stray_clones_repair_names_its_folders_as_reached_from_where_doctor_ran(tmp_path, place):
+    # A repository in lib/ that no .gitmodules names. Its repair names two folders to delete: the clone, and the
+    # repository git keeps under the same name when there is one. A command typed where doctor was reaches each by
+    # the name printed. Deleting the clone so named leaves nothing to report.
+    placed = _placed_host(tmp_path, place)
+    host = placed.host
+    _init_repo(host / "lib" / "strayclone")
+
+    _, (finding,) = doctor.submodule_problems(host, [], placed.here)
+
+    named = re.fullmatch(r"delete (\S+), and the (\S+) folder if there is one", _the_repair(finding))
+    assert named is not None, finding
+    clone, kept = (placed.typed / name for name in named.groups())
+    assert clone.resolve() == host / "lib" / "strayclone"
+    assert kept.resolve() == placed.git_folder / "modules" / "lib" / "strayclone"
+    shutil.rmtree(clone)
+    assert doctor.submodule_problems(host, [], placed.here) == ([], [])
+
+
+@pytest.mark.parametrize("place", _PLACES)
+@pytest.mark.parametrize("way", ["To go back to the last commit's version", "If the older version is meant"])
+def test_a_folder_pointed_back_is_repaired_either_way_typed_where_doctor_ran(tmp_path, place, way):
+    # Going back puts back what the last commit points to, then updates the folder. Keeping the older version is a
+    # commit, whose message the person writes: here it is given on the command line.
+    placed = _placed_host(tmp_path, place)
+    host = _nested_in(placed.host, tmp_path / "remotes")
+    _point_back(host, "lib/unlocked")
+
+    (finding,) = doctor.pointed_back_problems(host, placed.here)
+
+    steps = _way_out(_the_repair(finding), way)
+    if way == "If the older version is meant":
+        steps = [f"{step} -qm 'the older version'" for step in steps]
+    for step in steps:
+        _typed(placed.typed, step)
+    assert doctor.pointed_back_problems(host, placed.here) == []
+
+
+@pytest.mark.parametrize("place", ["in-a-dependency", "-C"])
+@pytest.mark.parametrize("way", ["To go back to the last commit's version", "If the older version is meant"])
+def test_the_project_pointed_back_by_the_repository_listing_it_is_repaired_typed_where_doctor_ran(tmp_path, place, way):
+    # The project itself is a submodule here, and the outer repository points it back. Each way out runs as
+    # printed, where doctor was typed.
+    placed = _placed_host(tmp_path, place)
+    _point_back(placed.host.parents[1], "lib/host")
+
+    (finding,) = doctor.pointed_back_problems(placed.host, placed.here, itself=True)
+
+    steps = _way_out(_the_repair(finding), way)
+    if way == "If the older version is meant":
+        steps = [f"{step} -qm 'the older version'" for step in steps]
+    for step in steps:
+        _typed(placed.typed, step)
+    assert doctor.pointed_back_problems(placed.host, placed.here, itself=True) == []
+
+
+@pytest.mark.parametrize("place", _PLACES)
+@pytest.mark.parametrize("way", ["To use the branch's version", "To take the branch back to"])
+def test_a_folder_detached_behind_its_branch_is_repaired_either_way_typed_where_doctor_ran(tmp_path, place, way):
+    # Using the branch's version switches to it and adds it. Taking the branch back pushes its commits first, so
+    # none is left on this computer only.
+    placed = _placed_host(tmp_path, place)
+    host = _nested_in(placed.host, tmp_path / "remotes")
+    _accepting_pushes(tmp_path / "remotes" / "unlocked")
+    _follows_its_branch(host, "lib/unlocked")
+    _git(host, "commit", "-qm", "lib/unlocked follows its branch", "--", ".gitmodules")
+    at = _detached_behind(host / "lib" / "unlocked")
+
+    (finding,) = doctor.detached_behind_branch_problems(host, placed.here)
+
+    opening = way if way == "To use the branch's version" else f"{way} {at[:10]}"
+    for step in _way_out(_the_repair(finding), opening):
+        _typed(placed.typed, step)
+    assert doctor.detached_behind_branch_problems(host, placed.here) == []
+
+
+@pytest.mark.parametrize("place", ["in-a-dependency", "-C"])
+@pytest.mark.parametrize("way", ["To use the branch's version", "To take the branch back to"])
+def test_the_project_detached_behind_the_branch_it_follows_is_repaired_typed_where_doctor_ran(tmp_path, place, way):
+    # The outer repository says the project follows its branch, and the project is detached behind it.
+    placed = _placed_host(tmp_path, place)
+    outer = placed.host.parents[1]
+    _follows_its_branch(outer, "lib/host")
+    _git(outer, "commit", "-qm", "lib/host follows its branch", "--", ".gitmodules")
+    at = _detached_behind(placed.host)
+
+    (finding,) = doctor.detached_behind_branch_problems(placed.host, placed.here, itself=True)
+
+    opening = way if way == "To use the branch's version" else f"{way} {at[:10]}"
+    for step in _way_out(_the_repair(finding), opening):
+        _typed(placed.typed, step)
+    assert doctor.detached_behind_branch_problems(placed.host, placed.here, itself=True) == []
+
+
+@pytest.mark.parametrize("place", _PLACES)
+def test_a_commit_no_remote_holds_is_pushed_typed_where_doctor_ran(tmp_path, place):
+    # The repository points to a commit only this computer has. The push the repair names publishes it.
+    placed = _placed_host(tmp_path, place)
+    host = _nested_in(placed.host, tmp_path / "remotes")
+    _accepting_pushes(tmp_path / "remotes" / "unlocked")
+    commit_in(host / "lib" / "unlocked", "mine")
+    _git(host, "add", "lib/unlocked")
+
+    (finding,) = doctor.unpublished_commit_problems(host, placed.here)
+
+    pushing = re.match(r"push it \((.+?)\)", _the_repair(finding))
+    assert pushing is not None, finding
+    _typed(placed.typed, pushing.group(1))
+    assert doctor.unpublished_commit_problems(host, placed.here) == []
+
+
+@pytest.mark.parametrize("place", _PLACES)
+def test_a_commit_on_no_branch_is_put_on_one_typed_where_doctor_ran(tmp_path, place):
+    # Typed with a name for the branch, the repair leaves nothing to find.
+    placed = _placed_host(tmp_path, place)
+    host = _nested_in(placed.host, tmp_path / "remotes")
+    _a_commit_on_no_branch(host / "lib" / "unlocked")
+
+    (finding,) = doctor.commit_on_no_branch_problems(host, placed.here)
+
+    _typed(placed.typed, _the_repair(finding).replace("<branch>", "kept"))
+    assert doctor.commit_on_no_branch_problems(host, placed.here) == []
+
+
+@pytest.mark.parametrize("place", _PLACES)
+def test_each_settings_repair_typed_where_doctor_ran_clears_it(tmp_path, isolated, place):
+    # None of the three settings anywhere: a finding for each in the project, and one for the folders. Then another
+    # value in the project's own config and in a folder's: each names its file, and its repair sets the cookbook's
+    # value there.
+    placed = _placed_host(tmp_path, place)
+    host = _nested_in(placed.host, tmp_path / "remotes")
+
+    for finding in doctor.submodule_setting_problems(host, placed.here):
+        _typed(placed.typed, _the_repair(finding))
+    assert doctor.submodule_setting_problems(host, placed.here) == []
+
+    _git(host, "config", "diff.submodule", "short")
+    _git(host / "lib" / "dep", "config", "diff.submodule", "short")
+    other_values = doctor.submodule_setting_problems(host, placed.here)
+    assert len(other_values) == 2, other_values
+    for finding in other_values:
+        _typed(placed.typed, _the_repair(finding))
+    assert doctor.submodule_setting_problems(host, placed.here) == []
+
+
+@pytest.mark.parametrize("place", _PLACES)
+def test_submodule_recurse_repair_typed_where_doctor_ran_takes_it_out(tmp_path, isolated, place):
+    # Set in the project's own config and in a folder's. Each repair takes it out of the file it names.
+    placed = _placed_host(tmp_path, place)
+    host = _nested_in(placed.host, tmp_path / "remotes")
+    _git(host, "config", "submodule.recurse", "true")
+    _git(host / "lib" / "dep", "config", "submodule.recurse", "false")
+
+    findings = doctor.submodule_recurse_problems(host, placed.here)
+
+    assert len(findings) == 2, findings
+    for finding in findings:
+        _typed(placed.typed, _the_repair(finding))
+    assert doctor.submodule_recurse_problems(host, placed.here) == []
+
+
+@pytest.mark.parametrize("place", _PLACES)
+def test_tag_push_repair_typed_where_doctor_ran_takes_it_out(tmp_path, isolated, place):
+    # push.followTags in the project's own config and in a folder's. Each repair takes it out of the file it names.
+    placed = _placed_host(tmp_path, place)
+    host = _nested_in(placed.host, tmp_path / "remotes")
+    _git(host, "config", "push.followTags", "true")
+    _git(host / "lib" / "dep", "config", "push.followTags", "true")
+
+    findings = doctor.tag_push_setting_problems(host, placed.here)
+
+    assert len(findings) == 2, findings
+    for finding in findings:
+        _typed(placed.typed, _the_repair(finding))
+    assert doctor.tag_push_setting_problems(host, placed.here) == []
+
+
+@pytest.mark.parametrize("place", _PLACES)
+def test_a_stale_deployment_tags_repair_typed_where_doctor_ran_deletes_it_on_origin(tmp_path, place):
+    # A tag origin holds on another commit, under a name the record no longer derives: deleting it is the person's,
+    # with the push the repair names.
+    placed = _placed_host(tmp_path, place)
+    host = placed.host
+    _, tags = _two_deploys_recorded(host)
+    _git(host, "push", "-q", "origin", *(f"refs/tags/{tag}" for tag in tags))
+    _git(host, "commit", "-q", "--allow-empty", "-m", "another commit")
+    _git(host, "push", "-q", "origin", "HEAD:refs/tags/deploy/mainnet/one@1999-01-01T00-00-00Z")
+
+    (finding,) = doctor.deployment_tag_problems(host, placed.here)
+
+    _typed(placed.typed, _the_repair(finding).removeprefix("deleting it is yours: "))
+    assert doctor.deployment_tag_problems(host, placed.here) == []
+
+
+@pytest.mark.parametrize("place", _PLACES)
+def test_each_deployment_tag_repair_runs_the_projects_own_script_from_where_doctor_ran(tmp_path, place):
+    # A tag origin lacks, one origin holds another copy of, and one the tool replaces. Each repair runs a yarn script
+    # of the project, which typed where doctor was must run in the project's folder. yarn is not run here.
+    placed = _placed_host(tmp_path, place)
+    host = placed.host
+    head, tags = _two_deploys_recorded(host)
+    _git(host, "push", "-q", "origin", f"{head}:refs/tags/{tags[0]}")
+    _git(host, "push", "-q", "origin", f"{head}:refs/tags/deploy/mainnet/one@{head[:10]}")
+
+    findings = doctor.deployment_tag_problems(host, placed.here)
+
+    assert len(findings) == 3, findings
+    for finding in findings:
+        moves = re.findall(r"(?:\(cd (\S+) && )?yarn verify-audit", _the_repair(finding))
+        assert moves, finding
+        assert all((placed.typed / (move or ".")).resolve() == host for move in moves), finding
+
+
+@pytest.mark.parametrize("place", _PLACES)
+@pytest.mark.parametrize("state", ["committed", "deleted and still tracked", "not tracked"])
+def test_each_foundry_lock_repair_typed_where_doctor_ran_takes_it_away(tmp_path, monkeypatch, place, state):
+    # Each state git can know the lock in has its own removal, then git's update.
+    placed = _placed_host(tmp_path, place)
+    host = _nested_in(placed.host, tmp_path / "remotes")
+    (host / "foundry.lock").write_text("{}")
+    if state != "not tracked":
+        _git(host, "add", "foundry.lock")
+        _git(host, "commit", "-qm", "lock")
+    if state == "deleted and still tracked":
+        (host / "foundry.lock").unlink()
+    _file_transport_allowed(monkeypatch)
+
+    (finding,) = doctor.foundry_lock_problems(host, placed.here)
+
+    for step in _steps(_the_repair(finding)):
+        _typed(placed.typed, step)
+    assert doctor.foundry_lock_problems(host, placed.here) == []
+
+
+@pytest.mark.parametrize("place", _PLACES)
+def test_each_local_settings_repair_typed_where_doctor_ran_clears_it(tmp_path, place):
+    # Tracked, and matched by no ignore rule: one repair takes it out of the repository and keeps the file, the other
+    # adds the rule to the project's .gitignore.
+    placed = _placed_host(tmp_path, place)
+    host = placed.host
+    settings = _write_local_settings(host, [], tracked=True)
+
+    findings = doctor.claude_local_settings_problems(host, placed.here)
+
+    assert len(findings) == 2, findings
+    for finding in findings:
+        for step in _steps(_the_repair(finding)):
+            _typed(placed.typed, step)
+    assert doctor.claude_local_settings_problems(host, placed.here) == []
+    assert settings.is_file()
+
+
+@pytest.mark.parametrize("place", _PLACES)
+def test_tracked_but_ignored_repair_typed_where_doctor_ran_stops_git_tracking_them(tmp_path, place):
+    # A file git tracks that an ignore rule matches. The command the repair gives stops git tracking it.
+    placed = _placed_host(tmp_path, place)
+    host = placed.host
+    (host / "build.log").write_text("noise")
+    _git(host, "add", "build.log")
+    (host / ".gitignore").write_text("*.log\n")
+    _git(host, "add", ".gitignore")
+    _git(host, "commit", "-qm", "a log, and a rule that ignores logs")
+
+    (finding,) = doctor.tracked_but_ignored_problems(host, placed.here)
+
+    (untracking,) = re.findall(r"`([^`]+)`", _the_repair(finding))
+    _typed(placed.typed, untracking)
+    assert doctor.tracked_but_ignored_problems(host, placed.here) == []
+
+
+@pytest.mark.parametrize("place", _PROJECT_FOLDERS)
+def test_the_cookbooks_commands_take_away_a_folder_a_new_version_left_behind(tmp_path, place):
+    # lib/dep's new version no longer has lib/child: git leaves the folder, the repository it keeps for it, and
+    # lib/dep's lines for it. Doctor's repair names the cookbook's section. Typed in the project, the section's look
+    # finds no work, and its commands take all three away.
+    placed = _placed_host(tmp_path, place)
+    host = _nested_in(placed.host, tmp_path / "remotes")
+    _git(tmp_path / "remotes" / "dep", "rm", "-q", "lib/child")
+    _git(tmp_path / "remotes" / "dep", "commit", "-qm", "lib/child dropped")
+    _git(host / "lib" / "dep", "pull", "-q")
+    _git(host, "add", "lib/dep")
+    kept = placed.git_folder / "modules" / "lib" / "dep" / "modules" / "lib" / "child"
+    assert (kept / "HEAD").is_file()
+    _, (finding,) = doctor.submodule_problems(host, [], placed.here)
+    assert _the_repair(finding).endswith(f'"{COOKBOOK_LEFT_BEHIND}" says'), finding
+    look, removal = (
+        block.replace("<name>", "dep").replace("<gone>", "child") for block in _cookbook_blocks(COOKBOOK_LEFT_BEHIND)
     )
-    assert doctor.submodule_problems(host, []) == ([], [])
+
+    assert _typed(host, look) == ""
+    for command in removal.splitlines():
+        _typed(host, command)
+
+    assert doctor.submodule_problems(host, [], placed.here)[1] == []
+    assert not kept.exists()
+    assert _typed(host / "lib" / "dep", "git config --local --list --name-only").count("submodule.lib/child.") == 0
+
+
+@pytest.mark.parametrize("place", _PROJECT_FOLDERS)
+def test_the_cookbooks_commands_remove_a_dependency(tmp_path, place):
+    # "Remove a dependency", typed in the project: the look finds no work, and the removal takes the folder, its
+    # entry in .gitmodules, the repository git keeps for it and its lines in the settings.
+    placed = _placed_host(tmp_path, place)
+    host = _nested_in(placed.host, tmp_path / "remotes")
+    kept = placed.git_folder / "modules" / "lib" / "unlocked"
+    assert (kept / "HEAD").is_file()
+    look, removal = (block.replace("<name>", "unlocked") for block in _cookbook_blocks("Remove a dependency")[:2])
+
+    for command in look.splitlines():
+        assert _typed(host, command) == ""
+    for command in removal.splitlines():
+        _typed(host, command)
+
+    assert not (host / "lib" / "unlocked").exists()
+    assert not kept.exists()
+    assert "submodule.lib/unlocked." not in _typed(host, "git config --local --list --name-only")
+
+
+@pytest.mark.parametrize("place", _PROJECT_FOLDERS)
+def test_the_cookbooks_way_out_of_an_add_of_a_branch_the_remote_lacks(tmp_path, place):
+    # git's add of a branch the remote does not have clones first, then stops, and leaves the folder and the
+    # repository it keeps for it. The cookbook's command for that, typed in the project, takes both away, and the add
+    # typed again with no branch goes through.
+    placed = _placed_host(tmp_path, place)
+    host = placed.host
+    remote = _init_repo(tmp_path / "remotes" / "kit")
+    (remote / "a.txt").write_text("a")
+    _git(remote, "add", ".")
+    _git(remote, "commit", "-qm", "kit")
+    adding = f"git -c protocol.file.allow=always submodule add -b nosuch {remote} lib/kit"
+    assert subprocess.run(adding, shell=True, cwd=host, capture_output=True).returncode != 0
+    kept = placed.git_folder / "modules" / "lib" / "kit"
+    assert (kept / "HEAD").is_file()
+    (row,) = [
+        line for line in _cookbook_section("What can go wrong").splitlines() if "cannot be created from it" in line
+    ]
+    command = re.findall(r"`([^`]+)`", row.split(" | ")[-1])[0].replace("<name>", "kit")
+
+    _typed(host, command)
+
+    assert not (host / "lib" / "kit").exists()
+    assert not kept.exists()
+    _typed(host, adding.replace(" -b nosuch", ""))

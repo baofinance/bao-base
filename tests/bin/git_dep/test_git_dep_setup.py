@@ -33,6 +33,20 @@ def test_setup_moves_no_folder(world):
     assert not (project / "lib" / "shared" / ".git").exists()
 
 
+def test_after_setup_typed_in_the_clones_top_folder_git_dep_runs_typed_in_the_project(world):
+    # The way a clone is set up: `setup` typed once in its top folder. Where the project is a dependency's
+    # folder, the clone's top folder holds no copy of the script and gets no alias. The project's folder holds
+    # one, and gets the alias there. `git dep` typed in the project then acts on the project's folders.
+    done = typed(world.top, f"{world.project / BY_PATH} setup")
+
+    status = typed(world.project, "git dep status")
+
+    assert done.returncode == 0, done.stderr
+    assert own_setting(world.project, "alias.dep") == "!lib/bao-base/bin/git-dep"
+    assert status.returncode == 0, status.stderr
+    assert status.stdout.splitlines() == ["7 dependency folders: nothing to report"]
+
+
 def test_setup_writes_the_three_settings_in_the_repository_and_in_every_folder(ready):
     # The values git uses, in the repository and in each folder at every depth.
     project = ready.project

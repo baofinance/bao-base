@@ -150,7 +150,7 @@ def test_setup_runs_no_uv_when_the_git_dep_step_stops(world, uv):
     stopped = typed(project, str(SETUP))
 
     assert stopped.returncode == 1
-    assert "submodule.recurse is set to true in .git/config" in stopped.stderr, stopped.stderr
+    assert f"submodule.recurse is set to true in {world.git_folder}/config" in stopped.stderr, stopped.stderr
     assert uv.ran() is None
 
 

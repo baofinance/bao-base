@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from git_dep_world import BY_PATH, World, build_world, typed
+from git_dep_world import BY_PATH, PLACES, World, build_world, typed
 
 
 @pytest.fixture(autouse=True)
@@ -27,10 +27,11 @@ def own_git_config(tmp_path, monkeypatch) -> Path:
     return config
 
 
-@pytest.fixture
-def world(tmp_path) -> World:
-    """A new clone of the project, with everything checked out and nothing else done to it."""
-    return build_world(tmp_path)
+@pytest.fixture(params=PLACES)
+def world(tmp_path, request) -> World:
+    """A new clone of the project, with everything checked out and nothing else done to it, in each of the
+    places a person types in: the clone's top folder, and a dependency's folder."""
+    return build_world(tmp_path, request.param)
 
 
 @pytest.fixture

@@ -8,11 +8,18 @@ Each test gets its own remotes and its own clone, built with real git and served
     tool           has lib/deep, and the tags v1 and v2. v2 records a newer lib/deep, and adds lib/shared
     kit            has lib/deep and lib/bao-base, the tag v1, and a newer commit that records a newer lib/deep
     proj           has lib/bao-base, lib/dep (following main), lib/shared and lib/tool (at v1)
+    outer          has lib/proj: made only where the project is a dependency's folder
 
 Nothing has kit as a dependency: it is what a test adds.
 
 The remotes are bare, so a push works. A seed is a work clone of a remote that stands for a teammate: a
-change is committed there and pushed. `world.project` is the clone under test, with everything checked out.
+change is committed there and pushed. `world.project` is the project under test, with everything checked
+out, in one of two places:
+
+    top               a clone of proj: the project is the clone's top folder
+    in-a-dependency   a clone of outer: the project is its folder lib/proj, on its branch main, as the
+                      cookbook has a dependency's folder for work in it. There .git is a file, and git keeps
+                      the project's repository in the outer clone's git folder
 
 A test types `git dep ...` through git once a first `setup` by path has written the alias. The tests of
 that first run type the path. The fixtures that build a world are in conftest.py.
@@ -20,6 +27,7 @@ that first run type the path. The fixtures that build a world are in conftest.py
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -143,11 +151,23 @@ def own_setting(folder: Path, key: str) -> str | None:
     return found.stdout.strip() if found.returncode == 0 else None
 
 
+PLACES = ("top", "in-a-dependency")
+
+
 class World(NamedTuple):
-    """One test's remotes, seeds and clone."""
+    """One test's remotes, seeds and clone. `top` is the clone's top folder: the project itself, or the outer
+    clone that holds it. `git_folder` is the folder git keeps the project's repository in, named from the
+    project's top folder: `.git` in a clone's top folder, and a path into the outer clone's `.git` in a
+    dependency's folder."""
 
     root: Path
     project: Path
+    top: Path
+    git_folder: str
+
+    def kept(self, name: str) -> Path:
+        """The folder git keeps the repository of the project's dependency `name` in."""
+        return self.project / self.git_folder / "modules" / name
 
     def remote(self, name: str) -> Path:
         return self.root / "remotes" / f"{name}.git"
@@ -156,7 +176,7 @@ class World(NamedTuple):
         return self.root / "seeds" / name
 
 
-def build_world(root: Path) -> World:
+def build_world(root: Path, place: str) -> World:
     remotes, seeds = root / "remotes", root / "seeds"
     remotes.mkdir()
     seeds.mkdir()
@@ -211,6 +231,20 @@ def build_world(root: Path) -> World:
     (proj / "src" / "p.txt").write_text("p\n")
     commit(proj, "proj p1")
 
-    project = root / "project"
-    git(root, "clone", "-q", "--recurse-submodules", str(remotes / "proj.git"), str(project))
-    return World(root, project)
+    if place == "top":
+        project = root / "project"
+        git(root, "clone", "-q", "--recurse-submodules", str(remotes / "proj.git"), str(project))
+        world = World(root, project, project, ".git")
+    else:
+        git(root, "init", "-q", "--bare", str(remotes / "outer.git"))
+        git(root, "clone", "-q", str(remotes / "outer.git"), str(seeds / "outer"))
+        git(seeds / "outer", "submodule", "--quiet", "add", str(remotes / "proj.git"), "lib/proj")
+        commit(seeds / "outer", "outer o1")
+        top = root / "outer"
+        git(root, "clone", "-q", "--recurse-submodules", str(remotes / "outer.git"), str(top))
+        project = top / "lib" / "proj"
+        git(project, "switch", "-q", "main")
+        world = World(root, project, top, os.path.relpath(top / ".git" / "modules" / "lib" / "proj", project))
+    # A test that finds a folder git keeps gone is only as good as the folder named, so the name is checked.
+    assert (world.kept("lib/tool") / "HEAD").is_file(), f"git keeps no repository at {world.kept('lib/tool')}"
+    return world

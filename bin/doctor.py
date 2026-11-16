@@ -111,11 +111,12 @@ def strip_context_prefix(entry: str) -> str:
 
 
 def submodule_url_drift(repo_dir: Path) -> list[tuple[str, str, str]]:
-    """Find this repository's submodules whose initialized URL in .git/config disagrees with the
-    committed .gitmodules. `git submodule update` trusts .git/config (written once at init/sync) and
-    never reconciles it when .gitmodules changes, so a stale .git/config silently clones the wrong URL.
-    Read-only: compares the two configs. A dependency's own nested submodules are its business, so they
-    are not read. Returns (path, .gitmodules url, .git/config url)."""
+    """Find this repository's submodules whose initialized URL in the repository's config disagrees with the
+    committed .gitmodules. `git submodule update` trusts the repository's config (written once at init/sync)
+    and never reconciles it when .gitmodules changes, so a stale URL there silently clones the wrong one.
+    The repository's config is .git/config in a clone's top folder, and in the outer clone's git folder in a
+    dependency's folder. Read-only: compares the two configs. A dependency's own nested submodules are its
+    business, so they are not read. Returns (path, .gitmodules url, the repository's config url)."""
     gitmodules = repo_dir / ".gitmodules"
     if not gitmodules.is_file():
         return []
@@ -212,10 +213,14 @@ def submodule_problems(repo_root: Path, remappings: list[str], here: Here | None
     versions: list[str] = []
     leftovers: list[str] = []
     for stray in stray_clones(repo_root):
+        # Where git would keep a repository for a submodule at that path: in a dependency's folder, that is in the
+        # outer clone's git folder. Both folders are named so that a command typed where `here` says reaches them.
+        kept = Path(git(repo_root, "rev-parse", "--absolute-git-dir").stdout.strip()) / "modules" / stray
         leftovers.append(
             f"{stray}: a git repository inside {repo_root.name} that is not a submodule\n"
             f"  Nobody else can see what is in it, because .gitmodules does not name it.\n"
-            f"  Repair: delete {stray}, and the .git/modules/{stray} folder if there is one"
+            f"  Repair: delete {here.file(stray)}, and the "
+            f"{PurePath(os.path.relpath(kept, here.typed)).as_posix()} folder if there is one"
         )
     not_checked_out: list[str] = []
     for path, directory, level in submodules_at_every_depth(repo_root):
@@ -609,7 +614,8 @@ def deployment_tag_problems(repo_root: Path, here: Here | None = None) -> list[s
         for tag in found.lacking
     ]
     problems += [
-        f"{tag}: origin holds another copy than this clone's\n  Repair: yarn verify-audit --pull --write --push"
+        f"{tag}: origin holds another copy than this clone's\n"
+        f"  Repair: {here.script('yarn verify-audit --pull --write --push')}"
         for tag in found.differing
     ]
     for tag, replacement in found.stale.items():
@@ -1094,13 +1100,13 @@ def submodule_url_drift_problems(repo_root: Path, here: Here | None = None) -> l
     drift = submodule_url_drift(repo_root)
     if not drift:
         return []
-    lines = ["These submodules have a different URL in .git/config than in .gitmodules:"]
+    lines = ["These submodules have a different URL in the repository's config than in .gitmodules:"]
     for display, gitmodules_url, gitconfig_url in drift:
         lines.append(f"  {display}")
-        lines.append(f"    .git/config: {gitconfig_url}")
-        lines.append(f"    .gitmodules: {gitmodules_url}")
+        lines.append(f"    the repository's config: {gitconfig_url}")
+        lines.append(f"    .gitmodules:             {gitmodules_url}")
     sync = f"{(here or Here(repo_root, repo_root)).git(repo_root)} submodule sync --recursive"
-    lines.append(f"Repair: {sync} (this copies the URLs from .gitmodules to .git/config)")
+    lines.append(f"Repair: {sync} (this copies the URLs from .gitmodules to the repository's config)")
     return ["\n".join(lines)]
 
 
@@ -1428,7 +1434,7 @@ def claude_local_settings_problems(repo_root: Path, here: Here | None = None) ->
             problems.append(
                 f"{_CLAUDE_LOCAL_SETTINGS} exists, but no ignore rule in this repository matches it."
                 f"{matched_only_by} So anyone who clones the repository can commit the file by mistake.\n"
-                f"  Repair: echo '{_CLAUDE_LOCAL_SETTINGS}' >> .gitignore"
+                f"  Repair: echo '{_CLAUDE_LOCAL_SETTINGS}' >> {(here or Here(repo_root, repo_root)).file('.gitignore')}"
             )
 
     return problems
@@ -1627,8 +1633,8 @@ def build_checks(
             wake_scope_problems(repo_root),
         ),
         Check(
-            "submodule URLs in .git/config match .gitmodules",
-            "git fetches a submodule from the URL in .git/config, not from the URL in .gitmodules. If they are "
+            "submodule URLs in the repository's config match .gitmodules",
+            "git fetches a submodule from the URL in the repository's config, not from the URL in .gitmodules. If they are "
             "different, your copy comes from a place that other people do not use",
             "your builds work and other people's fail, although the code looks the same",
             submodule_url_drift_problems(repo_root, here),

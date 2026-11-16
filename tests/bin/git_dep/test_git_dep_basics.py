@@ -95,7 +95,9 @@ def test_typed_inside_a_dependency_it_runs_that_dependencys_copy_and_acts_on_it(
 
 def test_help_lists_every_command_with_what_it_does(ready):
     # `help`, no command and `-h` print the same list: for each command, the way it is typed, then a line saying
-    # what it does. It needs no repository.
+    # what it does. Last, where the commands act, and where the commands they print are typed: under
+    # `git -C`, git starts the script in the folder named, and the script cannot know where it was typed. It
+    # needs no repository.
     project = ready.project
 
     by_help = typed(project, "git dep help")
@@ -103,7 +105,13 @@ def test_help_lists_every_command_with_what_it_does(ready):
     by_h = typed(project, "git dep -h")
     outside = typed(ready.root, f"{project / BY_PATH} help")
 
-    listed = by_help.stdout.split("\n\n", 1)[1].splitlines()
+    _, listing, where = by_help.stdout.split("\n\n")
+    assert where.splitlines() == [
+        "It acts on the repository of the folder it is typed in: a clone's top folder, or a dependency's folder.",
+        "Each command it prints is for typing in that repository's top folder.",
+        "Typed as git -C <folder> dep, that is the top folder of the repository at <folder>, not where it was typed.",
+    ]
+    listed = listing.splitlines()
     assert listed[0::2] == [
         "  setup",
         "  update",
@@ -296,15 +304,22 @@ def test_a_command_typed_in_a_subfolder_acts_on_the_whole_repository(ready):
 
 
 @pytest.mark.parametrize("value", ["true", "false"])
-@pytest.mark.parametrize("where", ["the repository's config", "the person's own config"])
+@pytest.mark.parametrize(
+    "where", ["the repository's config", "a dependency folder's config", "the person's own config"]
+)
 def test_a_command_stops_when_submodule_recurse_is_set_whatever_its_value_and_wherever(
     world, own_git_config, value, where
 ):
     # With `true`, a branch switch discards an unstaged edit beneath lib/. With `false`, git can stop making the
     # push check. So the command stops first, naming the file that sets it and the command that takes it out.
+    # A config that git keeps for the clone is named from the top folder; the person's own, as git names it.
     # Typed as printed, that command lets the next run through.
     project = world.project
-    file = ".git/config" if where == "the repository's config" else str(own_git_config)
+    file = {
+        "the repository's config": f"{world.git_folder}/config",
+        "a dependency folder's config": f"{world.git_folder}/modules/lib/dep/config",
+        "the person's own config": str(own_git_config),
+    }[where]
     git(project, "config", "--file", file, "submodule.recurse", value)
     git(project / "lib" / "tool", "checkout", "-q", "v2")
 
@@ -330,10 +345,10 @@ def test_each_command_that_changes_something_first_checks_that_submodule_recurse
 
     stopped = typed(project, f"{BY_PATH} {command.format(kit=world.remote('kit'))}")
 
+    file = f"{world.git_folder}/config"
     assert stopped.returncode == 1
     assert stopped.stderr.strip() == (
-        "submodule.recurse is set to true in .git/config. "
-        "To take it out: git config --file .git/config --unset submodule.recurse"
+        f"submodule.recurse is set to true in {file}. To take it out: git config --file {file} --unset submodule.recurse"
     ), stopped.stderr
     assert printed(stopped) == []
     assert state(project) == before

@@ -232,7 +232,7 @@ Both print nothing when there is none: no uncommitted change, no commit that no 
 
 ```
 git rm lib/<name>
-rm -rf .git/modules/lib/<name>
+rm -rf "$(git rev-parse --git-path modules/lib/<name>)"
 git config --remove-section submodule.lib/<name>
 ```
 
@@ -245,10 +245,14 @@ Remove the dependency's remappings from `foundry.toml` and from `wake.toml`. Com
   place of the first command.
 - `git rm` does not look at branches or stashes. The `rm -rf` deletes the repository git keeps for the
   dependency, and theirs beneath it, with every branch and stash in them. That is why the look comes first.
-- The two commands of the look reach the folders that are checked out. `.git/modules/lib/<name>` can also
-  hold the repository of a folder that is gone, such as one that an earlier version of the dependency had.
-- The last command deletes the line git leaves in `.git/config`. For a folder that is not checked out, git
-  has taken the line out already, and the command ends with `no such section`.
+- `git rev-parse --git-path` names the folder where git keeps that repository, wherever the command is typed.
+  In a clone's top folder it is under `.git/modules`. In a dependency's folder, `.git` is a file, and the
+  folder is in the outer clone's git folder.
+- The two commands of the look reach the folders that are checked out. The repository git keeps for the
+  dependency can also hold the repository of a folder that is gone, such as one that an earlier version of the
+  dependency had.
+- The last command deletes the line git leaves in the repository's config. For a folder that is not checked
+  out, git has taken the line out already, and the command ends with `no such section`.
 - The last two commands use the dependency's name in `.gitmodules`. It differs from the folder only where
   the folder was moved with `git mv`.
 
@@ -317,7 +321,7 @@ It prints nothing when there is none. Then:
 
 ```
 git -C lib/<name> clean -ffd -- lib/<gone>
-rm -rf .git/modules/lib/<name>/modules/lib/<gone>
+rm -rf "$(git rev-parse --git-path modules/lib/<name>/modules/lib/<gone>)"
 git -C lib/<name> config --remove-section submodule.lib/<gone>
 ```
 
@@ -472,7 +476,7 @@ local deployment tag with the remote's tag of the same name, which `git fetch --
 | `git pull` prints `Could not access submodule` | The pull brought in a dependency whose folder is not there yet | The update command, then the last settings command |
 | A folder is empty, and `git submodule status` shows a `-` in front of it | It is not checked out | The update command |
 | After an upgrade, git warns `unable to rmdir`, and a folder inside the dependency is listed as untracked | The new version no longer uses that folder | "A nested folder that a new version no longer uses" |
-| `git submodule add -b <branch>` ends with `is not a commit and a branch '<branch>' cannot be created from it` | The remote has no such branch. git has cloned already: it leaves `lib/<name>`, holding nothing but `.git`, and `.git/modules/lib/<name>`. Typed again with the right branch, the add stages the folder as it is, with no file in it | `rm -rf lib/<name> .git/modules/lib/<name>`, then add again |
+| `git submodule add -b <branch>` ends with `is not a commit and a branch '<branch>' cannot be created from it` | The remote has no such branch. git has cloned already: it leaves `lib/<name>`, holding nothing but `.git`, and the repository it keeps for it. Typed again with the right branch, the add stages the folder as it is, with no file in it | `rm -rf lib/<name> "$(git rev-parse --git-path modules/lib/<name>)"`, then add again |
 | `git rm lib/<name>` ends with `the following file has changes staged in the index` | The dependency was added, or its new commit was staged, and that is not committed | To undo an add: `git rm -f lib/<name>`, then the other two commands of "Remove a dependency" |
 | After `git -C lib/<name> checkout main`, the folder is on a branch, at an older commit | That is the folder's own branch, left where the remote was on the day of the clone | `git -C lib/<name> checkout --detach origin/main` |
 | A merge commit in a dependency folder is on no branch | The merge was made while the folder was on no branch. git does not warn about it then | `git -C lib/<name> switch -c <branch>` puts the commit on a branch |
@@ -491,10 +495,15 @@ up as this page describes: its `sync` leaves only the folders the build reads ch
 
 `yarn doctor` counts these settings by config file, and `git dep update` names each folder they left empty.
 
-Take the settings out, once, in the top folder of the clone:
+Take the settings out, once. Type the command in the top folder of the clone, and it reaches every
+repository in the clone. Type it in a dependency's folder, and it reaches the settings that doctor typed
+there counts: those of that dependency and of every one beneath it.
 
 ```
-find .git -name config -type f | while read -r f; do git config --file "$f" --name-only --get-regexp '^submodule\..*\.update$' '^none$' | while read -r key; do git config --file "$f" --unset "$key"; done; done
+find "$(git rev-parse --absolute-git-dir)" -name config -type f | while read -r f; do git config --file "$f" --name-only --get-regexp '^submodule\..*\.update$' '^none$' | while read -r key; do git config --file "$f" --unset "$key"; done; done
 ```
+
+In a dependency's folder, `.git` is a file that names the folder where git keeps that repository.
+`git rev-parse --absolute-git-dir` gives that folder, wherever the command is typed.
 
 Then follow "After a pull, a merge or a branch switch", and write the settings.
