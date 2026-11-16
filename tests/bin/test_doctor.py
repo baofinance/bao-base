@@ -652,36 +652,172 @@ def commit_in(checkout: pathlib.Path, message: str) -> None:
     _git(checkout, "commit", "-qam", message)
 
 
-@pytest.mark.parametrize("shape", ["off its record", "not checked out", "holding litter"])
-def test_a_dependencys_own_nested_submodules_are_not_reported(tmp_path, shape):
-    # A dependency's nested submodules are its own lockfile: nothing here builds from one unless a remapping
-    # names it, so whatever state it is in is not this repository's finding.
+def _three_deep(tmp_path: pathlib.Path) -> pathlib.Path:
+    """A host with lib/dep -> lib/child -> lib/grandchild, each checked out."""
+    remotes = tmp_path / "remotes"
+    for name in ("grandchild", "child", "dep"):
+        repo = _init_repo(remotes / name)
+        (repo / "a.txt").write_text("a")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-qm", "content")
+    for holder, held in (("child", "grandchild"), ("dep", "child")):
+        _git(
+            remotes / holder, "-c", "protocol.file.allow=always", "submodule", "add", str(remotes / held), f"lib/{held}"
+        )
+        _git(remotes / holder, "commit", "-qm", f"add {held}")
+    host = _init_repo(tmp_path / "host")
+    _git(host, "-c", "protocol.file.allow=always", "submodule", "add", str(remotes / "dep"), "lib/dep")
+    _git(host, "-c", "protocol.file.allow=always", "submodule", "update", "--init", "--recursive")
+    _git(host, "commit", "-qm", "add dep")
+    return host
+
+
+def _moved_to_a_commit_its_remote_has(folder: pathlib.Path, remote: pathlib.Path) -> str:
+    """`folder` at a new commit of `remote`, which the folder's repository does not point to. Returns it."""
+    commit_in(remote, "moved on")
+    _git(folder, "fetch", "-q")
+    _git(folder, "checkout", "-q", "--detach", "origin/HEAD")
+    return _head(folder)
+
+
+def test_every_folder_at_its_recorded_commit_at_every_depth_is_no_finding(tmp_path):
+    assert doctor.submodule_problems(_three_deep(tmp_path), []) == ([], [])
+
+
+@pytest.mark.parametrize(
+    "remappings", [[], ["child/=lib/dep/lib/child/"]], ids=["no remapping", "a remapping reads it"]
+)
+def test_a_nested_folder_at_another_commit_is_a_finding_whatever_the_remappings(tmp_path, remappings):
+    # Every folder is judged, at every depth, in the repository that points to it. lib/dep points to
+    # lib/child's commit, so the finding names lib/dep, and its commands reach lib/dep from the top.
     host = _nest(tmp_path)
     child = host / "lib" / "dep" / "lib" / "child"
-    if shape == "off its record":
-        commit_in(child, "moved on")
-    elif shape == "not checked out":
-        _git(host / "lib" / "dep", "submodule", "deinit", "-q", "-f", "lib/child")
-    else:
-        _init_repo(child / "lib" / "orphan")
+    recorded = _head(child)
+    moved = _moved_to_a_commit_its_remote_has(child, tmp_path / "remotes" / "child")
 
-    problems = sum(doctor.submodule_problems(host, []), [])
+    problems, leftovers = doctor.submodule_problems(host, remappings)
 
-    assert not any(p.startswith(("lib/dep:", "lib/dep/lib/child:")) for p in problems), problems
+    assert leftovers == []
+    (finding,) = problems
+    assert finding.splitlines()[0] == (
+        "lib/dep/lib/child: the folder has a newer commit than the one lib/dep points to"
+    ), finding
+    assert f"{_shown(child, moved)}  in the lib/dep/lib/child folder" in finding, finding
+    assert f"{_shown(child, recorded)}  lib/dep points to" in finding, finding
+    assert finding.splitlines()[-1] == (
+        "  Repair: To keep the folder's version: git -C lib/dep add lib/child (lib/dep then points to it). "
+        "To go back to the version lib/dep points to: "
+        "git -C lib/dep submodule update --init --recursive -- lib/child."
+    ), finding
+    # Typed as printed, keeping it leaves nothing to report.
+    subprocess.run("git -C lib/dep add lib/child", shell=True, cwd=host, check=True, capture_output=True)
+    assert doctor.submodule_problems(host, remappings) == ([], [])
 
 
-def test_a_remapped_nested_path_off_its_record_is_reported(tmp_path):
-    # Once a remapping names a nested path, the build reads it, so its being off the commit the dependency
-    # records is this repository's finding - and sync is what brings it back.
+def test_a_folder_three_levels_down_at_another_commit_is_a_finding(tmp_path):
+    host = _three_deep(tmp_path)
+    grandchild = host / "lib" / "dep" / "lib" / "child" / "lib" / "grandchild"
+    _moved_to_a_commit_its_remote_has(grandchild, tmp_path / "remotes" / "grandchild")
+
+    problems, _ = doctor.submodule_problems(host, [])
+
+    (finding,) = problems
+    assert finding.splitlines()[0] == (
+        "lib/dep/lib/child/lib/grandchild: the folder has a newer commit than the one lib/dep/lib/child points to"
+    ), finding
+    going_back = "git -C lib/dep/lib/child submodule update --init --recursive -- lib/grandchild"
+    assert f"To go back to the version lib/dep/lib/child points to: {going_back}." in finding, finding
+    # Typed as printed, going back leaves nothing to report.
+    subprocess.run(going_back, shell=True, cwd=host, check=True, capture_output=True)
+    assert doctor.submodule_problems(host, []) == ([], [])
+
+
+def _file_transport_allowed(monkeypatch) -> None:
+    """Let a command typed as printed fetch from the local repositories that stand for remotes."""
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "protocol.file.allow")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "always")
+
+
+@pytest.mark.parametrize(
+    "emptied, counted",
+    [
+        ([("", "lib/unlocked")], "1 submodule folder"),
+        ([("lib/dep", "lib/child"), ("", "lib/unlocked")], "2 submodule folders"),
+    ],
+    ids=["one, the repository's own", "two, one of them nested"],
+)
+def test_folders_not_checked_out_share_one_finding_and_one_repair(tmp_path, monkeypatch, emptied, counted):
+    # An empty folder is a finding at every depth, with or without a remapping. One update, typed in the
+    # repository, checks every one of them out, so they share one finding and that one command.
     host = _nest(tmp_path)
-    commit_in(host / "lib" / "dep" / "lib" / "child", "moved on")
+    for parent, path in emptied:
+        _git(host / parent, "submodule", "deinit", "-q", "-f", path)
 
-    problems, _ = doctor.submodule_problems(host, ["child/=lib/dep/lib/child/"])
+    problems, leftovers = doctor.submodule_problems(host, [])
 
-    finding = next((p for p in problems if p.startswith("lib/dep:")), None)
-    assert finding is not None, problems
-    assert "lib/dep/lib/child" in finding, finding
-    assert "Repair: git submodule update --init --recursive -- lib/dep (" in finding, finding
+    assert leftovers == []
+    assert problems == [
+        "\n".join(
+            [
+                f"Nothing is checked out in {counted}:",
+                *(f"  {(pathlib.PurePosixPath(parent) / path).as_posix()}" for parent, path in emptied),
+                "  Repair: git submodule update --init --recursive",
+            ]
+        )
+    ]
+    # Typed as printed, the update leaves nothing to report.
+    _file_transport_allowed(monkeypatch)
+    _repaired(host, problems[0])
+    assert doctor.submodule_problems(host, []) == ([], [])
+
+
+@pytest.mark.parametrize(
+    "remappings, named",
+    [
+        ([], []),
+        (["child/=lib/dep/lib/child/"], ["child/=lib/dep/lib/child/"]),
+        (
+            ["child/=lib/dep/lib/child/", "unlocked/=lib/unlocked/", "@child/src/=lib/dep/lib/child/src/"],
+            ["child/=lib/dep/lib/child/", "@child/src/=lib/dep/lib/child/src/"],
+        ),
+    ],
+    ids=["none", "one", "two, and one that reads another folder"],
+)
+def test_a_folder_not_checked_out_names_each_remapping_that_reads_it(tmp_path, remappings, named):
+    # A remapping decides nothing about which folders are judged. It only tells the reader that the build
+    # reads the empty folder.
+    host = _nest(tmp_path)
+    _git(host / "lib" / "dep", "submodule", "deinit", "-q", "-f", "lib/child")
+
+    (finding,), _ = doctor.submodule_problems(host, remappings)
+
+    assert finding.splitlines()[1:-1] == [
+        "  lib/dep/lib/child",
+        *(f"    the remapping {remapping} reads it: an import through it finds no file" for remapping in named),
+    ]
+
+
+def test_a_remapping_through_a_dependency_not_checked_out_is_named_at_that_dependency(tmp_path):
+    # Nothing beneath an empty folder can be read, so the remapping is named at the folder that stops it.
+    host = _nest(tmp_path)
+    _git(host, "submodule", "deinit", "-q", "-f", "lib/dep")
+
+    (finding,), _ = doctor.submodule_problems(host, ["child/=lib/dep/lib/child/"])
+
+    assert finding.splitlines()[1:-1] == [
+        "  lib/dep",
+        "    the remapping child/=lib/dep/lib/child/ reads it: an import through it finds no file",
+    ]
+
+
+def test_an_old_repository_inside_a_nested_folder_is_not_reported(tmp_path):
+    # The check for old git repositories reads the dependencies of the repository itself. One left inside a
+    # nested folder is not named.
+    host = _nest(tmp_path)
+    _init_repo(host / "lib" / "dep" / "lib" / "child" / "lib" / "orphan")
+
+    assert doctor.submodule_problems(host, []) == ([], [])
 
 
 def test_a_dependency_at_the_wrong_version_with_leftovers_is_in_both_lists(tmp_path):
@@ -718,7 +854,7 @@ def test_a_dependency_at_the_wrong_version_with_leftovers_is_in_both_lists(tmp_p
 # passes while the build uses the older version. Each test builds the state with git, as the editor would.
 
 _POINTED_BACK = "no submodule is pointed back to an older commit than the last commit points to"
-_FOLDER_CHECK = "each submodule folder has the commit this repository points to"
+_FOLDER_CHECK = "every submodule folder is checked out, at the commit its repository points to"
 
 
 def _head(checkout: pathlib.Path) -> str:
@@ -759,14 +895,13 @@ def test_a_submodule_checked_out_inside_a_dependency_is_no_finding(tmp_path, iso
     assert naming_it == {}
 
 
-# ── every commit this repository points to is on a remote ──
+# ── every commit a submodule is pointed to is on a remote ──
 def test_each_pointed_commit_no_remote_holds_is_reported_with_its_repair(tmp_path):
     # The folder check passes when the folder has the commit the repository points to, even when only this
-    # computer has that commit. This check is for that case: for each dependency, and each nested path a
-    # remapping uses, judged against the repository that points to it. A dependency of the repository can
-    # also be moved to a version a remote holds, by the cookbook's upgrade. A nested one's commit is its
+    # computer has that commit. This check is for that case: for every folder at every depth, judged against
+    # the repository that points to it, whatever the remappings. A dependency of the repository can also be
+    # moved to a version a remote holds, by the cookbook's upgrade. A nested one's commit is its
     # dependency's to choose, so it is offered the push only.
-    remappings = ["child/=lib/dep/lib/child/"]
     host = _nest(tmp_path)
     for checkout, parent, path in (
         (host / "lib" / "dep" / "lib" / "child", host / "lib" / "dep", "lib/child"),
@@ -777,7 +912,7 @@ def test_each_pointed_commit_no_remote_holds_is_reported_with_its_repair(tmp_pat
         _git(checkout, "commit", "-qm", "mine")
         _git(parent, "add", path)
 
-    problems = doctor.unpublished_commit_problems(host, remappings)
+    problems = doctor.unpublished_commit_problems(host)
 
     assert [problem.partition(": ")[0] for problem in problems] == ["lib/dep", "lib/dep/lib/child"], problems
     assert all("no remote holds" in problem.splitlines()[0] for problem in problems), problems
@@ -790,7 +925,7 @@ def test_each_pointed_commit_no_remote_holds_is_reported_with_its_repair(tmp_pat
 
 
 def test_no_pointed_commit_is_reported_when_a_remote_holds_each(tmp_path):
-    assert doctor.unpublished_commit_problems(_nest(tmp_path), ["child/=lib/dep/lib/child/"]) == []
+    assert doctor.unpublished_commit_problems(_nest(tmp_path)) == []
 
 
 def test_no_submodule_pointed_back_passes(tmp_path):
@@ -830,22 +965,20 @@ def test_two_dependencies_pointed_back_are_each_reported(tmp_path):
     assert [problem.partition(":")[0] for problem in found] == ["lib/sub", "lib/other"], found
 
 
-def test_a_remapped_nested_path_pointed_back_is_judged_in_the_dependency_that_points_to_it(tmp_path):
-    # lib/dep points its lib/child back. A remapping into it makes it read by the build, so it is reported, with
-    # the commands run in lib/dep; without one it is lib/dep's own business.
+def test_a_nested_folder_pointed_back_is_judged_in_the_dependency_that_points_to_it(tmp_path):
+    # lib/dep points its lib/child back. Every folder is judged, at every depth, so it is reported, with the
+    # commands run in lib/dep.
     host = _nest(tmp_path)
     older, newer = _point_back(host / "lib" / "dep", "lib/child")
-    dependencies = doctor.declared_submodules(host)
 
     child = host / "lib" / "dep" / "lib" / "child"
-    assert doctor.pointed_back_problems(host, dependencies, ["child/=lib/dep/lib/child/"]) == [
+    assert doctor.pointed_back_problems(host) == [
         f"lib/dep/lib/child: lib/dep points it to {_shown(child, older)}, older than {_shown(child, newer)}, which "
         "lib/dep's last commit points to.\n"
         "  Repair: To go back to the last commit's version: git -C lib/dep restore --staged lib/child, then "
         "git -C lib/dep submodule update --init --recursive -- lib/child. "
         "If the older version is meant: git -C lib/dep commit."
     ]
-    assert doctor.pointed_back_problems(host, dependencies, []) == []
 
 
 # ── no submodule that follows a branch is detached behind it ──────────────────────────────────────────────
@@ -969,20 +1102,18 @@ def test_two_dependencies_detached_behind_their_branches_are_each_reported(tmp_p
     assert [problem.partition(":")[0] for problem in found] == ["lib/sub", "lib/other"], found
 
 
-def test_a_remapped_nested_path_detached_behind_its_branch_is_added_in_its_dependency(tmp_path):
-    # lib/dep says lib/child follows main, and a remapping makes the build read it: the way to use the branch's
-    # version adds it in lib/dep. Without the remapping it is lib/dep's own business.
+def test_a_nested_folder_detached_behind_its_branch_is_added_in_its_dependency(tmp_path):
+    # lib/dep says lib/child follows main. Every folder is judged, at every depth: the way to use the branch's
+    # version adds it in lib/dep.
     host = _nest(tmp_path)
     child = host / "lib" / "dep" / "lib" / "child"
     _git(child, "checkout", "-q", "-B", "main")
     _follows_its_branch(host / "lib" / "dep", "lib/child")
     at = _detached_behind(child)
-    dependencies = doctor.declared_submodules(host)
 
-    assert doctor.detached_behind_branch_problems(host, dependencies, ["child/=lib/dep/lib/child/"]) == [
+    assert doctor.detached_behind_branch_problems(host) == [
         _detached_finding("lib/dep/lib/child", "main", at, child, "git -C lib/dep add lib/child")
     ]
-    assert doctor.detached_behind_branch_problems(host, dependencies, []) == []
 
 
 def test_a_folder_off_the_commit_its_repository_points_to_is_not_also_reported_detached(tmp_path):
@@ -1037,7 +1168,7 @@ def test_doctor_root_prints_repairs_to_run_from_where_it_was_typed(tmp_path):
     _point_back(dep, "lib/child")
     here = doctor.Here(host, dep, "dep")
 
-    pointed = doctor.pointed_back_problems(dep, doctor.declared_submodules(dep), [], here)
+    pointed = doctor.pointed_back_problems(dep, here)
     lock = doctor.foundry_lock_problems(dep, here)
 
     assert pointed[0].splitlines()[1] == (
@@ -1113,19 +1244,6 @@ def test_a_plain_run_inside_a_submodule_checks_it_against_the_repository_listing
         "git -C ../.. submodule update --init --recursive -- lib/dep. "
         "If the older version is meant: git -C ../.. commit."
     )
-
-
-def test_an_uninitialised_dependency_is_reported(tmp_path):
-    # Enumerated from .gitmodules, so a dependency nothing has checked out is looked at all the same, and
-    # checking it out at its record is sync's job.
-    host = _nest(tmp_path)
-    _git(host, "submodule", "deinit", "-q", "-f", "lib/unlocked")
-
-    problems, _ = doctor.submodule_problems(host, [])
-
-    finding = next((p for p in problems if p.startswith("lib/unlocked:")), "")
-    assert finding.startswith("lib/unlocked: is in .gitmodules, but nothing is checked out in its folder"), problems
-    assert "Repair: git submodule update --init --recursive -- lib/unlocked (" in finding, finding
 
 
 def test_a_hand_edited_file_in_a_dependency_is_not_a_finding(tmp_path):
@@ -2579,3 +2697,90 @@ def test_a_commit_on_a_branch_or_on_a_remote_is_no_finding(tmp_path, isolated):
     _git(working_in, "commit", "-qm", "work on a branch")
 
     assert doctor.commit_on_no_branch_problems(host) == []
+
+
+# ── no git setting makes an update skip a submodule folder ─────────────────────────────────────────────
+#
+# git's update leaves a folder as it is when the setting submodule.<name>.update is none for it, and says
+# so in one line. Every folder is checked out at every depth, and every other repair here is that update,
+# so such a setting is a finding, wherever under the repository's git folder its config file is. The old
+# `yarn dep` wrote them. The cookbook's section for a clone it managed has the one command that takes
+# them all out.
+
+
+def _skipped_in_two_config_files(tmp_path: pathlib.Path) -> pathlib.Path:
+    """A host as the old `yarn dep` left one: lib/dep and lib/unlocked each have an update setting of none in
+    the host's config, and lib/dep's lib/child has one in lib/dep's config. lib/dep is not checked out, so
+    the last is in the config of a repository whose folder is empty."""
+    host = _nest(tmp_path)
+    _git(host / "lib" / "dep", "config", "submodule.lib/child.update", "none")
+    _git(host, "submodule", "deinit", "-q", "-f", "lib/dep")
+    _git(host, "config", "submodule.lib/dep.update", "none")
+    _git(host, "config", "submodule.lib/unlocked.update", "none")
+    return host
+
+
+def test_no_update_setting_of_none_passes(tmp_path):
+    # An update setting of checkout is git's own default written out: the update checks the folder out.
+    host = _nest(tmp_path)
+    _git(host, "config", "submodule.lib/unlocked.update", "checkout")
+
+    assert doctor.update_setting_problems(host) == []
+
+
+def test_an_update_setting_of_none_is_named_with_its_file_and_the_cookbooks_section(tmp_path):
+    host = _nest(tmp_path)
+    _git(host, "config", "submodule.lib/unlocked.update", "none")
+
+    (finding,) = doctor.update_setting_problems(host)
+
+    assert finding.splitlines()[:-1] == [
+        "1 git setting makes an update skip a submodule folder: a submodule.<name>.update that is none",
+        "  1 in .git/config",
+    ]
+    repair = finding.splitlines()[-1]
+    assert repair.startswith("  Repair: take it out as "), repair
+    assert repair.endswith(f'doc/dependencies.md, "{doctor.COOKBOOK_YARN_DEP_CLONE}" says'), repair
+
+
+def test_update_settings_of_none_are_counted_in_each_file_that_has_them(tmp_path):
+    # The repository's own config, and the config of a repository whose folder is not checked out.
+    host = _skipped_in_two_config_files(tmp_path)
+
+    (finding,) = doctor.update_setting_problems(host)
+
+    assert finding.splitlines()[:-1] == [
+        "3 git settings make an update skip a submodule folder: each a submodule.<name>.update that is none",
+        "  2 in .git/config",
+        "  1 in .git/modules/lib/dep/config",
+    ]
+    assert finding.splitlines()[-1].startswith("  Repair: take them out as "), finding
+
+
+def test_a_config_file_git_cannot_read_stops_the_check_with_an_error(tmp_path):
+    # A read that fails says nothing about the settings in that file, so it does not count as none set.
+    host = _nest(tmp_path)
+    (host / ".git" / "modules" / "lib" / "dep" / "config").write_text("not a config file\n")
+
+    with pytest.raises(RuntimeError, match=r"git config ended with status \d+ reading .*modules/lib/dep/config"):
+        doctor.update_setting_problems(host)
+
+
+def test_after_the_cookbooks_command_the_update_checks_every_folder_out(tmp_path, monkeypatch):
+    # The repair the finding names, run to its end. The cookbook's command, typed as the cookbook has it,
+    # takes the setting out of every config file. git's update then checks every folder out, and doctor has
+    # nothing left to report.
+    host = _skipped_in_two_config_files(tmp_path)
+    cookbook = (pathlib.Path(__file__).resolve().parents[2] / "doc" / "dependencies.md").read_text()
+    section = cookbook.partition(f"## {doctor.COOKBOOK_YARN_DEP_CLONE}\n")[2].partition("\n## ")[0]
+    command = section.partition("```\n")[2].partition("\n```")[0]
+    assert command.startswith("find .git "), "the section's first block is the command that takes the settings out"
+
+    subprocess.run(command, shell=True, cwd=host, check=True, capture_output=True, text=True)
+
+    assert doctor.update_setting_problems(host) == []
+    _file_transport_allowed(monkeypatch)
+    subprocess.run(
+        "git submodule update --init --recursive", shell=True, cwd=host, check=True, capture_output=True, text=True
+    )
+    assert doctor.submodule_problems(host, []) == ([], [])

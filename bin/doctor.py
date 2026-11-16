@@ -24,6 +24,7 @@ from deployment_baselines import RECORD, OriginUnanswered, compare_with_origin, 
 from forge_config import forge_config
 from submodule_state import (
     COOKBOOK_UPGRADE,
+    COOKBOOK_YARN_DEP_CLONE,
     Condition,
     Facts,
     Here,
@@ -35,7 +36,6 @@ from submodule_state import (
     git,
     keep_command,
     litter_condition,
-    nested_levels,
     own_bao_base,
     pointed_back_problems,
     read_facts,
@@ -46,7 +46,7 @@ from submodule_state import (
     staged_gitlink,
     stray_clones,
     submodule_levels,
-    submodules_the_build_reads,
+    submodules_at_every_depth,
     typed_in,
 )
 
@@ -161,21 +161,24 @@ def _finding(
     facts: Facts,
     found: Condition,
     repository: str,
+    here: Here,
     weigh: Sequence[str] = (),
     keep: str = "",
-    here: Here | None = None,
 ) -> str:
     """One finding as doctor prints it: what is wrong, the facts behind it, anything a reader must
-    weigh before acting, and the one command that fixes it - in plain words, naming the repository.
+    weigh before acting, and the one command that fixes it - in plain words, naming the repository that
+    points to the folder. The folder is named as the project `here` acts on names it, at any depth, and
+    the command is typed where `here` says.
 
     Shared by the version findings and the leftovers, so the two checks cannot come to look like
     different tools reporting on the same tree."""
-    lines = [f"{facts.path}: {found.describe(repository)}"]
+    folder = PurePath(os.path.relpath(facts.directory, here.project)).as_posix()
+    lines = [f"{folder}: {found.describe(repository)}"]
     # A comparison arrives as rows and is aligned; every other condition is one fact in words. Same
     # alignment as the cross-repo table in `dependency-conflicts.py`, from the same code, so a reader
     # meets one column discipline rather than one per report. The rows carry which side each commit is
     # from; the reader is told it in words.
-    sides = {"working tree": f"in the {facts.path} folder", "index": f"{repository} points to"}
+    sides = {"working tree": f"in the {folder} folder", "index": f"{repository} points to"}
     rows = [(commit, sides.get(side, side)) for commit, side in found.rows]
     lines.extend(columns.rows(rows, indent="  ") if rows else [f"  {found.detail}"])
     if found.relation:
@@ -187,7 +190,7 @@ def _finding(
 
 
 def submodule_problems(repo_root: Path, remappings: list[str], here: Here | None = None) -> tuple[list[str], list[str]]:
-    """One finding per dependency of this repository, from bin/submodule_state.py, split into
+    """What is wrong with the submodule folders, at every depth, from bin/submodule_state.py, split into
     (versions, leftovers).
 
     Split by what the reader must DO, which is what a check title has to be true of: a version is
@@ -195,38 +198,41 @@ def submodule_problems(repo_root: Path, remappings: list[str], here: Here | None
     an older version" under a check titled "each dependency is at one version" made the title false of
     half its contents.
 
-    Only this repository's own submodules are read. A dependency's nested submodules are its own
-    lockfile: the only ones that count are the paths `remappings` point into, judged as part of the
-    dependency that holds them, because those are what the build reads. The rest are not reported in any
-    state - checked out, stale or absent.
+    Every submodule is checked out at every depth (doc/dependencies.md), so every folder is judged, in the
+    repository that points to it, whatever `remappings` read. The folders with nothing checked out share one
+    finding, because one update checks them all out. `remappings` only add, to an empty folder's line, each
+    remapping whose path goes through it: an import through one finds no file.
+
+    The leftovers are those of this repository's own dependencies.
 
     Every reading and every repair comes from `submodule_state`, so no two checks read one state in two
     ways. States that are normal are not reported at all: a dependency carrying local commits is
     what working in one looks like."""
-    repository = repo_root.name
+    here = here or Here(repo_root, repo_root)
     versions: list[str] = []
     leftovers: list[str] = []
     for stray in stray_clones(repo_root):
         leftovers.append(
-            f"{stray}: a git repository inside {repository} that is not a submodule\n"
+            f"{stray}: a git repository inside {repo_root.name} that is not a submodule\n"
             f"  Nobody else can see what is in it, because .gitmodules does not name it.\n"
             f"  Repair: delete {stray}, and the .git/modules/{stray} folder if there is one"
         )
-    for dependency in declared_submodules(repo_root):
-        facts = read_facts(repo_root, dependency.path)
-        nested_off = [
-            (directory / level.path).relative_to(repo_root).as_posix()
-            for directory, level in nested_levels(repo_root, dependency.path, remappings)
-            if not at_record(directory, level)
-        ]
-        found = condition(facts, list(dict.fromkeys(nested_off)))
+    not_checked_out: list[str] = []
+    for path, directory, level in submodules_at_every_depth(repo_root):
+        # The repository that points to the folder, as the project names it: itself, or a dependency.
+        repository = repo_root.name if directory == repo_root else directory.relative_to(repo_root).as_posix()
+        facts = read_facts(directory, level.path)
+        found = condition(facts)
         # Leftovers are read on their own rather than through `condition`, which names one thing and
         # ranks a version disagreement above them. A dependency can be at the wrong version AND have
         # stranded directories - two faults, two commands - and a check titled "no dependency has
         # leftovers" that could only see them when nothing outranked them would report all-clear
         # beside a version finding that named one.
-        if stranded := litter_condition(facts):
-            leftovers.append(_finding(facts, stranded, repository, here=here))
+        if directory == repo_root and (stranded := litter_condition(facts)):
+            leftovers.append(_finding(facts, stranded, repository, here))
+        if found.name == "uninitialised":
+            not_checked_out.append(path)
+            continue
         if not found.is_fault or found.name == "litter-present":
             continue
         # Facts a reader must weigh before acting, which `condition` did not name because something
@@ -237,23 +243,33 @@ def submodule_problems(repo_root: Path, remappings: list[str], here: Here | None
             weigh.append(
                 f"{count} commit{'s' if count > 1 else ''} in the folder {'are' if count > 1 else 'is'} not pushed."
             )
-        versions.append(_finding(facts, found, repository, weigh, keep_command(repo_root, dependency.path, here), here))
+        versions.append(_finding(facts, found, repository, here, weigh, keep_command(directory, level.path, here)))
+    if not_checked_out:
+        count = len(not_checked_out)
+        lines = [f"Nothing is checked out in {count} submodule folder{'' if count == 1 else 's'}:"]
+        for path in not_checked_out:
+            lines.append(f"  {path}")
+            lines.extend(
+                f"    the remapping {remapping} reads it: an import through it finds no file"
+                for remapping in remappings
+                if PurePath(remapping_target(remapping)).is_relative_to(path)
+            )
+        lines.append(f"  Repair: {here.update(repo_root)}")
+        versions.insert(0, "\n".join(lines))
     return versions, leftovers
 
 
-def unpublished_commit_problems(repo_root: Path, remappings: list[str], here: Here | None = None) -> list[str]:
-    """Commits this repository points to that no remote holds, as each clone knew its remote at its last
-    fetch: for each dependency, and each nested path a remapping uses, judged in the repository that points
-    to it. The version check passes when the folder has the commit pointed to, even when only this computer
-    has that commit, and every other clone then fails to fetch it. Both the index's commit and HEAD's are
-    judged: HEAD's is what a clone gets now, the index's what it gets after the next commit. Returns one
-    finding per such commit, or []. Its commands are typed where `here` says, in the project when it says nothing."""
+def unpublished_commit_problems(repo_root: Path, here: Here | None = None) -> list[str]:
+    """Commits a submodule is pointed to that no remote holds, as each clone knew its remote at its last
+    fetch: for every submodule at every depth, judged in the repository that points to it. The version check
+    passes when the folder has the commit pointed to, even when only this computer has that commit, and every
+    other clone then fails to fetch it. Both the index's commit and HEAD's are judged: HEAD's is what a clone
+    gets now, the index's what it gets after the next commit. Returns one finding per such commit, or []. Its
+    commands are typed where `here` says, in the project when it says nothing."""
     here = here or Here(repo_root, repo_root)
     repository = repo_root.name
     problems: list[str] = []
-    for path, (directory, level) in submodules_the_build_reads(
-        repo_root, declared_submodules(repo_root), remappings
-    ).items():
+    for path, directory, level in submodules_at_every_depth(repo_root):
         parent = repository if directory == repo_root else directory.relative_to(repo_root).as_posix()
         committed = git(directory, "rev-parse", "--verify", "--quiet", f"HEAD:{level.path}").stdout.strip()
         # Keyed by commit, so one pointed to by both is judged once, named as the index names it.
@@ -418,6 +434,51 @@ def submodule_recurse_problems(repo_root: Path, here: Here | None = None) -> lis
     return [
         f"{', '.join(shown)}: {what}\n  Set in {where}\n  Repair: {repair}"
         for (what, where, repair), shown in found.items()
+    ]
+
+
+def update_setting_problems(repo_root: Path, here: Here | None = None) -> list[str]:
+    """Each `submodule.<name>.update` that is `none`, in the config of every repository git keeps for this
+    project and for a submodule beneath it, at every depth, whether or not that submodule's folder is checked
+    out. git's update leaves a folder with that setting as it is, in one line that is easy to miss: the folder
+    stays empty, or stays at the commit it has. Every other repair for a folder is that update. The old
+    `yarn dep` wrote the setting for each folder it did not check out. One finding counts the settings by
+    config file, each named as a command typed where `here` says reaches it. Its repair is the cookbook's
+    section, whose one command takes them all out."""
+    here = here or Here(repo_root, repo_root)
+    kept_for_the_project = Path(git(repo_root, "rev-parse", "--absolute-git-dir").stdout.strip())
+    counted: list[tuple[str, int]] = []
+    for kept in _git_dep.kept_repositories(kept_for_the_project):
+        config = kept / "config"
+        listed = git(
+            repo_root,
+            "config",
+            "--file",
+            str(config),
+            "--name-only",
+            "--get-regexp",
+            r"^submodule\..*\.update$",
+            "^none$",
+        )
+        # git's answer for "no key matches" is exit 1 with nothing said. Any other failure is not "none set".
+        if listed.returncode not in (0, 1) or (listed.returncode == 1 and listed.stderr.strip()):
+            raise RuntimeError(f"git config ended with status {listed.returncode} reading {config}: {listed.stderr}")
+        if listed.stdout.strip():
+            shown = PurePath(os.path.relpath(config.resolve(), here.typed.resolve())).as_posix()
+            counted.append((shown, len(listed.stdout.splitlines())))
+    if not counted:
+        return []
+    total = sum(count for _, count in counted)
+    one = total == 1
+    return [
+        "\n".join(
+            [
+                f"{total} git setting{' makes' if one else 's make'} an update skip a submodule folder: "
+                f"{'a' if one else 'each a'} submodule.<name>.update that is none",
+                *(f"  {count} in {shown}" for shown, count in counted),
+                f"  Repair: take {'it' if one else 'them'} out as {here.cookbook(COOKBOOK_YARN_DEP_CLONE)} says",
+            ]
+        )
     ]
 
 
@@ -1478,7 +1539,8 @@ def build_checks(
 
     The submodule traversal runs once and its findings are split, because it walks every submodule
     and runs git in each; calling it per check would double that to say the same things."""
-    # What forge resolves, read once here, so every check judges the same nested paths.
+    # What forge resolves, read once here. The remapping checks judge it, and the folder check names each
+    # remapping that reads an empty folder. It decides nothing about which folders are judged.
     remappings: list[str] = forge_config(repo_root)["remappings"]
     # Where the commands the findings print are typed: in the project, unless `-C` named it from elsewhere.
     here = here or Here(repo_root, repo_root)
@@ -1553,12 +1615,25 @@ def build_checks(
             submodule_url_drift_problems(repo_root, here),
         ),
         Check(
-            "each submodule folder has the commit this repository points to",
-            "Each submodule folder should have the commit that this repository points to. git submodule update "
-            "moves a folder to it; git add and git commit record the commit a folder has. This also applies to a submodule inside "
-            "another submodule when a remapping uses it. Doctor does not need you to commit first",
-            "if they are different, you build one version but save another, and everyone who clones the "
-            "repository gets the saved one",
+            "no git setting makes an update skip a submodule folder",
+            "git submodule update leaves a folder as it is when the setting submodule.<name>.update is none for "
+            "it, and says so in one line that is easy to miss. The folder then stays empty, or stays at the commit "
+            "it has. The old yarn dep wrote that setting for every folder it did not check out. The config of "
+            "every repository git keeps under this one is read, at every depth, whether or not its folder is "
+            "checked out",
+            "the update that the checks below give as a repair does nothing for those folders, and reports no error",
+            update_setting_problems(repo_root, here),
+        ),
+        Check(
+            "every submodule folder is checked out, at the commit its repository points to",
+            "Every submodule folder is checked out, at every depth, whether or not a remapping reads it: the "
+            "files are then in place for every import, now and after a remapping is added. Each folder should "
+            "have the commit that the repository holding it points to. git submodule update checks a folder out "
+            "and moves it to that commit; git add and git commit record the commit a folder has. Doctor does not "
+            "need you to commit first",
+            "an import that a remapping sends into an empty folder finds no file. Where the commits are "
+            "different, you build one version but save another, and everyone who clones the repository gets the "
+            "saved one",
             version_problems,
         ),
         Check(
@@ -1568,7 +1643,7 @@ def build_checks(
             "the repository backwards. The check above passes, since the "
             "folder has the commit this repository points to",
             "the build uses the older version, and the next commit takes everyone who pulls back to it",
-            pointed_back_problems(repo_root, declared_submodules(repo_root), remappings, here, itself=True),
+            pointed_back_problems(repo_root, here, itself=True),
         ),
         Check(
             "no submodule that follows a branch is detached behind it",
@@ -1577,15 +1652,16 @@ def build_checks(
             "left behind it",
             "the build uses one version while the branch holds another, and a git add on that folder records the "
             "older one",
-            detached_behind_branch_problems(repo_root, declared_submodules(repo_root), remappings, here, itself=True),
+            detached_behind_branch_problems(repo_root, here, itself=True),
         ),
         Check(
-            "every commit this repository points to is on a remote",
-            "A commit that only this computer has cannot be fetched by anyone else. The check above passes when "
-            "the folder has the commit this repository points to, even when no remote holds that commit",
+            "every commit a submodule is pointed to is on a remote",
+            "A commit that only this computer has cannot be fetched by anyone else. The folder check above passes "
+            "when the folder has the commit its repository points to, even when no remote holds that commit. "
+            "Every folder is judged, at every depth, in the repository that points to it",
             "once this repository is pushed, CI and every other clone fail to check the submodule out, and only "
             "this computer can repair it",
-            unpublished_commit_problems(repo_root, remappings, here),
+            unpublished_commit_problems(repo_root, here),
         ),
         Check(
             "no submodule folder is at a commit that is on no branch and on no remote",

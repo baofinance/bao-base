@@ -311,18 +311,25 @@ def write_the_settings(repository: Repository) -> None:
 
 def name_what_is_not_checked_out(repository: Repository, beneath: str = "") -> int:
     """Name each folder beneath `beneath` that is still not checked out. git skips a folder whose update
-    setting is none, in a line that is easy to miss, so that setting is named with the command that takes it
-    out."""
+    setting is none, in a line that is easy to miss, so that setting is named. The cookbook's section for a
+    clone that `yarn dep` managed is then named once: its one command takes every such setting out, also from
+    the config of a repository whose own folder was skipped, which a command for each folder named here
+    would not reach."""
     lines = []
+    skipped = False
     for folder in repository.folders(beneath):
         if repository.checked_out(folder.path):
             continue
         at = ["-C", folder.parent] if folder.parent else []
         line = f"{folder.path}: not checked out."
         if repository.ask(*at, "config", "--get", f"submodule.{folder.name}.update") == "none":
-            unset = " ".join(["git", *at, "config", "--unset", f"submodule.{folder.name}.update"])
-            line += f" git skips it, because its update setting is none. To take the setting out: {unset}"
+            skipped = True
+            line += " git skips it, because its update setting is none."
         lines.append(line)
+    if skipped:
+        lines.append(
+            'To take every such setting out, see "A clone that `yarn dep` managed" in the cookbook: git dep cookbook'
+        )
     if lines:
         raise Stopped(lines)
     return 0

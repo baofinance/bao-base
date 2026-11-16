@@ -180,10 +180,11 @@ def test_update_stops_with_gits_error_when_a_move_would_overwrite_an_edit(ready)
     assert subject(project / "lib" / "shared") == "shared s1"
 
 
-def test_update_names_a_folder_git_skipped_for_an_update_none_setting(ready):
+def test_update_names_the_cookbooks_section_once_for_the_folders_git_skipped(ready):
     # git skips a folder whose update setting is none, and says so in a line that is easy to miss. The run
-    # names each such folder with the command that takes the setting out, at the top and beneath a
-    # dependency. Typed as printed, the commands let the next run check the folders out.
+    # names each such folder, at the top and beneath a dependency. It names once the cookbook's section whose
+    # one command takes every such setting out, in every config file. That command, typed as the cookbook
+    # has it, lets the next run check the folders out.
     project = ready.project
     git(project, "submodule", "deinit", "-q", "--force", "--", "lib/shared")
     git(project, "config", "submodule.lib/shared.update", "none")
@@ -193,14 +194,16 @@ def test_update_names_a_folder_git_skipped_for_an_update_none_setting(ready):
     left = typed(project, "git dep update")
 
     assert left.returncode == 1
-    assert left.stderr.splitlines()[-2:] == [
-        "lib/dep/lib/shared: not checked out. git skips it, because its update setting is none. "
-        "To take the setting out: git -C lib/dep config --unset submodule.lib/shared.update",
-        "lib/shared: not checked out. git skips it, because its update setting is none. "
-        "To take the setting out: git config --unset submodule.lib/shared.update",
+    section = "A clone that `yarn dep` managed"
+    assert left.stderr.splitlines()[-3:] == [
+        "lib/dep/lib/shared: not checked out. git skips it, because its update setting is none.",
+        "lib/shared: not checked out. git skips it, because its update setting is none.",
+        f'To take every such setting out, see "{section}" in the cookbook: git dep cookbook',
     ]
-    assert typed(project, "git -C lib/dep config --unset submodule.lib/shared.update").returncode == 0
-    assert typed(project, "git config --unset submodule.lib/shared.update").returncode == 0
+    in_the_cookbook = typed(project, "git dep cookbook").stdout.partition(f"## {section}\n")[2].partition("\n## ")[0]
+    command = in_the_cookbook.partition("```\n")[2].partition("\n```")[0]
+    assert command.startswith("find .git "), "the section's first block is the command that takes the settings out"
+    assert typed(project, command).returncode == 0
     assert typed(project, "git dep update").returncode == 0
     assert (project / "lib" / "shared" / ".git").exists()
     assert (project / "lib" / "dep" / "lib" / "shared" / ".git").exists()

@@ -27,6 +27,7 @@ from submodule_state import (  # noqa: E402
     COOKBOOK_LEFT_BEHIND,
     COOKBOOK_SHARED,
     COOKBOOK_UPGRADE,
+    COOKBOOK_YARN_DEP_CLONE,
     Here,
     UnreadableGitmodules,
     condition,
@@ -40,6 +41,7 @@ from submodule_state import (  # noqa: E402
     read_facts,
     repair,
     root_project,
+    submodules_at_every_depth,
     typed_in,
 )
 
@@ -220,7 +222,7 @@ def test_an_older_commit_added_over_the_last_commit_is_pointed_back(world):
     git(dep, "checkout", "-q", "v1")
     git(world.project, "add", "lib/dep")
 
-    assert pointed_back_problems(world.project, declared_submodules(world.project), []) == [
+    assert pointed_back_problems(world.project) == [
         f"lib/dep: project points it to {shown(dep, v1)}, older than {shown(dep, v2)}, which project's last commit "
         "points to.\n"
         "  Repair: To go back to the last commit's version: git restore --staged lib/dep, then "
@@ -230,7 +232,7 @@ def test_an_older_commit_added_over_the_last_commit_is_pointed_back(world):
     typed(world.project, "git restore --staged lib/dep")
     typed(world.project, "git submodule update --init --recursive -- lib/dep")
     assert git(dep, "rev-parse", "HEAD").stdout.strip() == v2
-    assert pointed_back_problems(world.project, declared_submodules(world.project), []) == []
+    assert pointed_back_problems(world.project) == []
 
 
 def test_a_newer_commit_added_is_not_pointed_back(world):
@@ -238,11 +240,11 @@ def test_a_newer_commit_added_is_not_pointed_back(world):
     move_dep_to_v2(world)
     git(world.project, "add", "lib/dep")
 
-    assert pointed_back_problems(world.project, declared_submodules(world.project), []) == []
+    assert pointed_back_problems(world.project) == []
 
 
 def test_the_last_commits_own_commit_is_not_pointed_back(world):
-    assert pointed_back_problems(world.project, declared_submodules(world.project), []) == []
+    assert pointed_back_problems(world.project) == []
 
 
 def test_a_commit_from_another_line_of_history_is_not_pointed_back(world):
@@ -252,7 +254,7 @@ def test_a_commit_from_another_line_of_history_is_not_pointed_back(world):
     add_commit(dep, "side")
     git(world.project, "add", "lib/dep")
 
-    assert pointed_back_problems(world.project, declared_submodules(world.project), []) == []
+    assert pointed_back_problems(world.project) == []
 
 
 def test_work_in_progress_does_not_hide_a_real_disagreement(world):
@@ -1200,7 +1202,7 @@ def test_every_cookbook_section_a_repair_names_is_a_heading_of_the_cookbook():
     # A heading renamed in the cookbook would leave a repair pointing at nothing.
     headings = {line.removeprefix("## ") for line in COOKBOOK.read_text().splitlines() if line.startswith("## ")}
 
-    assert {COOKBOOK_UPGRADE, COOKBOOK_SHARED, COOKBOOK_LEFT_BEHIND} <= headings
+    assert {COOKBOOK_UPGRADE, COOKBOOK_SHARED, COOKBOOK_LEFT_BEHIND, COOKBOOK_YARN_DEP_CLONE} <= headings
 
 
 def test_the_folder_typed_in_is_yarns_init_cwd_when_the_command_runs_above_it(tmp_path):
@@ -1213,3 +1215,52 @@ def test_the_folder_typed_in_is_yarns_init_cwd_when_the_command_runs_above_it(tm
     assert typed_in(run_in, {"INIT_CWD": str(typed)}) == typed.resolve()
     assert typed_in(run_in, {}) == run_in.resolve()
     assert typed_in(run_in, {"INIT_CWD": str(tmp_path / "elsewhere")}) == run_in.resolve()
+
+
+# ── every submodule at every depth ─────────────────────────────────────────────────────────────────────
+#
+# Every submodule is checked out at every depth (doc/dependencies.md), so doctor judges each one, in the
+# repository that points to it. One walk names them all.
+
+
+def three_deep(tmp_path: Path) -> Path:
+    """A project holding lib/dep, which holds lib/child, which holds lib/grandchild, each checked out."""
+    remotes = tmp_path / "remotes"
+    grandchild = make_repo(remotes, "grandchild")
+    child = make_repo(remotes, "child")
+    git(child, "submodule", "add", "-q", str(grandchild), "lib/grandchild")
+    git(child, "commit", "-qm", "grandchild")
+    dep = make_repo(remotes, "dep")
+    git(dep, "submodule", "add", "-q", str(child), "lib/child")
+    git(dep, "commit", "-qm", "child")
+    project = make_repo(tmp_path, "project")
+    git(project, "submodule", "add", "-q", str(dep), "lib/dep")
+    git(project, "commit", "-qm", "dep")
+    git(project, "submodule", "update", "-q", "--init", "--recursive")
+    return project.resolve()
+
+
+def test_the_walk_of_a_repository_with_no_dependency_is_empty(tmp_path):
+    assert list(submodules_at_every_depth(make_repo(tmp_path, "project"))) == []
+
+
+def test_the_walk_names_every_folder_at_every_depth_with_the_repository_that_points_to_it(tmp_path):
+    # Each folder once, before the folders beneath it, with the repository whose .gitmodules lists it and the
+    # path that repository gives it.
+    project = three_deep(tmp_path)
+
+    walked = list(submodules_at_every_depth(project))
+
+    assert [(path, directory, level.path) for path, directory, level in walked] == [
+        ("lib/dep", project, "lib/dep"),
+        ("lib/dep/lib/child", project / "lib" / "dep", "lib/child"),
+        ("lib/dep/lib/child/lib/grandchild", project / "lib" / "dep" / "lib" / "child", "lib/grandchild"),
+    ]
+
+
+def test_the_walk_names_nothing_beneath_a_folder_that_is_not_checked_out(tmp_path):
+    # An empty folder holds no .gitmodules, so what it would hold cannot be read. The folder itself is named.
+    project = three_deep(tmp_path)
+    git(project / "lib" / "dep", "submodule", "deinit", "-q", "--force", "--", "lib/child")
+
+    assert [path for path, _, _ in submodules_at_every_depth(project)] == ["lib/dep", "lib/dep/lib/child"]

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import os
 import subprocess
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -38,6 +38,7 @@ COOKBOOK = Path(__file__).resolve().parent.parent / "doc" / "dependencies.md"
 COOKBOOK_UPGRADE = "Upgrade a dependency"
 COOKBOOK_SHARED = "A shared dependency, in every place that has it"
 COOKBOOK_LEFT_BEHIND = "A nested folder that a new version no longer uses"
+COOKBOOK_YARN_DEP_CLONE = "A clone that `yarn dep` managed"
 
 
 def git(where: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -313,31 +314,20 @@ def submodule_levels(repo_root: Path, path: str) -> Iterator[tuple[Path, Declare
         directory, remainder = directory / level.path, remainder.relative_to(level.path)
 
 
-def nested_levels(repo_root: Path, path: str, remappings: list[str]) -> Iterator[tuple[Path, Declared]]:
-    """The submodules beneath the dependency at `path` that remappings reach - the nested paths the build
-    reads from it - each with the directory declaring it, outermost first for each remapping. Lazy, as
-    `submodule_levels` is, so a caller can check each one out before the next is read."""
-    for remapping in remappings:
-        levels = submodule_levels(repo_root, remapping_target(remapping))
-        first = next(levels, None)
-        if first is not None and first[1].path == path:
-            yield from levels
+def submodules_at_every_depth(repo_root: Path, directory: Path | None = None) -> Iterator[tuple[str, Path, Declared]]:
+    """Every submodule at every depth: its path from `repo_root`, the repository that points to it, and that
+    repository's entry for it. Each comes before the ones beneath it, and each is to be judged in the repository that
+    points to it. `directory` is the repository whose submodules are listed: `repo_root`, when none is given.
 
-
-def submodules_the_build_reads(
-    repo_root: Path, dependencies: Sequence[Declared], remappings: list[str]
-) -> dict[str, tuple[Path, Declared]]:
-    """Each of `dependencies`, and each nested path a remapping uses beneath one, by its path from `repo_root`, with
-    the repository that points to it: the submodules the build reads, each to be judged where it is recorded. Beneath
-    a dependency git cannot read, nothing can be, until a checkout mends it, so nothing beneath one is listed."""
-    levels: dict[str, tuple[Path, Declared]] = {}
-    for dependency in dependencies:
-        levels[dependency.path] = (repo_root, dependency)
-        if checked_out(repo_root / dependency.path) is None:
-            continue
-        for directory, level in nested_levels(repo_root, dependency.path, remappings):
-            levels.setdefault((directory / level.path).relative_to(repo_root).as_posix(), (directory, level))
-    return levels
+    Every submodule is checked out at every depth (doc/dependencies.md), so every one is listed. A folder that is
+    not checked out, or that git cannot read, has no `.gitmodules` to read: the folder is listed, and nothing
+    beneath it."""
+    directory = directory or repo_root
+    for level in declared_submodules(directory):
+        folder = directory / level.path
+        yield folder.relative_to(repo_root).as_posix(), directory, level
+        if checked_out(folder) is not None:
+            yield from submodules_at_every_depth(repo_root, folder)
 
 
 def locate(repo_root: Path, path: str) -> tuple[Path, Declared] | None:
@@ -810,7 +800,6 @@ class Condition:
         "uninitialised": "is in .gitmodules, but nothing is checked out in its folder",
         "unreadable": "has a folder that git cannot read",
         "litter-present": "contains old git repositories that nothing uses",
-        "nested-drift": "contains a submodule that a remapping uses, at a different commit than it points to",
         "behind-record": "the folder has an older commit than the one {repository} points to",
         "ahead-of-record": "the folder has a newer commit than the one {repository} points to",
         "off-record": "the folder has a different commit from the one {repository} points to",
@@ -849,13 +838,10 @@ def litter_condition(facts: Facts) -> Condition | None:
     return Condition("litter-present", "old git repositories: " + ", ".join(facts.litter))
 
 
-def condition(facts: Facts, nested_off: Sequence[str] = ()) -> Condition:
-    """Name what is wrong with one of this repository's own dependencies, most fundamental first: a
-    submodule that is not checked out has no other meaningful state.
-
-    `nested_off` is each remapped nested path beneath it that is not at its record. Those are the only
-    nested submodules the build reads, so they are the only ones that count; the dependency's others are
-    its own lockfile, whatever state they are in."""
+def condition(facts: Facts) -> Condition:
+    """Name what is wrong with one submodule, read in the repository that points to it, most fundamental
+    first: a submodule that is not checked out has no other meaningful state. The submodules beneath it are
+    each judged the same way, on their own."""
     # Ahead of `uninitialised`, which it would otherwise be read as: both leave `worktree` unset, and
     # only this one means the checkout is sitting right there. Git's own words are the detail, per
     # "error messages report facts, not assumptions" - a dangling core.worktree, a gitdir that was
@@ -912,9 +898,6 @@ def condition(facts: Facts, nested_off: Sequence[str] = ()) -> Condition:
     if leftovers := litter_condition(facts):
         return leftovers
 
-    if nested_off:
-        return Condition("nested-drift", "at a different commit: " + ", ".join(nested_off))
-
     return Condition("consistent", f"agrees on {dated(facts.worktree, facts.directory) if facts.worktree else ''}")
 
 
@@ -937,7 +920,7 @@ def repair(
     if found.name == "unreadable":
         # git's update writes the folder's repository its `core.worktree` afresh.
         return f"{update} (this repairs git's link to the folder)"
-    if found.name in ("uninitialised", "behind-record", "nested-drift"):
+    if found.name in ("uninitialised", "behind-record"):
         # Each is a folder not at the commit the repository points to, and the update checks that out, in
         # the folder and beneath it. Never `git add` for an older commit: that points the repository
         # backwards for everyone who pulls.
@@ -1064,28 +1047,21 @@ def _pointed_back(directory: Path, path: str) -> tuple[str, str] | None:
     return added, committed
 
 
-def _with_the_project_itself(
-    repo_root: Path, dependencies: Sequence[Declared], remappings: list[str], itself: bool
-) -> list[tuple[str, tuple[Path, Declared]]]:
-    """The submodules the build reads, by path, and first, when `itself` asks and some repository lists the project
-    as a submodule, the project itself, as "this project", with that repository and its entry."""
+def _with_the_project_itself(repo_root: Path, itself: bool) -> list[tuple[str, Path, Declared]]:
+    """Every submodule at every depth, as `submodules_at_every_depth` gives them, and first, when `itself` asks and
+    some repository lists the project as a submodule, the project itself, as "this project", with that repository and
+    its entry."""
     listing = _listing_of(repo_root) if itself else None
     return [
-        *([("this project", listing)] if listing is not None else []),
-        *submodules_the_build_reads(repo_root, dependencies, remappings).items(),
+        *([("this project", *listing)] if listing is not None else []),
+        *submodules_at_every_depth(repo_root),
     ]
 
 
-def detached_behind_branch_problems(
-    repo_root: Path,
-    dependencies: Sequence[Declared],
-    remappings: list[str],
-    here: Here | None = None,
-    itself: bool = False,
-) -> list[str]:
-    """Each submodule the build reads - `dependencies`, and the nested paths a remapping uses beneath them - that
-    follows a branch and is detached, at the commit its repository points to, behind that branch; with `itself`, the
-    project too, when a repository lists it. Commands are typed where `here` says, in the project when it says nothing.
+def detached_behind_branch_problems(repo_root: Path, here: Here | None = None, itself: bool = False) -> list[str]:
+    """Each submodule, at every depth, that follows a branch and is detached, at the commit its repository points
+    to, behind that branch; with `itself`, the project too, when a repository lists it. Commands are typed where
+    `here` says, in the project when it says nothing.
 
     git leaves a folder so: `git submodule update`, which the editor's Discard on a submodule also runs, checks out
     the commit the
@@ -1096,7 +1072,7 @@ def detached_behind_branch_problems(
     its branch. Returns one finding each, in the words sync prints."""
     here = here or Here(repo_root, repo_root)
     problems: list[str] = []
-    for _, (directory, level) in _with_the_project_itself(repo_root, dependencies, remappings, itself):
+    for _, directory, level in _with_the_project_itself(repo_root, itself):
         checkout = directory / level.path
         at = checked_out(checkout)
         if level.branch is None or at is None or at != staged_gitlink(directory, level.path):
@@ -1111,17 +1087,10 @@ def detached_behind_branch_problems(
     return problems
 
 
-def pointed_back_problems(
-    repo_root: Path,
-    dependencies: Sequence[Declared],
-    remappings: list[str],
-    here: Here | None = None,
-    itself: bool = False,
-) -> list[str]:
-    """Each submodule the build reads - `dependencies`, and the nested paths a remapping uses beneath them - that its
-    repository points to an older commit than that repository's last commit does, judged where it is recorded; with
-    `itself`, the project too, when a repository lists it. Commands are typed where `here` says, in the project when
-    it says nothing.
+def pointed_back_problems(repo_root: Path, here: Here | None = None, itself: bool = False) -> list[str]:
+    """Each submodule, at every depth, that its repository points to an older commit than that repository's last
+    commit does, judged where it is recorded; with `itself`, the project too, when a repository lists it. Commands
+    are typed where `here` says, in the project when it says nothing.
 
     `git add` on a folder behind the last commit makes this: after a pull that moved the commit and not the folder,
     the editor's Stage on the submodule is one. The folder then has the
@@ -1132,7 +1101,7 @@ def pointed_back_problems(
     Returns one finding each, with the two ways out."""
     here = here or Here(repo_root, repo_root)
     problems: list[str] = []
-    for path, (directory, level) in _with_the_project_itself(repo_root, dependencies, remappings, itself):
+    for path, directory, level in _with_the_project_itself(repo_root, itself):
         pointed = _pointed_back(directory, level.path)
         if pointed is None:
             continue

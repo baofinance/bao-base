@@ -245,8 +245,9 @@ def test_upgrade_refuses_a_folder_that_is_not_checked_out(ready):
 
 def test_upgrade_names_a_folder_beneath_that_git_skipped_for_an_update_none_setting(ready):
     # git skips a folder whose update setting is none, in a line that is easy to miss. The upgrade is done and
-    # staged, and the run then names the folder beneath the dependency that is still not checked out, with the
-    # command that takes the setting out. A folder elsewhere that is not checked out is not its concern.
+    # staged, and the run then names the folder beneath the dependency that is still not checked out, and the
+    # cookbook's section that takes the setting out. A folder elsewhere that is not checked out is not its
+    # concern.
     project = ready.project
     tool = project / "lib" / "tool"
     git(tool, "submodule", "deinit", "-q", "--", "lib/deep")
@@ -256,10 +257,10 @@ def test_upgrade_names_a_folder_beneath_that_git_skipped_for_an_update_none_sett
     left = typed(project, "git dep upgrade tool v2")
 
     assert left.returncode == 1
-    assert left.stderr.splitlines()[-1] == (
-        "lib/tool/lib/deep: not checked out. git skips it, because its update setting is none. "
-        "To take the setting out: git -C lib/tool config --unset submodule.lib/deep.update"
-    )
+    assert left.stderr.splitlines()[-2:] == [
+        "lib/tool/lib/deep: not checked out. git skips it, because its update setting is none.",
+        'To take every such setting out, see "A clone that `yarn dep` managed" in the cookbook: git dep cookbook',
+    ]
     assert not [line for line in left.stderr.splitlines() if line.startswith("lib/shared:")]
     assert (subject(tool), recorded(project, "lib/tool")) == ("tool t2", head(tool))
 

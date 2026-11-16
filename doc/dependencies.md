@@ -137,8 +137,8 @@ that is new.
   put at the commits it records.
 - It writes the settings last, so a folder that was checked out for the first time has them.
 
-It also names a folder that git skipped because of an `update = none` setting, with the command that takes
-the setting out.
+It also names a folder that git skipped because of an `update = none` setting, and the section of this page
+that takes every such setting out.
 
 Like the plain command, it puts back a folder that you moved on purpose and have not staged, such as an
 upgrade in progress. Nothing is deleted, but the folder is at the recorded commit again.
@@ -173,6 +173,17 @@ folder that holds an uncommitted change. That is work in progress, and nothing i
 the recorded commit, is at a commit that no branch and no remote has, holds commits that no remote has, or
 holds uncommitted changes. A file that git does not track counts as an uncommitted change there. It counts
 the folders. It changes nothing and fetches nothing.
+
+**`yarn doctor` requires every folder to be checked out, at every depth, at the recorded commit.** It does so
+whether or not a remapping reads the folder, so the files are in place for every import, now and after a
+remapping is added.
+
+- It names the folders that are empty, with the update command. For each, it names every remapping that
+  reads it: an import through that remapping finds no file.
+- It names a folder that is at another commit, with the repository that records it and the commands for
+  both ways out.
+- It counts the `update = none` settings by config file. They make the update skip a folder. "A clone that
+  `yarn dep` managed" takes them out.
 
 ## Add a dependency
 
@@ -476,7 +487,9 @@ local deployment tag with the remote's tag of the same name, which `git fetch --
 An older bao-base, such as the copy inside a dependency, still has `yarn dep`. Do not run it in a clone set
 up as this page describes: its `sync` leaves only the folders the build reads checked out.
 
-Take the settings out, once:
+`yarn doctor` counts these settings by config file, and `git dep update` names each folder they left empty.
+
+Take the settings out, once, in the top folder of the clone:
 
 ```
 find .git -name config -type f | while read -r f; do git config --file "$f" --name-only --get-regexp '^submodule\..*\.update$' '^none$' | while read -r key; do git config --file "$f" --unset "$key"; done; done
