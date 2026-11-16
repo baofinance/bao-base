@@ -321,10 +321,12 @@ def _config_entries(checkout: Path, pattern: str, *options: str) -> list[tuple[s
     return entries
 
 
-def _where_set(repo_root: Path, checkout: Path, scope: str, origin: str) -> tuple[str, str | None]:
-    """Where git read a setting that `_config_entries` found in `checkout`: in words, and the file that holds
-    it as a command typed in the repository names it, relative to the repository's top folder when the file is
-    inside it. A setting from the environment has no file."""
+def _where_set(here: Here, checkout: Path, scope: str, origin: str) -> tuple[str, str | None]:
+    """Where git read a setting that `_config_entries` found in `checkout`: in words, and the file that holds it.
+    A config that git keeps for the clone, of scope local or worktree, is named from the folder `here` says
+    doctor was typed in, as `git dep` names it: git gives it by its absolute path in a dependency's folder. The
+    person's own config and the system's are named as git names them. A setting from the environment has no
+    file."""
     if not origin.startswith("file:"):
         return "the environment, by GIT_CONFIG_COUNT or GIT_CONFIG_PARAMETERS, not a file", None
     scopes = {
@@ -335,16 +337,21 @@ def _where_set(repo_root: Path, checkout: Path, scope: str, origin: str) -> tupl
     }
     held = Path(origin.removeprefix("file:"))
     held = (held if held.is_absolute() else checkout / held).resolve()
-    named = held.relative_to(repo_root.resolve()) if held.is_relative_to(repo_root.resolve()) else held
-    return f"{named.as_posix()}, {scopes.get(scope, f'the {scope} config')}", named.as_posix()
+    named = (
+        PurePath(os.path.relpath(held, here.typed.resolve())).as_posix()
+        if scope in ("local", "worktree")
+        else held.as_posix()
+    )
+    return f"{named}, {scopes.get(scope, f'the {scope} config')}", named
 
 
-def _config_repair(in_project: str, file: str | None, *arguments: str) -> str:
-    """The command that changes a setting in the file `_where_set` named, typed where `in_project` says. One
-    that no file holds is changed where the environment is made."""
+def _config_repair(file: str | None, *arguments: str) -> str:
+    """The command that changes a setting in the file `_where_set` named. git reads a config named by `--file` in
+    whatever folder the command is typed, so it runs where doctor was typed. One that no file holds is changed
+    where the environment is made."""
     if file is None:
         return "remove it from the environment git runs in"
-    return f"{in_project} {shlex.join(['config', '--file', file, *arguments])}"
+    return f"git {shlex.join(['config', '--file', file, *arguments])}"
 
 
 def _in_each_dependency_folder(repo_root: Path, command: str) -> list[str]:
@@ -432,9 +439,9 @@ def submodule_setting_problems(repo_root: Path, here: Here | None = None) -> lis
             written, cookbook_value = wanted[key]
             if value == cookbook_value:
                 continue
-            where, file = _where_set(repo_root, checkout, scope, origin)
+            where, file = _where_set(here, checkout, scope, origin)
             what = f"{written} is {value}, where the cookbook has {cookbook_value}"
-            repair = _config_repair(in_project, file, written, cookbook_value)
+            repair = _config_repair(file, written, cookbook_value)
             other_value.setdefault((what, where, repair), []).append(shown)
     for missing, folders in lacking.items():
         named = missing[0] if len(missing) == 1 else f"{', '.join(missing[:-1])} and {missing[-1]}"
@@ -450,14 +457,14 @@ def submodule_recurse_problems(repo_root: Path, here: Here | None = None) -> lis
     folder that is checked out, at every depth. With true, a branch switch moves the dependency folders too,
     and discards an uncommitted edit in one. With false, git can stop making the push check. One setting that
     several folders read, such as one in the person's own config, is one finding naming them all. Each repair
-    names the file git reports, relative to the repository's top folder when it is inside it."""
-    in_project = (here or Here(repo_root, repo_root)).git(repo_root)
+    names the file git reports, as `_where_set` names it."""
+    here = here or Here(repo_root, repo_root)
     # (what is set, where, the repair) to the checkouts it reaches, in the order met.
     found: dict[tuple[str, str, str], list[str]] = {}
     for shown, checkout in [(repo_root.name, repo_root), *_dependency_folders(repo_root)]:
         for scope, origin, _, value in _config_entries(checkout, r"^submodule\.recurse$"):
-            where, file = _where_set(repo_root, checkout, scope, origin)
-            repair = _config_repair(in_project, file, "--unset", "submodule.recurse")
+            where, file = _where_set(here, checkout, scope, origin)
+            repair = _config_repair(file, "--unset", "submodule.recurse")
             reached = found.setdefault((f"submodule.recurse is set to {value}", where, repair), [])
             if shown not in reached:
                 reached.append(shown)
@@ -540,14 +547,13 @@ def tag_push_setting_problems(repo_root: Path, here: Here | None = None) -> list
     A true-or-false setting counts as git reads it: the last value wins, so one turned off later is no
     finding, and when it is on, every place setting it on is named, since each must go. One setting that
     several checkouts read, a global one, is one finding naming them all. Each repair names the file git
-    reports, relative to the repository root when it is inside it."""
+    reports, as `_where_set` names it."""
     checkouts = [(repo_root.name, repo_root)] + [
         (dependency.path, repo_root / dependency.path)
         for dependency in declared_submodules(repo_root)
         if (repo_root / dependency.path / ".git").exists()
     ]
-    # Each repair edits a file named from this repository, so it runs here, reached from where doctor was typed.
-    in_project = (here or Here(repo_root, repo_root)).git(repo_root)
+    here = here or Here(repo_root, repo_root)
     # (what is wrong, where it is set, the repair) to the checkouts it reaches, in the order met.
     found: dict[tuple[str, str, str], list[str]] = {}
     for shown, checkout in checkouts:
@@ -580,8 +586,8 @@ def tag_push_setting_problems(repo_root: Path, here: Here | None = None) -> list
                 unset = ["--fixed-value", "--unset", key, value]
             else:
                 continue
-            where, file = _where_set(repo_root, checkout, scope, origin)
-            reached = found.setdefault((what, where, _config_repair(in_project, file, *unset)), [])
+            where, file = _where_set(here, checkout, scope, origin)
+            reached = found.setdefault((what, where, _config_repair(file, *unset)), [])
             if shown not in reached:
                 reached.append(shown)
     return [_read_in(what, shown, where, repair) for (what, where, repair), shown in found.items()]

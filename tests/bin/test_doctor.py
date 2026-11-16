@@ -11,6 +11,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -3176,8 +3177,18 @@ def test_each_settings_repair_typed_where_doctor_ran_clears_it(tmp_path, isolate
     other_values = doctor.submodule_setting_problems(host, placed.here)
     assert len(other_values) == 2, other_values
     for finding in other_values:
+        _assert_names_its_config_from_where_typed(placed, finding)
         _typed(placed.typed, _the_repair(finding))
     assert doctor.submodule_setting_problems(host, placed.here) == []
+
+
+def _assert_names_its_config_from_where_typed(placed: _Placed, finding: str) -> None:
+    """A config that git keeps for the clone is named from where doctor was typed, in the repair and in the line
+    that says where the setting is set, as `git dep` names it: never by its absolute path."""
+    words = shlex.split(_the_repair(finding))
+    file = words[words.index("--file") + 1]
+    assert not os.path.isabs(file) and (placed.typed / file).is_file(), finding
+    assert f"  Set in {file}, " in finding, finding
 
 
 @pytest.mark.parametrize("place", _PLACES)
@@ -3192,6 +3203,7 @@ def test_submodule_recurse_repair_typed_where_doctor_ran_takes_it_out(tmp_path, 
 
     assert len(findings) == 2, findings
     for finding in findings:
+        _assert_names_its_config_from_where_typed(placed, finding)
         _typed(placed.typed, _the_repair(finding))
     assert doctor.submodule_recurse_problems(host, placed.here) == []
 
@@ -3208,6 +3220,7 @@ def test_tag_push_repair_typed_where_doctor_ran_takes_it_out(tmp_path, isolated,
 
     assert len(findings) == 2, findings
     for finding in findings:
+        _assert_names_its_config_from_where_typed(placed, finding)
         _typed(placed.typed, _the_repair(finding))
     assert doctor.tag_push_setting_problems(host, placed.here) == []
 
