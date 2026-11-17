@@ -455,11 +455,16 @@ reads. Use `<project>.storage.<Struct>`: `bao.storage.Minter` is read by
   constant from its annotation and compares the two, across every contract at
 once. Hand-deriving one
   value with `cast keccak` proves nothing about the annotation agreeing with it.
-- If the struct must be shared with libraries, it cannot live inside the contract,
-  and the annotation cannot go on it. Wrap it in an annotated single-member struct
-  declared INSIDE the contract: a wrapper whose only member is the struct has that
-  struct's exact layout, so validation is restored with no duplicated field and no
-  drift.
+- **Share the struct with a library by naming it where it is.** Keep the
+  annotated struct inside the contract. A library takes it as
+  `Minter_v4.MinterStorage storage $`, and the contract passes the pointer in.
+  The library and the contract import each other, which compiles. OpenZeppelin's
+  upgrade check reads a namespace only from a struct declared in a contract, and
+  compares it field by field. So moving the struct out of the contract fails the
+  upgrade from the version before, with "Deleted namespace". Wrapping it in a
+  single-member struct fails too, with "Deleted `<field>`", although the bytes
+  stay where they were. The library is tied to that contract version: the
+  contract's next version takes a new version of the library.
 
 ## Deploy scripts
 
