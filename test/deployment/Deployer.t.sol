@@ -161,6 +161,42 @@ contract NotExecutingHereDeployer is TestableDeployer {
     }
 }
 
+/// @notice Receives the facts an empty flush was asked to report, as a call `vm.expectCall` can assert.
+contract NoTransactionsReportRecorder {
+    function noTransactionsReported(
+        uint256 /* executed */,
+        uint256 /* awaiting */,
+        bool /* executesHere */,
+        string calldata /* executor */
+    ) external pure {}
+}
+
+/// @notice Deployer whose empty flush passes the facts it was asked to report to its recorder, so a test can assert
+///         them.
+contract NoTransactionsReportCapturingDeployer is TestableDeployer {
+    NoTransactionsReportRecorder public immutable recorder = new NoTransactionsReportRecorder();
+
+    constructor(address owner_) TestableDeployer(owner_) {}
+
+    function _reportNoTransactions(
+        uint256 executed,
+        uint256 awaiting,
+        bool executesHere,
+        string memory executor
+    ) internal view override {
+        recorder.noTransactionsReported(executed, awaiting, executesHere, executor);
+    }
+}
+
+/// @notice A NoTransactionsReportCapturingDeployer whose run leaves its saved batches for their signers.
+contract NotExecutingHereReportCapturingDeployer is NoTransactionsReportCapturingDeployer {
+    constructor(address owner_) NoTransactionsReportCapturingDeployer(owner_) {}
+
+    function _executesHere() internal pure override returns (bool) {
+        return false;
+    }
+}
+
 /// @notice Deployer that forces batch-file writing on — exercises the Safe batch JSON file path
 ///         (written under ./results per the test-output convention, git-checked for regressions).
 contract BatchWritingDeployer is TestableDeployer {
@@ -440,6 +476,78 @@ contract DeployerTest is BaoTest {
         deployer.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "second");
         deployer.doFlush("", "batch 2");
         assertEq(deployer.allTransactionCount(), 2);
+    }
+
+    // ── what an empty flush reports ───────────────────────────────────────────
+
+    function test_flush_nothingEverQueued_reportsNothingSaved() public {
+        // an empty flush in a run that has saved nothing reports none executed and none awaiting, and the owner as
+        // the account this run executes as
+        NoTransactionsReportCapturingDeployer capturing = new NoTransactionsReportCapturingDeployer(testOwner);
+        vm.expectCall(
+            address(capturing.recorder()),
+            abi.encodeCall(
+                NoTransactionsReportRecorder.noTransactionsReported,
+                (0, 0, true, LibString.toHexString(testOwner))
+            ),
+            1
+        );
+        capturing.doFlush("", "");
+    }
+
+    function test_flush_nothingNewQueued_reportsTheSavedAsAwaiting() public {
+        // an empty flush after a batch of two was saved, and before it executes, reports the two as awaiting
+        NoTransactionsReportCapturingDeployer capturing = new NoTransactionsReportCapturingDeployer(testOwner);
+        capturing.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "first");
+        capturing.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "second");
+        capturing.doFlush("", "");
+        vm.expectCall(
+            address(capturing.recorder()),
+            abi.encodeCall(
+                NoTransactionsReportRecorder.noTransactionsReported,
+                (0, 2, true, LibString.toHexString(testOwner))
+            ),
+            1
+        );
+        capturing.doFlush("", "");
+    }
+
+    function test_flush_nothingNewQueued_reportsTheExecutedApartFromTheAwaiting() public {
+        // an empty flush after one transaction executed and two more were saved reports one executed, two awaiting
+        NoTransactionsReportCapturingDeployer capturing = new NoTransactionsReportCapturingDeployer(testOwner);
+        capturing.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "first");
+        capturing.doFlush("", "");
+        capturing.doExecuteQueued();
+        capturing.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "second");
+        capturing.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "third");
+        capturing.doFlush("", "");
+        vm.expectCall(
+            address(capturing.recorder()),
+            abi.encodeCall(
+                NoTransactionsReportRecorder.noTransactionsReported,
+                (1, 2, true, LibString.toHexString(testOwner))
+            ),
+            1
+        );
+        capturing.doFlush("", "");
+    }
+
+    function test_flush_nothingNewQueued_notExecutingHere_reportsTheSavedForTheirSigners() public {
+        // in a run that leaves its batches for their signers, an empty flush reports the saved transaction as
+        // awaiting, none executed, and that this run does not execute them
+        NotExecutingHereReportCapturingDeployer capturing = new NotExecutingHereReportCapturingDeployer(testOwner);
+        capturing.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "desc");
+        capturing.doFlush("", "");
+        capturing.doExecuteQueued();
+        vm.expectCall(
+            address(capturing.recorder()),
+            abi.encodeCall(
+                NoTransactionsReportRecorder.noTransactionsReported,
+                (0, 1, false, LibString.toHexString(testOwner))
+            ),
+            1
+        );
+        capturing.doFlush("", "");
     }
 
     // ── _executeQueued ─────────────────────────────────────────────────────────

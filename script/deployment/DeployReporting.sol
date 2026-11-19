@@ -3,10 +3,11 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Vm, VmSafe} from "forge-std/Vm.sol";
 import {console2 as console} from "forge-std/console2.sol";
+import {LibString} from "@solady/utils/LibString.sol";
 
 /// @notice The deploy's running commentary — the lines an operator watching a deploy sees go past.
 /// @dev Separated from the deployment logic it describes so that test coverage measures the two apart.
-///      Under `forge test` a deploy is silent, so every message body here is unreachable and every
+///      Under `forge test` a deploy is silent, so every line here that prints is unreachable and every
 ///      `_shouldReport` branch is one-sided; left in with the deployment code those permanently-uncovered
 ///      lines mask the coverage of the code that actually deploys things. Its own file gives it its own
 ///      row in the coverage report, where a low number is expected rather than alarming.
@@ -23,10 +24,17 @@ import {console2 as console} from "forge-std/console2.sol";
 ///      subclass.
 ///
 ///      Being addressable is what makes reporting testable at all. Console output cannot be read back
-///      from inside a test — forge routes `console.log` past the point where `vm.expectCall` could
-///      observe it, so there is no way to assert on the text from Solidity. Overriding a `_report*` to
-///      capture what it was asked to say is therefore the only way a test can assert WHAT a deploy
-///      reports, rather than merely that reporting does not revert. Hence `virtual` throughout.
+///      from inside a test: forge routes `console.log` past the point where `vm.expectCall` could
+///      observe it, so there is no way to assert on the printed text from Solidity. A test checks a
+///      report in two halves instead:
+///      - WHAT a deploy reports: a test overrides the `_report*` method to capture its arguments. The
+///        method is `view`, so the override cannot store them. It passes them to an external `view`
+///        function instead, and the test asserts that call with `vm.expectCall`. An override that
+///        always reverts would make the code after its call site unreachable, which the compiler
+///        warns of. Hence `virtual` throughout.
+///      - HOW it reads: where the wording depends on the arguments, a `pure` `_*Message` function
+///        composes the text, and the `_report*` method only decides whether to speak and prints it. A
+///        test calls the function and asserts the exact text an operator reads.
 ///
 ///      Consuming repos add their own vocabulary on top (a market, a pool) and inherit the predicate, so
 ///      a deploy is silent under `forge test` end to end rather than only in the layer nearest the top.
@@ -135,10 +143,18 @@ abstract contract DeployReporting {
         if (!_shouldReport()) {
             return;
         }
+        console.log(_ownershipTransferMessage(salt, ownerLabel, alreadyOwned));
+    }
+
+    /// @notice The line `_reportOwnershipTransfer` prints.
+    function _ownershipTransferMessage(
+        string memory salt,
+        string memory ownerLabel,
+        bool alreadyOwned
+    ) internal pure returns (string memory line) {
+        line = string.concat("        ", salt, " -> ", ownerLabel);
         if (alreadyOwned) {
-            console.log("        %s -> %s (already owned)", salt, ownerLabel);
-        } else {
-            console.log("        %s -> %s", salt, ownerLabel);
+            line = string.concat(line, " (already owned)");
         }
     }
 
@@ -159,23 +175,34 @@ abstract contract DeployReporting {
         if (!_shouldReport()) {
             return;
         }
+        console.log(_noTransactionsMessage(executed, awaiting, executesHere, executor));
+    }
+
+    /// @notice The lines `_reportNoTransactions` prints: one for each fact that applies. forge indents every line
+    ///         of a log, so the lines read as separate logs would.
+    function _noTransactionsMessage(
+        uint256 executed,
+        uint256 awaiting,
+        bool executesHere,
+        string memory executor
+    ) internal pure returns (string memory message) {
         if (executed + awaiting == 0) {
-            console.log("No transactions queued: no batch saved, nothing to execute");
-            return;
+            return "No transactions queued: no batch saved, nothing to execute";
         }
-        console.log("No transactions queued since the last batch saved");
-        console.log("  Saved this run:", executed + awaiting);
+        message = string.concat(
+            "No transactions queued since the last batch saved\n  Saved this run: ",
+            LibString.toString(executed + awaiting)
+        );
         if (executed != 0) {
-            console.log("  Executed here:", executed);
+            message = string.concat(message, "\n  Executed here: ", LibString.toString(executed));
         }
         if (awaiting == 0) {
-            return;
+            return message;
         }
         if (executesHere) {
-            console.log("  To execute here now, as %s: %d", executor, awaiting);
-        } else {
-            console.log("  For each batch's signer to execute:", awaiting);
+            return string.concat(message, "\n  To execute here now, as ", executor, ": ", LibString.toString(awaiting));
         }
+        return string.concat(message, "\n  For each batch's signer to execute: ", LibString.toString(awaiting));
     }
 
     /// @notice The Safe batch file just written, and how many transactions it carries.
