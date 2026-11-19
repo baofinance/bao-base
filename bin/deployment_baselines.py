@@ -372,25 +372,6 @@ def replaced_tags(repo_root: Path, baselines: Iterable[Baseline], tags: dict[str
     return replaced
 
 
-def stale_repair(here: list[str], on_origin: list[str] | None) -> list[str]:
-    """The person's deletion of stale tags the tool does not replace, as lines to print: `here`, those this
-    clone holds, and `on_origin`, those origin holds. Origin's deletion comes first: while origin holds a
-    tag, the next fetch brings it back. `on_origin` is None when this run did not ask, and then origin's
-    deletion is given for all held here, where it holds them."""
-    there = here if on_origin is None else on_origin
-    if not there:
-        return ["Deleting them is yours. To delete them here:", f"  git tag -d {' '.join(here)}"]
-    where = ", where it holds them" if on_origin is None else ""
-    lines = [
-        f"Deleting them is yours. First on origin{where}: while origin holds a tag, the next fetch brings it back"
-        " here.",
-        f"  git push origin --delete {' '.join(f'refs/tags/{tag}' for tag in there)}",
-    ]
-    if here:
-        lines += ["Then here:", f"  git tag -d {' '.join(here)}"]
-    return lines
-
-
 def read_labels(repo_root: Path) -> dict[str, object]:
     """Each entry the labels file holds, by tag name, as written. No file holds none."""
     path = repo_root / LABELS
@@ -985,28 +966,26 @@ class OriginComparison:
 
     lacking: list[str]  # tags the record derives that origin does not hold
     differing: list[str]  # tags the record derives that origin holds as another object than this clone's
-    stale: dict[str, str | None]  # names origin holds that the record no longer derives, to the replacement
 
 
 def compare_with_origin(repo_root: Path, baselines: Iterable[Baseline], origin: dict[str, Tag]) -> OriginComparison:
-    """Origin's deployment tags, as `origin_tags` listed them, against the record and this clone. A stale
-    name maps to the tag replacing it when the tool may delete it (`replaced_tags`), and to None when
-    deleting it is the person's."""
+    """Origin's deployment tags, as `origin_tags` listed them, against the record and this clone. A name the
+    record no longer derives is `old_names`'s."""
     record = list(baselines)
-    replaced = replaced_tags(repo_root, record, origin)
     return OriginComparison(
         lacking=[tag for tag in derived_tags(record) if tag not in origin],
         differing=[tag for tag in unpublished_tags(repo_root, record, origin) if tag in origin],
-        stale={name: replaced.get(name) for name in _stale_names(origin, record)},
     )
 
 
 @dataclass(frozen=True)
 class OldName:
-    """A deployment tag under a name the record no longer derives, held here, on origin, or both: what is true of
-    it, as sentences, and the commands that delete it, in the order to type them."""
+    """A deployment tag under a name the record no longer derives, held here, on origin, or both: the tag the record
+    derives in its place when the tool deletes it, None when deleting it is the person's; what is true of it, as
+    sentences; and the commands that delete it, in the order to type them."""
 
     tag: str
+    replacement: str | None
     said: list[str]
     steps: list[str]
 
@@ -1018,8 +997,10 @@ def old_names(
     that delete it where it is held, typed where `here` says. `origin` is origin's tags as `origin_tags` lists them,
     or None when origin could not be asked: then only this clone's copies are known, and only they are deleted.
 
-    A tag the tool replaces (`replaced_tags`, judged on this clone's copy when it holds one, on origin's otherwise)
-    is on the commit of the tag the record derives in its place. Where that replacement is held too, deleting the
+    The tool deletes a tag only when it replaces every copy held (`replaced_tags`): each is on the commit of the tag
+    the record derives in its place, and holds nothing the record cannot make again. Each copy is judged where it is
+    held, as `--write` judges this clone's and `--push` origin's, so a copy that is not the tool's makes the tag the
+    person's, and what is said of its message is said of that copy. Where the replacement is held too, deleting the
     old name loses nothing, so plain git deletes it. Where it is not, the tool's command puts the replacement there
     first: `--write` makes it here and deletes the old name, and `--push` sends it to origin and deletes the old name
     there, in one push, so `--write` runs before `--push`. Any other tag is the person's to delete, with the same git
@@ -1035,8 +1016,14 @@ def old_names(
     found: list[OldName] = []
     for tag in _stale_names({*held, *there}, record):
         on_here, on_there = tag in held, tag in there
-        copy = held[tag] if on_here else there[tag]
-        replacement = (replaced_here if on_here else replaced_there).get(tag)
+        # Each copy held, this clone's first, with the tag replacing it, or None when the tool does not replace it.
+        judged = [
+            (copies[tag], replaced.get(tag))
+            for copies, replaced in ((held, replaced_here), (there, replaced_there))
+            if tag in copies
+        ]
+        theirs = next((copy for copy, replacing_it in judged if replacing_it is None), None)
+        copy, replacement = judged[0] if theirs is None else (theirs, None)
         same_commit = replacing.get((_prefix_of(tag, prefixes), copy.commit))
         if replacement is not None:
             said = [f"{tag} is now {replacement}, on the same commit."]
@@ -1077,7 +1064,7 @@ def old_names(
                 here.script("yarn verify-audit --push") if sending else f"{git} push origin --delete refs/tags/{tag}"
             ]
         steps = [*deleting_here, *deleting_there] if making and sending else [*deleting_there, *deleting_here]
-        found.append(OldName(tag, said, steps))
+        found.append(OldName(tag, replacement, said, steps))
     return found
 
 

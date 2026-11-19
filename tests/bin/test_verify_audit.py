@@ -1784,7 +1784,8 @@ def test_the_check_says_write_makes_a_missing_replacement(fix):
 
 def test_the_check_deletes_only_here_when_origin_cannot_be_asked(fix):
     # Whether origin holds the old name cannot be known, so the repair deletes it here only, says why in git's
-    # words, and says to run the check again once origin answers.
+    # words, and names doctor, which asks origin on every run: once the tag is deleted here, the check finds nothing
+    # to ask origin about.
     head = _recorded(fix)
     made, making = fix.verify_audit("--write")
     assert made == 0, making
@@ -1799,7 +1800,7 @@ def test_the_check_deletes_only_here_when_origin_cannot_be_asked(fix):
     assert "origin could not be asked" in output and str(nowhere) in output, output
     assert "This clone holds it. Whether origin does is not known." in output, output
     assert _commands(output) == [f"git tag -d {old}"], output
-    assert "run yarn verify-audit again" in output, output
+    assert "Once origin can be asked, yarn doctor says what to delete there" in output, output
 
 
 def test_the_check_asks_origin_only_for_an_old_name(fix):

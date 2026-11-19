@@ -1130,20 +1130,16 @@ def _run(args: list[str]) -> int:
                 origin = None
                 _err(f"       origin could not be asked for its tags:\n         {unanswered}\n")
             record = [*found.recorded, *found.orphaned]
-            old_here = [
-                old
-                for old in old_names(Path.cwd(), record, origin, Here(Path.cwd(), Path.cwd()))
-                if old.tag in found.stale_tags
-            ]
+            here = Here(Path.cwd(), Path.cwd())
+            old_here = [old for old in old_names(Path.cwd(), record, origin, here) if old.tag in found.stale_tags]
             for old in old_here:
                 _err(f"\033[31m  {old.said[0]}\033[0m\n")
                 _err(f"       {' '.join(old.said[1:])} To delete it:\n")
                 for step in old.steps:
                     _err(f"         {step}\n")
+            # Once the tag is deleted here, this check finds nothing to ask origin about. doctor asks on every run.
             if origin is None:
-                _err(
-                    "       Once origin can be asked, run yarn verify-audit again: it then says what to delete there\n"
-                )
+                _err(f"       Once origin can be asked, {here.doctor()} says what to delete there\n")
 
         if found.conflicts:
             gaps = 1

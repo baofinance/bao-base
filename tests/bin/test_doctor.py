@@ -2629,6 +2629,27 @@ def test_deployment_tags_has_the_tool_send_a_replacement_origin_lacks(tmp_path):
     assert _the_repair(about_old) == f"yarn verify-audit --push, then git tag -d {old}", about_old
 
 
+def test_deployment_tags_has_the_person_delete_an_old_name_whose_copy_on_origin_is_not_the_tools(tmp_path):
+    # The old name here as the tool made it, on origin with someone's own message, its replacement only here. `--push`
+    # deletes on origin only a copy the tool wrote there, and refuses while another is held, so it is no repair: the
+    # person deletes both copies with git, origin's first. Typed, nothing is left about the old name.
+    repo, origin, head, tags = _deploying_repo(tmp_path)
+    old = f"deploy/mainnet/one@{head[:10]}"
+    _git(repo, "tag", "-a", "notes", "-m", "my own notes", head)
+    _git(repo, "push", "-q", "origin", f"refs/tags/notes:refs/tags/{old}", f"refs/tags/{tags[1]}")
+    _git(repo, "tag", "-d", "notes")
+    _git(repo, "tag", old, head)
+
+    problems = doctor.deployment_tag_problems(repo)
+
+    about_old = next(problem for problem in problems if problem.startswith(old))
+    assert "deleting it is yours" in about_old, about_old
+    assert _the_repair(about_old) == f"git push origin --delete refs/tags/{old}, then git tag -d {old}", about_old
+    for step in _steps(_the_repair(about_old)):
+        _typed(repo, step)
+    assert not any(old in problem for problem in doctor.deployment_tag_problems(repo))
+
+
 def test_deployment_tags_fails_when_origin_cannot_be_asked(tmp_path):
     # A check that could not look must not pass: one finding, in git's words, which say where it looked.
     repo, origin, head, tags = _deploying_repo(tmp_path)

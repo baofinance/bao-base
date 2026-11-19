@@ -31,6 +31,7 @@ from deployment_baselines import (
     LABELS,
     RECORD,
     Baseline,
+    OldName,
     OriginUnanswered,
     PushStopped,
     Review,
@@ -39,7 +40,6 @@ from deployment_baselines import (
     add,
     append_labels,
     commit_reach,
-    compare_with_origin,
     delete_replaced_tags,
     derived_tags,
     drop,
@@ -48,6 +48,7 @@ from deployment_baselines import (
     key,
     label_errors,
     make_tags,
+    old_names,
     origin_heads,
     origin_tags,
     push_to_origin,
@@ -57,7 +58,6 @@ from deployment_baselines import (
     replaced_labels,
     replaced_tags,
     review,
-    stale_repair,
     stale_tags,
     write_baselines,
 )
@@ -90,6 +90,7 @@ from deployment_recovery import (
     submodules_at,
     without_link_addresses,
 )
+from submodule_state import Here
 
 
 def _keccak256(data: bytes) -> str:
@@ -1109,6 +1110,15 @@ def _uncommitted(root: Path) -> list[str]:
     return sorted({line[3:] for line in status.stdout.splitlines() if line.strip()})
 
 
+def _say_old_names(found: list[OldName], say: Printer) -> None:
+    """Each tag under an old name: what is true of it, then the commands that delete it, in the order to type them."""
+    for old in found:
+        say(0, f"  {old.said[0]}")
+        say(0, f"    {' '.join(old.said[1:])} To delete it:")
+        for step in old.steps:
+            say(0, f"      {step}")
+
+
 def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer) -> str:
     """Make and correct the tags the whole record derives, on this computer only, where they can be checked
     before anything is published, and say what was done.
@@ -1118,18 +1128,20 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer) -> str:
     `--write` that returned before reaching here left standing the exact failure it had just been told to
     repair.
 
-    It reads only this clone: the record, the labels and the tags here. Taking origin's tags is `--pull`'s,
-    and publishing these is `--push`'s.
+    It makes and deletes tags from this clone alone: the record, the labels and the tags here. Taking origin's
+    tags is `--pull`'s, and publishing these is `--push`'s.
 
     Then the labels. A tag the record wants with no entry in the labels file gets one. The entry carries
     the words of the same deploy's entry under an earlier name, when there is one, and is empty otherwise;
     that earlier entry is then removed, whose words are now the new one's (`replaced_labels`). A tag whose
     label is in error is neither made nor corrected, since it would only be wrong.
 
-    A deployment tag the record no longer derives (`stale_tags`) is deleted here when the tool replaces it
-    (`delete_replaced_tags`); `--push` deletes it on origin. Any other is reported and left, since deleting
-    it is the person's, origin first (`stale_repair`). The run fails while one is held, and `--push` pushes
-    nothing, so GitHub never holds a deploy under two names.
+    A deployment tag the record no longer derives (`stale_tags`) is deleted here when the tool replaces this
+    clone's copy (`delete_replaced_tags`); `--push` deletes it on origin. Any other is reported and left, since
+    deleting it is the person's. What deletes it depends on whether origin holds it, so origin is asked then,
+    and only then, and the commands are `old_names`'s. When origin cannot be asked, the commands delete it here,
+    and doctor, which asks origin on every run, says what to delete there. The run fails while one is held,
+    and `--push` pushes nothing, so GitHub never holds a deploy under two names.
 
     Returns the closing line (`_failing`), empty when nothing is left, which the caller says last and
     turns into a failing exit status: a repair that half worked and said it was fine is worse than one
@@ -1141,11 +1153,17 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer) -> str:
         others = [tag for tag in stale_tags(root, recorded) if tag not in replaced]
         if others:
             say(0, f"\n{len(others)} deployment tag(s) held here that the record no longer derives or replaces:")
-            for tag in others:
-                say(0, f"  {tag}: the record no longer derives it")
-            for line in stale_repair(others, None):
-                say(0, f"  {line}")
+            try:
+                origin = origin_tags(root)
+            except OriginUnanswered as unanswered:
+                origin = None
+                say(0, "  origin could not be asked for its tags:")
+                say(0, f"    {unanswered}")
+            here = Here(root, root)
+            _say_old_names([old for old in old_names(root, recorded, origin, here) if old.tag in others], say)
             say(0, "  Then run yarn verify-audit --write again")
+            if origin is None:
+                say(0, f"  Once origin can be asked, {here.doctor()} says what to delete there")
         labels = read_labels(root)
         derived = derived_tags(recorded)
         missing = [tag for tag in derived if tag not in labels]
@@ -1293,32 +1311,17 @@ def publish(root: Path, *, say: Printer) -> int:
                 0, f"\n{_failing([f'{len(unheld)} deployment tag(s) on origin are objects this clone has never held'])}"
             )
             return 1
-        # A stale tag the tool does not replace is the person's to delete, here or on origin. Publishing beside
-        # it would leave GitHub, or the next fetch, with the deploy under two names.
-        replaced_here = replaced_tags(root, recorded)
-        stale_on_origin = compare_with_origin(root, recorded, origin).stale
+        # A tag under an old name that the tool does not delete is the person's, here or on origin. Publishing
+        # beside it would leave GitHub, or the next fetch, with the deploy under two names.
         held_here = held_tags(root)
-        others = sorted(
-            {
-                *(tag for tag in stale_tags(root, recorded) if tag not in replaced_here),
-                *(tag for tag, replacement in stale_on_origin.items() if replacement is None),
-            }
-        )
-        if others:
-            say(0, f"\n{len(others)} deployment tag(s) the record no longer derives or replaces, so no tag was pushed:")
-            for tag in others:
-                where = " and ".join(
-                    side for side, holds in (("here", tag in held_here), ("on origin", tag in origin)) if holds
-                )
-                say(0, f"  {tag}: the record no longer derives it, and it is held {where}")
-            for line in stale_repair(
-                [tag for tag in others if tag in held_here], [tag for tag in others if tag in origin]
-            ):
-                say(0, f"  {line}")
+        theirs = [old for old in old_names(root, recorded, origin, Here(root, root)) if old.replacement is None]
+        if theirs:
+            say(0, f"\n{len(theirs)} deployment tag(s) the record no longer derives or replaces, so no tag was pushed:")
+            _say_old_names(theirs, say)
             say(0, "  Then run yarn verify-audit --push again")
-            here = sum(tag in held_here for tag in others)
+            here = sum(old.tag in held_here for old in theirs)
             left = [f"{here} deployment tag(s) the record no longer derives are held here"] if here else []
-            if there := len(others) - here:
+            if there := len(theirs) - here:
                 left.append(f"{there} deployment tag(s) the record no longer derives are held on origin")
             say(0, f"\n{_failing(left)}")
             return 1
