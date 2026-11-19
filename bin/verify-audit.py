@@ -88,12 +88,13 @@ from deployment_baselines import (
     Review,
     UnreadableLabels,
     UnreadableRecord,
+    old_names,
     origin_tags,
     review,
-    stale_repair,
 )
 from deployment_recovery import export_commit, install_toolchain
 from recover_baselines import Printer, publish, pull, run
+from submodule_state import Here
 
 # Where audited source may live. Rename detection pairs only among the paths that survive the
 # pathspec, so any location a source file can legitimately move TO must be listed here: otherwise
@@ -672,7 +673,7 @@ def _resolve_revisions(args: list[str]) -> tuple[list[str], dict[str, str], bool
             sha = _git_value("rev-parse", "--verify", "--quiet", f"{arg}^{{commit}}")
             if not sha:
                 _err(f'\033[31mERROR: "{arg}" is not a tag, branch or commit in this repository\033[0m\n')
-                _err("       if it is a tag this clone has not seen, run `verify-audit --pull` and try again\n")
+                _err("       if it is a tag this clone has not seen, run `yarn verify-audit --pull` and try again\n")
                 failed = True
                 continue
         revisions.append(arg)
@@ -837,7 +838,7 @@ def _check_baselines(found: Review) -> int:
             if held := [tag for tag, at in on_origin.items() if at.commit == baseline.commit]:
                 _err(
                     f"\033[31m      origin has {', '.join(sorted(held))} naming it —"
-                    " `verify-audit --pull` and run again\033[0m\n"
+                    " `yarn verify-audit --pull` and run again\033[0m\n"
                 )
 
     if found.inputs_missing:
@@ -1055,7 +1056,7 @@ def _run(args: list[str]) -> int:
             )
             for entry in found.unrecovered:
                 _err(f"\033[31m  {entry.chain}/{entry.address}  {entry.name or '(unnamed)'}\033[0m\n")
-            _err("       run `verify-audit --write` to record them\n")
+            _err("       run `yarn verify-audit --write` to record them\n")
 
         if found.unreadable:
             gaps = 1
@@ -1085,8 +1086,8 @@ def _run(args: list[str]) -> int:
                 for baseline in built:
                     _err(f"\033[31m    {baseline.chain} {baseline.address} {baseline.contractType}\033[0m\n")
             _err(
-                f"       run `verify-audit --pull --write`, check the tags, commit {RECORD} and {LABELS}, then"
-                " `verify-audit --push`\n"
+                f"       run `yarn verify-audit --pull --write`, check the tags, commit {RECORD} and {LABELS}, then"
+                " `yarn verify-audit --push`\n"
             )
 
         if found.label_errors:
@@ -1097,7 +1098,7 @@ def _run(args: list[str]) -> int:
             for tag, problem in found.label_errors:
                 _err(f"\033[31m  {tag}: {problem}\033[0m\n")
             _err(
-                f"       correct each entry named above in {LABELS}. For a tag with none, run `verify-audit"
+                f"       correct each entry named above in {LABELS}. For a tag with none, run `yarn verify-audit"
                 " --write`: it adds one with the words of the same deploy's entry under an earlier name, or"
                 " empty. Fill in each empty entry, then run it again\n"
             )
@@ -1112,30 +1113,37 @@ def _run(args: list[str]) -> int:
             )
             for tag, faults in found.wrong_tags:
                 _err(f"\033[31m  {tag}: {faults}\033[0m\n")
-            _err("       run `verify-audit --pull --write`, check and commit, then `verify-audit --push`\n")
+            _err("       run `yarn verify-audit --pull --write`, check and commit, then `yarn verify-audit --push`\n")
 
         if found.stale_tags:
             gaps = 1
-            # A deployment tag under a name the record no longer derives: the tag for that deploy is now
-            # named otherwise, so GitHub would list it twice. The tool deletes those it replaces; any other
-            # is the person's.
+            # A deployment tag under a name the record no longer derives: GitHub would list its deploy twice.
+            # What deletes it depends on what origin holds, which only origin can say. So origin is asked here,
+            # once such a tag is found, and a check with nothing to report never reaches it.
             _err(
-                f"\033[31mERROR: {len(found.stale_tags)} deployment tag(s) held here that the record no longer"
+                f"\033[31mERROR: {len(found.stale_tags)} deployment tag(s) here have a name the record no longer"
                 " derives:\033[0m\n"
             )
-            for tag in found.stale_tags:
-                replacement = found.replaced_tags.get(tag)
-                replacing = f"; it is replaced by {replacement}" if replacement else ""
-                _err(f"\033[31m  {tag}: the record no longer derives it{replacing}\033[0m\n")
-            if found.replaced_tags:
+            try:
+                origin = origin_tags(Path.cwd())
+            except OriginUnanswered as unanswered:
+                origin = None
+                _err(f"       origin could not be asked for its tags:\n         {unanswered}\n")
+            record = [*found.recorded, *found.orphaned]
+            old_here = [
+                old
+                for old in old_names(Path.cwd(), record, origin, Here(Path.cwd(), Path.cwd()))
+                if old.tag in found.stale_tags
+            ]
+            for old in old_here:
+                _err(f"\033[31m  {old.said[0]}\033[0m\n")
+                _err(f"       {' '.join(old.said[1:])} To delete it:\n")
+                for step in old.steps:
+                    _err(f"         {step}\n")
+            if origin is None:
                 _err(
-                    "       run `verify-audit --write`, which deletes each replaced tag here, then `verify-audit"
-                    " --push`, which deletes it on origin\n"
+                    "       Once origin can be asked, run yarn verify-audit again: it then says what to delete there\n"
                 )
-            # The check reads only this clone, so it cannot say whether origin holds the others.
-            if others := [tag for tag in found.stale_tags if tag not in found.replaced_tags]:
-                for line in stale_repair(others, None):
-                    _err(f"       {line}\n")
 
         if found.conflicts:
             gaps = 1
@@ -1187,7 +1195,7 @@ def _run(args: list[str]) -> int:
             )
             for tag, absent in behind:
                 _err(f"\033[31m  {tag}: {'not here' if absent else 'here as another object'}\033[0m\n")
-            _err("       run `verify-audit --pull`, then run this again\n")
+            _err("       run `yarn verify-audit --pull`, then run this again\n")
             if clashing := [tag for tag, absent in behind if not absent and not tag.startswith(DEPLOY_TAGS)]:
                 _err(
                     "       --pull takes origin's copy of a deployment tag only. To take origin's copy of the others:\n"

@@ -20,7 +20,7 @@ import json5
 import columns
 import workflow_copy
 from checks import Check, report
-from deployment_baselines import RECORD, OriginUnanswered, compare_with_origin, origin_tags, read_baselines
+from deployment_baselines import RECORD, OriginUnanswered, compare_with_origin, old_names, origin_tags, read_baselines
 from forge_config import forge_config
 from submodule_state import (
     COOKBOOK_UPGRADE,
@@ -596,8 +596,8 @@ def tag_push_setting_problems(repo_root: Path, here: Here | None = None) -> list
 def deployment_tag_problems(repo_root: Path, here: Here | None = None) -> list[str]:
     """How origin's deployment tags stand against the record and this clone, in a repository with a
     deployed.json: each tag the record derives that origin lacks, or holds as another object than this
-    clone's, and each name origin holds that the record no longer derives. Returns one finding per tag, or
-    [].
+    clone's, and each tag this clone or origin holds under a name the record no longer derives (`old_names`).
+    Returns one finding per tag, or [].
 
     git keeps a copy of origin's branches but none of its tags, so this asks origin, once. A check that
     could not ask fails, in git's words: passing would say origin was looked at when it was not."""
@@ -624,17 +624,10 @@ def deployment_tag_problems(repo_root: Path, here: Here | None = None) -> list[s
         f"  Repair: {here.script('yarn verify-audit --pull --write --push')}"
         for tag in found.differing
     ]
-    for tag, replacement in found.stale.items():
-        if replacement is not None:
-            problems.append(
-                f"{tag}: origin holds it, and the record no longer derives it. It is replaced by {replacement}\n"
-                f"  Repair: {here.script('yarn verify-audit --push')} deletes it on origin"
-            )
-        else:
-            problems.append(
-                f"{tag}: origin holds it, and the record no longer derives it\n"
-                f"  Repair: deleting it is yours: {here.git(repo_root)} push origin --delete refs/tags/{tag}"
-            )
+    problems += [
+        f"{' '.join(old.said)}\n  Repair: {', then '.join(old.steps)}"
+        for old in old_names(repo_root, record, origin, here)
+    ]
     return problems
 
 
@@ -1736,12 +1729,13 @@ def build_checks(
             tag_push_setting_problems(repo_root, here),
         ),
         Check(
-            "every deployment tag the record derives is on origin, as it is here",
-            "verify-audit and verify-audit --write read only this clone, and CI reads only what was pushed. So a "
-            "deployment tag made here and not pushed passes here and fails in CI. git keeps no copy of origin's "
-            "tags, so doctor asks origin. A tag origin holds under a name the record no longer derives comes back "
-            "with every fetch",
-            "CI fails on the next push, and every clone that fetches gets the old tag back",
+            "every deployment tag the record derives is on origin, as it is here, and neither holds an old name",
+            "verify-audit judges the tags this clone holds, and CI reads only what was pushed. So a deployment tag "
+            "made here and not pushed passes here and fails in CI. git keeps no copy of origin's tags, so doctor asks "
+            "origin. A tag under a name the record no longer derives fails verify-audit in every clone that holds it, "
+            "and while origin holds it, every fetch brings it back. A fetch never deletes a tag that origin deleted",
+            "CI fails on the next push, verify-audit fails in each clone that holds an old name, and every clone that "
+            "fetches gets origin's old names back",
             deployment_tag_problems(repo_root, here),
         ),
         Check(

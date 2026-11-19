@@ -2755,7 +2755,7 @@ def test_write_names_the_next_steps(tmp_path, monkeypatch):
     assert recover.run(repo, say=recover.Printer(0, printed.append), write=True) == 0
 
     said = "\n".join(printed)
-    assert "commit" in said and "verify-audit --push" in said, said
+    assert "commit" in said and "yarn verify-audit --push" in said, said
     assert "git push" not in said, said
 
 
@@ -2787,7 +2787,7 @@ def test_push_refuses_while_the_record_has_changes(tmp_path, monkeypatch):
 
     assert tags_in(origin) == {}
     said = "\n".join(printed)
-    assert "not committed" in said and "verify-audit --push" in said, said
+    assert "not committed" in said and "yarn verify-audit --push" in said, said
 
 
 def test_push_refuses_while_a_change_is_staged(tmp_path, monkeypatch):
@@ -3032,7 +3032,7 @@ def test_push_fails_for_a_tag_wrong_here(tmp_path, monkeypatch):
 
     assert tags_in(repo)[tag] == here and tags_in(origin)[tag] == there
     assert any(tag in line and "its message was not the derived one" in line for line in printed), printed
-    assert any("verify-audit --write" in line for line in printed), printed
+    assert any("yarn verify-audit --write" in line for line in printed), printed
 
 
 def test_push_moves_only_origins_branch_here(tmp_path, monkeypatch):
@@ -3127,7 +3127,7 @@ def test_push_fails_for_a_correct_copy_origin_holds_as_another_object(tmp_path, 
     assert tags_in(origin)[tag] == tags_in(first)[tag], "origin's copy stays"
     assert tags_in(second)[tag] == own, "and so does this clone's"
     assert any(tag in line and "what the record derives" in line for line in printed), printed
-    assert any("verify-audit --pull" in line for line in printed), printed
+    assert any("yarn verify-audit --pull" in line for line in printed), printed
 
     assert recover.pull(second, say=recover.Printer(0)) == 0
     assert tags_in(second)[tag] == tags_in(origin)[tag]
@@ -3157,7 +3157,7 @@ def test_push_fails_for_an_origin_copy_this_clone_never_held(tmp_path, monkeypat
 
     assert tags_in(origin)[tag] == tags_in(first)[tag] and tags_in(second)[tag] == own, "nothing changed"
     assert any(tag in line and "never held" in line for line in printed), printed
-    assert any("verify-audit --pull" in line for line in printed), printed
+    assert any("yarn verify-audit --pull" in line for line in printed), printed
 
 
 def test_pull_takes_origins_copy_of_a_deployment_tag(tmp_path, monkeypatch):
@@ -3343,7 +3343,7 @@ def test_push_fails_for_a_commit_on_an_origin_branch_not_held_here(tmp_path, mon
 
     assert tags_in(origin) == {}, "nothing is pushed"
     assert any(deployment_tag(deployed_b) in line and on_side[:10] in line for line in printed), printed
-    assert any("verify-audit --pull" in line for line in printed), printed
+    assert any("yarn verify-audit --pull" in line for line in printed), printed
 
     assert recover.pull(repo, say=recover.Printer(0)) == 0
     assert recover.publish(repo, say=recover.Printer(0)) == 0
@@ -3533,7 +3533,7 @@ def test_nothing_goes_while_a_tag_is_not_what_the_record_derives(tmp_path, monke
     assert tags_in(origin) == {}, "not B's tag, whose commit origin holds"
     assert git_out(origin, "rev-parse", "refs/heads/main") == on_origin, "nor the branch"
     assert any(tag in line and "it is not here" in line for line in printed), printed
-    assert any("verify-audit --write" in line for line in printed), printed
+    assert any("yarn verify-audit --write" in line for line in printed), printed
 
 
 def test_nothing_goes_while_a_label_is_in_error(tmp_path, monkeypatch):
@@ -4213,7 +4213,7 @@ def test_push_deletes_on_origin_only_the_copy_it_looked_at(tmp_path, monkeypatch
 
     assert tags_in(origin)[stale][1] == "tag", "the other clone's copy stays"
     assert deployment_tag() not in tags_in(origin), "and the replacement does not land without the deletion"
-    assert any(stale in line and "verify-audit --pull" in line for line in printed), printed
+    assert any(stale in line and "yarn verify-audit --pull" in line for line in printed), printed
 
 
 def test_push_keeps_a_replaced_tag_whose_replacement_origin_refused(tmp_path, monkeypatch):
@@ -4417,7 +4417,7 @@ def test_push_fails_for_a_tag_this_clone_lacks(tmp_path, monkeypatch):
 
     assert tags_in(origin) == {} and tag not in tags_in(repo)
     assert any(tag in line and "it is not here" in line for line in printed), printed
-    assert any("verify-audit --write" in line for line in printed), printed
+    assert any("yarn verify-audit --write" in line for line in printed), printed
 
 
 def test_a_stale_tag_origin_lacks_is_deleted_only_here(tmp_path, monkeypatch):
@@ -4596,7 +4596,7 @@ def test_a_clone_that_loses_the_race_says_to_pull(tmp_path, monkeypatch):
 
     assert tags_in(origin)[tag] == tags_in(winner)[tag], "the winner's tag stands on origin"
     assert tags_in(loser)[tag] == own, "and the loser's own is unchanged"
-    assert any(tag in line and "verify-audit --pull" in line for line in printed), printed
+    assert any(tag in line and "yarn verify-audit --pull" in line for line in printed), printed
 
     assert recover.pull(loser, say=recover.Printer(0)) == 0
     assert tags_in(loser)[tag] == tags_in(winner)[tag]
@@ -4660,7 +4660,7 @@ def test_a_lost_race_to_a_tag_that_is_still_wrong_fails_and_names_it(tmp_path, m
     assert recover.publish(repo, say=recover.Printer(0, printed.append)) == 1
 
     assert tags_in(origin)[tag][1] == "commit", "the other tag was not forced over"
-    assert any(tag in line and "verify-audit --pull" in line for line in printed), printed
+    assert any(tag in line and "yarn verify-audit --pull" in line for line in printed), printed
 
     assert recover.pull(repo, say=recover.Printer(0)) == 0
     assert recover.run(repo, say=recover.Printer(0), write=True) == 0

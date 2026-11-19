@@ -1145,7 +1145,7 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer) -> str:
                 say(0, f"  {tag}: the record no longer derives it")
             for line in stale_repair(others, None):
                 say(0, f"  {line}")
-            say(0, "  Then run verify-audit --write again")
+            say(0, "  Then run yarn verify-audit --write again")
         labels = read_labels(root)
         derived = derived_tags(recorded)
         missing = [tag for tag in derived if tag not in labels]
@@ -1179,9 +1179,9 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer) -> str:
             say(0, f"  {tag}: {problem}")
         if any(tag not in carried for tag in missing):
             say(0, "  This run added an empty entry for each tag that had none.")
-            say(0, "  Write each label there, then run verify-audit --write again")
+            say(0, "  Write each label there, then run yarn verify-audit --write again")
         else:
-            say(0, f"  Correct them in {LABELS}, then run verify-audit --write again")
+            say(0, f"  Correct them in {LABELS}, then run yarn verify-audit --write again")
     if made.created:
         say(0, f"\ncreated {len(made.created)} tag(s):")
         for tag in made.created:
@@ -1198,7 +1198,7 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer) -> str:
         say(0, f"\ndeleted {len(deleted.deleted)} replaced tag(s):")
         for tag, replacement in deleted.deleted:
             say(0, f"  {tag}: replaced by {replacement}, deleted here")
-        say(0, "  verify-audit --push deletes them on origin, where it holds them")
+        say(0, "  yarn verify-audit --push deletes them on origin, where it holds them")
     if deleted.kept:
         say(0, f"\n{len(deleted.kept)} replaced tag(s) kept until the tag replacing each is in place:")
         for tag in deleted.kept:
@@ -1210,9 +1210,9 @@ def _tag_step(root: Path, baselines: Iterable[Baseline], say: Printer) -> str:
     changed = [] if errors or still_held else _uncommitted(root)
     if changed:
         files = " and ".join(changed)
-        say(0, f"\nnext: check the tags and {files}, commit {files}, then run verify-audit --push")
+        say(0, f"\nnext: check the tags and {files}, commit {files}, then run yarn verify-audit --push")
     elif not errors and not still_held and (made.created or made.corrected or deleted.deleted):
-        say(0, "\nnext: check the tags, then run verify-audit --push")
+        say(0, "\nnext: check the tags, then run yarn verify-audit --push")
     left = [f"{len(still_held)} {held_stale}"] if still_held else []
     # A label error names either a tag the record derives, which is then not made, or an entry naming no tag.
     left += [
@@ -1260,14 +1260,14 @@ def publish(root: Path, *, say: Printer) -> int:
         say(0, f"{len(changed)} path(s) have changes not committed, so nothing was pushed:")
         for line in changed:
             say(0, f"  {line[3:]}")
-        say(0, "`git status` shows each change. Commit or stash them, then run verify-audit --push again.")
+        say(0, "`git status` shows each change. Commit or stash them, then run yarn verify-audit --push again.")
         return 1
     found = review(root)
     if found.unrecovered:
         say(0, f"{len(found.unrecovered)} deployed contract(s) have no baseline, so no tag was pushed:")
         for entry in found.unrecovered:
             say(0, f"  {key(entry.chain_id, entry.address)}  {entry.name}")
-        say(0, "Run verify-audit --write to record them, commit, then run verify-audit --push again.")
+        say(0, "Run yarn verify-audit --write to record them, commit, then run yarn verify-audit --push again.")
         return 1
     recorded = [*found.recorded, *found.orphaned]
     with _stage("tags", "push the tags", say):
@@ -1288,7 +1288,7 @@ def publish(root: Path, *, say: Printer) -> int:
             say(0, f"\norigin holds {len(unheld)} deployment tag(s) this clone cannot read, so no tag was pushed:")
             for tag in unheld:
                 say(0, f"  {tag}: origin's copy is an object this clone has never held")
-            say(0, "  Run verify-audit --pull, then verify-audit --push again")
+            say(0, "  Run yarn verify-audit --pull, then yarn verify-audit --push again")
             say(
                 0, f"\n{_failing([f'{len(unheld)} deployment tag(s) on origin are objects this clone has never held'])}"
             )
@@ -1315,7 +1315,7 @@ def publish(root: Path, *, say: Printer) -> int:
                 [tag for tag in others if tag in held_here], [tag for tag in others if tag in origin]
             ):
                 say(0, f"  {line}")
-            say(0, "  Then run verify-audit --push again")
+            say(0, "  Then run yarn verify-audit --push again")
             here = sum(tag in held_here for tag in others)
             left = [f"{here} deployment tag(s) the record no longer derives are held here"] if here else []
             if there := len(others) - here:
@@ -1328,7 +1328,10 @@ def publish(root: Path, *, say: Printer) -> int:
             say(0, f"\n{len(errors)} problem(s) with {LABELS}, so nothing was pushed:")
             for tag, problem in errors:
                 say(0, f"  {tag}: {problem}")
-            say(0, f"  Correct them in {LABELS}, run verify-audit --write, commit, then verify-audit --push again")
+            say(
+                0,
+                f"  Correct them in {LABELS}, run yarn verify-audit --write, commit, then yarn verify-audit --push again",
+            )
             left = [
                 f"{count} {what}"
                 for count, what in (
@@ -1358,20 +1361,20 @@ def publish(root: Path, *, say: Printer) -> int:
         say(0, f"\norigin holds what this clone has not taken, for {len(sent.to_pull)} tag(s), so nothing was pushed:")
         for tag, why in sent.to_pull:
             say(0, f"  {tag}: {why}")
-        say(0, "  Run verify-audit --pull, then verify-audit --push again")
+        say(0, "  Run yarn verify-audit --pull, then yarn verify-audit --push again")
     if sent.to_write:
         say(0, f"\n{len(sent.to_write)} tag(s) here are not what the record derives, so nothing was pushed:")
         for tag, faults in sent.to_write:
             say(0, f"  {tag}: {faults}")
-        say(0, "  Run verify-audit --write, then verify-audit --push again")
+        say(0, "  Run yarn verify-audit --write, then yarn verify-audit --push again")
     if sent.waiting:
         say(0, f"\n{len(sent.waiting)} tag(s) name a commit neither origin nor {branch} holds, so nothing was pushed:")
         for tag, commit, branches in sent.waiting:
             where = f"on {', '.join(branches)}" if branches else "on no branch"
-            say(0, f"  {tag}: {commit[:10]} is {where}. Push it, then run verify-audit --push again")
+            say(0, f"  {tag}: {commit[:10]} is {where}. Push it, then run yarn verify-audit --push again")
     if sent.behind:
         say(0, f"\norigin's {branch} is at {sent.behind[:10]}, which this clone's {branch} does not contain,")
-        say(0, "so nothing was pushed. Run git pull, then verify-audit --push again")
+        say(0, "so nothing was pushed. Run git pull, then yarn verify-audit --push again")
     if sent.refused:
         say(0, "\norigin refused the push, so nothing changed there:")
         for name, why in sent.refused:

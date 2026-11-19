@@ -1064,7 +1064,7 @@ def test_a_tag_only_origin_holds_fails_the_audit_until_pulled(fix):
     status, output = fix.verify_audit("deploy/*")
     assert status == 1, output
     assert "deploy/cut-elsewhere: not here" in output
-    assert "verify-audit --pull" in output
+    assert "yarn verify-audit --pull" in output
 
     status, output = fix.verify_audit("--pull")
     assert status == 0, output
@@ -1084,7 +1084,7 @@ def test_the_older_audit_fails_for_a_tag_origin_holds_as_another_object(fix):
     status, output = fix.verify_audit("deploy/*")
     assert status == 1, output
     assert "deploy/test: here as another object" in output
-    assert "verify-audit --pull" in output
+    assert "yarn verify-audit --pull" in output
 
     status, output = fix.verify_audit("--pull")
     assert status == 0, output
@@ -1140,7 +1140,7 @@ def test_a_revision_missing_locally_names_the_pull_to_run(fix):
     status, output = fix.verify_audit("deploy/not-here-yet")
     assert status != 0, output
     assert "deploy/not-here-yet" in output
-    assert "verify-audit --pull" in output
+    assert "yarn verify-audit --pull" in output
 
 
 def test_a_patterns_match_count_is_reported(fix):
@@ -1568,7 +1568,7 @@ def test_a_missing_deployment_tag_fails_and_names_its_repair(fix):
     assert any(_DEPLOYMENT_TAG in line and "not here" in line for line in output.splitlines()), (
         "it names the tag, and says what is wrong"
     )
-    assert "verify-audit --pull --write" in output and "verify-audit --push" in output, (
+    assert "yarn verify-audit --pull --write" in output and "yarn verify-audit --push" in output, (
         "and how to repair it, which is never a git tag by hand"
     )
     assert "git push" not in output, "`--push` sends the branch with the tags"
@@ -1628,7 +1628,7 @@ def test_the_check_fails_on_a_lightweight_deployment_tag(fix):
 
     assert status == 1, output
     assert tag in output and "lightweight" in output, output
-    assert "verify-audit --pull --write" in output, "with the repair"
+    assert "yarn verify-audit --pull --write" in output, "with the repair"
 
 
 def test_the_check_fails_on_a_tag_dated_otherwise(fix):
@@ -1701,10 +1701,14 @@ def test_the_check_reports_a_stale_deployment_tag(fix):
     assert stale in output and "no longer derives" in output, output
 
 
-def test_the_check_says_to_delete_a_stale_tag_on_origin_first(fix):
-    # A stale tag on a commit no derived tag is on, so not one the tool replaces. The check reads only this
-    # clone, so it cannot know whether origin holds it. Where origin does, the next fetch brings it back, so
-    # the repair gives origin's deletion first, and says why.
+def _commands(output: str) -> list[str]:
+    """The lines of `output` that are a command to type, as printed: each on its own line, indented."""
+    return [line.strip() for line in output.splitlines() if line.strip().startswith(("git ", "yarn "))]
+
+
+def test_the_check_says_deleting_a_tag_on_another_commit_is_yours(fix):
+    # A stale tag on a commit no derived tag is on, so not one the tool replaces, and held only here. The check asks
+    # origin, which lacks it, so the repair is the one deletion here, and says the deletion is the person's.
     _recorded(fix)
     made, making = fix.verify_audit("--write")
     assert made == 0, making
@@ -1715,27 +1719,99 @@ def test_the_check_says_to_delete_a_stale_tag_on_origin_first(fix):
     status, output = fix.verify_audit()
 
     assert status == 1, output
-    lines = output.splitlines()
-    there = [i for i, line in enumerate(lines) if f"git push origin --delete refs/tags/{stale}" in line]
-    here = [i for i, line in enumerate(lines) if f"git tag -d {stale}" in line]
-    assert there and here and there[0] < here[0], output
-    assert "the next fetch brings it back" in output, output
+    assert "deleting it is yours" in output and "Only this clone holds it." in output, output
+    assert _commands(output) == [f"git tag -d {stale}"], output
 
 
-def test_the_check_says_write_deletes_the_tags_it_replaces(fix):
-    # A lightweight tag of the earlier naming, on the derived tag's commit: one the tool replaces, so the
-    # repair is the tool's, not a deletion by hand.
+def test_the_check_says_to_delete_an_old_name_only_this_clone_holds(fix):
+    # A lightweight tag of the earlier naming, on its replacement's commit, held only here: deleting it loses
+    # nothing, so the repair is the one git command, with nothing to push. Typed as printed, the check passes.
     head = _recorded(fix)
     made, making = fix.verify_audit("--write")
     assert made == 0, making
-    stale = f"deploy/mainnet/state@{head[:10]}"
-    fix.git("tag", stale, head)
+    old = f"deploy/mainnet/state@{head[:10]}"
+    fix.git("tag", old, head)
 
     status, output = fix.verify_audit()
 
     assert status == 1, output
-    assert stale in output and "verify-audit --write" in output and "verify-audit --push" in output, output
-    assert f"git tag -d {stale}" not in output, "not a deletion by hand"
+    assert f"{old} is now {_DEPLOYMENT_TAG}, on the same commit." in output, output
+    assert "Only this clone holds it." in output, output
+    assert _commands(output) == [f"git tag -d {old}"], output
+    subprocess.run(_commands(output)[0], shell=True, cwd=fix.work, check=True, capture_output=True)
+    passed, after = fix.verify_audit()
+    assert passed == 0, after
+
+
+def test_the_check_says_to_delete_an_old_name_on_origin_first(fix):
+    # The old name here and on origin, its replacement on both: origin's deletion first, since while origin holds a
+    # tag each fetch brings it back here, and the repair says so.
+    head = _recorded(fix)
+    made, making = fix.verify_audit("--write")
+    assert made == 0, making
+    old = f"deploy/mainnet/state@{head[:10]}"
+    fix.git("tag", old, head)
+    fix.git("push", "-q", "origin", f"refs/tags/{old}", f"refs/tags/{_DEPLOYMENT_TAG}")
+
+    status, output = fix.verify_audit()
+
+    assert status == 1, output
+    assert "This clone and origin hold it." in output and "each fetch brings it back" in output, output
+    assert _commands(output) == [f"git push origin --delete refs/tags/{old}", f"git tag -d {old}"], output
+
+
+def test_the_check_says_write_makes_a_missing_replacement(fix):
+    # The old name here, its replacement not: deleting the old name would leave the deploy's commit with no
+    # deployment tag, so the repair is `--write`, which makes the replacement and then deletes the old name. Run, the
+    # check passes.
+    head = _recorded(fix)
+    made, making = fix.verify_audit("--write")
+    assert made == 0, making
+    old = f"deploy/mainnet/state@{head[:10]}"
+    fix.git("tag", old, head)
+    fix.git("tag", "-d", _DEPLOYMENT_TAG)
+
+    status, output = fix.verify_audit()
+
+    assert status == 1, output
+    assert f"{_DEPLOYMENT_TAG} is not here" in output, output
+    assert "yarn verify-audit --write" in _commands(output), output
+    remade, remaking = fix.verify_audit("--write")
+    assert remade == 0, remaking
+    passed, after = fix.verify_audit()
+    assert passed == 0, after
+
+
+def test_the_check_deletes_only_here_when_origin_cannot_be_asked(fix):
+    # Whether origin holds the old name cannot be known, so the repair deletes it here only, says why in git's
+    # words, and says to run the check again once origin answers.
+    head = _recorded(fix)
+    made, making = fix.verify_audit("--write")
+    assert made == 0, making
+    old = f"deploy/mainnet/state@{head[:10]}"
+    fix.git("tag", old, head)
+    nowhere = fix.root / "not-a-repository"
+    fix.git("remote", "set-url", "origin", str(nowhere))
+
+    status, output = fix.verify_audit()
+
+    assert status == 1, output
+    assert "origin could not be asked" in output and str(nowhere) in output, output
+    assert "This clone holds it. Whether origin does is not known." in output, output
+    assert _commands(output) == [f"git tag -d {old}"], output
+    assert "run yarn verify-audit again" in output, output
+
+
+def test_the_check_asks_origin_only_for_an_old_name(fix):
+    # A check with nothing to report never reaches origin: it passes with origin out of reach.
+    _recorded(fix)
+    made, making = fix.verify_audit("--write")
+    assert made == 0, making
+    fix.git("remote", "set-url", "origin", str(fix.root / "not-a-repository"))
+
+    status, output = fix.verify_audit()
+
+    assert status == 0, output
 
 
 def test_write_refuses_on_a_detached_head(fix):
@@ -1823,7 +1899,7 @@ def test_write_and_push_together_refuse_the_push_when_the_record_changed(fix):
     status, output = fix.verify_audit("--write", "--push")
 
     assert status == 1, output
-    assert "not committed" in output and "verify-audit --push" in output, output
+    assert "not committed" in output and "yarn verify-audit --push" in output, output
     assert fix.git("tag", "--points-at", head) != "", "the tag is made here"
     assert fix.git("ls-remote", "--tags", "origin") == "", "and not pushed"
 
@@ -1888,7 +1964,7 @@ def test_a_conflicted_record_is_reported_with_its_repair(fix):
 
     assert status == 1, output
     assert "deployed.json" in output and "conflict" in output, output
-    assert "git checkout --ours deployed.json" in output and "verify-audit --write" in output, output
+    assert "git checkout --ours deployed.json" in output and "yarn verify-audit --write" in output, output
     assert "Traceback" not in output
     status, output = fix.verify_audit("--write", cwd=other)
     assert status == 1 and "conflict" in output, "--write reads the record first, and stops the same way"

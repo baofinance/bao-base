@@ -2521,7 +2521,7 @@ def test_deployment_tags_lists_each_one_origin_lacks(tmp_path):
     problems = doctor.deployment_tag_problems(repo)
 
     assert len(problems) == 1, problems
-    assert tags[1] in problems[0] and "verify-audit --push" in problems[0], problems
+    assert tags[1] in problems[0] and "yarn verify-audit --push" in problems[0], problems
     assert tags[0] not in problems[0], problems
 
 
@@ -2540,8 +2540,9 @@ def test_deployment_tags_lists_one_origin_holds_differently(tmp_path):
 
 
 def test_deployment_tags_lists_a_stale_tag_origin_holds(tmp_path):
-    # Two names the record no longer derives: one the tool replaces - lightweight, on its replacement's
-    # commit - which `--push` deletes; and one on another commit, whose deletion is the person's.
+    # Two names the record no longer derives, held only on origin: one the tool replaces - lightweight, on its
+    # replacement's commit, which origin also holds - so deleting it loses nothing; and one on another commit, whose
+    # deletion is the person's. Each repair is the one push that deletes it there.
     repo, origin, head, tags = _deploying_repo(tmp_path)
     _git(repo, "push", "-q", "origin", *(f"refs/tags/{tag}" for tag in tags))
     replaced = f"deploy/mainnet/one@{head[:10]}"
@@ -2555,8 +2556,77 @@ def test_deployment_tags_lists_a_stale_tag_origin_holds(tmp_path):
     assert len(problems) == 2, problems
     about_replaced = next(problem for problem in problems if replaced in problem)
     about_other = next(problem for problem in problems if other in problem)
-    assert "verify-audit --push" in about_replaced and tags[0] in about_replaced, about_replaced
-    assert f"git push origin --delete refs/tags/{other}" in about_other, about_other
+    assert f"{replaced} is now {tags[0]}, on the same commit." in about_replaced, about_replaced
+    assert "Only origin holds it." in about_replaced, about_replaced
+    assert _the_repair(about_replaced) == f"git push origin --delete refs/tags/{replaced}", about_replaced
+    assert "deleting it is yours" in about_other, about_other
+    assert _the_repair(about_other) == f"git push origin --delete refs/tags/{other}", about_other
+
+
+def test_deployment_tags_lists_an_old_name_only_this_clone_holds(tmp_path):
+    # A tag of the earlier naming, by commit, on its replacement's commit, and held only in this clone, as a fetch
+    # leaves one after origin's copy is deleted. verify-audit fails on it, so doctor reports it: its repair is the
+    # one deletion here, and typed, it leaves nothing to report.
+    repo, origin, head, tags = _deploying_repo(tmp_path)
+    _git(repo, "push", "-q", "origin", *(f"refs/tags/{tag}" for tag in tags))
+    old = f"deploy/mainnet/one@{head[:10]}"
+    _git(repo, "tag", old, head)
+
+    (finding,) = doctor.deployment_tag_problems(repo)
+
+    assert f"{old} is now {tags[0]}, on the same commit." in finding, finding
+    assert "Only this clone holds it." in finding, finding
+    assert _the_repair(finding) == f"git tag -d {old}", finding
+    _typed(repo, _the_repair(finding))
+    assert doctor.deployment_tag_problems(repo) == []
+
+
+def test_deployment_tags_deletes_an_old_name_on_origin_first(tmp_path):
+    # The old name here and on origin, its replacement on both. Origin's copy goes first: while origin holds it, each
+    # fetch brings it back here. Both deletions lose nothing, so both are plain git, and typed, nothing is left.
+    repo, origin, head, tags = _deploying_repo(tmp_path)
+    old = f"deploy/mainnet/one@{head[:10]}"
+    _git(repo, "tag", old, head)
+    _git(repo, "push", "-q", "origin", *(f"refs/tags/{tag}" for tag in [*tags, old]))
+
+    (finding,) = doctor.deployment_tag_problems(repo)
+
+    assert "This clone and origin hold it." in finding and "each fetch brings it back" in finding, finding
+    assert _the_repair(finding) == f"git push origin --delete refs/tags/{old}, then git tag -d {old}", finding
+    for step in _steps(_the_repair(finding)):
+        _typed(repo, step)
+    assert doctor.deployment_tag_problems(repo) == []
+
+
+def test_deployment_tags_has_the_tool_make_and_send_a_missing_replacement(tmp_path):
+    # The old name here and on origin, its replacement in neither: deleting the old name would leave the deploy's
+    # commit with no deployment tag. `--write` makes the replacement here and deletes the old name; `--push` then
+    # sends the replacement and deletes the old name on origin, in one push. So `--write` comes first.
+    repo, origin, head, tags = _deploying_repo(tmp_path)
+    old = f"deploy/mainnet/one@{head[:10]}"
+    _git(repo, "tag", old, head)
+    _git(repo, "push", "-q", "origin", f"refs/tags/{old}", f"refs/tags/{tags[1]}")
+    _git(repo, "tag", "-d", tags[0])
+
+    problems = doctor.deployment_tag_problems(repo)
+
+    about_old = next(problem for problem in problems if problem.startswith(old))
+    assert f"{tags[0]} is not here" in about_old and f"Origin does not hold {tags[0]}" in about_old, about_old
+    assert _the_repair(about_old) == "yarn verify-audit --write, then yarn verify-audit --push", about_old
+
+
+def test_deployment_tags_has_the_tool_send_a_replacement_origin_lacks(tmp_path):
+    # The old name here and on origin, its replacement only here: `--push` sends the replacement and deletes the old
+    # name on origin in one push. Here the replacement is in place, so this clone's copy is a plain deletion.
+    repo, origin, head, tags = _deploying_repo(tmp_path)
+    old = f"deploy/mainnet/one@{head[:10]}"
+    _git(repo, "tag", old, head)
+    _git(repo, "push", "-q", "origin", f"refs/tags/{old}", f"refs/tags/{tags[1]}")
+
+    problems = doctor.deployment_tag_problems(repo)
+
+    about_old = next(problem for problem in problems if problem.startswith(old))
+    assert _the_repair(about_old) == f"yarn verify-audit --push, then git tag -d {old}", about_old
 
 
 def test_deployment_tags_fails_when_origin_cannot_be_asked(tmp_path):
@@ -3238,18 +3308,37 @@ def test_a_stale_deployment_tags_repair_typed_where_doctor_ran_deletes_it_on_ori
 
     (finding,) = doctor.deployment_tag_problems(host, placed.here)
 
-    _typed(placed.typed, _the_repair(finding).removeprefix("deleting it is yours: "))
+    _typed(placed.typed, _the_repair(finding))
+    assert doctor.deployment_tag_problems(host, placed.here) == []
+
+
+@pytest.mark.parametrize("place", _PLACES)
+def test_an_old_names_repair_typed_where_doctor_ran_deletes_it_here_and_on_origin(tmp_path, place):
+    # A tag of the earlier naming, here and on origin, with its replacement on both: each deletion, typed where doctor
+    # was, acts on the project's repository.
+    placed = _placed_host(tmp_path, place)
+    host = placed.host
+    head, tags = _two_deploys_recorded(host)
+    old = f"deploy/mainnet/one@{head[:10]}"
+    _git(host, "tag", old, head)
+    _git(host, "push", "-q", "origin", *(f"refs/tags/{tag}" for tag in [*tags, old]))
+
+    (finding,) = doctor.deployment_tag_problems(host, placed.here)
+
+    for step in _steps(_the_repair(finding)):
+        _typed(placed.typed, step)
     assert doctor.deployment_tag_problems(host, placed.here) == []
 
 
 @pytest.mark.parametrize("place", _PLACES)
 def test_each_deployment_tag_repair_runs_the_projects_own_script_from_where_doctor_ran(tmp_path, place):
-    # A tag origin lacks, one origin holds another copy of, and one the tool replaces. Each repair runs a yarn script
-    # of the project, which typed where doctor was must run in the project's folder. yarn is not run here.
+    # A tag origin lacks, one origin holds another copy of, and one the tool replaces whose replacement origin lacks.
+    # Each repair runs a yarn script of the project, which typed where doctor was must run in the project's folder.
+    # yarn is not run here.
     placed = _placed_host(tmp_path, place)
     host = placed.host
     head, tags = _two_deploys_recorded(host)
-    _git(host, "push", "-q", "origin", f"{head}:refs/tags/{tags[0]}")
+    _git(host, "push", "-q", "origin", f"{head}:refs/tags/{tags[1]}")
     _git(host, "push", "-q", "origin", f"{head}:refs/tags/deploy/mainnet/one@{head[:10]}")
 
     findings = doctor.deployment_tag_problems(host, placed.here)
