@@ -51,6 +51,13 @@ gas_reports_ignore = [
   "MockImplementationWithState",
 ]
 
+# The compiler: at most 0.8.30, for every file. The pragmas allow later versions, and one test fixture pins 0.8.28,
+# so no single version satisfies every file. Without this cap forge splits a build and gives part of it the newest
+# compiler installed (tests/toolchain/test_solc_version_choice.py).
+[[profile.default.compilation_restrictions]]
+paths = "**/*.sol"
+version = "<=0.8.30"
+
 [lint]
 exclude_lints = [
   "mixed-case-function",
