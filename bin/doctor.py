@@ -807,6 +807,63 @@ def deny_warnings_problems(repo_root: Path) -> list[str]:
     )
 
 
+def _compiler_caps_for_every_file(root: Path) -> list[str]:
+    """The compiler versions `forge config` at `root` allows every file: the `version` of each `compilation_restrictions`
+    entry whose `paths` is `**/*.sol`, sorted."""
+    return sorted(
+        entry["version"]
+        for entry in forge_config(root).get("compilation_restrictions", [])
+        if entry.get("paths") == "**/*.sol" and entry.get("version")
+    )
+
+
+def compiler_cap_problems(repo_root: Path, bao_base_root: Path | None) -> list[str]:
+    """Whether the project caps the compiler for every file as its bao-base does. The pragmas alone do not decide the
+    compiler: where no single version satisfies every file, forge splits a build and gives part of it the newest
+    compiler installed. bao-base caps the compiler with a `compilation_restrictions` entry whose `paths` is
+    `**/*.sol`, and its sources are tested with the version that cap allows. The project builds those sources too.
+    Read from `forge config`, in the project and in `bao_base_root`, the bao-base it has. Returns one finding, or []
+    when the two caps are the same."""
+    if bao_base_root is None:
+        return [
+            "doctor finds no bao-base in this project, so it cannot tell which compiler bao-base's sources are tested with"
+        ]
+    wanted = _compiler_caps_for_every_file(bao_base_root)
+    if not wanted and bao_base_root.resolve() == repo_root.resolve():
+        return [
+            "forge config gives no compiler cap for every file, so a build can give part of bao-base the newest "
+            "compiler installed\n"
+            "  Repair: in foundry.toml, after [profile.default]'s keys, add:\n"
+            '    [[profile.default.compilation_restrictions]]\n    paths = "**/*.sol"\n'
+            '    version = "<=" and the compiler version the tests run'
+        ]
+    if not wanted:
+        where = bao_base_root.relative_to(repo_root)
+        return [
+            f"forge config in bao-base ({where}) gives no compiler cap for every file, so doctor cannot tell which "
+            "compiler bao-base's sources are tested with\n"
+            f"  Repair: move {where} to a bao-base commit whose foundry.toml caps the compiler for every file"
+        ]
+    caps = _compiler_caps_for_every_file(repo_root)
+    if caps == wanted:
+        return []
+    found = (
+        f"forge config caps the compiler for every file at {' and '.join(caps)}"
+        if caps
+        else "forge config gives no compiler cap for every file"
+    )
+    entries = "\n".join(
+        f'    [[profile.default.compilation_restrictions]]\n    paths = "**/*.sol"\n    version = "{version}"'
+        for version in wanted
+    )
+    return [
+        f"{found}, where bao-base caps it at {' and '.join(wanted)}, so bao-base's sources are built with a compiler "
+        "they were not tested with\n"
+        f"  Repair: in foundry.toml, after [profile.default]'s keys, make the entry for every file bao-base's:\n{entries}\n"
+        "  If foundry.toml already says so, FOUNDRY_PROFILE selects another profile."
+    ]
+
+
 def foundry_lock_problems(repo_root: Path, here: Here | None = None) -> list[str]:
     """A foundry.lock in the index or the working tree. forge writes one whenever it installs: on `forge
     install` and `forge update`, recording which branch or tag each dependency came from, and when build, test,
@@ -1607,6 +1664,15 @@ def build_checks(
             "hand, and the build a script makes before it runs",
             "a warning the gas run would fail on passes unseen in a build by hand or in a deploy",
             deny_warnings_problems(repo_root),
+        ),
+        Check(
+            "the compiler cap is bao-base's",
+            "The pragmas alone do not decide the compiler. Where no single version satisfies every file, forge splits "
+            "a build and gives part of it the newest compiler installed. bao-base caps the compiler for every file, "
+            "and its sources are tested with the version that cap allows. This project builds those sources too",
+            "a build, a deploy's included, can compile part of the project, bao-base's sources among it, with a "
+            "compiler nothing was tested with, and which compiler depends on the computer",
+            compiler_cap_problems(repo_root, bao_base_root),
         ),
         Check(
             "wake.toml has the same remappings as foundry.toml",

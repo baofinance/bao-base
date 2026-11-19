@@ -1631,6 +1631,91 @@ def test_deny_warnings_reads_what_forge_resolves_not_the_file(tmp_path, monkeypa
     assert 'forge config gives deny = "never"' in problems[0], problems[0]
 
 
+# ── compiler_cap_problems: the compiler cap is bao-base's ──
+#
+# Where no single version satisfies every file, forge splits a build and gives part of it the newest compiler
+# installed. bao-base caps the compiler for every file, and a project that builds bao-base's sources caps it the same.
+# Read from what `forge config` resolves in a project and in a bao-base, each built in tmp_path.
+def _with_compiler_cap(repo: pathlib.Path, paths: str, version: str) -> pathlib.Path:
+    return _with_foundry_toml(
+        repo, f'\n[[profile.default.compilation_restrictions]]\npaths = "{paths}"\nversion = "{version}"\n'
+    )
+
+
+def test_compiler_cap_clean_when_the_project_caps_it_as_bao_base_does(tmp_path):
+    bao_base = _with_compiler_cap(_forge_project(tmp_path / "bao-base", {}), "**/*.sol", "<=0.8.30")
+    project = _with_compiler_cap(_forge_project(tmp_path / "host", {}), "**/*.sol", "<=0.8.30")
+    assert doctor.compiler_cap_problems(project, bao_base) == []
+
+
+def test_compiler_cap_reported_when_the_project_has_none(tmp_path):
+    # the repair is bao-base's entry, with bao-base's version
+    bao_base = _with_compiler_cap(_forge_project(tmp_path / "bao-base", {}), "**/*.sol", "<=0.8.30")
+    project = _with_foundry_toml(_forge_project(tmp_path / "host", {}), "")
+    problems = doctor.compiler_cap_problems(project, bao_base)
+    assert len(problems) == 1
+    assert "forge config gives no compiler cap for every file, where bao-base caps it at <=0.8.30" in problems[0], (
+        problems[0]
+    )
+    assert '    paths = "**/*.sol"\n    version = "<=0.8.30"' in problems[0], problems[0]
+
+
+def test_compiler_cap_reported_when_the_project_caps_it_at_another_version(tmp_path):
+    bao_base = _with_compiler_cap(_forge_project(tmp_path / "bao-base", {}), "**/*.sol", "<=0.8.30")
+    project = _with_compiler_cap(_forge_project(tmp_path / "host", {}), "**/*.sol", "<=0.8.33")
+    problems = doctor.compiler_cap_problems(project, bao_base)
+    assert len(problems) == 1
+    assert (
+        "forge config caps the compiler for every file at <=0.8.33, where bao-base caps it at <=0.8.30" in problems[0]
+    ), problems[0]
+
+
+def test_compiler_cap_counts_only_an_entry_for_every_file(tmp_path):
+    # a cap on some paths leaves the compiler of every other file to forge
+    bao_base = _with_compiler_cap(_forge_project(tmp_path / "bao-base", {}), "**/*.sol", "<=0.8.30")
+    project = _with_compiler_cap(_forge_project(tmp_path / "host", {}), "src/**/*.sol", "<=0.8.30")
+    problems = doctor.compiler_cap_problems(project, bao_base)
+    assert len(problems) == 1
+    assert "forge config gives no compiler cap for every file" in problems[0], problems[0]
+
+
+def test_compiler_cap_reported_when_bao_base_has_none(tmp_path):
+    # with nothing to compare the project with, the question is unanswered, which is a finding, not a pass
+    bao_base = _with_foundry_toml(_forge_project(tmp_path / "host" / "lib" / "bao-base", {}), "")
+    project = _with_compiler_cap(_forge_project(tmp_path / "host", {}), "**/*.sol", "<=0.8.30")
+    problems = doctor.compiler_cap_problems(project, bao_base)
+    assert len(problems) == 1
+    assert (
+        "forge config in bao-base (lib/bao-base) gives no compiler cap for every file, so doctor cannot tell which "
+        "compiler bao-base's sources are tested with"
+    ) in problems[0], problems[0]
+    # the project repairs it by moving its bao-base, not by editing bao-base's files
+    assert (
+        "Repair: move lib/bao-base to a bao-base commit whose foundry.toml caps the compiler for every file"
+        in (problems[0])
+    ), problems[0]
+
+
+def test_compiler_cap_in_bao_base_itself_reported_when_it_has_none(tmp_path):
+    # bao-base's own run: the project is its own bao-base, and the repair is the entry itself
+    repo = _with_foundry_toml(_forge_project(tmp_path / "bao-base", {}), "")
+    problems = doctor.compiler_cap_problems(repo, repo)
+    assert len(problems) == 1
+    assert (
+        "forge config gives no compiler cap for every file, so a build can give part of bao-base the newest "
+        "compiler installed"
+    ) in problems[0], problems[0]
+    assert "Repair: in foundry.toml, after [profile.default]'s keys, add:" in problems[0], problems[0]
+    assert '    [[profile.default.compilation_restrictions]]\n    paths = "**/*.sol"\n' in problems[0], problems[0]
+
+
+def test_compiler_cap_reported_without_a_bao_base(tmp_path):
+    project = _with_compiler_cap(_forge_project(tmp_path / "host", {}), "**/*.sol", "<=0.8.30")
+    problems = doctor.compiler_cap_problems(project, None)
+    assert len(problems) == 1
+    assert "doctor finds no bao-base in this project" in problems[0], problems[0]
+
+
 # ── foundry_lock_problems: no foundry.lock, in the index or on disk ──
 #
 # forge writes the lock when it installs: on `forge install` and `forge update`, which git's own commands replace
@@ -2128,6 +2213,9 @@ def test_doctor_compares_a_project_with_its_own_bao_base(tmp_path):
     endpoints = "\n".join(found["every endpoint a fork names is in foundry.toml"])
     assert 'lib/bao-base/test/BaoTest.sol:1  "fixture-endpoint"' in endpoints, endpoints
     assert '"mainnet"' not in endpoints, "the running copy's BaoTest is not the project's"
+    # the running copy caps the compiler; the project's bao-base has no foundry.toml, so no cap
+    cap = "\n".join(found["the compiler cap is bao-base's"])
+    assert "forge config in bao-base (lib/bao-base) gives no compiler cap for every file" in cap, cap
 
 
 def test_a_project_declaring_no_bao_base_is_told_so_by_each_check_that_compares_with_it(tmp_path):
