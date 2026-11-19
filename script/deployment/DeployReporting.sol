@@ -148,12 +148,34 @@ abstract contract DeployReporting {
     // layer above which the rest of this contract sits. They are declared here anyway so that all the
     // permanently-uncovered message bodies share one file, and one coverage row.
 
-    /// @notice Nothing was queued, so there is nothing to save or execute.
-    function _reportNoTransactions() internal view virtual {
+    /// @notice Nothing is queued since the last batch saved: how many the run saved before, how many of them it has
+    ///         executed here, and who executes the rest - this run, as `executor`, or each batch's signer.
+    function _reportNoTransactions(
+        uint256 executed,
+        uint256 awaiting,
+        bool executesHere,
+        string memory executor
+    ) internal view virtual {
         if (!_shouldReport()) {
             return;
         }
-        console.log("No transactions queued - nothing to execute");
+        if (executed + awaiting == 0) {
+            console.log("No transactions queued: no batch saved, nothing to execute");
+            return;
+        }
+        console.log("No transactions queued since the last batch saved");
+        console.log("  Saved this run:", executed + awaiting);
+        if (executed != 0) {
+            console.log("  Executed here:", executed);
+        }
+        if (awaiting == 0) {
+            return;
+        }
+        if (executesHere) {
+            console.log("  To execute here now, as %s: %d", executor, awaiting);
+        } else {
+            console.log("  For each batch's signer to execute:", awaiting);
+        }
     }
 
     /// @notice The Safe batch file just written, and how many transactions it carries.

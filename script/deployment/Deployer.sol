@@ -54,6 +54,9 @@ abstract contract Deployer is FactoryDeployer {
 
     Transaction[] internal _transactions;
     Transaction[] internal _allTransactions; // flushed and awaiting local execution; drained by _executeQueued
+    /// @dev How many flushed transactions `_executeQueued` has executed in this run, across its calls. Reported, never
+    ///      consulted to decide what to do.
+    uint256 internal _executedCount;
     address private _signer;
 
     /// @notice A queued transaction's target had no code at execution time — a data-carrying call to a
@@ -156,7 +159,7 @@ abstract contract Deployer is FactoryDeployer {
     /// @dev Accumulate queued transactions; write batch JSON when batch files are enabled.
     function _saveAndExecute(string memory suffix, string memory description) internal {
         if (_transactions.length == 0) {
-            _reportNoTransactions();
+            _reportNoTransactions(_executedCount, _allTransactions.length, _executesHere(), _addressLabel(owner()));
             return;
         }
 
@@ -184,13 +187,16 @@ abstract contract Deployer is FactoryDeployer {
     ///      production multisig executing each saved batch once. A target with no code reverts: a
     ///      data-carrying call to a codeless address would return success without doing anything.
     ///      Test context: always runs with vm.startPrank(owner()).
-    ///      Script context: runs with vm.startBroadcast(owner()) only when EXECUTE_LOCAL=true.
+    ///      Script context: runs with vm.startBroadcast(owner()) only when EXECUTE_LOCAL=true (`_executesHere`).
     function _executeQueued() internal {
-        if (_allTransactions.length == 0) return;
+        if (_allTransactions.length == 0) {
+            return;
+        }
+        if (!_executesHere()) {
+            return;
+        }
 
         bool isTestGroup = _vm.isContext(VmSafe.ForgeContext.TestGroup);
-        if (!isTestGroup && !_vm.envOr("EXECUTE_LOCAL", false)) return;
-
         if (isTestGroup) {
             _vm.startPrank(owner());
         } else {
@@ -213,7 +219,15 @@ abstract contract Deployer is FactoryDeployer {
         } else {
             _vm.stopBroadcast();
         }
+        _executedCount += _allTransactions.length;
         delete _allTransactions;
+    }
+
+    /// @notice Whether this run executes its flushed transactions itself, as the owner: always under forge test, and in
+    ///         a script run only when EXECUTE_LOCAL is set, as run-script's --local sets it. Otherwise each saved batch
+    ///         is left for its signer to execute.
+    function _executesHere() internal view virtual returns (bool) {
+        return _vm.isContext(VmSafe.ForgeContext.TestGroup) || _vm.envOr("EXECUTE_LOCAL", false);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -81,6 +81,14 @@ contract TestableDeployer is Deployer {
         return _allTransactions.length;
     }
 
+    function executedCount() external view returns (uint256) {
+        return _executedCount;
+    }
+
+    function executesHere() external view returns (bool) {
+        return _executesHere();
+    }
+
     function getTransaction(uint256 i) external view returns (address target, bytes memory data, string memory desc) {
         return (_transactions[i].target, _transactions[i].data, _transactions[i].description);
     }
@@ -141,6 +149,15 @@ contract TestableDeployer is Deployer {
         if (buildTarget != address(0)) {
             queue(buildTarget, buildData, "build tx");
         }
+    }
+}
+
+/// @notice Deployer whose run leaves its saved batches for their signers, as a script run without EXECUTE_LOCAL does.
+contract NotExecutingHereDeployer is TestableDeployer {
+    constructor(address owner_) TestableDeployer(owner_) {}
+
+    function _executesHere() internal pure override returns (bool) {
+        return false;
     }
 }
 
@@ -430,6 +447,40 @@ contract DeployerTest is BaoTest {
     function test_executeQueued_emptyAllTransactions_isNoOp() public {
         // _executeQueued with nothing accumulated does not revert
         deployer.doExecuteQueued();
+    }
+
+    function test_executeQueued_countsWhatItExecutes_acrossCalls() public {
+        // the count of executed transactions starts at none, adds each call's flushed transactions, and does not move
+        // when a call finds nothing to execute
+        assertEq(deployer.executedCount(), 0, "none executed before any call");
+        deployer.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "first");
+        deployer.doFlush("", "");
+        deployer.doExecuteQueued();
+        assertEq(deployer.executedCount(), 1, "one executed by the first call");
+        deployer.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "second");
+        deployer.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "third");
+        deployer.doFlush("", "");
+        deployer.doExecuteQueued();
+        assertEq(deployer.executedCount(), 3, "two more executed by the second call");
+        deployer.doExecuteQueued();
+        assertEq(deployer.executedCount(), 3, "a call with nothing flushed executes nothing");
+        assertEq(mock.callCount(), 3, "the count is the calls made");
+    }
+
+    function test_executeQueued_notExecutingHere_executesAndCountsNothing() public {
+        // a run that leaves its batches for their signers neither executes nor counts, and keeps them flushed
+        NotExecutingHereDeployer leaving = new NotExecutingHereDeployer(testOwner);
+        leaving.doQueue(address(mock), abi.encodeCall(MockCallTarget.record, ()), "desc");
+        leaving.doFlush("", "");
+        leaving.doExecuteQueued();
+        assertEq(mock.callCount(), 0, "nothing executed");
+        assertEq(leaving.executedCount(), 0, "nothing counted");
+        assertEq(leaving.allTransactionCount(), 1, "the flushed transaction is still awaiting its signer");
+    }
+
+    function test_executesHere_underForgeTest() public view {
+        // under forge test a run executes its flushed transactions itself, whatever EXECUTE_LOCAL says
+        assertTrue(deployer.executesHere(), "a test executes here");
     }
 
     function test_executeQueued_pendingOnly_doesNotExecute() public {
