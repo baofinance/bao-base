@@ -1,16 +1,19 @@
 """`storage-successor --list-root-storage` on what the forge in use really writes.
 
-bin/validate runs this file, so it meets every forge version validate meets; the python test job meets only one. The
-list reads solc's storage layout from the build-info, and a contract with no root variables has no layout there at all.
-So a forge that stopped recording layouts would make every contract look clean. Compiling a contract with known root
-variables shows that has not happened.
+The list reads solc's storage layout from the build-info, and forge leaves out a layout that would be empty. So
+bin/validate adds bin/solidity/KnownRootVariablesCanary.sol to its build, and the listing refuses a build that lists no root
+variables for it. This test builds a project the same way, from the project's folder, with the real known contract
+named by its path from there, and lists it.
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parents[2] / "bin" / "storage-successor.py"
+BAO_BASE = Path(__file__).resolve().parents[2]
+SCRIPT = BAO_BASE / "bin" / "storage-successor.py"
+KNOWN_SOURCE = BAO_BASE / "bin" / "solidity" / "KnownRootVariablesCanary.sol"
 
 SOURCE = """// SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
@@ -32,32 +35,26 @@ contract OnlyNamespaced is Base {}
 """
 
 
-def test_root_variables_are_listed_and_namespaced_fields_are_not(tmp_path):
+def test_root_variables_are_listed_and_namespaced_fields_and_the_known_contract_are_not(tmp_path):
     (tmp_path / "foundry.toml").write_text("[profile.default]\n")
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "Storage.sol").write_text(SOURCE)
-    build_info = tmp_path / "build-info"
+    known = os.path.relpath(KNOWN_SOURCE, tmp_path)
 
-    # the flags that matter from bin/validate's build
+    # the build-info and the layouts, as bin/validate's build asks for them
     build = subprocess.run(
-        [
-            "forge",
-            "build",
-            "--root",
-            str(tmp_path),
-            "--build-info",
-            "--build-info-path",
-            str(build_info),
-            "--extra-output",
-            "storageLayout",
-        ],
+        ["forge", "build", "src", known]
+        + ["--build-info", "--build-info-path", "build-info", "--extra-output", "storageLayout"],
+        cwd=tmp_path,
         capture_output=True,
         text=True,
     )
     assert build.returncode == 0, build.stdout + build.stderr
 
     listed = subprocess.run(
-        [sys.executable, str(SCRIPT), str(build_info), "--list-root-storage"],
+        [sys.executable, str(SCRIPT), "build-info", "--list-root-storage"]
+        + ["--known-root-variables", f"{known}:KnownRootVariablesCanary"],
+        cwd=tmp_path,
         capture_output=True,
         text=True,
     )

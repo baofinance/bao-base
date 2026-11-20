@@ -574,25 +574,43 @@ def initializable_contracts(build_info):
     ]
 
 
-def root_storage(build_infos):
+def root_storage(build_infos, known):
     """'<source>:<Name> <variable> slot <slot> offset <offset>' for every root variable: a state variable solc
     places in sequential slots.
 
     bin/validate asks this to enforce namespace-only storage. It reads solc's own storage layout, which never lists
     an ERC-7201 namespaced field, rather than `forge inspect`, whose report can list them in the same array. forge
     leaves the layout out when it would be empty, so a contract with no root variables has none at all. That makes
-    a build that read nothing, or never asked for layouts, look clean, so both are refused."""
+    a build that read nothing, that never asked for layouts, or in which forge wrote none, look clean, so all three
+    are refused. `known` is '<source>:<Name>' of a contract built with the others that declares root variables
+    (validate builds bin/solidity/KnownRootVariablesCanary.sol): a build listing none for it is the third. Its own
+    variables are left out. Its source is compared as a resolved path, so `./x.sol` names the source forge records
+    as `x.sol`, and a contract of the same name in another file is listed like any other."""
+    known_source, known_name = known.rsplit(":", 1)
     compiled = [build_info for build_info in build_infos if "output" in build_info]
     if not compiled:
         sys.exit("storage-successor: no build-info holds compiled output")
     lines = []
+    known_layouts = []
     for build_info in compiled:
         if "storageLayout" not in build_info["input"]["settings"]["outputSelection"]["*"]["*"]:
             sys.exit("storage-successor: a build-info did not ask solc for storageLayout")
         for source, contracts in build_info["output"]["contracts"].items():
+            is_known_source = os.path.realpath(source) == os.path.realpath(known_source)
             for name, contract in contracts.items():
-                for entry in contract.get("storageLayout", {}).get("storage", []):
+                storage = contract.get("storageLayout", {}).get("storage", [])
+                if is_known_source and name == known_name:
+                    known_layouts.append(storage)
+                    continue
+                for entry in storage:
                     lines.append(f"{source}:{name} {entry['label']} slot {entry['slot']} offset {entry['offset']}")
+    if not known_layouts:
+        sys.exit(f"storage-successor: no build-info holds {known}")
+    if not any(known_layouts):
+        sys.exit(
+            f"storage-successor: the build-info lists no root variables for {known}, given as a contract that "
+            "declares them"
+        )
     return lines
 
 
@@ -1118,12 +1136,19 @@ def main(argv=None):
         action="store_true",
         help="print '<source>:<Name> <variable> slot <slot> offset <offset>' for each root variable (no probe build) and exit — for validate's namespace-only storage check",
     )
+    parser.add_argument(
+        "--known-root-variables",
+        metavar="SOURCE:NAME",
+        help="with --list-root-storage: a contract in the build that declares root variables; the listing refuses a build that lists none for it",
+    )
     args = parser.parse_args(argv)
+    if args.list_root_storage and not args.known_root_variables:
+        parser.error("--list-root-storage needs --known-root-variables")
 
     # every compiled build-info, not the latest: a repository using two solc versions has contracts in separate files
     build_infos = _compiled_build_infos(args.build_info_dir)
     if args.list_root_storage:
-        for line in root_storage(build_infos):
+        for line in root_storage(build_infos, args.known_root_variables):
             print(line)
         return 0
     if args.list:

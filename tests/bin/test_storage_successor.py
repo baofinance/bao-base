@@ -1859,8 +1859,9 @@ def test_another_namespace_does_not_count_as_initializable():
 # ── which contracts have root variables: the state variables solc places in sequential slots. bin/validate fails a
 #    production implementation that has any. solc's storage layout lists them and never lists an ERC-7201 namespaced
 #    field. forge leaves the layout out of the build-info when it would be empty, so a contract with no root variables
-#    has no layout at all, which is why a build that never asked for layouts has to be an error. What the real forge
-#    writes is covered by test_root_storage_with_forge.py. ──
+#    has no layout at all. So a build that never asked for layouts has to be an error, and so does one in which the
+#    known contract, built with the others and declaring root variables, has none listed. What the real forge writes
+#    is covered by test_root_storage_with_forge.py. ──
 
 
 def _compiled(layouts, requested=("abi", "storageLayout")):
@@ -1885,13 +1886,17 @@ def _variable(label, slot, offset=0):
 # forge writes one of these for a later `forge inspect`, beside the build-info holding the compiled output
 _NO_COMPILED_OUTPUT = {"id": "dd58ffd9af95c782", "language": "Solidity", "source_id_to_path": {}}
 
+# the contract built with the others that declares root variables, as bin/validate names it from a project's folder
+_KNOWN = "lib/bao-base/bin/solidity/KnownRootVariablesCanary.sol:KnownRootVariablesCanary"
+_KNOWN_LAYOUT = {_KNOWN: [_variable("first", "0"), _variable("second", "1")]}
+
 
 def test_contract_with_no_root_variables_is_not_listed():
-    assert mod.root_storage([_compiled({"src/A.sol:A": []})]) == []
+    assert mod.root_storage([_compiled({**_KNOWN_LAYOUT, "src/A.sol:A": []})], _KNOWN) == []
 
 
 def test_contract_with_a_root_variable_is_listed():
-    assert mod.root_storage([_compiled({"src/A.sol:A": [_variable("first", "0")]})]) == [
+    assert mod.root_storage([_compiled({**_KNOWN_LAYOUT, "src/A.sol:A": [_variable("first", "0")]})], _KNOWN) == [
         "src/A.sol:A first slot 0 offset 0"
     ]
 
@@ -1903,9 +1908,10 @@ def test_every_root_variable_of_every_contract_is_listed():
             "src/A.sol:A": [_variable("first", "0"), _variable("second", "0", 20)],
             "src/A.sol:Empty": [],
             "src/B.sol:B": [_variable("third", "0"), _variable("fourth", "1")],
+            **_KNOWN_LAYOUT,
         }
     )
-    assert mod.root_storage([build_info]) == [
+    assert mod.root_storage([build_info], _KNOWN) == [
         "src/A.sol:A first slot 0 offset 0",
         "src/A.sol:A second slot 0 offset 20",
         "src/B.sol:B third slot 0 offset 0",
@@ -1916,34 +1922,95 @@ def test_every_root_variable_of_every_contract_is_listed():
 def test_root_variables_are_listed_from_every_build_info():
     # a repository using two solc versions has contracts in separate files, and one left unread would look clean
     assert mod.root_storage(
-        [_compiled({"src/A.sol:A": [_variable("first", "0")]}), _compiled({"src/B.sol:B": [_variable("second", "0")]})]
+        [
+            _compiled({"src/A.sol:A": [_variable("first", "0")]}),
+            _compiled({**_KNOWN_LAYOUT, "src/B.sol:B": [_variable("second", "0")]}),
+        ],
+        _KNOWN,
     ) == ["src/A.sol:A first slot 0 offset 0", "src/B.sol:B second slot 0 offset 0"]
 
 
 def test_build_info_without_compiled_output_is_passed_over():
-    assert mod.root_storage([_NO_COMPILED_OUTPUT, _compiled({"src/A.sol:A": [_variable("first", "0")]})]) == [
-        "src/A.sol:A first slot 0 offset 0"
-    ]
+    assert mod.root_storage(
+        [_NO_COMPILED_OUTPUT, _compiled({**_KNOWN_LAYOUT, "src/A.sol:A": [_variable("first", "0")]})], _KNOWN
+    ) == ["src/A.sol:A first slot 0 offset 0"]
 
 
 @pytest.mark.parametrize("build_infos", [[], [_NO_COMPILED_OUTPUT]])
 def test_no_compiled_output_anywhere_is_an_error(build_infos):
     # nothing was read, which must not look like a build with no root variables
     with pytest.raises(SystemExit) as refused:
-        mod.root_storage(build_infos)
+        mod.root_storage(build_infos, _KNOWN)
     assert refused.value.code == "storage-successor: no build-info holds compiled output"
 
 
 def test_build_that_did_not_ask_for_storage_layouts_is_an_error():
     # every contract would have no layout, which must not look like a build with no root variables
     with pytest.raises(SystemExit) as refused:
-        mod.root_storage([_compiled({"src/A.sol:A": []}, requested=("abi",))])
+        mod.root_storage([_compiled({**_KNOWN_LAYOUT, "src/A.sol:A": []}, requested=("abi",))], _KNOWN)
     assert refused.value.code == "storage-successor: a build-info did not ask solc for storageLayout"
+
+
+def test_the_known_contract_is_left_out_of_the_listing():
+    # its root variables are there to be found, not reported as a finding
+    assert mod.root_storage([_compiled({**_KNOWN_LAYOUT, "src/A.sol:A": [_variable("first", "0")]})], _KNOWN) == [
+        "src/A.sol:A first slot 0 offset 0"
+    ]
+
+
+def test_a_build_without_the_known_contract_is_an_error():
+    # without it, a build with no layouts at all could not be told from one with no root variables
+    with pytest.raises(SystemExit) as refused:
+        mod.root_storage([_compiled({"src/A.sol:A": []})], _KNOWN)
+    assert refused.value.code == f"storage-successor: no build-info holds {_KNOWN}"
+
+
+def test_a_build_listing_no_root_variables_for_the_known_contract_is_an_error():
+    # forge asked solc for layouts and wrote none: every contract would look free of root variables
+    with pytest.raises(SystemExit) as refused:
+        mod.root_storage([_compiled({_KNOWN: [], "src/A.sol:A": []})], _KNOWN)
+    assert refused.value.code == (
+        f"storage-successor: the build-info lists no root variables for {_KNOWN}, "
+        "given as a contract that declares them"
+    )
+
+
+def test_a_contract_with_the_known_name_at_another_path_is_listed():
+    # a project's own contract of that name is checked like any other, and is not taken for the known contract
+    build_info = _compiled(
+        {**_KNOWN_LAYOUT, "src/KnownRootVariablesCanary.sol:KnownRootVariablesCanary": [_variable("x", "0")]}
+    )
+    assert mod.root_storage([build_info], _KNOWN) == [
+        "src/KnownRootVariablesCanary.sol:KnownRootVariablesCanary x slot 0 offset 0"
+    ]
+
+
+@pytest.mark.parametrize(
+    "written",
+    [
+        "./lib/bao-base/bin/solidity/KnownRootVariablesCanary.sol:KnownRootVariablesCanary",
+        f"{os.getcwd()}/lib/bao-base/bin/solidity/KnownRootVariablesCanary.sol:KnownRootVariablesCanary",
+    ],
+)
+def test_the_known_contract_is_found_however_its_path_is_written(written):
+    # forge drops a leading ./ from the source it records, and validate names bao-base's folder as run finds it
+    assert mod.root_storage([_compiled({**_KNOWN_LAYOUT, "src/A.sol:A": []})], written) == []
 
 
 def test_list_root_storage_reads_every_build_info_in_the_folder(tmp_path, capsys):
     (tmp_path / "a.json").write_text(json.dumps(_compiled({"src/A.sol:A": [_variable("first", "0")]})))
     (tmp_path / "b.json").write_text(json.dumps(_NO_COMPILED_OUTPUT))
-    (tmp_path / "c.json").write_text(json.dumps(_compiled({"src/C.sol:C": [_variable("second", "1")]})))
-    assert mod.main([str(tmp_path), "--list-root-storage"]) == 0
+    (tmp_path / "c.json").write_text(
+        json.dumps(_compiled({**_KNOWN_LAYOUT, "src/C.sol:C": [_variable("second", "1")]}))
+    )
+    assert mod.main([str(tmp_path), "--list-root-storage", "--known-root-variables", _KNOWN]) == 0
     assert capsys.readouterr().out == "src/A.sol:A first slot 0 offset 0\nsrc/C.sol:C second slot 1 offset 0\n"
+
+
+def test_list_root_storage_needs_a_known_contract(tmp_path, capsys):
+    # the listing cannot be trusted without one, so it is not given
+    (tmp_path / "a.json").write_text(json.dumps(_compiled({**_KNOWN_LAYOUT, "src/A.sol:A": []})))
+    with pytest.raises(SystemExit) as refused:
+        mod.main([str(tmp_path), "--list-root-storage"])
+    assert refused.value.code == 2
+    assert "--list-root-storage needs --known-root-variables" in capsys.readouterr().err
