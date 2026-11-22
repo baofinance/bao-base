@@ -568,6 +568,52 @@ is v2→v3. A v1→v2 test re-confirms something that already succeeded and earn
 nothing: delete it rather than carry it. When an upgrade ships, retarget the test
 to the next step rather than adding another.
 
+### A batch is checked wherever it runs
+A deploy, upgrade or remediation that a multisig executes as a Safe batch has
+three parts. Each is written once, and nothing restates another.
+- **The script builds the batch, and holds no logic of its own.** The `.s.sol`
+  file names its inputs and calls a builder in `script/src/`: a read, then a
+  build that queues the batch. Tests, campaigns and rehearsals call the same
+  builder, so what they check is what the script sends.
+- **The checks are written once, in `test/harness/`.** An abstract test contract
+  asserts the state after the batch. It reaches that state through one virtual
+  seam (harbor's `_afterTheBatch`, `_upgraded`), which by default executes the
+  batch on the fork as the multisig would. A check that compares before and
+  after reads the before state first, on the fork it starts on. A check of what
+  the batch is built from (a refusal, a derived amount) reads the state before
+  it, so it is a contract of its own. The checks have three entry points:
+  - `test/`: forked at a pinned block before the batch, executed there. CI runs
+    it on every change.
+  - `script/verify/<campaign>/`: forked at the chain's head, before the batch is
+    built.
+  - `script/verify/<campaign>-executed/`: a chain where the batch already ran.
+    Its seam selects the block after the batch instead of executing. Each batch
+    has a window of its own, the block before it and the block after it: one
+    window over two batches mixes their effects.
+- **The same three commands run a batch on a local node and on mainnet;
+  `--local` is the difference.** harbor's:
+  1. `script/run-script <Script> --network <net> [--local] --broadcast` deploys
+     and saves the batch, and executes nothing: a script run never executes its
+     batches. It ends by naming each batch it saved.
+  2. The batch is executed by its signer: on mainnet the signers in the Safe app,
+     on a local node `script/run-batch <file>`, which sends each call as the
+     multisig and prints the window.
+  3. `script/verify/run-campaign-test <campaign> <log> --network <net> [--local]
+     --window <WINDOW>=<before>:<after>` runs the `-executed` checks. On mainnet
+     the window is `n-1:n`, n the block of the Safe's execution.
+- **The rehearsal runs those commands, then the checks.** harbor's
+  `script/verify/run-rehearsal --network <net> --local` runs, on the local node
+  the user started, each script by step 1, each batch it saved by step 2, then
+  each `-executed` campaign by step 3 with every window. It starts no node of its
+  own, and never reproduces what a script does: a rehearsal that copies a
+  script's logic tests the copy. The rehearsal of a sequence of batches names
+  their scripts in mainnet order (`script/verify/rehearse-second-genesis`).
+
+A batch built for mainnet can be executed on a local node before the signers
+execute it: fork mainnet after step 1 has run there, then run steps 2 and 3 with
+`--local` on the mainnet file. After the signers execute it, run step 3 against
+mainnet.
+
 ### Plan the tests first
 Before implementing a new contract or significant feature, add a **test plan** to
 the plan file. List each test by function name, state the single behavior it

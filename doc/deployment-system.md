@@ -51,8 +51,9 @@ them — even while still codeless — exactly as it references its own not-yet-
 - **`FactoryDeployer`** — address prediction (`_predictAddress`), proxy deployment + recording
   (`_deployProxyAndRecord`, `_deployProxyViaStubAndRecord`), deployment-state persistence, and end-of-run
   ownership transfer (`_transferAllOwnerships`).
-- **`Deployer`** (extends FactoryDeployer) — Safe batch queuing (`queue`/`flush`), local execution of the
-  queued transactions (`_executeQueued`), and the `build()`/`run()` template for single-batch scripts.
+- **`Deployer`** (extends FactoryDeployer) — Safe batch queuing (`queue`/`flush`), execution of the queued
+  transactions under forge test (`_executeQueued`), and the `build()`/`run()` template for single-batch
+  scripts.
 - **`DeploymentState`** (library) — JSON state files: `load` an existing run's state, `fresh` for a run
   starting from nothing, `save` (atomic write, creating the file's folder). The state file paths come from
   `DEPLOY_STATE_FILE_READ` / `DEPLOY_STATE_FILE_WRITE`, and the batch folder from `DEPLOY_STATE_DIR`, each read
@@ -73,21 +74,25 @@ The three worked flows:
 2. **Deploying against a live system** (e.g. harbor-yield's `deployHarborYieldForPeg`, which grants roles
    on harbor's multisig-owned contracts): configure own contracts directly, **queue** every action on the
    live system, and call `_executeQueued()` at each point where later logic depends on those actions —
-   production saves the batches for the multisig to execute in order; tests execute them inline at the same
-   points. A later batch may be *constructed* only from state that exists at script time.
+   a script run saves the batches for the multisig to execute in order; tests execute them inline at the
+   same points. A later batch may be *constructed* only from state that exists at script time.
 3. **Maintenance script on a live system** (e.g. harbor's `UpdateVolatility_*`, `Pause_*`): everything is a
-   Safe transaction — override `build()` to queue, and the inherited `run(salt)` saves and (locally)
-   executes.
+   Safe transaction — override `build()` to queue, and the inherited `run(salt)` saves it.
+
+A script run saves its batches and executes none of them, on mainnet and on a local node alike. It ends by
+naming each, in the order saved. On mainnet the signers execute each in the Safe app. On a local node
+`run-batch` stands in for them, as the run's last lines print it: it sends each call as the batch's signer
+and mines the batch into one block, applied whole or not at all, as a Safe transaction is.
 
 ## Context Gates: Production vs Test
 
 The same code runs in both contexts; three gated points differ:
 
-| Gate                       | Script run (forge script)                       | Forge test                          |
-| -------------------------- | ----------------------------------------------- | ----------------------------------- |
-| `_shouldPersistState()`    | write/read JSON state files                     | in-memory state only                |
-| `_shouldWriteBatchFiles()` | write Safe batch JSONs for the multisig         | no files                            |
-| `_executeQueued()`         | executes only when `EXECUTE_LOCAL=true` (anvil) | always executes, pranked as owner() |
+| Gate                       | Script run (forge script)                         | Forge test                          |
+| -------------------------- | ------------------------------------------------- | ----------------------------------- |
+| `_shouldPersistState()`    | write/read JSON state files                       | in-memory state only                |
+| `_shouldWriteBatchFiles()` | write Safe batch JSONs for the multisig           | no files                            |
+| `_executeQueued()`         | executes nothing: each batch is for its signer    | always executes, pranked as owner() |
 
 The first two gates are virtual functions defaulting on the forge execution context, so a test exercising
 the persistence or batch-file path itself can force them on. It writes under `results/`, where git shows any

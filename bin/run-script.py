@@ -9,8 +9,13 @@ Nothing here is specific to one repo's contracts — a repo adds its own argumen
 that delegates here (see harbor's script/deploy, which adds --peg/--collateral). That is why it lives
 in bao-base rather than in any one consumer: a second copy would drift from the first.
 
-Default entry point: run(string,string) — the salt prefix and the network, the two arguments this
-runner requires. Use `--` to override the forge --sig for a script on a different signature.
+Default entry point: run(string), the salt prefix, which is bao-base's own `Deployer.run`. The script
+reads the network from its environment. A script on a signature of its own takes it through `--`,
+which replaces the default --sig.
+
+On a local node the runner prepares the node for the run: it funds BaoFactory's owner and, when the
+run sends as anvil's default account, makes that account a BaoFactory operator. A run executes none of
+the batches it saves: it ends by naming each, in the order saved, for its signer.
 
 The work is split so that what gets run is decided by functions that decide nothing else:
 `forge_arguments`, `forge_command` and `solidity_environment` are pure, take no processes and touch
@@ -29,11 +34,19 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-# The signer anvil funds and impersonates in local mode, and the account the state files are written
-# against. Both are anvil's own well-known development addresses, never used anywhere else.
+# anvil's first development account: a local run without --account sends as it, unlocked.
 ANVIL_SENDER = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-ANVIL_FUNDED_ACCOUNT = "0x9bABfC1A1952a6ed2caC1922BFfE80c0506364a2"
-ANVIL_FUNDED_WEI = "0xDE0B6B3A7640000"
+
+# BaoFactory's address, the same on every chain: `FactoryDeployer.baoFactory()`'s.
+BAO_FACTORY = "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458"
+
+# What a local run gives BaoFactory's owner on the node (1 ETH), and how long it makes its sender an
+# operator for (a year, far longer than a local node lives).
+LOCAL_OWNER_BALANCE_WEI = "0xDE0B6B3A7640000"
+LOCAL_OPERATOR_SECONDS = 365 * 24 * 60 * 60
+
+# bao-base's command runner: the next step a local run names is its run-batch.
+BAO_BASE_RUN = Path(__file__).resolve().parent.parent / "run"
 
 # Safe rejects a longer description, so an over-long one is truncated rather than failing the batch
 # at the end of a deployment.
@@ -113,6 +126,8 @@ def parse_arguments(argv: list[str]) -> Invocation:
     parsed = parser.parse_args(argv)
     if parsed.timestamp and not parsed.local:
         sys.exit("❌ --timestamp requires --local")
+    if parsed.broadcast and not parsed.local and not parsed.account:
+        sys.exit("❌ --account required: a broadcast that is not --local signs with a keystore account")
 
     return Invocation(
         script_name=parsed.script_name,
@@ -144,12 +159,17 @@ def deploy_state_dir(invocation: Invocation, root: Path, now: datetime) -> Path:
 def forge_arguments(invocation: Invocation) -> list[str]:
     """The mode flags for forge — everything decided by how the run was asked for rather than by
     which script it runs."""
-    arguments = ["--rpc-url", invocation.rpc_url]
+    # The script's connection, the fork it simulates on and the endpoint it sends through, retries the
+    # provider's refusals (HTTP 429, a rate limit) with a backoff rather than fail on the first.
+    arguments = ["--rpc-url", invocation.rpc_url, "--fork-retries", "100", "--fork-retry-backoff", "5000"]
 
     if invocation.local:
         # Local accounts are impersonated rather than signed for, so forge is told to accept an
-        # unlocked sender; an explicit --account still wins if one was given.
-        arguments.append("--unlocked")
+        # unlocked sender; an explicit --account still wins if one was given. A legacy transaction
+        # needs no fee estimate: the estimate asks anvil for a fee history, anvil asks the provider for
+        # the block it forked, and for a block far behind the head the provider answers HTTP 503 until
+        # the request times out, so a fork of an old block could not broadcast.
+        arguments += ["--unlocked", "--legacy"]
         if not invocation.account:
             arguments += ["--sender", ANVIL_SENDER]
     if invocation.account:
@@ -178,7 +198,7 @@ def forge_command(invocation: Invocation) -> list[str]:
     if invocation.passthrough:
         command += list(invocation.passthrough)
     else:
-        command += ["--sig", "run(string,string)", invocation.salt, invocation.network]
+        command += ["--sig", "run(string)", invocation.salt]
     return command + forge_arguments(invocation)
 
 
@@ -195,7 +215,7 @@ def solidity_environment(invocation: Invocation, state_dir: Path, now: datetime)
 
     It reads state from one file and writes it to a `.pending` sibling, so that forge's simulation
     pass cannot pollute the file the broadcast pass reads — see `promote_or_discard`."""
-    environment = {
+    return {
         "NETWORK": invocation.network,
         "DEPLOY_STATE_DIR": str(state_dir),
         "DEPLOY_STATE_FILE_READ": str(state_dir / f"{invocation.salt}.state.json"),
@@ -204,9 +224,6 @@ def solidity_environment(invocation: Invocation, state_dir: Path, now: datetime)
         "SAFE_BATCH_TIMESTAMP": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "SAFE_BATCH_DESCRIPTION": safe_batch_description(invocation),
     }
-    if invocation.local:
-        environment["EXECUTE_LOCAL"] = "true"
-    return environment
 
 
 def promote_or_discard(pending: Path, final: Path, broadcast: bool) -> str | None:
@@ -224,9 +241,12 @@ def promote_or_discard(pending: Path, final: Path, broadcast: bool) -> str | Non
     return f"promoted .pending -> {final}"
 
 
-def _capture(command: list[str]) -> str:
-    """Run a command that must succeed and whose output is wanted."""
-    return subprocess.run(command, capture_output=True, text=True, check=True).stdout.strip()
+def _cast(arguments: list[str], failure: str) -> str:
+    """What `cast <arguments>` printed. A cast that fails stops the run, with `failure` and cast's own error."""
+    done = subprocess.run(["cast", *arguments], capture_output=True, text=True, check=False)
+    if done.returncode != 0:
+        sys.exit(f"❌ {failure}: {done.stderr.strip() or f'cast exited {done.returncode}'}")
+    return done.stdout.strip()
 
 
 def _banner(lines: list[str]) -> None:
@@ -248,17 +268,42 @@ def main() -> None:
     now = datetime.now(timezone.utc)
     state_dir = deploy_state_dir(invocation, Path.cwd(), now)
 
-    try:
-        chain_id = _capture(["cast", "chain-id", "--rpc-url", invocation.rpc_url])
-    except subprocess.CalledProcessError:
-        sys.exit(f"❌ RPC failed: {invocation.rpc_url}")
+    chain_id = _cast(["chain-id", "--rpc-url", invocation.rpc_url], f"RPC failed: {invocation.rpc_url}")
 
     if invocation.local:
-        # Fund the account the local deployments are made from; anvil starts it empty.
-        subprocess.run(
-            ["cast", "rpc", "anvil_setBalance", ANVIL_FUNDED_ACCOUNT, ANVIL_FUNDED_WEI, "--rpc-url", "local"],
-            check=True,
+        # BaoFactory's owner pays for what is sent as it on the node: the operator grant below, and any
+        # batch it signs. It is the owner the node's factory answers.
+        owner = _cast(
+            ["call", BAO_FACTORY, "owner()(address)", "--rpc-url", "local"],
+            f"BaoFactory {BAO_FACTORY} did not answer owner() on the local node",
         )
+        _cast(
+            ["rpc", "anvil_setBalance", owner, LOCAL_OWNER_BALANCE_WEI, "--rpc-url", "local"],
+            f"anvil_setBalance of {owner} failed",
+        )
+        balance = _cast(["balance", owner, "--ether", "--rpc-url", "local"], f"the balance of {owner} was not read")
+        print(f"  Local node: the factory owner {owner} holds {balance} ETH", file=sys.stderr)
+        if not invocation.account:
+            # BaoFactory deploys only for its owner or an operator, and only its owner can set an
+            # operator: the node sends as the owner with no key. FactoryDeployer refuses a run with less
+            # than OPERATOR_ALLOWANCE_MARGIN of its allowance left.
+            _cast(
+                [
+                    "send",
+                    "--legacy",
+                    "--unlocked",
+                    "--from",
+                    owner,
+                    "--rpc-url",
+                    "local",
+                    BAO_FACTORY,
+                    "setOperator(address,uint256)",
+                    ANVIL_SENDER,
+                    str(LOCAL_OPERATOR_SECONDS),
+                ],
+                f"the operator grant to {ANVIL_SENDER} was refused",
+            )
+            print(f"  Local node: the sender {ANVIL_SENDER} is a BaoFactory operator for a year", file=sys.stderr)
 
     command = forge_command(invocation)
     _banner(
@@ -294,6 +339,21 @@ def main() -> None:
 
     elapsed = int(time.monotonic() - started)
     _banner(["  COMPLETE", f"  Elapsed:    {elapsed // 60}m {elapsed % 60}s"])
+
+    # The batches this run saved, each named <script>_<this run's timestamp>_<suffix>.json, in the
+    # order the run wrote them.
+    pattern = f"{invocation.script_name}_{environment['SAFE_BATCH_TIMESTAMP']}_*.json"
+    saved = sorted((state_dir / "batch").glob(pattern), key=lambda path: path.stat().st_mtime_ns)
+    files = [str(path.relative_to(Path.cwd())) for path in saved]
+    if files and invocation.local:
+        run = os.path.relpath(BAO_BASE_RUN)
+        run = run if os.sep in run else f".{os.sep}{run}"
+        print("\n  Next, on the node, as each batch's signer, in this order:", file=sys.stderr)
+        print(f"    {run} run-batch \\", file=sys.stderr)
+        print(" \\\n".join(f"      {file}" for file in files), file=sys.stderr)
+    if files and not invocation.local:
+        print("\n  Next, for the signers to execute in the Safe app, in this order:", file=sys.stderr)
+        print("\n".join(f"    {file}" for file in files), file=sys.stderr)
 
 
 if __name__ == "__main__":

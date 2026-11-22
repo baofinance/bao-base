@@ -152,7 +152,7 @@ contract TestableDeployer is Deployer {
     }
 }
 
-/// @notice Deployer whose run leaves its saved batches for their signers, as a script run without EXECUTE_LOCAL does.
+/// @notice Deployer whose run leaves its saved batches for their signers, as every script run does.
 contract NotExecutingHereDeployer is TestableDeployer {
     constructor(address owner_) TestableDeployer(owner_) {}
 
@@ -587,7 +587,7 @@ contract DeployerTest is BaoTest {
     }
 
     function test_executesHere_underForgeTest() public view {
-        // under forge test a run executes its flushed transactions itself, whatever EXECUTE_LOCAL says
+        // under forge test a run executes its flushed transactions itself
         assertTrue(deployer.executesHere(), "a test executes here");
     }
 

@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+"""`run-batch <file>... [--from <address>]`: Safe batch files executed on the local node as their signer, each batch in
+one block, applied whole or not at all. The command is run_batch's, which says what it does."""
+
+import sys
+
+from run_batch import main
+
+sys.exit(main(sys.argv[1:]))

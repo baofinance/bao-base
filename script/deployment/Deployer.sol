@@ -11,8 +11,9 @@ import {JsonFileLib} from "@bao-script/deployment/JsonFileLib.sol";
 ///         (FactoryDeployer) with Safe batch transaction queuing.
 ///
 /// @dev No forge Script dependency — usable from both forge test and forge script contexts.
-///      In forge test context _executeQueued() pranks as owner(); in script context it broadcasts
-///      when EXECUTE_LOCAL=true. Batch JSON files are only written in non-test contexts.
+///      In forge test context _executeQueued() executes as owner(), pranked; a script run executes nothing,
+///      on mainnet and on a local node alike: each saved batch is left for its signer. Batch JSON files are
+///      only written in non-test contexts.
 ///
 /// Deploy-run lifecycle — the rules every deploy script follows (worked flows in
 /// doc/deployment-system.md):
@@ -21,7 +22,7 @@ import {JsonFileLib} from "@bao-script/deployment/JsonFileLib.sol";
 ///   2. Configure contracts someone else owns (a multisig-owned live system) via queue() — such an
 ///      action can only happen as a Safe transaction.
 ///   3. An _executeQueued() call is a synchronization point: script logic after it may depend on the
-///      queued transactions' effects. Production defers the synchronization to the multisig executing
+///      queued transactions' effects. A script run defers the synchronization to the signer executing
 ///      the saved batches in order; tests execute inline at the same point.
 ///   4. Batch construction may read only state that exists at script-run time — never the effects of a
 ///      batch that has not executed.
@@ -34,7 +35,6 @@ import {JsonFileLib} from "@bao-script/deployment/JsonFileLib.sol";
 ///   SAFE_BATCH_NAME          Filename prefix for the batch JSON
 ///   SAFE_BATCH_DESCRIPTION   Description field in the batch JSON
 ///   SAFE_BATCH_TIMESTAMP     ISO 8601 timestamp for filename
-///   EXECUTE_LOCAL            When "true", execute queued transactions on local anvil
 abstract contract Deployer is FactoryDeployer {
     using LibString for string;
     using LibString for address;
@@ -186,8 +186,7 @@ abstract contract Deployer is FactoryDeployer {
     ///      transaction executes exactly once no matter how many times this is called, mirroring the
     ///      production multisig executing each saved batch once. A target with no code reverts: a
     ///      data-carrying call to a codeless address would return success without doing anything.
-    ///      Test context: always runs with vm.startPrank(owner()).
-    ///      Script context: runs with vm.startBroadcast(owner()) only when EXECUTE_LOCAL=true (`_executesHere`).
+    ///      It executes as owner(), pranked, where `_executesHere` says so: under forge test.
     function _executeQueued() internal {
         if (_allTransactions.length == 0) {
             return;
@@ -196,12 +195,7 @@ abstract contract Deployer is FactoryDeployer {
             return;
         }
 
-        bool isTestGroup = _vm.isContext(VmSafe.ForgeContext.TestGroup);
-        if (isTestGroup) {
-            _vm.startPrank(owner());
-        } else {
-            _vm.startBroadcast(owner());
-        }
+        _vm.startPrank(owner());
         for (uint256 i = 0; i < _allTransactions.length; i++) {
             _reportExecuting(_allTransactions[i].description);
             if (_allTransactions[i].target.code.length == 0) {
@@ -214,20 +208,16 @@ abstract contract Deployer is FactoryDeployer {
                 }
             }
         }
-        if (isTestGroup) {
-            _vm.stopPrank();
-        } else {
-            _vm.stopBroadcast();
-        }
+        _vm.stopPrank();
         _executedCount += _allTransactions.length;
         delete _allTransactions;
     }
 
-    /// @notice Whether this run executes its flushed transactions itself, as the owner: always under forge test, and in
-    ///         a script run only when EXECUTE_LOCAL is set, as run-script's --local sets it. Otherwise each saved batch
-    ///         is left for its signer to execute.
+    /// @notice Whether this run executes its flushed transactions itself, as the owner: under forge test only. A script
+    ///         run, on mainnet or on a local node, leaves each saved batch for its signer to execute: on a local node,
+    ///         a tool that sends each call as the signer stands in for the multisig.
     function _executesHere() internal view virtual returns (bool) {
-        return _vm.isContext(VmSafe.ForgeContext.TestGroup) || _vm.envOr("EXECUTE_LOCAL", false);
+        return _vm.isContext(VmSafe.ForgeContext.TestGroup);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

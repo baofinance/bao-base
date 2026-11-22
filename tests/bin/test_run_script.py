@@ -11,7 +11,9 @@ Loaded by path: the file is named for the command it provides, and a hyphen is n
 """
 
 import importlib.util
+import os
 import pathlib
+import re
 import sys
 from datetime import datetime, timezone
 
@@ -50,14 +52,14 @@ def _pair_index(command, first, second):
 # ── The default entry point ───────────────────────────────────────────────────────────────────────
 
 
-def test_default_entry_point_passes_the_salt_then_the_network():
-    # Both values the runner requires reach the script the same way, as arguments. Order is asserted
-    # because a signature naming two strings is worth nothing if the values arrive reversed — forge
-    # would accept either without complaint and the deployment would target the wrong chain.
+def test_default_entry_point_passes_the_salt():
+    # The default is bao-base's own entry point, Deployer.run(string): the salt prefix alone. The network reaches the
+    # script in its environment, so nothing but the salt follows the signature.
     command = run_script.forge_command(_invocation())
-    signature = _pair_index(command, "--sig", "run(string,string)")
+    signature = _pair_index(command, "--sig", "run(string)")
     assert signature != -1, command
-    assert command[signature + 2 : signature + 4] == ["harbor_v1", "mainnet"]
+    assert command[signature + 2] == "harbor_v1"
+    assert command[signature + 3] == "--rpc-url", command
 
 
 def test_the_contract_and_the_file_are_named_the_same():
@@ -70,11 +72,11 @@ def test_the_contract_and_the_file_are_named_the_same():
 
 
 def test_a_passthrough_replaces_the_default_entry_point():
-    # Every harbor deploy script is on an older signature and overrides this way. Adding the default
-    # as well would hand forge two --sig flags, leaving it to run whichever it saw last.
+    # A script on a signature of its own is run this way. Adding the default as well would hand forge two --sig
+    # flags, leaving it to run whichever it saw last.
     command = run_script.forge_command(_invocation(passthrough=("--sig", "run(string,bool)", "harbor_v1", "false")))
-    assert "run(string,bool)" in command
-    assert "run(string,string)" not in command
+    assert command.count("--sig") == 1, command
+    assert _pair_index(command, "--sig", "run(string,bool)") != -1, command
 
 
 def test_a_passthrough_still_gets_the_mode_flags():
@@ -138,6 +140,23 @@ def test_local_runs_against_the_local_rpc_not_the_named_network():
     assert _pair_index(arguments, "--rpc-url", "local") != -1
 
 
+def test_the_script_s_connection_retries_the_provider_s_refusals():
+    # A provider refuses a request over its rate limit (HTTP 429): the fork and the endpoint the script sends through
+    # retry it with a backoff, on a network and on a local node, whose fork reads through the same provider.
+    for invocation in (_invocation(), _invocation(local=True)):
+        arguments = run_script.forge_arguments(invocation)
+        assert _pair_index(arguments, "--fork-retries", "100") != -1, arguments
+        assert _pair_index(arguments, "--fork-retry-backoff", "5000") != -1, arguments
+
+
+def test_a_local_run_sends_legacy_transactions():
+    # A legacy transaction needs no fee estimate. The estimate asks anvil for a fee history, anvil asks the provider for
+    # the block it forked, and for a block far behind the head the provider answers HTTP 503 until the request times
+    # out: a fork of an old block could not broadcast. A network's fees are real, so it keeps the estimate.
+    assert "--legacy" in run_script.forge_arguments(_invocation(local=True))
+    assert "--legacy" not in run_script.forge_arguments(_invocation(broadcast=True, account="deployer"))
+
+
 # ── Deployment state ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -167,16 +186,16 @@ def test_the_script_reads_one_state_file_and_writes_its_pending_sibling():
     assert environment["DEPLOY_STATE_FILE_WRITE"] == "/repo/deployments/mainnet/harbor_v1.state.json.pending"
 
 
-def test_the_network_reaches_the_script_in_its_environment_too():
-    # Passed as an argument AND exported: scripts on the default signature take it as an argument,
-    # and the shared deploy machinery beneath them reads it from the environment.
+def test_the_network_reaches_the_script_in_its_environment():
+    # The default entry point takes the salt alone: the deploy machinery reads the network from the environment.
     environment = run_script.solidity_environment(_invocation(), pathlib.Path("/repo"), NOW)
     assert environment["NETWORK"] == "mainnet"
 
 
-def test_execute_local_is_set_only_for_a_local_run():
+def test_no_run_asks_the_script_to_execute_its_batches():
+    # A local run saves its batches as a mainnet run does: each is left for its signer, on the node as on mainnet.
     assert "EXECUTE_LOCAL" not in run_script.solidity_environment(_invocation(), pathlib.Path("/r"), NOW)
-    assert run_script.solidity_environment(_invocation(local=True), pathlib.Path("/r"), NOW)["EXECUTE_LOCAL"] == "true"
+    assert "EXECUTE_LOCAL" not in run_script.solidity_environment(_invocation(local=True), pathlib.Path("/r"), NOW)
 
 
 def test_a_batch_is_described_by_its_script_and_salt_when_no_message_is_given():
@@ -233,11 +252,21 @@ def test_nothing_is_settled_when_the_script_wrote_no_state(tmp_path):
     ids=["network missing", "salt missing", "script name missing"],
 )
 def test_a_missing_requirement_names_itself(argv, expected):
-    # --network is required precisely because the default entry point hands it to the script: without
-    # it there would be nothing to pass, and the deployment would target whatever the RPC defaulted to.
+    # --network names the RPC, the state folder and the script's NETWORK: without it the deployment would target
+    # whatever the RPC defaulted to.
     with pytest.raises(SystemExit) as raised:
         run_script.parse_arguments(argv)
     assert expected in str(raised.value)
+
+
+def test_a_broadcast_not_on_a_local_node_needs_an_account():
+    # A broadcast that is not local is signed with a keystore account; a dry run sends nothing, and a local node's
+    # sender is impersonated.
+    with pytest.raises(SystemExit) as raised:
+        run_script.parse_arguments(["Deploy_Thing_mainnet", "--salt", "s", "--network", "mainnet", "--broadcast"])
+    assert "❌ --account required: a broadcast that is not --local signs with a keystore account" == str(raised.value)
+    for accepted in (["--broadcast", "--account", "deployer"], [], ["--local", "--broadcast"]):
+        run_script.parse_arguments(["Deploy_Thing_mainnet", "--salt", "s", "--network", "mainnet", *accepted])
 
 
 def test_timestamp_without_local_is_refused():
@@ -268,7 +297,7 @@ def test_the_runner_s_own_flags_are_read_wherever_they_appear():
     # The script name is positional, so a flag after it must still be the runner's — argparse's
     # REMAINDER would have swallowed these, which is why `--` is split off before it runs.
     invocation = run_script.parse_arguments(
-        ["Deploy_Thing_mainnet", "--salt", "s", "--network", "mainnet", "--broadcast"]
+        ["Deploy_Thing_mainnet", "--salt", "s", "--network", "mainnet", "--broadcast", "--account", "deployer"]
     )
     assert invocation.broadcast is True
 
@@ -280,27 +309,35 @@ def test_the_runner_s_own_flags_are_read_wherever_they_appear():
 # one place a fake process earns its keep, because the sequencing is the behaviour.
 
 
+# The owner the local node's BaoFactory answers: not BaoFactory's owner on mainnet, so a run that used a copy of that
+# address instead of asking the factory would send as the wrong account.
+NODE_FACTORY_OWNER = "0x000000000000000000000000000000000000fAc7"
+
+
 class _Forge:
     """Stands in for every process `main` starts, and for what forge does to the state file.
 
-    `cast chain-id` must answer or the runner aborts before composing anything. The forge call
-    optionally writes the `.pending` file, as the real one does through the Solidity script, so a
-    test can drive promote-and-discard through `main` rather than around it."""
+    `cast chain-id` must answer or the runner aborts before composing anything; on a local node the factory answers
+    `owner()` with NODE_FACTORY_OWNER, each `cast rpc` answers `null` and the owner's balance is 1 ETH. The forge call
+    optionally writes the `.pending` file, as the real one does through the Solidity script, so a test can drive
+    promote-and-discard through `main` rather than around it, and saves a batch file for each of `batches`, in that
+    order, as the script's flushes would."""
 
     def __init__(self):
         self.calls = []
         self.returncode = 0
         self.rpc_fails = False
+        self.owner_fails = False
+        self.send_fails = False
         self.pending_written = None
         self.pending_seen_by_forge = None
         self.forge_environment = None
+        self.batches = ()
 
     def run(self, command, **kwargs):
         self.calls.append(command)
         if command[0] == "cast":
-            if command[1] == "chain-id" and self.rpc_fails:
-                raise run_script.subprocess.CalledProcessError(1, command)
-            return _Completed(stdout="31337\n")
+            return self._cast(command[1])
         # forge: record whether a stale pending file was still there when it started, then write the
         # one the Solidity script would have written.
         self.forge_environment = kwargs.get("env", {})
@@ -309,13 +346,46 @@ class _Forge:
         if self.pending_written is not None:
             pending.parent.mkdir(parents=True, exist_ok=True)
             pending.write_text(self.pending_written)
+        folder = pathlib.Path(self.forge_environment["DEPLOY_STATE_DIR"]) / "batch"
+        name = f"{self.forge_environment['SAFE_BATCH_NAME']}_{self.forge_environment['SAFE_BATCH_TIMESTAMP']}"
+        for order, suffix in enumerate(self.batches):
+            folder.mkdir(parents=True, exist_ok=True)
+            batch = folder / f"{name}_{suffix}.json"
+            batch.write_text("{}")
+            # saved one second apart, in this order
+            os.utime(batch, ns=(order * 10**9, (1_000_000_000 + order) * 10**9))
         return _Completed(returncode=self.returncode)
+
+    def _cast(self, subcommand):
+        if subcommand == "chain-id":
+            return (
+                _Completed(returncode=1, stderr="Error: error sending request\n")
+                if self.rpc_fails
+                else _Completed("1\n")
+            )
+        if subcommand == "call":
+            if self.owner_fails:
+                return _Completed(
+                    returncode=1,
+                    stderr="Error: could not decode output; did you specify the wrong function return data type?\n",
+                )
+            return _Completed(f"{NODE_FACTORY_OWNER}\n")
+        if subcommand == "send":
+            return (
+                _Completed(returncode=1, stderr="Error: execution reverted: Unauthorized\n")
+                if self.send_fails
+                else _Completed()
+            )
+        if subcommand == "balance":
+            return _Completed("1.000000000000000000\n")
+        return _Completed("null\n")
 
 
 class _Completed:
-    def __init__(self, stdout="", returncode=0):
+    def __init__(self, stdout="", returncode=0, stderr=""):
         self.stdout = stdout
         self.returncode = returncode
+        self.stderr = stderr
 
 
 @pytest.fixture
@@ -357,7 +427,7 @@ def test_a_failed_run_keeps_its_pending_file_and_exits_non_zero(project, tmp_pat
     project.returncode = 1
     project.pending_written = "partial"
     with pytest.raises(SystemExit) as raised:
-        _invoke(monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", "--broadcast")
+        _invoke(monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", "--broadcast", "--account", "deployer")
     assert raised.value.code == 1
     assert pending.read_text() == "partial"
 
@@ -365,7 +435,7 @@ def test_a_failed_run_keeps_its_pending_file_and_exits_non_zero(project, tmp_pat
 def test_a_broadcast_promotes_its_pending_file(project, tmp_path, monkeypatch):
     pending, final = _state_files(tmp_path)
     project.pending_written = "deployed"
-    _invoke(monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", "--broadcast")
+    _invoke(monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", "--broadcast", "--account", "deployer")
     assert final.read_text() == "deployed"
     assert not pending.exists()
 
@@ -425,3 +495,158 @@ def test_running_outside_a_project_root_is_refused(tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as raised:
         run_script.main()
     assert "project root" in str(raised.value)
+
+
+# ── main: what a local run does to the node before forge runs ─────────────────────────────────────
+
+_BAO_BASE = pathlib.Path(__file__).resolve().parents[2]
+
+
+def _solidity(relative, pattern):
+    """The first group of `pattern` in bao-base's file `relative`."""
+    match = re.search(pattern, (_BAO_BASE / relative).read_text())
+    assert match, f"{pattern} not found in {relative}"
+    return match.group(1)
+
+
+def _position(calls, *first_words):
+    """Index of the first call starting with these words, or -1."""
+    for index, command in enumerate(calls):
+        if tuple(command[: len(first_words)]) == first_words:
+            return index
+    return -1
+
+
+def test_the_factory_is_the_one_the_deploy_scripts_use():
+    # The runner cannot ask Solidity for it, so it holds the address: this keeps that copy equal to the deploy
+    # scripts' own.
+    deployers = _solidity(
+        "script/deployment/FactoryDeployer.sol",
+        r"function baoFactory\(\)[^{]*\{(?:\s*//[^\n]*)*\s*return (0x[0-9a-fA-F]{40});",
+    )
+    assert run_script.BAO_FACTORY == deployers
+
+
+def test_a_local_run_makes_its_sender_an_operator_as_the_factory_s_owner_before_forge_runs(project, monkeypatch):
+    # BaoFactory deploys only for its owner or an operator, and only its owner can set an operator. The owner is the
+    # one the node's factory answers; it is funded, then sends the grant, with no key on a node that impersonates.
+    _invoke(monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", "--local", "--broadcast")
+    calls = project.calls
+
+    owner = _position(calls, "cast", "call", run_script.BAO_FACTORY, "owner()(address)")
+    funded = _position(calls, "cast", "rpc", "anvil_setBalance", NODE_FACTORY_OWNER)
+    send = _position(calls, "cast", "send")
+    forge = _position(calls, "forge", "script")
+    assert -1 not in (owner, funded, send, forge), calls
+    assert owner < funded < send < forge, calls
+    command = calls[send]
+    assert _pair_index(command, "--from", NODE_FACTORY_OWNER) != -1, command
+    assert {"--unlocked", "--legacy"} <= set(command), command
+    assert _pair_index(command, "--rpc-url", "local") != -1, command
+    arguments = command[command.index(run_script.BAO_FACTORY) :]
+    assert arguments[1:3] == ["setOperator(address,uint256)", run_script.ANVIL_SENDER], command
+    # The deploy refuses a run with less than OPERATOR_ALLOWANCE_MARGIN of its allowance left: a local node is granted
+    # far more.
+    margin_days = int(_solidity("script/deployment/FactoryDeployer.sol", r"OPERATOR_ALLOWANCE_MARGIN = (\d+) days;"))
+    assert int(arguments[3]) > margin_days * 24 * 60 * 60, command
+
+
+def test_a_local_run_says_what_it_did_to_the_node(project, monkeypatch, capsys):
+    _invoke(monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", "--local", "--broadcast")
+
+    printed = capsys.readouterr().err.splitlines()
+    assert f"  Local node: the factory owner {NODE_FACTORY_OWNER} holds 1.000000000000000000 ETH" in printed
+    assert f"  Local node: the sender {run_script.ANVIL_SENDER} is a BaoFactory operator for a year" in printed
+
+
+def test_a_local_run_with_an_account_sets_no_operator(project, monkeypatch):
+    # The sender is then the keystore account, whose address only forge resolves: FactoryDeployer's own check speaks
+    # for it. The factory's owner is funded all the same: it pays for any batch it signs on the node.
+    _invoke(monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", "--local", "--broadcast", "--account", "d")
+
+    assert _position(project.calls, "cast", "rpc", "anvil_setBalance", NODE_FACTORY_OWNER) != -1, project.calls
+    assert _position(project.calls, "cast", "send") == -1, project.calls
+
+
+def test_a_run_on_a_network_leaves_the_node_alone(project, monkeypatch):
+    # On a network the factory's owner is a multisig and the fees are real: nothing is asked of a node but its chain id.
+    _invoke(monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", "--broadcast", "--account", "deployer")
+
+    casts = [command for command in project.calls if command[0] == "cast"]
+    assert [command[1] for command in casts] == ["chain-id"], casts
+
+
+def test_a_factory_that_does_not_answer_stops_the_run_before_forge(project, monkeypatch):
+    project.owner_fails = True
+    with pytest.raises(SystemExit) as raised:
+        _invoke(monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", "--local", "--broadcast")
+
+    assert str(raised.value).startswith(
+        f"❌ BaoFactory {run_script.BAO_FACTORY} did not answer owner() on the local node: Error: could not decode"
+    ), raised.value
+    assert _position(project.calls, "forge") == -1, project.calls
+
+
+def test_a_refused_operator_grant_stops_the_run_before_forge(project, monkeypatch):
+    project.send_fails = True
+    with pytest.raises(SystemExit) as raised:
+        _invoke(monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", "--local", "--broadcast")
+
+    assert str(raised.value) == (
+        f"❌ the operator grant to {run_script.ANVIL_SENDER} was refused: Error: execution reverted: Unauthorized"
+    )
+    assert _position(project.calls, "forge") == -1, project.calls
+
+
+# ── main: the batches a run saved, for their signer ───────────────────────────────────────────────
+
+
+def _next_steps(printed):
+    """The lines a run ends with, from the one that says what comes next."""
+    lines = printed.splitlines()
+    starts = [index for index, line in enumerate(lines) if line.startswith("  Next")]
+    return lines[starts[0] :] if starts else []
+
+
+def test_a_local_run_ends_with_one_run_batch_command_naming_each_batch_in_the_order_saved(
+    project, tmp_path, monkeypatch, capsys
+):
+    # Two batches, saved in an order their names do not sort in. An earlier run's batch of the same script and another
+    # script's are in the folder too, and are not named. The command is bao-base's run-batch, by its path from here.
+    folder = tmp_path / "deployments" / "local" / "mainnet" / "batch"
+    folder.mkdir(parents=True)
+    (folder / "Deploy_Thing_mainnet_2026-01-01T00:00:00Z_harbor_multisig.json").write_text("{}")
+    (folder / "Pause_AllStabilityPools_2026-01-01T00:00:00Z_harbor_multisig.json").write_text("{}")
+    project.batches = ("seed@harbor_multisig", "configure@harbor_multisig")
+    _invoke(monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", "--local", "--broadcast")
+
+    steps = _next_steps(capsys.readouterr().err)
+    timestamp = project.forge_environment["SAFE_BATCH_TIMESTAMP"]
+    assert steps[0] == "  Next, on the node, as each batch's signer, in this order:", steps
+    command, *files = (line.strip().removesuffix(" \\").strip() for line in steps[1:])
+    run, name = command.split(" ")
+    assert (tmp_path / run).resolve() == _BAO_BASE / "run", command
+    assert name == "run-batch", command
+    assert files == [
+        f"deployments/local/mainnet/batch/Deploy_Thing_mainnet_{timestamp}_seed@harbor_multisig.json",
+        f"deployments/local/mainnet/batch/Deploy_Thing_mainnet_{timestamp}_configure@harbor_multisig.json",
+    ], steps
+    # one command, continued onto a line per file
+    assert [line.endswith(" \\") for line in steps[1:]] == [True, True, False], steps
+
+
+def test_a_run_on_a_network_ends_naming_each_batch_for_the_safe_app(project, monkeypatch, capsys):
+    project.batches = ("GOLD@harbor_multisig",)
+    _invoke(monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", "--broadcast", "--account", "deployer")
+
+    timestamp = project.forge_environment["SAFE_BATCH_TIMESTAMP"]
+    assert _next_steps(capsys.readouterr().err) == [
+        "  Next, for the signers to execute in the Safe app, in this order:",
+        f"    deployments/mainnet/batch/Deploy_Thing_mainnet_{timestamp}_GOLD@harbor_multisig.json",
+    ]
+
+
+def test_a_run_that_saved_no_batch_names_no_next_step(project, monkeypatch, capsys):
+    _invoke(monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", "--local", "--broadcast")
+
+    assert _next_steps(capsys.readouterr().err) == []

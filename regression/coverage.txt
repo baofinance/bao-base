@@ -2,7 +2,7 @@
 |-------------------------------------------|-------------------|--------------------|------------------|------------------|
 | script/deployment/ConfigChain.sol         | ✓ 100% (2/2)      | ✓ 100% (1/1)       | -  N/A (0/0)     | ✓ 100% (1/1)     |
 | script/deployment/DeployReporting.sol     | X  54% (36/67)    | X  53% (29/55)     | X  65% (11/17)   | X  64% (9/14)    |
-| script/deployment/Deployer.sol            | X  96% (72/75)    | X  96% (77/80)     | X  80% (12/15)   | X  94% (15/16)   |
+| script/deployment/Deployer.sol            | X  99% (69/70)    | ✓ 100% (74/74)     | X  91% (10/11)   | X  94% (15/16)   |
 | script/deployment/DeploymentState.sol     | ✓ 100% (58/58)    | ✓ 100% (82/82)     | ✓ 100% (13/13)   | ✓ 100% (8/8)     |
 | script/deployment/FactoryDeployer.sol     | X  99% (119/120)  | X  99% (130/131)   | X  86% (19/22)   | ✓ 100% (26/26)   |
 | script/deployment/JsonFileLib.sol         | ✓ 100% (8/8)      | ✓ 100% (8/8)       | ✓ 100% (1/1)     | ✓ 100% (2/2)     |
@@ -38,4 +38,4 @@
 | src/internal/HarborCheckOwner.sol         | ✓ 100% (10/10)    | ✓ 100% (11/11)     | ✓ 100% (1/1)     | ✓ 100% (2/2)     |
 | src/internal/HarborRoles.sol              | ✓ 100% (2/2)      | ✓ 100% (3/3)       | -  N/A (0/0)     | ✓ 100% (1/1)     |
 | src/internal/HarborRolesCore.sol          | ✓ 100% (54/54)    | ✓ 100% (47/47)     | ✓ 100% (7/7)     | ✓ 100% (17/17)   |
-| Total                                     | X  93% (979/1057) | X  93% (1058/1133) | X  91% (168/185) | X  92% (218/237) |
+| Total                                     | X  93% (976/1052) | X  94% (1055/1127) | X  92% (166/181) | X  92% (218/237) |
