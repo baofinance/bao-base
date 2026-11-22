@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""`anvil --network <alias> (--block <block> | --tx <transaction>) [--before | --after] [--state empty|copy|keep]
+[anvil options]`: a local node forked from a network, with the local state folder made to describe it. The command is
+anvil_fork's, which says what it does."""
+
+import sys
+
+from anvil_fork import main
+
+main(sys.argv[1:])

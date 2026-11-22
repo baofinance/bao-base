@@ -49,10 +49,6 @@ class Batch:
     calls: tuple[Call, ...]
 
 
-class BatchFailed(Exception):
-    """A batch that did not land whole: what went wrong."""
-
-
 def read_batch(path: Path) -> Batch:
     """The batch a Safe Transaction Builder file holds. A file that is not there, or holds no call, stops the run."""
     if not path.is_file():
@@ -109,64 +105,6 @@ def _rpc(method: str, *parameters: str) -> object:
     return json.loads(_ask(["rpc", method, *parameters]))
 
 
-def _execute(batch: Batch, signer: str | None, automine: bool) -> None:
-    """Send every call of `batch` and mine them into one block, or leave nothing of it applied."""
-    if signer is None:
-        first = batch.calls[0].to
-        done = subprocess.run(
-            ["cast", "call", first, "owner()(address)", "--rpc-url", RPC], capture_output=True, text=True, check=False
-        )
-        if done.returncode != 0:
-            sys.exit(
-                f"❌ {first}, the first call's target in {batch.path}, did not answer owner(): {done.stderr.strip()}\n"
-                "   --from <address> names the batch's signer"
-            )
-        signer = done.stdout.strip()
-
-    count = len(batch.calls)
-    rule = "=" * 54
-    print(rule, f"  RUN BATCH: {batch.path}", rule, sep="\n", file=sys.stderr)
-    print(f"  Description: {batch.description}", file=sys.stderr)
-    print(f"  Chain ID:    {batch.chain_id}", file=sys.stderr)
-    print(f"  Signer:      {signer}", file=sys.stderr)
-    print(f"  Calls:       {count}", file=sys.stderr)
-
-    before = int(_ask(["block-number"]))
-    snapshot = _rpc("evm_snapshot")
-    _rpc("evm_setAutomine", "false")
-    try:
-        nonce = int(_ask(["nonce", signer]))
-        transactions = []
-        for number, call in enumerate(batch.calls, start=1):
-            done = subprocess.run(send_command(call, signer, nonce + number - 1), capture_output=True, text=True)
-            if done.returncode != 0:
-                raise BatchFailed(f"call {number} of {count}, to {call.to}, was refused: {done.stderr.strip()}")
-            transactions.append(done.stdout.strip())
-            print(f"  [{number}/{count}] {call.to} {call.data[:10]} sent", file=sys.stderr)
-        _rpc("evm_mine")
-        block = int(_ask(["block-number"]))
-        held = _rpc("eth_getBlockByNumber", hex(block), "false")["transactions"]  # type: ignore[index]
-        problem = block_problem(held, transactions)
-        if problem:
-            raise BatchFailed(f"block {block} {problem}")
-        for number, (call, transaction) in enumerate(zip(batch.calls, transactions), start=1):
-            if _rpc("eth_getTransactionReceipt", transaction)["status"] != "0x1":  # type: ignore[index]
-                raise BatchFailed(f"call {number} of {count}, to {call.to}, failed in block {block}")
-    except BatchFailed as failure:
-        _rpc("anvil_dropAllTransactions")
-        reverted = _rpc("evm_revert", str(snapshot))
-        if reverted is not True:
-            sys.exit(f"❌ {failure}\n❌ evm_revert {snapshot} answered {json.dumps(reverted)}")
-        raise BatchFailed(
-            f"{failure}\n  Nothing of the batch is applied: the node is back at block {before}."
-        ) from None
-    finally:
-        _rpc("evm_setAutomine", json.dumps(automine))
-    calls = "1 call" if count == 1 else f"{count} calls"
-    print(f"  COMPLETE: block {block} holds the batch's {calls}", file=sys.stderr)
-    print(rule, file=sys.stderr)
-
-
 class _ArgumentParser(argparse.ArgumentParser):
     """argparse that fails as the rest of run-batch does: one ❌ line, exit 1."""
 
@@ -191,15 +129,77 @@ def main(argv: list[str]) -> int:
             f"❌ the local node mines a block every {interval} seconds (anvil_getIntervalMining): a batch is mined into "
             "one block only on a node that mines when told to"
         )
-    automine = _rpc("anvil_getAutomine")
+    automine = _rpc("anvil_getAutomine") is True
+    rule = "=" * 54
     for index, batch in enumerate(batches):
+        signer = arguments.signer
+        if signer is None:
+            first = batch.calls[0].to
+            done = subprocess.run(
+                ["cast", "call", first, "owner()(address)", "--rpc-url", RPC],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if done.returncode != 0:
+                sys.exit(
+                    f"❌ {first}, the first call's target in {batch.path}, did not answer owner(): "
+                    f"{done.stderr.strip()}\n   --from <address> names the batch's signer"
+                )
+            signer = done.stdout.strip()
+
+        count = len(batch.calls)
+        print(rule, f"  RUN BATCH: {batch.path}", rule, sep="\n", file=sys.stderr)
+        print(f"  Description: {batch.description}", file=sys.stderr)
+        print(f"  Chain ID:    {batch.chain_id}", file=sys.stderr)
+        print(f"  Signer:      {signer}", file=sys.stderr)
+        print(f"  Calls:       {count}", file=sys.stderr)
+
+        # Each call is sent without waiting for the one before it and the block is mined once, so the node estimates
+        # each call on the state the earlier ones leave. What did not land whole is undone to the snapshot.
+        before = int(_ask(["block-number"]))
+        snapshot = _rpc("evm_snapshot")
+        failure = None
+        _rpc("evm_setAutomine", "false")
         try:
-            _execute(batch, arguments.signer, automine is True)
-        except BatchFailed as failure:
+            nonce = int(_ask(["nonce", signer]))
+            transactions = []
+            for number, call in enumerate(batch.calls, start=1):
+                done = subprocess.run(send_command(call, signer, nonce + number - 1), capture_output=True, text=True)
+                if done.returncode != 0:
+                    failure = f"call {number} of {count}, to {call.to}, was refused: {done.stderr.strip()}"
+                    break
+                transactions.append(done.stdout.strip())
+                print(f"  [{number}/{count}] {call.to} {call.data[:10]} sent", file=sys.stderr)
+            if failure is None:
+                _rpc("evm_mine")
+                block = int(_ask(["block-number"]))
+                held = _rpc("eth_getBlockByNumber", hex(block), "false")["transactions"]  # type: ignore[index]
+                problem = block_problem(held, transactions)
+                if problem:
+                    failure = f"block {block} {problem}"
+            if failure is None:
+                for number, (call, transaction) in enumerate(zip(batch.calls, transactions), start=1):
+                    if _rpc("eth_getTransactionReceipt", transaction)["status"] != "0x1":  # type: ignore[index]
+                        failure = f"call {number} of {count}, to {call.to}, failed in block {block}"
+                        break
+            if failure is not None:
+                _rpc("anvil_dropAllTransactions")
+                reverted = _rpc("evm_revert", str(snapshot))
+                if reverted is not True:
+                    sys.exit(f"❌ {failure}\n❌ evm_revert {snapshot} answered {json.dumps(reverted)}")
+        finally:
+            _rpc("evm_setAutomine", json.dumps(automine))
+
+        if failure is not None:
             print(f"  FAILED: {failure}", file=sys.stderr)
+            print(f"  Nothing of the batch is applied: the node is back at block {before}.", file=sys.stderr)
             not_run = [str(later.path) for later in batches[index + 1 :]]
             if not_run:
                 print(f"  Not run: {' '.join(not_run)}", file=sys.stderr)
-            print("=" * 54, file=sys.stderr)
+            print(rule, file=sys.stderr)
             return 1
+        calls = "1 call" if count == 1 else f"{count} calls"
+        print(f"  COMPLETE: block {block} holds the batch's {calls}", file=sys.stderr)
+        print(rule, file=sys.stderr)
     return 0

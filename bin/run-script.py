@@ -15,7 +15,8 @@ which replaces the default --sig.
 
 On a local node the runner prepares the node for the run: it funds BaoFactory's owner and, when the
 run sends as anvil's default account, makes that account a BaoFactory operator. A run executes none of
-the batches it saves: it ends by naming each, in the order saved, for its signer.
+the batches it saves: it ends by naming each, in the order saved, for its signer, or after a dry run,
+which deployed nothing, for review only.
 
 The work is split so that what gets run is decided by functions that decide nothing else:
 `forge_arguments`, `forge_command` and `solidity_environment` are pure, take no processes and touch
@@ -341,17 +342,21 @@ def main() -> None:
     _banner(["  COMPLETE", f"  Elapsed:    {elapsed // 60}m {elapsed % 60}s"])
 
     # The batches this run saved, each named <script>_<this run's timestamp>_<suffix>.json, in the
-    # order the run wrote them.
+    # order the run wrote them. A dry run's can call contracts that were never deployed: they are
+    # listed to be read, and no one is told to execute them.
     pattern = f"{invocation.script_name}_{environment['SAFE_BATCH_TIMESTAMP']}_*.json"
     saved = sorted((state_dir / "batch").glob(pattern), key=lambda path: path.stat().st_mtime_ns)
     files = [str(path.relative_to(Path.cwd())) for path in saved]
-    if files and invocation.local:
+    if files and not invocation.broadcast:
+        print("\n  Saved by a dry run, for review: nothing was deployed", file=sys.stderr)
+        print("\n".join(f"    {file}" for file in files), file=sys.stderr)
+    if files and invocation.broadcast and invocation.local:
         run = os.path.relpath(BAO_BASE_RUN)
         run = run if os.sep in run else f".{os.sep}{run}"
         print("\n  Next, on the node, as each batch's signer, in this order:", file=sys.stderr)
         print(f"    {run} run-batch \\", file=sys.stderr)
         print(" \\\n".join(f"      {file}" for file in files), file=sys.stderr)
-    if files and not invocation.local:
+    if files and invocation.broadcast and not invocation.local:
         print("\n  Next, for the signers to execute in the Safe app, in this order:", file=sys.stderr)
         print("\n".join(f"    {file}" for file in files), file=sys.stderr)
 

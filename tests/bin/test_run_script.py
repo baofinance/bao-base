@@ -650,3 +650,22 @@ def test_a_run_that_saved_no_batch_names_no_next_step(project, monkeypatch, caps
     _invoke(monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", "--local", "--broadcast")
 
     assert _next_steps(capsys.readouterr().err) == []
+
+
+def test_a_dry_run_lists_its_batches_for_review_with_no_next_step(project, monkeypatch, capsys):
+    # A dry run deploys nothing, but its script saves its batches all the same: they can call contracts that were never
+    # deployed, so they are listed to be read, not to be executed. On a local node and on a network.
+    for case, arguments in enumerate((["--local"], [])):
+        project.batches = (f"case{case}@harbor_multisig",)
+        _invoke(monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", *arguments)
+
+        printed = capsys.readouterr().err
+        timestamp = project.forge_environment["SAFE_BATCH_TIMESTAMP"]
+        folder = "deployments/local/mainnet" if arguments else "deployments/mainnet"
+        assert _next_steps(printed) == [], printed
+        lines = printed.splitlines()
+        assert "  Saved by a dry run, for review: nothing was deployed" in lines, printed
+        start = lines.index("  Saved by a dry run, for review: nothing was deployed")
+        assert lines[start + 1 :] == [
+            f"    {folder}/batch/Deploy_Thing_mainnet_{timestamp}_case{case}@harbor_multisig.json"
+        ], printed
