@@ -13,7 +13,7 @@ Default entry point: run(string), the salt prefix, which is bao-base's own `Depl
 reads the network from its environment. A script on a signature of its own takes it through `--`,
 which replaces the default --sig.
 
-On a local node the runner prepares the node for the run: it funds BaoFactory's owner and, when the
+On a local node the runner prepares the node for the run: it funds BaoFactory's owner by a transfer and, when the
 run sends as anvil's default account, makes that account a BaoFactory operator. A run executes none of
 the batches it saves: it ends by naming each, in the order saved, for its signer, or after a dry run,
 which deployed nothing, for review only.
@@ -41,9 +41,9 @@ ANVIL_SENDER = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 # BaoFactory's address, the same on every chain: `FactoryDeployer.baoFactory()`'s.
 BAO_FACTORY = "0xD696E56b3A054734d4C6DCBD32E11a278b0EC458"
 
-# What a local run gives BaoFactory's owner on the node (1 ETH), and how long it makes its sender an
-# operator for (a year, far longer than a local node lives).
-LOCAL_OWNER_BALANCE_WEI = "0xDE0B6B3A7640000"
+# What a local run sends BaoFactory's owner on the node (1 ETH, in wei), and how long it makes its sender
+# an operator for (a year, far longer than a local node lives).
+LOCAL_OWNER_FUNDING_WEI = "1000000000000000000"
 LOCAL_OPERATOR_SECONDS = 365 * 24 * 60 * 60
 
 # bao-base's command runner: the next step a local run names is its run-batch.
@@ -273,14 +273,27 @@ def main() -> None:
 
     if invocation.local:
         # BaoFactory's owner pays for what is sent as it on the node: the operator grant below, and any
-        # batch it signs. It is the owner the node's factory answers.
+        # batch it signs. It is the owner the node's factory answers. It is funded by a transfer from the
+        # node's first account, a transaction in a block of its own: a cheat such as anvil_setBalance
+        # rewrites the state of the latest block, which can be the block a batch was executed in.
         owner = _cast(
             ["call", BAO_FACTORY, "owner()(address)", "--rpc-url", "local"],
             f"BaoFactory {BAO_FACTORY} did not answer owner() on the local node",
         )
         _cast(
-            ["rpc", "anvil_setBalance", owner, LOCAL_OWNER_BALANCE_WEI, "--rpc-url", "local"],
-            f"anvil_setBalance of {owner} failed",
+            [
+                "send",
+                "--legacy",
+                "--unlocked",
+                "--from",
+                ANVIL_SENDER,
+                "--value",
+                LOCAL_OWNER_FUNDING_WEI,
+                "--rpc-url",
+                "local",
+                owner,
+            ],
+            f"the transfer to {owner} from {ANVIL_SENDER} was refused",
         )
         balance = _cast(["balance", owner, "--ether", "--rpc-url", "local"], f"the balance of {owner} was not read")
         print(f"  Local node: the factory owner {owner} holds {balance} ETH", file=sys.stderr)

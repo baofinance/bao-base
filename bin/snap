@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""`snap --network <net> [--local] [--block <n>] --prefix <p> --state <file>... [--known <address>...]`: the readings of
+a deployment's contracts at a block, written to a sorted file under tmp/snap. The command is deployment_snap's, which
+says what it does."""
+
+import sys
+
+from deployment_snap import main
+
+sys.exit(main(sys.argv[1:]))

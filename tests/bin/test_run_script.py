@@ -318,7 +318,8 @@ class _Forge:
     """Stands in for every process `main` starts, and for what forge does to the state file.
 
     `cast chain-id` must answer or the runner aborts before composing anything; on a local node the factory answers
-    `owner()` with NODE_FACTORY_OWNER, each `cast rpc` answers `null` and the owner's balance is 1 ETH. The forge call
+    `owner()` with NODE_FACTORY_OWNER, each `cast rpc` answers `null` and the owner's balance is 1 ETH. A `cast send`
+    with `--value` is a transfer, any other the operator grant: each can be refused on its own. The forge call
     optionally writes the `.pending` file, as the real one does through the Solidity script, so a test can drive
     promote-and-discard through `main` rather than around it, and saves a batch file for each of `batches`, in that
     order, as the script's flushes would."""
@@ -328,6 +329,7 @@ class _Forge:
         self.returncode = 0
         self.rpc_fails = False
         self.owner_fails = False
+        self.transfer_fails = False
         self.send_fails = False
         self.pending_written = None
         self.pending_seen_by_forge = None
@@ -337,7 +339,7 @@ class _Forge:
     def run(self, command, **kwargs):
         self.calls.append(command)
         if command[0] == "cast":
-            return self._cast(command[1])
+            return self._cast(command)
         # forge: record whether a stale pending file was still there when it started, then write the
         # one the Solidity script would have written.
         self.forge_environment = kwargs.get("env", {})
@@ -356,7 +358,8 @@ class _Forge:
             os.utime(batch, ns=(order * 10**9, (1_000_000_000 + order) * 10**9))
         return _Completed(returncode=self.returncode)
 
-    def _cast(self, subcommand):
+    def _cast(self, command):
+        subcommand = command[1]
         if subcommand == "chain-id":
             return (
                 _Completed(returncode=1, stderr="Error: error sending request\n")
@@ -370,6 +373,12 @@ class _Forge:
                     stderr="Error: could not decode output; did you specify the wrong function return data type?\n",
                 )
             return _Completed(f"{NODE_FACTORY_OWNER}\n")
+        if subcommand == "send" and "--value" in command:
+            return (
+                _Completed(returncode=1, stderr="Error: insufficient funds for gas * price + value\n")
+                if self.transfer_fails
+                else _Completed()
+            )
         if subcommand == "send":
             return (
                 _Completed(returncode=1, stderr="Error: execution reverted: Unauthorized\n")
@@ -527,6 +536,47 @@ def test_the_factory_is_the_one_the_deploy_scripts_use():
     assert run_script.BAO_FACTORY == deployers
 
 
+def _sends(calls, *words):
+    """Index of the first `cast send` holding each of `words`, or -1."""
+    for index, command in enumerate(calls):
+        if command[:2] == ["cast", "send"] and set(words) <= set(command):
+            return index
+    return -1
+
+
+def test_a_local_run_funds_the_owner_by_a_transfer_and_rewrites_no_state(project, monkeypatch):
+    # A node keeps each block it mines, and a check reads earlier blocks. A cheat rewrites the state of the latest
+    # block, which can be a block a batch was executed in: a transfer is a transaction of a block of its own, as on a
+    # network. It is sent by the node's first account, which the node holds the key of, so with any --account.
+    for arguments in ([], ["--account", "deployer"]):
+        project.calls.clear()
+        _invoke(monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", "--local", "--broadcast", *arguments)
+        calls = project.calls
+
+        assert [command for command in calls if command[:2] == ["cast", "rpc"]] == [], calls
+        transfer = _sends(calls, "--value")
+        assert transfer != -1, calls
+        command = calls[transfer]
+        assert _pair_index(command, "--from", run_script.ANVIL_SENDER) != -1, command
+        assert _pair_index(command, "--value", run_script.LOCAL_OWNER_FUNDING_WEI) != -1, command
+        assert {"--unlocked", "--legacy"} <= set(command), command
+        assert _pair_index(command, "--rpc-url", "local") != -1, command
+        # the recipient is the one argument that is not an option or an option's value
+        assert command[-1] == NODE_FACTORY_OWNER, command
+
+
+def test_a_refused_funding_stops_the_run_before_forge(project, monkeypatch):
+    project.transfer_fails = True
+    with pytest.raises(SystemExit) as raised:
+        _invoke(monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", "--local", "--broadcast")
+
+    assert str(raised.value) == (
+        f"❌ the transfer to {NODE_FACTORY_OWNER} from {run_script.ANVIL_SENDER} was refused: "
+        "Error: insufficient funds for gas * price + value"
+    )
+    assert _position(project.calls, "forge") == -1, project.calls
+
+
 def test_a_local_run_makes_its_sender_an_operator_as_the_factory_s_owner_before_forge_runs(project, monkeypatch):
     # BaoFactory deploys only for its owner or an operator, and only its owner can set an operator. The owner is the
     # one the node's factory answers; it is funded, then sends the grant, with no key on a node that impersonates.
@@ -534,8 +584,8 @@ def test_a_local_run_makes_its_sender_an_operator_as_the_factory_s_owner_before_
     calls = project.calls
 
     owner = _position(calls, "cast", "call", run_script.BAO_FACTORY, "owner()(address)")
-    funded = _position(calls, "cast", "rpc", "anvil_setBalance", NODE_FACTORY_OWNER)
-    send = _position(calls, "cast", "send")
+    funded = _sends(calls, "--value", NODE_FACTORY_OWNER)
+    send = _sends(calls, "setOperator(address,uint256)")
     forge = _position(calls, "forge", "script")
     assert -1 not in (owner, funded, send, forge), calls
     assert owner < funded < send < forge, calls
@@ -564,8 +614,8 @@ def test_a_local_run_with_an_account_sets_no_operator(project, monkeypatch):
     # for it. The factory's owner is funded all the same: it pays for any batch it signs on the node.
     _invoke(monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", "--local", "--broadcast", "--account", "d")
 
-    assert _position(project.calls, "cast", "rpc", "anvil_setBalance", NODE_FACTORY_OWNER) != -1, project.calls
-    assert _position(project.calls, "cast", "send") == -1, project.calls
+    assert _sends(project.calls, "--value", NODE_FACTORY_OWNER) != -1, project.calls
+    assert _sends(project.calls, "setOperator(address,uint256)") == -1, project.calls
 
 
 def test_a_run_on_a_network_leaves_the_node_alone(project, monkeypatch):
