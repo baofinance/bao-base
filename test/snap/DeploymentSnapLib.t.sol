@@ -109,6 +109,17 @@ contract SnapHarness {
         return DeploymentSnapLib.read(listing, prefix, extraKnown, _slotAt);
     }
 
+    /// The readings with the pauses given, at the targets' proxies.
+    function readGiven(
+        string memory listing,
+        string memory prefix,
+        DeploymentSnapLib.Pause[] memory given
+    ) external returns (DeploymentSnapLib.Reading[] memory) {
+        DeploymentSnapLib.Listing memory parsed = DeploymentSnapLib.parse(listing);
+        (DeploymentSnapLib.Target[] memory found, ) = DeploymentSnapLib.targets(parsed, prefix, given, _slotAt);
+        return DeploymentSnapLib.readings(parsed, found, DeploymentSnapLib.proxiesOf(found), true);
+    }
+
     function implementationBeforePause(address proxy) external returns (address before, uint256 pausedAt) {
         (before, pausedAt) = DeploymentSnapLib.implementationBeforePause(proxy, _slotAt);
     }
@@ -176,14 +187,22 @@ contract DeploymentSnapLibTest is Test {
         return string.concat(head, "\t", argument, "\t", outputs, "\n");
     }
 
-    function _views() private pure returns (string memory views) {
+    function _views() private pure returns (string memory) {
+        return string.concat(_viewsReturningNoAddress(), _viewsReturningAddresses());
+    }
+
+    /// The views with no argument that return an address: token() one, pair() one among its outputs.
+    function _viewsReturningAddresses() private pure returns (string memory views) {
+        views = _view("token()", SnapTarget.token.selector, "none", "address");
+        views = string.concat(views, _view("pair()", SnapTarget.pair.selector, "none", "uint,address"));
+    }
+
+    function _viewsReturningNoAddress() private pure returns (string memory views) {
         views = _view("count()", SnapTarget.count.selector, "none", "uint");
-        views = string.concat(views, _view("token()", SnapTarget.token.selector, "none", "address"));
         views = string.concat(views, _view("open()", SnapTarget.open.selector, "none", "bool"));
         views = string.concat(views, _view("name()", SnapTarget.name.selector, "none", "string"));
         views = string.concat(views, _view("tag()", SnapTarget.tag.selector, "none", "bytes4"));
         views = string.concat(views, _view("drift()", SnapTarget.drift.selector, "none", "int"));
-        views = string.concat(views, _view("pair()", SnapTarget.pair.selector, "none", "uint,address"));
         views = string.concat(views, _view("both()", SnapTarget.both.selector, "none", "string,bytes"));
         views = string.concat(views, _view("list()", SnapTarget.list.selector, "none", "raw"));
         views = string.concat(views, _view("short()", SnapTarget.short.selector, "none", "uint"));
@@ -194,40 +213,50 @@ contract DeploymentSnapLibTest is Test {
         views = string.concat(views, _view("peerCount()", SnapTarget.peerCount.selector, "none", "uint"));
     }
 
+    function _place(uint256 offset, uint256 size, string memory kind) private pure returns (string memory) {
+        return string.concat(vm.toString(offset), "\t", vm.toString(size), "\t", kind, "\n");
+    }
+
     function _field(
         string memory label,
-        string memory mappingSlot,
         uint256 slot,
         uint256 offset,
         uint256 size,
         string memory kind
     ) private pure returns (string memory) {
-        string memory head = string.concat("storage\tSnapTarget\t", label, "\t", mappingSlot);
-        string memory place = string.concat(
-            vm.toString(bytes32(slot)),
-            "\t",
-            vm.toString(offset),
-            "\t",
-            vm.toString(size)
-        );
-        return string.concat(head, "\t", place, "\t", kind, "\n");
+        string memory head = string.concat("storage\tSnapTarget\t", label, "\t", vm.toString(bytes32(slot)));
+        return string.concat(head, "\t", _place(offset, size, kind));
+    }
+
+    function _entry(
+        string memory label,
+        uint256 mappingSlot,
+        string memory keyKinds,
+        string memory slots,
+        uint256 size,
+        string memory kind
+    ) private pure returns (string memory) {
+        string memory head = string.concat("entry\tSnapTarget\t", label, "\t", vm.toString(bytes32(mappingSlot)));
+        return string.concat(head, "\t", keyKinds, "\t", slots, "\t", _place(0, size, kind));
     }
 
     uint256 private constant BALANCES_SLOT = 7;
     uint256 private constant DEPOSITS_SLOT = 8;
+    uint256 private constant HISTORY_SLOT = 9;
+    uint256 private constant MARKS_SLOT = 10;
 
     function _fields() private pure returns (string memory fields) {
-        string memory balances = vm.toString(bytes32(BALANCES_SLOT));
-        string memory deposits = vm.toString(bytes32(DEPOSITS_SLOT));
-        fields = _field("count", "-", 0, 0, 8, "uint");
-        fields = string.concat(fields, _field("open", "-", 0, 8, 1, "bool"));
-        fields = string.concat(fields, _field("token", "-", 0, 9, 20, "address"));
-        fields = string.concat(fields, _field("drift", "-", 1, 0, 16, "int"));
-        fields = string.concat(fields, _field("tag", "-", 1, 16, 4, "bytes4"));
-        fields = string.concat(fields, _field("blob", "-", 2, 0, 32, "raw"));
-        fields = string.concat(fields, _field("balances[{}]", balances, 0, 0, 32, "uint"));
-        fields = string.concat(fields, _field("deposits[{}].amount", deposits, 0, 0, 32, "uint"));
-        fields = string.concat(fields, _field("deposits[{}].since", deposits, 1, 0, 8, "uint"));
+        fields = _field("count", 0, 0, 8, "uint");
+        fields = string.concat(fields, _field("open", 0, 8, 1, "bool"));
+        fields = string.concat(fields, _field("token", 0, 9, 20, "address"));
+        fields = string.concat(fields, _field("drift", 1, 0, 16, "int"));
+        fields = string.concat(fields, _field("tag", 1, 16, 4, "bytes4"));
+        fields = string.concat(fields, _field("blob", 2, 0, 32, "raw"));
+        fields = string.concat(fields, _entry("balances[{}]", BALANCES_SLOT, "address", "0", 32, "uint"));
+        fields = string.concat(fields, _entry("deposits[{}].amount", DEPOSITS_SLOT, "address", "0", 32, "uint"));
+        fields = string.concat(fields, _entry("deposits[{}].since", DEPOSITS_SLOT, "address", "1", 8, "uint"));
+        fields = string.concat(fields, _entry("history[{}]", HISTORY_SLOT, "uint", "0", 32, "uint"));
+        fields = string.concat(fields, _entry("marks[{}][{}]", MARKS_SLOT, "address,uint", "0,0", 32, "uint"));
     }
 
     function _listing() private view returns (string memory) {
@@ -368,7 +397,7 @@ contract DeploymentSnapLibTest is Test {
 
     function test_readsEachAddressViewAtEveryKnownAddress() public {
         // The known addresses are the proxies under the prefix, then each extra one not among them: none, one, two,
-        // and one that is a proxy, read once.
+        // and one that is a proxy, read once; then the two addresses the views with no argument return.
         address[] memory one = new address[](1);
         one[0] = alice;
         address[] memory two = new address[](2);
@@ -378,17 +407,42 @@ contract DeploymentSnapLibTest is Test {
         aProxy[0] = alice;
         aProxy[1] = pool;
 
-        assertEq(_labelsStartingWith(_read("GOLD::", _none()), "GOLD::pool", "balanceOf("), 2);
-        assertEq(_labelsStartingWith(_read("GOLD::", one), "GOLD::pool", "balanceOf("), 3);
-        assertEq(_labelsStartingWith(_read("GOLD::", aProxy), "GOLD::pool", "balanceOf("), 3);
+        assertEq(_labelsStartingWith(_read("GOLD::", _none()), "GOLD::pool", "balanceOf("), 4);
+        assertEq(_labelsStartingWith(_read("GOLD::", one), "GOLD::pool", "balanceOf("), 5);
+        assertEq(_labelsStartingWith(_read("GOLD::", aProxy), "GOLD::pool", "balanceOf("), 5);
 
         DeploymentSnapLib.Reading[] memory readings = _read("GOLD::", two);
-        assertEq(_labelsStartingWith(readings, "GOLD::pool", "balanceOf("), 4);
-        address[4] memory known = [pool, paused, alice, bob];
+        assertEq(_labelsStartingWith(readings, "GOLD::pool", "balanceOf("), 6);
+        address[6] memory known = [pool, paused, alice, bob, address(0xA11CE), address(0xB0B)];
         for (uint256 i = 0; i < known.length; ++i) {
             string memory label = string.concat("balanceOf(", vm.toString(known[i]), ")");
             assertEq(_value(readings, "GOLD::pool", label), vm.toString(uint256(uint160(known[i])) % 1000));
         }
+    }
+
+    function test_readsAddressViewsAtEachAddressANoArgumentViewReturns() public {
+        // The views with no argument add each address they return to the known ones: none, the one token() returns,
+        // and with pair() a second among its outputs; an address already known is read once.
+        string memory balanceOf = _view("balanceOf(address)", SnapTarget.balanceOf.selector, "address", "uint");
+        string memory token = _view("token()", SnapTarget.token.selector, "none", "address");
+        string memory both = string.concat(balanceOf, _viewsReturningAddresses());
+        string[3] memory views = [balanceOf, string.concat(balanceOf, token), both];
+        uint256[3] memory known = [uint256(2), 3, 4];
+        for (uint256 i = 0; i < views.length; ++i) {
+            string memory listing = string.concat(_proxies(), views[i]);
+            DeploymentSnapLib.Reading[] memory readings = SnapHarness(harness).read(listing, "GOLD::", _none());
+            assertEq(_labelsStartingWith(readings, "GOLD::pool", "balanceOf("), known[i]);
+        }
+        address[] memory already = new address[](1);
+        already[0] = address(0xA11CE);
+        DeploymentSnapLib.Reading[] memory once = SnapHarness(harness).read(
+            string.concat(_proxies(), both),
+            "GOLD::",
+            already
+        );
+        assertEq(_labelsStartingWith(once, "GOLD::pool", "balanceOf("), 4);
+        string memory atBob = string.concat("balanceOf(", vm.toString(address(0xB0B)), ")");
+        assertEq(_value(once, "GOLD::pool", atBob), vm.toString(uint256(0xB0B) % 1000));
     }
 
     // ── storage ───────────────────────────────────────────────────────────────────────────────────
@@ -431,7 +485,17 @@ contract DeploymentSnapLibTest is Test {
         assertEq(_value(readings, "GOLD::pool", string.concat("deposits[", key, "].amount")), "12");
         assertEq(_value(readings, "GOLD::pool", string.concat("deposits[", key, "].since")), "13");
         assertEq(_value(readings, "GOLD::pool", string.concat("balances[", vm.toString(pool), "]")), "0");
-        assertEq(_labelsStartingWith(readings, "GOLD::pool", "balances["), 3);
+        // at the two proxies, alice, and the two addresses the views return
+        assertEq(_labelsStartingWith(readings, "GOLD::pool", "balances["), 5);
+    }
+
+    function test_readsEntriesOfAnAddressKeyedMappingOnly() public {
+        // A mapping keyed by anything but an address, and a mapping through two keys, have no known keys to read at.
+        DeploymentSnapLib.Reading[] memory readings = _read("GOLD::", _none());
+
+        assertGt(_labelsStartingWith(readings, "GOLD::pool", "balances["), 0);
+        assertEq(_labelsStartingWith(readings, "GOLD::pool", "history["), 0);
+        assertEq(_labelsStartingWith(readings, "GOLD::pool", "marks["), 0);
     }
 
     // ── a paused proxy ────────────────────────────────────────────────────────────────────────────
@@ -493,6 +557,55 @@ contract DeploymentSnapLibTest is Test {
         }
     }
 
+    function test_aPauseAlreadyFoundIsConfirmedWithoutBisection() public {
+        // A second proxy paused at the block the first was found paused at is confirmed there in two reads: the slot
+        // holds its value at that block and not at the one before. One paused at another block is then bisected.
+        address peer = address(new BaoERC1967Proxy(target, ""));
+        vm.store(peer, ERC1967Utils.IMPLEMENTATION_SLOT, bytes32(uint256(uint160(pauser))));
+        string memory listing = string.concat(_listing(), "proxy\tGOLD::peer\t", vm.toString(peer), "\n");
+
+        uint256 start = SnapHarness(harness).historyReads();
+        SnapHarness(harness).read(_listing(), "GOLD::", _none());
+        uint256 alone = SnapHarness(harness).historyReads() - start;
+
+        SnapHarness(harness).setHistory(peer, target, pauser, PAUSED_AT);
+        start = SnapHarness(harness).historyReads();
+        DeploymentSnapLib.Reading[] memory readings = SnapHarness(harness).read(listing, "GOLD::", _none());
+        assertEq(SnapHarness(harness).historyReads() - start, alone + 2);
+        assertEq(
+            _value(readings, "GOLD::peer", "ERC-1967 implementation before the pause"),
+            string.concat(vm.toString(target), " (SnapTarget), paused at block 1000")
+        );
+
+        SnapHarness(harness).setHistory(peer, target, pauser, PAUSED_AT + 1_234);
+        start = SnapHarness(harness).historyReads();
+        readings = SnapHarness(harness).read(listing, "GOLD::", _none());
+        // one read at the block found, which the slot does not hold yet, then a bisection of its own
+        assertGt(SnapHarness(harness).historyReads() - start, alone + 2);
+        assertEq(
+            _value(readings, "GOLD::peer", "ERC-1967 implementation before the pause"),
+            string.concat(vm.toString(target), " (SnapTarget), paused at block 2234")
+        );
+    }
+
+    function test_aGivenPauseIsUsedWithoutReadingTheHistory() public {
+        // A pause the caller gives, as a check takes one from the batch's own writes, is used as given: the slot's
+        // history is not read.
+        DeploymentSnapLib.Pause[] memory given = new DeploymentSnapLib.Pause[](1);
+        given[0] = DeploymentSnapLib.Pause(paused, target, 0, true);
+        vm.store(paused, bytes32(uint256(5)), bytes32(uint256(77)));
+        uint256 start = SnapHarness(harness).historyReads();
+
+        DeploymentSnapLib.Reading[] memory readings = SnapHarness(harness).readGiven(_listing(), "GOLD::", given);
+
+        assertEq(SnapHarness(harness).historyReads(), start);
+        assertEq(
+            _value(readings, "GOLD::paused", "ERC-1967 implementation before the pause"),
+            string.concat(vm.toString(target), " (SnapTarget), paused by the batch")
+        );
+        assertEq(_value(readings, "GOLD::paused", "stored()"), "77");
+    }
+
     function test_aSlotHistoryThatDisagreesWithTheForkStopsTheRead() public {
         // The chain's slot at the fork's block must be what the fork holds: otherwise the search would find the
         // history of another value.
@@ -534,8 +647,10 @@ contract DeploymentSnapLibTest is Test {
     }
 
     function test_aListingLineNotUnderstoodStopsTheRead() public {
-        // A line of a kind the listing does not have, or with fields missing.
-        string[2] memory lines = ["slot\tSnapTarget\tcount", "view\tSnapTarget\tcount()"];
+        // A line of a kind the listing does not have, or with fields missing or extra: a storage line in the form
+        // before entries had their own.
+        string memory older = string.concat("storage\tSnapTarget\tcount\t-\t", vm.toString(bytes32(0)), "\t0\t8\tuint");
+        string[3] memory lines = ["slot\tSnapTarget\tcount", "view\tSnapTarget\tcount()", older];
         for (uint256 i = 0; i < lines.length; ++i) {
             string memory listing = string.concat(_proxies(), lines[i], "\n");
             address[] memory extraKnown = _none();

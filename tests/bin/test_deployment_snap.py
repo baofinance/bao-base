@@ -121,8 +121,31 @@ def entry(label, slot, type_id, offset=0):
 
 
 def storage(entries, types):
+    """Each line's kind and the fields after the type."""
     lines = deployment_snap.storage_lines(TYPE, {"storage": entries, "types": types})
-    return [line.split("\t")[2:] for line in lines]
+    return [[parts[0], *parts[2:]] for parts in (line.split("\t") for line in lines)]
+
+
+def mapping(key, value, key_label, value_label):
+    return {
+        "encoding": "mapping",
+        "key": key,
+        "label": f"mapping({key_label} => {value_label})",
+        "numberOfBytes": "32",
+        "value": value,
+    }
+
+
+def dynamic_array(base, label):
+    return {"base": base, "encoding": "dynamic_array", "label": f"{label}[]", "numberOfBytes": "32"}
+
+
+DEPOSIT = {
+    "encoding": "inplace",
+    "label": "struct Pool_v1.Deposit",
+    "numberOfBytes": "64",
+    "members": [entry("amount", 0, "t_uint256"), entry("since", 1, "t_uint64"), entry("open", 1, "t_bool", offset=8)],
+}
 
 
 def test_a_field_is_listed_at_its_slot_offset_and_size_by_kind():
@@ -150,15 +173,15 @@ def test_a_field_is_listed_at_its_slot_offset_and_size_by_kind():
     ]
 
     assert storage(entries, types) == [
-        ["count", "-", word(0), "0", "8", "uint"],
-        ["open", "-", word(0), "8", "1", "bool"],
-        ["token", "-", word(0), "9", "20", "address"],
-        ["treasury", "-", word(1), "0", "20", "address"],
-        ["drift", "-", word(2), "0", "16", "int"],
-        ["tag", "-", word(2), "16", "4", "bytes4"],
-        ["mode", "-", word(2), "20", "1", "uint"],
-        ["price", "-", word(3), "0", "32", "raw"],
-        ["bao.storage.Pool.total", "-", word(NAMESPACE_SLOT + 1), "0", "32", "uint"],
+        ["storage", "count", word(0), "0", "8", "uint"],
+        ["storage", "open", word(0), "8", "1", "bool"],
+        ["storage", "token", word(0), "9", "20", "address"],
+        ["storage", "treasury", word(1), "0", "20", "address"],
+        ["storage", "drift", word(2), "0", "16", "int"],
+        ["storage", "tag", word(2), "16", "4", "bytes4"],
+        ["storage", "mode", word(2), "20", "1", "uint"],
+        ["storage", "price", word(3), "0", "32", "raw"],
+        ["storage", "bao.storage.Pool.total", word(NAMESPACE_SLOT + 1), "0", "32", "uint"],
     ]
 
 
@@ -195,113 +218,186 @@ def test_a_struct_is_listed_by_member_and_a_static_array_by_element():
     ]
 
     assert storage(entries, types) == [
-        ["incentives[0].rate", "-", word(10), "0", "16", "uint"],
-        ["incentives[0].cap", "-", word(10), "16", "16", "uint"],
-        ["incentives[0].paid", "-", word(11), "0", "32", "uint"],
-        ["incentives[1].rate", "-", word(12), "0", "16", "uint"],
-        ["incentives[1].cap", "-", word(12), "16", "16", "uint"],
-        ["incentives[1].paid", "-", word(13), "0", "32", "uint"],
-        ["caps[0]", "-", word(14), "0", "16", "uint"],
-        ["caps[1]", "-", word(14), "16", "16", "uint"],
-        ["caps[2]", "-", word(15), "0", "16", "uint"],
+        ["storage", "incentives[0].rate", word(10), "0", "16", "uint"],
+        ["storage", "incentives[0].cap", word(10), "16", "16", "uint"],
+        ["storage", "incentives[0].paid", word(11), "0", "32", "uint"],
+        ["storage", "incentives[1].rate", word(12), "0", "16", "uint"],
+        ["storage", "incentives[1].cap", word(12), "16", "16", "uint"],
+        ["storage", "incentives[1].paid", word(13), "0", "32", "uint"],
+        ["storage", "caps[0]", word(14), "0", "16", "uint"],
+        ["storage", "caps[1]", word(14), "16", "16", "uint"],
+        ["storage", "caps[2]", word(15), "0", "16", "uint"],
     ]
 
 
-def test_an_address_keyed_mapping_is_listed_relative_to_its_entry():
+def test_a_mapping_by_any_key_is_listed_as_an_entry_with_its_key_kind():
     types = {
         "t_address": elementary("address", 20),
         "t_contract(IERC20)12": elementary("contract IERC20", 20),
         "t_uint256": elementary("uint256", 32),
-        "t_uint64": elementary("uint64", 8),
-        "t_mapping(t_address,t_uint256)": {
-            "encoding": "mapping",
-            "key": "t_address",
-            "label": "mapping(address => uint256)",
-            "numberOfBytes": "32",
-            "value": "t_uint256",
-        },
-        "t_struct(Deposit)3_storage": {
-            "encoding": "inplace",
-            "label": "struct Pool_v1.Deposit",
-            "numberOfBytes": "64",
-            "members": [entry("amount", 0, "t_uint256"), entry("since", 1, "t_uint64")],
-        },
-        "t_mapping(t_contract(IERC20)12,t_struct(Deposit)3_storage)": {
-            "encoding": "mapping",
-            "key": "t_contract(IERC20)12",
-            "label": "mapping(contract IERC20 => struct Pool_v1.Deposit)",
-            "numberOfBytes": "32",
-            "value": "t_struct(Deposit)3_storage",
-        },
+        "t_int24": elementary("int24", 3),
+        "t_bytes32": elementary("bytes32", 32),
+        "t_bool": elementary("bool", 1),
+        "t_enum(Mode)7": elementary("enum Pool_v1.Mode", 1),
+        "t_string_memory_ptr": elementary("string", 32, encoding="bytes"),
+        "t_mapping(t_address,t_uint256)": mapping("t_address", "t_uint256", "address", "uint256"),
+        "t_mapping(t_contract(IERC20)12,t_uint256)": mapping(
+            "t_contract(IERC20)12", "t_uint256", "contract IERC20", "uint256"
+        ),
+        "t_mapping(t_uint256,t_uint256)": mapping("t_uint256", "t_uint256", "uint256", "uint256"),
+        "t_mapping(t_int24,t_uint256)": mapping("t_int24", "t_uint256", "int24", "uint256"),
+        "t_mapping(t_bytes32,t_bool)": mapping("t_bytes32", "t_bool", "bytes32", "bool"),
+        "t_mapping(t_enum(Mode)7,t_uint256)": mapping("t_enum(Mode)7", "t_uint256", "enum Pool_v1.Mode", "uint256"),
+        "t_mapping(t_string_memory_ptr,t_uint256)": mapping("t_string_memory_ptr", "t_uint256", "string", "uint256"),
     }
     entries = [
         entry("bao.storage.Pool.balances", NAMESPACE_SLOT, "t_mapping(t_address,t_uint256)"),
-        entry("deposits", 4, "t_mapping(t_contract(IERC20)12,t_struct(Deposit)3_storage)"),
+        entry("held", 1, "t_mapping(t_contract(IERC20)12,t_uint256)"),
+        entry("history", 2, "t_mapping(t_uint256,t_uint256)"),
+        entry("ticks", 3, "t_mapping(t_int24,t_uint256)"),
+        entry("roles", 4, "t_mapping(t_bytes32,t_bool)"),
+        entry("byMode", 5, "t_mapping(t_enum(Mode)7,t_uint256)"),
+        entry("byName", 6, "t_mapping(t_string_memory_ptr,t_uint256)"),
     ]
 
+    # the key's kind is how it is shown; a string key is hashed whole, so it is raw
     assert storage(entries, types) == [
-        ["bao.storage.Pool.balances[{}]", word(NAMESPACE_SLOT), word(0), "0", "32", "uint"],
-        ["deposits[{}].amount", word(4), word(0), "0", "32", "uint"],
-        ["deposits[{}].since", word(4), word(1), "0", "8", "uint"],
+        ["entry", "bao.storage.Pool.balances[{}]", word(NAMESPACE_SLOT), "address", "0", "0", "32", "uint"],
+        ["entry", "held[{}]", word(1), "address", "0", "0", "32", "uint"],
+        ["entry", "history[{}]", word(2), "uint", "0", "0", "32", "uint"],
+        ["entry", "ticks[{}]", word(3), "int", "0", "0", "32", "uint"],
+        ["entry", "roles[{}]", word(4), "bytes32", "0", "0", "1", "bool"],
+        ["entry", "byMode[{}]", word(5), "uint", "0", "0", "32", "uint"],
+        ["entry", "byName[{}]", word(6), "raw", "0", "0", "32", "uint"],
     ]
 
 
-def test_a_mapping_by_another_key_or_inside_an_entry_is_not_listed():
+def test_a_mapping_inside_an_entry_is_listed_by_each_key():
     types = {
         "t_address": elementary("address", 20),
         "t_uint256": elementary("uint256", 32),
-        "t_mapping(t_uint256,t_uint256)": {
-            "encoding": "mapping",
-            "key": "t_uint256",
-            "label": "mapping(uint256 => uint256)",
-            "numberOfBytes": "32",
-            "value": "t_uint256",
+        "t_uint64": elementary("uint64", 8),
+        "t_mapping(t_uint256,t_uint64)": mapping("t_uint256", "t_uint64", "uint256", "uint64"),
+        "t_mapping(t_address,t_mapping(t_uint256,t_uint64))": mapping(
+            "t_address", "t_mapping(t_uint256,t_uint64)", "address", "mapping(uint256 => uint64)"
+        ),
+        "t_struct(Book)4_storage": {
+            "encoding": "inplace",
+            "label": "struct Pool_v1.Book",
+            "numberOfBytes": "64",
+            "members": [entry("total", 0, "t_uint256"), entry("pages", 1, "t_mapping(t_uint256,t_uint64)")],
         },
-        "t_mapping(t_address,t_uint256)": {
-            "encoding": "mapping",
-            "key": "t_address",
-            "label": "mapping(address => uint256)",
-            "numberOfBytes": "32",
-            "value": "t_uint256",
-        },
-        "t_mapping(t_address,t_mapping(t_address,t_uint256))": {
-            "encoding": "mapping",
-            "key": "t_address",
-            "label": "mapping(address => mapping(address => uint256))",
-            "numberOfBytes": "32",
-            "value": "t_mapping(t_address,t_uint256)",
-        },
+        "t_mapping(t_address,t_struct(Book)4_storage)": mapping(
+            "t_address", "t_struct(Book)4_storage", "address", "struct Pool_v1.Book"
+        ),
     }
     entries = [
-        entry("history", 0, "t_mapping(t_uint256,t_uint256)"),
-        entry("allowances", 1, "t_mapping(t_address,t_mapping(t_address,t_uint256))"),
+        entry("marks", 7, "t_mapping(t_address,t_mapping(t_uint256,t_uint64))"),
+        entry("books", 8, "t_mapping(t_address,t_struct(Book)4_storage)"),
     ]
 
-    assert storage(entries, types) == []
+    # one slot for each mapping: the next mapping's, counted from this one's entry, then the value's
+    assert storage(entries, types) == [
+        ["entry", "marks[{}][{}]", word(7), "address,uint", "0,0", "0", "8", "uint"],
+        ["entry", "books[{}].total", word(8), "address", "0", "0", "32", "uint"],
+        ["entry", "books[{}].pages[{}]", word(8), "address,uint", "1,0", "0", "8", "uint"],
+    ]
 
 
-def test_a_dynamic_array_by_its_length_and_a_string_by_its_word():
+def test_a_struct_in_an_entry_is_listed_by_member():
     types = {
         "t_address": elementary("address", 20),
-        "t_array(t_address)dyn_storage": {
-            "base": "t_address",
-            "encoding": "dynamic_array",
-            "label": "address[]",
-            "numberOfBytes": "32",
-        },
-        "t_string_storage": elementary("string", 32, encoding="bytes"),
-        "t_bytes_storage": elementary("bytes", 32, encoding="bytes"),
+        "t_uint256": elementary("uint256", 32),
+        "t_uint64": elementary("uint64", 8),
+        "t_bool": elementary("bool", 1),
+        "t_struct(Deposit)3_storage": DEPOSIT,
+        "t_mapping(t_address,t_struct(Deposit)3_storage)": mapping(
+            "t_address", "t_struct(Deposit)3_storage", "address", "struct Pool_v1.Deposit"
+        ),
+    }
+    entries = [entry("deposits", 4, "t_mapping(t_address,t_struct(Deposit)3_storage)")]
+
+    assert storage(entries, types) == [
+        ["entry", "deposits[{}].amount", word(4), "address", "0", "0", "32", "uint"],
+        ["entry", "deposits[{}].since", word(4), "address", "1", "0", "8", "uint"],
+        ["entry", "deposits[{}].open", word(4), "address", "1", "8", "1", "bool"],
+    ]
+
+
+def test_a_dynamic_array_is_listed_by_its_length_and_its_elements():
+    types = {
+        "t_address": elementary("address", 20),
+        "t_uint64": elementary("uint64", 8),
+        "t_uint256": elementary("uint256", 32),
+        "t_bool": elementary("bool", 1),
+        "t_struct(Deposit)3_storage": DEPOSIT,
+        "t_array(t_address)dyn_storage": dynamic_array("t_address", "address"),
+        "t_array(t_uint64)dyn_storage": dynamic_array("t_uint64", "uint64"),
+        "t_array(t_struct(Deposit)3_storage)dyn_storage": dynamic_array(
+            "t_struct(Deposit)3_storage", "struct Pool_v1.Deposit"
+        ),
     }
     entries = [
         entry("holders", 5, "t_array(t_address)dyn_storage"),
-        entry("name", 6, "t_string_storage"),
-        entry("blob", 7, "t_bytes_storage"),
+        entry("stamps", 6, "t_array(t_uint64)dyn_storage"),
+        entry("bao.storage.Pool.queue", NAMESPACE_SLOT + 2, "t_array(t_struct(Deposit)3_storage)dyn_storage"),
     ]
 
+    # an element is counted from its first slot; elements under 32 bytes pack, so their size says where each is
     assert storage(entries, types) == [
-        ["holders.length", "-", word(5), "0", "32", "uint"],
-        ["name", "-", word(6), "0", "32", "raw"],
-        ["blob", "-", word(7), "0", "32", "raw"],
+        ["storage", "holders.length", word(5), "0", "32", "uint"],
+        ["element", "holders[{}]", word(5), "20", "0", "0", "20", "address"],
+        ["storage", "stamps.length", word(6), "0", "32", "uint"],
+        ["element", "stamps[{}]", word(6), "8", "0", "0", "8", "uint"],
+        ["storage", "bao.storage.Pool.queue.length", word(NAMESPACE_SLOT + 2), "0", "32", "uint"],
+        ["element", "bao.storage.Pool.queue[{}].amount", word(NAMESPACE_SLOT + 2), "64", "0", "0", "32", "uint"],
+        ["element", "bao.storage.Pool.queue[{}].since", word(NAMESPACE_SLOT + 2), "64", "1", "0", "8", "uint"],
+        ["element", "bao.storage.Pool.queue[{}].open", word(NAMESPACE_SLOT + 2), "64", "1", "8", "1", "bool"],
+    ]
+
+
+def test_an_array_inside_an_entry_and_a_mapping_inside_an_element_are_listed_by_what_has_a_fixed_place():
+    types = {
+        "t_address": elementary("address", 20),
+        "t_uint256": elementary("uint256", 32),
+        "t_array(t_uint256)dyn_storage": dynamic_array("t_uint256", "uint256"),
+        "t_mapping(t_address,t_array(t_uint256)dyn_storage)": mapping(
+            "t_address", "t_array(t_uint256)dyn_storage", "address", "uint256[]"
+        ),
+        "t_mapping(t_address,t_uint256)": mapping("t_address", "t_uint256", "address", "uint256"),
+        "t_struct(Ledger)6_storage": {
+            "encoding": "inplace",
+            "label": "struct Pool_v1.Ledger",
+            "numberOfBytes": "64",
+            "members": [entry("total", 0, "t_uint256"), entry("owed", 1, "t_mapping(t_address,t_uint256)")],
+        },
+        "t_array(t_struct(Ledger)6_storage)dyn_storage": dynamic_array(
+            "t_struct(Ledger)6_storage", "struct Pool_v1.Ledger"
+        ),
+    }
+    entries = [
+        entry("claims", 9, "t_mapping(t_address,t_array(t_uint256)dyn_storage)"),
+        entry("ledgers", 10, "t_array(t_struct(Ledger)6_storage)dyn_storage"),
+    ]
+
+    # the array's elements in an entry, and the mapping's entries in an element, have no listed place
+    assert storage(entries, types) == [
+        ["entry", "claims[{}].length", word(9), "address", "0", "0", "32", "uint"],
+        ["storage", "ledgers.length", word(10), "0", "32", "uint"],
+        ["element", "ledgers[{}].total", word(10), "64", "0", "0", "32", "uint"],
+    ]
+
+
+def test_a_string_or_bytes_is_listed_by_its_slot_word():
+    types = {
+        "t_string_storage": elementary("string", 32, encoding="bytes"),
+        "t_bytes_storage": elementary("bytes", 32, encoding="bytes"),
+    }
+    entries = [entry("name", 6, "t_string_storage"), entry("blob", 7, "t_bytes_storage")]
+
+    assert storage(entries, types) == [
+        ["storage", "name", word(6), "0", "32", "raw"],
+        ["storage", "blob", word(7), "0", "32", "raw"],
     ]
 
 
@@ -359,7 +455,7 @@ def test_the_listing_names_every_proxy_and_implementation_of_every_state_file():
     assert [line for line in lines if line.startswith(("view\t", "storage\t"))] == [
         "view\tPauser_v1\towner()\t0x8da5cb5b\tnone\taddress",
         "view\tPool_v1\ttotal()\t0x2ddbd13a\tnone\tuint",
-        f"storage\tPool_v1\ttotal\t-\t{word(0)}\t0\t32\tuint",
+        f"storage\tPool_v1\ttotal\t{word(0)}\t0\t32\tuint",
         "view\tToken_v1\tdecimals()\t0x313ce567\tnone\tuint",
     ]
 
@@ -369,6 +465,25 @@ def test_a_type_the_build_lacks_is_listed_as_absent():
 
     assert "absent\tPool_v0" in lines
     assert not [line for line in lines if line.split("\t")[:2] in (["view", "Pool_v0"], ["storage", "Pool_v0"])]
+
+
+def test_a_type_named_by_the_caller_is_listed_with_no_proxy():
+    lines = deployment_snap.listing_lines([HARBOR_STATE], inspected, ["Pauser_v1", "Pool_v1"])
+
+    # listed once, among the state files' types in the order of its name, and no implementation of it is invented
+    assert [line for line in lines if line.startswith("view\t")] == [
+        "view\tPauser_v1\towner()\t0x8da5cb5b\tnone\taddress",
+        "view\tPool_v1\ttotal()\t0x2ddbd13a\tnone\tuint",
+        "view\tToken_v1\tdecimals()\t0x313ce567\tnone\tuint",
+    ]
+    assert not [line for line in lines if line.startswith("implementation\t") and line.endswith("\tPauser_v1")]
+
+
+def test_a_type_named_by_the_caller_the_build_lacks_stops_the_listing():
+    with pytest.raises(SystemExit) as raised:
+        deployment_snap.listing_lines([HARBOR_STATE], inspected, ["Missing_v1"])
+
+    assert str(raised.value) == "❌ --type Missing_v1: the build has no contract of that name"
 
 
 def test_a_proxy_key_in_two_state_files_stops_the_listing():
@@ -481,6 +596,14 @@ def test_a_snap_at_a_given_block_asks_for_no_block(project, monkeypatch):
     script = _script(project.calls)
     assert script[script.index("--sig") + 2 : script.index("--sig") + 4] == ["mainnet", "123"], script
     assert script[script.index("--sig") + 6] == "[]", script
+
+
+def test_the_snap_lists_each_type_it_is_given(project, tmp_path, monkeypatch):
+    _snap(monkeypatch, "--network", "mainnet", "--prefix", "GOLD::", "--state", "harbor.state.json", "--type", "Pauser_v1")
+
+    listing = (tmp_path / "tmp/snap/GOLD_mainnet_26476880.listing.tsv").read_text().splitlines()
+    assert listing == deployment_snap.listing_lines([HARBOR_STATE], inspected, ["Pauser_v1"])
+    assert "view\tPauser_v1\towner()\t0x8da5cb5b\tnone\taddress" in listing
 
 
 def test_a_local_snap_reads_the_local_node(project, tmp_path, monkeypatch):

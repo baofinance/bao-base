@@ -1,14 +1,16 @@
 """snap: the readings of a deployment's contracts at a block, written to a sorted file for a person to read.
 
-`snap --network <net> [--local] [--block <n>] --prefix <p> --state <file>... [--known <address>...]` reads, at the
-block (the network's latest by default), every proxy of the state files whose key starts with the prefix, and writes
-the readings to `tmp/snap/<prefix>_<net>[_local]_<block>.tsv`, sorted, one `<contract key>\t<label>\t<value>` a line.
-It is a tool for inspection and comparison, not a step of a deployment.
+`snap --network <net> [--local] [--block <n>] --prefix <p> --state <file>... [--known <address>...] [--type <t>...]`
+reads, at the block (the network's latest by default), every proxy of the state files whose key starts with the
+prefix, and writes the readings to `tmp/snap/<prefix>_<net>[_local]_<block>.tsv`, sorted, one `<contract key>\t<label>
+\t<value>` a line. It is a tool for inspection and comparison, not a step of a deployment.
 
-The work has two parts. The listing says what to read. It depends only on the state files and the build, never on a
-block: each proxy and implementation the state files name, and for each implementation's type its views and storage
-fields, from what `forge inspect` prints. forge lays out ERC-7201 namespaced fields there too, at their slots. bao-base's
-DeploymentSnapLib then reads at the block, in the forge script test/snap/DumpSnap.s.sol: it says what each reading is.
+The work has two parts. The listing says what to read, and where each value a write can land in is. It depends only
+on the state files and the build, never on a block: each proxy and implementation the state files name, and for each
+implementation's type, and each type `--type` names, its views and storage values, from what `forge inspect` prints.
+forge lays out ERC-7201 namespaced fields there too, at their slots. bao-base's DeploymentSnapLib then reads at the
+block, in the forge script test/snap/DumpSnap.s.sol: it says what each reading is. DeploymentDiffLib names a batch's
+writes from the same lines.
 
 The listing's lines are tab-separated:
 - `proxy <key> <address>` and `implementation <address> <type>`, from every state file given;
@@ -16,11 +18,18 @@ The listing's lines are tab-separated:
 - `view <type> <signature> <selector> <none|address> <outputs>`: each view or pure function with no argument or one
   address argument. The outputs are kinds, comma-separated: `address`, `bool`, `uint`, `int`, `bytes<N>`, `string`,
   `bytes`. They are `raw` when one output is of another type, and `-` when there is none.
-- `storage <type> <label> <mapping slot|-> <slot> <offset> <bytes> <kind>`: each value a storage field holds, by kind
-  (`address`, `bool`, `uint`, `int`, `bytes<N>`, `raw`). A struct is listed by member, a static array by element, a
-  dynamic array by its length, a string or bytes by its slot word. A mapping keyed by an address is listed at each
-  known address: the label holds `{}` where the key goes, and the slot is counted from the entry's. A mapping keyed by
-  anything else, and a mapping inside a mapping's entry, are not read, as two-argument views are not.
+- `storage <type> <label> <slot> <offset> <bytes> <kind>`: a value at a fixed slot, by kind (`address`, `bool`,
+  `uint`, `int`, `bytes<N>`, `raw`). A struct is listed by member, a static array by element, a dynamic array by its
+  length, a string or bytes by its slot word.
+- `entry <type> <label> <mapping slot> <key kinds> <slots> <offset> <bytes> <kind>`: a value through one or more
+  mappings. The label holds a `{}` where each key goes. The key kinds and the slots have one item per mapping,
+  comma-separated: a key's kind is how it is shown (`raw` for a string or bytes key, which is hashed whole), and each
+  slot is counted from that mapping's entry: the next mapping's slot, or for the last, the value's.
+- `element <type> <label> <array slot> <element bytes> <slot> <offset> <bytes> <kind>`: a value in an element of a
+  dynamic array at a fixed slot. The label holds `{}` where the index goes; the slot is counted from the element's
+  first slot. Elements under 32 bytes pack, as many to a slot as fit.
+An array inside a mapping's entry is listed by its length, and a mapping inside an array's element not at all: their
+values have no place the listing can give.
 
 `view_lines`, `storage_lines` and `listing_lines` decide without running anything; `main` runs forge and cast.
 """
@@ -33,8 +42,9 @@ import os
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Sequence
 
 BAO_BASE = Path(__file__).resolve().parent.parent
 
@@ -112,27 +122,68 @@ def _storage_kind(type_id: str, type_def: dict) -> str:
     return "raw"
 
 
-def _values(types: dict, type_id: str, label: str, slot: int, offset: int, mapping_slot: int | None):
-    """(label, mapping slot, slot, offset, bytes, kind) of each value a field of `type_id` at `slot` holds. Under a
-    mapping, `mapping_slot` is the mapping's slot and `slot` is counted from the entry's."""
+def _key_kind(type_id: str, type_def: dict) -> str:
+    """How a mapping key of this type is shown. A string or bytes key is hashed whole, not as a word, so it is raw."""
+    if type_def["encoding"] == "bytes":
+        return "raw"
+    return _storage_kind(type_id, type_def)
+
+
+@dataclass(frozen=True)
+class _Fixed:
+    """A value at a fixed slot."""
+
+
+@dataclass(frozen=True)
+class _Entry:
+    """A value through one or more mappings: the first mapping's slot, each key's kind, and each mapping's slot counted
+    from the entry of the mapping before it. The value's own slot is counted from the last entry."""
+
+    mapping_slot: int
+    key_kinds: tuple[str, ...]
+    slots: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class _Element:
+    """A value in a dynamic array's element: the array's slot and the bytes an element takes. The value's own slot is
+    counted from the element's first slot."""
+
+    array_slot: int
+    element_bytes: int
+
+
+_Place = _Fixed | _Entry | _Element
+
+
+def _values(types: dict, type_id: str, label: str, slot: int, offset: int, place: _Place):
+    """(place, label, slot, offset, bytes, kind) of each value a field of `type_id` at `slot` holds."""
     type_def = types[type_id]
     encoding = type_def["encoding"]
     if encoding == "mapping":
-        key = types[type_def["key"]]["label"]
-        if mapping_slot is None and (key == "address" or key.startswith("contract ")):
-            yield from _values(types, type_def["value"], f"{label}[{{}}]", 0, 0, slot)
+        key_kind = _key_kind(type_def["key"], types[type_def["key"]])
+        if isinstance(place, _Element):
+            return
+        if isinstance(place, _Fixed):
+            inner = _Entry(slot, (key_kind,), ())
+        else:
+            inner = _Entry(place.mapping_slot, (*place.key_kinds, key_kind), (*place.slots, slot))
+        yield from _values(types, type_def["value"], f"{label}[{{}}]", 0, 0, inner)
         return
     if encoding == "dynamic_array":
-        yield (f"{label}.length", mapping_slot, slot, 0, 32, "uint")
+        yield (place, f"{label}.length", slot, 0, 32, "uint")
+        if isinstance(place, _Fixed):
+            element_bytes = int(types[type_def["base"]]["numberOfBytes"])
+            yield from _values(types, type_def["base"], f"{label}[{{}}]", 0, 0, _Element(slot, element_bytes))
         return
     if encoding == "bytes":
-        yield (label, mapping_slot, slot, 0, 32, "raw")
+        yield (place, label, slot, 0, 32, "raw")
         return
     if "members" in type_def:
         for member in type_def["members"]:
             member_slot = slot + int(member["slot"])
             member_label = f"{label}.{member['label']}"
-            yield from _values(types, member["type"], member_label, member_slot, member["offset"], mapping_slot)
+            yield from _values(types, member["type"], member_label, member_slot, member["offset"], place)
         return
     if "base" in type_def:
         # a static array: each element starts a slot of its own when it fills one, else they pack
@@ -145,9 +196,9 @@ def _values(types: dict, type_id: str, label: str, slot: int, offset: int, mappi
                 per_slot = 32 // size
                 element_slot, element_offset = slot + index // per_slot, (index % per_slot) * size
             element_label = f"{label}[{index}]"
-            yield from _values(types, type_def["base"], element_label, element_slot, element_offset, mapping_slot)
+            yield from _values(types, type_def["base"], element_label, element_slot, element_offset, place)
         return
-    yield (label, mapping_slot, slot, offset, int(type_def["numberOfBytes"]), _storage_kind(type_id, type_def))
+    yield (place, label, slot, offset, int(type_def["numberOfBytes"]), _storage_kind(type_id, type_def))
 
 
 def _word(value: int) -> str:
@@ -155,21 +206,31 @@ def _word(value: int) -> str:
 
 
 def storage_lines(contract_type: str, layout: dict) -> list[str]:
-    """The `storage` line of each value the fields of a forge storage layout hold."""
+    """The `storage`, `entry` and `element` line of each value the fields of a forge storage layout hold."""
     lines = []
     for field in layout["storage"]:
-        values = _values(layout["types"], field["type"], field["label"], int(field["slot"]), field["offset"], None)
-        for label, mapping_slot, slot, offset, size, kind in values:
-            mapping = "-" if mapping_slot is None else _word(mapping_slot)
-            lines.append(
-                "\t".join(["storage", contract_type, label, mapping, _word(slot), str(offset), str(size), kind])
-            )
+        values = _values(layout["types"], field["type"], field["label"], int(field["slot"]), field["offset"], _Fixed())
+        for place, label, slot, offset, size, kind in values:
+            value = [str(offset), str(size), kind]
+            if isinstance(place, _Fixed):
+                lines.append("\t".join(["storage", contract_type, label, _word(slot), *value]))
+            elif isinstance(place, _Entry):
+                where = [_word(place.mapping_slot), ",".join(place.key_kinds)]
+                where.append(",".join(str(s) for s in (*place.slots, slot)))
+                lines.append("\t".join(["entry", contract_type, label, *where, *value]))
+            else:
+                where = [_word(place.array_slot), str(place.element_bytes), str(slot)]
+                lines.append("\t".join(["element", contract_type, label, *where, *value]))
     return lines
 
 
-def listing_lines(states: list[dict], inspect: Callable[[str], Inspected | None]) -> list[str]:
+def listing_lines(
+    states: list[dict], inspect: Callable[[str], Inspected | None], types: Sequence[str] = ()
+) -> list[str]:
     """The listing of every proxy and implementation of the state files, and of each implementation's type: its views
-    and storage, or `absent` when `inspect` finds no contract of it. Each type once, in the order of its name."""
+    and storage, or `absent` when `inspect` finds no contract of it. `types` adds types no state file names, such as
+    an implementation deployed in a test; one the build lacks stops the listing. Each type once, in the order of its
+    name."""
     proxies: dict[str, str] = {}
     implementations: dict[str, tuple[str, str]] = {}
     for state in states:
@@ -187,8 +248,11 @@ def listing_lines(states: list[dict], inspect: Callable[[str], Inspected | None]
     lines = [f"proxy\t{key}\t{address}" for key, address in proxies.items()]
     lines += [f"implementation\t{address}\t{contract_type}" for address, contract_type in implementations.values()]
     absent, read = [], []
-    for contract_type in sorted({contract_type for _address, contract_type in implementations.values()}):
+    named = {contract_type for _address, contract_type in implementations.values()}
+    for contract_type in sorted(named | set(types)):
         inspected = inspect(contract_type)
+        if inspected is None and contract_type not in named:
+            sys.exit(f"❌ --type {contract_type}: the build has no contract of that name")
         if inspected is None:
             absent.append(f"absent\t{contract_type}")
             continue
@@ -235,6 +299,9 @@ def _parse_arguments(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--known", action="append", default=[], help="an address to read address views and mappings at (repeatable)"
     )
+    parser.add_argument(
+        "--type", action="append", default=[], help="a contract type no state file names, to list too (repeatable)"
+    )
     return parser.parse_args(argv)
 
 
@@ -248,7 +315,7 @@ def main(argv: list[str]) -> int:
         block = int(_cast(["block-number", "--rpc-url", rpc], f"the block number of {rpc} was not read"))
 
     states = [json.loads(Path(file).read_text()) for file in arguments.state]
-    listing = listing_lines(states, _forge_inspect)
+    listing = listing_lines(states, _forge_inspect, arguments.type)
 
     prefix = re.sub(r"[^A-Za-z0-9]+", "_", arguments.prefix).strip("_") or "all"
     name = f"{prefix}_{arguments.network}{'_local' if arguments.local else ''}_{block}"
