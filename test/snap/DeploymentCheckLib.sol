@@ -89,9 +89,17 @@ library DeploymentCheckLib {
         uint256 failureCount;
     }
 
+    /// What bin/run-campaign-test names in the environment: the listing's path, the folder each check writes its
+    /// reads to, a folder of its own in it, and the end of each name a batch's transactions are given under. A
+    /// campaign reads them through virtual functions of its own.
+    string internal constant LISTING = "BAO_CHECK_LISTING";
+    string internal constant FOLDER = "BAO_CHECK_FOLDER";
+    string internal constant TRANSACTIONS = "_TRANSACTIONS";
+
     error ClaimsFailed(string report);
     error ATokenDoesNotAnswer(address token, bytes call);
     error TransferBeyondSignedRange(address token, uint256 value);
+    error NotATransactionHash(string text);
 
     // ── claims ────────────────────────────────────────────────────────────────────────────────────
 
@@ -166,10 +174,37 @@ library DeploymentCheckLib {
         vm.startStateDiffRecording();
     }
 
-    /// Replays mined transactions in turn, on a fork made at the first of them: a batch where it ran.
-    function replay(bytes32[] memory transactions) internal {
-        for (uint256 i = 0; i < transactions.length; ++i) {
-            vm.transact(transactions[i]);
+    /// Replays mined transactions in turn, on a fork made at the first of them: a batch where it ran, the one
+    /// transaction of a Safe's execution on a network, or the transactions run-batch mined into one block of a local
+    /// node, which follow each other in it.
+    function replay(bytes32[] memory hashes) internal {
+        for (uint256 i = 0; i < hashes.length; ++i) {
+            vm.transact(hashes[i]);
+        }
+    }
+
+    /// The transaction hashes of a comma-separated list, in its order; an empty list holds none. An entry that is not
+    /// `0x` and 32 bytes in hex stops it.
+    function transactions(string memory list) internal pure returns (bytes32[] memory hashes) {
+        if (bytes(list).length == 0) {
+            return hashes;
+        }
+        string[] memory entries = vm.split(list, ",");
+        hashes = new bytes32[](entries.length);
+        for (uint256 i = 0; i < entries.length; ++i) {
+            bytes memory entry = bytes(entries[i]);
+            bool isHash = entry.length == 66 && entry[0] == "0" && entry[1] == "x";
+            for (uint256 c = 2; c < entry.length && isHash; ++c) {
+                bytes1 digit = entry[c];
+                isHash =
+                    (digit >= "0" && digit <= "9") ||
+                    (digit >= "a" && digit <= "f") ||
+                    (digit >= "A" && digit <= "F");
+            }
+            if (!isHash) {
+                revert NotATransactionHash(entries[i]);
+            }
+            hashes[i] = vm.parseBytes32(entries[i]);
         }
     }
 

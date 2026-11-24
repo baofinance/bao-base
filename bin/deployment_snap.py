@@ -9,7 +9,7 @@ The work has two parts. The listing says what to read, and where each value a wr
 on the state files and the build, never on a block: each proxy and implementation the state files name, and for each
 implementation's type, and each type `--type` names, its views and storage values, from what `forge inspect` prints.
 forge lays out ERC-7201 namespaced fields there too, at their slots. bao-base's DeploymentSnapLib then reads at the
-block, in the forge script test/snap/DumpSnap.s.sol: it says what each reading is. DeploymentDiffLib names a batch's
+block, in the forge script script/snap/DumpSnap.s.sol: it says what each reading is. DeploymentDiffLib names a batch's
 writes from the same lines.
 
 The listing's lines are tab-separated:
@@ -50,7 +50,7 @@ BAO_BASE = Path(__file__).resolve().parent.parent
 
 # The forge script that reads, and the signature of its entry point: the fork, the block, the listing's path, the
 # prefix, the known addresses, the path it writes its readings to.
-SCRIPT = BAO_BASE / "test" / "snap" / "DumpSnap.s.sol"
+SCRIPT = BAO_BASE / "script" / "snap" / "DumpSnap.s.sol"
 SIGNATURE = "run(string,uint256,string,string,address[],string)"
 
 # The ABI types a value is read as, and the solc storage labels.
@@ -261,7 +261,7 @@ def listing_lines(
     return lines + absent + read
 
 
-def _forge_inspect(contract_type: str) -> Inspected | None:
+def forge_inspect(contract_type: str) -> Inspected | None:
     """What forge inspect prints for the type: its ABI, selectors and storage layout. None when forge finds no contract
     of that name in the build; any other failure stops the snap with forge's error."""
     printed = []
@@ -315,7 +315,7 @@ def main(argv: list[str]) -> int:
         block = int(_cast(["block-number", "--rpc-url", rpc], f"the block number of {rpc} was not read"))
 
     states = [json.loads(Path(file).read_text()) for file in arguments.state]
-    listing = listing_lines(states, _forge_inspect, arguments.type)
+    listing = listing_lines(states, forge_inspect, arguments.type)
 
     prefix = re.sub(r"[^A-Za-z0-9]+", "_", arguments.prefix).strip("_") or "all"
     name = f"{prefix}_{arguments.network}{'_local' if arguments.local else ''}_{block}"

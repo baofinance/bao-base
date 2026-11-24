@@ -30,26 +30,36 @@ _EVERY_RUN = [
 ]
 
 # records each call forge gets - its environment and its arguments, and what the run had made for it - as a
-# line of JSON, writes the results STUB_FORGE_RESULTS holds where --json-file says (STUB_FORGE_RERUN_RESULTS
-# from its second call on, when set), runs nothing, and exits with the status STUB_FORGE_STATUS names, or
+# line of JSON, prints a line, writes the results STUB_FORGE_RESULTS holds where --json-file says
+# (STUB_FORGE_RERUN_RESULTS from its second call on, when set), writes the reads STUB_FORGE_CHECK holds as a
+# check named `gold` would, runs nothing, and exits with the status STUB_FORGE_STATUS names, or
 # STUB_FORGE_RERUN_STATUS from its second call on
 _STUB_FORGE = """#!/usr/bin/env bash
 python3 - "$@" <<'EOF'
 import json, os, shutil, sys
 argv = sys.argv[1:]
+folder = os.environ.get("BAO_CHECK_FOLDER", "")
 with open(os.environ["STUB_FORGE_RECORD"], "a") as record:
     record.write(json.dumps({
         "env": dict(os.environ),
         "argv": argv,
         "results_exists": os.path.isdir("results"),
         "logs_root_exists": os.path.isdir(os.environ.get("BAO_DEPLOYMENT_LOGS_ROOT", "")),
+        "listing": open(os.environ["BAO_CHECK_LISTING"]).read() if os.environ.get("BAO_CHECK_LISTING") else None,
+        "checks_left": sorted(os.listdir(folder)) if folder and os.path.isdir(folder) else None,
     }) + "\\n")
+print("the stub forge ran")
 calls = sum(1 for _ in open(os.environ["STUB_FORGE_RECORD"]))
 results = os.environ.get("STUB_FORGE_RESULTS")
 if calls > 1 and os.environ.get("STUB_FORGE_RERUN_RESULTS"):
     results = os.environ["STUB_FORGE_RERUN_RESULTS"]
 if "--json-file" in argv and results:
     shutil.copy(results, argv[argv.index("--json-file") + 1])
+if os.environ.get("STUB_FORGE_CHECK"):
+    os.makedirs(os.path.join(folder, "gold"))
+    for name, lines in json.loads(os.environ["STUB_FORGE_CHECK"]).items():
+        with open(os.path.join(folder, "gold", name), "w") as read:
+            read.write("\\n".join(lines) + "\\n")
 EOF
 if [[ $(wc -l <"$STUB_FORGE_RECORD") -gt 1 ]]; then exit "${STUB_FORGE_RERUN_STATUS:-0}"; fi
 exit "${STUB_FORGE_STATUS:-0}"
@@ -423,3 +433,168 @@ def test_a_failed_run_that_left_no_results_says_so(tmp_path):
 def test_a_clean_run_prints_no_summary(tmp_path):
     seen = _forge_saw(tmp_path, "test", results=_results(**{"test/A.t.sol:A": {"test_a()": None}}))
     assert "re-run" not in seen["stderr"] and "provider" not in seen["stderr"], seen["stderr"]
+
+
+# ── the campaign run: bin/run-campaign-test ──
+
+_CAMPAIGN = "script/verify/gold-emptying-executed"
+_LOG = "tmp/gold.log"
+_PASSED = _results(**{f"{_CAMPAIGN}/Gold.t.sol:Gold": {"test_a()": None}})
+_HASH_A = "0x" + "a" * 64
+_HASH_B = "0x" + "b" * 64
+_STATE = {"proxies": {"GOLD::pool": {"address": "0x00000000000000000000000000000000000000A1"}}, "implementations": {}}
+
+
+def _campaign(
+    tmp_path: pathlib.Path,
+    arguments: list[str],
+    results: dict | None = _PASSED,
+    check: dict[str, list[str]] | None = None,
+    **stub: object,
+) -> dict:
+    """Run bin/run-campaign-test on the campaign with the log, then `arguments`, a state file `state.json` in the
+    working directory, and a stub forge that writes `results` and, with `check`, a check's reads; what forge was
+    called with each time as "calls" (none when the run stopped before forge), and the run's status, output and
+    working directory."""
+    stub_dir = tmp_path / "stub"
+    stub_dir.mkdir(parents=True, exist_ok=True)
+    (stub_dir / "forge").write_text(_STUB_FORGE)
+    (stub_dir / "forge").chmod(0o755)
+    record = tmp_path / "campaign.json"
+    work = tmp_path / "work"
+    work.mkdir(exist_ok=True)
+    (work / "state.json").write_text(json.dumps(_STATE))
+    env = {name: value for name, value in os.environ.items() if name not in _INVARIANT_SETTINGS}
+    env["PATH"] = f"{stub_dir}{os.pathsep}{os.environ['PATH']}"
+    env["STUB_FORGE_RECORD"] = str(record)
+    env["STUB_FORGE_STATUS"] = str(stub.get("status", 0))
+    env["STUB_FORGE_RERUN_STATUS"] = str(stub.get("rerun_status", 0))
+    for name, value in (("STUB_FORGE_RESULTS", results), ("STUB_FORGE_RERUN_RESULTS", stub.get("rerun_results"))):
+        if value is not None:
+            file = tmp_path / f"{name}.json"
+            file.write_text(json.dumps(value))
+            env[name] = str(file)
+    if check is not None:
+        env["STUB_FORGE_CHECK"] = json.dumps(check)
+    done = subprocess.run(
+        [sys.executable, str(_BIN / "run-campaign-test"), _CAMPAIGN, _LOG, *arguments],
+        cwd=work,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    calls = [json.loads(line) for line in record.read_text().splitlines()] if record.exists() else []
+    return {"status": done.returncode, "stdout": done.stdout, "stderr": done.stderr, "calls": calls, "work": work}
+
+
+def test_a_campaign_run_points_forge_at_the_campaign_with_its_own_build(tmp_path):
+    # its own build: the test directory moved, forge compiles with one remapping more, and every artifact differs from
+    # the main build's; requests are paced for a provider that refuses a burst
+    assert forge_test_runs.command("campaign", {}, ["-vv"], results="tmp/gold.results.json") == [
+        "forge", "test", "-v", "--gas-limit", "18446744073709551615", "--disable-block-gas-limit",
+        "--no-dynamic-test-linking", "--deny", "never", "--out", "out/_campaign", "--cache-path", "cache/_campaign",
+        "--compute-units-per-second", "50", "--json-file", "tmp/gold.results.json", "-vv",
+    ]  # fmt: skip
+    seen = _campaign(tmp_path, ["--match-contract", "Gold"])
+    (call,) = seen["calls"]
+    assert call["env"]["FOUNDRY_TEST"] == _CAMPAIGN
+    assert call["argv"] == forge_test_runs.command(
+        "campaign", {}, ["--match-contract", "Gold"], results="tmp/gold.results.json"
+    )[1:]
+    assert seen["status"] == 0, seen["stderr"]
+
+
+def test_a_campaign_run_leaves_the_campaigns_tests_in(tmp_path):
+    # the test run leaves out the tests under script/, which is where a campaign's are
+    (call,) = _campaign(tmp_path, [])["calls"]
+    assert "--nmp" not in call["argv"]
+
+
+def test_a_campaign_run_writes_forges_output_to_its_log_and_to_the_terminal(tmp_path):
+    seen = _campaign(tmp_path, [])
+    assert "the stub forge ran" in (seen["work"] / _LOG).read_text()
+    assert "the stub forge ran" in seen["stdout"]
+
+
+def test_a_campaign_run_that_ran_no_test_fails_saying_so(tmp_path):
+    # forge runs tests only from its test directory: a filter that matches nothing reports no tests and exits 0
+    seen = _campaign(tmp_path, ["--match-contract", "Nothing"], results={})
+    assert seen["status"] == 1
+    assert f"❌ forge ran no test in {_CAMPAIGN}: the campaign checked nothing" in seen["stderr"], seen["stderr"]
+
+
+def test_the_network_and_local_give_where_the_batch_ran(tmp_path):
+    on_mainnet = _campaign(tmp_path / "mainnet", ["--network", "mainnet"])["calls"][0]["env"]
+    on_the_node = _campaign(tmp_path / "local", ["--network", "mainnet", "--local"])["calls"][0]["env"]
+    neither = _campaign(tmp_path / "neither", [])["calls"][0]["env"]
+    assert on_mainnet["EXECUTED_ON"] == "mainnet"
+    assert on_the_node["EXECUTED_ON"] == "local"
+    assert "EXECUTED_ON" not in neither
+
+
+@pytest.mark.parametrize("arguments", [["--local"], ["--transactions", f"GOLD={_HASH_A}"]])
+def test_local_or_transactions_without_a_network_stop_the_run(tmp_path, arguments):
+    seen = _campaign(tmp_path, arguments)
+    assert seen["calls"] == []
+    assert seen["status"] == 1
+    assert "❌ --local and --transactions name where a batch ran: they need --network" in seen["stderr"]
+
+
+def test_transactions_are_given_by_name(tmp_path):
+    # one name with one transaction, another with two, in the order given
+    arguments = ["--network", "mainnet", "--transactions", f"GOLD={_HASH_A}", "--transactions"]
+    seen = _campaign(tmp_path, [*arguments, f"SILVER={_HASH_A},{_HASH_B}"])
+    env = seen["calls"][0]["env"]
+    assert env["GOLD_TRANSACTIONS"] == _HASH_A
+    assert env["SILVER_TRANSACTIONS"] == f"{_HASH_A},{_HASH_B}"
+
+
+@pytest.mark.parametrize("given", [f"GOLD={_HASH_A[:-2]}", f"GOLD={_HASH_A}g", "GOLD=", f"gold={_HASH_A}", _HASH_A])
+def test_a_transactions_value_not_a_name_and_hashes_stops_the_run(tmp_path, given):
+    seen = _campaign(tmp_path, ["--network", "mainnet", "--transactions", given])
+    assert seen["calls"] == []
+    assert seen["status"] == 1
+    assert (
+        f"❌ --transactions takes <NAME>=<hash>[,<hash>...], each hash 32 bytes in hex, not '{given}'"
+        in seen["stderr"]
+    ), seen["stderr"]
+
+
+def test_state_files_write_the_listing_beside_the_log_before_forge(tmp_path):
+    seen = _campaign(tmp_path, ["--state", "state.json"])
+    (call,) = seen["calls"]
+    assert call["env"]["BAO_CHECK_LISTING"] == "tmp/gold.listing.tsv"
+    expected = forge_test_runs.deployment_snap.listing_lines([_STATE], lambda contract_type: None)
+    assert call["listing"] == "\n".join(expected) + "\n"
+
+
+def test_a_type_without_a_state_file_stops_the_run(tmp_path):
+    seen = _campaign(tmp_path, ["--type", "Pool_v1"])
+    assert seen["calls"] == []
+    assert "❌ --type adds a type to the listing --state writes: it needs --state" in seen["stderr"]
+
+
+def test_the_checks_folder_is_beside_the_log_and_its_reads_are_sorted_after_forge(tmp_path):
+    # a check writes its reads in the order it read them; a folder an earlier run left is gone before forge runs
+    stale = tmp_path / "work" / "tmp" / "gold.checks" / "earlier"
+    stale.mkdir(parents=True)
+    reads = {"before.tsv": ["b\t2", "a\t1"], "after.tsv": ["d\t4", "c\t3"], "changes.tsv": ["z", "y"]}
+    seen = _campaign(tmp_path, ["--state", "state.json"], check=reads)
+    (call,) = seen["calls"]
+    assert call["env"]["BAO_CHECK_FOLDER"] == "tmp/gold.checks"
+    assert call["checks_left"] is None
+    gold = seen["work"] / "tmp" / "gold.checks" / "gold"
+    assert (gold / "before.tsv").read_text() == "a\t1\nb\t2\n"
+    assert (gold / "after.tsv").read_text() == "c\t3\nd\t4\n"
+    # the changes keep the order the check found them in
+    assert (gold / "changes.tsv").read_text() == "z\ny\n"
+
+
+def test_a_campaign_run_reruns_a_provider_failure_once(tmp_path):
+    failed = _results(**{f"{_CAMPAIGN}/Gold.t.sol:Gold": {"setUp()": _A_PROVIDERS_ERROR}})
+    seen = _campaign(tmp_path, [], results=failed, status=1, rerun_results=_PASSED)
+    first, second = seen["calls"]
+    assert second["argv"] == [*first["argv"], "--match-contract", "^(Gold)$"]
+    assert seen["status"] == 0, seen["stderr"]
+    assert "the stub forge ran\nthe stub forge ran\n" in (seen["work"] / _LOG).read_text()

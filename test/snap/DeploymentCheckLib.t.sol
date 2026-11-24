@@ -3,7 +3,9 @@ pragma solidity >=0.8.28 <0.9.0;
 
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
+import {BaoTest} from "@bao-test/BaoTest.sol";
 import {BaoERC1967Proxy} from "@bao/BaoERC1967Proxy.sol";
 import {HarborPauser_v1} from "@bao/HarborPauser_v1.sol";
 import {DeploymentSnapLib} from "@bao-test/snap/DeploymentSnapLib.sol";
@@ -115,6 +117,10 @@ contract CheckHarness {
 
     function begin() external returns (uint256) {
         return DeploymentCheckLib.begin();
+    }
+
+    function transactions(string memory list) external pure returns (bytes32[] memory) {
+        return DeploymentCheckLib.transactions(list);
     }
 
     function end(DeploymentCheckLib.Check memory check) external returns (Vm.Log[] memory) {
@@ -671,6 +677,43 @@ contract DeploymentCheckLibTest is Test {
         CheckHarness(harness).end(check);
     }
 
+    // ── the batch's transactions, as run-campaign-test gives them ─────────────────────────────────
+
+    function test_transactionsAreReadFromACommaSeparatedList() public view {
+        // None, one, and two in the order listed; the names the runner gives them under are its.
+        bytes32 first = keccak256("first");
+        bytes32 second = keccak256("second");
+        assertEq(CheckHarness(harness).transactions("").length, 0);
+        bytes32[] memory one = CheckHarness(harness).transactions(vm.toString(first));
+        assertEq(one.length, 1);
+        assertEq(one[0], first);
+        bytes32[] memory two = CheckHarness(harness).transactions(
+            string.concat(vm.toString(first), ",", vm.toString(second))
+        );
+        assertEq(two.length, 2);
+        assertEq(two[0], first);
+        assertEq(two[1], second);
+        assertEq(DeploymentCheckLib.LISTING, "BAO_CHECK_LISTING");
+        assertEq(DeploymentCheckLib.FOLDER, "BAO_CHECK_FOLDER");
+        assertEq(DeploymentCheckLib.TRANSACTIONS, "_TRANSACTIONS");
+    }
+
+    function test_anEntryNotA32ByteHashStopsTheList() public {
+        // Too short, a character not hex, no `0x`, and an empty entry between two hashes.
+        string memory hash = vm.toString(keccak256("first"));
+        string[4] memory wrong = [
+            "0x1234",
+            "0xg111111111111111111111111111111111111111111111111111111111111111",
+            vm.replace(hash, "0x", "00"),
+            ""
+        ];
+        for (uint256 i = 0; i < wrong.length; ++i) {
+            string memory list = string.concat(hash, ",", wrong[i]);
+            vm.expectRevert(abi.encodeWithSelector(DeploymentCheckLib.NotATransactionHash.selector, wrong[i]));
+            CheckHarness(harness).transactions(list);
+        }
+    }
+
     // ── the files ─────────────────────────────────────────────────────────────────────────────────
 
     function test_writesTheReadsTheChangesAndTheOutsideWrites() public {
@@ -707,5 +750,46 @@ contract DeploymentCheckLibTest is Test {
         for (uint256 i = 0; i < files.length; ++i) {
             assertFalse(vm.contains(vm.readFile(string.concat(folder, "/", files[i])), "marker"));
         }
+    }
+}
+
+/// A batch where it ran: two mined USDT transfers by one sender, the second spending from what the first left,
+/// replayed in turn on a fork made at the first.
+contract DeploymentCheckLibReplayTest is BaoTest {
+    bytes32 private constant FIRST = 0xd3257e6cf6263636441c2af629d715f2f5c6e324bc1c5cbe420541a96d6d26dd;
+    bytes32 private constant SECOND = 0x56789792fc43c17027bd7d9bf2a4a4d5cc7f8290a36bcdd84f82ba2e8cee395b;
+    address private constant USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
+    address private constant SENDER = 0x46a87250486D95402EE3881FF660b3A11e5F2089;
+    address private constant FIRST_RECIPIENT = 0x36E57be043A9DC8a765b7bF55885229F4a28D6fE;
+    address private constant SECOND_RECIPIENT = 0x600377b617a82FC6A4b6f2d2199882e5Bd975037;
+    uint256 private constant FIRST_AMOUNT = 1_400_000_000;
+    uint256 private constant SECOND_AMOUNT = 3_000_000_000;
+
+    function test_replayAppliesEachMinedTransactionInTurn() public {
+        // Each transfer as the chain ran it, in order: its log, and the balances it moved.
+        createSelectForkAtTransaction("mainnet", FIRST);
+        uint256 sender = IERC20(USDT).balanceOf(SENDER);
+        uint256 first = IERC20(USDT).balanceOf(FIRST_RECIPIENT);
+        uint256 second = IERC20(USDT).balanceOf(SECOND_RECIPIENT);
+        bytes32[] memory batch = new bytes32[](2);
+        (batch[0], batch[1]) = (FIRST, SECOND);
+        vm.recordLogs();
+
+        DeploymentCheckLib.replay(batch);
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 2);
+        address[2] memory recipients = [FIRST_RECIPIENT, SECOND_RECIPIENT];
+        uint256[2] memory amounts = [FIRST_AMOUNT, SECOND_AMOUNT];
+        for (uint256 i = 0; i < logs.length; ++i) {
+            assertEq(logs[i].emitter, USDT);
+            assertEq(logs[i].topics[0], DeploymentCheckLib.TRANSFER);
+            assertEq(logs[i].topics[1], bytes32(uint256(uint160(SENDER))));
+            assertEq(logs[i].topics[2], bytes32(uint256(uint160(recipients[i]))));
+            assertEq(abi.decode(logs[i].data, (uint256)), amounts[i]);
+        }
+        assertEq(IERC20(USDT).balanceOf(SENDER), sender - FIRST_AMOUNT - SECOND_AMOUNT);
+        assertEq(IERC20(USDT).balanceOf(FIRST_RECIPIENT), first + FIRST_AMOUNT);
+        assertEq(IERC20(USDT).balanceOf(SECOND_RECIPIENT), second + SECOND_AMOUNT);
     }
 }

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""The forge runs bin/test, bin/gas and bin/coverage make.
+"""The forge runs bin/test, bin/gas, bin/coverage and bin/run-campaign-test make.
 
-One command each, built here, so that the three agree on what every run gets and differ only in what each
-is for. The entry points are the files `run` finds by the yarn script's name; each hands its name and the
-caller's arguments to `main`. tests/bin/test_forge_test_runs.py pins every command and setting below.
+One command each, built here, so that the four agree on what every run gets and differ only in what each
+is for. The entry points are the files `run` finds by the yarn script's name; each of the first three hands
+its name and the caller's arguments to `main`, and run-campaign-test hands its arguments to `campaign`.
+tests/bin/test_forge_test_runs.py pins every command and setting below.
 
 Every run gets:
 
@@ -106,6 +107,28 @@ What each run is for:
 gas and coverage run deploy scripts whose logs go under BAO_DEPLOYMENT_LOGS_ROOT, a folder under tmp/ that
 the run makes and removes. Neither is re-run on a provider failure: each reports one run, and a re-run's
 report would be partial.
+
+- campaign (run-campaign-test): one verification campaign, the tests of a deployment, upgrade or remediation
+  about to be performed, which live under script/verify/ and which the test run leaves out. forge runs tests
+  only from its configured test directory: a filter outside it, or one matching nothing, reports no tests and
+  exits 0, a check that checks nothing and passes. So this points the test directory at the campaign
+  (FOUNDRY_TEST), and fails unless forge's results show a test ran. It has a build of its own, out/_campaign
+  and cache/_campaign: with the test directory moved, forge compiles with one remapping more, so every
+  artifact differs from the main build's by its metadata hash, and a shared build would let each run
+  overwrite the other's. --deny never keeps that cache, as in the test run. Requests are paced at 50 compute
+  units a second (--compute-units-per-second, which reaches a fork a test creates) for a provider that
+  refuses a burst. forge's output goes to the terminal and to the log the caller names; forge writes each
+  test's result beside it (<log>.results.json), and a failure the provider caused is re-run once, as the test
+  run's are.
+  Options before forge's arguments say where a batch ran, for a campaign that checks one where it ran:
+  --network <net> as EXECUTED_ON, the network's foundry.toml alias, or with --local the local node's,
+  `local`; --transactions <NAME>=<hash>[,<hash>...] as <NAME>_TRANSACTIONS, the batch's transactions in the
+  order they ran, which the check replays (run-batch prints a local node's; on mainnet, the Safe's execution).
+  With --state <file>, the listing of the deployment the state files hold (bin/deployment_snap.py's, with each
+  --type <type> added) is written beside the log before forge runs, as BAO_CHECK_LISTING, and BAO_CHECK_FOLDER
+  names the folder beside the log each check writes its reads to (<log>.checks/<check>/); after forge, each
+  check's reads before and after the batch are sorted, for a person to compare. A folder an earlier run left
+  is removed first, so the reads in it are this run's.
 """
 
 from __future__ import annotations
@@ -118,9 +141,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
+import deployment_snap
 from provider_failures import reads_as_the_providers
 
 # where the test run has forge write each test's result, and where the gas run builds, which bin/gas_usd.py
@@ -128,14 +152,20 @@ from provider_failures import reads_as_the_providers
 _TEST_RESULTS = "tmp/forge-test-results.json"
 GAS_BUILD = "out/_gas"
 
-_EVERY_RUN = [
+_LIFTED = [
     "--gas-limit",
     "18446744073709551615",
     "--disable-block-gas-limit",
     "--no-dynamic-test-linking",
-    "--nmp",
-    "script/**/*.t.sol",
 ]
+_EVERY_RUN = [*_LIFTED, "--nmp", "script/**/*.t.sol"]
+
+# what the campaign run tells the checks: where the listing is and the folder each check writes its reads to
+LISTING_VARIABLE = "BAO_CHECK_LISTING"
+FOLDER_VARIABLE = "BAO_CHECK_FOLDER"
+
+# a --transactions value: a name, then one or more transaction hashes, comma-separated
+_TRANSACTIONS = re.compile(r"([A-Z][A-Z0-9_]*)=(0x[0-9a-fA-F]{64}(?:,0x[0-9a-fA-F]{64})*)")
 
 
 def _verbosity(environ: Mapping[str, str], quiet: str) -> str:
@@ -144,9 +174,29 @@ def _verbosity(environ: Mapping[str, str], quiet: str) -> str:
     return "-" + "v" * level if level > 0 else quiet
 
 
-def command(run: str, environ: Mapping[str, str], arguments: Sequence[str]) -> list[str]:
-    """The forge command the run `run` makes, with the caller's `arguments` after the run's own."""
-    if run == "test":
+def command(
+    run: str, environ: Mapping[str, str], arguments: Sequence[str], results: str = _TEST_RESULTS
+) -> list[str]:
+    """The forge command the run `run` makes, with the caller's `arguments` after the run's own. The test and
+    campaign runs have forge write each test's result to `results`."""
+    if run == "campaign":
+        own = [
+            "forge",
+            "test",
+            _verbosity(environ, "-v"),
+            *_LIFTED,
+            "--deny",
+            "never",
+            "--out",
+            "out/_campaign",
+            "--cache-path",
+            "cache/_campaign",
+            "--compute-units-per-second",
+            "50",
+            "--json-file",
+            results,
+        ]
+    elif run == "test":
         own = [
             "forge",
             "test",
@@ -156,7 +206,7 @@ def command(run: str, environ: Mapping[str, str], arguments: Sequence[str]) -> l
             "never",
             "--summary",
             "--json-file",
-            _TEST_RESULTS,
+            results,
         ]
     elif run == "gas":
         own = [
@@ -254,49 +304,142 @@ def main(run: str, arguments: Sequence[str]) -> int:
     if run == "coverage":
         environ["BAO_COVERAGE_RUN"] = "true"
     forge = command(run, environ, arguments)
-    print("+ " + shlex.join(forge), file=sys.stderr, flush=True)
     try:
-        results = Path(_TEST_RESULTS)
         if run == "test":
-            results.unlink(missing_ok=True)
-        status = subprocess.run(forge, env=environ, check=False).returncode
-        if run == "test" and status != 0:
-            if not results.is_file():
-                print("no results file; nothing re-run", file=sys.stderr, flush=True)
-                return status
-            failures = _failures(results)
-            providers = {
-                suite: {test: reason for test, reason in tests.items() if reads_as_the_providers(reason)}
-                for suite, tests in failures.items()
-            }
-            providers = {suite: tests for suite, tests in providers.items() if tests}
-            others = {
-                suite: {test: reason for test, reason in tests.items() if not reads_as_the_providers(reason)}
-                for suite, tests in failures.items()
-            }
-            others = {suite: tests for suite, tests in others.items() if tests}
-            if others:
-                _say(f"not re-run: {_count(others)} failed for reasons not the provider's:", others)
-                if providers:
-                    _say(f"beside {_count(providers)} the provider failed:", providers)
-                return status
-            if providers:
-                summary = f"the provider failed {_some(_count(providers), 'test')} in {_some(len(providers), 'suite')}"
-                print(f"{summary}; re-running them once", file=sys.stderr, flush=True)
-                # the suites by their contract names, which is what --match-contract matches
-                names = "|".join(re.escape(suite.rsplit(":", 1)[-1]) for suite in providers)
-                rerun = [*forge, "--match-contract", f"^({names})$"]
-                print("+ " + shlex.join(rerun), file=sys.stderr, flush=True)
-                results.unlink(missing_ok=True)
-                status = subprocess.run(rerun, env=environ, check=False).returncode
-                _say(f"{summary}; re-run once:", providers)
-                if not results.is_file():
-                    print("re-run: no results file", file=sys.stderr, flush=True)
-                elif still := _failures(results):
-                    _say(f"re-run: {_count(still)} still failed:", still)
-                else:
-                    print("re-run: all passed", file=sys.stderr, flush=True)
-        return status
+            return _with_a_rerun(forge, Path(_TEST_RESULTS), lambda call: _plain(call, environ))
+        print("+ " + shlex.join(forge), file=sys.stderr, flush=True)
+        return subprocess.run(forge, env=environ, check=False).returncode
     finally:
         if logs_root is not None:
             shutil.rmtree(logs_root, ignore_errors=True)
+
+
+def _plain(forge: list[str], environ: Mapping[str, str]) -> int:
+    """forge's exit status, its output left to the terminal."""
+    return subprocess.run(forge, env=environ, check=False).returncode
+
+
+def _teed(forge: list[str], environ: Mapping[str, str], log: Path) -> int:
+    """forge's exit status, its output to the terminal and added to `log`."""
+    with log.open("a") as written:
+        process = subprocess.Popen(forge, env=environ, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        assert process.stdout is not None
+        for line in process.stdout:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            written.write(line)
+        return process.wait()
+
+
+def _with_a_rerun(forge: list[str], results: Path, launch: Callable[[list[str]], int]) -> int:
+    """Run `forge` through `launch`, and once more the suites it failed when the provider caused every failure;
+    the last run's exit status. forge writes each test's result to `results`, which a run removes first."""
+    print("+ " + shlex.join(forge), file=sys.stderr, flush=True)
+    results.unlink(missing_ok=True)
+    status = launch(forge)
+    if status == 0:
+        return status
+    if not results.is_file():
+        print("no results file; nothing re-run", file=sys.stderr, flush=True)
+        return status
+    failures = _failures(results)
+    providers = {
+        suite: {test: reason for test, reason in tests.items() if reads_as_the_providers(reason)}
+        for suite, tests in failures.items()
+    }
+    providers = {suite: tests for suite, tests in providers.items() if tests}
+    others = {
+        suite: {test: reason for test, reason in tests.items() if not reads_as_the_providers(reason)}
+        for suite, tests in failures.items()
+    }
+    others = {suite: tests for suite, tests in others.items() if tests}
+    if others:
+        _say(f"not re-run: {_count(others)} failed for reasons not the provider's:", others)
+        if providers:
+            _say(f"beside {_count(providers)} the provider failed:", providers)
+        return status
+    if providers:
+        summary = f"the provider failed {_some(_count(providers), 'test')} in {_some(len(providers), 'suite')}"
+        print(f"{summary}; re-running them once", file=sys.stderr, flush=True)
+        # the suites by their contract names, which is what --match-contract matches
+        names = "|".join(re.escape(suite.rsplit(":", 1)[-1]) for suite in providers)
+        rerun = [*forge, "--match-contract", f"^({names})$"]
+        print("+ " + shlex.join(rerun), file=sys.stderr, flush=True)
+        results.unlink(missing_ok=True)
+        status = launch(rerun)
+        _say(f"{summary}; re-run once:", providers)
+        if not results.is_file():
+            print("re-run: no results file", file=sys.stderr, flush=True)
+        elif still := _failures(results):
+            _say(f"re-run: {_count(still)} still failed:", still)
+        else:
+            print("re-run: all passed", file=sys.stderr, flush=True)
+    return status
+
+
+def _options(arguments: Sequence[str]) -> tuple[dict[str, list[str]], bool, list[str]]:
+    """The campaign run's options at the front of `arguments`, each value-taking one's values in the order given,
+    whether `--local` is among them, and the arguments after them, which are forge's."""
+    values: dict[str, list[str]] = {"--network": [], "--transactions": [], "--state": [], "--type": []}
+    local = False
+    rest = list(arguments)
+    while rest and (rest[0] in values or rest[0] == "--local"):
+        option = rest.pop(0)
+        if option == "--local":
+            local = True
+            continue
+        if not rest:
+            sys.exit(f"❌ {option} takes a value")
+        values[option].append(rest.pop(0))
+    return values, local, rest
+
+
+def campaign(argv: Sequence[str]) -> int:
+    """Run one campaign's tests, `run-campaign-test <campaign directory> <log> [options] <forge arguments>`; the
+    run's exit status."""
+    if len(argv) < 2:
+        sys.exit(
+            "❌ run-campaign-test <campaign directory> <log> [--network <net> [--local]] "
+            "[--transactions <NAME>=<hash>[,<hash>...]]... [--state <file>... [--type <type>...]] <forge arguments>..."
+        )
+    directory, log = argv[0], Path(argv[1])
+    values, local, arguments = _options(argv[2:])
+    if not values["--network"] and (local or values["--transactions"]):
+        sys.exit("❌ --local and --transactions name where a batch ran: they need --network")
+    if values["--type"] and not values["--state"]:
+        sys.exit("❌ --type adds a type to the listing --state writes: it needs --state")
+    environ = {**os.environ, **invariant_settings(os.environ), "FOUNDRY_TEST": directory}
+    if values["--network"]:
+        environ["EXECUTED_ON"] = "local" if local else values["--network"][-1]
+    for given in values["--transactions"]:
+        named = _TRANSACTIONS.fullmatch(given)
+        if named is None:
+            sys.exit(f"❌ --transactions takes <NAME>=<hash>[,<hash>...], each hash 32 bytes in hex, not '{given}'")
+        environ[f"{named.group(1)}_TRANSACTIONS"] = named.group(2)
+
+    stem = log.with_suffix("")
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text("")
+    checks = Path(f"{stem}.checks")
+    if values["--state"]:
+        states = [json.loads(Path(file).read_text()) for file in values["--state"]]
+        listing = Path(f"{stem}.listing.tsv")
+        listing.write_text("\n".join(deployment_snap.listing_lines(states, deployment_snap.forge_inspect, values["--type"])) + "\n")
+        # a folder an earlier run left would be read as this run's
+        shutil.rmtree(checks, ignore_errors=True)
+        environ[LISTING_VARIABLE] = str(listing)
+        environ[FOLDER_VARIABLE] = str(checks)
+    Path("results").mkdir(exist_ok=True)
+    results = Path(f"{stem}.results.json")
+    forge = command("campaign", environ, arguments, results=str(results))
+    status = _with_a_rerun(forge, results, lambda call: _teed(call, environ, log))
+    if checks.is_dir():
+        for read in sorted(checks.glob("*/before.tsv")) + sorted(checks.glob("*/after.tsv")):
+            read.write_text("".join(f"{line}\n" for line in sorted(read.read_text().splitlines()) if line))
+    if status != 0:
+        return status
+    ran = sum(len(body["test_results"]) for body in json.loads(results.read_text()).values()) if results.is_file() else 0
+    if ran == 0:
+        print(f"❌ forge ran no test in {directory}: the campaign checked nothing", file=sys.stderr, flush=True)
+        return 1
+    return status

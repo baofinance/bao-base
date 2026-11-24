@@ -587,27 +587,38 @@ three parts. Each is written once, and nothing restates another.
   - `script/verify/<campaign>/`: forked at the chain's head, before the batch is
     built.
   - `script/verify/<campaign>-executed/`: a chain where the batch already ran.
-    Its seam selects the block after the batch instead of executing. Each batch
-    has a window of its own, the block before it and the block after it: one
-    window over two batches mixes their effects.
+    Its seam forks at the batch's first transaction and replays its
+    transactions, `<NAME>_TRANSACTIONS`, instead of executing. Each batch has
+    transactions of its own: one check over two batches mixes their effects.
+- **Every change a batch makes is claimed.** bao-base's `DeploymentCheckLib`
+  (`test/snap/`) wraps the execution or the replay: `begin()` before it,
+  `end(check)` after. It reads the proxies' views before and after, names each
+  storage write forge records by the layouts of the code that made it and of
+  the proxy, and fails on any change no claim covers, on any claim that covers
+  nothing, and on any token that moved other than its `Transfer` logs. A claim
+  states the value a change ends with; `changes` with a reason only where the
+  value cannot be known. A batch's claims are a one-off, so they live with its
+  campaign in `script/verify/`, never in `test/`.
 - **The same three commands run a batch on a local node and on mainnet;
   `--local` is the difference.** harbor's:
   1. `script/run-script <Script> --network <net> [--local] --broadcast` deploys
      and saves the batch, and executes nothing: a script run never executes its
      batches. It ends by naming each batch it saved.
   2. The batch is executed by its signer: on mainnet the signers in the Safe app,
-     on a local node `script/run-batch <file>`, which sends each call as the
-     multisig and prints the window.
-  3. `script/verify/run-campaign-test <campaign> <log> --network <net> [--local]
-     --window <WINDOW>=<before>:<after>` runs the `-executed` checks. On mainnet
-     the window is `n-1:n`, n the block of the Safe's execution.
+     on a local node `lib/bao-base/run run-batch <file>`, which sends each call as
+     the multisig, mines them into one block, and prints their transactions.
+  3. `lib/bao-base/run run-campaign-test <campaign> <log> --network <net>
+     [--local] --transactions <NAME>=<hash>[,<hash>...] --state <file>...` runs
+     the `-executed` checks: `--state` writes the listing the check names its
+     reads by, beside the log, and each check's reads land beside the log too. On
+     mainnet the transaction is the Safe's execution.
 - **The rehearsal runs those commands, then the checks.** harbor's
   `script/verify/run-rehearsal --network <net> --local` runs, on the local node
   the user started, each script by step 1, each batch it saved by step 2, then
-  each `-executed` campaign by step 3 with every window. It starts no node of its
-  own, and never reproduces what a script does: a rehearsal that copies a
-  script's logic tests the copy. The rehearsal of a sequence of batches names
-  their scripts in mainnet order (`script/verify/rehearse-second-genesis`).
+  each `-executed` campaign by step 3 with each batch's transactions. It starts
+  no node of its own, and never reproduces what a script does: a rehearsal that
+  copies a script's logic tests the copy. The rehearsal of a sequence of batches
+  names their scripts in mainnet order (`script/verify/rehearse-second-genesis`).
 
 A batch built for mainnet can be executed on a local node before the signers
 execute it: fork mainnet after step 1 has run there, then run steps 2 and 3 with

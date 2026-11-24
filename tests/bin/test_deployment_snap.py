@@ -641,5 +641,7 @@ def test_the_script_the_snap_runs_is_bao_base_s(project, monkeypatch):
     _snap(monkeypatch, "--network", "mainnet", "--prefix", "GOLD::", *STATES)
 
     path, contract = _script(project.calls)[2].rsplit(":", 1)
-    assert (Path.cwd() / path).resolve() == (deployment_snap.BAO_BASE / "test/snap/DumpSnap.s.sol").resolve(), path
+    # a script, so under script/: test code forks only at the blocks test/fork-blocks.toml lists, and a snap reads at
+    # any block it is asked for
+    assert (Path.cwd() / path).resolve() == (deployment_snap.BAO_BASE / "script/snap/DumpSnap.s.sol").resolve(), path
     assert contract == "DumpSnap"

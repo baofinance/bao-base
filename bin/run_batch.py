@@ -15,6 +15,9 @@ The node's mining mode is restored after each batch, whatever happened.
 The files are executed in the order given, each batch in a block of its own. Every file is read before any batch is
 sent. A node that mines on a timer is refused: it can mine a block while a batch's calls are being sent.
 
+A batch that lands whole prints its transactions, in the order they ran, comma-separated as run-campaign-test's
+`--transactions` takes them: a check of the batch where it ran forks at the first and replays them.
+
 `read_batch`, `send_command` and `block_problem` decide without running anything; `main` runs cast.
 """
 
@@ -201,5 +204,7 @@ def main(argv: list[str]) -> int:
             return 1
         calls = "1 call" if count == 1 else f"{count} calls"
         print(f"  COMPLETE: block {block} holds the batch's {calls}", file=sys.stderr)
+        listed = ",".join(transactions)
+        print(f"  Transactions: {listed}   (for a check: --transactions <NAME>={listed})", file=sys.stderr)
         print(rule, file=sys.stderr)
     return 0

@@ -13,3 +13,6 @@ default = 24699497
 # a fork at a transaction holds the state before it ran, the block's earlier transactions replayed on every
 # run: name = "0x<32 bytes>"
 [transactions]
+# the first of two USDT transfers by one sender, the 7th and 8th transactions of block 26,248,724: a check of a batch
+# where it ran replays its transactions in turn from a fork made at the first
+usdt-transfers = "0xd3257e6cf6263636441c2af629d715f2f5c6e324bc1c5cbe420541a96d6d26dd"

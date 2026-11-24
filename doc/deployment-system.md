@@ -82,7 +82,33 @@ The three worked flows:
 A script run saves its batches and executes none of them, on mainnet and on a local node alike. It ends by
 naming each, in the order saved. On mainnet the signers execute each in the Safe app. On a local node
 `run-batch` stands in for them, as the run's last lines print it: it sends each call as the batch's signer
-and mines the batch into one block, applied whole or not at all, as a Safe transaction is.
+and mines the batch into one block, applied whole or not at all, as a Safe transaction is. It prints the
+batch's transactions, which a check of the batch where it ran replays.
+
+## Checking a Batch
+
+A batch's check wraps its execution: by the test, as its signer would, or replayed from the chain where it
+ran (`DeploymentCheckLib.replay`, on a fork made at its first transaction: the Safe's execution on mainnet,
+the transactions `run-batch` prints on a local node). `DeploymentCheckLib.begin()` comes before it and
+`end(check)` after it (`test/snap/`):
+
+- **What it reads.** The views of the proxies under a key prefix, before and after the batch, at the same
+  addresses: the campaign's, those the proxies' views return, those the batch wrote entries for or paid. A
+  proxy on a pauser is read on the implementation it ran before its pause; one the batch paused, as it was
+  read before the batch. `DeploymentSnapLib` makes the reads; `snap` writes one at any block to a file.
+- **What it names.** Every storage write forge records in a proxy of the state files, from the listing
+  `snap` and `run-campaign-test` write: by the layout of the code that made it, then by the layout of the
+  implementation the proxy was read as before the batch, mapping keys from forge's mapping recording
+  (`DeploymentDiffLib`). Writes in other accounts are listed, not claimed.
+- **What it requires.** Each change claimed: a value it ends with, the block time, an increase, a revert, or a
+  change with its reason. Each token's balances and supply moving by exactly its `Transfer` logs claims those
+  changes itself. A change no claim covers, a claim that covers nothing, and a token that moved other than its
+  logs each fail the check, all listed. The reads before and after, the changes and the outside writes are
+  written to the check's folder either way.
+
+`run-campaign-test` runs a campaign's tests from `script/verify/`, writes the listing beside its log
+(`--state`, `--type`), gives the checks where the batch ran (`--network`, `--local`, `--transactions`), and
+sorts each check's reads after forge.
 
 ## Context Gates: Production vs Test
 

@@ -149,6 +149,29 @@ def test_each_batch_is_mined_into_one_block_with_its_calls_in_order(tmp_path):
         assert f"  COMPLETE: block 101 holds the batch's {calls}" in done.stderr.splitlines(), done.stderr
 
 
+def test_a_completed_batch_prints_its_transactions_for_a_check(tmp_path):
+    # The transactions of its block, in the order sent, comma-separated as run-campaign-test's --transactions takes
+    # them: a check of the batch where it ran replays them. One call and three.
+    for count in (1, 3):
+        case = tmp_path / str(count)
+        case.mkdir()
+        done, node, _ = run(case, [batch_file(case, "a", range(1, count + 1))])
+
+        assert done.returncode == 0, done.stderr
+        listed = ",".join(node["blocks"]["101"])
+        assert len(node["blocks"]["101"]) == count
+        line = f"  Transactions: {listed}   (for a check: --transactions <NAME>={listed})"
+        assert line in done.stderr.splitlines(), done.stderr
+
+
+def test_a_failed_batch_prints_no_transactions(tmp_path):
+    # Nothing of it is applied, so there is nothing for a check to replay.
+    done, _, _ = run(tmp_path, [batch_file(tmp_path, "a", range(1, 3))], failing=[target(2)])
+
+    assert done.returncode == 1
+    assert "Transactions:" not in done.stderr, done.stderr
+
+
 def test_several_batches_each_take_a_block_of_their_own_in_the_order_given(tmp_path):
     done, node, _ = run(tmp_path, [batch_file(tmp_path, "a", range(1, 3)), batch_file(tmp_path, "b", range(3, 4))])
 

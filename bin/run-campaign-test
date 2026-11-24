@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""`run-campaign-test <campaign directory> <log> [--network <net> [--local]] [--transactions <NAME>=<hash>[,<hash>...]]...
+[--state <file>... [--type <type>...]] <forge test arguments>...`: one campaign's tests, which fail unless a test ran. The
+command is forge_test_runs', which says what it is for."""
+
+import sys
+
+from forge_test_runs import campaign
+
+sys.exit(campaign(sys.argv[1:]))
