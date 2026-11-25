@@ -406,9 +406,9 @@ def test_a_failed_step_names_both_spellings_of_both_ways_to_resume(tmp_path):
 
 
 def test_an_interrupt_before_any_step_starts_reports_nothing_to_resume(tmp_path):
-    # --retry does not clear the state file, so one is on disk from the very first line of a retried
-    # run. Reporting a stopping point from its mere presence would name a step this run never
-    # reached, on a run that stopped before it had started anything.
+    # No run clears the state file as it starts, so after a stopped run one is on disk from the very
+    # first line of the next. Reporting a stopping point from its mere presence would name a step this
+    # run never reached, on a run that stopped before it had started anything.
     name = _action_with_steps(tmp_path, TWO_STEPS_THE_SECOND_BLOCKING)
     stub = _stub_yarn_that_blocks_on(tmp_path / "stub", "blocks")
     interrupt_ci_during_the_blocking_step(tmp_path, name, stub_bin=stub)
@@ -754,3 +754,87 @@ def test_a_looped_run_that_passes_leaves_no_state_file(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert (tmp_path / "ran.log").read_text().split() == ["first-one", "first-two", "second-one", "second-two"]
     assert not _state_file(tmp_path).exists()
+
+
+# ── when a new run replaces the state of a stopped one ────────────────────────────────────────────
+# The state file is the only way to carry on a stopped run, so a new run replaces it only when the new
+# run starts a step. A run that ends before then leaves the stopped run resumable. That covers a run
+# stopped by an error in its arguments, its workflows or its action.yml, a run with no step to replay,
+# and a --debug run, which executes nothing.
+
+
+def _a_stopped_run(base_dir):
+    """Two actions reached through workflows, and a run of them that failed in the second, so a state
+    file is on disk. Returns the file's text, for a test to compare with after the run under test."""
+    _two_actions_from_workflows(base_dir)
+    execute_ci_against(base_dir, stub_bin=_stub_yarn_logging(base_dir / "stub", "second-one"))
+    return _state_file(base_dir).read_text()
+
+
+def _given_an_action_that_does_not_exist(base_dir):
+    return ["does-not-exist"]
+
+
+def _with_no_workflow_naming_an_action(base_dir):
+    for workflow in (base_dir / ".github" / "workflows").iterdir():
+        workflow.unlink()
+    return []
+
+
+def _given_an_action_whose_marked_command_cannot_be_replayed(base_dir):
+    return [
+        _action_with_steps(
+            base_dir,
+            "runs:\n  steps:\n    - run: |\n        # ci-execute-next-line\n        brew install bash\n",
+            "unreplayable",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("arguments_for", "error"),
+    [
+        (_given_an_action_that_does_not_exist, "actions file not found"),
+        (_with_no_workflow_naming_an_action, "no workflow in"),
+        (_given_an_action_whose_marked_command_cannot_be_replayed, "not followed by a yarn script"),
+    ],
+    ids=["unknown-action", "no-workflow", "unreplayable-command"],
+)
+def test_a_run_that_stops_before_its_first_step_leaves_the_stopped_run_resumable(tmp_path, arguments_for, error):
+    # One case for each place a run can stop before it starts a step: the list of actions, finding an
+    # action's file, and reading it. A mistyped action name is the common one, and it should cost a
+    # second attempt, not the stopped run's place.
+    stopped = _a_stopped_run(tmp_path)
+    arguments = arguments_for(tmp_path)
+    result = execute_ci_against(tmp_path, *arguments, stub_bin=_stub_yarn_logging(tmp_path / "stub"))
+    assert result.returncode != 0
+    assert error in result.stderr, result.stderr
+    assert _state_file(tmp_path).read_text() == stopped
+
+
+def test_a_run_with_no_step_to_replay_leaves_the_stopped_run_resumable(tmp_path):
+    # an action whose steps are all GitHub-only has nothing to run locally, so the run starts nothing
+    stopped = _a_stopped_run(tmp_path)
+    name = _action_with_steps(tmp_path, "runs:\n  steps:\n    - uses: actions/setup-node@v4\n", "nothing-to-replay")
+    result = execute_ci_against(tmp_path, name, stub_bin=_stub_yarn_logging(tmp_path / "stub"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _state_file(tmp_path).read_text() == stopped
+
+
+@pytest.mark.parametrize("arguments", [["--debug"], ["--retry", "--debug"]], ids=["new-run", "retry"])
+def test_a_debug_run_leaves_the_stopped_run_resumable(tmp_path, arguments):
+    # --debug lists the steps a run would execute and executes none of them. So it neither starts a
+    # run of its own nor finishes the one that stopped, whether it previews a new run or the resume.
+    stopped = _a_stopped_run(tmp_path)
+    result = run_ci_against(tmp_path, *arguments)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _state_file(tmp_path).read_text() == stopped
+
+
+def test_a_new_run_replaces_the_stopped_runs_state_when_it_starts_a_step(tmp_path):
+    # The other direction: a new run that starts a step is a run of its own, and a resume carries on
+    # with it, not with the run before. Compared word for word, so a record added to the stopped run's
+    # rather than replacing it fails here.
+    _a_stopped_run(tmp_path)
+    execute_ci_against(tmp_path, "first", stub_bin=_stub_yarn_logging(tmp_path / "stub", "first-one"))
+    assert _state_file(tmp_path).read_text().split() == ["action", "first", "stopped", "first", "0", "completed"]

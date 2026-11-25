@@ -22,7 +22,7 @@ resume_hint() {
 # Ctrl-C reaches this script as well as the step it is running, so the step's own failure path never
 # runs and nothing would otherwise say where the run stopped. The resume point is already on disk —
 # it is written before the step starts — so this only has to report it. It reports nothing when no
-# step was in flight: --retry leaves a state file in place from the first line of the run, so the
+# step was in flight: a stopped run's state file stays in place until this run records a step, so the
 # file's presence alone would name a step this run had not reached.
 on_interrupt() {
   if [[ "$step_in_flight" == "1" ]]; then
@@ -88,7 +88,12 @@ fi
 
 # What a stopped run left behind: the run it was (the action argument it was given, if any), where it
 # stopped, and which actions it had already finished.
+#
+# A new run leaves that file alone until it records its own first step, which replaces it. Every check
+# below can stop a run before then, so a mistyped action name or a broken action.yml leaves the
+# stopped run resumable.
 resuming=0
+state_file_records_this_run=0
 state_argument=""
 state_action=""
 state_step=""
@@ -96,6 +101,7 @@ state_completed=""
 completed=()
 if [[ "$retry_mode" == "1" ]] || [[ "$skip_mode" == "1" ]]; then
   resuming=1
+  state_file_records_this_run=1
   if [[ ! -f "$STATE_FILE" ]]; then
     echo "ERROR: no .ci-state file found — run '${invocation}' first" >&2
     exit 1
@@ -128,8 +134,6 @@ if [[ "$retry_mode" == "1" ]] || [[ "$skip_mode" == "1" ]]; then
     action="$state_argument"
     action_set=1
   fi
-else
-  rm -f "$STATE_FILE"
 fi
 
 # A command in action.yml that this script can replay locally. Two forms, because CI reaches bao-base
@@ -318,7 +322,8 @@ for ((a = 0; a < ${#actions[@]}; a++)); do
       # signals this script along with the step so nothing below the step ever runs, and a machine
       # that goes away allows no code at all. Recording on entry is the single point that covers all
       # three. The file is removed once every step of every action has passed, so it exists only
-      # while a run is unfinished.
+      # while a run is unfinished. A new run's first record replaces what a stopped run left, and is
+      # the first time the new run changes the file.
       #
       # The run it belongs to is recorded with it: the action argument it was given (empty when the
       # actions were derived), so carrying on resumes that same run rather than whatever the
@@ -331,6 +336,7 @@ for ((a = 0; a < ${#actions[@]}; a++)); do
         echo "stopped $action $i"
         echo "completed ${completed[*]}"
       } >"$STATE_FILE"
+      state_file_records_this_run=1
 
       # Exactly the shell GitHub gives a step, rather than eval in this one. Two reasons, and the
       # first is a correctness bug: a command placed in a condition has `set -e` suppressed for
@@ -359,7 +365,12 @@ for ((a = 0; a < ${#actions[@]}; a++)); do
   completed+=("$action")
 done
 
-rm -f "$STATE_FILE"
+# The file is removed only when it records this run, which has now finished: the stopped run this one
+# carried on, or a run that recorded a step of its own. A --debug run executes no step, so it finishes
+# nothing and leaves the file as it found it.
+if [[ "$debug" == "0" ]] && [[ "$state_file_records_this_run" == "1" ]]; then
+  rm -f "$STATE_FILE"
+fi
 
 if [[ ${#skipped[@]} -gt 0 ]]; then
   echo ""
