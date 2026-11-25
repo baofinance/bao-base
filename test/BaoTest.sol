@@ -36,10 +36,11 @@ abstract contract BaoTest is Test {
     // is a cache of its own, fetched from the provider on every machine's first
     // run, and a burst of requests from every suite that forks at it. The list
     // keeps the blocks few and deliberate.
-    // The endpoint is named by its foundry.toml alias: the fork then takes the
-    // entry's retries, where one given the URL `vm.rpcUrl` returns gets forge's
-    // defaults (foundry issue 18071). `script/verify/` does not use these: a
-    // campaign meets the chain's head, or a capture's block, by the cheatcode.
+    // The endpoint is named by its foundry.toml alias: the fork then takes that
+    // entry's retries, which win over a runner's --fork-retries. One given the
+    // URL `vm.rpcUrl` returns takes them only when every entry at that URL
+    // agrees. `script/verify/` does not use these: a campaign meets the chain's
+    // head, or a capture's block, by the cheatcode.
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @notice The file listing every block a test may fork at: `[blocks]` name = number, with `default` the

@@ -1,30 +1,26 @@
-"""forge gives a fork a test creates the retries of the endpoint entry the fork names by its alias, and nothing
-else: not the command line's --fork-retries and --fork-retry-backoff, and not the entry's when the fork is given
-the entry's URL - what `vm.rpcUrl(alias)` returns - in place of the alias (foundry issue 18071, its body in
-bug-reports/foundry-1-9-0-cheatcode-fork-retry-settings.md). So BaoTest's `createSelectFork` passes the alias
-it is given to the cheatcode, a project's mainnet entry carries the retries, and a runner's flags protect only
-the fork the command line creates.
+"""forge gives a fork a test creates the retries of the endpoint entry the fork names, by its alias or by the URL
+`vm.rpcUrl(alias)` returns, and the command line's --fork-retries and --fork-retry-backoff where the entry sets
+none. Where the entry sets them, the entry's win. forge 1.10.0 is the first release that does: foundry PR 18074
+closed issue 18071, whose body is in bug-reports/foundry-1-9-0-cheatcode-fork-retry-settings.md. So a project's
+mainnet entry carries its tests' retries, whatever a runner passes. BaoTest's `createSelectFork` passes the
+alias it is given to the cheatcode: forge gives a URL an entry's settings only when every entry resolving to
+that URL agrees.
 
 Each test counts the attempts one fork's creation makes against an endpoint that refuses every request with
-HTTP 429: one `eth_chainId` per attempt, so the count is the retries plus one. The first pins what the alias form
-relies on. The other two pin the defect, which foundry fixed on main in PR 18074 (2026-11-03) for a release after
-1.9.0: when one fails, the forge in use carries the fix, and its message names that forge and what to do. forge's
-default of 8 retries at 800 ms makes each of those two take about 13 seconds.
+HTTP 429: one `eth_chainId` per attempt, so the count is the retries plus one. The entry and the command line
+set different retries, so each count names the setting it came from.
 """
 
 import contextlib
 import json
-import socket
 import subprocess
 import threading
-import time
-import urllib.error
-import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
-FORGES_DEFAULT_ATTEMPTS = 9  # the first attempt and forge's default of 8 retries
-ENTRYS_ATTEMPTS = 3  # the first attempt and the entry's 2 retries
+ENTRYS_RETRIES = 2
+COMMAND_LINES_RETRIES = 4
+COMMAND_LINE = ("--fork-retries", str(COMMAND_LINES_RETRIES), "--fork-retry-backoff", "100")
 
 FOUNDRY_TOML = """\
 [profile.default]
@@ -32,10 +28,10 @@ src = "src"
 test = "test"
 
 [rpc_endpoints]
-stub = { endpoint = "http://127.0.0.1:%d", retries = 2, retry_backoff = 100 }
-# its own path on the stub, which ignores paths: a forge with the fix gives a URL an entry's settings only when every
-# entry resolving to that URL agrees, so `plain` at the stub's URL would cancel `stub` and the URL form's pin never fire
-plain = "http://127.0.0.1:%d/plain"
+stub = { endpoint = "http://127.0.0.1:%(port)d", retries = %(retries)d, retry_backoff = 100 }
+# its own path on the stub, which ignores paths: forge gives a URL an entry's settings only when every entry
+# resolving to that URL agrees, so `plain` at the stub's URL would cancel `stub` and the URL form would get none
+plain = "http://127.0.0.1:%(port)d/plain"
 """
 
 # the cheatcodes at their address, so the project needs no forge-std
@@ -94,36 +90,10 @@ def refusing_endpoint():
         server.server_close()
 
 
-@contextlib.contextmanager
-def anvil():
-    """A local chain for the fork `--rpc-url` creates, since forge takes the retry flags only with one; its URL."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
-    url = f"http://127.0.0.1:{port}"
-    process = subprocess.Popen(["anvil", "--port", str(port), "--silent"])
-    try:
-        request = urllib.request.Request(
-            url, data=b'{"jsonrpc":"2.0","id":1,"method":"eth_chainId"}', headers={"Content-Type": "application/json"}
-        )
-        deadline = time.monotonic() + 30
-        while True:
-            try:
-                with urllib.request.urlopen(request, timeout=1):
-                    break
-            except (urllib.error.URLError, OSError):
-                assert time.monotonic() < deadline, "anvil did not answer within 30 seconds"
-                time.sleep(0.2)
-        yield url
-    finally:
-        process.terminate()
-        process.wait()
-
-
 def project(root: Path, port: int) -> Path:
     (root / "src").mkdir(parents=True)
     (root / "test").mkdir()
-    (root / "foundry.toml").write_text(FOUNDRY_TOML % (port, port))
+    (root / "foundry.toml").write_text(FOUNDRY_TOML % {"port": port, "retries": ENTRYS_RETRIES})
     (root / "test" / "Fork.t.sol").write_text(FORK_TEST)
     return root
 
@@ -133,12 +103,8 @@ def forge_version() -> str:
     return subprocess.run(["forge", "--version"], capture_output=True, text=True, check=True).stdout.splitlines()[0]
 
 
-# what to do when a pin on the defect fails: the forge in use carries the fix
-_CARRIES_THE_FIX = (
-    "carries foundry PR 18074. Retarget this pin to the entry's attempts and pin that the entry's retries win over the "
-    "command line's; then reword what cites issue 18071 - harbor's foundry.toml at its mainnet entry, BaoTest's fork "
-    "comment, doctor's alias check - and the status line of bug-reports/foundry-1-9-0-cheatcode-fork-retry-settings.md."
-)
+# the release a pin on the fixed behavior needs, for the message of one that fails
+_FIRST_WITH_THE_FIX = "foundry PR 18074 gives this fork these retries, and forge 1.10.0 is the first release with it"
 
 
 def forge_test(root: Path, contract: str, *arguments: str) -> str:
@@ -153,33 +119,23 @@ def forge_test(root: Path, contract: str, *arguments: str) -> str:
 def test_a_fork_named_by_alias_takes_the_entrys_retries(tmp_path):
     with refusing_endpoint() as stub:
         forge_test(project(tmp_path, stub.port), "ByAlias")
-        assert stub.chain_id_requests == ENTRYS_ATTEMPTS
+        assert stub.chain_id_requests == ENTRYS_RETRIES + 1
 
 
-def test_a_fork_named_by_the_entrys_url_gets_forges_defaults(tmp_path):
-    # why a fork names its alias: vm.rpcUrl(alias) returns the URL, and a fork given a URL takes nothing from the entry
+def test_a_fork_named_by_the_entrys_url_takes_the_entrys_retries(tmp_path):
     with refusing_endpoint() as stub:
         forge_test(project(tmp_path, stub.port), "ByUrl")
-        assert stub.chain_id_requests == FORGES_DEFAULT_ATTEMPTS, (
-            f"a fork named by the entry's URL took the entry's retries: {forge_version()} {_CARRIES_THE_FIX}"
-        )
+        assert stub.chain_id_requests == ENTRYS_RETRIES + 1, f"{forge_version()}: {_FIRST_WITH_THE_FIX}"
 
 
-def test_the_command_lines_retries_do_not_reach_a_fork_a_test_creates(tmp_path):
-    # why a runner's --fork-retries protects only the fork --rpc-url creates, and the entry carries the tests' retries
-    with refusing_endpoint() as stub, anvil() as url:
-        root = project(tmp_path, stub.port)
-        forge_test(
-            root,
-            "Plain",
-            "--rpc-url",
-            url,
-            "--fork-retries",
-            "2",
-            "--fork-retry-backoff",
-            "100",
-            "--no-storage-caching",
-        )
-        assert stub.chain_id_requests == FORGES_DEFAULT_ATTEMPTS, (
-            f"the command line's retries reached a fork a test creates: {forge_version()} {_CARRIES_THE_FIX}"
-        )
+def test_the_command_lines_retries_reach_a_fork_whose_entry_sets_none(tmp_path):
+    with refusing_endpoint() as stub:
+        forge_test(project(tmp_path, stub.port), "Plain", *COMMAND_LINE)
+        assert stub.chain_id_requests == COMMAND_LINES_RETRIES + 1, f"{forge_version()}: {_FIRST_WITH_THE_FIX}"
+
+
+def test_the_entrys_retries_win_over_the_command_lines(tmp_path):
+    # why a runner's --fork-retries leaves the retries a project's mainnet entry gives its tests' forks
+    with refusing_endpoint() as stub:
+        forge_test(project(tmp_path, stub.port), "ByAlias", *COMMAND_LINE)
+        assert stub.chain_id_requests == ENTRYS_RETRIES + 1

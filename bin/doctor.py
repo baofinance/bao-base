@@ -951,9 +951,10 @@ def _inherited_fork_helpers(bao_base_root: Path | None) -> list[Path]:
 
 def fork_endpoint_problems(repo_root: Path, bao_base_root: Path | None) -> list[str]:
     """Forks naming an endpoint that `forge config`'s [rpc_endpoints] does not have. A test or script names the
-    endpoint of a fork it creates by an entry's alias - the form that gives the fork the entry's retries, where
-    the URL `vm.rpcUrl` returns loses them (bug-reports/foundry-1-9-0-cheatcode-fork-retry-settings.md) - and
-    forge fails the test at the fork's creation when no entry has the alias. The aliases are read where they
+    endpoint of a fork it creates by an entry's alias - the form that gives the fork that entry's retries, where
+    the URL `vm.rpcUrl` returns keeps them only when every entry at that URL agrees
+    (tests/toolchain/test_forge_fork_retry_settings.py) - and forge fails the test at the fork's creation when no
+    entry has the alias. The aliases are read where they
     are named: the source, test and script directories, and the test helpers a project's tests inherit from
     `bao_base_root`, the bao-base it has. A literal URL names no entry and is left alone. Returns one block
     listing each line, or [] when every alias named has an entry."""
