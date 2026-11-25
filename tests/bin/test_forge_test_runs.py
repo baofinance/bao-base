@@ -499,9 +499,10 @@ def test_a_campaign_run_points_forge_at_the_campaign_with_its_own_build(tmp_path
     seen = _campaign(tmp_path, ["--match-contract", "Gold"])
     (call,) = seen["calls"]
     assert call["env"]["FOUNDRY_TEST"] == _CAMPAIGN
-    assert call["argv"] == forge_test_runs.command(
-        "campaign", {}, ["--match-contract", "Gold"], results="tmp/gold.results.json"
-    )[1:]
+    assert (
+        call["argv"]
+        == forge_test_runs.command("campaign", {}, ["--match-contract", "Gold"], results="tmp/gold.results.json")[1:]
+    )
     assert seen["status"] == 0, seen["stderr"]
 
 
@@ -556,8 +557,7 @@ def test_a_transactions_value_not_a_name_and_hashes_stops_the_run(tmp_path, give
     assert seen["calls"] == []
     assert seen["status"] == 1
     assert (
-        f"❌ --transactions takes <NAME>=<hash>[,<hash>...], each hash 32 bytes in hex, not '{given}'"
-        in seen["stderr"]
+        f"❌ --transactions takes <NAME>=<hash>[,<hash>...], each hash 32 bytes in hex, not '{given}'" in seen["stderr"]
     ), seen["stderr"]
 
 

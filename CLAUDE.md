@@ -612,13 +612,16 @@ three parts. Each is written once, and nothing restates another.
      the `-executed` checks: `--state` writes the listing the check names its
      reads by, beside the log, and each check's reads land beside the log too. On
      mainnet the transaction is the Safe's execution.
-- **The rehearsal runs those commands, then the checks.** harbor's
-  `script/verify/run-rehearsal --network <net> --local` runs, on the local node
-  the user started, each script by step 1, each batch it saved by step 2, then
-  each `-executed` campaign by step 3 with each batch's transactions. It starts
-  no node of its own, and never reproduces what a script does: a rehearsal that
-  copies a script's logic tests the copy. The rehearsal of a sequence of batches
-  names their scripts in mainnet order (`script/verify/rehearse-second-genesis`).
+- **The rehearsal runs those commands.** harbor's `script/verify/rehearse-batch
+  <Script> <campaign> <NAME>` runs steps 1 to 3 for one batch on the local node,
+  each handing the next the file it wrote: `run-script --batches-file` the batch
+  it saved, `run-batch --transactions-file` the transactions it mined. Each
+  `-executed` campaign's `rehearse --peg <PEG>` names its script, its check and
+  its filter. A rehearsal never reproduces what a script does: one that copies a
+  script's logic tests the copy. The rehearsal of a sequence of batches starts
+  its own node, names their campaigns' rehearsals in mainnet order, and stops the
+  node (`script/verify/rehearse-second-genesis [--port <n>]`), refusing a port a
+  node already answers on.
 
 A batch built for mainnet can be executed on a local node before the signers
 execute it: fork mainnet after step 1 has run there, then run steps 2 and 3 with

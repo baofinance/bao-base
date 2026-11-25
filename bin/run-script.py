@@ -16,7 +16,8 @@ which replaces the default --sig.
 On a local node the runner prepares the node for the run: it funds BaoFactory's owner by a transfer and, when the
 run sends as anvil's default account, makes that account a BaoFactory operator. A run executes none of
 the batches it saves: it ends by naming each, in the order saved, for its signer, or after a dry run,
-which deployed nothing, for review only.
+which deployed nothing, for review only. With `--batches-file <file>` it writes them there too, a line
+each, for a script to read; the file is emptied before forge runs, so what it holds is this run's.
 
 The work is split so that what gets run is decided by functions that decide nothing else:
 `forge_arguments`, `forge_command` and `solidity_environment` are pure, take no processes and touch
@@ -67,6 +68,8 @@ class Invocation:
     resume: bool = False
     account: str | None = None
     message: str | None = None
+    # A file the run writes the batches it saved to, a line each, for a script to read.
+    batches_file: str | None = None
     # Everything after `--`, handed to forge verbatim. When it is non-empty the caller owns the
     # entry point and the default --sig is not applied.
     passthrough: tuple[str, ...] = ()
@@ -123,6 +126,9 @@ def parse_arguments(argv: list[str]) -> Invocation:
     parser.add_argument("--timestamp", action="store_true", help="Timestamp the local state directory")
     parser.add_argument("--resume", action="store_true", help="Resume a previous broadcast")
     parser.add_argument("-m", "--message", help=f"Safe batch description (max {MAX_DESCRIPTION} chars)")
+    parser.add_argument(
+        "--batches-file", help="a file to write each batch the run saves to, a line each, in the order saved"
+    )
 
     parsed = parser.parse_args(argv)
     if parsed.timestamp and not parsed.local:
@@ -140,6 +146,7 @@ def parse_arguments(argv: list[str]) -> Invocation:
         resume=parsed.resume,
         account=parsed.account,
         message=parsed.message,
+        batches_file=parsed.batches_file,
         passthrough=passthrough,
     )
 
@@ -338,6 +345,9 @@ def main() -> None:
     if pending.is_file():
         print("  State:      cleaning up stale .pending from prior run", file=sys.stderr)
         pending.unlink()
+    if invocation.batches_file:
+        # emptied first, so what it holds is this run's, a failed run's none
+        Path(invocation.batches_file).write_text("")
 
     started = time.monotonic()
     completed = subprocess.run(command, env={**os.environ, **environment})
@@ -360,6 +370,8 @@ def main() -> None:
     pattern = f"{invocation.script_name}_{environment['SAFE_BATCH_TIMESTAMP']}_*.json"
     saved = sorted((state_dir / "batch").glob(pattern), key=lambda path: path.stat().st_mtime_ns)
     files = [str(path.relative_to(Path.cwd())) for path in saved]
+    if invocation.batches_file:
+        Path(invocation.batches_file).write_text("".join(f"{file}\n" for file in files))
     if files and not invocation.broadcast:
         print("\n  Saved by a dry run, for review: nothing was deployed", file=sys.stderr)
         print("\n".join(f"    {file}" for file in files), file=sys.stderr)

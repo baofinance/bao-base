@@ -599,7 +599,9 @@ def test_a_snap_at_a_given_block_asks_for_no_block(project, monkeypatch):
 
 
 def test_the_snap_lists_each_type_it_is_given(project, tmp_path, monkeypatch):
-    _snap(monkeypatch, "--network", "mainnet", "--prefix", "GOLD::", "--state", "harbor.state.json", "--type", "Pauser_v1")
+    _snap(
+        monkeypatch, "--network", "mainnet", "--prefix", "GOLD::", "--state", "harbor.state.json", "--type", "Pauser_v1"
+    )
 
     listing = (tmp_path / "tmp/snap/GOLD_mainnet_26476880.listing.tsv").read_text().splitlines()
     assert listing == deployment_snap.listing_lines([HARBOR_STATE], inspected, ["Pauser_v1"])

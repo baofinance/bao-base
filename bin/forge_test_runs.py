@@ -174,9 +174,7 @@ def _verbosity(environ: Mapping[str, str], quiet: str) -> str:
     return "-" + "v" * level if level > 0 else quiet
 
 
-def command(
-    run: str, environ: Mapping[str, str], arguments: Sequence[str], results: str = _TEST_RESULTS
-) -> list[str]:
+def command(run: str, environ: Mapping[str, str], arguments: Sequence[str], results: str = _TEST_RESULTS) -> list[str]:
     """The forge command the run `run` makes, with the caller's `arguments` after the run's own. The test and
     campaign runs have forge write each test's result to `results`."""
     if run == "campaign":
@@ -424,7 +422,9 @@ def campaign(argv: Sequence[str]) -> int:
     if values["--state"]:
         states = [json.loads(Path(file).read_text()) for file in values["--state"]]
         listing = Path(f"{stem}.listing.tsv")
-        listing.write_text("\n".join(deployment_snap.listing_lines(states, deployment_snap.forge_inspect, values["--type"])) + "\n")
+        listing.write_text(
+            "\n".join(deployment_snap.listing_lines(states, deployment_snap.forge_inspect, values["--type"])) + "\n"
+        )
         # a folder an earlier run left would be read as this run's
         shutil.rmtree(checks, ignore_errors=True)
         environ[LISTING_VARIABLE] = str(listing)
@@ -438,7 +438,9 @@ def campaign(argv: Sequence[str]) -> int:
             read.write_text("".join(f"{line}\n" for line in sorted(read.read_text().splitlines()) if line))
     if status != 0:
         return status
-    ran = sum(len(body["test_results"]) for body in json.loads(results.read_text()).values()) if results.is_file() else 0
+    ran = (
+        sum(len(body["test_results"]) for body in json.loads(results.read_text()).values()) if results.is_file() else 0
+    )
     if ran == 0:
         print(f"❌ forge ran no test in {directory}: the campaign checked nothing", file=sys.stderr, flush=True)
         return 1

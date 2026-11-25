@@ -685,6 +685,51 @@ def test_a_local_run_ends_with_one_run_batch_command_naming_each_batch_in_the_or
     assert [line.endswith(" \\") for line in steps[1:]] == [True, True, False], steps
 
 
+def test_a_batches_file_names_each_batch_the_run_saved_in_the_order_saved(project, tmp_path, monkeypatch):
+    # The file a script reads the batches from: a line each, in the order saved, as the next step names them. An earlier
+    # run's batch of the same script is not this run's.
+    folder = tmp_path / "deployments" / "local" / "mainnet" / "batch"
+    folder.mkdir(parents=True)
+    (folder / "Deploy_Thing_mainnet_2026-01-01T00:00:00Z_harbor_multisig.json").write_text("{}")
+    project.batches = ("seed@harbor_multisig", "configure@harbor_multisig")
+    _invoke(
+        monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", "--local", "--broadcast", "--batches-file", "b.txt"
+    )
+
+    timestamp = project.forge_environment["SAFE_BATCH_TIMESTAMP"]
+    assert (tmp_path / "b.txt").read_text() == (
+        f"deployments/local/mainnet/batch/Deploy_Thing_mainnet_{timestamp}_seed@harbor_multisig.json\n"
+        f"deployments/local/mainnet/batch/Deploy_Thing_mainnet_{timestamp}_configure@harbor_multisig.json\n"
+    )
+
+
+def test_a_batches_file_is_this_runs_even_when_it_saved_none_or_failed(project, tmp_path, monkeypatch):
+    # What an earlier run left in the file is gone before forge runs: a run that saves no batch leaves it empty, and so
+    # does one whose forge fails.
+    stale = tmp_path / "b.txt"
+    stale.write_text("deployments/local/mainnet/batch/an_earlier_run.json\n")
+    _invoke(
+        monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", "--local", "--broadcast", "--batches-file", "b.txt"
+    )
+    assert stale.read_text() == ""
+
+    stale.write_text("deployments/local/mainnet/batch/an_earlier_run.json\n")
+    project.returncode = 1
+    with pytest.raises(SystemExit):
+        _invoke(
+            monkeypatch,
+            "--salt",
+            "harbor_v1",
+            "--network",
+            "mainnet",
+            "--local",
+            "--broadcast",
+            "--batches-file",
+            "b.txt",
+        )
+    assert stale.read_text() == ""
+
+
 def test_a_run_on_a_network_ends_naming_each_batch_for_the_safe_app(project, monkeypatch, capsys):
     project.batches = ("GOLD@harbor_multisig",)
     _invoke(monkeypatch, "--salt", "harbor_v1", "--network", "mainnet", "--broadcast", "--account", "deployer")

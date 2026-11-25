@@ -16,7 +16,9 @@ The files are executed in the order given, each batch in a block of its own. Eve
 sent. A node that mines on a timer is refused: it can mine a block while a batch's calls are being sent.
 
 A batch that lands whole prints its transactions, in the order they ran, comma-separated as run-campaign-test's
-`--transactions` takes them: a check of the batch where it ran forks at the first and replays them.
+`--transactions` takes them: a check of the batch where it ran forks at the first and replays them. With
+`--transactions-file <file>` it writes them there too, a line per batch that landed, for a script to read; the file is
+emptied first, so what it holds is this run's.
 
 `read_batch`, `send_command` and `block_problem` decide without running anything; `main` runs cast.
 """
@@ -123,9 +125,17 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument("file", nargs="+", type=Path, help="a Safe Transaction Builder batch file, as run-script saves")
     parser.add_argument("--from", dest="signer", help="the signer, when not owner() of each batch's first target")
+    parser.add_argument(
+        "--transactions-file",
+        type=Path,
+        help="a file to write each landed batch's transactions to, a line each, comma-separated",
+    )
     arguments = parser.parse_args(argv)
 
     batches = [read_batch(path) for path in arguments.file]
+    if arguments.transactions_file is not None:
+        # emptied first, so what it holds is this run's
+        arguments.transactions_file.write_text("")
     interval = _rpc("anvil_getIntervalMining")
     if interval:
         sys.exit(
@@ -206,5 +216,8 @@ def main(argv: list[str]) -> int:
         print(f"  COMPLETE: block {block} holds the batch's {calls}", file=sys.stderr)
         listed = ",".join(transactions)
         print(f"  Transactions: {listed}   (for a check: --transactions <NAME>={listed})", file=sys.stderr)
+        if arguments.transactions_file is not None:
+            with arguments.transactions_file.open("a") as record:
+                record.write(f"{listed}\n")
         print(rule, file=sys.stderr)
     return 0

@@ -164,6 +164,32 @@ def test_a_completed_batch_prints_its_transactions_for_a_check(tmp_path):
         assert line in done.stderr.splitlines(), done.stderr
 
 
+def test_a_transactions_file_holds_a_line_for_each_batch_that_landed(tmp_path):
+    # The file a script reads the transactions from: a line per batch that landed whole, in the order run, its
+    # transactions comma-separated as --transactions takes them. A batch that failed, and those not run after it, have
+    # none. What an earlier run left in the file is gone.
+    record = tmp_path / "transactions.txt"
+    record.write_text("0x" + "e" * 64 + "\n")
+    files = [batch_file(tmp_path, "a", range(1, 3)), batch_file(tmp_path, "b", range(3, 4))]
+    done, node, _ = run(tmp_path, files, "--transactions-file", str(record))
+
+    assert done.returncode == 0, done.stderr
+    assert record.read_text() == f"{','.join(node['blocks']['101'])}\n{','.join(node['blocks']['102'])}\n"
+
+    failing = tmp_path / "failing"
+    failing.mkdir()
+    record.write_text("0x" + "e" * 64 + "\n")
+    files = [
+        batch_file(failing, "a", range(1, 2)),
+        batch_file(failing, "b", range(2, 3)),
+        batch_file(failing, "c", range(3, 4)),
+    ]
+    done, node, _ = run(failing, files, "--transactions-file", str(record), failing=[target(2)])
+
+    assert done.returncode == 1
+    assert record.read_text() == f"{','.join(node['blocks']['101'])}\n"
+
+
 def test_a_failed_batch_prints_no_transactions(tmp_path):
     # Nothing of it is applied, so there is nothing for a check to replay.
     done, _, _ = run(tmp_path, [batch_file(tmp_path, "a", range(1, 3))], failing=[target(2)])
